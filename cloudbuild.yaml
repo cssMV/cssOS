@@ -1,0 +1,24 @@
+steps:
+  - name: gcr.io/cloud-builders/gcloud
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        gcloud compute ssh api-vm --zone us-central1-c --command "
+          set -euo pipefail
+          cd /srv/cssos/repo
+
+          # Pin branch to main
+          git fetch --all --tags
+          git checkout main
+          git pull --ff-only
+
+          sudo /srv/cssos/bin/deploy-release.sh
+
+          # Fail build if service is not healthy
+          sudo systemctl is-active --quiet cssOS
+        "
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: "1200s"

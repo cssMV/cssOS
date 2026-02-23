@@ -1843,10 +1843,11 @@ async function loadVersions() {
     versions.forEach((entry) => {
       const id = entry.id || entry.version || entry.name;
       if (!id) return;
-      const path = entry.path || `/v/${id}/`;
+      const path = `/v/${id}/`;
       const label = entry.label || id;
       const item = document.createElement("a");
       item.href = path;
+      item.addEventListener("click", (e) => { e.preventDefault(); window.location.href = path; });
       item.className = `version-item ${id === current ? "active" : ""}`;
       item.innerHTML = `
         <span>${label}</span>

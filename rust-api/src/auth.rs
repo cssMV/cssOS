@@ -16,7 +16,7 @@ where
 {
     type Rejection = (axum::http::StatusCode, String);
 
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         let extensions = parts.extensions.clone();
         let pool = extensions
             .get::<PgPool>()

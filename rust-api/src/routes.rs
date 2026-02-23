@@ -23,18 +23,18 @@ struct ApiResponse<T> {
     data: T,
 }
 
-fn respond<T: Serialize>(status: &str, message: Option<String>, data: T) -> impl IntoResponse {
+fn respond<T: Serialize>(status: &str, message: Option<String>, data: T) -> axum::response::Response {
     let mut headers = HeaderMap::new();
     headers.insert(axum::http::header::CACHE_CONTROL, "no-store".parse().unwrap());
     let body = Json(ApiResponse { ok: true, status: status.into(), message, data });
-    (headers, body)
+    (headers, body).into_response()
 }
 
-fn no_data<T: Serialize>(data: T) -> impl IntoResponse {
+fn no_data<T: Serialize>(data: T) -> axum::response::Response {
     respond("no_data", Some("No data yet".into()), data)
 }
 
-fn ok<T: Serialize>(data: T) -> impl IntoResponse {
+fn ok<T: Serialize>(data: T) -> axum::response::Response {
     respond("ok", None, data)
 }
 
@@ -48,7 +48,7 @@ pub fn router(state: AppState) -> Router {
         .with_state(state)
 }
 
-async fn auth_providers(State(_state): State<AppState>) -> impl IntoResponse {
+async fn auth_providers(State(_state): State<AppState>) -> axum::response::Response {
     let providers = vec![
         ("google", "Google", ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]),
         ("github", "GitHub", ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"]),
@@ -75,7 +75,7 @@ async fn auth_providers(State(_state): State<AppState>) -> impl IntoResponse {
     ok(json!({ "providers": list }))
 }
 
-async fn me(State(state): State<AppState>, AuthSession { user_id }: AuthSession) -> impl IntoResponse {
+async fn me(State(state): State<AppState>, AuthSession { user_id }: AuthSession) -> axum::response::Response {
     if user_id.is_none() {
         return no_data(json!({ "authenticated": false, "user": serde_json::Value::Null }));
     }
@@ -106,7 +106,7 @@ async fn me(State(state): State<AppState>, AuthSession { user_id }: AuthSession)
     no_data(json!({ "authenticated": false, "user": serde_json::Value::Null }))
 }
 
-async fn billing_status(State(state): State<AppState>, AuthSession { user_id }: AuthSession) -> impl IntoResponse {
+async fn billing_status(State(state): State<AppState>, AuthSession { user_id }: AuthSession) -> axum::response::Response {
     if user_id.is_none() {
         return no_data(json!({ "authenticated": false }));
     }
@@ -138,7 +138,7 @@ async fn billing_status(State(state): State<AppState>, AuthSession { user_id }: 
     ok(payload)
 }
 
-async fn billing_usage(State(state): State<AppState>, AuthSession { user_id }: AuthSession, Json(body): Json<serde_json::Value>) -> impl IntoResponse {
+async fn billing_usage(State(state): State<AppState>, AuthSession { user_id }: AuthSession, Json(body): Json<serde_json::Value>) -> axum::response::Response {
     if user_id.is_none() {
         return no_data(json!({ "allowed": false, "authenticated": false }));
     }
@@ -172,7 +172,7 @@ async fn billing_usage(State(state): State<AppState>, AuthSession { user_id }: A
     }
 }
 
-async fn billing_usage_list(State(state): State<AppState>, AuthSession { user_id }: AuthSession) -> impl IntoResponse {
+async fn billing_usage_list(State(state): State<AppState>, AuthSession { user_id }: AuthSession) -> axum::response::Response {
     if user_id.is_none() {
         return no_data(json!({ "authenticated": false, "events": [] }));
     }
@@ -192,7 +192,7 @@ async fn billing_usage_list(State(state): State<AppState>, AuthSession { user_id
     ok(json!({ "authenticated": true, "events": events }))
 }
 
-async fn health_db(State(state): State<AppState>) -> impl IntoResponse {
+async fn health_db(State(state): State<AppState>) -> axum::response::Response {
     if sqlx::query("SELECT 1").execute(&state.pool).await.is_err() {
         return no_data(json!({ "ok": false }));
     }

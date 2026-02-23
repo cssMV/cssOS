@@ -1,4 +1,3 @@
-use axum::Router;
 use tracing_subscriber::EnvFilter;
 
 mod auth;

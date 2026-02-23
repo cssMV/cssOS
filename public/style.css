@@ -2160,3 +2160,13 @@ body {
   .panel .panel-body { min-height: calc(70vh - 44px) !important; }
 }
 /* CSSOS_MINIMAL_DOCK_LABELS_END */
+
+/* === CSSOS MOBILE PATCH: keep logo panel on first screen (minimal) === */
+@media (max-width: 768px) {
+  .logoPanel, #logoPanel, .logo-panel {
+    position: sticky;
+    top: 10px;
+    z-index: 9999;
+    margin-top: 0 !important;
+  }
+}

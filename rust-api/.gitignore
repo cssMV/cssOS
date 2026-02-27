@@ -1,0 +1,10 @@
+# Rust
+/target/
+
+# Local build artifacts
+/build/video/
+/build/*.mp4
+/build/*.json
+
+# macOS
+.DS_Store

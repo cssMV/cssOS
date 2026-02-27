@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <title>CSS Studio</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="bg">
+      <div class="bg-blob bg-blob-a"></div>
+      <div class="bg-blob bg-blob-b"></div>
+      <div class="bg-blob bg-blob-c"></div>
+      <div class="bg-grid"></div>
+    </div>
+
+    <div class="version-switch" id="version-switch">
+      <button class="version-toggle" id="version-toggle" aria-label="Versions">⋯</button>
+      <div class="version-menu is-hidden" id="version-menu">
+        <div class="version-title" data-i18n="versions.title">Versions</div>
+        <div class="version-current" id="version-current"></div>
+        <div class="version-list" id="version-list"></div>
+      </div>
+    </div>
+
+    <main class="stage">
+      <section class="panel logo-panel flow" id="logo-panel">
+        <div class="panel-body logo-body">
+          <div class="mirror-stage">
+            <div class="mirror" data-drag-handle="true">
+              <img class="mirror-img mirror-a" src="assets/mirror-1.webp" alt="CSS magic mirror" />
+              <img class="mirror-img mirror-b" src="assets/mirror-2.webp" alt="CSS magic mirror" />
+              <video class="mirror-video" autoplay muted loop playsinline></video>
+              <div class="mirror-text">
+                <div class="mirror-title">CSS</div>
+                <div class="mirror-subtitle">Studio</div>
+              </div>
+            </div>
+            <div class="mirror-slogan">Just say CSS, witness the miracle!</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel flow hidden" id="foryou-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">♫</div>
+          <div class="panel-title" data-i18n="panel.foryou">For You</div>
+          <div class="panel-actions">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="foryou-full">
+            <div class="panel-label" data-i18n="label.lyricsEngine">
+              Lyrics Engine · Random Single/Opera
+            </div>
+            <pre class="lyrics" id="lyrics"></pre>
+            <div class="status-grid">
+              <div class="status-card">
+                <div class="status-title" data-i18n="status.lyricsEngine">Lyrics Engine</div>
+                <div class="status-bar"><span id="lyrics-progress"></span></div>
+              </div>
+              <div class="status-card">
+                <div class="status-title" data-i18n="status.audioEngine">Audio Engine</div>
+                <div class="status-bar"><span id="music-progress"></span></div>
+              </div>
+              <div class="status-card">
+                <div class="status-title" data-i18n="status.videoEngine">Video Engine</div>
+                <div class="status-bar"><span id="video-progress"></span></div>
+              </div>
+              <div class="status-card">
+                <div class="status-title" data-i18n="status.karaokeSync">Karaoke Sync</div>
+                <div class="status-bar"><span id="kara-progress"></span></div>
+              </div>
+            </div>
+          </div>
+          <div class="foryou-compact">
+            <div class="foryou-card">
+              <div class="foryou-thumb">♪</div>
+              <div class="foryou-meta">
+                <div class="foryou-title" id="foryou-title">Untitled</div>
+                <div class="foryou-style" id="foryou-style">Future Ballad</div>
+                <div class="foryou-tags" id="foryou-tags"></div>
+              </div>
+              <div class="foryou-actions">
+                <button class="cta tiny" id="listen-btn" type="button" data-i18n="action.listen">
+                  Listen
+                </button>
+                <button class="cta tiny" id="watch-btn" type="button" data-i18n="action.watch">
+                  Watch
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="watch-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">▶</div>
+          <div class="panel-title" data-i18n="panel.watch">Watch</div>
+          <div class="panel-actions">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body watch-body">
+          <div class="watch-banner" data-i18n="label.watchBanner">Karaoke MV · Live Render</div>
+          <div class="watch-frame">
+            <div class="watch-screen">
+              <video id="watch-video" class="watch-video" autoplay muted loop playsinline></video>
+              <img id="watch-svg" class="watch-svg" alt="MV preview" />
+              <div class="watch-subtitle" id="watch-subtitle" data-i18n="status.composing">
+                CSS is composing...
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="about-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">ℹ</div>
+          <div class="panel-title" data-i18n="panel.about">About</div>
+          <div class="panel-actions">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body about-body">
+          <div class="about-tabs" role="tablist">
+            <button class="about-tab active" type="button" data-tab="whitepaper" data-i18n="about.tab.whitepaper">
+              Whitepaper
+            </button>
+            <button class="about-tab" type="button" data-tab="about" data-i18n="about.tab.about">About</button>
+            <button class="about-tab" type="button" data-tab="contact" data-i18n="about.tab.contact">
+              Contact
+            </button>
+          </div>
+
+          <div class="about-content">
+            <section class="about-tab-content active" data-tab="whitepaper">
+              <div class="panel-label" data-i18n="whitepaper.title">
+                CSS Studio Media Generation Engine — Technical Architecture Statement v1.0
+              </div>
+              <div class="about-section">
+                <h3 data-i18n="whitepaper.section.audio.title">Audio Generation Layer</h3>
+                <p data-i18n="whitepaper.section.audio.body"></p>
+              </div>
+              <div class="about-section">
+                <h3 data-i18n="whitepaper.section.visual.title">Visual &amp; Video Generation Layer</h3>
+                <p data-i18n="whitepaper.section.visual.body"></p>
+              </div>
+              <div class="about-section">
+                <h3 data-i18n="whitepaper.section.philosophy.title">Engineering Philosophy</h3>
+                <p data-i18n="whitepaper.section.philosophy.body"></p>
+              </div>
+              <div class="about-section">
+                <h3 data-i18n="whitepaper.section.cloud.title">Cloud Infrastructure</h3>
+                <p data-i18n="whitepaper.section.cloud.body"></p>
+              </div>
+            </section>
+
+            <section class="about-tab-content" data-tab="about">
+              <div class="about-section">
+                <h3 data-i18n="about.who.title">Who We Are</h3>
+                <p data-i18n="about.who.body"></p>
+              </div>
+              <div class="about-section">
+                <h3 data-i18n="about.what.title">What We Do</h3>
+                <p data-i18n="about.what.body"></p>
+              </div>
+              <div class="about-section">
+                <h3 data-i18n="about.mission.title">Our Mission</h3>
+                <p data-i18n="about.mission.body"></p>
+              </div>
+            </section>
+
+            <section class="about-tab-content" data-tab="contact">
+              <div class="about-section">
+                <h3 data-i18n="about.contact.title">Contact</h3>
+                <div class="about-contact">
+                  <div><span data-i18n="about.contact.email">Email</span>: <a href="mailto:admin@cssstudio.app">admin@cssstudio.app</a></div>
+                  <div><span data-i18n="about.contact.website">Website</span>: <a href="https://cssstudio.app" target="_blank" rel="noopener">cssstudio.app</a></div>
+                </div>
+              </div>
+              <div class="about-section">
+                <h3 data-i18n="about.contact.social">Social</h3>
+                <ul class="about-social">
+                  <li><a href="https://x.com/cssstudioapp" target="_blank" rel="noopener">X</a></li>
+                  <li><a href="https://bsky.app/profile/cssstudio.bsky.social" target="_blank" rel="noopener">Bluesky</a></li>
+                  <li><a href="https://www.tiktok.com/@cssstudioapp" target="_blank" rel="noopener">TikTok</a></li>
+                </ul>
+              </div>
+            </section>
+          </div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="api-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">⌁</div>
+          <div class="panel-title" data-i18n="panel.api">API</div>
+          <div class="panel-actions">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body api-body">
+          <div class="api-section">
+            <h3 data-i18n="api.overview.title">API Overview</h3>
+            <p data-i18n="api.overview.body"></p>
+          </div>
+          <div class="api-section">
+            <h3 data-i18n="api.endpoint.title">Endpoint</h3>
+            <div class="api-endpoint">POST /generate/mv</div>
+            <p data-i18n="api.endpoint.body"></p>
+          </div>
+          <div class="api-section">
+            <h3 data-i18n="api.examples.title">Examples</h3>
+            <div class="api-code">
+              <div class="api-code-title" data-i18n="api.examples.request">Request</div>
+              <pre data-i18n="api.examples.requestBody"></pre>
+            </div>
+            <div class="api-code">
+              <div class="api-code-title" data-i18n="api.examples.response">Response</div>
+              <pre data-i18n="api.examples.responseBody"></pre>
+            </div>
+          </div>
+          <div class="api-section">
+            <h3 data-i18n="api.pricing.title">Pricing</h3>
+            <p data-i18n="api.pricing.body"></p>
+          </div>
+          <div class="api-section">
+            <h3 data-i18n="api.billing.title">Billing</h3>
+            <div class="billing-grid">
+              <div class="billing-card">
+                <div class="billing-label" data-i18n="api.billing.balance">Credit Balance</div>
+                <div class="billing-value" id="api-credit-balance">$0.00</div>
+                <button class="cta tiny" id="api-add-funds-btn" type="button" data-i18n="api.billing.addFunds">
+                  Add Funds
+                </button>
+              </div>
+              <div class="billing-card">
+                <div class="billing-label" data-i18n="api.billing.paymentMethod">Payment Method</div>
+                <select id="api-payment-method" class="billing-select">
+                  <option value="card" data-i18n="api.billing.method.card">Card •••• 4242</option>
+                  <option value="bank" data-i18n="api.billing.method.bank">Bank Transfer</option>
+                </select>
+              </div>
+              <div class="billing-card">
+                <div class="billing-label" data-i18n="api.billing.autoRecharge">Auto Recharge</div>
+                <label class="billing-toggle">
+                  <input type="checkbox" id="api-auto-recharge" />
+                  <span data-i18n="api.billing.autoRechargeHint">Recharge when low</span>
+                </label>
+              </div>
+              <div class="billing-card">
+                <div class="billing-label" data-i18n="api.billing.monthlyLimit">Monthly Limit</div>
+                <input
+                  id="api-monthly-limit"
+                  class="billing-input"
+                  type="number"
+                  min="0"
+                  placeholder="$2000"
+                  data-i18n-placeholder="api.billing.monthlyLimitPlaceholder"
+                />
+              </div>
+            </div>
+            <div class="billing-history">
+              <div class="billing-label" data-i18n="api.billing.history">Billing History</div>
+              <ul class="billing-list">
+                <li data-i18n="api.billing.historyPlaceholder">No billing events yet.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="cssmv-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">🎬</div>
+          <div class="panel-title" data-i18n="panel.cssmv">CSS MV</div>
+          <div class="panel-actions">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="panel-label" data-i18n="label.autoWatch">Auto Watch Pipeline</div>
+          <div class="mv-hero">
+            <div>
+              <div class="mv-title" id="mv-title">嫦娥奔月</div>
+              <div class="mv-sub" id="mv-sub" data-i18n="label.mvSub">
+                3 Scene · 12 Shots · Live Karaoke
+              </div>
+            </div>
+            <button class="cta tiny" id="enter-watch" data-i18n="action.enterWatch">
+              Enter Watch
+            </button>
+          </div>
+          <div class="tag-row" id="mv-tags"></div>
+          <div class="stat-grid" id="mv-stats"></div>
+          <div class="camera-board" id="camera-board"></div>
+          <div class="scene-list" id="scene-list"></div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="lyrics-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">📝</div>
+          <div class="panel-title" data-i18n="panel.lyrics">Lyrics Engine</div>
+          <div class="panel-actions">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="panel-label" data-i18n="label.sceneMap">Scene Map · Flowing Typewriter</div>
+          <div class="engine-grid" id="lyrics-grid"></div>
+          <div class="lyric-flow" id="lyric-flow"></div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="music-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">🎼</div>
+          <div class="panel-title" data-i18n="panel.music">Music Engine</div>
+          <div class="panel-actions">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="panel-label" data-i18n="label.waveform">Waveform · Style Render</div>
+          <div class="engine-meta">
+            <div><span data-i18n="label.style">Style</span> <span id="music-style">Chinese GuFeng</span></div>
+            <div><span data-i18n="label.voice">Voice</span> <span id="voice-style">Feminine</span></div>
+          </div>
+          <div class="tag-row" id="music-tags"></div>
+          <div class="waveform" id="waveform">
+            <span style="--i: 1; --h: 30%"></span>
+            <span style="--i: 2; --h: 60%"></span>
+            <span style="--i: 3; --h: 45%"></span>
+            <span style="--i: 4; --h: 70%"></span>
+            <span style="--i: 5; --h: 38%"></span>
+            <span style="--i: 6; --h: 78%"></span>
+            <span style="--i: 7; --h: 55%"></span>
+            <span style="--i: 8; --h: 88%"></span>
+            <span style="--i: 9; --h: 50%"></span>
+            <span style="--i: 10; --h: 72%"></span>
+            <span style="--i: 11; --h: 40%"></span>
+            <span style="--i: 12; --h: 86%"></span>
+            <span style="--i: 13; --h: 48%"></span>
+            <span style="--i: 14; --h: 64%"></span>
+            <span style="--i: 15; --h: 30%"></span>
+            <span style="--i: 16; --h: 76%"></span>
+            <span style="--i: 17; --h: 52%"></span>
+            <span style="--i: 18; --h: 84%"></span>
+            <span style="--i: 19; --h: 44%"></span>
+            <span style="--i: 20; --h: 70%"></span>
+            <span style="--i: 21; --h: 36%"></span>
+            <span style="--i: 22; --h: 90%"></span>
+            <span style="--i: 23; --h: 46%"></span>
+            <span style="--i: 24; --h: 68%"></span>
+          </div>
+          <div class="track-list">
+            <div class="track-row">
+              <div class="track-label" data-i18n="track.leadVocal">Lead Vocal</div>
+              <div class="track-bar"><span style="width: 78%"></span></div>
+            </div>
+            <div class="track-row">
+              <div class="track-label" data-i18n="track.harmony">Harmony</div>
+              <div class="track-bar"><span style="width: 62%"></span></div>
+            </div>
+            <div class="track-row">
+              <div class="track-label" data-i18n="track.strings">Strings</div>
+              <div class="track-bar"><span style="width: 70%"></span></div>
+            </div>
+          </div>
+          <div class="mix-grid" id="mix-grid"></div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="video-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">📽</div>
+          <div class="panel-title" data-i18n="panel.video">Video Engine</div>
+          <div class="panel-actions">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="panel-label" data-i18n="label.storyboard">Storyboard · Camera Flow</div>
+          <div class="tag-row" id="video-tags"></div>
+          <div class="storyboard" id="storyboard">
+            <div class="story-frame" data-i18n="shot.01">Shot 01</div>
+            <div class="story-frame" data-i18n="shot.02">Shot 02</div>
+            <div class="story-frame" data-i18n="shot.03">Shot 03</div>
+            <div class="story-frame" data-i18n="shot.04">Shot 04</div>
+            <div class="story-frame" data-i18n="shot.05">Shot 05</div>
+            <div class="story-frame" data-i18n="shot.06">Shot 06</div>
+          </div>
+          <div class="camera-list" id="camera-list"></div>
+          <div class="video-script" id="video-script" data-i18n="label.videoScript">
+            Auto script loaded · 3 scenes ready
+          </div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="settings-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">⚙</div>
+          <div class="panel-title" data-i18n="panel.settings">Advanced Settings</div>
+          <div class="panel-actions">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body settings-body">
+          <label>
+            <span data-i18n="settings.title">Title</span>
+            <input
+              id="title-input"
+              type="text"
+              placeholder="嫦娥奔月 / Moon of Chang'e"
+              data-i18n-placeholder="settings.titlePlaceholder"
+            />
+          </label>
+          <label>
+            <span data-i18n="settings.customLyrics">Custom Lyrics</span>
+            <textarea
+              id="lyrics-input"
+              rows="6"
+              placeholder="Drop your own verses or a full opera..."
+              data-i18n-placeholder="settings.lyricsPlaceholder"
+            >
+            </textarea>
+          </label>
+          <div class="row">
+            <label>
+              <span data-i18n="settings.musicStyle">Music Style</span>
+              <select id="style-input">
+                <option>Chinese GuFeng</option>
+                <option>Neo-Opera</option>
+                <option>Future Ballad</option>
+                <option>Cyber Folk</option>
+              </select>
+            </label>
+            <label>
+              <span data-i18n="settings.voiceGender">Voice Gender</span>
+              <select id="voice-input">
+                <option>Feminine</option>
+                <option>Masculine</option>
+                <option>Androgynous</option>
+                <option>Choir Blend</option>
+              </select>
+            </label>
+          </div>
+          <div class="row">
+            <label>
+              <span data-i18n="settings.bg1">Background Color 1</span>
+              <input id="bg-color-1" type="color" value="#00f5a0" />
+            </label>
+            <label>
+              <span data-i18n="settings.bg2">Background Color 2</span>
+              <input id="bg-color-2" type="color" value="#040a08" />
+            </label>
+          </div>
+          <div class="row">
+            <label>
+              <span data-i18n="settings.bg3">Background Color 3</span>
+              <input id="bg-color-3" type="color" value="#008c64" />
+            </label>
+            <label>
+              <span data-i18n="settings.bg4">Background Color 4</span>
+              <input id="bg-color-4" type="color" value="#010302" />
+            </label>
+          </div>
+          <button
+            id="random-palette"
+            class="cta ghost"
+            type="button"
+            data-i18n="action.randomPalette"
+          >
+            随机水彩配色
+          </button>
+          <button id="apply-settings" class="cta" data-i18n="action.applyRender">
+            Apply & Render
+          </button>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="language-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">🌐</div>
+          <div class="panel-title" data-i18n="panel.language">Language</div>
+          <div class="panel-actions">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body language-body">
+          <div class="panel-label" data-i18n="language.subtitle">Interface Language</div>
+          <div class="language-current" id="language-current"></div>
+          <div class="language-grid" id="language-list"></div>
+          <button class="cta ghost tiny" id="language-more" type="button" data-i18n="language.more">
+            More languages
+          </button>
+          <div class="language-grid is-hidden" id="language-list-more"></div>
+          <div class="language-status" id="language-status" data-i18n="language.ready">
+            Ready
+          </div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="login-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">🔐</div>
+          <div class="panel-title" data-i18n="panel.login">Login</div>
+          <div class="panel-actions">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body login-body">
+          <div class="panel-label" data-i18n="login.subtitle">
+            Social Login Gateways
+          </div>
+          <div class="login-status" id="login-status" data-i18n="login.statusGuest">
+            Guest
+          </div>
+          <div class="login-user" id="login-user"></div>
+          <div class="login-grid" id="login-list"></div>
+          <button class="cta ghost tiny" id="login-logout" type="button" data-i18n="login.logout">
+            Log out
+          </button>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="works-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">◉</div>
+          <div class="panel-title" data-i18n="panel.works">Works Center</div>
+          <div class="panel-actions">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body works-body works-neo">
+          <div class="works-neo-hero">
+            <div>
+              <div class="panel-label" data-i18n="works.subtitle">Creator Works Center</div>
+              <div class="works-neo-title" data-i18n="works.neo.title">Works Center</div>
+            </div>
+            <div class="works-neo-badges">
+              <span class="works-neo-chip" data-i18n="works.neo.badge.plan">PRIME</span>
+              <span class="works-neo-chip" data-i18n="works.neo.badge.quality">4K CAP</span>
+              <span class="works-neo-chip" data-i18n="works.neo.badge.quota">300/mo</span>
+            </div>
+          </div>
+
+          <div class="works-neo-stats">
+            <article class="works-neo-stat">
+              <div class="works-neo-stat-label" data-i18n="works.neo.stat.published">PUBLISHED</div>
+              <div class="works-neo-stat-value">12</div>
+              <div class="works-neo-stat-hint" data-i18n="works.neo.hint.published">Published works</div>
+            </article>
+            <article class="works-neo-stat">
+              <div class="works-neo-stat-label" data-i18n="works.neo.stat.rendering">RENDERING</div>
+              <div class="works-neo-stat-value">3</div>
+              <div class="works-neo-stat-hint" data-i18n="works.neo.hint.rendering">Processing queue</div>
+            </article>
+            <article class="works-neo-stat">
+              <div class="works-neo-stat-label" data-i18n="works.neo.stat.views">VIEWS</div>
+              <div class="works-neo-stat-value">28,119</div>
+              <div class="works-neo-stat-hint" data-i18n="works.neo.hint.views">Monthly views</div>
+            </article>
+            <article class="works-neo-stat">
+              <div class="works-neo-stat-label" data-i18n="works.neo.stat.avgPrice">AVG PRICE</div>
+              <div class="works-neo-stat-value">$8.60</div>
+              <div class="works-neo-stat-hint" data-i18n="works.neo.hint.avgPrice">Average pricing</div>
+            </article>
+          </div>
+
+          <div class="works-neo-grid">
+            <section class="works-neo-card works-neo-glow">
+              <div class="works-neo-card-header">
+                <div class="section-title" data-i18n="works.neo.goal.title">Creation Goals</div>
+                <button class="mini-btn" type="button" data-i18n="works.neo.goal.create">Create Work</button>
+              </div>
+              <div class="works-neo-goal-list">
+                <article class="works-neo-goal-item">
+                  <div class="works-neo-goal-top">
+                    <span data-i18n="works.neo.goal.weeklyRelease">Weekly releases</span>
+                    <span>2/4</span>
+                  </div>
+                  <div class="works-neo-progress"><span style="width:50%"></span></div>
+                </article>
+                <article class="works-neo-goal-item">
+                  <div class="works-neo-goal-top">
+                    <span data-i18n="works.neo.goal.monthlyViews">Monthly views target</span>
+                    <span>12.6k/20k</span>
+                  </div>
+                  <div class="works-neo-progress"><span style="width:63%"></span></div>
+                </article>
+                <article class="works-neo-goal-item">
+                  <div class="works-neo-goal-top">
+                    <span data-i18n="works.neo.goal.commercialDeals">Commercial deals</span>
+                    <span>5/8</span>
+                  </div>
+                  <div class="works-neo-progress"><span style="width:62%"></span></div>
+                </article>
+              </div>
+            </section>
+
+            <section class="works-neo-card">
+              <div class="section-title" data-i18n="works.neo.schedule.title">Scheduler</div>
+              <div class="works-neo-schedule">
+                <article class="works-neo-box">
+                  <div class="works-neo-box-label" data-i18n="works.neo.schedule.queue">RENDER QUEUE</div>
+                  <div class="works-neo-box-value">3</div>
+                </article>
+                <article class="works-neo-box">
+                  <div class="works-neo-box-label" data-i18n="works.neo.schedule.nextRelease">NEXT RELEASE</div>
+                  <div class="works-neo-box-value sm">Pulse Runner</div>
+                  <div class="works-neo-box-hint" data-i18n="works.neo.schedule.nextReleaseHint">Expected to publish in 4 hours</div>
+                </article>
+                <article class="works-neo-box">
+                  <div class="works-neo-box-label" data-i18n="works.neo.schedule.focus">FOCUS</div>
+                  <div class="works-neo-box-hint" data-i18n="works.neo.schedule.focusHint">Prioritize long-form opera content to improve commercial conversion.</div>
+                </article>
+              </div>
+            </section>
+          </div>
+
+          <section class="works-neo-card">
+            <div class="works-neo-card-header">
+              <div class="section-title" data-i18n="works.neo.matrix.title">Works Matrix</div>
+              <div class="works-neo-note" data-i18n="works.neo.matrix.note">Realtime status / One-click publish / Archive</div>
+            </div>
+
+            <div class="works-neo-list">
+              <article class="works-neo-work">
+                <div class="works-neo-main">
+                  <div class="works-neo-name-row">
+                    <span class="works-neo-name">Neon Aria</span>
+                    <span class="works-neo-status ok" data-i18n="works.neo.status.published">PUBLISHED</span>
+                    <span class="works-neo-type" data-i18n="works.neo.type.opera">OPERA</span>
+                  </div>
+                  <div class="works-neo-meta" data-i18n="works.neo.meta.item1">$12.90 · 3,891 views · 2h ago</div>
+                  <div class="works-neo-progress"><span style="width:100%"></span></div>
+                </div>
+                <div class="works-neo-actions">
+                  <button class="mini-btn" type="button" disabled data-i18n="works.neo.action.published">Published</button>
+                  <button class="mini-btn ghost" type="button" data-i18n="works.neo.action.archive">Archive</button>
+                </div>
+              </article>
+
+              <article class="works-neo-work">
+                <div class="works-neo-main">
+                  <div class="works-neo-name-row">
+                    <span class="works-neo-name">Pulse Runner</span>
+                    <span class="works-neo-status ready" data-i18n="works.neo.status.ready">READY</span>
+                    <span class="works-neo-type" data-i18n="works.neo.type.mv">MV</span>
+                  </div>
+                  <div class="works-neo-meta" data-i18n="works.neo.meta.item2">$3.80 · 1,277 views · 5h ago</div>
+                  <div class="works-neo-progress"><span style="width:100%"></span></div>
+                </div>
+                <div class="works-neo-actions">
+                  <button class="mini-btn" type="button" data-i18n="works.neo.action.publish">Publish</button>
+                  <button class="mini-btn ghost" type="button" data-i18n="works.neo.action.archive">Archive</button>
+                </div>
+              </article>
+
+              <article class="works-neo-work">
+                <div class="works-neo-main">
+                  <div class="works-neo-name-row">
+                    <span class="works-neo-name">Echo District</span>
+                    <span class="works-neo-status run" data-i18n="works.neo.status.rendering">RENDERING</span>
+                    <span class="works-neo-type" data-i18n="works.neo.type.mv">MV</span>
+                  </div>
+                  <div class="works-neo-meta" data-i18n="works.neo.meta.item3">$2.99 · 0 views · 12m ago</div>
+                  <div class="works-neo-progress"><span style="width:68%"></span></div>
+                </div>
+                <div class="works-neo-actions">
+                  <button class="mini-btn ghost" type="button" data-i18n="works.neo.action.processing">Processing</button>
+                  <button class="mini-btn ghost" type="button" data-i18n="works.neo.action.archive">Archive</button>
+                </div>
+              </article>
+            </div>
+          </section>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+    </main>
+
+    <footer class="dock" id="dock">
+      <div class="dock-item" data-action="mic" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">🎙</div>
+        <div class="dock-label" data-i18n="dock.mic">Mic</div>
+      </div>
+      <div class="dock-item" data-action="foryou" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">✨</div>
+        <div class="dock-label" data-i18n="dock.foryou">For You</div>
+      </div>
+      <div class="dock-item" data-action="cssmv" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">🎬</div>
+        <div class="dock-label" data-i18n="dock.cssmv">CSS MV</div>
+      </div>
+      <div class="dock-item" data-action="lyrics" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">📝</div>
+        <div class="dock-label" data-i18n="dock.lyrics">Lyrics</div>
+      </div>
+      <div class="dock-item" data-action="music" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">🎼</div>
+        <div class="dock-label" data-i18n="dock.music">Music</div>
+      </div>
+      <div class="dock-item" data-action="video" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">📽</div>
+        <div class="dock-label" data-i18n="dock.video">Video</div>
+      </div>
+      <div class="dock-item" data-action="watch" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">▶</div>
+        <div class="dock-label" data-i18n="dock.watch">Watch</div>
+      </div>
+      <div class="dock-item" data-action="about" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">ℹ</div>
+        <div class="dock-label" data-i18n="dock.about">About</div>
+      </div>
+      <div class="dock-item" data-action="api" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">⌁</div>
+        <div class="dock-label" data-i18n="dock.api">API</div>
+      </div>
+      <div class="dock-item" data-action="login" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">🔐</div>
+        <div class="dock-label" data-i18n="dock.login">Login</div>
+      </div>
+      <div class="dock-item" data-action="works" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">🗂</div>
+        <div class="dock-label" data-i18n="dock.works">Works</div>
+      </div>
+      <div class="dock-item" data-action="language" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">🌐</div>
+        <div class="dock-label" data-i18n="dock.language">Language</div>
+      </div>
+      <div class="dock-item" data-action="settings" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">⚙</div>
+        <div class="dock-label" data-i18n="dock.settings">Settings</div>
+      </div>
+    </footer>
+
+    <div class="toast" id="toast" data-i18n="toast.awakened">CSS awakened · 流流流</div>
+
+    <script src="/i18n/constants.js"></script>
+    <script src="/i18n/catalog.js"></script>
+    <script src="/i18n/dict.js"></script>
+    <script src="/i18n/platforms.js"></script>
+    <script src="/i18n/index.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

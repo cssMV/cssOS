@@ -1,0 +1,172 @@
+/* CSSOS_VERSION_MENU_BEGIN */
+(function () {
+  const BTN_ID = "cssos-ver-btn";
+  const PANEL_ID = "cssos-ver-panel";
+  const STYLE_ID = "cssos-ver-style";
+
+  function ensureStyle() {
+    if (document.getElementById(STYLE_ID)) return;
+    const s = document.createElement("style");
+    s.id = STYLE_ID;
+    s.textContent = `
+      #${BTN_ID}{
+        position:fixed; top:16px; left:16px; z-index:999999;
+        width:38px; height:38px; border-radius:10px;
+        border:1px solid rgba(255,255,255,.18);
+        background:rgba(0,0,0,.25);
+        backdrop-filter: blur(10px);
+        display:flex; align-items:center; justify-content:center;
+        cursor:pointer; user-select:none;
+      }
+      #${BTN_ID}:hover{ background:rgba(0,0,0,.35); }
+      #${BTN_ID} span{ color:rgba(255,255,255,.9); font-size:22px; line-height:0; transform: translateY(-1px); }
+
+      #${PANEL_ID}{
+        position:fixed; top:60px; left:16px; z-index:999999;
+        width:280px; max-height:360px; overflow:auto;
+        border-radius:14px;
+        border:1px solid rgba(255,255,255,.14);
+        background:rgba(0,0,0,.32);
+        backdrop-filter: blur(14px);
+        padding:12px;
+        display:none;
+      }
+      #${PANEL_ID}.open{ display:block; }
+      #${PANEL_ID} .title{ color:rgba(255,255,255,.8); font-size:12px; letter-spacing:.08em; margin-bottom:8px; }
+      #${PANEL_ID} input{
+        width:100%; height:34px; border-radius:10px;
+        border:1px solid rgba(255,255,255,.14);
+        background:rgba(255,255,255,.06);
+        color:rgba(255,255,255,.92);
+        padding:0 10px; outline:none; margin:6px 0 10px 0;
+      }
+      #${PANEL_ID} .item{
+        padding:8px 10px; border-radius:10px;
+        color:rgba(255,255,255,.92);
+        cursor:pointer; display:flex; justify-content:space-between; gap:10px;
+      }
+      #${PANEL_ID} .item:hover{ background:rgba(255,255,255,.08); }
+      #${PANEL_ID} .tag{ color:rgba(255,255,255,.55); font-size:12px; }
+      #${PANEL_ID} .row{ display:flex; align-items:center; justify-content:space-between; }
+      #${PANEL_ID} .spinner{
+        width:16px;height:16px;border-radius:50%;
+        border:2px solid rgba(255,255,255,.25);
+        border-top-color: rgba(255,255,255,.85);
+        animation: cssosSpin .8s linear infinite;
+      }
+      @keyframes cssosSpin{ to{ transform:rotate(360deg);} }
+      #${PANEL_ID} .hint{ color:rgba(255,255,255,.65); font-size:12px; padding:8px 2px; }
+      #${PANEL_ID} .err{ color:rgba(255,120,120,.9); font-size:12px; padding:8px 2px; }
+    `;
+    document.head.appendChild(s);
+  }
+
+  function ensureUI() {
+    ensureStyle();
+    if (!document.getElementById(BTN_ID)) {
+      const btn = document.createElement("div");
+      btn.id = BTN_ID;
+      btn.innerHTML = `<span>⋮</span>`;
+      document.body.appendChild(btn);
+    }
+    if (!document.getElementById(PANEL_ID)) {
+      const panel = document.createElement("div");
+      panel.id = PANEL_ID;
+      panel.innerHTML = `
+        <div class="title">VERSIONS</div>
+        <div class="row"><div class="hint" id="cssos-ver-state"></div><div id="cssos-ver-spin" style="display:none" class="spinner"></div></div>
+        <input id="cssos-ver-q" placeholder="Search versions..." />
+        <div id="cssos-ver-list"></div>
+      `;
+      document.body.appendChild(panel);
+    }
+  }
+
+  let loaded = false;
+  let data = null;
+
+  function setState(msg, isErr) {
+    const el = document.getElementById("cssos-ver-state");
+    if (!el) return;
+    el.className = isErr ? "err" : "hint";
+    el.textContent = msg || "";
+  }
+  function setSpin(on) {
+    const sp = document.getElementById("cssos-ver-spin");
+    if (sp) sp.style.display = on ? "block" : "none";
+  }
+
+  async function loadVersions() {
+    if (loaded && data) return data;
+    setState("Loading…", false);
+    setSpin(true);
+    try {
+      const res = await fetch("/versions.json", { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      data = await res.json();
+      loaded = true;
+      setState("", false);
+      return data;
+    } catch (e) {
+      setState("Failed to load versions", true);
+      throw e;
+    } finally {
+      setSpin(false);
+    }
+  }
+
+  function render(list, current) {
+    const root = document.getElementById("cssos-ver-list");
+    if (!root) return;
+    root.innerHTML = "";
+    (list || []).forEach((v) => {
+      const id = typeof v === "string" ? v : v.id;
+      const path = (typeof v === "string") ? ("/v/" + v) : (v.path || ("/v/" + v.id));
+      const row = document.createElement("div");
+      row.className = "item";
+      row.innerHTML = `<div>${id}</div><div class="tag">${id === current ? "current" : ""}</div>`;
+      row.onclick = () => {
+        // ✅ 正确：切换版本就是跳转，不是下载
+        window.location.assign(path.replace(/\/+$/, ""));
+      };
+      root.appendChild(row);
+    });
+  }
+
+  function applyFilter() {
+    if (!data) return;
+    const q = (document.getElementById("cssos-ver-q")?.value || "").trim().toLowerCase();
+    const all = Array.isArray(data.versions) ? data.versions : [];
+    const filtered = q ? all.filter(v => (typeof v === "string" ? v : v.id).toLowerCase().includes(q)) : all;
+    render(filtered, data.current);
+  }
+
+  function toggle(open) {
+    const panel = document.getElementById(PANEL_ID);
+    if (!panel) return;
+    if (open == null) panel.classList.toggle("open");
+    else panel.classList.toggle("open", !!open);
+  }
+
+  function boot() {
+    ensureUI();
+    const btn = document.getElementById(BTN_ID);
+    const q = document.getElementById("cssos-ver-q");
+    btn.onclick = async (e) => {
+      e.stopPropagation();
+      toggle();
+      const panelOpen = document.getElementById(PANEL_ID).classList.contains("open");
+      if (panelOpen && !loaded) {
+        await loadVersions();
+        applyFilter();
+      }
+    };
+    q.addEventListener("input", applyFilter);
+    document.addEventListener("click", () => toggle(false));
+    document.getElementById(PANEL_ID).addEventListener("click", (e) => e.stopPropagation());
+  }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
+  else boot();
+})();
+/* CSSOS_VERSION_MENU_END */

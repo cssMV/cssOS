@@ -7,6 +7,20 @@ pub struct CompiledCommands {
     pub render: String,
 }
 
+impl CompiledCommands {
+    pub fn command_for(&self, stage: &str) -> Result<String, String> {
+        match stage {
+            "lyrics" => Ok(self.lyrics.clone()),
+            "music" => Ok(self.music.clone()),
+            "vocals" => Ok(self.vocals.clone()),
+            "video" | "video_plan" | "video_assemble" => Ok(self.video.clone()),
+            "render" => Ok(self.render.clone()),
+            s if s.starts_with("video_shot_") => Ok(self.video.clone()),
+            _ => Err(format!("missing command for stage={}", stage)),
+        }
+    }
+}
+
 pub fn compile_from_dsl(dsl: &str) -> anyhow::Result<CompiledCommands> {
     let required = ["lyrics()", "music()", "vocals()", "video()", "render()"];
     let lowered = dsl.to_lowercase();

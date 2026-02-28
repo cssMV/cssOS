@@ -17,6 +17,10 @@ steps:
 
           # Fail build if service is not healthy
           sudo systemctl is-active --quiet cssOS
+          sudo systemctl is-active --quiet cssos-rust-api.service
+
+          # Post-deploy regression: runs/ready expansion + cancel
+          /srv/cssos/repo/rust-api/scripts/regression_runs_ready.sh http://127.0.0.1:8081
         "
 
 options:

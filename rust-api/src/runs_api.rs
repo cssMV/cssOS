@@ -1,126 +1,191 @@
 use axum::{
     extract::{Json, Path},
     http::StatusCode,
-    response::IntoResponse,
     routing::{get, post},
     Router,
 };
-use crate::runs_list;
-use crate::run_worker::spawn_run_worker;
-use crate::metrics;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
-use std::{fs, path::PathBuf};
-use uuid::Uuid;
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CreateRunRequest {
-    pub input: serde_json::Value,
-    #[serde(default)]
-    pub commands: serde_json::Value,
+use crate::run_state::{RetryPolicy, RunConfig, RunState, RunStatus};
+use crate::{cssapi::v1 as cssapi_v1, jobs, metrics, run_store, runner};
+
+#[derive(Debug, Deserialize)]
+struct RunsCreateRequest {
+    cssl: String,
+    ui_lang: Option<String>,
+    tier: Option<String>,
+    config: Option<RunConfig>,
+    retry_policy: Option<RetryPolicy>,
+    commands: Option<crate::dsl::compile::CompiledCommands>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct RunResponse {
-    pub schema: String,
-    pub run_id: String,
-    pub run_dir: String,
+#[derive(Debug, Serialize)]
+struct RunsCreateResponse {
+    schema: &'static str,
+    run_id: String,
+    status_url: String,
+    ready_url: String,
 }
 
-fn runs_root() -> PathBuf {
-    PathBuf::from("build/runs")
+#[derive(Debug, Serialize)]
+struct RunsStatusResponse {
+    schema: &'static str,
+    run_id: String,
+    status: RunStatus,
+    updated_at: String,
 }
 
-fn run_dir(run_id: &str) -> PathBuf {
-    runs_root().join(run_id)
+#[derive(Debug, Serialize)]
+struct DagReadyMeta {
+    schema: String,
+    concurrency: i64,
+    nodes_total: i64,
+    nodes_succeeded: i64,
+    nodes_failed: i64,
+    nodes_running: i64,
+    nodes_pending: i64,
 }
 
-pub async fn create_run(Json(req): Json<CreateRunRequest>) -> impl IntoResponse {
-    let run_id = Uuid::new_v4().to_string();
-    let dir = run_dir(&run_id);
+#[derive(Debug, Serialize)]
+struct RunningItem {
+    stage: String,
+    started_at: Option<String>,
+    heartbeat_at: Option<String>,
+}
 
-    if let Err(e) = fs::create_dir_all(&dir) {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({
-                "schema":"css.error.v1",
-                "code":"RUN_CREATE_FAILED",
-                "message":e.to_string()
-            })),
-        );
+#[derive(Debug, Serialize)]
+struct ReadyItem {
+    stage: String,
+}
+
+#[derive(Debug, Serialize)]
+struct RunReadyResponse {
+    schema: &'static str,
+    run_id: String,
+    status: RunStatus,
+    dag: DagReadyMeta,
+    running: Vec<RunningItem>,
+    ready: Vec<ReadyItem>,
+}
+
+#[derive(Debug, Serialize)]
+struct CancelResponse {
+    schema: &'static str,
+    run_id: String,
+    cancel_requested: bool,
+}
+
+async fn runs_create(
+    Json(body): Json<RunsCreateRequest>,
+) -> Result<(StatusCode, Json<RunsCreateResponse>), (StatusCode, String)> {
+    let run_id = runner::new_run_id();
+    run_store::ensure_run_dir(&run_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let mut run_state = runner::init_run_state(
+        run_id.clone(),
+        body.ui_lang.unwrap_or_else(|| "en".to_string()),
+        body.tier.unwrap_or_else(|| "basic".to_string()),
+        body.cssl.clone(),
+    );
+
+    let run_dir = run_store::run_dir(&run_id);
+    run_state.config.out_dir = run_dir;
+    if let Some(cfg) = body.config {
+        run_state.config.wiki_enabled = cfg.wiki_enabled;
+        run_state.config.civ_linked = cfg.civ_linked;
+        run_state.config.heartbeat_interval_seconds = cfg.heartbeat_interval_seconds;
+        run_state.config.stage_timeout_seconds = cfg.stage_timeout_seconds;
+        run_state.config.stuck_timeout_seconds = cfg.stuck_timeout_seconds;
+    }
+    if let Some(retry) = body.retry_policy {
+        run_state.retry_policy = retry;
     }
 
-    let run_json_path = dir.join("run.json");
-    let initial_state = json!({
-        "schema":"css.run.v1",
-        "run_id":run_id,
-        "status":"INIT",
-        "input":req.input.clone(),
-        "commands":req.commands.clone(),
-        "stages":{},
-        "artifacts":{}
-    });
+    let state_path = run_store::run_state_path(&run_id);
+    run_store::write_run_state(&state_path, &run_state)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    match serde_json::to_vec_pretty(&initial_state)
-        .map_err(anyhow::Error::from)
-        .and_then(|buf| fs::write(&run_json_path, buf).map_err(anyhow::Error::from))
-    {
-        Ok(_) => {
-            metrics::incr_runs_created();
-            spawn_run_worker(dir.clone(), req.commands.clone());
-            (
-                StatusCode::CREATED,
-                Json(json!(RunResponse {
-                    schema: "css.run.created.v1".into(),
-                    run_id: run_id.clone(),
-                    run_dir: dir.display().to_string(),
-                })),
-            )
-        }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({
-                "schema":"css.error.v1",
-                "code":"RUN_WRITE_FAILED",
-                "message":e.to_string()
-            })),
-        ),
+    let compiled = match body.commands {
+        Some(c) => c,
+        None => crate::dsl::compile::compile_from_dsl(&body.cssl)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?,
+    };
+
+    if !jobs::queue::claim_run(&run_id).await {
+        return Err((StatusCode::CONFLICT, "run already queued/running".to_string()));
     }
+
+    jobs::queue::push(jobs::queue::Job {
+        run_id: run_id.clone(),
+        state_path,
+        state: run_state,
+        compiled,
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    metrics::incr_runs_created();
+
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(RunsCreateResponse {
+            schema: "cssapi.runs.create.v1",
+            run_id: run_id.clone(),
+            status_url: format!("/cssapi/v1/runs/{}/status", run_id),
+            ready_url: format!("/cssapi/v1/runs/{}/ready", run_id),
+        }),
+    ))
 }
 
-pub async fn get_run(Path(run_id): Path<String>) -> impl IntoResponse {
-    let path = run_dir(&run_id).join("run.json");
-
-    match fs::read_to_string(&path)
-        .ok()
-        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-    {
-        Some(v) => (StatusCode::OK, Json(v)),
-        None => (
-            StatusCode::NOT_FOUND,
-            Json(json!({
-                "schema":"css.error.v1",
-                "code":"RUN_NOT_FOUND",
-                "run_id":run_id
-            })),
-        ),
-    }
+async fn runs_get(Path(run_id): Path<String>) -> Result<Json<RunState>, (StatusCode, String)> {
+    let p = run_store::run_state_path(&run_id);
+    let s = run_store::read_run_state(&p).map_err(|_| (StatusCode::NOT_FOUND, "run not found".to_string()))?;
+    Ok(Json(s))
 }
 
-pub async fn get_run_status(Path(run_id): Path<String>) -> impl IntoResponse {
-    let path = run_dir(&run_id).join("run.json");
+async fn runs_status(
+    Path(run_id): Path<String>,
+) -> Result<Json<RunsStatusResponse>, (StatusCode, String)> {
+    let p = run_store::run_state_path(&run_id);
+    let s = run_store::read_run_state(&p).map_err(|_| (StatusCode::NOT_FOUND, "run not found".to_string()))?;
+    Ok(Json(RunsStatusResponse {
+        schema: "cssapi.runs.status.v1",
+        run_id: s.run_id,
+        status: s.status,
+        updated_at: s.updated_at,
+    }))
+}
 
-    match crate::pipeline_status::build_status_json(&path) {
-        Ok(v) => (StatusCode::OK, Json(v)),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(json!({
-                "schema":"css.error.v1",
-                "code":"RUN_STATUS_FAILED",
-                "message":e.to_string()
-            })),
-        ),
+async fn run_ready(
+    Path(run_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if !run_store::exists(&run_id) {
+        return Err((StatusCode::NOT_FOUND, "run not found".to_string()));
     }
+
+    let state = run_store::load_run_state(&run_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(cssapi_v1::ready_payload(&state)))
+}
+
+
+async fn run_cancel(Path(run_id): Path<String>) -> Result<(StatusCode, Json<CancelResponse>), (StatusCode, String)> {
+    let p = run_store::run_state_path(&run_id);
+    let mut s = run_store::read_run_state(&p).map_err(|_| (StatusCode::NOT_FOUND, "run not found".to_string()))?;
+    s.cancel_requested = true;
+    s.updated_at = chrono::Utc::now().to_rfc3339();
+    run_store::write_run_state(&p, &s).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(CancelResponse {
+            schema: "cssapi.runs.cancel.v1",
+            run_id,
+            cancel_requested: true,
+        }),
+    ))
 }
 
 pub fn router<S>() -> Router<S>
@@ -128,7 +193,9 @@ where
     S: Clone + Send + Sync + 'static,
 {
     Router::new()
-        .route("/cssapi/v1/runs", get(runs_list::list_runs).post(create_run))
-        .route("/cssapi/v1/runs/:run_id", get(get_run))
-        .route("/cssapi/v1/runs/:run_id/status", get(get_run_status))
+        .route("/cssapi/v1/runs", post(runs_create))
+        .route("/cssapi/v1/runs/:run_id", get(runs_get))
+        .route("/cssapi/v1/runs/:run_id/status", get(runs_status))
+        .route("/cssapi/v1/runs/:run_id/ready", get(run_ready))
+        .route("/cssapi/v1/runs/:run_id/cancel", post(run_cancel))
 }

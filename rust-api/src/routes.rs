@@ -62,6 +62,7 @@ use crate::cssapi_openapi;
 use crate::config::Config;
 use crate::models::User;
 use crate::runs_api;
+use crate::jobs::Jobs;
 use crate::run_state::{DagMeta, RunConfig, RunState, RunStatus, RetryPolicy};
 use crate::runner::run_pipeline_default;
 
@@ -69,6 +70,7 @@ use crate::runner::run_pipeline_default;
 pub struct AppState {
     pub pool: PgPool,
     pub config: Config,
+    pub jobs: Jobs,
 }
 
 #[derive(Serialize)]
@@ -131,10 +133,13 @@ async fn pipeline_start(
 
     let state = RunState {
         schema: "css.pipeline.run.v1".to_string(),
-        run_id,
+        run_id: run_id.clone(),
         created_at: now.clone(),
         updated_at: now,
         status: RunStatus::INIT,
+        heartbeat_at: None,
+        stuck_timeout_seconds: Some(120),
+        cancel_requested: false,
         ui_lang: body.ui_lang,
         tier: body.tier,
         cssl: body.cssl,
@@ -142,6 +147,9 @@ async fn pipeline_start(
             out_dir: out_dir.into(),
             wiki_enabled: body.wiki_enabled.unwrap_or(true),
             civ_linked: body.civ_linked.unwrap_or(true),
+            heartbeat_interval_seconds: 2,
+            stage_timeout_seconds: 1800,
+            stuck_timeout_seconds: 120,
         },
         retry_policy: RetryPolicy {
             max_retries: 3,
@@ -152,14 +160,14 @@ async fn pipeline_start(
         topo_order: vec![],
         artifacts: serde_json::json!({}),
         stages: Default::default(),
+        video_shots_total: None,
     };
 
-    let result = tokio::task::spawn_blocking(move || run_pipeline_default(state, body.commands)).await;
-    match result {
-        Ok(Ok(final_state)) => ok(json!({ "run": final_state })),
-        Ok(Err(err)) => no_data(json!({ "error": format!("{}", err) })),
-        Err(err) => no_data(json!({ "error": format!("{}", err) })),
-    }
+    tokio::spawn(async move {
+        let _ = run_pipeline_default(state, body.commands).await;
+    });
+
+    ok(json!({ "schema": "cssapi.v1", "run_id": run_id }))
 }
 
 async fn auth_providers(State(_state): State<AppState>) -> axum::response::Response {

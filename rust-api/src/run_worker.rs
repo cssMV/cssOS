@@ -107,6 +107,9 @@ pub fn spawn_run_worker(run_dir: PathBuf, commands: Value) {
             created_at: now.clone(),
             updated_at: now,
             status: RunStatus::INIT,
+        heartbeat_at: None,
+        stuck_timeout_seconds: Some(120),
+        cancel_requested: false,
             ui_lang: "auto".to_string(),
             tier: "local".to_string(),
             cssl: "async-run-worker".to_string(),
@@ -114,6 +117,9 @@ pub fn spawn_run_worker(run_dir: PathBuf, commands: Value) {
                 out_dir: run_dir.clone(),
                 wiki_enabled: true,
                 civ_linked: true,
+                heartbeat_interval_seconds: 2,
+                stage_timeout_seconds: 1800,
+                stuck_timeout_seconds: 120,
             },
             retry_policy: RetryPolicy {
                 max_retries: 3,
@@ -126,7 +132,8 @@ pub fn spawn_run_worker(run_dir: PathBuf, commands: Value) {
             topo_order: vec![],
             artifacts: serde_json::json!({}),
             stages: Default::default(),
-        };
+        video_shots_total: None,
+    };
 
         state.set_artifact_path("run.input.commands", commands);
         state.set_artifact_path("worker.concurrency", serde_json::json!(concurrency() as i64));
@@ -135,12 +142,9 @@ pub fn spawn_run_worker(run_dir: PathBuf, commands: Value) {
             serde_json::to_vec_pretty(&state).unwrap_or_default(),
         );
 
-        let result = tokio::task::spawn_blocking(move || run_pipeline_default(state, compiled)).await;
-
-        match result {
-            Ok(Ok(_)) => {}
-            Ok(Err(e)) => write_failed_state(&state_path, e.to_string()),
-            Err(e) => write_failed_state(&state_path, format!("join error: {e}")),
+        match run_pipeline_default(state, compiled).await {
+            Ok(_) => {}
+            Err(e) => write_failed_state(&state_path, e.to_string()),
         }
         RUNNING.fetch_sub(1, Ordering::Relaxed);
     });

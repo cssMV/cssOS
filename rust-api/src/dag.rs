@@ -81,8 +81,18 @@ pub fn cssmv_dag_v1() -> Dag {
             DagNode { name: "lyrics", deps: &[] },
             DagNode { name: "music", deps: &["lyrics"] },
             DagNode { name: "vocals", deps: &["lyrics", "music"] },
-            DagNode { name: "video", deps: &["lyrics", "vocals"] },
-            DagNode { name: "render", deps: &["lyrics", "music", "vocals", "video"] },
+            DagNode {
+                name: "video_plan",
+                deps: &["lyrics", "vocals"],
+            },
+            DagNode {
+                name: "video_assemble",
+                deps: &["video_plan"],
+            },
+            DagNode {
+                name: "render",
+                deps: &["lyrics", "music", "vocals", "video_assemble"],
+            },
         ],
     }
 }

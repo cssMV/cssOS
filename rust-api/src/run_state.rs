@@ -1,6 +1,19 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+
+fn default_heartbeat_interval_seconds() -> u64 {
+    2
+}
+
+fn default_stage_timeout_seconds() -> u64 {
+    1800
+}
+
+fn default_stuck_timeout_seconds() -> u64 {
+    120
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunState {
@@ -27,7 +40,19 @@ pub struct RunState {
     #[serde(default)]
     pub artifacts: serde_json::Value,
 
+    #[serde(default)]
+    pub heartbeat_at: Option<String>,
+
+    #[serde(default)]
+    pub stuck_timeout_seconds: Option<u64>,
+
+    #[serde(default)]
+    pub cancel_requested: bool,
+
     pub stages: BTreeMap<String, StageRecord>,
+
+    #[serde(default)]
+    pub video_shots_total: Option<u32>,
 }
 
 impl RunState {
@@ -61,6 +86,15 @@ pub struct RunConfig {
     pub out_dir: PathBuf,
     pub wiki_enabled: bool,
     pub civ_linked: bool,
+
+    #[serde(default = "default_heartbeat_interval_seconds")]
+    pub heartbeat_interval_seconds: u64,
+
+    #[serde(default = "default_stage_timeout_seconds")]
+    pub stage_timeout_seconds: u64,
+
+    #[serde(default = "default_stuck_timeout_seconds")]
+    pub stuck_timeout_seconds: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,4 +141,10 @@ pub struct StageRecord {
 
     pub retries: u32,
     pub error: Option<String>,
+
+    #[serde(default)]
+    pub heartbeat_at: Option<String>,
+
+    #[serde(default)]
+    pub meta: Option<Value>,
 }

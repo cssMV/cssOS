@@ -12,13 +12,15 @@ pub struct MeterResult {
     pub monthly_limit_cents: i64,
 }
 
-pub async fn ensure_account(pool: &PgPool, user_id: Uuid) -> Result<(BillingAccount, bool), sqlx::Error> {
-    let account = sqlx::query_as::<_, BillingAccount>(
-        "SELECT * FROM billing_accounts WHERE user_id = $1",
-    )
-    .bind(user_id)
-    .fetch_optional(pool)
-    .await?;
+pub async fn ensure_account(
+    pool: &PgPool,
+    user_id: Uuid,
+) -> Result<(BillingAccount, bool), sqlx::Error> {
+    let account =
+        sqlx::query_as::<_, BillingAccount>("SELECT * FROM billing_accounts WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_optional(pool)
+            .await?;
 
     if let Some(account) = account {
         return Ok((account, false));
@@ -90,7 +92,9 @@ pub async fn meter_usage(
         .await?;
     }
 
-    if account.monthly_limit_cents > 0 && account.month_spend_cents + cost > account.monthly_limit_cents {
+    if account.monthly_limit_cents > 0
+        && account.month_spend_cents + cost > account.monthly_limit_cents
+    {
         sqlx::query(
             "INSERT INTO usage_events (user_id, route, units, unit_price_cents, cost_cents, allowed, blocked_reason, request_id, meta) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
         )
@@ -106,11 +110,19 @@ pub async fn meter_usage(
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        return Ok(MeterResult { allowed: false, balance_cents: account.balance_cents, month_spend_cents: account.month_spend_cents, monthly_limit_cents: account.monthly_limit_cents });
+        return Ok(MeterResult {
+            allowed: false,
+            balance_cents: account.balance_cents,
+            month_spend_cents: account.month_spend_cents,
+            monthly_limit_cents: account.monthly_limit_cents,
+        });
     }
 
     if account.balance_cents < cost {
-        if account.auto_recharge_enabled && account.has_payment_method && account.auto_recharge_amount_cents > 0 {
+        if account.auto_recharge_enabled
+            && account.has_payment_method
+            && account.auto_recharge_amount_cents > 0
+        {
             let new_balance = account.balance_cents + account.auto_recharge_amount_cents;
             sqlx::query(
                 "INSERT INTO ledger_entries (user_id, type, amount_cents, balance_after_cents, currency, note, meta) VALUES ($1,$2,$3,$4,$5,$6,$7)",
@@ -146,7 +158,12 @@ pub async fn meter_usage(
             .execute(&mut *tx)
             .await?;
             tx.commit().await?;
-            return Ok(MeterResult { allowed: false, balance_cents: account.balance_cents, month_spend_cents: account.month_spend_cents, monthly_limit_cents: account.monthly_limit_cents });
+            return Ok(MeterResult {
+                allowed: false,
+                balance_cents: account.balance_cents,
+                month_spend_cents: account.month_spend_cents,
+                monthly_limit_cents: account.monthly_limit_cents,
+            });
         }
     }
 
@@ -191,5 +208,10 @@ pub async fn meter_usage(
 
     tx.commit().await?;
 
-    Ok(MeterResult { allowed: true, balance_cents: new_balance, month_spend_cents: new_spend, monthly_limit_cents: account.monthly_limit_cents })
+    Ok(MeterResult {
+        allowed: true,
+        balance_cents: new_balance,
+        month_spend_cents: new_spend,
+        monthly_limit_cents: account.monthly_limit_cents,
+    })
 }

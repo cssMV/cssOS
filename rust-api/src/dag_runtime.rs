@@ -74,7 +74,10 @@ pub fn ensure_stage(state: &mut RunState, name: &str) {
             retries: 0,
             error: None,
             heartbeat_at: None,
+            last_heartbeat_at: None,
+            timeout_seconds: None,
             meta: None,
+            duration_seconds: None,
         },
     );
 }

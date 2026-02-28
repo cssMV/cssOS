@@ -1,5 +1,6 @@
 use crate::run_state::RunState;
 use crate::run_state_io::{load_state, save_state_atomic};
+use crate::dsl::compile::CompiledCommands;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -16,6 +17,10 @@ pub fn run_dir(run_id: &str) -> PathBuf {
 
 pub fn run_state_path(run_id: &str) -> PathBuf {
     run_dir(run_id).join("run.json")
+}
+
+pub fn compiled_commands_path(run_id: &str) -> PathBuf {
+    run_dir(run_id).join("compiled.commands.json")
 }
 
 pub fn load_run_state(run_id: &str) -> anyhow::Result<RunState> {
@@ -50,4 +55,21 @@ pub fn write_run_state(path: &Path, state: &RunState) -> io::Result<()> {
 
 pub fn read_run_state(path: &Path) -> io::Result<RunState> {
     load_state(path)
+}
+
+pub fn write_compiled_commands(run_id: &str, compiled: &CompiledCommands) -> io::Result<()> {
+    let p = compiled_commands_path(run_id);
+    if let Some(parent) = p.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let bytes = serde_json::to_vec_pretty(compiled)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+    fs::write(p, bytes)
+}
+
+pub fn read_compiled_commands(run_id: &str) -> io::Result<CompiledCommands> {
+    let p = compiled_commands_path(run_id);
+    let bytes = fs::read(p)?;
+    serde_json::from_slice::<CompiledCommands>(&bytes)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
 }

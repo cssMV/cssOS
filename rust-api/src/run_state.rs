@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use utoipa::ToSchema;
 
 fn default_heartbeat_interval_seconds() -> u64 {
     2
@@ -36,6 +37,8 @@ pub struct RunState {
 
     pub dag: DagMeta,
     pub topo_order: Vec<String>,
+    #[serde(default)]
+    pub dag_edges: BTreeMap<String, Vec<String>>,
 
     #[serde(default)]
     pub artifacts: serde_json::Value,
@@ -44,15 +47,24 @@ pub struct RunState {
     pub heartbeat_at: Option<String>,
 
     #[serde(default)]
+    pub last_heartbeat_at: Option<String>,
+
+    #[serde(default)]
     pub stuck_timeout_seconds: Option<u64>,
 
     #[serde(default)]
     pub cancel_requested: bool,
 
+    #[serde(default)]
+    pub cancel_requested_at: Option<String>,
+
     pub stages: BTreeMap<String, StageRecord>,
 
     #[serde(default)]
     pub video_shots_total: Option<u32>,
+
+    #[serde(default)]
+    pub total_duration_seconds: Option<f64>,
 }
 
 impl RunState {
@@ -109,7 +121,7 @@ pub struct DagMeta {
     pub schema: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub enum RunStatus {
     INIT,
     RUNNING,
@@ -146,5 +158,14 @@ pub struct StageRecord {
     pub heartbeat_at: Option<String>,
 
     #[serde(default)]
+    pub last_heartbeat_at: Option<String>,
+
+    #[serde(default)]
+    pub timeout_seconds: Option<u64>,
+
+    #[serde(default)]
     pub meta: Option<Value>,
+
+    #[serde(default)]
+    pub duration_seconds: Option<f64>,
 }

@@ -1,0 +1,37 @@
+name: cssapi-openapi
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  openapi:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust-api
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust-api -> target
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Generate openapi.json
+        run: |
+          cargo run --locked --bin cssos-rust-api -- --print-openapi > ../openapi.json
+
+      - name: Upload openapi.json artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cssapi-openapi-json
+          path: openapi.json
+          if-no-files-found: error

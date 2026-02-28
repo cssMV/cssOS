@@ -28,7 +28,7 @@ async fn metrics_handler() -> axum::response::Response {
             axum::http::header::CONTENT_TYPE,
             "text/plain; version=0.0.4; charset=utf-8",
         )],
-        crate::metrics::render_prometheus(),
+        crate::metrics::gather(),
     )
         .into_response()
 }
@@ -52,12 +52,12 @@ use chrono::Utc;
 use serde::Serialize;
 use serde_json::json;
 use sqlx::PgPool;
-use uuid::Uuid;
 
 use crate::auth::AuthSession;
 use crate::billing::{ensure_account, meter_usage, reset_month};
+use crate::cssapi::docs::docs_router;
 use crate::config::Config;
-use crate::cssapi_openapi;
+use crate::events::EventBus;
 use crate::jobs::Jobs;
 use crate::models::User;
 use crate::run_state::{DagMeta, RetryPolicy, RunConfig, RunState, RunStatus};
@@ -69,6 +69,7 @@ pub struct AppState {
     pub pool: PgPool,
     pub config: Config,
     pub jobs: Jobs,
+    pub event_bus: EventBus,
 }
 
 #[derive(Serialize)]
@@ -108,8 +109,9 @@ fn ok<T: Serialize>(data: T) -> axum::response::Response {
 
 pub fn router(state: AppState) -> Router {
     Router::new()
-        .merge(cssapi_openapi::router())
+        .merge(docs_router())
         .merge(runs_api::router())
+        .route("/cssapi/v1/ws", get(crate::ws::ws_handler))
         .route("/metrics", get(metrics_handler))
         .route("/api/health", get(health_handler))
         .route("/api/auth/providers", get(auth_providers))
@@ -146,6 +148,23 @@ async fn pipeline_start(
     let run_id = format!("run_{}", Utc::now().format("%Y%m%d_%H%M%S"));
     let now = Utc::now().to_rfc3339();
     let out_dir = body.out_dir.unwrap_or_else(|| "./build".to_string());
+    let dag = crate::dag::cssmv_dag_v1();
+    let topo_order = dag
+        .topo_order()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let dag_edges = dag
+        .nodes
+        .iter()
+        .map(|n| {
+            (
+                n.name.to_string(),
+                n.deps.iter().map(|d| (*d).to_string()).collect::<Vec<_>>(),
+            )
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
 
     let state = RunState {
         schema: "css.pipeline.run.v1".to_string(),
@@ -154,8 +173,10 @@ async fn pipeline_start(
         updated_at: now,
         status: RunStatus::INIT,
         heartbeat_at: None,
+        last_heartbeat_at: None,
         stuck_timeout_seconds: Some(120),
         cancel_requested: false,
+        cancel_requested_at: None,
         ui_lang: body.ui_lang,
         tier: body.tier,
         cssl: body.cssl,
@@ -175,12 +196,15 @@ async fn pipeline_start(
         dag: DagMeta {
             schema: "css.pipeline.dag.v1".to_string(),
         },
-        topo_order: vec![],
+        topo_order,
+        dag_edges,
         artifacts: serde_json::json!({}),
         stages: Default::default(),
         video_shots_total: None,
+        total_duration_seconds: None,
     };
 
+    crate::events::emit_snapshot(&state);
     tokio::spawn(async move {
         let _ = run_pipeline_default(state, body.commands).await;
     });

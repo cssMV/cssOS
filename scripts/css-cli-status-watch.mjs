@@ -37,22 +37,23 @@ function normalizeStages(v) {
 }
 
 function render(data) {
-  const status = data.status;
   const ready = normalizeStages(data.ready);
   const running = normalizeStages(data.running);
   const summary = (data && typeof data.summary === "object" && data.summary) || {};
-  const pending = Number(summary.pending ?? data.pending ?? 0);
-  const succeeded = Number(summary.succeeded ?? data.succeeded ?? 0);
-  const failed = Number(summary.failed ?? data.failed ?? 0);
-  const updatedAt = data.updated_at || data.heartbeat_at || summary.updated_at || "";
+  const pending = Number(summary.pending ?? 0);
+  const runningCount = Number(summary.running ?? running.length);
+  const succeeded = Number(summary.succeeded ?? 0);
+  const failed = Number(summary.failed ?? 0);
+  const skipped = Number(summary.skipped ?? 0);
+  const updatedAt = data.updated_at || "";
+  const status = String(data.status || "");
 
   const lines = [];
-  lines.push(`run_id: ${data.run_id}`);
-  lines.push(`status: ${status}`);
-  lines.push(`updated_at: ${updatedAt}`);
-  lines.push(`ready:   ${fmtList(ready)}`);
-  lines.push(`running: ${fmtList(running)}`);
-  lines.push(`summary: pending=${pending} succeeded=${succeeded} failed=${failed}`);
+  lines.push(`READY: ${ready.length ? ready.join(", ") : "-"}`);
+  lines.push(`RUNNING: ${running.length ? running.join(", ") : "-"}`);
+  lines.push(
+    `SUMMARY: pending=${pending} running=${runningCount} succeeded=${succeeded} failed=${failed} skipped=${skipped} status=${status} updated_at=${updatedAt}`
+  );
   return lines.join("\n");
 }
 
@@ -77,14 +78,15 @@ async function main() {
 
   const runId = args.run;
   const base = args.base;
-  const intervalMs = Number.isFinite(args.intervalMs) ? args.intervalMs : 500;
+  const intervalMs = 500;
 
   if (!args.watch) {
     const data = await fetchReady(base, runId);
     process.stdout.write(render(data) + "\n");
     const st = String(data.status || "");
     if (st === "SUCCEEDED") process.exit(0);
-    if (st === "FAILED" || st === "CANCELLED") process.exit(2);
+    if (st === "FAILED") process.exit(1);
+    if (st === "CANCELLED") process.exit(2);
     process.exit(0);
   }
 
@@ -102,7 +104,8 @@ async function main() {
 
       const st = String(data.status || "");
       if (st === "SUCCEEDED") process.exit(0);
-      if (st === "FAILED" || st === "CANCELLED") process.exit(2);
+      if (st === "FAILED") process.exit(1);
+      if (st === "CANCELLED") process.exit(2);
     } catch (e) {
       clearScreen();
       process.stdout.write(`status --watch error: ${e?.message || String(e)}\n`);

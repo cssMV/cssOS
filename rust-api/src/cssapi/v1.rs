@@ -3,8 +3,7 @@ use crate::run_state::RunState;
 use serde_json::json;
 
 pub fn ready_payload(st: &RunState) -> serde_json::Value {
-    let dag = crate::dag::cssmv_dag_v1();
-    let view = compute_ready_view(st, &dag);
+    let view = compute_ready_view(st);
 
     let running = view
         .running
@@ -17,13 +16,12 @@ pub fn ready_payload(st: &RunState) -> serde_json::Value {
 
     json!({
         "schema": "cssapi.runs.ready.v1",
-        "run_id": view.run_id,
+        "run_id": &st.run_id,
         "status": format!("{:?}", st.status),
-        "updated_at": view.updated_at,
+        "updated_at": &st.updated_at,
         "dag": {
-            "schema": view.dag_schema,
+            "schema": &st.dag.schema,
             "topo_order": view.topo_order,
-            "nodes": dag.nodes.iter().map(|n| json!({"name": n.name, "deps": n.deps})).collect::<Vec<_>>()
         },
         "ready": view.ready,
         "running": running,

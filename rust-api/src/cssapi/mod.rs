@@ -1,1 +1,9 @@
+pub mod docs;
+pub mod error;
+pub mod error_map;
+pub mod openapi;
+pub mod problem;
+pub mod response;
+pub mod request_id;
+pub mod trace;
 pub mod v1;

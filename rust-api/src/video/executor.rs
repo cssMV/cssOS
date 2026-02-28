@@ -11,7 +11,9 @@ use tokio::sync::Semaphore;
 
 use crate::video::error::VideoError;
 use crate::video::storyboard::{Bg, Camera, Overlay, Resolution, Shot, Storyboard, StoryboardV1};
+use crate::scheduler::Scheduler;
 
+#[derive(Clone)]
 pub struct VideoExecutor {
     pub out_dir: PathBuf,
     pub concurrency: usize,
@@ -259,6 +261,26 @@ impl VideoExecutor {
         }
     }
 
+    pub async fn render_shot_stub_with_sched(
+        &self,
+        sb: &StoryboardV1,
+        shot: &Shot,
+        scheduler: &Scheduler,
+    ) -> Result<RenderShotResult, VideoError> {
+        let _permit = scheduler
+            .ffmpeg_sem
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|e| VideoError(e.to_string()))?;
+        let this = self.clone();
+        let sbc = sb.clone();
+        let shotc = shot.clone();
+        tokio::task::spawn_blocking(move || this.render_shot_stub(&sbc, &shotc))
+            .await
+            .map_err(|e| VideoError(e.to_string()))?
+    }
+
     pub fn assemble(&self, sb: &StoryboardV1) -> Result<AssembleResult, VideoError> {
         fs::create_dir_all(self.video_dir())?;
         let list_path = self.video_dir().join("concat.txt");
@@ -296,6 +318,24 @@ impl VideoExecutor {
             ))),
             Err(e) => Err(VideoError(format!("ffmpeg assemble spawn failed: {e}"))),
         }
+    }
+
+    pub async fn assemble_with_sched(
+        &self,
+        sb: &StoryboardV1,
+        scheduler: &Scheduler,
+    ) -> Result<AssembleResult, VideoError> {
+        let _permit = scheduler
+            .ffmpeg_sem
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|e| VideoError(e.to_string()))?;
+        let this = self.clone();
+        let sbc = sb.clone();
+        tokio::task::spawn_blocking(move || this.assemble(&sbc))
+            .await
+            .map_err(|e| VideoError(e.to_string()))?
     }
 }
 

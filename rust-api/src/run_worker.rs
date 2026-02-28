@@ -4,6 +4,7 @@ use crate::runner::run_pipeline_default;
 use chrono::Utc;
 use serde_json::Value;
 use std::{
+    collections::BTreeMap,
     fs,
     path::PathBuf,
     sync::{
@@ -104,6 +105,21 @@ pub fn spawn_run_worker(run_dir: PathBuf, commands: Value) {
         };
 
         let now = Utc::now().to_rfc3339();
+        let dag = crate::dag::cssmv_dag_v1();
+        let topo_order = dag
+            .topo_order()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>();
+        let mut dag_edges: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for node in &dag.nodes {
+            dag_edges.insert(
+                node.name.to_string(),
+                node.deps.iter().map(|d| (*d).to_string()).collect(),
+            );
+        }
+
         let mut state = RunState {
             schema: "css.pipeline.run.v1".to_string(),
             run_id,
@@ -111,8 +127,10 @@ pub fn spawn_run_worker(run_dir: PathBuf, commands: Value) {
             updated_at: now,
             status: RunStatus::INIT,
             heartbeat_at: None,
+            last_heartbeat_at: None,
             stuck_timeout_seconds: Some(120),
             cancel_requested: false,
+            cancel_requested_at: None,
             ui_lang: "auto".to_string(),
             tier: "local".to_string(),
             cssl: "async-run-worker".to_string(),
@@ -132,10 +150,12 @@ pub fn spawn_run_worker(run_dir: PathBuf, commands: Value) {
             dag: DagMeta {
                 schema: "css.pipeline.dag.v1".to_string(),
             },
-            topo_order: vec![],
+            topo_order,
+            dag_edges,
             artifacts: serde_json::json!({}),
             stages: Default::default(),
             video_shots_total: None,
+            total_duration_seconds: None,
         };
 
         state.set_artifact_path("run.input.commands", commands);

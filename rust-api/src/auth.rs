@@ -18,9 +18,10 @@ where
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         let extensions = parts.extensions.clone();
-        let pool = extensions
-            .get::<PgPool>()
-            .ok_or((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "db missing".to_string()))?;
+        let pool = extensions.get::<PgPool>().ok_or((
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "db missing".to_string(),
+        ))?;
 
         let cookie_header = parts
             .headers
@@ -40,7 +41,11 @@ where
                 let mut parts = c.splitn(2, '=');
                 let name = parts.next()?;
                 let value = parts.next()?;
-                if name == session_cookie { Some(value.to_string()) } else { None }
+                if name == session_cookie {
+                    Some(value.to_string())
+                } else {
+                    None
+                }
             })
             .and_then(|id| Uuid::parse_str(&id).ok());
 
@@ -54,8 +59,15 @@ where
         .bind(session_id.unwrap())
         .fetch_optional(pool)
         .await
-        .map_err(|_| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "db error".to_string()))?;
+        .map_err(|_| {
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "db error".to_string(),
+            )
+        })?;
 
-        Ok(Self { user_id: session.map(|s| s.user_id) })
+        Ok(Self {
+            user_id: session.map(|s| s.user_id),
+        })
     }
 }

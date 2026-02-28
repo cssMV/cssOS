@@ -3,7 +3,8 @@ use std::{fs, path::Path};
 
 pub fn write_dag_html<P: AsRef<Path>>(out_path: P, dag_export_json: &Value) -> anyhow::Result<()> {
     let json_str = serde_json::to_string(dag_export_json)?;
-    let html = format!(r#"<!doctype html>
+    let html = format!(
+        r#"<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -197,7 +198,8 @@ function fmtMs(v) {{
 </script>
 </body>
 </html>
-"#);
+"#
+    );
 
     if let Some(parent) = out_path.as_ref().parent() {
         fs::create_dir_all(parent)?;

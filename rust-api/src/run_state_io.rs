@@ -3,6 +3,7 @@ use serde_json::to_vec_pretty;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use tokio::io::AsyncWriteExt;
 
 fn ensure_parent_dir(path: &Path) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
@@ -45,6 +46,26 @@ pub fn read_run_state(path: &Path) -> std::io::Result<RunState> {
 
 pub fn write_run_state_atomic(path: &Path, state: &RunState) -> std::io::Result<()> {
     save_state_atomic(path, state)
+}
+
+pub async fn load_run_state(path: &Path) -> anyhow::Result<RunState> {
+    let data = tokio::fs::read(path).await?;
+    let st: RunState = serde_json::from_slice(&data)?;
+    Ok(st)
+}
+
+pub async fn save_run_state_atomic(path: &Path, st: &RunState) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent() {
+        let _ = tokio::fs::create_dir_all(parent).await;
+    }
+    let tmp = tmp_path(path);
+    let data = serde_json::to_vec_pretty(st)?;
+    let mut f = tokio::fs::File::create(&tmp).await?;
+    f.write_all(&data).await?;
+    let _ = f.sync_all().await;
+    drop(f);
+    tokio::fs::rename(&tmp, path).await?;
+    Ok(())
 }
 
 fn tmp_path(path: &Path) -> PathBuf {

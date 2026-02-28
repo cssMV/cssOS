@@ -1,20 +1,17 @@
 use crate::dag::Dag;
 use crate::run_state::{RunState, StageStatus};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReadyView {
-    pub schema: String,
-    pub run_id: String,
-    pub updated_at: String,
-    pub dag_schema: String,
     pub topo_order: Vec<String>,
     pub ready: Vec<String>,
     pub running: Vec<String>,
     pub summary: ReadySummary,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, ToSchema)]
 pub struct ReadySummary {
     pub total: usize,
     pub pending: usize,
@@ -25,14 +22,14 @@ pub struct ReadySummary {
 }
 
 fn deps_for_stage(dag: &Dag, st: &RunState, stage: &str) -> Vec<String> {
-    if stage.starts_with("video_shot_") {
+    if stage.starts_with("video_shot_") || stage.starts_with("video.shot:") {
         return vec!["video_plan".to_string()];
     }
     if stage == "video_assemble" {
         let mut shots: Vec<String> = st
             .stages
             .keys()
-            .filter(|k| k.starts_with("video_shot_"))
+            .filter(|k| k.starts_with("video_shot_") || k.starts_with("video.shot:"))
             .cloned()
             .collect();
         shots.sort();
@@ -49,7 +46,11 @@ fn deps_for_stage(dag: &Dag, st: &RunState, stage: &str) -> Vec<String> {
 }
 
 fn deps_satisfied(dag: &Dag, st: &RunState, stage: &str) -> bool {
-    let deps = deps_for_stage(dag, st, stage);
+    let deps = st
+        .dag_edges
+        .get(stage)
+        .cloned()
+        .unwrap_or_else(|| deps_for_stage(dag, st, stage));
     deps.iter().all(|dep| {
         st.stages
             .get(dep)
@@ -72,7 +73,20 @@ pub fn stage_ready(dag: &Dag, st: &RunState, stage: &str) -> bool {
     deps_satisfied(dag, st, stage)
 }
 
-pub fn compute_ready_view(st: &RunState, dag: &Dag) -> ReadyView {
+pub fn compute_ready_view(st: &RunState) -> ReadyView {
+    compute_ready_view_limited(st, 64)
+}
+
+pub fn compute_ready_view_limited(st: &RunState, limit: usize) -> ReadyView {
+    let dag = crate::dag::cssmv_dag_v1();
+    compute_ready_view_with_dag_limited(st, &dag, limit)
+}
+
+pub fn compute_ready_view_with_dag(st: &RunState, dag: &Dag) -> ReadyView {
+    compute_ready_view_with_dag_limited(st, dag, 64)
+}
+
+pub fn compute_ready_view_with_dag_limited(st: &RunState, dag: &Dag, limit: usize) -> ReadyView {
     let mut running: Vec<String> = Vec::new();
     let mut ready: Vec<String> = Vec::new();
     let mut summary = ReadySummary {
@@ -89,7 +103,7 @@ pub fn compute_ready_view(st: &RunState, dag: &Dag) -> ReadyView {
         match rec.status {
             StageStatus::PENDING => {
                 summary.pending += 1;
-                if stage_ready(dag, st, name) {
+                if ready.len() < limit && !st.cancel_requested && deps_satisfied(dag, st, name) {
                     ready.push(name.clone());
                 }
             }
@@ -104,13 +118,24 @@ pub fn compute_ready_view(st: &RunState, dag: &Dag) -> ReadyView {
     }
 
     ReadyView {
-        schema: "css.pipeline.ready.v1".to_string(),
-        run_id: st.run_id.clone(),
-        updated_at: st.updated_at.clone(),
-        dag_schema: st.dag.schema.clone(),
         topo_order: st.topo_order.clone(),
         ready,
         running,
         summary,
     }
+}
+
+pub fn any_failed(st: &RunState) -> bool {
+    st.stages
+        .values()
+        .any(|r| matches!(r.status, StageStatus::FAILED))
+}
+
+pub fn all_done(st: &RunState) -> bool {
+    st.stages.values().all(|r| {
+        matches!(
+            r.status,
+            StageStatus::SUCCEEDED | StageStatus::FAILED | StageStatus::SKIPPED
+        )
+    })
 }

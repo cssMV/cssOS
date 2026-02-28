@@ -1,44 +1,47 @@
-type ReadyResp = {
-  schema: string;
-  run_id: string;
-  updated_at: string;
-  status: string;
-  ready: string[];
-  running: string[] | { stage: string }[];
-  blocked?: string[];
-  done?: string[];
-  summary?: {
-    total?: number;
-    pending?: number;
-    running?: number;
-    succeeded?: number;
-    failed?: number;
-    skipped?: number;
-    status?: string;
-    updated_at?: string;
+import process from "node:process";
+import WebSocket from "ws";
+
+type SnapshotEvent = {
+  event: "snapshot";
+  data: {
+    run_id: string;
+    updated_at: string;
+    status: string;
+    ready: string[];
+    running: string[];
+    summary?: {
+      pending?: number;
+      running?: number;
+      succeeded?: number;
+      failed?: number;
+      skipped?: number;
+    };
   };
-  dag?: { schema?: string; topo_order?: string[] } | any;
 };
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function uniq(arr: string[]) {
-  return Array.from(new Set(arr));
+function fmtList(label: string, xs: string[]) {
+  return `${label}: ${xs.length ? xs.join(", ") : "-"}`;
 }
 
-function fmtList(label: string, xs: string[], max = 12) {
-  const items = xs.slice(0, max);
-  const more = xs.length > max ? ` (+${xs.length - max})` : "";
-  return `${label}: ${items.length ? items.join(", ") : "-"}${more}`;
+function toWsUrl(baseUrl: string): string {
+  const u = new URL(baseUrl);
+  u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
+  u.pathname = "/cssapi/v1/ws";
+  u.search = "";
+  return u.toString();
 }
 
-function normalizeRunning(running: ReadyResp["running"]): string[] {
-  if (!Array.isArray(running)) return [];
-  if (running.length === 0) return [];
-  if (typeof running[0] === "string") return running as string[];
-  return (running as { stage: string }[]).map((x) => x.stage).filter(Boolean);
+function render(snapshot: SnapshotEvent["data"]) {
+  process.stdout.write("\x1b[2J\x1b[H");
+  process.stdout.write(fmtList("READY", snapshot.ready || []) + "\n");
+  process.stdout.write(fmtList("RUNNING", snapshot.running || []) + "\n");
+  process.stdout.write(
+    `SUMMARY: pending=${snapshot.summary?.pending ?? "-"} running=${snapshot.summary?.running ?? "-"} succeeded=${snapshot.summary?.succeeded ?? "-"} failed=${snapshot.summary?.failed ?? "-"} skipped=${snapshot.summary?.skipped ?? "-"} status=${snapshot.status} updated_at=${snapshot.updated_at}\n`
+  );
 }
 
 export async function statusWatch(opts: {
@@ -46,65 +49,51 @@ export async function statusWatch(opts: {
   runId: string;
   intervalMs?: number;
 }) {
-  const intervalMs = opts.intervalMs ?? 500;
-  const base = opts.baseUrl.replace(/\/+$/, "");
-  const url = `${base}/cssapi/v1/runs/${encodeURIComponent(opts.runId)}/ready`;
+  const wsUrl = toWsUrl(opts.baseUrl);
 
   for (;;) {
-    let data: ReadyResp | null = null;
-    let err: string | null = null;
+    const ws = new WebSocket(wsUrl);
 
-    try {
-      const r = await fetch(url, { method: "GET" });
-      if (!r.ok) {
-        err = `HTTP ${r.status}`;
-      } else {
-        data = (await r.json()) as ReadyResp;
-      }
-    } catch (e: unknown) {
-      err = e instanceof Error ? e.message : String(e);
+    const code = await new Promise<number>((resolve) => {
+      let done = false;
+      const finish = (exitCode: number) => {
+        if (done) return;
+        done = true;
+        try {
+          ws.close();
+        } catch {}
+        resolve(exitCode);
+      };
+
+      ws.on("open", () => {
+        ws.send(JSON.stringify({ run_id: opts.runId }));
+      });
+
+      ws.on("message", (buf: WebSocket.RawData) => {
+        let ev: SnapshotEvent;
+        try {
+          ev = JSON.parse(buf.toString()) as SnapshotEvent;
+        } catch {
+          return;
+        }
+        if (ev.event !== "snapshot") return;
+        const s = ev.data;
+        if (!s || s.run_id !== opts.runId) return;
+        render(s);
+
+        if (String(s.status).includes("SUCCEEDED")) return finish(0);
+        if (String(s.status).includes("FAILED")) return finish(1);
+        if (String(s.status).includes("CANCELLED")) return finish(2);
+      });
+
+      ws.on("error", () => finish(99));
+      ws.on("close", () => finish(99));
+    });
+
+    if (code !== 99) {
+      process.exit(code);
     }
-
-    process.stdout.write("\x1b[2J\x1b[H");
-
-    if (err || !data) {
-      process.stdout.write(`run=${opts.runId}\n`);
-      process.stdout.write(`error=${err || "unknown"}\n`);
-      await sleep(intervalMs);
-      continue;
-    }
-
-    const ready = uniq(data.ready || []);
-    const running = uniq(normalizeRunning(data.running));
-    const done = (data.done || []).length;
-    const blocked = (data.blocked || []).length;
-
-    process.stdout.write(`run=${data.run_id}  status=${data.status}  updated_at=${data.updated_at}\n`);
-    if (data.dag?.topo_order?.length) {
-      process.stdout.write(`dag=${data.dag.schema || "-"}  nodes=${data.dag.topo_order.length}\n`);
-    }
-    process.stdout.write("\n");
-    process.stdout.write(fmtList("READY", ready) + "\n");
-    process.stdout.write(fmtList("RUNNING", running) + "\n");
-    process.stdout.write("\n");
-
-    if (data.summary) {
-      process.stdout.write(
-        `SUMMARY total=${data.summary.total ?? "-"} pending=${data.summary.pending ?? "-"} running=${data.summary.running ?? "-"} succeeded=${data.summary.succeeded ?? "-"} failed=${data.summary.failed ?? "-"} skipped=${data.summary.skipped ?? "-"}\n`
-      );
-    }
-
-    process.stdout.write(`DONE=${done}  BLOCKED=${blocked}\n`);
-
-    if (
-      String(data.status).includes("SUCCEEDED") ||
-      String(data.status).includes("FAILED") ||
-      String(data.status).includes("CANCELLED")
-    ) {
-      process.stdout.write("\nfinished\n");
-      return;
-    }
-
-    await sleep(intervalMs);
+    process.stderr.write("ws disconnected, reconnecting...\n");
+    await sleep(500);
   }
 }

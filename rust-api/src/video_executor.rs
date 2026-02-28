@@ -81,7 +81,10 @@ pub struct VideoExecResult {
     pub shot_metrics: Vec<ShotMetric>,
 }
 
-pub fn run_video_executor_v1(storyboard_path: &Path, cfg: VideoExecConfig) -> Result<VideoExecResult> {
+pub fn run_video_executor_v1(
+    storyboard_path: &Path,
+    cfg: VideoExecConfig,
+) -> Result<VideoExecResult> {
     let sb: StoryboardV1 = read_json(storyboard_path)
         .with_context(|| format!("read storyboard: {}", storyboard_path.display()))?;
 
@@ -109,41 +112,39 @@ pub fn run_video_executor_v1(storyboard_path: &Path, cfg: VideoExecConfig) -> Re
         let res = sb.resolution.clone();
         let fps = sb.fps;
 
-        workers.push(thread::spawn(move || {
-            loop {
-                let shot = {
-                    let guard = rx.lock().unwrap();
-                    guard.recv()
-                };
-                let shot = match shot {
-                    Ok(s) => s,
-                    Err(_) => break,
-                };
+        workers.push(thread::spawn(move || loop {
+            let shot = {
+                let guard = rx.lock().unwrap();
+                guard.recv()
+            };
+            let shot = match shot {
+                Ok(s) => s,
+                Err(_) => break,
+            };
 
-                let started_at = OffsetDateTime::now_utc();
-                let t0 = Instant::now();
+            let started_at = OffsetDateTime::now_utc();
+            let t0 = Instant::now();
 
-                let out_mp4 = cfg2.workdir.join("shots").join(format!("{}.mp4", shot.id));
-                let r = render_shot_ffmpeg(&shot, &res, fps, &cfg2, &cfg2.workdir.join("shots"));
+            let out_mp4 = cfg2.workdir.join("shots").join(format!("{}.mp4", shot.id));
+            let r = render_shot_ffmpeg(&shot, &res, fps, &cfg2, &cfg2.workdir.join("shots"));
 
-                let ended_at = OffsetDateTime::now_utc();
-                let dur_ms = t0.elapsed().as_millis() as i64;
+            let ended_at = OffsetDateTime::now_utc();
+            let dur_ms = t0.elapsed().as_millis() as i64;
 
-                match r {
-                    Ok(_) => {
-                        let mut g = metrics.lock().unwrap();
-                        g.push(ShotMetric {
-                            id: shot.id.clone(),
-                            started_at,
-                            ended_at,
-                            duration_ms: dur_ms,
-                            output_mp4: out_mp4.display().to_string(),
-                        });
-                    }
-                    Err(e) => {
-                        let mut g = errs.lock().unwrap();
-                        g.push(e);
-                    }
+            match r {
+                Ok(_) => {
+                    let mut g = metrics.lock().unwrap();
+                    g.push(ShotMetric {
+                        id: shot.id.clone(),
+                        started_at,
+                        ended_at,
+                        duration_ms: dur_ms,
+                        output_mp4: out_mp4.display().to_string(),
+                    });
+                }
+                Err(e) => {
+                    let mut g = errs.lock().unwrap();
+                    g.push(e);
                 }
             }
         }));
@@ -200,10 +201,14 @@ fn ffmpeg_concat(ffmpeg: &str, concat_txt: &Path, out_mp4: &Path) -> Result<()> 
     let status = Command::new(ffmpeg)
         .args([
             "-y",
-            "-f","concat",
-            "-safe","0",
-            "-i", concat_txt.to_str().unwrap(),
-            "-c","copy",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            concat_txt.to_str().unwrap(),
+            "-c",
+            "copy",
             out_mp4.to_str().unwrap(),
         ])
         .status()
@@ -230,12 +235,15 @@ fn render_shot_ffmpeg(
 
     match &shot.bg {
         BgSpec::Color { value } => {
-            cmd.args(["-f","lavfi"]);
+            cmd.args(["-f", "lavfi"]);
             cmd.arg("-i");
-            cmd.arg(format!("color=c={}:s={}x{}:r={}:d={}", value, res.w, res.h, fps, dur));
+            cmd.arg(format!(
+                "color=c={}:s={}x{}:r={}:d={}",
+                value, res.w, res.h, fps, dur
+            ));
         }
         BgSpec::Image { path } => {
-            cmd.args(["-loop","1","-t"]);
+            cmd.args(["-loop", "1", "-t"]);
             cmd.arg(format!("{dur}"));
             cmd.arg("-i");
             cmd.arg(path);
@@ -245,11 +253,13 @@ fn render_shot_ffmpeg(
     let vf = build_vf(shot, res, fps)?;
     cmd.args(["-vf", &vf]);
     cmd.args(["-r", &fps.to_string()]);
-    cmd.args(["-pix_fmt","yuv420p"]);
-    cmd.args(["-c:v","libx264","-preset","veryfast","-crf","18"]);
+    cmd.args(["-pix_fmt", "yuv420p"]);
+    cmd.args(["-c:v", "libx264", "-preset", "veryfast", "-crf", "18"]);
     cmd.arg(out.to_str().unwrap());
 
-    let status = cmd.status().with_context(|| format!("spawn ffmpeg for {}", shot.id))?;
+    let status = cmd
+        .status()
+        .with_context(|| format!("spawn ffmpeg for {}", shot.id))?;
     if !status.success() {
         bail!("ffmpeg shot {} failed: exit={:?}", shot.id, status.code());
     }

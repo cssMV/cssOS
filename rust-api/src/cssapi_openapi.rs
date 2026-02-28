@@ -72,6 +72,36 @@ pub struct RunsListV1 {
     pub items: Vec<RunsListItemV1>,
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ReadyDagV1 {
+    pub schema: String,
+    pub concurrency: i64,
+    pub nodes_total: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ReadySummaryV1 {
+    pub total: i64,
+    pub pending: i64,
+    pub running: i64,
+    pub succeeded: i64,
+    pub failed: i64,
+    pub skipped: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ReadyResponseV1 {
+    pub schema: String,
+    pub run_id: String,
+    pub status: String,
+    pub dag: ReadyDagV1,
+    pub topo_order: Vec<String>,
+    pub ready: Vec<String>,
+    pub running: Vec<String>,
+    pub summary: ReadySummaryV1,
+    pub updated_at: String,
+}
+
 #[utoipa::path(
     get,
     path = "/api/pipeline/status",
@@ -147,6 +177,19 @@ fn _doc_runs_get() {}
 )]
 fn _doc_runs_status() {}
 
+#[utoipa::path(
+    get,
+    path = "/cssapi/v1/runs/{run_id}/ready",
+    params(
+        ("run_id" = String, Path, description = "Run id")
+    ),
+    responses(
+        (status = 200, description = "Run ready view", body = ReadyResponseV1),
+        (status = 404, description = "Not found", body = ErrorV1)
+    )
+)]
+fn _doc_runs_ready() {}
+
 #[derive(OpenApi)]
 #[openapi(
     paths(
@@ -155,7 +198,8 @@ fn _doc_runs_status() {}
         _doc_runs_create,
         _doc_runs_list,
         _doc_runs_get,
-        _doc_runs_status
+        _doc_runs_status,
+        _doc_runs_ready
     ),
     components(
         schemas(
@@ -167,7 +211,10 @@ fn _doc_runs_status() {}
             CreateRunRequestV1,
             RunCreatedV1,
             RunsListItemV1,
-            RunsListV1
+            RunsListV1,
+            ReadyDagV1,
+            ReadySummaryV1,
+            ReadyResponseV1
         )
     ),
     tags(
@@ -180,9 +227,7 @@ pub fn router<S>() -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
 {
-    Router::new()
-        .merge(
-            SwaggerUi::new("/cssapi/v1/docs")
-                .url("/cssapi/v1/openapi.json", CssApiDoc::openapi()),
-        )
+    Router::new().merge(
+        SwaggerUi::new("/cssapi/v1/docs").url("/cssapi/v1/openapi.json", CssApiDoc::openapi()),
+    )
 }

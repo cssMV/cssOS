@@ -113,7 +113,10 @@ async fn runs_create(
     };
 
     if !jobs::queue::claim_run(&run_id).await {
-        return Err((StatusCode::CONFLICT, "run already queued/running".to_string()));
+        return Err((
+            StatusCode::CONFLICT,
+            "run already queued/running".to_string(),
+        ));
     }
 
     jobs::queue::push(jobs::queue::Job {
@@ -140,7 +143,8 @@ async fn runs_create(
 
 async fn runs_get(Path(run_id): Path<String>) -> Result<Json<RunState>, (StatusCode, String)> {
     let p = run_store::run_state_path(&run_id);
-    let s = run_store::read_run_state(&p).map_err(|_| (StatusCode::NOT_FOUND, "run not found".to_string()))?;
+    let s = run_store::read_run_state(&p)
+        .map_err(|_| (StatusCode::NOT_FOUND, "run not found".to_string()))?;
     Ok(Json(s))
 }
 
@@ -148,7 +152,8 @@ async fn runs_status(
     Path(run_id): Path<String>,
 ) -> Result<Json<RunsStatusResponse>, (StatusCode, String)> {
     let p = run_store::run_state_path(&run_id);
-    let s = run_store::read_run_state(&p).map_err(|_| (StatusCode::NOT_FOUND, "run not found".to_string()))?;
+    let s = run_store::read_run_state(&p)
+        .map_err(|_| (StatusCode::NOT_FOUND, "run not found".to_string()))?;
     Ok(Json(RunsStatusResponse {
         schema: "cssapi.runs.status.v1",
         run_id: s.run_id,
@@ -170,13 +175,16 @@ async fn run_ready(
     Ok(Json(cssapi_v1::ready_payload(&state)))
 }
 
-
-async fn run_cancel(Path(run_id): Path<String>) -> Result<(StatusCode, Json<CancelResponse>), (StatusCode, String)> {
+async fn run_cancel(
+    Path(run_id): Path<String>,
+) -> Result<(StatusCode, Json<CancelResponse>), (StatusCode, String)> {
     let p = run_store::run_state_path(&run_id);
-    let mut s = run_store::read_run_state(&p).map_err(|_| (StatusCode::NOT_FOUND, "run not found".to_string()))?;
+    let mut s = run_store::read_run_state(&p)
+        .map_err(|_| (StatusCode::NOT_FOUND, "run not found".to_string()))?;
     s.cancel_requested = true;
     s.updated_at = chrono::Utc::now().to_rfc3339();
-    run_store::write_run_state(&p, &s).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    run_store::write_run_state(&p, &s)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok((
         StatusCode::ACCEPTED,

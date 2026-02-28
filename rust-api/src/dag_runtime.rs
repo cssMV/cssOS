@@ -18,7 +18,9 @@ pub fn compute_ready_view(state: &RunState, deps: &BTreeMap<String, Vec<String>>
     for (name, rec) in &state.stages {
         match rec.status {
             StageStatus::RUNNING => running.push(name.clone()),
-            StageStatus::SUCCEEDED | StageStatus::SKIPPED | StageStatus::FAILED => done.push(name.clone()),
+            StageStatus::SUCCEEDED | StageStatus::SKIPPED | StageStatus::FAILED => {
+                done.push(name.clone())
+            }
             StageStatus::PENDING => {
                 if deps_satisfied(name, state, deps) {
                     ready.push(name.clone());
@@ -34,13 +36,20 @@ pub fn compute_ready_view(state: &RunState, deps: &BTreeMap<String, Vec<String>>
     blocked.sort();
     done.sort();
 
-    ReadyView { ready, running, blocked, done }
+    ReadyView {
+        ready,
+        running,
+        blocked,
+        done,
+    }
 }
 
 fn deps_satisfied(stage: &str, state: &RunState, deps: &BTreeMap<String, Vec<String>>) -> bool {
     let ds = deps.get(stage).cloned().unwrap_or_default();
     for d in ds {
-        let Some(r) = state.stages.get(&d) else { return false; };
+        let Some(r) = state.stages.get(&d) else {
+            return false;
+        };
         match r.status {
             StageStatus::SUCCEEDED | StageStatus::SKIPPED => {}
             _ => return false,
@@ -70,7 +79,11 @@ pub fn ensure_stage(state: &mut RunState, name: &str) {
     );
 }
 
-pub fn set_downstream_pending(state: &mut RunState, start: &str, deps: &BTreeMap<String, Vec<String>>) {
+pub fn set_downstream_pending(
+    state: &mut RunState,
+    start: &str,
+    deps: &BTreeMap<String, Vec<String>>,
+) {
     let mut rev: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for (k, ds) in deps {
         for d in ds {

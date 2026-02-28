@@ -51,7 +51,9 @@ pub async fn receiver() -> Option<Arc<Mutex<mpsc::Receiver<Job>>>> {
 
 pub async fn claim_run(run_id: &str) -> bool {
     let g = QUEUE.lock().await;
-    let Some(inner) = g.as_ref() else { return false; };
+    let Some(inner) = g.as_ref() else {
+        return false;
+    };
     let mut set = inner.queued_or_running.lock().await;
     if set.contains(run_id) {
         return false;
@@ -72,5 +74,7 @@ pub async fn push(job: Job) -> anyhow::Result<()> {
     let Some(h) = handle().await else {
         anyhow::bail!("job queue not initialized");
     };
-    h.tx.send(job).await.map_err(|e| anyhow::anyhow!(e.to_string()))
+    h.tx.send(job)
+        .await
+        .map_err(|e| anyhow::anyhow!(e.to_string()))
 }

@@ -45,7 +45,12 @@ impl VideoExecutor {
         }
     }
 
-    pub fn with_options(out_dir: PathBuf, concurrency: usize, stub: bool, cancel: Arc<AtomicBool>) -> Self {
+    pub fn with_options(
+        out_dir: PathBuf,
+        concurrency: usize,
+        stub: bool,
+        cancel: Arc<AtomicBool>,
+    ) -> Self {
         Self {
             out_dir,
             concurrency: concurrency.max(1),
@@ -151,7 +156,15 @@ impl VideoExecutor {
 
         let final_mp4 = out_dir.join("video.mp4");
         if self.stub {
-            make_stub_mp4(&final_mp4, sb.fps, sb.resolution.w, sb.resolution.h, 1.0, "#000000").await?;
+            make_stub_mp4(
+                &final_mp4,
+                sb.fps,
+                sb.resolution.w,
+                sb.resolution.h,
+                1.0,
+                "#000000",
+            )
+            .await?;
         } else {
             stitch_concat(&final_mp4, &list_path).await?;
         }
@@ -182,8 +195,14 @@ impl VideoExecutor {
             shots.push(Shot {
                 id: format!("video_shot_{:03}", i),
                 duration_s: 4.0,
-                bg: Bg { kind: "color".to_string(), value: if i % 2 == 0 { "#101820" } else { "#0B1020" }.to_string() },
-                camera: Camera { r#move: if i % 2 == 0 { "push_in" } else { "pan_right" }.to_string(), strength: 0.4 },
+                bg: Bg {
+                    kind: "color".to_string(),
+                    value: if i % 2 == 0 { "#101820" } else { "#0B1020" }.to_string(),
+                },
+                camera: Camera {
+                    r#move: if i % 2 == 0 { "push_in" } else { "pan_right" }.to_string(),
+                    strength: 0.4,
+                },
                 overlay: Overlay { enabled: false },
             });
         }
@@ -206,7 +225,11 @@ impl VideoExecutor {
         Ok(sb)
     }
 
-    pub fn render_shot_stub(&self, sb: &StoryboardV1, shot: &Shot) -> Result<RenderShotResult, VideoError> {
+    pub fn render_shot_stub(
+        &self,
+        sb: &StoryboardV1,
+        shot: &Shot,
+    ) -> Result<RenderShotResult, VideoError> {
         fs::create_dir_all(self.shots_dir())?;
         let mp4 = self.shots_dir().join(format!("{}.mp4", shot.id));
         if mp4.exists() {
@@ -226,8 +249,13 @@ impl VideoExecutor {
             .status();
         match status {
             Ok(s) if s.success() => Ok(RenderShotResult { mp4_path: mp4 }),
-            Ok(s) => Err(VideoError(format!("ffmpeg render_shot_stub failed: exit={}", s.code().unwrap_or(-1)))),
-            Err(e) => Err(VideoError(format!("ffmpeg render_shot_stub spawn failed: {e}"))),
+            Ok(s) => Err(VideoError(format!(
+                "ffmpeg render_shot_stub failed: exit={}",
+                s.code().unwrap_or(-1)
+            ))),
+            Err(e) => Err(VideoError(format!(
+                "ffmpeg render_shot_stub spawn failed: {e}"
+            ))),
         }
     }
 
@@ -240,7 +268,8 @@ impl VideoExecutor {
             if !mp4.exists() {
                 return Err(VideoError(format!("missing shot mp4: {}", mp4.display())));
             }
-            let abs = fs::canonicalize(&mp4).map_err(|e| VideoError(format!("canonicalize failed {}: {e}", mp4.display())))?;
+            let abs = fs::canonicalize(&mp4)
+                .map_err(|e| VideoError(format!("canonicalize failed {}: {e}", mp4.display())))?;
             list.push_str("file '");
             list.push_str(&abs.to_string_lossy().replace('\'', "\\\\'"));
             list.push_str("'\n");
@@ -261,14 +290,18 @@ impl VideoExecutor {
 
         match status {
             Ok(s) if s.success() => Ok(AssembleResult { video_mp4: out }),
-            Ok(s) => Err(VideoError(format!("ffmpeg assemble failed: exit={}", s.code().unwrap_or(-1)))),
+            Ok(s) => Err(VideoError(format!(
+                "ffmpeg assemble failed: exit={}",
+                s.code().unwrap_or(-1)
+            ))),
             Err(e) => Err(VideoError(format!("ffmpeg assemble spawn failed: {e}"))),
         }
     }
 }
 
 fn load_storyboard(path: &Path) -> Result<Storyboard> {
-    let s = fs::read_to_string(path).with_context(|| format!("read storyboard {}", path.display()))?;
+    let s =
+        fs::read_to_string(path).with_context(|| format!("read storyboard {}", path.display()))?;
     let sb: Storyboard = serde_json::from_str(&s).context("parse storyboard")?;
     Ok(sb)
 }
@@ -285,7 +318,6 @@ fn write_concat_list(path: &Path, shots: &[PathBuf]) -> Result<()> {
     fs::write(path, out).with_context(|| format!("write {}", path.display()))?;
     Ok(())
 }
-
 
 async fn stitch_concat(out_mp4: &Path, list_path: &Path) -> Result<()> {
     let mut cmd = TokCommand::new("ffmpeg");
@@ -309,8 +341,22 @@ async fn stitch_concat(out_mp4: &Path, list_path: &Path) -> Result<()> {
     Ok(())
 }
 
-async fn make_color_mp4(out_mp4: &Path, fps: u32, w: u32, h: u32, dur: f64, color: &str) -> Result<()> {
-    let filter = format!("color=c={}:s={}x{}:r={}:d={}", normalize_color(color), w, h, fps, dur);
+async fn make_color_mp4(
+    out_mp4: &Path,
+    fps: u32,
+    w: u32,
+    h: u32,
+    dur: f64,
+    color: &str,
+) -> Result<()> {
+    let filter = format!(
+        "color=c={}:s={}x{}:r={}:d={}",
+        normalize_color(color),
+        w,
+        h,
+        fps,
+        dur
+    );
     let mut cmd = TokCommand::new("ffmpeg");
     cmd.arg("-y")
         .arg("-f")
@@ -330,7 +376,14 @@ async fn make_color_mp4(out_mp4: &Path, fps: u32, w: u32, h: u32, dur: f64, colo
     Ok(())
 }
 
-async fn make_stub_mp4(out_mp4: &Path, fps: u32, w: u32, h: u32, dur: f64, color: &str) -> Result<()> {
+async fn make_stub_mp4(
+    out_mp4: &Path,
+    fps: u32,
+    w: u32,
+    h: u32,
+    dur: f64,
+    color: &str,
+) -> Result<()> {
     make_color_mp4(out_mp4, fps, w, h, dur, color).await
 }
 

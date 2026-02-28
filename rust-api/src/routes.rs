@@ -1,4 +1,3 @@
-
 use axum::extract::Query;
 
 #[derive(serde::Deserialize)]
@@ -43,12 +42,11 @@ async fn health_handler() -> axum::response::Response {
 }
 
 use axum::{
-    response::IntoResponse,
     extract::State,
     http::HeaderMap,
+    response::IntoResponse,
     routing::{get, post},
-    Json,
-    Router,
+    Json, Router,
 };
 use chrono::Utc;
 use serde::Serialize;
@@ -58,13 +56,13 @@ use uuid::Uuid;
 
 use crate::auth::AuthSession;
 use crate::billing::{ensure_account, meter_usage, reset_month};
-use crate::cssapi_openapi;
 use crate::config::Config;
-use crate::models::User;
-use crate::runs_api;
+use crate::cssapi_openapi;
 use crate::jobs::Jobs;
-use crate::run_state::{DagMeta, RunConfig, RunState, RunStatus, RetryPolicy};
+use crate::models::User;
+use crate::run_state::{DagMeta, RetryPolicy, RunConfig, RunState, RunStatus};
 use crate::runner::run_pipeline_default;
+use crate::runs_api;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -81,10 +79,22 @@ struct ApiResponse<T> {
     data: T,
 }
 
-fn respond<T: Serialize>(status: &str, message: Option<String>, data: T) -> axum::response::Response {
+fn respond<T: Serialize>(
+    status: &str,
+    message: Option<String>,
+    data: T,
+) -> axum::response::Response {
     let mut headers = HeaderMap::new();
-    headers.insert(axum::http::header::CACHE_CONTROL, "no-store".parse().unwrap());
-    let body = Json(ApiResponse { ok: true, status: status.into(), message, data });
+    headers.insert(
+        axum::http::header::CACHE_CONTROL,
+        "no-store".parse().unwrap(),
+    );
+    let body = Json(ApiResponse {
+        ok: true,
+        status: status.into(),
+        message,
+        data,
+    });
     (headers, body).into_response()
 }
 
@@ -105,9 +115,15 @@ pub fn router(state: AppState) -> Router {
         .route("/api/auth/providers", get(auth_providers))
         .route("/api/me", get(me))
         .route("/api/billing/status", get(billing_status))
-        .route("/api/billing/usage", post(billing_usage).get(billing_usage_list))
+        .route(
+            "/api/billing/usage",
+            post(billing_usage).get(billing_usage_list),
+        )
         .route("/api/pipeline/start", post(pipeline_start))
-        .route("/api/pipeline/status", axum::routing::get(pipeline_status_handler))
+        .route(
+            "/api/pipeline/status",
+            axum::routing::get(pipeline_status_handler),
+        )
         .route("/api/health/db", get(health_db))
         .with_state(state)
 }
@@ -156,7 +172,9 @@ async fn pipeline_start(
             backoff_base_seconds: 2,
             strategy: "exponential".to_string(),
         },
-        dag: DagMeta { schema: "css.pipeline.dag.v1".to_string() },
+        dag: DagMeta {
+            schema: "css.pipeline.dag.v1".to_string(),
+        },
         topo_order: vec![],
         artifacts: serde_json::json!({}),
         stages: Default::default(),
@@ -172,16 +190,34 @@ async fn pipeline_start(
 
 async fn auth_providers(State(_state): State<AppState>) -> axum::response::Response {
     let providers = vec![
-        ("google", "Google", ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]),
-        ("github", "GitHub", ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"]),
+        (
+            "google",
+            "Google",
+            ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
+        ),
+        (
+            "github",
+            "GitHub",
+            ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"],
+        ),
         ("x", "X", ["X_CLIENT_ID", "X_CLIENT_SECRET"]),
-        ("bsky", "Bluesky", ["BLUESKY_HANDLE", "BLUESKY_APP_PASSWORD"]),
-        ("tiktok", "TikTok", ["TIKTOK_CLIENT_ID", "TIKTOK_CLIENT_SECRET"]),
+        (
+            "bsky",
+            "Bluesky",
+            ["BLUESKY_HANDLE", "BLUESKY_APP_PASSWORD"],
+        ),
+        (
+            "tiktok",
+            "TikTok",
+            ["TIKTOK_CLIENT_ID", "TIKTOK_CLIENT_SECRET"],
+        ),
     ];
     let list: Vec<_> = providers
         .into_iter()
         .map(|(id, name, envs)| {
-            let enabled = envs.iter().all(|k| std::env::var(k).ok().filter(|v| !v.is_empty()).is_some());
+            let enabled = envs
+                .iter()
+                .all(|k| std::env::var(k).ok().filter(|v| !v.is_empty()).is_some());
             json!({
                 "id": id,
                 "name": name,
@@ -191,25 +227,29 @@ async fn auth_providers(State(_state): State<AppState>) -> axum::response::Respo
         })
         .collect();
 
-    if list.iter().all(|v| v.get("enabled").and_then(|b| b.as_bool()) == Some(false)) {
+    if list
+        .iter()
+        .all(|v| v.get("enabled").and_then(|b| b.as_bool()) == Some(false))
+    {
         return no_data(json!({ "providers": list }));
     }
     ok(json!({ "providers": list }))
 }
 
-async fn me(State(state): State<AppState>, AuthSession { user_id }: AuthSession) -> axum::response::Response {
+async fn me(
+    State(state): State<AppState>,
+    AuthSession { user_id }: AuthSession,
+) -> axum::response::Response {
     if user_id.is_none() {
         return no_data(json!({ "authenticated": false, "user": serde_json::Value::Null }));
     }
     let user_id = user_id.unwrap();
-    let user = sqlx::query_as::<_, User>(
-        "SELECT * FROM users WHERE id = $1",
-    )
-    .bind(user_id)
-    .fetch_optional(&state.pool)
-    .await
-    .ok()
-    .flatten();
+    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(&state.pool)
+        .await
+        .ok()
+        .flatten();
 
     if let Some(user) = user {
         return ok(json!({
@@ -228,7 +268,10 @@ async fn me(State(state): State<AppState>, AuthSession { user_id }: AuthSession)
     no_data(json!({ "authenticated": false, "user": serde_json::Value::Null }))
 }
 
-async fn billing_status(State(state): State<AppState>, AuthSession { user_id }: AuthSession) -> axum::response::Response {
+async fn billing_status(
+    State(state): State<AppState>,
+    AuthSession { user_id }: AuthSession,
+) -> axum::response::Response {
     if user_id.is_none() {
         return no_data(json!({ "authenticated": false }));
     }
@@ -260,14 +303,24 @@ async fn billing_status(State(state): State<AppState>, AuthSession { user_id }: 
     ok(payload)
 }
 
-async fn billing_usage(State(state): State<AppState>, AuthSession { user_id }: AuthSession, Json(body): Json<serde_json::Value>) -> axum::response::Response {
+async fn billing_usage(
+    State(state): State<AppState>,
+    AuthSession { user_id }: AuthSession,
+    Json(body): Json<serde_json::Value>,
+) -> axum::response::Response {
     if user_id.is_none() {
         return no_data(json!({ "allowed": false, "authenticated": false }));
     }
     let user_id = user_id.unwrap();
-    let route = body.get("route").and_then(|v| v.as_str()).unwrap_or("/api/billing/usage");
+    let route = body
+        .get("route")
+        .and_then(|v| v.as_str())
+        .unwrap_or("/api/billing/usage");
     let units = body.get("units").and_then(|v| v.as_i64()).unwrap_or(1);
-    let request_id = body.get("request_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let request_id = body
+        .get("request_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     let meta = body.get("meta").cloned().unwrap_or_else(|| json!({}));
 
     let result = meter_usage(
@@ -294,7 +347,10 @@ async fn billing_usage(State(state): State<AppState>, AuthSession { user_id }: A
     }
 }
 
-async fn billing_usage_list(State(state): State<AppState>, AuthSession { user_id }: AuthSession) -> axum::response::Response {
+async fn billing_usage_list(
+    State(state): State<AppState>,
+    AuthSession { user_id }: AuthSession,
+) -> axum::response::Response {
     if user_id.is_none() {
         return no_data(json!({ "authenticated": false, "events": [] }));
     }

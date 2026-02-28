@@ -184,7 +184,14 @@ fn pick_color(rng: &mut Lcg) -> String {
 }
 
 fn pick_camera(rng: &mut Lcg) -> Camera {
-    const MOVES: [&str; 6] = ["push_in", "pull_out", "pan_left", "pan_right", "tilt_up", "tilt_down"];
+    const MOVES: [&str; 6] = [
+        "push_in",
+        "pull_out",
+        "pan_left",
+        "pan_right",
+        "tilt_up",
+        "tilt_down",
+    ];
     let mv = MOVES[(rng.u32() as usize) % MOVES.len()].to_string();
     let strength = 0.25 + rng.f64() * 0.45;
     Camera {

@@ -10,10 +10,7 @@ pub fn ready_payload(st: &RunState) -> serde_json::Value {
         .running
         .into_iter()
         .map(|stage| {
-            let started_at = st
-                .stages
-                .get(&stage)
-                .and_then(|r| r.started_at.clone());
+            let started_at = st.stages.get(&stage).and_then(|r| r.started_at.clone());
             json!({"stage": stage, "started_at": started_at})
         })
         .collect::<Vec<_>>();

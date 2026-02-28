@@ -68,7 +68,10 @@ impl Jobs {
             loop {
                 t.tick().await;
                 let mut s = hb_state.write().await;
-                if matches!(s.status, RunStatus::SUCCEEDED | RunStatus::FAILED | RunStatus::CANCELLED) {
+                if matches!(
+                    s.status,
+                    RunStatus::SUCCEEDED | RunStatus::FAILED | RunStatus::CANCELLED
+                ) {
                     let p = run_store::run_state_path(&hb_run_id);
                     let _ = run_state_io::save_state_atomic(&p, &*s);
                     break;

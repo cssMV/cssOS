@@ -22,9 +22,9 @@ pub fn run_one_stage_video_dispatch(
                 .map_err(|e| format!("video load_storyboard failed: {e}"))?;
 
             for shot in &sb.shots {
-                let r = ve
-                    .render_shot_stub(&sb, shot)
-                    .map_err(|e| format!("video render_shot_stub failed shot={} err={e}", shot.id))?;
+                let r = ve.render_shot_stub(&sb, shot).map_err(|e| {
+                    format!("video render_shot_stub failed shot={} err={e}", shot.id)
+                })?;
                 outputs.push(r.mp4_path);
             }
 

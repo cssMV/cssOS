@@ -16,7 +16,9 @@ pub async fn start_workers(n: usize) -> Vec<JoinHandle<()>> {
                     let mut guard = rx2.lock().await;
                     guard.recv().await
                 };
-                let Some(job) = next else { break; };
+                let Some(job) = next else {
+                    break;
+                };
 
                 let run_id = job.run_id.clone();
                 let _ = crate::runner::run_pipeline_dag_concurrent(

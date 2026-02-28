@@ -1,5 +1,5 @@
 use crate::dsl::compile::CompiledCommands;
-use crate::run_state::{DagMeta, RunConfig, RunState, RunStatus, RetryPolicy};
+use crate::run_state::{DagMeta, RetryPolicy, RunConfig, RunState, RunStatus};
 use crate::runner::run_pipeline_default;
 use chrono::Utc;
 use serde_json::Value;
@@ -54,7 +54,10 @@ fn write_failed_state(state_path: &PathBuf, msg: String) {
     }
     v["status"] = serde_json::json!("FAILED");
     v["error"] = serde_json::json!(msg);
-    let _ = fs::write(state_path, serde_json::to_vec_pretty(&v).unwrap_or_default());
+    let _ = fs::write(
+        state_path,
+        serde_json::to_vec_pretty(&v).unwrap_or_default(),
+    );
 }
 
 pub fn spawn_run_worker(run_dir: PathBuf, commands: Value) {
@@ -107,9 +110,9 @@ pub fn spawn_run_worker(run_dir: PathBuf, commands: Value) {
             created_at: now.clone(),
             updated_at: now,
             status: RunStatus::INIT,
-        heartbeat_at: None,
-        stuck_timeout_seconds: Some(120),
-        cancel_requested: false,
+            heartbeat_at: None,
+            stuck_timeout_seconds: Some(120),
+            cancel_requested: false,
             ui_lang: "auto".to_string(),
             tier: "local".to_string(),
             cssl: "async-run-worker".to_string(),
@@ -132,11 +135,14 @@ pub fn spawn_run_worker(run_dir: PathBuf, commands: Value) {
             topo_order: vec![],
             artifacts: serde_json::json!({}),
             stages: Default::default(),
-        video_shots_total: None,
-    };
+            video_shots_total: None,
+        };
 
         state.set_artifact_path("run.input.commands", commands);
-        state.set_artifact_path("worker.concurrency", serde_json::json!(concurrency() as i64));
+        state.set_artifact_path(
+            "worker.concurrency",
+            serde_json::json!(concurrency() as i64),
+        );
         let _ = fs::write(
             &state_path,
             serde_json::to_vec_pretty(&state).unwrap_or_default(),

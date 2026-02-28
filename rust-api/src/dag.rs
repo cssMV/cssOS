@@ -78,9 +78,18 @@ impl Dag {
 pub fn cssmv_dag_v1() -> Dag {
     Dag {
         nodes: vec![
-            DagNode { name: "lyrics", deps: &[] },
-            DagNode { name: "music", deps: &["lyrics"] },
-            DagNode { name: "vocals", deps: &["lyrics", "music"] },
+            DagNode {
+                name: "lyrics",
+                deps: &[],
+            },
+            DagNode {
+                name: "music",
+                deps: &["lyrics"],
+            },
+            DagNode {
+                name: "vocals",
+                deps: &["lyrics", "music"],
+            },
             DagNode {
                 name: "video_plan",
                 deps: &["lyrics", "vocals"],

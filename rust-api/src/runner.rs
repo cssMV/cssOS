@@ -1,27 +1,27 @@
 use crate::dag::{cssmv_dag_v1, Dag};
-use crate::dag_viz_html;
 use crate::dag_export;
+use crate::dag_viz_html;
 use crate::ready::{compute_ready_view, stage_ready as ready_stage_ready};
 use crate::run_state::{RunState, RunStatus, StageRecord, StageStatus};
-use crate::run_store;
 use crate::run_state_io::save_state_atomic;
+use crate::run_store;
+use crate::video::duration::probe_media_duration_s;
 use crate::video::executor::VideoExecutor;
 use crate::video::storyboard::{ensure_storyboard_auto, AutoShotConfig};
-use crate::video::duration::probe_media_duration_s;
 use anyhow::Result;
 use chrono::Utc;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-use tokio::sync::{Mutex, RwLock, Semaphore};
-use tokio::task::JoinSet;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
+use tokio::sync::{Mutex, RwLock, Semaphore};
+use tokio::task::JoinSet;
 use tokio::time::sleep as tokio_sleep;
 
 pub fn now_rfc3339() -> String {
@@ -47,19 +47,31 @@ fn stage_plan(
     BTreeMap::from([
         (
             "lyrics",
-            (compiled.lyrics.clone(), vec![PathBuf::from("./build/lyrics.json")]),
+            (
+                compiled.lyrics.clone(),
+                vec![PathBuf::from("./build/lyrics.json")],
+            ),
         ),
         (
             "music",
-            (compiled.music.clone(), vec![PathBuf::from("./build/music.wav")]),
+            (
+                compiled.music.clone(),
+                vec![PathBuf::from("./build/music.wav")],
+            ),
         ),
         (
             "vocals",
-            (compiled.vocals.clone(), vec![PathBuf::from("./build/vocals.wav")]),
+            (
+                compiled.vocals.clone(),
+                vec![PathBuf::from("./build/vocals.wav")],
+            ),
         ),
         (
             "video_plan",
-            (compiled.video.clone(), vec![PathBuf::from("./build/storyboard.json")]),
+            (
+                compiled.video.clone(),
+                vec![PathBuf::from("./build/storyboard.json")],
+            ),
         ),
         (
             "video_assemble",
@@ -70,7 +82,10 @@ fn stage_plan(
         ),
         (
             "render",
-            (compiled.render.clone(), vec![PathBuf::from("./build/final_mv.mp4")]),
+            (
+                compiled.render.clone(),
+                vec![PathBuf::from("./build/final_mv.mp4")],
+            ),
         ),
     ])
 }
@@ -92,15 +107,23 @@ fn update_video_artifacts_from_outputs(state: &mut RunState, outputs: &[PathBuf]
     for p in outputs {
         let p_str = p.to_string_lossy();
         if p_str.ends_with("storyboard.json") {
-            state.set_artifact_path("video.storyboard", serde_json::json!(p.display().to_string()));
+            state.set_artifact_path(
+                "video.storyboard",
+                serde_json::json!(p.display().to_string()),
+            );
             if let Ok(bytes) = fs::read(p) {
-                if let Ok(sb) = serde_json::from_slice::<crate::video::storyboard::StoryboardV1>(&bytes) {
+                if let Ok(sb) =
+                    serde_json::from_slice::<crate::video::storyboard::StoryboardV1>(&bytes)
+                {
                     shot_count = Some(sb.shots.len());
                 }
             }
         }
         if p_str.ends_with("/video.mp4") || p_str.ends_with("\\video.mp4") {
-            state.set_artifact_path("video.video_mp4", serde_json::json!(p.display().to_string()));
+            state.set_artifact_path(
+                "video.video_mp4",
+                serde_json::json!(p.display().to_string()),
+            );
         }
         if p_str.contains("/video/shots/") || p_str.contains("\\video\\shots\\") {
             if let Some(parent) = p.parent() {
@@ -109,11 +132,14 @@ fn update_video_artifacts_from_outputs(state: &mut RunState, outputs: &[PathBuf]
         }
     }
     if let Some(d) = shots_dir {
-        state.set_artifact_path("video.shots_dir", serde_json::json!(d.display().to_string()));
+        state.set_artifact_path(
+            "video.shots_dir",
+            serde_json::json!(d.display().to_string()),
+        );
     }
     if let Some(n) = shot_count {
         state.set_artifact_path("video.shots_count", serde_json::json!(n));
-    state.video_shots_total = Some(n as u32);
+        state.video_shots_total = Some(n as u32);
     }
 }
 
@@ -125,11 +151,19 @@ fn maybe_expand_video_shots(state: &mut RunState) -> bool {
     if !sb_path.exists() {
         return false;
     }
-    let Ok(bytes) = fs::read(&sb_path) else { return false; };
-    let Ok(sb) = serde_json::from_slice::<crate::video::storyboard::StoryboardV1>(&bytes) else { return false; };
+    let Ok(bytes) = fs::read(&sb_path) else {
+        return false;
+    };
+    let Ok(sb) = serde_json::from_slice::<crate::video::storyboard::StoryboardV1>(&bytes) else {
+        return false;
+    };
     let mut n = sb.shots.len();
-    if n < 8 { n = 8; }
-    if n > 36 { n = 36; }
+    if n < 8 {
+        n = 8;
+    }
+    if n > 36 {
+        n = 36;
+    }
 
     for i in 0..n {
         let k = format!("video_shot_{:03}", i);
@@ -139,7 +173,13 @@ fn maybe_expand_video_shots(state: &mut RunState) -> bool {
             ended_at: None,
             exit_code: None,
             command: None,
-            outputs: vec![state.config.out_dir.join("build").join("video").join("shots").join(format!("{}.mp4", k))],
+            outputs: vec![state
+                .config
+                .out_dir
+                .join("build")
+                .join("video")
+                .join("shots")
+                .join(format!("{}.mp4", k))],
             retries: 0,
             error: None,
             heartbeat_at: None,
@@ -162,13 +202,22 @@ fn maybe_expand_video_shots(state: &mut RunState) -> bool {
 }
 
 fn stage_stuck(state: &RunState, stage: &str, now: chrono::DateTime<Utc>) -> bool {
-    let Some(sr) = state.stages.get(stage) else { return false; };
+    let Some(sr) = state.stages.get(stage) else {
+        return false;
+    };
     if !matches!(sr.status, StageStatus::RUNNING) {
         return false;
     }
-    let Some(hb) = sr.heartbeat_at.as_ref().or(state.heartbeat_at.as_ref()) else { return false; };
-    let Ok(ts) = chrono::DateTime::parse_from_rfc3339(hb) else { return false; };
-    (now - ts.with_timezone(&Utc)).num_seconds() > state.stuck_timeout_seconds.unwrap_or(state.config.stuck_timeout_seconds) as i64
+    let Some(hb) = sr.heartbeat_at.as_ref().or(state.heartbeat_at.as_ref()) else {
+        return false;
+    };
+    let Ok(ts) = chrono::DateTime::parse_from_rfc3339(hb) else {
+        return false;
+    };
+    (now - ts.with_timezone(&Utc)).num_seconds()
+        > state
+            .stuck_timeout_seconds
+            .unwrap_or(state.config.stuck_timeout_seconds) as i64
 }
 
 async fn run_cmd_async(
@@ -300,7 +349,7 @@ fn run_video_stage_with_retry(
                 rec.exit_code = Some(0);
                 rec.outputs = outputs;
                 rec.ended_at = Some(now_rfc3339());
-        rec.heartbeat_at = Some(now_rfc3339());
+                rec.heartbeat_at = Some(now_rfc3339());
                 rec.status = StageStatus::SUCCEEDED;
                 rec.error = None;
                 return Ok(true);
@@ -308,7 +357,7 @@ fn run_video_stage_with_retry(
             Err(e) => {
                 rec.exit_code = Some(1);
                 rec.ended_at = Some(now_rfc3339());
-        rec.heartbeat_at = Some(now_rfc3339());
+                rec.heartbeat_at = Some(now_rfc3339());
                 rec.status = StageStatus::FAILED;
                 rec.error = Some(format!("Attempt {} failed: {}", attempt, e));
 
@@ -323,7 +372,6 @@ fn run_video_stage_with_retry(
 
     Ok(false)
 }
-
 
 pub async fn run_pipeline(
     state_path: &Path,
@@ -430,13 +478,8 @@ pub async fn run_pipeline(
                 .get(&stage)
                 .cloned()
                 .expect("stage record must exist");
-            let ok = run_video_stage_with_retry(
-                name,
-                &mut state,
-                &mut rec,
-                max_retries,
-                backoff_base,
-            )?;
+            let ok =
+                run_video_stage_with_retry(name, &mut state, &mut rec, max_retries, backoff_base)?;
             let outputs = rec.outputs.clone();
             state.stages.insert(stage.clone(), rec);
             update_video_artifacts_from_outputs(&mut state, &outputs);
@@ -446,13 +489,7 @@ pub async fn run_pipeline(
                 .stages
                 .get_mut(&stage)
                 .expect("stage record must exist");
-            run_stage_with_retry(
-                name,
-                &cmdline,
-                rec,
-                max_retries,
-                backoff_base,
-            ).await?
+            run_stage_with_retry(name, &cmdline, rec, max_retries, backoff_base).await?
         };
 
         state.updated_at = now_rfc3339();
@@ -499,8 +536,6 @@ pub async fn run_pipeline_default(
     let state_path = out_dir.join("run.json");
     run_pipeline(&state_path, state, compiled).await
 }
-
-
 
 pub fn concurrency_limit() -> usize {
     std::env::var("CSS_DAG_CONCURRENCY")
@@ -559,7 +594,10 @@ async fn run_one_stage_task(
             rec.heartbeat_at = Some(now_rfc3339());
         }
         let _ = run_store::write_run_state(&state_path, &s);
-        (s.retry_policy.max_retries, s.retry_policy.backoff_base_seconds)
+        (
+            s.retry_policy.max_retries,
+            s.retry_policy.backoff_base_seconds,
+        )
     };
 
     let mut rec = StageRecord {
@@ -575,7 +613,11 @@ async fn run_one_stage_task(
         meta: None,
     };
 
-    let success = if stage == "video" || stage == "video_plan" || stage.starts_with("video_shot_") || stage == "video_assemble" {
+    let success = if stage == "video"
+        || stage == "video_plan"
+        || stage.starts_with("video_shot_")
+        || stage == "video_assemble"
+    {
         let (out_dir, storyboard_path, video_dir, seed, vocals_path, music_path) = {
             let s = shared.lock().await;
             let out_dir = s.config.out_dir.clone();
@@ -590,29 +632,42 @@ async fn run_one_stage_task(
                 .unwrap_or(123);
             let vocals_path = out_dir.join("vocals.wav");
             let music_path = out_dir.join("music.wav");
-            (out_dir, storyboard_path, video_dir, seed, vocals_path, music_path)
+            (
+                out_dir,
+                storyboard_path,
+                video_dir,
+                seed,
+                vocals_path,
+                music_path,
+            )
         };
 
         let _ = fs::create_dir_all(&video_dir);
 
-        let duration_s = probe_media_duration_s(&vocals_path).await.unwrap_or(None)
+        let duration_s = probe_media_duration_s(&vocals_path)
+            .await
+            .unwrap_or(None)
             .or(probe_media_duration_s(&music_path).await.unwrap_or(None));
 
         let cfg = AutoShotConfig::default();
-        let (_sb, sb_meta) = match ensure_storyboard_auto(&storyboard_path, seed, duration_s, cfg.clone()) {
-            Ok(v) => v,
-            Err(e) => {
-                rec.status = StageStatus::FAILED;
-                rec.error = Some(e.to_string());
-                (crate::video::storyboard::Storyboard {
-                    schema: "css.video.storyboard.v1".to_string(),
-                    seed,
-                    fps: 30,
-                    resolution: crate::video::storyboard::Resolution { w: 1280, h: 720 },
-                    shots: vec![],
-                }, serde_json::json!({"error": e.to_string()}))
-            }
-        };
+        let (_sb, sb_meta) =
+            match ensure_storyboard_auto(&storyboard_path, seed, duration_s, cfg.clone()) {
+                Ok(v) => v,
+                Err(e) => {
+                    rec.status = StageStatus::FAILED;
+                    rec.error = Some(e.to_string());
+                    (
+                        crate::video::storyboard::Storyboard {
+                            schema: "css.video.storyboard.v1".to_string(),
+                            seed,
+                            fps: 30,
+                            resolution: crate::video::storyboard::Resolution { w: 1280, h: 720 },
+                            shots: vec![],
+                        },
+                        serde_json::json!({"error": e.to_string()}),
+                    )
+                }
+            };
         let shots_summary = format!(
             "Video Shots: N={} (auto, {}..{}s, clamp {}..{})",
             _sb.shots.len(),
@@ -647,7 +702,8 @@ async fn run_one_stage_task(
 
             let stub = std::env::var("CSS_VIDEO_STUB").ok().as_deref() == Some("1");
             let cancel = Arc::new(AtomicBool::new(false));
-            let ve = VideoExecutor::with_options(out_dir.clone(), concurrency_limit(), stub, cancel);
+            let ve =
+                VideoExecutor::with_options(out_dir.clone(), concurrency_limit(), stub, cancel);
 
             match ve.run(&storyboard_path, &video_dir, heartbeat).await {
                 Ok(outputs) => {
@@ -664,7 +720,10 @@ async fn run_one_stage_task(
                     } else if stage == "video_assemble" {
                         rec.outputs = outputs
                             .into_iter()
-                            .filter(|p| p.to_string_lossy().ends_with("concat.txt") || p.to_string_lossy().ends_with("video.mp4"))
+                            .filter(|p| {
+                                p.to_string_lossy().ends_with("concat.txt")
+                                    || p.to_string_lossy().ends_with("video.mp4")
+                            })
                             .collect();
                     } else {
                         rec.outputs = outputs;
@@ -762,7 +821,8 @@ pub async fn run_pipeline_dag_concurrent(
         if matches!(
             snapshot.stages.get("video_plan").map(|r| &r.status),
             Some(StageStatus::SUCCEEDED)
-        ) && !snapshot.stages.keys().any(|k| k.starts_with("video_shot_")) {
+        ) && !snapshot.stages.keys().any(|k| k.starts_with("video_shot_"))
+        {
             let mut s_expand = shared.lock().await;
             if maybe_expand_video_shots(&mut s_expand) {
                 s_expand.updated_at = now_rfc3339();
@@ -777,7 +837,12 @@ pub async fn run_pipeline_dag_concurrent(
             s2.updated_at = now_rfc3339();
             s2.heartbeat_at = Some(now_rfc3339());
             let now = Utc::now();
-            let running_keys: Vec<String> = s2.stages.iter().filter(|(_, r)| matches!(r.status, StageStatus::RUNNING)).map(|(k, _)| k.clone()).collect();
+            let running_keys: Vec<String> = s2
+                .stages
+                .iter()
+                .filter(|(_, r)| matches!(r.status, StageStatus::RUNNING))
+                .map(|(k, _)| k.clone())
+                .collect();
             for k in running_keys {
                 if stage_stuck(&s2, &k, now) {
                     if let Some(r) = s2.stages.get_mut(&k) {
@@ -834,7 +899,8 @@ pub async fn run_pipeline_dag_concurrent(
                 let state_path2 = state_path.clone();
                 let compiled2 = compiled.clone();
                 joinset.spawn(async move {
-                    let ok = run_one_stage_task(stage.clone(), state_path2, shared2, compiled2).await;
+                    let ok =
+                        run_one_stage_task(stage.clone(), state_path2, shared2, compiled2).await;
                     drop(permit);
                     (stage, ok)
                 });
@@ -923,7 +989,10 @@ pub async fn run_pipeline_dag_concurrent(
     }
 
     let mut final_state = shared.lock().await.clone();
-    if matches!(final_state.status, RunStatus::INIT | RunStatus::RUNNING | RunStatus::CANCELLED) {
+    if matches!(
+        final_state.status,
+        RunStatus::INIT | RunStatus::RUNNING | RunStatus::CANCELLED
+    ) {
         if final_state.cancel_requested {
             final_state.status = RunStatus::CANCELLED;
         } else if final_state
@@ -932,9 +1001,11 @@ pub async fn run_pipeline_dag_concurrent(
             .any(|r| matches!(r.status, StageStatus::FAILED))
         {
             final_state.status = RunStatus::FAILED;
-        } else if final_state.stages.values().all(|r| {
-            matches!(r.status, StageStatus::SUCCEEDED | StageStatus::SKIPPED)
-        }) {
+        } else if final_state
+            .stages
+            .values()
+            .all(|r| matches!(r.status, StageStatus::SUCCEEDED | StageStatus::SKIPPED))
+        {
             final_state.status = RunStatus::SUCCEEDED;
         }
         final_state.updated_at = now_rfc3339();
@@ -955,7 +1026,14 @@ pub fn init_run_state(run_id: String, ui_lang: String, tier: String, cssl: Strin
     let now = Utc::now().to_rfc3339();
 
     let mut stages = BTreeMap::new();
-    for name in ["lyrics", "music", "vocals", "video_plan", "video_assemble", "render"] {
+    for name in [
+        "lyrics",
+        "music",
+        "vocals",
+        "video_plan",
+        "video_assemble",
+        "render",
+    ] {
         stages.insert(
             name.to_string(),
             StageRecord {

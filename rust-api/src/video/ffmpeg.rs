@@ -2,9 +2,7 @@ use std::path::{Path, PathBuf};
 use tokio::process::Command;
 
 pub async fn concat_mp4_ffmpeg(shots: &[PathBuf], out_mp4: &Path) -> Result<(), String> {
-    let out_dir = out_mp4
-        .parent()
-        .ok_or_else(|| "no out dir".to_string())?;
+    let out_dir = out_mp4.parent().ok_or_else(|| "no out dir".to_string())?;
     let list_path = out_dir.join("concat_list.txt");
 
     let mut body = String::new();

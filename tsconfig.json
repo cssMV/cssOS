@@ -4,8 +4,13 @@
     "outDir": "./dist",
     "module": "commonjs",
     "target": "es2019",
-    "lib": ["es2019", "dom"],
-    "types": ["node"],
+    "lib": [
+      "es2019",
+      "dom"
+    ],
+    "types": [
+      "node"
+    ],
     "sourceMap": true,
     "declaration": true,
     "declarationMap": true,
@@ -15,5 +20,17 @@
     "esModuleInterop": true,
     "moduleResolution": "node",
     "skipLibCheck": true
-  }
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "rust-api",
+    "WorksCenterPanel.tsx",
+    "WorksCenterPanel.js",
+    "WorksCenterPanel.d.ts"
+  ]
 }

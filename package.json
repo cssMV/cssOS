@@ -3,13 +3,15 @@
   "version": "1.0.0",
   "main": "index.js",
   "bin": {
-    "css": "bin/css.js"
+    "css": "dist/cli/index.js"
   },
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
-    "build": "tsc",
+    "build": "npm run build:cli",
     "start": "node dist/index.js",
-    "check:i18n": "node scripts/check-i18n.js"
+    "check:i18n": "node scripts/check-i18n.js",
+    "cli:link": "chmod +x bin/css && npm link",
+    "build:cli": "tsc -p tsconfig.json"
   },
   "keywords": [],
   "author": "",

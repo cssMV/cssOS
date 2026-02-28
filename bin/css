@@ -1,0 +1,5 @@
+#!/usr/bin/env node
+(async () => {
+  const { run } = await import("../scripts/css_cli.mjs");
+  await run(process.argv.slice(2));
+})();

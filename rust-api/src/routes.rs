@@ -55,8 +55,8 @@ use sqlx::PgPool;
 
 use crate::auth::AuthSession;
 use crate::billing::{ensure_account, meter_usage, reset_month};
-use crate::cssapi::docs::docs_router;
 use crate::config::Config;
+use crate::cssapi::docs::docs_router;
 use crate::events::EventBus;
 use crate::jobs::Jobs;
 use crate::models::User;
@@ -198,6 +198,7 @@ async fn pipeline_start(
         },
         topo_order,
         dag_edges,
+        commands: serde_json::json!({}),
         artifacts: serde_json::json!({}),
         stages: Default::default(),
         video_shots_total: None,

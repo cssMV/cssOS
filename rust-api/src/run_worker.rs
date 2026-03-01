@@ -1,3 +1,4 @@
+use crate::dag::topo_order_v1;
 use crate::dsl::compile::CompiledCommands;
 use crate::run_state::{DagMeta, RetryPolicy, RunConfig, RunState, RunStatus};
 use crate::runner::run_pipeline_default;
@@ -152,6 +153,7 @@ pub fn spawn_run_worker(run_dir: PathBuf, commands: Value) {
             },
             topo_order,
             dag_edges,
+            commands: serde_json::json!({}),
             artifacts: serde_json::json!({}),
             stages: Default::default(),
             video_shots_total: None,
@@ -163,6 +165,12 @@ pub fn spawn_run_worker(run_dir: PathBuf, commands: Value) {
             "worker.concurrency",
             serde_json::json!(concurrency() as i64),
         );
+        let _ = fs::write(
+            &state_path,
+            serde_json::to_vec_pretty(&state).unwrap_or_default(),
+        );
+
+        state.topo_order = topo_order_v1(&state);
         let _ = fs::write(
             &state_path,
             serde_json::to_vec_pretty(&state).unwrap_or_default(),

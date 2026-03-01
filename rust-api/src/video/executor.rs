@@ -9,9 +9,9 @@ use tokio::io::AsyncReadExt;
 use tokio::process::Command as TokCommand;
 use tokio::sync::Semaphore;
 
+use crate::scheduler::Scheduler;
 use crate::video::error::VideoError;
 use crate::video::storyboard::{Bg, Camera, Overlay, Resolution, Shot, Storyboard, StoryboardV1};
-use crate::scheduler::Scheduler;
 
 #[derive(Clone)]
 pub struct VideoExecutor {
@@ -227,6 +227,17 @@ impl VideoExecutor {
         Ok(sb)
     }
 
+    pub async fn render_shot_by_id(&self, shot_id: &str) -> Result<RenderShotResult, VideoError> {
+        let sb = self.load_storyboard()?;
+        let shot = sb
+            .shots
+            .iter()
+            .find(|s| s.id == shot_id)
+            .ok_or_else(|| VideoError(format!("shot not found: {shot_id}")))?;
+        self.render_shot_stub_with_sched(&sb, shot, &Scheduler::new())
+            .await
+    }
+
     pub fn render_shot_stub(
         &self,
         sb: &StoryboardV1,
@@ -281,7 +292,7 @@ impl VideoExecutor {
             .map_err(|e| VideoError(e.to_string()))?
     }
 
-    pub fn assemble(&self, sb: &StoryboardV1) -> Result<AssembleResult, VideoError> {
+    pub fn assemble_storyboard(&self, sb: &StoryboardV1) -> Result<AssembleResult, VideoError> {
         fs::create_dir_all(self.video_dir())?;
         let list_path = self.video_dir().join("concat.txt");
         let mut list = String::new();
@@ -333,9 +344,75 @@ impl VideoExecutor {
             .map_err(|e| VideoError(e.to_string()))?;
         let this = self.clone();
         let sbc = sb.clone();
-        tokio::task::spawn_blocking(move || this.assemble(&sbc))
+        tokio::task::spawn_blocking(move || this.assemble_storyboard(&sbc))
             .await
             .map_err(|e| VideoError(e.to_string()))?
+    }
+
+    pub async fn assemble(&self, shots: &[PathBuf], out_mp4: &Path) -> Result<()> {
+        let list_path = self.out_dir.join("shots.txt");
+        tokio::fs::create_dir_all(&self.out_dir).await?;
+        write_concat_list_async(&list_path, shots).await?;
+
+        let copy = self.assemble_concat_copy(&list_path, out_mp4).await;
+        if copy.is_ok() {
+            return Ok(());
+        }
+        let err1 = copy
+            .err()
+            .unwrap_or_else(|| anyhow!("copy assemble unknown error"));
+        let re = self.assemble_concat_reencode(&list_path, out_mp4).await;
+        match re {
+            Ok(_) => Ok(()),
+            Err(err2) => Err(anyhow!(
+                "assemble failed: copy_err={} reencode_err={}",
+                err1,
+                err2
+            )),
+        }
+    }
+
+    async fn assemble_concat_copy(&self, list_path: &Path, out_mp4: &Path) -> Result<()> {
+        let mut cmd = TokCommand::new("ffmpeg");
+        cmd.arg("-y");
+        cmd.arg("-f")
+            .arg("concat")
+            .arg("-safe")
+            .arg("0")
+            .arg("-i")
+            .arg(list_path);
+        cmd.arg("-c").arg("copy");
+        cmd.arg(out_mp4);
+        let (code, _o, e) = run_capture(&mut cmd).await?;
+        if code == 0 {
+            Ok(())
+        } else {
+            Err(anyhow!(e))
+        }
+    }
+
+    async fn assemble_concat_reencode(&self, list_path: &Path, out_mp4: &Path) -> Result<()> {
+        let mut cmd = TokCommand::new("ffmpeg");
+        cmd.arg("-y");
+        cmd.arg("-f")
+            .arg("concat")
+            .arg("-safe")
+            .arg("0")
+            .arg("-i")
+            .arg(list_path);
+        cmd.arg("-c:v")
+            .arg("libx264")
+            .arg("-pix_fmt")
+            .arg("yuv420p")
+            .arg("-movflags")
+            .arg("+faststart");
+        cmd.arg(out_mp4);
+        let (code, _o, e) = run_capture(&mut cmd).await?;
+        if code == 0 {
+            Ok(())
+        } else {
+            Err(anyhow!(e))
+        }
     }
 }
 
@@ -356,6 +433,18 @@ fn write_concat_list(path: &Path, shots: &[PathBuf]) -> Result<()> {
         out.push_str("'\n");
     }
     fs::write(path, out).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+async fn write_concat_list_async(path: &Path, shots: &[PathBuf]) -> Result<()> {
+    let mut out = String::new();
+    for p in shots {
+        let rel = p.to_string_lossy();
+        out.push_str("file '");
+        out.push_str(&rel.replace('\'', "'\\''"));
+        out.push_str("'\n");
+    }
+    tokio::fs::write(path, out).await?;
     Ok(())
 }
 

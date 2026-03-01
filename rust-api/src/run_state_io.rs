@@ -68,6 +68,14 @@ pub async fn save_run_state_atomic(path: &Path, st: &RunState) -> anyhow::Result
     Ok(())
 }
 
+pub async fn atomic_write_run_state(path: &Path, st: &RunState) -> anyhow::Result<()> {
+    save_run_state_atomic(path, st).await
+}
+
+pub async fn read_run_state_async(path: &Path) -> anyhow::Result<RunState> {
+    load_run_state(path).await
+}
+
 fn tmp_path(path: &Path) -> PathBuf {
     let mut p = path.to_path_buf();
     let file_name = path

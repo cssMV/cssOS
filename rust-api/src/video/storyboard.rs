@@ -57,10 +57,10 @@ pub struct AutoShotConfig {
 impl Default for AutoShotConfig {
     fn default() -> Self {
         Self {
-            min_shots: 8,
-            max_shots: 36,
-            min_len_s: 4.0,
-            max_len_s: 6.0,
+            min_shots: 2,
+            max_shots: 12,
+            min_len_s: 2.0,
+            max_len_s: 4.0,
             fps: 30,
             w: 1280,
             h: 720,

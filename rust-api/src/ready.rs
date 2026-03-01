@@ -46,6 +46,44 @@ fn deps_for_stage(dag: &Dag, st: &RunState, stage: &str) -> Vec<String> {
 }
 
 fn deps_satisfied(dag: &Dag, st: &RunState, stage: &str) -> bool {
+    if stage.starts_with("video_shot_") || stage.starts_with("video.shot:") {
+        if let Some(rec) = st.stages.get("video_plan") {
+            return rec.outputs.iter().all(|p| p.exists());
+        }
+        return false;
+    }
+    if stage == "video_assemble" {
+        let shots: Vec<&String> = st
+            .stages
+            .keys()
+            .filter(|k| k.starts_with("video_shot_") || k.starts_with("video.shot:"))
+            .collect();
+        if shots.is_empty() {
+            return false;
+        }
+        for k in shots {
+            let Some(rec) = st.stages.get(k) else {
+                return false;
+            };
+            if !matches!(rec.status, StageStatus::SUCCEEDED) {
+                return false;
+            }
+            if !rec.outputs.iter().all(|p| p.exists()) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if stage == "render" {
+        let ok = |k: &str| {
+            st.stages
+                .get(k)
+                .map(|r| r.outputs.iter().all(|p| p.exists()))
+                .unwrap_or(false)
+        };
+        return ok("lyrics") && ok("music") && ok("vocals") && ok("video_assemble");
+    }
+
     let deps = st
         .dag_edges
         .get(stage)

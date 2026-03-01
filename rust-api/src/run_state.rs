@@ -39,6 +39,8 @@ pub struct RunState {
     pub topo_order: Vec<String>,
     #[serde(default)]
     pub dag_edges: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub commands: serde_json::Value,
 
     #[serde(default)]
     pub artifacts: serde_json::Value,
@@ -164,7 +166,7 @@ pub struct StageRecord {
     pub timeout_seconds: Option<u64>,
 
     #[serde(default)]
-    pub meta: Option<Value>,
+    pub meta: Value,
 
     #[serde(default)]
     pub duration_seconds: Option<f64>,

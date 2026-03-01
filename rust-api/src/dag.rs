@@ -1,3 +1,4 @@
+use crate::run_state::RunState;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 #[derive(Debug, Clone)]
@@ -104,4 +105,25 @@ pub fn cssmv_dag_v1() -> Dag {
             },
         ],
     }
+}
+
+pub fn topo_order_v1(state: &RunState) -> Vec<String> {
+    let mut shots: Vec<String> = state
+        .stages
+        .keys()
+        .filter(|k| k.starts_with("video_shot_"))
+        .cloned()
+        .collect();
+    shots.sort();
+
+    let mut out = vec![
+        "lyrics".to_string(),
+        "music".to_string(),
+        "vocals".to_string(),
+        "video_plan".to_string(),
+    ];
+    out.extend(shots);
+    out.push("video_assemble".to_string());
+    out.push("render".to_string());
+    out
 }

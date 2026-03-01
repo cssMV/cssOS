@@ -76,7 +76,7 @@ pub fn ensure_stage(state: &mut RunState, name: &str) {
             heartbeat_at: None,
             last_heartbeat_at: None,
             timeout_seconds: None,
-            meta: None,
+            meta: serde_json::Value::Object(Default::default()),
             duration_seconds: None,
         },
     );

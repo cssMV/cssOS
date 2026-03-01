@@ -41,10 +41,7 @@ mod ws;
 async fn main() {
     if std::env::args().any(|a| a == "--print-openapi") {
         let doc = crate::cssapi::openapi::build_openapi();
-        print!(
-            "{}",
-            doc.to_json().unwrap_or_else(|_| "{}".to_string())
-        );
+        print!("{}", doc.to_json().unwrap_or_else(|_| "{}".to_string()));
         return;
     }
 
@@ -124,4 +121,26 @@ fn init_tracing() {
         .with(env_filter)
         .with(fmt_layer)
         .init();
+}
+
+#[cfg(feature = "bin_video_assemble")]
+#[tokio::main]
+async fn main_video_assemble() -> anyhow::Result<()> {
+    let runs_dir = std::env::var("RUNS_DIR").unwrap_or_else(|_| "/srv/cssos/runs".to_string());
+    let run_id = std::env::var("RUN_ID").map_err(|_| anyhow::anyhow!("RUN_ID required"))?;
+    let run_dir = std::path::PathBuf::from(runs_dir)
+        .join(run_id)
+        .join("build/video");
+    let ve = crate::video::VideoExecutor::new(run_dir.clone());
+    let out = run_dir.join("video.mp4");
+    let shots_n = std::env::var("VIDEO_SHOTS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(0);
+    let mut shots = Vec::new();
+    for i in 0..shots_n {
+        shots.push(run_dir.join(format!("shots/video_shot_{:03}.mp4", i)));
+    }
+    ve.assemble(&shots, &out).await?;
+    Ok(())
 }

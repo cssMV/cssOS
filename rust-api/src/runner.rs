@@ -3,6 +3,7 @@ use crate::dag_export;
 use crate::dag_viz_html;
 use crate::events;
 use crate::metrics;
+use crate::procutil;
 use crate::ready::{compute_ready_view_with_dag_limited, stage_ready as ready_stage_ready};
 use crate::run_state::{RunState, RunStatus, StageRecord, StageStatus};
 use crate::run_state_io::save_state_atomic;
@@ -21,7 +22,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
-use tokio::sync::{Mutex, RwLock, Semaphore};
+use tokio::sync::{oneshot, Mutex, RwLock, Semaphore};
 use tokio::task::JoinSet;
 use tokio::time::sleep as tokio_sleep;
 
@@ -29,16 +30,44 @@ pub fn now_rfc3339() -> String {
     Utc::now().to_rfc3339()
 }
 
-fn output_exists(p: &PathBuf) -> bool {
-    p.exists()
+fn output_exists(run_out_dir: &Path, p: &PathBuf) -> bool {
+    crate::artifacts::file_ok_at(run_out_dir, p)
 }
 
-fn stage_done_by_outputs(outputs: &[PathBuf]) -> bool {
-    !outputs.is_empty() && outputs.iter().all(output_exists)
+fn stage_done_by_outputs(run_out_dir: &Path, outputs: &[PathBuf]) -> bool {
+    !outputs.is_empty() && outputs.iter().all(|p| output_exists(run_out_dir, p))
+}
+
+fn validate_outputs_nonempty(run_out_dir: &Path, outputs: &[PathBuf]) -> Result<()> {
+    if outputs.is_empty() {
+        anyhow::bail!("output invalid: no outputs");
+    }
+    if !crate::artifacts::outputs_ok_at(run_out_dir, outputs) {
+        for p in outputs {
+            if !crate::artifacts::file_ok_at(run_out_dir, p) {
+                let path = if p.is_absolute() {
+                    p.clone()
+                } else {
+                    run_out_dir.join(p)
+                };
+                anyhow::bail!("output invalid: {}", path.display());
+            }
+        }
+    }
+    Ok(())
 }
 
 fn persist_state(state_path: &Path, state: &RunState) -> Result<()> {
-    save_state_atomic(state_path, state)?;
+    let mut next = state.clone();
+    if let Ok(prev) = crate::run_state_io::read_run_state(state_path) {
+        if prev.cancel_requested {
+            next.cancel_requested = true;
+            if next.cancel_requested_at.is_none() {
+                next.cancel_requested_at = prev.cancel_requested_at.clone();
+            }
+        }
+    }
+    save_state_atomic(state_path, &next)?;
     Ok(())
 }
 
@@ -70,8 +99,8 @@ fn stage_plan(
         (
             "video_plan",
             (
-                compiled.video.clone(),
-                vec![PathBuf::from("./build/storyboard.json")],
+                "internal:video_plan".to_string(),
+                vec![PathBuf::from("./video/storyboard.json")],
             ),
         ),
         (
@@ -82,11 +111,22 @@ fn stage_plan(
             ),
         ),
         (
-            "render",
+            "mix",
             (
-                compiled.render.clone(),
-                vec![PathBuf::from("./build/final_mv.mp4")],
+                "internal:mix".to_string(),
+                vec![PathBuf::from("./build/mix.wav")],
             ),
+        ),
+        (
+            "subtitles",
+            (
+                "internal:subtitles".to_string(),
+                vec![PathBuf::from("./build/subtitles.ass")],
+            ),
+        ),
+        (
+            "render",
+            (compiled.render.clone(), vec![PathBuf::from("./build/final_mv.mp4")]),
         ),
     ])
 }
@@ -99,6 +139,9 @@ fn is_video_stage(stage: &str) -> bool {
     stage == "video"
         || stage == "video_plan"
         || stage == "video_assemble"
+        || stage == "mix"
+        || stage == "subtitles"
+        || stage == "render"
         || is_video_shot_stage(stage)
 }
 
@@ -224,6 +267,9 @@ fn maybe_expand_video_shots(state: &mut RunState) -> bool {
                 heartbeat_at: None,
                 last_heartbeat_at: None,
                 timeout_seconds: Some(state.config.stage_timeout_seconds),
+                error_code: None,
+                pid: None,
+                pgid: None,
                 meta: serde_json::Value::Object(Default::default()),
                 duration_seconds: None,
             });
@@ -249,6 +295,23 @@ fn maybe_expand_video_shots(state: &mut RunState) -> bool {
     state
         .dag_edges
         .insert("video_assemble".to_string(), shot_nodes);
+    for sid in &ids {
+        let shot = shot_stage_name_from_storyboard_id(sid);
+        if !state.dag.nodes.iter().any(|n| n.name == shot) {
+            state.dag.nodes.push(crate::run_state::DagNodeMeta {
+                name: shot,
+                deps: vec!["video_plan".to_string()],
+            });
+        }
+    }
+    if let Some(n) = state.dag.nodes.iter_mut().find(|n| n.name == "video_assemble") {
+        n.deps = state
+            .dag_edges
+            .get("video_assemble")
+            .cloned()
+            .unwrap_or_default();
+    }
+    state.video_shots_total = Some(n as u32);
     state.set_artifact_path("video.shots_count", serde_json::json!(n));
     true
 }
@@ -262,6 +325,14 @@ fn fill_dag_edges(state: &mut RunState, dag: &Dag) {
         );
     }
     state.dag_edges = edges;
+    state.dag.nodes = dag
+        .nodes
+        .iter()
+        .map(|n| crate::run_state::DagNodeMeta {
+            name: n.name.to_string(),
+            deps: n.deps.iter().map(|d| (*d).to_string()).collect(),
+        })
+        .collect();
 }
 
 fn stage_stuck(state: &RunState, stage: &str, now: chrono::DateTime<Utc>) -> bool {
@@ -318,12 +389,110 @@ fn stamp_stage_heartbeat(rec: &mut StageRecord) {
     rec.last_heartbeat_at = Some(now);
 }
 
+fn run_id_from_state_path(state_path: &Path) -> String {
+    state_path
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown")
+        .to_string()
+}
+
+fn spawn_stage_heartbeat_task(
+    state_path: PathBuf,
+    stage: String,
+    hb_ms: u64,
+    flush_min_ms: u64,
+    run_id: String,
+) -> oneshot::Sender<()> {
+    let (tx, mut rx) = oneshot::channel::<()>();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_millis(hb_ms.max(50)));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    let mut s = match crate::run_state_io::read_run_state_async(&state_path).await {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
+                    if matches!(s.status, RunStatus::CANCELLED) || s.cancel_requested {
+                        let mut pgid_to_kill: Option<i32> = None;
+                        let mut pid_to_kill: Option<i32> = None;
+                        if let Some(rec) = s.stages.get(&stage) {
+                            pgid_to_kill = rec.pgid;
+                            pid_to_kill = rec.pid;
+                        }
+                        let kill_grace_ms: u64 = std::env::var("CSS_KILL_GRACE_MS")
+                            .ok()
+                            .and_then(|x| x.parse::<u64>().ok())
+                            .unwrap_or(1500);
+                        if let Some(g) = pgid_to_kill.or(pid_to_kill) {
+                            crate::procutil::kill_pgid_term_then_kill(g);
+                            tokio::time::sleep(Duration::from_millis(kill_grace_ms)).await;
+                            crate::procutil::kill_pgid_kill(g);
+                        }
+                        if let Some(rec) = s.stages.get_mut(&stage) {
+                            if matches!(rec.status, StageStatus::RUNNING) {
+                                rec.status = StageStatus::FAILED;
+                                rec.exit_code = Some(130);
+                                rec.error = Some("cancelled".to_string());
+                                rec.error_code = Some("CANCELLED".to_string());
+                                rec.ended_at = Some(now_rfc3339());
+                                rec.pid = None;
+                                rec.pgid = None;
+                                stamp_stage_heartbeat(rec);
+                            }
+                        }
+                        stamp_run_heartbeat(&mut s);
+                        s.updated_at = now_rfc3339();
+                        let _ = crate::run_state_io::atomic_write_run_state_throttled(
+                            &state_path,
+                            &run_id,
+                            &s,
+                            0,
+                            true,
+                        )
+                        .await;
+                        break;
+                    }
+                    let mut should_stop = true;
+                    if let Some(rec) = s.stages.get_mut(&stage) {
+                        if matches!(rec.status, StageStatus::RUNNING) {
+                            stamp_stage_heartbeat(rec);
+                            should_stop = false;
+                        }
+                    }
+                    if should_stop {
+                        break;
+                    }
+                    stamp_run_heartbeat(&mut s);
+                    s.updated_at = now_rfc3339();
+                    let _ = crate::run_state_io::atomic_write_run_state_throttled(
+                        &state_path,
+                        &run_id,
+                        &s,
+                        flush_min_ms,
+                        false,
+                    )
+                    .await;
+                }
+                _ = &mut rx => {
+                    break;
+                }
+            }
+        }
+    });
+    tx
+}
+
 async fn run_cmd_async(
     stage: &str,
     command_line: &str,
     cwd: Option<&Path>,
     timeout_s: Option<u64>,
-) -> Result<(i32, String, String)> {
+    state_path: Option<&Path>,
+) -> Result<(i32, String, String, bool, bool, i32, i32)> {
     let mut cmd = Command::new("bash");
     cmd.arg("-lc").arg(command_line);
     if let Some(dir) = cwd {
@@ -333,13 +502,47 @@ async fn run_cmd_async(
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
-    let mut child = cmd.spawn()?;
+    let mut spawned = procutil::spawn_pgroup(cmd)?;
+    let pid = spawned.pid;
+    let pgid = spawned.pgid;
+    let run_id = state_path.map(run_id_from_state_path);
+    let flush_min_ms = std::env::var("CSS_STATE_FLUSH_MIN_MS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(500);
+    let heartbeat_ms = std::env::var("CSS_HEARTBEAT_MS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(1000);
+    let mut last_hb = Instant::now();
 
-    let mut out = child
+    if let (Some(p), Some(run_id)) = (state_path, run_id.as_ref()) {
+        if let Ok(mut st) = crate::run_state_io::read_run_state_async(p).await {
+            if let Some(rec) = st.stages.get_mut(stage) {
+                rec.pid = Some(pid);
+                rec.pgid = Some(pgid);
+                stamp_stage_heartbeat(rec);
+            }
+            stamp_run_heartbeat(&mut st);
+            st.updated_at = now_rfc3339();
+            let _ = crate::run_state_io::atomic_write_run_state_throttled(
+                p,
+                run_id,
+                &st,
+                0,
+                true,
+            )
+            .await;
+        }
+    }
+
+    let mut out = spawned
+        .child
         .stdout
         .take()
         .ok_or_else(|| anyhow::anyhow!("child stdout missing for stage={stage}"))?;
-    let mut err = child
+    let mut err = spawned
+        .child
         .stderr
         .take()
         .ok_or_else(|| anyhow::anyhow!("child stderr missing for stage={stage}"))?;
@@ -355,22 +558,67 @@ async fn run_cmd_async(
         String::from_utf8_lossy(&buf).to_string()
     });
 
-    let status = if let Some(t) = timeout_s {
-        tokio::select! {
-            s = child.wait() => s?,
-            _ = tokio_sleep(Duration::from_secs(t)) => {
-                let _ = child.kill().await;
-                anyhow::bail!("stage timeout after {}s (stage={})", t, stage);
+    let start = Instant::now();
+    let timeout_limit = timeout_s.unwrap_or(u64::MAX / 2);
+    let cancel_grace_ms = std::env::var("CSS_CANCEL_GRACE_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(1500);
+    let mut killed_by_cancel = false;
+    let mut timed_out = false;
+
+    let status = loop {
+        if let Some(s) = spawned.child.try_wait()? {
+            break s;
+        }
+        if let (Some(p), Some(run_id)) = (state_path, run_id.as_ref()) {
+            if last_hb.elapsed() >= Duration::from_millis(heartbeat_ms.max(100)) {
+                if let Ok(mut st) = crate::run_state_io::read_run_state_async(p).await {
+                    if let Some(rec) = st.stages.get_mut(stage) {
+                        if matches!(rec.status, StageStatus::RUNNING) {
+                            stamp_stage_heartbeat(rec);
+                        }
+                    }
+                    stamp_run_heartbeat(&mut st);
+                    st.updated_at = now_rfc3339();
+                    let _ = crate::run_state_io::atomic_write_run_state_throttled(
+                        p,
+                        run_id,
+                        &st,
+                        flush_min_ms,
+                        false,
+                    )
+                    .await;
+                }
+                last_hb = Instant::now();
             }
         }
-    } else {
-        child.wait().await?
+        let cancelled = if let Some(p) = state_path {
+            match crate::run_store::read_run_state(p) {
+                Ok(st) => st.cancel_requested,
+                Err(_) => false,
+            }
+        } else {
+            false
+        };
+        if cancelled {
+            procutil::terminate_then_kill(pgid, cancel_grace_ms).await;
+            killed_by_cancel = true;
+            break spawned.child.wait().await?;
+        }
+        if start.elapsed() >= Duration::from_secs(timeout_limit) {
+            procutil::terminate_then_kill(pgid, cancel_grace_ms).await;
+            killed_by_cancel = true;
+            timed_out = true;
+            break spawned.child.wait().await?;
+        }
+        tokio_sleep(Duration::from_millis(200)).await;
     };
 
     let stdout = out_task.await.unwrap_or_default();
     let stderr = err_task.await.unwrap_or_default();
     let code = status.code().unwrap_or(-1);
-    Ok((code, stdout, stderr))
+    Ok((code, stdout, stderr, killed_by_cancel, timed_out, pid, pgid))
 }
 
 fn truncate_err(s: &str) -> String {
@@ -382,9 +630,11 @@ fn truncate_err(s: &str) -> String {
 }
 
 async fn run_stage_with_retry(
+    run_out_dir: &Path,
     name: &str,
     cmdline: &str,
     rec: &mut StageRecord,
+    state_path: &Path,
     max_retries: u32,
     backoff_base: u64,
     timeout_s: Option<u64>,
@@ -395,23 +645,60 @@ async fn run_stage_with_retry(
         rec.retries = attempt;
         rec.started_at = Some(now_rfc3339());
         stamp_stage_heartbeat(rec);
+        rec.error_code = None;
+        rec.pid = None;
+        rec.pgid = None;
 
-        match run_cmd_async(name, cmdline, None, timeout_s).await {
-            Ok((code, _stdout, stderr)) if code == 0 => {
+        match run_cmd_async(name, cmdline, Some(run_out_dir), timeout_s, Some(state_path)).await {
+            Ok((code, _stdout, stderr, killed, timed_out, pid, pgid)) if code == 0 => {
+                rec.pid = Some(pid);
+                rec.pgid = Some(pgid);
+                if let Err(e) = validate_outputs_nonempty(run_out_dir, &rec.outputs) {
+                    rec.exit_code = Some(1);
+                    rec.ended_at = Some(now_rfc3339());
+                    stamp_stage_heartbeat(rec);
+                    rec.status = StageStatus::FAILED;
+                    rec.error = Some(truncate_err(&e.to_string()));
+                    rec.error_code = Some("OUTPUT_INVALID".to_string());
+                    rec.pid = None;
+                    rec.pgid = None;
+                    rec.duration_seconds = Some(stage_started.elapsed().as_secs_f64());
+                    if attempt < max_retries {
+                        let delay = backoff_delay(backoff_base, attempt);
+                        println!("Stage {} failed. Retrying in {} seconds...", name, delay);
+                        tokio_sleep(Duration::from_secs(delay)).await;
+                        continue;
+                    }
+                    return Ok(false);
+                }
                 rec.exit_code = Some(0);
                 rec.ended_at = Some(now_rfc3339());
                 stamp_stage_heartbeat(rec);
                 rec.status = StageStatus::SUCCEEDED;
                 rec.error = None;
+                rec.error_code = None;
+                rec.pid = None;
+                rec.pgid = None;
                 rec.duration_seconds = Some(stage_started.elapsed().as_secs_f64());
                 return Ok(true);
             }
-            Ok((code, _stdout, stderr)) => {
+            Ok((code, _stdout, stderr, killed, timed_out, pid, pgid)) => {
+                rec.pid = Some(pid);
+                rec.pgid = Some(pgid);
                 rec.exit_code = Some(code);
                 rec.ended_at = Some(now_rfc3339());
                 stamp_stage_heartbeat(rec);
                 rec.status = StageStatus::FAILED;
                 rec.error = Some(truncate_err(&stderr));
+                rec.error_code = if timed_out {
+                    Some("TIMEOUT_KILLED".to_string())
+                } else if killed {
+                    Some("CANCELLED_KILLED".to_string())
+                } else {
+                    Some("FAILED".to_string())
+                };
+                rec.pid = None;
+                rec.pgid = None;
                 rec.duration_seconds = Some(stage_started.elapsed().as_secs_f64());
             }
             Err(e) => {
@@ -420,6 +707,9 @@ async fn run_stage_with_retry(
                 stamp_stage_heartbeat(rec);
                 rec.status = StageStatus::FAILED;
                 rec.error = Some(truncate_err(&format!("{e:#}")));
+                rec.error_code = Some("FAILED".to_string());
+                rec.pid = None;
+                rec.pgid = None;
                 rec.duration_seconds = Some(stage_started.elapsed().as_secs_f64());
             }
         }
@@ -435,6 +725,7 @@ async fn run_stage_with_retry(
 }
 
 async fn run_video_stage_with_retry(
+    run_out_dir: &Path,
     stage: &str,
     state: &mut RunState,
     rec: &mut StageRecord,
@@ -453,6 +744,21 @@ async fn run_video_stage_with_retry(
             .await
         {
             Ok(outputs) => {
+                if let Err(e) = validate_outputs_nonempty(run_out_dir, &outputs) {
+                    rec.exit_code = Some(1);
+                    rec.ended_at = Some(now_rfc3339());
+                    stamp_stage_heartbeat(rec);
+                    rec.status = StageStatus::FAILED;
+                    rec.error = Some(format!("Attempt {} failed: {}", attempt, e));
+                    rec.duration_seconds = Some(stage_started.elapsed().as_secs_f64());
+                    if attempt < max_retries {
+                        let delay = backoff_delay(backoff_base, attempt);
+                        println!("Stage {} failed. Retrying in {} seconds...", stage, delay);
+                        tokio_sleep(Duration::from_secs(delay)).await;
+                        continue;
+                    }
+                    return Ok(false);
+                }
                 rec.exit_code = Some(0);
                 rec.outputs = outputs;
                 rec.ended_at = Some(now_rfc3339());
@@ -544,6 +850,9 @@ pub async fn run_pipeline(
                 heartbeat_at: None,
                 last_heartbeat_at: None,
                 timeout_seconds: Some(state.config.stage_timeout_seconds),
+                error_code: None,
+                pid: None,
+                pgid: None,
                 meta: serde_json::Value::Object(Default::default()),
                 duration_seconds: None,
             });
@@ -559,7 +868,7 @@ pub async fn run_pipeline(
 
         let done_before = {
             let rec = state.stages.get(&stage).expect("stage record must exist");
-            stage_done_by_outputs(&rec.outputs)
+            stage_done_by_outputs(&state.config.out_dir, &rec.outputs)
         };
         if done_before {
             let rec = state
@@ -595,12 +904,14 @@ pub async fn run_pipeline(
             .with_label_values(&[stage.as_str()])
             .inc();
         let success = if is_video_stage(name) {
+            let run_out_dir = state.config.out_dir.clone();
             let mut rec = state
                 .stages
                 .get(&stage)
                 .cloned()
                 .expect("stage record must exist");
             let ok = run_video_stage_with_retry(
+                &run_out_dir,
                 name,
                 &mut state,
                 &mut rec,
@@ -618,7 +929,17 @@ pub async fn run_pipeline(
                 .stages
                 .get_mut(&stage)
                 .expect("stage record must exist");
-            run_stage_with_retry(name, &cmdline, rec, max_retries, backoff_base, timeout_s).await?
+            run_stage_with_retry(
+                &state.config.out_dir,
+                name,
+                &cmdline,
+                rec,
+                state_path,
+                max_retries,
+                backoff_base,
+                timeout_s,
+            )
+            .await?
         };
         let stage_dur = stage_exec_started.elapsed().as_secs_f64();
         metrics::STAGE_DURATION
@@ -638,7 +959,7 @@ pub async fn run_pipeline(
 
         let done_after = {
             let rec = state.stages.get(&stage).expect("stage record must exist");
-            stage_done_by_outputs(&rec.outputs)
+            stage_done_by_outputs(&state.config.out_dir, &rec.outputs)
         };
         if !success || !done_after {
             let rec = state
@@ -738,7 +1059,11 @@ async fn run_one_stage_task(
     let (max_retries, backoff_base, stage_timeout_seconds) = {
         let mut s = shared.lock().await;
         if let Some(rec) = s.stages.get_mut(&stage) {
-            rec.command = Some(cmdline.clone());
+            rec.command = if is_video_stage(stage.as_str()) {
+                None
+            } else {
+                Some(cmdline.clone())
+            };
             rec.outputs = outputs.clone();
             rec.status = StageStatus::RUNNING;
             rec.started_at = Some(now_rfc3339());
@@ -760,19 +1085,41 @@ async fn run_one_stage_task(
             s.config.stage_timeout_seconds,
         )
     };
+    let hb_ms: u64 = std::env::var("CSS_HEARTBEAT_MS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(1000);
+    let flush_min_ms: u64 = std::env::var("CSS_STATE_FLUSH_MIN_MS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(500);
+    let hb_stop = spawn_stage_heartbeat_task(
+        state_path.clone(),
+        stage.clone(),
+        hb_ms,
+        flush_min_ms,
+        run_id_from_state_path(&state_path),
+    );
 
     let mut rec = StageRecord {
         status: StageStatus::PENDING,
         started_at: Some(now_rfc3339()),
         ended_at: None,
         exit_code: None,
-        command: Some(cmdline.clone()),
+        command: if is_video_stage(stage.as_str()) {
+            None
+        } else {
+            Some(cmdline.clone())
+        },
         outputs: outputs.clone(),
         retries: 0,
         error: None,
         heartbeat_at: None,
         last_heartbeat_at: None,
         timeout_seconds: Some(stage_timeout_seconds),
+        error_code: None,
+        pid: None,
+        pgid: None,
         meta: serde_json::Value::Object(Default::default()),
         duration_seconds: None,
     };
@@ -781,11 +1128,14 @@ async fn run_one_stage_task(
         || stage == "video_plan"
         || is_video_shot_stage(&stage)
         || stage == "video_assemble"
+        || stage == "mix"
+        || stage == "subtitles"
+        || stage == "render"
     {
         let (storyboard_path, video_dir, seed, vocals_path, music_path) = {
             let s = shared.lock().await;
             let out_dir = s.config.out_dir.clone();
-            let video_dir = out_dir.join("video");
+            let video_dir = out_dir.join("build").join("video");
             let storyboard_path = video_dir.join("storyboard.json");
             let seed = s
                 .stages
@@ -866,10 +1216,23 @@ async fn run_one_stage_task(
                 match dispatch_result {
                     Ok(outputs) => {
                         rec.outputs = outputs;
+                        let dispatch_meta = dispatch_state
+                            .stages
+                            .get(&stage_name)
+                            .map(|r| r.meta.clone())
+                            .unwrap_or_else(|| serde_json::json!({}));
                         rec.meta = serde_json::json!({
                             "storyboard": sb_meta,
                             "shots_summary": shots_summary,
+                            "dispatch": dispatch_meta,
                         });
+                        if let Some(dm) = dispatch_meta.as_object() {
+                            if let Some(m) = rec.meta.as_object_mut() {
+                                for (k, v) in dm {
+                                    m.insert(k.clone(), v.clone());
+                                }
+                            }
+                        }
                         true
                     }
                     Err(e) => {
@@ -882,10 +1245,16 @@ async fn run_one_stage_task(
         }
     } else {
         let timeout_s = rec.timeout_seconds;
+        let run_out_dir = {
+            let s = shared.lock().await;
+            s.config.out_dir.clone()
+        };
         match run_stage_with_retry(
+            &run_out_dir,
             &stage,
             &cmdline,
             &mut rec,
+            &state_path,
             max_retries,
             backoff_base,
             timeout_s,
@@ -906,8 +1275,18 @@ async fn run_one_stage_task(
     let dur = stage_start.elapsed().as_secs_f64();
     rec.duration_seconds = Some(dur);
     if success {
-        rec.status = StageStatus::SUCCEEDED;
-        rec.error = None;
+        let run_out_dir = {
+            let s = shared.lock().await;
+            s.config.out_dir.clone()
+        };
+        if let Err(e) = validate_outputs_nonempty(&run_out_dir, &rec.outputs) {
+            rec.status = StageStatus::FAILED;
+            rec.error = Some(e.to_string());
+            rec.exit_code = Some(1);
+        } else {
+            rec.status = StageStatus::SUCCEEDED;
+            rec.error = None;
+        }
     } else {
         rec.status = StageStatus::FAILED;
         if rec.error.is_none() {
@@ -916,13 +1295,15 @@ async fn run_one_stage_task(
     }
 
     let mut s = shared.lock().await;
+    let stage_failed = matches!(rec.status, StageStatus::FAILED);
     s.stages.insert(stage.clone(), rec);
-    if !success {
+    if stage_failed {
         s.status = RunStatus::FAILED;
     }
     s.updated_at = now_rfc3339();
     stamp_run_heartbeat(&mut s);
     let _ = run_store::write_run_state(&state_path, &s);
+    let _ = hb_stop.send(());
     events::emit_snapshot(&s);
     metrics::STAGE_DURATION
         .with_label_values(&[stage.as_str()])
@@ -930,7 +1311,7 @@ async fn run_one_stage_task(
     metrics::STAGE_RUNNING
         .with_label_values(&[stage.as_str()])
         .dec();
-    success
+    !stage_failed
 }
 
 pub async fn run_pipeline_dag_concurrent(
@@ -990,6 +1371,14 @@ pub async fn run_pipeline_dag_concurrent(
 
         {
             let mut s2 = shared.lock().await;
+            if let Ok(disk) = run_store::read_run_state(state_path) {
+                if disk.cancel_requested {
+                    s2.cancel_requested = true;
+                    if s2.cancel_requested_at.is_none() {
+                        s2.cancel_requested_at = disk.cancel_requested_at.clone();
+                    }
+                }
+            }
             let migrated = backfill_last_heartbeat_from_legacy(&mut s2);
             s2.updated_at = now_rfc3339();
             stamp_run_heartbeat(&mut s2);
@@ -1001,6 +1390,19 @@ pub async fn run_pipeline_dag_concurrent(
                 .map(|(k, _)| k.clone())
                 .collect();
             for k in running_keys {
+                if let Some(r) = s2.stages.get_mut(&k) {
+                    if let Some(pid) = r.pid {
+                        if pid > 0 && !crate::procutil::pid_alive(pid) {
+                            r.status = StageStatus::FAILED;
+                            r.error = Some("orphaned: pid not alive".to_string());
+                            r.error_code = Some("ORPHANED".to_string());
+                            r.exit_code = Some(-1);
+                            r.ended_at = Some(now_rfc3339());
+                            stamp_stage_heartbeat(r);
+                            continue;
+                        }
+                    }
+                }
                 if stage_stuck(&s2, &k, now) {
                     if let Some(r) = s2.stages.get_mut(&k) {
                         r.status = StageStatus::FAILED;
@@ -1024,6 +1426,7 @@ pub async fn run_pipeline_dag_concurrent(
             .values()
             .any(|r| matches!(r.status, StageStatus::FAILED))
             && !matches!(snapshot.status, RunStatus::FAILED)
+            && !snapshot.cancel_requested
         {
             let mut s2 = snapshot.clone();
             s2.status = RunStatus::FAILED;
@@ -1034,22 +1437,38 @@ pub async fn run_pipeline_dag_concurrent(
             fail_fast = true;
         }
 
-        let order_now = if !snapshot.topo_order.is_empty() {
-            snapshot.topo_order.clone()
-        } else {
-            order.clone()
-        };
-
         if !fail_fast {
-            let ready: Vec<String> =
-                compute_ready_view_with_dag_limited(&snapshot, &dag, usize::MAX)
-                    .ready
-                    .into_iter()
-                    .filter(|name| !running.contains(name))
-                    .collect();
-
+            let view = compute_ready_view_with_dag_limited(&snapshot, &dag, usize::MAX);
+            let ready: Vec<String> = view
+                .ready
+                .into_iter()
+                .filter(|name| !running.contains(name))
+                .collect();
             let free = concurrency_limit().saturating_sub(running.len());
-            for stage in ready.into_iter().take(free) {
+            let picked: Vec<String> = ready.into_iter().take(free).collect();
+
+            if !picked.is_empty() {
+                let mut s_mark = shared.lock().await;
+                let ts = now_rfc3339();
+                for stage in &picked {
+                    if let Some(rec) = s_mark.stages.get_mut(stage) {
+                        if matches!(rec.status, StageStatus::PENDING) {
+                            rec.status = StageStatus::RUNNING;
+                            rec.started_at = Some(ts.clone());
+                            rec.ended_at = None;
+                            rec.exit_code = None;
+                            rec.error = None;
+                            stamp_stage_heartbeat(rec);
+                        }
+                    }
+                }
+                s_mark.status = RunStatus::RUNNING;
+                s_mark.updated_at = ts;
+                stamp_run_heartbeat(&mut s_mark);
+                let _ = run_store::write_run_state(state_path, &s_mark);
+            }
+
+            for stage in picked {
                 let permit = match sem.clone().try_acquire_owned() {
                     Ok(p) => p,
                     Err(_) => break,
@@ -1107,11 +1526,6 @@ pub async fn run_pipeline_dag_concurrent(
                 break;
             }
 
-            let order_check = if !snapshot2.topo_order.is_empty() {
-                snapshot2.topo_order.clone()
-            } else {
-                order.clone()
-            };
             let has_ready = compute_ready_view_with_dag_limited(&snapshot2, &dag, usize::MAX)
                 .ready
                 .into_iter()
@@ -1157,13 +1571,13 @@ pub async fn run_pipeline_dag_concurrent(
     }
 
     let mut final_state = shared.lock().await.clone();
-    if matches!(
+    if final_state.cancel_requested {
+        final_state.status = RunStatus::CANCELLED;
+    } else if matches!(
         final_state.status,
         RunStatus::INIT | RunStatus::RUNNING | RunStatus::CANCELLED
     ) {
-        if final_state.cancel_requested {
-            final_state.status = RunStatus::CANCELLED;
-        } else if final_state
+        if final_state
             .stages
             .values()
             .any(|r| matches!(r.status, StageStatus::FAILED))
@@ -1176,9 +1590,9 @@ pub async fn run_pipeline_dag_concurrent(
         {
             final_state.status = RunStatus::SUCCEEDED;
         }
-        final_state.updated_at = now_rfc3339();
-        stamp_run_heartbeat(&mut final_state);
     }
+    final_state.updated_at = now_rfc3339();
+    stamp_run_heartbeat(&mut final_state);
     final_state.total_duration_seconds = Some(run_started.elapsed().as_secs_f64());
     let _ = run_store::write_run_state(state_path, &final_state);
     events::emit_snapshot(&final_state);
@@ -1216,6 +1630,7 @@ pub fn init_run_state(run_id: String, ui_lang: String, tier: String, cssl: Strin
         "vocals",
         "video_plan",
         "video_assemble",
+        "subtitles",
         "render",
     ] {
         stages.insert(
@@ -1232,6 +1647,9 @@ pub fn init_run_state(run_id: String, ui_lang: String, tier: String, cssl: Strin
                 heartbeat_at: None,
                 last_heartbeat_at: None,
                 timeout_seconds: Some(1800),
+                error_code: None,
+                pid: None,
+                pgid: None,
                 meta: serde_json::Value::Object(Default::default()),
                 duration_seconds: None,
             },
@@ -1267,11 +1685,19 @@ pub fn init_run_state(run_id: String, ui_lang: String, tier: String, cssl: Strin
         },
         dag: crate::run_state::DagMeta {
             schema: "css.pipeline.dag.v1".to_string(),
+            nodes: dag
+                .nodes
+                .iter()
+                .map(|n| crate::run_state::DagNodeMeta {
+                    name: n.name.to_string(),
+                    deps: n.deps.iter().map(|d| (*d).to_string()).collect(),
+                })
+                .collect(),
         },
         topo_order,
         dag_edges,
         commands: serde_json::json!({}),
-        artifacts: serde_json::json!({}),
+        artifacts: vec![],
         stages,
         video_shots_total: None,
         total_duration_seconds: None,
@@ -1346,6 +1772,9 @@ pub fn init_stage_records() -> BTreeMap<String, StageRecord> {
                 heartbeat_at: None,
                 last_heartbeat_at: None,
                 timeout_seconds: Some(1800),
+                error_code: None,
+                pid: None,
+                pgid: None,
                 meta: serde_json::Value::Object(Default::default()),
                 duration_seconds: None,
             },

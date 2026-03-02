@@ -150,11 +150,19 @@ pub fn spawn_run_worker(run_dir: PathBuf, commands: Value) {
             },
             dag: DagMeta {
                 schema: "css.pipeline.dag.v1".to_string(),
+                nodes: dag
+                    .nodes
+                    .iter()
+                    .map(|n| crate::run_state::DagNodeMeta {
+                        name: n.name.to_string(),
+                        deps: n.deps.iter().map(|d| (*d).to_string()).collect(),
+                    })
+                    .collect(),
             },
             topo_order,
             dag_edges,
             commands: serde_json::json!({}),
-            artifacts: serde_json::json!({}),
+            artifacts: vec![],
             stages: Default::default(),
             video_shots_total: None,
             total_duration_seconds: None,

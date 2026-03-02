@@ -3,6 +3,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use utoipa::ToSchema;
+use serde::Deserializer;
 
 fn default_heartbeat_interval_seconds() -> u64 {
     2
@@ -42,8 +43,8 @@ pub struct RunState {
     #[serde(default)]
     pub commands: serde_json::Value,
 
-    #[serde(default)]
-    pub artifacts: serde_json::Value,
+    #[serde(default, deserialize_with = "deserialize_artifacts")]
+    pub artifacts: Vec<Artifact>,
 
     #[serde(default)]
     pub heartbeat_at: Option<String>,
@@ -69,29 +70,43 @@ pub struct RunState {
     pub total_duration_seconds: Option<f64>,
 }
 
+fn deserialize_artifacts<'de, D>(deserializer: D) -> Result<Vec<Artifact>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let v = Value::deserialize(deserializer)?;
+    match v {
+        Value::Array(arr) => {
+            let mut out = Vec::new();
+            for item in arr {
+                if let Ok(a) = serde_json::from_value::<Artifact>(item) {
+                    out.push(a);
+                }
+            }
+            Ok(out)
+        }
+        _ => Ok(Vec::new()),
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, ToSchema)]
+pub struct Artifact {
+    pub kind: String,
+    pub path: PathBuf,
+    pub stage: String,
+    pub mime: Option<String>,
+}
+
 impl RunState {
     pub fn set_artifact_path(&mut self, path: &str, value: serde_json::Value) {
-        let parts: Vec<&str> = path.split('.').filter(|x| !x.is_empty()).collect();
-        if parts.is_empty() {
-            return;
-        }
-
-        if !self.artifacts.is_object() {
-            self.artifacts = serde_json::json!({});
-        }
-
-        let mut cur = self.artifacts.as_object_mut().expect("artifacts object");
-        for key in &parts[..parts.len().saturating_sub(1)] {
-            let entry = cur
-                .entry((*key).to_string())
-                .or_insert_with(|| serde_json::json!({}));
-            if !entry.is_object() {
-                *entry = serde_json::json!({});
-            }
-            cur = entry.as_object_mut().expect("nested artifact object");
-        }
-
-        cur.insert(parts[parts.len() - 1].to_string(), value);
+        let v = value.as_str().map(|s| s.to_string()).unwrap_or_else(|| value.to_string());
+        let p = PathBuf::from(v);
+        self.artifacts.push(Artifact {
+            kind: "meta".to_string(),
+            path: p,
+            stage: path.to_string(),
+            mime: None,
+        });
     }
 }
 
@@ -121,6 +136,15 @@ pub struct RetryPolicy {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DagMeta {
     pub schema: String,
+    #[serde(default)]
+    pub nodes: Vec<DagNodeMeta>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DagNodeMeta {
+    pub name: String,
+    #[serde(default)]
+    pub deps: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -164,6 +188,15 @@ pub struct StageRecord {
 
     #[serde(default)]
     pub timeout_seconds: Option<u64>,
+
+    #[serde(default)]
+    pub error_code: Option<String>,
+
+    #[serde(default)]
+    pub pid: Option<i32>,
+
+    #[serde(default)]
+    pub pgid: Option<i32>,
 
     #[serde(default)]
     pub meta: Value,

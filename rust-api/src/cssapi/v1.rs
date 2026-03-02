@@ -4,6 +4,11 @@ use serde_json::json;
 
 pub fn ready_payload(st: &RunState) -> serde_json::Value {
     let view = compute_ready_view(st);
+    let summary_text = crate::ready::build_summary(st, &view);
+    let failures = crate::ready::collect_failures(st)
+        .into_iter()
+        .map(|(stage, error)| json!({"stage": stage, "error": error}))
+        .collect::<Vec<_>>();
 
     let running = view
         .running
@@ -19,6 +24,7 @@ pub fn ready_payload(st: &RunState) -> serde_json::Value {
         "run_id": &st.run_id,
         "status": format!("{:?}", st.status),
         "updated_at": &st.updated_at,
+        "summary_text": summary_text,
         "dag": {
             "schema": &st.dag.schema,
             "topo_order": view.topo_order,
@@ -35,8 +41,34 @@ pub fn ready_payload(st: &RunState) -> serde_json::Value {
             "status": format!("{:?}", st.status),
             "updated_at": st.updated_at
         },
+        "mix": {
+            "status": view.mix.status,
+            "path": view.mix.path,
+            "ok": view.mix.ok
+        },
+        "subtitles": {
+            "status": view.subtitles.status,
+            "path": view.subtitles.path,
+            "burnin": view.subtitles.burnin,
+            "format": view.subtitles.format,
+            "lang": view.subtitles.lang,
+            "ok": view.subtitles.ok
+        },
+        "video_shots": {
+            "total": view.video_shots.total,
+            "ready": view.video_shots.ready,
+            "running": view.video_shots.running,
+            "succeeded": view.video_shots.succeeded,
+            "failed": view.video_shots.failed,
+            "pending": view.video_shots.pending
+        },
         "video": {
             "shots_total": st.video_shots_total
-        }
+        },
+        "artifacts": st.artifacts,
+        "failures": failures,
+        "blocking": view.blocking,
+        "cancel_requested": st.cancel_requested,
+        "cancelled_at": st.cancel_requested_at
     })
 }

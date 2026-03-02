@@ -1,9 +1,15 @@
 use crate::run_state::RunState;
+use once_cell::sync::Lazy;
 use serde_json::to_vec_pretty;
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
+use tokio::sync::Mutex;
 use tokio::io::AsyncWriteExt;
+
+static LAST_FLUSH: Lazy<Mutex<HashMap<String, Instant>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 fn ensure_parent_dir(path: &Path) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
@@ -16,7 +22,10 @@ pub fn save_state_atomic(path: &Path, state: &RunState) -> std::io::Result<()> {
     ensure_parent_dir(path)?;
 
     let tmp_path = tmp_path(path);
-    let bytes = to_vec_pretty(state).map_err(std::io::Error::other)?;
+    let mut st2 = state.clone();
+    let run_dir = path.parent().unwrap_or(Path::new("."));
+    st2.artifacts = crate::artifacts::rebuild_artifacts(run_dir, &st2);
+    let bytes = to_vec_pretty(&st2).map_err(std::io::Error::other)?;
 
     {
         let mut f = File::create(&tmp_path)?;
@@ -59,7 +68,10 @@ pub async fn save_run_state_atomic(path: &Path, st: &RunState) -> anyhow::Result
         let _ = tokio::fs::create_dir_all(parent).await;
     }
     let tmp = tmp_path(path);
-    let data = serde_json::to_vec_pretty(st)?;
+    let mut st2 = st.clone();
+    let run_dir = path.parent().unwrap_or(Path::new("."));
+    st2.artifacts = crate::artifacts::rebuild_artifacts(run_dir, &st2);
+    let data = serde_json::to_vec_pretty(&st2)?;
     let mut f = tokio::fs::File::create(&tmp).await?;
     f.write_all(&data).await?;
     let _ = f.sync_all().await;
@@ -74,6 +86,51 @@ pub async fn atomic_write_run_state(path: &Path, st: &RunState) -> anyhow::Resul
 
 pub async fn read_run_state_async(path: &Path) -> anyhow::Result<RunState> {
     load_run_state(path).await
+}
+
+pub async fn atomic_write_run_state_throttled(
+    path: &Path,
+    run_id: &str,
+    st: &RunState,
+    min_interval_ms: u64,
+    force: bool,
+) -> anyhow::Result<bool> {
+    if force {
+        atomic_write_run_state(path, st).await?;
+        let mut m = LAST_FLUSH.lock().await;
+        m.insert(run_id.to_string(), Instant::now());
+        return Ok(true);
+    }
+
+    let now = Instant::now();
+    {
+        let m = LAST_FLUSH.lock().await;
+        if let Some(t0) = m.get(run_id) {
+            if now.duration_since(*t0).as_millis() < min_interval_ms as u128 {
+                return Ok(false);
+            }
+        }
+    }
+
+    atomic_write_run_state(path, st).await?;
+    let mut m = LAST_FLUSH.lock().await;
+    m.insert(run_id.to_string(), now);
+    Ok(true)
+}
+
+pub async fn atomic_write_text(path: &std::path::Path, s: &str) -> std::io::Result<()> {
+    use tokio::io::AsyncWriteExt;
+
+    let parent = path.parent().unwrap_or(std::path::Path::new("."));
+    tokio::fs::create_dir_all(parent).await.ok();
+
+    let tmp = path.with_extension("tmp");
+    let mut f = tokio::fs::File::create(&tmp).await?;
+    f.write_all(s.as_bytes()).await?;
+    f.sync_all().await?;
+    drop(f);
+    tokio::fs::rename(&tmp, path).await?;
+    Ok(())
 }
 
 fn tmp_path(path: &Path) -> PathBuf {

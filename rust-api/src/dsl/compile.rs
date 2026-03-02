@@ -21,6 +21,18 @@ impl CompiledCommands {
     }
 }
 
+fn silence_wav_cmd(duration_s: f64, out: &str) -> String {
+    let d = if duration_s.is_finite() && duration_s > 0.2 {
+        duration_s
+    } else {
+        8.0
+    };
+    format!(
+        "mkdir -p ./build && ffmpeg -y -hide_banner -loglevel error -f lavfi -i anullsrc=r=44100:cl=stereo -t {} -c:a pcm_s16le {}",
+        d, out
+    )
+}
+
 pub fn compile_from_dsl(dsl: &str) -> anyhow::Result<CompiledCommands> {
     let required = ["lyrics()", "music()", "vocals()", "video()", "render()"];
     let lowered = dsl.to_lowercase();
@@ -35,8 +47,8 @@ pub fn compile_from_dsl(dsl: &str) -> anyhow::Result<CompiledCommands> {
 
     Ok(CompiledCommands {
         lyrics: "mkdir -p ./build && printf '%s\\n' '{\"schema\":\"css.lyrics.v1\",\"lines\":[\"demo\"]}' > ./build/lyrics.json".to_string(),
-        music: "mkdir -p ./build && : > ./build/music.wav".to_string(),
-        vocals: "mkdir -p ./build && : > ./build/vocals.wav".to_string(),
+        music: silence_wav_cmd(8.0, "./build/music.wav"),
+        vocals: silence_wav_cmd(8.0, "./build/vocals.wav"),
         video: "echo \"video handled by video executor\"".to_string(),
         render: "mkdir -p ./build && (cp -f ./build/video/video.mp4 ./build/final_mv.mp4 2>/dev/null || : > ./build/final_mv.mp4)".to_string(),
     })

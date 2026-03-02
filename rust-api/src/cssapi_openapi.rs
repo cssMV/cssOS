@@ -90,6 +90,15 @@ pub struct ReadySummaryV1 {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VideoShotsV1 {
+    pub total: i64,
+    pub ready: i64,
+    pub running: i64,
+    pub succeeded: i64,
+    pub failed: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ReadyResponseV1 {
     pub schema: String,
     pub run_id: String,
@@ -99,6 +108,7 @@ pub struct ReadyResponseV1 {
     pub ready: Vec<String>,
     pub running: Vec<String>,
     pub summary: ReadySummaryV1,
+    pub video_shots: VideoShotsV1,
     pub updated_at: String,
 }
 

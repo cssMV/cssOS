@@ -11,6 +11,11 @@ use tokio::sync::Semaphore;
 
 use crate::scheduler::Scheduler;
 use crate::video::error::VideoError;
+use crate::video::ffmpeg::{
+    ffmpeg_common_threads_args, ffmpeg_encoder_args, ffmpeg_hw_input_args,
+};
+use crate::video::graph::{build_vf, lavfi_color_source, ShotParams};
+use crate::video::hw::detect_hw_plan;
 use crate::video::storyboard::{Bg, Camera, Overlay, Resolution, Shot, Storyboard, StoryboardV1};
 
 #[derive(Clone)]
@@ -66,7 +71,7 @@ impl VideoExecutor {
     }
 
     pub fn storyboard_path(&self) -> PathBuf {
-        self.build_dir().join("storyboard.json")
+        self.video_dir().join("storyboard.json")
     }
 
     pub fn video_dir(&self) -> PathBuf {
@@ -278,18 +283,29 @@ impl VideoExecutor {
         shot: &Shot,
         scheduler: &Scheduler,
     ) -> Result<RenderShotResult, VideoError> {
+        fs::create_dir_all(self.shots_dir()).map_err(|e| VideoError(e.to_string()))?;
         let _permit = scheduler
             .ffmpeg_sem
             .clone()
             .acquire_owned()
             .await
             .map_err(|e| VideoError(e.to_string()))?;
-        let this = self.clone();
-        let sbc = sb.clone();
-        let shotc = shot.clone();
-        tokio::task::spawn_blocking(move || this.render_shot_stub(&sbc, &shotc))
+        let mp4 = self.shots_dir().join(format!("{}.mp4", shot.id));
+        if !mp4.exists() {
+            render_one_shot_mp4_graph(
+                shot.id.clone(),
+                shot.bg.value.clone(),
+                Some(shot.camera.clone()),
+                sb.resolution.w,
+                sb.resolution.h,
+                sb.fps,
+                shot.duration_s.max(0.25),
+                &mp4,
+            )
             .await
-            .map_err(|e| VideoError(e.to_string()))?
+            .map_err(|e| VideoError(e.to_string()))?;
+        }
+        Ok(RenderShotResult { mp4_path: mp4 })
     }
 
     pub fn assemble_storyboard(&self, sb: &StoryboardV1) -> Result<AssembleResult, VideoError> {
@@ -350,26 +366,11 @@ impl VideoExecutor {
     }
 
     pub async fn assemble(&self, shots: &[PathBuf], out_mp4: &Path) -> Result<()> {
-        let list_path = self.out_dir.join("shots.txt");
         tokio::fs::create_dir_all(&self.out_dir).await?;
-        write_concat_list_async(&list_path, shots).await?;
-
-        let copy = self.assemble_concat_copy(&list_path, out_mp4).await;
-        if copy.is_ok() {
-            return Ok(());
-        }
-        let err1 = copy
-            .err()
-            .unwrap_or_else(|| anyhow!("copy assemble unknown error"));
-        let re = self.assemble_concat_reencode(&list_path, out_mp4).await;
-        match re {
-            Ok(_) => Ok(()),
-            Err(err2) => Err(anyhow!(
-                "assemble failed: copy_err={} reencode_err={}",
-                err1,
-                err2
-            )),
-        }
+        crate::video::ffmpeg::concat_mp4_ffmpeg(shots, out_mp4)
+            .await
+            .map_err(anyhow::Error::msg)?;
+        Ok(())
     }
 
     async fn assemble_concat_copy(&self, list_path: &Path, out_mp4: &Path) -> Result<()> {
@@ -414,6 +415,85 @@ impl VideoExecutor {
             Err(anyhow!(e))
         }
     }
+}
+
+pub async fn render_one_shot_mp4(
+    color: &str,
+    w: u32,
+    h: u32,
+    fps: u32,
+    dur_s: f64,
+    out_mp4: &std::path::Path,
+) -> anyhow::Result<()> {
+    render_one_shot_mp4_graph(
+        "video_shot_000".to_string(),
+        color.to_string(),
+        None,
+        w,
+        h,
+        fps,
+        dur_s,
+        out_mp4,
+    )
+    .await
+}
+
+pub async fn render_one_shot_mp4_graph(
+    shot_id: String,
+    color: String,
+    camera: Option<crate::video::storyboard::Camera>,
+    w: u32,
+    h: u32,
+    fps: u32,
+    duration_s: f64,
+    out_mp4: &std::path::Path,
+) -> anyhow::Result<()> {
+    let plan = detect_hw_plan().await;
+
+    if let Some(parent) = out_mp4.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+
+    let mut argv: Vec<String> = Vec::new();
+    argv.push("-y".into());
+    argv.push("-hide_banner".into());
+    argv.push("-loglevel".into());
+    argv.push(std::env::var("CSS_FFMPEG_LOGLEVEL").unwrap_or_else(|_| "error".into()));
+
+    argv.extend(ffmpeg_common_threads_args());
+    argv.extend(ffmpeg_hw_input_args(&plan));
+
+    argv.push("-f".into());
+    argv.push("lavfi".into());
+    argv.push("-i".into());
+    let norm_color = normalize_color(&color);
+    argv.push(lavfi_color_source(&norm_color, w, h, fps, duration_s));
+
+    argv.push("-vf".into());
+    let p = ShotParams {
+        id: shot_id,
+        color: norm_color,
+        w,
+        h,
+        fps,
+        duration_s,
+        camera,
+    };
+    argv.push(build_vf(&plan, &p));
+
+    argv.extend(ffmpeg_encoder_args(&plan));
+    argv.push("-pix_fmt".into());
+    argv.push("yuv420p".into());
+    argv.push("-movflags".into());
+    argv.push("+faststart".into());
+    argv.push(out_mp4.display().to_string());
+
+    let out = TokCommand::new("ffmpeg").args(argv).output().await?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        anyhow::bail!("ffmpeg shot failed: exit={:?} stderr={}", out.status.code(), stderr);
+    }
+    Ok(())
 }
 
 fn load_storyboard(path: &Path) -> Result<Storyboard> {

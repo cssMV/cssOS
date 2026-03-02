@@ -116,13 +116,24 @@ pub struct RunReadyResponse {
     ready: Vec<String>,
     running: Vec<String>,
     summary: ready::ReadySummary,
-    video_shots: Option<VideoShotsMeta>,
+    summary_text: String,
+    video_shots: ready::VideoShotsSummary,
+    counters: ready::ReadyCounters,
+    running_pids: Vec<ready::RunningPid>,
+    mix: ready::MixSummary,
+    subtitles: ready::SubtitlesSummary,
+    blocking: Vec<ready::BlockingItem>,
+    artifacts: serde_json::Value,
+    failures: Vec<ReadyFailure>,
+    cancel_requested: bool,
+    cancelled_at: Option<String>,
     updated_at: String,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
-pub struct VideoShotsMeta {
-    n: usize,
+pub struct ReadyFailure {
+    stage: String,
+    error: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -295,7 +306,7 @@ pub async fn runs_create(
         run_state.retry_policy = retry;
     }
 
-    let compiled = match body.commands {
+    let mut compiled = match body.commands {
         Some(c) => c,
         None => crate::dsl::compile::compile_from_dsl(&body.cssl).map_err(|e| {
             ApiError::unprocessable("INVALID_REQUEST", "invalid request body")
@@ -344,6 +355,48 @@ pub async fn runs_create(
             }
         }
     }
+    let shots_n = commands["video"]["shots_n"]
+        .as_u64()
+        .unwrap_or(8)
+        .clamp(1, 256) as usize;
+    let fps = commands["video"]["fps"]
+        .as_u64()
+        .unwrap_or(30)
+        .clamp(1, 120) as u32;
+    let seed = commands["video"]["seed"].as_u64().unwrap_or(123);
+    let duration_s = commands["video"]["duration_s"]
+        .as_f64()
+        .filter(|v| v.is_finite())
+        .unwrap_or(8.0)
+        .clamp(1.0, 600.0);
+    let w = commands["video"]["resolution"]["w"]
+        .as_u64()
+        .unwrap_or(1280)
+        .clamp(160, 7680) as u32;
+    let h = commands["video"]["resolution"]["h"]
+        .as_u64()
+        .unwrap_or(720)
+        .clamp(90, 4320) as u32;
+    commands["video"]["shots_n"] = serde_json::json!(shots_n);
+    commands["video"]["fps"] = serde_json::json!(fps);
+    commands["video"]["seed"] = serde_json::json!(seed);
+    commands["video"]["duration_s"] = serde_json::json!(duration_s);
+    commands["video"]["resolution"]["w"] = serde_json::json!(w);
+    commands["video"]["resolution"]["h"] = serde_json::json!(h);
+
+    let music_cmd = format!(
+        "mkdir -p ./build && ffmpeg -y -hide_banner -loglevel error -f lavfi -i anullsrc=r=48000:cl=stereo -t {} -c:a pcm_s16le ./build/music.wav",
+        duration_s
+    );
+    let vocals_cmd = format!(
+        "mkdir -p ./build && ffmpeg -y -hide_banner -loglevel error -f lavfi -i anullsrc=r=48000:cl=stereo -t {} -c:a pcm_s16le ./build/vocals.wav",
+        duration_s
+    );
+    compiled.music = music_cmd.clone();
+    compiled.vocals = vocals_cmd.clone();
+    commands["music"] = serde_json::json!(music_cmd);
+    commands["vocals"] = serde_json::json!(vocals_cmd);
+
     run_state.commands = commands.clone();
 
     if let Some(rec) = run_state.stages.get_mut("lyrics") {
@@ -356,18 +409,12 @@ pub async fn runs_create(
     }
     if let Some(rec) = run_state.stages.get_mut("music") {
         rec.status = StageStatus::PENDING;
-        rec.command = commands
-            .get("music")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+        rec.command = Some(music_cmd);
         rec.outputs = vec![PathBuf::from("./build/music.wav")];
     }
     if let Some(rec) = run_state.stages.get_mut("vocals") {
         rec.status = StageStatus::PENDING;
-        rec.command = commands
-            .get("vocals")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+        rec.command = Some(vocals_cmd);
         rec.outputs = vec![PathBuf::from("./build/vocals.wav")];
     }
     run_state.stages.insert(
@@ -377,22 +424,21 @@ pub async fn runs_create(
             started_at: None,
             ended_at: None,
             exit_code: None,
-            command: Some("true".into()),
+            command: None,
             outputs: vec![PathBuf::from("./build/video/storyboard.json")],
             retries: 0,
             error: None,
             heartbeat_at: None,
             last_heartbeat_at: None,
             timeout_seconds: Some(run_state.config.stage_timeout_seconds),
+            error_code: None,
+            pid: None,
+            pgid: None,
             meta: Value::Object(Default::default()),
             duration_seconds: None,
         },
     );
 
-    let shots_n = run_state.commands["video"]["shots_n"]
-        .as_u64()
-        .unwrap_or(8)
-        .clamp(1, 64) as usize;
     for i in 0..shots_n {
         let shot = format!("video_shot_{:03}", i);
         let out = PathBuf::from(format!("./build/video/shots/{shot}.mp4"));
@@ -403,13 +449,16 @@ pub async fn runs_create(
                 started_at: None,
                 ended_at: None,
                 exit_code: None,
-                command: Some("true".to_string()),
+                command: None,
                 outputs: vec![out],
                 retries: 0,
                 error: None,
                 heartbeat_at: None,
                 last_heartbeat_at: None,
                 timeout_seconds: Some(run_state.config.stage_timeout_seconds),
+                error_code: None,
+                pid: None,
+                pgid: None,
                 meta: Value::Object(Default::default()),
                 duration_seconds: None,
             },
@@ -422,23 +471,65 @@ pub async fn runs_create(
             started_at: None,
             ended_at: None,
             exit_code: None,
-            command: Some("cssos-rust-api video-assemble".into()),
+            command: None,
             outputs: vec![PathBuf::from("./build/video/video.mp4")],
             retries: 0,
             error: None,
             heartbeat_at: None,
             last_heartbeat_at: None,
             timeout_seconds: Some(run_state.config.stage_timeout_seconds),
+            error_code: None,
+            pid: None,
+            pgid: None,
+            meta: Value::Object(Default::default()),
+            duration_seconds: None,
+        },
+    );
+    run_state.stages.insert(
+        "subtitles".into(),
+        StageRecord {
+            status: StageStatus::PENDING,
+            started_at: None,
+            ended_at: None,
+            exit_code: None,
+            command: None,
+            outputs: vec![PathBuf::from("./build/subtitles.ass")],
+            retries: 0,
+            error: None,
+            heartbeat_at: None,
+            last_heartbeat_at: None,
+            timeout_seconds: Some(run_state.config.stage_timeout_seconds),
+            error_code: None,
+            pid: None,
+            pgid: None,
+            meta: Value::Object(Default::default()),
+            duration_seconds: None,
+        },
+    );
+    run_state.stages.insert(
+        "mix".into(),
+        StageRecord {
+            status: StageStatus::PENDING,
+            started_at: None,
+            ended_at: None,
+            exit_code: None,
+            command: None,
+            outputs: vec![PathBuf::from("./build/mix.wav")],
+            retries: 0,
+            error: None,
+            heartbeat_at: None,
+            last_heartbeat_at: None,
+            timeout_seconds: Some(run_state.config.stage_timeout_seconds),
+            error_code: None,
+            pid: None,
+            pgid: None,
             meta: Value::Object(Default::default()),
             duration_seconds: None,
         },
     );
     if let Some(rec) = run_state.stages.get_mut("render") {
         rec.status = StageStatus::PENDING;
-        rec.command = commands
-            .get("render")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+        rec.command = None;
         rec.outputs = vec![PathBuf::from("./build/final_mv.mp4")];
     }
     for rec in run_state.stages.values_mut() {
@@ -446,6 +537,61 @@ pub async fn runs_create(
             map.insert("commands".into(), commands.clone());
         }
     }
+    let mut dag_nodes: Vec<crate::run_state::DagNodeMeta> = vec![
+        crate::run_state::DagNodeMeta {
+            name: "lyrics".to_string(),
+            deps: vec![],
+        },
+        crate::run_state::DagNodeMeta {
+            name: "music".to_string(),
+            deps: vec!["lyrics".to_string()],
+        },
+        crate::run_state::DagNodeMeta {
+            name: "vocals".to_string(),
+            deps: vec!["lyrics".to_string(), "music".to_string()],
+        },
+        crate::run_state::DagNodeMeta {
+            name: "video_plan".to_string(),
+            deps: vec!["lyrics".to_string(), "vocals".to_string()],
+        },
+    ];
+    let mut shot_names: Vec<String> = Vec::new();
+    for i in 0..shots_n {
+        let shot = format!("video_shot_{:03}", i);
+        shot_names.push(shot.clone());
+        dag_nodes.push(crate::run_state::DagNodeMeta {
+            name: shot,
+            deps: vec!["video_plan".to_string()],
+        });
+    }
+    dag_nodes.push(crate::run_state::DagNodeMeta {
+        name: "video_assemble".to_string(),
+        deps: shot_names.clone(),
+    });
+    dag_nodes.push(crate::run_state::DagNodeMeta {
+        name: "subtitles".to_string(),
+        deps: vec!["lyrics".to_string()],
+    });
+    dag_nodes.push(crate::run_state::DagNodeMeta {
+        name: "mix".to_string(),
+        deps: vec!["music".to_string(), "vocals".to_string()],
+    });
+    dag_nodes.push(crate::run_state::DagNodeMeta {
+        name: "render".to_string(),
+        deps: vec![
+            "lyrics".to_string(),
+            "music".to_string(),
+            "vocals".to_string(),
+            "video_assemble".to_string(),
+            "subtitles".to_string(),
+        ],
+    });
+    run_state.dag.nodes = dag_nodes;
+    run_state.dag_edges.clear();
+    for n in &run_state.dag.nodes {
+        run_state.dag_edges.insert(n.name.clone(), n.deps.clone());
+    }
+    run_state.video_shots_total = Some(shots_n as u32);
     run_state.topo_order = topo_order_v1(&run_state);
 
     let state_path = run_store::run_state_path(&run_id);
@@ -501,13 +647,14 @@ pub async fn runs_create(
 )]
 pub async fn runs_get(Path(run_id): Path<String>) -> ApiResult<RunState> {
     let p = run_store::run_state_path(&run_id);
-    let s = run_store::read_run_state(&p).map_err(|_| {
+    let mut s = run_store::read_run_state(&p).map_err(|_| {
         if p.exists() {
             ApiError::internal("RUN_READ_FAILED", "failed to read run state")
         } else {
             ApiError::not_found("RUN_NOT_FOUND", "run_id not found")
         }
     })?;
+    crate::artifacts::build_artifacts_index(&mut s);
     Ok(Json(s))
 }
 
@@ -589,19 +736,11 @@ pub async fn run_ready(Path(run_id): Path<String>) -> ApiResult<RunReadyResponse
     })?;
     let dag = crate::dag::cssmv_dag_v1();
     let view = ready::compute_ready_view_with_dag_limited(&state, &dag, 64);
-    let video_shots = state
-        .video_shots_total
-        .map(|n| n as usize)
-        .or_else(|| {
-            let p = state.config.out_dir.join("video").join("storyboard.json");
-            fs::read(&p)
-                .ok()
-                .and_then(|b| {
-                    serde_json::from_slice::<crate::video::storyboard::StoryboardV1>(&b).ok()
-                })
-                .map(|sb| sb.shots.len())
-        })
-        .map(|n| VideoShotsMeta { n });
+    let failures = ready::collect_failures(&state)
+        .into_iter()
+        .map(|(stage, error)| ReadyFailure { stage, error })
+        .collect::<Vec<_>>();
+    let summary_text = ready::build_summary(&state, &view);
 
     Ok(Json(RunReadyResponse {
         schema: "cssapi.runs.ready.v1",
@@ -616,7 +755,18 @@ pub async fn run_ready(Path(run_id): Path<String>) -> ApiResult<RunReadyResponse
         ready: view.ready,
         running: view.running,
         summary: view.summary,
-        video_shots,
+        summary_text,
+        video_shots: view.video_shots,
+        counters: view.counters,
+        running_pids: view.running_pids,
+        mix: view.mix,
+        subtitles: view.subtitles,
+        blocking: view.blocking,
+        artifacts: serde_json::to_value(state.artifacts.clone())
+            .unwrap_or_else(|_| serde_json::json!([])),
+        failures,
+        cancel_requested: state.cancel_requested,
+        cancelled_at: state.cancel_requested_at.clone(),
         updated_at: state.updated_at,
     }))
 }
@@ -625,12 +775,21 @@ async fn run_cancel(
     Path(run_id): Path<String>,
 ) -> Result<(StatusCode, Json<CancelResponse>), ApiError> {
     let p = run_store::run_state_path(&run_id);
+    if !p.exists() {
+        return Err(ApiError::not_found("RUN_NOT_FOUND", "run_id not found"));
+    }
     let mut s = run_store::read_run_state(&p)
         .map_err(|_| ApiError::not_found("RUN_NOT_FOUND", "run_id not found"))?;
     s.cancel_requested = true;
     s.cancel_requested_at = Some(chrono::Utc::now().to_rfc3339());
     s.updated_at = chrono::Utc::now().to_rfc3339();
-    run_store::write_run_state(&p, &s).map_err(map_io)?;
+    run_store::write_run_state(&p, &s).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            ApiError::not_found("RUN_NOT_FOUND", "run_id not found")
+        } else {
+            map_io(e)
+        }
+    })?;
 
     Ok((
         StatusCode::ACCEPTED,

@@ -17,6 +17,25 @@ async function main() {
   const argv = process.argv.slice(2);
   const cmd = argv.join(" ");
 
+  if (argv.length >= 3 && argv[0] === "status" && argv[1] === "--watch") {
+    const runId = argv[2];
+    if (!runId) {
+      process.stderr.write("missing <run_id>\n");
+      process.exit(2);
+    }
+    const baseUrl =
+      getArg("--base-url") ||
+      getArg("--base") ||
+      process.env.CSS_API_BASE_URL ||
+      process.env.CSS_API_BASE ||
+      "https://cssstudio.app";
+    const intervalMs = Number(getArg("--interval-ms") || process.env.CSS_WATCH_INTERVAL_MS || "500");
+    const listMax = Number(getArg("--list-max") || process.env.CSS_WATCH_LIST_MAX || "12");
+    const debugPids = hasArg("--debug-pids");
+    await statusWatch({ baseUrl, runId, intervalMs, listMax, debugPids });
+    return;
+  }
+
   if (cmd.startsWith("pipeline status") && hasArg("--watch")) {
     const runId = getArg("--run") || getArg("-r");
     if (!runId) {
@@ -32,7 +51,9 @@ async function main() {
       "https://cssstudio.app";
 
     const intervalMs = Number(getArg("--interval-ms") || "500");
-    await statusWatch({ baseUrl, runId, intervalMs });
+    const listMax = Number(getArg("--list-max") || process.env.CSS_WATCH_LIST_MAX || "12");
+    const debugPids = hasArg("--debug-pids");
+    await statusWatch({ baseUrl, runId, intervalMs, listMax, debugPids });
     return;
   }
 
@@ -41,7 +62,8 @@ async function main() {
       "unknown command",
       "",
       "examples:",
-      "  css pipeline status --watch --run <id> [--base-url https://cssstudio.app] [--interval-ms 500]",
+      "  css status --watch <id> [--base-url https://cssstudio.app] [--interval-ms 500] [--list-max 12] [--debug-pids]",
+      "  css pipeline status --watch --run <id> [--base-url https://cssstudio.app] [--interval-ms 500] [--debug-pids]",
       "",
     ].join("\n") + "\n"
   );

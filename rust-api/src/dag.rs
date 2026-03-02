@@ -100,8 +100,16 @@ pub fn cssmv_dag_v1() -> Dag {
                 deps: &["video_plan"],
             },
             DagNode {
+                name: "subtitles",
+                deps: &["lyrics"],
+            },
+            DagNode {
+                name: "mix",
+                deps: &["music", "vocals"],
+            },
+            DagNode {
                 name: "render",
-                deps: &["lyrics", "music", "vocals", "video_assemble"],
+                deps: &["video_assemble", "mix", "subtitles"],
             },
         ],
     }
@@ -124,6 +132,8 @@ pub fn topo_order_v1(state: &RunState) -> Vec<String> {
     ];
     out.extend(shots);
     out.push("video_assemble".to_string());
+    out.push("subtitles".to_string());
+    out.push("mix".to_string());
     out.push("render".to_string());
     out
 }

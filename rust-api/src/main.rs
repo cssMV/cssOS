@@ -6,6 +6,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
 mod auth;
+mod artifacts;
 mod billing;
 mod config;
 mod cssapi;
@@ -21,6 +22,7 @@ mod jobs;
 mod metrics;
 mod models;
 mod pipeline_status;
+mod procutil;
 mod ready;
 mod routes;
 mod run_state;
@@ -31,6 +33,7 @@ mod runner;
 mod runs_api;
 mod runs_list;
 mod scheduler;
+mod subtitles;
 mod timeutil;
 mod video;
 mod video_dispatch;
@@ -53,7 +56,13 @@ async fn main() {
     let pool = db::connect(&config.database_url)
         .await
         .expect("db connect failed");
-    db::migrate(&pool).await.expect("db migrate failed");
+    let skip_migrate = std::env::var("CSS_SKIP_DB_MIGRATE")
+        .ok()
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if !skip_migrate {
+        db::migrate(&pool).await.expect("db migrate failed");
+    }
 
     let workers = std::env::var("CSS_RUN_CONCURRENCY")
         .ok()
@@ -74,6 +83,9 @@ async fn main() {
                 tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
             }
         }
+    }
+    if mode == "api" {
+        let _worker_handles = jobs::worker::start_workers(workers).await;
     }
 
     let state = routes::AppState {

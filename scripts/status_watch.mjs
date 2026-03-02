@@ -123,6 +123,10 @@ export async function statusWatch(args) {
     process.stdout.write(
       `summary: pending=${summary.pending} succeeded=${summary.succeeded} failed=${summary.failed}\n`
     );
+    const sub = body && typeof body.subtitles === "object" ? body.subtitles : null;
+    const subStatus = sub?.status || "NA";
+    const subPath = sub?.path || "";
+    process.stdout.write(`subtitles: ${subStatus}${subPath ? ` ${subPath}` : ""}\n`);
 
     if (status === "SUCCEEDED") process.exit(0);
     if (status === "FAILED" || status === "CANCELLED") process.exit(2);

@@ -50,7 +50,16 @@ pub fn ensure_run_dir(run_id: &str) -> io::Result<()> {
 }
 
 pub fn write_run_state(path: &Path, state: &RunState) -> io::Result<()> {
-    save_state_atomic(path, state)
+    let mut next = state.clone();
+    if let Ok(prev) = load_state(path) {
+        if prev.cancel_requested {
+            next.cancel_requested = true;
+            if next.cancel_requested_at.is_none() {
+                next.cancel_requested_at = prev.cancel_requested_at.clone();
+            }
+        }
+    }
+    save_state_atomic(path, &next)
 }
 
 pub fn read_run_state(path: &Path) -> io::Result<RunState> {

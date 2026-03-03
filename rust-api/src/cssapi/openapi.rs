@@ -2,6 +2,7 @@ use utoipa::OpenApi;
 use axum::extract::Query;
 use axum::http::HeaderMap;
 use serde::Deserialize;
+use serde_json::Value;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -93,31 +94,85 @@ pub fn build_openapi() -> utoipa::openapi::OpenApi {
 
 pub fn build_openapi_i18n(lang: &str) -> utoipa::openapi::OpenApi {
     let mut doc = CssApiDoc::openapi();
-
-    match lang {
-        "zh" => {
-            doc.info.title = "cssAPI v1（中文）".to_string();
-            doc.info.description = Some("cssMV 公共 API（v1）".to_string());
-            if let Some(tags) = doc.tags.as_mut() {
-                for t in tags.iter_mut() {
-                    if t.name == "runs" {
-                        t.description = Some("运行任务生命周期与状态接口".to_string());
-                    }
-                }
-            }
-        }
-        _ => {
-            doc.info.title = "cssAPI v1".to_string();
-            doc.info.description = Some("cssMV public API (v1).".to_string());
-            if let Some(tags) = doc.tags.as_mut() {
-                for t in tags.iter_mut() {
-                    if t.name == "runs" {
-                        t.description = Some("Run lifecycle and status APIs".to_string());
-                    }
-                }
+    if lang == "zh" {
+        doc.info.title = "cssAPI v1（中文）".to_string();
+        doc.info.description = Some("cssMV 公共 API（v1）".to_string());
+    } else {
+        doc.info.title = "cssAPI v1".to_string();
+        doc.info.description = Some("cssMV public API (v1).".to_string());
+    }
+    if let Some(tags) = doc.tags.as_mut() {
+        for t in tags.iter_mut() {
+            if t.name == "runs" {
+                t.description = Some(if lang == "zh" {
+                    "运行任务生命周期与状态接口".to_string()
+                } else {
+                    "Run lifecycle and status APIs".to_string()
+                });
             }
         }
     }
+    localize_openapi(doc, lang)
+}
 
-    doc
+fn localize_openapi(doc: utoipa::openapi::OpenApi, lang: &str) -> utoipa::openapi::OpenApi {
+    if lang != "zh" {
+        return doc;
+    }
+    let mut v = match serde_json::to_value(&doc) {
+        Ok(v) => v,
+        Err(_) => return doc,
+    };
+    localize_openapi_value(&mut v, lang);
+    match serde_json::from_value(v) {
+        Ok(d) => d,
+        Err(_) => doc,
+    }
+}
+
+fn localize_openapi_value(v: &mut Value, lang: &str) {
+    match v {
+        Value::Object(map) => {
+            for (k, val) in map.iter_mut() {
+                if (k == "summary" || k == "description") && val.is_string() {
+                    if let Some(s) = val.as_str() {
+                        *val = Value::String(i18n_text(s, lang));
+                    }
+                } else {
+                    localize_openapi_value(val, lang);
+                }
+            }
+        }
+        Value::Array(arr) => {
+            for item in arr.iter_mut() {
+                localize_openapi_value(item, lang);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn i18n_text(input: &str, lang: &str) -> String {
+    if lang != "zh" {
+        return input.to_string();
+    }
+    match input {
+        "Language, e.g. zh or en" => "语言，例如 zh 或 en".to_string(),
+        "OpenAPI v1 JSON" => "OpenAPI v1 JSON".to_string(),
+        "Request identifier for tracing and support." => "请求追踪 ID（用于定位与支持）".to_string(),
+        "Result limit, default 50, max 200" => "结果数量限制，默认 50，最大 200".to_string(),
+        "Filter by run status" => "按任务状态过滤".to_string(),
+        "List runs" => "任务列表".to_string(),
+        "Server error" => "服务端错误".to_string(),
+        "Run queued" => "任务已入队".to_string(),
+        "Conflict" => "冲突".to_string(),
+        "Invalid request" => "请求无效".to_string(),
+        "Run ID" => "任务 ID".to_string(),
+        "Run state JSON" => "任务状态 JSON".to_string(),
+        "Run not found" => "任务不存在".to_string(),
+        "Internal error" => "内部错误".to_string(),
+        "Run status" => "任务状态".to_string(),
+        "Ready queue view" => "就绪队列视图".to_string(),
+        _ => input.to_string(),
+    }
 }

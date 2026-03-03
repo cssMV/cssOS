@@ -75,13 +75,84 @@ impl ApiError {
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
+
+    fn payload(&self) -> &str {
+        match self {
+            Self::BadRequest(s)
+            | Self::NotFound(s)
+            | Self::Conflict(s)
+            | Self::Unprocessable(s)
+            | Self::TooManyRequests(s)
+            | Self::Internal(s) => s.as_str(),
+        }
+    }
+}
+
+fn is_zh(s: &str) -> bool {
+    s.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c))
+}
+
+fn parse_payload(payload: &str) -> (String, String, Option<String>) {
+    let base: String;
+    let mut details: Option<String> = None;
+    if let Some((l, r)) = payload.trim().split_once("; details=") {
+        base = l.trim().to_string();
+        details = Some(r.trim().to_string());
+    } else {
+        base = payload.trim().to_string();
+    }
+    if let Some((code, msg)) = base.split_once(':') {
+        return (
+            code.trim().to_string(),
+            msg.trim().to_string(),
+            details.filter(|d| !d.is_empty()),
+        );
+    }
+    (
+        "UNKNOWN".to_string(),
+        base,
+        details.filter(|d| !d.is_empty()),
+    )
+}
+
+fn problem_title(lang: &str, status: StatusCode) -> String {
+    let key = match status {
+        StatusCode::BAD_REQUEST => "problem_bad_request",
+        StatusCode::NOT_FOUND => "problem_not_found",
+        StatusCode::CONFLICT => "problem_conflict",
+        StatusCode::UNPROCESSABLE_ENTITY => "problem_unprocessable",
+        StatusCode::TOO_MANY_REQUESTS => "problem_too_many_requests",
+        _ => "problem_internal",
+    };
+    crate::i18n::t(lang, key).to_string()
+}
+
+fn render_detail(lang: &str, code: &str, message: &str, details: Option<&str>) -> String {
+    let mut d = crate::i18n::t(lang, "problem_detail_template")
+        .replace("{code}", code)
+        .replace("{message}", message);
+    if let Some(extra) = details {
+        d = crate::i18n::t(lang, "problem_detail_with_details_template")
+            .replace("{code}", code)
+            .replace("{message}", message)
+            .replace("{details}", extra);
+    }
+    d
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         let status = self.status();
-        let detail = self.to_string();
-        Problem::new(status, status.canonical_reason().unwrap_or("error"))
+        let payload = self.payload().to_string();
+        let (code, message, details) = parse_payload(&payload);
+        let lang = if is_zh(&message) || details.as_deref().map(is_zh).unwrap_or(false) {
+            "zh"
+        } else {
+            "en"
+        };
+        let title = problem_title(lang, status);
+        let detail = render_detail(lang, &code, &message, details.as_deref());
+        Problem::new(status, title)
             .detail(detail)
             .into_response()
     }

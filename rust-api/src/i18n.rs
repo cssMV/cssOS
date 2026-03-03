@@ -49,6 +49,14 @@ pub fn t(lang: &str, key: &str) -> &'static str {
             "waiting" => "waiting",
             "bad_outputs" => "bad_outputs",
             "idle" => "idle",
+            "problem_bad_request" => "Bad Request",
+            "problem_not_found" => "Not Found",
+            "problem_conflict" => "Conflict",
+            "problem_unprocessable" => "Unprocessable Entity",
+            "problem_too_many_requests" => "Too Many Requests",
+            "problem_internal" => "Internal Server Error",
+            "problem_detail_template" => "[{code}] {message}",
+            "problem_detail_with_details_template" => "[{code}] {message} | details: {details}",
             _ => "",
         };
     }
@@ -69,6 +77,14 @@ pub fn t(lang: &str, key: &str) -> &'static str {
         "waiting" => "等待",
         "bad_outputs" => "产物异常",
         "idle" => "空闲",
+        "problem_bad_request" => "请求错误",
+        "problem_not_found" => "未找到资源",
+        "problem_conflict" => "冲突",
+        "problem_unprocessable" => "请求不可处理",
+        "problem_too_many_requests" => "请求过多",
+        "problem_internal" => "服务内部错误",
+        "problem_detail_template" => "[{code}] {message}",
+        "problem_detail_with_details_template" => "[{code}] {message}｜详情：{details}",
         _ => "",
     }
 }

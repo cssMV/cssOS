@@ -83,9 +83,9 @@ fn pick_lang(query_lang: Option<&str>, headers: &HeaderMap) -> &'static str {
 pub async fn openapi_json(
     Query(q): Query<OpenApiLangQuery>,
     headers: HeaderMap,
-) -> axum::Json<utoipa::openapi::OpenApi> {
+) -> axum::Json<serde_json::Value> {
     let lang = pick_lang(q.lang.as_deref(), &headers);
-    axum::Json(build_openapi_i18n(lang))
+    axum::Json(build_openapi_i18n_value(lang))
 }
 
 pub fn build_openapi() -> utoipa::openapi::OpenApi {
@@ -113,6 +113,18 @@ pub fn build_openapi_i18n(lang: &str) -> utoipa::openapi::OpenApi {
         }
     }
     localize_openapi(doc, lang)
+}
+
+pub fn build_openapi_i18n_value(lang: &str) -> serde_json::Value {
+    let doc = build_openapi_i18n(lang);
+    let mut v = match serde_json::to_value(doc) {
+        Ok(v) => v,
+        Err(_) => serde_json::json!({}),
+    };
+    if lang == "zh" {
+        localize_openapi_value(&mut v, lang);
+    }
+    v
 }
 
 fn localize_openapi(doc: utoipa::openapi::OpenApi, lang: &str) -> utoipa::openapi::OpenApi {

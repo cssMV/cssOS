@@ -1,18 +1,75 @@
-use axum::{extract::State, http::HeaderMap, response::IntoResponse, routing::{get, post}, Json, Router};
+use axum::extract::Query;
+
+#[derive(serde::Deserialize)]
+struct PipelineStatusQuery {
+    path: Option<String>,
+}
+
+async fn pipeline_status_handler(Query(q): Query<PipelineStatusQuery>) -> axum::response::Response {
+    let p = q.path.unwrap_or_else(|| "build/run.json".to_string());
+    match crate::pipeline_status::build_status_json(std::path::Path::new(&p)) {
+        Ok(v) => (axum::http::StatusCode::OK, axum::Json(v)).into_response(),
+        Err(e) => {
+            let body = serde_json::json!({
+                "schema":"css.error.v1",
+                "code":"STATUS_READ_FAILED",
+                "message": e.to_string(),
+                "path": p
+            });
+            (axum::http::StatusCode::BAD_REQUEST, axum::Json(body)).into_response()
+        }
+    }
+}
+
+async fn metrics_handler() -> axum::response::Response {
+    (
+        axum::http::StatusCode::OK,
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
+        crate::metrics::gather(),
+    )
+        .into_response()
+}
+
+async fn health_handler() -> axum::response::Response {
+    (
+        axum::http::StatusCode::OK,
+        axum::Json(serde_json::json!({"schema":"css.health.v1","ok":true})),
+    )
+        .into_response()
+}
+
+use axum::{
+    extract::State,
+    http::HeaderMap,
+    response::IntoResponse,
+    routing::{get, post},
+    Json, Router,
+};
+use chrono::Utc;
 use serde::Serialize;
 use serde_json::json;
 use sqlx::PgPool;
-use uuid::Uuid;
 
 use crate::auth::AuthSession;
 use crate::billing::{ensure_account, meter_usage, reset_month};
 use crate::config::Config;
+use crate::cssapi::docs::docs_router;
+use crate::events::EventBus;
+use crate::jobs::Jobs;
 use crate::models::User;
+use crate::run_state::{DagMeta, RetryPolicy, RunConfig, RunState, RunStatus};
+use crate::runner::run_pipeline_default;
+use crate::runs_api;
 
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
     pub config: Config,
+    pub jobs: Jobs,
+    pub event_bus: EventBus,
 }
 
 #[derive(Serialize)]
@@ -23,10 +80,22 @@ struct ApiResponse<T> {
     data: T,
 }
 
-fn respond<T: Serialize>(status: &str, message: Option<String>, data: T) -> axum::response::Response {
+fn respond<T: Serialize>(
+    status: &str,
+    message: Option<String>,
+    data: T,
+) -> axum::response::Response {
     let mut headers = HeaderMap::new();
-    headers.insert(axum::http::header::CACHE_CONTROL, "no-store".parse().unwrap());
-    let body = Json(ApiResponse { ok: true, status: status.into(), message, data });
+    headers.insert(
+        axum::http::header::CACHE_CONTROL,
+        "no-store".parse().unwrap(),
+    );
+    let body = Json(ApiResponse {
+        ok: true,
+        status: status.into(),
+        message,
+        data,
+    });
     (headers, body).into_response()
 }
 
@@ -40,26 +109,148 @@ fn ok<T: Serialize>(data: T) -> axum::response::Response {
 
 pub fn router(state: AppState) -> Router {
     Router::new()
+        .merge(docs_router())
+        .merge(runs_api::router())
+        .route("/cssapi/v1/ws", get(crate::ws::ws_handler))
+        .route("/metrics", get(metrics_handler))
+        .route("/api/health", get(health_handler))
         .route("/api/auth/providers", get(auth_providers))
         .route("/api/me", get(me))
         .route("/api/billing/status", get(billing_status))
-        .route("/api/billing/usage", post(billing_usage).get(billing_usage_list))
+        .route(
+            "/api/billing/usage",
+            post(billing_usage).get(billing_usage_list),
+        )
+        .route("/api/pipeline/start", post(pipeline_start))
+        .route(
+            "/api/pipeline/status",
+            axum::routing::get(pipeline_status_handler),
+        )
         .route("/api/health/db", get(health_db))
         .with_state(state)
 }
 
+#[derive(serde::Deserialize)]
+struct PipelineStartRequest {
+    cssl: String,
+    ui_lang: String,
+    tier: String,
+    out_dir: Option<String>,
+    commands: crate::dsl::compile::CompiledCommands,
+    wiki_enabled: Option<bool>,
+    civ_linked: Option<bool>,
+}
+
+async fn pipeline_start(
+    State(_state): State<AppState>,
+    Json(body): Json<PipelineStartRequest>,
+) -> axum::response::Response {
+    let run_id = format!("run_{}", Utc::now().format("%Y%m%d_%H%M%S"));
+    let now = Utc::now().to_rfc3339();
+    let out_dir = body.out_dir.unwrap_or_else(|| "./build".to_string());
+    let dag = crate::dag::cssmv_dag_v1();
+    let topo_order = dag
+        .topo_order()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let dag_edges = dag
+        .nodes
+        .iter()
+        .map(|n| {
+            (
+                n.name.to_string(),
+                n.deps.iter().map(|d| (*d).to_string()).collect::<Vec<_>>(),
+            )
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+
+    let state = RunState {
+        schema: "css.pipeline.run.v1".to_string(),
+        run_id: run_id.clone(),
+        created_at: now.clone(),
+        updated_at: now,
+        status: RunStatus::INIT,
+        heartbeat_at: None,
+        last_heartbeat_at: None,
+        stuck_timeout_seconds: Some(120),
+        cancel_requested: false,
+        cancel_requested_at: None,
+        ui_lang: body.ui_lang,
+        tier: body.tier,
+        cssl: body.cssl,
+        config: RunConfig {
+            out_dir: out_dir.into(),
+            wiki_enabled: body.wiki_enabled.unwrap_or(true),
+            civ_linked: body.civ_linked.unwrap_or(true),
+            heartbeat_interval_seconds: 2,
+            stage_timeout_seconds: 1800,
+            stuck_timeout_seconds: 120,
+        },
+        retry_policy: RetryPolicy {
+            max_retries: 3,
+            backoff_base_seconds: 2,
+            strategy: "exponential".to_string(),
+        },
+        dag: DagMeta {
+            schema: "css.pipeline.dag.v1".to_string(),
+            nodes: dag
+                .nodes
+                .iter()
+                .map(|n| crate::run_state::DagNodeMeta {
+                    name: n.name.to_string(),
+                    deps: n.deps.iter().map(|d| (*d).to_string()).collect(),
+                })
+                .collect(),
+        },
+        topo_order,
+        dag_edges,
+        commands: serde_json::json!({}),
+        artifacts: vec![],
+        stages: Default::default(),
+        video_shots_total: None,
+        total_duration_seconds: None,
+    };
+
+    crate::events::emit_snapshot(&state);
+    tokio::spawn(async move {
+        let _ = run_pipeline_default(state, body.commands).await;
+    });
+
+    ok(json!({ "schema": "cssapi.v1", "run_id": run_id }))
+}
+
 async fn auth_providers(State(_state): State<AppState>) -> axum::response::Response {
     let providers = vec![
-        ("google", "Google", ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]),
-        ("github", "GitHub", ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"]),
+        (
+            "google",
+            "Google",
+            ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
+        ),
+        (
+            "github",
+            "GitHub",
+            ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"],
+        ),
         ("x", "X", ["X_CLIENT_ID", "X_CLIENT_SECRET"]),
-        ("bsky", "Bluesky", ["BLUESKY_HANDLE", "BLUESKY_APP_PASSWORD"]),
-        ("tiktok", "TikTok", ["TIKTOK_CLIENT_ID", "TIKTOK_CLIENT_SECRET"]),
+        (
+            "bsky",
+            "Bluesky",
+            ["BLUESKY_HANDLE", "BLUESKY_APP_PASSWORD"],
+        ),
+        (
+            "tiktok",
+            "TikTok",
+            ["TIKTOK_CLIENT_ID", "TIKTOK_CLIENT_SECRET"],
+        ),
     ];
     let list: Vec<_> = providers
         .into_iter()
         .map(|(id, name, envs)| {
-            let enabled = envs.iter().all(|k| std::env::var(k).ok().filter(|v| !v.is_empty()).is_some());
+            let enabled = envs
+                .iter()
+                .all(|k| std::env::var(k).ok().filter(|v| !v.is_empty()).is_some());
             json!({
                 "id": id,
                 "name": name,
@@ -69,25 +260,29 @@ async fn auth_providers(State(_state): State<AppState>) -> axum::response::Respo
         })
         .collect();
 
-    if list.iter().all(|v| v.get("enabled").and_then(|b| b.as_bool()) == Some(false)) {
+    if list
+        .iter()
+        .all(|v| v.get("enabled").and_then(|b| b.as_bool()) == Some(false))
+    {
         return no_data(json!({ "providers": list }));
     }
     ok(json!({ "providers": list }))
 }
 
-async fn me(State(state): State<AppState>, AuthSession { user_id }: AuthSession) -> axum::response::Response {
+async fn me(
+    State(state): State<AppState>,
+    AuthSession { user_id }: AuthSession,
+) -> axum::response::Response {
     if user_id.is_none() {
         return no_data(json!({ "authenticated": false, "user": serde_json::Value::Null }));
     }
     let user_id = user_id.unwrap();
-    let user = sqlx::query_as::<_, User>(
-        "SELECT * FROM users WHERE id = $1",
-    )
-    .bind(user_id)
-    .fetch_optional(&state.pool)
-    .await
-    .ok()
-    .flatten();
+    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(&state.pool)
+        .await
+        .ok()
+        .flatten();
 
     if let Some(user) = user {
         return ok(json!({
@@ -106,7 +301,10 @@ async fn me(State(state): State<AppState>, AuthSession { user_id }: AuthSession)
     no_data(json!({ "authenticated": false, "user": serde_json::Value::Null }))
 }
 
-async fn billing_status(State(state): State<AppState>, AuthSession { user_id }: AuthSession) -> axum::response::Response {
+async fn billing_status(
+    State(state): State<AppState>,
+    AuthSession { user_id }: AuthSession,
+) -> axum::response::Response {
     if user_id.is_none() {
         return no_data(json!({ "authenticated": false }));
     }
@@ -138,14 +336,24 @@ async fn billing_status(State(state): State<AppState>, AuthSession { user_id }: 
     ok(payload)
 }
 
-async fn billing_usage(State(state): State<AppState>, AuthSession { user_id }: AuthSession, Json(body): Json<serde_json::Value>) -> axum::response::Response {
+async fn billing_usage(
+    State(state): State<AppState>,
+    AuthSession { user_id }: AuthSession,
+    Json(body): Json<serde_json::Value>,
+) -> axum::response::Response {
     if user_id.is_none() {
         return no_data(json!({ "allowed": false, "authenticated": false }));
     }
     let user_id = user_id.unwrap();
-    let route = body.get("route").and_then(|v| v.as_str()).unwrap_or("/api/billing/usage");
+    let route = body
+        .get("route")
+        .and_then(|v| v.as_str())
+        .unwrap_or("/api/billing/usage");
     let units = body.get("units").and_then(|v| v.as_i64()).unwrap_or(1);
-    let request_id = body.get("request_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let request_id = body
+        .get("request_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     let meta = body.get("meta").cloned().unwrap_or_else(|| json!({}));
 
     let result = meter_usage(
@@ -172,7 +380,10 @@ async fn billing_usage(State(state): State<AppState>, AuthSession { user_id }: A
     }
 }
 
-async fn billing_usage_list(State(state): State<AppState>, AuthSession { user_id }: AuthSession) -> axum::response::Response {
+async fn billing_usage_list(
+    State(state): State<AppState>,
+    AuthSession { user_id }: AuthSession,
+) -> axum::response::Response {
     if user_id.is_none() {
         return no_data(json!({ "authenticated": false, "events": [] }));
     }

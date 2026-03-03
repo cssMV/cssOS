@@ -544,37 +544,52 @@ pub fn collect_failures(st: &RunState) -> Vec<(String, String)> {
 }
 
 pub fn build_summary(st: &RunState, view: &ReadyView) -> String {
+    build_summary_i18n(st, view, "en")
+}
+
+pub fn build_summary_i18n(st: &RunState, view: &ReadyView, lang: &str) -> String {
     if st.cancel_requested && !matches!(st.status, crate::run_state::RunStatus::CANCELLED) {
-        return "cancel requested".into();
+        return crate::i18n::t(lang, "cancel_requested").into();
     }
     if matches!(st.status, crate::run_state::RunStatus::FAILED) {
         if let Some((k, msg)) = collect_failures(st).first() {
-            return format!("failed: {}: {}", k, msg);
+            return format!("{}: {}: {}", crate::i18n::t(lang, "failed"), k, msg);
         }
-        return "failed".into();
+        return crate::i18n::t(lang, "failed").into();
     }
     if matches!(st.status, crate::run_state::RunStatus::CANCELLED) {
-        return "cancelled".into();
+        return crate::i18n::t(lang, "cancelled").into();
     }
     if matches!(st.status, crate::run_state::RunStatus::SUCCEEDED) {
-        return "done".into();
+        return crate::i18n::t(lang, "done").into();
     }
     if !view.running.is_empty() {
-        return format!("running: {}", view.running.len());
+        return format!("{}: {}", crate::i18n::t(lang, "running"), view.running.len());
     }
     if !view.ready.is_empty() {
-        return format!("ready: {}", view.ready.len());
+        return format!("{}: {}", crate::i18n::t(lang, "ready"), view.ready.len());
     }
     if let Some(b) = view.blocking.first() {
         if !b.missing_deps.is_empty() {
-            return format!("blocked: {} waiting: {}", b.stage, b.missing_deps.join(","));
+            return format!(
+                "{}: {} {}: {}",
+                crate::i18n::t(lang, "blocked"),
+                b.stage,
+                crate::i18n::t(lang, "waiting"),
+                b.missing_deps.join(",")
+            );
         }
         if !b.bad_outputs.is_empty() {
-            return format!("blocked: {} bad_outputs", b.stage);
+            return format!(
+                "{}: {} {}",
+                crate::i18n::t(lang, "blocked"),
+                b.stage,
+                crate::i18n::t(lang, "bad_outputs")
+            );
         }
-        return format!("blocked: {}", b.stage);
+        return format!("{}: {}", crate::i18n::t(lang, "blocked"), b.stage);
     }
-    "idle".into()
+    crate::i18n::t(lang, "idle").into()
 }
 
 pub fn all_done(st: &RunState) -> bool {

@@ -1,6 +1,7 @@
 use axum::{
     extract::rejection::JsonRejection,
     extract::{Json, Path, Query},
+    http::HeaderMap,
     http::StatusCode,
     routing::{get, post},
     Router,
@@ -164,7 +165,11 @@ struct CancelResponse {
         )
     )
 )]
-pub async fn runs_list(Query(q): Query<RunsListQuery>) -> ApiResult<RunsListResponse> {
+pub async fn runs_list(
+    headers: HeaderMap,
+    Query(q): Query<RunsListQuery>,
+) -> ApiResult<RunsListResponse> {
+    let _lang = crate::i18n::pick_lang(None, &headers, None);
     let root = run_store::runs_root();
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
     let want_status = q.status.map(|s| s.to_uppercase());
@@ -266,10 +271,12 @@ pub async fn runs_list(Query(q): Query<RunsListQuery>) -> ApiResult<RunsListResp
     )
 )]
 pub async fn runs_create(
+    headers: HeaderMap,
     body: Result<Json<RunsCreateRequest>, JsonRejection>,
 ) -> Result<(StatusCode, Json<RunsCreateResponse>), ApiError> {
+    let lang = crate::i18n::pick_lang(None, &headers, None);
     let Json(body) = body.map_err(|e| {
-        ApiError::unprocessable("INVALID_REQUEST", "invalid request body").with_details(
+        ApiError::unprocessable("INVALID_REQUEST", crate::i18n::t(lang, "invalid_request_body")).with_details(
             serde_json::json!({
                 "reason": e.body_text()
             }),
@@ -279,7 +286,7 @@ pub async fn runs_create(
     if jobs::queue::queued_or_running_count().await > 20 {
         return Err(ApiError::too_many_requests(
             "SYSTEM_BUSY",
-            "too many runs queued or running",
+            crate::i18n::t(lang, "too_many_runs"),
         ));
     }
 
@@ -309,7 +316,7 @@ pub async fn runs_create(
     let mut compiled = match body.commands {
         Some(c) => c,
         None => crate::dsl::compile::compile_from_dsl(&body.cssl).map_err(|e| {
-            ApiError::unprocessable("INVALID_REQUEST", "invalid request body")
+            ApiError::unprocessable("INVALID_REQUEST", crate::i18n::t(lang, "invalid_request_body"))
                 .with_details(serde_json::json!({"reason": e.to_string()}))
         })?,
     };
@@ -600,12 +607,12 @@ pub async fn runs_create(
     run_store::write_compiled_commands(&run_id, &compiled).map_err(map_io)?;
 
     if !jobs::queue::claim_run(&run_id).await {
-        return Err(ApiError::conflict("CONFLICT", "run already queued/running"));
+        return Err(ApiError::conflict("CONFLICT", crate::i18n::t(lang, "run_already_queued")));
     }
 
     jobs::queue::push_run(run_id.clone(), run_state.tier.clone())
         .await
-        .map_err(|_| ApiError::internal("QUEUE_PUSH_FAILED", "failed to queue run"))?;
+        .map_err(|_| ApiError::internal("QUEUE_PUSH_FAILED", crate::i18n::t(lang, "queue_push_failed")))?;
 
     metrics::incr_runs_created();
 
@@ -645,13 +652,14 @@ pub async fn runs_create(
         )
     )
 )]
-pub async fn runs_get(Path(run_id): Path<String>) -> ApiResult<RunState> {
+pub async fn runs_get(headers: HeaderMap, Path(run_id): Path<String>) -> ApiResult<RunState> {
+    let lang = crate::i18n::pick_lang(None, &headers, None);
     let p = run_store::run_state_path(&run_id);
     let mut s = run_store::read_run_state(&p).map_err(|_| {
         if p.exists() {
-            ApiError::internal("RUN_READ_FAILED", "failed to read run state")
+            ApiError::internal("RUN_READ_FAILED", crate::i18n::t(lang, "run_read_failed"))
         } else {
-            ApiError::not_found("RUN_NOT_FOUND", "run_id not found")
+            ApiError::not_found("RUN_NOT_FOUND", crate::i18n::t(lang, "run_not_found"))
         }
     })?;
     crate::artifacts::build_artifacts_index(&mut s);
@@ -683,13 +691,14 @@ pub async fn runs_get(Path(run_id): Path<String>) -> ApiResult<RunState> {
         )
     )
 )]
-pub async fn runs_status(Path(run_id): Path<String>) -> ApiResult<RunsStatusResponse> {
+pub async fn runs_status(headers: HeaderMap, Path(run_id): Path<String>) -> ApiResult<RunsStatusResponse> {
+    let lang = crate::i18n::pick_lang(None, &headers, None);
     let p = run_store::run_state_path(&run_id);
     let s = run_store::read_run_state(&p).map_err(|_| {
         if p.exists() {
-            ApiError::internal("RUN_READ_FAILED", "failed to read run state")
+            ApiError::internal("RUN_READ_FAILED", crate::i18n::t(lang, "run_read_failed"))
         } else {
-            ApiError::not_found("RUN_NOT_FOUND", "run_id not found")
+            ApiError::not_found("RUN_NOT_FOUND", crate::i18n::t(lang, "run_not_found"))
         }
     })?;
     Ok(Json(RunsStatusResponse {
@@ -725,22 +734,24 @@ pub async fn runs_status(Path(run_id): Path<String>) -> ApiResult<RunsStatusResp
         )
     )
 )]
-pub async fn run_ready(Path(run_id): Path<String>) -> ApiResult<RunReadyResponse> {
+pub async fn run_ready(headers: HeaderMap, Path(run_id): Path<String>) -> ApiResult<RunReadyResponse> {
     let state_path = run_store::run_state_path(&run_id);
     let state = run_store::read_run_state(&state_path).map_err(|_| {
+        let lang = crate::i18n::pick_lang(None, &headers, None);
         if state_path.exists() {
-            ApiError::internal("RUN_READ_FAILED", "failed to read run state")
+            ApiError::internal("RUN_READ_FAILED", crate::i18n::t(lang, "run_read_failed"))
         } else {
-            ApiError::not_found("RUN_NOT_FOUND", "run_id not found")
+            ApiError::not_found("RUN_NOT_FOUND", crate::i18n::t(lang, "run_not_found"))
         }
     })?;
+    let lang = crate::i18n::pick_lang(None, &headers, Some(&state.ui_lang));
     let dag = crate::dag::cssmv_dag_v1();
     let view = ready::compute_ready_view_with_dag_limited(&state, &dag, 64);
     let failures = ready::collect_failures(&state)
         .into_iter()
         .map(|(stage, error)| ReadyFailure { stage, error })
         .collect::<Vec<_>>();
-    let summary_text = ready::build_summary(&state, &view);
+    let summary_text = ready::build_summary_i18n(&state, &view, lang);
 
     Ok(Json(RunReadyResponse {
         schema: "cssapi.runs.ready.v1",
@@ -772,20 +783,22 @@ pub async fn run_ready(Path(run_id): Path<String>) -> ApiResult<RunReadyResponse
 }
 
 async fn run_cancel(
+    headers: HeaderMap,
     Path(run_id): Path<String>,
 ) -> Result<(StatusCode, Json<CancelResponse>), ApiError> {
+    let lang = crate::i18n::pick_lang(None, &headers, None);
     let p = run_store::run_state_path(&run_id);
     if !p.exists() {
-        return Err(ApiError::not_found("RUN_NOT_FOUND", "run_id not found"));
+        return Err(ApiError::not_found("RUN_NOT_FOUND", crate::i18n::t(lang, "run_not_found")));
     }
     let mut s = run_store::read_run_state(&p)
-        .map_err(|_| ApiError::not_found("RUN_NOT_FOUND", "run_id not found"))?;
+        .map_err(|_| ApiError::not_found("RUN_NOT_FOUND", crate::i18n::t(lang, "run_not_found")))?;
     s.cancel_requested = true;
     s.cancel_requested_at = Some(chrono::Utc::now().to_rfc3339());
     s.updated_at = chrono::Utc::now().to_rfc3339();
     run_store::write_run_state(&p, &s).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
-            ApiError::not_found("RUN_NOT_FOUND", "run_id not found")
+            ApiError::not_found("RUN_NOT_FOUND", crate::i18n::t(lang, "run_not_found"))
         } else {
             map_io(e)
         }

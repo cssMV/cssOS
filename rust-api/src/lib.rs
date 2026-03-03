@@ -16,6 +16,7 @@ mod distributed;
 mod dsl;
 mod events;
 mod jobs;
+mod i18n;
 mod metrics;
 mod models;
 mod pipeline_status;

@@ -170,7 +170,7 @@ fn i18n_text(input: &str, lang: &str) -> String {
     }
     match input {
         "Language, e.g. zh or en" => "语言，例如 zh 或 en".to_string(),
-        "OpenAPI v1 JSON" => "OpenAPI v1 JSON".to_string(),
+        "OpenAPI v1 JSON" => "OpenAPI v1 JSON 文档".to_string(),
         "Request identifier for tracing and support." => "请求追踪 ID（用于定位与支持）".to_string(),
         "Result limit, default 50, max 200" => "结果数量限制，默认 50，最大 200".to_string(),
         "Filter by run status" => "按任务状态过滤".to_string(),

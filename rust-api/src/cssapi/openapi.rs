@@ -79,7 +79,7 @@ fn pick_lang(query_lang: Option<&str>, headers: &HeaderMap) -> &'static str {
         )
     )
 )]
-pub(super) async fn openapi_json(
+pub async fn openapi_json(
     Query(q): Query<OpenApiLangQuery>,
     headers: HeaderMap,
 ) -> axum::Json<utoipa::openapi::OpenApi> {

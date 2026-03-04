@@ -2,11 +2,11 @@
   "name": "cssos",
   "version": "1.0.0",
   "main": "index.js",
-"scripts": {
-  "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
-  "build": "tsc",
-  "start": "node dist/index.js"
-},
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -14,6 +14,7 @@
     "connect-pg-simple": "^9.0.1",
     "express": "^5.2.1",
     "express-session": "^1.18.0",
+    "jose": "^5.10.0",
     "pg": "^8.12.0"
   },
   "devDependencies": {

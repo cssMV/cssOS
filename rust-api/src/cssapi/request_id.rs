@@ -60,7 +60,8 @@ where
             let mut resp = CURRENT_REQUEST_ID
                 .scope(rid_for_scope, async move { inner.call(req).await })
                 .await?;
-            resp.headers_mut().insert(X_REQUEST_ID.clone(), req_id.clone());
+            resp.headers_mut()
+                .insert(X_REQUEST_ID.clone(), req_id.clone());
             resp.extensions_mut().insert(req_id.clone());
             tracing::info!(
                 request_id = %req_id.to_str().unwrap_or("unknown"),

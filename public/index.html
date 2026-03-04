@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CSS Studio - cssOS</title>
+    <title>CSS Studio</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
@@ -20,6 +20,12 @@
         <div class="version-title" data-i18n="versions.title">Versions</div>
         <div class="version-current" id="version-current"></div>
         <div class="version-list" id="version-list"></div>
+        <div class="version-divider"></div>
+        <div class="version-actions">
+          <button class="cta tiny" type="button" data-action="passkey.login" data-i18n="action.passkeyLogin">
+            Passkey
+          </button>
+        </div>
       </div>
     </div>
 
@@ -27,16 +33,25 @@
       <section class="panel logo-panel flow" id="logo-panel">
         <div class="panel-body logo-body">
           <div class="mirror-stage">
-            <div class="mirror" data-drag-handle="true">
+            <div class="mirror" id="mirror" data-drag-handle="true" data-action="mic" data-hold="mic">
               <img class="mirror-img mirror-a" src="assets/mirror-1.webp" alt="CSS magic mirror" />
               <img class="mirror-img mirror-b" src="assets/mirror-2.webp" alt="CSS magic mirror" />
               <video class="mirror-video" autoplay muted loop playsinline></video>
-              <div class="mirror-text">
+              <div class="mirror-text" data-action="mic">
                 <div class="mirror-title">CSS</div>
                 <div class="mirror-subtitle">Studio</div>
               </div>
+              <div class="hold-ring" id="hold-ring" aria-hidden="true">
+                <svg viewBox="0 0 100 100" class="hold-ring-svg">
+                  <circle class="hold-ring-bg" cx="50" cy="50" r="46"></circle>
+                  <circle class="hold-ring-fg" cx="50" cy="50" r="46"></circle>
+                </svg>
+              </div>
             </div>
             <div class="mirror-slogan">Just say CSS, witness the miracle!</div>
+            <div class="logo-actions">
+              <button class="icon-btn" id="logo-mic" type="button" data-action="mic" data-hold="mic" data-i18n-aria="action.mic" aria-label="Mic">🎤</button>
+            </div>
           </div>
         </div>
       </section>
@@ -46,7 +61,7 @@
           <div class="panel-icon">♫</div>
           <div class="panel-title" data-i18n="panel.foryou">For You</div>
           <div class="panel-actions">
-            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" type="button" data-action="profile.open" data-i18n-aria="action.settings" aria-label="Settings">⚙</button>
             <button class="icon-btn" aria-label="minimize">—</button>
             <button class="icon-btn" aria-label="lock">⛶</button>
             <button class="icon-btn" aria-label="close">×</button>
@@ -119,6 +134,171 @@
               <div class="watch-subtitle" id="watch-subtitle" data-i18n="status.composing">
                 CSS is composing...
               </div>
+            </div>
+          </div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="about-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">ℹ</div>
+          <div class="panel-title" data-i18n="panel.about">About</div>
+          <div class="panel-actions">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body about-body">
+          <div class="about-tabs" role="tablist">
+            <button class="about-tab active" type="button" data-tab="whitepaper" data-i18n="about.tab.whitepaper">
+              Whitepaper
+            </button>
+            <button class="about-tab" type="button" data-tab="about" data-i18n="about.tab.about">About</button>
+            <button class="about-tab" type="button" data-tab="contact" data-i18n="about.tab.contact">
+              Contact
+            </button>
+          </div>
+
+          <div class="about-content">
+            <section class="about-tab-content active" data-tab="whitepaper">
+              <div class="panel-label" data-i18n="whitepaper.title">
+                CSS Studio Media Generation Engine — Technical Architecture Statement v1.0
+              </div>
+              <div class="about-section">
+                <h3 data-i18n="whitepaper.section.audio.title">Audio Generation Layer</h3>
+                <p data-i18n="whitepaper.section.audio.body"></p>
+              </div>
+              <div class="about-section">
+                <h3 data-i18n="whitepaper.section.visual.title">Visual &amp; Video Generation Layer</h3>
+                <p data-i18n="whitepaper.section.visual.body"></p>
+              </div>
+              <div class="about-section">
+                <h3 data-i18n="whitepaper.section.philosophy.title">Engineering Philosophy</h3>
+                <p data-i18n="whitepaper.section.philosophy.body"></p>
+              </div>
+              <div class="about-section">
+                <h3 data-i18n="whitepaper.section.cloud.title">Cloud Infrastructure</h3>
+                <p data-i18n="whitepaper.section.cloud.body"></p>
+              </div>
+            </section>
+
+            <section class="about-tab-content" data-tab="about">
+              <div class="about-section">
+                <h3 data-i18n="about.who.title">Who We Are</h3>
+                <p data-i18n="about.who.body"></p>
+              </div>
+              <div class="about-section">
+                <h3 data-i18n="about.what.title">What We Do</h3>
+                <p data-i18n="about.what.body"></p>
+              </div>
+              <div class="about-section">
+                <h3 data-i18n="about.mission.title">Our Mission</h3>
+                <p data-i18n="about.mission.body"></p>
+              </div>
+            </section>
+
+            <section class="about-tab-content" data-tab="contact">
+              <div class="about-section">
+                <h3 data-i18n="about.contact.title">Contact</h3>
+                <div class="about-contact">
+                  <div><span data-i18n="about.contact.email">Email</span>: <a href="mailto:admin@cssstudio.app">admin@cssstudio.app</a></div>
+                  <div><span data-i18n="about.contact.website">Website</span>: <a href="https://cssstudio.app" target="_blank" rel="noopener">cssstudio.app</a></div>
+                </div>
+              </div>
+              <div class="about-section">
+                <h3 data-i18n="about.contact.social">Social</h3>
+                <ul class="about-social">
+                  <li><a href="https://x.com/cssstudioapp" target="_blank" rel="noopener">X</a></li>
+                  <li><a href="https://bsky.app/profile/cssstudio.bsky.social" target="_blank" rel="noopener">Bluesky</a></li>
+                  <li><a href="https://www.tiktok.com/@cssstudioapp" target="_blank" rel="noopener">TikTok</a></li>
+                </ul>
+              </div>
+            </section>
+          </div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="api-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">⌁</div>
+          <div class="panel-title" data-i18n="panel.api">API</div>
+          <div class="panel-actions">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body api-body">
+          <div class="api-section">
+            <h3 data-i18n="api.overview.title">API Overview</h3>
+            <p data-i18n="api.overview.body"></p>
+          </div>
+          <div class="api-section">
+            <h3 data-i18n="api.endpoint.title">Endpoint</h3>
+            <div class="api-endpoint">POST /generate/mv</div>
+            <p data-i18n="api.endpoint.body"></p>
+          </div>
+          <div class="api-section">
+            <h3 data-i18n="api.examples.title">Examples</h3>
+            <div class="api-code">
+              <div class="api-code-title" data-i18n="api.examples.request">Request</div>
+              <pre data-i18n="api.examples.requestBody"></pre>
+            </div>
+            <div class="api-code">
+              <div class="api-code-title" data-i18n="api.examples.response">Response</div>
+              <pre data-i18n="api.examples.responseBody"></pre>
+            </div>
+          </div>
+          <div class="api-section">
+            <h3 data-i18n="api.pricing.title">Pricing</h3>
+            <p data-i18n="api.pricing.body"></p>
+          </div>
+          <div class="api-section">
+            <h3 data-i18n="api.billing.title">Billing</h3>
+            <div class="billing-grid">
+              <div class="billing-card">
+                <div class="billing-label" data-i18n="api.billing.balance">Credit Balance</div>
+                <div class="billing-value" id="api-credit-balance">$0.00</div>
+                <button class="cta tiny" id="api-add-funds-btn" type="button" data-i18n="api.billing.addFunds">
+                  Add Funds
+                </button>
+              </div>
+              <div class="billing-card">
+                <div class="billing-label" data-i18n="api.billing.paymentMethod">Payment Method</div>
+                <select id="api-payment-method" class="billing-select">
+                  <option value="card" data-i18n="api.billing.method.card">Card •••• 4242</option>
+                  <option value="bank" data-i18n="api.billing.method.bank">Bank Transfer</option>
+                </select>
+              </div>
+              <div class="billing-card">
+                <div class="billing-label" data-i18n="api.billing.autoRecharge">Auto Recharge</div>
+                <label class="billing-toggle">
+                  <input type="checkbox" id="api-auto-recharge" />
+                  <span data-i18n="api.billing.autoRechargeHint">Recharge when low</span>
+                </label>
+              </div>
+              <div class="billing-card">
+                <div class="billing-label" data-i18n="api.billing.monthlyLimit">Monthly Limit</div>
+                <input
+                  id="api-monthly-limit"
+                  class="billing-input"
+                  type="number"
+                  min="0"
+                  placeholder="$2000"
+                  data-i18n-placeholder="api.billing.monthlyLimitPlaceholder"
+                />
+              </div>
+            </div>
+            <div class="billing-history">
+              <div class="billing-label" data-i18n="api.billing.history">Billing History</div>
+              <ul class="billing-list">
+                <li data-i18n="api.billing.historyPlaceholder">No billing events yet.</li>
+              </ul>
             </div>
           </div>
         </div>
@@ -386,7 +566,7 @@
           <div class="panel-icon">🔐</div>
           <div class="panel-title" data-i18n="panel.login">Login</div>
           <div class="panel-actions">
-            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" type="button" data-action="profile.open" data-i18n-aria="action.settings" aria-label="Settings">⚙</button>
             <button class="icon-btn" aria-label="minimize">—</button>
             <button class="icon-btn" aria-label="lock">⛶</button>
             <button class="icon-btn" aria-label="close">×</button>
@@ -406,6 +586,28 @@
           </button>
         </div>
         <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="profile-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">👤</div>
+          <div class="panel-title" data-i18n="profile.title">Profile</div>
+          <div class="panel-actions">
+            <button class="icon-btn" type="button" data-action="profile.close" data-i18n-aria="action.close" aria-label="Close">×</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="profile-grid">
+            <div class="profile-row">
+              <div class="profile-label" data-i18n="profile.passkey">Passkey</div>
+              <div class="profile-actions">
+                <button class="cta tiny" id="passkey-enable" type="button" data-action="passkey.enable" data-i18n="profile.passkeyEnable">Enable</button>
+                <button class="cta tiny" id="passkey-login" type="button" data-action="passkey.login" data-i18n="profile.passkeyLogin">Login</button>
+              </div>
+            </div>
+            <div class="profile-hint" id="profile-hint"></div>
+          </div>
+        </div>
       </section>
 
       <section class="panel flow hidden" id="works-panel">
@@ -564,7 +766,7 @@
     </main>
 
     <footer class="dock" id="dock">
-      <div class="dock-item" data-action="mic" data-actions="click,dblclick,longpress">
+      <div class="dock-item" id="dock-mic" data-action="mic" data-hold="mic" data-actions="click,dblclick,longpress">
         <div class="dock-icon">🎙</div>
         <div class="dock-label" data-i18n="dock.mic">Mic</div>
       </div>
@@ -592,6 +794,14 @@
         <div class="dock-icon">▶</div>
         <div class="dock-label" data-i18n="dock.watch">Watch</div>
       </div>
+      <div class="dock-item" data-action="about" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">ℹ</div>
+        <div class="dock-label" data-i18n="dock.about">About</div>
+      </div>
+      <div class="dock-item" data-action="api" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">⌁</div>
+        <div class="dock-label" data-i18n="dock.api">API</div>
+      </div>
       <div class="dock-item" data-action="login" data-actions="click,dblclick,longpress">
         <div class="dock-icon">🔐</div>
         <div class="dock-label" data-i18n="dock.login">Login</div>
@@ -607,6 +817,14 @@
       <div class="dock-item" data-action="settings" data-actions="click,dblclick,longpress">
         <div class="dock-icon">⚙</div>
         <div class="dock-label" data-i18n="dock.settings">Settings</div>
+      </div>
+      <div class="dock-item" data-action="passkey" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">🔐</div>
+        <div class="dock-label" data-i18n="action.passkeyLogin">Passkey</div>
+      </div>
+      <div class="dock-item" data-action="profile" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">👤</div>
+        <div class="dock-label" data-i18n="action.profile">Profile</div>
       </div>
     </footer>
 

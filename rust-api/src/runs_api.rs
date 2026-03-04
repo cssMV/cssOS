@@ -3,9 +3,11 @@ use axum::{
     extract::{Json, Path, Query},
     http::HeaderMap,
     http::StatusCode,
+    response::IntoResponse,
     routing::{get, post},
     Router,
 };
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::cmp::Reverse;
@@ -57,7 +59,48 @@ pub struct RunsCreateRequest {
     pub options: Option<Value>,
     pub config: Option<RunConfig>,
     pub retry_policy: Option<RetryPolicy>,
-    pub commands: Option<crate::dsl::compile::CompiledCommands>,
+    pub commands: Option<Value>,
+}
+
+pub fn suggest_langs_for(detected: &str) -> Vec<String> {
+    match detected {
+        "zh" | "zh-cn" | "zh-tw" | "zh-CN" | "zh-TW" => vec!["en", "ja", "ko", "fr"],
+        "ja" => vec!["zh", "en", "ko", "fr"],
+        "ko" => vec!["zh", "en", "ja", "fr"],
+        "fr" => vec!["en", "zh", "ja", "ko"],
+        _ => vec!["zh", "ja", "ko", "fr"],
+    }
+    .into_iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+fn voice_extract(req_commands: &Value) -> Option<(String, u64, String, String)> {
+    let v = req_commands.get("voice")?;
+    let mime = v
+        .get("mime")
+        .and_then(|x| x.as_str())
+        .unwrap_or("audio/webm")
+        .to_string();
+    let bytes = v.get("bytes").and_then(|x| x.as_u64()).unwrap_or(0);
+    let b64 = v
+        .get("b64")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    let mode = v
+        .get("mode")
+        .and_then(|x| x.as_str())
+        .unwrap_or("single")
+        .to_string();
+    Some((mime, bytes, b64, mode))
+}
+
+fn b64_decode(s: &str) -> Option<Vec<u8>> {
+    if s.is_empty() {
+        return None;
+    }
+    base64::engine::general_purpose::STANDARD.decode(s).ok()
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -138,6 +181,11 @@ pub struct RunReadyResponse {
 pub struct ReadyFailure {
     stage: String,
     error: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RunReadyQuery {
+    pub since_seq: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -282,11 +330,13 @@ pub async fn runs_create(
 ) -> Result<(StatusCode, Json<RunsCreateResponse>), ApiError> {
     let lang = crate::i18n::pick_lang(None, &headers, None);
     let Json(body) = body.map_err(|e| {
-        ApiError::unprocessable("INVALID_REQUEST", crate::i18n::t(lang, "invalid_request_body")).with_details(
-            serde_json::json!({
-                "reason": e.body_text()
-            }),
+        ApiError::unprocessable(
+            "INVALID_REQUEST",
+            crate::i18n::t(lang, "invalid_request_body"),
         )
+        .with_details(serde_json::json!({
+            "reason": e.body_text()
+        }))
     })?;
 
     if jobs::queue::queued_or_running_count().await > 20 {
@@ -299,12 +349,19 @@ pub async fn runs_create(
     let run_id = runner::new_run_id();
     run_store::ensure_run_dir(&run_id).map_err(map_io)?;
 
+    let mut cssl = body.cssl.trim().to_string();
+    if cssl.is_empty() {
+        let seed = uuid::Uuid::new_v4().to_string();
+        cssl = format!("Untitled {}", &seed[..8]);
+    }
+
     let mut run_state = runner::init_run_state(
         run_id.clone(),
         body.ui_lang.unwrap_or_else(|| "en".to_string()),
         body.tier.unwrap_or_else(|| "basic".to_string()),
-        body.cssl.clone(),
+        cssl.clone(),
     );
+    run_state.cssl = cssl.clone();
 
     let run_dir = run_store::run_dir(&run_id);
     run_state.config.out_dir = run_dir;
@@ -319,17 +376,30 @@ pub async fn runs_create(
         run_state.retry_policy = retry;
     }
 
-    let mut compiled = match body.commands {
-        Some(c) => c,
-        None => crate::dsl::compile::compile_from_dsl(&body.cssl).map_err(|e| {
-            ApiError::unprocessable("INVALID_REQUEST", crate::i18n::t(lang, "invalid_request_body"))
-                .with_details(serde_json::json!({"reason": e.to_string()}))
-        })?,
-    };
+    let legacy_compiled = body.commands.as_ref().and_then(|v| {
+        serde_json::from_value::<crate::dsl::compile::CompiledCommands>(v.clone()).ok()
+    });
+    let mut compiled = legacy_compiled.unwrap_or(crate::dsl::compile::CompiledCommands {
+        lyrics:
+            "mkdir -p ./build && printf '%s\\n' '{\"schema\":\"css.lyrics.v1\",\"lines\":[\"demo\"]}' > ./build/lyrics.json"
+                .to_string(),
+        music: "mkdir -p ./build && ffmpeg -y -hide_banner -loglevel error -f lavfi -i anullsrc=r=48000:cl=stereo -t 8 -c:a pcm_s16le ./build/music.wav".to_string(),
+        vocals: "mkdir -p ./build && ffmpeg -y -hide_banner -loglevel error -f lavfi -i anullsrc=r=48000:cl=stereo -t 8 -c:a pcm_s16le ./build/vocals.wav".to_string(),
+        video: "echo \"video handled by video executor\"".to_string(),
+        render: "echo \"render handled by runner\"".to_string(),
+    });
 
+    let detected_lang = run_state.ui_lang.clone();
+    let primary_lang = detected_lang.clone();
+    let suggest_langs = suggest_langs_for(&detected_lang);
     let mut commands = serde_json::json!({
         "schema":"css.commands.v1",
-        "lyrics": compiled.lyrics.clone(),
+        "lyrics": {
+            "command": compiled.lyrics.clone(),
+            "detected_lang": detected_lang,
+            "primary_lang": primary_lang,
+            "suggest_langs": suggest_langs
+        },
         "music": compiled.music.clone(),
         "vocals": compiled.vocals.clone(),
         "render": compiled.render.clone(),
@@ -347,6 +417,28 @@ pub async fn runs_create(
         }
     });
     if let Some(v) = body.options.as_ref().and_then(|o| o.get("video")) {
+        if let Some(x) = v.get("shots_n").and_then(|x| x.as_u64()) {
+            commands["video"]["shots_n"] = serde_json::json!(x as usize);
+        }
+        if let Some(x) = v.get("fps").and_then(|x| x.as_u64()) {
+            commands["video"]["fps"] = serde_json::json!(x as u32);
+        }
+        if let Some(x) = v.get("seed").and_then(|x| x.as_u64()) {
+            commands["video"]["seed"] = serde_json::json!(x);
+        }
+        if let Some(x) = v.get("duration_s").and_then(|x| x.as_f64()) {
+            commands["video"]["duration_s"] = serde_json::json!(x);
+        }
+        if let Some(r) = v.get("resolution") {
+            if let Some(x) = r.get("w").and_then(|x| x.as_u64()) {
+                commands["video"]["resolution"]["w"] = serde_json::json!(x as u32);
+            }
+            if let Some(x) = r.get("h").and_then(|x| x.as_u64()) {
+                commands["video"]["resolution"]["h"] = serde_json::json!(x as u32);
+            }
+        }
+    }
+    if let Some(v) = body.commands.as_ref().and_then(|o| o.get("video")) {
         if let Some(x) = v.get("shots_n").and_then(|x| x.as_u64()) {
             commands["video"]["shots_n"] = serde_json::json!(x as usize);
         }
@@ -409,15 +501,37 @@ pub async fn runs_create(
     compiled.vocals = vocals_cmd.clone();
     commands["music"] = serde_json::json!(music_cmd);
     commands["vocals"] = serde_json::json!(vocals_cmd);
+    if let Some(cmd) = body.commands.as_ref() {
+        if let Some(lyrics) = cmd.get("lyrics").and_then(|v| v.as_object()) {
+            if let Some(s) = lyrics.get("detected_lang").and_then(|x| x.as_str()) {
+                commands["lyrics"]["detected_lang"] = serde_json::json!(s);
+            }
+            if let Some(s) = lyrics.get("primary_lang").and_then(|x| x.as_str()) {
+                commands["lyrics"]["primary_lang"] = serde_json::json!(s);
+            }
+            if let Some(a) = lyrics.get("suggest_langs").and_then(|x| x.as_array()) {
+                commands["lyrics"]["suggest_langs"] = serde_json::json!(a);
+            }
+        }
+        if let Some(voice) = cmd.get("voice") {
+            commands["voice"] = voice.clone();
+        }
+    }
 
     run_state.commands = commands.clone();
 
     if let Some(rec) = run_state.stages.get_mut("lyrics") {
         rec.status = StageStatus::PENDING;
-        rec.command = commands
+        rec.command = commands["lyrics"]
+            .get("command")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .or_else(|| {
+                commands
             .get("lyrics")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+            .map(|s| s.to_string())
+            });
         rec.outputs = vec![PathBuf::from("./build/lyrics.json")];
     }
     if let Some(rec) = run_state.stages.get_mut("music") {
@@ -607,18 +721,92 @@ pub async fn runs_create(
     run_state.video_shots_total = Some(shots_n as u32);
     run_state.topo_order = topo_order_v1(&run_state);
 
+    if let Some(req_cmd) = body.commands.as_ref() {
+        if let Some((mime, bytes, b64, mode)) = voice_extract(req_cmd) {
+            let out = run_store::run_dir(&run_id).join("build").join("voice.webm");
+            if let Some(parent) = out.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let data = b64_decode(&b64).unwrap_or_default();
+            if !data.is_empty() {
+                let _ = fs::write(&out, &data);
+                run_state.set_artifact_path(
+                    "voice",
+                    serde_json::json!({
+                        "path":"./build/voice.webm",
+                        "mime": mime,
+                        "bytes": data.len(),
+                        "mode": mode
+                    }),
+                );
+            } else {
+                run_state.set_artifact_path(
+                    "voice",
+                    serde_json::json!({
+                        "path":"./build/voice.webm",
+                        "mime": mime,
+                        "bytes": bytes,
+                        "mode": mode
+                    }),
+                );
+            }
+        }
+    }
+
+    if body
+        .commands
+        .as_ref()
+        .and_then(|v| v.get("voice"))
+        .is_some()
+    {
+        let ts = chrono::Utc::now().to_rfc3339();
+        let title = run_state.cssl.clone();
+        let source = if body
+            .commands
+            .as_ref()
+            .and_then(|v| v.pointer("/voice/bytes"))
+            .and_then(|x| x.as_u64())
+            .unwrap_or(0)
+            > 0
+        {
+            "voice"
+        } else {
+            "random"
+        };
+        run_state.updated_at = ts.clone();
+        crate::events::bump_event(
+            &mut run_state,
+            crate::events::EventKind::VoiceSubmitted,
+            "voice",
+            "submitted",
+            ts,
+            Some(serde_json::json!({
+                "source": source,
+                "title": title
+            })),
+        );
+    }
+
     let state_path = run_store::run_state_path(&run_id);
     run_store::write_run_state(&state_path, &run_state).map_err(map_io)?;
     events::emit_snapshot(&run_state);
     run_store::write_compiled_commands(&run_id, &compiled).map_err(map_io)?;
 
     if !jobs::queue::claim_run(&run_id).await {
-        return Err(ApiError::conflict("CONFLICT", crate::i18n::t(lang, "run_already_queued")));
+        return Err(ApiError::conflict(
+            "CONFLICT",
+            crate::i18n::t(lang, "run_already_queued"),
+        ));
     }
 
     jobs::queue::push_run(run_id.clone(), run_state.tier.clone())
         .await
-        .map_err(|_| ApiError::internal("QUEUE_PUSH_FAILED", crate::i18n::t(lang, "queue_push_failed")))?;
+        .map_err(|_| {
+            ApiError::internal(
+                "QUEUE_PUSH_FAILED",
+                crate::i18n::t(lang, "queue_push_failed"),
+            )
+        })?;
 
     metrics::incr_runs_created();
 
@@ -697,7 +885,10 @@ pub async fn runs_get(headers: HeaderMap, Path(run_id): Path<String>) -> ApiResu
         )
     )
 )]
-pub async fn runs_status(headers: HeaderMap, Path(run_id): Path<String>) -> ApiResult<RunsStatusResponse> {
+pub async fn runs_status(
+    headers: HeaderMap,
+    Path(run_id): Path<String>,
+) -> ApiResult<RunsStatusResponse> {
     let lang = crate::i18n::pick_lang(None, &headers, None);
     let p = run_store::run_state_path(&run_id);
     let s = run_store::read_run_state(&p).map_err(|_| {
@@ -720,7 +911,8 @@ pub async fn runs_status(headers: HeaderMap, Path(run_id): Path<String>) -> ApiR
     path = "/cssapi/v1/runs/{run_id}/ready",
     tag = "runs",
     params(
-        ("run_id" = String, Path, description = "Run ID")
+        ("run_id" = String, Path, description = "Run ID"),
+        ("since_seq" = Option<u64>, Query, description = "Long-poll cursor")
     ),
     responses(
         (status = 200, description = "Ready queue view", body = RunReadyResponse,
@@ -740,9 +932,13 @@ pub async fn runs_status(headers: HeaderMap, Path(run_id): Path<String>) -> ApiR
         )
     )
 )]
-pub async fn run_ready(headers: HeaderMap, Path(run_id): Path<String>) -> ApiResult<RunReadyResponse> {
+pub async fn run_ready(
+    headers: HeaderMap,
+    Path(run_id): Path<String>,
+    Query(q): Query<RunReadyQuery>,
+) -> Result<axum::response::Response, ApiError> {
     let state_path = run_store::run_state_path(&run_id);
-    let state = run_store::read_run_state(&state_path).map_err(|_| {
+    let mut state = run_store::read_run_state(&state_path).map_err(|_| {
         let lang = crate::i18n::pick_lang(None, &headers, None);
         if state_path.exists() {
             ApiError::internal("RUN_READ_FAILED", crate::i18n::t(lang, "run_read_failed"))
@@ -750,6 +946,76 @@ pub async fn run_ready(headers: HeaderMap, Path(run_id): Path<String>) -> ApiRes
             ApiError::not_found("RUN_NOT_FOUND", crate::i18n::t(lang, "run_not_found"))
         }
     })?;
+
+    if let Some(since) = q.since_seq {
+        if state.stage_seq == since {
+            if let Some((leader, wall_s)) = ready::compute_slowest_leader(&state) {
+                let warn_s = state.config.stuck_timeout_seconds.max(1);
+                let status = state
+                    .stages
+                    .get(&leader)
+                    .map(|r| match r.status {
+                        crate::run_state::StageStatus::PENDING => "pending",
+                        crate::run_state::StageStatus::RUNNING => "running",
+                        crate::run_state::StageStatus::SUCCEEDED => "succeeded",
+                        crate::run_state::StageStatus::FAILED => "failed",
+                        crate::run_state::StageStatus::SKIPPED => {
+                            if r.error_code.as_deref() == Some("CANCELLED")
+                                || r.error_code.as_deref() == Some("CANCELLED_KILLED")
+                            {
+                                "cancelled"
+                            } else {
+                                "skipped"
+                            }
+                        }
+                    })
+                    .unwrap_or("unknown");
+
+                let bucket = if status == "running" && wall_s >= warn_s as f64 {
+                    ((wall_s as u64).saturating_sub(warn_s)) / 10
+                } else {
+                    0
+                };
+                let changed = state.slowest_leader.as_deref() != Some(leader.as_str())
+                    || (status == "running"
+                        && wall_s >= warn_s as f64
+                        && state.slowest_tick.unwrap_or(u64::MAX) != bucket);
+                if changed {
+                    state.slowest_leader = Some(leader.clone());
+                    state.slowest_tick = Some(bucket);
+                    let timeline_total_s = ready::compute_timeline_total_wall_s(&state);
+                    let ts = chrono::Utc::now().to_rfc3339();
+                    state.updated_at = ts.clone();
+                    crate::events::bump_event(
+                        &mut state,
+                        crate::events::EventKind::Slowest,
+                        "slowest",
+                        "changed",
+                        ts,
+                        Some(serde_json::json!({
+                            "stage": leader,
+                            "status": status,
+                            "elapsed_s": wall_s,
+                            "threshold_s": warn_s,
+                            "warn": wall_s >= warn_s as f64,
+                            "bucket": bucket,
+                            "timeline_total_s": timeline_total_s
+                        })),
+                    );
+                    let _ = run_store::write_run_state(&state_path, &state);
+                }
+            }
+            if state.stage_seq == since {
+                let mut resp = StatusCode::NO_CONTENT.into_response();
+                resp.headers_mut().insert(
+                    axum::http::header::CACHE_CONTROL,
+                    "no-store".parse().unwrap(),
+                );
+                return Ok(resp);
+            }
+        }
+    }
+
     let lang = crate::i18n::pick_lang(None, &headers, Some(&state.ui_lang));
     let dag = crate::dag::cssmv_dag_v1();
     let view = ready::compute_ready_view_with_dag_limited(&state, &dag, 64);
@@ -759,7 +1025,7 @@ pub async fn run_ready(headers: HeaderMap, Path(run_id): Path<String>) -> ApiRes
         .collect::<Vec<_>>();
     let summary_text = ready::build_summary_i18n(&state, &view, lang);
 
-    Ok(Json(RunReadyResponse {
+    let mut resp = Json(RunReadyResponse {
         schema: "cssapi.runs.ready.v1",
         run_id: state.run_id.clone(),
         status: state.status.clone(),
@@ -783,11 +1049,13 @@ pub async fn run_ready(headers: HeaderMap, Path(run_id): Path<String>) -> ApiRes
         event: view.last_event.as_ref().map(|e| {
             let k = match e.kind {
                 crate::events::EventKind::Stage => "stage",
+                crate::events::EventKind::VoiceSubmitted => "voice_submitted",
                 crate::events::EventKind::Gate => "gate",
                 crate::events::EventKind::Failed => "failed",
                 crate::events::EventKind::Cancelled => "cancelled",
                 crate::events::EventKind::Timeout => "timeout",
                 crate::events::EventKind::Heartbeat => "heartbeat",
+                crate::events::EventKind::Slowest => "slowest",
             };
             format!("{}:{}:{}", k, e.stage, e.status)
         }),
@@ -798,7 +1066,13 @@ pub async fn run_ready(headers: HeaderMap, Path(run_id): Path<String>) -> ApiRes
         cancel_requested: state.cancel_requested,
         cancelled_at: state.cancel_requested_at.clone(),
         updated_at: state.updated_at,
-    }))
+    })
+    .into_response();
+    resp.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        "no-store".parse().unwrap(),
+    );
+    Ok(resp)
 }
 
 async fn run_cancel(
@@ -808,7 +1082,10 @@ async fn run_cancel(
     let lang = crate::i18n::pick_lang(None, &headers, None);
     let p = run_store::run_state_path(&run_id);
     if !p.exists() {
-        return Err(ApiError::not_found("RUN_NOT_FOUND", crate::i18n::t(lang, "run_not_found")));
+        return Err(ApiError::not_found(
+            "RUN_NOT_FOUND",
+            crate::i18n::t(lang, "run_not_found"),
+        ));
     }
     let mut s = run_store::read_run_state(&p)
         .map_err(|_| ApiError::not_found("RUN_NOT_FOUND", crate::i18n::t(lang, "run_not_found")))?;

@@ -14,11 +14,14 @@ fn default_event_kind_stage() -> EventKind {
 #[serde(rename_all = "lowercase")]
 pub enum EventKind {
     Stage,
+    #[serde(rename = "voice_submitted")]
+    VoiceSubmitted,
     Gate,
     Failed,
     Cancelled,
     Timeout,
     Heartbeat,
+    Slowest,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -120,7 +123,9 @@ pub fn subscribe() -> broadcast::Receiver<RunEvent> {
 pub fn emit_snapshot(state: &RunState) {
     let dag = crate::dag::cssmv_dag_v1();
     let view = compute_ready_view_with_dag_limited(state, &dag, 64);
-    let video_shots = state.video_shots_total.map(|n| VideoShotsMeta { n: n as usize });
+    let video_shots = state
+        .video_shots_total
+        .map(|n| VideoShotsMeta { n: n as usize });
     emit(RunEvent::Snapshot(RunReadySnapshot {
         schema: "cssapi.runs.ready.v1".to_string(),
         run_id: state.run_id.clone(),

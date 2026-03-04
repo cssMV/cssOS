@@ -25,16 +25,24 @@ pub async fn start_workers(n: usize) -> Vec<JoinHandle<()>> {
                     continue;
                 };
                 if !queue::try_acquire_run_lease(&run_id).await {
-                    if let Ok(st) = crate::run_store::read_run_state(&crate::run_store::run_state_path(&run_id)) {
-                        let _ = queue::defer_run(run_id.clone(), st.tier.clone(), lease_retry_delay_ms).await;
+                    if let Ok(st) =
+                        crate::run_store::read_run_state(&crate::run_store::run_state_path(&run_id))
+                    {
+                        let _ =
+                            queue::defer_run(run_id.clone(), st.tier.clone(), lease_retry_delay_ms)
+                                .await;
                     }
                     continue;
                 }
                 let Some(permit) = queue::acquire_global().await else {
                     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                     queue::release_run_lease(&run_id).await;
-                    if let Ok(st) = crate::run_store::read_run_state(&crate::run_store::run_state_path(&run_id)) {
-                        let _ = queue::defer_run(run_id.clone(), st.tier.clone(), lease_retry_delay_ms).await;
+                    if let Ok(st) =
+                        crate::run_store::read_run_state(&crate::run_store::run_state_path(&run_id))
+                    {
+                        let _ =
+                            queue::defer_run(run_id.clone(), st.tier.clone(), lease_retry_delay_ms)
+                                .await;
                     }
                     continue;
                 };
@@ -63,9 +71,12 @@ pub async fn start_workers(n: usize) -> Vec<JoinHandle<()>> {
                 let compiled = crate::run_store::read_compiled_commands(&run_id);
                 match (state, compiled) {
                     (Ok(state), Ok(compiled)) => {
-                        let _ =
-                            crate::runner::run_pipeline_dag_concurrent(&state_path, state, compiled)
-                                .await;
+                        let _ = crate::runner::run_pipeline_dag_concurrent(
+                            &state_path,
+                            state,
+                            compiled,
+                        )
+                        .await;
                     }
                     (Err(e), _) | (_, Err(e)) => {
                         if let Ok(mut s) = crate::run_store::read_run_state(&state_path) {

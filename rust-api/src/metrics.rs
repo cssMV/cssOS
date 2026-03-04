@@ -1,7 +1,6 @@
 use once_cell::sync::Lazy;
 use prometheus::{
-    Encoder, HistogramOpts, HistogramVec, IntCounter, IntGauge, IntGaugeVec, Registry,
-    TextEncoder,
+    Encoder, HistogramOpts, HistogramVec, IntCounter, IntGauge, IntGaugeVec, Registry, TextEncoder,
 };
 
 pub static REGISTRY: Lazy<Registry> = Lazy::new(Registry::new);
@@ -49,7 +48,9 @@ pub static RUNS_QUEUE_WAIT_SECONDS: Lazy<HistogramVec> = Lazy::new(|| {
         "css_runs_queue_wait_seconds",
         "run wait time in queue before worker starts",
     )
-    .buckets(vec![0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 40.0, 80.0, 120.0]);
+    .buckets(vec![
+        0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 40.0, 80.0, 120.0,
+    ]);
     let h = HistogramVec::new(opts, &["tier"]).unwrap();
     REGISTRY.register(Box::new(h.clone())).unwrap();
     h

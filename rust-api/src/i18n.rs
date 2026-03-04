@@ -1,6 +1,10 @@
 use axum::http::HeaderMap;
 
-pub fn pick_lang(query_lang: Option<&str>, headers: &HeaderMap, fallback: Option<&str>) -> &'static str {
+pub fn pick_lang(
+    query_lang: Option<&str>,
+    headers: &HeaderMap,
+    fallback: Option<&str>,
+) -> &'static str {
     if let Some(q) = query_lang {
         let qn = q.trim().to_lowercase();
         if qn.starts_with("zh") {

@@ -166,6 +166,10 @@ pub fn spawn_run_worker(run_dir: PathBuf, commands: Value) {
             stages: Default::default(),
             video_shots_total: None,
             total_duration_seconds: None,
+            stage_seq: 0,
+            slowest_leader: None,
+            slowest_tick: None,
+            last_event: None,
         };
 
         state.set_artifact_path("run.input.commands", commands);

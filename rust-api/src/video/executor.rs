@@ -11,9 +11,7 @@ use tokio::sync::Semaphore;
 
 use crate::scheduler::Scheduler;
 use crate::video::error::VideoError;
-use crate::video::ffmpeg::{
-    ffmpeg_common_threads_args, ffmpeg_encoder_args, ffmpeg_hw_input_args,
-};
+use crate::video::ffmpeg::{ffmpeg_common_threads_args, ffmpeg_encoder_args, ffmpeg_hw_input_args};
 use crate::video::graph::{build_vf, lavfi_color_source, ShotParams};
 use crate::video::hw::detect_hw_plan;
 use crate::video::storyboard::{Bg, Camera, Overlay, Resolution, Shot, Storyboard, StoryboardV1};
@@ -491,7 +489,11 @@ pub async fn render_one_shot_mp4_graph(
     let out = TokCommand::new("ffmpeg").args(argv).output().await?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
-        anyhow::bail!("ffmpeg shot failed: exit={:?} stderr={}", out.status.code(), stderr);
+        anyhow::bail!(
+            "ffmpeg shot failed: exit={:?} stderr={}",
+            out.status.code(),
+            stderr
+        );
     }
     Ok(())
 }

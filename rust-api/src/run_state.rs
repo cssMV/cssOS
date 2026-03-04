@@ -5,7 +5,9 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use utoipa::ToSchema;
 
-fn default_heartbeat_interval_seconds() -> u64 { 2 }
+fn default_heartbeat_interval_seconds() -> u64 {
+    2
+}
 
 fn default_stage_timeout_seconds() -> u64 {
     1800
@@ -71,6 +73,12 @@ pub struct RunState {
     pub stage_seq: u64,
 
     #[serde(default)]
+    pub slowest_leader: Option<String>,
+
+    #[serde(default)]
+    pub slowest_tick: Option<u64>,
+
+    #[serde(default)]
     pub last_event: Option<crate::events::LastEvent>,
 }
 
@@ -103,13 +111,36 @@ pub struct Artifact {
 
 impl RunState {
     pub fn set_artifact_path(&mut self, path: &str, value: serde_json::Value) {
-        let v = value.as_str().map(|s| s.to_string()).unwrap_or_else(|| value.to_string());
-        let p = PathBuf::from(v);
+        let (kind, p, mime) = if let Some(obj) = value.as_object() {
+            let kind = obj
+                .get("kind")
+                .and_then(|v| v.as_str())
+                .unwrap_or("artifact")
+                .to_string();
+            let p = obj
+                .get("path")
+                .and_then(|v| v.as_str())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from(""));
+            let mime = obj
+                .get("mime")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            (kind, p, mime)
+        } else {
+            let v = value
+                .as_str()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| value.to_string());
+            ("meta".to_string(), PathBuf::from(v), None)
+        };
+
+        self.artifacts.retain(|a| a.stage != path);
         self.artifacts.push(Artifact {
-            kind: "meta".to_string(),
+            kind,
             path: p,
             stage: path.to_string(),
-            mime: None,
+            mime,
         });
     }
 }

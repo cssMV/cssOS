@@ -4,7 +4,9 @@ use crate::dag_viz_html;
 use crate::events;
 use crate::metrics;
 use crate::procutil;
-use crate::ready::{compute_ready_view_with_dag_limited, stage_ready as ready_stage_ready, BadKind, EventType};
+use crate::ready::{
+    compute_ready_view_with_dag_limited, stage_ready as ready_stage_ready, BadKind, EventType,
+};
 use crate::run_state::{RunState, RunStatus, StageRecord, StageStatus};
 use crate::run_state_io::save_state_atomic;
 use crate::run_store;
@@ -50,14 +52,7 @@ fn bump_event(
             _ => crate::events::EventKind::Stage,
         },
     };
-    crate::events::bump_event(
-        st,
-        event_kind,
-        &stage,
-        &status,
-        now_rfc3339(),
-        Some(meta),
-    );
+    crate::events::bump_event(st, event_kind, &stage, &status, now_rfc3339(), Some(meta));
 }
 
 fn stage_has_gate_meta(rec: &StageRecord) -> bool {
@@ -65,8 +60,7 @@ fn stage_has_gate_meta(rec: &StageRecord) -> bool {
         .as_object()
         .map(|m| {
             m.get("gate_code").is_some()
-                || m
-                    .get("gate")
+                || m.get("gate")
                     .and_then(|g| g.as_object())
                     .map(|go| go.get("gate_code").is_some())
                     .unwrap_or(false)
@@ -250,7 +244,10 @@ fn stage_plan(
         ),
         (
             "render",
-            (compiled.render.clone(), vec![PathBuf::from("./build/final_mv.mp4")]),
+            (
+                compiled.render.clone(),
+                vec![PathBuf::from("./build/final_mv.mp4")],
+            ),
         ),
     ])
 }
@@ -428,7 +425,12 @@ fn maybe_expand_video_shots(state: &mut RunState) -> bool {
             });
         }
     }
-    if let Some(n) = state.dag.nodes.iter_mut().find(|n| n.name == "video_assemble") {
+    if let Some(n) = state
+        .dag
+        .nodes
+        .iter_mut()
+        .find(|n| n.name == "video_assemble")
+    {
         n.deps = state
             .dag_edges
             .get("video_assemble")
@@ -674,14 +676,8 @@ async fn run_cmd_async(
                 serde_json::json!({"hb":"start"}),
             );
             st.updated_at = now_rfc3339();
-            let _ = crate::run_state_io::atomic_write_run_state_throttled(
-                p,
-                run_id,
-                &st,
-                0,
-                true,
-            )
-            .await;
+            let _ = crate::run_state_io::atomic_write_run_state_throttled(p, run_id, &st, 0, true)
+                .await;
         }
     }
 
@@ -806,7 +802,15 @@ async fn run_stage_with_retry(
         rec.pid = None;
         rec.pgid = None;
 
-        match run_cmd_async(name, cmdline, Some(run_out_dir), timeout_s, Some(state_path)).await {
+        match run_cmd_async(
+            name,
+            cmdline,
+            Some(run_out_dir),
+            timeout_s,
+            Some(state_path),
+        )
+        .await
+        {
             Ok((code, _stdout, stderr, killed, timed_out, pid, pgid)) if code == 0 => {
                 rec.pid = Some(pid);
                 rec.pgid = Some(pgid);
@@ -1468,6 +1472,13 @@ async fn run_one_stage_task(
     let stage_failed = matches!(rec.status, StageStatus::FAILED);
     let (event_type, kind, meta) = infer_event(&stage, &rec);
     s.stages.insert(stage.clone(), rec);
+    if !stage_failed {
+        let run_dir = state_path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| s.config.out_dir.clone());
+        crate::artifacts::record_stage_artifacts(&mut s, &run_dir, &stage).await;
+    }
     if stage_failed {
         s.status = RunStatus::FAILED;
     }
@@ -1895,6 +1906,8 @@ pub fn init_run_state(run_id: String, ui_lang: String, tier: String, cssl: Strin
         video_shots_total: None,
         total_duration_seconds: None,
         stage_seq: 0,
+        slowest_leader: None,
+        slowest_tick: None,
         last_event: None,
     }
 }

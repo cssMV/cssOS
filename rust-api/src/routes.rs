@@ -54,12 +54,14 @@ use serde_json::json;
 use sqlx::PgPool;
 
 use crate::auth::AuthSession;
+use crate::artifacts_api;
 use crate::billing::{ensure_account, meter_usage, reset_month};
 use crate::config::Config;
 use crate::cssapi::docs::docs_router;
 use crate::events::EventBus;
 use crate::jobs::Jobs;
 use crate::models::User;
+use crate::passkey;
 use crate::run_state::{DagMeta, RetryPolicy, RunConfig, RunState, RunStatus};
 use crate::runner::run_pipeline_default;
 use crate::runs_api;
@@ -111,10 +113,15 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .merge(docs_router())
         .merge(runs_api::router())
+        .merge(artifacts_api::router())
         .route("/cssapi/v1/ws", get(crate::ws::ws_handler))
         .route("/metrics", get(metrics_handler))
         .route("/api/health", get(health_handler))
         .route("/api/auth/providers", get(auth_providers))
+        .route("/api/auth/passkey/register/options", get(passkey::register_options))
+        .route("/api/auth/passkey/register/verify", post(passkey::register_verify))
+        .route("/api/auth/passkey/login/options", get(passkey::login_options))
+        .route("/api/auth/passkey/login/verify", post(passkey::login_verify))
         .route("/api/me", get(me))
         .route("/api/billing/status", get(billing_status))
         .route(
@@ -211,6 +218,10 @@ async fn pipeline_start(
         stages: Default::default(),
         video_shots_total: None,
         total_duration_seconds: None,
+        stage_seq: 0,
+        slowest_leader: None,
+        slowest_tick: None,
+        last_event: None,
     };
 
     crate::events::emit_snapshot(&state);

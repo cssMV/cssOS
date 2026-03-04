@@ -10,7 +10,17 @@ const videoPanel = document.getElementById("video-panel");
 const settingsPanel = document.getElementById("settings-panel");
 const languagePanel = document.getElementById("language-panel");
 const loginPanel = document.getElementById("login-panel");
+const profilePanel = document.getElementById("profile-panel");
 const worksPanel = document.getElementById("works-panel");
+const aboutPanel = document.getElementById("about-panel");
+const apiPanel = document.getElementById("api-panel");
+const aboutTabs = document.querySelectorAll(".about-tab");
+const aboutTabContents = document.querySelectorAll(".about-tab-content");
+const apiCreditBalance = document.getElementById("api-credit-balance");
+const apiAddFundsBtn = document.getElementById("api-add-funds-btn");
+const apiPaymentMethod = document.getElementById("api-payment-method");
+const apiAutoRecharge = document.getElementById("api-auto-recharge");
+const apiMonthlyLimit = document.getElementById("api-monthly-limit");
 const lyricsEl = document.getElementById("lyrics");
 const watchSubtitle = document.getElementById("watch-subtitle");
 const watchVideo = document.getElementById("watch-video");
@@ -70,13 +80,72 @@ const versionMenu = document.getElementById("version-menu");
 const versionList = document.getElementById("version-list");
 const versionCurrentLabel = document.getElementById("version-current");
 
+if (watchVideo) {
+  watchVideo.controls = true;
+}
+
 const { LOCALE_KEY, DEFAULT_LOCALE } = window.CSSOS_I18N_CONSTANTS;
 const USER_ROLE_KEY = "cssos.userRole";
 const DEFAULT_ROLE = "guest";
+const LANG_STORAGE_KEY = "CSSOS_LANG";
+const LANG_AUTODETECT_KEY = "CSSOS_LANG_AUTO";
+const LANG_DETECTED_KEY = "CSSOS_LANG_DETECTED";
 
 const { languageCatalog } = window.CSSOS_I18N_CATALOG;
 
 const { I18N } = window.CSSOS_I18N_DICT;
+
+if (!I18N.en) I18N.en = {};
+Object.assign(I18N.en, {
+  "mic.recording": "Recording…",
+  "mic.no_data_notice": "No data yet",
+  "mic.generation_failed_playing_demo": "Generation failed · Playing demo",
+  "mic.no_data_demo": "Generation failed — playing demo.",
+  "mic.no_demo_found": "No demo media found.",
+  "mic.demo_label": "demo",
+  "mic.settings_open": "Mic settings",
+  "overlay.close": "Close",
+  "panel.about": "About",
+  "about.tab.whitepaper": "Whitepaper",
+  "about.tab.about": "About",
+  "about.tab.contact": "Contact",
+  "about.i18n.note": "Other languages are generated via i18n resources.",
+  "about.ui.defaultSectionKey": "v2_investor",
+  "about.ui.tabs.v1_original": "Original",
+  "about.ui.tabs.v2_investor": "Investor",
+  "about.ui.tabs.v3_technical": "Technical",
+  "about.ui.tabs.v4_manifesto": "Manifesto",
+  "about.ui.cta.primary": "Say “CSS” to begin",
+  "about.ui.cta.secondary": "Tap the mirror or microphone",
+  "about.sections.v1_original.title": "cssOS · cssMV — Original Vision (v1)",
+  "about.sections.v1_original.body":
+    "CSS Studio is developing cssMV, the media engine for the cssOS system. The goal is to build this engine in Rust and deeply extend it on top of audio models inspired by OpenAI Jukebox and video models such as VQ-VAE-2 or GAN-based approaches. With a full-stack OpenAI-aligned AI pipeline, we connect the latest frontier technologies end-to-end—turning individual capabilities into a complete creative chain. We aim to unify the full workflow from lyrics, music, and video to the final karaoke-style MV experience, redefining a revolutionary, zero-barrier user experience for artistic creation. Users only need to speak the wake phrase “CSS”, or simply tap the magic mirror/microphone, to go from lyrics to a full karaoke MV enjoyment experience.",
+  "about.sections.v2_investor.title": "cssOS · cssMV — Investor Pitch",
+  "about.sections.v2_investor.body":
+    "cssMV is an AI-native media engine built on cssOS to deliver end-to-end creation: lyrics → music → video → karaoke MV playback. Implemented in Rust for performance and reliability, cssMV orchestrates state-of-the-art generative audio and video architectures into a single product pipeline. Our focus is productizing multimodal generation into a consumer-grade experience: one trigger (“CSS” or a single tap) turns intent into a complete MV. The result is a new category of creation platform that lowers the barrier to near-zero, expands the creator base, and enables scalable content production with consistent quality and controllable style.",
+  "about.sections.v3_technical.title": "cssOS · cssMV — Technical Overview",
+  "about.sections.v3_technical.body":
+    "cssMV is a Rust-based media engine for cssOS, designed as a modular, extensible orchestration layer over multimodal generation. It integrates an audio generation stack (Jukebox-inspired hierarchical token/audio modeling or equivalent) and a video generation stack (VQ-VAE-2-style discrete latents and/or GAN-based synthesis), connected by a unified pipeline for semantic intent, lyric alignment, musical structure, visual storyboard, and timed karaoke rendering. The architecture prioritizes deterministic workflows, streaming generation, asset caching, and plug-in model adapters—enabling end-to-end creation while keeping components swappable as models evolve.",
+  "about.sections.v4_manifesto.title": "cssOS · cssMV — Manifesto",
+  "about.sections.v4_manifesto.body":
+    "We believe creativity should be effortless. cssMV turns a single spark—one word, one sentence, one “CSS”—into a finished song and a complete MV you can sing along to. No tools to learn, no barriers to entry. Just intention → art. We’re not stitching features together; we’re forging a new medium where lyrics, music, and moving images become one continuous experience. This is creation for everyone—an operating system for imagination.",
+  "lang.title": "Language",
+  "lang.pending_banner": "Translation pending — falling back to English.",
+  "lang.autodetect": "Auto-detect by IP",
+  "lang.reset": "Reset to English",
+  "lang.current": "Current",
+  "lang.detected": "Detected",
+  "lang.en": "English",
+  "lang.zh": "Chinese",
+  "lang.ja": "Japanese",
+  "lang.ko": "Korean",
+  "lang.es": "Spanish",
+  "lang.fr": "French",
+  "lang.de": "German",
+  "lang.pt": "Portuguese",
+  "lang.ru": "Russian",
+  "lang.ar": "Arabic"
+});
 
 const SOCIAL_KEYS = (() => {
   const meta = document.querySelector('meta[name="social-keys"]');
@@ -98,13 +167,108 @@ const SOCIAL_KEYS = (() => {
 
 const { socialPlatforms, PLATFORM_LABELS, getPlatformLabel: getPlatformLabelFromMap } = window.CSSOS_I18N_PLATFORMS;
 
-const currentLocaleStore = localStorage.getItem(LOCALE_KEY);
+const currentLocaleStore = localStorage.getItem(LANG_STORAGE_KEY) || localStorage.getItem(LOCALE_KEY);
 let currentLocale = currentLocaleStore || DEFAULT_LOCALE;
 let languageTimer = null;
+let languagePanelMode = "content";
+let detectedCountry = localStorage.getItem(LANG_DETECTED_KEY) || "";
+
+const LANGS = [
+  { code: "en", nameKey: "lang.en", flag: "🇺🇸", enabled: true },
+  { code: "zh", nameKey: "lang.zh", flag: "🇨🇳", enabled: false },
+  { code: "ja", nameKey: "lang.ja", flag: "🇯🇵", enabled: false },
+  { code: "ko", nameKey: "lang.ko", flag: "🇰🇷", enabled: false },
+  { code: "es", nameKey: "lang.es", flag: "🇪🇸", enabled: false },
+  { code: "fr", nameKey: "lang.fr", flag: "🇫🇷", enabled: false },
+  { code: "de", nameKey: "lang.de", flag: "🇩🇪", enabled: false },
+  { code: "pt", nameKey: "lang.pt", flag: "🇵🇹", enabled: false },
+  { code: "ru", nameKey: "lang.ru", flag: "🇷🇺", enabled: false },
+  { code: "ar", nameKey: "lang.ar", flag: "🇸🇦", enabled: false }
+];
 
 const getLocale = () => currentLocale;
 
 const { interpolate, t } = window.CSSOS_I18N;
+
+const ABOUT_VARIANTS = ["v1_original", "v2_investor", "v3_technical", "v4_manifesto"];
+let aboutVariant = "v2_investor";
+
+function safeT(key, localeOverride) {
+  const locale = localeOverride || currentLocale || DEFAULT_LOCALE;
+  const table = (I18N && I18N[locale]) || {};
+  const fallback = (I18N && I18N[DEFAULT_LOCALE]) || {};
+  const template = table[key] || fallback[key];
+  if (!template) return `TODO_i18n(${key})`;
+  return interpolate(template, {});
+}
+
+function renderAboutSubSection() {
+  const aboutContent = document.querySelector('.about-tab-content[data-tab="about"]');
+  if (!aboutContent) return;
+
+  const defaultKey = safeT("about.ui.defaultSectionKey", "en");
+  if (ABOUT_VARIANTS.includes(defaultKey)) {
+    aboutVariant = defaultKey;
+  }
+
+  const buildTabs = () =>
+    ABOUT_VARIANTS.map((v) => {
+      const active = v === aboutVariant;
+      const label = safeT(`about.ui.tabs.${v}`);
+      return `
+        <button
+          type="button"
+          data-variant="${v}"
+          style="
+            padding: 8px 12px;
+            border-radius: 999px;
+            cursor: pointer;
+            border: 1px solid rgba(255,255,255,0.14);
+            background: ${active ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.25)"};
+            color: white;
+            opacity: ${active ? "1" : "0.85"};
+          "
+        >${label}</button>
+      `;
+    }).join("");
+
+  const titleKey = `about.sections.${aboutVariant}.title`;
+  const bodyKey = `about.sections.${aboutVariant}.body`;
+
+  const leftTitle = safeT(titleKey, "en");
+  const leftBody = safeT(bodyKey, "en");
+  const rightTitle = safeT(titleKey, currentLocale);
+  const rightBody = safeT(bodyKey, currentLocale);
+
+  aboutContent.innerHTML = `
+    <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;">${buildTabs()}</div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+      <div style="padding:12px; border-radius:12px; border:1px solid rgba(255,255,255,0.12);">
+        <div style="opacity:0.7; font-size:12px; margin-bottom:8px;">English (en)</div>
+        <h3 style="margin:0 0 8px 0;">${leftTitle}</h3>
+        <p style="margin:0; line-height:1.6; opacity:0.92;">${leftBody}</p>
+      </div>
+      <div style="padding:12px; border-radius:12px; border:1px solid rgba(255,255,255,0.12);">
+        <div style="opacity:0.7; font-size:12px; margin-bottom:8px;">${currentLocale} (i18n)</div>
+        <h3 style="margin:0 0 8px 0;">${rightTitle}</h3>
+        <p style="margin:0; line-height:1.6; opacity:0.92;">${rightBody}</p>
+      </div>
+    </div>
+    <div style="display:flex; gap:10px; margin-top:12px; flex-wrap:wrap;">
+      <button class="cta tiny">${safeT("about.ui.cta.primary")}</button>
+      <button class="cta ghost tiny">${safeT("about.ui.cta.secondary")}</button>
+    </div>
+  `;
+
+  aboutContent.querySelectorAll("button[data-variant]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const v = btn.dataset.variant;
+      if (!v) return;
+      aboutVariant = v;
+      renderAboutSubSection();
+    });
+  });
+}
 
 function applyI18n() {
   document.querySelectorAll("[data-i18n]").forEach((el) => {
@@ -124,6 +288,24 @@ function applyI18n() {
       el.setAttribute("placeholder", text);
     }
   });
+
+  document.querySelectorAll("[data-i18n-aria]").forEach((el) => {
+    const key = el.dataset.i18nAria;
+    if (!key) return;
+    const text = t(key);
+    if (text) {
+      el.setAttribute("aria-label", text);
+    }
+  });
+
+  document.querySelectorAll(".dock-item").forEach((item) => {
+    const labelEl = item.querySelector(".dock-label, .label, .dock-text");
+    const label = labelEl ? labelEl.textContent.trim() : "";
+    if (label) item.setAttribute("data-label", label);
+    if (!item.hasAttribute("tabindex")) item.tabIndex = 0;
+  });
+
+  renderAboutSubSection();
 }
 
 function getPlatformLabel(platformId) {
@@ -150,17 +332,22 @@ function renderLoginPlatforms() {
       {
         enabled: provider.enabled,
         url: provider.url,
-        icon: provider.icon
+        icon: provider.icon,
+        logo: provider.logo_url
       }
     ])
   );
   const list = socialPlatforms.map((platform) => {
     const record = enabledMap.get(platform.id);
+    const logo = record?.logo;
+    const iconHtml = logo
+      ? `<img src="${logo}" alt="${platform.id}" class="login-logo" />`
+      : record?.icon || platform.icon;
     return {
       id: platform.id,
-      icon: record?.icon || platform.icon,
+      icon: iconHtml,
       enabled: record?.enabled ?? isSocialEnabled(platform.id),
-      url: record?.url || (record?.enabled ? `/api/auth/${platform.id}` : "")
+      url: record?.url || (record?.enabled ? `/auth/${platform.id}` : "")
     };
   });
 
@@ -177,6 +364,47 @@ function renderLoginPlatforms() {
     `;
     loginList.appendChild(card);
   });
+
+  // Bluesky login (handle + app password) if enabled
+  const bsky = enabledMap.get("bsky");
+  if (bsky && bsky.enabled) {
+    const form = document.createElement("div");
+    form.className = "login-bluesky";
+    form.innerHTML = `
+      <div class="login-title">Bluesky</div>
+      <div class="login-row">
+        <input type="text" id="bsky-handle" placeholder="handle (e.g. name.bsky.social)" />
+      </div>
+      <div class="login-row">
+        <input type="password" id="bsky-app-password" placeholder="app password" />
+      </div>
+      <button class="cta tiny" id="bsky-login-btn" type="button">Login</button>
+    `;
+    loginList.appendChild(form);
+
+    const btn = form.querySelector("#bsky-login-btn");
+    btn?.addEventListener("click", async () => {
+      const handle = form.querySelector("#bsky-handle")?.value?.trim();
+      const appPassword = form.querySelector("#bsky-app-password")?.value?.trim();
+      if (!handle || !appPassword) {
+        showToast(t("login.statusGuest"));
+        return;
+      }
+      try {
+        const res = await fetch("/auth/bluesky", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ handle, app_password: appPassword })
+        });
+        if (res.ok) {
+          await fetchMe();
+        }
+      } catch (err) {
+        // ignore
+      }
+    });
+  }
 }
 
 function normalizeVersionList(payload) {
@@ -213,16 +441,19 @@ async function loadVersions() {
     versions.forEach((entry) => {
       const id = entry.id || entry.version || entry.name;
       if (!id) return;
-      const path = `/v/${id}/`;
+      const safePath = `/v/${encodeURIComponent(id)}/`;
       const label = entry.label || id;
       const item = document.createElement("a");
-      item.href = path;
-      item.addEventListener("click", (e) => { e.preventDefault(); window.location.href = path; });
+      item.href = safePath;
       item.className = `version-item ${id === current ? "active" : ""}`;
       item.innerHTML = `
         <span>${label}</span>
         <span>${entry.createdAt || entry.date || ""}</span>
       `;
+      item.addEventListener("click", (event) => {
+        event.preventDefault();
+        window.location.assign(safePath);
+      });
       versionList.appendChild(item);
     });
   } catch (err) {
@@ -242,30 +473,85 @@ function initVersionSwitcher() {
   loadVersions();
 }
 
+function initAboutTabs() {
+  if (!aboutTabs.length || !aboutTabContents.length) return;
+  aboutTabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const key = tab.dataset.tab;
+      if (!key) return;
+      aboutTabs.forEach((btn) => btn.classList.remove("active"));
+      aboutTabContents.forEach((panel) => panel.classList.remove("active"));
+      tab.classList.add("active");
+      const content = document.querySelector(`.about-tab-content[data-tab="${key}"]`);
+      if (content) content.classList.add("active");
+      if (key === "about") {
+        renderAboutSubSection();
+      }
+    });
+  });
+  renderAboutSubSection();
+}
+
+function initApiBillingUI() {
+  if (!apiCreditBalance) return;
+  let balance = 1200;
+  const formatBalance = () => {
+    apiCreditBalance.textContent = `$${balance.toFixed(2)}`;
+  };
+  formatBalance();
+
+  if (apiAddFundsBtn) {
+    apiAddFundsBtn.addEventListener("click", () => {
+      const amount = window.prompt(
+        t("api.billing.addFundsPrompt"),
+        t("api.billing.addFundsDefault")
+      );
+      if (!amount) return;
+      const value = Number.parseFloat(amount);
+      if (Number.isNaN(value) || value <= 0) return;
+      balance += value;
+      formatBalance();
+    });
+  }
+
+  if (apiAutoRecharge) {
+    apiAutoRecharge.addEventListener("change", () => {
+      // UI-only toggle
+    });
+  }
+
+  if (apiMonthlyLimit) {
+    apiMonthlyLimit.addEventListener("change", () => {
+      // UI-only input
+    });
+  }
+
+  if (apiPaymentMethod) {
+    apiPaymentMethod.addEventListener("change", () => {
+      // UI-only selector
+    });
+  }
+}
+
 function updateComposingText() {
   if (!watchSubtitle) return;
   watchSubtitle.textContent = t("status.composing", { spell: state.spell });
 }
 
-function renderLanguageButtons(container, languages) {
+function renderLanguageButtons(container) {
   if (!container) return;
   container.innerHTML = "";
-  languages.forEach((lang) => {
+  LANGS.forEach((lang) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "lang-card";
     button.dataset.lang = lang.code;
-    const hasDict = Boolean(I18N[lang.code]);
-    const wipSuffix = hasDict ? "" : " (WIP)";
+    const label = t(lang.nameKey);
     button.innerHTML = `
       <span class="lang-flag">${lang.flag}</span>
-      <span class="lang-name">${lang.label}${wipSuffix}</span>
-      <span class="lang-native">${lang.native}</span>
+      <span class="lang-name">${label}</span>
     `;
-    if (!hasDict) {
-      button.classList.add("lang-wip");
-      button.disabled = true;
-    }
+    if (!lang.enabled) button.classList.add("lang-pending");
     button.addEventListener("click", () => setLocale(lang.code));
     container.appendChild(button);
   });
@@ -284,19 +570,17 @@ function updateLanguageStatus(textKey) {
 
 function updateLanguageCurrent() {
   if (!languageCurrent) return;
-  const list = [...languageCatalog.popular, ...languageCatalog.more];
-  const current = list.find((lang) => lang.code === currentLocale);
+  const current = LANGS.find((lang) => lang.code === currentLocale);
   if (current) {
-    languageCurrent.textContent = `${current.flag} ${current.label} · ${current.native}`;
+    languageCurrent.textContent = `${current.flag} ${t(current.nameKey)} · ${current.code}`;
   }
 }
 
 function setLocale(locale) {
   if (!locale) return;
-  if (!I18N[locale]) {
-    locale = DEFAULT_LOCALE;
-  }
+  if (!I18N[locale]) I18N[locale] = {};
   currentLocale = locale;
+  localStorage.setItem(LANG_STORAGE_KEY, locale);
   localStorage.setItem(LOCALE_KEY, locale);
   document.documentElement.lang = locale;
   clearTimeout(languageTimer);
@@ -311,18 +595,125 @@ function setLocale(locale) {
     updateLanguageStatus("language.ready");
     updateLanguageSelection();
     updateLanguageCurrent();
+    updateLanguagePendingBanner();
+    updateLanguageSettingsLabels();
   }, delay);
 }
 
+function updateLanguagePendingBanner() {
+  if (!languagePanel) return;
+  const banner = languagePanel.querySelector(".language-banner");
+  if (!banner) return;
+  const lang = LANGS.find((item) => item.code === currentLocale);
+  if (!lang || lang.enabled) {
+    banner.textContent = "";
+    banner.classList.add("is-hidden");
+    return;
+  }
+  banner.textContent = t("lang.pending_banner");
+  banner.classList.remove("is-hidden");
+}
+
+function toggleLanguagePanelMode(mode) {
+  if (!languagePanel) return;
+  languagePanelMode = mode || (languagePanelMode === "content" ? "settings" : "content");
+  languagePanel.dataset.mode = languagePanelMode;
+  updateLanguageSettingsLabels();
+}
+
+function updateLanguageSettingsLabels() {
+  if (!languagePanel) return;
+  const settings = languagePanel.querySelector(".language-settings");
+  if (!settings) return;
+  const currentEl = settings.querySelector('[data-setting="current"]');
+  const detectedEl = settings.querySelector('[data-setting="detected"]');
+  if (currentEl) currentEl.textContent = `${t("lang.current")}: ${currentLocale}`;
+  if (detectedEl) detectedEl.textContent = `${t("lang.detected")}: ${detectedCountry || "-"}`;
+}
+
+function buildLanguageSettings() {
+  if (!languagePanel) return;
+  const body = languagePanel.querySelector(".language-body");
+  if (!body || body.querySelector(".language-settings")) return;
+
+  const banner = document.createElement("div");
+  banner.className = "language-banner is-hidden";
+  body.insertBefore(banner, body.firstChild);
+
+  const settings = document.createElement("div");
+  settings.className = "language-settings";
+  settings.innerHTML = `
+    <div class="language-settings-row">
+      <label>
+        <span>${t("lang.autodetect")}</span>
+        <input type="checkbox" data-setting="autodetect" />
+      </label>
+    </div>
+    <div class="language-settings-row" data-setting="current"></div>
+    <div class="language-settings-row" data-setting="detected"></div>
+    <div class="language-settings-row">
+      <button type="button" class="cta ghost" data-setting="reset-lang">${t("lang.reset")}</button>
+    </div>
+  `;
+  body.appendChild(settings);
+
+  const autoToggle = settings.querySelector('[data-setting="autodetect"]');
+  const resetBtn = settings.querySelector('[data-setting="reset-lang"]');
+  if (autoToggle) {
+    autoToggle.checked = localStorage.getItem(LANG_AUTODETECT_KEY) !== "off";
+    autoToggle.addEventListener("change", () => {
+      localStorage.setItem(LANG_AUTODETECT_KEY, autoToggle.checked ? "on" : "off");
+    });
+  }
+  if (resetBtn) {
+    resetBtn.addEventListener("click", () => {
+      setLocale(DEFAULT_LOCALE);
+      updateLanguagePendingBanner();
+    });
+  }
+  updateLanguageSettingsLabels();
+}
+
+function mapCountryToLang(code) {
+  const cc = String(code || "").toUpperCase();
+  if (cc === "CN" || cc === "HK" || cc === "TW") return "zh";
+  if (cc === "JP") return "ja";
+  if (cc === "KR") return "ko";
+  if (cc === "ES") return "es";
+  if (cc === "FR") return "fr";
+  if (cc === "DE") return "de";
+  if (cc === "PT" || cc === "BR") return "pt";
+  if (cc === "RU") return "ru";
+  if (cc === "SA" || cc === "AE" || cc === "EG") return "ar";
+  return "en";
+}
+
+function initLanguageAutoDetect() {
+  const stored = localStorage.getItem(LANG_STORAGE_KEY);
+  const autoDetect = localStorage.getItem(LANG_AUTODETECT_KEY) !== "off";
+  if (stored || !autoDetect) return;
+  fetch("https://ipapi.co/json/")
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data) => {
+      if (!data || localStorage.getItem(LANG_STORAGE_KEY)) return;
+      const country = data.country || data.country_code;
+      if (country) {
+        detectedCountry = country;
+        localStorage.setItem(LANG_DETECTED_KEY, country);
+      }
+      const lang = mapCountryToLang(country);
+      if (lang) setLocale(lang);
+    })
+    .catch(() => {});
+}
+
 function initLanguagePanel() {
-  renderLanguageButtons(languageList, languageCatalog.popular);
-  renderLanguageButtons(languageListMore, languageCatalog.more);
+  renderLanguageButtons(languageList);
+  if (languageListMore) languageListMore.classList.add("is-hidden");
   updateLanguageSelection();
   updateLanguageCurrent();
   if (languageMoreButton && languageListMore) {
-    languageMoreButton.addEventListener("click", () => {
-      languageListMore.classList.toggle("is-hidden");
-    });
+    languageMoreButton.style.display = "none";
   }
   if (currentLocale && I18N[currentLocale]) {
     document.documentElement.lang = currentLocale;
@@ -333,6 +724,10 @@ function initLanguagePanel() {
     setLocale(DEFAULT_LOCALE);
   }
   updateLanguageStatus("language.ready");
+  buildLanguageSettings();
+  updateLanguagePendingBanner();
+  if (languagePanel) languagePanel.dataset.mode = "content";
+  initLanguageAutoDetect();
 }
 const DEFAULT_SPELL = "CSS";
 
@@ -556,15 +951,7 @@ async function fetchMe() {
   try {
     const res = await fetch("/api/me", { credentials: "include" });
     if (!res.ok) return;
-    const payload = await res.json();
-    const data = payload.data || payload;
-    if (payload.empty) {
-      authState.user = null;
-      authState.role = DEFAULT_ROLE;
-      authState.tier = DEFAULT_ROLE;
-      if (loginStatus) loginStatus.textContent = t("common.noDataYet");
-      return;
-    }
+    const data = await res.json();
     authState.user = data.user || null;
     authState.role = data.role || DEFAULT_ROLE;
     authState.tier = data.tier || authState.role || DEFAULT_ROLE;
@@ -596,14 +983,8 @@ async function fetchAuthProviders() {
   try {
     const res = await fetch("/api/auth/providers", { credentials: "include" });
     if (!res.ok) return;
-    const payload = await res.json();
-    const data = payload.data || payload;
+    const data = await res.json();
     authProviders = Array.isArray(data.providers) ? data.providers : [];
-    if (payload.empty) {
-      if (loginList) loginList.textContent = t("common.noDataYet");
-      if (loginStatus) loginStatus.textContent = t("common.noDataYet");
-      return;
-    }
     renderLoginPlatforms();
   } catch (err) {
     // ignore
@@ -637,15 +1018,10 @@ async function consumeGeneration() {
       body: JSON.stringify({})
     });
     if (res.ok) {
-      const payload = await res.json();
-      const data = payload.data || payload;
+      const data = await res.json();
       billingState.tier = data.tier || billingState.tier;
       billingState.remaining = data.remaining;
       billingState.limit = data.limit;
-      if (payload.empty) {
-        showToast(t("common.noDataYet"));
-        return false;
-      }
       if (!data.allowed) {
         showToast(t("billing.limitReached") || "Daily limit reached");
         return false;
@@ -662,12 +1038,7 @@ async function fetchBillingStatus() {
   try {
     const res = await fetch("/api/billing/status", { credentials: "include" });
     if (res.ok) {
-      const payload = await res.json();
-      const data = payload.data || payload;
-      if (payload.empty) {
-        showToast(t("common.noDataYet"));
-        return;
-      }
+      const data = await res.json();
       billingState.tier = data.tier || billingState.tier;
       billingState.remaining = data.remaining;
       billingState.limit = data.limit;
@@ -688,7 +1059,10 @@ const panels = [
   settingsPanel,
   languagePanel,
   loginPanel,
-  worksPanel
+  profilePanel,
+  worksPanel,
+  aboutPanel,
+  apiPanel
 ];
 
 const dockByPanel = {
@@ -701,7 +1075,10 @@ const dockByPanel = {
   "settings-panel": "settings",
   "language-panel": "language",
   "login-panel": "login",
-  "works-panel": "works"
+  "profile-panel": "profile",
+  "works-panel": "works",
+  "about-panel": "about",
+  "api-panel": "api"
 };
 const MIN_PANEL_WIDTH = 320;
 const MIN_PANEL_HEIGHT = 240;
@@ -782,7 +1159,7 @@ function setVideoFromArtifact(uri) {
   if (!watchVideo || !uri) return false;
   if (!uri.startsWith("data:")) {
     watchVideo.src = uri;
-    watchVideo.muted = true;
+    watchVideo.muted = false;
     watchVideo.playsInline = true;
     watchVideo.load?.();
     return true;
@@ -800,7 +1177,7 @@ function setVideoFromArtifact(uri) {
     const blob = new Blob([bytes], { type: mime });
     watchVideoUrl = URL.createObjectURL(blob);
     watchVideo.src = watchVideoUrl;
-    watchVideo.muted = true;
+    watchVideo.muted = false;
     watchVideo.playsInline = true;
     watchVideo.load?.();
     watchVideo.style.display = "";
@@ -849,7 +1226,6 @@ function attemptVideoPlayback(options = {}) {
       .then(() => {
         clearPlaybackRetry();
         manualPlayHinted = false;
-        if (watchSubtitle) watchSubtitle.textContent = "KaraOK MV · Playing";
       })
       .catch(() => {
         playbackRetry += 1;
@@ -868,16 +1244,52 @@ function attemptVideoPlayback(options = {}) {
   tryPlay();
 }
 
+function pauseWatchVideo() {
+  if (!watchVideo) return;
+  watchVideo.pause?.();
+}
+
+function resumeWatchVideo() {
+  if (!watchVideo || !watchVideo.src) return;
+  watchVideo.play?.().catch(() => {});
+}
+
 function initVideoPlaybackControls() {
   if (!watchVideo) return;
+  const clickTarget = document.querySelector(".watch-screen");
+  if (clickTarget && !clickTarget.querySelector(".watch-play-indicator")) {
+    const indicator = document.createElement("div");
+    indicator.className = "watch-play-indicator";
+    indicator.textContent = "▶";
+    indicator.style.cssText =
+      "position:absolute;left:16px;top:16px;font-size:28px;line-height:1;color:rgba(255,255,255,0.8);text-shadow:0 6px 18px rgba(0,0,0,0.6);pointer-events:none;";
+    clickTarget.appendChild(indicator);
+  }
+  const indicator = clickTarget ? clickTarget.querySelector(".watch-play-indicator") : null;
+  const syncIndicator = () => {
+    if (!indicator) return;
+    if (watchVideo.paused) {
+      indicator.textContent = "▶";
+      indicator.style.opacity = "0.85";
+    } else {
+      indicator.textContent = "❚❚";
+      indicator.style.opacity = "0.35";
+    }
+  };
+  watchVideo.addEventListener("play", syncIndicator);
+  watchVideo.addEventListener("pause", syncIndicator);
+  syncIndicator();
+
   watchVideo.addEventListener("canplay", () => {
     attemptVideoPlayback({ maxRetries: 2 });
+    if (watchPanel && !watchPanel.classList.contains("hidden")) {
+      ensureWatchCentered();
+    }
   });
   watchVideo.addEventListener("error", () => {
     useLocalVideoFallback(state.title, `${state.style} ${state.voice} cinematic mv`);
     attemptVideoPlayback({ maxRetries: 2 });
   });
-  const clickTarget = document.querySelector(".watch-screen");
   if (clickTarget) {
     clickTarget.addEventListener("click", () => {
       if (!watchVideo?.src) return;
@@ -915,6 +1327,16 @@ async function playLatestVideoFromRegistry() {
   } catch (err) {
     return false;
   }
+}
+
+async function playDemoInWatchPanel() {
+  const url = await pickFirstWorkingUrl(DEMO_MV_FILES);
+  if (url && setVideoFromArtifact(url)) {
+    watchSubtitle.textContent = "KaraOK MV · Demo";
+    attemptVideoPlayback({ allowFallback: true });
+    return true;
+  }
+  return false;
 }
 
 function useLocalVideoFallback(title, subtitle) {
@@ -1184,7 +1606,7 @@ function animateProgress() {
     syncSceneProgress(video);
     if (!watchTriggered && video >= 70) {
       watchTriggered = true;
-      openPanel(watchPanel);
+      ensureWatchCentered();
       layoutShowcasePanels();
     }
     if (music >= 100 && video >= 100 && kara >= 100) {
@@ -1205,6 +1627,29 @@ function focusPanel(panel) {
   panel.classList.add("panel-front");
   panel.classList.add("panel-active");
   setTimeout(() => panel.classList.remove("panel-active"), 600);
+}
+
+function setWatchCenterStage(active) {
+  if (!watchPanel) return;
+  if (active) {
+    watchPanel.classList.add("center-stage");
+    if (logoPanel) logoPanel.classList.add("dimmed");
+    return;
+  }
+  watchPanel.classList.remove("center-stage");
+  if (logoPanel) logoPanel.classList.remove("dimmed");
+}
+
+function ensureWatchCentered() {
+  if (!watchPanel) return;
+  openPanel(watchPanel);
+  if (!watchPanel.dataset.positioned) {
+    watchPanel.style.left = "50%";
+    watchPanel.style.top = "50%";
+    watchPanel.style.transform = "translate(-50%, -50%)";
+    watchPanel.dataset.positioned = "true";
+  }
+  if (logoPanel) logoPanel.classList.add("dimmed");
 }
 
 function openPanel(panel) {
@@ -2058,14 +2503,328 @@ async function startCreation(customTitle, customLyrics) {
 }
 
 function handleMicClick() {
-  showToast(formatToast(state.spell));
-  startCreation();
+  runMicFlow();
 }
 
 function handleMicLongPress() {
-  const custom = window.prompt("Say the title", "嫦娥奔月");
-  if (custom) {
-    startCreation(custom);
+  // handled via pointerdown/up for recording
+}
+
+const micState = {
+  jobId: null,
+  transcript: "",
+  lang: "en"
+};
+
+let micRecorder = null;
+let micChunks = [];
+let micStream = null;
+let micRecording = false;
+let micDiscardOnStop = false;
+
+const getMicJobId = () => {
+  if (!micState.jobId) {
+    micState.jobId = typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `job_${Date.now()}`;
+  }
+  return micState.jobId;
+};
+
+const closeEnjoyOverlay = () => {
+  const overlay = document.getElementById("mv-overlay");
+  if (!overlay) return;
+  const video = overlay.querySelector("video");
+  if (video) {
+    video.pause?.();
+    video.removeAttribute("src");
+    video.load?.();
+  }
+  overlay.classList.remove("show");
+};
+
+const showEnjoyOverlay = (url, labelText = "") => {
+  let overlay = document.getElementById("mv-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "mv-overlay";
+    overlay.className = "mv-overlay";
+    overlay.innerHTML = `
+      <div class="mv-overlay-inner">
+        <div class="mv-overlay-label" style="position:absolute;top:10px;left:14px;color:rgba(255,255,255,0.85);font-size:12px;letter-spacing:0.18em;text-transform:uppercase;display:none;">demo</div>
+        <button type="button" class="mv-overlay-close">${t("overlay.close")}</button>
+        <video class="mv-overlay-video" autoplay loop playsinline controls></video>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const closeBtn = overlay.querySelector(".mv-overlay-close");
+    closeBtn?.addEventListener("click", closeEnjoyOverlay);
+  }
+  const label = overlay.querySelector(".mv-overlay-label");
+  if (label) {
+    if (labelText) {
+      label.textContent = labelText;
+      label.style.display = "block";
+    } else {
+      label.style.display = "none";
+    }
+  }
+  const video = overlay.querySelector("video");
+  if (video) {
+    video.src = url;
+    video.muted = false;
+    video.playsInline = true;
+    video.load?.();
+    video.play?.().catch(() => {});
+  }
+  overlay.classList.add("show");
+};
+
+const DEMO_BASES = ["/examples/", "/assets/examples/"];
+const DEMO_MANIFESTS = ["/examples/manifest.json", "/assets/examples/manifest.json"];
+const DEMO_MV_FILES = [
+  "19700121_0706_69982ff105c48191a0e4f69bdf19f49e.mp4",
+  "M6N0t1rbV74_002_720p.mp4",
+  "The.Curse.mp4",
+  "The.Register.of.Souls.mp4",
+  "YTDown.com_YouTube_Media_M6N0t1rbV74_002_720p.mp4",
+  "YTDown.com_YouTube_Media_dKWwe0hbKvc_002_720p.mp4",
+  "YTDown.com_YouTube_Media_pKnnjgJTwhU_002_720p.mp4",
+  "YTDown.com_YouTube_Media_y1EBKVq5N9Q_002_720p.mp4",
+  "YTDown.com_YouTube_Real-Frontier-17_Media_mFGFzCP_fYM_002_720p.mp4",
+  "mirror-video.MP4"
+];
+const DEMO_AUDIO_FILES = [
+  "Nvwa.and.the.Sundering.of.Chaos.wav",
+  "The.Mount.Hermon.Oath.wav",
+  "The.Cleaving.of.Chaos.混沌之破.wav"
+];
+
+let demoMvCache = null;
+const getDemoMvFiles = async () => {
+  if (demoMvCache && Array.isArray(demoMvCache) && demoMvCache.length) return demoMvCache;
+  for (const url of DEMO_MANIFESTS) {
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const list = Array.isArray(data)
+        ? data
+        : Array.isArray(data.files)
+        ? data.files
+        : [];
+      const mp4s = list
+        .map((f) => String(f || "").trim())
+        .filter((f) => f.toLowerCase().endsWith(".mp4"));
+      if (mp4s.length) {
+        demoMvCache = mp4s;
+        return demoMvCache;
+      }
+    } catch (_err) {
+      // ignore manifest errors
+    }
+  }
+  demoMvCache = DEMO_MV_FILES.slice();
+  return demoMvCache;
+};
+
+const pickFirstWorkingUrl = async (files) => {
+  const shuffled = files.slice().sort(() => Math.random() - 0.5);
+  for (const base of DEMO_BASES) {
+    for (const file of shuffled) {
+      const url = `${base}${file}`;
+      try {
+        let res = await fetch(url, { method: "HEAD" });
+        if (!res.ok) {
+          res = await fetch(url, { method: "GET", headers: { Range: "bytes=0-1" } });
+        }
+        if (res.status === 200 || res.status === 206) return url;
+      } catch (_err) {
+        // ignore
+      }
+    }
+  }
+  return "";
+};
+
+const isMediaReachable = async (url) => {
+  if (!url) return false;
+  try {
+    let res = await fetch(url, { method: "HEAD" });
+    if (!res.ok) {
+      res = await fetch(url, { method: "GET", headers: { Range: "bytes=0-1" } });
+    }
+    return res.status === 200 || res.status === 206;
+  } catch (_err) {
+    return false;
+  }
+};
+
+const showEnjoyOverlaySafe = async (url, labelText = "") => {
+  const ok = await isMediaReachable(url);
+  if (!ok) return false;
+  showEnjoyOverlay(url, labelText);
+  return true;
+};
+
+const playDemoMV = async () => {
+  showToast(t("mic.no_data_demo"));
+  const files = await getDemoMvFiles();
+  const url = await pickFirstWorkingUrl(files);
+  if (url) {
+    showEnjoyOverlay(url, t("mic.demo_label"));
+    return;
+  }
+  showToast(t("mic.no_demo_found"));
+};
+
+const playDemoMedia = () => {
+  useLocalVideoFallback(state.title, `${state.style} ${state.voice} cinematic mv`);
+  showToast(t("mic.generation_failed_playing_demo"));
+};
+
+async function startMicRecording() {
+  if (micRecording) return;
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    micChunks = [];
+    micDiscardOnStop = false;
+    micRecorder = new MediaRecorder(micStream);
+    micRecorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) micChunks.push(event.data);
+    };
+    micRecorder.onstop = async () => {
+      const blob = new Blob(micChunks, { type: micRecorder.mimeType || "audio/webm" });
+      micChunks = [];
+      if (!micDiscardOnStop) {
+        await submitMicTranscription(blob);
+      }
+      micDiscardOnStop = false;
+    };
+    micRecorder.start();
+    micRecording = true;
+    showToast(t("mic.recording"));
+  } catch (err) {
+    micRecording = false;
+    showToast(t("mic.no_data_notice"));
+  }
+}
+
+function stopMicRecording(discard = false) {
+  if (!micRecorder || !micRecording) return;
+  micDiscardOnStop = !!discard;
+  micRecording = false;
+  micRecorder.stop();
+  if (micStream) {
+    micStream.getTracks().forEach((track) => track.stop());
+    micStream = null;
+  }
+}
+
+async function submitMicTranscription(blob) {
+  const jobId = getMicJobId();
+  try {
+    const res = await fetch("/api/mic/transcribe", {
+      method: "POST",
+      headers: { "content-type": blob.type || "application/octet-stream" },
+      body: blob
+    });
+    const payload = await res.json().catch(() => null);
+    if (payload?.ok) {
+      micState.transcript = payload.transcript || "";
+      micState.lang = payload.lang || "en";
+      micState.jobId = payload.job_id || jobId;
+      return;
+    }
+    micState.transcript = "";
+    micState.jobId = payload?.job_id || jobId;
+    showToast(t("mic.no_data_notice"));
+  } catch (err) {
+    micState.transcript = "";
+    showToast(t("mic.no_data_notice"));
+  }
+}
+
+async function runLyricsGenerate(mode) {
+  const jobId = getMicJobId();
+  const payload = {
+    job_id: jobId,
+    mode,
+    transcript: micState.transcript || ""
+  };
+  const res = await fetch("/api/lyrics/generate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const json = await res.json().catch(() => null);
+  return json;
+}
+
+async function runPipeline(jobId, title, lyrics) {
+  const res = await fetch("/api/pipeline/run", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ job_id: jobId, title, lyrics })
+  });
+  const json = await res.json().catch(() => null);
+  return json;
+}
+
+async function startCreationWithLyrics(title, lyricsText) {
+  const allowed = await consumeGeneration();
+  if (!allowed) return false;
+  const lines = lyricsText.trim().split("\n");
+  const lyricText = buildLyricsText(title, lines);
+  lyricsTargetLength = lyricText.length;
+
+  watchSubtitle.textContent = "KaraOK MV · Rendering";
+  cssmvTriggered = false;
+  watchTriggered = false;
+  resetTypingState();
+  resetEngineStates();
+  setForyouCompact(false);
+  cssmvPanel.classList.add("hidden");
+  watchPanel.classList.add("hidden");
+  updateDockVisibility();
+  typewriter(lyricsEl, lyricText, 18, () => {
+    setForyouCompact(true);
+    if (!cssmvTriggered) {
+      cssmvTriggered = true;
+      openPanel(cssmvPanel);
+      layoutShowcasePanels();
+    }
+  });
+  animateProgress();
+  updateEnginePanels(title, lines);
+  state.baseLines = lines;
+  state.lines = lines;
+  state.title = title;
+  openPanel(foryouPanel);
+  layoutShowcasePanels();
+  return true;
+}
+
+async function runMicFlow() {
+  const mode = micState.transcript ? "mic" : "random";
+  const lyricPayload = await runLyricsGenerate(mode);
+  if (!lyricPayload || !lyricPayload.ok || lyricPayload.no_data) {
+    await playDemoMV();
+    return;
+  }
+  const title = lyricPayload.title || state.title;
+  const lyricsText = lyricPayload.lyrics || "";
+  if (!lyricsText) {
+    await playDemoMV();
+    return;
+  }
+  await startCreationWithLyrics(title, lyricsText);
+  const pipeline = await runPipeline(lyricPayload.job_id || getMicJobId(), title, lyricsText);
+  if (pipeline && pipeline.ok && pipeline.mv_url) {
+    const ok = await showEnjoyOverlaySafe(pipeline.mv_url, "");
+    if (!ok) await playDemoMV();
+  } else {
+    await playDemoMV();
   }
 }
 
@@ -2108,10 +2867,402 @@ function resetSettings() {
   showToast("Settings reset");
 }
 
+function getLocalGuessLang() {
+  if (detectedCountry) return mapCountryToLang(detectedCountry);
+  const raw = navigator.language || "en";
+  return raw.toLowerCase().startsWith("zh") ? "zh" : raw.toLowerCase().slice(0, 2) || "en";
+}
+
+function cycleLanguageQuick() {
+  const guess = getLocalGuessLang();
+  const next = currentLocale === "en" ? guess : "en";
+  setLocale(next);
+}
+
+const PASSKEY_BASE = "";
+const HOLD_MAX_MS = Number(window.CSS_HOLD_MAX_MS || 3500);
+
+let hold = {
+  active: false,
+  startedAt: 0,
+  raf: 0,
+  timeout: 0,
+  pointerId: null
+};
+
+function setHintKey(key) {
+  const el = document.getElementById("profile-hint");
+  if (!el) return;
+  if (!key) {
+    el.textContent = "";
+    return;
+  }
+  try {
+    el.textContent = t(key);
+  } catch {
+    el.textContent = key;
+  }
+}
+
+function passkeySupported() {
+  return !!(window.PublicKeyCredential && navigator.credentials);
+}
+
+function b64urlToBuf(s) {
+  const n = String(s || "").replace(/-/g, "+").replace(/_/g, "/");
+  const pad = n.length % 4 ? "=".repeat(4 - (n.length % 4)) : "";
+  const str = atob(n + pad);
+  const buf = new Uint8Array(str.length);
+  for (let i = 0; i < str.length; i += 1) buf[i] = str.charCodeAt(i);
+  return buf.buffer;
+}
+
+function bufToB64url(buf) {
+  const bytes = new Uint8Array(buf);
+  let str = "";
+  for (let i = 0; i < bytes.length; i += 1) str += String.fromCharCode(bytes[i]);
+  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function normalizePublicKeyOptions(pk) {
+  const out = JSON.parse(JSON.stringify(pk || {}));
+  if (out.challenge) out.challenge = b64urlToBuf(out.challenge);
+  if (out.user && out.user.id) out.user.id = b64urlToBuf(out.user.id);
+  if (Array.isArray(out.excludeCredentials)) {
+    out.excludeCredentials = out.excludeCredentials.map((c) => ({ ...c, id: b64urlToBuf(c.id) }));
+  }
+  if (Array.isArray(out.allowCredentials)) {
+    out.allowCredentials = out.allowCredentials.map((c) => ({ ...c, id: b64urlToBuf(c.id) }));
+  }
+  return out;
+}
+
+function credentialToJSON(cred) {
+  const res = {
+    id: cred.id,
+    rawId: bufToB64url(cred.rawId),
+    type: cred.type,
+    response: {}
+  };
+  const r = cred.response;
+  if (r) {
+    if (r.attestationObject) res.response.attestationObject = bufToB64url(r.attestationObject);
+    if (r.clientDataJSON) res.response.clientDataJSON = bufToB64url(r.clientDataJSON);
+    if (r.authenticatorData) res.response.authenticatorData = bufToB64url(r.authenticatorData);
+    if (r.signature) res.response.signature = bufToB64url(r.signature);
+    if (r.userHandle) res.response.userHandle = bufToB64url(r.userHandle);
+  }
+  return res;
+}
+
+async function passkeyEnable() {
+  if (!passkeySupported()) {
+    setHintKey("passkey.unsupported");
+    return;
+  }
+  setHintKey("");
+  const optRes = await fetch(`${PASSKEY_BASE}/api/auth/passkey/register/options`, {
+    headers: { accept: "application/json" }
+  });
+  if (!optRes.ok) {
+    setHintKey("passkey.register_options_failed");
+    return;
+  }
+  const optJson = await optRes.json();
+  const publicKey = normalizePublicKeyOptions(optJson?.data?.publicKey || optJson?.publicKey || optJson);
+  const cred = await navigator.credentials.create({ publicKey });
+  const body = { credential: credentialToJSON(cred) };
+  const verRes = await fetch(`${PASSKEY_BASE}/api/auth/passkey/register/verify`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!verRes.ok) {
+    setHintKey("passkey.register_verify_failed");
+    return;
+  }
+  setHintKey("passkey.enabled");
+}
+
+async function passkeyLogin() {
+  if (!passkeySupported()) {
+    setHintKey("passkey.unsupported");
+    return;
+  }
+  setHintKey("");
+  const optRes = await fetch(`${PASSKEY_BASE}/api/auth/passkey/login/options`, {
+    headers: { accept: "application/json" }
+  });
+  if (!optRes.ok) {
+    setHintKey("passkey.login_options_failed");
+    return;
+  }
+  const optJson = await optRes.json();
+  if (optJson?.data?.empty) {
+    setHintKey("passkey.not_enabled");
+    return;
+  }
+  const publicKey = normalizePublicKeyOptions(optJson?.data?.publicKey || optJson?.publicKey || optJson);
+  const cred = await navigator.credentials.get({ publicKey });
+  const body = { credential: credentialToJSON(cred) };
+  const verRes = await fetch(`${PASSKEY_BASE}/api/auth/passkey/login/verify`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!verRes.ok) {
+    setHintKey("passkey.login_verify_failed");
+    return;
+  }
+  setHintKey("passkey.enabled");
+}
+
+function triggerMic() {
+  window.dispatchEvent(new CustomEvent("cssos:mic"));
+}
+
+function ringEl() {
+  return document.getElementById("hold-ring");
+}
+
+function ringFg() {
+  const r = ringEl();
+  if (!r) return null;
+  return r.querySelector(".hold-ring-fg");
+}
+
+function setRingProgress01(p) {
+  const fg = ringFg();
+  if (!fg) return;
+  const C = 289;
+  const clamped = Math.max(0, Math.min(1, p));
+  fg.style.strokeDashoffset = String(C * (1 - clamped));
+}
+
+function showRing(on) {
+  const r = ringEl();
+  if (!r) return;
+  if (on) r.classList.add("is-on");
+  else r.classList.remove("is-on");
+}
+
+function micHoldStart(origin) {
+  if (hold.active) return;
+  hold.active = true;
+  hold.startedAt = performance.now();
+  setRingProgress01(0);
+  showRing(true);
+  window.dispatchEvent(new CustomEvent("cssos:mic_hold_start", { detail: { origin } }));
+
+  const tick = () => {
+    if (!hold.active) return;
+    const now = performance.now();
+    const p = (now - hold.startedAt) / HOLD_MAX_MS;
+    setRingProgress01(p);
+    hold.raf = requestAnimationFrame(tick);
+  };
+  hold.raf = requestAnimationFrame(tick);
+
+  hold.timeout = window.setTimeout(() => {
+    if (!hold.active) return;
+    micHoldCommit({ reason: "timeout" });
+  }, HOLD_MAX_MS);
+}
+
+function micHoldCommit(meta) {
+  if (!hold.active) return;
+  const elapsed = performance.now() - hold.startedAt;
+  hold.active = false;
+  if (hold.raf) cancelAnimationFrame(hold.raf);
+  if (hold.timeout) clearTimeout(hold.timeout);
+  hold.raf = 0;
+  hold.timeout = 0;
+  hold.pointerId = null;
+  showRing(false);
+  setRingProgress01(0);
+  window.dispatchEvent(
+    new CustomEvent("cssos:mic_hold_commit", {
+      detail: { elapsed_ms: Math.round(elapsed), ...meta }
+    })
+  );
+}
+
+function bindHoldTargets() {
+  const targets = Array.from(document.querySelectorAll("[data-hold='mic']"));
+  for (const el of targets) {
+    el.addEventListener("pointerdown", (e) => {
+      if (e.button !== undefined && e.button !== 0) return;
+      try {
+        el.setPointerCapture(e.pointerId);
+      } catch {}
+      hold.pointerId = e.pointerId;
+      micHoldStart(el.id || el.getAttribute("data-action") || "mic");
+    });
+
+    const commit = (e, reason) => {
+      if (!hold.active) return;
+      if (hold.pointerId !== null && e.pointerId !== hold.pointerId) return;
+      micHoldCommit({ reason });
+    };
+
+    el.addEventListener("pointerup", (e) => commit(e, "release"));
+    el.addEventListener("pointercancel", (e) => commit(e, "release"));
+    el.addEventListener("lostpointercapture", (e) => commit(e, "release"));
+  }
+}
+
+let rec = {
+  stream: null,
+  mr: null,
+  chunks: [],
+  started: false
+};
+
+async function startRecording() {
+  if (rec.started) return;
+  rec.chunks = [];
+  rec.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const mr = new MediaRecorder(rec.stream, { mimeType: "audio/webm" });
+  rec.mr = mr;
+  rec.started = true;
+
+  mr.ondataavailable = (ev) => {
+    if (ev.data && ev.data.size > 0) rec.chunks.push(ev.data);
+  };
+
+  mr.start(250);
+}
+
+async function stopRecordingGetBlob() {
+  if (!rec.started || !rec.mr) return null;
+
+  const mr = rec.mr;
+  const stream = rec.stream;
+
+  const blob = await new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      try {
+        mr.ondataavailable = null;
+      } catch {}
+      resolve(new Blob(rec.chunks, { type: mr.mimeType || "audio/webm" }));
+    };
+    mr.onstop = finish;
+    try {
+      mr.stop();
+    } catch {
+      finish();
+    }
+    setTimeout(finish, 1200);
+  });
+
+  rec.started = false;
+  rec.mr = null;
+  rec.stream = null;
+  rec.chunks = [];
+
+  if (stream) {
+    for (const tr of stream.getTracks()) {
+      try {
+        tr.stop();
+      } catch {}
+    }
+  }
+
+  if (!blob || blob.size === 0) return null;
+  return blob;
+}
+
+function randomTitle() {
+  const xs = ["Untitled", "New Song", "Opera Night", "Midnight", "Starlight", "Echo"];
+  return xs[Math.floor(Math.random() * xs.length)];
+}
+
+function apiBase() {
+  const v =
+    window.CSS_API_BASE ||
+    window.CSS_BASE_URL ||
+    (location.origin.includes("localhost") ? "http://127.0.0.1:8081" : location.origin);
+  return String(v).replace(/\/+$/, "");
+}
+
+function b64FromArrayBuffer(ab) {
+  const bytes = new Uint8Array(ab);
+  let s = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    s += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(s);
+}
+
+async function createRun({ title, uiLang, tier, voice }) {
+  const baseUrl = apiBase();
+  const body = {
+    cssl: title,
+    ui_lang: uiLang || "zh",
+    tier: tier || "dev",
+    commands: {
+      voice: voice || { bytes: 0, mime: "audio/webm", mode: "single" }
+    }
+  };
+  const res = await fetch(`${baseUrl}/cssapi/v1/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`http=${res.status} ${text}`);
+  }
+  return await res.json();
+}
+
+async function deriveTitleFromVoice(blob) {
+  const buf = await blob.arrayBuffer();
+  if (buf.byteLength < 1600) return "";
+  return "";
+}
+
+async function submitVoiceOrFallbackTitle(blobOrNull) {
+  let title = "";
+  let voice = { bytes: 0, mime: "audio/webm", mode: "single" };
+
+  if (blobOrNull && blobOrNull.size > 0) {
+    const t = await deriveTitleFromVoice(blobOrNull).catch(() => "");
+    if (t && t.trim()) {
+      title = t.trim();
+    }
+    const ab = await blobOrNull.arrayBuffer().catch(() => null);
+    if (ab && ab.byteLength > 0) {
+      voice = {
+        bytes: blobOrNull.size,
+        mime: blobOrNull.type || "audio/webm",
+        b64: b64FromArrayBuffer(ab),
+        mode: "single"
+      };
+    }
+  }
+
+  const finalTitle = title || randomTitle();
+
+  const uiLang = (window.CSS_UI_LANG || document.documentElement.lang || "zh").toString();
+  const tier = (window.CSS_TIER || "dev").toString();
+  const r = await createRun({ title: finalTitle, uiLang, tier, voice });
+  window.dispatchEvent(new CustomEvent("cssos:run_created", { detail: r }));
+  window.dispatchEvent(new CustomEvent("cssos:title_ready", { detail: { title: finalTitle, source: voice.bytes > 0 ? "voice" : "random" } }));
+  window.dispatchEvent(new CustomEvent("cssos:lyrics_start", { detail: { run_id: r.run_id, title: finalTitle, mode: "single" } }));
+}
+
 const dockActionMap = {
   mic: {
     click: handleMicClick,
-    dblclick: () => openPanel(settingsPanel),
+    dblclick: () => {
+      showToast(t("mic.settings_open"));
+      openPanel(settingsPanel);
+    },
     longpress: handleMicLongPress
   },
   foryou: {
@@ -2121,7 +3272,7 @@ const dockActionMap = {
   },
   cssmv: {
     click: () => openPanel(cssmvPanel),
-    dblclick: () => openPanel(watchPanel),
+    dblclick: () => ensureWatchCentered(),
     longpress: () => openPanel(videoPanel)
   },
   lyrics: {
@@ -2137,12 +3288,22 @@ const dockActionMap = {
   video: {
     click: () => openPanel(videoPanel),
     dblclick: shuffleStoryboard,
-    longpress: () => openPanel(watchPanel)
+    longpress: () => ensureWatchCentered()
   },
   watch: {
-    click: () => openPanel(watchPanel),
-    dblclick: () => openAndMaximize(watchPanel),
+    click: () => ensureWatchCentered(),
+    dblclick: () => ensureWatchCentered(),
     longpress: () => openPanel(cssmvPanel)
+  },
+  about: {
+    click: () => openPanel(aboutPanel),
+    dblclick: () => openAndMaximize(aboutPanel),
+    longpress: () => openPanel(settingsPanel)
+  },
+  api: {
+    click: () => openPanel(apiPanel),
+    dblclick: () => openAndMaximize(apiPanel),
+    longpress: () => openPanel(settingsPanel)
   },
   login: {
     click: () => openPanel(loginPanel),
@@ -2158,6 +3319,33 @@ const dockActionMap = {
     click: () => openPanel(settingsPanel),
     dblclick: () => startCreation(titleInput.value.trim(), lyricsInput.value.trim()),
     longpress: resetSettings
+  },
+  passkey: {
+    click: () => {
+      openPanel(profilePanel);
+      void passkeyLogin();
+    },
+    dblclick: () => {
+      openPanel(profilePanel);
+      void passkeyEnable();
+    },
+    longpress: () => openPanel(profilePanel)
+  },
+  profile: {
+    click: () => openPanel(profilePanel),
+    dblclick: () => openAndMaximize(profilePanel),
+    longpress: () => openPanel(loginPanel)
+  },
+  language: {
+    click: () => {
+      openPanel(languagePanel);
+      toggleLanguagePanelMode("content");
+    },
+    dblclick: () => {
+      openPanel(languagePanel);
+      toggleLanguagePanelMode();
+    },
+    longpress: cycleLanguageQuick
   }
 };
 
@@ -2168,9 +3356,39 @@ function handleDockAction(action, type) {
   if (handler) handler();
 }
 
+function handleGlobalAction(action) {
+  if (!action) return;
+  if (action === "profile.open") {
+    openPanel(profilePanel);
+    return;
+  }
+  if (action === "profile.close") {
+    minimizeToDock(profilePanel);
+    return;
+  }
+  if (action === "passkey.enable") {
+    openPanel(profilePanel);
+    void passkeyEnable();
+    return;
+  }
+  if (action === "passkey.login") {
+    openPanel(profilePanel);
+    void passkeyLogin();
+    return;
+  }
+  if (action === "mic") {
+    triggerMic();
+  }
+}
+
 function attachDockEvents() {
   document.querySelectorAll(".dock-item").forEach((item) => {
+    if (item.dataset.hold === "mic") {
+      item.tabIndex = 0;
+      return;
+    }
     const action = item.dataset.action;
+    item.tabIndex = 0;
     let suppressClick = false;
     let longPressId;
 
@@ -2215,6 +3433,19 @@ function attachDockEvents() {
     item.addEventListener("pointerleave", () => {
       clearTimeout(longPressId);
     });
+  });
+}
+
+function attachGlobalActionDispatcher() {
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest(".dock-item")) return;
+    const actionEl = target.closest("[data-action]");
+    if (!actionEl) return;
+    if (actionEl.getAttribute("data-hold") === "mic") return;
+    const action = actionEl.getAttribute("data-action");
+    handleGlobalAction(action);
   });
 }
 
@@ -2364,6 +3595,14 @@ function attachLogoPanelActions() {
 function minimizeToDock(panel) {
   panel.classList.add("hidden");
   panel.dataset.minimized = "true";
+  if (panel === watchPanel) {
+    setWatchCenterStage(false);
+    pauseWatchVideo();
+    if (watchVideo) {
+      watchVideo.removeAttribute("src");
+      watchVideo.load?.();
+    }
+  }
   updateDockVisibility();
   const action = dockByPanel[panel.id];
   if (!action) return;
@@ -2395,6 +3634,7 @@ function togglePanelCollapse(panel) {
       panel.classList.add("maximized");
     }
     panel.dataset.collapseHeight = "";
+    if (panel === watchPanel) resumeWatchVideo();
     return;
   }
   panel.dataset.collapseHeight = panel.style.height || "";
@@ -2407,6 +3647,7 @@ function togglePanelCollapse(panel) {
   }
   panel.classList.add("panel-collapsed");
   panel.style.height = `${bar.offsetHeight}px`;
+  if (panel === watchPanel) pauseWatchVideo();
 }
 
 function togglePanelSettings(panel) {
@@ -2425,6 +3666,8 @@ function attachPanelActions() {
         if (action === "minimize") togglePanelCollapse(panel);
         if (action === "lock") togglePanelLock(panel);
         if (action === "close") minimizeToDock(panel);
+        if (action === "profile.open") openPanel(profilePanel);
+        if (action === "profile.close") minimizeToDock(profilePanel);
       });
     });
   });
@@ -2680,12 +3923,14 @@ function initPanelSettings() {
   });
 }
 
-applySettings.addEventListener("click", () => {
-  const customLyrics = lyricsInput.value.trim();
-  const customTitle = titleInput.value.trim();
-  startCreation(customTitle, customLyrics);
-  openPanel(foryouPanel);
-});
+if (applySettings) {
+  applySettings.addEventListener("click", () => {
+    const customLyrics = lyricsInput.value.trim();
+    const customTitle = titleInput.value.trim();
+    startCreation(customTitle, customLyrics);
+    openPanel(foryouPanel);
+  });
+}
 
 if (randomPaletteButton) {
   randomPaletteButton.addEventListener("click", randomizePalette);
@@ -2693,11 +3938,14 @@ if (randomPaletteButton) {
 
 if (enterWatchButton) {
   enterWatchButton.addEventListener("click", async () => {
-    openPanel(watchPanel);
+    ensureWatchCentered();
     if (!videoJobId) {
       const ok = await playLatestVideoFromRegistry();
       if (!ok) {
-        showToast("No video ready yet");
+        const demoOk = await playDemoInWatchPanel();
+        if (!demoOk) {
+          showToast("No video ready yet");
+        }
       }
     }
   });
@@ -2709,9 +3957,12 @@ if (listenButton) {
 
 if (watchButton) {
   watchButton.addEventListener("click", async () => {
-    openPanel(watchPanel);
+    ensureWatchCentered();
     if (!videoJobId) {
-      await playLatestVideoFromRegistry();
+      const ok = await playLatestVideoFromRegistry();
+      if (!ok) {
+        await playDemoInWatchPanel();
+      }
     }
   });
 }
@@ -2735,27 +3986,39 @@ bgColorInputs.forEach((input) => {
   window.addEventListener(eventName, resetInactivityTimer, { passive: true });
 });
 
-resetInactivityTimer();
-initPanelStack();
-updateDockVisibility();
-applySpell(state.spell, { force: true, refreshPanels: false });
-updateEnginePanels(state.title, state.lines);
-applyBackgroundPalette();
-attachDockEvents();
-attachPanelDrag();
-attachPanelBarActions();
-attachResize();
-attachPanelFocus();
-attachPanelActions();
-attachLogoPanelActions();
-initPanelSettings();
-initEngineControls();
-initLyricsControls();
-initLanguagePanel();
-fetchMe();
-fetchAuthProviders();
-fetchBillingStatus();
-initVersionSwitcher();
+const safeInit = (name, fn) => {
+  try {
+    fn();
+  } catch (err) {
+    console.error(`[init] ${name} failed`, err);
+  }
+};
+
+safeInit("resetInactivityTimer", () => resetInactivityTimer());
+safeInit("initPanelStack", () => initPanelStack());
+safeInit("updateDockVisibility", () => updateDockVisibility());
+safeInit("applySpell", () => applySpell(state.spell, { force: true, refreshPanels: false }));
+safeInit("updateEnginePanels", () => updateEnginePanels(state.title, state.lines));
+safeInit("applyBackgroundPalette", () => applyBackgroundPalette());
+safeInit("attachDockEvents", () => attachDockEvents());
+safeInit("attachGlobalActionDispatcher", () => attachGlobalActionDispatcher());
+safeInit("bindHoldTargets", () => bindHoldTargets());
+safeInit("attachPanelDrag", () => attachPanelDrag());
+safeInit("attachPanelBarActions", () => attachPanelBarActions());
+safeInit("attachResize", () => attachResize());
+safeInit("attachPanelFocus", () => attachPanelFocus());
+safeInit("attachPanelActions", () => attachPanelActions());
+safeInit("attachLogoPanelActions", () => attachLogoPanelActions());
+safeInit("initPanelSettings", () => initPanelSettings());
+safeInit("initEngineControls", () => initEngineControls());
+safeInit("initLyricsControls", () => initLyricsControls());
+safeInit("initLanguagePanel", () => initLanguagePanel());
+safeInit("initAboutTabs", () => initAboutTabs());
+safeInit("initApiBillingUI", () => initApiBillingUI());
+safeInit("fetchMe", () => fetchMe());
+safeInit("fetchAuthProviders", () => fetchAuthProviders());
+safeInit("fetchBillingStatus", () => fetchBillingStatus());
+safeInit("initVersionSwitcher", () => initVersionSwitcher());
 if (loginLogout) {
   loginLogout.addEventListener("click", async () => {
     try {
@@ -2771,6 +4034,23 @@ if (loginLogout) {
   });
 }
 attachAmbientTrail();
+window.addEventListener("cssos:mic", () => {
+  handleMicClick();
+});
+window.addEventListener("cssos:mic_hold_start", async () => {
+  try {
+    await startRecording();
+  } catch {}
+});
+window.addEventListener("cssos:mic_hold_commit", async () => {
+  try {
+    const blob = await stopRecordingGetBlob().catch(() => null);
+    await submitVoiceOrFallbackTitle(blob);
+  } catch (e) {
+    const msg = `${window.t ? window.t("mic.submit_failed") : "Submit failed"}: ${String(e)}`;
+    window.dispatchEvent(new CustomEvent("cssos:toast", { detail: { kind: "error", message: msg } }));
+  }
+});
 
 window.addEventListener("resize", () => {
   panels.forEach((panel) => clampPanelInViewport(panel));

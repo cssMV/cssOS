@@ -152,8 +152,6 @@ impl IntoResponse for ApiError {
         };
         let title = problem_title(lang, status);
         let detail = render_detail(lang, &code, &message, details.as_deref());
-        Problem::new(status, title)
-            .detail(detail)
-            .into_response()
+        Problem::new(status, title).detail(detail).into_response()
     }
 }

@@ -51,13 +51,8 @@ pub async fn init(capacity: usize) {
         Arc::new(LocalQueue::new(capacity.max(1)))
     };
 
-    let worker_id = env::var("CSS_WORKER_ID").unwrap_or_else(|_| {
-        format!(
-            "{}-{}",
-            std::process::id(),
-            uuid::Uuid::new_v4().simple()
-        )
-    });
+    let worker_id = env::var("CSS_WORKER_ID")
+        .unwrap_or_else(|_| format!("{}-{}", std::process::id(), uuid::Uuid::new_v4().simple()));
     let lease_ttl_seconds = env::var("CSS_WORKER_LEASE_TTL_SECONDS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
@@ -136,10 +131,12 @@ pub async fn push_run(run_id: String, tier: String) -> anyhow::Result<()> {
 
     {
         let mut qm_guard = qm.lock().await;
-        qm_guard.entry(run_id.clone()).or_insert_with(|| EnqueuedMeta {
-            tier,
-            enqueued_at: Instant::now(),
-        });
+        qm_guard
+            .entry(run_id.clone())
+            .or_insert_with(|| EnqueuedMeta {
+                tier,
+                enqueued_at: Instant::now(),
+            });
         metrics::RUNS_QUEUE.set(qm_guard.len() as i64);
     }
 
@@ -158,10 +155,12 @@ pub async fn defer_run(run_id: String, tier: String, delay_ms: u64) -> anyhow::R
 
     {
         let mut qm_guard = qm.lock().await;
-        qm_guard.entry(run_id.clone()).or_insert_with(|| EnqueuedMeta {
-            tier,
-            enqueued_at: Instant::now(),
-        });
+        qm_guard
+            .entry(run_id.clone())
+            .or_insert_with(|| EnqueuedMeta {
+                tier,
+                enqueued_at: Instant::now(),
+            });
         metrics::RUNS_QUEUE.set(qm_guard.len() as i64);
     }
 

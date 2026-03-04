@@ -65,7 +65,12 @@ pub async fn spawn_wait_with_pgid_timeout(
     mut cmd: Command,
     timeout_s: u64,
     kill_grace_ms: u64,
-) -> (Option<i32>, Option<i32>, anyhow::Result<i32>, Option<String>) {
+) -> (
+    Option<i32>,
+    Option<i32>,
+    anyhow::Result<i32>,
+    Option<String>,
+) {
     unsafe {
         cmd.pre_exec(|| {
             libc::setpgid(0, 0);
@@ -75,7 +80,14 @@ pub async fn spawn_wait_with_pgid_timeout(
 
     let mut child = match cmd.spawn() {
         Ok(c) => c,
-        Err(e) => return (None, None, Err(anyhow::anyhow!(e)), Some("SPAWN_FAILED".into())),
+        Err(e) => {
+            return (
+                None,
+                None,
+                Err(anyhow::anyhow!(e)),
+                Some("SPAWN_FAILED".into()),
+            )
+        }
     };
 
     let pid = child.id().map(|x| x as i32);
@@ -279,9 +291,14 @@ pub async fn run_one_stage_video_dispatch(
                 .and_then(|r| r.outputs.first().cloned())
                 .unwrap_or_else(|| std::path::PathBuf::from("./build/subtitles.ass"));
             let ass_path = resolve(&ass_rel);
-            let p = crate::subtitles::ass::write_ass_from_run(&out_dir, &state.ui_lang, dur, Path::new("build/subtitles.ass"))
-                .await
-                .map_err(|e| format!("write subtitles ass failed: {e}"))?;
+            let p = crate::subtitles::ass::write_ass_from_run(
+                &out_dir,
+                &state.ui_lang,
+                dur,
+                Path::new("build/subtitles.ass"),
+            )
+            .await
+            .map_err(|e| format!("write subtitles ass failed: {e}"))?;
             if !vcache::file_ok(&ass_path) {
                 return Err("subtitles ass invalid".to_string());
             }
@@ -476,7 +493,10 @@ pub async fn run_one_stage_video_dispatch(
                 let meta = ensure_meta_obj(&mut rec.meta);
                 meta.insert("cache_hit".into(), serde_json::json!(false));
                 meta.insert("cache_key".into(), serde_json::json!(key.clone()));
-                meta.insert("cache_path".into(), serde_json::json!(cached.display().to_string()));
+                meta.insert(
+                    "cache_path".into(),
+                    serde_json::json!(cached.display().to_string()),
+                );
             }
             let shots_n = state.commands["video"]["shots_n"].as_u64().unwrap_or(0) as usize;
             let shots_dir = state.commands["video"]["shots_dir"]
@@ -487,11 +507,19 @@ pub async fn run_one_stage_video_dispatch(
                 .unwrap_or("./video/video.mp4");
             let shots_dir_path = {
                 let p = std::path::PathBuf::from(shots_dir);
-                if p.is_absolute() { p } else { out_dir.join(p) }
+                if p.is_absolute() {
+                    p
+                } else {
+                    out_dir.join(p)
+                }
             };
             let out_mp4_path = {
                 let p = std::path::PathBuf::from(out_mp4);
-                if p.is_absolute() { p } else { out_dir.join(p) }
+                if p.is_absolute() {
+                    p
+                } else {
+                    out_dir.join(p)
+                }
             };
             let mut shots: Vec<std::path::PathBuf> = Vec::new();
             if shots_n > 0 {
@@ -554,7 +582,10 @@ pub async fn run_one_stage_video_dispatch(
                     let meta = ensure_meta_obj(&mut rec.meta);
                     meta.insert("cache_hit".into(), serde_json::json!(true));
                     meta.insert("cache_key".into(), serde_json::json!(key));
-                    meta.insert("cache_path".into(), serde_json::json!(cached.display().to_string()));
+                    meta.insert(
+                        "cache_path".into(),
+                        serde_json::json!(cached.display().to_string()),
+                    );
                 }
                 outputs.push(out_mp4);
                 return Ok(outputs);
@@ -563,7 +594,10 @@ pub async fn run_one_stage_video_dispatch(
                 let meta = ensure_meta_obj(&mut rec.meta);
                 meta.insert("cache_hit".into(), serde_json::json!(false));
                 meta.insert("cache_key".into(), serde_json::json!(key.clone()));
-                meta.insert("cache_path".into(), serde_json::json!(cached.display().to_string()));
+                meta.insert(
+                    "cache_path".into(),
+                    serde_json::json!(cached.display().to_string()),
+                );
             }
 
             let r = ve
@@ -706,7 +740,10 @@ pub async fn maybe_run_video_stage(
             .unwrap_or("./build/video/video.mp4");
         let mut shots = Vec::<PathBuf>::new();
         for i in 0..shots_n {
-            shots.push(PathBuf::from(format!("{}/video_shot_{:03}.mp4", shots_dir, i)));
+            shots.push(PathBuf::from(format!(
+                "{}/video_shot_{:03}.mp4",
+                shots_dir, i
+            )));
         }
         ve.assemble(&shots, &PathBuf::from(out_mp4))
             .await

@@ -43,7 +43,9 @@ pub fn cache_assemble_dir(out_dir: &Path) -> PathBuf {
 }
 
 pub fn file_ok(p: &Path) -> bool {
-    fs::metadata(p).map(|m| m.is_file() && m.len() > 0).unwrap_or(false)
+    fs::metadata(p)
+        .map(|m| m.is_file() && m.len() > 0)
+        .unwrap_or(false)
 }
 
 pub fn ensure_parent(p: &Path) -> io::Result<()> {

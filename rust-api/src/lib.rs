@@ -1,8 +1,10 @@
+pub mod artifacts;
+pub mod artifacts_api;
 pub mod cssapi;
+pub mod ephemeral;
 pub mod ready;
 pub mod run_state;
 pub mod runs_api;
-pub mod artifacts;
 
 mod auth;
 mod billing;
@@ -15,11 +17,12 @@ mod db;
 mod distributed;
 mod dsl;
 mod events;
-mod jobs;
 mod i18n;
+mod jobs;
 mod metrics;
 mod models;
 mod pipeline_status;
+mod passkey;
 mod procutil;
 mod routes;
 mod run_state_io;

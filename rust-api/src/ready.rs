@@ -1,4 +1,5 @@
 use crate::run_state::{RunState, StageStatus};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::Path;
@@ -11,6 +12,8 @@ pub struct ReadyView {
     pub running: Vec<String>,
     pub summary: ReadySummary,
     pub video_shots: VideoShotsSummary,
+    #[serde(default)]
+    pub lyrics: LyricsLangSummary,
     pub counters: ReadyCounters,
     pub running_pids: Vec<RunningPid>,
     pub mix: MixSummary,
@@ -18,6 +21,16 @@ pub struct ReadyView {
     pub blocking: Vec<BlockingItem>,
     pub stage_seq: u64,
     pub last_event: Option<ReadyEvent>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LyricsLangSummary {
+    #[serde(default)]
+    pub detected_lang: String,
+    #[serde(default)]
+    pub primary_lang: String,
+    #[serde(default)]
+    pub suggest_langs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -83,6 +96,31 @@ pub struct ReadySummary {
     pub succeeded: usize,
     pub failed: usize,
     pub skipped: usize,
+    pub slowest: Vec<SlowStage>,
+    #[serde(default)]
+    pub slow_warn_s: u64,
+    #[serde(default)]
+    pub slowest_warn_seconds: u64,
+    #[serde(default)]
+    pub slowest_stuck_seconds: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum SlowStageStatus {
+    #[default]
+    Running,
+    Succeeded,
+    Failed,
+    Skipped,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, ToSchema)]
+pub struct SlowStage {
+    pub stage: String,
+    pub wall_s: f64,
+    pub status: SlowStageStatus,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, ToSchema)]
@@ -111,6 +149,19 @@ pub struct ReadyCounters {
     pub skipped: u32,
     pub killed_cancelled: u32,
     pub killed_timeout: u32,
+}
+
+fn suggest_langs_for(detected: &str) -> Vec<String> {
+    match detected {
+        "zh" | "zh-cn" | "zh-tw" | "zh-CN" | "zh-TW" => vec!["en", "ja", "ko", "fr"],
+        "ja" => vec!["zh", "en", "ko", "fr"],
+        "ko" => vec!["zh", "en", "ja", "fr"],
+        "fr" => vec!["en", "zh", "ja", "ko"],
+        _ => vec!["zh", "ja", "ko", "fr"],
+    }
+    .into_iter()
+    .map(|s| s.to_string())
+    .collect()
 }
 
 fn deps_for_stage(st: &RunState, stage: &str) -> Vec<String> {
@@ -151,9 +202,7 @@ fn deps_of(st: &RunState, stage: &str) -> Vec<String> {
 }
 
 fn deps_satisfied(st: &RunState, stage: &str) -> bool {
-    let file_ok = |p: &std::path::PathBuf| {
-        crate::artifacts::file_ok_at(&st.config.out_dir, p)
-    };
+    let file_ok = |p: &std::path::PathBuf| crate::artifacts::file_ok_at(&st.config.out_dir, p);
     if stage.starts_with("video_shot_") || stage.starts_with("video.shot:") {
         if let Some(rec) = st.stages.get("video_plan") {
             return rec.outputs.iter().all(file_ok);
@@ -249,11 +298,68 @@ pub fn compute_ready_view_with_dag(st: &RunState, _dag: &crate::dag::Dag) -> Rea
     compute_ready_view_with_dag_limited(st, &crate::dag::cssmv_dag_v1(), 64)
 }
 
+pub fn compute_slowest_leader(st: &RunState) -> Option<(String, f64)> {
+    let now = Utc::now();
+    let mut best: Option<(String, f64)> = None;
+    for (k, rec) in st.stages.iter() {
+        let wall_s = stage_wall_s(rec, now);
+        let Some(w) = wall_s else {
+            continue;
+        };
+        if !w.is_finite() || w < 0.0 {
+            continue;
+        }
+        match best.as_ref() {
+            None => best = Some((k.clone(), w)),
+            Some((_bk, bw)) if w > *bw => best = Some((k.clone(), w)),
+            _ => {}
+        }
+    }
+    best
+}
+
+fn stage_wall_s(rec: &crate::run_state::StageRecord, now: DateTime<Utc>) -> Option<f64> {
+    let wall_done = rec
+        .meta
+        .get("wall_s")
+        .and_then(|v| v.as_f64())
+        .or(rec.duration_seconds);
+    match rec.status {
+        StageStatus::RUNNING => rec
+            .started_at
+            .as_deref()
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|ts| (now - ts.with_timezone(&Utc)).num_milliseconds() as f64 / 1000.0)
+            .or(wall_done),
+        StageStatus::SUCCEEDED | StageStatus::FAILED | StageStatus::SKIPPED => wall_done,
+        StageStatus::PENDING => None,
+    }
+}
+
+pub fn compute_timeline_total_wall_s(st: &RunState) -> f64 {
+    let now = Utc::now();
+    let mut total = 0.0f64;
+    for rec in st.stages.values() {
+        if let Some(w) = stage_wall_s(rec, now) {
+            if w.is_finite() && w > 0.0 {
+                total += w;
+            }
+        }
+    }
+    total
+}
+
 pub fn compute_ready_view_with_dag_limited(
     st: &RunState,
     _dag: &crate::dag::Dag,
     limit: usize,
 ) -> ReadyView {
+    fn parse_rfc3339_ts(s: &str) -> Option<DateTime<Utc>> {
+        chrono::DateTime::parse_from_rfc3339(s)
+            .ok()
+            .map(|dt| dt.with_timezone(&Utc))
+    }
+
     let mut running: Vec<String> = Vec::new();
     let mut ready: Vec<String> = Vec::new();
     let mut eval_order: Vec<String> = st.topo_order.clone();
@@ -289,8 +395,81 @@ pub fn compute_ready_view_with_dag_limited(
             StageStatus::SKIPPED => summary.skipped += 1,
         }
     }
+    let now = Utc::now();
+    let mut slow: Vec<SlowStage> = Vec::new();
+    for (k, rec) in &st.stages {
+        let wall_done = rec.meta.get("wall_s").and_then(|v| v.as_f64());
+        let is_cancelled = rec.error_code.as_deref() == Some("CANCELLED")
+            || rec.error_code.as_deref() == Some("CANCELLED_KILLED");
+        let wall = match rec.status {
+            StageStatus::RUNNING => rec
+                .started_at
+                .as_deref()
+                .and_then(parse_rfc3339_ts)
+                .map(|t0| (now - t0).num_milliseconds() as f64 / 1000.0)
+                .or(wall_done),
+            StageStatus::SUCCEEDED | StageStatus::FAILED | StageStatus::SKIPPED => wall_done
+                .or_else(|| {
+                    let a = rec.started_at.as_deref().and_then(parse_rfc3339_ts)?;
+                    let b = rec.ended_at.as_deref().and_then(parse_rfc3339_ts)?;
+                    Some((b - a).num_milliseconds() as f64 / 1000.0)
+                }),
+            StageStatus::PENDING => None,
+        };
+        if let Some(w) = wall {
+            if w.is_finite() && w >= 0.0 {
+                let status = match rec.status {
+                    StageStatus::RUNNING => SlowStageStatus::Running,
+                    StageStatus::SUCCEEDED => SlowStageStatus::Succeeded,
+                    StageStatus::FAILED => SlowStageStatus::Failed,
+                    StageStatus::SKIPPED if is_cancelled => SlowStageStatus::Cancelled,
+                    StageStatus::SKIPPED => SlowStageStatus::Skipped,
+                    StageStatus::PENDING => continue,
+                };
+                slow.push(SlowStage {
+                    stage: k.clone(),
+                    wall_s: w,
+                    status,
+                });
+            }
+        }
+    }
+    slow.sort_by(|a, b| {
+        b.wall_s
+            .partial_cmp(&a.wall_s)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    summary.slowest = slow.into_iter().take(3).collect();
+    let warn = st.config.stuck_timeout_seconds;
+    summary.slow_warn_s = warn;
+    summary.slowest_warn_seconds = warn;
+    summary.slowest_stuck_seconds = warn;
 
     let video_shots = compute_video_shots_summary(st, &ready, &running);
+    let mut lyrics = LyricsLangSummary {
+        detected_lang: st.ui_lang.clone(),
+        primary_lang: st.ui_lang.clone(),
+        suggest_langs: Vec::new(),
+    };
+    if st.commands.is_object() {
+        if let Some(v) = st.commands.get("lyrics") {
+            if let Some(s) = v.get("detected_lang").and_then(|x| x.as_str()) {
+                lyrics.detected_lang = s.to_string();
+            }
+            if let Some(s) = v.get("primary_lang").and_then(|x| x.as_str()) {
+                lyrics.primary_lang = s.to_string();
+            }
+            if let Some(arr) = v.get("suggest_langs").and_then(|x| x.as_array()) {
+                lyrics.suggest_langs = arr
+                    .iter()
+                    .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                    .collect();
+            }
+        }
+    }
+    if lyrics.suggest_langs.is_empty() {
+        lyrics.suggest_langs = suggest_langs_for(&lyrics.detected_lang);
+    }
     let (counters, running_pids) = compute_counters(st);
     let mix = if let Some(rec) = st.stages.get("mix") {
         let path = rec
@@ -353,6 +532,7 @@ pub fn compute_ready_view_with_dag_limited(
         running,
         summary,
         video_shots,
+        lyrics,
         counters,
         running_pids,
         mix,
@@ -637,8 +817,7 @@ fn has_gate_meta(st: &RunState, stage: &str) -> bool {
         .and_then(|r| r.meta.as_object())
         .map(|m| {
             m.get("gate_code").is_some()
-                || m
-                    .get("gate")
+                || m.get("gate")
                     .and_then(|g| g.as_object())
                     .map(|go| go.get("gate_code").is_some())
                     .unwrap_or(false)
@@ -673,7 +852,11 @@ fn chain_bad_kind(st: &RunState, bad_at: &Option<String>) -> Option<BadKind> {
     bad_kind_for(st, s)
 }
 
-fn dedup_and_sort_blocking(st: &RunState, mut items: Vec<BlockingItem>, limit: usize) -> Vec<BlockingItem> {
+fn dedup_and_sort_blocking(
+    st: &RunState,
+    mut items: Vec<BlockingItem>,
+    limit: usize,
+) -> Vec<BlockingItem> {
     let mut seen = HashSet::<String>::new();
     items.retain(|it| {
         let sig = it.chain.join("->");
@@ -774,14 +957,22 @@ pub fn build_summary_i18n(st: &RunState, view: &ReadyView, lang: &str) -> String
         return crate::i18n::t(lang, "done").into();
     }
     if !view.running.is_empty() {
-        return format!("{}: {}", crate::i18n::t(lang, "running"), view.running.len());
+        return format!(
+            "{}: {}",
+            crate::i18n::t(lang, "running"),
+            view.running.len()
+        );
     }
     if !view.ready.is_empty() {
         return format!("{}: {}", crate::i18n::t(lang, "ready"), view.ready.len());
     }
     if let Some(b) = view.blocking.first() {
         if !b.chain.is_empty() {
-            return format!("{}: {}", crate::i18n::t(lang, "blocked"), b.chain.join(" -> "));
+            return format!(
+                "{}: {}",
+                crate::i18n::t(lang, "blocked"),
+                b.chain.join(" -> ")
+            );
         }
         if let Some(reason) = &b.reason {
             return format!(

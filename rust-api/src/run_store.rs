@@ -1,6 +1,6 @@
+use crate::dsl::compile::CompiledCommands;
 use crate::run_state::RunState;
 use crate::run_state_io::{load_state, save_state_atomic};
-use crate::dsl::compile::CompiledCommands;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};

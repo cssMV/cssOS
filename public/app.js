@@ -3499,6 +3499,17 @@ function showRing(on) {
   else r.classList.remove("is-on");
 }
 
+function forceResetHoldRing() {
+  hold.active = false;
+  if (hold.raf) cancelAnimationFrame(hold.raf);
+  if (hold.timeout) clearTimeout(hold.timeout);
+  hold.raf = 0;
+  hold.timeout = 0;
+  hold.pointerId = null;
+  showRing(false);
+  setRingProgress01(0);
+}
+
 function micHoldStart(origin) {
   if (hold.active) return;
   hold.active = true;
@@ -3525,14 +3536,7 @@ function micHoldStart(origin) {
 function micHoldCommit(meta) {
   if (!hold.active) return;
   const elapsed = performance.now() - hold.startedAt;
-  hold.active = false;
-  if (hold.raf) cancelAnimationFrame(hold.raf);
-  if (hold.timeout) clearTimeout(hold.timeout);
-  hold.raf = 0;
-  hold.timeout = 0;
-  hold.pointerId = null;
-  showRing(false);
-  setRingProgress01(0);
+  forceResetHoldRing();
   window.dispatchEvent(
     new CustomEvent("cssos:mic_hold_commit", {
       detail: { elapsed_ms: Math.round(elapsed), ...meta }
@@ -4647,7 +4651,14 @@ window.addEventListener("cssos:mic_hold_commit", async (event) => {
   } catch (e) {
     const msg = `${window.t ? window.t("mic.submit_failed") : "Submit failed"}: ${String(e)}`;
     showToast(msg);
+  } finally {
+    // Always clear ring UI after long-press flow, even on edge-case errors.
+    forceResetHoldRing();
   }
+});
+
+window.addEventListener("visibilitychange", () => {
+  if (document.hidden) forceResetHoldRing();
 });
 
 window.addEventListener("resize", () => {

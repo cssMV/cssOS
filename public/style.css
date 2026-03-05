@@ -423,6 +423,13 @@ body.holding-mic {
   -webkit-touch-callout: none;
 }
 
+body.longpress-guard,
+body.longpress-guard * {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none !important;
+}
+
 .hold-ring {
   position: absolute;
   inset: -10px;

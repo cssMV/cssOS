@@ -3507,14 +3507,20 @@ function forceResetHoldRing() {
   hold.timeout = 0;
   hold.pointerId = null;
   document.body.classList.remove("holding-mic");
+  document.body.classList.remove("longpress-guard");
   showRing(false);
   setRingProgress01(0);
+}
+
+function setLongpressGuard(on) {
+  document.body.classList.toggle("longpress-guard", !!on);
 }
 
 function micHoldStart(origin) {
   if (hold.active) return;
   hold.active = true;
   document.body.classList.add("holding-mic");
+  setLongpressGuard(true);
   hold.startedAt = performance.now();
   setRingProgress01(0);
   showRing(true);
@@ -3996,6 +4002,7 @@ function attachDockEvents() {
     item.addEventListener("pointerdown", () => {
       suppressClick = false;
       clearTimeout(longPressId);
+      setLongpressGuard(true);
       longPressId = setTimeout(() => {
         suppressClick = true;
         triggerAction("longpress");
@@ -4004,10 +4011,17 @@ function attachDockEvents() {
 
     item.addEventListener("pointerup", () => {
       clearTimeout(longPressId);
+      setLongpressGuard(false);
     });
 
     item.addEventListener("pointerleave", () => {
       clearTimeout(longPressId);
+      setLongpressGuard(false);
+    });
+
+    item.addEventListener("pointercancel", () => {
+      clearTimeout(longPressId);
+      setLongpressGuard(false);
     });
   });
 }
@@ -4661,8 +4675,12 @@ window.addEventListener("cssos:mic_hold_commit", async (event) => {
 });
 
 window.addEventListener("visibilitychange", () => {
-  if (document.hidden) forceResetHoldRing();
+  if (document.hidden) {
+    forceResetHoldRing();
+    setLongpressGuard(false);
+  }
 });
+window.addEventListener("blur", () => setLongpressGuard(false));
 
 window.addEventListener("resize", () => {
   panels.forEach((panel) => clampPanelInViewport(panel));

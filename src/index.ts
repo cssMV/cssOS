@@ -439,6 +439,18 @@ function auditAuthLogin(req: express.Request, provider: string, userId: string, 
   );
 }
 
+function auditAuthFailure(provider: string, mode: string, errorCode: string) {
+  console.warn(
+    JSON.stringify({
+      tag: "auth_login_failed",
+      provider,
+      mode,
+      error_code: errorCode,
+      ts: new Date().toISOString()
+    })
+  );
+}
+
 function applePrivateKeyPem() {
   const raw = process.env.APPLE_PRIVATE_KEY || "";
   return raw.includes("\\n") ? raw.replace(/\\n/g, "\n") : raw;
@@ -1231,17 +1243,27 @@ app.get("/auth/bsky", async (req, res) => {
     }
     const handle = process.env.BLUESKY_HANDLE || "";
     const appPassword = process.env.BLUESKY_APP_PASSWORD || "";
-    if (!handle || !appPassword) return res.status(503).send("bsky_not_configured");
+    if (!handle || !appPassword) {
+      auditAuthFailure("bsky", "app_password", "NOT_CONFIGURED");
+      return res.status(503).send("bsky_not_configured");
+    }
     const sess = await fetch("https://bsky.social/xrpc/com.atproto.server.createSession", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ identifier: handle, password: appPassword })
     });
+    if (!sess.ok) {
+      auditAuthFailure("bsky", "app_password", "SESSION_CREATE_FAILED");
+      return res.status(400).send("auth_failed");
+    }
     const js = (await sess.json().catch(() => null)) as any;
     const did = String(js?.did || "");
     const email = js?.email ? String(js.email) : null;
     const displayName = js?.handle ? String(js.handle) : handle;
-    if (!did) return res.status(400).send("auth_failed");
+    if (!did) {
+      auditAuthFailure("bsky", "app_password", "DID_MISSING");
+      return res.status(400).send("auth_failed");
+    }
     const userId = await upsertOAuthIdentity({
       provider: "bsky",
       providerUserId: did,
@@ -1254,6 +1276,7 @@ app.get("/auth/bsky", async (req, res) => {
     (req.session as any).passkey_subject_key = userSubjectKey(userId);
     return res.redirect(302, "/");
   } catch {
+    auditAuthFailure("bsky", "app_password", "INTERNAL_ERROR");
     return res.status(500).send("bsky_auth_start_failed");
   }
 });

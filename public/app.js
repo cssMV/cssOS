@@ -3816,6 +3816,8 @@ async function submitVoiceOrFallbackTitle(blobOrNull) {
     window.dispatchEvent(new CustomEvent("cssos:run_created", { detail: r }));
     window.dispatchEvent(new CustomEvent("cssos:title_ready", { detail: { title: finalTitle, source: voice.bytes > 0 ? "voice" : "random" } }));
     window.dispatchEvent(new CustomEvent("cssos:lyrics_start", { detail: { run_id: r.run_id, title: finalTitle, mode: "single" } }));
+    // Enter visible creation flow immediately after trigger, even when backend run is accepted.
+    startCreation(finalTitle, "");
   } catch (_err) {
     // Fallback to local generation path so user always enters creation flow.
     startCreation(finalTitle, "");
@@ -4632,8 +4634,14 @@ window.addEventListener("cssos:mic_hold_start", async () => {
     showToast(msg);
   }
 });
-window.addEventListener("cssos:mic_hold_commit", async () => {
+window.addEventListener("cssos:mic_hold_commit", async (event) => {
   try {
+    const elapsedMs = Number(event?.detail?.elapsed_ms || 0);
+    if (elapsedMs > 0 && elapsedMs < LONGPRESS_MS) {
+      await stopRecordingGetBlob().catch(() => null);
+      handleMicClick();
+      return;
+    }
     const blob = await stopRecordingGetBlob().catch(() => null);
     await submitVoiceOrFallbackTitle(blob);
   } catch (e) {

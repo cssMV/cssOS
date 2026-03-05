@@ -500,6 +500,51 @@
               </select>
             </label>
           </div>
+          <div class="creation-console" id="creation-console">
+            <div class="creation-tabs" id="creation-tabs"></div>
+            <div class="creation-chips" id="creation-chips"></div>
+            <div class="row">
+              <label>
+                <span>Tempo (BPM)</span>
+                <input id="creation-tempo" type="number" min="40" max="220" step="1" value="88" />
+              </label>
+              <label>
+                <span>Key</span>
+                <select id="creation-key">
+                  <option value="C">C</option>
+                  <option value="D">D</option>
+                  <option value="E">E</option>
+                  <option value="F">F</option>
+                  <option value="G">G</option>
+                  <option value="A">A</option>
+                  <option value="B">B</option>
+                </select>
+              </label>
+            </div>
+            <div class="row">
+              <label>
+                <span>Duration (sec)</span>
+                <input id="creation-duration" type="number" min="30" max="600" step="5" value="180" />
+              </label>
+              <label>
+                <span>Language</span>
+                <select id="creation-language">
+                  <option value="zh">Chinese</option>
+                  <option value="en">English</option>
+                  <option value="ja">Japanese</option>
+                </select>
+              </label>
+            </div>
+            <label>
+              <span>Creative Prompt</span>
+              <textarea id="creation-prompt" rows="3" maxlength="500" placeholder="Describe the mood, era, references, and arrangement..."></textarea>
+            </label>
+            <div class="creation-meta">
+              <span id="creation-prompt-count">0/500</span>
+              <button id="creation-clear" class="cta ghost tiny" type="button">Clear All</button>
+            </div>
+            <div class="creation-summary" id="creation-summary"></div>
+          </div>
           <div class="row">
             <label>
               <span data-i18n="settings.bg1">Background Color 1</span>

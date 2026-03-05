@@ -59,6 +59,16 @@ const titleInput = document.getElementById("title-input");
 const lyricsInput = document.getElementById("lyrics-input");
 const styleInput = document.getElementById("style-input");
 const voiceInput = document.getElementById("voice-input");
+const creationTabs = document.getElementById("creation-tabs");
+const creationChips = document.getElementById("creation-chips");
+const creationTempo = document.getElementById("creation-tempo");
+const creationKey = document.getElementById("creation-key");
+const creationDuration = document.getElementById("creation-duration");
+const creationLanguage = document.getElementById("creation-language");
+const creationPrompt = document.getElementById("creation-prompt");
+const creationPromptCount = document.getElementById("creation-prompt-count");
+const creationClear = document.getElementById("creation-clear");
+const creationSummary = document.getElementById("creation-summary");
 const bgColorInputs = [
   document.getElementById("bg-color-1"),
   document.getElementById("bg-color-2"),
@@ -323,6 +333,72 @@ function isSocialEnabled(platformId) {
   return Boolean(SOCIAL_KEYS[snake]);
 }
 
+function loginCopy(en, zh) {
+  return currentLocale === "zh" ? zh : en;
+}
+
+function logoSlugFor(platformId) {
+  const map = {
+    apple: "apple",
+    behance: "behance",
+    discord: "discord",
+    dribbble: "dribbble",
+    facebook: "facebook",
+    github: "github",
+    gitlab: "gitlab",
+    google: "google",
+    instagram: "instagram",
+    kakaotalk: "kakaotalk",
+    line: "line",
+    linkedin: "linkedin",
+    medium: "medium",
+    pinterest: "pinterest",
+    reddit: "reddit",
+    slack: "slack",
+    stackoverflow: "stackoverflow",
+    telegram: "telegram",
+    tiktok: "tiktok",
+    twitch: "twitch",
+    wechat: "wechat",
+    weibo: "sinaweibo",
+    whatsapp: "whatsapp",
+    x: "x"
+  };
+  return map[platformId] || platformId;
+}
+
+function logoColorFor(platformId) {
+  const map = {
+    apple: "ffffff",
+    github: "ffffff",
+    x: "ffffff",
+    tiktok: "ffffff",
+    google: "4285f4",
+    facebook: "1877f2",
+    wechat: "07c160"
+  };
+  return map[platformId] || "";
+}
+
+function providerLogoHtml(platformId, fallbackText) {
+  if (platformId === "bsky") {
+    return '<span class="login-logo-glyph bsky">🦋</span>';
+  }
+  const slug = logoSlugFor(platformId);
+  const color = logoColorFor(platformId);
+  const src = `https://cdn.simpleicons.org/${slug}${color ? `/${color}` : ""}`;
+  return `<img src="${src}" alt="${platformId}" class="login-logo" loading="lazy" referrerpolicy="no-referrer" /><span class="login-logo-fallback">${fallbackText}</span>`;
+}
+
+function providerLogoOnly(platformId) {
+  if (!platformId) return '<span class="login-logo-glyph">?</span>';
+  if (platformId === "bsky") return '<span class="login-logo-glyph bsky">🦋</span>';
+  const slug = logoSlugFor(platformId);
+  const color = logoColorFor(platformId);
+  const src = `https://cdn.simpleicons.org/${slug}${color ? `/${color}` : ""}`;
+  return `<img src="${src}" alt="${platformId}" class="login-source-logo" loading="lazy" referrerpolicy="no-referrer" />`;
+}
+
 function renderLoginPlatforms() {
   if (!loginList) return;
   loginList.innerHTML = "";
@@ -337,30 +413,81 @@ function renderLoginPlatforms() {
       }
     ])
   );
+  const linkedProviders = new Set(authState.linkedProviders || []);
   const list = socialPlatforms.map((platform) => {
     const record = enabledMap.get(platform.id);
     const logo = record?.logo;
+    const isLinked = linkedProviders.has(platform.id);
     const iconHtml = logo
       ? `<img src="${logo}" alt="${platform.id}" class="login-logo" />`
-      : record?.icon || platform.icon;
+      : providerLogoHtml(platform.id, record?.icon || platform.icon);
+    const actionLabel = authState.user
+      ? isLinked
+        ? loginCopy("Linked", "已绑定")
+        : loginCopy("Switch account", "切换账号")
+      : record?.enabled
+        ? loginCopy("Sign in", "登录")
+        : loginCopy("Unavailable", "未开放");
     return {
       id: platform.id,
       icon: iconHtml,
       enabled: record?.enabled ?? isSocialEnabled(platform.id),
-      url: record?.url || (record?.enabled ? `/auth/${platform.id}` : "")
+      url: record?.url || (record?.enabled ? `/auth/${platform.id}` : ""),
+      linked: isLinked,
+      actionLabel
     };
   });
 
-  list.forEach((platform) => {
+  const summary = document.createElement("div");
+  summary.className = "login-summary";
+  if (authState.user) {
+    const sourceProvider = authState.loginProvider || "";
+    const sourceLabel = sourceProvider ? getPlatformLabel(sourceProvider) : loginCopy("Unknown", "未知");
+    const linkedList = Array.from(linkedProviders).filter((providerId) => providerId !== "passkey");
+    const linkedText = linkedList.length
+      ? linkedList.map((providerId) => getPlatformLabel(providerId)).join(" · ")
+      : loginCopy("No social provider linked yet", "还没有绑定社交账号");
+    const label = authState.user.name || authState.user.email || authState.user.id || "";
+    summary.innerHTML = `
+      <div class="login-source-card">
+        <div class="login-source-badge">${providerLogoOnly(sourceProvider)}</div>
+        <div class="login-me-meta">
+          <div class="login-me-title">${loginCopy("Current source platform", "当前来源平台")}</div>
+          <div class="login-me-source-name">${sourceLabel}</div>
+          <div class="login-me-user">${label}</div>
+          <div class="login-me-linked">${loginCopy("Connected:", "已连接：")} ${linkedText}</div>
+          <div class="login-switch-hint">${loginCopy("Tip: click an unlinked platform below to switch account.", "提示：点击下方未登录平台即可切换账号。")}</div>
+        </div>
+      </div>
+    `;
+  } else {
+    summary.innerHTML = `
+      <div class="login-hint">
+        ${loginCopy("Choose a social account to continue. After sign-in, this panel will show your connected providers.", "选择一个社交账号登录。登录后，这里会显示你已绑定的平台和账号状态。")}
+      </div>
+    `;
+  }
+  loginList.appendChild(summary);
+
+  const orderedList = authState.user
+    ? [...list].sort((a, b) => Number(a.linked) - Number(b.linked))
+    : list;
+
+  orderedList.forEach((platform) => {
     const enabled = Boolean(platform.enabled);
-    const card = document.createElement(enabled ? "a" : "div");
-    card.className = `login-card ${enabled ? "enabled" : "disabled"}`;
+    const card = document.createElement(enabled && !platform.linked ? "a" : "div");
+    const stateClass = platform.linked ? "linked" : enabled ? "enabled" : "disabled";
+    card.className = `login-card ${stateClass}`;
     if (enabled && platform.url) {
       card.href = platform.url;
     }
     card.innerHTML = `
       <div class="login-icon">${platform.icon}</div>
-      <div class="login-title">${getPlatformLabel(platform.id)}</div>
+      <div class="login-title-wrap">
+        <div class="login-title">${getPlatformLabel(platform.id)}</div>
+        <div class="login-action-tag">${platform.actionLabel}</div>
+      </div>
+      ${platform.linked && authState.user ? `<button class="cta ghost tiny login-unlink-btn" type="button" data-provider="${platform.id}">${loginCopy("Unlink", "解绑")}</button>` : ""}
     `;
     loginList.appendChild(card);
   });
@@ -493,43 +620,275 @@ function initAboutTabs() {
 }
 
 function initApiBillingUI() {
-  if (!apiCreditBalance) return;
-  let balance = 1200;
-  const formatBalance = () => {
-    apiCreditBalance.textContent = `$${balance.toFixed(2)}`;
-  };
-  formatBalance();
+  renderApiBillingPanel();
+}
 
-  if (apiAddFundsBtn) {
-    apiAddFundsBtn.addEventListener("click", () => {
-      const amount = window.prompt(
-        t("api.billing.addFundsPrompt"),
-        t("api.billing.addFundsDefault")
-      );
-      if (!amount) return;
-      const value = Number.parseFloat(amount);
-      if (Number.isNaN(value) || value <= 0) return;
-      balance += value;
-      formatBalance();
-    });
+function setSelectValueSafe(selectEl, value) {
+  if (!selectEl || !value) return;
+  const opts = Array.from(selectEl.options || []);
+  const found = opts.find((o) => o.value === value || o.text === value);
+  if (found) {
+    selectEl.value = found.value;
+    return;
+  }
+  const opt = document.createElement("option");
+  opt.value = value;
+  opt.textContent = value;
+  selectEl.appendChild(opt);
+  selectEl.value = value;
+}
+
+function syncCreationStateToLegacyInputs() {
+  const genre = creationState.selections.genre || "Chinese GuFeng";
+  const mood = creationState.selections.mood;
+  const instrument = creationState.selections.instrument;
+  const styleText = [genre, mood, instrument].filter(Boolean).join(" · ");
+  setSelectValueSafe(styleInput, styleText || genre);
+  setSelectValueSafe(voiceInput, creationState.selections.vocalGender || "Feminine");
+}
+
+function creationSummaryText() {
+  const s = creationState.selections;
+  const parts = [
+    s.genre && `Genre: ${s.genre}`,
+    s.mood && `Mood: ${s.mood}`,
+    s.instrument && `Instrument: ${s.instrument}`,
+    s.ambience && `Ambience: ${s.ambience}`,
+    s.vocalGender && `Vocal: ${s.vocalGender}`,
+    `Tempo: ${creationState.tempo} BPM`,
+    `Key: ${creationState.key}`,
+    `Duration: ${creationState.duration}s`,
+    `Lang: ${creationState.language}`
+  ].filter(Boolean);
+  return parts.join(" | ");
+}
+
+function renderCreationConsole() {
+  if (!creationTabs || !creationChips) return;
+  const tabDefs = [
+    { key: "genre", label: "#Genre" },
+    { key: "mood", label: "#Mood" },
+    { key: "instrument", label: "#Instrument" },
+    { key: "ambience", label: "#Ambience" },
+    { key: "vocalGender", label: "#Vocal Gender" }
+  ];
+  creationTabs.innerHTML = tabDefs
+    .map((tab) => `<button type="button" class="creation-tab ${creationState.activeTab === tab.key ? "active" : ""}" data-creation-tab="${tab.key}">${tab.label}</button>`)
+    .join("");
+
+  const items = creationOptionCatalog[creationState.activeTab] || [];
+  const selected = creationState.selections[creationState.activeTab] || "";
+  creationChips.innerHTML = items
+    .map((item) => `<button type="button" class="creation-chip ${selected === item ? "active" : ""}" data-creation-chip="${item}">${item}</button>`)
+    .join("");
+
+  if (creationTempo) creationTempo.value = String(creationState.tempo);
+  if (creationKey) creationKey.value = creationState.key;
+  if (creationDuration) creationDuration.value = String(creationState.duration);
+  if (creationLanguage) creationLanguage.value = creationState.language;
+  if (creationPrompt && creationPrompt.value !== creationState.prompt) creationPrompt.value = creationState.prompt;
+  if (creationPromptCount) creationPromptCount.textContent = `${creationState.prompt.length}/500`;
+  if (creationSummary) creationSummary.textContent = creationSummaryText();
+}
+
+function initCreationConsole() {
+  if (!creationTabs || !creationChips) return;
+  renderCreationConsole();
+  syncCreationStateToLegacyInputs();
+
+  creationTabs.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const key = target.dataset.creationTab;
+    if (!key) return;
+    creationState.activeTab = key;
+    renderCreationConsole();
+  });
+
+  creationChips.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const chip = target.dataset.creationChip;
+    if (!chip) return;
+    const key = creationState.activeTab;
+    creationState.selections[key] = creationState.selections[key] === chip ? "" : chip;
+    syncCreationStateToLegacyInputs();
+    renderCreationConsole();
+  });
+
+  creationTempo?.addEventListener("input", () => {
+    creationState.tempo = Math.max(40, Math.min(220, Number(creationTempo.value || 88)));
+    renderCreationConsole();
+  });
+  creationKey?.addEventListener("change", () => {
+    creationState.key = creationKey.value || "C";
+    renderCreationConsole();
+  });
+  creationDuration?.addEventListener("input", () => {
+    creationState.duration = Math.max(30, Math.min(600, Number(creationDuration.value || 180)));
+    renderCreationConsole();
+  });
+  creationLanguage?.addEventListener("change", () => {
+    creationState.language = creationLanguage.value || "zh";
+    renderCreationConsole();
+  });
+  creationPrompt?.addEventListener("input", () => {
+    creationState.prompt = String(creationPrompt.value || "").slice(0, 500);
+    renderCreationConsole();
+  });
+  creationClear?.addEventListener("click", () => {
+    creationState.selections = {
+      genre: "Chinese GuFeng",
+      mood: "",
+      instrument: "",
+      ambience: "",
+      vocalGender: "Feminine"
+    };
+    creationState.prompt = "";
+    syncCreationStateToLegacyInputs();
+    renderCreationConsole();
+  });
+}
+
+function openCreationConsole() {
+  openPanel(settingsPanel);
+  creationState.activeTab = "genre";
+  renderCreationConsole();
+  const box = document.getElementById("creation-console");
+  box?.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function getApiData(payload) {
+  if (!payload || typeof payload !== "object") return {};
+  return payload.data && typeof payload.data === "object" ? payload.data : payload;
+}
+
+function renderApiBillingPanel() {
+  const apiBody = apiPanel ? apiPanel.querySelector(".api-body") : null;
+  if (!apiBody || !apiCreditBalance) return;
+
+  const guestNoticeClass = "api-guest-notice";
+  let guestNotice = apiBody.querySelector(`.${guestNoticeClass}`);
+  if (!authState.user) {
+    if (!guestNotice) {
+      guestNotice = document.createElement("div");
+      guestNotice.className = guestNoticeClass;
+      apiBody.prepend(guestNotice);
+    }
+    guestNotice.innerHTML = `
+      <strong>${loginCopy("Sign in to access billing controls.", "登录后可使用账单与支付控制。")}</strong>
+      <div>${loginCopy("You can still browse API docs as a guest.", "游客模式可查看 API 文档。")}</div>
+    `;
+  } else if (guestNotice) {
+    guestNotice.remove();
   }
 
-  if (apiAutoRecharge) {
-    apiAutoRecharge.addEventListener("change", () => {
-      // UI-only toggle
-    });
+  const balanceCents = Number(billingState.balance_cents || 0);
+  apiCreditBalance.textContent = `$${(balanceCents / 100).toFixed(2)}`;
+  if (apiAddFundsBtn) apiAddFundsBtn.disabled = !authState.user;
+  if (apiAutoRecharge) apiAutoRecharge.disabled = !authState.user;
+  if (apiMonthlyLimit) apiMonthlyLimit.disabled = !authState.user;
+  if (apiPaymentMethod) apiPaymentMethod.disabled = !authState.user;
+  if (apiMonthlyLimit && authState.user && Number.isFinite(Number(billingState.monthly_limit_cents))) {
+    apiMonthlyLimit.value = (Number(billingState.monthly_limit_cents) / 100).toFixed(0);
+  }
+}
+
+function renderWorksPanel() {
+  const worksBody = worksPanel ? worksPanel.querySelector(".works-body") : null;
+  if (!worksBody) return;
+  const guest = !authState.user;
+  worksBody.classList.toggle("is-guest", guest);
+  if (guest) {
+    worksBody.innerHTML = `
+      <div class="panel-label">${loginCopy("Creator Works Center", "创作者作品中心")}</div>
+      <div class="works-empty-card">
+        <div class="works-empty-title">${loginCopy("Sign in to view your works", "登录后查看你的作品")}</div>
+        <div class="works-empty-text">${loginCopy("Publishing, pricing, comment moderation, and monetization are available after login.", "发布、定价、评论管理和变现功能需要登录后使用。")}</div>
+        <button class="cta tiny" type="button" data-open-login>${loginCopy("Go to Login", "去登录")}</button>
+      </div>
+    `;
+    const btn = worksBody.querySelector("[data-open-login]");
+    btn?.addEventListener("click", () => openPanel(loginPanel));
+    return;
   }
 
-  if (apiMonthlyLimit) {
-    apiMonthlyLimit.addEventListener("change", () => {
-      // UI-only input
-    });
-  }
+  const displayName = authState.user?.name || authState.user?.email || "User";
+  worksBody.innerHTML = `
+    <div class="panel-label">${loginCopy("Creator Works Center", "创作者作品中心")}</div>
+    <div class="works-hero">
+      <div class="works-avatar">${displayName.slice(0, 2).toUpperCase()}</div>
+      <div class="works-meta">
+        <div class="works-name">${displayName}</div>
+        <div class="works-role">${loginCopy("Logged in creator", "已登录创作者")}</div>
+      </div>
+    </div>
+    <div class="works-section">
+      <div class="section-title">${loginCopy("Your works", "你的作品")}</div>
+      <div class="works-list" id="works-list-dynamic">
+        <div class="works-note">${loginCopy("Loading works...", "正在加载作品...")}</div>
+      </div>
+    </div>
+  `;
+  void loadMyWorks();
+}
 
-  if (apiPaymentMethod) {
-    apiPaymentMethod.addEventListener("change", () => {
-      // UI-only selector
+async function loadMyWorks() {
+  const list = document.getElementById("works-list-dynamic");
+  if (!list || !authState.user) return;
+  try {
+    const res = await fetch("/api/works/mine?limit=24", { credentials: "include" });
+    const payload = await res.json().catch(() => null);
+    if (!res.ok || payload?.ok === false) {
+      list.innerHTML = `<div class="works-note">${loginCopy("Failed to load works.", "加载作品失败。")}</div>`;
+      return;
+    }
+    const data = payload?.data || payload || {};
+    const works = Array.isArray(data.works) ? data.works : [];
+    if (!works.length) {
+      list.innerHTML = `<div class="works-note">${loginCopy("No works yet. Create one to see it here.", "还没有作品，先创作一个吧。")}</div>`;
+      return;
+    }
+    list.innerHTML = works
+      .map((work) => {
+        const title = String(work.title || "").trim() || loginCopy("Untitled", "未命名");
+        const style = String(work.style || "").trim();
+        const status = String(work.status || "draft");
+        const createdAt = work.created_at ? new Date(work.created_at).toLocaleString() : "";
+        return `
+          <article class="work-card">
+            <div class="work-cover">${title.slice(0, 2).toUpperCase()}</div>
+            <div class="work-info">
+              <div class="work-title">${title}</div>
+              <div class="work-tags">${style || loginCopy("Style not set", "未设置风格")} · ${createdAt}</div>
+              <div class="work-pricing">
+                <span class="price-chip">${loginCopy("Status", "状态")} · ${status}</span>
+              </div>
+            </div>
+          </article>
+        `;
+      })
+      .join("");
+  } catch {
+    list.innerHTML = `<div class="works-note">${loginCopy("Failed to load works.", "加载作品失败。")}</div>`;
+  }
+}
+
+async function createMyWorkRecord(title, lines) {
+  if (!authState.user) return;
+  try {
+    await fetch("/api/works", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        title: String(title || "").trim(),
+        style: styleInput ? styleInput.value : "",
+        lyrics_preview: Array.isArray(lines) ? lines.join("\n").slice(0, 500) : ""
+      })
     });
+  } catch {
+    // ignore
   }
 }
 
@@ -910,10 +1269,36 @@ const state = {
   voice: voiceInput ? voiceInput.value : "Feminine"
 };
 
+const creationOptionCatalog = {
+  genre: ["Chinese GuFeng", "Hip Hop", "Jazz", "Reggae", "Pop", "R&B", "EDM", "Country", "Folk", "Rock", "Classical"],
+  mood: ["Emotional", "Joyous", "Sad", "Angry", "Gentle", "Nostalgic", "Romantic", "Inspiring", "Soulful"],
+  instrument: ["Violin", "Cello", "Guitar", "Bass", "Trumpet", "Saxophone", "Flute", "Piano", "Drums", "Organ"],
+  ambience: ["Birdsong", "Waves", "Thunder", "Rain", "Vinyl", "Forest", "Cityscape", "Campfire"],
+  vocalGender: ["Feminine", "Masculine", "Androgynous", "Choir Blend"]
+};
+
+const creationState = {
+  activeTab: "genre",
+  selections: {
+    genre: "Chinese GuFeng",
+    mood: "",
+    instrument: "",
+    ambience: "",
+    vocalGender: "Feminine"
+  },
+  tempo: 88,
+  key: "C",
+  duration: 180,
+  language: "zh",
+  prompt: ""
+};
+
 const authState = {
   user: null,
   role: DEFAULT_ROLE,
-  tier: DEFAULT_ROLE
+  tier: DEFAULT_ROLE,
+  linkedProviders: [],
+  loginProvider: null
 };
 
 let authProviders = [];
@@ -928,7 +1313,10 @@ const getUserRole = () =>
 const billingState = {
   tier: DEFAULT_ROLE,
   remaining: null,
-  limit: null
+  limit: null,
+  balance_cents: 0,
+  monthly_limit_cents: 0,
+  auto_recharge: null
 };
 
 const DAILY_LIMITS = {
@@ -953,9 +1341,25 @@ async function fetchMe() {
     if (!res.ok) return;
     const data = await res.json();
     authState.user = data.user || null;
+    authState.loginProvider = data.auth_provider || null;
     authState.role = data.role || DEFAULT_ROLE;
     authState.tier = data.tier || authState.role || DEFAULT_ROLE;
+    if (authState.user) {
+      const profileRes = await fetch("/api/profile", { credentials: "include" });
+      if (profileRes.ok) {
+        const profileData = await profileRes.json();
+        authState.linkedProviders = Array.isArray(profileData?.linked_auth?.providers)
+          ? profileData.linked_auth.providers
+          : [];
+      }
+    } else {
+      authState.linkedProviders = [];
+      authState.loginProvider = null;
+    }
     updateLoginUI();
+    renderLoginPlatforms();
+    renderWorksPanel();
+    renderApiBillingPanel();
     fetchBillingStatus();
   } catch (err) {
     // ignore
@@ -988,6 +1392,35 @@ async function fetchAuthProviders() {
     renderLoginPlatforms();
   } catch (err) {
     // ignore
+  }
+}
+
+async function unlinkProvider(providerId) {
+  if (!providerId || !authState.user) return;
+  try {
+    const res = await fetch("/api/profile/unlink", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ provider: providerId })
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || data?.ok === false) {
+      const code = data?.code || "";
+      if (code === "CANNOT_UNLINK_LAST_METHOD") {
+        showToast(loginCopy("Keep at least one login method.", "请至少保留一种登录方式。"));
+      } else {
+        showToast(loginCopy("Unlink failed.", "解绑失败。"));
+      }
+      return;
+    }
+    if (authState.loginProvider === providerId) {
+      authState.loginProvider = authState.linkedProviders.find((id) => id !== providerId) || null;
+    }
+    await fetchMe();
+    showToast(loginCopy("Provider unlinked.", "已解绑该平台。"));
+  } catch (_err) {
+    showToast(loginCopy("Unlink failed.", "解绑失败。"));
   }
 }
 
@@ -1038,10 +1471,15 @@ async function fetchBillingStatus() {
   try {
     const res = await fetch("/api/billing/status", { credentials: "include" });
     if (res.ok) {
-      const data = await res.json();
+      const raw = await res.json();
+      const data = getApiData(raw);
       billingState.tier = data.tier || billingState.tier;
       billingState.remaining = data.remaining;
       billingState.limit = data.limit;
+      billingState.balance_cents = data.balance_cents ?? billingState.balance_cents ?? 0;
+      billingState.monthly_limit_cents = data.monthly_limit_cents ?? billingState.monthly_limit_cents ?? 0;
+      billingState.auto_recharge = data.auto_recharge ?? billingState.auto_recharge ?? null;
+      renderApiBillingPanel();
     }
   } catch (err) {
     // ignore
@@ -1654,11 +2092,25 @@ function ensureWatchCentered() {
 
 function openPanel(panel) {
   if (!panel) return;
+  if (!guardPanelAccess(panel.id)) return;
   panel.classList.remove("hidden");
   panel.dataset.minimized = "false";
   focusPanel(panel);
   updateDockVisibility();
   layoutShowcasePanels();
+}
+
+function guardPanelAccess(panelId) {
+  if (!panelId) return true;
+  if (panelId === "works-panel") {
+    renderWorksPanel();
+    return true;
+  }
+  if (panelId === "api-panel") {
+    renderApiBillingPanel();
+    return true;
+  }
+  return true;
 }
 
 function updateDockVisibility() {
@@ -2775,6 +3227,7 @@ async function startCreationWithLyrics(title, lyricsText) {
   const allowed = await consumeGeneration();
   if (!allowed) return false;
   const lines = lyricsText.trim().split("\n");
+  void createMyWorkRecord(title, lines);
   const lyricText = buildLyricsText(title, lines);
   lyricsTargetLength = lyricText.length;
 
@@ -2880,7 +3333,7 @@ function cycleLanguageQuick() {
 }
 
 const PASSKEY_BASE = "";
-const HOLD_MAX_MS = Number(window.CSS_HOLD_MAX_MS || 3500);
+const HOLD_MAX_MS = Number(window.CSS_HOLD_MAX_MS || 30000);
 
 let hold = {
   active: false,
@@ -3200,12 +3653,32 @@ function b64FromArrayBuffer(ab) {
 
 async function createRun({ title, uiLang, tier, voice }) {
   const baseUrl = apiBase();
+  const generationLang = creationState.language || uiLang || "zh";
+  const creativePayload = {
+    genre: creationState.selections.genre || "",
+    mood: creationState.selections.mood || "",
+    instrument: creationState.selections.instrument || "",
+    ambience: creationState.selections.ambience || "",
+    vocal_gender: creationState.selections.vocalGender || "",
+    tempo_bpm: Number(creationState.tempo || 88),
+    musical_key: creationState.key || "C",
+    duration_s: Number(creationState.duration || 180),
+    prompt: String(creationState.prompt || "").slice(0, 500)
+  };
   const body = {
     cssl: title,
-    ui_lang: uiLang || "zh",
+    ui_lang: generationLang,
     tier: tier || "dev",
     commands: {
-      voice: voice || { bytes: 0, mime: "audio/webm", mode: "single" }
+      voice: voice || { bytes: 0, mime: "audio/webm", mode: "single" },
+      lyrics: {
+        detected_lang: generationLang,
+        primary_lang: generationLang
+      },
+      video: {
+        duration_s: Number(creationState.duration || 180)
+      },
+      creative: creativePayload
     }
   };
   const res = await fetch(`${baseUrl}/cssapi/v1/runs`, {
@@ -3222,8 +3695,89 @@ async function createRun({ title, uiLang, tier, voice }) {
 
 async function deriveTitleFromVoice(blob) {
   const buf = await blob.arrayBuffer();
-  if (buf.byteLength < 1600) return "";
-  return "";
+  if (buf.byteLength < 1600) return { transcript: "", title: "", wakeDetected: false };
+  try {
+    const res = await fetch("/api/mic/transcribe", {
+      method: "POST",
+      headers: { "content-type": blob.type || "application/octet-stream" },
+      body: blob
+    });
+    const payload = await res.json().catch(() => null);
+    const transcript = String(payload?.transcript || "").trim();
+    return parseVoiceIntent(transcript);
+  } catch {
+    return { transcript: "", title: "", wakeDetected: false };
+  }
+}
+
+function parseVoiceIntent(transcript) {
+  const raw = String(transcript || "").trim();
+  const lower = raw.toLowerCase();
+  const wakeDetected = /\bcss\b/i.test(lower) || raw.includes("ＣＳＳ");
+  let cleaned = raw
+    .replace(/\bcss\b/gi, " ")
+    .replace(/[，,。.!！？]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const patterns = [
+    /创作(?:一首)?(.+?)(?:歌曲|歌)\s*[《\"]?([^》\"]+)[》\"]?/,
+    /(?:歌曲|歌)\s*[《\"]?([^》\"]+)[》\"]?/,
+    /创作\s*[《\"]?([^》\"]+)[》\"]?/
+  ];
+  let title = "";
+  for (const p of patterns) {
+    const m = cleaned.match(p);
+    if (!m) continue;
+    title = (m[2] || m[1] || "").trim();
+    if (title) break;
+  }
+  if (!title && cleaned.length > 1) {
+    const stripped = cleaned
+      .replace(/^(创作|写|生成|请|帮我|给我|一首|歌曲|歌)\s*/g, "")
+      .replace(/\s*(创作|歌曲|歌)$/g, "")
+      .trim();
+    if (stripped && stripped.length <= 40) title = stripped;
+  }
+
+  const infer = {
+    genre: "",
+    mood: "",
+    instrument: "",
+    ambience: ""
+  };
+  if (/古风|国风|中国风/.test(raw)) infer.genre = "Chinese GuFeng";
+  if (/摇滚/.test(raw)) infer.genre = "Rock";
+  if (/爵士/.test(raw)) infer.genre = "Jazz";
+  if (/说唱|嘻哈/.test(raw)) infer.genre = "Hip Hop";
+
+  if (/悲|伤感|忧郁/.test(raw)) infer.mood = "Sad";
+  if (/欢快|开心|喜悦/.test(raw)) infer.mood = "Joyous";
+  if (/浪漫|深情/.test(raw)) infer.mood = "Romantic";
+
+  if (/古筝|琵琶/.test(raw)) infer.instrument = "Piano";
+  if (/吉他/.test(raw)) infer.instrument = "Guitar";
+  if (/小提琴/.test(raw)) infer.instrument = "Violin";
+  if (/鼓/.test(raw)) infer.instrument = "Drums";
+
+  if (/雨|雨夜/.test(raw)) infer.ambience = "Rain";
+  if (/海浪|海边/.test(raw)) infer.ambience = "Waves";
+  if (/森林|林间/.test(raw)) infer.ambience = "Forest";
+  if (/篝火/.test(raw)) infer.ambience = "Campfire";
+
+  return { transcript: raw, title, wakeDetected, infer };
+}
+
+function applyVoiceIntentToCreationState(intent) {
+  if (!intent || typeof intent !== "object") return;
+  if (intent.infer?.genre) creationState.selections.genre = intent.infer.genre;
+  if (intent.infer?.mood) creationState.selections.mood = intent.infer.mood;
+  if (intent.infer?.instrument) creationState.selections.instrument = intent.infer.instrument;
+  if (intent.infer?.ambience) creationState.selections.ambience = intent.infer.ambience;
+  if (intent.transcript) creationState.prompt = String(intent.transcript).slice(0, 500);
+  if (titleInput && intent.title) titleInput.value = intent.title;
+  syncCreationStateToLegacyInputs();
+  renderCreationConsole();
 }
 
 async function submitVoiceOrFallbackTitle(blobOrNull) {
@@ -3231,9 +3785,16 @@ async function submitVoiceOrFallbackTitle(blobOrNull) {
   let voice = { bytes: 0, mime: "audio/webm", mode: "single" };
 
   if (blobOrNull && blobOrNull.size > 0) {
-    const t = await deriveTitleFromVoice(blobOrNull).catch(() => "");
-    if (t && t.trim()) {
-      title = t.trim();
+    const intent = await deriveTitleFromVoice(blobOrNull).catch(() => ({ transcript: "", title: "", wakeDetected: false }));
+    if (intent?.transcript) {
+      micState.transcript = intent.transcript;
+      applyVoiceIntentToCreationState(intent);
+      if (intent.wakeDetected) {
+        showToast(loginCopy("Wake spell recognized.", "已识别唤醒咒语。"));
+      }
+    }
+    if (intent?.title && intent.title.trim()) {
+      title = intent.title.trim();
     }
     const ab = await blobOrNull.arrayBuffer().catch(() => null);
     if (ab && ab.byteLength > 0) {
@@ -3250,10 +3811,16 @@ async function submitVoiceOrFallbackTitle(blobOrNull) {
 
   const uiLang = (window.CSS_UI_LANG || document.documentElement.lang || "zh").toString();
   const tier = (window.CSS_TIER || "dev").toString();
-  const r = await createRun({ title: finalTitle, uiLang, tier, voice });
-  window.dispatchEvent(new CustomEvent("cssos:run_created", { detail: r }));
-  window.dispatchEvent(new CustomEvent("cssos:title_ready", { detail: { title: finalTitle, source: voice.bytes > 0 ? "voice" : "random" } }));
-  window.dispatchEvent(new CustomEvent("cssos:lyrics_start", { detail: { run_id: r.run_id, title: finalTitle, mode: "single" } }));
+  try {
+    const r = await createRun({ title: finalTitle, uiLang, tier, voice });
+    window.dispatchEvent(new CustomEvent("cssos:run_created", { detail: r }));
+    window.dispatchEvent(new CustomEvent("cssos:title_ready", { detail: { title: finalTitle, source: voice.bytes > 0 ? "voice" : "random" } }));
+    window.dispatchEvent(new CustomEvent("cssos:lyrics_start", { detail: { run_id: r.run_id, title: finalTitle, mode: "single" } }));
+  } catch (_err) {
+    // Fallback to local generation path so user always enters creation flow.
+    startCreation(finalTitle, "");
+    showToast(loginCopy("Voice backend unavailable. Switched to local creation.", "语音后端暂不可用，已切换到本地创作。"));
+  }
 }
 
 const dockActionMap = {
@@ -3261,7 +3828,7 @@ const dockActionMap = {
     click: handleMicClick,
     dblclick: () => {
       showToast(t("mic.settings_open"));
-      openPanel(settingsPanel);
+      openCreationConsole();
     },
     longpress: handleMicLongPress
   },
@@ -4010,6 +4577,7 @@ safeInit("attachPanelFocus", () => attachPanelFocus());
 safeInit("attachPanelActions", () => attachPanelActions());
 safeInit("attachLogoPanelActions", () => attachLogoPanelActions());
 safeInit("initPanelSettings", () => initPanelSettings());
+safeInit("initCreationConsole", () => initCreationConsole());
 safeInit("initEngineControls", () => initEngineControls());
 safeInit("initLyricsControls", () => initLyricsControls());
 safeInit("initLanguagePanel", () => initLanguagePanel());
@@ -4029,8 +4597,27 @@ if (loginLogout) {
     authState.user = null;
     authState.role = DEFAULT_ROLE;
     authState.tier = DEFAULT_ROLE;
+    authState.linkedProviders = [];
+    authState.loginProvider = null;
     updateLoginUI();
+    renderLoginPlatforms();
+    renderWorksPanel();
+    renderApiBillingPanel();
     fetchBillingStatus();
+  });
+}
+if (loginList) {
+  loginList.addEventListener("click", async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const btn = target.closest(".login-unlink-btn");
+    if (!(btn instanceof HTMLButtonElement)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const provider = btn.dataset.provider || "";
+    btn.disabled = true;
+    await unlinkProvider(provider);
+    btn.disabled = false;
   });
 }
 attachAmbientTrail();
@@ -4040,7 +4627,10 @@ window.addEventListener("cssos:mic", () => {
 window.addEventListener("cssos:mic_hold_start", async () => {
   try {
     await startRecording();
-  } catch {}
+  } catch (e) {
+    const msg = `${window.t ? window.t("mic.submit_failed") : "Submit failed"}: ${String(e)}`;
+    showToast(msg);
+  }
 });
 window.addEventListener("cssos:mic_hold_commit", async () => {
   try {
@@ -4048,7 +4638,7 @@ window.addEventListener("cssos:mic_hold_commit", async () => {
     await submitVoiceOrFallbackTitle(blob);
   } catch (e) {
     const msg = `${window.t ? window.t("mic.submit_failed") : "Submit failed"}: ${String(e)}`;
-    window.dispatchEvent(new CustomEvent("cssos:toast", { detail: { kind: "error", message: msg } }));
+    showToast(msg);
   }
 });
 

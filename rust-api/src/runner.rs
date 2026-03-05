@@ -1306,7 +1306,7 @@ async fn run_one_stage_task(
         || stage == "subtitles"
         || stage == "render"
     {
-        let (storyboard_path, video_dir, seed, vocals_path, music_path) = {
+        let (storyboard_path, video_dir, seed, vocals_path, music_path, creative_hint) = {
             let s = shared.lock().await;
             let out_dir = s.config.out_dir.clone();
             let video_dir = out_dir.join("build").join("video");
@@ -1319,7 +1319,20 @@ async fn run_one_stage_task(
                 .unwrap_or(123);
             let vocals_path = out_dir.join("vocals.wav");
             let music_path = out_dir.join("music.wav");
-            (storyboard_path, video_dir, seed, vocals_path, music_path)
+            let creative_hint = s
+                .commands
+                .get("creative")
+                .and_then(|c| c.get("prompt"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .or_else(|| {
+                    s.commands
+                        .get("creative")
+                        .and_then(|c| c.get("genre"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| format!("genre: {s}"))
+                });
+            (storyboard_path, video_dir, seed, vocals_path, music_path, creative_hint)
         };
 
         let _ = fs::create_dir_all(&video_dir);
@@ -1330,8 +1343,13 @@ async fn run_one_stage_task(
             .or(probe_media_duration_s(&music_path).await.unwrap_or(None));
 
         let cfg = AutoShotConfig::default();
-        let (_sb, sb_meta) =
-            match ensure_storyboard_auto(&storyboard_path, seed, duration_s, cfg.clone()) {
+        let (_sb, sb_meta) = match ensure_storyboard_auto(
+            &storyboard_path,
+            seed,
+            duration_s,
+            cfg.clone(),
+            creative_hint,
+        ) {
                 Ok(v) => v,
                 Err(e) => {
                     rec.status = StageStatus::FAILED;

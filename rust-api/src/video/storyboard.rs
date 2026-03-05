@@ -21,6 +21,8 @@ pub struct Resolution {
 pub struct Shot {
     pub id: String,
     pub duration_s: f64,
+    #[serde(default)]
+    pub prompt: Option<String>,
     pub bg: Bg,
     pub camera: Camera,
     pub overlay: Overlay,
@@ -73,6 +75,7 @@ pub fn ensure_storyboard_auto(
     seed: u64,
     duration_s: Option<f64>,
     cfg: AutoShotConfig,
+    creative_hint: Option<String>,
 ) -> anyhow::Result<(Storyboard, serde_json::Value)> {
     if storyboard_path.exists() {
         let sb = load_storyboard(storyboard_path)?;
@@ -87,7 +90,7 @@ pub fn ensure_storyboard_auto(
     }
 
     let dur = duration_s.unwrap_or(60.0);
-    let shots = generate_auto_shots(seed, dur, &cfg);
+    let shots = generate_auto_shots(seed, dur, &cfg, creative_hint.clone());
     let sb = Storyboard {
         schema: "css.video.storyboard.v1".to_string(),
         seed,
@@ -106,6 +109,7 @@ pub fn ensure_storyboard_auto(
         "fps": sb.fps,
         "resolution": { "w": sb.resolution.w, "h": sb.resolution.h },
         "path": storyboard_path.to_string_lossy(),
+        "creative_hint": creative_hint
     });
     Ok((sb, meta))
 }
@@ -132,7 +136,12 @@ fn save_storyboard_atomic(path: &Path, sb: &Storyboard) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn generate_auto_shots(seed: u64, duration_s: f64, cfg: &AutoShotConfig) -> Vec<Shot> {
+fn generate_auto_shots(
+    seed: u64,
+    duration_s: f64,
+    cfg: &AutoShotConfig,
+    creative_hint: Option<String>,
+) -> Vec<Shot> {
     let mut rng = Lcg::new(seed ^ 0xC55A_5A5A_A11C_EE11);
     let avg = (cfg.min_len_s + cfg.max_len_s) * 0.5;
     let mut n = ((duration_s / avg).round() as i64).max(1) as usize;
@@ -164,6 +173,9 @@ fn generate_auto_shots(seed: u64, duration_s: f64, cfg: &AutoShotConfig) -> Vec<
         out.push(Shot {
             id: format!("video_shot_{:03}", i),
             duration_s: round_2(d.max(0.8)),
+            prompt: creative_hint
+                .as_ref()
+                .map(|h| format!("{h} | shot {}", i + 1)),
             bg: Bg {
                 kind: "color".to_string(),
                 value: color,

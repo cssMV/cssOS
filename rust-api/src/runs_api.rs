@@ -103,6 +103,26 @@ fn b64_decode(s: &str) -> Option<Vec<u8>> {
     base64::engine::general_purpose::STANDARD.decode(s).ok()
 }
 
+fn shell_single_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+fn creative_str(cmd: &Value, key: &str) -> String {
+    cmd.get("creative")
+        .and_then(|v| v.get(key))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string()
+}
+
+fn creative_u64(cmd: &Value, key: &str, d: u64) -> u64 {
+    cmd.get("creative")
+        .and_then(|v| v.get(key))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(d)
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct RunsCreateResponse {
     schema: &'static str,
@@ -389,6 +409,54 @@ pub async fn runs_create(
         render: "echo \"render handled by runner\"".to_string(),
     });
 
+    let creative = body
+        .commands
+        .as_ref()
+        .and_then(|c| c.get("creative"))
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    let creative_genre = creative_str(&serde_json::json!({ "creative": creative.clone() }), "genre");
+    let creative_mood = creative_str(&serde_json::json!({ "creative": creative.clone() }), "mood");
+    let creative_instrument = creative_str(&serde_json::json!({ "creative": creative.clone() }), "instrument");
+    let creative_ambience = creative_str(&serde_json::json!({ "creative": creative.clone() }), "ambience");
+    let creative_vocal = creative_str(&serde_json::json!({ "creative": creative.clone() }), "vocal_gender");
+    let creative_prompt = creative_str(&serde_json::json!({ "creative": creative.clone() }), "prompt");
+    let creative_tempo = creative_u64(&serde_json::json!({ "creative": creative.clone() }), "tempo_bpm", 88);
+
+    let mut lyric_lines = vec![cssl.clone()];
+    if !creative_genre.is_empty() {
+        lyric_lines.push(format!("Style: {}", creative_genre));
+    }
+    if !creative_mood.is_empty() {
+        lyric_lines.push(format!("Mood: {}", creative_mood));
+    }
+    if !creative_instrument.is_empty() {
+        lyric_lines.push(format!("Lead: {}", creative_instrument));
+    }
+    if !creative_ambience.is_empty() {
+        lyric_lines.push(format!("Ambience: {}", creative_ambience));
+    }
+    if !creative_vocal.is_empty() {
+        lyric_lines.push(format!("Vocal: {}", creative_vocal));
+    }
+    if !creative_prompt.is_empty() {
+        lyric_lines.push(creative_prompt.clone());
+    }
+    lyric_lines.push("Verse 1: 云阙之上风起，心火未央。".to_string());
+    lyric_lines.push("Chorus: 凌霄宝殿，万象成章。".to_string());
+    let lyrics_json = serde_json::json!({
+        "schema": "css.lyrics.v1",
+        "title": cssl.clone(),
+        "creative": creative.clone(),
+        "lines": lyric_lines
+    });
+    if let Ok(lyrics_json_text) = serde_json::to_string(&lyrics_json) {
+        compiled.lyrics = format!(
+            "mkdir -p ./build && printf '%s\\n' {} > ./build/lyrics.json",
+            shell_single_quote(&lyrics_json_text)
+        );
+    }
+
     let detected_lang = run_state.ui_lang.clone();
     let primary_lang = detected_lang.clone();
     let suggest_langs = suggest_langs_for(&detected_lang);
@@ -488,6 +556,7 @@ pub async fn runs_create(
     commands["video"]["duration_s"] = serde_json::json!(duration_s);
     commands["video"]["resolution"]["w"] = serde_json::json!(w);
     commands["video"]["resolution"]["h"] = serde_json::json!(h);
+    commands["video"]["creative"] = creative.clone();
 
     let music_cmd = format!(
         "mkdir -p ./build && ffmpeg -y -hide_banner -loglevel error -f lavfi -i anullsrc=r=48000:cl=stereo -t {} -c:a pcm_s16le ./build/music.wav",
@@ -501,6 +570,16 @@ pub async fn runs_create(
     compiled.vocals = vocals_cmd.clone();
     commands["music"] = serde_json::json!(music_cmd);
     commands["vocals"] = serde_json::json!(vocals_cmd);
+    commands["music_prompt"] = serde_json::json!({
+        "title": cssl.clone(),
+        "genre": creative_genre,
+        "mood": creative_mood,
+        "instrument": creative_instrument,
+        "ambience": creative_ambience,
+        "vocal_gender": creative_vocal,
+        "tempo_bpm": creative_tempo,
+        "prompt": creative_prompt
+    });
     if let Some(cmd) = body.commands.as_ref() {
         if let Some(lyrics) = cmd.get("lyrics").and_then(|v| v.as_object()) {
             if let Some(s) = lyrics.get("detected_lang").and_then(|x| x.as_str()) {
@@ -515,6 +594,9 @@ pub async fn runs_create(
         }
         if let Some(voice) = cmd.get("voice") {
             commands["voice"] = voice.clone();
+        }
+        if let Some(creative) = cmd.get("creative") {
+            commands["creative"] = creative.clone();
         }
     }
 

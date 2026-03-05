@@ -682,6 +682,12 @@ async function resetMonthIfNeeded(userId: string) {
   });
 }
 
+function setAuthSession(req: express.Request, userId: string, provider: string) {
+  (req.session as any).user_id = userId;
+  (req.session as any).passkey_subject_key = userSubjectKey(userId);
+  (req.session as any).auth_provider = provider;
+}
+
 app.use("/api/registry", async (req, res) => {
   try {
     const url = `${REGISTRY_URL}${req.url}`;
@@ -721,7 +727,7 @@ app.get("/api/me", async (req, res) => {
     const user = await getSessionUser(req);
     if (!user) {
       return res.json(
-        okEmpty({ authenticated: false, user: null }, "No data yet")
+        okEmpty({ authenticated: false, user: null, auth_provider: null }, "No data yet")
       );
     }
     return res.json(
@@ -733,12 +739,13 @@ app.get("/api/me", async (req, res) => {
           email: user.email,
           avatar: user.avatar_url
         },
+        auth_provider: (req.session as any)?.auth_provider || null,
         role: roleForEmail(user.email),
         tier: roleForEmail(user.email)
       })
     );
   } catch (_err) {
-    return res.json(okEmpty({ authenticated: false, user: null }, "No data yet"));
+    return res.json(okEmpty({ authenticated: false, user: null, auth_provider: null }, "No data yet"));
   }
 });
 
@@ -814,6 +821,68 @@ app.post("/api/profile/unlink", async (req, res) => {
     return res.json(okData({ unlinked: provider }));
   } catch {
     return res.status(500).json({ ok: false, code: "UNLINK_FAILED" });
+  }
+});
+
+app.get("/api/works/mine", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const limit = Math.max(1, Math.min(Number(req.query.limit || 20), 100));
+    type Row = {
+      id: string;
+      title: string;
+      style: string | null;
+      lyrics_preview: string | null;
+      status: string;
+      created_at: string;
+      updated_at: string;
+    };
+    const q: QueryResult<Row> = await withClient((client) =>
+      client.query<Row>(
+        `SELECT id, title, style, lyrics_preview, status, created_at, updated_at
+         FROM user_works
+         WHERE user_id = $1
+         ORDER BY created_at DESC
+         LIMIT $2`,
+        [user.id, limit]
+      )
+    );
+    return res.json(okData({ works: q.rows }));
+  } catch {
+    return res.status(500).json({ ok: false, code: "WORKS_LIST_FAILED" });
+  }
+});
+
+app.post("/api/works", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const title = String(req.body?.title || "").trim();
+    if (!title) {
+      return res.status(400).json({ ok: false, code: "MISSING_TITLE" });
+    }
+    const style = req.body?.style ? String(req.body.style).trim() : null;
+    const lyricsRaw = req.body?.lyrics_preview ? String(req.body.lyrics_preview) : "";
+    const lyricsPreview = lyricsRaw.slice(0, 500) || null;
+    type Row = { id: string };
+    const inserted: QueryResult<Row> = await withClient((client) =>
+      client.query<Row>(
+        `INSERT INTO user_works (user_id, title, style, lyrics_preview, status)
+         VALUES ($1, $2, $3, $4, 'draft')
+         RETURNING id`,
+        [user.id, title, style, lyricsPreview]
+      )
+    );
+    return res.json(okData({ id: inserted.rows[0]?.id || null }));
+  } catch {
+    return res.status(500).json({ ok: false, code: "WORK_CREATE_FAILED" });
   }
 });
 
@@ -907,8 +976,7 @@ async function handleAppleCallback(req: express.Request, res: express.Response) 
       displayName: null
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
-    (req.session as any).user_id = userId;
-    (req.session as any).passkey_subject_key = userSubjectKey(userId);
+    setAuthSession(req, userId, "apple");
     return res.redirect(302, "/");
   } catch (err) {
     auditAuthFailure("apple", "oauth", "INTERNAL_ERROR");
@@ -1017,8 +1085,7 @@ app.get("/auth/google/callback", async (req, res) => {
       displayName: null
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
-    (req.session as any).user_id = userId;
-    (req.session as any).passkey_subject_key = userSubjectKey(userId);
+    setAuthSession(req, userId, "google");
     return res.redirect(302, "/");
   } catch (err) {
     auditAuthFailure("google", "oauth", "INTERNAL_ERROR");
@@ -1102,8 +1169,7 @@ app.get("/auth/github/callback", async (req, res) => {
       displayName: me.json?.name ? String(me.json.name) : null
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
-    (req.session as any).user_id = userId;
-    (req.session as any).passkey_subject_key = userSubjectKey(userId);
+    setAuthSession(req, userId, "github");
     return res.redirect(302, "/");
   } catch (err) {
     auditAuthFailure("github", "oauth", "INTERNAL_ERROR");
@@ -1202,8 +1268,7 @@ app.get("/auth/x/callback", async (req, res) => {
       displayName: me.json?.data?.name ? String(me.json.data.name) : null
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
-    (req.session as any).user_id = userId;
-    (req.session as any).passkey_subject_key = userSubjectKey(userId);
+    setAuthSession(req, userId, "x");
     return res.redirect(302, "/");
   } catch (err) {
     auditAuthFailure("x", "oauth", "INTERNAL_ERROR");
@@ -1280,8 +1345,7 @@ app.get("/auth/facebook/callback", async (req, res) => {
       displayName: me.json?.name ? String(me.json.name) : null
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
-    (req.session as any).user_id = userId;
-    (req.session as any).passkey_subject_key = userSubjectKey(userId);
+    setAuthSession(req, userId, "facebook");
     return res.redirect(302, "/");
   } catch (err) {
     auditAuthFailure("facebook", "oauth", "INTERNAL_ERROR");
@@ -1347,8 +1411,7 @@ app.get("/auth/wechat/callback", async (req, res) => {
       displayName: me.json?.nickname ? String(me.json.nickname) : null
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
-    (req.session as any).user_id = userId;
-    (req.session as any).passkey_subject_key = userSubjectKey(userId);
+    setAuthSession(req, userId, "wechat");
     return res.redirect(302, "/");
   } catch (err) {
     auditAuthFailure("wechat", "oauth", "INTERNAL_ERROR");
@@ -1410,8 +1473,7 @@ app.get("/auth/bsky", async (req, res) => {
     });
     auditAuthLogin(req, "bsky", userId, "app_password");
     await migrateGuestPasskeysToUser(req.sessionID, userId);
-    (req.session as any).user_id = userId;
-    (req.session as any).passkey_subject_key = userSubjectKey(userId);
+    setAuthSession(req, userId, "bsky");
     return res.redirect(302, "/");
   } catch {
     auditAuthFailure("bsky", "app_password", "INTERNAL_ERROR");
@@ -1458,8 +1520,7 @@ app.get("/auth/bsky/callback", async (req, res) => {
       displayName: null
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
-    (req.session as any).user_id = userId;
-    (req.session as any).passkey_subject_key = userSubjectKey(userId);
+    setAuthSession(req, userId, "bsky");
     return res.redirect(302, "/");
   } catch (err) {
     auditAuthFailure("bsky", "oauth", "INTERNAL_ERROR");
@@ -1579,8 +1640,7 @@ for (const pid of genericProviders) {
         displayName
       });
       await migrateGuestPasskeysToUser(req.sessionID, userId);
-      (req.session as any).user_id = userId;
-      (req.session as any).passkey_subject_key = userSubjectKey(userId);
+      setAuthSession(req, userId, pid);
       return res.redirect(302, "/");
     } catch {
       auditAuthFailure(pid, "oauth", "INTERNAL_ERROR");

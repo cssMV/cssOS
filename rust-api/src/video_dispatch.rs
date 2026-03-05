@@ -721,7 +721,19 @@ pub async fn maybe_run_video_stage(
             w,
             h,
         };
-        ensure_storyboard_auto(&sb_path, seed, Some(duration_s), cfg)
+        let creative_hint = commands
+            .get("creative")
+            .and_then(|c| c.get("prompt"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .or_else(|| {
+                commands
+                    .get("creative")
+                    .and_then(|c| c.get("genre"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| format!("genre: {s}"))
+            });
+        ensure_storyboard_auto(&sb_path, seed, Some(duration_s), cfg, creative_hint)
             .map(|_| ())
             .map_err(anyhow::Error::from)
     } else if stage.starts_with("video_shot_") {

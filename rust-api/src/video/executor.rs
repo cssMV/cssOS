@@ -200,6 +200,7 @@ impl VideoExecutor {
             shots.push(Shot {
                 id: format!("video_shot_{:03}", i),
                 duration_s: 4.0,
+                prompt: None,
                 bg: Bg {
                     kind: "color".to_string(),
                     value: if i % 2 == 0 { "#101820" } else { "#0B1020" }.to_string(),

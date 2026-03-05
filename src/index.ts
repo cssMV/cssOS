@@ -334,7 +334,8 @@ function providerConfig() {
       provider.id === "bsky"
         ? (
             (Boolean(process.env.BSKY_CLIENT_ID) && Boolean(process.env.BSKY_CLIENT_SECRET)) ||
-            (Boolean(process.env.BLUESKY_CLIENT_ID) && Boolean(process.env.BLUESKY_CLIENT_SECRET))
+            (Boolean(process.env.BLUESKY_CLIENT_ID) && Boolean(process.env.BLUESKY_CLIENT_SECRET)) ||
+            (Boolean(process.env.BLUESKY_HANDLE) && Boolean(process.env.BLUESKY_APP_PASSWORD))
           )
         : provider.env.every((key) => Boolean(process.env[key]));
     return {
@@ -1190,22 +1191,46 @@ app.get("/auth/bsky", async (req, res) => {
   try {
     const clientId = process.env.BSKY_CLIENT_ID || process.env.BLUESKY_CLIENT_ID || "";
     const clientSecret = process.env.BSKY_CLIENT_SECRET || process.env.BLUESKY_CLIENT_SECRET || "";
-    if (!clientId || !clientSecret) return res.status(503).send("bsky_not_configured");
-    const state = randomHex(16);
-    const verifier = b64url(crypto.randomBytes(32));
-    const challenge = codeChallengeS256(verifier);
-    setOAuthState(req, "bsky", { state, codeVerifier: verifier, createdAt: Date.now() });
-    const redirectUri = `${appBaseUrl(req)}/auth/bsky/callback`;
-    const q = new URLSearchParams({
-      response_type: "code",
-      client_id: clientId,
-      redirect_uri: redirectUri,
-      scope: "atproto transition:generic",
-      state,
-      code_challenge: challenge,
-      code_challenge_method: "S256"
+    if (clientId && clientSecret) {
+      const state = randomHex(16);
+      const verifier = b64url(crypto.randomBytes(32));
+      const challenge = codeChallengeS256(verifier);
+      setOAuthState(req, "bsky", { state, codeVerifier: verifier, createdAt: Date.now() });
+      const redirectUri = `${appBaseUrl(req)}/auth/bsky/callback`;
+      const q = new URLSearchParams({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        scope: "atproto transition:generic",
+        state,
+        code_challenge: challenge,
+        code_challenge_method: "S256"
+      });
+      return res.redirect(302, `https://bsky.social/oauth/authorize?${q.toString()}`);
+    }
+    const handle = process.env.BLUESKY_HANDLE || "";
+    const appPassword = process.env.BLUESKY_APP_PASSWORD || "";
+    if (!handle || !appPassword) return res.status(503).send("bsky_not_configured");
+    const sess = await fetch("https://bsky.social/xrpc/com.atproto.server.createSession", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ identifier: handle, password: appPassword })
     });
-    return res.redirect(302, `https://bsky.social/oauth/authorize?${q.toString()}`);
+    const js = (await sess.json().catch(() => null)) as any;
+    const did = String(js?.did || "");
+    const email = js?.email ? String(js.email) : null;
+    const displayName = js?.handle ? String(js.handle) : handle;
+    if (!did) return res.status(400).send("auth_failed");
+    const userId = await upsertOAuthIdentity({
+      provider: "bsky",
+      providerUserId: did,
+      email,
+      displayName
+    });
+    await migrateGuestPasskeysToUser(req.sessionID, userId);
+    (req.session as any).user_id = userId;
+    (req.session as any).passkey_subject_key = userSubjectKey(userId);
+    return res.redirect(302, "/");
   } catch {
     return res.status(500).send("bsky_auth_start_failed");
   }

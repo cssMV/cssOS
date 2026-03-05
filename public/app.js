@@ -3506,6 +3506,7 @@ function forceResetHoldRing() {
   hold.raf = 0;
   hold.timeout = 0;
   hold.pointerId = null;
+  document.body.classList.remove("holding-mic");
   showRing(false);
   setRingProgress01(0);
 }
@@ -3513,6 +3514,7 @@ function forceResetHoldRing() {
 function micHoldStart(origin) {
   if (hold.active) return;
   hold.active = true;
+  document.body.classList.add("holding-mic");
   hold.startedAt = performance.now();
   setRingProgress01(0);
   showRing(true);
@@ -3549,6 +3551,7 @@ function bindHoldTargets() {
   for (const el of targets) {
     el.addEventListener("pointerdown", (e) => {
       if (e.button !== undefined && e.button !== 0) return;
+      e.preventDefault();
       try {
         el.setPointerCapture(e.pointerId);
       } catch {}

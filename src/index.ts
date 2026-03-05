@@ -418,6 +418,27 @@ function appBaseUrl(req: express.Request) {
   return `${proto}://${host}`.replace(/\/+$/, "");
 }
 
+function auditAuthLogin(req: express.Request, provider: string, userId: string, mode: string) {
+  const ipRaw =
+    (req.headers["x-forwarded-for"] as string) ||
+    req.ip ||
+    "";
+  const ipParts = String(ipRaw).split(",");
+  const ip = (ipParts[0] || "").trim();
+  const ua = String(req.headers["user-agent"] || "");
+  console.info(
+    JSON.stringify({
+      tag: "auth_login",
+      provider,
+      user_id: userId,
+      mode,
+      ip,
+      ua: ua.slice(0, 200),
+      ts: new Date().toISOString()
+    })
+  );
+}
+
 function applePrivateKeyPem() {
   const raw = process.env.APPLE_PRIVATE_KEY || "";
   return raw.includes("\\n") ? raw.replace(/\\n/g, "\n") : raw;
@@ -1227,6 +1248,7 @@ app.get("/auth/bsky", async (req, res) => {
       email,
       displayName
     });
+    auditAuthLogin(req, "bsky", userId, "app_password");
     await migrateGuestPasskeysToUser(req.sessionID, userId);
     (req.session as any).user_id = userId;
     (req.session as any).passkey_subject_key = userSubjectKey(userId);

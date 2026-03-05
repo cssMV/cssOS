@@ -324,12 +324,37 @@ function providerConfig() {
     { id: "github", name: "GitHub", env: ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"] },
     { id: "x", name: "X", env: ["X_CLIENT_ID", "X_CLIENT_SECRET"] },
     { id: "bsky", name: "Bluesky", env: ["BSKY_CLIENT_ID", "BSKY_CLIENT_SECRET"] },
-    { id: "tiktok", name: "TikTok", env: ["TIKTOK_CLIENT_ID", "TIKTOK_CLIENT_SECRET"] },
     { id: "facebook", name: "Facebook", env: ["FACEBOOK_CLIENT_ID", "FACEBOOK_CLIENT_SECRET"] },
     { id: "wechat", name: "WeChat", env: ["WECHAT_CLIENT_ID", "WECHAT_CLIENT_SECRET"] },
     { id: "apple", name: "Apple", env: ["APPLE_CLIENT_ID", "APPLE_TEAM_ID", "APPLE_KEY_ID", "APPLE_PRIVATE_KEY"] }
   ];
-  return providers.map((provider) => {
+  const generic = [
+    "tiktok",
+    "discord",
+    "linkedin",
+    "microsoft",
+    "slack",
+    "reddit",
+    "twitch",
+    "spotify",
+    "gitlab",
+    "bitbucket",
+    "line",
+    "kakao",
+    "weibo",
+    "qq",
+    "douyin",
+    "notion",
+    "dropbox"
+  ].map((id) => {
+    const k = id.toUpperCase();
+    return {
+      id,
+      name: id.charAt(0).toUpperCase() + id.slice(1),
+      env: [`${k}_CLIENT_ID`, `${k}_CLIENT_SECRET`, `${k}_AUTH_URL`, `${k}_TOKEN_URL`, `${k}_USERINFO_URL`]
+    };
+  });
+  return [...providers, ...generic].map((provider) => {
     const enabled =
       provider.id === "bsky"
         ? (
@@ -449,6 +474,63 @@ function auditAuthFailure(provider: string, mode: string, errorCode: string) {
       ts: new Date().toISOString()
     })
   );
+}
+
+type GenericOAuthProvider = {
+  id: string;
+  authUrl: string;
+  tokenUrl: string;
+  userInfoUrl: string;
+  scopes: string[];
+  idKeys?: string[];
+  emailKeys?: string[];
+  nameKeys?: string[];
+};
+
+function envUpper(id: string) {
+  return id.replace(/-/g, "_").toUpperCase();
+}
+
+function getByPath(v: any, path: string): any {
+  const seg = path.split(".");
+  let cur: any = v;
+  for (const s of seg) {
+    if (!cur || typeof cur !== "object") return undefined;
+    cur = cur[s];
+  }
+  return cur;
+}
+
+function genericProviderSpec(id: string): GenericOAuthProvider | null {
+  const key = envUpper(id);
+  const authUrl = process.env[`${key}_AUTH_URL`] || "";
+  const tokenUrl = process.env[`${key}_TOKEN_URL`] || "";
+  const userInfoUrl = process.env[`${key}_USERINFO_URL`] || "";
+  const clientId = process.env[`${key}_CLIENT_ID`] || "";
+  const clientSecret = process.env[`${key}_CLIENT_SECRET`] || "";
+  if (!authUrl || !tokenUrl || !userInfoUrl || !clientId || !clientSecret) return null;
+  const scopes = (process.env[`${key}_SCOPES`] || "openid email profile")
+    .split(/[ ,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return {
+    id,
+    authUrl,
+    tokenUrl,
+    userInfoUrl,
+    scopes,
+    idKeys: (process.env[`${key}_ID_KEYS`] || "sub,id,user_id,data.id").split(",").map((x) => x.trim()).filter(Boolean),
+    emailKeys: (process.env[`${key}_EMAIL_KEYS`] || "email,data.email").split(",").map((x) => x.trim()).filter(Boolean),
+    nameKeys: (process.env[`${key}_NAME_KEYS`] || "name,username,login,data.name").split(",").map((x) => x.trim()).filter(Boolean)
+  };
+}
+
+function pickFirstByKeys(v: any, keys: string[]) {
+  for (const k of keys) {
+    const x = getByPath(v, k);
+    if (x !== undefined && x !== null && String(x).trim()) return String(x);
+  }
+  return "";
 }
 
 function applePrivateKeyPem() {
@@ -781,6 +863,7 @@ async function handleAppleCallback(req: express.Request, res: express.Response) 
     (req.session as any).apple_oauth_state = null;
     (req.session as any).apple_oauth_nonce = null;
     if (!code || !state || !savedState || state !== savedState) {
+      auditAuthFailure("apple", "oauth", "INVALID_STATE_OR_CODE");
       return res.status(400).send("auth_failed");
     }
 
@@ -801,12 +884,19 @@ async function handleAppleCallback(req: express.Request, res: express.Response) 
       body: body.toString()
     });
     const tk = (await tkRes.json().catch(() => null)) as any;
-    if (!tkRes.ok || !tk?.id_token) return res.status(400).send("auth_failed");
+    if (!tkRes.ok || !tk?.id_token) {
+      auditAuthFailure("apple", "oauth", "TOKEN_EXCHANGE_FAILED");
+      return res.status(400).send("auth_failed");
+    }
 
     const payload = await verifyAppleIdToken(String(tk.id_token));
     const sub = String(payload.sub || "");
-    if (!sub) return res.status(400).send("auth_failed");
+    if (!sub) {
+      auditAuthFailure("apple", "oauth", "SUB_MISSING");
+      return res.status(400).send("auth_failed");
+    }
     if (savedNonce && payload.nonce && String(payload.nonce) !== savedNonce) {
+      auditAuthFailure("apple", "oauth", "NONCE_MISMATCH");
       return res.status(400).send("auth_failed");
     }
     const email = payload.email ? String(payload.email) : null;
@@ -821,6 +911,7 @@ async function handleAppleCallback(req: express.Request, res: express.Response) 
     (req.session as any).passkey_subject_key = userSubjectKey(userId);
     return res.redirect(302, "/");
   } catch (err) {
+    auditAuthFailure("apple", "oauth", "INTERNAL_ERROR");
     console.error("apple_callback_failed", err);
     return res.status(400).send("auth_failed");
   }
@@ -872,7 +963,10 @@ app.get("/auth/google/callback", async (req, res) => {
     const code = String(req.query.code || "");
     const state = String(req.query.state || "");
     const saved = getOAuthState(req, "google");
-    if (!code || !saved || saved.state !== state) return res.status(400).send("auth_failed");
+    if (!code || !saved || saved.state !== state) {
+      auditAuthFailure("google", "oauth", "INVALID_STATE_OR_CODE");
+      return res.status(400).send("auth_failed");
+    }
 
     const clientId = process.env.GOOGLE_CLIENT_ID || "";
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
@@ -889,7 +983,10 @@ app.get("/auth/google/callback", async (req, res) => {
     );
     const accessToken = String(tk.json?.access_token || "");
     const idToken = String(tk.json?.id_token || "");
-    if (!accessToken && !idToken) return res.status(400).send("auth_failed");
+    if (!accessToken && !idToken) {
+      auditAuthFailure("google", "oauth", "TOKEN_MISSING");
+      return res.status(400).send("auth_failed");
+    }
 
     let sub = "";
     let email: string | null = null;
@@ -908,7 +1005,10 @@ app.get("/auth/google/callback", async (req, res) => {
       sub = String(me.json?.sub || "");
       email = me.json?.email ? String(me.json.email) : null;
     }
-    if (!sub) return res.status(400).send("auth_failed");
+    if (!sub) {
+      auditAuthFailure("google", "oauth", "SUB_MISSING");
+      return res.status(400).send("auth_failed");
+    }
 
     const userId = await upsertOAuthIdentity({
       provider: "google",
@@ -921,6 +1021,7 @@ app.get("/auth/google/callback", async (req, res) => {
     (req.session as any).passkey_subject_key = userSubjectKey(userId);
     return res.redirect(302, "/");
   } catch (err) {
+    auditAuthFailure("google", "oauth", "INTERNAL_ERROR");
     console.error("google_callback_failed", err);
     return res.status(400).send("auth_failed");
   }
@@ -953,7 +1054,10 @@ app.get("/auth/github/callback", async (req, res) => {
     const code = String(req.query.code || "");
     const state = String(req.query.state || "");
     const saved = getOAuthState(req, "github");
-    if (!code || !saved || saved.state !== state) return res.status(400).send("auth_failed");
+    if (!code || !saved || saved.state !== state) {
+      auditAuthFailure("github", "oauth", "INVALID_STATE_OR_CODE");
+      return res.status(400).send("auth_failed");
+    }
 
     const clientId = process.env.GITHUB_CLIENT_ID || "";
     const clientSecret = process.env.GITHUB_CLIENT_SECRET || "";
@@ -966,7 +1070,10 @@ app.get("/auth/github/callback", async (req, res) => {
       })
     );
     const accessToken = String(tk.json?.access_token || "");
-    if (!accessToken) return res.status(400).send("auth_failed");
+    if (!accessToken) {
+      auditAuthFailure("github", "oauth", "TOKEN_MISSING");
+      return res.status(400).send("auth_failed");
+    }
 
     const me = await fetchJson("https://api.github.com/user", {
       headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/vnd.github+json" }
@@ -983,7 +1090,10 @@ app.get("/auth/github/callback", async (req, res) => {
         emails.json[0];
       email = primary?.email ? String(primary.email) : null;
     }
-    if (!sub) return res.status(400).send("auth_failed");
+    if (!sub) {
+      auditAuthFailure("github", "oauth", "SUB_MISSING");
+      return res.status(400).send("auth_failed");
+    }
 
     const userId = await upsertOAuthIdentity({
       provider: "github",
@@ -996,6 +1106,7 @@ app.get("/auth/github/callback", async (req, res) => {
     (req.session as any).passkey_subject_key = userSubjectKey(userId);
     return res.redirect(302, "/");
   } catch (err) {
+    auditAuthFailure("github", "oauth", "INTERNAL_ERROR");
     console.error("github_callback_failed", err);
     return res.status(400).send("auth_failed");
   }
@@ -1033,7 +1144,10 @@ app.get("/auth/x/callback", async (req, res) => {
     const code = String(req.query.code || "");
     const state = String(req.query.state || "");
     const saved = getOAuthState(req, "x");
-    if (!code || !saved || !saved.codeVerifier || saved.state !== state) return res.status(400).send("auth_failed");
+    if (!code || !saved || !saved.codeVerifier || saved.state !== state) {
+      auditAuthFailure("x", "oauth", "INVALID_STATE_OR_CODE");
+      return res.status(400).send("auth_failed");
+    }
 
     const clientId = process.env.X_CLIENT_ID || "";
     const clientSecret = process.env.X_CLIENT_SECRET || "";
@@ -1068,13 +1182,19 @@ app.get("/auth/x/callback", async (req, res) => {
       tk = { ok: tkRes.ok, status: tkRes.status, json: await tkRes.json().catch(() => null) };
       accessToken = String(tk.json?.access_token || "");
     }
-    if (!accessToken) return res.status(400).send("auth_failed");
+    if (!accessToken) {
+      auditAuthFailure("x", "oauth", "TOKEN_MISSING");
+      return res.status(400).send("auth_failed");
+    }
 
     const me = await fetchJson("https://api.x.com/2/users/me?user.fields=id,name,username", {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
     const sub = String(me.json?.data?.id || "");
-    if (!sub) return res.status(400).send("auth_failed");
+    if (!sub) {
+      auditAuthFailure("x", "oauth", "SUB_MISSING");
+      return res.status(400).send("auth_failed");
+    }
     const userId = await upsertOAuthIdentity({
       provider: "x",
       providerUserId: sub,
@@ -1086,6 +1206,7 @@ app.get("/auth/x/callback", async (req, res) => {
     (req.session as any).passkey_subject_key = userSubjectKey(userId);
     return res.redirect(302, "/");
   } catch (err) {
+    auditAuthFailure("x", "oauth", "INTERNAL_ERROR");
     console.error("x_callback_failed", err);
     return res.status(400).send("auth_failed");
   }
@@ -1119,7 +1240,10 @@ app.get("/auth/facebook/callback", async (req, res) => {
     const code = String(req.query.code || "");
     const state = String(req.query.state || "");
     const saved = getOAuthState(req, "facebook");
-    if (!code || !saved || saved.state !== state) return res.status(400).send("auth_failed");
+    if (!code || !saved || saved.state !== state) {
+      auditAuthFailure("facebook", "oauth", "INVALID_STATE_OR_CODE");
+      return res.status(400).send("auth_failed");
+    }
 
     const clientId = process.env.FACEBOOK_CLIENT_ID || "";
     const clientSecret = process.env.FACEBOOK_CLIENT_SECRET || "";
@@ -1133,7 +1257,10 @@ app.get("/auth/facebook/callback", async (req, res) => {
       }).toString()}`
     );
     const accessToken = String(tk.json?.access_token || "");
-    if (!accessToken) return res.status(400).send("auth_failed");
+    if (!accessToken) {
+      auditAuthFailure("facebook", "oauth", "TOKEN_MISSING");
+      return res.status(400).send("auth_failed");
+    }
     const me = await fetchJson(
       `https://graph.facebook.com/me?${new URLSearchParams({
         fields: "id,name,email",
@@ -1142,7 +1269,10 @@ app.get("/auth/facebook/callback", async (req, res) => {
     );
     const sub = String(me.json?.id || "");
     const email = me.json?.email ? String(me.json.email) : null;
-    if (!sub) return res.status(400).send("auth_failed");
+    if (!sub) {
+      auditAuthFailure("facebook", "oauth", "SUB_MISSING");
+      return res.status(400).send("auth_failed");
+    }
     const userId = await upsertOAuthIdentity({
       provider: "facebook",
       providerUserId: sub,
@@ -1154,6 +1284,7 @@ app.get("/auth/facebook/callback", async (req, res) => {
     (req.session as any).passkey_subject_key = userSubjectKey(userId);
     return res.redirect(302, "/");
   } catch (err) {
+    auditAuthFailure("facebook", "oauth", "INTERNAL_ERROR");
     console.error("facebook_callback_failed", err);
     return res.status(400).send("auth_failed");
   }
@@ -1181,7 +1312,10 @@ app.get("/auth/wechat/callback", async (req, res) => {
     const code = String(req.query.code || "");
     const state = String(req.query.state || "");
     const saved = getOAuthState(req, "wechat");
-    if (!code || !saved || saved.state !== state) return res.status(400).send("auth_failed");
+    if (!code || !saved || saved.state !== state) {
+      auditAuthFailure("wechat", "oauth", "INVALID_STATE_OR_CODE");
+      return res.status(400).send("auth_failed");
+    }
     const appid = process.env.WECHAT_CLIENT_ID || "";
     const secret = process.env.WECHAT_CLIENT_SECRET || "";
     const tk = await fetchJson(
@@ -1195,7 +1329,10 @@ app.get("/auth/wechat/callback", async (req, res) => {
     const openid = String(tk.json?.openid || "");
     const accessToken = String(tk.json?.access_token || "");
     const unionid = tk.json?.unionid ? String(tk.json.unionid) : "";
-    if (!openid || !accessToken) return res.status(400).send("auth_failed");
+    if (!openid || !accessToken) {
+      auditAuthFailure("wechat", "oauth", "TOKEN_OR_OPENID_MISSING");
+      return res.status(400).send("auth_failed");
+    }
     const me = await fetchJson(
       `https://api.weixin.qq.com/sns/userinfo?${new URLSearchParams({
         access_token: accessToken,
@@ -1214,6 +1351,7 @@ app.get("/auth/wechat/callback", async (req, res) => {
     (req.session as any).passkey_subject_key = userSubjectKey(userId);
     return res.redirect(302, "/");
   } catch (err) {
+    auditAuthFailure("wechat", "oauth", "INTERNAL_ERROR");
     console.error("wechat_callback_failed", err);
     return res.status(400).send("auth_failed");
   }
@@ -1287,7 +1425,10 @@ app.get("/auth/bsky/callback", async (req, res) => {
     const code = String(req.query.code || "");
     const state = String(req.query.state || "");
     const saved = getOAuthState(req, "bsky");
-    if (!code || !saved || !saved.codeVerifier || saved.state !== state) return res.status(400).send("auth_failed");
+    if (!code || !saved || !saved.codeVerifier || saved.state !== state) {
+      auditAuthFailure("bsky", "oauth", "INVALID_STATE_OR_CODE");
+      return res.status(400).send("auth_failed");
+    }
     const clientId = process.env.BSKY_CLIENT_ID || process.env.BLUESKY_CLIENT_ID || "";
     const clientSecret = process.env.BSKY_CLIENT_SECRET || process.env.BLUESKY_CLIENT_SECRET || "";
     const redirectUri = `${appBaseUrl(req)}/auth/bsky/callback`;
@@ -1306,7 +1447,10 @@ app.get("/auth/bsky/callback", async (req, res) => {
     const tk = (await tkRes.json().catch(() => null)) as any;
     const sub = String(tk?.sub || tk?.did || "");
     const email = tk?.email ? String(tk.email) : null;
-    if (!sub) return res.status(400).send("auth_failed");
+    if (!sub) {
+      auditAuthFailure("bsky", "oauth", "SUB_MISSING");
+      return res.status(400).send("auth_failed");
+    }
     const userId = await upsertOAuthIdentity({
       provider: "bsky",
       providerUserId: sub,
@@ -1318,6 +1462,7 @@ app.get("/auth/bsky/callback", async (req, res) => {
     (req.session as any).passkey_subject_key = userSubjectKey(userId);
     return res.redirect(302, "/");
   } catch (err) {
+    auditAuthFailure("bsky", "oauth", "INTERNAL_ERROR");
     console.error("bsky_callback_failed", err);
     return res.status(400).send("auth_failed");
   }
@@ -1329,6 +1474,122 @@ app.get("/api/auth/x", (_req, res) => res.redirect(302, "/auth/x"));
 app.get("/api/auth/facebook", (_req, res) => res.redirect(302, "/auth/facebook"));
 app.get("/api/auth/wechat", (_req, res) => res.redirect(302, "/auth/wechat"));
 app.get("/api/auth/bsky", (_req, res) => res.redirect(302, "/auth/bsky"));
+
+const genericProviders = [
+  "tiktok",
+  "discord",
+  "linkedin",
+  "microsoft",
+  "slack",
+  "reddit",
+  "twitch",
+  "spotify",
+  "gitlab",
+  "bitbucket",
+  "line",
+  "kakao",
+  "weibo",
+  "qq",
+  "douyin",
+  "notion",
+  "dropbox"
+];
+
+for (const pid of genericProviders) {
+  app.get(`/auth/${pid}`, async (req, res) => {
+    noStore(res);
+    try {
+      const spec = genericProviderSpec(pid);
+      if (!spec) {
+        auditAuthFailure(pid, "oauth", "NOT_CONFIGURED");
+        return res.status(503).send("provider_not_configured");
+      }
+      const state = randomHex(16);
+      const verifier = b64url(crypto.randomBytes(32));
+      const challenge = codeChallengeS256(verifier);
+      setOAuthState(req, pid, { state, codeVerifier: verifier, createdAt: Date.now() });
+      const key = envUpper(pid);
+      const clientId = process.env[`${key}_CLIENT_ID`] || "";
+      const redirectUri = `${appBaseUrl(req)}/auth/${pid}/callback`;
+      const q = new URLSearchParams({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        scope: spec.scopes.join(" "),
+        state,
+        code_challenge: challenge,
+        code_challenge_method: "S256"
+      });
+      return res.redirect(302, `${spec.authUrl}?${q.toString()}`);
+    } catch {
+      auditAuthFailure(pid, "oauth", "INTERNAL_ERROR");
+      return res.status(500).send("auth_start_failed");
+    }
+  });
+
+  app.get(`/auth/${pid}/callback`, async (req, res) => {
+    noStore(res);
+    try {
+      const spec = genericProviderSpec(pid);
+      if (!spec) {
+        auditAuthFailure(pid, "oauth", "NOT_CONFIGURED");
+        return res.status(503).send("provider_not_configured");
+      }
+      const code = String(req.query.code || "");
+      const state = String(req.query.state || "");
+      const saved = getOAuthState(req, pid);
+      if (!code || !saved || !saved.codeVerifier || saved.state !== state) {
+        auditAuthFailure(pid, "oauth", "INVALID_STATE_OR_CODE");
+        return res.status(400).send("auth_failed");
+      }
+      const key = envUpper(pid);
+      const clientId = process.env[`${key}_CLIENT_ID`] || "";
+      const clientSecret = process.env[`${key}_CLIENT_SECRET`] || "";
+      const redirectUri = `${appBaseUrl(req)}/auth/${pid}/callback`;
+      const tk = await oauthExchangeTokenForm(
+        spec.tokenUrl,
+        new URLSearchParams({
+          code,
+          grant_type: "authorization_code",
+          client_id: clientId,
+          client_secret: clientSecret,
+          redirect_uri: redirectUri,
+          code_verifier: saved.codeVerifier
+        })
+      );
+      const accessToken = String(tk.json?.access_token || "");
+      if (!accessToken) {
+        auditAuthFailure(pid, "oauth", "TOKEN_MISSING");
+        return res.status(400).send("auth_failed");
+      }
+      const me = await fetchJson(spec.userInfoUrl, {
+        headers: { Authorization: `Bearer ${accessToken}`, accept: "application/json" }
+      });
+      const sub = pickFirstByKeys(me.json, spec.idKeys || ["sub", "id"]);
+      const email = pickFirstByKeys(me.json, spec.emailKeys || ["email"]) || null;
+      const displayName = pickFirstByKeys(me.json, spec.nameKeys || ["name"]) || null;
+      if (!sub) {
+        auditAuthFailure(pid, "oauth", "SUB_MISSING");
+        return res.status(400).send("auth_failed");
+      }
+      const userId = await upsertOAuthIdentity({
+        provider: pid,
+        providerUserId: sub,
+        email,
+        displayName
+      });
+      await migrateGuestPasskeysToUser(req.sessionID, userId);
+      (req.session as any).user_id = userId;
+      (req.session as any).passkey_subject_key = userSubjectKey(userId);
+      return res.redirect(302, "/");
+    } catch {
+      auditAuthFailure(pid, "oauth", "INTERNAL_ERROR");
+      return res.status(400).send("auth_failed");
+    }
+  });
+
+  app.get(`/api/auth/${pid}`, (_req, res) => res.redirect(302, `/auth/${pid}`));
+}
 
 app.post("/api/auth/logout", (req, res) => {
   noStore(res);

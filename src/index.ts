@@ -21,6 +21,7 @@ if (process.env.NODE_ENV === "production" && !DATABASE_URL) {
 app.set("trust proxy", 1);
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
 
 const sessionConfig: session.SessionOptions = {
   name: process.env.SESSION_COOKIE || "cssos_session",
@@ -63,11 +64,10 @@ async function getSessionUser(req: express.Request) {
     display_name: string | null;
     email: string | null;
     avatar_url: string | null;
-    default_role: string | null;
   };
   const result: QueryResult<UserRow> = await withClient((client) =>
     client.query<UserRow>(
-      "SELECT id, display_name, email, avatar_url, default_role FROM users WHERE id = $1",
+      "SELECT id, display_name, email, avatar_url FROM users WHERE id = $1",
       [sessionUserId]
     )
   );
@@ -80,6 +80,28 @@ function okEmpty(data: unknown, message = "No data yet") {
 
 function okData(data: unknown) {
   return { ok: true, empty: false, data };
+}
+
+function normalizeEmail(email: string | null | undefined) {
+  if (!email) return null;
+  const s = String(email).trim().toLowerCase();
+  return s || null;
+}
+
+function adminEmailSet() {
+  const raw = (process.env.ADMIN_EMAILS || "jingdudc@gmail.com").trim();
+  const set = new Set<string>();
+  for (const part of raw.split(",")) {
+    const e = normalizeEmail(part);
+    if (e) set.add(e);
+  }
+  return set;
+}
+
+function roleForEmail(email: string | null | undefined) {
+  const e = normalizeEmail(email);
+  if (e && adminEmailSet().has(e)) return "admin";
+  return "user";
 }
 
 function b64url(input: Buffer | string) {
@@ -194,6 +216,49 @@ async function savePasskeyCred(subjectKey: string, credId: string, transports?: 
   );
 }
 
+function userSubjectKey(userId: string) {
+  return `u:${userId}`;
+}
+
+function guestSubjectKeyBySession(sessionId: string) {
+  return `s:${sessionId}`;
+}
+
+async function passkeyCountBySubject(subjectKey: string): Promise<number> {
+  if (!DATABASE_URL) {
+    return (passkeyCreds.get(subjectKey) || []).length;
+  }
+  type Row = { c: string };
+  const result: QueryResult<Row> = await withClient((client) =>
+    client.query<Row>("SELECT COUNT(*)::text AS c FROM passkey_credentials WHERE subject_key = $1", [subjectKey])
+  );
+  return Number(result.rows[0]?.c || "0");
+}
+
+async function migrateGuestPasskeysToUser(sessionId: string, userId: string) {
+  const fromKey = guestSubjectKeyBySession(sessionId);
+  const toKey = userSubjectKey(userId);
+  if (!DATABASE_URL) {
+    const from = passkeyCreds.get(fromKey) || [];
+    const to = passkeyCreds.get(toKey) || [];
+    const seen = new Set(to.map((x) => x.id));
+    for (const c of from) {
+      if (!seen.has(c.id)) to.push(c);
+    }
+    passkeyCreds.set(toKey, to);
+    passkeyCreds.delete(fromKey);
+    return;
+  }
+  await withClient((client) =>
+    client.query(
+      `UPDATE passkey_credentials
+       SET subject_key = $2, updated_at = now()
+       WHERE subject_key = $1`,
+      [fromKey, toKey]
+    )
+  );
+}
+
 async function buildPasskeyRegisterOptions(req: express.Request) {
   const user = await getSessionUser(req);
   const subject = passkeySubject(req, user);
@@ -258,14 +323,20 @@ function providerConfig() {
     { id: "google", name: "Google", env: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"] },
     { id: "github", name: "GitHub", env: ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"] },
     { id: "x", name: "X", env: ["X_CLIENT_ID", "X_CLIENT_SECRET"] },
-    { id: "bsky", name: "Bluesky", env: ["BLUESKY_HANDLE", "BLUESKY_APP_PASSWORD"] },
+    { id: "bsky", name: "Bluesky", env: ["BSKY_CLIENT_ID", "BSKY_CLIENT_SECRET"] },
     { id: "tiktok", name: "TikTok", env: ["TIKTOK_CLIENT_ID", "TIKTOK_CLIENT_SECRET"] },
     { id: "facebook", name: "Facebook", env: ["FACEBOOK_CLIENT_ID", "FACEBOOK_CLIENT_SECRET"] },
     { id: "wechat", name: "WeChat", env: ["WECHAT_CLIENT_ID", "WECHAT_CLIENT_SECRET"] },
     { id: "apple", name: "Apple", env: ["APPLE_CLIENT_ID", "APPLE_TEAM_ID", "APPLE_KEY_ID", "APPLE_PRIVATE_KEY"] }
   ];
   return providers.map((provider) => {
-    const enabled = provider.env.every((key) => Boolean(process.env[key]));
+    const enabled =
+      provider.id === "bsky"
+        ? (
+            (Boolean(process.env.BSKY_CLIENT_ID) && Boolean(process.env.BSKY_CLIENT_SECRET)) ||
+            (Boolean(process.env.BLUESKY_CLIENT_ID) && Boolean(process.env.BLUESKY_CLIENT_SECRET))
+          )
+        : provider.env.every((key) => Boolean(process.env[key]));
     return {
       id: provider.id,
       name: provider.name,
@@ -276,6 +347,67 @@ function providerConfig() {
 }
 
 const appleJwks = createRemoteJWKSet(new URL("https://appleid.apple.com/auth/keys"));
+
+type OAuthSessionState = {
+  state: string;
+  nonce?: string;
+  codeVerifier?: string;
+  createdAt: number;
+};
+
+function setOAuthState(req: express.Request, provider: string, state: OAuthSessionState) {
+  const k = `oauth_state_${provider}`;
+  (req.session as any)[k] = state;
+}
+
+function getOAuthState(req: express.Request, provider: string): OAuthSessionState | null {
+  const k = `oauth_state_${provider}`;
+  const v = (req.session as any)[k];
+  (req.session as any)[k] = null;
+  if (!v || typeof v !== "object") return null;
+  return v as OAuthSessionState;
+}
+
+function randomHex(n = 16) {
+  return crypto.randomBytes(n).toString("hex");
+}
+
+function codeChallengeS256(verifier: string) {
+  const hash = crypto.createHash("sha256").update(verifier).digest();
+  return b64url(hash);
+}
+
+async function fetchJson(url: string, init?: RequestInit) {
+  const r = await fetch(url, init);
+  const j = await r.json().catch(() => null);
+  return { ok: r.ok, status: r.status, json: j };
+}
+
+async function oauthExchangeTokenForm(tokenUrl: string, form: URLSearchParams) {
+  const r = await fetch(tokenUrl, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+    body: form.toString()
+  });
+  const j = await r.json().catch(() => null);
+  return { ok: r.ok, status: r.status, json: j };
+}
+
+async function ensureAuthIdentityTable() {
+  if (!DATABASE_URL) return;
+  await withClient(async (client) => {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS oauth_identities (
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        provider TEXT NOT NULL,
+        provider_user_id TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (provider, provider_user_id)
+      )
+    `);
+    await client.query("CREATE INDEX IF NOT EXISTS oauth_identities_user_id_idx ON oauth_identities(user_id)");
+  });
+}
 
 function appBaseUrl(req: express.Request) {
   const envUrl = (process.env.APP_BASE_URL || "").trim();
@@ -322,25 +454,52 @@ async function verifyAppleIdToken(idToken: string) {
   };
 }
 
-async function upsertAppleIdentity(args: { sub: string; email: string | null }) {
-  const { sub, email } = args;
+async function upsertOAuthIdentity(args: {
+  provider: string;
+  providerUserId: string;
+  email: string | null;
+  displayName?: string | null;
+}) {
+  const provider = String(args.provider || "").trim().toLowerCase();
+  const providerUserId = String(args.providerUserId || "").trim();
+  const email = normalizeEmail(args.email);
+  const displayName = args.displayName || null;
+  if (!provider || !providerUserId) throw new Error("oauth_identity_invalid");
   return withClient(async (client) => {
     await client.query("BEGIN");
     try {
       const found = await client.query<{ user_id: string }>(
         "SELECT user_id FROM oauth_identities WHERE provider = $1 AND provider_user_id = $2 LIMIT 1",
-        ["apple", sub]
+        [provider, providerUserId]
       );
       if (found.rows[0]?.user_id) {
         await client.query("COMMIT");
         return found.rows[0].user_id;
       }
 
+      if (email) {
+        const sameEmail = await client.query<{ id: string }>(
+          "SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1",
+          [email]
+        );
+        const userIdByEmail = sameEmail.rows[0]?.id;
+        if (userIdByEmail) {
+          await client.query(
+            `INSERT INTO oauth_identities (user_id, provider, provider_user_id)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (provider, provider_user_id) DO NOTHING`,
+            [userIdByEmail, provider, providerUserId]
+          );
+          await client.query("COMMIT");
+          return userIdByEmail;
+        }
+      }
+
       const userRes = await client.query<{ id: string }>(
-        `INSERT INTO users (display_name, email, avatar_url, default_role)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO users (display_name, email, avatar_url)
+         VALUES ($1, $2, $3)
          RETURNING id`,
-        [null, email, null, "user"]
+        [displayName, email, null]
       );
       const userId = userRes.rows[0]?.id;
       if (!userId) throw new Error("user_create_failed");
@@ -349,7 +508,7 @@ async function upsertAppleIdentity(args: { sub: string; email: string | null }) 
         `INSERT INTO oauth_identities (user_id, provider, provider_user_id)
          VALUES ($1, $2, $3)
          ON CONFLICT (provider, provider_user_id) DO NOTHING`,
-        [userId, "apple", sub]
+        [userId, provider, providerUserId]
       );
       await client.query("COMMIT");
       return userId;
@@ -358,6 +517,26 @@ async function upsertAppleIdentity(args: { sub: string; email: string | null }) 
       throw e;
     }
   });
+}
+
+async function listLinkedProviders(userId: string) {
+  const providers = new Set<string>();
+  if (DATABASE_URL) {
+    type Row = { provider: string };
+    const oauth: QueryResult<Row> = await withClient((client) =>
+      client.query<Row>(
+        "SELECT provider FROM oauth_identities WHERE user_id = $1 ORDER BY provider",
+        [userId]
+      )
+    );
+    for (const r of oauth.rows) providers.add(r.provider);
+  }
+  const pkCount = await passkeyCountBySubject(userSubjectKey(userId));
+  if (pkCount > 0) providers.add("passkey");
+  return {
+    providers: Array.from(providers).sort(),
+    passkeyCount: pkCount
+  };
 }
 
 async function ensureBillingAccount(userId: string) {
@@ -438,12 +617,87 @@ app.get("/api/me", async (req, res) => {
           email: user.email,
           avatar: user.avatar_url
         },
-        role: user.default_role || "user",
-        tier: user.default_role || "user"
+        role: roleForEmail(user.email),
+        tier: roleForEmail(user.email)
       })
     );
   } catch (_err) {
     return res.json(okEmpty({ authenticated: false, user: null }, "No data yet"));
+  }
+});
+
+app.get("/api/profile", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json(okEmpty({ authenticated: false }, "No data yet"));
+    }
+    const linked = await listLinkedProviders(user.id);
+    return res.json(
+      okData({
+        authenticated: true,
+        profile: {
+          id: user.id,
+          name: user.display_name,
+          email: user.email,
+          avatar: user.avatar_url,
+          role: roleForEmail(user.email),
+          tier: roleForEmail(user.email)
+        },
+        linked_auth: {
+          providers: linked.providers,
+          passkey_count: linked.passkeyCount
+        }
+      })
+    );
+  } catch {
+    return res.status(500).json(okEmpty({ authenticated: false }, "No data yet"));
+  }
+});
+
+app.post("/api/profile/unlink", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const provider = String(req.body?.provider || "").toLowerCase();
+    if (!provider) {
+      return res.status(400).json({ ok: false, code: "MISSING_PROVIDER" });
+    }
+
+    const linked = await listLinkedProviders(user.id);
+    const currentlyLinked = new Set(linked.providers);
+    if (!currentlyLinked.has(provider)) {
+      return res.status(404).json({ ok: false, code: "PROVIDER_NOT_LINKED" });
+    }
+    if (currentlyLinked.size <= 1) {
+      return res.status(400).json({ ok: false, code: "CANNOT_UNLINK_LAST_METHOD" });
+    }
+
+    if (provider === "passkey") {
+      const sk = userSubjectKey(user.id);
+      if (DATABASE_URL) {
+        await withClient((client) => client.query("DELETE FROM passkey_credentials WHERE subject_key = $1", [sk]));
+      } else {
+        passkeyCreds.delete(sk);
+      }
+      return res.json(okData({ unlinked: "passkey" }));
+    }
+
+    if (DATABASE_URL) {
+      await withClient((client) =>
+        client.query(
+          "DELETE FROM oauth_identities WHERE user_id = $1 AND provider = $2",
+          [user.id, provider]
+        )
+      );
+    }
+    return res.json(okData({ unlinked: provider }));
+  } catch {
+    return res.status(500).json({ ok: false, code: "UNLINK_FAILED" });
   }
 });
 
@@ -470,7 +724,7 @@ app.get("/auth/apple", async (req, res) => {
     const redirectUri = `${appBaseUrl(req)}/auth/apple/callback`;
     const q = new URLSearchParams({
       response_type: "code",
-      response_mode: "query",
+      response_mode: "form_post",
       client_id: clientId,
       redirect_uri: redirectUri,
       scope: "name email",
@@ -483,11 +737,11 @@ app.get("/auth/apple", async (req, res) => {
   }
 });
 
-app.get("/auth/apple/callback", async (req, res) => {
+async function handleAppleCallback(req: express.Request, res: express.Response) {
   noStore(res);
   try {
-    const code = String(req.query.code || "");
-    const state = String(req.query.state || "");
+    const code = String((req.body as any)?.code || req.query.code || "");
+    const state = String((req.body as any)?.state || req.query.state || "");
     const savedState = String((req.session as any).apple_oauth_state || "");
     const savedNonce = String((req.session as any).apple_oauth_nonce || "");
     (req.session as any).apple_oauth_state = null;
@@ -522,13 +776,24 @@ app.get("/auth/apple/callback", async (req, res) => {
       return res.status(400).send("auth_failed");
     }
     const email = payload.email ? String(payload.email) : null;
-    const userId = await upsertAppleIdentity({ sub, email });
+    const userId = await upsertOAuthIdentity({
+      provider: "apple",
+      providerUserId: sub,
+      email,
+      displayName: null
+    });
+    await migrateGuestPasskeysToUser(req.sessionID, userId);
     (req.session as any).user_id = userId;
+    (req.session as any).passkey_subject_key = userSubjectKey(userId);
     return res.redirect(302, "/");
-  } catch {
+  } catch (err) {
+    console.error("apple_callback_failed", err);
     return res.status(400).send("auth_failed");
   }
-});
+}
+
+app.get("/auth/apple/callback", handleAppleCallback);
+app.post("/auth/apple/callback", handleAppleCallback);
 
 app.get("/api/auth/apple", (_req, res) => {
   res.redirect(302, "/auth/apple");
@@ -538,6 +803,462 @@ app.get("/api/auth/apple/callback", (req, res) => {
   const q = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
   res.redirect(302, `/auth/apple/callback${q}`);
 });
+app.post("/api/auth/apple/callback", (req, res) => {
+  res.redirect(307, "/auth/apple/callback");
+});
+
+app.get("/auth/google", async (req, res) => {
+  noStore(res);
+  try {
+    const clientId = process.env.GOOGLE_CLIENT_ID || "";
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
+    if (!clientId || !clientSecret) return res.status(503).send("google_not_configured");
+    const state = randomHex(16);
+    const nonce = randomHex(16);
+    setOAuthState(req, "google", { state, nonce, createdAt: Date.now() });
+    const redirectUri = `${appBaseUrl(req)}/auth/google/callback`;
+    const q = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: "openid email profile",
+      state,
+      nonce,
+      prompt: "select_account"
+    });
+    return res.redirect(302, `https://accounts.google.com/o/oauth2/v2/auth?${q.toString()}`);
+  } catch {
+    return res.status(500).send("google_auth_start_failed");
+  }
+});
+
+app.get("/auth/google/callback", async (req, res) => {
+  noStore(res);
+  try {
+    const code = String(req.query.code || "");
+    const state = String(req.query.state || "");
+    const saved = getOAuthState(req, "google");
+    if (!code || !saved || saved.state !== state) return res.status(400).send("auth_failed");
+
+    const clientId = process.env.GOOGLE_CLIENT_ID || "";
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
+    const redirectUri = `${appBaseUrl(req)}/auth/google/callback`;
+    const tk = await oauthExchangeTokenForm(
+      "https://oauth2.googleapis.com/token",
+      new URLSearchParams({
+        code,
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        grant_type: "authorization_code"
+      })
+    );
+    const accessToken = String(tk.json?.access_token || "");
+    const idToken = String(tk.json?.id_token || "");
+    if (!accessToken && !idToken) return res.status(400).send("auth_failed");
+
+    let sub = "";
+    let email: string | null = null;
+    if (idToken) {
+      const googleJwks = createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/certs"));
+      const { payload } = await jwtVerify(idToken, googleJwks, {
+        issuer: ["https://accounts.google.com", "accounts.google.com"],
+        audience: clientId
+      });
+      sub = String(payload.sub || "");
+      email = payload.email ? String(payload.email) : null;
+    } else {
+      const me = await fetchJson("https://openidconnect.googleapis.com/v1/userinfo", {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      sub = String(me.json?.sub || "");
+      email = me.json?.email ? String(me.json.email) : null;
+    }
+    if (!sub) return res.status(400).send("auth_failed");
+
+    const userId = await upsertOAuthIdentity({
+      provider: "google",
+      providerUserId: sub,
+      email,
+      displayName: null
+    });
+    await migrateGuestPasskeysToUser(req.sessionID, userId);
+    (req.session as any).user_id = userId;
+    (req.session as any).passkey_subject_key = userSubjectKey(userId);
+    return res.redirect(302, "/");
+  } catch (err) {
+    console.error("google_callback_failed", err);
+    return res.status(400).send("auth_failed");
+  }
+});
+
+app.get("/auth/github", async (req, res) => {
+  noStore(res);
+  try {
+    const clientId = process.env.GITHUB_CLIENT_ID || "";
+    const clientSecret = process.env.GITHUB_CLIENT_SECRET || "";
+    if (!clientId || !clientSecret) return res.status(503).send("github_not_configured");
+    const state = randomHex(16);
+    setOAuthState(req, "github", { state, createdAt: Date.now() });
+    const redirectUri = `${appBaseUrl(req)}/auth/github/callback`;
+    const q = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      scope: "read:user user:email",
+      state
+    });
+    return res.redirect(302, `https://github.com/login/oauth/authorize?${q.toString()}`);
+  } catch {
+    return res.status(500).send("github_auth_start_failed");
+  }
+});
+
+app.get("/auth/github/callback", async (req, res) => {
+  noStore(res);
+  try {
+    const code = String(req.query.code || "");
+    const state = String(req.query.state || "");
+    const saved = getOAuthState(req, "github");
+    if (!code || !saved || saved.state !== state) return res.status(400).send("auth_failed");
+
+    const clientId = process.env.GITHUB_CLIENT_ID || "";
+    const clientSecret = process.env.GITHUB_CLIENT_SECRET || "";
+    const tk = await oauthExchangeTokenForm(
+      "https://github.com/login/oauth/access_token",
+      new URLSearchParams({
+        code,
+        client_id: clientId,
+        client_secret: clientSecret
+      })
+    );
+    const accessToken = String(tk.json?.access_token || "");
+    if (!accessToken) return res.status(400).send("auth_failed");
+
+    const me = await fetchJson("https://api.github.com/user", {
+      headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/vnd.github+json" }
+    });
+    const emails = await fetchJson("https://api.github.com/user/emails", {
+      headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/vnd.github+json" }
+    });
+    const sub = String(me.json?.id || "");
+    let email: string | null = me.json?.email ? String(me.json.email) : null;
+    if (!email && Array.isArray(emails.json)) {
+      const primary =
+        emails.json.find((x: any) => x && x.primary && x.verified) ||
+        emails.json.find((x: any) => x && x.verified) ||
+        emails.json[0];
+      email = primary?.email ? String(primary.email) : null;
+    }
+    if (!sub) return res.status(400).send("auth_failed");
+
+    const userId = await upsertOAuthIdentity({
+      provider: "github",
+      providerUserId: sub,
+      email,
+      displayName: me.json?.name ? String(me.json.name) : null
+    });
+    await migrateGuestPasskeysToUser(req.sessionID, userId);
+    (req.session as any).user_id = userId;
+    (req.session as any).passkey_subject_key = userSubjectKey(userId);
+    return res.redirect(302, "/");
+  } catch (err) {
+    console.error("github_callback_failed", err);
+    return res.status(400).send("auth_failed");
+  }
+});
+
+app.get("/auth/x", async (req, res) => {
+  noStore(res);
+  try {
+    const clientId = process.env.X_CLIENT_ID || "";
+    const clientSecret = process.env.X_CLIENT_SECRET || "";
+    if (!clientId || !clientSecret) return res.status(503).send("x_not_configured");
+    const state = randomHex(16);
+    const verifier = b64url(crypto.randomBytes(32));
+    const challenge = codeChallengeS256(verifier);
+    setOAuthState(req, "x", { state, codeVerifier: verifier, createdAt: Date.now() });
+    const redirectUri = `${appBaseUrl(req)}/auth/x/callback`;
+    const q = new URLSearchParams({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      scope: "tweet.read users.read offline.access",
+      state,
+      code_challenge: challenge,
+      code_challenge_method: "S256"
+    });
+    return res.redirect(302, `https://twitter.com/i/oauth2/authorize?${q.toString()}`);
+  } catch {
+    return res.status(500).send("x_auth_start_failed");
+  }
+});
+
+app.get("/auth/x/callback", async (req, res) => {
+  noStore(res);
+  try {
+    const code = String(req.query.code || "");
+    const state = String(req.query.state || "");
+    const saved = getOAuthState(req, "x");
+    if (!code || !saved || !saved.codeVerifier || saved.state !== state) return res.status(400).send("auth_failed");
+
+    const clientId = process.env.X_CLIENT_ID || "";
+    const clientSecret = process.env.X_CLIENT_SECRET || "";
+    const redirectUri = `${appBaseUrl(req)}/auth/x/callback`;
+    let tk = await oauthExchangeTokenForm(
+      "https://api.x.com/2/oauth2/token",
+      new URLSearchParams({
+        code,
+        grant_type: "authorization_code",
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        code_verifier: saved.codeVerifier
+      })
+    );
+    let accessToken = String(tk.json?.access_token || "");
+
+    if (!accessToken) {
+      const basic = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+      const tkRes = await fetch("https://api.x.com/2/oauth2/token", {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          Authorization: `Basic ${basic}`
+        },
+        body: new URLSearchParams({
+          code,
+          grant_type: "authorization_code",
+          redirect_uri: redirectUri,
+          code_verifier: saved.codeVerifier
+        }).toString()
+      });
+      tk = { ok: tkRes.ok, status: tkRes.status, json: await tkRes.json().catch(() => null) };
+      accessToken = String(tk.json?.access_token || "");
+    }
+    if (!accessToken) return res.status(400).send("auth_failed");
+
+    const me = await fetchJson("https://api.x.com/2/users/me?user.fields=id,name,username", {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    const sub = String(me.json?.data?.id || "");
+    if (!sub) return res.status(400).send("auth_failed");
+    const userId = await upsertOAuthIdentity({
+      provider: "x",
+      providerUserId: sub,
+      email: null,
+      displayName: me.json?.data?.name ? String(me.json.data.name) : null
+    });
+    await migrateGuestPasskeysToUser(req.sessionID, userId);
+    (req.session as any).user_id = userId;
+    (req.session as any).passkey_subject_key = userSubjectKey(userId);
+    return res.redirect(302, "/");
+  } catch (err) {
+    console.error("x_callback_failed", err);
+    return res.status(400).send("auth_failed");
+  }
+});
+
+app.get("/auth/facebook", async (req, res) => {
+  noStore(res);
+  try {
+    const clientId = process.env.FACEBOOK_CLIENT_ID || "";
+    const clientSecret = process.env.FACEBOOK_CLIENT_SECRET || "";
+    if (!clientId || !clientSecret) return res.status(503).send("facebook_not_configured");
+    const state = randomHex(16);
+    setOAuthState(req, "facebook", { state, createdAt: Date.now() });
+    const redirectUri = `${appBaseUrl(req)}/auth/facebook/callback`;
+    const q = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      state,
+      scope: "email,public_profile"
+    });
+    return res.redirect(302, `https://www.facebook.com/v19.0/dialog/oauth?${q.toString()}`);
+  } catch {
+    return res.status(500).send("facebook_auth_start_failed");
+  }
+});
+
+app.get("/auth/facebook/callback", async (req, res) => {
+  noStore(res);
+  try {
+    const code = String(req.query.code || "");
+    const state = String(req.query.state || "");
+    const saved = getOAuthState(req, "facebook");
+    if (!code || !saved || saved.state !== state) return res.status(400).send("auth_failed");
+
+    const clientId = process.env.FACEBOOK_CLIENT_ID || "";
+    const clientSecret = process.env.FACEBOOK_CLIENT_SECRET || "";
+    const redirectUri = `${appBaseUrl(req)}/auth/facebook/callback`;
+    const tk = await fetchJson(
+      `https://graph.facebook.com/v19.0/oauth/access_token?${new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        code
+      }).toString()}`
+    );
+    const accessToken = String(tk.json?.access_token || "");
+    if (!accessToken) return res.status(400).send("auth_failed");
+    const me = await fetchJson(
+      `https://graph.facebook.com/me?${new URLSearchParams({
+        fields: "id,name,email",
+        access_token: accessToken
+      }).toString()}`
+    );
+    const sub = String(me.json?.id || "");
+    const email = me.json?.email ? String(me.json.email) : null;
+    if (!sub) return res.status(400).send("auth_failed");
+    const userId = await upsertOAuthIdentity({
+      provider: "facebook",
+      providerUserId: sub,
+      email,
+      displayName: me.json?.name ? String(me.json.name) : null
+    });
+    await migrateGuestPasskeysToUser(req.sessionID, userId);
+    (req.session as any).user_id = userId;
+    (req.session as any).passkey_subject_key = userSubjectKey(userId);
+    return res.redirect(302, "/");
+  } catch (err) {
+    console.error("facebook_callback_failed", err);
+    return res.status(400).send("auth_failed");
+  }
+});
+
+app.get("/auth/wechat", async (req, res) => {
+  noStore(res);
+  try {
+    const appid = process.env.WECHAT_CLIENT_ID || "";
+    const secret = process.env.WECHAT_CLIENT_SECRET || "";
+    if (!appid || !secret) return res.status(503).send("wechat_not_configured");
+    const state = randomHex(8);
+    setOAuthState(req, "wechat", { state, createdAt: Date.now() });
+    const redirectUri = `${appBaseUrl(req)}/auth/wechat/callback`;
+    const url = `https://open.weixin.qq.com/connect/qrconnect?appid=${encodeURIComponent(appid)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=snsapi_login&state=${encodeURIComponent(state)}#wechat_redirect`;
+    return res.redirect(302, url);
+  } catch {
+    return res.status(500).send("wechat_auth_start_failed");
+  }
+});
+
+app.get("/auth/wechat/callback", async (req, res) => {
+  noStore(res);
+  try {
+    const code = String(req.query.code || "");
+    const state = String(req.query.state || "");
+    const saved = getOAuthState(req, "wechat");
+    if (!code || !saved || saved.state !== state) return res.status(400).send("auth_failed");
+    const appid = process.env.WECHAT_CLIENT_ID || "";
+    const secret = process.env.WECHAT_CLIENT_SECRET || "";
+    const tk = await fetchJson(
+      `https://api.weixin.qq.com/sns/oauth2/access_token?${new URLSearchParams({
+        appid,
+        secret,
+        code,
+        grant_type: "authorization_code"
+      }).toString()}`
+    );
+    const openid = String(tk.json?.openid || "");
+    const accessToken = String(tk.json?.access_token || "");
+    const unionid = tk.json?.unionid ? String(tk.json.unionid) : "";
+    if (!openid || !accessToken) return res.status(400).send("auth_failed");
+    const me = await fetchJson(
+      `https://api.weixin.qq.com/sns/userinfo?${new URLSearchParams({
+        access_token: accessToken,
+        openid
+      }).toString()}`
+    );
+    const sub = unionid || openid;
+    const userId = await upsertOAuthIdentity({
+      provider: "wechat",
+      providerUserId: sub,
+      email: null,
+      displayName: me.json?.nickname ? String(me.json.nickname) : null
+    });
+    await migrateGuestPasskeysToUser(req.sessionID, userId);
+    (req.session as any).user_id = userId;
+    (req.session as any).passkey_subject_key = userSubjectKey(userId);
+    return res.redirect(302, "/");
+  } catch (err) {
+    console.error("wechat_callback_failed", err);
+    return res.status(400).send("auth_failed");
+  }
+});
+
+app.get("/auth/bsky", async (req, res) => {
+  noStore(res);
+  try {
+    const clientId = process.env.BSKY_CLIENT_ID || process.env.BLUESKY_CLIENT_ID || "";
+    const clientSecret = process.env.BSKY_CLIENT_SECRET || process.env.BLUESKY_CLIENT_SECRET || "";
+    if (!clientId || !clientSecret) return res.status(503).send("bsky_not_configured");
+    const state = randomHex(16);
+    const verifier = b64url(crypto.randomBytes(32));
+    const challenge = codeChallengeS256(verifier);
+    setOAuthState(req, "bsky", { state, codeVerifier: verifier, createdAt: Date.now() });
+    const redirectUri = `${appBaseUrl(req)}/auth/bsky/callback`;
+    const q = new URLSearchParams({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      scope: "atproto transition:generic",
+      state,
+      code_challenge: challenge,
+      code_challenge_method: "S256"
+    });
+    return res.redirect(302, `https://bsky.social/oauth/authorize?${q.toString()}`);
+  } catch {
+    return res.status(500).send("bsky_auth_start_failed");
+  }
+});
+
+app.get("/auth/bsky/callback", async (req, res) => {
+  noStore(res);
+  try {
+    const code = String(req.query.code || "");
+    const state = String(req.query.state || "");
+    const saved = getOAuthState(req, "bsky");
+    if (!code || !saved || !saved.codeVerifier || saved.state !== state) return res.status(400).send("auth_failed");
+    const clientId = process.env.BSKY_CLIENT_ID || process.env.BLUESKY_CLIENT_ID || "";
+    const clientSecret = process.env.BSKY_CLIENT_SECRET || process.env.BLUESKY_CLIENT_SECRET || "";
+    const redirectUri = `${appBaseUrl(req)}/auth/bsky/callback`;
+    const tkRes = await fetch("https://bsky.social/oauth/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+      body: new URLSearchParams({
+        code,
+        grant_type: "authorization_code",
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        code_verifier: saved.codeVerifier
+      }).toString()
+    });
+    const tk = (await tkRes.json().catch(() => null)) as any;
+    const sub = String(tk?.sub || tk?.did || "");
+    const email = tk?.email ? String(tk.email) : null;
+    if (!sub) return res.status(400).send("auth_failed");
+    const userId = await upsertOAuthIdentity({
+      provider: "bsky",
+      providerUserId: sub,
+      email,
+      displayName: null
+    });
+    await migrateGuestPasskeysToUser(req.sessionID, userId);
+    (req.session as any).user_id = userId;
+    (req.session as any).passkey_subject_key = userSubjectKey(userId);
+    return res.redirect(302, "/");
+  } catch (err) {
+    console.error("bsky_callback_failed", err);
+    return res.status(400).send("auth_failed");
+  }
+});
+
+app.get("/api/auth/google", (_req, res) => res.redirect(302, "/auth/google"));
+app.get("/api/auth/github", (_req, res) => res.redirect(302, "/auth/github"));
+app.get("/api/auth/x", (_req, res) => res.redirect(302, "/auth/x"));
+app.get("/api/auth/facebook", (_req, res) => res.redirect(302, "/auth/facebook"));
+app.get("/api/auth/wechat", (_req, res) => res.redirect(302, "/auth/wechat"));
+app.get("/api/auth/bsky", (_req, res) => res.redirect(302, "/auth/bsky"));
 
 app.post("/api/auth/logout", (req, res) => {
   noStore(res);
@@ -772,7 +1493,7 @@ app.post("/api/billing/usage", async (req, res) => {
       return { allowed: true, remaining: null, limit: monthLimit || null };
     });
 
-    return res.json(okData({ tier: user.default_role || "user", ...result }));
+    return res.json(okData({ tier: roleForEmail(user.email), ...result }));
   } catch (_err) {
     return res.json(okEmpty({ allowed: false }, "No data yet"));
   }
@@ -789,6 +1510,7 @@ app.get("/", (_req, res) => {
 async function start() {
   if (DATABASE_URL) {
     await runMigrations();
+    await ensureAuthIdentityTable();
   }
   app.listen(PORT, () => {
     console.log(`cssOS API running on http://localhost:${PORT}`);

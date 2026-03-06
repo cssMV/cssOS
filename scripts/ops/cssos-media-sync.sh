@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPO="${CSSOS_REPO:-/home/jing/cssOS/repo}"
 SHARED="${CSSOS_SHARED:-/srv/cssos/shared/assets}"
+CURRENT_PUBLIC="${CSSOS_CURRENT_PUBLIC:-/srv/cssos/current/public}"
 WEB_USER="${CSSOS_WEB_USER:-www-data}"
 DEV_USER="${CSSOS_DEV_USER:-jing}"
 
@@ -31,7 +32,7 @@ ensure_link() {
     cur="$(readlink "$dst" || true)"
     [[ "$cur" == "$src" ]] && return 0
   elif [[ -e "$dst" ]]; then
-    rm -f "$dst"
+    rm -rf "$dst"
   fi
   ln -s "$src" "$dst"
 }
@@ -103,14 +104,33 @@ NODE
   fi
 }
 
+sync_runtime_public_links() {
+  local cp="$CURRENT_PUBLIC"
+  [[ -d "$cp" ]] || return 0
+
+  mkdir -p "$cp/assets"
+  ensure_link "$SHARED_EXAMPLES" "$cp/examples"
+  ensure_link "$SHARED_EXAMPLES" "$cp/assets/examples"
+
+  mkdir -p "$cp/fonts"
+  while IFS= read -r -d '' src; do
+    local base
+    base="$(basename "$src")"
+    is_font_file "$base" || continue
+    ensure_link "$src" "$cp/fonts/$base"
+  done < <(find "$SHARED_FONTS" -maxdepth 1 -type f -print0)
+}
+
 export PUB_EXAMPLES
 move_into_shared "$PUB_FONTS" "$SHARED_FONTS" "fonts"
 move_into_shared "$PUB_EXAMPLES" "$SHARED_EXAMPLES" "media"
 sync_links_from_shared "$SHARED_FONTS" "$PUB_FONTS" "fonts"
 sync_links_from_shared "$SHARED_EXAMPLES" "$PUB_EXAMPLES" "media"
 write_manifest_if_changed
+sync_runtime_public_links
 
 chown -h "$WEB_USER:$WEB_USER" "$SHARED_FONTS"/* 2>/dev/null || true
 chown -h "$WEB_USER:$WEB_USER" "$SHARED_EXAMPLES"/* 2>/dev/null || true
 chown -h "$DEV_USER:$DEV_USER" "$PUB_FONTS"/* "$PUB_EXAMPLES"/* 2>/dev/null || true
 chown "$DEV_USER:$DEV_USER" "$PUB_EXAMPLES/manifest.json" 2>/dev/null || true
+chown -h "$DEV_USER:$DEV_USER" "$CURRENT_PUBLIC/examples" "$CURRENT_PUBLIC/assets/examples" 2>/dev/null || true

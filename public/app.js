@@ -5097,11 +5097,8 @@ safeInit("bootstrapAuthState", () => {
 safeInit("fetchAuthProviders", () => fetchAuthProviders());
 safeInit("fetchBillingStatus", () => fetchBillingStatus());
 safeInit("initVersionSwitcher", () => initVersionSwitcher());
-if (window.location.pathname === "/profile") {
-  openPanel(profilePanel);
-}
-if (window.location.pathname === "/settings") {
-  openPanel(settingsPanel);
+if (window.location.pathname !== "/") {
+  window.history.replaceState({}, "", "/");
 }
 if (loginLogout) {
   loginLogout.addEventListener("click", () => {

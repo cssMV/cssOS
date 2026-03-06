@@ -163,6 +163,7 @@ const appleOauthStateCache = new Map<
 const AUTH_TICKET_TTL_MS = 3 * 60 * 1000;
 const AUTH_TICKET_SECRET = process.env.AUTH_TICKET_SECRET || process.env.SESSION_SECRET || "cssos_auth_ticket_secret";
 const AUTH_SESSION_COOKIE = process.env.AUTH_SESSION_COOKIE || "cssos_auth";
+const AUTH_PROVIDER_COOKIE = process.env.AUTH_PROVIDER_COOKIE || "cssos_auth_provider";
 const AUTH_SESSION_TTL_MS =
   1000 * 60 * 60 * 24 * Number(process.env.AUTH_SESSION_TTL_DAYS || process.env.SESSION_TTL_DAYS || 30);
 const SYSTEM_ADMIN_EMAILS = (
@@ -452,6 +453,37 @@ function clearAuthSessionCookie(res: express.Response) {
   });
 }
 
+function normalizeProviderId(input: string): string {
+  const value = String(input || "").trim().toLowerCase();
+  const allow = new Set(["apple", "google", "github", "facebook", "wechat", "tiktok", "x", "bsky"]);
+  return allow.has(value) ? value : "";
+}
+
+function setAuthProviderCookie(res: express.Response, provider: string) {
+  const providerId = normalizeProviderId(provider);
+  if (!providerId) return;
+  const sameSite = (sessionConfig.cookie?.sameSite || "lax") as "lax" | "strict" | "none";
+  const secure = Boolean(sessionConfig.cookie?.secure);
+  res.cookie(AUTH_PROVIDER_COOKIE, providerId, {
+    httpOnly: true,
+    sameSite,
+    secure,
+    path: "/",
+    maxAge: AUTH_SESSION_TTL_MS
+  });
+}
+
+function clearAuthProviderCookie(res: express.Response) {
+  const sameSite = (sessionConfig.cookie?.sameSite || "lax") as "lax" | "strict" | "none";
+  const secure = Boolean(sessionConfig.cookie?.secure);
+  res.clearCookie(AUTH_PROVIDER_COOKIE, {
+    httpOnly: true,
+    sameSite,
+    secure,
+    path: "/"
+  });
+}
+
 async function createDbAuthSession(userId: string): Promise<string | null> {
   if (!DATABASE_URL || !userId) return null;
   const token = crypto.randomBytes(32).toString("hex");
@@ -629,6 +661,10 @@ function providerConfig() {
 
 app.use(async (req, res, next) => {
   try {
+    const providerFromCookie = normalizeProviderId(readCookie(req, AUTH_PROVIDER_COOKIE));
+    if (providerFromCookie) {
+      (req.session as any).auth_provider = providerFromCookie;
+    }
     if ((req.session as any)?.user_id) {
       next();
       return;
@@ -1021,6 +1057,8 @@ app.get("/api/me", async (req, res) => {
     }
     const authSources = await getUserAuthSources(user.id);
     const latestSource = authSources[0] || null;
+    const sessionProvider = normalizeProviderId(String((req.session as any)?.auth_provider || ""));
+    const effectiveProvider = sessionProvider || latestSource?.provider || "";
     const effectiveRole = user.is_admin ? "admin" : (user.role || "user");
     return res.json(
       okData({
@@ -1031,8 +1069,8 @@ app.get("/api/me", async (req, res) => {
           email: user.email,
           avatar: user.avatar_url
         },
-        loginSource: latestSource ? `${providerDisplayName(latestSource.provider)} 登录` : "未知来源",
-        loginProvider: latestSource?.provider || "",
+        loginSource: effectiveProvider ? `${providerDisplayName(effectiveProvider)} 登录` : "未知来源",
+        loginProvider: effectiveProvider,
         role: effectiveRole,
         tier: effectiveRole
       })
@@ -1050,6 +1088,8 @@ app.get("/api/profile", async (req, res) => {
     const sourceEmail = await getAppleIdentityEmail(user.id);
     const authSources = await getUserAuthSources(user.id);
     const latestSource = authSources[0] || null;
+    const sessionProvider = normalizeProviderId(String((req.session as any)?.auth_provider || ""));
+    const effectiveProvider = sessionProvider || latestSource?.provider || "";
     const lastSeenAt = await getLastSeenAt(user.id);
     const effectiveRole = user.is_admin ? "admin" : (user.role || "user");
     return res.json(
@@ -1060,7 +1100,7 @@ app.get("/api/profile", async (req, res) => {
         avatarUrl: user.avatar_url || "",
         accountEmail: user.email || "",
         appleEmail: sourceEmail || "",
-        loginSource: latestSource ? `${providerDisplayName(latestSource.provider)} 登录` : "Apple 登录",
+        loginSource: effectiveProvider ? `${providerDisplayName(effectiveProvider)} 登录` : "未知来源",
         linkedProviders: authSources.map((x) => ({
           id: x.provider,
           name: providerDisplayName(x.provider),
@@ -1218,9 +1258,11 @@ async function handleAppleCallback(req: express.Request, res: express.Response) 
     }
     await setAppleProfileMeta({ userId, appleEmail: email, appleSub: sub, appleDisplayName });
     (req.session as any).user_id = userId;
+    (req.session as any).auth_provider = "apple";
     await saveSessionAsync(req);
     const authSessionToken = await createDbAuthSession(userId);
     if (authSessionToken) setAuthSessionCookie(res, authSessionToken);
+    setAuthProviderCookie(res, "apple");
     const authTicket = createAuthTicket(userId);
     setAuthTicketCookie(res, authTicket);
     return res.redirect(302, `/auth/finalize?auth_ticket=${encodeURIComponent(authTicket)}`);
@@ -1265,6 +1307,7 @@ app.post("/api/auth/logout", async (req, res) => {
   const authSessionToken = readCookie(req, AUTH_SESSION_COOKIE);
   await revokeDbAuthSession(authSessionToken).catch(() => {});
   clearAuthSessionCookie(res);
+  clearAuthProviderCookie(res);
   if (req.session) {
     req.session.destroy(() => {
       res.clearCookie(process.env.SESSION_COOKIE || "cssos_session");

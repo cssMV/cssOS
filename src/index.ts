@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
-import type { QueryResult } from "pg";
+import type { PoolClient, QueryResult } from "pg";
 import { createRemoteJWKSet, jwtVerify, SignJWT } from "jose";
 import { getDatabaseUrl, getPool, withClient } from "./db";
 import { runMigrations } from "./db/migrate";
@@ -110,10 +110,11 @@ async function getSessionUser(req: express.Request) {
     email: string | null;
     avatar_url: string | null;
     role: string | null;
+    is_admin: boolean | null;
   };
   const result: QueryResult<UserRow> = await withClient((client) =>
     client.query<UserRow>(
-      "SELECT id, display_name, email, avatar_url, role FROM users WHERE id = $1",
+      "SELECT id, display_name, email, avatar_url, role, is_admin FROM users WHERE id = $1",
       [sessionUserId]
     )
   );
@@ -673,8 +674,18 @@ async function verifyAppleIdToken(idToken: string) {
   };
 }
 
-async function upsertAppleIdentity(args: { sub: string; email: string | null }) {
-  const { sub, email } = args;
+async function findUserIdByEmail(client: PoolClient, email: string): Promise<string | null> {
+  const found = await client.query<{ id: string }>(
+    "SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1",
+    [email]
+  );
+  return found.rows[0]?.id || null;
+}
+
+async function upsertAppleIdentity(args: { sub: string; email: string | null; preferredEmail?: string | null }) {
+  const { sub, email, preferredEmail } = args;
+  const preferred = normalizeEmailInput(preferredEmail || "");
+  const primaryEmail = preferred || normalizeEmailInput(email || "");
   return withClient(async (client) => {
     await client.query("BEGIN");
     try {
@@ -683,17 +694,37 @@ async function upsertAppleIdentity(args: { sub: string; email: string | null }) 
         ["apple", sub]
       );
       if (found.rows[0]?.user_id) {
+        if (preferred) {
+          const preferredUserId = await findUserIdByEmail(client, preferred);
+          if (preferredUserId && preferredUserId !== found.rows[0].user_id) {
+            await client.query(
+              `UPDATE oauth_identities
+                  SET user_id = $1
+                WHERE provider = $2 AND provider_user_id = $3`,
+              [preferredUserId, "apple", sub]
+            );
+            await client.query("COMMIT");
+            return preferredUserId;
+          }
+        }
         await client.query("COMMIT");
         return found.rows[0].user_id;
       }
 
-      const userRes = await client.query<{ id: string }>(
-        `INSERT INTO users (display_name, email, avatar_url, role)
-         VALUES ($1, $2, $3, $4)
-         RETURNING id`,
-        [null, email, null, "user"]
-      );
-      const userId = userRes.rows[0]?.id;
+      let userId: string | null = null;
+      if (primaryEmail) {
+        userId = await findUserIdByEmail(client, primaryEmail);
+      }
+
+      if (!userId) {
+        const userRes = await client.query<{ id: string }>(
+          `INSERT INTO users (display_name, email, avatar_url, role)
+           VALUES ($1, $2, $3, $4)
+           RETURNING id`,
+          [null, primaryEmail || email, null, "user"]
+        );
+        userId = userRes.rows[0]?.id || null;
+      }
       if (!userId) throw new Error("user_create_failed");
 
       await client.query(
@@ -818,6 +849,7 @@ app.get("/api/me", async (req, res) => {
         okEmpty({ authenticated: false, user: null }, "No data yet")
       );
     }
+    const effectiveRole = user.is_admin ? "admin" : (user.role || "user");
     return res.json(
       okData({
         authenticated: true,
@@ -827,8 +859,8 @@ app.get("/api/me", async (req, res) => {
           email: user.email,
           avatar: user.avatar_url
         },
-        role: user.role || "user",
-        tier: user.role || "user"
+        role: effectiveRole,
+        tier: effectiveRole
       })
     );
   } catch (_err) {
@@ -854,8 +886,10 @@ app.get("/auth/apple", async (req, res) => {
     if (!clientId) return res.status(503).send("apple_not_configured");
     const state = crypto.randomBytes(16).toString("hex");
     const nonce = crypto.randomBytes(16).toString("hex");
+    const identifier = normalizeEmailInput(req.query?.identifier);
     (req.session as any).apple_oauth_state = state;
     (req.session as any).apple_oauth_nonce = nonce;
+    (req.session as any).apple_oauth_identifier = identifier || "";
     appleOauthStateCache.set(state, { nonce, expireAt: Date.now() + 5 * 60 * 1000 });
 
     const redirectUri = `${appBaseUrl(req)}/auth/apple/callback`;
@@ -890,11 +924,13 @@ async function handleAppleCallback(req: express.Request, res: express.Response) 
     const state = readAuthParam(req, "state");
     const savedState = String((req.session as any).apple_oauth_state || "");
     const savedNonce = String((req.session as any).apple_oauth_nonce || "");
+    const preferredEmail = normalizeEmailInput((req.session as any).apple_oauth_identifier || "");
     const cached = state ? appleOauthStateCache.get(state) : null;
     const expectedState = savedState || (cached ? state : "");
     const expectedNonce = savedNonce || (cached?.nonce || "");
     (req.session as any).apple_oauth_state = null;
     (req.session as any).apple_oauth_nonce = null;
+    (req.session as any).apple_oauth_identifier = null;
     if (state) appleOauthStateCache.delete(state);
     if (!code || !state || !expectedState || state !== expectedState) {
       return res.status(400).send("auth_failed");
@@ -926,7 +962,7 @@ async function handleAppleCallback(req: express.Request, res: express.Response) 
       return res.status(400).send("auth_failed");
     }
     const email = payload.email ? String(payload.email) : null;
-    const userId = await upsertAppleIdentity({ sub, email });
+    const userId = await upsertAppleIdentity({ sub, email, preferredEmail });
     (req.session as any).user_id = userId;
     await saveSessionAsync(req);
     const authSessionToken = await createDbAuthSession(userId);
@@ -1258,7 +1294,8 @@ app.post("/api/billing/usage", async (req, res) => {
       return { allowed: true, remaining: null, limit: monthLimit || null };
     });
 
-    return res.json(okData({ tier: user.role || "user", ...result }));
+    const effectiveRole = user.is_admin ? "admin" : (user.role || "user");
+    return res.json(okData({ tier: effectiveRole, ...result }));
   } catch (_err) {
     return res.json(okEmpty({ allowed: false }, "No data yet"));
   }

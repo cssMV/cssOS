@@ -955,6 +955,8 @@ const state = {
 
 const authState = {
   user: null,
+  loginSource: "",
+  loginProvider: "",
   role: DEFAULT_ROLE,
   tier: DEFAULT_ROLE
 };
@@ -1000,6 +1002,8 @@ async function fetchMe() {
     const payload = await res.json();
     const data = unwrapApiData(payload);
     authState.user = data.user || null;
+    authState.loginSource = data.loginSource || "";
+    authState.loginProvider = data.loginProvider || "";
     authState.role = data.role || DEFAULT_ROLE;
     authState.tier = data.tier || authState.role || DEFAULT_ROLE;
     updateLoginUI();
@@ -1240,11 +1244,14 @@ function updateLoginUI() {
   const userLabel = authState.user
     ? authState.user.name || (!isRelayEmail ? appleEmail : "") || authState.user.id
     : "";
+  const sourceLabel = profileState?.loginSource || authState.loginSource || (authState.user ? "未知来源" : "");
   if (loginStatus) {
     loginStatus.textContent = authState.user ? t("login.statusSigned") : t("login.statusGuest");
   }
   if (loginUser) {
-    loginUser.textContent = userLabel || "";
+    loginUser.textContent = authState.user
+      ? [userLabel, sourceLabel].filter(Boolean).join(" · ")
+      : "";
   }
   if (loginLogout) {
     loginLogout.style.display = authState.user ? "inline-flex" : "none";
@@ -1252,6 +1259,7 @@ function updateLoginUI() {
   if (profileAuthStatus) {
     if (authState.user) {
       const lines = [`${t("login.statusSigned")} · ${userLabel || authState.user.id}`];
+      if (sourceLabel) lines.push(`来源: ${sourceLabel}`);
       const linked = Array.isArray(profileState?.linkedProviders) ? profileState.linkedProviders : [];
       if (linked.length > 0) {
         const summary = linked
@@ -1274,7 +1282,7 @@ function updateLoginUI() {
   }
   if (worksRole) {
     worksRole.textContent = authState.user
-      ? (authState.role || "user").toString().toUpperCase()
+      ? [(authState.role || "user").toString().toUpperCase(), sourceLabel].filter(Boolean).join(" · ")
       : "GUEST";
   }
   if (profileSigninButton) {
@@ -1296,6 +1304,8 @@ async function performLogout() {
     // ignore
   }
   authState.user = null;
+  authState.loginSource = "";
+  authState.loginProvider = "";
   authState.role = DEFAULT_ROLE;
   authState.tier = DEFAULT_ROLE;
   profileState = null;

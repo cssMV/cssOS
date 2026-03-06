@@ -1019,6 +1019,8 @@ app.get("/api/me", async (req, res) => {
         okEmpty({ authenticated: false, user: null }, "No data yet")
       );
     }
+    const authSources = await getUserAuthSources(user.id);
+    const latestSource = authSources[0] || null;
     const effectiveRole = user.is_admin ? "admin" : (user.role || "user");
     return res.json(
       okData({
@@ -1029,6 +1031,8 @@ app.get("/api/me", async (req, res) => {
           email: user.email,
           avatar: user.avatar_url
         },
+        loginSource: latestSource ? `${providerDisplayName(latestSource.provider)} 登录` : "未知来源",
+        loginProvider: latestSource?.provider || "",
         role: effectiveRole,
         tier: effectiveRole
       })

@@ -2911,10 +2911,7 @@ function handleMicClick() {
     return;
   }
   if (hold.active) return;
-  micHoldStart("click");
-  window.setTimeout(() => {
-    if (hold.active) micHoldCommit({ reason: "click" });
-  }, 40);
+  showToast(t("mic.hold_to_create"));
 }
 
 function handleMicLongPress() {

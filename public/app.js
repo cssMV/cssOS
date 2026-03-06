@@ -958,7 +958,8 @@ const DAILY_LIMITS = {
   guest: 1,
   user: 10,
   starter: 30,
-  pro: Infinity
+  pro: Infinity,
+  admin: Infinity
 };
 
 function getDailyLimit(role) {
@@ -1122,7 +1123,10 @@ async function startAppleLogin() {
     setHintKey("登录暂不可用，请稍后再试");
     return;
   }
-  window.location.assign("/auth/apple");
+  const identifier = getPasskeyIdentifier();
+  const url = new URL("/auth/apple", window.location.origin);
+  if (identifier) url.searchParams.set("identifier", identifier);
+  window.location.assign(`${url.pathname}${url.search}`);
 }
 
 function consumeLocalUsage() {

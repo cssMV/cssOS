@@ -4315,6 +4315,7 @@ function attachPanelActions() {
         event.stopPropagation();
         if (action === "settings") togglePanelSettings(panel);
         if (action === "minimize") togglePanelCollapse(panel);
+        if (action === "maximize") togglePanelMaximize(panel);
         if (action === "lock") togglePanelLock(panel);
         if (action === "close") minimizeToDock(panel);
         if (action === "profile.open") openPanel(profilePanel);

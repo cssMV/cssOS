@@ -10,6 +10,7 @@ const videoPanel = document.getElementById("video-panel");
 const settingsPanel = document.getElementById("settings-panel");
 const languagePanel = document.getElementById("language-panel");
 const loginPanel = document.getElementById("login-panel");
+const profilePanel = document.getElementById("profile-panel");
 const worksPanel = document.getElementById("works-panel");
 const aboutPanel = document.getElementById("about-panel");
 const apiPanel = document.getElementById("api-panel");
@@ -78,65 +79,6 @@ const versionToggle = document.getElementById("version-toggle");
 const versionMenu = document.getElementById("version-menu");
 const versionList = document.getElementById("version-list");
 const versionCurrentLabel = document.getElementById("version-current");
-
-function forceWorksPanelNeo() {
-  if (!worksPanel) return;
-  const body = worksPanel.querySelector(".panel-body");
-  if (!body) return;
-
-  const hasOld = body.querySelector(".works-hero, .work-card, .comment-card");
-  const hasNeo = body.classList.contains("works-neo");
-  if (!hasOld && hasNeo) return;
-
-  body.className = "panel-body works-body works-neo";
-  body.innerHTML = `
-    <div class="works-neo-hero">
-      <div>
-        <div class="panel-label" data-i18n="works.subtitle">Creator Works Center</div>
-        <div class="works-neo-title" data-i18n="works.neo.title">Works Center</div>
-      </div>
-      <div class="works-neo-badges">
-        <span class="works-neo-chip" data-i18n="works.neo.badge.plan">PRIME</span>
-        <span class="works-neo-chip" data-i18n="works.neo.badge.quality">4K CAP</span>
-        <span class="works-neo-chip" data-i18n="works.neo.badge.quota">300/mo</span>
-      </div>
-    </div>
-    <div class="works-neo-stats">
-      <article class="works-neo-stat"><div class="works-neo-stat-label" data-i18n="works.neo.stat.published">PUBLISHED</div><div class="works-neo-stat-value">12</div><div class="works-neo-stat-hint" data-i18n="works.neo.hint.published">Published works</div></article>
-      <article class="works-neo-stat"><div class="works-neo-stat-label" data-i18n="works.neo.stat.rendering">RENDERING</div><div class="works-neo-stat-value">3</div><div class="works-neo-stat-hint" data-i18n="works.neo.hint.rendering">Processing queue</div></article>
-      <article class="works-neo-stat"><div class="works-neo-stat-label" data-i18n="works.neo.stat.views">VIEWS</div><div class="works-neo-stat-value">28,119</div><div class="works-neo-stat-hint" data-i18n="works.neo.hint.views">Monthly views</div></article>
-      <article class="works-neo-stat"><div class="works-neo-stat-label" data-i18n="works.neo.stat.avgPrice">AVG PRICE</div><div class="works-neo-stat-value">$8.60</div><div class="works-neo-stat-hint" data-i18n="works.neo.hint.avgPrice">Average pricing</div></article>
-    </div>
-    <div class="works-neo-grid">
-      <section class="works-neo-card works-neo-glow">
-        <div class="works-neo-card-header"><div class="section-title" data-i18n="works.neo.goal.title">Creation Goals</div><button class="mini-btn" type="button" data-i18n="works.neo.goal.create">Create Work</button></div>
-        <div class="works-neo-goal-list">
-          <article class="works-neo-goal-item"><div class="works-neo-goal-top"><span data-i18n="works.neo.goal.weeklyRelease">Weekly releases</span><span>2/4</span></div><div class="works-neo-progress"><span style="width:50%"></span></div></article>
-          <article class="works-neo-goal-item"><div class="works-neo-goal-top"><span data-i18n="works.neo.goal.monthlyViews">Monthly views target</span><span>12.6k/20k</span></div><div class="works-neo-progress"><span style="width:63%"></span></div></article>
-          <article class="works-neo-goal-item"><div class="works-neo-goal-top"><span data-i18n="works.neo.goal.commercialDeals">Commercial deals</span><span>5/8</span></div><div class="works-neo-progress"><span style="width:62%"></span></div></article>
-        </div>
-      </section>
-      <section class="works-neo-card">
-        <div class="section-title" data-i18n="works.neo.schedule.title">Scheduler</div>
-        <div class="works-neo-schedule">
-          <article class="works-neo-box"><div class="works-neo-box-label" data-i18n="works.neo.schedule.queue">RENDER QUEUE</div><div class="works-neo-box-value">3</div></article>
-          <article class="works-neo-box"><div class="works-neo-box-label" data-i18n="works.neo.schedule.nextRelease">NEXT RELEASE</div><div class="works-neo-box-value sm">Pulse Runner</div><div class="works-neo-box-hint" data-i18n="works.neo.schedule.nextReleaseHint">Expected to publish in 4 hours</div></article>
-          <article class="works-neo-box"><div class="works-neo-box-label" data-i18n="works.neo.schedule.focus">FOCUS</div><div class="works-neo-box-hint" data-i18n="works.neo.schedule.focusHint">Prioritize long-form opera content to improve commercial conversion.</div></article>
-        </div>
-      </section>
-    </div>
-    <section class="works-neo-card">
-      <div class="works-neo-card-header"><div class="section-title" data-i18n="works.neo.matrix.title">Works Matrix</div><div class="works-neo-note" data-i18n="works.neo.matrix.note">Realtime status / One-click publish / Archive</div></div>
-      <div class="works-neo-list">
-        <article class="works-neo-work"><div class="works-neo-main"><div class="works-neo-name-row"><span class="works-neo-name">Neon Aria</span><span class="works-neo-status ok" data-i18n="works.neo.status.published">PUBLISHED</span><span class="works-neo-type" data-i18n="works.neo.type.opera">OPERA</span></div><div class="works-neo-meta" data-i18n="works.neo.meta.item1">$12.90 · 3,891 views · 2h ago</div><div class="works-neo-progress"><span style="width:100%"></span></div></div><div class="works-neo-actions"><button class="mini-btn" type="button" disabled data-i18n="works.neo.action.published">Published</button><button class="mini-btn ghost" type="button" data-i18n="works.neo.action.archive">Archive</button></div></article>
-        <article class="works-neo-work"><div class="works-neo-main"><div class="works-neo-name-row"><span class="works-neo-name">Pulse Runner</span><span class="works-neo-status ready" data-i18n="works.neo.status.ready">READY</span><span class="works-neo-type" data-i18n="works.neo.type.mv">MV</span></div><div class="works-neo-meta" data-i18n="works.neo.meta.item2">$3.80 · 1,277 views · 5h ago</div><div class="works-neo-progress"><span style="width:100%"></span></div></div><div class="works-neo-actions"><button class="mini-btn" type="button" data-i18n="works.neo.action.publish">Publish</button><button class="mini-btn ghost" type="button" data-i18n="works.neo.action.archive">Archive</button></div></article>
-        <article class="works-neo-work"><div class="works-neo-main"><div class="works-neo-name-row"><span class="works-neo-name">Echo District</span><span class="works-neo-status run" data-i18n="works.neo.status.rendering">RENDERING</span><span class="works-neo-type" data-i18n="works.neo.type.mv">MV</span></div><div class="works-neo-meta" data-i18n="works.neo.meta.item3">$2.99 · 0 views · 12m ago</div><div class="works-neo-progress"><span style="width:68%"></span></div></div><div class="works-neo-actions"><button class="mini-btn ghost" type="button" data-i18n="works.neo.action.processing">Processing</button><button class="mini-btn ghost" type="button" data-i18n="works.neo.action.archive">Archive</button></div></article>
-      </div>
-    </section>
-  `;
-}
-
-forceWorksPanelNeo();
 
 if (watchVideo) {
   watchVideo.controls = true;
@@ -344,6 +286,15 @@ function applyI18n() {
     const text = t(key);
     if (text) {
       el.setAttribute("placeholder", text);
+    }
+  });
+
+  document.querySelectorAll("[data-i18n-aria]").forEach((el) => {
+    const key = el.dataset.i18nAria;
+    if (!key) return;
+    const text = t(key);
+    if (text) {
+      el.setAttribute("aria-label", text);
     }
   });
 
@@ -1108,6 +1059,7 @@ const panels = [
   settingsPanel,
   languagePanel,
   loginPanel,
+  profilePanel,
   worksPanel,
   aboutPanel,
   apiPanel
@@ -1123,6 +1075,7 @@ const dockByPanel = {
   "settings-panel": "settings",
   "language-panel": "language",
   "login-panel": "login",
+  "profile-panel": "profile",
   "works-panel": "works",
   "about-panel": "about",
   "api-panel": "api"
@@ -2567,6 +2520,7 @@ let micRecorder = null;
 let micChunks = [];
 let micStream = null;
 let micRecording = false;
+let micDiscardOnStop = false;
 
 const getMicJobId = () => {
   if (!micState.jobId) {
@@ -2734,6 +2688,7 @@ async function startMicRecording() {
   try {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     micChunks = [];
+    micDiscardOnStop = false;
     micRecorder = new MediaRecorder(micStream);
     micRecorder.ondataavailable = (event) => {
       if (event.data && event.data.size > 0) micChunks.push(event.data);
@@ -2741,7 +2696,10 @@ async function startMicRecording() {
     micRecorder.onstop = async () => {
       const blob = new Blob(micChunks, { type: micRecorder.mimeType || "audio/webm" });
       micChunks = [];
-      await submitMicTranscription(blob);
+      if (!micDiscardOnStop) {
+        await submitMicTranscription(blob);
+      }
+      micDiscardOnStop = false;
     };
     micRecorder.start();
     micRecording = true;
@@ -2752,8 +2710,9 @@ async function startMicRecording() {
   }
 }
 
-function stopMicRecording() {
+function stopMicRecording(discard = false) {
   if (!micRecorder || !micRecording) return;
+  micDiscardOnStop = !!discard;
   micRecording = false;
   micRecorder.stop();
   if (micStream) {
@@ -2920,6 +2879,383 @@ function cycleLanguageQuick() {
   setLocale(next);
 }
 
+const PASSKEY_BASE = "";
+const HOLD_MAX_MS = Number(window.CSS_HOLD_MAX_MS || 3500);
+
+let hold = {
+  active: false,
+  startedAt: 0,
+  raf: 0,
+  timeout: 0,
+  pointerId: null
+};
+
+function setHintKey(key) {
+  const el = document.getElementById("profile-hint");
+  if (!el) return;
+  if (!key) {
+    el.textContent = "";
+    return;
+  }
+  try {
+    el.textContent = t(key);
+  } catch {
+    el.textContent = key;
+  }
+}
+
+function passkeySupported() {
+  return !!(window.PublicKeyCredential && navigator.credentials);
+}
+
+function b64urlToBuf(s) {
+  const n = String(s || "").replace(/-/g, "+").replace(/_/g, "/");
+  const pad = n.length % 4 ? "=".repeat(4 - (n.length % 4)) : "";
+  const str = atob(n + pad);
+  const buf = new Uint8Array(str.length);
+  for (let i = 0; i < str.length; i += 1) buf[i] = str.charCodeAt(i);
+  return buf.buffer;
+}
+
+function bufToB64url(buf) {
+  const bytes = new Uint8Array(buf);
+  let str = "";
+  for (let i = 0; i < bytes.length; i += 1) str += String.fromCharCode(bytes[i]);
+  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function normalizePublicKeyOptions(pk) {
+  const out = JSON.parse(JSON.stringify(pk || {}));
+  if (out.challenge) out.challenge = b64urlToBuf(out.challenge);
+  if (out.user && out.user.id) out.user.id = b64urlToBuf(out.user.id);
+  if (Array.isArray(out.excludeCredentials)) {
+    out.excludeCredentials = out.excludeCredentials.map((c) => ({ ...c, id: b64urlToBuf(c.id) }));
+  }
+  if (Array.isArray(out.allowCredentials)) {
+    out.allowCredentials = out.allowCredentials.map((c) => ({ ...c, id: b64urlToBuf(c.id) }));
+  }
+  return out;
+}
+
+function credentialToJSON(cred) {
+  const res = {
+    id: cred.id,
+    rawId: bufToB64url(cred.rawId),
+    type: cred.type,
+    response: {}
+  };
+  const r = cred.response;
+  if (r) {
+    if (r.attestationObject) res.response.attestationObject = bufToB64url(r.attestationObject);
+    if (r.clientDataJSON) res.response.clientDataJSON = bufToB64url(r.clientDataJSON);
+    if (r.authenticatorData) res.response.authenticatorData = bufToB64url(r.authenticatorData);
+    if (r.signature) res.response.signature = bufToB64url(r.signature);
+    if (r.userHandle) res.response.userHandle = bufToB64url(r.userHandle);
+  }
+  return res;
+}
+
+async function passkeyEnable() {
+  if (!passkeySupported()) {
+    setHintKey("passkey.unsupported");
+    return;
+  }
+  setHintKey("");
+  const optRes = await fetch(`${PASSKEY_BASE}/api/auth/passkey/register/options`, {
+    headers: { accept: "application/json" }
+  });
+  if (!optRes.ok) {
+    setHintKey("passkey.register_options_failed");
+    return;
+  }
+  const optJson = await optRes.json();
+  const publicKey = normalizePublicKeyOptions(optJson?.data?.publicKey || optJson?.publicKey || optJson);
+  const cred = await navigator.credentials.create({ publicKey });
+  const body = { credential: credentialToJSON(cred) };
+  const verRes = await fetch(`${PASSKEY_BASE}/api/auth/passkey/register/verify`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!verRes.ok) {
+    setHintKey("passkey.register_verify_failed");
+    return;
+  }
+  setHintKey("passkey.enabled");
+}
+
+async function passkeyLogin() {
+  if (!passkeySupported()) {
+    setHintKey("passkey.unsupported");
+    return;
+  }
+  setHintKey("");
+  const optRes = await fetch(`${PASSKEY_BASE}/api/auth/passkey/login/options`, {
+    headers: { accept: "application/json" }
+  });
+  if (!optRes.ok) {
+    setHintKey("passkey.login_options_failed");
+    return;
+  }
+  const optJson = await optRes.json();
+  if (optJson?.data?.empty) {
+    setHintKey("passkey.not_enabled");
+    return;
+  }
+  const publicKey = normalizePublicKeyOptions(optJson?.data?.publicKey || optJson?.publicKey || optJson);
+  const cred = await navigator.credentials.get({ publicKey });
+  const body = { credential: credentialToJSON(cred) };
+  const verRes = await fetch(`${PASSKEY_BASE}/api/auth/passkey/login/verify`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!verRes.ok) {
+    setHintKey("passkey.login_verify_failed");
+    return;
+  }
+  setHintKey("passkey.enabled");
+}
+
+function triggerMic() {
+  window.dispatchEvent(new CustomEvent("cssos:mic"));
+}
+
+function ringEl() {
+  return document.getElementById("hold-ring");
+}
+
+function ringFg() {
+  const r = ringEl();
+  if (!r) return null;
+  return r.querySelector(".hold-ring-fg");
+}
+
+function setRingProgress01(p) {
+  const fg = ringFg();
+  if (!fg) return;
+  const C = 289;
+  const clamped = Math.max(0, Math.min(1, p));
+  fg.style.strokeDashoffset = String(C * (1 - clamped));
+}
+
+function showRing(on) {
+  const r = ringEl();
+  if (!r) return;
+  if (on) r.classList.add("is-on");
+  else r.classList.remove("is-on");
+}
+
+function micHoldStart(origin) {
+  if (hold.active) return;
+  hold.active = true;
+  hold.startedAt = performance.now();
+  setRingProgress01(0);
+  showRing(true);
+  window.dispatchEvent(new CustomEvent("cssos:mic_hold_start", { detail: { origin } }));
+
+  const tick = () => {
+    if (!hold.active) return;
+    const now = performance.now();
+    const p = (now - hold.startedAt) / HOLD_MAX_MS;
+    setRingProgress01(p);
+    hold.raf = requestAnimationFrame(tick);
+  };
+  hold.raf = requestAnimationFrame(tick);
+
+  hold.timeout = window.setTimeout(() => {
+    if (!hold.active) return;
+    micHoldCommit({ reason: "timeout" });
+  }, HOLD_MAX_MS);
+}
+
+function micHoldCommit(meta) {
+  if (!hold.active) return;
+  const elapsed = performance.now() - hold.startedAt;
+  hold.active = false;
+  if (hold.raf) cancelAnimationFrame(hold.raf);
+  if (hold.timeout) clearTimeout(hold.timeout);
+  hold.raf = 0;
+  hold.timeout = 0;
+  hold.pointerId = null;
+  showRing(false);
+  setRingProgress01(0);
+  window.dispatchEvent(
+    new CustomEvent("cssos:mic_hold_commit", {
+      detail: { elapsed_ms: Math.round(elapsed), ...meta }
+    })
+  );
+}
+
+function bindHoldTargets() {
+  const targets = Array.from(document.querySelectorAll("[data-hold='mic']"));
+  for (const el of targets) {
+    el.addEventListener("pointerdown", (e) => {
+      if (e.button !== undefined && e.button !== 0) return;
+      try {
+        el.setPointerCapture(e.pointerId);
+      } catch {}
+      hold.pointerId = e.pointerId;
+      micHoldStart(el.id || el.getAttribute("data-action") || "mic");
+    });
+
+    const commit = (e, reason) => {
+      if (!hold.active) return;
+      if (hold.pointerId !== null && e.pointerId !== hold.pointerId) return;
+      micHoldCommit({ reason });
+    };
+
+    el.addEventListener("pointerup", (e) => commit(e, "release"));
+    el.addEventListener("pointercancel", (e) => commit(e, "release"));
+    el.addEventListener("lostpointercapture", (e) => commit(e, "release"));
+  }
+}
+
+let rec = {
+  stream: null,
+  mr: null,
+  chunks: [],
+  started: false
+};
+
+async function startRecording() {
+  if (rec.started) return;
+  rec.chunks = [];
+  rec.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const mr = new MediaRecorder(rec.stream, { mimeType: "audio/webm" });
+  rec.mr = mr;
+  rec.started = true;
+
+  mr.ondataavailable = (ev) => {
+    if (ev.data && ev.data.size > 0) rec.chunks.push(ev.data);
+  };
+
+  mr.start(250);
+}
+
+async function stopRecordingGetBlob() {
+  if (!rec.started || !rec.mr) return null;
+
+  const mr = rec.mr;
+  const stream = rec.stream;
+
+  const blob = await new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      try {
+        mr.ondataavailable = null;
+      } catch {}
+      resolve(new Blob(rec.chunks, { type: mr.mimeType || "audio/webm" }));
+    };
+    mr.onstop = finish;
+    try {
+      mr.stop();
+    } catch {
+      finish();
+    }
+    setTimeout(finish, 1200);
+  });
+
+  rec.started = false;
+  rec.mr = null;
+  rec.stream = null;
+  rec.chunks = [];
+
+  if (stream) {
+    for (const tr of stream.getTracks()) {
+      try {
+        tr.stop();
+      } catch {}
+    }
+  }
+
+  if (!blob || blob.size === 0) return null;
+  return blob;
+}
+
+function randomTitle() {
+  const xs = ["Untitled", "New Song", "Opera Night", "Midnight", "Starlight", "Echo"];
+  return xs[Math.floor(Math.random() * xs.length)];
+}
+
+function apiBase() {
+  const v =
+    window.CSS_API_BASE ||
+    window.CSS_BASE_URL ||
+    (location.origin.includes("localhost") ? "http://127.0.0.1:8081" : location.origin);
+  return String(v).replace(/\/+$/, "");
+}
+
+function b64FromArrayBuffer(ab) {
+  const bytes = new Uint8Array(ab);
+  let s = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    s += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(s);
+}
+
+async function createRun({ title, uiLang, tier, voice }) {
+  const baseUrl = apiBase();
+  const body = {
+    cssl: title,
+    ui_lang: uiLang || "zh",
+    tier: tier || "dev",
+    commands: {
+      voice: voice || { bytes: 0, mime: "audio/webm", mode: "single" }
+    }
+  };
+  const res = await fetch(`${baseUrl}/cssapi/v1/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`http=${res.status} ${text}`);
+  }
+  return await res.json();
+}
+
+async function deriveTitleFromVoice(blob) {
+  const buf = await blob.arrayBuffer();
+  if (buf.byteLength < 1600) return "";
+  return "";
+}
+
+async function submitVoiceOrFallbackTitle(blobOrNull) {
+  let title = "";
+  let voice = { bytes: 0, mime: "audio/webm", mode: "single" };
+
+  if (blobOrNull && blobOrNull.size > 0) {
+    const t = await deriveTitleFromVoice(blobOrNull).catch(() => "");
+    if (t && t.trim()) {
+      title = t.trim();
+    }
+    const ab = await blobOrNull.arrayBuffer().catch(() => null);
+    if (ab && ab.byteLength > 0) {
+      voice = {
+        bytes: blobOrNull.size,
+        mime: blobOrNull.type || "audio/webm",
+        b64: b64FromArrayBuffer(ab),
+        mode: "single"
+      };
+    }
+  }
+
+  const finalTitle = title || randomTitle();
+
+  const uiLang = (window.CSS_UI_LANG || document.documentElement.lang || "zh").toString();
+  const tier = (window.CSS_TIER || "dev").toString();
+  const r = await createRun({ title: finalTitle, uiLang, tier, voice });
+  window.dispatchEvent(new CustomEvent("cssos:run_created", { detail: r }));
+  window.dispatchEvent(new CustomEvent("cssos:title_ready", { detail: { title: finalTitle, source: voice.bytes > 0 ? "voice" : "random" } }));
+  window.dispatchEvent(new CustomEvent("cssos:lyrics_start", { detail: { run_id: r.run_id, title: finalTitle, mode: "single" } }));
+}
+
 const dockActionMap = {
   mic: {
     click: handleMicClick,
@@ -2984,6 +3320,22 @@ const dockActionMap = {
     dblclick: () => startCreation(titleInput.value.trim(), lyricsInput.value.trim()),
     longpress: resetSettings
   },
+  passkey: {
+    click: () => {
+      openPanel(profilePanel);
+      void passkeyLogin();
+    },
+    dblclick: () => {
+      openPanel(profilePanel);
+      void passkeyEnable();
+    },
+    longpress: () => openPanel(profilePanel)
+  },
+  profile: {
+    click: () => openPanel(profilePanel),
+    dblclick: () => openAndMaximize(profilePanel),
+    longpress: () => openPanel(loginPanel)
+  },
   language: {
     click: () => {
       openPanel(languagePanel);
@@ -3004,8 +3356,37 @@ function handleDockAction(action, type) {
   if (handler) handler();
 }
 
+function handleGlobalAction(action) {
+  if (!action) return;
+  if (action === "profile.open") {
+    openPanel(profilePanel);
+    return;
+  }
+  if (action === "profile.close") {
+    minimizeToDock(profilePanel);
+    return;
+  }
+  if (action === "passkey.enable") {
+    openPanel(profilePanel);
+    void passkeyEnable();
+    return;
+  }
+  if (action === "passkey.login") {
+    openPanel(profilePanel);
+    void passkeyLogin();
+    return;
+  }
+  if (action === "mic") {
+    triggerMic();
+  }
+}
+
 function attachDockEvents() {
   document.querySelectorAll(".dock-item").forEach((item) => {
+    if (item.dataset.hold === "mic") {
+      item.tabIndex = 0;
+      return;
+    }
     const action = item.dataset.action;
     item.tabIndex = 0;
     let suppressClick = false;
@@ -3038,11 +3419,6 @@ function attachDockEvents() {
 
     item.addEventListener("pointerdown", () => {
       suppressClick = false;
-      if (action === "mic") {
-        clearTimeout(longPressId);
-        startMicRecording();
-        return;
-      }
       clearTimeout(longPressId);
       longPressId = setTimeout(() => {
         suppressClick = true;
@@ -3052,17 +3428,24 @@ function attachDockEvents() {
 
     item.addEventListener("pointerup", () => {
       clearTimeout(longPressId);
-      if (action === "mic") {
-        stopMicRecording();
-      }
     });
 
     item.addEventListener("pointerleave", () => {
       clearTimeout(longPressId);
-      if (action === "mic") {
-        stopMicRecording();
-      }
     });
+  });
+}
+
+function attachGlobalActionDispatcher() {
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest(".dock-item")) return;
+    const actionEl = target.closest("[data-action]");
+    if (!actionEl) return;
+    if (actionEl.getAttribute("data-hold") === "mic") return;
+    const action = actionEl.getAttribute("data-action");
+    handleGlobalAction(action);
   });
 }
 
@@ -3283,6 +3666,8 @@ function attachPanelActions() {
         if (action === "minimize") togglePanelCollapse(panel);
         if (action === "lock") togglePanelLock(panel);
         if (action === "close") minimizeToDock(panel);
+        if (action === "profile.open") openPanel(profilePanel);
+        if (action === "profile.close") minimizeToDock(profilePanel);
       });
     });
   });
@@ -3616,6 +4001,8 @@ safeInit("applySpell", () => applySpell(state.spell, { force: true, refreshPanel
 safeInit("updateEnginePanels", () => updateEnginePanels(state.title, state.lines));
 safeInit("applyBackgroundPalette", () => applyBackgroundPalette());
 safeInit("attachDockEvents", () => attachDockEvents());
+safeInit("attachGlobalActionDispatcher", () => attachGlobalActionDispatcher());
+safeInit("bindHoldTargets", () => bindHoldTargets());
 safeInit("attachPanelDrag", () => attachPanelDrag());
 safeInit("attachPanelBarActions", () => attachPanelBarActions());
 safeInit("attachResize", () => attachResize());
@@ -3647,6 +4034,23 @@ if (loginLogout) {
   });
 }
 attachAmbientTrail();
+window.addEventListener("cssos:mic", () => {
+  handleMicClick();
+});
+window.addEventListener("cssos:mic_hold_start", async () => {
+  try {
+    await startRecording();
+  } catch {}
+});
+window.addEventListener("cssos:mic_hold_commit", async () => {
+  try {
+    const blob = await stopRecordingGetBlob().catch(() => null);
+    await submitVoiceOrFallbackTitle(blob);
+  } catch (e) {
+    const msg = `${window.t ? window.t("mic.submit_failed") : "Submit failed"}: ${String(e)}`;
+    window.dispatchEvent(new CustomEvent("cssos:toast", { detail: { kind: "error", message: msg } }));
+  }
+});
 
 window.addEventListener("resize", () => {
   panels.forEach((panel) => clampPanelInViewport(panel));

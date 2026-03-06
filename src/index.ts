@@ -173,6 +173,13 @@ const SYSTEM_ADMIN_EMAILS = (
   .map((x) => normalizeEmailInput(x))
   .filter((x): x is string => Boolean(x));
 
+function isSystemAdminUser(user: { email?: string | null; is_admin?: boolean | null }) {
+  if (Boolean(user?.is_admin)) return true;
+  const email = normalizeEmailInput(user?.email || "");
+  if (!email) return false;
+  return SYSTEM_ADMIN_EMAILS.includes(email);
+}
+
 function cleanupPasskeyState() {
   const now = Date.now();
   for (const [k, v] of passkeyState.entries()) {
@@ -1059,7 +1066,7 @@ app.get("/api/me", async (req, res) => {
     const latestSource = authSources[0] || null;
     const sessionProvider = normalizeProviderId(String((req.session as any)?.auth_provider || ""));
     const effectiveProvider = sessionProvider || latestSource?.provider || "";
-    const effectiveRole = user.is_admin ? "admin" : (user.role || "user");
+    const effectiveRole = isSystemAdminUser(user) ? "admin" : (user.role || "user");
     return res.json(
       okData({
         authenticated: true,
@@ -1091,7 +1098,7 @@ app.get("/api/profile", async (req, res) => {
     const sessionProvider = normalizeProviderId(String((req.session as any)?.auth_provider || ""));
     const effectiveProvider = sessionProvider || latestSource?.provider || "";
     const lastSeenAt = await getLastSeenAt(user.id);
-    const effectiveRole = user.is_admin ? "admin" : (user.role || "user");
+    const effectiveRole = isSystemAdminUser(user) ? "admin" : (user.role || "user");
     return res.json(
       okData({
         authenticated: true,
@@ -1112,7 +1119,7 @@ app.get("/api/profile", async (req, res) => {
           : null,
         lastSeenAt,
         role: effectiveRole,
-        isAdmin: Boolean(user.is_admin)
+        isAdmin: isSystemAdminUser(user)
       })
     );
   } catch {
@@ -1546,6 +1553,18 @@ app.post("/api/billing/usage", async (req, res) => {
     if (!user) {
       return res.json(okEmpty({ allowed: false, authenticated: false }, "No data yet"));
     }
+    const isAdmin = isSystemAdminUser(user);
+    if (isAdmin) {
+      return res.json(
+        okData({
+          tier: "admin",
+          allowed: true,
+          remaining: null,
+          limit: null,
+          bypass: "system_admin_unlimited"
+        })
+      );
+    }
     await resetMonthIfNeeded(user.id);
 
     const result = await withClient(async (client) => {
@@ -1614,7 +1633,7 @@ app.post("/api/billing/usage", async (req, res) => {
       return { allowed: true, remaining: null, limit: monthLimit || null };
     });
 
-    const effectiveRole = user.is_admin ? "admin" : (user.role || "user");
+    const effectiveRole = isSystemAdminUser(user) ? "admin" : (user.role || "user");
     return res.json(okData({ tier: effectiveRole, ...result }));
   } catch (_err) {
     return res.json(okEmpty({ allowed: false }, "No data yet"));

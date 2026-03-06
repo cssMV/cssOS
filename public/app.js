@@ -995,6 +995,22 @@ function getUsageKey() {
   return `cssos.usage.${id}`;
 }
 
+function providerLabel(providerId) {
+  const id = String(providerId || "").trim().toLowerCase();
+  if (!id) return "";
+  const label = t(`provider.${id}`);
+  if (label === `provider.${id}`) return id;
+  return label;
+}
+
+function localizedLoginSource(providerId, fallback) {
+  const label = providerLabel(providerId);
+  if (label) {
+    return t("auth.sourceWithProvider", { provider: label });
+  }
+  return fallback || t("auth.unknownSource");
+}
+
 async function fetchMe() {
   try {
     const res = await fetch("/api/me", { credentials: "include" });
@@ -1021,9 +1037,13 @@ function renderProfilePanel() {
     profileState?.displayName || authState.user?.name || authState.user?.email || authState.user?.id || "Guest";
   const roleText = (authState.role || "guest").toString().toUpperCase();
   const avatarUrl = profileState?.avatarUrl || authState.user?.avatar || "";
+  const sourceBase = localizedLoginSource(
+    profileState?.loginProvider || authState.loginProvider,
+    profileState?.loginSource
+  );
   const sourceText = profileState?.appleEmail
-    ? `${profileState.loginSource || "Apple 登录"} · ${profileState.appleEmail}`
-    : (profileState?.loginSource || (authState.user ? "Apple 登录" : "-"));
+    ? `${sourceBase} · ${profileState.appleEmail}`
+    : (sourceBase || (authState.user ? t("auth.unknownSource") : "-"));
   const fmt = (value) => {
     const text = String(value || "").trim();
     if (!text) return "-";
@@ -1056,36 +1076,36 @@ function renderProfilePanel() {
     }
   }
 
-  const noData = "暂无数据";
+  const noData = t("profile.noData");
   if (profileLatestWork) {
     profileLatestWork.textContent = profileInsights?.latestWork?.title || noData;
   }
   if (profileLatestWorkMeta) {
-    profileLatestWorkMeta.textContent = profileInsights?.latestWork?.meta || "进入作品中心查看更多";
+    profileLatestWorkMeta.textContent = profileInsights?.latestWork?.meta || t("profile.recent.more.works");
   }
   if (profileLatestIncome) {
     profileLatestIncome.textContent = profileInsights?.latestIncome?.title || noData;
   }
   if (profileLatestIncomeMeta) {
-    profileLatestIncomeMeta.textContent = profileInsights?.latestIncome?.meta || "进入账单面板查看更多";
+    profileLatestIncomeMeta.textContent = profileInsights?.latestIncome?.meta || t("profile.recent.more.income");
   }
   if (profileLatestPurchase) {
     profileLatestPurchase.textContent = profileInsights?.latestPurchase?.title || noData;
   }
   if (profileLatestPurchaseMeta) {
-    profileLatestPurchaseMeta.textContent = profileInsights?.latestPurchase?.meta || "进入监听面板查看更多";
+    profileLatestPurchaseMeta.textContent = profileInsights?.latestPurchase?.meta || t("profile.recent.more.purchases");
   }
   if (profileLatestSale) {
     profileLatestSale.textContent = profileInsights?.latestSale?.title || noData;
   }
   if (profileLatestSaleMeta) {
-    profileLatestSaleMeta.textContent = profileInsights?.latestSale?.meta || "进入作品中心查看更多";
+    profileLatestSaleMeta.textContent = profileInsights?.latestSale?.meta || t("profile.recent.more.sales");
   }
   if (profileLatestBounty) {
     profileLatestBounty.textContent = profileInsights?.latestBounty?.title || noData;
   }
   if (profileLatestBountyMeta) {
-    profileLatestBountyMeta.textContent = profileInsights?.latestBounty?.meta || "进入账单面板查看更多";
+    profileLatestBountyMeta.textContent = profileInsights?.latestBounty?.meta || t("profile.recent.more.bounty");
   }
 }
 
@@ -1121,13 +1141,13 @@ function formatWhen(value) {
 }
 
 function mapLedgerEntry(entry, emptyLabel) {
-  if (!entry) return { title: "暂无数据", meta: emptyLabel };
+  if (!entry) return { title: t("profile.noData"), meta: emptyLabel };
   const amount = Number(entry.amount_cents || 0);
   const note = String(entry.note || "").trim();
   const at = formatWhen(entry.created_at);
   return {
     title: `${amount >= 0 ? "+" : "-"}${formatCents(Math.abs(amount))}`,
-    meta: [note || "账本记录", at].filter(Boolean).join(" · ")
+    meta: [note || t("profile.ledgerRecord"), at].filter(Boolean).join(" · ")
   };
 }
 
@@ -1165,23 +1185,25 @@ async function fetchProfileInsights() {
 
     profileInsights = {
       latestWork: {
-        title: workTitleEl?.textContent?.trim() || "暂无数据",
-        meta: workTagEl?.textContent?.trim() || "进入作品中心查看更多"
+        title: workTitleEl?.textContent?.trim() || t("profile.noData"),
+        meta: workTagEl?.textContent?.trim() || t("profile.recent.more.works")
       },
       latestIncome: latestCredit
-        ? mapLedgerEntry(latestCredit, "进入账单面板查看更多")
+        ? mapLedgerEntry(latestCredit, t("profile.recent.more.income"))
         : {
-            title: Number(statusData.balance_cents) > 0 ? formatCents(statusData.balance_cents) : "暂无数据",
-            meta: Number(statusData.balance_cents) > 0 ? "当前余额" : "进入账单面板查看更多"
+            title: Number(statusData.balance_cents) > 0 ? formatCents(statusData.balance_cents) : t("profile.noData"),
+            meta: Number(statusData.balance_cents) > 0 ? t("profile.currentBalance") : t("profile.recent.more.income")
           },
       latestPurchase: latestDebit
-        ? mapLedgerEntry(latestDebit, "进入监听面板查看更多")
+        ? mapLedgerEntry(latestDebit, t("profile.recent.more.purchases"))
         : {
-            title: "暂无数据",
-            meta: latestUsage?.created_at ? `最近生成: ${formatWhen(latestUsage.created_at)}` : "进入监听面板查看更多"
+            title: t("profile.noData"),
+            meta: latestUsage?.created_at
+              ? t("profile.latestGenerated", { time: formatWhen(latestUsage.created_at) })
+              : t("profile.recent.more.purchases")
           },
-      latestSale: mapLedgerEntry(latestSale, "进入作品中心查看更多"),
-      latestBounty: mapLedgerEntry(latestBounty, "进入账单面板查看更多")
+      latestSale: mapLedgerEntry(latestSale, t("profile.recent.more.sales")),
+      latestBounty: mapLedgerEntry(latestBounty, t("profile.recent.more.bounty"))
     };
     renderProfilePanel();
   } catch (_err) {
@@ -1244,7 +1266,10 @@ function updateLoginUI() {
   const userLabel = authState.user
     ? authState.user.name || (!isRelayEmail ? appleEmail : "") || authState.user.id
     : "";
-  const sourceLabel = profileState?.loginSource || authState.loginSource || (authState.user ? "未知来源" : "");
+  const sourceLabel = localizedLoginSource(
+    profileState?.loginProvider || authState.loginProvider,
+    profileState?.loginSource || authState.loginSource || (authState.user ? t("auth.unknownSource") : "")
+  );
   if (loginStatus) {
     loginStatus.textContent = authState.user ? t("login.statusSigned") : t("login.statusGuest");
   }
@@ -1259,15 +1284,15 @@ function updateLoginUI() {
   if (profileAuthStatus) {
     if (authState.user) {
       const lines = [`${t("login.statusSigned")} · ${userLabel || authState.user.id}`];
-      if (sourceLabel) lines.push(`来源: ${sourceLabel}`);
+      if (sourceLabel) lines.push(t("profile.sourceLine", { source: sourceLabel }));
       const linked = Array.isArray(profileState?.linkedProviders) ? profileState.linkedProviders : [];
       if (linked.length > 0) {
         const summary = linked
-          .map((p) => `${p.name}${p.email ? `(${p.email})` : ""}`)
+          .map((p) => `${providerLabel(p.id) || p.name}${p.email ? `(${p.email})` : ""}`)
           .join(" / ");
-        lines.push(`已绑定: ${summary}`);
+        lines.push(t("profile.linkedLine", { summary }));
       } else if (profileState?.appleEmail) {
-        lines.push(`Apple: ${profileState.appleEmail}`);
+        lines.push(t("profile.appleLine", { email: profileState.appleEmail }));
       }
       profileAuthStatus.textContent = lines.join("\n");
     } else {

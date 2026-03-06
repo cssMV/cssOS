@@ -634,75 +634,75 @@
             </div>
             <div class="profile-fields">
               <div class="profile-readonly">
-                <span>账号邮箱</span>
+                <span data-i18n="profile.field.accountEmail">账号邮箱</span>
                 <div id="profile-account-email" class="profile-readonly-value"></div>
               </div>
               <div class="profile-readonly">
-                <span>登录来源</span>
+                <span data-i18n="profile.field.loginSource">登录来源</span>
                 <div id="profile-login-source" class="profile-readonly-value"></div>
               </div>
               <div class="profile-readonly">
-                <span>用户ID</span>
+                <span data-i18n="profile.field.userId">用户ID</span>
                 <div id="profile-user-id" class="profile-readonly-value"></div>
               </div>
               <div class="profile-readonly">
-                <span>加入时间</span>
+                <span data-i18n="profile.field.createdAt">加入时间</span>
                 <div id="profile-created-at" class="profile-readonly-value"></div>
               </div>
               <div class="profile-readonly">
-                <span>最近登录</span>
+                <span data-i18n="profile.field.lastSeen">最近登录</span>
                 <div id="profile-last-seen-at" class="profile-readonly-value"></div>
               </div>
               <label>
-                <span>显示名称</span>
+                <span data-i18n="profile.field.displayName">显示名称</span>
                 <input id="profile-edit-name" class="passkey-identifier-input" type="text" placeholder="请输入显示名称" />
               </label>
               <label>
-                <span>头像链接</span>
+                <span data-i18n="profile.field.avatarUrl">头像链接</span>
                 <input id="profile-edit-avatar" class="passkey-identifier-input" type="url" placeholder="https://..." />
               </label>
             </div>
-            <div class="profile-section-title">最近动态</div>
+            <div class="profile-section-title" data-i18n="profile.recent.title">最近动态</div>
             <div class="profile-insights-grid">
               <article class="profile-insight-card">
                 <div class="profile-insight-head">
-                  <div class="profile-insight-title">最新作品</div>
-                  <button class="mini-btn ghost" type="button" data-action="profile.more.works">More</button>
+                  <div class="profile-insight-title" data-i18n="profile.recent.latestWork">最新作品</div>
+                  <button class="mini-btn ghost" type="button" data-action="profile.more.works" data-i18n="common.more">More</button>
                 </div>
-                <div class="profile-insight-value" id="profile-latest-work">暂无数据</div>
-                <div class="profile-insight-meta" id="profile-latest-work-meta">进入作品中心查看更多</div>
+                <div class="profile-insight-value" id="profile-latest-work" data-i18n="profile.noData">暂无数据</div>
+                <div class="profile-insight-meta" id="profile-latest-work-meta" data-i18n="profile.recent.more.works">进入作品中心查看更多</div>
               </article>
               <article class="profile-insight-card">
                 <div class="profile-insight-head">
-                  <div class="profile-insight-title">最新收入</div>
-                  <button class="mini-btn ghost" type="button" data-action="profile.more.income">More</button>
+                  <div class="profile-insight-title" data-i18n="profile.recent.latestIncome">最新收入</div>
+                  <button class="mini-btn ghost" type="button" data-action="profile.more.income" data-i18n="common.more">More</button>
                 </div>
-                <div class="profile-insight-value" id="profile-latest-income">暂无数据</div>
-                <div class="profile-insight-meta" id="profile-latest-income-meta">进入账单面板查看更多</div>
+                <div class="profile-insight-value" id="profile-latest-income" data-i18n="profile.noData">暂无数据</div>
+                <div class="profile-insight-meta" id="profile-latest-income-meta" data-i18n="profile.recent.more.income">进入账单面板查看更多</div>
               </article>
               <article class="profile-insight-card">
                 <div class="profile-insight-head">
-                  <div class="profile-insight-title">最新买的歌</div>
-                  <button class="mini-btn ghost" type="button" data-action="profile.more.purchases">More</button>
+                  <div class="profile-insight-title" data-i18n="profile.recent.latestPurchase">最新买的歌</div>
+                  <button class="mini-btn ghost" type="button" data-action="profile.more.purchases" data-i18n="common.more">More</button>
                 </div>
-                <div class="profile-insight-value" id="profile-latest-purchase">暂无数据</div>
-                <div class="profile-insight-meta" id="profile-latest-purchase-meta">进入监听面板查看更多</div>
+                <div class="profile-insight-value" id="profile-latest-purchase" data-i18n="profile.noData">暂无数据</div>
+                <div class="profile-insight-meta" id="profile-latest-purchase-meta" data-i18n="profile.recent.more.purchases">进入监听面板查看更多</div>
               </article>
               <article class="profile-insight-card">
                 <div class="profile-insight-head">
-                  <div class="profile-insight-title">最新卖的歌</div>
-                  <button class="mini-btn ghost" type="button" data-action="profile.more.sales">More</button>
+                  <div class="profile-insight-title" data-i18n="profile.recent.latestSale">最新卖的歌</div>
+                  <button class="mini-btn ghost" type="button" data-action="profile.more.sales" data-i18n="common.more">More</button>
                 </div>
-                <div class="profile-insight-value" id="profile-latest-sale">暂无数据</div>
-                <div class="profile-insight-meta" id="profile-latest-sale-meta">进入作品中心查看更多</div>
+                <div class="profile-insight-value" id="profile-latest-sale" data-i18n="profile.noData">暂无数据</div>
+                <div class="profile-insight-meta" id="profile-latest-sale-meta" data-i18n="profile.recent.more.sales">进入作品中心查看更多</div>
               </article>
               <article class="profile-insight-card">
                 <div class="profile-insight-head">
-                  <div class="profile-insight-title">最新赏金</div>
-                  <button class="mini-btn ghost" type="button" data-action="profile.more.bounty">More</button>
+                  <div class="profile-insight-title" data-i18n="profile.recent.latestBounty">最新赏金</div>
+                  <button class="mini-btn ghost" type="button" data-action="profile.more.bounty" data-i18n="common.more">More</button>
                 </div>
-                <div class="profile-insight-value" id="profile-latest-bounty">暂无数据</div>
-                <div class="profile-insight-meta" id="profile-latest-bounty-meta">进入账单面板查看更多</div>
+                <div class="profile-insight-value" id="profile-latest-bounty" data-i18n="profile.noData">暂无数据</div>
+                <div class="profile-insight-meta" id="profile-latest-bounty-meta" data-i18n="profile.recent.more.bounty">进入账单面板查看更多</div>
               </article>
             </div>
             <div class="profile-row">

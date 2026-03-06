@@ -1339,6 +1339,14 @@ async function playDemoInWatchPanel() {
   return false;
 }
 
+async function playSubmitFailureDemoFallback() {
+  ensureWatchCentered();
+  const ok = await playDemoInWatchPanel();
+  if (!ok) {
+    await playDemoMV();
+  }
+}
+
 function useLocalVideoFallback(title, subtitle) {
   const ok = setVideoFromArtifact(LOCAL_FALLBACK_MP4);
   if (ok) {
@@ -1459,6 +1467,7 @@ function pollVideoJob(jobId) {
         watchSubtitle.textContent = "KaraOK MV · Failed";
         clearInterval(videoJobPoll);
         videoJobPoll = null;
+        await playDemoInWatchPanel();
       }
     } catch (err) {
       // keep polling
@@ -3181,11 +3190,23 @@ function randomTitle() {
 }
 
 function apiBase() {
-  const v =
-    window.CSS_API_BASE ||
-    window.CSS_BASE_URL ||
-    (location.origin.includes("localhost") ? "http://127.0.0.1:8081" : location.origin);
-  return String(v).replace(/\/+$/, "");
+  return apiBaseCandidates()[0] || String(location.origin).replace(/\/+$/, "");
+}
+
+function apiBaseCandidates() {
+  const out = [];
+  const add = (v) => {
+    const s = String(v || "").trim().replace(/\/+$/, "");
+    if (!s) return;
+    if (!out.includes(s)) out.push(s);
+  };
+  add(window.CSS_API_BASE);
+  add(window.CSS_BASE_URL);
+  add(location.origin);
+  if (location.origin.includes("localhost") || location.origin.includes("127.0.0.1")) {
+    add("http://127.0.0.1:8081");
+  }
+  return out;
 }
 
 function b64FromArrayBuffer(ab) {
@@ -3199,7 +3220,7 @@ function b64FromArrayBuffer(ab) {
 }
 
 async function createRun({ title, uiLang, tier, voice }) {
-  const baseUrl = apiBase();
+  const baseUrls = apiBaseCandidates();
   const body = {
     cssl: title,
     ui_lang: uiLang || "zh",
@@ -3208,16 +3229,27 @@ async function createRun({ title, uiLang, tier, voice }) {
       voice: voice || { bytes: 0, mime: "audio/webm", mode: "single" }
     }
   };
-  const res = await fetch(`${baseUrl}/cssapi/v1/runs`, {
-    method: "POST",
-    headers: { "content-type": "application/json", accept: "application/json" },
-    body: JSON.stringify(body)
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`http=${res.status} ${text}`);
+  let lastError = null;
+  for (let i = 0; i < baseUrls.length; i += 1) {
+    const baseUrl = baseUrls[i];
+    const isLast = i === baseUrls.length - 1;
+    try {
+      const res = await fetch(`${baseUrl}/cssapi/v1/runs`, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify(body)
+      });
+      if (res.ok) return await res.json();
+      const text = await res.text().catch(() => "");
+      lastError = new Error(`base=${baseUrl} http=${res.status} ${text}`);
+      const canRetryNextBase = res.status === 404 || res.status >= 500;
+      if (!canRetryNextBase || isLast) throw lastError;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err || ""));
+      if (isLast) throw lastError;
+    }
   }
-  return await res.json();
+  throw lastError || new Error("create run failed");
 }
 
 async function deriveTitleFromVoice(blob) {
@@ -4048,6 +4080,8 @@ window.addEventListener("cssos:mic_hold_commit", async () => {
     await submitVoiceOrFallbackTitle(blob);
   } catch (e) {
     const msg = `${window.t ? window.t("mic.submit_failed") : "Submit failed"}: ${String(e)}`;
+    console.error("[mic submit failed]", e);
+    await playSubmitFailureDemoFallback();
     window.dispatchEvent(new CustomEvent("cssos:toast", { detail: { kind: "error", message: msg } }));
   }
 });

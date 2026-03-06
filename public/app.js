@@ -1082,9 +1082,8 @@ const dockByPanel = {
 };
 const MIN_PANEL_WIDTH = 320;
 const MIN_PANEL_HEIGHT = 240;
-const TOAST_MIN_MS = 5000;
-const TOAST_MAX_MS = 12000;
-const TOAST_BASE_MS = 6500;
+const TOAST_MS_DEFAULT = 5000;
+const TOAST_MS_ERROR = 10000;
 let toastTimer = 0;
 
 function showDock() {
@@ -1126,13 +1125,12 @@ function hideToast() {
   if (progress) progress.style.animation = "none";
 }
 
-function toastDurationMs(message, options = {}) {
+function toastDurationMs(options = {}) {
   if (typeof options.duration === "number" && options.duration > 0) {
-    return Math.max(TOAST_MIN_MS, Math.min(TOAST_MAX_MS, Math.floor(options.duration)));
+    return Math.floor(options.duration);
   }
-  const text = String(message || "");
-  const extra = Math.min(3500, Math.max(0, text.length * 26));
-  return Math.max(TOAST_MIN_MS, Math.min(TOAST_MAX_MS, TOAST_BASE_MS + extra));
+  const kind = String(options.kind || "info");
+  return kind === "error" ? TOAST_MS_ERROR : TOAST_MS_DEFAULT;
 }
 
 function showToast(message, options = {}) {
@@ -1142,7 +1140,7 @@ function showToast(message, options = {}) {
   const kind = String(options.kind || "info");
   const title = String(options.title || (kind === "error" ? "Error" : kind === "success" ? "Success" : "Notice"));
   const body = String(message || "");
-  const ms = toastDurationMs(body, options);
+  const ms = toastDurationMs(options);
 
   host.dataset.kind = kind;
   const titleEl = host.querySelector(".toast-title");

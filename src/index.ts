@@ -722,8 +722,13 @@ async function findUserIdByEmail(client: PoolClient, email: string): Promise<str
   return found.rows[0]?.id || null;
 }
 
-async function upsertAppleIdentity(args: { sub: string; email: string | null; preferredEmail?: string | null }) {
-  const { sub, email, preferredEmail } = args;
+async function upsertOAuthIdentity(args: {
+  provider: string;
+  providerUserId: string;
+  email: string | null;
+  preferredEmail?: string | null;
+}) {
+  const { provider, providerUserId, email, preferredEmail } = args;
   const preferred = normalizeEmailInput(preferredEmail || "");
   const primaryEmail = preferred || normalizeEmailInput(email || "");
   return withClient(async (client) => {
@@ -731,24 +736,31 @@ async function upsertAppleIdentity(args: { sub: string; email: string | null; pr
     try {
       const found = await client.query<{ user_id: string }>(
         "SELECT user_id FROM oauth_identities WHERE provider = $1 AND provider_user_id = $2 LIMIT 1",
-        ["apple", sub]
+        [provider, providerUserId]
       );
       if (found.rows[0]?.user_id) {
+        let userId = found.rows[0].user_id;
         if (preferred) {
           const preferredUserId = await findUserIdByEmail(client, preferred);
-          if (preferredUserId && preferredUserId !== found.rows[0].user_id) {
+          if (preferredUserId && preferredUserId !== userId) {
             await client.query(
               `UPDATE oauth_identities
                   SET user_id = $1
                 WHERE provider = $2 AND provider_user_id = $3`,
-              [preferredUserId, "apple", sub]
+              [preferredUserId, provider, providerUserId]
             );
-            await client.query("COMMIT");
-            return preferredUserId;
+            userId = preferredUserId;
           }
         }
+        await client.query(
+          `UPDATE oauth_identities
+              SET provider_email = COALESCE($1, provider_email),
+                  last_login_at = now()
+            WHERE provider = $2 AND provider_user_id = $3`,
+          [primaryEmail, provider, providerUserId]
+        );
         await client.query("COMMIT");
-        return found.rows[0].user_id;
+        return userId;
       }
 
       let userId: string | null = null;
@@ -770,8 +782,16 @@ async function upsertAppleIdentity(args: { sub: string; email: string | null; pr
       await client.query(
         `INSERT INTO oauth_identities (user_id, provider, provider_user_id)
          VALUES ($1, $2, $3)
-         ON CONFLICT (provider, provider_user_id) DO NOTHING`,
-        [userId, "apple", sub]
+         ON CONFLICT (provider, provider_user_id)
+         DO UPDATE SET user_id = EXCLUDED.user_id`,
+        [userId, provider, providerUserId]
+      );
+      await client.query(
+        `UPDATE oauth_identities
+            SET provider_email = COALESCE($1, provider_email),
+                last_login_at = now()
+          WHERE provider = $2 AND provider_user_id = $3`,
+        [primaryEmail, provider, providerUserId]
       );
       await client.query("COMMIT");
       return userId;
@@ -860,6 +880,45 @@ async function getAppleIdentityEmail(userId: string): Promise<string | null> {
     )
   );
   return normalizeEmailInput(result.rows[0]?.apple_email || "");
+}
+
+type UserAuthSource = {
+  provider: string;
+  providerEmail: string | null;
+  lastLoginAt: string | null;
+};
+
+async function getUserAuthSources(userId: string): Promise<UserAuthSource[]> {
+  if (!DATABASE_URL || !userId) return [];
+  const result = await withClient((client) =>
+    client.query<{ provider: string; provider_email: string | null; last_login_at: Date | string | null }>(
+      `SELECT provider, provider_email, last_login_at
+         FROM oauth_identities
+        WHERE user_id = $1
+        ORDER BY last_login_at DESC NULLS LAST, created_at DESC`,
+      [userId]
+    )
+  );
+  return result.rows.map((row) => ({
+    provider: row.provider,
+    providerEmail: normalizeEmailInput(row.provider_email || ""),
+    lastLoginAt: row.last_login_at
+      ? (row.last_login_at instanceof Date ? row.last_login_at.toISOString() : String(row.last_login_at))
+      : null
+  }));
+}
+
+function providerDisplayName(provider: string): string {
+  const p = String(provider || "").toLowerCase();
+  if (p === "apple") return "Apple";
+  if (p === "google") return "Google";
+  if (p === "github") return "GitHub";
+  if (p === "facebook") return "Facebook";
+  if (p === "wechat") return "WeChat";
+  if (p === "tiktok") return "TikTok";
+  if (p === "x") return "X";
+  if (p === "bsky") return "Bluesky";
+  return provider || "Unknown";
 }
 
 async function getLastSeenAt(userId: string): Promise<string | null> {
@@ -985,6 +1044,8 @@ app.get("/api/profile", async (req, res) => {
     const user = await getSessionUser(req);
     if (!user) return res.json(okEmpty({ authenticated: false }, "No data yet"));
     const sourceEmail = await getAppleIdentityEmail(user.id);
+    const authSources = await getUserAuthSources(user.id);
+    const latestSource = authSources[0] || null;
     const lastSeenAt = await getLastSeenAt(user.id);
     const effectiveRole = user.is_admin ? "admin" : (user.role || "user");
     return res.json(
@@ -995,7 +1056,13 @@ app.get("/api/profile", async (req, res) => {
         avatarUrl: user.avatar_url || "",
         accountEmail: user.email || "",
         appleEmail: sourceEmail || "",
-        loginSource: "Apple 登录",
+        loginSource: latestSource ? `${providerDisplayName(latestSource.provider)} 登录` : "Apple 登录",
+        linkedProviders: authSources.map((x) => ({
+          id: x.provider,
+          name: providerDisplayName(x.provider),
+          email: x.providerEmail || "",
+          lastLoginAt: x.lastLoginAt
+        })),
         createdAt: user.created_at
           ? (user.created_at instanceof Date ? user.created_at.toISOString() : String(user.created_at))
           : null,
@@ -1128,7 +1195,12 @@ async function handleAppleCallback(req: express.Request, res: express.Response) 
       return res.status(400).send("auth_failed");
     }
     const email = payload.email ? String(payload.email) : null;
-    const userId = await upsertAppleIdentity({ sub, email, preferredEmail });
+    const userId = await upsertOAuthIdentity({
+      provider: "apple",
+      providerUserId: sub,
+      email,
+      preferredEmail
+    });
     let appleDisplayName = "";
     try {
       const rawUser = (req.body as Record<string, unknown> | undefined)?.user;

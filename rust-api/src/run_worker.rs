@@ -1,9 +1,11 @@
+use crate::dag::topo_order_v1;
 use crate::dsl::compile::CompiledCommands;
-use crate::run_state::{DagMeta, RunConfig, RunState, RunStatus, RetryPolicy};
+use crate::run_state::{DagMeta, RetryPolicy, RunConfig, RunState, RunStatus};
 use crate::runner::run_pipeline_default;
 use chrono::Utc;
 use serde_json::Value;
 use std::{
+    collections::BTreeMap,
     fs,
     path::PathBuf,
     sync::{
@@ -54,7 +56,10 @@ fn write_failed_state(state_path: &PathBuf, msg: String) {
     }
     v["status"] = serde_json::json!("FAILED");
     v["error"] = serde_json::json!(msg);
-    let _ = fs::write(state_path, serde_json::to_vec_pretty(&v).unwrap_or_default());
+    let _ = fs::write(
+        state_path,
+        serde_json::to_vec_pretty(&v).unwrap_or_default(),
+    );
 }
 
 pub fn spawn_run_worker(run_dir: PathBuf, commands: Value) {
@@ -101,12 +106,32 @@ pub fn spawn_run_worker(run_dir: PathBuf, commands: Value) {
         };
 
         let now = Utc::now().to_rfc3339();
+        let dag = crate::dag::cssmv_dag_v1();
+        let topo_order = dag
+            .topo_order()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>();
+        let mut dag_edges: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for node in &dag.nodes {
+            dag_edges.insert(
+                node.name.to_string(),
+                node.deps.iter().map(|d| (*d).to_string()).collect(),
+            );
+        }
+
         let mut state = RunState {
             schema: "css.pipeline.run.v1".to_string(),
             run_id,
             created_at: now.clone(),
             updated_at: now,
             status: RunStatus::INIT,
+            heartbeat_at: None,
+            last_heartbeat_at: None,
+            stuck_timeout_seconds: Some(120),
+            cancel_requested: false,
+            cancel_requested_at: None,
             ui_lang: "auto".to_string(),
             tier: "local".to_string(),
             cssl: "async-run-worker".to_string(),
@@ -114,6 +139,9 @@ pub fn spawn_run_worker(run_dir: PathBuf, commands: Value) {
                 out_dir: run_dir.clone(),
                 wiki_enabled: true,
                 civ_linked: true,
+                heartbeat_interval_seconds: 2,
+                stage_timeout_seconds: 1800,
+                stuck_timeout_seconds: 120,
             },
             retry_policy: RetryPolicy {
                 max_retries: 3,
@@ -122,25 +150,47 @@ pub fn spawn_run_worker(run_dir: PathBuf, commands: Value) {
             },
             dag: DagMeta {
                 schema: "css.pipeline.dag.v1".to_string(),
+                nodes: dag
+                    .nodes
+                    .iter()
+                    .map(|n| crate::run_state::DagNodeMeta {
+                        name: n.name.to_string(),
+                        deps: n.deps.iter().map(|d| (*d).to_string()).collect(),
+                    })
+                    .collect(),
             },
-            topo_order: vec![],
-            artifacts: serde_json::json!({}),
+            topo_order,
+            dag_edges,
+            commands: serde_json::json!({}),
+            artifacts: vec![],
             stages: Default::default(),
+            video_shots_total: None,
+            total_duration_seconds: None,
+            stage_seq: 0,
+            slowest_leader: None,
+            slowest_tick: None,
+            last_event: None,
         };
 
         state.set_artifact_path("run.input.commands", commands);
-        state.set_artifact_path("worker.concurrency", serde_json::json!(concurrency() as i64));
+        state.set_artifact_path(
+            "worker.concurrency",
+            serde_json::json!(concurrency() as i64),
+        );
         let _ = fs::write(
             &state_path,
             serde_json::to_vec_pretty(&state).unwrap_or_default(),
         );
 
-        let result = tokio::task::spawn_blocking(move || run_pipeline_default(state, compiled)).await;
+        state.topo_order = topo_order_v1(&state);
+        let _ = fs::write(
+            &state_path,
+            serde_json::to_vec_pretty(&state).unwrap_or_default(),
+        );
 
-        match result {
-            Ok(Ok(_)) => {}
-            Ok(Err(e)) => write_failed_state(&state_path, e.to_string()),
-            Err(e) => write_failed_state(&state_path, format!("join error: {e}")),
+        match run_pipeline_default(state, compiled).await {
+            Ok(_) => {}
+            Err(e) => write_failed_state(&state_path, e.to_string()),
         }
         RUNNING.fetch_sub(1, Ordering::Relaxed);
     });

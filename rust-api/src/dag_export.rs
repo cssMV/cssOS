@@ -2,7 +2,11 @@ use crate::dag::Dag;
 use serde_json::json;
 use std::{fs, path::Path};
 
-pub fn write_dag_json<P: AsRef<Path>>(out_path: P, dag: &Dag, run_state_json: &serde_json::Value) -> anyhow::Result<()> {
+pub fn write_dag_json<P: AsRef<Path>>(
+    out_path: P,
+    dag: &Dag,
+    run_state_json: &serde_json::Value,
+) -> anyhow::Result<()> {
     let mut nodes = Vec::new();
     for n in &dag.nodes {
         let status = run_state_json

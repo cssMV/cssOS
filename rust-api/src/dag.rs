@@ -1,3 +1,4 @@
+use crate::run_state::RunState;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 #[derive(Debug, Clone)]
@@ -78,11 +79,61 @@ impl Dag {
 pub fn cssmv_dag_v1() -> Dag {
     Dag {
         nodes: vec![
-            DagNode { name: "lyrics", deps: &[] },
-            DagNode { name: "music", deps: &["lyrics"] },
-            DagNode { name: "vocals", deps: &["lyrics", "music"] },
-            DagNode { name: "video", deps: &["lyrics", "vocals"] },
-            DagNode { name: "render", deps: &["lyrics", "music", "vocals", "video"] },
+            DagNode {
+                name: "lyrics",
+                deps: &[],
+            },
+            DagNode {
+                name: "music",
+                deps: &["lyrics"],
+            },
+            DagNode {
+                name: "vocals",
+                deps: &["lyrics", "music"],
+            },
+            DagNode {
+                name: "video_plan",
+                deps: &["lyrics", "vocals"],
+            },
+            DagNode {
+                name: "video_assemble",
+                deps: &["video_plan"],
+            },
+            DagNode {
+                name: "subtitles",
+                deps: &["lyrics"],
+            },
+            DagNode {
+                name: "mix",
+                deps: &["music", "vocals"],
+            },
+            DagNode {
+                name: "render",
+                deps: &["video_assemble", "mix", "subtitles"],
+            },
         ],
     }
+}
+
+pub fn topo_order_v1(state: &RunState) -> Vec<String> {
+    let mut shots: Vec<String> = state
+        .stages
+        .keys()
+        .filter(|k| k.starts_with("video_shot_"))
+        .cloned()
+        .collect();
+    shots.sort();
+
+    let mut out = vec![
+        "lyrics".to_string(),
+        "music".to_string(),
+        "vocals".to_string(),
+        "video_plan".to_string(),
+    ];
+    out.extend(shots);
+    out.push("video_assemble".to_string());
+    out.push("subtitles".to_string());
+    out.push("mix".to_string());
+    out.push("render".to_string());
+    out
 }

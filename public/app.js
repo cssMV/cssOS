@@ -1125,7 +1125,15 @@ function updateLoginUI() {
   if (profileAuthStatus) {
     if (authState.user) {
       const lines = [`${t("login.statusSigned")} · ${userLabel || authState.user.id}`];
-      if (profileState?.appleEmail) lines.push(`Apple: ${profileState.appleEmail}`);
+      const linked = Array.isArray(profileState?.linkedProviders) ? profileState.linkedProviders : [];
+      if (linked.length > 0) {
+        const summary = linked
+          .map((p) => `${p.name}${p.email ? `(${p.email})` : ""}`)
+          .join(" / ");
+        lines.push(`已绑定: ${summary}`);
+      } else if (profileState?.appleEmail) {
+        lines.push(`Apple: ${profileState.appleEmail}`);
+      }
       profileAuthStatus.textContent = lines.join("\n");
     } else {
       profileAuthStatus.textContent = t("login.statusGuest");

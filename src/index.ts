@@ -151,10 +151,25 @@ const passkeyCreds = new Map<
   Array<{ id: string; transports?: string[] }>
 >();
 
+const appleOauthStateCache = new Map<
+  string,
+  {
+    nonce: string;
+    expireAt: number;
+  }
+>();
+
 function cleanupPasskeyState() {
   const now = Date.now();
   for (const [k, v] of passkeyState.entries()) {
     if (v.expireAt <= now) passkeyState.delete(k);
+  }
+}
+
+function cleanupAppleOauthState() {
+  const now = Date.now();
+  for (const [k, v] of appleOauthStateCache.entries()) {
+    if (v.expireAt <= now) appleOauthStateCache.delete(k);
   }
 }
 
@@ -627,12 +642,14 @@ app.get("/api/auth/providers", (_req, res) => {
 app.get("/auth/apple", async (req, res) => {
   noStore(res);
   try {
+    cleanupAppleOauthState();
     const clientId = process.env.APPLE_CLIENT_ID || "";
     if (!clientId) return res.status(503).send("apple_not_configured");
     const state = crypto.randomBytes(16).toString("hex");
     const nonce = crypto.randomBytes(16).toString("hex");
     (req.session as any).apple_oauth_state = state;
     (req.session as any).apple_oauth_nonce = nonce;
+    appleOauthStateCache.set(state, { nonce, expireAt: Date.now() + 5 * 60 * 1000 });
 
     const redirectUri = `${appBaseUrl(req)}/auth/apple/callback`;
     const q = new URLSearchParams({
@@ -661,13 +678,18 @@ function readAuthParam(req: express.Request, key: string) {
 async function handleAppleCallback(req: express.Request, res: express.Response) {
   noStore(res);
   try {
+    cleanupAppleOauthState();
     const code = readAuthParam(req, "code");
     const state = readAuthParam(req, "state");
     const savedState = String((req.session as any).apple_oauth_state || "");
     const savedNonce = String((req.session as any).apple_oauth_nonce || "");
+    const cached = state ? appleOauthStateCache.get(state) : null;
+    const expectedState = savedState || (cached ? state : "");
+    const expectedNonce = savedNonce || (cached?.nonce || "");
     (req.session as any).apple_oauth_state = null;
     (req.session as any).apple_oauth_nonce = null;
-    if (!code || !state || !savedState || state !== savedState) {
+    if (state) appleOauthStateCache.delete(state);
+    if (!code || !state || !expectedState || state !== expectedState) {
       return res.status(400).send("auth_failed");
     }
 
@@ -693,7 +715,7 @@ async function handleAppleCallback(req: express.Request, res: express.Response) 
     const payload = await verifyAppleIdToken(String(tk.id_token));
     const sub = String(payload.sub || "");
     if (!sub) return res.status(400).send("auth_failed");
-    if (savedNonce && payload.nonce && String(payload.nonce) !== savedNonce) {
+    if (expectedNonce && payload.nonce && String(payload.nonce) !== expectedNonce) {
       return res.status(400).send("auth_failed");
     }
     const email = payload.email ? String(payload.email) : null;

@@ -1947,7 +1947,7 @@ a.icon-btn {
   align-items: center;
   gap: 8px;
   height: 54px;
-  padding: 0 14px 0 22px;
+  padding: 0 14px 0 16px;
   max-width: calc(100% - 32px);
   overflow-x: auto;
   background: rgba(18, 24, 30, 0.36);
@@ -2019,9 +2019,9 @@ a.icon-btn {
 }
 
 #dock-mic {
-  width: 54px;
-  height: 54px;
-  margin: -1px 0 -1px -34px;
+  width: 60px;
+  height: 60px;
+  margin: -3px 0 -3px -40px;
   padding: 0;
   border-radius: 14px;
   overflow: hidden;
@@ -2493,7 +2493,7 @@ a.icon-btn {
 .dock {
   gap: 10px !important;
   height: 54px !important;
-  padding: 0 14px 0 22px !important;
+  padding: 0 14px 0 16px !important;
 }
 
 .dock-item {

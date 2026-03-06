@@ -109,11 +109,11 @@ async function getSessionUser(req: express.Request) {
     display_name: string | null;
     email: string | null;
     avatar_url: string | null;
-    default_role: string | null;
+    role: string | null;
   };
   const result: QueryResult<UserRow> = await withClient((client) =>
     client.query<UserRow>(
-      "SELECT id, display_name, email, avatar_url, default_role FROM users WHERE id = $1",
+      "SELECT id, display_name, email, avatar_url, role FROM users WHERE id = $1",
       [sessionUserId]
     )
   );
@@ -293,7 +293,7 @@ async function ensureUserByEmail(email: string): Promise<string | null> {
     );
     if (found.rows[0]?.id) return found.rows[0].id;
     const created = await client.query<{ id: string }>(
-      `INSERT INTO users (display_name, email, avatar_url, default_role)
+      `INSERT INTO users (display_name, email, avatar_url, role)
        VALUES ($1, $2, $3, $4)
        RETURNING id`,
       [null, email, null, "user"]
@@ -688,7 +688,7 @@ async function upsertAppleIdentity(args: { sub: string; email: string | null }) 
       }
 
       const userRes = await client.query<{ id: string }>(
-        `INSERT INTO users (display_name, email, avatar_url, default_role)
+        `INSERT INTO users (display_name, email, avatar_url, role)
          VALUES ($1, $2, $3, $4)
          RETURNING id`,
         [null, email, null, "user"]
@@ -827,8 +827,8 @@ app.get("/api/me", async (req, res) => {
           email: user.email,
           avatar: user.avatar_url
         },
-        role: user.default_role || "user",
-        tier: user.default_role || "user"
+        role: user.role || "user",
+        tier: user.role || "user"
       })
     );
   } catch (_err) {
@@ -1258,7 +1258,7 @@ app.post("/api/billing/usage", async (req, res) => {
       return { allowed: true, remaining: null, limit: monthLimit || null };
     });
 
-    return res.json(okData({ tier: user.default_role || "user", ...result }));
+    return res.json(okData({ tier: user.role || "user", ...result }));
   } catch (_err) {
     return res.json(okEmpty({ allowed: false }, "No data yet"));
   }

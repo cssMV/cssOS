@@ -22,9 +22,12 @@ const apiPaymentMethod = document.getElementById("api-payment-method");
 const apiAutoRecharge = document.getElementById("api-auto-recharge");
 const apiMonthlyLimit = document.getElementById("api-monthly-limit");
 const lyricsEl = document.getElementById("lyrics");
+const runline = document.getElementById("runline");
+const runid = document.getElementById("runid");
 const watchSubtitle = document.getElementById("watch-subtitle");
 const watchVideo = document.getElementById("watch-video");
 const watchSvg = document.getElementById("watch-svg");
+const foryouPreviewVideo = document.getElementById("foryou-preview-video");
 const musicProgress = document.getElementById("music-progress");
 const videoProgress = document.getElementById("video-progress");
 const karaProgress = document.getElementById("kara-progress");
@@ -77,6 +80,10 @@ const loginUser = document.getElementById("login-user");
 const loginLogout = document.getElementById("login-logout");
 const loginPasskeyIdentifier = document.getElementById("login-passkey-identifier");
 const profilePasskeyIdentifier = document.getElementById("profile-passkey-identifier");
+const profileAuthStatus = document.getElementById("profile-auth-status");
+const worksAvatar = document.getElementById("works-avatar");
+const worksName = document.getElementById("works-name");
+const worksRole = document.getElementById("works-role");
 const versionToggle = document.getElementById("version-toggle");
 const versionMenu = document.getElementById("version-menu");
 const versionList = document.getElementById("version-list");
@@ -89,10 +96,10 @@ if (watchVideo) {
 const { LOCALE_KEY, DEFAULT_LOCALE } = window.CSSOS_I18N_CONSTANTS;
 const USER_ROLE_KEY = "cssos.userRole";
 const DEFAULT_ROLE = "guest";
+const PASSKEY_IDENTIFIER_KEY = "CSSOS_PASSKEY_IDENTIFIER";
 const LANG_STORAGE_KEY = "CSSOS_LANG";
 const LANG_AUTODETECT_KEY = "CSSOS_LANG_AUTO";
 const LANG_DETECTED_KEY = "CSSOS_LANG_DETECTED";
-const PASSKEY_IDENTIFIER_KEY = "CSSOS_PASSKEY_IDENTIFIER";
 
 const { languageCatalog } = window.CSSOS_I18N_CATALOG;
 
@@ -107,6 +114,7 @@ Object.assign(I18N.en, {
   "mic.no_demo_found": "No demo media found.",
   "mic.demo_label": "demo",
   "mic.settings_open": "Mic settings",
+  "passkey.identifier_required": "Enter your email before using passkey.",
   "overlay.close": "Close",
   "panel.about": "About",
   "about.tab.whitepaper": "Whitepaper",
@@ -758,6 +766,16 @@ let lyricsTargetLength = 0;
 let playbackRetry = 0;
 let playbackTimer = null;
 let manualPlayHinted = false;
+let readyWatchToken = 0;
+let compactWatchTimer = 0;
+let compactPreviewLoopTimer = 0;
+let watchSinceSeq = null;
+let watchedRunId = "";
+let typedLyricsTarget = "";
+let typedLyricsCurrent = "";
+let typedLyricsTimer = 0;
+let artifactsPollTick = 0;
+let runLyricsText = "";
 
 const engineStates = {
   lyrics: "running",
@@ -921,14 +939,6 @@ const authState = {
 
 let authProviders = [];
 
-function unwrapApiData(payload) {
-  if (!payload || typeof payload !== "object") return payload;
-  if (Object.prototype.hasOwnProperty.call(payload, "data")) {
-    return payload.data;
-  }
-  return payload;
-}
-
 const getUserRole = () =>
   (authState.role ||
     window.CSSOS_USER_ROLE ||
@@ -962,13 +972,11 @@ async function fetchMe() {
   try {
     const res = await fetch("/api/me", { credentials: "include" });
     if (!res.ok) return;
-    const data = unwrapApiData(await res.json());
+    const payload = await res.json();
+    const data = unwrapApiData(payload);
     authState.user = data.user || null;
     authState.role = data.role || DEFAULT_ROLE;
     authState.tier = data.tier || authState.role || DEFAULT_ROLE;
-    if (authState.user?.email) {
-      localStorage.setItem(PASSKEY_IDENTIFIER_KEY, String(authState.user.email).toLowerCase());
-    }
     updateLoginUI();
     fetchBillingStatus();
   } catch (err) {
@@ -977,24 +985,31 @@ async function fetchMe() {
 }
 
 function updateLoginUI() {
-  setPasskeyIdentifier(authState.user?.email || getPasskeyIdentifier());
+  const userLabel = authState.user
+    ? authState.user.name || authState.user.email || authState.user.id
+    : "";
   if (loginStatus) {
     loginStatus.textContent = authState.user ? t("login.statusSigned") : t("login.statusGuest");
   }
   if (loginUser) {
-    if (authState.user) {
-      const label = authState.user.name || authState.user.email || authState.user.id;
-      loginUser.textContent = label || "";
-    } else {
-      loginUser.textContent = "";
-    }
-  }
-  if (authState.user) {
-    const label = authState.user.email || authState.user.name || authState.user.id || "";
-    setHintKey(`Signed in: ${label}`);
+    loginUser.textContent = userLabel || "";
   }
   if (loginLogout) {
     loginLogout.style.display = authState.user ? "inline-flex" : "none";
+  }
+  if (profileAuthStatus) {
+    profileAuthStatus.textContent = authState.user
+      ? `${t("login.statusSigned")} · ${userLabel}`
+      : t("login.statusGuest");
+  }
+  if (worksAvatar) {
+    worksAvatar.textContent = authState.user ? (userLabel || "U").slice(0, 2).toUpperCase() : "CS";
+  }
+  if (worksName) {
+    worksName.textContent = authState.user ? userLabel : "Guest";
+  }
+  if (worksRole) {
+    worksRole.textContent = authState.user ? "Creator" : "Guest";
   }
 }
 
@@ -1002,12 +1017,35 @@ async function fetchAuthProviders() {
   try {
     const res = await fetch("/api/auth/providers", { credentials: "include" });
     if (!res.ok) return;
-    const data = unwrapApiData(await res.json());
+    const payload = await res.json();
+    const data = unwrapApiData(payload);
     authProviders = Array.isArray(data.providers) ? data.providers : [];
     renderLoginPlatforms();
   } catch (err) {
     // ignore
   }
+}
+
+function unwrapApiData(payload) {
+  if (!payload || typeof payload !== "object") return {};
+  if (Object.prototype.hasOwnProperty.call(payload, "data")) {
+    const value = payload.data;
+    return value && typeof value === "object" ? value : {};
+  }
+  return payload;
+}
+
+function isProviderEnabled(providerId) {
+  return authProviders.some((provider) => provider.id === providerId && provider.enabled);
+}
+
+function startAppleLogin() {
+  if (!isProviderEnabled("apple")) {
+    showToast("Apple 登录暂未配置");
+    setHintKey("Apple 登录暂未配置，请先配置 APPLE_CLIENT_ID / TEAM_ID / KEY_ID / PRIVATE_KEY");
+    return;
+  }
+  window.location.assign("/auth/apple");
 }
 
 function consumeLocalUsage() {
@@ -1101,10 +1139,6 @@ const dockByPanel = {
 };
 const MIN_PANEL_WIDTH = 320;
 const MIN_PANEL_HEIGHT = 240;
-const TOAST_MIN_MS = 5000;
-const TOAST_MAX_MS = 12000;
-const TOAST_BASE_MS = 6500;
-let toastTimer = 0;
 
 function showDock() {
   dock.classList.remove("hidden");
@@ -1120,64 +1154,10 @@ function resetInactivityTimer() {
   inactivityTimer = setTimeout(hideDock, 10000);
 }
 
-function ensureToastUi() {
-  if (!toast) return null;
-  if (toast.querySelector(".toast-title")) return toast;
-  toast.innerHTML = `
-    <div class="toast-head">
-      <div class="toast-title">Notice</div>
-      <button class="toast-close" type="button" aria-label="Close">×</button>
-    </div>
-    <div class="toast-body"></div>
-    <div class="toast-progress"><span></span></div>
-  `;
-  const closeBtn = toast.querySelector(".toast-close");
-  if (closeBtn) closeBtn.addEventListener("click", () => hideToast());
-  return toast;
-}
-
-function hideToast() {
-  if (!toast) return;
-  if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = 0;
-  toast.classList.remove("show");
-  const progress = toast.querySelector(".toast-progress > span");
-  if (progress) progress.style.animation = "none";
-}
-
-function toastDurationMs(message, options = {}) {
-  if (typeof options.duration === "number" && options.duration > 0) {
-    return Math.max(TOAST_MIN_MS, Math.min(TOAST_MAX_MS, Math.floor(options.duration)));
-  }
-  const text = String(message || "");
-  const extra = Math.min(3500, Math.max(0, text.length * 26));
-  return Math.max(TOAST_MIN_MS, Math.min(TOAST_MAX_MS, TOAST_BASE_MS + extra));
-}
-
-function showToast(message, options = {}) {
-  const host = ensureToastUi();
-  if (!host) return;
-
-  const kind = String(options.kind || "info");
-  const title = String(options.title || (kind === "error" ? "Error" : kind === "success" ? "Success" : "Notice"));
-  const body = String(message || "");
-  const ms = toastDurationMs(body, options);
-
-  host.dataset.kind = kind;
-  const titleEl = host.querySelector(".toast-title");
-  const bodyEl = host.querySelector(".toast-body");
-  const progress = host.querySelector(".toast-progress > span");
-  if (titleEl) titleEl.textContent = title;
-  if (bodyEl) bodyEl.textContent = body;
-  if (progress) {
-    progress.style.animation = "none";
-    void progress.offsetWidth;
-    progress.style.animation = `toastProgress ${ms}ms linear forwards`;
-  }
-
-  host.classList.add("show");
-  if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => hideToast(), ms);
+function showToast(message) {
+  toast.textContent = message;
+  toast.classList.add("show");
+  setTimeout(() => toast.classList.remove("show"), 2200);
 }
 
 function typewriter(el, text, speed = 24, callback) {
@@ -1416,14 +1396,6 @@ async function playDemoInWatchPanel() {
   return false;
 }
 
-async function playSubmitFailureDemoFallback() {
-  ensureWatchCentered();
-  const ok = await playDemoInWatchPanel();
-  if (!ok) {
-    await playDemoMV();
-  }
-}
-
 function useLocalVideoFallback(title, subtitle) {
   const ok = setVideoFromArtifact(LOCAL_FALLBACK_MP4);
   if (ok) {
@@ -1544,7 +1516,6 @@ function pollVideoJob(jobId) {
         watchSubtitle.textContent = "KaraOK MV · Failed";
         clearInterval(videoJobPoll);
         videoJobPoll = null;
-        await playDemoInWatchPanel();
       }
     } catch (err) {
       // keep polling
@@ -1951,10 +1922,11 @@ function attachAmbientTrail() {
 
 function setPanelPosition(panel, left, top) {
   const rect = panel.getBoundingClientRect();
+  const safeTop = Math.max(8, Number(window.visualViewport?.offsetTop || 0) + 8);
   const maxLeft = Math.max(0, window.innerWidth - rect.width);
-  const maxTop = Math.max(0, window.innerHeight - rect.height);
+  const maxTop = Math.max(safeTop, window.innerHeight - rect.height);
   const clampedLeft = Math.min(Math.max(0, left), maxLeft);
-  const clampedTop = Math.min(Math.max(0, top), maxTop);
+  const clampedTop = Math.min(Math.max(safeTop, top), maxTop);
   panel.style.left = `${clampedLeft}px`;
   panel.style.top = `${clampedTop}px`;
   panel.style.transform = "none";
@@ -2054,10 +2026,11 @@ function clampPanelInViewport(panel) {
   if (!panel) return;
   if (!panel.style.left && !panel.style.top) return;
   const rect = panel.getBoundingClientRect();
+  const safeTop = Math.max(8, Number(window.visualViewport?.offsetTop || 0) + 8);
   const maxLeft = Math.max(0, window.innerWidth - rect.width);
-  const maxTop = Math.max(0, window.innerHeight - rect.height);
+  const maxTop = Math.max(safeTop, window.innerHeight - rect.height);
   const clampedLeft = Math.min(Math.max(0, rect.left), maxLeft);
-  const clampedTop = Math.min(Math.max(0, rect.top), maxTop);
+  const clampedTop = Math.min(Math.max(safeTop, rect.top), maxTop);
   panel.style.left = `${clampedLeft}px`;
   panel.style.top = `${clampedTop}px`;
   panel.style.transform = "none";
@@ -2163,10 +2136,7 @@ function applySpell(spell, options = {}) {
   if (mirrorTitle) mirrorTitle.textContent = next;
   if (mirrorSlogan) mirrorSlogan.innerHTML = formatSlogan(next);
   if (applySettings) applySettings.textContent = formatApplyLabel(next);
-  if (toast && !toast.classList.contains("show")) {
-    const bodyEl = toast.querySelector(".toast-body");
-    if (bodyEl) bodyEl.textContent = formatToast(next);
-  }
+  if (toast) toast.textContent = formatToast(next);
 
   if (watchSubtitle && watchSubtitle.textContent.includes(prev)) {
     watchSubtitle.textContent = replaceSpell(watchSubtitle.textContent, prev, next);
@@ -2592,7 +2562,15 @@ async function startCreation(customTitle, customLyrics) {
 }
 
 function handleMicClick() {
-  runMicFlow();
+  if (micIgnoreActionClick) {
+    micIgnoreActionClick = false;
+    return;
+  }
+  if (hold.active) return;
+  micHoldStart("click");
+  window.setTimeout(() => {
+    if (hold.active) micHoldCommit({ reason: "click" });
+  }, 40);
 }
 
 function handleMicLongPress() {
@@ -2610,6 +2588,7 @@ let micChunks = [];
 let micStream = null;
 let micRecording = false;
 let micDiscardOnStop = false;
+let micIgnoreActionClick = false;
 
 const getMicJobId = () => {
   if (!micState.jobId) {
@@ -2969,7 +2948,7 @@ function cycleLanguageQuick() {
 }
 
 const PASSKEY_BASE = "";
-const HOLD_MAX_MS = Number(window.CSS_HOLD_MAX_MS || 3500);
+const HOLD_MAX_MS = Math.max(30000, Number(window.CSS_HOLD_MAX_MS || 30000));
 
 let hold = {
   active: false,
@@ -2986,50 +2965,67 @@ function setHintKey(key) {
     el.textContent = "";
     return;
   }
-  const raw = String(key);
-  if (/[ @\u4e00-\u9fa5]/.test(raw)) {
-    el.textContent = raw;
-    return;
-  }
   try {
-    el.textContent = t(raw);
+    el.textContent = t(key);
   } catch {
-    el.textContent = raw;
+    el.textContent = key;
   }
-}
-
-function normalizePasskeyIdentifier(input) {
-  return String(input || "").trim().toLowerCase();
-}
-
-function getPasskeyIdentifier() {
-  const a = normalizePasskeyIdentifier(loginPasskeyIdentifier?.value);
-  const b = normalizePasskeyIdentifier(profilePasskeyIdentifier?.value);
-  const c = normalizePasskeyIdentifier(localStorage.getItem(PASSKEY_IDENTIFIER_KEY) || "");
-  const d = normalizePasskeyIdentifier(authState.user?.email || "");
-  return a || b || c || d || "";
-}
-
-function setPasskeyIdentifier(email) {
-  const value = normalizePasskeyIdentifier(email);
-  if (loginPasskeyIdentifier) loginPasskeyIdentifier.value = value;
-  if (profilePasskeyIdentifier) profilePasskeyIdentifier.value = value;
-  if (value) localStorage.setItem(PASSKEY_IDENTIFIER_KEY, value);
-}
-
-function bindPasskeyIdentifierInputs() {
-  const sync = (value) => setPasskeyIdentifier(value);
-  [loginPasskeyIdentifier, profilePasskeyIdentifier].forEach((el) => {
-    if (!el) return;
-    el.addEventListener("change", () => sync(el.value));
-    el.addEventListener("blur", () => sync(el.value));
-  });
-  const stored = normalizePasskeyIdentifier(localStorage.getItem(PASSKEY_IDENTIFIER_KEY) || "");
-  if (stored) setPasskeyIdentifier(stored);
 }
 
 function passkeySupported() {
   return !!(window.PublicKeyCredential && navigator.credentials);
+}
+
+function normalizePasskeyIdentifier(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function getPasskeyIdentifier() {
+  const loginInputValue = normalizePasskeyIdentifier(loginPasskeyIdentifier?.value);
+  const profileInputValue = normalizePasskeyIdentifier(profilePasskeyIdentifier?.value);
+  const stored = normalizePasskeyIdentifier(localStorage.getItem(PASSKEY_IDENTIFIER_KEY));
+  return loginInputValue || profileInputValue || stored || "";
+}
+
+function setPasskeyIdentifier(identifier) {
+  const normalized = normalizePasskeyIdentifier(identifier);
+  if (loginPasskeyIdentifier && loginPasskeyIdentifier.value !== normalized) {
+    loginPasskeyIdentifier.value = normalized;
+  }
+  if (profilePasskeyIdentifier && profilePasskeyIdentifier.value !== normalized) {
+    profilePasskeyIdentifier.value = normalized;
+  }
+  if (normalized) {
+    localStorage.setItem(PASSKEY_IDENTIFIER_KEY, normalized);
+  } else {
+    localStorage.removeItem(PASSKEY_IDENTIFIER_KEY);
+  }
+}
+
+function bindPasskeyIdentifierInputs() {
+  const sync = (event) => {
+    const value = event?.target?.value;
+    setPasskeyIdentifier(value);
+  };
+  loginPasskeyIdentifier?.addEventListener("change", sync);
+  loginPasskeyIdentifier?.addEventListener("blur", sync);
+  profilePasskeyIdentifier?.addEventListener("change", sync);
+  profilePasskeyIdentifier?.addEventListener("blur", sync);
+  setPasskeyIdentifier(localStorage.getItem(PASSKEY_IDENTIFIER_KEY) || "");
+}
+
+function resolvePasskeyIdentifierForAction() {
+  const identifier = getPasskeyIdentifier();
+  if (identifier) {
+    setPasskeyIdentifier(identifier);
+    return identifier;
+  }
+  if (!authState.user) {
+    setHintKey("passkey.identifier_required");
+    showToast("Enter your email, then use passkey.");
+    return null;
+  }
+  return "";
 }
 
 function b64urlToBuf(s) {
@@ -3084,37 +3080,59 @@ async function passkeyEnable() {
     setHintKey("passkey.unsupported");
     return;
   }
-  const identifier = getPasskeyIdentifier();
-  if (!authState.user && !identifier) {
-    setHintKey("请输入邮箱后再启用 Passkey");
-    if (profilePasskeyIdentifier) profilePasskeyIdentifier.focus();
-    return;
-  }
+  const identifier = resolvePasskeyIdentifierForAction();
+  if (identifier === null) return;
   setHintKey("");
-  const qs = identifier ? `?identifier=${encodeURIComponent(identifier)}` : "";
-  const optRes = await fetch(`${PASSKEY_BASE}/api/auth/passkey/register/options${qs}`, {
-    headers: { accept: "application/json" }
-  });
-  if (!optRes.ok) {
+  const optData = await fetchPasskeyOptions("register", identifier);
+  if (!optData) {
     setHintKey("passkey.register_options_failed");
     return;
   }
-  const optJson = unwrapApiData(await optRes.json());
-  const publicKey = normalizePublicKeyOptions(optJson?.publicKey || optJson);
+  const publicKey = normalizePublicKeyOptions(optData.publicKey || optData);
   const cred = await navigator.credentials.create({ publicKey });
-  const body = { credential: credentialToJSON(cred), identifier };
+  const body = { credential: credentialToJSON(cred) };
   const verRes = await fetch(`${PASSKEY_BASE}/api/auth/passkey/register/verify`, {
     method: "POST",
+    credentials: "include",
     headers: { "content-type": "application/json", accept: "application/json" },
-    body: JSON.stringify(body)
+    body: JSON.stringify(identifier ? { ...body, identifier } : body)
   });
   if (!verRes.ok) {
     setHintKey("passkey.register_verify_failed");
     return;
   }
   await fetchMe();
-  if (identifier) setPasskeyIdentifier(identifier);
   setHintKey("passkey.enabled");
+}
+
+async function fetchPasskeyOptions(kind, identifier) {
+  const endpoint = `${PASSKEY_BASE}/api/auth/passkey/${kind}/options`;
+  const query = identifier ? `?identifier=${encodeURIComponent(identifier)}` : "";
+
+  try {
+    const getRes = await fetch(`${endpoint}${query}`, {
+      method: "GET",
+      credentials: "include",
+      headers: { accept: "application/json" }
+    });
+    if (getRes.ok) {
+      const getJson = await getRes.json();
+      return unwrapApiData(getJson);
+    }
+  } catch (_err) {
+    // fallback to POST below
+  }
+
+  const body = identifier ? { identifier } : {};
+  const postRes = await fetch(endpoint, {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!postRes.ok) return null;
+  const postJson = await postRes.json();
+  return unwrapApiData(postJson);
 }
 
 async function passkeyLogin() {
@@ -3122,41 +3140,61 @@ async function passkeyLogin() {
     setHintKey("passkey.unsupported");
     return;
   }
-  const identifier = getPasskeyIdentifier();
-  if (!authState.user && !identifier) {
-    setHintKey("请输入邮箱后再使用 Passkey 登录");
-    if (profilePasskeyIdentifier) profilePasskeyIdentifier.focus();
-    return;
-  }
+  const identifier = resolvePasskeyIdentifierForAction();
+  if (identifier === null) return;
   setHintKey("");
-  const qs = identifier ? `?identifier=${encodeURIComponent(identifier)}` : "";
-  const optRes = await fetch(`${PASSKEY_BASE}/api/auth/passkey/login/options${qs}`, {
-    headers: { accept: "application/json" }
-  });
-  if (!optRes.ok) {
+  const optData = await fetchPasskeyOptions("login", identifier);
+  if (!optData) {
     setHintKey("passkey.login_options_failed");
     return;
   }
-  const optJson = unwrapApiData(await optRes.json());
-  if (optJson?.empty) {
+  if (optData.empty) {
     setHintKey("passkey.not_enabled");
     return;
   }
-  const publicKey = normalizePublicKeyOptions(optJson?.publicKey || optJson);
+  const publicKey = normalizePublicKeyOptions(optData.publicKey || optData);
   const cred = await navigator.credentials.get({ publicKey });
-  const body = { credential: credentialToJSON(cred), identifier };
+  const body = { credential: credentialToJSON(cred) };
   const verRes = await fetch(`${PASSKEY_BASE}/api/auth/passkey/login/verify`, {
     method: "POST",
+    credentials: "include",
     headers: { "content-type": "application/json", accept: "application/json" },
-    body: JSON.stringify(body)
+    body: JSON.stringify(identifier ? { ...body, identifier } : body)
   });
   if (!verRes.ok) {
     setHintKey("passkey.login_verify_failed");
     return;
   }
   await fetchMe();
-  if (identifier) setPasskeyIdentifier(identifier);
   setHintKey("passkey.enabled");
+}
+
+async function passkeyAuth() {
+  const identifier = resolvePasskeyIdentifierForAction();
+  if (identifier === null) return;
+
+  if (!passkeySupported()) {
+    setHintKey("passkey.unsupported");
+    return;
+  }
+
+  await passkeyLogin();
+  if (authState.user) return;
+
+  const hintText = document.getElementById("profile-hint")?.textContent || "";
+  const expected = t("passkey.not_enabled");
+  const optionsFailed = t("passkey.login_options_failed");
+  if (hintText === expected || hintText === optionsFailed) {
+    await passkeyEnable();
+    await passkeyLogin();
+  }
+}
+
+function removeLegacyMicFab() {
+  const selectors = ["#trigger-mic", ".logo-actions", ".mic-fab", ".logo-mic-fab"];
+  selectors.forEach((selector) => {
+    document.querySelectorAll(selector).forEach((el) => el.remove());
+  });
 }
 
 function triggerMic() {
@@ -3181,11 +3219,44 @@ function setRingProgress01(p) {
   fg.style.strokeDashoffset = String(C * (1 - clamped));
 }
 
+const logoPanelHoldInlineBackup = {
+  border: null,
+  borderPriority: "",
+  transform: null,
+  transformPriority: ""
+};
+
+function applyLogoPanelHoldInline(on) {
+  if (!logoPanel || !logoPanel.style) return;
+  if (on) {
+    logoPanelHoldInlineBackup.border = logoPanel.style.getPropertyValue("border");
+    logoPanelHoldInlineBackup.borderPriority = logoPanel.style.getPropertyPriority("border");
+    logoPanelHoldInlineBackup.transform = logoPanel.style.getPropertyValue("transform");
+    logoPanelHoldInlineBackup.transformPriority = logoPanel.style.getPropertyPriority("transform");
+    logoPanel.style.setProperty("border", "0", "important");
+    logoPanel.style.setProperty("transform", "none", "important");
+    return;
+  }
+  const prevBorder = logoPanelHoldInlineBackup.border;
+  if (prevBorder && prevBorder.length > 0) {
+    logoPanel.style.setProperty("border", prevBorder, logoPanelHoldInlineBackup.borderPriority || "");
+  } else {
+    logoPanel.style.removeProperty("border");
+  }
+  const prevTransform = logoPanelHoldInlineBackup.transform;
+  if (prevTransform && prevTransform.length > 0) {
+    logoPanel.style.setProperty(
+      "transform",
+      prevTransform,
+      logoPanelHoldInlineBackup.transformPriority || ""
+    );
+  } else {
+    logoPanel.style.removeProperty("transform");
+  }
+}
+
 function showRing(on) {
-  const r = ringEl();
-  if (!r) return;
-  if (on) r.classList.add("is-on");
-  else r.classList.remove("is-on");
+  void on;
 }
 
 function micHoldStart(origin) {
@@ -3194,6 +3265,7 @@ function micHoldStart(origin) {
   hold.startedAt = performance.now();
   setRingProgress01(0);
   showRing(true);
+  showToast(t("mic.listening"));
   window.dispatchEvent(new CustomEvent("cssos:mic_hold_start", { detail: { origin } }));
 
   const tick = () => {
@@ -3234,6 +3306,8 @@ function bindHoldTargets() {
   for (const el of targets) {
     el.addEventListener("pointerdown", (e) => {
       if (e.button !== undefined && e.button !== 0) return;
+      e.preventDefault();
+      micIgnoreActionClick = true;
       try {
         el.setPointerCapture(e.pointerId);
       } catch {}
@@ -3250,6 +3324,10 @@ function bindHoldTargets() {
     el.addEventListener("pointerup", (e) => commit(e, "release"));
     el.addEventListener("pointercancel", (e) => commit(e, "release"));
     el.addEventListener("lostpointercapture", (e) => commit(e, "release"));
+    el.addEventListener("pointerleave", (e) => {
+      if (e.pointerType === "mouse") commit(e, "release");
+    });
+    el.addEventListener("contextmenu", (e) => e.preventDefault());
   }
 }
 
@@ -3323,23 +3401,11 @@ function randomTitle() {
 }
 
 function apiBase() {
-  return apiBaseCandidates()[0] || String(location.origin).replace(/\/+$/, "");
-}
-
-function apiBaseCandidates() {
-  const out = [];
-  const add = (v) => {
-    const s = String(v || "").trim().replace(/\/+$/, "");
-    if (!s) return;
-    if (!out.includes(s)) out.push(s);
-  };
-  add(window.CSS_API_BASE);
-  add(window.CSS_BASE_URL);
-  add(location.origin);
-  if (location.origin.includes("localhost") || location.origin.includes("127.0.0.1")) {
-    add("http://127.0.0.1:8081");
-  }
-  return out;
+  const v =
+    window.CSS_API_BASE ||
+    window.CSS_BASE_URL ||
+    (location.origin.includes("localhost") ? "http://127.0.0.1:8081" : location.origin);
+  return String(v).replace(/\/+$/, "");
 }
 
 function b64FromArrayBuffer(ab) {
@@ -3353,36 +3419,41 @@ function b64FromArrayBuffer(ab) {
 }
 
 async function createRun({ title, uiLang, tier, voice }) {
-  const baseUrls = apiBaseCandidates();
+  const baseUrl = apiBase();
+  const safeLang = (uiLang || "zh").toString();
+  const nowIso = new Date().toISOString();
+  const voiceMeta = {
+    captured: Boolean(voice && voice.bytes > 0),
+    duration_ms: Math.max(0, Number(voice?.duration_ms || 0)),
+    bytes: Math.max(0, Number(voice?.bytes || 0)),
+    mime: (voice?.mime || "audio/webm").toString(),
+    trigger: (voice?.trigger || "release").toString(),
+    ts: nowIso
+  };
   const body = {
     cssl: title,
-    ui_lang: uiLang || "zh",
+    ui_lang: safeLang,
     tier: tier || "dev",
     commands: {
+      input: {
+        voice: voiceMeta
+      },
+      title_hint: title,
+      detected_lang: safeLang,
+      primary_lang: safeLang,
       voice: voice || { bytes: 0, mime: "audio/webm", mode: "single" }
     }
   };
-  let lastError = null;
-  for (let i = 0; i < baseUrls.length; i += 1) {
-    const baseUrl = baseUrls[i];
-    const isLast = i === baseUrls.length - 1;
-    try {
-      const res = await fetch(`${baseUrl}/cssapi/v1/runs`, {
-        method: "POST",
-        headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify(body)
-      });
-      if (res.ok) return await res.json();
-      const text = await res.text().catch(() => "");
-      lastError = new Error(`base=${baseUrl} http=${res.status} ${text}`);
-      const canRetryNextBase = res.status === 404 || res.status >= 500;
-      if (!canRetryNextBase || isLast) throw lastError;
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err || ""));
-      if (isLast) throw lastError;
-    }
+  const res = await fetch(`${baseUrl}/cssapi/v1/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`http=${res.status} ${text}`);
   }
-  throw lastError || new Error("create run failed");
+  return await res.json();
 }
 
 async function deriveTitleFromVoice(blob) {
@@ -3391,9 +3462,15 @@ async function deriveTitleFromVoice(blob) {
   return "";
 }
 
-async function submitVoiceOrFallbackTitle(blobOrNull) {
+async function submitVoiceOrFallbackTitle(blobOrNull, submitMeta = {}) {
   let title = "";
-  let voice = { bytes: 0, mime: "audio/webm", mode: "single" };
+  let voice = {
+    bytes: 0,
+    mime: "audio/webm",
+    mode: "single",
+    duration_ms: Math.max(0, Number(submitMeta.elapsed_ms || 0)),
+    trigger: submitMeta.reason || "release"
+  };
 
   if (blobOrNull && blobOrNull.size > 0) {
     const t = await deriveTitleFromVoice(blobOrNull).catch(() => "");
@@ -3406,7 +3483,9 @@ async function submitVoiceOrFallbackTitle(blobOrNull) {
         bytes: blobOrNull.size,
         mime: blobOrNull.type || "audio/webm",
         b64: b64FromArrayBuffer(ab),
-        mode: "single"
+        mode: "single",
+        duration_ms: Math.max(0, Number(submitMeta.elapsed_ms || 0)),
+        trigger: submitMeta.reason || "release"
       };
     }
   }
@@ -3419,6 +3498,339 @@ async function submitVoiceOrFallbackTitle(blobOrNull) {
   window.dispatchEvent(new CustomEvent("cssos:run_created", { detail: r }));
   window.dispatchEvent(new CustomEvent("cssos:title_ready", { detail: { title: finalTitle, source: voice.bytes > 0 ? "voice" : "random" } }));
   window.dispatchEvent(new CustomEvent("cssos:lyrics_start", { detail: { run_id: r.run_id, title: finalTitle, mode: "single" } }));
+}
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function setRunLine(runIdValue) {
+  if (runid) runid.textContent = runIdValue || "";
+  if (runline) runline.hidden = !runIdValue;
+}
+
+function resetTypedLyrics() {
+  typedLyricsTarget = "";
+  typedLyricsCurrent = "";
+  runLyricsText = "";
+  if (typedLyricsTimer) clearTimeout(typedLyricsTimer);
+  typedLyricsTimer = 0;
+  if (lyricsEl) lyricsEl.textContent = "";
+}
+
+function queueTypedLyrics(nextText) {
+  const text = String(nextText || "");
+  if (!lyricsEl) return;
+  if (text === typedLyricsTarget && typedLyricsTimer) return;
+  typedLyricsTarget = text;
+  if (typedLyricsCurrent.length > typedLyricsTarget.length) {
+    typedLyricsCurrent = "";
+    lyricsEl.textContent = "";
+  }
+  if (typedLyricsTimer) return;
+  const step = () => {
+    if (typedLyricsCurrent === typedLyricsTarget) {
+      typedLyricsTimer = 0;
+      return;
+    }
+    const advance = Math.max(1, Math.ceil((typedLyricsTarget.length - typedLyricsCurrent.length) / 32));
+    typedLyricsCurrent = typedLyricsTarget.slice(0, typedLyricsCurrent.length + advance);
+    lyricsEl.textContent = typedLyricsCurrent;
+    typedLyricsTimer = setTimeout(step, 22);
+  };
+  step();
+}
+
+function statusLabelByKey(statusRaw) {
+  const status = String(statusRaw || "").toUpperCase();
+  const map = {
+    PENDING: "status.pending",
+    RUNNING: "status.running",
+    SUCCEEDED: "status.succeeded",
+    FAILED: "status.failed",
+    SKIPPED: "status.skipped",
+    CANCELLED: "status.cancelled",
+    TIMEOUT: "status.timeout"
+  };
+  const key = map[status];
+  return key ? t(key) : status;
+}
+
+function statusPercent(statusRaw) {
+  const status = String(statusRaw || "").toUpperCase();
+  if (status === "SUCCEEDED") return 100;
+  if (status === "FAILED" || status === "SKIPPED" || status === "CANCELLED" || status === "TIMEOUT") return 100;
+  if (status === "RUNNING") return 58;
+  return 0;
+}
+
+function groupProgress(readyView, stageNames) {
+  const names = Array.isArray(stageNames) ? stageNames : [];
+  let total = 0;
+  let counted = 0;
+  for (const stage of names) {
+    const status = readyView?.[stage]?.status;
+    if (!status) continue;
+    total += statusPercent(status);
+    counted += 1;
+  }
+  if (!counted) return 0;
+  return Math.max(0, Math.min(100, total / counted));
+}
+
+function computeVideoProgress(readyView) {
+  const stagePart = groupProgress(readyView, ["video_plan", "video_assemble", "render"]);
+  const shots = readyView?.video_shots || {};
+  const shotsTotal = Number(shots.total || 0);
+  const shotsDone = Number(shots.succeeded || 0) + Number(shots.failed || 0);
+  const shotPart = shotsTotal > 0 ? Math.max(0, Math.min(100, (shotsDone / shotsTotal) * 100)) : 0;
+  if (!shotsTotal) return stagePart;
+  return Math.max(0, Math.min(100, stagePart * 0.55 + shotPart * 0.45));
+}
+
+function updateReadyBars(readyView) {
+  const lyricsPct = groupProgress(readyView, ["lyrics"]);
+  const musicPct = groupProgress(readyView, ["music", "vocals", "mix"]);
+  const videoPct = computeVideoProgress(readyView);
+  const karaPct = groupProgress(readyView, ["subtitles", "render"]);
+  if (lyricsProgress) setProgress(lyricsProgress, lyricsPct);
+  if (musicProgress) setProgress(musicProgress, musicPct);
+  if (videoProgress) setProgress(videoProgress, videoPct);
+  if (karaProgress) setProgress(karaProgress, karaPct);
+}
+
+function buildProcessLyrics(runIdValue, readyView, titleHint) {
+  if (runLyricsText) return runLyricsText;
+  const summary = readyView?.summary || {};
+  const ev = readyView?.last_event || {};
+  const stage = ev.stage || "lyrics";
+  const stageStatus = statusLabelByKey(ev.status || readyView?.status || "RUNNING");
+  const pending = Number(summary.pending || 0);
+  const running = Number(summary.running || 0);
+  const succeeded = Number(summary.succeeded || 0);
+  const failed = Number(summary.failed || 0);
+  const baseTitle = titleHint || state.title || "Untitled";
+  return [
+    `${baseTitle}`,
+    "",
+    `${t("ui.progress.event", { ev: `${stage} · ${stageStatus}` })}`,
+    `${t("ui.progress.running", { n: running, ok: succeeded, fail: failed })}`,
+    `${t("ui.progress.pending", { n: pending })}`,
+    "",
+    `${t("ui.run_id")} ${runIdValue}`
+  ].join("\n");
+}
+
+function normalizeArtifacts(payload) {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload.items_ordered) && payload.items_ordered.length) return payload.items_ordered;
+  if (payload.items && typeof payload.items === "object" && !Array.isArray(payload.items)) {
+    return Object.entries(payload.items).map(([key, record]) => ({ key, record }));
+  }
+  if (Array.isArray(payload.items)) return payload.items;
+  if (Array.isArray(payload.artifacts)) return payload.artifacts;
+  return [];
+}
+
+function artifactDownloadUrl(runIdValue, key) {
+  if (!runIdValue || !key) return "";
+  return `/cssapi/v1/runs/${encodeURIComponent(runIdValue)}/artifacts/${encodeURIComponent(key)}`;
+}
+
+function findArtifactUri(payload, keys) {
+  const list = normalizeArtifacts(payload);
+  const wanted = (keys || []).map((k) => String(k).toLowerCase());
+  for (const item of list) {
+    const keyRaw = String(
+      item?.stable_key || item?.key || item?.record?.key || item?.name || item?.path || ""
+    );
+    const key = keyRaw.toLowerCase();
+    if (!key) continue;
+    if (wanted.some((want) => key === want || key.endsWith(want))) {
+      const uri = item?.uri || item?.url || item?.href || "";
+      if (uri) return String(uri);
+      if (payload?.run_id && keyRaw) return artifactDownloadUrl(payload.run_id, keyRaw);
+    }
+  }
+  return "";
+}
+
+function setupArtifactButtons(runIdValue) {
+  if (!runIdValue) return;
+  if (watchButton) {
+    watchButton.onclick = () => {
+      const url = artifactDownloadUrl(runIdValue, "final.mv");
+      if (!url) return;
+      window.open(url, "_blank", "noopener");
+    };
+  }
+  if (listenButton) {
+    listenButton.onclick = () => {
+      const url = artifactDownloadUrl(runIdValue, "mix.wav");
+      if (!url) return;
+      window.open(url, "_blank", "noopener");
+    };
+  }
+}
+
+function stopCompactPreviewLoop() {
+  if (compactPreviewLoopTimer) {
+    clearInterval(compactPreviewLoopTimer);
+    compactPreviewLoopTimer = 0;
+  }
+}
+
+function setCompactPreviewVideo(uri) {
+  if (!foryouPreviewVideo) return;
+  if (!uri) {
+    stopCompactPreviewLoop();
+    foryouPreviewVideo.pause?.();
+    foryouPreviewVideo.removeAttribute("src");
+    foryouPreviewVideo.classList.remove("show");
+    return;
+  }
+  const currentSrc = foryouPreviewVideo.getAttribute("src") || "";
+  if (currentSrc !== uri) {
+    foryouPreviewVideo.src = uri;
+    foryouPreviewVideo.currentTime = 0;
+    foryouPreviewVideo.load?.();
+  }
+  foryouPreviewVideo.classList.add("show");
+  foryouPreviewVideo.play?.().catch(() => {});
+  stopCompactPreviewLoop();
+  compactPreviewLoopTimer = window.setInterval(() => {
+    if (!foryouPreviewVideo || !foryouPreviewVideo.classList.contains("show")) return;
+    if (foryouPreviewVideo.currentTime >= 5) {
+      foryouPreviewVideo.currentTime = 0;
+      foryouPreviewVideo.play?.().catch(() => {});
+    }
+  }, 280);
+}
+
+async function fetchReadyView(runIdValue, sinceSeqValue) {
+  const baseUrl = apiBase();
+  const q = sinceSeqValue === null ? "" : `?since_seq=${encodeURIComponent(sinceSeqValue)}`;
+  const res = await fetch(`${baseUrl}/cssapi/v1/runs/${encodeURIComponent(runIdValue)}/ready${q}`, {
+    method: "GET",
+    headers: { accept: "application/json" }
+  });
+  return res;
+}
+
+async function hydrateRunArtifacts(runIdValue) {
+  const baseUrl = apiBase();
+  const res = await fetch(`${baseUrl}/cssapi/v1/runs/${encodeURIComponent(runIdValue)}/artifacts`, {
+    method: "GET",
+    headers: { accept: "application/json" }
+  }).catch(() => null);
+  if (!res || !res.ok) return;
+  const payload = await res.json().catch(() => null);
+  if (!payload) return;
+
+  const videoUri =
+    findArtifactUri(payload, ["final.mv", "video.mp4", "video_preview.mp4", "mv.mp4"]) ||
+    "";
+  if (videoUri) {
+    setCompactPreviewVideo(videoUri);
+    if (watchVideo && !watchVideo.getAttribute("src")) {
+      setVideoFromArtifact(videoUri);
+      attemptVideoPlayback({ allowFallback: true });
+    }
+  }
+
+  const lyricsUri = findArtifactUri(payload, ["lyrics.json"]);
+  if (lyricsUri && !runLyricsText) {
+    const lyrRes = await fetch(lyricsUri, { method: "GET", headers: { accept: "application/json" } }).catch(() => null);
+    const lyrJson = lyrRes && lyrRes.ok ? await lyrRes.json().catch(() => null) : null;
+    if (lyrJson && Array.isArray(lyrJson.lines) && lyrJson.lines.length) {
+      runLyricsText = lyrJson.lines.join("\n");
+      queueTypedLyrics(runLyricsText);
+    }
+  }
+}
+
+function isRunFinished(readyView) {
+  const summary = readyView?.summary || {};
+  const pending = Number(summary.pending || 0);
+  const running = Number(summary.running || 0);
+  if (pending === 0 && running === 0) return true;
+  const status = String(readyView?.status || "").toUpperCase();
+  return ["SUCCEEDED", "FAILED", "CANCELLED", "TIMEOUT"].includes(status);
+}
+
+function maybeCompactForLyrics(readyView) {
+  const lyricsStatus = String(readyView?.lyrics?.status || "").toUpperCase();
+  if (lyricsStatus !== "SUCCEEDED") return false;
+  setForyouCompact(true);
+  scheduleWatchAfterDelay();
+  return true;
+}
+
+function stopReadyWatchLoop() {
+  readyWatchToken += 1;
+  if (compactWatchTimer) clearTimeout(compactWatchTimer);
+  compactWatchTimer = 0;
+  watchSinceSeq = null;
+  watchedRunId = "";
+  artifactsPollTick = 0;
+}
+
+function scheduleWatchAfterDelay() {
+  if (compactWatchTimer) return;
+  compactWatchTimer = window.setTimeout(() => {
+    compactWatchTimer = 0;
+    ensureWatchCentered();
+  }, 10000);
+}
+
+async function startReadyWatchLoop(runIdValue, titleHint) {
+  stopReadyWatchLoop();
+  const token = readyWatchToken;
+  watchedRunId = runIdValue;
+  watchSinceSeq = null;
+  artifactsPollTick = 0;
+
+  for (;;) {
+    if (token !== readyWatchToken) return;
+    let res = null;
+    try {
+      res = await fetchReadyView(runIdValue, watchSinceSeq);
+    } catch (_err) {
+      await delay(450);
+      continue;
+    }
+
+    if (token !== readyWatchToken) return;
+    if (!res || res.status === 204 || res.status === 404) {
+      await delay(450);
+      continue;
+    }
+    if (!res.ok) {
+      await delay(600);
+      continue;
+    }
+
+    const view = await res.json().catch(() => null);
+    if (!view) {
+      await delay(450);
+      continue;
+    }
+
+    if (typeof view.stage_seq === "number") watchSinceSeq = view.stage_seq;
+    updateReadyBars(view);
+    queueTypedLyrics(buildProcessLyrics(runIdValue, view, titleHint));
+    const lyricsReady = maybeCompactForLyrics(view);
+
+    artifactsPollTick += 1;
+    if (artifactsPollTick % 4 === 0 || lyricsReady || isRunFinished(view)) {
+      await hydrateRunArtifacts(runIdValue);
+    }
+
+    if (isRunFinished(view)) {
+      setForyouCompact(true);
+      return;
+    }
+    await delay(500);
+  }
 }
 
 const dockActionMap = {
@@ -3485,16 +3897,10 @@ const dockActionMap = {
     dblclick: () => startCreation(titleInput.value.trim(), lyricsInput.value.trim()),
     longpress: resetSettings
   },
-  passkey: {
-    click: () => {
-      openPanel(profilePanel);
-      void passkeyLogin();
-    },
-    dblclick: () => {
-      openPanel(profilePanel);
-      void passkeyEnable();
-    },
-    longpress: () => openPanel(profilePanel)
+  apple: {
+    click: () => startAppleLogin(),
+    dblclick: () => startAppleLogin(),
+    longpress: () => startAppleLogin()
   },
   profile: {
     click: () => openPanel(profilePanel),
@@ -3525,10 +3931,20 @@ function handleGlobalAction(action) {
   if (!action) return;
   if (action === "profile.open") {
     openPanel(profilePanel);
+    if (window.location.pathname !== "/profile") {
+      window.history.replaceState({}, "", "/profile");
+    }
     return;
   }
   if (action === "profile.close") {
     minimizeToDock(profilePanel);
+    if (window.location.pathname === "/profile") {
+      window.history.replaceState({}, "", "/");
+    }
+    return;
+  }
+  if (action === "apple.login") {
+    startAppleLogin();
     return;
   }
   if (action === "passkey.enable") {
@@ -3539,6 +3955,11 @@ function handleGlobalAction(action) {
   if (action === "passkey.login") {
     openPanel(profilePanel);
     void passkeyLogin();
+    return;
+  }
+  if (action === "passkey.auth") {
+    openPanel(profilePanel);
+    void passkeyAuth();
     return;
   }
   if (action === "mic") {
@@ -3582,7 +4003,8 @@ function attachDockEvents() {
       triggerAction("dblclick");
     });
 
-    item.addEventListener("pointerdown", () => {
+    item.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
       suppressClick = false;
       clearTimeout(longPressId);
       longPressId = setTimeout(() => {
@@ -4117,11 +4539,27 @@ if (enterWatchButton) {
 }
 
 if (listenButton) {
-  listenButton.addEventListener("click", () => openPanel(musicPanel));
+  listenButton.addEventListener("click", () => {
+    if (watchedRunId) {
+      const url = artifactDownloadUrl(watchedRunId, "mix.wav");
+      if (url) {
+        window.open(url, "_blank", "noopener");
+        return;
+      }
+    }
+    openPanel(musicPanel);
+  });
 }
 
 if (watchButton) {
   watchButton.addEventListener("click", async () => {
+    if (watchedRunId) {
+      const url = artifactDownloadUrl(watchedRunId, "final.mv");
+      if (url) {
+        window.open(url, "_blank", "noopener");
+        return;
+      }
+    }
     ensureWatchCentered();
     if (!videoJobId) {
       const ok = await playLatestVideoFromRegistry();
@@ -4178,13 +4616,20 @@ safeInit("initPanelSettings", () => initPanelSettings());
 safeInit("initEngineControls", () => initEngineControls());
 safeInit("initLyricsControls", () => initLyricsControls());
 safeInit("initLanguagePanel", () => initLanguagePanel());
-safeInit("bindPasskeyIdentifierInputs", () => bindPasskeyIdentifierInputs());
 safeInit("initAboutTabs", () => initAboutTabs());
 safeInit("initApiBillingUI", () => initApiBillingUI());
+safeInit("removeLegacyMicFab", () => removeLegacyMicFab());
+safeInit("bindPasskeyIdentifierInputs", () => bindPasskeyIdentifierInputs());
 safeInit("fetchMe", () => fetchMe());
 safeInit("fetchAuthProviders", () => fetchAuthProviders());
 safeInit("fetchBillingStatus", () => fetchBillingStatus());
 safeInit("initVersionSwitcher", () => initVersionSwitcher());
+if (window.location.pathname === "/profile") {
+  openPanel(profilePanel);
+}
+if (window.location.pathname === "/settings") {
+  openPanel(settingsPanel);
+}
 if (loginLogout) {
   loginLogout.addEventListener("click", async () => {
     try {
@@ -4206,28 +4651,50 @@ window.addEventListener("cssos:mic", () => {
 window.addEventListener("cssos:mic_hold_start", async () => {
   try {
     await startRecording();
-  } catch {}
-});
-window.addEventListener("cssos:mic_hold_commit", async () => {
-  try {
-    const blob = await stopRecordingGetBlob().catch(() => null);
-    await submitVoiceOrFallbackTitle(blob);
-  } catch (e) {
-    const msg = `${window.t ? window.t("mic.submit_failed") : "Submit failed"}: ${String(e)}`;
-    console.error("[mic submit failed]", e);
-    window.dispatchEvent(new CustomEvent("cssos:toast", { detail: { kind: "error", title: "Submit Failed", message: msg } }));
+  } catch {
+    showToast(t("mic.permission_denied"));
   }
 });
-
-window.addEventListener("cssos:toast", (event) => {
+window.addEventListener("cssos:mic_hold_commit", async (event) => {
   const detail = (event && event.detail) || {};
-  const message = String(detail.message || "");
-  if (!message) return;
-  showToast(message, {
-    kind: detail.kind || "info",
-    title: detail.title || "",
-    duration: typeof detail.duration === "number" ? detail.duration : undefined
-  });
+  try {
+    showToast(t("mic.submitting"));
+    const blob = await stopRecordingGetBlob().catch(() => null);
+    await submitVoiceOrFallbackTitle(blob, detail);
+    showToast(t("mic.submitted"));
+  } catch (e) {
+    const errText = String(e || "");
+    const key = errText.includes("http=") ? "mic.http_error" : "mic.network_error";
+    const msg = `${window.t ? window.t(key) : "Submit failed"}${errText ? `: ${errText}` : ""}`;
+    window.dispatchEvent(new CustomEvent("cssos:toast", { detail: { kind: "error", message: msg } }));
+  }
+});
+window.addEventListener("cssos:title_ready", (event) => {
+  const detail = (event && event.detail) || {};
+  const title = (detail.title || "").toString().trim();
+  if (!title) return;
+  if (foryouTitle) foryouTitle.textContent = title;
+  state.title = title;
+});
+window.addEventListener("cssos:run_created", (event) => {
+  const detail = (event && event.detail) || {};
+  const runIdValue = detail.run_id || detail.id || "";
+  if (!runIdValue) return;
+  const title = state.title || randomTitle();
+  openPanel(foryouPanel);
+  setForyouCompact(false);
+  setRunLine(runIdValue);
+  setupArtifactButtons(runIdValue);
+  resetTypedLyrics();
+  if (watchVideo) {
+    watchVideo.pause?.();
+    watchVideo.removeAttribute("src");
+    watchVideo.load?.();
+  }
+  setCompactPreviewVideo("");
+  const bootText = `${title}\n\n${t("status.running")}...`;
+  queueTypedLyrics(bootText);
+  startReadyWatchLoop(runIdValue, title);
 });
 
 window.addEventListener("resize", () => {

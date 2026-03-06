@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CSS Studio</title>
+    <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
@@ -22,7 +23,13 @@
         <div class="version-list" id="version-list"></div>
         <div class="version-divider"></div>
         <div class="version-actions">
-          <button class="cta tiny" type="button" data-action="passkey.login" data-i18n="action.passkeyLogin">
+          <button class="cta tiny" id="menu-profile" type="button" data-action="profile.open" data-i18n="action.profile">
+            Profile
+          </button>
+          <button class="cta tiny" id="menu-apple" type="button" data-action="apple.login" data-i18n="action.signin_apple">
+            Sign in with Apple
+          </button>
+          <button class="cta tiny" type="button" data-action="passkey.auth" data-i18n="action.passkeyLogin">
             Passkey
           </button>
         </div>
@@ -49,9 +56,6 @@
               </div>
             </div>
             <div class="mirror-slogan">Just say CSS, witness the miracle!</div>
-            <div class="logo-actions">
-              <button class="icon-btn" id="logo-mic" type="button" data-action="mic" data-hold="mic" data-i18n-aria="action.mic" aria-label="Mic">🎤</button>
-            </div>
           </div>
         </div>
       </section>
@@ -69,6 +73,10 @@
         </div>
         <div class="panel-body">
           <div class="foryou-full">
+            <div class="runline" id="runline" hidden>
+              <span data-i18n="ui.run_id">任务</span>
+              <span class="runid" id="runid"></span>
+            </div>
             <div class="panel-label" data-i18n="label.lyricsEngine">
               Lyrics Engine · Random Single/Opera
             </div>
@@ -94,7 +102,10 @@
           </div>
           <div class="foryou-compact">
             <div class="foryou-card">
-              <div class="foryou-thumb">♪</div>
+              <div class="foryou-thumb">
+                <video id="foryou-preview-video" class="foryou-preview-video" autoplay muted loop playsinline></video>
+                <div class="foryou-thumb-icon">♪</div>
+              </div>
               <div class="foryou-meta">
                 <div class="foryou-title" id="foryou-title">Untitled</div>
                 <div class="foryou-style" id="foryou-style">Future Ballad</div>
@@ -580,15 +591,20 @@
             Guest
           </div>
           <div class="login-user" id="login-user"></div>
-          <div class="profile-row passkey-id-row">
-            <label class="profile-label" for="login-passkey-identifier">Passkey Email</label>
+          <div class="passkey-id-row">
+            <label for="login-passkey-identifier">Passkey email</label>
             <input
               id="login-passkey-identifier"
               class="passkey-identifier-input"
               type="email"
               autocomplete="username webauthn"
-              placeholder="your@email.com"
+              placeholder="you@example.com"
             />
+            <div class="profile-actions">
+              <button class="cta tiny" type="button" data-action="passkey.auth" data-i18n="profile.passkeyLogin">
+                Use Passkey
+              </button>
+            </div>
           </div>
           <div class="login-grid" id="login-list"></div>
           <button class="cta ghost tiny" id="login-logout" type="button" data-i18n="login.logout">
@@ -608,22 +624,32 @@
         </div>
         <div class="panel-body">
           <div class="profile-grid">
-            <div class="profile-row">
-              <div class="profile-label" data-i18n="profile.passkey">Passkey</div>
-              <div class="profile-actions">
-                <button class="cta tiny" id="passkey-enable" type="button" data-action="passkey.enable" data-i18n="profile.passkeyEnable">Enable</button>
-                <button class="cta tiny" id="passkey-login" type="button" data-action="passkey.login" data-i18n="profile.passkeyLogin">Login</button>
-              </div>
-            </div>
-            <div class="profile-row passkey-id-row">
-              <label class="profile-label" for="profile-passkey-identifier">Passkey Email</label>
+            <div class="profile-auth-status" id="profile-auth-status">Guest</div>
+            <div class="passkey-id-row">
+              <label for="profile-passkey-identifier">Passkey email</label>
               <input
                 id="profile-passkey-identifier"
                 class="passkey-identifier-input"
                 type="email"
                 autocomplete="username webauthn"
-                placeholder="your@email.com"
+                placeholder="you@example.com"
               />
+            </div>
+            <div class="profile-row">
+              <div class="profile-label" data-i18n="profile.passkey">Passkey</div>
+              <div class="profile-actions">
+                <button class="cta tiny" id="passkey-auth" type="button" data-action="passkey.auth" data-i18n="profile.passkeyLogin">
+                  Use Passkey
+                </button>
+              </div>
+            </div>
+            <div class="profile-row">
+              <div class="profile-label" data-i18n="action.signin_apple">Sign in with Apple</div>
+              <div class="profile-actions">
+                <button class="cta tiny" id="profile-apple-login" type="button" data-action="apple.login" data-i18n="action.signin_apple">
+                  Sign in with Apple
+                </button>
+              </div>
             </div>
             <div class="profile-hint" id="profile-hint"></div>
           </div>
@@ -644,10 +670,10 @@
         <div class="panel-body works-body">
           <div class="panel-label" data-i18n="works.subtitle">Creator Works Center</div>
           <div class="works-hero">
-            <div class="works-avatar">CS</div>
+            <div class="works-avatar" id="works-avatar">CS</div>
             <div class="works-meta">
-              <div class="works-name">CSS Studio</div>
-              <div class="works-role" data-i18n="works.profileRole">Creator Studio</div>
+              <div class="works-name" id="works-name">CSS Studio</div>
+              <div class="works-role" id="works-role" data-i18n="works.profileRole">Creator Studio</div>
               <div class="works-badges">
                 <span class="badge">
                   <span data-i18n="works.followers">Followers</span> · 28.4k
@@ -787,7 +813,11 @@
 
     <footer class="dock" id="dock">
       <div class="dock-item" id="dock-mic" data-action="mic" data-hold="mic" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">🎙</div>
+        <div class="dock-icon dock-mic-icon" aria-hidden="true">
+          <img class="dock-mic-img dock-mic-img-a" src="assets/dock-mic-1.png" alt="" />
+          <img class="dock-mic-img dock-mic-img-b" src="assets/dock-mic-2.png" alt="" />
+          <div class="dock-mic-core"></div>
+        </div>
         <div class="dock-label" data-i18n="dock.mic">Mic</div>
       </div>
       <div class="dock-item" data-action="foryou" data-actions="click,dblclick,longpress">
@@ -838,9 +868,9 @@
         <div class="dock-icon">⚙</div>
         <div class="dock-label" data-i18n="dock.settings">Settings</div>
       </div>
-      <div class="dock-item" data-action="passkey" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">🔐</div>
-        <div class="dock-label" data-i18n="action.passkeyLogin">Passkey</div>
+      <div class="dock-item" data-action="apple" data-actions="click,dblclick,longpress">
+        <div class="dock-icon"></div>
+        <div class="dock-label" data-i18n="action.signin_apple">Sign in with Apple</div>
       </div>
       <div class="dock-item" data-action="profile" data-actions="click,dblclick,longpress">
         <div class="dock-icon">👤</div>

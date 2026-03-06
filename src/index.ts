@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import crypto from "node:crypto";
+import fs from "node:fs";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import type { QueryResult } from "pg";
@@ -11,7 +12,51 @@ import { runMigrations } from "./db/migrate";
 const app = express();
 const PORT = 3000;
 const REGISTRY_URL = "http://localhost:8080";
+const CSSAPI_URL = process.env.CSSAPI_URL || "http://127.0.0.1:8081";
 const IS_PROD = process.env.NODE_ENV === "production";
+
+function parseEnvLine(line: string): { key: string; value: string } | null {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed.startsWith("#")) return null;
+  const idx = trimmed.indexOf("=");
+  if (idx <= 0) return null;
+  const key = trimmed.slice(0, idx).trim();
+  let value = trimmed.slice(idx + 1).trim();
+  if (
+    (value.startsWith("\"") && value.endsWith("\"")) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    value = value.slice(1, -1);
+  }
+  return key ? { key, value } : null;
+}
+
+function loadEnvFileIfExists(filePath: string) {
+  try {
+    if (!fs.existsSync(filePath)) return;
+    const content = fs.readFileSync(filePath, "utf8");
+    content.split(/\r?\n/).forEach((line) => {
+      const parsed = parseEnvLine(line);
+      if (!parsed) return;
+      const current = process.env[parsed.key];
+      if (current === undefined || current === null || current === "") {
+        process.env[parsed.key] = parsed.value;
+      }
+    });
+  } catch {
+    // ignore optional env fallback errors
+  }
+}
+
+function hydrateAppleEnvFallback() {
+  const required = ["APPLE_CLIENT_ID", "APPLE_TEAM_ID", "APPLE_KEY_ID", "APPLE_PRIVATE_KEY"];
+  const missing = required.some((key) => !process.env[key]);
+  if (!missing) return;
+  loadEnvFileIfExists("/etc/cssstudio/cssstudio.env");
+  loadEnvFileIfExists("/etc/cssos.env");
+}
+
+hydrateAppleEnvFallback();
 
 const DATABASE_URL = getDatabaseUrl();
 if (process.env.NODE_ENV === "production" && !DATABASE_URL) {
@@ -126,30 +171,30 @@ function currentRpId(req: express.Request) {
   return host || "localhost";
 }
 
-function normalizeEmailInput(input: unknown): string {
-  return String(input || "").trim().toLowerCase();
+function normalizeEmailInput(input: unknown): string | null {
+  const value = String(input || "").trim().toLowerCase();
+  if (!value || !value.includes("@")) return null;
+  return value;
 }
 
-function passkeyIdentifierFromReq(req: express.Request): string {
-  const q = normalizeEmailInput(req.query?.identifier);
-  const b = normalizeEmailInput((req.body as any)?.identifier);
-  const s = normalizeEmailInput((req.session as any)?.passkey_identifier);
-  return q || b || s || "";
+function passkeyIdentifierFromReq(req: express.Request): string | null {
+  const bodyIdentifier = normalizeEmailInput(req.body?.identifier);
+  if (bodyIdentifier) return bodyIdentifier;
+  return normalizeEmailInput(req.query?.identifier);
 }
 
 function passkeySubject(
   req: express.Request,
   user: Awaited<ReturnType<typeof getSessionUser>>,
-  identifier?: string
+  identifier?: string | null
 ) {
-  const email = normalizeEmailInput(identifier || user?.email || "");
+  const email = normalizeEmailInput(identifier || user?.email);
   if (email) {
-    (req.session as any).passkey_identifier = email;
     return {
       key: `e:${email}`,
       id: email,
       name: email,
-      displayName: user?.display_name || email || "CSS Studio"
+      displayName: user?.display_name || email
     };
   }
   if (user?.id) {
@@ -179,60 +224,61 @@ function passkeySubject(
   };
 }
 
-async function ensureUserByEmail(emailInput: string): Promise<string | null> {
-  const email = normalizeEmailInput(emailInput);
-  if (!email || !DATABASE_URL) return null;
+async function ensureUserByEmail(email: string): Promise<string | null> {
+  if (!DATABASE_URL) return null;
   return withClient(async (client) => {
     const found = await client.query<{ id: string }>(
-      "SELECT id FROM users WHERE lower(email) = lower($1) ORDER BY created_at ASC LIMIT 1",
+      "SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1",
       [email]
     );
     if (found.rows[0]?.id) return found.rows[0].id;
-    const inserted = await client.query<{ id: string }>(
+    const created = await client.query<{ id: string }>(
       `INSERT INTO users (display_name, email, avatar_url, default_role)
        VALUES ($1, $2, $3, $4)
        RETURNING id`,
       [null, email, null, "user"]
     );
-    return inserted.rows[0]?.id || null;
+    return created.rows[0]?.id || null;
   });
 }
 
 async function resolveUserIdForSubjectKey(subjectKey: string): Promise<string | null> {
   if (!subjectKey) return null;
   if (subjectKey.startsWith("u:")) {
-    const id = subjectKey.slice(2);
+    const id = subjectKey.slice(2).trim();
     return id || null;
   }
   if (subjectKey.startsWith("e:")) {
-    return ensureUserByEmail(subjectKey.slice(2));
+    const email = normalizeEmailInput(subjectKey.slice(2));
+    if (!email) return null;
+    return ensureUserByEmail(email);
   }
   return null;
 }
 
-async function findAnySubjectByCredential(credId: string): Promise<string | null> {
-  if (!credId) return null;
+async function findAnySubjectByCredential(credentialId: string): Promise<string | null> {
+  if (!credentialId) return null;
   if (!DATABASE_URL) {
-    for (const [subject, list] of passkeyCreds.entries()) {
-      if (list.some((x) => x.id === credId)) return subject;
+    for (const [subjectKey, creds] of passkeyCreds.entries()) {
+      if (Array.isArray(creds) && creds.some((x) => x.id === credentialId)) {
+        return subjectKey;
+      }
     }
     return null;
   }
-  const row = await withClient((client) =>
+  const result: QueryResult<{ subject_key: string }> = await withClient((client) =>
     client.query<{ subject_key: string }>(
       "SELECT subject_key FROM passkey_credentials WHERE credential_id = $1 LIMIT 1",
-      [credId]
+      [credentialId]
     )
   );
-  return row.rows[0]?.subject_key || null;
+  return result.rows[0]?.subject_key || null;
 }
 
-async function saveSessionAsync(req: express.Request): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    req.session.save((err) => {
-      if (err) reject(err);
-      else resolve();
-    });
+async function saveSessionAsync(req: express.Request) {
+  if (!req.session) return;
+  await new Promise<void>((resolve) => {
+    req.session.save(() => resolve());
   });
 }
 
@@ -276,9 +322,9 @@ async function savePasskeyCred(subjectKey: string, credId: string, transports?: 
   );
 }
 
-async function buildPasskeyRegisterOptions(req: express.Request) {
+async function buildPasskeyRegisterOptions(req: express.Request, identifier?: string | null) {
   const user = await getSessionUser(req);
-  const subject = passkeySubject(req, user, passkeyIdentifierFromReq(req));
+  const subject = passkeySubject(req, user, identifier);
   const challenge = b64url(Buffer.from(crypto.randomUUID().replace(/-/g, ""), "utf8"));
   passkeyState.set(subject.key, {
     challenge,
@@ -308,9 +354,9 @@ async function buildPasskeyRegisterOptions(req: express.Request) {
   };
 }
 
-async function buildPasskeyLoginOptions(req: express.Request) {
+async function buildPasskeyLoginOptions(req: express.Request, identifier?: string | null) {
   const user = await getSessionUser(req);
-  const subject = passkeySubject(req, user, passkeyIdentifierFromReq(req));
+  const subject = passkeySubject(req, user, identifier);
   const challenge = b64url(Buffer.from(crypto.randomUUID().replace(/-/g, ""), "utf8"));
   passkeyState.set(subject.key, {
     challenge,
@@ -502,6 +548,44 @@ app.use("/api/registry", async (req, res) => {
   }
 });
 
+app.use("/cssapi", async (req, res) => {
+  try {
+    const url = `${CSSAPI_URL}${req.originalUrl}`;
+    const headers: Record<string, string> = {};
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (typeof value === "string" && key.toLowerCase() !== "host") {
+        headers[key] = value;
+      }
+    }
+
+    const init: RequestInit = {
+      method: req.method,
+      headers
+    };
+
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      init.body = JSON.stringify(req.body ?? {});
+      if (!headers["content-type"]) {
+        init.headers = { ...headers, "content-type": "application/json" };
+      }
+    }
+
+    const upstream = await fetch(url, init);
+    res.status(upstream.status);
+
+    upstream.headers.forEach((value, key) => {
+      if (key.toLowerCase() === "content-encoding") return;
+      res.setHeader(key, value);
+    });
+
+    res.setHeader("Cache-Control", "no-store");
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    res.send(buf);
+  } catch (_err) {
+    res.status(502).json({ error: "cssapi_unavailable" });
+  }
+});
+
 app.get("/api/me", async (req, res) => {
   noStore(res);
   try {
@@ -637,7 +721,8 @@ app.get("/api/auth/passkey/register/options", async (req, res) => {
   noStore(res);
   cleanupPasskeyState();
   try {
-    return res.json(await buildPasskeyRegisterOptions(req));
+    const identifier = passkeyIdentifierFromReq(req);
+    return res.json(await buildPasskeyRegisterOptions(req, identifier));
   } catch (_err) {
     return res.status(500).json({ code: "PASSKEY_REGISTER_OPTIONS_FAILED" });
   }
@@ -647,7 +732,8 @@ app.post("/api/auth/passkey/register/options", async (req, res) => {
   noStore(res);
   cleanupPasskeyState();
   try {
-    return res.json(await buildPasskeyRegisterOptions(req));
+    const identifier = passkeyIdentifierFromReq(req);
+    return res.json(await buildPasskeyRegisterOptions(req, identifier));
   } catch (_err) {
     return res.status(500).json({ code: "PASSKEY_REGISTER_OPTIONS_FAILED" });
   }
@@ -657,8 +743,9 @@ app.post("/api/auth/passkey/register/verify", async (req, res) => {
   noStore(res);
   cleanupPasskeyState();
   try {
+    const identifier = passkeyIdentifierFromReq(req);
     const user = await getSessionUser(req);
-    const subject = passkeySubject(req, user, passkeyIdentifierFromReq(req));
+    const subject = passkeySubject(req, user, identifier);
     const st = passkeyState.get(subject.key);
     if (!st || st.kind !== "register" || st.expireAt <= Date.now()) {
       return res.status(400).json({ code: "PASSKEY_STATE_MISSING" });
@@ -678,7 +765,7 @@ app.post("/api/auth/passkey/register/verify", async (req, res) => {
       (req.session as any).user_id = userId;
       await saveSessionAsync(req);
     }
-    return res.json({ ok: true, enabled: true });
+    return res.json({ ok: true, enabled: true, user_id: userId || null });
   } catch (_err) {
     return res.status(500).json({ code: "PASSKEY_REGISTER_VERIFY_FAILED" });
   }
@@ -688,7 +775,8 @@ app.get("/api/auth/passkey/login/options", async (req, res) => {
   noStore(res);
   cleanupPasskeyState();
   try {
-    return res.json(await buildPasskeyLoginOptions(req));
+    const identifier = passkeyIdentifierFromReq(req);
+    return res.json(await buildPasskeyLoginOptions(req, identifier));
   } catch (_err) {
     return res.status(500).json({ code: "PASSKEY_LOGIN_OPTIONS_FAILED" });
   }
@@ -698,7 +786,8 @@ app.post("/api/auth/passkey/login/options", async (req, res) => {
   noStore(res);
   cleanupPasskeyState();
   try {
-    return res.json(await buildPasskeyLoginOptions(req));
+    const identifier = passkeyIdentifierFromReq(req);
+    return res.json(await buildPasskeyLoginOptions(req, identifier));
   } catch (_err) {
     return res.status(500).json({ code: "PASSKEY_LOGIN_OPTIONS_FAILED" });
   }
@@ -721,26 +810,28 @@ app.post("/api/auth/passkey/login/verify", async (req, res) => {
       return res.status(400).json({ code: "PASSKEY_CRED_INVALID" });
     }
     const list = await listPasskeyCreds(subject.key);
-    let accepted = list.some((x) => x.id === credId);
-    if (!accepted) {
-      const oldSubject = await findAnySubjectByCredential(credId);
-      if (oldSubject && oldSubject !== subject.key && (identifier || subject.key.startsWith("u:"))) {
-        await savePasskeyCred(subject.key, credId);
-        accepted = true;
+    let matchedSubjectKey = subject.key;
+    if (!list.some((x) => x.id === credId)) {
+      const fallbackSubjectKey = await findAnySubjectByCredential(credId);
+      if (!fallbackSubjectKey) {
+        return res.status(400).json({ code: "PASSKEY_CRED_NOT_FOUND" });
+      }
+      matchedSubjectKey = fallbackSubjectKey;
+      if (identifier && fallbackSubjectKey !== subject.key) {
+        const transports = Array.isArray(credential?.response?.transports)
+          ? credential.response.transports.filter((x: unknown): x is string => typeof x === "string")
+          : ["internal"];
+        await savePasskeyCred(subject.key, credId, transports);
+        matchedSubjectKey = subject.key;
       }
     }
-    if (!accepted) {
-      return res.status(400).json({ code: "PASSKEY_CRED_NOT_FOUND_OR_IDENTIFIER_MISMATCH" });
-    }
     passkeyState.delete(subject.key);
-    const userId = await resolveUserIdForSubjectKey(subject.key);
-    if (!userId) {
-      return res.status(400).json({ code: "PASSKEY_USER_RESOLVE_FAILED" });
+    const userId = await resolveUserIdForSubjectKey(matchedSubjectKey);
+    if (userId) {
+      (req.session as any).user_id = userId;
+      await saveSessionAsync(req);
     }
-    (req.session as any).user_id = userId;
-    (req.session as any).passkey_identifier = normalizeEmailInput(identifier);
-    await saveSessionAsync(req);
-    return res.json({ ok: true, verified: true });
+    return res.json({ ok: true, verified: true, authenticated: Boolean(userId) });
   } catch (_err) {
     return res.status(500).json({ code: "PASSKEY_LOGIN_VERIFY_FAILED" });
   }
@@ -886,6 +977,14 @@ app.get("/health", (_req, res) => {
 });
 
 app.get("/", (_req, res) => {
+  res.sendFile(path.join(__dirname, "..", "public", "index.html"));
+});
+
+app.get("/profile", (_req, res) => {
+  res.sendFile(path.join(__dirname, "..", "public", "index.html"));
+});
+
+app.get("/settings", (_req, res) => {
   res.sendFile(path.join(__dirname, "..", "public", "index.html"));
 });
 

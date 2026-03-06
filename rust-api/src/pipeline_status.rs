@@ -29,8 +29,23 @@ fn deps_satisfied(dag: &Dag, state: &serde_json::Value, stage: &str) -> bool {
         None => return false,
     };
     for d in node.deps {
+        let dep_obj = &state["stages"][d];
         let st = stage_status(state, d);
         if !is_done(&st) {
+            return false;
+        }
+        let outs = dep_obj["outputs"].as_array().cloned().unwrap_or_default();
+        let ok = outs.iter().all(|p| {
+            p.as_str()
+                .map(|s| {
+                    let ps = Path::new(s);
+                    fs::metadata(ps)
+                        .map(|m| m.is_file() && m.len() > 0)
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false)
+        });
+        if !ok {
             return false;
         }
     }

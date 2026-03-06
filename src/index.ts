@@ -164,6 +164,12 @@ const AUTH_TICKET_SECRET = process.env.AUTH_TICKET_SECRET || process.env.SESSION
 const AUTH_SESSION_COOKIE = process.env.AUTH_SESSION_COOKIE || "cssos_auth";
 const AUTH_SESSION_TTL_MS =
   1000 * 60 * 60 * 24 * Number(process.env.AUTH_SESSION_TTL_DAYS || process.env.SESSION_TTL_DAYS || 30);
+const SYSTEM_ADMIN_EMAILS = (
+  process.env.SYSTEM_ADMIN_EMAILS || "jingdudc@gmail.com"
+)
+  .split(",")
+  .map((x) => normalizeEmailInput(x))
+  .filter((x): x is string => Boolean(x));
 
 function cleanupPasskeyState() {
   const now = Date.now();
@@ -236,6 +242,39 @@ function normalizeEmailInput(input: unknown): string | null {
   const value = String(input || "").trim().toLowerCase();
   if (!value || !value.includes("@")) return null;
   return value;
+}
+
+async function ensureSystemAdmins(): Promise<void> {
+  if (!DATABASE_URL || SYSTEM_ADMIN_EMAILS.length === 0) return;
+  await withClient(async (client) => {
+    for (const email of SYSTEM_ADMIN_EMAILS) {
+      await client.query(
+        `INSERT INTO system_admins (email, updated_at)
+         VALUES ($1, now())
+         ON CONFLICT (email)
+         DO UPDATE SET updated_at = now()`,
+        [email]
+      );
+      const userRes = await client.query<{ id: string }>(
+        "SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1",
+        [email]
+      );
+      const userId = userRes.rows[0]?.id || null;
+      if (!userId) continue;
+      await client.query(
+        `UPDATE users
+            SET role = 'admin', is_admin = true, updated_at = now()
+          WHERE id = $1`,
+        [userId]
+      );
+      await client.query(
+        `UPDATE system_admins
+            SET user_id = $2, updated_at = now()
+          WHERE lower(email) = lower($1)`,
+        [email, userId]
+      );
+    }
+  });
 }
 
 function passkeyIdentifierFromReq(req: express.Request): string | null {
@@ -1320,6 +1359,7 @@ app.get("/settings", (_req, res) => {
 async function start() {
   if (DATABASE_URL) {
     await runMigrations();
+    await ensureSystemAdmins();
   }
   app.listen(PORT, () => {
     console.log(`cssOS API running on http://localhost:${PORT}`);

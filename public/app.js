@@ -3277,7 +3277,17 @@ function applyLogoPanelHoldInline(on) {
 }
 
 function showRing(on) {
-  void on;
+  const r = ringEl();
+  if (!r) return;
+  if (on) {
+    r.classList.add("is-on");
+    logoPanel?.classList.add("holding-mic");
+    applyLogoPanelHoldInline(true);
+  } else {
+    r.classList.remove("is-on");
+    logoPanel?.classList.remove("holding-mic");
+    applyLogoPanelHoldInline(false);
+  }
 }
 
 function micHoldStart(origin) {

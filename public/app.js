@@ -4109,7 +4109,7 @@ function setCompactPreviewVideo(uri) {
   stopCompactPreviewLoop();
   compactPreviewLoopTimer = window.setInterval(() => {
     if (!foryouPreviewVideo || !foryouPreviewVideo.classList.contains("show")) return;
-    if (foryouPreviewVideo.currentTime >= 5) {
+    if (foryouPreviewVideo.currentTime >= 4) {
       foryouPreviewVideo.currentTime = 0;
       foryouPreviewVideo.play?.().catch(() => {});
     }
@@ -4154,6 +4154,8 @@ async function hydrateRunArtifacts(runIdValue) {
     if (lyrJson && Array.isArray(lyrJson.lines) && lyrJson.lines.length) {
       runLyricsText = lyrJson.lines.join("\n");
       queueTypedLyrics(runLyricsText);
+      setForyouCompact(true);
+      openPanel(foryouPanel);
     }
   }
 }
@@ -4171,7 +4173,7 @@ function maybeCompactForLyrics(readyView) {
   const lyricsStatus = String(readyView?.lyrics?.status || "").toUpperCase();
   if (lyricsStatus !== "SUCCEEDED") return false;
   setForyouCompact(true);
-  scheduleWatchAfterDelay();
+  openPanel(foryouPanel);
   return true;
 }
 
@@ -4182,14 +4184,6 @@ function stopReadyWatchLoop() {
   watchSinceSeq = null;
   watchedRunId = "";
   artifactsPollTick = 0;
-}
-
-function scheduleWatchAfterDelay() {
-  if (compactWatchTimer) return;
-  compactWatchTimer = window.setTimeout(() => {
-    compactWatchTimer = 0;
-    ensureWatchCentered();
-  }, 10000);
 }
 
 async function startReadyWatchLoop(runIdValue, titleHint) {
@@ -4236,6 +4230,7 @@ async function startReadyWatchLoop(runIdValue, titleHint) {
 
     if (isRunFinished(view)) {
       setForyouCompact(true);
+      openPanel(foryouPanel);
       return;
     }
     await delay(500);

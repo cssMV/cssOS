@@ -2014,11 +2014,11 @@ a.icon-btn {
 }
 
 #dock-mic {
-  width: 56px;
-  height: 56px;
+  width: 54px;
+  height: 54px;
   margin: -13px 0 -13px -34px;
   padding: 0;
-  border-radius: 999px 14px 14px 999px;
+  border-radius: 14px;
   overflow: hidden;
   isolation: isolate;
 }
@@ -2042,17 +2042,20 @@ a.icon-btn {
   width: calc(100% + 8px);
   height: calc(100% + 8px);
   object-fit: cover;
+  object-position: center center;
   filter: saturate(1.16) contrast(1.06) drop-shadow(0 0 10px rgba(0, 240, 255, 0.45));
-  transform: scale(1.12);
+  transform: scale(1.16);
   pointer-events: none;
 }
 
 #dock-mic .dock-mic-img-a {
-  animation: dockMicSwapA 8s ease-in-out infinite;
+  transform: scale(1.16);
+  animation: dockMicSwapA 10s ease-in-out infinite;
 }
 
 #dock-mic .dock-mic-img-b {
-  animation: dockMicSwapB 8s ease-in-out infinite;
+  transform: scale(1.22);
+  animation: dockMicSwapB 10s ease-in-out infinite;
 }
 
 #dock-mic .dock-mic-core {
@@ -2065,7 +2068,7 @@ a.icon-btn {
   border-radius: 999px;
   background: radial-gradient(circle, rgba(131, 255, 255, 0.95), rgba(33, 206, 255, 0.05) 72%);
   box-shadow: 0 0 12px rgba(85, 255, 255, 0.5);
-  animation: dockMicPulse 3.6s ease-in-out infinite;
+  animation: dockMicPulse 5.2s ease-in-out infinite;
 }
 
 #dock-mic::before {
@@ -2074,7 +2077,7 @@ a.icon-btn {
   inset: 0;
   border-radius: inherit;
   box-shadow: 0 0 10px rgba(0, 225, 255, 0.2);
-  animation: dockMicBreath 3.6s ease-in-out infinite;
+  animation: dockMicBreath 5.2s ease-in-out infinite;
   pointer-events: none;
 }
 
@@ -2101,13 +2104,13 @@ a.icon-btn {
 }
 
 @keyframes dockMicPulse {
-  0%, 100% { opacity: 0.5; transform: translateX(-50%) scale(0.95); }
-  50% { opacity: 0.86; transform: translateX(-50%) scale(1.03); }
+  0%, 100% { opacity: 0.56; transform: translateX(-50%) scale(0.98); }
+  50% { opacity: 0.74; transform: translateX(-50%) scale(1.01); }
 }
 
 @keyframes dockMicBreath {
-  0%, 100% { opacity: 0.62; transform: scale(0.995); }
-  50% { opacity: 0.9; transform: scale(1.015); }
+  0%, 100% { opacity: 0.64; transform: scale(0.998); }
+  50% { opacity: 0.82; transform: scale(1.008); }
 }
 
 .dock-label {

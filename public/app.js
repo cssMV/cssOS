@@ -3121,18 +3121,24 @@ function credentialToJSON(cred) {
 async function passkeyEnable() {
   if (!passkeySupported()) {
     setHintKey("passkey.unsupported");
-    return;
+    return false;
   }
   const identifier = resolvePasskeyIdentifierForAction();
-  if (identifier === null) return;
+  if (identifier === null) return false;
   setHintKey("");
   const optData = await fetchPasskeyOptions("register", identifier);
   if (!optData) {
     setHintKey("passkey.register_options_failed");
-    return;
+    return false;
   }
-  const publicKey = normalizePublicKeyOptions(optData.publicKey || optData);
-  const cred = await navigator.credentials.create({ publicKey });
+  let cred;
+  try {
+    const publicKey = normalizePublicKeyOptions(optData.publicKey || optData);
+    cred = await navigator.credentials.create({ publicKey });
+  } catch (_err) {
+    setHintKey("passkey.register_verify_failed");
+    return false;
+  }
   const body = { credential: credentialToJSON(cred) };
   const verRes = await fetch(`${PASSKEY_BASE}/api/auth/passkey/register/verify`, {
     method: "POST",
@@ -3142,10 +3148,11 @@ async function passkeyEnable() {
   });
   if (!verRes.ok) {
     setHintKey("passkey.register_verify_failed");
-    return;
+    return false;
   }
   await fetchMe();
   setHintKey("passkey.enabled");
+  return true;
 }
 
 async function fetchPasskeyOptions(kind, identifier) {
@@ -3181,22 +3188,28 @@ async function fetchPasskeyOptions(kind, identifier) {
 async function passkeyLogin() {
   if (!passkeySupported()) {
     setHintKey("passkey.unsupported");
-    return;
+    return false;
   }
   const identifier = resolvePasskeyIdentifierForAction();
-  if (identifier === null) return;
+  if (identifier === null) return false;
   setHintKey("");
   const optData = await fetchPasskeyOptions("login", identifier);
   if (!optData) {
     setHintKey("passkey.login_options_failed");
-    return;
+    return false;
   }
   if (optData.empty) {
     setHintKey("passkey.not_enabled");
-    return;
+    return false;
   }
-  const publicKey = normalizePublicKeyOptions(optData.publicKey || optData);
-  const cred = await navigator.credentials.get({ publicKey });
+  let cred;
+  try {
+    const publicKey = normalizePublicKeyOptions(optData.publicKey || optData);
+    cred = await navigator.credentials.get({ publicKey });
+  } catch (_err) {
+    setHintKey("passkey.login_verify_failed");
+    return false;
+  }
   const body = { credential: credentialToJSON(cred) };
   const verRes = await fetch(`${PASSKEY_BASE}/api/auth/passkey/login/verify`, {
     method: "POST",
@@ -3206,48 +3219,41 @@ async function passkeyLogin() {
   });
   if (!verRes.ok) {
     setHintKey("passkey.login_verify_failed");
-    return;
+    return false;
   }
   await fetchMe();
   setHintKey("passkey.enabled");
+  return Boolean(authState.user);
 }
 
 async function passkeyAuth() {
   const identifier = resolvePasskeyIdentifierForAction();
-  if (identifier === null) return;
+  if (identifier === null) return false;
 
   if (!passkeySupported()) {
     setHintKey("passkey.unsupported");
-    return;
+    return false;
   }
 
-  await passkeyLogin();
-  if (authState.user) return;
+  const loginOk = await passkeyLogin();
+  if (loginOk || authState.user) return true;
 
   const hintText = document.getElementById("profile-hint")?.textContent || "";
   const expected = t("passkey.not_enabled");
   const optionsFailed = t("passkey.login_options_failed");
-  if (hintText === expected || hintText === optionsFailed) {
+  const verifyFailed = t("passkey.login_verify_failed");
+  if (hintText === expected || hintText === optionsFailed || hintText === verifyFailed) {
     await passkeyEnable();
-    await passkeyLogin();
+    const retryOk = await passkeyLogin();
+    return Boolean(retryOk || authState.user);
   }
+  return false;
 }
 
 async function smartSignIn() {
-  await refreshAuthProvidersNow();
-  const appleEnabled = authProviders.length === 0 || isProviderEnabled("apple");
-  try {
-    await passkeyAuth();
-  } catch (_err) {
-    // Ignore passkey runtime errors and allow fallback only when needed.
-  }
-  if (authState.user) return;
-  const hintText = document.getElementById("profile-hint")?.textContent || "";
-  const notEnabled = t("passkey.not_enabled");
-  const optionsFailed = t("passkey.login_options_failed");
-  if (appleEnabled && (hintText === notEnabled || hintText === optionsFailed)) {
-    await startAppleLogin();
-  }
+  const ok = await passkeyAuth().catch(() => false);
+  if (ok || authState.user) return;
+  showToast("Passkey 登录未完成，请确认钥匙串后再试。");
 }
 
 function removeLegacyMicFab() {

@@ -66,6 +66,7 @@ if (process.env.NODE_ENV === "production" && !DATABASE_URL) {
 app.set("trust proxy", 1);
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
 
 const sessionConfig: session.SessionOptions = {
   name: process.env.SESSION_COOKIE || "cssos_session",
@@ -636,7 +637,7 @@ app.get("/auth/apple", async (req, res) => {
     const redirectUri = `${appBaseUrl(req)}/auth/apple/callback`;
     const q = new URLSearchParams({
       response_type: "code",
-      response_mode: "query",
+      response_mode: "form_post",
       client_id: clientId,
       redirect_uri: redirectUri,
       scope: "name email",
@@ -649,11 +650,19 @@ app.get("/auth/apple", async (req, res) => {
   }
 });
 
-app.get("/auth/apple/callback", async (req, res) => {
+function readAuthParam(req: express.Request, key: string) {
+  const fromBody = (req.body as Record<string, unknown> | undefined)?.[key];
+  if (typeof fromBody === "string" && fromBody.length > 0) return fromBody;
+  const fromQuery = req.query?.[key];
+  if (typeof fromQuery === "string" && fromQuery.length > 0) return fromQuery;
+  return "";
+}
+
+async function handleAppleCallback(req: express.Request, res: express.Response) {
   noStore(res);
   try {
-    const code = String(req.query.code || "");
-    const state = String(req.query.state || "");
+    const code = readAuthParam(req, "code");
+    const state = readAuthParam(req, "state");
     const savedState = String((req.session as any).apple_oauth_state || "");
     const savedNonce = String((req.session as any).apple_oauth_nonce || "");
     (req.session as any).apple_oauth_state = null;
@@ -694,7 +703,10 @@ app.get("/auth/apple/callback", async (req, res) => {
   } catch {
     return res.status(400).send("auth_failed");
   }
-});
+}
+
+app.get("/auth/apple/callback", async (req, res) => handleAppleCallback(req, res));
+app.post("/auth/apple/callback", async (req, res) => handleAppleCallback(req, res));
 
 app.get("/api/auth/apple", (_req, res) => {
   res.redirect(302, "/auth/apple");

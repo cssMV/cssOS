@@ -3251,9 +3251,7 @@ async function passkeyAuth() {
 }
 
 async function smartSignIn() {
-  const ok = await passkeyAuth().catch(() => false);
-  if (ok || authState.user) return;
-  showToast("Passkey 登录未完成，请确认钥匙串后再试。");
+  await startAppleLogin();
 }
 
 function removeLegacyMicFab() {

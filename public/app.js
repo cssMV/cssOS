@@ -2589,7 +2589,8 @@ function handleMicClick() {
 }
 
 function handleMicLongPress() {
-  // handled via pointerdown/up for recording
+  if (hold.active) return;
+  micHoldStart("longpress");
 }
 
 const micState = {
@@ -3346,7 +3347,7 @@ function micHoldCommit(meta) {
 }
 
 function bindHoldTargets() {
-  const targets = Array.from(document.querySelectorAll("[data-hold='mic']"));
+  const targets = Array.from(document.querySelectorAll("[data-hold='mic']:not(#dock-mic)"));
   for (const el of targets) {
     el.addEventListener("pointerdown", (e) => {
       if (e.button !== undefined && e.button !== 0) return;
@@ -4028,10 +4029,6 @@ function handleGlobalAction(action) {
 
 function attachDockEvents() {
   document.querySelectorAll(".dock-item").forEach((item) => {
-    if (item.dataset.hold === "mic") {
-      item.tabIndex = 0;
-      return;
-    }
     const action = item.dataset.action;
     item.tabIndex = 0;
     let suppressClick = false;
@@ -4074,10 +4071,16 @@ function attachDockEvents() {
 
     item.addEventListener("pointerup", () => {
       clearTimeout(longPressId);
+      if (action === "mic" && hold.active) {
+        micHoldCommit({ reason: "release" });
+      }
     });
 
     item.addEventListener("pointerleave", () => {
       clearTimeout(longPressId);
+      if (action === "mic" && hold.active) {
+        micHoldCommit({ reason: "release" });
+      }
     });
   });
 }

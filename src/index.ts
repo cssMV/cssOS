@@ -158,13 +158,8 @@ const appleOauthStateCache = new Map<
     expireAt: number;
   }
 >();
-const appleAuthTicketCache = new Map<
-  string,
-  {
-    userId: string;
-    expireAt: number;
-  }
->();
+const AUTH_TICKET_TTL_MS = 3 * 60 * 1000;
+const AUTH_TICKET_SECRET = process.env.AUTH_TICKET_SECRET || process.env.SESSION_SECRET || "cssos_auth_ticket_secret";
 
 function cleanupPasskeyState() {
   const now = Date.now();
@@ -180,10 +175,38 @@ function cleanupAppleOauthState() {
   }
 }
 
-function cleanupAppleAuthTickets() {
-  const now = Date.now();
-  for (const [k, v] of appleAuthTicketCache.entries()) {
-    if (v.expireAt <= now) appleAuthTicketCache.delete(k);
+function b64urlDecodeToBuffer(input: string) {
+  const normalized = String(input || "").replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+  return Buffer.from(padded, "base64");
+}
+
+function createAuthTicket(userId: string) {
+  const payload = { u: userId, e: Date.now() + AUTH_TICKET_TTL_MS };
+  const payloadB64 = b64url(JSON.stringify(payload));
+  const sigB64 = b64url(crypto.createHmac("sha256", AUTH_TICKET_SECRET).update(payloadB64).digest());
+  return `${payloadB64}.${sigB64}`;
+}
+
+function verifyAuthTicket(ticket: string): string | null {
+  const raw = String(ticket || "").trim();
+  if (!raw) return null;
+  const parts = raw.split(".");
+  if (parts.length !== 2) return null;
+  const payloadB64 = parts[0] || "";
+  const sigB64 = parts[1] || "";
+  if (!payloadB64 || !sigB64) return null;
+  const expectedSig = crypto.createHmac("sha256", AUTH_TICKET_SECRET).update(payloadB64).digest();
+  const providedSig = b64urlDecodeToBuffer(sigB64);
+  if (providedSig.length !== expectedSig.length) return null;
+  if (!crypto.timingSafeEqual(providedSig, expectedSig)) return null;
+  try {
+    const payload = JSON.parse(b64urlDecodeToBuffer(payloadB64).toString("utf8")) as { u?: string; e?: number };
+    if (!payload?.u || !payload?.e) return null;
+    if (Number(payload.e) <= Date.now()) return null;
+    return String(payload.u);
+  } catch {
+    return null;
   }
 }
 
@@ -481,7 +504,6 @@ function providerConfig() {
 
 app.use(async (req, res, next) => {
   try {
-    cleanupAppleAuthTickets();
     if ((req.session as any)?.user_id) {
       next();
       return;
@@ -494,14 +516,13 @@ app.use(async (req, res, next) => {
       next();
       return;
     }
-    const hit = appleAuthTicketCache.get(ticket);
-    if (!hit) {
+    const userId = verifyAuthTicket(ticket);
+    if (!userId) {
       if (cTicket) clearAuthTicketCookie(res);
       next();
       return;
     }
-    appleAuthTicketCache.delete(ticket);
-    (req.session as any).user_id = hit.userId;
+    (req.session as any).user_id = userId;
     await saveSessionAsync(req);
     if (cTicket || qTicket) clearAuthTicketCookie(res);
     next();
@@ -813,11 +834,9 @@ async function handleAppleCallback(req: express.Request, res: express.Response) 
     const userId = await upsertAppleIdentity({ sub, email });
     (req.session as any).user_id = userId;
     await saveSessionAsync(req);
-    cleanupAppleAuthTickets();
-    const authTicket = crypto.randomBytes(18).toString("hex");
-    appleAuthTicketCache.set(authTicket, { userId, expireAt: Date.now() + 3 * 60 * 1000 });
+    const authTicket = createAuthTicket(userId);
     setAuthTicketCookie(res, authTicket);
-    return res.redirect(302, `/?auth_ticket=${encodeURIComponent(authTicket)}`);
+    return res.redirect(302, `/auth/finalize?auth_ticket=${encodeURIComponent(authTicket)}`);
   } catch {
     return res.status(400).send("auth_failed");
   }
@@ -825,6 +844,23 @@ async function handleAppleCallback(req: express.Request, res: express.Response) 
 
 app.get("/auth/apple/callback", async (req, res) => handleAppleCallback(req, res));
 app.post("/auth/apple/callback", async (req, res) => handleAppleCallback(req, res));
+
+app.get("/auth/finalize", async (req, res) => {
+  noStore(res);
+  try {
+    const ticket = typeof req.query?.auth_ticket === "string" ? String(req.query.auth_ticket).trim() : "";
+    const userId = verifyAuthTicket(ticket);
+    if (userId) {
+      (req.session as any).user_id = userId;
+      await saveSessionAsync(req);
+    }
+    clearAuthTicketCookie(res);
+    return res.redirect(302, "/");
+  } catch {
+    clearAuthTicketCookie(res);
+    return res.redirect(302, "/");
+  }
+});
 
 app.get("/api/auth/apple", (_req, res) => {
   res.redirect(302, "/auth/apple");
@@ -969,7 +1005,6 @@ app.post("/api/auth/passkey/login/verify", async (req, res) => {
 
 app.post("/api/auth/finalize", async (req, res) => {
   noStore(res);
-  cleanupAppleAuthTickets();
   try {
     const ticket = String(req.body?.ticket || "").trim();
     if (!ticket) {
@@ -977,10 +1012,9 @@ app.post("/api/auth/finalize", async (req, res) => {
       if (!user) return res.json(okEmpty({ authenticated: false }, "No data yet"));
       return res.json(okData({ authenticated: true }));
     }
-    const hit = appleAuthTicketCache.get(ticket);
-    if (!hit) return res.status(400).json({ ok: false, error: "invalid_ticket" });
-    appleAuthTicketCache.delete(ticket);
-    (req.session as any).user_id = hit.userId;
+    const userId = verifyAuthTicket(ticket);
+    if (!userId) return res.status(400).json({ ok: false, error: "invalid_ticket" });
+    (req.session as any).user_id = userId;
     await saveSessionAsync(req);
     clearAuthTicketCookie(res);
     return res.json(okData({ authenticated: true }));

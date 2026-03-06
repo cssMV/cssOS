@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Apple Login</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; max-width: 760px; }
+      button { padding: 10px 14px; margin: 6px 0; }
+      input { padding: 10px 12px; width: 100%; max-width: 420px; }
+      pre { background: #f6f7f8; padding: 12px; border-radius: 8px; overflow: auto; }
+      .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+      .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px; margin: 12px 0; }
+      .muted { color: #6b7280; }
+      h1,h2 { margin: 6px 0 10px; }
+    </style>
+  </head>
+  <body>
+    <h1 data-i18n="passkey.title"></h1>
+    <p class="muted" data-i18n="passkey.intro"></p>
+
+    <div class="card">
+      <h2 data-i18n="passkey.me.title"></h2>
+      <div class="row">
+        <button id="btnMe" data-i18n="passkey.me.btn"></button>
+      </div>
+      <pre id="meOut"></pre>
+    </div>
+
+    <div class="card">
+      <h2 data-i18n="passkey.bind.title"></h2>
+      <div class="row">
+        <input id="deviceName" data-i18n-placeholder="passkey.bind.device.placeholder" />
+      </div>
+      <div class="row">
+        <button id="btnRegister" data-i18n="passkey.bind.btn"></button>
+      </div>
+      <pre id="regOut"></pre>
+    </div>
+
+    <div class="card">
+      <h2 data-i18n="passkey.login.title"></h2>
+      <div class="row">
+        <button id="btnLogin" data-i18n="passkey.login.btn"></button>
+      </div>
+      <pre id="loginOut"></pre>
+    </div>
+
+    <div class="card">
+      <h2 data-i18n="passkey.list.title"></h2>
+      <div class="row">
+        <button id="btnList" data-i18n="passkey.list.btn"></button>
+      </div>
+      <pre id="listOut"></pre>
+      <div class="row">
+        <input id="deleteId" data-i18n-placeholder="passkey.delete.placeholder" />
+        <button id="btnDelete" data-i18n="passkey.delete.btn"></button>
+      </div>
+      <pre id="delOut"></pre>
+    </div>
+
+    <script src="i18n/constants.js"></script>
+    <script src="i18n/dict.js"></script>
+    <script src="i18n/index.js"></script>
+    <script>
+      function pickLocale() {
+        const q = new URL(location.href).searchParams.get("lang");
+        if (q) return String(q).toLowerCase();
+        const nav = (navigator.language || "en").toLowerCase();
+        if (nav.startsWith("zh")) return "zh";
+        if (nav.startsWith("ja")) return "ja";
+        if (nav.startsWith("ko")) return "ko";
+        if (nav.startsWith("fr")) return "fr";
+        return "en";
+      }
+
+      function t(key, vars) {
+        return (window.CSSOS_I18N && window.CSSOS_I18N.t) ? window.CSSOS_I18N.t(key, vars) : key;
+      }
+
+      function applyText() {
+        document.title = t("passkey.title");
+        document.querySelectorAll("[data-i18n]").forEach((el) => {
+          const key = el.getAttribute("data-i18n");
+          if (!key) return;
+          el.textContent = t(key);
+        });
+        document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
+          const key = el.getAttribute("data-i18n-placeholder");
+          if (!key) return;
+          el.setAttribute("placeholder", t(key));
+        });
+      }
+
+      function b64urlToUint8Array(b64url) {
+        const pad = "=".repeat((4 - (b64url.length % 4)) % 4);
+        const b64 = (b64url + pad).replace(/-/g, "+").replace(/_/g, "/");
+        const raw = atob(b64);
+        const arr = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+        return arr;
+      }
+
+      function uint8ArrayToB64url(arr) {
+        let s = "";
+        for (let i = 0; i < arr.length; i++) s += String.fromCharCode(arr[i]);
+        return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+      }
+
+      function publicKeyCredentialToJSON(cred) {
+        if (!cred) return null;
+        const obj = {
+          id: cred.id,
+          type: cred.type,
+          rawId: uint8ArrayToB64url(new Uint8Array(cred.rawId)),
+          response: {}
+        };
+        const r = cred.response;
+        if (r.clientDataJSON) obj.response.clientDataJSON = uint8ArrayToB64url(new Uint8Array(r.clientDataJSON));
+        if (r.attestationObject) obj.response.attestationObject = uint8ArrayToB64url(new Uint8Array(r.attestationObject));
+        if (r.authenticatorData) obj.response.authenticatorData = uint8ArrayToB64url(new Uint8Array(r.authenticatorData));
+        if (r.signature) obj.response.signature = uint8ArrayToB64url(new Uint8Array(r.signature));
+        if (r.userHandle) obj.response.userHandle = uint8ArrayToB64url(new Uint8Array(r.userHandle));
+        if (cred.getClientExtensionResults) obj.clientExtensionResults = cred.getClientExtensionResults();
+        return obj;
+      }
+
+      function normalizeRegOptions(options) {
+        const o = JSON.parse(JSON.stringify(options));
+        o.challenge = b64urlToUint8Array(o.challenge);
+        o.user.id = b64urlToUint8Array(o.user.id);
+        if (Array.isArray(o.excludeCredentials)) {
+          o.excludeCredentials = o.excludeCredentials.map((c) => ({ ...c, id: b64urlToUint8Array(c.id) }));
+        }
+        return o;
+      }
+
+      function normalizeAuthOptions(options) {
+        const o = JSON.parse(JSON.stringify(options));
+        o.challenge = b64urlToUint8Array(o.challenge);
+        if (Array.isArray(o.allowCredentials)) {
+          o.allowCredentials = o.allowCredentials.map((c) => ({ ...c, id: b64urlToUint8Array(c.id) }));
+        }
+        return o;
+      }
+
+      async function jfetch(url, init) {
+        const res = await fetch(url, {
+          credentials: "include",
+          headers: { "content-type": "application/json", ...(init && init.headers ? init.headers : {}) },
+          ...init
+        });
+        const ct = res.headers.get("content-type") || "";
+        const body = ct.includes("application/json") ? await res.json().catch(() => null) : await res.text().catch(() => "");
+        return { res, body };
+      }
+
+      function out(id, v) {
+        document.getElementById(id).textContent = typeof v === "string" ? v : JSON.stringify(v, null, 2);
+      }
+
+      function webauthnSupported() {
+        return window.PublicKeyCredential && typeof navigator.credentials?.create === "function" && typeof navigator.credentials?.get === "function";
+      }
+
+      if (window.CSSOS_I18N && window.CSSOS_I18N.setCurrentLocale) {
+        window.CSSOS_I18N.setCurrentLocale(pickLocale());
+      }
+      applyText();
+
+      document.getElementById("btnMe").onclick = async () => {
+        const { res, body } = await jfetch("/api/me", { method: "GET", headers: {} });
+        out("meOut", { status: res.status, body });
+      };
+
+      document.getElementById("btnRegister").onclick = async () => {
+        if (!webauthnSupported()) {
+          out("regOut", t("passkey.err.unsupported"));
+          return;
+        }
+
+        const deviceName = document.getElementById("deviceName").value || null;
+        const opt = await jfetch("/api/auth/passkey/register/options", { method: "POST", body: "{}" });
+        if (!opt.res.ok) {
+          out("regOut", { step: "options", status: opt.res.status, body: opt.body });
+          return;
+        }
+
+        const options = opt.body && opt.body.data && opt.body.data.options ? opt.body.data.options : null;
+        if (!options) {
+          out("regOut", { step: "options", err: t("passkey.err.options_missing"), raw: opt.body });
+          return;
+        }
+
+        let cred;
+        try {
+          cred = await navigator.credentials.create({ publicKey: normalizeRegOptions(options) });
+        } catch (e) {
+          out("regOut", { step: "create", err: t("passkey.err.create_failed"), detail: String(e) });
+          return;
+        }
+
+        const payload = { response: publicKeyCredentialToJSON(cred), device_name: deviceName };
+        const ver = await jfetch("/api/auth/passkey/register/verify", { method: "POST", body: JSON.stringify(payload) });
+        out("regOut", { status: ver.res.status, body: ver.body });
+      };
+
+      document.getElementById("btnLogin").onclick = async () => {
+        if (!webauthnSupported()) {
+          out("loginOut", t("passkey.err.unsupported"));
+          return;
+        }
+
+        const opt = await jfetch("/api/auth/passkey/login/options", { method: "POST", body: "{}" });
+        if (!opt.res.ok) {
+          out("loginOut", { step: "options", status: opt.res.status, body: opt.body });
+          return;
+        }
+
+        const options = opt.body && opt.body.data && opt.body.data.options ? opt.body.data.options : null;
+        if (!options) {
+          out("loginOut", { step: "options", err: t("passkey.err.options_missing"), raw: opt.body });
+          return;
+        }
+
+        let cred;
+        try {
+          cred = await navigator.credentials.get({ publicKey: normalizeAuthOptions(options) });
+        } catch (e) {
+          out("loginOut", { step: "get", err: t("passkey.err.get_failed"), detail: String(e) });
+          return;
+        }
+
+        const payload = { response: publicKeyCredentialToJSON(cred) };
+        const ver = await jfetch("/api/auth/passkey/login/verify", { method: "POST", body: JSON.stringify(payload) });
+        out("loginOut", { status: ver.res.status, body: ver.body });
+      };
+
+      document.getElementById("btnList").onclick = async () => {
+        const { res, body } = await jfetch("/api/auth/passkey/list", { method: "GET", headers: {} });
+        out("listOut", { status: res.status, body });
+      };
+
+      document.getElementById("btnDelete").onclick = async () => {
+        const credential_id = document.getElementById("deleteId").value || "";
+        const { res, body } = await jfetch("/api/auth/passkey/delete", { method: "POST", body: JSON.stringify({ credential_id }) });
+        out("delOut", { status: res.status, body });
+      };
+    </script>
+  </body>
+</html>

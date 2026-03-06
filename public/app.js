@@ -114,7 +114,7 @@ Object.assign(I18N.en, {
   "mic.no_demo_found": "No demo media found.",
   "mic.demo_label": "demo",
   "mic.settings_open": "Mic settings",
-  "passkey.identifier_required": "Enter your email before using passkey.",
+  "passkey.identifier_required": "Please continue with Apple login.",
   "overlay.close": "Close",
   "panel.about": "About",
   "about.tab.whitepaper": "Whitepaper",
@@ -3065,7 +3065,7 @@ function resolvePasskeyIdentifierForAction() {
   }
   if (!authState.user) {
     setHintKey("passkey.identifier_required");
-    showToast("Enter your email, then use passkey.");
+    showToast("Please continue with Apple login.");
     return null;
   }
   return "";

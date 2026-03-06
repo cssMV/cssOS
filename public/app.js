@@ -1056,8 +1056,8 @@ async function refreshAuthProvidersNow() {
 async function startAppleLogin() {
   await refreshAuthProvidersNow();
   if (authProviders.length > 0 && !isProviderEnabled("apple")) {
-    showToast("Apple 登录暂未配置");
-    setHintKey("Apple 登录暂未配置，请先配置 APPLE_CLIENT_ID / TEAM_ID / KEY_ID / PRIVATE_KEY");
+    showToast("登录暂不可用，请稍后再试");
+    setHintKey("登录暂不可用，请稍后再试");
     return;
   }
   window.location.assign("/auth/apple");
@@ -3917,11 +3917,6 @@ const dockActionMap = {
     click: () => openPanel(settingsPanel),
     dblclick: () => startCreation(titleInput.value.trim(), lyricsInput.value.trim()),
     longpress: resetSettings
-  },
-  apple: {
-    click: () => void startAppleLogin(),
-    dblclick: () => void startAppleLogin(),
-    longpress: () => void startAppleLogin()
   },
   profile: {
     click: () => openPanel(profilePanel),

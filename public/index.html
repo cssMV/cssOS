@@ -26,11 +26,8 @@
           <button class="cta tiny" id="menu-profile" type="button" data-action="profile.open" data-i18n="action.profile">
             Profile
           </button>
-          <button class="cta tiny" id="menu-apple" type="button" data-action="apple.login" data-i18n="action.signin_apple">
-            Sign in with Apple
-          </button>
-          <button class="cta tiny" type="button" data-action="passkey.auth" data-i18n="action.passkeyLogin">
-            Passkey
+          <button class="cta tiny" type="button" data-action="auth.smart" data-i18n="panel.login">
+            Login
           </button>
         </div>
       </div>
@@ -592,7 +589,7 @@
           </div>
           <div class="login-user" id="login-user"></div>
           <div class="passkey-id-row">
-            <label for="login-passkey-identifier">Passkey email</label>
+            <label for="login-passkey-identifier">Email</label>
             <input
               id="login-passkey-identifier"
               class="passkey-identifier-input"
@@ -601,8 +598,8 @@
               placeholder="you@example.com"
             />
             <div class="profile-actions">
-              <button class="cta tiny" type="button" data-action="passkey.auth" data-i18n="profile.passkeyLogin">
-                Use Passkey
+              <button class="cta tiny" type="button" data-action="auth.smart" data-i18n="panel.login">
+                Login
               </button>
             </div>
           </div>
@@ -626,7 +623,7 @@
           <div class="profile-grid">
             <div class="profile-auth-status" id="profile-auth-status">Guest</div>
             <div class="passkey-id-row">
-              <label for="profile-passkey-identifier">Passkey email</label>
+              <label for="profile-passkey-identifier">Email</label>
               <input
                 id="profile-passkey-identifier"
                 class="passkey-identifier-input"
@@ -638,8 +635,8 @@
             <div class="profile-row">
               <div class="profile-label">Sign in</div>
               <div class="profile-actions">
-                <button class="cta tiny" id="profile-signin" type="button" data-action="auth.smart">
-                  Use Passkey / Sign in with Apple
+                <button class="cta tiny" id="profile-signin" type="button" data-action="auth.smart" data-i18n="panel.login">
+                  Login
                 </button>
               </div>
             </div>
@@ -859,10 +856,6 @@
       <div class="dock-item" data-action="settings" data-actions="click,dblclick,longpress">
         <div class="dock-icon">⚙</div>
         <div class="dock-label" data-i18n="dock.settings">Settings</div>
-      </div>
-      <div class="dock-item" data-action="apple" data-actions="click,dblclick,longpress">
-        <div class="dock-icon"></div>
-        <div class="dock-label" data-i18n="action.signin_apple">Sign in with Apple</div>
       </div>
       <div class="dock-item" data-action="profile" data-actions="click,dblclick,longpress">
         <div class="dock-icon">👤</div>

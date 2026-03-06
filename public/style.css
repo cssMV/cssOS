@@ -1945,7 +1945,7 @@ a.icon-btn {
   transform: translateX(-50%);
   display: flex;
   gap: 8px;
-  padding: 10px 14px;
+  padding: 10px 14px 10px 18px;
   max-width: calc(100% - 32px);
   overflow-x: auto;
   background: rgba(18, 24, 30, 0.36);
@@ -2019,7 +2019,7 @@ a.icon-btn {
 #dock-mic {
   width: 54px;
   height: 54px;
-  margin: -13px 0 -13px -34px;
+  margin: -13px 0 -13px -26px;
   padding: 0;
   border-radius: 14px;
   overflow: hidden;

@@ -721,6 +721,7 @@ async function handleAppleCallback(req: express.Request, res: express.Response) 
     const email = payload.email ? String(payload.email) : null;
     const userId = await upsertAppleIdentity({ sub, email });
     (req.session as any).user_id = userId;
+    await saveSessionAsync(req);
     return res.redirect(302, "/");
   } catch {
     return res.status(400).send("auth_failed");

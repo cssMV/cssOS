@@ -1054,8 +1054,8 @@ async function refreshAuthProvidersNow() {
 }
 
 async function startAppleLogin() {
-  await refreshAuthProvidersNow();
-  if (authProviders.length > 0 && !isProviderEnabled("apple")) {
+  const providersFresh = await refreshAuthProvidersNow();
+  if (providersFresh && authProviders.length > 0 && !isProviderEnabled("apple")) {
     showToast("登录暂不可用，请稍后再试");
     setHintKey("登录暂不可用，请稍后再试");
     return;
@@ -3207,7 +3207,11 @@ async function passkeyAuth() {
 }
 
 async function smartSignIn() {
-  await passkeyAuth();
+  try {
+    await passkeyAuth();
+  } catch (_err) {
+    // Ignore passkey cancellation/runtime errors and continue with Apple fallback.
+  }
   if (authState.user) return;
   await startAppleLogin();
 }

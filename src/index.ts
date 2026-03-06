@@ -307,8 +307,54 @@ async function findAnySubjectByCredential(credentialId: string): Promise<string 
 
 async function saveSessionAsync(req: express.Request) {
   if (!req.session) return;
-  await new Promise<void>((resolve) => {
-    req.session.save(() => resolve());
+  await new Promise<void>((resolve, reject) => {
+    req.session.save((err) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+function readCookie(req: express.Request, name: string) {
+  const raw = String(req.headers.cookie || "");
+  if (!raw) return "";
+  const found = raw
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${name}=`));
+  if (!found) return "";
+  const value = found.slice(name.length + 1).trim();
+  if (!value) return "";
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function setAuthTicketCookie(res: express.Response, ticket: string) {
+  const sameSite = (sessionConfig.cookie?.sameSite || "lax") as "lax" | "strict" | "none";
+  const secure = Boolean(sessionConfig.cookie?.secure);
+  res.cookie("cssos_auth_ticket", ticket, {
+    httpOnly: true,
+    sameSite,
+    secure,
+    path: "/",
+    maxAge: 3 * 60 * 1000
+  });
+}
+
+function clearAuthTicketCookie(res: express.Response) {
+  const sameSite = (sessionConfig.cookie?.sameSite || "lax") as "lax" | "strict" | "none";
+  const secure = Boolean(sessionConfig.cookie?.secure);
+  res.clearCookie("cssos_auth_ticket", {
+    httpOnly: true,
+    sameSite,
+    secure,
+    path: "/"
   });
 }
 
@@ -432,6 +478,37 @@ function providerConfig() {
     };
   });
 }
+
+app.use(async (req, res, next) => {
+  try {
+    cleanupAppleAuthTickets();
+    if ((req.session as any)?.user_id) {
+      next();
+      return;
+    }
+    const qTicket =
+      typeof req.query?.auth_ticket === "string" ? String(req.query.auth_ticket).trim() : "";
+    const cTicket = readCookie(req, "cssos_auth_ticket");
+    const ticket = qTicket || cTicket;
+    if (!ticket) {
+      next();
+      return;
+    }
+    const hit = appleAuthTicketCache.get(ticket);
+    if (!hit) {
+      if (cTicket) clearAuthTicketCookie(res);
+      next();
+      return;
+    }
+    appleAuthTicketCache.delete(ticket);
+    (req.session as any).user_id = hit.userId;
+    await saveSessionAsync(req);
+    if (cTicket || qTicket) clearAuthTicketCookie(res);
+    next();
+  } catch {
+    next();
+  }
+});
 
 const appleJwks = createRemoteJWKSet(new URL("https://appleid.apple.com/auth/keys"));
 
@@ -739,6 +816,7 @@ async function handleAppleCallback(req: express.Request, res: express.Response) 
     cleanupAppleAuthTickets();
     const authTicket = crypto.randomBytes(18).toString("hex");
     appleAuthTicketCache.set(authTicket, { userId, expireAt: Date.now() + 3 * 60 * 1000 });
+    setAuthTicketCookie(res, authTicket);
     return res.redirect(302, `/?auth_ticket=${encodeURIComponent(authTicket)}`);
   } catch {
     return res.status(400).send("auth_failed");
@@ -904,6 +982,7 @@ app.post("/api/auth/finalize", async (req, res) => {
     appleAuthTicketCache.delete(ticket);
     (req.session as any).user_id = hit.userId;
     await saveSessionAsync(req);
+    clearAuthTicketCookie(res);
     return res.json(okData({ authenticated: true }));
   } catch {
     return res.status(500).json({ ok: false, error: "finalize_failed" });

@@ -1034,7 +1034,9 @@ function updateLoginUI() {
     worksName.textContent = authState.user ? userLabel : "Guest";
   }
   if (worksRole) {
-    worksRole.textContent = authState.user ? "Creator" : "Guest";
+    worksRole.textContent = authState.user
+      ? (authState.role || "user").toString().toUpperCase()
+      : "GUEST";
   }
 }
 
@@ -3232,6 +3234,11 @@ async function passkeyAuth() {
 }
 
 async function smartSignIn() {
+  const providersFresh = await refreshAuthProvidersNow();
+  if (!providersFresh || authProviders.length === 0 || isProviderEnabled("apple")) {
+    await startAppleLogin();
+    return;
+  }
   try {
     await passkeyAuth();
   } catch (_err) {

@@ -2038,7 +2038,7 @@ a.icon-btn {
   font-size: 0;
   color: transparent;
   background: transparent;
-  box-shadow: 0 0 14px rgba(0, 214, 255, 0.3);
+  box-shadow: none;
   overflow: hidden;
 }
 
@@ -2051,23 +2051,25 @@ a.icon-btn {
 
 #dock-mic .dock-mic-img {
   position: absolute;
-  inset: -4px;
-  width: calc(100% + 8px);
-  height: calc(100% + 8px);
-  object-fit: cover;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
   object-position: center center;
-  filter: saturate(1.16) contrast(1.06) drop-shadow(0 0 10px rgba(0, 240, 255, 0.45));
-  transform: scale(1.16);
+  filter: none;
+  transform: scale(1);
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
   pointer-events: none;
 }
 
 #dock-mic .dock-mic-img-a {
-  transform: scale(1.16);
+  transform: scale(1);
   animation: dockMicSwapA 10s ease-in-out infinite;
 }
 
 #dock-mic .dock-mic-img-b {
-  transform: translateX(-1px) scale(1.3);
+  transform: scale(1);
   animation: dockMicSwapB 10s ease-in-out infinite;
 }
 
@@ -2089,14 +2091,14 @@ a.icon-btn {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  box-shadow: 0 0 10px rgba(0, 225, 255, 0.2);
+  box-shadow: none;
   animation: dockMicBreath 5.2s ease-in-out infinite;
   pointer-events: none;
 }
 
 #dock-mic.active .dock-mic-icon,
 #dock-mic:hover .dock-mic-icon {
-  box-shadow: 0 0 16px rgba(0, 238, 255, 0.45);
+  box-shadow: none;
 }
 
 #trigger-mic,

@@ -10,6 +10,7 @@ const videoPanel = document.getElementById("video-panel");
 const settingsPanel = document.getElementById("settings-panel");
 const languagePanel = document.getElementById("language-panel");
 const loginPanel = document.getElementById("login-panel");
+const profilePanel = document.getElementById("profile-panel");
 const worksPanel = document.getElementById("works-panel");
 const aboutPanel = document.getElementById("about-panel");
 const apiPanel = document.getElementById("api-panel");
@@ -21,9 +22,12 @@ const apiPaymentMethod = document.getElementById("api-payment-method");
 const apiAutoRecharge = document.getElementById("api-auto-recharge");
 const apiMonthlyLimit = document.getElementById("api-monthly-limit");
 const lyricsEl = document.getElementById("lyrics");
+const runline = document.getElementById("runline");
+const runid = document.getElementById("runid");
 const watchSubtitle = document.getElementById("watch-subtitle");
 const watchVideo = document.getElementById("watch-video");
 const watchSvg = document.getElementById("watch-svg");
+const foryouPreviewVideo = document.getElementById("foryou-preview-video");
 const musicProgress = document.getElementById("music-progress");
 const videoProgress = document.getElementById("video-progress");
 const karaProgress = document.getElementById("kara-progress");
@@ -74,69 +78,16 @@ const loginList = document.getElementById("login-list");
 const loginStatus = document.getElementById("login-status");
 const loginUser = document.getElementById("login-user");
 const loginLogout = document.getElementById("login-logout");
+const loginPasskeyIdentifier = document.getElementById("login-passkey-identifier");
+const profilePasskeyIdentifier = document.getElementById("profile-passkey-identifier");
+const profileAuthStatus = document.getElementById("profile-auth-status");
+const worksAvatar = document.getElementById("works-avatar");
+const worksName = document.getElementById("works-name");
+const worksRole = document.getElementById("works-role");
 const versionToggle = document.getElementById("version-toggle");
 const versionMenu = document.getElementById("version-menu");
 const versionList = document.getElementById("version-list");
 const versionCurrentLabel = document.getElementById("version-current");
-
-function forceWorksPanelNeo() {
-  if (!worksPanel) return;
-  const body = worksPanel.querySelector(".panel-body");
-  if (!body) return;
-
-  const hasOld = body.querySelector(".works-hero, .work-card, .comment-card");
-  const hasNeo = body.classList.contains("works-neo");
-  if (!hasOld && hasNeo) return;
-
-  body.className = "panel-body works-body works-neo";
-  body.innerHTML = `
-    <div class="works-neo-hero">
-      <div>
-        <div class="panel-label" data-i18n="works.subtitle">Creator Works Center</div>
-        <div class="works-neo-title" data-i18n="works.neo.title">Works Center</div>
-      </div>
-      <div class="works-neo-badges">
-        <span class="works-neo-chip" data-i18n="works.neo.badge.plan">PRIME</span>
-        <span class="works-neo-chip" data-i18n="works.neo.badge.quality">4K CAP</span>
-        <span class="works-neo-chip" data-i18n="works.neo.badge.quota">300/mo</span>
-      </div>
-    </div>
-    <div class="works-neo-stats">
-      <article class="works-neo-stat"><div class="works-neo-stat-label" data-i18n="works.neo.stat.published">PUBLISHED</div><div class="works-neo-stat-value">12</div><div class="works-neo-stat-hint" data-i18n="works.neo.hint.published">Published works</div></article>
-      <article class="works-neo-stat"><div class="works-neo-stat-label" data-i18n="works.neo.stat.rendering">RENDERING</div><div class="works-neo-stat-value">3</div><div class="works-neo-stat-hint" data-i18n="works.neo.hint.rendering">Processing queue</div></article>
-      <article class="works-neo-stat"><div class="works-neo-stat-label" data-i18n="works.neo.stat.views">VIEWS</div><div class="works-neo-stat-value">28,119</div><div class="works-neo-stat-hint" data-i18n="works.neo.hint.views">Monthly views</div></article>
-      <article class="works-neo-stat"><div class="works-neo-stat-label" data-i18n="works.neo.stat.avgPrice">AVG PRICE</div><div class="works-neo-stat-value">$8.60</div><div class="works-neo-stat-hint" data-i18n="works.neo.hint.avgPrice">Average pricing</div></article>
-    </div>
-    <div class="works-neo-grid">
-      <section class="works-neo-card works-neo-glow">
-        <div class="works-neo-card-header"><div class="section-title" data-i18n="works.neo.goal.title">Creation Goals</div><button class="mini-btn" type="button" data-i18n="works.neo.goal.create">Create Work</button></div>
-        <div class="works-neo-goal-list">
-          <article class="works-neo-goal-item"><div class="works-neo-goal-top"><span data-i18n="works.neo.goal.weeklyRelease">Weekly releases</span><span>2/4</span></div><div class="works-neo-progress"><span style="width:50%"></span></div></article>
-          <article class="works-neo-goal-item"><div class="works-neo-goal-top"><span data-i18n="works.neo.goal.monthlyViews">Monthly views target</span><span>12.6k/20k</span></div><div class="works-neo-progress"><span style="width:63%"></span></div></article>
-          <article class="works-neo-goal-item"><div class="works-neo-goal-top"><span data-i18n="works.neo.goal.commercialDeals">Commercial deals</span><span>5/8</span></div><div class="works-neo-progress"><span style="width:62%"></span></div></article>
-        </div>
-      </section>
-      <section class="works-neo-card">
-        <div class="section-title" data-i18n="works.neo.schedule.title">Scheduler</div>
-        <div class="works-neo-schedule">
-          <article class="works-neo-box"><div class="works-neo-box-label" data-i18n="works.neo.schedule.queue">RENDER QUEUE</div><div class="works-neo-box-value">3</div></article>
-          <article class="works-neo-box"><div class="works-neo-box-label" data-i18n="works.neo.schedule.nextRelease">NEXT RELEASE</div><div class="works-neo-box-value sm">Pulse Runner</div><div class="works-neo-box-hint" data-i18n="works.neo.schedule.nextReleaseHint">Expected to publish in 4 hours</div></article>
-          <article class="works-neo-box"><div class="works-neo-box-label" data-i18n="works.neo.schedule.focus">FOCUS</div><div class="works-neo-box-hint" data-i18n="works.neo.schedule.focusHint">Prioritize long-form opera content to improve commercial conversion.</div></article>
-        </div>
-      </section>
-    </div>
-    <section class="works-neo-card">
-      <div class="works-neo-card-header"><div class="section-title" data-i18n="works.neo.matrix.title">Works Matrix</div><div class="works-neo-note" data-i18n="works.neo.matrix.note">Realtime status / One-click publish / Archive</div></div>
-      <div class="works-neo-list">
-        <article class="works-neo-work"><div class="works-neo-main"><div class="works-neo-name-row"><span class="works-neo-name">Neon Aria</span><span class="works-neo-status ok" data-i18n="works.neo.status.published">PUBLISHED</span><span class="works-neo-type" data-i18n="works.neo.type.opera">OPERA</span></div><div class="works-neo-meta" data-i18n="works.neo.meta.item1">$12.90 · 3,891 views · 2h ago</div><div class="works-neo-progress"><span style="width:100%"></span></div></div><div class="works-neo-actions"><button class="mini-btn" type="button" disabled data-i18n="works.neo.action.published">Published</button><button class="mini-btn ghost" type="button" data-i18n="works.neo.action.archive">Archive</button></div></article>
-        <article class="works-neo-work"><div class="works-neo-main"><div class="works-neo-name-row"><span class="works-neo-name">Pulse Runner</span><span class="works-neo-status ready" data-i18n="works.neo.status.ready">READY</span><span class="works-neo-type" data-i18n="works.neo.type.mv">MV</span></div><div class="works-neo-meta" data-i18n="works.neo.meta.item2">$3.80 · 1,277 views · 5h ago</div><div class="works-neo-progress"><span style="width:100%"></span></div></div><div class="works-neo-actions"><button class="mini-btn" type="button" data-i18n="works.neo.action.publish">Publish</button><button class="mini-btn ghost" type="button" data-i18n="works.neo.action.archive">Archive</button></div></article>
-        <article class="works-neo-work"><div class="works-neo-main"><div class="works-neo-name-row"><span class="works-neo-name">Echo District</span><span class="works-neo-status run" data-i18n="works.neo.status.rendering">RENDERING</span><span class="works-neo-type" data-i18n="works.neo.type.mv">MV</span></div><div class="works-neo-meta" data-i18n="works.neo.meta.item3">$2.99 · 0 views · 12m ago</div><div class="works-neo-progress"><span style="width:68%"></span></div></div><div class="works-neo-actions"><button class="mini-btn ghost" type="button" data-i18n="works.neo.action.processing">Processing</button><button class="mini-btn ghost" type="button" data-i18n="works.neo.action.archive">Archive</button></div></article>
-      </div>
-    </section>
-  `;
-}
-
-forceWorksPanelNeo();
 
 if (watchVideo) {
   watchVideo.controls = true;
@@ -145,6 +96,7 @@ if (watchVideo) {
 const { LOCALE_KEY, DEFAULT_LOCALE } = window.CSSOS_I18N_CONSTANTS;
 const USER_ROLE_KEY = "cssos.userRole";
 const DEFAULT_ROLE = "guest";
+const PASSKEY_IDENTIFIER_KEY = "CSSOS_PASSKEY_IDENTIFIER";
 const LANG_STORAGE_KEY = "CSSOS_LANG";
 const LANG_AUTODETECT_KEY = "CSSOS_LANG_AUTO";
 const LANG_DETECTED_KEY = "CSSOS_LANG_DETECTED";
@@ -162,6 +114,7 @@ Object.assign(I18N.en, {
   "mic.no_demo_found": "No demo media found.",
   "mic.demo_label": "demo",
   "mic.settings_open": "Mic settings",
+  "passkey.identifier_required": "Enter your email before using passkey.",
   "overlay.close": "Close",
   "panel.about": "About",
   "about.tab.whitepaper": "Whitepaper",
@@ -344,6 +297,15 @@ function applyI18n() {
     const text = t(key);
     if (text) {
       el.setAttribute("placeholder", text);
+    }
+  });
+
+  document.querySelectorAll("[data-i18n-aria]").forEach((el) => {
+    const key = el.dataset.i18nAria;
+    if (!key) return;
+    const text = t(key);
+    if (text) {
+      el.setAttribute("aria-label", text);
     }
   });
 
@@ -804,6 +766,16 @@ let lyricsTargetLength = 0;
 let playbackRetry = 0;
 let playbackTimer = null;
 let manualPlayHinted = false;
+let readyWatchToken = 0;
+let compactWatchTimer = 0;
+let compactPreviewLoopTimer = 0;
+let watchSinceSeq = null;
+let watchedRunId = "";
+let typedLyricsTarget = "";
+let typedLyricsCurrent = "";
+let typedLyricsTimer = 0;
+let artifactsPollTick = 0;
+let runLyricsText = "";
 
 const engineStates = {
   lyrics: "running",
@@ -1000,7 +972,8 @@ async function fetchMe() {
   try {
     const res = await fetch("/api/me", { credentials: "include" });
     if (!res.ok) return;
-    const data = await res.json();
+    const payload = await res.json();
+    const data = unwrapApiData(payload);
     authState.user = data.user || null;
     authState.role = data.role || DEFAULT_ROLE;
     authState.tier = data.tier || authState.role || DEFAULT_ROLE;
@@ -1012,19 +985,31 @@ async function fetchMe() {
 }
 
 function updateLoginUI() {
+  const userLabel = authState.user
+    ? authState.user.name || authState.user.email || authState.user.id
+    : "";
   if (loginStatus) {
     loginStatus.textContent = authState.user ? t("login.statusSigned") : t("login.statusGuest");
   }
   if (loginUser) {
-    if (authState.user) {
-      const label = authState.user.name || authState.user.email || authState.user.id;
-      loginUser.textContent = label || "";
-    } else {
-      loginUser.textContent = "";
-    }
+    loginUser.textContent = userLabel || "";
   }
   if (loginLogout) {
     loginLogout.style.display = authState.user ? "inline-flex" : "none";
+  }
+  if (profileAuthStatus) {
+    profileAuthStatus.textContent = authState.user
+      ? `${t("login.statusSigned")} · ${userLabel}`
+      : t("login.statusGuest");
+  }
+  if (worksAvatar) {
+    worksAvatar.textContent = authState.user ? (userLabel || "U").slice(0, 2).toUpperCase() : "CS";
+  }
+  if (worksName) {
+    worksName.textContent = authState.user ? userLabel : "Guest";
+  }
+  if (worksRole) {
+    worksRole.textContent = authState.user ? "Creator" : "Guest";
   }
 }
 
@@ -1032,12 +1017,35 @@ async function fetchAuthProviders() {
   try {
     const res = await fetch("/api/auth/providers", { credentials: "include" });
     if (!res.ok) return;
-    const data = await res.json();
+    const payload = await res.json();
+    const data = unwrapApiData(payload);
     authProviders = Array.isArray(data.providers) ? data.providers : [];
     renderLoginPlatforms();
   } catch (err) {
     // ignore
   }
+}
+
+function unwrapApiData(payload) {
+  if (!payload || typeof payload !== "object") return {};
+  if (Object.prototype.hasOwnProperty.call(payload, "data")) {
+    const value = payload.data;
+    return value && typeof value === "object" ? value : {};
+  }
+  return payload;
+}
+
+function isProviderEnabled(providerId) {
+  return authProviders.some((provider) => provider.id === providerId && provider.enabled);
+}
+
+function startAppleLogin() {
+  if (!isProviderEnabled("apple")) {
+    showToast("Apple 登录暂未配置");
+    setHintKey("Apple 登录暂未配置，请先配置 APPLE_CLIENT_ID / TEAM_ID / KEY_ID / PRIVATE_KEY");
+    return;
+  }
+  window.location.assign("/auth/apple");
 }
 
 function consumeLocalUsage() {
@@ -1108,6 +1116,7 @@ const panels = [
   settingsPanel,
   languagePanel,
   loginPanel,
+  profilePanel,
   worksPanel,
   aboutPanel,
   apiPanel
@@ -1123,6 +1132,7 @@ const dockByPanel = {
   "settings-panel": "settings",
   "language-panel": "language",
   "login-panel": "login",
+  "profile-panel": "profile",
   "works-panel": "works",
   "about-panel": "about",
   "api-panel": "api"
@@ -1912,10 +1922,11 @@ function attachAmbientTrail() {
 
 function setPanelPosition(panel, left, top) {
   const rect = panel.getBoundingClientRect();
+  const safeTop = Math.max(8, Number(window.visualViewport?.offsetTop || 0) + 8);
   const maxLeft = Math.max(0, window.innerWidth - rect.width);
-  const maxTop = Math.max(0, window.innerHeight - rect.height);
+  const maxTop = Math.max(safeTop, window.innerHeight - rect.height);
   const clampedLeft = Math.min(Math.max(0, left), maxLeft);
-  const clampedTop = Math.min(Math.max(0, top), maxTop);
+  const clampedTop = Math.min(Math.max(safeTop, top), maxTop);
   panel.style.left = `${clampedLeft}px`;
   panel.style.top = `${clampedTop}px`;
   panel.style.transform = "none";
@@ -2015,10 +2026,11 @@ function clampPanelInViewport(panel) {
   if (!panel) return;
   if (!panel.style.left && !panel.style.top) return;
   const rect = panel.getBoundingClientRect();
+  const safeTop = Math.max(8, Number(window.visualViewport?.offsetTop || 0) + 8);
   const maxLeft = Math.max(0, window.innerWidth - rect.width);
-  const maxTop = Math.max(0, window.innerHeight - rect.height);
+  const maxTop = Math.max(safeTop, window.innerHeight - rect.height);
   const clampedLeft = Math.min(Math.max(0, rect.left), maxLeft);
-  const clampedTop = Math.min(Math.max(0, rect.top), maxTop);
+  const clampedTop = Math.min(Math.max(safeTop, rect.top), maxTop);
   panel.style.left = `${clampedLeft}px`;
   panel.style.top = `${clampedTop}px`;
   panel.style.transform = "none";
@@ -2550,7 +2562,15 @@ async function startCreation(customTitle, customLyrics) {
 }
 
 function handleMicClick() {
-  runMicFlow();
+  if (micIgnoreActionClick) {
+    micIgnoreActionClick = false;
+    return;
+  }
+  if (hold.active) return;
+  micHoldStart("click");
+  window.setTimeout(() => {
+    if (hold.active) micHoldCommit({ reason: "click" });
+  }, 40);
 }
 
 function handleMicLongPress() {
@@ -2567,6 +2587,8 @@ let micRecorder = null;
 let micChunks = [];
 let micStream = null;
 let micRecording = false;
+let micDiscardOnStop = false;
+let micIgnoreActionClick = false;
 
 const getMicJobId = () => {
   if (!micState.jobId) {
@@ -2734,6 +2756,7 @@ async function startMicRecording() {
   try {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     micChunks = [];
+    micDiscardOnStop = false;
     micRecorder = new MediaRecorder(micStream);
     micRecorder.ondataavailable = (event) => {
       if (event.data && event.data.size > 0) micChunks.push(event.data);
@@ -2741,7 +2764,10 @@ async function startMicRecording() {
     micRecorder.onstop = async () => {
       const blob = new Blob(micChunks, { type: micRecorder.mimeType || "audio/webm" });
       micChunks = [];
-      await submitMicTranscription(blob);
+      if (!micDiscardOnStop) {
+        await submitMicTranscription(blob);
+      }
+      micDiscardOnStop = false;
     };
     micRecorder.start();
     micRecording = true;
@@ -2752,8 +2778,9 @@ async function startMicRecording() {
   }
 }
 
-function stopMicRecording() {
+function stopMicRecording(discard = false) {
   if (!micRecorder || !micRecording) return;
+  micDiscardOnStop = !!discard;
   micRecording = false;
   micRecorder.stop();
   if (micStream) {
@@ -2920,6 +2947,892 @@ function cycleLanguageQuick() {
   setLocale(next);
 }
 
+const PASSKEY_BASE = "";
+const HOLD_MAX_MS = Math.max(30000, Number(window.CSS_HOLD_MAX_MS || 30000));
+
+let hold = {
+  active: false,
+  startedAt: 0,
+  raf: 0,
+  timeout: 0,
+  pointerId: null
+};
+
+function setHintKey(key) {
+  const el = document.getElementById("profile-hint");
+  if (!el) return;
+  if (!key) {
+    el.textContent = "";
+    return;
+  }
+  try {
+    el.textContent = t(key);
+  } catch {
+    el.textContent = key;
+  }
+}
+
+function passkeySupported() {
+  return !!(window.PublicKeyCredential && navigator.credentials);
+}
+
+function normalizePasskeyIdentifier(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function getPasskeyIdentifier() {
+  const loginInputValue = normalizePasskeyIdentifier(loginPasskeyIdentifier?.value);
+  const profileInputValue = normalizePasskeyIdentifier(profilePasskeyIdentifier?.value);
+  const stored = normalizePasskeyIdentifier(localStorage.getItem(PASSKEY_IDENTIFIER_KEY));
+  return loginInputValue || profileInputValue || stored || "";
+}
+
+function setPasskeyIdentifier(identifier) {
+  const normalized = normalizePasskeyIdentifier(identifier);
+  if (loginPasskeyIdentifier && loginPasskeyIdentifier.value !== normalized) {
+    loginPasskeyIdentifier.value = normalized;
+  }
+  if (profilePasskeyIdentifier && profilePasskeyIdentifier.value !== normalized) {
+    profilePasskeyIdentifier.value = normalized;
+  }
+  if (normalized) {
+    localStorage.setItem(PASSKEY_IDENTIFIER_KEY, normalized);
+  } else {
+    localStorage.removeItem(PASSKEY_IDENTIFIER_KEY);
+  }
+}
+
+function bindPasskeyIdentifierInputs() {
+  const sync = (event) => {
+    const value = event?.target?.value;
+    setPasskeyIdentifier(value);
+  };
+  loginPasskeyIdentifier?.addEventListener("change", sync);
+  loginPasskeyIdentifier?.addEventListener("blur", sync);
+  profilePasskeyIdentifier?.addEventListener("change", sync);
+  profilePasskeyIdentifier?.addEventListener("blur", sync);
+  setPasskeyIdentifier(localStorage.getItem(PASSKEY_IDENTIFIER_KEY) || "");
+}
+
+function resolvePasskeyIdentifierForAction() {
+  const identifier = getPasskeyIdentifier();
+  if (identifier) {
+    setPasskeyIdentifier(identifier);
+    return identifier;
+  }
+  if (!authState.user) {
+    setHintKey("passkey.identifier_required");
+    showToast("Enter your email, then use passkey.");
+    return null;
+  }
+  return "";
+}
+
+function b64urlToBuf(s) {
+  const n = String(s || "").replace(/-/g, "+").replace(/_/g, "/");
+  const pad = n.length % 4 ? "=".repeat(4 - (n.length % 4)) : "";
+  const str = atob(n + pad);
+  const buf = new Uint8Array(str.length);
+  for (let i = 0; i < str.length; i += 1) buf[i] = str.charCodeAt(i);
+  return buf.buffer;
+}
+
+function bufToB64url(buf) {
+  const bytes = new Uint8Array(buf);
+  let str = "";
+  for (let i = 0; i < bytes.length; i += 1) str += String.fromCharCode(bytes[i]);
+  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function normalizePublicKeyOptions(pk) {
+  const out = JSON.parse(JSON.stringify(pk || {}));
+  if (out.challenge) out.challenge = b64urlToBuf(out.challenge);
+  if (out.user && out.user.id) out.user.id = b64urlToBuf(out.user.id);
+  if (Array.isArray(out.excludeCredentials)) {
+    out.excludeCredentials = out.excludeCredentials.map((c) => ({ ...c, id: b64urlToBuf(c.id) }));
+  }
+  if (Array.isArray(out.allowCredentials)) {
+    out.allowCredentials = out.allowCredentials.map((c) => ({ ...c, id: b64urlToBuf(c.id) }));
+  }
+  return out;
+}
+
+function credentialToJSON(cred) {
+  const res = {
+    id: cred.id,
+    rawId: bufToB64url(cred.rawId),
+    type: cred.type,
+    response: {}
+  };
+  const r = cred.response;
+  if (r) {
+    if (r.attestationObject) res.response.attestationObject = bufToB64url(r.attestationObject);
+    if (r.clientDataJSON) res.response.clientDataJSON = bufToB64url(r.clientDataJSON);
+    if (r.authenticatorData) res.response.authenticatorData = bufToB64url(r.authenticatorData);
+    if (r.signature) res.response.signature = bufToB64url(r.signature);
+    if (r.userHandle) res.response.userHandle = bufToB64url(r.userHandle);
+  }
+  return res;
+}
+
+async function passkeyEnable() {
+  if (!passkeySupported()) {
+    setHintKey("passkey.unsupported");
+    return;
+  }
+  const identifier = resolvePasskeyIdentifierForAction();
+  if (identifier === null) return;
+  setHintKey("");
+  const optData = await fetchPasskeyOptions("register", identifier);
+  if (!optData) {
+    setHintKey("passkey.register_options_failed");
+    return;
+  }
+  const publicKey = normalizePublicKeyOptions(optData.publicKey || optData);
+  const cred = await navigator.credentials.create({ publicKey });
+  const body = { credential: credentialToJSON(cred) };
+  const verRes = await fetch(`${PASSKEY_BASE}/api/auth/passkey/register/verify`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify(identifier ? { ...body, identifier } : body)
+  });
+  if (!verRes.ok) {
+    setHintKey("passkey.register_verify_failed");
+    return;
+  }
+  await fetchMe();
+  setHintKey("passkey.enabled");
+}
+
+async function fetchPasskeyOptions(kind, identifier) {
+  const endpoint = `${PASSKEY_BASE}/api/auth/passkey/${kind}/options`;
+  const query = identifier ? `?identifier=${encodeURIComponent(identifier)}` : "";
+
+  try {
+    const getRes = await fetch(`${endpoint}${query}`, {
+      method: "GET",
+      credentials: "include",
+      headers: { accept: "application/json" }
+    });
+    if (getRes.ok) {
+      const getJson = await getRes.json();
+      return unwrapApiData(getJson);
+    }
+  } catch (_err) {
+    // fallback to POST below
+  }
+
+  const body = identifier ? { identifier } : {};
+  const postRes = await fetch(endpoint, {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!postRes.ok) return null;
+  const postJson = await postRes.json();
+  return unwrapApiData(postJson);
+}
+
+async function passkeyLogin() {
+  if (!passkeySupported()) {
+    setHintKey("passkey.unsupported");
+    return;
+  }
+  const identifier = resolvePasskeyIdentifierForAction();
+  if (identifier === null) return;
+  setHintKey("");
+  const optData = await fetchPasskeyOptions("login", identifier);
+  if (!optData) {
+    setHintKey("passkey.login_options_failed");
+    return;
+  }
+  if (optData.empty) {
+    setHintKey("passkey.not_enabled");
+    return;
+  }
+  const publicKey = normalizePublicKeyOptions(optData.publicKey || optData);
+  const cred = await navigator.credentials.get({ publicKey });
+  const body = { credential: credentialToJSON(cred) };
+  const verRes = await fetch(`${PASSKEY_BASE}/api/auth/passkey/login/verify`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify(identifier ? { ...body, identifier } : body)
+  });
+  if (!verRes.ok) {
+    setHintKey("passkey.login_verify_failed");
+    return;
+  }
+  await fetchMe();
+  setHintKey("passkey.enabled");
+}
+
+async function passkeyAuth() {
+  const identifier = resolvePasskeyIdentifierForAction();
+  if (identifier === null) return;
+
+  if (!passkeySupported()) {
+    setHintKey("passkey.unsupported");
+    return;
+  }
+
+  await passkeyLogin();
+  if (authState.user) return;
+
+  const hintText = document.getElementById("profile-hint")?.textContent || "";
+  const expected = t("passkey.not_enabled");
+  const optionsFailed = t("passkey.login_options_failed");
+  if (hintText === expected || hintText === optionsFailed) {
+    await passkeyEnable();
+    await passkeyLogin();
+  }
+}
+
+function removeLegacyMicFab() {
+  const selectors = ["#trigger-mic", ".logo-actions", ".mic-fab", ".logo-mic-fab"];
+  selectors.forEach((selector) => {
+    document.querySelectorAll(selector).forEach((el) => el.remove());
+  });
+}
+
+function triggerMic() {
+  window.dispatchEvent(new CustomEvent("cssos:mic"));
+}
+
+function ringEl() {
+  return document.getElementById("hold-ring");
+}
+
+function ringFg() {
+  const r = ringEl();
+  if (!r) return null;
+  return r.querySelector(".hold-ring-fg");
+}
+
+function setRingProgress01(p) {
+  const fg = ringFg();
+  if (!fg) return;
+  const C = 289;
+  const clamped = Math.max(0, Math.min(1, p));
+  fg.style.strokeDashoffset = String(C * (1 - clamped));
+}
+
+const logoPanelHoldInlineBackup = {
+  border: null,
+  borderPriority: "",
+  transform: null,
+  transformPriority: ""
+};
+
+function applyLogoPanelHoldInline(on) {
+  if (!logoPanel || !logoPanel.style) return;
+  if (on) {
+    logoPanelHoldInlineBackup.border = logoPanel.style.getPropertyValue("border");
+    logoPanelHoldInlineBackup.borderPriority = logoPanel.style.getPropertyPriority("border");
+    logoPanelHoldInlineBackup.transform = logoPanel.style.getPropertyValue("transform");
+    logoPanelHoldInlineBackup.transformPriority = logoPanel.style.getPropertyPriority("transform");
+    logoPanel.style.setProperty("border", "0", "important");
+    logoPanel.style.setProperty("transform", "none", "important");
+    return;
+  }
+  const prevBorder = logoPanelHoldInlineBackup.border;
+  if (prevBorder && prevBorder.length > 0) {
+    logoPanel.style.setProperty("border", prevBorder, logoPanelHoldInlineBackup.borderPriority || "");
+  } else {
+    logoPanel.style.removeProperty("border");
+  }
+  const prevTransform = logoPanelHoldInlineBackup.transform;
+  if (prevTransform && prevTransform.length > 0) {
+    logoPanel.style.setProperty(
+      "transform",
+      prevTransform,
+      logoPanelHoldInlineBackup.transformPriority || ""
+    );
+  } else {
+    logoPanel.style.removeProperty("transform");
+  }
+}
+
+function showRing(on) {
+  void on;
+}
+
+function micHoldStart(origin) {
+  if (hold.active) return;
+  hold.active = true;
+  hold.startedAt = performance.now();
+  setRingProgress01(0);
+  showRing(true);
+  showToast(t("mic.listening"));
+  window.dispatchEvent(new CustomEvent("cssos:mic_hold_start", { detail: { origin } }));
+
+  const tick = () => {
+    if (!hold.active) return;
+    const now = performance.now();
+    const p = (now - hold.startedAt) / HOLD_MAX_MS;
+    setRingProgress01(p);
+    hold.raf = requestAnimationFrame(tick);
+  };
+  hold.raf = requestAnimationFrame(tick);
+
+  hold.timeout = window.setTimeout(() => {
+    if (!hold.active) return;
+    micHoldCommit({ reason: "timeout" });
+  }, HOLD_MAX_MS);
+}
+
+function micHoldCommit(meta) {
+  if (!hold.active) return;
+  const elapsed = performance.now() - hold.startedAt;
+  hold.active = false;
+  if (hold.raf) cancelAnimationFrame(hold.raf);
+  if (hold.timeout) clearTimeout(hold.timeout);
+  hold.raf = 0;
+  hold.timeout = 0;
+  hold.pointerId = null;
+  showRing(false);
+  setRingProgress01(0);
+  window.dispatchEvent(
+    new CustomEvent("cssos:mic_hold_commit", {
+      detail: { elapsed_ms: Math.round(elapsed), ...meta }
+    })
+  );
+}
+
+function bindHoldTargets() {
+  const targets = Array.from(document.querySelectorAll("[data-hold='mic']"));
+  for (const el of targets) {
+    el.addEventListener("pointerdown", (e) => {
+      if (e.button !== undefined && e.button !== 0) return;
+      e.preventDefault();
+      micIgnoreActionClick = true;
+      try {
+        el.setPointerCapture(e.pointerId);
+      } catch {}
+      hold.pointerId = e.pointerId;
+      micHoldStart(el.id || el.getAttribute("data-action") || "mic");
+    });
+
+    const commit = (e, reason) => {
+      if (!hold.active) return;
+      if (hold.pointerId !== null && e.pointerId !== hold.pointerId) return;
+      micHoldCommit({ reason });
+    };
+
+    el.addEventListener("pointerup", (e) => commit(e, "release"));
+    el.addEventListener("pointercancel", (e) => commit(e, "release"));
+    el.addEventListener("lostpointercapture", (e) => commit(e, "release"));
+    el.addEventListener("pointerleave", (e) => {
+      if (e.pointerType === "mouse") commit(e, "release");
+    });
+    el.addEventListener("contextmenu", (e) => e.preventDefault());
+  }
+}
+
+let rec = {
+  stream: null,
+  mr: null,
+  chunks: [],
+  started: false
+};
+
+async function startRecording() {
+  if (rec.started) return;
+  rec.chunks = [];
+  rec.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const mr = new MediaRecorder(rec.stream, { mimeType: "audio/webm" });
+  rec.mr = mr;
+  rec.started = true;
+
+  mr.ondataavailable = (ev) => {
+    if (ev.data && ev.data.size > 0) rec.chunks.push(ev.data);
+  };
+
+  mr.start(250);
+}
+
+async function stopRecordingGetBlob() {
+  if (!rec.started || !rec.mr) return null;
+
+  const mr = rec.mr;
+  const stream = rec.stream;
+
+  const blob = await new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      try {
+        mr.ondataavailable = null;
+      } catch {}
+      resolve(new Blob(rec.chunks, { type: mr.mimeType || "audio/webm" }));
+    };
+    mr.onstop = finish;
+    try {
+      mr.stop();
+    } catch {
+      finish();
+    }
+    setTimeout(finish, 1200);
+  });
+
+  rec.started = false;
+  rec.mr = null;
+  rec.stream = null;
+  rec.chunks = [];
+
+  if (stream) {
+    for (const tr of stream.getTracks()) {
+      try {
+        tr.stop();
+      } catch {}
+    }
+  }
+
+  if (!blob || blob.size === 0) return null;
+  return blob;
+}
+
+function randomTitle() {
+  const xs = ["Untitled", "New Song", "Opera Night", "Midnight", "Starlight", "Echo"];
+  return xs[Math.floor(Math.random() * xs.length)];
+}
+
+function apiBase() {
+  const v =
+    window.CSS_API_BASE ||
+    window.CSS_BASE_URL ||
+    (location.origin.includes("localhost") ? "http://127.0.0.1:8081" : location.origin);
+  return String(v).replace(/\/+$/, "");
+}
+
+function b64FromArrayBuffer(ab) {
+  const bytes = new Uint8Array(ab);
+  let s = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    s += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(s);
+}
+
+async function createRun({ title, uiLang, tier, voice }) {
+  const baseUrl = apiBase();
+  const safeLang = (uiLang || "zh").toString();
+  const nowIso = new Date().toISOString();
+  const voiceMeta = {
+    captured: Boolean(voice && voice.bytes > 0),
+    duration_ms: Math.max(0, Number(voice?.duration_ms || 0)),
+    bytes: Math.max(0, Number(voice?.bytes || 0)),
+    mime: (voice?.mime || "audio/webm").toString(),
+    trigger: (voice?.trigger || "release").toString(),
+    ts: nowIso
+  };
+  const body = {
+    cssl: title,
+    ui_lang: safeLang,
+    tier: tier || "dev",
+    commands: {
+      input: {
+        voice: voiceMeta
+      },
+      title_hint: title,
+      detected_lang: safeLang,
+      primary_lang: safeLang,
+      voice: voice || { bytes: 0, mime: "audio/webm", mode: "single" }
+    }
+  };
+  const res = await fetch(`${baseUrl}/cssapi/v1/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`http=${res.status} ${text}`);
+  }
+  return await res.json();
+}
+
+async function deriveTitleFromVoice(blob) {
+  const buf = await blob.arrayBuffer();
+  if (buf.byteLength < 1600) return "";
+  return "";
+}
+
+async function submitVoiceOrFallbackTitle(blobOrNull, submitMeta = {}) {
+  let title = "";
+  let voice = {
+    bytes: 0,
+    mime: "audio/webm",
+    mode: "single",
+    duration_ms: Math.max(0, Number(submitMeta.elapsed_ms || 0)),
+    trigger: submitMeta.reason || "release"
+  };
+
+  if (blobOrNull && blobOrNull.size > 0) {
+    const t = await deriveTitleFromVoice(blobOrNull).catch(() => "");
+    if (t && t.trim()) {
+      title = t.trim();
+    }
+    const ab = await blobOrNull.arrayBuffer().catch(() => null);
+    if (ab && ab.byteLength > 0) {
+      voice = {
+        bytes: blobOrNull.size,
+        mime: blobOrNull.type || "audio/webm",
+        b64: b64FromArrayBuffer(ab),
+        mode: "single",
+        duration_ms: Math.max(0, Number(submitMeta.elapsed_ms || 0)),
+        trigger: submitMeta.reason || "release"
+      };
+    }
+  }
+
+  const finalTitle = title || randomTitle();
+
+  const uiLang = (window.CSS_UI_LANG || document.documentElement.lang || "zh").toString();
+  const tier = (window.CSS_TIER || "dev").toString();
+  const r = await createRun({ title: finalTitle, uiLang, tier, voice });
+  window.dispatchEvent(new CustomEvent("cssos:run_created", { detail: r }));
+  window.dispatchEvent(new CustomEvent("cssos:title_ready", { detail: { title: finalTitle, source: voice.bytes > 0 ? "voice" : "random" } }));
+  window.dispatchEvent(new CustomEvent("cssos:lyrics_start", { detail: { run_id: r.run_id, title: finalTitle, mode: "single" } }));
+}
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function setRunLine(runIdValue) {
+  if (runid) runid.textContent = runIdValue || "";
+  if (runline) runline.hidden = !runIdValue;
+}
+
+function resetTypedLyrics() {
+  typedLyricsTarget = "";
+  typedLyricsCurrent = "";
+  runLyricsText = "";
+  if (typedLyricsTimer) clearTimeout(typedLyricsTimer);
+  typedLyricsTimer = 0;
+  if (lyricsEl) lyricsEl.textContent = "";
+}
+
+function queueTypedLyrics(nextText) {
+  const text = String(nextText || "");
+  if (!lyricsEl) return;
+  if (text === typedLyricsTarget && typedLyricsTimer) return;
+  typedLyricsTarget = text;
+  if (typedLyricsCurrent.length > typedLyricsTarget.length) {
+    typedLyricsCurrent = "";
+    lyricsEl.textContent = "";
+  }
+  if (typedLyricsTimer) return;
+  const step = () => {
+    if (typedLyricsCurrent === typedLyricsTarget) {
+      typedLyricsTimer = 0;
+      return;
+    }
+    const advance = Math.max(1, Math.ceil((typedLyricsTarget.length - typedLyricsCurrent.length) / 32));
+    typedLyricsCurrent = typedLyricsTarget.slice(0, typedLyricsCurrent.length + advance);
+    lyricsEl.textContent = typedLyricsCurrent;
+    typedLyricsTimer = setTimeout(step, 22);
+  };
+  step();
+}
+
+function statusLabelByKey(statusRaw) {
+  const status = String(statusRaw || "").toUpperCase();
+  const map = {
+    PENDING: "status.pending",
+    RUNNING: "status.running",
+    SUCCEEDED: "status.succeeded",
+    FAILED: "status.failed",
+    SKIPPED: "status.skipped",
+    CANCELLED: "status.cancelled",
+    TIMEOUT: "status.timeout"
+  };
+  const key = map[status];
+  return key ? t(key) : status;
+}
+
+function statusPercent(statusRaw) {
+  const status = String(statusRaw || "").toUpperCase();
+  if (status === "SUCCEEDED") return 100;
+  if (status === "FAILED" || status === "SKIPPED" || status === "CANCELLED" || status === "TIMEOUT") return 100;
+  if (status === "RUNNING") return 58;
+  return 0;
+}
+
+function groupProgress(readyView, stageNames) {
+  const names = Array.isArray(stageNames) ? stageNames : [];
+  let total = 0;
+  let counted = 0;
+  for (const stage of names) {
+    const status = readyView?.[stage]?.status;
+    if (!status) continue;
+    total += statusPercent(status);
+    counted += 1;
+  }
+  if (!counted) return 0;
+  return Math.max(0, Math.min(100, total / counted));
+}
+
+function computeVideoProgress(readyView) {
+  const stagePart = groupProgress(readyView, ["video_plan", "video_assemble", "render"]);
+  const shots = readyView?.video_shots || {};
+  const shotsTotal = Number(shots.total || 0);
+  const shotsDone = Number(shots.succeeded || 0) + Number(shots.failed || 0);
+  const shotPart = shotsTotal > 0 ? Math.max(0, Math.min(100, (shotsDone / shotsTotal) * 100)) : 0;
+  if (!shotsTotal) return stagePart;
+  return Math.max(0, Math.min(100, stagePart * 0.55 + shotPart * 0.45));
+}
+
+function updateReadyBars(readyView) {
+  const lyricsPct = groupProgress(readyView, ["lyrics"]);
+  const musicPct = groupProgress(readyView, ["music", "vocals", "mix"]);
+  const videoPct = computeVideoProgress(readyView);
+  const karaPct = groupProgress(readyView, ["subtitles", "render"]);
+  if (lyricsProgress) setProgress(lyricsProgress, lyricsPct);
+  if (musicProgress) setProgress(musicProgress, musicPct);
+  if (videoProgress) setProgress(videoProgress, videoPct);
+  if (karaProgress) setProgress(karaProgress, karaPct);
+}
+
+function buildProcessLyrics(runIdValue, readyView, titleHint) {
+  if (runLyricsText) return runLyricsText;
+  const summary = readyView?.summary || {};
+  const ev = readyView?.last_event || {};
+  const stage = ev.stage || "lyrics";
+  const stageStatus = statusLabelByKey(ev.status || readyView?.status || "RUNNING");
+  const pending = Number(summary.pending || 0);
+  const running = Number(summary.running || 0);
+  const succeeded = Number(summary.succeeded || 0);
+  const failed = Number(summary.failed || 0);
+  const baseTitle = titleHint || state.title || "Untitled";
+  return [
+    `${baseTitle}`,
+    "",
+    `${t("ui.progress.event", { ev: `${stage} · ${stageStatus}` })}`,
+    `${t("ui.progress.running", { n: running, ok: succeeded, fail: failed })}`,
+    `${t("ui.progress.pending", { n: pending })}`,
+    "",
+    `${t("ui.run_id")} ${runIdValue}`
+  ].join("\n");
+}
+
+function normalizeArtifacts(payload) {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload.items_ordered) && payload.items_ordered.length) return payload.items_ordered;
+  if (payload.items && typeof payload.items === "object" && !Array.isArray(payload.items)) {
+    return Object.entries(payload.items).map(([key, record]) => ({ key, record }));
+  }
+  if (Array.isArray(payload.items)) return payload.items;
+  if (Array.isArray(payload.artifacts)) return payload.artifacts;
+  return [];
+}
+
+function artifactDownloadUrl(runIdValue, key) {
+  if (!runIdValue || !key) return "";
+  return `/cssapi/v1/runs/${encodeURIComponent(runIdValue)}/artifacts/${encodeURIComponent(key)}`;
+}
+
+function findArtifactUri(payload, keys) {
+  const list = normalizeArtifacts(payload);
+  const wanted = (keys || []).map((k) => String(k).toLowerCase());
+  for (const item of list) {
+    const keyRaw = String(
+      item?.stable_key || item?.key || item?.record?.key || item?.name || item?.path || ""
+    );
+    const key = keyRaw.toLowerCase();
+    if (!key) continue;
+    if (wanted.some((want) => key === want || key.endsWith(want))) {
+      const uri = item?.uri || item?.url || item?.href || "";
+      if (uri) return String(uri);
+      if (payload?.run_id && keyRaw) return artifactDownloadUrl(payload.run_id, keyRaw);
+    }
+  }
+  return "";
+}
+
+function setupArtifactButtons(runIdValue) {
+  if (!runIdValue) return;
+  if (watchButton) {
+    watchButton.onclick = () => {
+      const url = artifactDownloadUrl(runIdValue, "final.mv");
+      if (!url) return;
+      window.open(url, "_blank", "noopener");
+    };
+  }
+  if (listenButton) {
+    listenButton.onclick = () => {
+      const url = artifactDownloadUrl(runIdValue, "mix.wav");
+      if (!url) return;
+      window.open(url, "_blank", "noopener");
+    };
+  }
+}
+
+function stopCompactPreviewLoop() {
+  if (compactPreviewLoopTimer) {
+    clearInterval(compactPreviewLoopTimer);
+    compactPreviewLoopTimer = 0;
+  }
+}
+
+function setCompactPreviewVideo(uri) {
+  if (!foryouPreviewVideo) return;
+  if (!uri) {
+    stopCompactPreviewLoop();
+    foryouPreviewVideo.pause?.();
+    foryouPreviewVideo.removeAttribute("src");
+    foryouPreviewVideo.classList.remove("show");
+    return;
+  }
+  const currentSrc = foryouPreviewVideo.getAttribute("src") || "";
+  if (currentSrc !== uri) {
+    foryouPreviewVideo.src = uri;
+    foryouPreviewVideo.currentTime = 0;
+    foryouPreviewVideo.load?.();
+  }
+  foryouPreviewVideo.classList.add("show");
+  foryouPreviewVideo.play?.().catch(() => {});
+  stopCompactPreviewLoop();
+  compactPreviewLoopTimer = window.setInterval(() => {
+    if (!foryouPreviewVideo || !foryouPreviewVideo.classList.contains("show")) return;
+    if (foryouPreviewVideo.currentTime >= 5) {
+      foryouPreviewVideo.currentTime = 0;
+      foryouPreviewVideo.play?.().catch(() => {});
+    }
+  }, 280);
+}
+
+async function fetchReadyView(runIdValue, sinceSeqValue) {
+  const baseUrl = apiBase();
+  const q = sinceSeqValue === null ? "" : `?since_seq=${encodeURIComponent(sinceSeqValue)}`;
+  const res = await fetch(`${baseUrl}/cssapi/v1/runs/${encodeURIComponent(runIdValue)}/ready${q}`, {
+    method: "GET",
+    headers: { accept: "application/json" }
+  });
+  return res;
+}
+
+async function hydrateRunArtifacts(runIdValue) {
+  const baseUrl = apiBase();
+  const res = await fetch(`${baseUrl}/cssapi/v1/runs/${encodeURIComponent(runIdValue)}/artifacts`, {
+    method: "GET",
+    headers: { accept: "application/json" }
+  }).catch(() => null);
+  if (!res || !res.ok) return;
+  const payload = await res.json().catch(() => null);
+  if (!payload) return;
+
+  const videoUri =
+    findArtifactUri(payload, ["final.mv", "video.mp4", "video_preview.mp4", "mv.mp4"]) ||
+    "";
+  if (videoUri) {
+    setCompactPreviewVideo(videoUri);
+    if (watchVideo && !watchVideo.getAttribute("src")) {
+      setVideoFromArtifact(videoUri);
+      attemptVideoPlayback({ allowFallback: true });
+    }
+  }
+
+  const lyricsUri = findArtifactUri(payload, ["lyrics.json"]);
+  if (lyricsUri && !runLyricsText) {
+    const lyrRes = await fetch(lyricsUri, { method: "GET", headers: { accept: "application/json" } }).catch(() => null);
+    const lyrJson = lyrRes && lyrRes.ok ? await lyrRes.json().catch(() => null) : null;
+    if (lyrJson && Array.isArray(lyrJson.lines) && lyrJson.lines.length) {
+      runLyricsText = lyrJson.lines.join("\n");
+      queueTypedLyrics(runLyricsText);
+    }
+  }
+}
+
+function isRunFinished(readyView) {
+  const summary = readyView?.summary || {};
+  const pending = Number(summary.pending || 0);
+  const running = Number(summary.running || 0);
+  if (pending === 0 && running === 0) return true;
+  const status = String(readyView?.status || "").toUpperCase();
+  return ["SUCCEEDED", "FAILED", "CANCELLED", "TIMEOUT"].includes(status);
+}
+
+function maybeCompactForLyrics(readyView) {
+  const lyricsStatus = String(readyView?.lyrics?.status || "").toUpperCase();
+  if (lyricsStatus !== "SUCCEEDED") return false;
+  setForyouCompact(true);
+  scheduleWatchAfterDelay();
+  return true;
+}
+
+function stopReadyWatchLoop() {
+  readyWatchToken += 1;
+  if (compactWatchTimer) clearTimeout(compactWatchTimer);
+  compactWatchTimer = 0;
+  watchSinceSeq = null;
+  watchedRunId = "";
+  artifactsPollTick = 0;
+}
+
+function scheduleWatchAfterDelay() {
+  if (compactWatchTimer) return;
+  compactWatchTimer = window.setTimeout(() => {
+    compactWatchTimer = 0;
+    ensureWatchCentered();
+  }, 10000);
+}
+
+async function startReadyWatchLoop(runIdValue, titleHint) {
+  stopReadyWatchLoop();
+  const token = readyWatchToken;
+  watchedRunId = runIdValue;
+  watchSinceSeq = null;
+  artifactsPollTick = 0;
+
+  for (;;) {
+    if (token !== readyWatchToken) return;
+    let res = null;
+    try {
+      res = await fetchReadyView(runIdValue, watchSinceSeq);
+    } catch (_err) {
+      await delay(450);
+      continue;
+    }
+
+    if (token !== readyWatchToken) return;
+    if (!res || res.status === 204 || res.status === 404) {
+      await delay(450);
+      continue;
+    }
+    if (!res.ok) {
+      await delay(600);
+      continue;
+    }
+
+    const view = await res.json().catch(() => null);
+    if (!view) {
+      await delay(450);
+      continue;
+    }
+
+    if (typeof view.stage_seq === "number") watchSinceSeq = view.stage_seq;
+    updateReadyBars(view);
+    queueTypedLyrics(buildProcessLyrics(runIdValue, view, titleHint));
+    const lyricsReady = maybeCompactForLyrics(view);
+
+    artifactsPollTick += 1;
+    if (artifactsPollTick % 4 === 0 || lyricsReady || isRunFinished(view)) {
+      await hydrateRunArtifacts(runIdValue);
+    }
+
+    if (isRunFinished(view)) {
+      setForyouCompact(true);
+      return;
+    }
+    await delay(500);
+  }
+}
+
 const dockActionMap = {
   mic: {
     click: handleMicClick,
@@ -2984,6 +3897,16 @@ const dockActionMap = {
     dblclick: () => startCreation(titleInput.value.trim(), lyricsInput.value.trim()),
     longpress: resetSettings
   },
+  apple: {
+    click: () => startAppleLogin(),
+    dblclick: () => startAppleLogin(),
+    longpress: () => startAppleLogin()
+  },
+  profile: {
+    click: () => openPanel(profilePanel),
+    dblclick: () => openAndMaximize(profilePanel),
+    longpress: () => openPanel(loginPanel)
+  },
   language: {
     click: () => {
       openPanel(languagePanel);
@@ -3004,8 +3927,52 @@ function handleDockAction(action, type) {
   if (handler) handler();
 }
 
+function handleGlobalAction(action) {
+  if (!action) return;
+  if (action === "profile.open") {
+    openPanel(profilePanel);
+    if (window.location.pathname !== "/profile") {
+      window.history.replaceState({}, "", "/profile");
+    }
+    return;
+  }
+  if (action === "profile.close") {
+    minimizeToDock(profilePanel);
+    if (window.location.pathname === "/profile") {
+      window.history.replaceState({}, "", "/");
+    }
+    return;
+  }
+  if (action === "apple.login") {
+    startAppleLogin();
+    return;
+  }
+  if (action === "passkey.enable") {
+    openPanel(profilePanel);
+    void passkeyEnable();
+    return;
+  }
+  if (action === "passkey.login") {
+    openPanel(profilePanel);
+    void passkeyLogin();
+    return;
+  }
+  if (action === "passkey.auth") {
+    openPanel(profilePanel);
+    void passkeyAuth();
+    return;
+  }
+  if (action === "mic") {
+    triggerMic();
+  }
+}
+
 function attachDockEvents() {
   document.querySelectorAll(".dock-item").forEach((item) => {
+    if (item.dataset.hold === "mic") {
+      item.tabIndex = 0;
+      return;
+    }
     const action = item.dataset.action;
     item.tabIndex = 0;
     let suppressClick = false;
@@ -3036,13 +4003,9 @@ function attachDockEvents() {
       triggerAction("dblclick");
     });
 
-    item.addEventListener("pointerdown", () => {
+    item.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
       suppressClick = false;
-      if (action === "mic") {
-        clearTimeout(longPressId);
-        startMicRecording();
-        return;
-      }
       clearTimeout(longPressId);
       longPressId = setTimeout(() => {
         suppressClick = true;
@@ -3052,17 +4015,24 @@ function attachDockEvents() {
 
     item.addEventListener("pointerup", () => {
       clearTimeout(longPressId);
-      if (action === "mic") {
-        stopMicRecording();
-      }
     });
 
     item.addEventListener("pointerleave", () => {
       clearTimeout(longPressId);
-      if (action === "mic") {
-        stopMicRecording();
-      }
     });
+  });
+}
+
+function attachGlobalActionDispatcher() {
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest(".dock-item")) return;
+    const actionEl = target.closest("[data-action]");
+    if (!actionEl) return;
+    if (actionEl.getAttribute("data-hold") === "mic") return;
+    const action = actionEl.getAttribute("data-action");
+    handleGlobalAction(action);
   });
 }
 
@@ -3283,6 +4253,8 @@ function attachPanelActions() {
         if (action === "minimize") togglePanelCollapse(panel);
         if (action === "lock") togglePanelLock(panel);
         if (action === "close") minimizeToDock(panel);
+        if (action === "profile.open") openPanel(profilePanel);
+        if (action === "profile.close") minimizeToDock(profilePanel);
       });
     });
   });
@@ -3567,11 +4539,27 @@ if (enterWatchButton) {
 }
 
 if (listenButton) {
-  listenButton.addEventListener("click", () => openPanel(musicPanel));
+  listenButton.addEventListener("click", () => {
+    if (watchedRunId) {
+      const url = artifactDownloadUrl(watchedRunId, "mix.wav");
+      if (url) {
+        window.open(url, "_blank", "noopener");
+        return;
+      }
+    }
+    openPanel(musicPanel);
+  });
 }
 
 if (watchButton) {
   watchButton.addEventListener("click", async () => {
+    if (watchedRunId) {
+      const url = artifactDownloadUrl(watchedRunId, "final.mv");
+      if (url) {
+        window.open(url, "_blank", "noopener");
+        return;
+      }
+    }
     ensureWatchCentered();
     if (!videoJobId) {
       const ok = await playLatestVideoFromRegistry();
@@ -3616,6 +4604,8 @@ safeInit("applySpell", () => applySpell(state.spell, { force: true, refreshPanel
 safeInit("updateEnginePanels", () => updateEnginePanels(state.title, state.lines));
 safeInit("applyBackgroundPalette", () => applyBackgroundPalette());
 safeInit("attachDockEvents", () => attachDockEvents());
+safeInit("attachGlobalActionDispatcher", () => attachGlobalActionDispatcher());
+safeInit("bindHoldTargets", () => bindHoldTargets());
 safeInit("attachPanelDrag", () => attachPanelDrag());
 safeInit("attachPanelBarActions", () => attachPanelBarActions());
 safeInit("attachResize", () => attachResize());
@@ -3628,10 +4618,18 @@ safeInit("initLyricsControls", () => initLyricsControls());
 safeInit("initLanguagePanel", () => initLanguagePanel());
 safeInit("initAboutTabs", () => initAboutTabs());
 safeInit("initApiBillingUI", () => initApiBillingUI());
+safeInit("removeLegacyMicFab", () => removeLegacyMicFab());
+safeInit("bindPasskeyIdentifierInputs", () => bindPasskeyIdentifierInputs());
 safeInit("fetchMe", () => fetchMe());
 safeInit("fetchAuthProviders", () => fetchAuthProviders());
 safeInit("fetchBillingStatus", () => fetchBillingStatus());
 safeInit("initVersionSwitcher", () => initVersionSwitcher());
+if (window.location.pathname === "/profile") {
+  openPanel(profilePanel);
+}
+if (window.location.pathname === "/settings") {
+  openPanel(settingsPanel);
+}
 if (loginLogout) {
   loginLogout.addEventListener("click", async () => {
     try {
@@ -3647,6 +4645,57 @@ if (loginLogout) {
   });
 }
 attachAmbientTrail();
+window.addEventListener("cssos:mic", () => {
+  handleMicClick();
+});
+window.addEventListener("cssos:mic_hold_start", async () => {
+  try {
+    await startRecording();
+  } catch {
+    showToast(t("mic.permission_denied"));
+  }
+});
+window.addEventListener("cssos:mic_hold_commit", async (event) => {
+  const detail = (event && event.detail) || {};
+  try {
+    showToast(t("mic.submitting"));
+    const blob = await stopRecordingGetBlob().catch(() => null);
+    await submitVoiceOrFallbackTitle(blob, detail);
+    showToast(t("mic.submitted"));
+  } catch (e) {
+    const errText = String(e || "");
+    const key = errText.includes("http=") ? "mic.http_error" : "mic.network_error";
+    const msg = `${window.t ? window.t(key) : "Submit failed"}${errText ? `: ${errText}` : ""}`;
+    window.dispatchEvent(new CustomEvent("cssos:toast", { detail: { kind: "error", message: msg } }));
+  }
+});
+window.addEventListener("cssos:title_ready", (event) => {
+  const detail = (event && event.detail) || {};
+  const title = (detail.title || "").toString().trim();
+  if (!title) return;
+  if (foryouTitle) foryouTitle.textContent = title;
+  state.title = title;
+});
+window.addEventListener("cssos:run_created", (event) => {
+  const detail = (event && event.detail) || {};
+  const runIdValue = detail.run_id || detail.id || "";
+  if (!runIdValue) return;
+  const title = state.title || randomTitle();
+  openPanel(foryouPanel);
+  setForyouCompact(false);
+  setRunLine(runIdValue);
+  setupArtifactButtons(runIdValue);
+  resetTypedLyrics();
+  if (watchVideo) {
+    watchVideo.pause?.();
+    watchVideo.removeAttribute("src");
+    watchVideo.load?.();
+  }
+  setCompactPreviewVideo("");
+  const bootText = `${title}\n\n${t("status.running")}...`;
+  queueTypedLyrics(bootText);
+  startReadyWatchLoop(runIdValue, title);
+});
 
 window.addEventListener("resize", () => {
   panels.forEach((panel) => clampPanelInViewport(panel));

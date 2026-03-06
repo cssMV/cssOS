@@ -3287,7 +3287,20 @@ function micHoldStart(origin) {
   setRingProgress01(0);
   showRing(true);
   showToast(t("mic.listening"));
-  window.dispatchEvent(new CustomEvent("cssos:mic_hold_start", { detail: { origin } }));
+  void startRecording().catch((err) => {
+    const errName = String(err?.name || err || "");
+    const denied = errName.includes("NotAllowedError") || errName.includes("SecurityError");
+    showToast(denied ? t("mic.permission_denied") : t("mic.no_data_notice"));
+    hold.active = false;
+    if (hold.raf) cancelAnimationFrame(hold.raf);
+    if (hold.timeout) clearTimeout(hold.timeout);
+    hold.raf = 0;
+    hold.timeout = 0;
+    hold.pointerId = null;
+    showRing(false);
+    setRingProgress01(0);
+  });
+  window.dispatchEvent(new CustomEvent("cssos:mic_hold_start", { detail: { origin, startedLocally: true } }));
 
   const tick = () => {
     if (!hold.active) return;
@@ -3361,9 +3374,24 @@ let rec = {
 
 async function startRecording() {
   if (rec.started) return;
+  if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== "function") {
+    throw new Error("MediaDevicesUnavailable");
+  }
+  if (typeof MediaRecorder === "undefined") {
+    throw new Error("MediaRecorderUnavailable");
+  }
   rec.chunks = [];
   rec.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  const mr = new MediaRecorder(rec.stream, { mimeType: "audio/webm" });
+  let mr = null;
+  try {
+    if (typeof MediaRecorder.isTypeSupported === "function" && MediaRecorder.isTypeSupported("audio/webm")) {
+      mr = new MediaRecorder(rec.stream, { mimeType: "audio/webm" });
+    } else {
+      mr = new MediaRecorder(rec.stream);
+    }
+  } catch (_err) {
+    mr = new MediaRecorder(rec.stream);
+  }
   rec.mr = mr;
   rec.started = true;
 
@@ -4669,7 +4697,9 @@ attachAmbientTrail();
 window.addEventListener("cssos:mic", () => {
   handleMicClick();
 });
-window.addEventListener("cssos:mic_hold_start", async () => {
+window.addEventListener("cssos:mic_hold_start", async (event) => {
+  const detail = (event && event.detail) || {};
+  if (detail.startedLocally) return;
   try {
     await startRecording();
   } catch {

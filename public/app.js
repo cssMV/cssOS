@@ -93,6 +93,16 @@ const profileCreatedAt = document.getElementById("profile-created-at");
 const profileLastSeenAt = document.getElementById("profile-last-seen-at");
 const profileEditName = document.getElementById("profile-edit-name");
 const profileEditAvatar = document.getElementById("profile-edit-avatar");
+const profileLatestWork = document.getElementById("profile-latest-work");
+const profileLatestWorkMeta = document.getElementById("profile-latest-work-meta");
+const profileLatestIncome = document.getElementById("profile-latest-income");
+const profileLatestIncomeMeta = document.getElementById("profile-latest-income-meta");
+const profileLatestPurchase = document.getElementById("profile-latest-purchase");
+const profileLatestPurchaseMeta = document.getElementById("profile-latest-purchase-meta");
+const profileLatestSale = document.getElementById("profile-latest-sale");
+const profileLatestSaleMeta = document.getElementById("profile-latest-sale-meta");
+const profileLatestBounty = document.getElementById("profile-latest-bounty");
+const profileLatestBountyMeta = document.getElementById("profile-latest-bounty-meta");
 const worksAvatar = document.getElementById("works-avatar");
 const worksName = document.getElementById("works-name");
 const worksRole = document.getElementById("works-role");
@@ -951,6 +961,7 @@ const authState = {
 
 let authProviders = [];
 let profileState = null;
+let profileInsights = null;
 
 const getUserRole = () =>
   (authState.role ||
@@ -993,6 +1004,7 @@ async function fetchMe() {
     authState.tier = data.tier || authState.role || DEFAULT_ROLE;
     updateLoginUI();
     void fetchProfile();
+    void fetchProfileInsights();
     fetchBillingStatus();
   } catch (err) {
     // ignore
@@ -1039,6 +1051,38 @@ function renderProfilePanel() {
       profileAvatar.textContent = (displayName || "U").slice(0, 2).toUpperCase();
     }
   }
+
+  const noData = "暂无数据";
+  if (profileLatestWork) {
+    profileLatestWork.textContent = profileInsights?.latestWork?.title || noData;
+  }
+  if (profileLatestWorkMeta) {
+    profileLatestWorkMeta.textContent = profileInsights?.latestWork?.meta || "进入作品中心查看更多";
+  }
+  if (profileLatestIncome) {
+    profileLatestIncome.textContent = profileInsights?.latestIncome?.title || noData;
+  }
+  if (profileLatestIncomeMeta) {
+    profileLatestIncomeMeta.textContent = profileInsights?.latestIncome?.meta || "进入账单面板查看更多";
+  }
+  if (profileLatestPurchase) {
+    profileLatestPurchase.textContent = profileInsights?.latestPurchase?.title || noData;
+  }
+  if (profileLatestPurchaseMeta) {
+    profileLatestPurchaseMeta.textContent = profileInsights?.latestPurchase?.meta || "进入监听面板查看更多";
+  }
+  if (profileLatestSale) {
+    profileLatestSale.textContent = profileInsights?.latestSale?.title || noData;
+  }
+  if (profileLatestSaleMeta) {
+    profileLatestSaleMeta.textContent = profileInsights?.latestSale?.meta || "进入作品中心查看更多";
+  }
+  if (profileLatestBounty) {
+    profileLatestBounty.textContent = profileInsights?.latestBounty?.title || noData;
+  }
+  if (profileLatestBountyMeta) {
+    profileLatestBountyMeta.textContent = profileInsights?.latestBounty?.meta || "进入账单面板查看更多";
+  }
 }
 
 async function fetchProfile() {
@@ -1056,6 +1100,89 @@ async function fetchProfile() {
     renderProfilePanel();
   } catch (_err) {
     // ignore
+  }
+}
+
+function formatCents(cents) {
+  if (!Number.isFinite(Number(cents))) return "$0.00";
+  return `$${(Number(cents) / 100).toFixed(2)}`;
+}
+
+function formatWhen(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const ts = Date.parse(text);
+  if (Number.isNaN(ts)) return text;
+  return new Date(ts).toLocaleString();
+}
+
+function mapLedgerEntry(entry, emptyLabel) {
+  if (!entry) return { title: "暂无数据", meta: emptyLabel };
+  const amount = Number(entry.amount_cents || 0);
+  const note = String(entry.note || "").trim();
+  const at = formatWhen(entry.created_at);
+  return {
+    title: `${amount >= 0 ? "+" : "-"}${formatCents(Math.abs(amount))}`,
+    meta: [note || "账本记录", at].filter(Boolean).join(" · ")
+  };
+}
+
+async function fetchProfileInsights() {
+  if (!authState.user) {
+    profileInsights = null;
+    renderProfilePanel();
+    return;
+  }
+  try {
+    const [statusRes, usageRes, ledgerRes] = await Promise.all([
+      fetch("/api/billing/status", { credentials: "include" }),
+      fetch("/api/billing/usage?limit=6", { credentials: "include" }),
+      fetch("/api/billing/ledger?limit=30", { credentials: "include" })
+    ]);
+
+    const statusPayload = statusRes.ok ? await statusRes.json() : {};
+    const usagePayload = usageRes.ok ? await usageRes.json() : {};
+    const ledgerPayload = ledgerRes.ok ? await ledgerRes.json() : {};
+    const statusData = unwrapApiData(statusPayload);
+    const usageData = unwrapApiData(usagePayload);
+    const ledgerData = unwrapApiData(ledgerPayload);
+    const ledger = Array.isArray(ledgerData.events) ? ledgerData.events : [];
+
+    const workTitleEl = worksPanel?.querySelector(".work-card .work-title");
+    const workTagEl = worksPanel?.querySelector(".work-card .work-tags");
+
+    const latestCredit = ledger.find((e) => Number(e.amount_cents || 0) > 0) || null;
+    const latestDebit = ledger.find((e) => Number(e.amount_cents || 0) < 0) || null;
+    const latestBounty =
+      ledger.find((e) => /bounty|tip|赏金|打赏/i.test(String(e.note || "")) && Number(e.amount_cents || 0) > 0) || null;
+    const latestSale =
+      ledger.find((e) => /sale|sell|sold|销售|卖|buyout/i.test(String(e.note || "")) && Number(e.amount_cents || 0) > 0) || null;
+    const latestUsage = Array.isArray(usageData.events) ? usageData.events[0] : null;
+
+    profileInsights = {
+      latestWork: {
+        title: workTitleEl?.textContent?.trim() || "暂无数据",
+        meta: workTagEl?.textContent?.trim() || "进入作品中心查看更多"
+      },
+      latestIncome: latestCredit
+        ? mapLedgerEntry(latestCredit, "进入账单面板查看更多")
+        : {
+            title: Number(statusData.balance_cents) > 0 ? formatCents(statusData.balance_cents) : "暂无数据",
+            meta: Number(statusData.balance_cents) > 0 ? "当前余额" : "进入账单面板查看更多"
+          },
+      latestPurchase: latestDebit
+        ? mapLedgerEntry(latestDebit, "进入监听面板查看更多")
+        : {
+            title: "暂无数据",
+            meta: latestUsage?.created_at ? `最近生成: ${formatWhen(latestUsage.created_at)}` : "进入监听面板查看更多"
+          },
+      latestSale: mapLedgerEntry(latestSale, "进入作品中心查看更多"),
+      latestBounty: mapLedgerEntry(latestBounty, "进入账单面板查看更多")
+    };
+    renderProfilePanel();
+  } catch (_err) {
+    profileInsights = null;
+    renderProfilePanel();
   }
 }
 
@@ -1172,6 +1299,7 @@ async function performLogout() {
   authState.role = DEFAULT_ROLE;
   authState.tier = DEFAULT_ROLE;
   profileState = null;
+  profileInsights = null;
   updateLoginUI();
   fetchBillingStatus();
 }
@@ -4203,6 +4331,26 @@ function handleGlobalAction(action) {
   }
   if (action === "auth.logout") {
     void performLogout();
+    return;
+  }
+  if (action === "profile.more.works") {
+    openPanel(worksPanel);
+    return;
+  }
+  if (action === "profile.more.income") {
+    openPanel(apiPanel);
+    return;
+  }
+  if (action === "profile.more.purchases") {
+    openPanel(watchPanel);
+    return;
+  }
+  if (action === "profile.more.sales") {
+    openPanel(worksPanel);
+    return;
+  }
+  if (action === "profile.more.bounty") {
+    openPanel(apiPanel);
     return;
   }
   if (action === "mic") {

@@ -1468,6 +1468,29 @@ app.get("/api/billing/usage", async (req, res) => {
   }
 });
 
+app.get("/api/billing/ledger", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.json(okEmpty({ authenticated: false, events: [] }, "No data yet"));
+    }
+    const limit = Math.min(Number(req.query.limit || 50), 200);
+    const result: QueryResult<any> = await withClient((client) =>
+      client.query(
+        "SELECT * FROM ledger_entries WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2",
+        [user.id, limit]
+      )
+    );
+    if (!result.rows.length) {
+      return res.json(okEmpty({ authenticated: true, events: [] }, "No data yet"));
+    }
+    return res.json(okData({ authenticated: true, events: result.rows }));
+  } catch (_err) {
+    return res.json(okEmpty({ authenticated: false, events: [] }, "No data yet"));
+  }
+});
+
 app.post("/api/billing/usage", async (req, res) => {
   noStore(res);
   const unitPrice = Number(process.env.BILLING_UNIT_PRICE_CENTS || 1);

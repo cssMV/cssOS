@@ -82,6 +82,14 @@ const loginPasskeyIdentifier = document.getElementById("login-passkey-identifier
 const profilePasskeyIdentifier = document.getElementById("profile-passkey-identifier");
 const profileAuthStatus = document.getElementById("profile-auth-status");
 const profileSigninButton = document.getElementById("profile-signin");
+const profileSaveButton = document.getElementById("profile-save");
+const profileAvatar = document.getElementById("profile-avatar");
+const profileDisplayName = document.getElementById("profile-display-name");
+const profileRole = document.getElementById("profile-role");
+const profileAccountEmail = document.getElementById("profile-account-email");
+const profileLoginSource = document.getElementById("profile-login-source");
+const profileEditName = document.getElementById("profile-edit-name");
+const profileEditAvatar = document.getElementById("profile-edit-avatar");
 const worksAvatar = document.getElementById("works-avatar");
 const worksName = document.getElementById("works-name");
 const worksRole = document.getElementById("works-role");
@@ -939,6 +947,7 @@ const authState = {
 };
 
 let authProviders = [];
+let profileState = null;
 
 const getUserRole = () =>
   (authState.role ||
@@ -980,9 +989,79 @@ async function fetchMe() {
     authState.role = data.role || DEFAULT_ROLE;
     authState.tier = data.tier || authState.role || DEFAULT_ROLE;
     updateLoginUI();
+    void fetchProfile();
     fetchBillingStatus();
   } catch (err) {
     // ignore
+  }
+}
+
+function renderProfilePanel() {
+  const appleEmail = profileState?.appleEmail || authState.user?.email || "";
+  const displayName =
+    profileState?.displayName || authState.user?.name || authState.user?.email || authState.user?.id || "Guest";
+  const roleText = (authState.role || "guest").toString().toUpperCase();
+  const avatarUrl = profileState?.avatarUrl || authState.user?.avatar || "";
+  const sourceText = profileState?.appleEmail
+    ? `${profileState.loginSource || "Apple OAuth"} · ${profileState.appleEmail}`
+    : (profileState?.loginSource || "Apple OAuth");
+  if (profileDisplayName) profileDisplayName.textContent = displayName;
+  if (profileRole) profileRole.textContent = roleText;
+  if (profileAccountEmail) profileAccountEmail.value = authState.user?.email || "";
+  if (profileLoginSource) profileLoginSource.value = sourceText;
+  if (profileEditName && document.activeElement !== profileEditName) {
+    profileEditName.value = profileState?.displayName || authState.user?.name || "";
+  }
+  if (profileEditAvatar && document.activeElement !== profileEditAvatar) {
+    profileEditAvatar.value = avatarUrl || "";
+  }
+  if (profileAvatar) {
+    if (avatarUrl) {
+      profileAvatar.innerHTML = `<img src="${avatarUrl}" alt="avatar" />`;
+    } else {
+      profileAvatar.textContent = (displayName || "U").slice(0, 2).toUpperCase();
+    }
+  }
+}
+
+async function fetchProfile() {
+  if (!authState.user) {
+    profileState = null;
+    renderProfilePanel();
+    return;
+  }
+  try {
+    const res = await fetch("/api/profile", { credentials: "include" });
+    if (!res.ok) return;
+    const payload = await res.json();
+    const data = unwrapApiData(payload);
+    profileState = data || null;
+    renderProfilePanel();
+  } catch (_err) {
+    // ignore
+  }
+}
+
+async function saveProfile() {
+  if (!authState.user) return;
+  const displayName = String(profileEditName?.value || "").trim();
+  const avatarUrl = String(profileEditAvatar?.value || "").trim();
+  try {
+    const res = await fetch("/api/profile", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ display_name: displayName, avatar_url: avatarUrl })
+    });
+    if (!res.ok) {
+      showToast("保存失败，请稍后重试");
+      return;
+    }
+    await fetchMe();
+    await fetchProfile();
+    showToast("个人资料已保存");
+  } catch (_err) {
+    showToast("保存失败，请稍后重试");
   }
 }
 
@@ -1055,6 +1134,7 @@ function updateLoginUI() {
       profileSigninButton.dataset.action = "auth.smart";
     }
   }
+  renderProfilePanel();
 }
 
 async function performLogout() {
@@ -1066,6 +1146,7 @@ async function performLogout() {
   authState.user = null;
   authState.role = DEFAULT_ROLE;
   authState.tier = DEFAULT_ROLE;
+  profileState = null;
   updateLoginUI();
   fetchBillingStatus();
 }
@@ -4775,6 +4856,11 @@ if (window.location.pathname === "/settings") {
 if (loginLogout) {
   loginLogout.addEventListener("click", () => {
     void performLogout();
+  });
+}
+if (profileSaveButton) {
+  profileSaveButton.addEventListener("click", () => {
+    void saveProfile();
   });
 }
 attachAmbientTrail();

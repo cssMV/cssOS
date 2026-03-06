@@ -808,6 +808,22 @@ async function resetMonthIfNeeded(userId: string) {
   });
 }
 
+async function getAppleIdentityEmail(userId: string): Promise<string | null> {
+  if (!DATABASE_URL || !userId) return null;
+  const result: QueryResult<{ email: string | null }> = await withClient((client) =>
+    client.query<{ email: string | null }>(
+      `SELECT u.email
+         FROM oauth_identities oi
+         LEFT JOIN users u ON u.id = oi.user_id
+        WHERE oi.provider = $1 AND oi.user_id = $2
+        ORDER BY oi.created_at DESC
+        LIMIT 1`,
+      ["apple", userId]
+    )
+  );
+  return result.rows[0]?.email || null;
+}
+
 app.use("/api/registry", async (req, res) => {
   try {
     const url = `${REGISTRY_URL}${req.url}`;
@@ -904,6 +920,55 @@ app.get("/api/me", async (req, res) => {
     );
   } catch (_err) {
     return res.json(okEmpty({ authenticated: false, user: null }, "No data yet"));
+  }
+});
+
+app.get("/api/profile", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) return res.json(okEmpty({ authenticated: false }, "No data yet"));
+    const sourceEmail = await getAppleIdentityEmail(user.id);
+    const effectiveRole = user.is_admin ? "admin" : (user.role || "user");
+    return res.json(
+      okData({
+        authenticated: true,
+        displayName: user.display_name || "",
+        avatarUrl: user.avatar_url || "",
+        accountEmail: user.email || "",
+        appleEmail: sourceEmail || "",
+        loginSource: "Apple OAuth",
+        role: effectiveRole,
+        isAdmin: Boolean(user.is_admin)
+      })
+    );
+  } catch {
+    return res.json(okEmpty({ authenticated: false }, "No data yet"));
+  }
+});
+
+app.post("/api/profile", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) return res.status(401).json({ ok: false, error: "unauthorized" });
+    const displayNameRaw = String(req.body?.display_name || "").trim();
+    const avatarUrlRaw = String(req.body?.avatar_url || "").trim();
+    const displayName = displayNameRaw.slice(0, 80);
+    const avatarUrl = avatarUrlRaw.slice(0, 1024);
+    await withClient((client) =>
+      client.query(
+        `UPDATE users
+            SET display_name = $2,
+                avatar_url = $3,
+                updated_at = now()
+          WHERE id = $1`,
+        [user.id, displayName || null, avatarUrl || null]
+      )
+    );
+    return res.json(okData({ saved: true }));
+  } catch {
+    return res.status(500).json({ ok: false, error: "profile_save_failed" });
   }
 });
 

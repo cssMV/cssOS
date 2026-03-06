@@ -15,7 +15,8 @@ impl Config {
         let database_url = env::var("DATABASE_URL")
             .map_err(|_| "DATABASE_URL not configured on api-vm".to_string())?;
         let bind_addr = env::var("RUST_API_BIND").unwrap_or_else(|_| "127.0.0.1:8081".to_string());
-        let session_cookie = env::var("SESSION_COOKIE_NAME").unwrap_or_else(|_| "cssos_session".to_string());
+        let session_cookie =
+            env::var("SESSION_COOKIE_NAME").unwrap_or_else(|_| "cssos_session".to_string());
         let session_ttl_days = env::var("SESSION_TTL_DAYS")
             .ok()
             .and_then(|v| v.parse().ok())

@@ -28,7 +28,7 @@ async fn metrics_handler() -> axum::response::Response {
             axum::http::header::CONTENT_TYPE,
             "text/plain; version=0.0.4; charset=utf-8",
         )],
-        crate::metrics::gather_text(),
+        crate::metrics::gather(),
     )
         .into_response()
 }
@@ -54,12 +54,15 @@ use serde_json::json;
 use sqlx::PgPool;
 
 use crate::auth::AuthSession;
+use crate::artifacts_api;
 use crate::billing::{ensure_account, meter_usage, reset_month};
 use crate::config::Config;
-use crate::cssapi_openapi;
-use crate::jobs::SchedulerHandle;
+use crate::cssapi::docs::docs_router;
+use crate::events::EventBus;
+use crate::jobs::Jobs;
 use crate::models::User;
-use crate::run_state::{DagMeta, DagNodeMeta, RetryPolicy, RunConfig, RunState, RunStatus};
+use crate::passkey;
+use crate::run_state::{DagMeta, RetryPolicy, RunConfig, RunState, RunStatus};
 use crate::runner::run_pipeline_default;
 use crate::runs_api;
 
@@ -67,7 +70,8 @@ use crate::runs_api;
 pub struct AppState {
     pub pool: PgPool,
     pub config: Config,
-    pub scheduler: SchedulerHandle,
+    pub jobs: Jobs,
+    pub event_bus: EventBus,
 }
 
 #[derive(Serialize)]
@@ -107,11 +111,17 @@ fn ok<T: Serialize>(data: T) -> axum::response::Response {
 
 pub fn router(state: AppState) -> Router {
     Router::new()
-        .merge(cssapi_openapi::router())
+        .merge(docs_router())
         .merge(runs_api::router())
+        .merge(artifacts_api::router())
+        .route("/cssapi/v1/ws", get(crate::ws::ws_handler))
         .route("/metrics", get(metrics_handler))
         .route("/api/health", get(health_handler))
         .route("/api/auth/providers", get(auth_providers))
+        .route("/api/auth/passkey/register/options", get(passkey::register_options))
+        .route("/api/auth/passkey/register/verify", post(passkey::register_verify))
+        .route("/api/auth/passkey/login/options", get(passkey::login_options))
+        .route("/api/auth/passkey/login/verify", post(passkey::login_verify))
         .route("/api/me", get(me))
         .route("/api/billing/status", get(billing_status))
         .route(
@@ -145,53 +155,81 @@ async fn pipeline_start(
     let run_id = format!("run_{}", Utc::now().format("%Y%m%d_%H%M%S"));
     let now = Utc::now().to_rfc3339();
     let out_dir = body.out_dir.unwrap_or_else(|| "./build".to_string());
+    let dag = crate::dag::cssmv_dag_v1();
+    let topo_order = dag
+        .topo_order()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let dag_edges = dag
+        .nodes
+        .iter()
+        .map(|n| {
+            (
+                n.name.to_string(),
+                n.deps.iter().map(|d| (*d).to_string()).collect::<Vec<_>>(),
+            )
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
 
     let state = RunState {
         schema: "css.pipeline.run.v1".to_string(),
-        run_id,
+        run_id: run_id.clone(),
         created_at: now.clone(),
         updated_at: now,
         status: RunStatus::INIT,
+        heartbeat_at: None,
+        last_heartbeat_at: None,
+        stuck_timeout_seconds: Some(120),
+        cancel_requested: false,
+        cancel_requested_at: None,
         ui_lang: body.ui_lang,
         tier: body.tier,
         cssl: body.cssl,
-        commands: serde_json::json!({}),
         config: RunConfig {
             out_dir: out_dir.into(),
             wiki_enabled: body.wiki_enabled.unwrap_or(true),
             civ_linked: body.civ_linked.unwrap_or(true),
+            heartbeat_interval_seconds: 2,
+            stage_timeout_seconds: 1800,
+            stuck_timeout_seconds: 120,
         },
         retry_policy: RetryPolicy {
             max_retries: 3,
             backoff_base_seconds: 2,
             strategy: "exponential".to_string(),
         },
-        topo_order: vec![],
         dag: DagMeta {
             schema: "css.pipeline.dag.v1".to_string(),
-            nodes: crate::dag::cssmv_dag_v1()
+            nodes: dag
                 .nodes
                 .iter()
-                .map(|n| DagNodeMeta {
+                .map(|n| crate::run_state::DagNodeMeta {
                     name: n.name.to_string(),
                     deps: n.deps.iter().map(|d| (*d).to_string()).collect(),
                 })
                 .collect(),
         },
+        topo_order,
+        dag_edges,
+        commands: serde_json::json!({}),
+        artifacts: vec![],
         stages: Default::default(),
-        artifacts: Vec::new(),
-        video_shots_total: 0,
-        video_shots_ready: 0,
-        video_shots_running: 0,
+        video_shots_total: None,
+        total_duration_seconds: None,
+        stage_seq: 0,
+        slowest_leader: None,
+        slowest_tick: None,
+        last_event: None,
     };
 
-    let result =
-        tokio::task::spawn_blocking(move || run_pipeline_default(state, body.commands)).await;
-    match result {
-        Ok(Ok(final_state)) => ok(json!({ "run": final_state })),
-        Ok(Err(err)) => no_data(json!({ "error": format!("{}", err) })),
-        Err(err) => no_data(json!({ "error": format!("{}", err) })),
-    }
+    crate::events::emit_snapshot(&state);
+    tokio::spawn(async move {
+        let _ = run_pipeline_default(state, body.commands).await;
+    });
+
+    ok(json!({ "schema": "cssapi.v1", "run_id": run_id }))
 }
 
 async fn auth_providers(State(_state): State<AppState>) -> axum::response::Response {

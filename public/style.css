@@ -2184,6 +2184,8 @@ a.icon-btn {
   background: transparent;
   box-shadow: none;
   overflow: hidden;
+  animation: mirrorBreath 14s ease-in-out infinite;
+  transform-origin: center center;
 }
 
 #dock-mic .dock-icon,
@@ -2209,12 +2211,12 @@ a.icon-btn {
 
 #dock-mic .dock-mic-img-a {
   transform: scale(1);
-  animation: dockMicSwapA 10s ease-in-out infinite;
+  animation: dockMicSwapA 16s ease-in-out infinite;
 }
 
 #dock-mic .dock-mic-img-b {
   transform: scale(1);
-  animation: dockMicSwapB 10s ease-in-out infinite;
+  animation: dockMicSwapB 16s ease-in-out infinite;
 }
 
 #dock-mic .dock-mic-core {
@@ -2227,7 +2229,7 @@ a.icon-btn {
   border-radius: 999px;
   background: radial-gradient(circle, rgba(131, 255, 255, 0.95), rgba(33, 206, 255, 0.05) 72%);
   box-shadow: 0 0 12px rgba(85, 255, 255, 0.5);
-  animation: dockMicPulse 5.2s ease-in-out infinite;
+  animation: mirrorHaloPulse 6s ease-in-out infinite;
 }
 
 #dock-mic::before {
@@ -2236,7 +2238,7 @@ a.icon-btn {
   inset: 0;
   border-radius: inherit;
   box-shadow: none;
-  animation: dockMicBreath 5.2s ease-in-out infinite;
+  animation: mirrorHaloPulse 6s ease-in-out infinite;
   pointer-events: none;
 }
 
@@ -2253,23 +2255,15 @@ a.icon-btn {
 }
 
 @keyframes dockMicSwapA {
-  0%, 46% { opacity: 1; }
-  54%, 100% { opacity: 0; }
+  0%, 30% { opacity: 1; }
+  50%, 80% { opacity: 0; }
+  100% { opacity: 1; }
 }
 
 @keyframes dockMicSwapB {
-  0%, 46% { opacity: 0; }
-  54%, 100% { opacity: 1; }
-}
-
-@keyframes dockMicPulse {
-  0%, 100% { opacity: 0.56; transform: translateX(-50%) scale(0.98); }
-  50% { opacity: 0.74; transform: translateX(-50%) scale(1.01); }
-}
-
-@keyframes dockMicBreath {
-  0%, 100% { opacity: 0.64; transform: scale(0.998); }
-  50% { opacity: 0.82; transform: scale(1.008); }
+  0%, 30% { opacity: 0; }
+  50%, 80% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 .dock-label {

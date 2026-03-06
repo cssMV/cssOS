@@ -2928,7 +2928,7 @@ function handleMicClick() {
     return;
   }
   if (hold.active) return;
-  showToast(t("mic.hold_to_create"));
+  void startCreation();
 }
 
 function handleMicLongPress() {

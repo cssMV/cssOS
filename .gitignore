@@ -13,3 +13,5 @@ node_modules/
 public/fonts/
 public/examples/
 public/assets/examples/
+
+rust-api/target/

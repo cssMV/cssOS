@@ -1082,6 +1082,10 @@ const dockByPanel = {
 };
 const MIN_PANEL_WIDTH = 320;
 const MIN_PANEL_HEIGHT = 240;
+const TOAST_MIN_MS = 5000;
+const TOAST_MAX_MS = 12000;
+const TOAST_BASE_MS = 6500;
+let toastTimer = 0;
 
 function showDock() {
   dock.classList.remove("hidden");
@@ -1097,10 +1101,64 @@ function resetInactivityTimer() {
   inactivityTimer = setTimeout(hideDock, 10000);
 }
 
-function showToast(message) {
-  toast.textContent = message;
-  toast.classList.add("show");
-  setTimeout(() => toast.classList.remove("show"), 2200);
+function ensureToastUi() {
+  if (!toast) return null;
+  if (toast.querySelector(".toast-title")) return toast;
+  toast.innerHTML = `
+    <div class="toast-head">
+      <div class="toast-title">Notice</div>
+      <button class="toast-close" type="button" aria-label="Close">×</button>
+    </div>
+    <div class="toast-body"></div>
+    <div class="toast-progress"><span></span></div>
+  `;
+  const closeBtn = toast.querySelector(".toast-close");
+  if (closeBtn) closeBtn.addEventListener("click", () => hideToast());
+  return toast;
+}
+
+function hideToast() {
+  if (!toast) return;
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = 0;
+  toast.classList.remove("show");
+  const progress = toast.querySelector(".toast-progress > span");
+  if (progress) progress.style.animation = "none";
+}
+
+function toastDurationMs(message, options = {}) {
+  if (typeof options.duration === "number" && options.duration > 0) {
+    return Math.max(TOAST_MIN_MS, Math.min(TOAST_MAX_MS, Math.floor(options.duration)));
+  }
+  const text = String(message || "");
+  const extra = Math.min(3500, Math.max(0, text.length * 26));
+  return Math.max(TOAST_MIN_MS, Math.min(TOAST_MAX_MS, TOAST_BASE_MS + extra));
+}
+
+function showToast(message, options = {}) {
+  const host = ensureToastUi();
+  if (!host) return;
+
+  const kind = String(options.kind || "info");
+  const title = String(options.title || (kind === "error" ? "Error" : kind === "success" ? "Success" : "Notice"));
+  const body = String(message || "");
+  const ms = toastDurationMs(body, options);
+
+  host.dataset.kind = kind;
+  const titleEl = host.querySelector(".toast-title");
+  const bodyEl = host.querySelector(".toast-body");
+  const progress = host.querySelector(".toast-progress > span");
+  if (titleEl) titleEl.textContent = title;
+  if (bodyEl) bodyEl.textContent = body;
+  if (progress) {
+    progress.style.animation = "none";
+    void progress.offsetWidth;
+    progress.style.animation = `toastProgress ${ms}ms linear forwards`;
+  }
+
+  host.classList.add("show");
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => hideToast(), ms);
 }
 
 function typewriter(el, text, speed = 24, callback) {
@@ -2086,7 +2144,10 @@ function applySpell(spell, options = {}) {
   if (mirrorTitle) mirrorTitle.textContent = next;
   if (mirrorSlogan) mirrorSlogan.innerHTML = formatSlogan(next);
   if (applySettings) applySettings.textContent = formatApplyLabel(next);
-  if (toast) toast.textContent = formatToast(next);
+  if (toast && !toast.classList.contains("show")) {
+    const bodyEl = toast.querySelector(".toast-body");
+    if (bodyEl) bodyEl.textContent = formatToast(next);
+  }
 
   if (watchSubtitle && watchSubtitle.textContent.includes(prev)) {
     watchSubtitle.textContent = replaceSpell(watchSubtitle.textContent, prev, next);
@@ -4082,8 +4143,19 @@ window.addEventListener("cssos:mic_hold_commit", async () => {
     const msg = `${window.t ? window.t("mic.submit_failed") : "Submit failed"}: ${String(e)}`;
     console.error("[mic submit failed]", e);
     await playSubmitFailureDemoFallback();
-    window.dispatchEvent(new CustomEvent("cssos:toast", { detail: { kind: "error", message: msg } }));
+    window.dispatchEvent(new CustomEvent("cssos:toast", { detail: { kind: "error", title: "Submit Failed", message: msg } }));
   }
+});
+
+window.addEventListener("cssos:toast", (event) => {
+  const detail = (event && event.detail) || {};
+  const message = String(detail.message || "");
+  if (!message) return;
+  showToast(message, {
+    kind: detail.kind || "info",
+    title: detail.title || "",
+    duration: typeof detail.duration === "number" ? detail.duration : undefined
+  });
 });
 
 window.addEventListener("resize", () => {

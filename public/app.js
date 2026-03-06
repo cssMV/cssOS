@@ -3234,18 +3234,20 @@ async function passkeyAuth() {
 }
 
 async function smartSignIn() {
-  const providersFresh = await refreshAuthProvidersNow();
-  if (!providersFresh || authProviders.length === 0 || isProviderEnabled("apple")) {
-    await startAppleLogin();
-    return;
-  }
+  await refreshAuthProvidersNow();
+  const appleEnabled = authProviders.length === 0 || isProviderEnabled("apple");
   try {
     await passkeyAuth();
   } catch (_err) {
-    // Ignore passkey cancellation/runtime errors and continue with Apple fallback.
+    // Ignore passkey runtime errors and allow fallback only when needed.
   }
   if (authState.user) return;
-  await startAppleLogin();
+  const hintText = document.getElementById("profile-hint")?.textContent || "";
+  const notEnabled = t("passkey.not_enabled");
+  const optionsFailed = t("passkey.login_options_failed");
+  if (appleEnabled && (hintText === notEnabled || hintText === optionsFailed)) {
+    await startAppleLogin();
+  }
 }
 
 function removeLegacyMicFab() {

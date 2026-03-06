@@ -984,6 +984,31 @@ async function fetchMe() {
   }
 }
 
+async function consumeAuthTicketFromUrl() {
+  try {
+    const url = new URL(window.location.href);
+    const ticket = (url.searchParams.get("auth_ticket") || "").trim();
+    if (!ticket) return false;
+    const res = await fetch("/api/auth/finalize", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ticket })
+    });
+    url.searchParams.delete("auth_ticket");
+    const newPath = `${url.pathname}${url.search}${url.hash}`;
+    window.history.replaceState({}, "", newPath);
+    return res.ok;
+  } catch (_err) {
+    return false;
+  }
+}
+
+async function bootstrapAuthState() {
+  await consumeAuthTicketFromUrl();
+  await fetchMe();
+}
+
 function updateLoginUI() {
   const userLabel = authState.user
     ? authState.user.name || authState.user.email || authState.user.id
@@ -4685,7 +4710,9 @@ safeInit("initAboutTabs", () => initAboutTabs());
 safeInit("initApiBillingUI", () => initApiBillingUI());
 safeInit("removeLegacyMicFab", () => removeLegacyMicFab());
 safeInit("bindPasskeyIdentifierInputs", () => bindPasskeyIdentifierInputs());
-safeInit("fetchMe", () => fetchMe());
+safeInit("bootstrapAuthState", () => {
+  void bootstrapAuthState();
+});
 safeInit("fetchAuthProviders", () => fetchAuthProviders());
 safeInit("fetchBillingStatus", () => fetchBillingStatus());
 safeInit("initVersionSwitcher", () => initVersionSwitcher());

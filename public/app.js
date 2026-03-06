@@ -75,6 +75,8 @@ const loginList = document.getElementById("login-list");
 const loginStatus = document.getElementById("login-status");
 const loginUser = document.getElementById("login-user");
 const loginLogout = document.getElementById("login-logout");
+const loginPasskeyIdentifier = document.getElementById("login-passkey-identifier");
+const profilePasskeyIdentifier = document.getElementById("profile-passkey-identifier");
 const versionToggle = document.getElementById("version-toggle");
 const versionMenu = document.getElementById("version-menu");
 const versionList = document.getElementById("version-list");
@@ -90,6 +92,7 @@ const DEFAULT_ROLE = "guest";
 const LANG_STORAGE_KEY = "CSSOS_LANG";
 const LANG_AUTODETECT_KEY = "CSSOS_LANG_AUTO";
 const LANG_DETECTED_KEY = "CSSOS_LANG_DETECTED";
+const PASSKEY_IDENTIFIER_KEY = "CSSOS_PASSKEY_IDENTIFIER";
 
 const { languageCatalog } = window.CSSOS_I18N_CATALOG;
 
@@ -918,6 +921,14 @@ const authState = {
 
 let authProviders = [];
 
+function unwrapApiData(payload) {
+  if (!payload || typeof payload !== "object") return payload;
+  if (Object.prototype.hasOwnProperty.call(payload, "data")) {
+    return payload.data;
+  }
+  return payload;
+}
+
 const getUserRole = () =>
   (authState.role ||
     window.CSSOS_USER_ROLE ||
@@ -951,10 +962,13 @@ async function fetchMe() {
   try {
     const res = await fetch("/api/me", { credentials: "include" });
     if (!res.ok) return;
-    const data = await res.json();
+    const data = unwrapApiData(await res.json());
     authState.user = data.user || null;
     authState.role = data.role || DEFAULT_ROLE;
     authState.tier = data.tier || authState.role || DEFAULT_ROLE;
+    if (authState.user?.email) {
+      localStorage.setItem(PASSKEY_IDENTIFIER_KEY, String(authState.user.email).toLowerCase());
+    }
     updateLoginUI();
     fetchBillingStatus();
   } catch (err) {
@@ -963,6 +977,7 @@ async function fetchMe() {
 }
 
 function updateLoginUI() {
+  setPasskeyIdentifier(authState.user?.email || getPasskeyIdentifier());
   if (loginStatus) {
     loginStatus.textContent = authState.user ? t("login.statusSigned") : t("login.statusGuest");
   }
@@ -974,6 +989,10 @@ function updateLoginUI() {
       loginUser.textContent = "";
     }
   }
+  if (authState.user) {
+    const label = authState.user.email || authState.user.name || authState.user.id || "";
+    setHintKey(`Signed in: ${label}`);
+  }
   if (loginLogout) {
     loginLogout.style.display = authState.user ? "inline-flex" : "none";
   }
@@ -983,7 +1002,7 @@ async function fetchAuthProviders() {
   try {
     const res = await fetch("/api/auth/providers", { credentials: "include" });
     if (!res.ok) return;
-    const data = await res.json();
+    const data = unwrapApiData(await res.json());
     authProviders = Array.isArray(data.providers) ? data.providers : [];
     renderLoginPlatforms();
   } catch (err) {
@@ -2967,11 +2986,46 @@ function setHintKey(key) {
     el.textContent = "";
     return;
   }
-  try {
-    el.textContent = t(key);
-  } catch {
-    el.textContent = key;
+  const raw = String(key);
+  if (/[ @\u4e00-\u9fa5]/.test(raw)) {
+    el.textContent = raw;
+    return;
   }
+  try {
+    el.textContent = t(raw);
+  } catch {
+    el.textContent = raw;
+  }
+}
+
+function normalizePasskeyIdentifier(input) {
+  return String(input || "").trim().toLowerCase();
+}
+
+function getPasskeyIdentifier() {
+  const a = normalizePasskeyIdentifier(loginPasskeyIdentifier?.value);
+  const b = normalizePasskeyIdentifier(profilePasskeyIdentifier?.value);
+  const c = normalizePasskeyIdentifier(localStorage.getItem(PASSKEY_IDENTIFIER_KEY) || "");
+  const d = normalizePasskeyIdentifier(authState.user?.email || "");
+  return a || b || c || d || "";
+}
+
+function setPasskeyIdentifier(email) {
+  const value = normalizePasskeyIdentifier(email);
+  if (loginPasskeyIdentifier) loginPasskeyIdentifier.value = value;
+  if (profilePasskeyIdentifier) profilePasskeyIdentifier.value = value;
+  if (value) localStorage.setItem(PASSKEY_IDENTIFIER_KEY, value);
+}
+
+function bindPasskeyIdentifierInputs() {
+  const sync = (value) => setPasskeyIdentifier(value);
+  [loginPasskeyIdentifier, profilePasskeyIdentifier].forEach((el) => {
+    if (!el) return;
+    el.addEventListener("change", () => sync(el.value));
+    el.addEventListener("blur", () => sync(el.value));
+  });
+  const stored = normalizePasskeyIdentifier(localStorage.getItem(PASSKEY_IDENTIFIER_KEY) || "");
+  if (stored) setPasskeyIdentifier(stored);
 }
 
 function passkeySupported() {
@@ -3030,18 +3084,25 @@ async function passkeyEnable() {
     setHintKey("passkey.unsupported");
     return;
   }
+  const identifier = getPasskeyIdentifier();
+  if (!authState.user && !identifier) {
+    setHintKey("请输入邮箱后再启用 Passkey");
+    if (profilePasskeyIdentifier) profilePasskeyIdentifier.focus();
+    return;
+  }
   setHintKey("");
-  const optRes = await fetch(`${PASSKEY_BASE}/api/auth/passkey/register/options`, {
+  const qs = identifier ? `?identifier=${encodeURIComponent(identifier)}` : "";
+  const optRes = await fetch(`${PASSKEY_BASE}/api/auth/passkey/register/options${qs}`, {
     headers: { accept: "application/json" }
   });
   if (!optRes.ok) {
     setHintKey("passkey.register_options_failed");
     return;
   }
-  const optJson = await optRes.json();
-  const publicKey = normalizePublicKeyOptions(optJson?.data?.publicKey || optJson?.publicKey || optJson);
+  const optJson = unwrapApiData(await optRes.json());
+  const publicKey = normalizePublicKeyOptions(optJson?.publicKey || optJson);
   const cred = await navigator.credentials.create({ publicKey });
-  const body = { credential: credentialToJSON(cred) };
+  const body = { credential: credentialToJSON(cred), identifier };
   const verRes = await fetch(`${PASSKEY_BASE}/api/auth/passkey/register/verify`, {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
@@ -3051,6 +3112,8 @@ async function passkeyEnable() {
     setHintKey("passkey.register_verify_failed");
     return;
   }
+  await fetchMe();
+  if (identifier) setPasskeyIdentifier(identifier);
   setHintKey("passkey.enabled");
 }
 
@@ -3059,22 +3122,29 @@ async function passkeyLogin() {
     setHintKey("passkey.unsupported");
     return;
   }
+  const identifier = getPasskeyIdentifier();
+  if (!authState.user && !identifier) {
+    setHintKey("请输入邮箱后再使用 Passkey 登录");
+    if (profilePasskeyIdentifier) profilePasskeyIdentifier.focus();
+    return;
+  }
   setHintKey("");
-  const optRes = await fetch(`${PASSKEY_BASE}/api/auth/passkey/login/options`, {
+  const qs = identifier ? `?identifier=${encodeURIComponent(identifier)}` : "";
+  const optRes = await fetch(`${PASSKEY_BASE}/api/auth/passkey/login/options${qs}`, {
     headers: { accept: "application/json" }
   });
   if (!optRes.ok) {
     setHintKey("passkey.login_options_failed");
     return;
   }
-  const optJson = await optRes.json();
-  if (optJson?.data?.empty) {
+  const optJson = unwrapApiData(await optRes.json());
+  if (optJson?.empty) {
     setHintKey("passkey.not_enabled");
     return;
   }
-  const publicKey = normalizePublicKeyOptions(optJson?.data?.publicKey || optJson?.publicKey || optJson);
+  const publicKey = normalizePublicKeyOptions(optJson?.publicKey || optJson);
   const cred = await navigator.credentials.get({ publicKey });
-  const body = { credential: credentialToJSON(cred) };
+  const body = { credential: credentialToJSON(cred), identifier };
   const verRes = await fetch(`${PASSKEY_BASE}/api/auth/passkey/login/verify`, {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
@@ -3084,6 +3154,8 @@ async function passkeyLogin() {
     setHintKey("passkey.login_verify_failed");
     return;
   }
+  await fetchMe();
+  if (identifier) setPasskeyIdentifier(identifier);
   setHintKey("passkey.enabled");
 }
 
@@ -4106,6 +4178,7 @@ safeInit("initPanelSettings", () => initPanelSettings());
 safeInit("initEngineControls", () => initEngineControls());
 safeInit("initLyricsControls", () => initLyricsControls());
 safeInit("initLanguagePanel", () => initLanguagePanel());
+safeInit("bindPasskeyIdentifierInputs", () => bindPasskeyIdentifierInputs());
 safeInit("initAboutTabs", () => initAboutTabs());
 safeInit("initApiBillingUI", () => initApiBillingUI());
 safeInit("fetchMe", () => fetchMe());
@@ -4142,7 +4215,6 @@ window.addEventListener("cssos:mic_hold_commit", async () => {
   } catch (e) {
     const msg = `${window.t ? window.t("mic.submit_failed") : "Submit failed"}: ${String(e)}`;
     console.error("[mic submit failed]", e);
-    await playSubmitFailureDemoFallback();
     window.dispatchEvent(new CustomEvent("cssos:toast", { detail: { kind: "error", title: "Submit Failed", message: msg } }));
   }
 });

@@ -126,7 +126,32 @@ function currentRpId(req: express.Request) {
   return host || "localhost";
 }
 
-function passkeySubject(req: express.Request, user: Awaited<ReturnType<typeof getSessionUser>>) {
+function normalizeEmailInput(input: unknown): string {
+  return String(input || "").trim().toLowerCase();
+}
+
+function passkeyIdentifierFromReq(req: express.Request): string {
+  const q = normalizeEmailInput(req.query?.identifier);
+  const b = normalizeEmailInput((req.body as any)?.identifier);
+  const s = normalizeEmailInput((req.session as any)?.passkey_identifier);
+  return q || b || s || "";
+}
+
+function passkeySubject(
+  req: express.Request,
+  user: Awaited<ReturnType<typeof getSessionUser>>,
+  identifier?: string
+) {
+  const email = normalizeEmailInput(identifier || user?.email || "");
+  if (email) {
+    (req.session as any).passkey_identifier = email;
+    return {
+      key: `e:${email}`,
+      id: email,
+      name: email,
+      displayName: user?.display_name || email || "CSS Studio"
+    };
+  }
   if (user?.id) {
     return {
       key: `u:${user.id}`,
@@ -152,6 +177,63 @@ function passkeySubject(req: express.Request, user: Awaited<ReturnType<typeof ge
     name: `guest-${req.sessionID}`,
     displayName: "Guest"
   };
+}
+
+async function ensureUserByEmail(emailInput: string): Promise<string | null> {
+  const email = normalizeEmailInput(emailInput);
+  if (!email || !DATABASE_URL) return null;
+  return withClient(async (client) => {
+    const found = await client.query<{ id: string }>(
+      "SELECT id FROM users WHERE lower(email) = lower($1) ORDER BY created_at ASC LIMIT 1",
+      [email]
+    );
+    if (found.rows[0]?.id) return found.rows[0].id;
+    const inserted = await client.query<{ id: string }>(
+      `INSERT INTO users (display_name, email, avatar_url, default_role)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id`,
+      [null, email, null, "user"]
+    );
+    return inserted.rows[0]?.id || null;
+  });
+}
+
+async function resolveUserIdForSubjectKey(subjectKey: string): Promise<string | null> {
+  if (!subjectKey) return null;
+  if (subjectKey.startsWith("u:")) {
+    const id = subjectKey.slice(2);
+    return id || null;
+  }
+  if (subjectKey.startsWith("e:")) {
+    return ensureUserByEmail(subjectKey.slice(2));
+  }
+  return null;
+}
+
+async function findAnySubjectByCredential(credId: string): Promise<string | null> {
+  if (!credId) return null;
+  if (!DATABASE_URL) {
+    for (const [subject, list] of passkeyCreds.entries()) {
+      if (list.some((x) => x.id === credId)) return subject;
+    }
+    return null;
+  }
+  const row = await withClient((client) =>
+    client.query<{ subject_key: string }>(
+      "SELECT subject_key FROM passkey_credentials WHERE credential_id = $1 LIMIT 1",
+      [credId]
+    )
+  );
+  return row.rows[0]?.subject_key || null;
+}
+
+async function saveSessionAsync(req: express.Request): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    req.session.save((err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
 }
 
 async function listPasskeyCreds(subjectKey: string): Promise<Array<{ id: string; transports?: string[] }>> {
@@ -196,7 +278,7 @@ async function savePasskeyCred(subjectKey: string, credId: string, transports?: 
 
 async function buildPasskeyRegisterOptions(req: express.Request) {
   const user = await getSessionUser(req);
-  const subject = passkeySubject(req, user);
+  const subject = passkeySubject(req, user, passkeyIdentifierFromReq(req));
   const challenge = b64url(Buffer.from(crypto.randomUUID().replace(/-/g, ""), "utf8"));
   passkeyState.set(subject.key, {
     challenge,
@@ -228,7 +310,7 @@ async function buildPasskeyRegisterOptions(req: express.Request) {
 
 async function buildPasskeyLoginOptions(req: express.Request) {
   const user = await getSessionUser(req);
-  const subject = passkeySubject(req, user);
+  const subject = passkeySubject(req, user, passkeyIdentifierFromReq(req));
   const challenge = b64url(Buffer.from(crypto.randomUUID().replace(/-/g, ""), "utf8"));
   passkeyState.set(subject.key, {
     challenge,
@@ -576,7 +658,7 @@ app.post("/api/auth/passkey/register/verify", async (req, res) => {
   cleanupPasskeyState();
   try {
     const user = await getSessionUser(req);
-    const subject = passkeySubject(req, user);
+    const subject = passkeySubject(req, user, passkeyIdentifierFromReq(req));
     const st = passkeyState.get(subject.key);
     if (!st || st.kind !== "register" || st.expireAt <= Date.now()) {
       return res.status(400).json({ code: "PASSKEY_STATE_MISSING" });
@@ -591,6 +673,11 @@ app.post("/api/auth/passkey/register/verify", async (req, res) => {
       : ["internal"];
     await savePasskeyCred(subject.key, credId, transports);
     passkeyState.delete(subject.key);
+    const userId = await resolveUserIdForSubjectKey(subject.key);
+    if (userId) {
+      (req.session as any).user_id = userId;
+      await saveSessionAsync(req);
+    }
     return res.json({ ok: true, enabled: true });
   } catch (_err) {
     return res.status(500).json({ code: "PASSKEY_REGISTER_VERIFY_FAILED" });
@@ -621,8 +708,9 @@ app.post("/api/auth/passkey/login/verify", async (req, res) => {
   noStore(res);
   cleanupPasskeyState();
   try {
+    const identifier = passkeyIdentifierFromReq(req);
     const user = await getSessionUser(req);
-    const subject = passkeySubject(req, user);
+    const subject = passkeySubject(req, user, identifier);
     const st = passkeyState.get(subject.key);
     if (!st || st.kind !== "login" || st.expireAt <= Date.now()) {
       return res.status(400).json({ code: "PASSKEY_STATE_MISSING" });
@@ -633,10 +721,25 @@ app.post("/api/auth/passkey/login/verify", async (req, res) => {
       return res.status(400).json({ code: "PASSKEY_CRED_INVALID" });
     }
     const list = await listPasskeyCreds(subject.key);
-    if (!list.some((x) => x.id === credId)) {
-      return res.status(400).json({ code: "PASSKEY_CRED_NOT_FOUND" });
+    let accepted = list.some((x) => x.id === credId);
+    if (!accepted) {
+      const oldSubject = await findAnySubjectByCredential(credId);
+      if (oldSubject && oldSubject !== subject.key && (identifier || subject.key.startsWith("u:"))) {
+        await savePasskeyCred(subject.key, credId);
+        accepted = true;
+      }
+    }
+    if (!accepted) {
+      return res.status(400).json({ code: "PASSKEY_CRED_NOT_FOUND_OR_IDENTIFIER_MISMATCH" });
     }
     passkeyState.delete(subject.key);
+    const userId = await resolveUserIdForSubjectKey(subject.key);
+    if (!userId) {
+      return res.status(400).json({ code: "PASSKEY_USER_RESOLVE_FAILED" });
+    }
+    (req.session as any).user_id = userId;
+    (req.session as any).passkey_identifier = normalizeEmailInput(identifier);
+    await saveSessionAsync(req);
     return res.json({ ok: true, verified: true });
   } catch (_err) {
     return res.status(500).json({ code: "PASSKEY_LOGIN_VERIFY_FAILED" });

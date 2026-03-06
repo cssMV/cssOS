@@ -580,6 +580,16 @@
             Guest
           </div>
           <div class="login-user" id="login-user"></div>
+          <div class="profile-row passkey-id-row">
+            <label class="profile-label" for="login-passkey-identifier">Passkey Email</label>
+            <input
+              id="login-passkey-identifier"
+              class="passkey-identifier-input"
+              type="email"
+              autocomplete="username webauthn"
+              placeholder="your@email.com"
+            />
+          </div>
           <div class="login-grid" id="login-list"></div>
           <button class="cta ghost tiny" id="login-logout" type="button" data-i18n="login.logout">
             Log out
@@ -604,6 +614,16 @@
                 <button class="cta tiny" id="passkey-enable" type="button" data-action="passkey.enable" data-i18n="profile.passkeyEnable">Enable</button>
                 <button class="cta tiny" id="passkey-login" type="button" data-action="passkey.login" data-i18n="profile.passkeyLogin">Login</button>
               </div>
+            </div>
+            <div class="profile-row passkey-id-row">
+              <label class="profile-label" for="profile-passkey-identifier">Passkey Email</label>
+              <input
+                id="profile-passkey-identifier"
+                class="passkey-identifier-input"
+                type="email"
+                autocomplete="username webauthn"
+                placeholder="your@email.com"
+              />
             </div>
             <div class="profile-hint" id="profile-hint"></div>
           </div>

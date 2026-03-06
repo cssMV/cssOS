@@ -1039,8 +1039,23 @@ function isProviderEnabled(providerId) {
   return authProviders.some((provider) => provider.id === providerId && provider.enabled);
 }
 
-function startAppleLogin() {
-  if (!isProviderEnabled("apple")) {
+async function refreshAuthProvidersNow() {
+  try {
+    const res = await fetch("/api/auth/providers", { credentials: "include" });
+    if (!res.ok) return false;
+    const payload = await res.json();
+    const data = unwrapApiData(payload);
+    authProviders = Array.isArray(data.providers) ? data.providers : authProviders;
+    renderLoginPlatforms();
+    return true;
+  } catch (_err) {
+    return false;
+  }
+}
+
+async function startAppleLogin() {
+  await refreshAuthProvidersNow();
+  if (authProviders.length > 0 && !isProviderEnabled("apple")) {
     showToast("Apple 登录暂未配置");
     setHintKey("Apple 登录暂未配置，请先配置 APPLE_CLIENT_ID / TEAM_ID / KEY_ID / PRIVATE_KEY");
     return;
@@ -3190,6 +3205,12 @@ async function passkeyAuth() {
   }
 }
 
+async function smartSignIn() {
+  await passkeyAuth();
+  if (authState.user) return;
+  await startAppleLogin();
+}
+
 function removeLegacyMicFab() {
   const selectors = ["#trigger-mic", ".logo-actions", ".mic-fab", ".logo-mic-fab"];
   selectors.forEach((selector) => {
@@ -3898,9 +3919,9 @@ const dockActionMap = {
     longpress: resetSettings
   },
   apple: {
-    click: () => startAppleLogin(),
-    dblclick: () => startAppleLogin(),
-    longpress: () => startAppleLogin()
+    click: () => void startAppleLogin(),
+    dblclick: () => void startAppleLogin(),
+    longpress: () => void startAppleLogin()
   },
   profile: {
     click: () => openPanel(profilePanel),
@@ -3944,7 +3965,7 @@ function handleGlobalAction(action) {
     return;
   }
   if (action === "apple.login") {
-    startAppleLogin();
+    void startAppleLogin();
     return;
   }
   if (action === "passkey.enable") {
@@ -3960,6 +3981,11 @@ function handleGlobalAction(action) {
   if (action === "passkey.auth") {
     openPanel(profilePanel);
     void passkeyAuth();
+    return;
+  }
+  if (action === "auth.smart") {
+    openPanel(profilePanel);
+    void smartSignIn();
     return;
   }
   if (action === "mic") {

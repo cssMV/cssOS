@@ -2870,13 +2870,23 @@ function updateEnginePanels(title, lines) {
 async function startCreation(customTitle, customLyrics) {
   const allowed = await consumeGeneration();
   if (!allowed) return;
-  const selection = lyricBank[Math.floor(Math.random() * lyricBank.length)];
-  const title = customTitle || selection.title;
-  const baseLines = customLyrics?.trim()
-    ? customLyrics.trim().split("\n")
-    : selection.lines;
-  const lines = replaceSpellInLines(baseLines, DEFAULT_SPELL, state.spell);
-  const lyricText = buildLyricsText(title, lines);
+  let title = String(customTitle || "").trim();
+  let lyricsText = String(customLyrics || "").trim();
+
+  if (!lyricsText) {
+    const payload = await runLyricsGenerate("random").catch(() => null);
+    if (!payload || !payload.ok || payload.no_data || !String(payload.lyrics || "").trim()) {
+      showToast(t("mic.no_data_notice"));
+      return;
+    }
+    title = title || String(payload.title || "").trim();
+    lyricsText = String(payload.lyrics || "").trim();
+  }
+
+  const lines = lyricsText.split("\n").map((line) => String(line || "").trimEnd()).filter((line) => line.length > 0);
+  const finalTitle = title || randomTitle();
+  const lyricText = buildLyricsText(finalTitle, lines);
+  runLyricsText = lyricText;
   lyricsTargetLength = lyricText.length;
 
   watchSubtitle.textContent = "KaraOK MV · Rendering";
@@ -2888,21 +2898,28 @@ async function startCreation(customTitle, customLyrics) {
   cssmvPanel.classList.add("hidden");
   watchPanel.classList.add("hidden");
   updateDockVisibility();
-  typewriter(lyricsEl, lyricText, 18, () => {
-    setForyouCompact(true);
-    if (!cssmvTriggered) {
-      cssmvTriggered = true;
-      openPanel(cssmvPanel);
-      layoutShowcasePanels();
-    }
-  });
-  animateProgress();
-  updateEnginePanels(title, lines);
-  requestVideoPreview(title, lines);
-  state.baseLines = baseLines;
-  state.lines = lines;
   openPanel(foryouPanel);
   layoutShowcasePanels();
+  queueTypedLyrics(lyricText);
+  animateProgress();
+  updateEnginePanels(finalTitle, lines);
+  state.baseLines = lines;
+  state.lines = lines;
+  state.title = finalTitle;
+
+  const uiLang = (window.CSS_UI_LANG || document.documentElement.lang || "zh").toString();
+  const tier = (window.CSS_TIER || "dev").toString();
+  const voice = {
+    bytes: 0,
+    mime: "audio/webm",
+    mode: "single",
+    duration_ms: 0,
+    trigger: "manual"
+  };
+  const r = await createRun({ title: finalTitle, uiLang, tier, voice });
+  window.dispatchEvent(new CustomEvent("cssos:run_created", { detail: r }));
+  window.dispatchEvent(new CustomEvent("cssos:title_ready", { detail: { title: finalTitle, source: "manual" } }));
+  window.dispatchEvent(new CustomEvent("cssos:lyrics_start", { detail: { run_id: r.run_id, title: finalTitle, mode: "single" } }));
 }
 
 function handleMicClick() {
@@ -3186,6 +3203,7 @@ async function startCreationWithLyrics(title, lyricsText) {
   if (!allowed) return false;
   const lines = lyricsText.trim().split("\n");
   const lyricText = buildLyricsText(title, lines);
+  runLyricsText = lyricText;
   lyricsTargetLength = lyricText.length;
 
   watchSubtitle.textContent = "KaraOK MV · Rendering";
@@ -3197,14 +3215,7 @@ async function startCreationWithLyrics(title, lyricsText) {
   cssmvPanel.classList.add("hidden");
   watchPanel.classList.add("hidden");
   updateDockVisibility();
-  typewriter(lyricsEl, lyricText, 18, () => {
-    setForyouCompact(true);
-    if (!cssmvTriggered) {
-      cssmvTriggered = true;
-      openPanel(cssmvPanel);
-      layoutShowcasePanels();
-    }
-  });
+  queueTypedLyrics(lyricText);
   animateProgress();
   updateEnginePanels(title, lines);
   state.baseLines = lines;
@@ -4216,7 +4227,6 @@ async function startReadyWatchLoop(runIdValue, titleHint) {
 
     if (typeof view.stage_seq === "number") watchSinceSeq = view.stage_seq;
     updateReadyBars(view);
-    queueTypedLyrics(buildProcessLyrics(runIdValue, view, titleHint));
     const lyricsReady = maybeCompactForLyrics(view);
 
     artifactsPollTick += 1;
@@ -5118,8 +5128,12 @@ window.addEventListener("cssos:run_created", (event) => {
     watchVideo.load?.();
   }
   setCompactPreviewVideo("");
-  const bootText = `${title}\n\n${t("status.running")}...`;
-  queueTypedLyrics(bootText);
+  if (runLyricsText && runLyricsText.trim()) {
+    queueTypedLyrics(runLyricsText);
+  } else {
+    const bootText = `${title}\n\n${t("status.running")}...`;
+    queueTypedLyrics(bootText);
+  }
   startReadyWatchLoop(runIdValue, title);
 });
 

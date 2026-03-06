@@ -455,6 +455,7 @@ a.icon-btn {
   background: rgba(0, 245, 160, 0.08);
   font-size: 13px;
   letter-spacing: 0.03em;
+  white-space: pre-line;
 }
 
 .passkey-id-row {

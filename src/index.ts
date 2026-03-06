@@ -160,6 +160,9 @@ const appleOauthStateCache = new Map<
 >();
 const AUTH_TICKET_TTL_MS = 3 * 60 * 1000;
 const AUTH_TICKET_SECRET = process.env.AUTH_TICKET_SECRET || process.env.SESSION_SECRET || "cssos_auth_ticket_secret";
+const AUTH_SESSION_COOKIE = process.env.AUTH_SESSION_COOKIE || "cssos_auth";
+const AUTH_SESSION_TTL_MS =
+  1000 * 60 * 60 * 24 * Number(process.env.AUTH_SESSION_TTL_DAYS || process.env.SESSION_TTL_DAYS || 30);
 
 function cleanupPasskeyState() {
   const now = Date.now();
@@ -208,6 +211,10 @@ function verifyAuthTicket(ticket: string): string | null {
   } catch {
     return null;
   }
+}
+
+function authTokenHash(token: string) {
+  return crypto.createHash("sha256").update(String(token || "")).digest("hex");
 }
 
 function currentOrigin(req: express.Request) {
@@ -381,6 +388,83 @@ function clearAuthTicketCookie(res: express.Response) {
   });
 }
 
+function setAuthSessionCookie(res: express.Response, token: string) {
+  const sameSite = (sessionConfig.cookie?.sameSite || "lax") as "lax" | "strict" | "none";
+  const secure = Boolean(sessionConfig.cookie?.secure);
+  res.cookie(AUTH_SESSION_COOKIE, token, {
+    httpOnly: true,
+    sameSite,
+    secure,
+    path: "/",
+    maxAge: AUTH_SESSION_TTL_MS
+  });
+}
+
+function clearAuthSessionCookie(res: express.Response) {
+  const sameSite = (sessionConfig.cookie?.sameSite || "lax") as "lax" | "strict" | "none";
+  const secure = Boolean(sessionConfig.cookie?.secure);
+  res.clearCookie(AUTH_SESSION_COOKIE, {
+    httpOnly: true,
+    sameSite,
+    secure,
+    path: "/"
+  });
+}
+
+async function createDbAuthSession(userId: string): Promise<string | null> {
+  if (!DATABASE_URL || !userId) return null;
+  const token = crypto.randomBytes(32).toString("hex");
+  const tokenHash = authTokenHash(token);
+  await withClient((client) =>
+    client.query(
+      `INSERT INTO auth_sessions (token_hash, user_id, expires_at, last_seen_at, updated_at)
+       VALUES ($1, $2, now() + ($3 || ' milliseconds')::interval, now(), now())`,
+      [tokenHash, userId, String(AUTH_SESSION_TTL_MS)]
+    )
+  );
+  return token;
+}
+
+async function resolveUserIdByDbAuthSession(token: string): Promise<string | null> {
+  if (!DATABASE_URL || !token) return null;
+  const tokenHash = authTokenHash(token);
+  const result: QueryResult<{ user_id: string }> = await withClient((client) =>
+    client.query<{ user_id: string }>(
+      `SELECT user_id
+         FROM auth_sessions
+        WHERE token_hash = $1
+          AND revoked_at IS NULL
+          AND expires_at > now()
+        LIMIT 1`,
+      [tokenHash]
+    )
+  );
+  const userId = result.rows[0]?.user_id || null;
+  if (!userId) return null;
+  await withClient((client) =>
+    client.query(
+      `UPDATE auth_sessions
+          SET last_seen_at = now(), updated_at = now()
+        WHERE token_hash = $1`,
+      [tokenHash]
+    )
+  );
+  return userId;
+}
+
+async function revokeDbAuthSession(token: string): Promise<void> {
+  if (!DATABASE_URL || !token) return;
+  const tokenHash = authTokenHash(token);
+  await withClient((client) =>
+    client.query(
+      `UPDATE auth_sessions
+          SET revoked_at = now(), updated_at = now()
+        WHERE token_hash = $1`,
+      [tokenHash]
+    )
+  );
+}
+
 async function listPasskeyCreds(subjectKey: string): Promise<Array<{ id: string; transports?: string[] }>> {
   if (!DATABASE_URL) {
     return passkeyCreds.get(subjectKey) || [];
@@ -507,6 +591,17 @@ app.use(async (req, res, next) => {
     if ((req.session as any)?.user_id) {
       next();
       return;
+    }
+    const authSessionToken = readCookie(req, AUTH_SESSION_COOKIE);
+    if (authSessionToken) {
+      const dbUserId = await resolveUserIdByDbAuthSession(authSessionToken);
+      if (dbUserId) {
+        (req.session as any).user_id = dbUserId;
+        await saveSessionAsync(req);
+        next();
+        return;
+      }
+      clearAuthSessionCookie(res);
     }
     const qTicket =
       typeof req.query?.auth_ticket === "string" ? String(req.query.auth_ticket).trim() : "";
@@ -834,6 +929,8 @@ async function handleAppleCallback(req: express.Request, res: express.Response) 
     const userId = await upsertAppleIdentity({ sub, email });
     (req.session as any).user_id = userId;
     await saveSessionAsync(req);
+    const authSessionToken = await createDbAuthSession(userId);
+    if (authSessionToken) setAuthSessionCookie(res, authSessionToken);
     const authTicket = createAuthTicket(userId);
     setAuthTicketCookie(res, authTicket);
     return res.redirect(302, `/auth/finalize?auth_ticket=${encodeURIComponent(authTicket)}`);
@@ -853,6 +950,8 @@ app.get("/auth/finalize", async (req, res) => {
     if (userId) {
       (req.session as any).user_id = userId;
       await saveSessionAsync(req);
+      const authSessionToken = await createDbAuthSession(userId);
+      if (authSessionToken) setAuthSessionCookie(res, authSessionToken);
     }
     clearAuthTicketCookie(res);
     return res.redirect(302, "/");
@@ -871,15 +970,20 @@ app.get("/api/auth/apple/callback", (req, res) => {
   res.redirect(302, `/auth/apple/callback${q}`);
 });
 
-app.post("/api/auth/logout", (req, res) => {
+app.post("/api/auth/logout", async (req, res) => {
   noStore(res);
+  const authSessionToken = readCookie(req, AUTH_SESSION_COOKIE);
+  await revokeDbAuthSession(authSessionToken).catch(() => {});
+  clearAuthSessionCookie(res);
   if (req.session) {
     req.session.destroy(() => {
       res.clearCookie(process.env.SESSION_COOKIE || "cssos_session");
+      clearAuthTicketCookie(res);
       res.json(okData({ loggedOut: true }));
     });
     return;
   }
+  clearAuthTicketCookie(res);
   res.json(okData({ loggedOut: true }));
 });
 
@@ -1016,6 +1120,8 @@ app.post("/api/auth/finalize", async (req, res) => {
     if (!userId) return res.status(400).json({ ok: false, error: "invalid_ticket" });
     (req.session as any).user_id = userId;
     await saveSessionAsync(req);
+    const authSessionToken = await createDbAuthSession(userId);
+    if (authSessionToken) setAuthSessionCookie(res, authSessionToken);
     clearAuthTicketCookie(res);
     return res.json(okData({ authenticated: true }));
   } catch {

@@ -158,6 +158,13 @@ const appleOauthStateCache = new Map<
     expireAt: number;
   }
 >();
+const appleAuthTicketCache = new Map<
+  string,
+  {
+    userId: string;
+    expireAt: number;
+  }
+>();
 
 function cleanupPasskeyState() {
   const now = Date.now();
@@ -170,6 +177,13 @@ function cleanupAppleOauthState() {
   const now = Date.now();
   for (const [k, v] of appleOauthStateCache.entries()) {
     if (v.expireAt <= now) appleOauthStateCache.delete(k);
+  }
+}
+
+function cleanupAppleAuthTickets() {
+  const now = Date.now();
+  for (const [k, v] of appleAuthTicketCache.entries()) {
+    if (v.expireAt <= now) appleAuthTicketCache.delete(k);
   }
 }
 
@@ -722,7 +736,10 @@ async function handleAppleCallback(req: express.Request, res: express.Response) 
     const userId = await upsertAppleIdentity({ sub, email });
     (req.session as any).user_id = userId;
     await saveSessionAsync(req);
-    return res.redirect(302, "/");
+    cleanupAppleAuthTickets();
+    const authTicket = crypto.randomBytes(18).toString("hex");
+    appleAuthTicketCache.set(authTicket, { userId, expireAt: Date.now() + 3 * 60 * 1000 });
+    return res.redirect(302, `/?auth_ticket=${encodeURIComponent(authTicket)}`);
   } catch {
     return res.status(400).send("auth_failed");
   }
@@ -869,6 +886,27 @@ app.post("/api/auth/passkey/login/verify", async (req, res) => {
     return res.json({ ok: true, verified: true, authenticated: Boolean(userId) });
   } catch (_err) {
     return res.status(500).json({ code: "PASSKEY_LOGIN_VERIFY_FAILED" });
+  }
+});
+
+app.post("/api/auth/finalize", async (req, res) => {
+  noStore(res);
+  cleanupAppleAuthTickets();
+  try {
+    const ticket = String(req.body?.ticket || "").trim();
+    if (!ticket) {
+      const user = await getSessionUser(req);
+      if (!user) return res.json(okEmpty({ authenticated: false }, "No data yet"));
+      return res.json(okData({ authenticated: true }));
+    }
+    const hit = appleAuthTicketCache.get(ticket);
+    if (!hit) return res.status(400).json({ ok: false, error: "invalid_ticket" });
+    appleAuthTicketCache.delete(ticket);
+    (req.session as any).user_id = hit.userId;
+    await saveSessionAsync(req);
+    return res.json(okData({ authenticated: true }));
+  } catch {
+    return res.status(500).json({ ok: false, error: "finalize_failed" });
   }
 });
 

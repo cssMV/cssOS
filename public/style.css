@@ -600,6 +600,53 @@ a.icon-btn {
   white-space: pre-wrap;
 }
 
+.profile-section-title {
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.profile-insights-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.profile-insight-card {
+  border: 1px solid rgba(0, 245, 160, 0.24);
+  border-radius: 12px;
+  background: rgba(5, 14, 11, 0.68);
+  padding: 10px;
+  display: grid;
+  gap: 7px;
+}
+
+.profile-insight-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.profile-insight-title {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.profile-insight-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.profile-insight-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+
 @media (max-width: 860px) {
   .profile-fields {
     grid-template-columns: 1fr;

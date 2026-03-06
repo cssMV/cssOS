@@ -3283,11 +3283,9 @@ function showRing(on) {
   if (on) {
     r.classList.add("is-on");
     logoPanel?.classList.add("holding-mic");
-    applyLogoPanelHoldInline(true);
   } else {
     r.classList.remove("is-on");
     logoPanel?.classList.remove("holding-mic");
-    applyLogoPanelHoldInline(false);
   }
 }
 

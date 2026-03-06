@@ -1,28 +1,30 @@
-name: Deploy to api-vm
+name: Deploy cssOS
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Auth to Google Cloud (WIF)
-        uses: google-github-actions/auth@v2
+      - name: Deploy to Tencent Cloud server over SSH
+        uses: appleboy/ssh-action@v1.0.3
         with:
-          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
-          service_account: ${{ secrets.GCP_SA_EMAIL }}
-
-      - name: Setup gcloud
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Trigger Cloud Build
-        run: gcloud builds submit --config cloudbuild.yaml .
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT }}
+          script: |
+            set -e
+            cd /home/ubuntu/cssOS
+            git fetch origin
+            git reset --hard origin/main
+            npm ci || npm install
+            npm run build
+            sudo systemctl restart cssos
+            sleep 2
+            curl -f http://127.0.0.1:3000/health
+            sudo systemctl status cssos --no-pager

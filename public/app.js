@@ -81,6 +81,8 @@ const loginLogout = document.getElementById("login-logout");
 const loginPasskeyIdentifier = document.getElementById("login-passkey-identifier");
 const profilePasskeyIdentifier = document.getElementById("profile-passkey-identifier");
 const profileAuthStatus = document.getElementById("profile-auth-status");
+const profileSigninButton = document.getElementById("profile-signin");
+const profileAuthActionLabel = document.getElementById("profile-auth-action-label");
 const worksAvatar = document.getElementById("works-avatar");
 const worksName = document.getElementById("works-name");
 const worksRole = document.getElementById("works-role");
@@ -1010,8 +1012,11 @@ async function bootstrapAuthState() {
 }
 
 function updateLoginUI() {
+  const appleEmail = authState.user?.email || "";
+  const contactEmail = getPasskeyIdentifier();
+  const isRelayEmail = appleEmail.toLowerCase().includes("privaterelay.appleid.com");
   const userLabel = authState.user
-    ? authState.user.name || authState.user.email || authState.user.id
+    ? authState.user.name || (!isRelayEmail ? appleEmail : "") || contactEmail || authState.user.id
     : "";
   if (loginStatus) {
     loginStatus.textContent = authState.user ? t("login.statusSigned") : t("login.statusGuest");
@@ -1023,21 +1028,51 @@ function updateLoginUI() {
     loginLogout.style.display = authState.user ? "inline-flex" : "none";
   }
   if (profileAuthStatus) {
-    profileAuthStatus.textContent = authState.user
-      ? `${t("login.statusSigned")} · ${userLabel}`
-      : t("login.statusGuest");
+    if (authState.user) {
+      const lines = [`${t("login.statusSigned")} · ${userLabel || authState.user.id}`];
+      if (appleEmail) lines.push(`Apple: ${appleEmail}`);
+      if (contactEmail && contactEmail !== appleEmail) lines.push(`Contact: ${contactEmail}`);
+      profileAuthStatus.textContent = lines.join("\n");
+    } else {
+      profileAuthStatus.textContent = t("login.statusGuest");
+    }
   }
   if (worksAvatar) {
     worksAvatar.textContent = authState.user ? (userLabel || "U").slice(0, 2).toUpperCase() : "CS";
   }
   if (worksName) {
-    worksName.textContent = authState.user ? userLabel : "Guest";
+    worksName.textContent = authState.user ? (userLabel || appleEmail || authState.user.id) : "Guest";
   }
   if (worksRole) {
     worksRole.textContent = authState.user
       ? (authState.role || "user").toString().toUpperCase()
       : "GUEST";
   }
+  if (profileSigninButton) {
+    if (authState.user) {
+      profileSigninButton.textContent = t("login.logout");
+      profileSigninButton.dataset.action = "auth.logout";
+    } else {
+      profileSigninButton.textContent = t("panel.login");
+      profileSigninButton.dataset.action = "auth.smart";
+    }
+  }
+  if (profileAuthActionLabel) {
+    profileAuthActionLabel.textContent = authState.user ? t("login.logout") : t("panel.login");
+  }
+}
+
+async function performLogout() {
+  try {
+    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+  } catch (_err) {
+    // ignore
+  }
+  authState.user = null;
+  authState.role = DEFAULT_ROLE;
+  authState.tier = DEFAULT_ROLE;
+  updateLoginUI();
+  fetchBillingStatus();
 }
 
 async function fetchAuthProviders() {
@@ -4062,6 +4097,10 @@ function handleGlobalAction(action) {
     void smartSignIn();
     return;
   }
+  if (action === "auth.logout") {
+    void performLogout();
+    return;
+  }
   if (action === "mic") {
     triggerMic();
   }
@@ -4736,17 +4775,8 @@ if (window.location.pathname === "/settings") {
   openPanel(settingsPanel);
 }
 if (loginLogout) {
-  loginLogout.addEventListener("click", async () => {
-    try {
-      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
-    } catch (err) {
-      // ignore
-    }
-    authState.user = null;
-    authState.role = DEFAULT_ROLE;
-    authState.tier = DEFAULT_ROLE;
-    updateLoginUI();
-    fetchBillingStatus();
+  loginLogout.addEventListener("click", () => {
+    void performLogout();
   });
 }
 attachAmbientTrail();

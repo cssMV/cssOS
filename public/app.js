@@ -1246,9 +1246,7 @@ async function consumeAuthTicketFromUrl() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ticket })
     });
-    url.searchParams.delete("auth_ticket");
-    const newPath = `${url.pathname}${url.search}${url.hash}`;
-    window.history.replaceState({}, "", newPath);
+    window.history.replaceState({}, "", "/");
     return res.ok;
   } catch (_err) {
     return false;
@@ -4372,16 +4370,10 @@ function handleGlobalAction(action) {
   if (!action) return;
   if (action === "profile.open") {
     openPanel(profilePanel);
-    if (window.location.pathname !== "/profile") {
-      window.history.replaceState({}, "", "/profile");
-    }
     return;
   }
   if (action === "profile.close") {
     minimizeToDock(profilePanel);
-    if (window.location.pathname === "/profile") {
-      window.history.replaceState({}, "", "/");
-    }
     return;
   }
   if (action === "apple.login") {

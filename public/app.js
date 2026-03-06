@@ -4174,6 +4174,7 @@ function maybeCompactForLyrics(readyView) {
   if (lyricsStatus !== "SUCCEEDED") return false;
   setForyouCompact(true);
   openPanel(foryouPanel);
+  scheduleWatchAfterDelay();
   return true;
 }
 
@@ -4184,6 +4185,45 @@ function stopReadyWatchLoop() {
   watchSinceSeq = null;
   watchedRunId = "";
   artifactsPollTick = 0;
+}
+
+function openPanelBeside(anchorPanel, targetPanel) {
+  if (!anchorPanel || !targetPanel) return;
+  openPanel(targetPanel);
+  const anchorRect = anchorPanel.getBoundingClientRect();
+  const targetRect = targetPanel.getBoundingClientRect();
+  const safeTop = Math.max(8, Number(window.visualViewport?.offsetTop || 0) + 8);
+  const gap = 16;
+  const maxLeft = Math.max(0, window.innerWidth - targetRect.width);
+  const maxTop = Math.max(safeTop, window.innerHeight - targetRect.height);
+
+  let left = anchorRect.right + gap;
+  let top = anchorRect.top;
+
+  if (left + targetRect.width > window.innerWidth - 8) {
+    const leftSide = anchorRect.left - gap - targetRect.width;
+    if (leftSide >= 0) {
+      left = leftSide;
+    } else {
+      left = Math.min(anchorRect.left + 24, maxLeft);
+      top = Math.min(anchorRect.top + 24, maxTop);
+    }
+  }
+
+  targetPanel.dataset.userMoved = "true";
+  setPanelPosition(targetPanel, left, Math.max(safeTop, top));
+}
+
+function scheduleWatchAfterDelay() {
+  if (compactWatchTimer) return;
+  compactWatchTimer = window.setTimeout(() => {
+    compactWatchTimer = 0;
+    if (foryouPanel && !foryouPanel.classList.contains("hidden")) {
+      openPanelBeside(foryouPanel, watchPanel);
+      return;
+    }
+    openPanel(watchPanel);
+  }, 10000);
 }
 
 async function startReadyWatchLoop(runIdValue, titleHint) {

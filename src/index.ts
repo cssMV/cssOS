@@ -111,10 +111,11 @@ async function getSessionUser(req: express.Request) {
     avatar_url: string | null;
     role: string | null;
     is_admin: boolean | null;
+    created_at: Date | string | null;
   };
   const result: QueryResult<UserRow> = await withClient((client) =>
     client.query<UserRow>(
-      "SELECT id, display_name, email, avatar_url, role, is_admin FROM users WHERE id = $1",
+      "SELECT id, display_name, email, avatar_url, role, is_admin, created_at FROM users WHERE id = $1",
       [sessionUserId]
     )
   );
@@ -808,20 +809,75 @@ async function resetMonthIfNeeded(userId: string) {
   });
 }
 
-async function getAppleIdentityEmail(userId: string): Promise<string | null> {
-  if (!DATABASE_URL || !userId) return null;
-  const result: QueryResult<{ email: string | null }> = await withClient((client) =>
-    client.query<{ email: string | null }>(
-      `SELECT u.email
-         FROM oauth_identities oi
-         LEFT JOIN users u ON u.id = oi.user_id
-        WHERE oi.provider = $1 AND oi.user_id = $2
-        ORDER BY oi.created_at DESC
-        LIMIT 1`,
-      ["apple", userId]
+async function setAppleProfileMeta(args: {
+  userId: string;
+  appleEmail?: string | null;
+  appleSub?: string | null;
+  appleDisplayName?: string | null;
+}) {
+  if (!DATABASE_URL || !args.userId) return;
+  const appleEmail = normalizeEmailInput(args.appleEmail || "");
+  const appleSub = String(args.appleSub || "").trim();
+  const appleDisplayName = String(args.appleDisplayName || "").trim().slice(0, 80);
+  await withClient((client) =>
+    client.query(
+      `UPDATE users
+          SET raw_profile = jsonb_strip_nulls(
+                COALESCE(raw_profile, '{}'::jsonb) ||
+                jsonb_build_object(
+                  'apple',
+                  COALESCE(raw_profile->'apple', '{}'::jsonb) ||
+                    jsonb_strip_nulls(
+                      jsonb_build_object(
+                        'email', $2::text,
+                        'sub', CASE WHEN $3 = '' THEN NULL ELSE $3::text END,
+                        'display_name', CASE WHEN $4 = '' THEN NULL ELSE $4::text END,
+                        'updated_at', to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+                      )
+                    )
+                )
+              ),
+              updated_at = now()
+        WHERE id = $1`,
+      [args.userId, appleEmail, appleSub, appleDisplayName]
     )
   );
-  return result.rows[0]?.email || null;
+}
+
+async function getAppleIdentityEmail(userId: string): Promise<string | null> {
+  if (!DATABASE_URL || !userId) return null;
+  const result: QueryResult<{ apple_email: string | null }> = await withClient((client) =>
+    client.query<{ apple_email: string | null }>(
+      `SELECT
+          COALESCE(
+            NULLIF(u.raw_profile->'apple'->>'email', ''),
+            NULL
+          ) AS apple_email
+       FROM users u
+       WHERE u.id = $1
+       LIMIT 1`,
+      [userId]
+    )
+  );
+  return normalizeEmailInput(result.rows[0]?.apple_email || "");
+}
+
+async function getLastSeenAt(userId: string): Promise<string | null> {
+  if (!DATABASE_URL || !userId) return null;
+  const result: QueryResult<{ last_seen_at: Date | string | null }> = await withClient((client) =>
+    client.query<{ last_seen_at: Date | string | null }>(
+      `SELECT last_seen_at
+         FROM auth_sessions
+        WHERE user_id = $1 AND revoked_at IS NULL
+        ORDER BY last_seen_at DESC
+        LIMIT 1`,
+      [userId]
+    )
+  );
+  const value = result.rows[0]?.last_seen_at;
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString();
+  return String(value);
 }
 
 app.use("/api/registry", async (req, res) => {
@@ -929,15 +985,21 @@ app.get("/api/profile", async (req, res) => {
     const user = await getSessionUser(req);
     if (!user) return res.json(okEmpty({ authenticated: false }, "No data yet"));
     const sourceEmail = await getAppleIdentityEmail(user.id);
+    const lastSeenAt = await getLastSeenAt(user.id);
     const effectiveRole = user.is_admin ? "admin" : (user.role || "user");
     return res.json(
       okData({
         authenticated: true,
+        userId: user.id,
         displayName: user.display_name || "",
         avatarUrl: user.avatar_url || "",
         accountEmail: user.email || "",
         appleEmail: sourceEmail || "",
-        loginSource: "Apple OAuth",
+        loginSource: "Apple 登录",
+        createdAt: user.created_at
+          ? (user.created_at instanceof Date ? user.created_at.toISOString() : String(user.created_at))
+          : null,
+        lastSeenAt,
         role: effectiveRole,
         isAdmin: Boolean(user.is_admin)
       })
@@ -1067,6 +1129,18 @@ async function handleAppleCallback(req: express.Request, res: express.Response) 
     }
     const email = payload.email ? String(payload.email) : null;
     const userId = await upsertAppleIdentity({ sub, email, preferredEmail });
+    let appleDisplayName = "";
+    try {
+      const rawUser = (req.body as Record<string, unknown> | undefined)?.user;
+      const userObj = typeof rawUser === "string" ? JSON.parse(rawUser) : rawUser;
+      const nameObj = (userObj && typeof userObj === "object") ? (userObj as any).name : null;
+      const firstName = typeof nameObj?.firstName === "string" ? nameObj.firstName.trim() : "";
+      const lastName = typeof nameObj?.lastName === "string" ? nameObj.lastName.trim() : "";
+      appleDisplayName = [firstName, lastName].filter(Boolean).join(" ").trim();
+    } catch {
+      appleDisplayName = "";
+    }
+    await setAppleProfileMeta({ userId, appleEmail: email, appleSub: sub, appleDisplayName });
     (req.session as any).user_id = userId;
     await saveSessionAsync(req);
     const authSessionToken = await createDbAuthSession(userId);

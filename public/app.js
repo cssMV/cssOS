@@ -88,6 +88,9 @@ const profileDisplayName = document.getElementById("profile-display-name");
 const profileRole = document.getElementById("profile-role");
 const profileAccountEmail = document.getElementById("profile-account-email");
 const profileLoginSource = document.getElementById("profile-login-source");
+const profileUserId = document.getElementById("profile-user-id");
+const profileCreatedAt = document.getElementById("profile-created-at");
+const profileLastSeenAt = document.getElementById("profile-last-seen-at");
 const profileEditName = document.getElementById("profile-edit-name");
 const profileEditAvatar = document.getElementById("profile-edit-avatar");
 const worksAvatar = document.getElementById("works-avatar");
@@ -997,18 +1000,28 @@ async function fetchMe() {
 }
 
 function renderProfilePanel() {
-  const appleEmail = profileState?.appleEmail || authState.user?.email || "";
+  const accountEmail = profileState?.accountEmail || authState.user?.email || "";
   const displayName =
     profileState?.displayName || authState.user?.name || authState.user?.email || authState.user?.id || "Guest";
   const roleText = (authState.role || "guest").toString().toUpperCase();
   const avatarUrl = profileState?.avatarUrl || authState.user?.avatar || "";
   const sourceText = profileState?.appleEmail
-    ? `${profileState.loginSource || "Apple OAuth"} · ${profileState.appleEmail}`
-    : (profileState?.loginSource || "Apple OAuth");
+    ? `${profileState.loginSource || "Apple 登录"} · ${profileState.appleEmail}`
+    : (profileState?.loginSource || (authState.user ? "Apple 登录" : "-"));
+  const fmt = (value) => {
+    const text = String(value || "").trim();
+    if (!text) return "-";
+    const ts = Date.parse(text);
+    if (Number.isNaN(ts)) return text;
+    return new Date(ts).toLocaleString();
+  };
   if (profileDisplayName) profileDisplayName.textContent = displayName;
   if (profileRole) profileRole.textContent = roleText;
-  if (profileAccountEmail) profileAccountEmail.value = authState.user?.email || "";
-  if (profileLoginSource) profileLoginSource.value = sourceText;
+  if (profileAccountEmail) profileAccountEmail.textContent = accountEmail || "-";
+  if (profileLoginSource) profileLoginSource.textContent = sourceText || "-";
+  if (profileUserId) profileUserId.textContent = profileState?.userId || authState.user?.id || "-";
+  if (profileCreatedAt) profileCreatedAt.textContent = fmt(profileState?.createdAt);
+  if (profileLastSeenAt) profileLastSeenAt.textContent = fmt(profileState?.lastSeenAt);
   if (profileEditName && document.activeElement !== profileEditName) {
     profileEditName.value = profileState?.displayName || authState.user?.name || "";
   }
@@ -1016,8 +1029,12 @@ function renderProfilePanel() {
     profileEditAvatar.value = avatarUrl || "";
   }
   if (profileAvatar) {
+    profileAvatar.textContent = "";
     if (avatarUrl) {
-      profileAvatar.innerHTML = `<img src="${avatarUrl}" alt="avatar" />`;
+      const img = document.createElement("img");
+      img.src = avatarUrl;
+      img.alt = "avatar";
+      profileAvatar.appendChild(img);
     } else {
       profileAvatar.textContent = (displayName || "U").slice(0, 2).toUpperCase();
     }
@@ -1108,7 +1125,7 @@ function updateLoginUI() {
   if (profileAuthStatus) {
     if (authState.user) {
       const lines = [`${t("login.statusSigned")} · ${userLabel || authState.user.id}`];
-      if (appleEmail) lines.push(`Apple: ${appleEmail}`);
+      if (profileState?.appleEmail) lines.push(`Apple: ${profileState.appleEmail}`);
       profileAuthStatus.textContent = lines.join("\n");
     } else {
       profileAuthStatus.textContent = t("login.statusGuest");

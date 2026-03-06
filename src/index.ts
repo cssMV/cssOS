@@ -1108,6 +1108,7 @@ app.get("/api/profile", async (req, res) => {
         accountEmail: user.email || "",
         appleEmail: sourceEmail || "",
         loginSource: effectiveProvider ? `${providerDisplayName(effectiveProvider)} 登录` : "未知来源",
+        loginProvider: effectiveProvider,
         linkedProviders: authSources.map((x) => ({
           id: x.provider,
           name: providerDisplayName(x.provider),

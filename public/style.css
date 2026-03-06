@@ -2042,6 +2042,13 @@ a.icon-btn {
   overflow: hidden;
 }
 
+#dock-mic .dock-icon,
+#dock-mic .dock-mic-icon,
+#dock-mic.active .dock-mic-icon,
+#dock-mic:hover .dock-mic-icon {
+  background: transparent !important;
+}
+
 #dock-mic .dock-mic-img {
   position: absolute;
   inset: -4px;

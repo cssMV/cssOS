@@ -1419,7 +1419,8 @@ async function consumeGeneration() {
       body: JSON.stringify({})
     });
     if (res.ok) {
-      const data = await res.json();
+      const payload = await res.json();
+      const data = unwrapApiData(payload);
       billingState.tier = data.tier || billingState.tier;
       billingState.remaining = data.remaining;
       billingState.limit = data.limit;
@@ -1439,7 +1440,8 @@ async function fetchBillingStatus() {
   try {
     const res = await fetch("/api/billing/status", { credentials: "include" });
     if (res.ok) {
-      const data = await res.json();
+      const payload = await res.json();
+      const data = unwrapApiData(payload);
       billingState.tier = data.tier || billingState.tier;
       billingState.remaining = data.remaining;
       billingState.limit = data.limit;

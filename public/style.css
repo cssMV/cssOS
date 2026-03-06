@@ -448,6 +448,71 @@ a.icon-btn {
   gap: 14px;
 }
 
+.profile-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(0, 245, 160, 0.2);
+  border-radius: 12px;
+  background: rgba(5, 14, 11, 0.7);
+}
+
+.profile-avatar {
+  width: 54px;
+  height: 54px;
+  border-radius: 14px;
+  border: 1px solid rgba(0, 245, 160, 0.35);
+  background: radial-gradient(circle at 30% 30%, rgba(0, 245, 160, 0.35), rgba(3, 8, 6, 0.9));
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  overflow: hidden;
+}
+
+.profile-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.profile-meta {
+  min-width: 0;
+}
+
+.profile-name {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  word-break: break-word;
+}
+
+.profile-role {
+  margin-top: 4px;
+  font-size: 12px;
+  opacity: 0.82;
+  letter-spacing: 0.06em;
+}
+
+.profile-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+}
+
+.profile-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.profile-fields label > span {
+  font-size: 12px;
+  opacity: 0.82;
+  letter-spacing: 0.04em;
+}
+
 .profile-auth-status {
   padding: 10px 12px;
   border: 1px solid rgba(0, 245, 160, 0.24);
@@ -508,6 +573,12 @@ a.icon-btn {
   font-size: 13px;
   opacity: 0.92;
   white-space: pre-wrap;
+}
+
+@media (max-width: 860px) {
+  .profile-fields {
+    grid-template-columns: 1fr;
+  }
 }
 
 .panel-body {

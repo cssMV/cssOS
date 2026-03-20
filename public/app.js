@@ -13189,6 +13189,87 @@ function buildWatchArchiveServerIncidentLogStrip(probeHistory) {
     });
 }
 
+function buildWatchArchiveOnCallSummaryBanner(probeSummary) {
+  const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
+  const conclusion = payload?.conclusion || {};
+  const metadata = payload?.metadata || {};
+  const gzvm = (Array.isArray(metadata?.servers) ? metadata.servers : []).find(
+    (item) => String(item?.server || "") === "gzvm"
+  );
+  const verdict = String(conclusion?.verdict || "");
+  let level = dashboardCopy("watch", "观察");
+  let headline = dashboardCopy("On-call summary is mixed.", "值班摘要当前偏混合。");
+  if (verdict === "cross_border_path_anomaly") {
+    level = dashboardCopy("watch", "观察");
+    headline = dashboardCopy(
+      "Host looks healthy; watch the route path, not the app process.",
+      "主机看起来健康，值班更该盯链路，不是应用进程。"
+    );
+  } else if (verdict === "server_recovered") {
+    level = dashboardCopy("healthy", "健康");
+    headline = dashboardCopy(
+      "Server path looks recovered and stable enough for routine watch.",
+      "服务器路径看起来已恢复，适合进入常规值班观察。"
+    );
+  } else if (verdict === "server_side_degradation") {
+    level = dashboardCopy("alert", "告警");
+    headline = dashboardCopy(
+      "Server-side degradation still needs direct action.",
+      "服务器侧退化仍需要直接处理。"
+    );
+  }
+  return {
+    level,
+    headline,
+    note: dashboardCopy(
+      `gzvm nginx=${gzvm?.nginx_status || "unknown"} · cssos=${gzvm?.cssos_status || "unknown"} · verdict=${verdict || "unknown"}`,
+      `gzvm nginx=${gzvm?.nginx_status || "unknown"} · cssos=${gzvm?.cssos_status || "unknown"} · 结论=${verdict || "unknown"}`
+    )
+  };
+}
+
+function buildWatchArchiveCertRenewalActionCard(probeSummary) {
+  const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
+  const cert = payload?.metadata?.certificate || {};
+  const daysRemaining = Number(cert?.days_remaining);
+  let action = dashboardCopy("Keep watching the renewal window.", "继续观察续期窗口。");
+  if (Number.isFinite(daysRemaining)) {
+    if (daysRemaining >= 30) {
+      action = dashboardCopy(
+        "No urgent renewal action yet. Keep a calendar reminder and continue routine checks.",
+        "暂时不用紧急续期，保留日历提醒并继续常规检查。"
+      );
+    } else if (daysRemaining >= 14) {
+      action = dashboardCopy(
+        "Start renewal preparation now so the replacement cert is ready before the final two-week window.",
+        "现在就开始准备续期，确保新证书在最后两周前准备好。"
+      );
+    } else {
+      action = dashboardCopy(
+        "Renew immediately and schedule a post-renew validation run.",
+        "立即续期，并安排一次续期后的验证探针。"
+      );
+    }
+  }
+  return {
+    title: dashboardCopy("Cert Renewal Action", "证书续期动作"),
+    note: action
+  };
+}
+
+function buildWatchArchiveIncidentExportBundle(probeSummary, probeHistory) {
+  const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
+  const history = Array.isArray(probeHistory) ? probeHistory : [];
+  const latest = history.length ? history[history.length - 1] : payload;
+  return {
+    schema: "cssos.zh_probe_incident_bundle.v1",
+    exported_at: new Date().toISOString(),
+    latest_probe: payload,
+    latest_sample: latest || null,
+    recent_history: history.slice(-12),
+  };
+}
+
 function buildWatchArchiveCrossBorderAnomalyAlert(probeSummary) {
   const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
   const conclusion = payload?.conclusion || {};
@@ -14927,6 +15008,16 @@ function bindMusicDeliveryPreviewButtons() {
       } catch (error) {
         console.warn("Invalid delivery preview payload", error);
       }
+    });
+  });
+  deliveryDashboardBody.querySelectorAll("[data-delivery-probe-incident-export]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const payload = buildWatchArchiveIncidentExportBundle(
+        deliveryDashboardState.probeSummary,
+        deliveryDashboardState.probeHistory
+      );
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      downloadJsonArtifact(payload, `zh_probe_incident_bundle_${stamp}.json`);
     });
   });
 }
@@ -23876,6 +23967,12 @@ function renderMusicDeliveryDashboard() {
   const serverIncidentLogStrip = buildWatchArchiveServerIncidentLogStrip(
     deliveryDashboardState.probeHistory
   );
+  const onCallSummaryBanner = buildWatchArchiveOnCallSummaryBanner(
+    deliveryDashboardState.probeSummary
+  );
+  const certRenewalActionCard = buildWatchArchiveCertRenewalActionCard(
+    deliveryDashboardState.probeSummary
+  );
   const crossBorderAnomalyAlert = buildWatchArchiveCrossBorderAnomalyAlert(
     deliveryDashboardState.probeSummary
   );
@@ -23955,6 +24052,13 @@ function renderMusicDeliveryDashboard() {
                     dashboardCopy("Alert thresholds are waiting for probe data.", "告警阈值卡正在等待探针数据。")
                   )}</div>`
             }
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">On-Call Summary Banner</div>
+            <div class="report-card-copy">${escapeHtml(
+              `${onCallSummaryBanner.level} · ${onCallSummaryBanner.headline}`
+            )}</div>
+            <div class="report-card-copy">${escapeHtml(onCallSummaryBanner.note)}</div>
           </div>
           <div class="report-list-item">
             <div class="report-preview-title">Cross-Border Anomaly Alert</div>
@@ -24073,6 +24177,11 @@ function renderMusicDeliveryDashboard() {
             <div class="report-card-copy">${escapeHtml(certRenewalCountdown.note)}</div>
           </div>
           <div class="report-list-item">
+            <div class="report-preview-title">Cert Renewal Action Card</div>
+            <div class="report-card-copy">${escapeHtml(certRenewalActionCard.title)}</div>
+            <div class="report-card-copy">${escapeHtml(certRenewalActionCard.note)}</div>
+          </div>
+          <div class="report-list-item">
             <div class="report-preview-title">Server Incident Log Strip</div>
             ${
               serverIncidentLogStrip.length
@@ -24091,6 +24200,11 @@ function renderMusicDeliveryDashboard() {
                     dashboardCopy("No incident history is available yet.", "当前还没有异常历史。")
                   )}</div>`
             }
+            <div class="report-export-actions" style="flex-wrap:wrap; margin-top:8px;">
+              <button class="report-export-action is-muted" type="button" data-delivery-probe-incident-export>${escapeHtml(
+                dashboardCopy("Export incident bundle", "导出异常交接包")
+              )}</button>
+            </div>
           </div>
         </div>
       `

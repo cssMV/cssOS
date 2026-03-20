@@ -13586,6 +13586,105 @@ function buildWatchArchiveVerdictConfidenceCard(probeSummary, verdictStabilitySu
   };
 }
 
+function buildWatchArchiveShiftBoardSnapshot(
+  probeSummary,
+  shiftRiskBadge,
+  shiftExitRecommendation,
+  handoffQualityBadge,
+  verdictConfidenceCard
+) {
+  const verdict = String(probeSummary?.conclusion?.verdict || "unknown");
+  const capturedAt = String(probeSummary?.captured_at || probeSummary?.capturedAt || "");
+  return {
+    headline: dashboardCopy("Current shift board at a glance.", "当前这一班的一眼总览。"),
+    rows: [
+      dashboardCopy(`Verdict · ${verdict}`, `结论 · ${verdict}`),
+      dashboardCopy(`Risk · ${shiftRiskBadge?.badge || "unknown"}`, `风险 · ${shiftRiskBadge?.badge || "未知"}`),
+      dashboardCopy(
+        `Exit recommendation · ${shiftExitRecommendation?.headline || dashboardCopy("pending", "待定")}`,
+        `收班建议 · ${shiftExitRecommendation?.headline || dashboardCopy("待定", "待定")}`
+      ),
+      dashboardCopy(
+        `Handoff quality · ${handoffQualityBadge?.badge || "unknown"}`,
+        `交接质量 · ${handoffQualityBadge?.badge || "未知"}`
+      ),
+      dashboardCopy(
+        `Confidence · ${verdictConfidenceCard?.confidence || dashboardCopy("unknown", "未知")}`,
+        `把握度 · ${verdictConfidenceCard?.confidence || dashboardCopy("未知", "未知")}`
+      ),
+      capturedAt
+        ? dashboardCopy(`Captured at ${capturedAt}`, `探测时间 ${capturedAt}`)
+        : dashboardCopy("No capture timestamp yet.", "当前还没有探测时间。")
+    ]
+  };
+}
+
+function buildWatchArchiveHandoffReadinessBanner(
+  handoffCompletenessScore,
+  handoffQualityBadge,
+  shiftExitRecommendation
+) {
+  const score = Number(handoffCompletenessScore?.score || 0);
+  const quality = String(handoffQualityBadge?.badge || "");
+  const exitHeadline = String(shiftExitRecommendation?.headline || "");
+  const exitReady =
+    exitHeadline.includes("exit cleanly") ||
+    exitHeadline.includes("平稳收班");
+  let level = dashboardCopy("hold", "暂缓");
+  let headline = dashboardCopy("Handoff is not ready to send yet.", "当前交接还不适合发出。");
+  if (score >= 85 && quality === dashboardCopy("strong", "较强") && exitReady) {
+    level = dashboardCopy("ready", "可发");
+    headline = dashboardCopy("Handoff is ready to send.", "当前交接已经可以发出。");
+  } else if (score >= 50) {
+    level = dashboardCopy("almost", "接近可发");
+    headline = dashboardCopy("Handoff is close, but still needs one more pass.", "交接已经接近可发，但还建议再过一遍。");
+  }
+  return {
+    level,
+    headline,
+    note: dashboardCopy(
+      `Completeness ${score}/100 · Quality ${quality || "unknown"}`,
+      `完整度 ${score}/100 · 质量 ${quality || "未知"}`
+    )
+  };
+}
+
+function buildWatchArchiveConfidenceTrendStrip(probeHistory) {
+  const samples = Array.isArray(probeHistory) ? probeHistory.slice(-8) : [];
+  if (!samples.length) {
+    return {
+      strip: "",
+      trend: dashboardCopy("unknown", "未知"),
+      note: dashboardCopy("Confidence trend needs more probe history.", "把握度趋势还需要更多探针历史。")
+    };
+  }
+  const levels = samples.map((sample) => {
+    const verdict = String(sample?.conclusion?.verdict || "unknown");
+    if (verdict === "unknown" || verdict === "mixed_or_unknown") return 1;
+    if (verdict === "server_recovered") return 3;
+    if (verdict === "cross_border_path_anomaly") return 2;
+    return 1;
+  });
+  const strip = levels
+    .map((value) => (value >= 3 ? "█" : value === 2 ? "▒" : "░"))
+    .join("");
+  const recent = levels.slice(-3);
+  const older = levels.slice(0, Math.max(1, levels.length - 3));
+  const recentAvg = recent.reduce((sum, value) => sum + value, 0) / recent.length;
+  const olderAvg = older.reduce((sum, value) => sum + value, 0) / older.length;
+  let trend = dashboardCopy("steady", "平稳");
+  if (recentAvg + 0.25 < olderAvg) trend = dashboardCopy("worse", "转差");
+  else if (recentAvg > olderAvg + 0.25) trend = dashboardCopy("better", "转好");
+  return {
+    strip,
+    trend,
+    note: dashboardCopy(
+      `Recent confidence trend looks ${trend}.`,
+      `最近把握度趋势看起来${trend}。`
+    )
+  };
+}
+
 function buildWatchArchiveCrossBorderAnomalyAlert(probeSummary) {
   const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
   const conclusion = payload?.conclusion || {};
@@ -24391,6 +24490,21 @@ function renderMusicDeliveryDashboard() {
     verdictStabilitySummary,
     verdictDriftSparkline
   );
+  const shiftBoardSnapshot = buildWatchArchiveShiftBoardSnapshot(
+    deliveryDashboardState.probeSummary,
+    shiftRiskBadge,
+    shiftExitRecommendation,
+    handoffQualityBadge,
+    verdictConfidenceCard
+  );
+  const handoffReadinessBanner = buildWatchArchiveHandoffReadinessBanner(
+    handoffCompletenessScore,
+    handoffQualityBadge,
+    shiftExitRecommendation
+  );
+  const confidenceTrendStrip = buildWatchArchiveConfidenceTrendStrip(
+    deliveryDashboardState.probeHistory
+  );
   const crossBorderAnomalyAlert = buildWatchArchiveCrossBorderAnomalyAlert(
     deliveryDashboardState.probeSummary
   );
@@ -24484,6 +24598,13 @@ function renderMusicDeliveryDashboard() {
             <div class="report-card-copy">${escapeHtml(operatorShiftSummary.note)}</div>
           </div>
           <div class="report-list-item">
+            <div class="report-preview-title">Shift Board Snapshot</div>
+            <div class="report-card-copy">${escapeHtml(shiftBoardSnapshot.headline)}</div>
+            ${shiftBoardSnapshot.rows
+              .map((item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`)
+              .join("")}
+          </div>
+          <div class="report-list-item">
             <div class="report-preview-title">Shift Close Checklist</div>
             <div class="report-card-copy">${escapeHtml(shiftCloseChecklist.headline)}</div>
             ${shiftCloseChecklist.checklist
@@ -24501,6 +24622,13 @@ function renderMusicDeliveryDashboard() {
             <div class="report-preview-title">Shift Exit Recommendation</div>
             <div class="report-card-copy">${escapeHtml(shiftExitRecommendation.headline)}</div>
             <div class="report-card-copy">${escapeHtml(shiftExitRecommendation.note)}</div>
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Handoff Readiness Banner</div>
+            <div class="report-card-copy">${escapeHtml(
+              `${handoffReadinessBanner.level} · ${handoffReadinessBanner.headline}`
+            )}</div>
+            <div class="report-card-copy">${escapeHtml(handoffReadinessBanner.note)}</div>
           </div>
           <div class="report-list-item">
             <div class="report-preview-title">On-Call Action Checklist</div>
@@ -24823,6 +24951,14 @@ function renderMusicDeliveryDashboard() {
             <div class="report-card-copy">${escapeHtml(verdictDriftSparkline.note)}</div>
             <div class="report-card-copy">${escapeHtml(verdictStabilitySummary.headline)}</div>
             <div class="report-card-copy">${escapeHtml(verdictStabilitySummary.note)}</div>
+            <div class="report-card-copy">${escapeHtml(
+              dashboardCopy(
+                `Confidence trend: ${confidenceTrendStrip.trend}`,
+                `把握度趋势：${confidenceTrendStrip.trend}`
+              )
+            )}</div>
+            <div class="report-card-copy">${escapeHtml(confidenceTrendStrip.strip || "·")}</div>
+            <div class="report-card-copy">${escapeHtml(confidenceTrendStrip.note)}</div>
             <div class="report-card-copy">${escapeHtml(
               dashboardCopy(
                 `Verdict confidence: ${verdictConfidenceCard.confidence}`,

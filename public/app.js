@@ -13270,6 +13270,65 @@ function buildWatchArchiveIncidentExportBundle(probeSummary, probeHistory) {
   };
 }
 
+function buildWatchArchiveOnCallActionChecklist(probeSummary) {
+  const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
+  const conclusion = payload?.conclusion || {};
+  const verdict = String(conclusion?.verdict || "");
+  if (verdict === "cross_border_path_anomaly") {
+    return [
+      dashboardCopy("Confirm gzvm nginx and cssos are still healthy.", "先确认 gzvm 的 nginx 和 cssos 仍然健康。"),
+      dashboardCopy("Watch external route resets instead of restarting the app.", "优先观察外部链路 reset，不要先重启应用。"),
+      dashboardCopy("Export the current incident bundle before handoff.", "交班前导出当前异常交接包。")
+    ];
+  }
+  if (verdict === "server_side_degradation") {
+    return [
+      dashboardCopy("Check gzvm loopback path first.", "先检查 gzvm 回环路径。"),
+      dashboardCopy("Verify nginx and cssos status before blaming the route.", "先核对 nginx 和 cssos 状态，再判断是否是链路问题。"),
+      dashboardCopy("Export the latest probe bundle for incident tracking.", "导出最新探针包用于异常跟踪。")
+    ];
+  }
+  return [
+    dashboardCopy("Refresh the probe panel and verify the latest sample.", "刷新探针面板并确认最新样本。"),
+    dashboardCopy("Check the cert countdown and renewal action card.", "看一眼证书倒计时和续证动作卡。"),
+    dashboardCopy("Keep the latest incident bundle ready for handoff.", "保持最新异常交接包随时可导出。")
+  ];
+}
+
+function buildWatchArchiveCertValidationDrill(probeSummary) {
+  const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
+  const cert = payload?.metadata?.certificate || {};
+  return [
+    dashboardCopy(
+      `1. Renew before ${cert?.not_after || "the expiry window"}.`,
+      `1. 在 ${cert?.not_after || "到期窗口"} 之前完成续期。`
+    ),
+    dashboardCopy(
+      "2. Run the probe again and confirm gzvm public + loopback both return HTTP 200.",
+      "2. 续期后重跑探针，确认 gzvm 公网和回环都返回 HTTP 200。"
+    ),
+    dashboardCopy(
+      "3. Confirm the cert countdown card shows the new not-after date.",
+      "3. 确认证书倒计时卡已经显示新的到期时间。"
+    )
+  ];
+}
+
+function buildWatchArchiveIncidentHandoffHistoryShelf(probeHistory) {
+  const samples = Array.isArray(probeHistory) ? probeHistory : [];
+  return samples
+    .slice(-8)
+    .reverse()
+    .map((sample, index) => ({
+      id: `handoff-${index + 1}`,
+      capturedAt: String(sample?.captured_at || ""),
+      verdict: String(sample?.conclusion?.verdict || "unknown"),
+      summary:
+        sample?.conclusion?.summary ||
+        dashboardCopy("No handoff summary yet.", "当前还没有交接摘要。")
+    }));
+}
+
 function buildWatchArchiveCrossBorderAnomalyAlert(probeSummary) {
   const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
   const conclusion = payload?.conclusion || {};
@@ -23973,6 +24032,15 @@ function renderMusicDeliveryDashboard() {
   const certRenewalActionCard = buildWatchArchiveCertRenewalActionCard(
     deliveryDashboardState.probeSummary
   );
+  const onCallActionChecklist = buildWatchArchiveOnCallActionChecklist(
+    deliveryDashboardState.probeSummary
+  );
+  const certValidationDrill = buildWatchArchiveCertValidationDrill(
+    deliveryDashboardState.probeSummary
+  );
+  const incidentHandoffHistoryShelf = buildWatchArchiveIncidentHandoffHistoryShelf(
+    deliveryDashboardState.probeHistory
+  );
   const crossBorderAnomalyAlert = buildWatchArchiveCrossBorderAnomalyAlert(
     deliveryDashboardState.probeSummary
   );
@@ -24059,6 +24127,14 @@ function renderMusicDeliveryDashboard() {
               `${onCallSummaryBanner.level} · ${onCallSummaryBanner.headline}`
             )}</div>
             <div class="report-card-copy">${escapeHtml(onCallSummaryBanner.note)}</div>
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">On-Call Action Checklist</div>
+            ${onCallActionChecklist
+              .map(
+                (item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`
+              )
+              .join("")}
           </div>
           <div class="report-list-item">
             <div class="report-preview-title">Cross-Border Anomaly Alert</div>
@@ -24182,6 +24258,14 @@ function renderMusicDeliveryDashboard() {
             <div class="report-card-copy">${escapeHtml(certRenewalActionCard.note)}</div>
           </div>
           <div class="report-list-item">
+            <div class="report-preview-title">Cert Validation Drill</div>
+            ${certValidationDrill
+              .map(
+                (item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`
+              )
+              .join("")}
+          </div>
+          <div class="report-list-item">
             <div class="report-preview-title">Server Incident Log Strip</div>
             ${
               serverIncidentLogStrip.length
@@ -24205,6 +24289,26 @@ function renderMusicDeliveryDashboard() {
                 dashboardCopy("Export incident bundle", "导出异常交接包")
               )}</button>
             </div>
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Incident Handoff History Shelf</div>
+            ${
+              incidentHandoffHistoryShelf.length
+                ? incidentHandoffHistoryShelf
+                    .map(
+                      (item) => `<div class="report-list-item">
+                          <div class="report-preview-title">${escapeHtml(
+                            item.capturedAt || dashboardCopy("unknown time", "未知时间")
+                          )}</div>
+                          <div class="report-card-copy">${escapeHtml(item.verdict)}</div>
+                          <div class="report-card-copy">${escapeHtml(item.summary)}</div>
+                        </div>`
+                    )
+                    .join("")
+                : `<div class="report-empty">${escapeHtml(
+                    dashboardCopy("No handoff history is available yet.", "当前还没有交接历史。")
+                  )}</div>`
+            }
           </div>
         </div>
       `

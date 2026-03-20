@@ -1,0 +1,9 @@
+{
+  "projectId": "mv_neon_midnight",
+  "mode": "music_video",
+  "sourceType": "prompt",
+  "title": "Neon Midnight",
+  "sourceText": "A synth-pop love story unfolding across rain-soaked city streets, with the chorus turning loneliness into motion.",
+  "durationSec": 180,
+  "capabilities": ["single_line"]
+}

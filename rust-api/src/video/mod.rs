@@ -9,5 +9,7 @@ pub mod render;
 pub mod storyboard;
 pub mod subtitles;
 
+#[allow(unused_imports)]
 pub use error::VideoError;
+#[allow(unused_imports)]
 pub use executor::{AssembleResult, PlanResult, RenderShotResult, VideoExecutor};

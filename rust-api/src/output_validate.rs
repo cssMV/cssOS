@@ -1,4 +1,7 @@
 use crate::run_state::{GateMeta, RunState};
+use crate::schema_keys::{
+    is_video_assemble_stage, is_video_shot_stage, VIDEO_ASSEMBLE_STAGE, VIDEO_PLAN_STAGE,
+};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -82,16 +85,12 @@ fn ffprobe_duration_s(p: &Path) -> Result<f64, String> {
     Ok(d)
 }
 
-fn is_video_shot(stage: &str) -> bool {
-    stage.starts_with("video_shot_") || stage.starts_with("video.shot:")
-}
-
 fn needs_audio_gate(stage: &str) -> bool {
     matches!(stage, "music" | "vocals" | "mix")
 }
 
 fn needs_video_gate(stage: &str) -> bool {
-    matches!(stage, "video_assemble" | "video" | "render")
+    is_video_assemble_stage(stage) || matches!(stage, "video" | "render")
 }
 
 fn stage_primary_duration_s(st: &RunState, stage: &str) -> Result<Option<f64>, String> {
@@ -157,7 +156,7 @@ fn validate_one(stage: &str, p: &Path, st: &RunState) -> Result<(), GateFail> {
         return Ok(());
     }
 
-    if is_video_shot(stage) {
+    if is_video_shot_stage(stage) {
         let _ = ffprobe_duration_s(p)
             .map_err(|e| GateFail::new("FFPROBE_FAIL", e).with_file(&p.display().to_string(), Some(len)))?;
     }
@@ -201,8 +200,8 @@ pub fn gate_stage_outputs(st: &RunState, stage: &str) -> Result<(), GateFail> {
         }
     }
 
-    if stage == "video_assemble" {
-        let vid_d = stage_primary_duration_s(st, "video_assemble")
+    if is_video_assemble_stage(stage) {
+        let vid_d = stage_primary_duration_s(st, VIDEO_ASSEMBLE_STAGE)
             .map_err(|e| GateFail::new("FFPROBE_FAIL", e))?
             .unwrap_or(0.0);
         if let Some(mix_d) = stage_primary_duration_s(st, "mix").map_err(|e| GateFail::new("FFPROBE_FAIL", e))? {
@@ -226,7 +225,7 @@ pub fn gate_stage_outputs(st: &RunState, stage: &str) -> Result<(), GateFail> {
             .unwrap_or(0.0);
         let mix_d = stage_primary_duration_s(st, "mix").map_err(|e| GateFail::new("FFPROBE_FAIL", e))?;
         let vid_d =
-            stage_primary_duration_s(st, "video_assemble").map_err(|e| GateFail::new("FFPROBE_FAIL", e))?;
+            stage_primary_duration_s(st, VIDEO_ASSEMBLE_STAGE).map_err(|e| GateFail::new("FFPROBE_FAIL", e))?;
         if let Some(base) = max_opt(mix_d, vid_d) {
             if !ratio_ok(out_d, base, video_ratio) {
                 return Err(
@@ -261,7 +260,6 @@ pub fn validate_stage_outputs_compat(stage: &str, outputs: &[PathBuf], st: &RunS
 pub fn is_critical_stage(stage: &str) -> bool {
     matches!(
         stage,
-        "lyrics" | "music" | "vocals" | "mix" | "video_plan" | "video_assemble" | "video" | "render"
-    ) || stage.starts_with("video_shot_")
-        || stage.starts_with("video.shot:")
+        "lyrics" | "music" | "vocals" | "mix" | VIDEO_PLAN_STAGE | VIDEO_ASSEMBLE_STAGE | "video" | "render"
+    ) || is_video_shot_stage(stage)
 }

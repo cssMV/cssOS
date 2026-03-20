@@ -208,6 +208,7 @@ impl VideoExecutor {
                 camera: Camera {
                     r#move: if i % 2 == 0 { "push_in" } else { "pan_right" }.to_string(),
                     strength: 0.4,
+                    strategy: Some("legacy_plan".to_string()),
                 },
                 overlay: Overlay { enabled: false },
             });

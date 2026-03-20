@@ -1,0 +1,635 @@
+{
+  "schema": "cssos.zh_probe_history.v1",
+  "updated_at": "2026-03-20T02:43:55Z",
+  "count": 8,
+  "samples": [
+    {
+      "schema": "cssos.zh_probe_matrix.v1",
+      "captured_at": "2026-03-20T02:08:47Z",
+      "conclusion": {
+        "verdict": "cross_border_path_anomaly",
+        "summary": "Server path looks healthy from gzvm, but external non-gzvm paths still fail or flap.",
+        "local_public_http_success_rate": 0.0,
+        "api_vm_public_http_success_rate": 0.0,
+        "gzvm_public_http_success_rate": 100.0,
+        "gzvm_loopback_http_success_rate": 100.0
+      },
+      "targets": [
+        {
+          "target": "local_public",
+          "tls_success": 0,
+          "http_success": 0,
+          "reset_count": 12,
+          "attempts": 12,
+          "tls_success_rate": 0.0,
+          "http_success_rate": 0.0,
+          "reset_rate": 100.0,
+          "note": "0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0 * Closing connection curl: (35) Recv failure: Connection reset by peer"
+        },
+        {
+          "target": "api_vm_public",
+          "tls_success": 1,
+          "http_success": 0,
+          "reset_count": 12,
+          "attempts": 12,
+          "tls_success_rate": 8.33,
+          "http_success_rate": 0.0,
+          "reset_rate": 100.0,
+          "note": "* TLSv1.3 (OUT), TLS alert, decode error (562): } [2 bytes data] curl: (35) OpenSSL SSL_connect: Connection reset by peer in connection to zh.cssstudio.app:443"
+        },
+        {
+          "target": "gzvm_public",
+          "tls_success": 12,
+          "http_success": 12,
+          "reset_count": 0,
+          "attempts": 12,
+          "tls_success_rate": 100.0,
+          "http_success_rate": 100.0,
+          "reset_rate": 0.0,
+          "note": "< 0 83544 0 0 0 0 0 0 --:--:-- --:--:-- --:--:-- 0 * Connection #0 to host zh.cssstudio.app left intact"
+        },
+        {
+          "target": "gzvm_loopback",
+          "tls_success": 12,
+          "http_success": 12,
+          "reset_count": 0,
+          "attempts": 12,
+          "tls_success_rate": 100.0,
+          "http_success_rate": 100.0,
+          "reset_rate": 0.0,
+          "note": "< 0 83544 0 0 0 0 0 0 --:--:-- --:--:-- --:--:-- 0 * Connection #0 to host zh.cssstudio.app left intact"
+        }
+      ]
+    },
+    {
+      "schema": "cssos.zh_probe_matrix.v1",
+      "captured_at": "2026-03-20T02:19:50Z",
+      "conclusion": {
+        "verdict": "cross_border_path_anomaly",
+        "summary": "Server path looks healthy from gzvm, but external non-gzvm paths still fail or flap.",
+        "local_public_http_success_rate": 0.0,
+        "api_vm_public_http_success_rate": 0.0,
+        "gzvm_public_http_success_rate": 100.0,
+        "gzvm_loopback_http_success_rate": 100.0
+      },
+      "targets": [
+        {
+          "target": "local_public",
+          "tls_success": 0,
+          "http_success": 0,
+          "reset_count": 3,
+          "attempts": 3,
+          "tls_success_rate": 0.0,
+          "http_success_rate": 0.0,
+          "reset_rate": 100.0,
+          "note": "0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0 * Closing connection curl: (35) Recv failure: Connection reset by peer"
+        },
+        {
+          "target": "api_vm_public",
+          "tls_success": 0,
+          "http_success": 0,
+          "reset_count": 3,
+          "attempts": 3,
+          "tls_success_rate": 0.0,
+          "http_success_rate": 0.0,
+          "reset_rate": 100.0,
+          "note": "* TLSv1.3 (OUT), TLS alert, decode error (562): } [2 bytes data] curl: (35) OpenSSL SSL_connect: Connection reset by peer in connection to zh.cssstudio.app:443"
+        },
+        {
+          "target": "gzvm_public",
+          "tls_success": 3,
+          "http_success": 3,
+          "reset_count": 0,
+          "attempts": 3,
+          "tls_success_rate": 100.0,
+          "http_success_rate": 100.0,
+          "reset_rate": 0.0,
+          "note": "< 0 83544 0 0 0 0 0 0 --:--:-- --:--:-- --:--:-- 0 * Connection #0 to host zh.cssstudio.app left intact"
+        },
+        {
+          "target": "gzvm_loopback",
+          "tls_success": 3,
+          "http_success": 3,
+          "reset_count": 0,
+          "attempts": 3,
+          "tls_success_rate": 100.0,
+          "http_success_rate": 100.0,
+          "reset_rate": 0.0,
+          "note": "< 0 83544 0 0 0 0 0 0 --:--:-- --:--:-- --:--:-- 0 * Connection #0 to host zh.cssstudio.app left intact"
+        }
+      ]
+    },
+    {
+      "schema": "cssos.zh_probe_matrix.v1",
+      "captured_at": "2026-03-20T02:30:44Z",
+      "conclusion": {
+        "verdict": "cross_border_path_anomaly",
+        "summary": "Server path looks healthy from gzvm, but external non-gzvm paths still fail or flap.",
+        "local_public_http_success_rate": 0.0,
+        "api_vm_public_http_success_rate": 0.0,
+        "gzvm_public_http_success_rate": 100.0,
+        "gzvm_loopback_http_success_rate": 100.0
+      },
+      "targets": [
+        {
+          "target": "local_public",
+          "tls_success": 1,
+          "http_success": 0,
+          "reset_count": 12,
+          "attempts": 12,
+          "tls_success_rate": 8.33,
+          "http_success_rate": 0.0,
+          "reset_rate": 100.0,
+          "note": "0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0 * Closing connection curl: (35) Recv failure: Connection reset by peer"
+        },
+        {
+          "target": "api_vm_public",
+          "tls_success": 0,
+          "http_success": 0,
+          "reset_count": 12,
+          "attempts": 12,
+          "tls_success_rate": 0.0,
+          "http_success_rate": 0.0,
+          "reset_rate": 100.0,
+          "note": "* TLSv1.3 (OUT), TLS alert, decode error (562): } [2 bytes data] curl: (35) OpenSSL SSL_connect: Connection reset by peer in connection to zh.cssstudio.app:443"
+        },
+        {
+          "target": "gzvm_public",
+          "tls_success": 12,
+          "http_success": 12,
+          "reset_count": 0,
+          "attempts": 12,
+          "tls_success_rate": 100.0,
+          "http_success_rate": 100.0,
+          "reset_rate": 0.0,
+          "note": "< 0 83544 0 0 0 0 0 0 --:--:-- --:--:-- --:--:-- 0 * Connection #0 to host zh.cssstudio.app left intact"
+        },
+        {
+          "target": "gzvm_loopback",
+          "tls_success": 12,
+          "http_success": 12,
+          "reset_count": 0,
+          "attempts": 12,
+          "tls_success_rate": 100.0,
+          "http_success_rate": 100.0,
+          "reset_rate": 0.0,
+          "note": "< 0 83544 0 0 0 0 0 0 --:--:-- --:--:-- --:--:-- 0 * Connection #0 to host zh.cssstudio.app left intact"
+        }
+      ]
+    },
+    {
+      "schema": "cssos.zh_probe_matrix.v1",
+      "captured_at": "2026-03-20T02:33:40Z",
+      "conclusion": {
+        "verdict": "cross_border_path_anomaly",
+        "summary": "Server path looks healthy from gzvm, but external non-gzvm paths still fail or flap.",
+        "local_public_http_success_rate": 0.0,
+        "api_vm_public_http_success_rate": 0.0,
+        "gzvm_public_http_success_rate": 100.0,
+        "gzvm_loopback_http_success_rate": 100.0,
+        "local_public_avg_total_latency_ms": 541,
+        "api_vm_public_avg_total_latency_ms": 501,
+        "gzvm_public_avg_total_latency_ms": 64,
+        "gzvm_loopback_avg_total_latency_ms": 4
+      },
+      "targets": [
+        {
+          "target": "local_public",
+          "tls_success": 0,
+          "http_success": 0,
+          "reset_count": 6,
+          "attempts": 6,
+          "tls_success_rate": 0.0,
+          "http_success_rate": 0.0,
+          "reset_rate": 100.0,
+          "avg_total_latency_ms": 541,
+          "avg_connect_latency_ms": 286,
+          "note": "* Closing connection curl: (35) Recv failure: Connection reset by peer __CSSOS_TIMING__ total=0.568307 connect=0.244202"
+        },
+        {
+          "target": "api_vm_public",
+          "tls_success": 0,
+          "http_success": 0,
+          "reset_count": 6,
+          "attempts": 6,
+          "tls_success_rate": 0.0,
+          "http_success_rate": 0.0,
+          "reset_rate": 100.0,
+          "avg_total_latency_ms": 501,
+          "avg_connect_latency_ms": 252,
+          "note": "} [2 bytes data] curl: (35) OpenSSL SSL_connect: Connection reset by peer in connection to zh.cssstudio.app:443 __CSSOS_TIMING__ total=0.484265 connect=0.241708"
+        },
+        {
+          "target": "gzvm_public",
+          "tls_success": 6,
+          "http_success": 6,
+          "reset_count": 0,
+          "attempts": 6,
+          "tls_success_rate": 100.0,
+          "http_success_rate": 100.0,
+          "reset_rate": 0.0,
+          "avg_total_latency_ms": 64,
+          "avg_connect_latency_ms": 53,
+          "note": "0 83544 0 0 0 0 0 0 --:--:-- --:--:-- --:--:-- 0 * Connection #0 to host zh.cssstudio.app left intact __CSSOS_TIMING__ total=0.016096 connect=0.005782"
+        },
+        {
+          "target": "gzvm_loopback",
+          "tls_success": 6,
+          "http_success": 6,
+          "reset_count": 0,
+          "attempts": 6,
+          "tls_success_rate": 100.0,
+          "http_success_rate": 100.0,
+          "reset_rate": 0.0,
+          "avg_total_latency_ms": 4,
+          "avg_connect_latency_ms": 0,
+          "note": "0 83544 0 0 0 0 0 0 --:--:-- --:--:-- --:--:-- 0 * Connection #0 to host zh.cssstudio.app left intact __CSSOS_TIMING__ total=0.004556 connect=0.000185"
+        }
+      ]
+    },
+    {
+      "schema": "cssos.zh_probe_matrix.v1",
+      "captured_at": "2026-03-20T02:38:04Z",
+      "conclusion": {
+        "verdict": "cross_border_path_anomaly",
+        "summary": "Server path looks healthy from gzvm, but external non-gzvm paths still fail or flap.",
+        "local_public_http_success_rate": 0.0,
+        "api_vm_public_http_success_rate": 0.0,
+        "gzvm_public_http_success_rate": 100.0,
+        "gzvm_loopback_http_success_rate": 100.0,
+        "local_public_avg_total_latency_ms": 537,
+        "api_vm_public_avg_total_latency_ms": 522,
+        "gzvm_public_avg_total_latency_ms": 199,
+        "gzvm_loopback_avg_total_latency_ms": 4
+      },
+      "targets": [
+        {
+          "target": "local_public",
+          "tls_success": 0,
+          "http_success": 0,
+          "reset_count": 4,
+          "attempts": 4,
+          "tls_success_rate": 0.0,
+          "http_success_rate": 0.0,
+          "reset_rate": 100.0,
+          "avg_total_latency_ms": 537,
+          "avg_connect_latency_ms": 283,
+          "note": "* Closing connection curl: (35) Recv failure: Connection reset by peer __CSSOS_TIMING__ total=0.576405 connect=0.269064"
+        },
+        {
+          "target": "api_vm_public",
+          "tls_success": 0,
+          "http_success": 0,
+          "reset_count": 4,
+          "attempts": 4,
+          "tls_success_rate": 0.0,
+          "http_success_rate": 0.0,
+          "reset_rate": 100.0,
+          "avg_total_latency_ms": 522,
+          "avg_connect_latency_ms": 263,
+          "note": "} [2 bytes data] curl: (35) OpenSSL SSL_connect: Connection reset by peer in connection to zh.cssstudio.app:443 __CSSOS_TIMING__ total=0.514284 connect=0.257194"
+        },
+        {
+          "target": "gzvm_public",
+          "tls_success": 4,
+          "http_success": 4,
+          "reset_count": 0,
+          "attempts": 4,
+          "tls_success_rate": 100.0,
+          "http_success_rate": 100.0,
+          "reset_rate": 0.0,
+          "avg_total_latency_ms": 199,
+          "avg_connect_latency_ms": 188,
+          "note": "0 83544 0 0 0 0 0 0 --:--:-- --:--:-- --:--:-- 0 * Connection #0 to host zh.cssstudio.app left intact __CSSOS_TIMING__ total=0.112361 connect=0.101691"
+        },
+        {
+          "target": "gzvm_loopback",
+          "tls_success": 4,
+          "http_success": 4,
+          "reset_count": 0,
+          "attempts": 4,
+          "tls_success_rate": 100.0,
+          "http_success_rate": 100.0,
+          "reset_rate": 0.0,
+          "avg_total_latency_ms": 4,
+          "avg_connect_latency_ms": 0,
+          "note": "0 83544 0 0 0 0 0 0 --:--:-- --:--:-- --:--:-- 0 * Connection #0 to host zh.cssstudio.app left intact __CSSOS_TIMING__ total=0.004464 connect=0.000238"
+        }
+      ],
+      "metadata": {
+        "servers": [
+          {
+            "server": "api-vm",
+            "reachable": "reachable"
+          },
+          {
+            "server": "gzvm",
+            "reachable": "reachable",
+            "nginx_status": "active",
+            "cssos_status": ""
+          }
+        ],
+        "certificate": {
+          "server": "gzvm",
+          "host": "zh.cssstudio.app",
+          "not_after": "Jun  5 00:01:24 2026 GMT",
+          "days_remaining": 76
+        }
+      }
+    },
+    {
+      "schema": "cssos.zh_probe_matrix.v1",
+      "captured_at": "2026-03-20T02:39:17Z",
+      "conclusion": {
+        "verdict": "cross_border_path_anomaly",
+        "summary": "Server path looks healthy from gzvm, but external non-gzvm paths still fail or flap.",
+        "local_public_http_success_rate": 0.0,
+        "api_vm_public_http_success_rate": 0.0,
+        "gzvm_public_http_success_rate": 100.0,
+        "gzvm_loopback_http_success_rate": 100.0,
+        "local_public_avg_total_latency_ms": 486,
+        "api_vm_public_avg_total_latency_ms": 1044,
+        "gzvm_public_avg_total_latency_ms": 17,
+        "gzvm_loopback_avg_total_latency_ms": 5
+      },
+      "targets": [
+        {
+          "target": "local_public",
+          "tls_success": 0,
+          "http_success": 0,
+          "reset_count": 2,
+          "attempts": 2,
+          "tls_success_rate": 0.0,
+          "http_success_rate": 0.0,
+          "reset_rate": 100.0,
+          "avg_total_latency_ms": 486,
+          "avg_connect_latency_ms": 246,
+          "note": "* Closing connection curl: (35) Recv failure: Connection reset by peer __CSSOS_TIMING__ total=0.503097 connect=0.251199"
+        },
+        {
+          "target": "api_vm_public",
+          "tls_success": 0,
+          "http_success": 0,
+          "reset_count": 2,
+          "attempts": 2,
+          "tls_success_rate": 0.0,
+          "http_success_rate": 0.0,
+          "reset_rate": 100.0,
+          "avg_total_latency_ms": 1044,
+          "avg_connect_latency_ms": 782,
+          "note": "} [2 bytes data] curl: (35) OpenSSL SSL_connect: Connection reset by peer in connection to zh.cssstudio.app:443 __CSSOS_TIMING__ total=1.551818 connect=1.292126"
+        },
+        {
+          "target": "gzvm_public",
+          "tls_success": 2,
+          "http_success": 2,
+          "reset_count": 0,
+          "attempts": 2,
+          "tls_success_rate": 100.0,
+          "http_success_rate": 100.0,
+          "reset_rate": 0.0,
+          "avg_total_latency_ms": 17,
+          "avg_connect_latency_ms": 6,
+          "note": "0 83544 0 0 0 0 0 0 --:--:-- --:--:-- --:--:-- 0 * Connection #0 to host zh.cssstudio.app left intact __CSSOS_TIMING__ total=0.015772 connect=0.005288"
+        },
+        {
+          "target": "gzvm_loopback",
+          "tls_success": 2,
+          "http_success": 2,
+          "reset_count": 0,
+          "attempts": 2,
+          "tls_success_rate": 100.0,
+          "http_success_rate": 100.0,
+          "reset_rate": 0.0,
+          "avg_total_latency_ms": 5,
+          "avg_connect_latency_ms": 0,
+          "note": "0 83544 0 0 0 0 0 0 --:--:-- --:--:-- --:--:-- 0 * Connection #0 to host zh.cssstudio.app left intact __CSSOS_TIMING__ total=0.005296 connect=0.000807"
+        }
+      ],
+      "metadata": {
+        "servers": [
+          {
+            "server": "api-vm",
+            "reachable": "reachable"
+          },
+          {
+            "server": "gzvm",
+            "reachable": "reachable",
+            "nginx_status": "active",
+            "cssos_status": ""
+          }
+        ],
+        "certificate": {
+          "server": "gzvm",
+          "host": "zh.cssstudio.app",
+          "not_after": "Jun  5 00:01:24 2026 GMT",
+          "days_remaining": 76
+        }
+      }
+    },
+    {
+      "schema": "cssos.zh_probe_matrix.v1",
+      "captured_at": "2026-03-20T02:40:37Z",
+      "conclusion": {
+        "verdict": "cross_border_path_anomaly",
+        "summary": "Server path looks healthy from gzvm, but external non-gzvm paths still fail or flap.",
+        "local_public_http_success_rate": 0.0,
+        "api_vm_public_http_success_rate": 0.0,
+        "gzvm_public_http_success_rate": 100.0,
+        "gzvm_loopback_http_success_rate": 100.0,
+        "local_public_avg_total_latency_ms": 480,
+        "api_vm_public_avg_total_latency_ms": 578,
+        "gzvm_public_avg_total_latency_ms": 120,
+        "gzvm_loopback_avg_total_latency_ms": 5
+      },
+      "targets": [
+        {
+          "target": "local_public",
+          "tls_success": 0,
+          "http_success": 0,
+          "reset_count": 1,
+          "attempts": 1,
+          "tls_success_rate": 0.0,
+          "http_success_rate": 0.0,
+          "reset_rate": 100.0,
+          "avg_total_latency_ms": 480,
+          "avg_connect_latency_ms": 238,
+          "note": "* Closing connection curl: (35) Recv failure: Connection reset by peer __CSSOS_TIMING__ total=0.479582 connect=0.237803"
+        },
+        {
+          "target": "api_vm_public",
+          "tls_success": 0,
+          "http_success": 0,
+          "reset_count": 1,
+          "attempts": 1,
+          "tls_success_rate": 0.0,
+          "http_success_rate": 0.0,
+          "reset_rate": 100.0,
+          "avg_total_latency_ms": 578,
+          "avg_connect_latency_ms": 290,
+          "note": "} [2 bytes data] curl: (35) OpenSSL SSL_connect: Connection reset by peer in connection to zh.cssstudio.app:443 __CSSOS_TIMING__ total=0.577645 connect=0.289613"
+        },
+        {
+          "target": "gzvm_public",
+          "tls_success": 1,
+          "http_success": 1,
+          "reset_count": 0,
+          "attempts": 1,
+          "tls_success_rate": 100.0,
+          "http_success_rate": 100.0,
+          "reset_rate": 0.0,
+          "avg_total_latency_ms": 120,
+          "avg_connect_latency_ms": 110,
+          "note": "0 83544 0 0 0 0 0 0 --:--:-- --:--:-- --:--:-- 0 * Connection #0 to host zh.cssstudio.app left intact __CSSOS_TIMING__ total=0.119953 connect=0.109801"
+        },
+        {
+          "target": "gzvm_loopback",
+          "tls_success": 1,
+          "http_success": 1,
+          "reset_count": 0,
+          "attempts": 1,
+          "tls_success_rate": 100.0,
+          "http_success_rate": 100.0,
+          "reset_rate": 0.0,
+          "avg_total_latency_ms": 5,
+          "avg_connect_latency_ms": 0,
+          "note": "0 83544 0 0 0 0 0 0 --:--:-- --:--:-- --:--:-- 0 * Connection #0 to host zh.cssstudio.app left intact __CSSOS_TIMING__ total=0.004748 connect=0.000210"
+        }
+      ],
+      "metadata": {
+        "servers": [
+          {
+            "server": "api-vm",
+            "reachable": "reachable"
+          },
+          {
+            "server": "gzvm",
+            "reachable": "reachable",
+            "nginx_status": "active",
+            "cssos_status": "online"
+          }
+        ],
+        "certificate": {
+          "server": "gzvm",
+          "host": "zh.cssstudio.app",
+          "not_after": "Jun  5 00:01:24 2026 GMT",
+          "days_remaining": 76
+        }
+      }
+    },
+    {
+      "schema": "cssos.zh_probe_matrix.v1",
+      "captured_at": "2026-03-20T02:43:55Z",
+      "conclusion": {
+        "verdict": "cross_border_path_anomaly",
+        "summary": "Server path looks healthy from gzvm, but external non-gzvm paths still fail or flap.",
+        "local_public_http_success_rate": 0.0,
+        "api_vm_public_http_success_rate": 0.0,
+        "gzvm_public_http_success_rate": 100.0,
+        "gzvm_loopback_http_success_rate": 100.0,
+        "local_public_avg_total_latency_ms": 501,
+        "api_vm_public_avg_total_latency_ms": 664,
+        "gzvm_public_avg_total_latency_ms": 114,
+        "gzvm_loopback_avg_total_latency_ms": 4
+      },
+      "targets": [
+        {
+          "target": "local_public",
+          "tls_success": 0,
+          "http_success": 0,
+          "reset_count": 2,
+          "attempts": 2,
+          "tls_success_rate": 0.0,
+          "http_success_rate": 0.0,
+          "reset_rate": 100.0,
+          "avg_total_latency_ms": 501,
+          "avg_connect_latency_ms": 260,
+          "http_status_breakdown": {
+            "200": 0,
+            "301": 0,
+            "000": 2,
+            "other": 0
+          },
+          "note": "* Closing connection curl: (35) Recv failure: Connection reset by peer __CSSOS_TIMING__ total=0.524468 connect=0.286624 code=000"
+        },
+        {
+          "target": "api_vm_public",
+          "tls_success": 1,
+          "http_success": 0,
+          "reset_count": 2,
+          "attempts": 2,
+          "tls_success_rate": 50.0,
+          "http_success_rate": 0.0,
+          "reset_rate": 100.0,
+          "avg_total_latency_ms": 664,
+          "avg_connect_latency_ms": 273,
+          "http_status_breakdown": {
+            "200": 0,
+            "301": 0,
+            "000": 2,
+            "other": 0
+          },
+          "note": "} [2 bytes data] curl: (35) OpenSSL SSL_connect: Connection reset by peer in connection to zh.cssstudio.app:443 __CSSOS_TIMING__ total=0.526187 connect=0.265825 code=000"
+        },
+        {
+          "target": "gzvm_public",
+          "tls_success": 2,
+          "http_success": 2,
+          "reset_count": 0,
+          "attempts": 2,
+          "tls_success_rate": 100.0,
+          "http_success_rate": 100.0,
+          "reset_rate": 0.0,
+          "avg_total_latency_ms": 114,
+          "avg_connect_latency_ms": 103,
+          "http_status_breakdown": {
+            "200": 2,
+            "301": 0,
+            "000": 0,
+            "other": 0
+          },
+          "note": "0 83544 0 0 0 0 0 0 --:--:-- --:--:-- --:--:-- 0 * Connection #0 to host zh.cssstudio.app left intact __CSSOS_TIMING__ total=0.112351 connect=0.101903 code=200"
+        },
+        {
+          "target": "gzvm_loopback",
+          "tls_success": 2,
+          "http_success": 2,
+          "reset_count": 0,
+          "attempts": 2,
+          "tls_success_rate": 100.0,
+          "http_success_rate": 100.0,
+          "reset_rate": 0.0,
+          "avg_total_latency_ms": 4,
+          "avg_connect_latency_ms": 0,
+          "http_status_breakdown": {
+            "200": 2,
+            "301": 0,
+            "000": 0,
+            "other": 0
+          },
+          "note": "0 83544 0 0 0 0 0 0 --:--:-- --:--:-- --:--:-- 0 * Connection #0 to host zh.cssstudio.app left intact __CSSOS_TIMING__ total=0.004398 connect=0.000153 code=200"
+        }
+      ],
+      "metadata": {
+        "servers": [
+          {
+            "server": "api-vm",
+            "reachable": "reachable"
+          },
+          {
+            "server": "gzvm",
+            "reachable": "reachable",
+            "nginx_status": "active",
+            "cssos_status": "online"
+          }
+        ],
+        "certificate": {
+          "server": "gzvm",
+          "host": "zh.cssstudio.app",
+          "not_after": "Jun  5 00:01:24 2026 GMT",
+          "days_remaining": 76
+        }
+      }
+    }
+  ]
+}

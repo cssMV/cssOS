@@ -1,0 +1,47 @@
+{
+  "projectId": "mv_jingdian_seeded",
+  "mode": "music_video",
+  "sourceType": "prompt",
+  "title": "玉京长歌",
+  "sourceText": "A mythic opera-pop MV about celestial vows, mortal longing, and a final unresolved echo across the heavens.",
+  "durationSec": 198,
+  "capabilities": ["single_line"],
+  "songSeed": {
+    "title": "玉京长歌",
+    "musicStyle": "Chinese GuFeng · Feminine lead · mantra chorus",
+    "musicStructure": "Intro breathes, verses expand the world, choruses carry the mantra, bridge lifts into cosmic philosophy, Chorus 3 explodes visually, Chorus 4 intensifies, Outro leaves an echo.",
+    "videoOutline": "Begin in a celestial hall of jade light, descend into mortal memory, let each chorus trigger calligraphy particles and luminous storms, then leave the last frame suspended over a half-open heavenly gate.",
+    "references": [
+      "https://en.wikipedia.org/wiki/Special:Search?search=Chinese_mythology",
+      "https://en.wikipedia.org/wiki/Special:Search?search=Chinese_GuFeng",
+      "https://en.wikipedia.org/wiki/Special:Search?search=Opera"
+    ],
+    "sectionPrompts": [
+      { "section": "Intro", "title": "Opening Atmosphere", "prompt": "A jade palace emerges from mist while distant bells and stars flicker awake." },
+      { "section": "Verse 1", "title": "Theme Arrival", "prompt": "Reveal the celestial heroine beneath moonlit silk banners and drifting dust." },
+      { "section": "Verse 2", "title": "Background Expansion", "prompt": "Expand into ancient terraces, long rivers, and memory fragments woven into the sky." },
+      { "section": "Chorus 1", "title": "First Invocation", "prompt": "The first mantra erupts with floating calligraphy and bright green particle halos." },
+      { "section": "Verse 3", "title": "Inner Conflict", "prompt": "Mirror pools and split reflections show doubt, longing, and divine distance." },
+      { "section": "Verse 4", "title": "World Expansion", "prompt": "Open the frame to mountains, constellations, and ceremonial stairways." },
+      { "section": "Chorus 2", "title": "Memory Seal", "prompt": "Turn the refrain into a mass chant with layered silhouettes and orbiting glyphs." },
+      { "section": "Bridge", "title": "Cosmic Turn", "prompt": "Slow into cosmic philosophy with vast star-fields and suspended bodies." },
+      { "section": "Chorus 3", "title": "Visual Burst", "prompt": "Detonate the cssMV particle climax with jade fire, storm light, and rapid cuts." },
+      { "section": "Chorus 4", "title": "Final Lift", "prompt": "Push to the strongest anthem frame with stacked voices, radiant clouds, and rising camera motion." },
+      { "section": "Outro", "title": "Echo Hook", "prompt": "Fade into a half-open gate and one final wave of light that suggests a return." }
+    ],
+    "sectionBeats": [
+      { "section": "Intro", "title": "Opening Atmosphere", "bars": 8, "energy": "low", "focus": "world-opening atmosphere and motif seed", "visualRole": "cosmic prelude and title reveal" },
+      { "section": "Verse 1", "title": "Theme Arrival", "bars": 16, "energy": "medium-low", "focus": "hero or central image enters the world", "visualRole": "character reveal and symbolic first look" },
+      { "section": "Verse 2", "title": "Background Expansion", "bars": 16, "energy": "medium", "focus": "space, time, memory, and emotional context expand", "visualRole": "worldbuilding montage and environment detail" },
+      { "section": "Chorus 1", "title": "First Invocation", "bars": 16, "energy": "high", "focus": "core chant and emotional lift", "visualRole": "first public hook and particle ignition" },
+      { "section": "Verse 3", "title": "Inner Conflict", "bars": 16, "energy": "medium", "focus": "conflict, contrast, or inner fracture deepens", "visualRole": "duality shots, mirrors, and opposing motion" },
+      { "section": "Verse 4", "title": "World Expansion", "bars": 16, "energy": "medium-high", "focus": "conflict widens into myth, society, or destiny", "visualRole": "larger stage, wider shots, stronger movement" },
+      { "section": "Chorus 2", "title": "Memory Seal", "bars": 16, "energy": "high", "focus": "repeatable signature line, stronger and more communal", "visualRole": "recognizable refrain, call-and-response visuals" },
+      { "section": "Bridge", "title": "Cosmic Turn", "bars": 12, "energy": "medium-high", "focus": "philosophical lift, origin question, or cosmic reversal", "visualRole": "surreal shift, metaphysical imagery, slow camera drift" },
+      { "section": "Chorus 3", "title": "Visual Burst", "bars": 16, "energy": "peak", "focus": "visual explosion point and emotionally undeniable release", "visualRole": "main cssMV blast, particle storm, rapid cut crescendo" },
+      { "section": "Chorus 4", "title": "Final Lift", "bars": 16, "energy": "peak-plus", "focus": "ultimate refrain, possible key lift, stacked voices", "visualRole": "final maximal release and anthem framing" },
+      { "section": "Outro", "title": "Echo Hook", "bars": 8, "energy": "medium-low", "focus": "afterglow, unresolved echo, invitation to return", "visualRole": "fade into symbol, orbit, or unanswered horizon" }
+    ],
+    "styleTags": ["Chinese GuFeng", "Feminine", "jingdian-hymn", "cssmv"]
+  }
+}

@@ -24,7 +24,7 @@ pub fn hash_json(v: &serde_json::Value) -> String {
     hash_bytes(serde_json::to_vec(v).unwrap_or_default().as_slice())
 }
 
-pub fn cache_dir(out_dir: &Path) -> PathBuf {
+pub fn cache_dir(_out_dir: &Path) -> PathBuf {
     if let Ok(root) = std::env::var("CSS_VIDEO_CACHE_ROOT") {
         let p = PathBuf::from(root);
         if p.is_absolute() {

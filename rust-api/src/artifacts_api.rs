@@ -83,7 +83,8 @@ async fn load_run(
         Ok(v) => v,
         Err(_) => {
             let h = no_store_headers();
-            let body = serde_json::json!({"schema":"css.error.v1","code":"RUN_NOT_FOUND","run_id":run_id});
+            let body =
+                serde_json::json!({"schema":"css.error.v1","code":"RUN_NOT_FOUND","run_id":run_id});
             return Err((StatusCode::NOT_FOUND, h, Json(body)));
         }
     };
@@ -119,13 +120,48 @@ fn parse_key(key: &str) -> (&str, usize) {
     (key, 1)
 }
 
-pub async fn list_artifacts(
-    Path(run_id): Path<String>,
-) -> impl IntoResponse {
+pub async fn list_artifacts(Path(run_id): Path<String>) -> impl IntoResponse {
     let (run_dir, st) = match load_run(&run_id).await {
         Ok(v) => v,
         Err(resp) => return resp.into_response(),
     };
+
+    if let Ok(stable) = crate::run_store::load_run_artifacts_index(&run_id) {
+        let versions = crate::artifact_versions::build_versions_view(&run_dir, &stable);
+        let mut items = Vec::new();
+        for a in &stable.items {
+            let abs = if std::path::Path::new(&a.path).is_absolute() {
+                PathBuf::from(&a.path)
+            } else {
+                run_dir.join(&a.path)
+            };
+            let bytes = fs::metadata(&abs).await.ok().map(|m| m.len()).unwrap_or(0);
+            let present = bytes > 0;
+            items.push(serde_json::json!({
+                "stable_key": a.stable_key,
+                "version": a.version,
+                "stage": a.stage,
+                "path": a.path,
+                "mime": a.mime,
+                "bytes": bytes,
+                "present": present
+            }));
+        }
+
+        let h = no_store_headers();
+        return (
+            StatusCode::OK,
+            h,
+            Json(serde_json::json!({
+                "schema": "css.run.artifacts.v2",
+                "run_id": run_id,
+                "stable": stable,
+                "versions": versions,
+                "items": items
+            })),
+        )
+            .into_response();
+    }
 
     let mut items: Vec<ArtifactItem> = Vec::new();
     let mut used = BTreeMap::<String, usize>::new();
@@ -159,33 +195,18 @@ pub async fn list_artifacts(
         }
         by_key.insert(it.key.clone(), it);
     }
-    let stable_keys: Vec<String> = crate::artifacts::stable_artifact_keys()
-        .into_iter()
-        .map(|s| s.to_string())
-        .collect();
+    let stable_keys: Vec<String> = crate::artifacts::stable_artifact_keys();
     let present_keys = crate::artifacts::stable_present_keys(&present);
-    let sorted = crate::artifacts::stable_sort_keys(by_key.keys().cloned().collect());
+    let sorted = crate::schema_keys::ordered_map_keys_stable_first(
+        crate::schema_keys::stable_keys_v46(),
+        &by_key,
+    );
     let mut items: Vec<ArtifactItem> = Vec::new();
     for k in sorted {
         if let Some(v) = by_key.remove(&k) {
             items.push(v);
         }
     }
-    let items_ordered = items
-        .iter()
-        .map(|it| {
-            serde_json::json!({
-                "key": it.key,
-                "record": {
-                    "kind": it.kind,
-                    "path": it.path,
-                    "mime": it.mime,
-                    "bytes": it.bytes,
-                    "download_url": it.download_url
-                }
-            })
-        })
-        .collect::<Vec<_>>();
 
     let h = no_store_headers();
     (
@@ -196,8 +217,7 @@ pub async fn list_artifacts(
             "run_id": run_id,
             "stable_keys": stable_keys,
             "present_keys": present_keys,
-            "items": items,
-            "items_ordered": items_ordered
+            "items": items
         })),
     )
         .into_response()
@@ -223,7 +243,10 @@ async fn stream_file_response(mime: &str, p: &StdPath, filename: &str) -> axum::
         HeaderValue::from_str(mime)
             .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
     );
-    headers.insert(header::CONTENT_DISPOSITION, header_inline_filename(filename));
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        header_inline_filename(filename),
+    );
 
     match fs::File::open(p).await {
         Ok(f) => {
@@ -267,7 +290,8 @@ pub async fn download_artifact(
 
     let Some(artifact) = pick_artifact_for_key(&st.artifacts, &key) else {
         let h = no_store_headers();
-        let body = serde_json::json!({"schema":"css.error.v1","code":"ARTIFACT_NOT_FOUND","key":key});
+        let body =
+            serde_json::json!({"schema":"css.error.v1","code":"ARTIFACT_NOT_FOUND","key":key});
         return (StatusCode::NOT_FOUND, h, Json(body)).into_response();
     };
 
@@ -278,7 +302,11 @@ pub async fn download_artifact(
         return (StatusCode::FORBIDDEN, h, Json(body)).into_response();
     };
 
-    let bytes = fs::metadata(&file_path).await.ok().map(|m| m.len()).unwrap_or(0);
+    let bytes = fs::metadata(&file_path)
+        .await
+        .ok()
+        .map(|m| m.len())
+        .unwrap_or(0);
     if bytes == 0 {
         let h = no_store_headers();
         let body = serde_json::json!({"schema":"css.error.v1","code":"ARTIFACT_EMPTY","key":key});
@@ -286,10 +314,7 @@ pub async fn download_artifact(
     }
 
     let path_s = artifact.path.to_string_lossy().to_string();
-    let mime = artifact
-        .mime
-        .clone()
-        .unwrap_or_else(|| guess_mime(&path_s));
+    let mime = artifact.mime.clone().unwrap_or_else(|| guess_mime(&path_s));
 
     if let Ok(prefix) = std::env::var("CSS_X_ACCEL_REDIRECT_PREFIX") {
         let mut headers = no_store_headers();
@@ -299,7 +324,10 @@ pub async fn download_artifact(
                 .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
         );
         let filename = filename_from_path(&file_path);
-        headers.insert(header::CONTENT_DISPOSITION, header_inline_filename(&filename));
+        headers.insert(
+            header::CONTENT_DISPOSITION,
+            header_inline_filename(&filename),
+        );
 
         let p = file_path.display().to_string();
         let xr = format!("{}{}", prefix.trim_end_matches('/'), p);
@@ -319,5 +347,8 @@ where
 {
     Router::new()
         .route("/cssapi/v1/runs/:run_id/artifacts", get(list_artifacts))
-        .route("/cssapi/v1/runs/:run_id/artifacts/:key", get(download_artifact))
+        .route(
+            "/cssapi/v1/runs/:run_id/artifacts/:key",
+            get(download_artifact),
+        )
 }

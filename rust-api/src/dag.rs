@@ -1,4 +1,5 @@
 use crate::run_state::RunState;
+use crate::schema_keys::{video_shot_stage_key, VIDEO_ASSEMBLE_STAGE, VIDEO_PLAN_STAGE};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 #[derive(Debug, Clone)]
@@ -92,12 +93,12 @@ pub fn cssmv_dag_v1() -> Dag {
                 deps: &["lyrics", "music"],
             },
             DagNode {
-                name: "video_plan",
+                name: VIDEO_PLAN_STAGE,
                 deps: &["lyrics", "vocals"],
             },
             DagNode {
-                name: "video_assemble",
-                deps: &["video_plan"],
+                name: VIDEO_ASSEMBLE_STAGE,
+                deps: &[VIDEO_PLAN_STAGE],
             },
             DagNode {
                 name: "subtitles",
@@ -109,31 +110,127 @@ pub fn cssmv_dag_v1() -> Dag {
             },
             DagNode {
                 name: "render",
-                deps: &["video_assemble", "mix", "subtitles"],
+                deps: &[VIDEO_ASSEMBLE_STAGE, "mix", "subtitles"],
             },
         ],
     }
 }
 
-pub fn topo_order_v1(state: &RunState) -> Vec<String> {
-    let mut shots: Vec<String> = state
+pub fn cssmv_dag_v3() -> Dag {
+    Dag {
+        nodes: vec![
+            DagNode {
+                name: "input_normalize",
+                deps: &[],
+            },
+            DagNode {
+                name: "prompt_build",
+                deps: &["input_normalize"],
+            },
+            DagNode {
+                name: "lyrics",
+                deps: &["prompt_build"],
+            },
+            DagNode {
+                name: "music",
+                deps: &["lyrics"],
+            },
+            DagNode {
+                name: "vocals",
+                deps: &["lyrics", "music"],
+            },
+            DagNode {
+                name: "mix",
+                deps: &["music", "vocals"],
+            },
+            DagNode {
+                name: VIDEO_PLAN_STAGE,
+                deps: &["lyrics", "vocals"],
+            },
+            DagNode {
+                name: VIDEO_ASSEMBLE_STAGE,
+                deps: &[VIDEO_PLAN_STAGE],
+            },
+            DagNode {
+                name: "subtitles",
+                deps: &["lyrics", "mix"],
+            },
+            DagNode {
+                name: "localize",
+                deps: &["lyrics"],
+            },
+            DagNode {
+                name: "voice_style",
+                deps: &["vocals"],
+            },
+            DagNode {
+                name: "render_master",
+                deps: &[VIDEO_ASSEMBLE_STAGE, "mix", "subtitles"],
+            },
+            DagNode {
+                name: "render_lang_pack",
+                deps: &["render_master", "localize"],
+            },
+            DagNode {
+                name: "publish",
+                deps: &["render_lang_pack"],
+            },
+        ],
+    }
+}
+
+pub fn cssmv_dag_active() -> Dag {
+    match std::env::var("CSS_DAG_VERSION").ok().as_deref() {
+        Some("v3") => cssmv_dag_v3(),
+        _ => cssmv_dag_v1(),
+    }
+}
+
+pub fn topo_order_for_state(state: &RunState) -> Vec<String> {
+    let mut shot_indices: Vec<usize> = state
         .stages
         .keys()
-        .filter(|k| k.starts_with("video_shot_"))
-        .cloned()
+        .filter_map(|k| {
+            k.strip_prefix(crate::schema_keys::VIDEO_SHOT_PREFIX)
+                .and_then(|s| s.parse::<usize>().ok())
+        })
         .collect();
-    shots.sort();
+    shot_indices.sort();
+    let shots: Vec<String> = shot_indices.into_iter().map(video_shot_stage_key).collect();
 
-    let mut out = vec![
-        "lyrics".to_string(),
-        "music".to_string(),
-        "vocals".to_string(),
-        "video_plan".to_string(),
+    let preferred = [
+        "input_normalize",
+        "prompt_build",
+        "lyrics",
+        "music",
+        "vocals",
+        "mix",
+        VIDEO_PLAN_STAGE,
+        "subtitles",
+        "localize",
+        "voice_style",
     ];
+    let mut out: Vec<String> = preferred
+        .iter()
+        .filter(|name| state.stages.contains_key(**name))
+        .map(|s| (*s).to_string())
+        .collect();
     out.extend(shots);
-    out.push("video_assemble".to_string());
-    out.push("subtitles".to_string());
-    out.push("mix".to_string());
-    out.push("render".to_string());
+    for name in [
+        VIDEO_ASSEMBLE_STAGE,
+        "render",
+        "render_master",
+        "render_lang_pack",
+        "publish",
+    ] {
+        if state.stages.contains_key(name) {
+            out.push(name.to_string());
+        }
+    }
+    for name in state.stages.keys() {
+        if !out.iter().any(|x| x == name) {
+            out.push(name.clone());
+        }
+    }
     out
 }

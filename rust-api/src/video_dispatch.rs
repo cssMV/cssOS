@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::routes::AppState;
 use crate::run_state::{RunState, StageRecord, StageStatus};
 use crate::run_state_io::{atomic_write_run_state, read_run_state_async};
@@ -5,11 +7,9 @@ use crate::run_store::run_state_path;
 use crate::scheduler::Scheduler;
 use crate::video::storyboard::StoryboardV1;
 use crate::video::storyboard::{ensure_storyboard_auto, AutoShotConfig};
-use crate::video::subtitles::{default_ass_path, write_ass_from_lyrics_json};
 use crate::video::VideoExecutor;
 use chrono::Utc;
 use serde_json::Value;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use tokio::process::Command;
 
@@ -160,7 +160,7 @@ pub fn build_video_assemble_cmd(_video_obj: &Value) -> String {
 pub async fn run_one_stage_video_dispatch(
     stage: &str,
     state: &mut crate::run_state::RunState,
-    compiled: Option<&serde_json::Value>,
+    _compiled: Option<&serde_json::Value>,
     scheduler: &Scheduler,
 ) -> Result<Vec<std::path::PathBuf>, String> {
     let out_dir = state.config.out_dir.clone();
@@ -171,8 +171,6 @@ pub async fn run_one_stage_video_dispatch(
     let w = v_u32(&video_cfg, &["resolution", "w"], 1280).clamp(160, 7680);
     let h = v_u32(&video_cfg, &["resolution", "h"], 720).clamp(90, 4320);
     let seed = v_u64(&video_cfg, &["seed"], 123);
-    let duration_s = v_f64(&video_cfg, &["duration_s"], 8.0).clamp(1.0, 600.0);
-
     let mut outputs: Vec<std::path::PathBuf> = Vec::new();
     let resolve = |p: &std::path::PathBuf| -> std::path::PathBuf {
         if p.is_absolute() {
@@ -437,175 +435,76 @@ pub async fn run_one_stage_video_dispatch(
             Ok(outputs)
         }
         "video_plan" => {
-            let plan = ve
-                .plan_or_load(seed, fps, w, h, shots_n)
-                .map_err(|e| format!("video_plan plan_or_load failed: {e}"))?;
-            outputs.push(plan.storyboard_path);
+            let ctx = crate::engines::EngineCtx::new(out_dir.clone());
+            crate::engines::video::run_plan(&ctx, &state.commands, &state.ui_lang)
+                .await
+                .map_err(|e| format!("video_plan failed: {e}"))?;
+            outputs.push(std::path::PathBuf::from("./build/video/storyboard.json"));
             Ok(outputs)
         }
         "video_assemble" => {
-            use crate::video::cache as vcache;
-
-            let final_out = ve.assembled_video_path();
-            let mut shot_keys: Vec<String> = state
+            let mut shot_files: Vec<std::path::PathBuf> = state
                 .stages
                 .iter()
-                .filter(|(k, _)| k.starts_with("video_shot_") || k.starts_with("video.shot:"))
-                .map(|(_, r)| {
-                    r.meta
-                        .get("cache_key")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| {
-                            r.outputs
-                                .first()
-                                .map(|p| format!("out:{}", p.display()))
-                                .unwrap_or_else(|| "out:missing".to_string())
-                        })
+                .filter(|(name, rec)| {
+                    (name.starts_with("video_shot_") || name.starts_with("video.shot:"))
+                        && matches!(rec.status, crate::run_state::StageStatus::SUCCEEDED)
                 })
+                .flat_map(|(_, rec)| rec.outputs.clone())
+                .map(|p| resolve(&p))
                 .collect();
-            shot_keys.sort();
-            let key_src = serde_json::json!({
-                "shot_keys": shot_keys,
-                "hw": std::env::var("CSS_VIDEO_HW").unwrap_or_else(|_| "auto".into()),
-                "threads": std::env::var("CSS_FFMPEG_THREADS").ok(),
-                "filter_threads": std::env::var("CSS_FFMPEG_FILTER_THREADS").ok(),
-                "mode": "concat_demuxer_then_fallback"
-            });
-            let key = vcache::hash_json(&key_src);
-            let cached = vcache::cache_assemble_dir(&out_dir).join(format!("{key}.mp4"));
-            if vcache::file_ok(&cached) {
-                vcache::try_hardlink_or_copy(&cached, &final_out)
-                    .map_err(|e| format!("video_assemble cache copy failed: {e}"))?;
-                if let Some(rec) = state.stages.get_mut(stage) {
-                    let meta = ensure_meta_obj(&mut rec.meta);
-                    meta.insert("cache_hit".into(), serde_json::json!(true));
-                    meta.insert("cache_key".into(), serde_json::json!(key));
-                    meta.insert(
-                        "cache_path".into(),
-                        serde_json::json!(cached.display().to_string()),
-                    );
-                }
-                outputs.push(final_out);
-                return Ok(outputs);
-            }
+            shot_files.sort();
+
+            let ctx = crate::engines::EngineCtx::new(out_dir.clone());
+            crate::engines::video_assemble::run(&ctx, &shot_files)
+                .await
+                .map_err(|e| format!("video_assemble failed: {e}"))?;
+
+            let out_rel = std::path::PathBuf::from("./build/video/video.mp4");
+            outputs.push(out_rel.clone());
             if let Some(rec) = state.stages.get_mut(stage) {
-                let meta = ensure_meta_obj(&mut rec.meta);
-                meta.insert("cache_hit".into(), serde_json::json!(false));
-                meta.insert("cache_key".into(), serde_json::json!(key.clone()));
-                meta.insert(
-                    "cache_path".into(),
-                    serde_json::json!(cached.display().to_string()),
-                );
+                rec.outputs = vec![out_rel];
+                rec.meta = serde_json::json!({
+                    "assemble": {
+                        "engine": crate::engines::env_cmd("CSS_VIDEO_ASSEMBLE_CMD").is_some(),
+                        "shots_count": shot_files.len()
+                    }
+                });
+                rec.status = crate::run_state::StageStatus::SUCCEEDED;
+                rec.exit_code = Some(0);
+                rec.error = None;
             }
-            let shots_n = state.commands["video"]["shots_n"].as_u64().unwrap_or(0) as usize;
-            let shots_dir = state.commands["video"]["shots_dir"]
-                .as_str()
-                .unwrap_or("./video/shots");
-            let out_mp4 = state.commands["video"]["out_mp4"]
-                .as_str()
-                .unwrap_or("./video/video.mp4");
-            let shots_dir_path = {
-                let p = std::path::PathBuf::from(shots_dir);
-                if p.is_absolute() {
-                    p
-                } else {
-                    out_dir.join(p)
-                }
-            };
-            let out_mp4_path = {
-                let p = std::path::PathBuf::from(out_mp4);
-                if p.is_absolute() {
-                    p
-                } else {
-                    out_dir.join(p)
-                }
-            };
-            let mut shots: Vec<std::path::PathBuf> = Vec::new();
-            if shots_n > 0 {
-                for i in 0..shots_n {
-                    shots.push(shots_dir_path.join(format!("video_shot_{:03}.mp4", i)));
-                }
-            }
-            let a = if shots.is_empty() {
-                let sb: StoryboardV1 = ve
-                    .load_storyboard()
-                    .map_err(|e| format!("video_assemble load_storyboard failed: {e}"))?;
-                ve.assemble_with_sched(&sb, scheduler)
-                    .await
-                    .map_err(|e| format!("video_assemble assemble failed: {e}"))?
-                    .video_mp4
-            } else {
-                let out = out_mp4_path;
-                ve.assemble(&shots, &out)
-                    .await
-                    .map_err(|e| format!("video_assemble assemble failed: {e}"))?;
-                out
-            };
-            let _ = vcache::atomic_copy_into(&cached, &a);
-            outputs.push(a);
             crate::artifacts::build_artifacts_index(state);
             Ok(outputs)
         }
         _ if stage.starts_with("video_shot_") || stage.starts_with("video.shot:") => {
-            use crate::video::cache as vcache;
-            let sb: StoryboardV1 = ve
-                .load_storyboard()
-                .map_err(|e| format!("{} load_storyboard failed: {e}", stage))?;
-
-            let sid = storyboard_id_from_stage(stage);
-            let shot = sb
-                .shots
-                .iter()
-                .find(|s| s.id == sid)
-                .ok_or_else(|| format!("{} not found in storyboard shots", stage))?;
-
-            let shot_params = serde_json::json!({
-                "id": shot.id.clone(),
-                "bg": shot.bg.value.clone(),
-                "camera": shot.camera.clone(),
-                "resolution": { "w": sb.resolution.w, "h": sb.resolution.h },
-                "fps": sb.fps,
-                "duration_s": shot.duration_s,
-                "hw": std::env::var("CSS_VIDEO_HW").unwrap_or_else(|_| "auto".into()),
-                "ffmpeg_threads": std::env::var("CSS_FFMPEG_THREADS").ok(),
-                "ffmpeg_filter_threads": std::env::var("CSS_FFMPEG_FILTER_THREADS").ok()
-            });
-            let key = vcache::hash_json(&shot_params);
-            let cached = vcache::cache_shots_dir(&out_dir).join(format!("{key}.mp4"));
-            let out_mp4 = ve.shots_dir().join(format!("{}.mp4", shot.id));
-
-            if vcache::file_ok(&cached) {
-                vcache::try_hardlink_or_copy(&cached, &out_mp4)
-                    .map_err(|e| format!("{} cache copy failed: {e}", stage))?;
-                if let Some(rec) = state.stages.get_mut(stage) {
-                    let meta = ensure_meta_obj(&mut rec.meta);
-                    meta.insert("cache_hit".into(), serde_json::json!(true));
-                    meta.insert("cache_key".into(), serde_json::json!(key));
-                    meta.insert(
-                        "cache_path".into(),
-                        serde_json::json!(cached.display().to_string()),
-                    );
-                }
-                outputs.push(out_mp4);
-                return Ok(outputs);
-            }
-            if let Some(rec) = state.stages.get_mut(stage) {
-                let meta = ensure_meta_obj(&mut rec.meta);
-                meta.insert("cache_hit".into(), serde_json::json!(false));
-                meta.insert("cache_key".into(), serde_json::json!(key.clone()));
-                meta.insert(
-                    "cache_path".into(),
-                    serde_json::json!(cached.display().to_string()),
-                );
-            }
-
-            let r = ve
-                .render_shot_stub_with_sched(&sb, shot, scheduler)
+            let storyboard_path = crate::engines::video::storyboard_json_path(&out_dir);
+            let raw = tokio::fs::read(&storyboard_path)
                 .await
-                .map_err(|e| format!("{} render_shot_stub failed: {e}", stage))?;
-            let _ = vcache::atomic_copy_into(&cached, &r.mp4_path);
-            outputs.push(r.mp4_path);
+                .map_err(|e| format!("{} read storyboard failed: {e}", stage))?;
+            let plan: serde_json::Value = serde_json::from_slice(&raw)
+                .map_err(|e| format!("{} parse storyboard failed: {e}", stage))?;
+
+            let shot_id = storyboard_id_from_stage(stage);
+            let shots = plan
+                .get("shots")
+                .and_then(|x| x.as_array())
+                .ok_or_else(|| format!("{} storyboard missing shots", stage))?;
+            let shot = shots
+                .iter()
+                .find(|s| s.get("id").and_then(|x| x.as_str()) == Some(shot_id.as_str()))
+                .ok_or_else(|| format!("{} not found in storyboard shots", stage))?
+                .clone();
+
+            let lang = crate::engines::primary_lang(&state.commands, &state.ui_lang);
+            let ctx = crate::engines::EngineCtx::new(out_dir.clone());
+            crate::engines::video::run_shot(&ctx, &shot_id, &shot, &lang)
+                .await
+                .map_err(|e| format!("{} failed: {e}", stage))?;
+            outputs.push(std::path::PathBuf::from(format!(
+                "./build/video/shots/{}.mp4",
+                shot_id
+            )));
             Ok(outputs)
         }
         _ => Err(format!("unknown stage: {}", stage)),
@@ -733,9 +632,28 @@ pub async fn maybe_run_video_stage(
                     .and_then(|v| v.as_str())
                     .map(|s| format!("genre: {s}"))
             });
-        ensure_storyboard_auto(&sb_path, seed, Some(duration_s), cfg, creative_hint)
-            .map(|_| ())
-            .map_err(anyhow::Error::from)
+        let immersion_snapshot = st.viewer_position.map(|pos| {
+            crate::immersion_engine::runtime::ImmersionEngine::new(
+                st.immersion.clone(),
+                st.immersion_zones.clone(),
+            )
+            .snapshot_at(pos)
+        });
+        let scene_semantics = st
+            .scene_semantics
+            .get(&st.immersion.anchor.scene_id)
+            .cloned();
+        ensure_storyboard_auto(
+            &sb_path,
+            seed,
+            Some(duration_s),
+            cfg,
+            creative_hint,
+            immersion_snapshot.as_ref(),
+            scene_semantics.as_ref(),
+        )
+        .map(|_| ())
+        .map_err(anyhow::Error::from)
     } else if stage.starts_with("video_shot_") {
         ve.render_shot_by_id(&stage)
             .await

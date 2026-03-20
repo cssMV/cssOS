@@ -39,7 +39,7 @@
               <video class="mirror-video" autoplay muted loop playsinline></video>
               <div class="mirror-text" data-action="mic">
                 <div class="mirror-title">CSS</div>
-                <div class="mirror-subtitle">Studio</div>
+                <div class="mirror-subtitle" data-i18n="logo.subtitle">Studio</div>
               </div>
               <div class="hold-ring" id="hold-ring" aria-hidden="true">
                 <svg viewBox="0 0 100 100" class="hold-ring-svg">
@@ -48,7 +48,7 @@
                 </svg>
               </div>
             </div>
-            <div class="mirror-slogan">Just say CSS, witness the miracle!</div>
+            <div class="mirror-slogan" id="mirror-slogan" data-i18n-html="logo.slogan">Just say <span class="spell">CSS</span>, witness the miracle!</div>
           </div>
         </div>
       </section>
@@ -66,11 +66,7 @@
         </div>
         <div class="panel-body">
           <div class="foryou-full">
-            <div class="panel-label" data-i18n="label.lyricsEngine">
-              Lyrics Engine · Random Single/Opera
-            </div>
-            <pre class="lyrics" id="lyrics"></pre>
-            <div class="status-grid">
+            <div class="status-grid" id="foryou-status-grid" hidden>
               <div class="status-card">
                 <div class="status-title" data-i18n="status.lyricsEngine">Lyrics Engine</div>
                 <div class="status-bar"><span id="lyrics-progress"></span></div>
@@ -88,21 +84,24 @@
                 <div class="status-bar"><span id="kara-progress"></span></div>
               </div>
             </div>
+            <pre class="lyrics" id="lyrics"></pre>
           </div>
           <div class="foryou-compact">
             <div class="foryou-card">
-              <div class="foryou-thumb">♪</div>
+              <div class="foryou-thumb">
+                <video id="foryou-thumb-video" class="foryou-thumb-video" autoplay muted loop playsinline></video>
+                <img id="foryou-thumb-image" class="foryou-thumb-image" alt="For You preview" />
+                <div id="foryou-thumb-fallback" class="foryou-thumb-fallback">♪</div>
+              </div>
               <div class="foryou-meta">
-                <div class="foryou-title" id="foryou-title">Untitled</div>
+                <div class="foryou-title" id="foryou-title">CSS MV</div>
                 <div class="foryou-style" id="foryou-style">Future Ballad</div>
                 <div class="foryou-tags" id="foryou-tags"></div>
+                <div class="foryou-seed-copy" id="foryou-seed-copy"></div>
               </div>
               <div class="foryou-actions">
-                <button class="cta tiny" id="listen-btn" type="button" data-i18n="action.listen">
-                  Listen
-                </button>
-                <button class="cta tiny" id="watch-btn" type="button" data-i18n="action.watch">
-                  Watch
+                <button class="cta tiny" id="watch-btn" type="button">
+                  Enjoy
                 </button>
               </div>
             </div>
@@ -123,14 +122,81 @@
           </div>
         </div>
         <div class="panel-body watch-body">
-          <div class="watch-banner" data-i18n="label.watchBanner">Karaoke MV · Live Render</div>
-          <div class="watch-frame">
-            <div class="watch-screen">
-              <video id="watch-video" class="watch-video" autoplay muted loop playsinline></video>
-              <img id="watch-svg" class="watch-svg" alt="MV preview" />
-              <div class="watch-subtitle" id="watch-subtitle" data-i18n="status.composing">
-                CSS is composing...
+          <div class="watch-tabs" role="tablist">
+            <button class="watch-tab active" id="watch-tab-mv" type="button" data-watch-tab="mv" data-i18n="watch.tab.mv">MV</button>
+            <button class="watch-tab" id="watch-tab-music" type="button" data-watch-tab="music" data-i18n="watch.tab.music">Music</button>
+            <button class="watch-tab" id="watch-tab-lyrics" type="button" data-watch-tab="lyrics" data-i18n="watch.tab.lyrics">Lyrics</button>
+            <button class="watch-tab" id="watch-tab-script" type="button" data-watch-tab="script" data-i18n="watch.tab.script">Script</button>
+            <button class="watch-tab" id="watch-tab-comments" type="button" data-watch-tab="comments" data-i18n="watch.tab.comments">Comments</button>
+            <button class="watch-tab" id="watch-tab-revenue" type="button" data-watch-tab="revenue" data-i18n="watch.tab.revenue">Revenue</button>
+            <button class="watch-tab" id="watch-tab-ownership" type="button" data-watch-tab="ownership" data-i18n="watch.tab.ownership">Ownership</button>
+          </div>
+          <div class="watch-pane active" id="watch-pane-mv" data-watch-pane="mv">
+            <div class="watch-frame">
+              <div class="watch-screen">
+                <video id="watch-video" class="watch-video" autoplay muted loop playsinline></video>
+                <img id="watch-svg" class="watch-svg" alt="MV preview" />
+                <button id="watch-overlay-play" class="watch-overlay-play" type="button" data-i18n-aria="action.watch" aria-label="Watch">
+                  <span class="watch-overlay-play-ring"></span>
+                  <span class="watch-overlay-play-icon">▶</span>
+                </button>
+                <div class="watch-subtitle" id="watch-subtitle" data-i18n="status.composing">
+                  CSS is composing...
+                </div>
               </div>
+            </div>
+          </div>
+          <div class="watch-pane" id="watch-pane-music" data-watch-pane="music">
+            <div class="watch-info-card">
+              <div class="watch-info-kicker" data-i18n="watch.music.kicker">Preview Audio</div>
+              <div class="watch-music-stage" id="watch-music-stage">
+                <div class="watch-music-aura"></div>
+                <div class="watch-music-ring" id="watch-music-ring">
+                  <div class="watch-music-disc" id="watch-music-disc">
+                    <div class="watch-music-art" id="watch-music-art"></div>
+                    <div class="watch-music-hole"></div>
+                  </div>
+                </div>
+                <button id="watch-music-play" class="watch-music-play" type="button" data-i18n-aria="action.listen" aria-label="Listen">
+                  <span id="watch-music-play-icon">▶</span>
+                </button>
+              </div>
+              <div class="watch-seed-copy" id="watch-seed-copy"></div>
+              <audio id="watch-audio-preview" class="watch-audio-preview" controls preload="none"></audio>
+            </div>
+          </div>
+          <div class="watch-pane" id="watch-pane-lyrics" data-watch-pane="lyrics">
+            <div class="watch-info-card">
+              <div class="watch-info-kicker" data-i18n="watch.lyrics.kicker">Lyrics</div>
+              <textarea id="watch-lyrics-editor" class="watch-editor" spellcheck="false"></textarea>
+            </div>
+          </div>
+          <div class="watch-pane" id="watch-pane-script" data-watch-pane="script">
+            <div class="watch-info-card">
+              <div class="watch-info-kicker" data-i18n="watch.script.outline">Video Outline</div>
+              <textarea id="watch-outline-editor" class="watch-editor watch-editor-short" spellcheck="false"></textarea>
+              <div class="watch-info-kicker" data-i18n="watch.script.prompts">Section Prompts</div>
+              <textarea id="watch-script-editor" class="watch-editor" spellcheck="false"></textarea>
+            </div>
+          </div>
+          <div class="watch-pane" id="watch-pane-comments" data-watch-pane="comments">
+            <div class="watch-info-card">
+              <div class="watch-info-kicker" data-i18n="watch.comments.kicker">Comments</div>
+              <div class="watch-meta-copy" id="watch-comments-copy" data-i18n="watch.comments.empty">No comments yet.</div>
+            </div>
+          </div>
+          <div class="watch-pane" id="watch-pane-revenue" data-watch-pane="revenue">
+            <div class="watch-info-card">
+              <div class="watch-info-kicker" data-i18n="watch.revenue.kicker">Revenue</div>
+              <div class="watch-meta-grid" id="watch-revenue-grid"></div>
+              <div class="watch-activity" id="watch-revenue-activity"></div>
+            </div>
+          </div>
+          <div class="watch-pane" id="watch-pane-ownership" data-watch-pane="ownership">
+            <div class="watch-info-card">
+              <div class="watch-info-kicker" data-i18n="watch.ownership.kicker">Ownership</div>
+              <div class="watch-meta-copy" id="watch-ownership-copy"></div>
+              <div class="watch-activity" id="watch-ownership-list"></div>
             </div>
           </div>
         </div>
@@ -315,6 +381,64 @@
         </div>
         <div class="panel-body">
           <div class="panel-label" data-i18n="label.autoWatch">Auto Watch Pipeline</div>
+          <section class="mv-digest-pulse" id="mv-digest-pulse">
+            <div class="mv-pulse-header">
+              <div>
+                <div class="mv-pulse-kicker" data-i18n="cssmv.digest.kicker">Delivery Digest</div>
+                <div class="mv-pulse-title" data-i18n="cssmv.digest.title">Daily delivery snapshot for dashboard and ops review</div>
+              </div>
+              <div class="mv-pulse-version" id="mv-digest-status" data-i18n="cssmv.digest.waitingStatus">Waiting for delivery digest.</div>
+            </div>
+            <div class="mv-workspace-strip">
+              <div class="mv-workspace-title" id="mv-digest-title" data-i18n="cssmv.digest.waitingTitle">Waiting for daily delivery digest</div>
+              <div class="mv-workspace-summary" id="mv-digest-summary" data-i18n="cssmv.digest.waitingSummary">Open CSS MV to load the latest delivery dashboard summary.</div>
+            </div>
+            <div class="mv-digest-metrics" id="mv-digest-metrics">
+              <div class="mv-digest-metric is-waiting">
+                <span data-i18n="cssmv.digest.metrics.escalated">Escalated</span>
+                <strong>--</strong>
+              </div>
+              <div class="mv-digest-metric is-waiting">
+                <span data-i18n="cssmv.digest.metrics.manualIntervention">Manual</span>
+                <strong>--</strong>
+              </div>
+              <div class="mv-digest-metric is-waiting">
+                <span data-i18n="cssmv.digest.metrics.retry">Retry</span>
+                <strong>--</strong>
+              </div>
+              <div class="mv-digest-metric is-waiting">
+                <span data-i18n="cssmv.digest.metrics.resolutionChange">Resolution</span>
+                <strong>--</strong>
+              </div>
+            </div>
+            <div class="mv-pulse-grid mv-digest-grid">
+              <div class="mv-pulse-card">
+                <div class="mv-pulse-label" data-i18n="cssmv.digest.queueTitle">Queue Counts</div>
+                <div class="mv-digest-queue-list" id="mv-digest-inbox-counts">
+                  <button class="mv-digest-queue is-waiting" type="button">
+                    <span data-i18n="cssmv.digest.waitingQueue">Waiting for queue counts.</span>
+                  </button>
+                </div>
+                <div class="mv-digest-preview" id="mv-digest-preview">
+                  <div class="mv-digest-preview-empty" data-i18n="cssmv.digest.waitingPreview">Select a queue to inspect live preview items.</div>
+                </div>
+              </div>
+              <div class="mv-pulse-card">
+                <div class="mv-pulse-label" data-i18n="cssmv.digest.alertTitle">Alert Headlines</div>
+                <div class="mv-digest-alert-list" id="mv-digest-alerts">
+                  <div class="mv-digest-alert is-waiting">
+                    <span class="mv-digest-alert-copy" data-i18n="cssmv.digest.waitingAlerts">Waiting for alert headlines.</span>
+                  </div>
+                </div>
+              </div>
+              <div class="mv-pulse-card">
+                <div class="mv-pulse-label" data-i18n="cssmv.digest.highlightTitle">Highlights</div>
+                <ul class="mv-pulse-list" id="mv-digest-highlights">
+                  <li data-i18n="cssmv.digest.waitingHighlights">Waiting for digest highlights.</li>
+                </ul>
+              </div>
+            </div>
+          </section>
           <div class="mv-hero">
             <div>
               <div class="mv-title" id="mv-title">嫦娥奔月</div>
@@ -328,8 +452,309 @@
           </div>
           <div class="tag-row" id="mv-tags"></div>
           <div class="stat-grid" id="mv-stats"></div>
+          <section class="mv-governance-pulse" id="mv-governance-pulse">
+            <div class="mv-pulse-header">
+              <div>
+                <div class="mv-pulse-kicker" data-i18n="cssmv.governance.kicker">Delivery Governance Pulse</div>
+                <div class="mv-pulse-title" data-i18n="cssmv.governance.title">Inspector visibility wired to live backend payloads</div>
+              </div>
+              <div class="mv-pulse-version" id="mv-policy-version" data-i18n="cssmv.governance.waitingPolicyVersion">Waiting for live policy version</div>
+            </div>
+            <div class="mv-workspace-strip">
+              <div class="mv-workspace-title" id="mv-workspace-title" data-i18n="cssmv.workspace.waitingTitle">Waiting for live delivery workspace</div>
+              <div class="mv-workspace-summary" id="mv-workspace-summary" data-i18n="cssmv.workspace.waitingSummary">Waiting for live delivery workspace summary.</div>
+            </div>
+            <div class="mv-actions-strip">
+              <div class="mv-pulse-label" data-i18n="cssmv.actions.title">Available Actions</div>
+              <div class="mv-actions-list" id="mv-actions-list">
+                <span class="mv-action-chip is-waiting" data-i18n="cssmv.actions.waiting">Waiting for live delivery actions.</span>
+              </div>
+            </div>
+            <div class="mv-actions-strip">
+              <div class="mv-pulse-label" data-i18n="cssmv.actionLog.title">Recent Action Log</div>
+              <div class="mv-action-log-list" id="mv-action-log-list">
+                <div class="mv-action-log-item is-waiting" data-i18n="cssmv.actionLog.waiting">Waiting for live delivery action logs.</div>
+              </div>
+            </div>
+            <div class="mv-trust-strip">
+              <div class="mv-trust-badge" id="mv-trust-badge" data-i18n="cssmv.governance.waitingTrustBadge">Trust waiting</div>
+              <div class="mv-trust-summary" id="mv-trust-summary" data-i18n="cssmv.governance.waitingTrustState">Waiting for live delivery trust state.</div>
+            </div>
+            <div class="mv-risk-strip">
+              <div class="mv-risk-badge" id="mv-risk-badge" data-i18n="cssmv.governance.waitingRiskBadge">Risk waiting</div>
+              <div class="mv-risk-summary" id="mv-risk-summary" data-i18n="cssmv.governance.waitingRiskState">Waiting for live delivery risk state.</div>
+            </div>
+            <div class="mv-assurance-strip">
+              <div class="mv-assurance-badge" id="mv-assurance-badge" data-i18n="cssmv.governance.waitingAssuranceBadge">Assurance waiting</div>
+              <div class="mv-assurance-summary" id="mv-assurance-summary" data-i18n="cssmv.governance.waitingAssuranceState">Waiting for live delivery assurance state.</div>
+            </div>
+            <div class="mv-resolution-strip">
+              <div class="mv-resolution-badge" id="mv-resolution-badge" data-i18n="cssmv.governance.waitingResolutionBadge">Resolution waiting</div>
+              <div class="mv-resolution-summary" id="mv-resolution-summary" data-i18n="cssmv.governance.waitingResolutionState">Waiting for live delivery resolution state.</div>
+            </div>
+            <div class="mv-pulse-grid">
+              <div class="mv-pulse-card">
+                <div class="mv-pulse-label" data-i18n="cssmv.governance.decisionReasons">Decision Reasons</div>
+                <ul class="mv-pulse-list" id="mv-decision-reasons">
+                  <li data-i18n="cssmv.governance.waitingDecisionReasons">Waiting for live delivery governance data.</li>
+                </ul>
+              </div>
+              <div class="mv-pulse-card">
+                <div class="mv-pulse-label" data-i18n="cssmv.governance.riskFactors">Risk Factors</div>
+                <ul class="mv-pulse-list" id="mv-risk-factors">
+                  <li data-i18n="cssmv.governance.waitingRiskFactors">Waiting for live delivery risk factors.</li>
+                </ul>
+              </div>
+              <div class="mv-pulse-card">
+                <div class="mv-pulse-label" data-i18n="cssmv.governance.assuranceMeasures">Assurance Measures</div>
+                <ul class="mv-pulse-list" id="mv-assurance-measures">
+                  <li data-i18n="cssmv.governance.waitingAssuranceMeasures">Waiting for live delivery assurance measures.</li>
+                </ul>
+              </div>
+              <div class="mv-pulse-card">
+                <div class="mv-pulse-label" data-i18n="cssmv.governance.resolutionReasons">Resolution Reasons</div>
+                <ul class="mv-pulse-list" id="mv-resolution-reasons">
+                  <li data-i18n="cssmv.governance.waitingResolutionReasons">Waiting for live delivery resolution reasons.</li>
+                </ul>
+              </div>
+              <div class="mv-pulse-card">
+                <div class="mv-pulse-label" data-i18n="cssmv.governance.recentPolicyAudits">Recent Policy Audits</div>
+                <ul class="mv-pulse-list" id="mv-policy-audits">
+                  <li data-i18n="cssmv.governance.waitingPolicyAudits">No policy audit stream connected yet.</li>
+                </ul>
+              </div>
+            </div>
+            <div class="mv-timeline-pulse">
+              <div class="mv-pulse-label" data-i18n="cssmv.timeline.title">Delivery Timeline</div>
+              <div class="mv-timeline-summary" id="mv-timeline-summary" data-i18n="cssmv.timeline.waitingSummary">Waiting for live delivery timeline.</div>
+              <div class="mv-timeline-list" id="mv-timeline-list">
+                <div class="mv-timeline-item is-waiting">
+                  <div class="mv-timeline-dot"></div>
+                  <div class="mv-timeline-copy" data-i18n="cssmv.timeline.waitingNode">Waiting for live delivery timeline nodes.</div>
+                </div>
+              </div>
+            </div>
+            <div class="mv-timeline-pulse">
+              <div class="mv-pulse-label" data-i18n="cssmv.timelineMerged.title">Merged Delivery Timeline</div>
+              <div class="mv-timeline-summary" id="mv-merged-timeline-summary" data-i18n="cssmv.timelineMerged.waitingSummary">Waiting for live merged delivery timeline.</div>
+              <div class="mv-timeline-list" id="mv-merged-timeline-list">
+                <div class="mv-timeline-item is-waiting">
+                  <div class="mv-timeline-dot"></div>
+                  <div class="mv-timeline-copy" data-i18n="cssmv.timelineMerged.waitingNode">Waiting for live merged delivery timeline events.</div>
+                </div>
+              </div>
+            </div>
+            <div class="mv-timeline-pulse">
+              <div class="mv-pulse-label" data-i18n="cssmv.timelineExplain.title">Timeline Explain</div>
+              <div class="mv-timeline-summary" id="mv-timeline-explain-summary" data-i18n="cssmv.timelineExplain.waitingSummary">Waiting for live timeline explain.</div>
+              <div class="mv-timeline-list" id="mv-timeline-explain-list">
+                <div class="mv-timeline-item is-waiting">
+                  <div class="mv-timeline-dot"></div>
+                  <div class="mv-timeline-copy" data-i18n="cssmv.timelineExplain.waitingNode">Waiting for live timeline explain key events.</div>
+                </div>
+              </div>
+            </div>
+          </section>
           <div class="camera-board" id="camera-board"></div>
           <div class="scene-list" id="scene-list"></div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="delivery-reports-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">📊</div>
+          <div class="panel-title" data-i18n="panel.deliveryReports">Delivery Reports</div>
+          <div class="panel-actions">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body report-panel-body">
+          <div class="panel-label" data-i18n="reports.subtitle">Unified delivery reporting surface for ops, management, and notifications.</div>
+          <div class="report-tabs" id="delivery-report-tabs"></div>
+          <section class="report-shell">
+            <div class="report-header">
+              <div>
+                <div class="report-kicker" data-i18n="reports.kicker">cssCase Delivery API</div>
+                <div class="report-title" id="delivery-report-title">Waiting for delivery report</div>
+              </div>
+              <div class="report-meta" id="delivery-report-meta">kind=briefing_pack</div>
+            </div>
+            <div class="report-summary" id="delivery-report-summary" data-i18n="reports.waiting">Open Delivery Reports to load a unified report bundle.</div>
+            <div class="report-body" id="delivery-report-body">
+              <div class="report-empty" data-i18n="reports.waiting">Open Delivery Reports to load a unified report bundle.</div>
+            </div>
+            <section class="report-export-shell">
+              <div class="report-export-header">
+                <div>
+                  <div class="report-section-title">Music Delivery Dashboard</div>
+                  <div class="report-card-copy" id="delivery-dashboard-meta">Bind a run ID to inspect live music delivery receipts.</div>
+                </div>
+                <div class="report-export-actions">
+                  <input
+                    id="delivery-dashboard-run-id"
+                    class="billing-input"
+                    type="text"
+                    placeholder="Run ID"
+                  />
+                  <button class="cta ghost tiny" id="delivery-dashboard-refresh" type="button">Refresh</button>
+                </div>
+              </div>
+              <div class="report-summary" id="delivery-dashboard-summary">Waiting for a music delivery dashboard feed.</div>
+              <div class="report-grid">
+                <article class="report-card">
+                  <div class="report-section-title">Live Status</div>
+                  <div class="report-list" id="delivery-dashboard-body">
+                    <div class="report-empty">Create or select a run to inspect live music delivery receipts.</div>
+                  </div>
+                </article>
+              </div>
+            </section>
+            <section class="report-export-shell">
+              <div class="report-export-header">
+                <div>
+                  <div class="report-section-title" data-i18n="reports.export.title">Export Actions</div>
+                  <div class="report-card-copy" id="delivery-export-target" data-i18n="reports.export.waitingTarget">Select a report tab to prepare an export target.</div>
+                </div>
+                <div class="report-export-status" id="delivery-export-status" data-i18n="reports.export.waitingStatus">No export run yet.</div>
+              </div>
+              <div class="report-export-sources" id="delivery-export-sources"></div>
+              <div class="report-export-formats" id="delivery-export-formats"></div>
+              <div class="report-grid">
+                <article class="report-card">
+                  <div class="report-section-title" data-i18n="reports.export.preview">Export Preview</div>
+                  <div class="report-list" id="delivery-export-preview">
+                    <div class="report-empty" data-i18n="reports.export.waitingPreview">Choose a format to preview file name and payload.</div>
+                  </div>
+                </article>
+                <article class="report-card">
+                  <div class="report-section-title" data-i18n="reports.export.result">Export Result</div>
+                  <div class="report-export-actions" id="delivery-export-actions"></div>
+                  <div class="report-export-actions" id="delivery-export-preview-actions"></div>
+                  <div class="report-list" id="delivery-export-result">
+                    <div class="report-empty" data-i18n="reports.export.waitingResult">Run an export to see content preview and response metadata.</div>
+                  </div>
+                </article>
+              </div>
+              <article class="report-card">
+                <div class="report-export-header">
+                  <div class="report-section-title" data-i18n="reports.export.history">Recent Exports</div>
+                  <div class="report-export-actions" id="delivery-export-history-toolbar"></div>
+                </div>
+                <div class="report-export-sources" id="delivery-export-history-filters"></div>
+                <input
+                  id="delivery-export-history-search"
+                  class="billing-input"
+                  type="text"
+                  placeholder="Search export history"
+                />
+                <div class="report-list" id="delivery-export-history">
+                  <div class="report-empty" data-i18n="reports.export.historyEmpty">No export history yet.</div>
+                </div>
+              </article>
+            </section>
+          </section>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="delivery-ops-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">🛰</div>
+          <div class="panel-title" data-i18n="panel.deliveryOps">Delivery Ops</div>
+          <div class="panel-actions">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body report-panel-body">
+          <div class="panel-label" data-i18n="deliveryOps.subtitle">Track subscriptions and their delivery execution history.</div>
+          <section class="report-shell">
+            <div class="report-header">
+              <div>
+                <div class="report-kicker" data-i18n="deliveryOps.kicker">cssCase Delivery Subscriptions + Logs</div>
+                <div class="report-title" data-i18n="deliveryOps.title">Delivery subscription control room</div>
+              </div>
+              <div class="report-meta" id="delivery-ops-meta" data-i18n="deliveryOps.metaWaiting">Waiting for delivery ops data.</div>
+            </div>
+            <div class="report-summary" id="delivery-ops-summary" data-i18n="deliveryOps.waiting">Open Delivery Ops to load subscriptions and execution history.</div>
+            <div class="report-grid" id="delivery-ops-console-overview">
+              <article class="report-card">
+                <div class="report-section-title" data-i18n="deliveryOps.overview">Ops Overview</div>
+                <div class="report-empty" data-i18n="deliveryOps.emptyConsole">Open Delivery Ops to load the live ops console.</div>
+              </article>
+            </div>
+            <div class="delivery-ops-grid">
+              <article class="report-card">
+                <div class="report-section-title" data-i18n="deliveryOps.executionStatus">Execution Status</div>
+                <div class="report-list" id="delivery-ops-execution-status">
+                  <div class="report-empty" data-i18n="deliveryOps.emptyExecutionStatus">Select a subscription to inspect the latest execution status.</div>
+                </div>
+                <div class="report-section-title" data-i18n="deliveryOps.retryResult">Retry Result</div>
+                <div class="report-list" id="delivery-ops-retry-result">
+                  <div class="report-empty" data-i18n="deliveryOps.emptyRetryResult">Run a retry action to inspect the latest retry result.</div>
+                </div>
+              </article>
+              <article class="report-card">
+                <div class="report-section-title" data-i18n="deliveryOps.recovery">Recovery Board</div>
+                <div class="report-list" id="delivery-ops-recovery-summary">
+                  <div class="report-empty" data-i18n="deliveryOps.emptyRecovery">Open Delivery Ops to load recovery queues.</div>
+                </div>
+                <div class="report-section-title" data-i18n="deliveryOps.priorityQueue">Priority Queue</div>
+                <div class="report-list" id="delivery-ops-recovery-priority">
+                  <div class="report-empty" data-i18n="deliveryOps.emptyRecovery">Open Delivery Ops to load recovery queues.</div>
+                </div>
+              </article>
+              <article class="report-card">
+                <div class="report-export-header">
+                  <div class="report-section-title" data-i18n="deliveryOps.subscriptions">Subscriptions</div>
+                  <div class="report-export-actions" id="delivery-ops-actions"></div>
+                </div>
+                <div class="report-list" id="delivery-ops-subscriptions">
+                  <div class="report-empty" data-i18n="deliveryOps.emptySubscriptions">No subscriptions loaded yet.</div>
+                </div>
+              </article>
+              <article class="report-card">
+                <div class="report-section-title" data-i18n="deliveryOps.logs">Recent Delivery Logs</div>
+                <div class="report-list" id="delivery-ops-logs">
+                  <div class="report-empty" data-i18n="deliveryOps.emptyLogs">No delivery logs loaded yet.</div>
+                </div>
+                <div class="report-section-title" data-i18n="deliveryOps.alerts">Alerts</div>
+                <div class="report-list" id="delivery-ops-alerts">
+                  <div class="report-empty" data-i18n="deliveryOps.emptyAlerts">No live delivery alerts yet.</div>
+                </div>
+              </article>
+              <article class="report-card">
+                <div class="report-section-title" data-i18n="deliveryOps.pendingRecovery">Pending Recovery</div>
+                <div class="report-list" id="delivery-ops-recovery-pending">
+                  <div class="report-empty" data-i18n="deliveryOps.emptyRecovery">Open Delivery Ops to load recovery queues.</div>
+                </div>
+                <div class="report-section-title" data-i18n="deliveryOps.recovered">Recovered</div>
+                <div class="report-list" id="delivery-ops-recovery-recovered">
+                  <div class="report-empty" data-i18n="deliveryOps.emptyRecovery">Open Delivery Ops to load recovery queues.</div>
+                </div>
+                <div class="report-section-title" data-i18n="deliveryOps.stillFailing">Still Failing</div>
+                <div class="report-list" id="delivery-ops-recovery-failing">
+                  <div class="report-empty" data-i18n="deliveryOps.emptyRecovery">Open Delivery Ops to load recovery queues.</div>
+                </div>
+              </article>
+              <article class="report-card">
+                <div class="report-section-title" data-i18n="deliveryOps.actions">Suggested Actions</div>
+                <div class="report-list" id="delivery-ops-console-actions">
+                  <div class="report-empty" data-i18n="deliveryOps.emptyActions">No suggested actions yet.</div>
+                </div>
+                <div class="report-section-title" data-i18n="deliveryOps.statusFeed">Recent Status Feed</div>
+                <div class="report-list" id="delivery-ops-console-statuses">
+                  <div class="report-empty" data-i18n="deliveryOps.emptyStatuses">No recent status items yet.</div>
+                </div>
+              </article>
+            </div>
+          </section>
         </div>
         <div class="resize-handle"></div>
       </section>
@@ -467,46 +892,151 @@
               data-i18n-placeholder="settings.titlePlaceholder"
             />
           </label>
-          <label>
-            <span data-i18n="settings.customLyrics">Custom Lyrics</span>
+          <label class="field-shell field-shell-rich">
+            <span class="field-label-row">
+              <span data-i18n="settings.customLyrics">Custom Lyrics</span>
+              <button
+                id="lyrics-regenerate"
+                class="field-action-btn"
+                type="button"
+                data-i18n-aria="action.regenerateLyrics"
+                aria-label="Regenerate lyrics"
+              >
+                🪄
+              </button>
+            </span>
             <textarea
               id="lyrics-input"
               rows="6"
               placeholder="Drop your own verses or a full opera..."
               data-i18n-placeholder="settings.lyricsPlaceholder"
-            >
-            </textarea>
+            ></textarea>
           </label>
-          <div class="row">
-            <label>
-              <span data-i18n="settings.musicStyle">Music Style</span>
-              <select id="style-input">
-                <option>Chinese GuFeng</option>
-                <option>Neo-Opera</option>
-                <option>Future Ballad</option>
-                <option>Cyber Folk</option>
-              </select>
-            </label>
+          <div class="row row-single">
             <label>
               <span data-i18n="settings.voiceGender">Voice Gender</span>
               <select id="voice-input">
-                <option>Feminine</option>
-                <option>Masculine</option>
-                <option>Androgynous</option>
-                <option>Choir Blend</option>
+                <option data-i18n="creation.option.vocalGender.feminine">Feminine</option>
+                <option data-i18n="creation.option.vocalGender.masculine">Masculine</option>
+                <option data-i18n="creation.option.vocalGender.childlike">Childlike</option>
+                <option data-i18n="creation.option.vocalGender.duet">Duet</option>
+                <option data-i18n="creation.option.vocalGender.androgynous">Androgynous</option>
+                <option data-i18n="creation.option.vocalGender.polyphonic_choir">Polyphonic Choir</option>
               </select>
             </label>
           </div>
+          <label>
+            <span data-i18n="settings.sources">Sources / Story Links</span>
+            <textarea
+              id="lyrics-source-input"
+              rows="3"
+              placeholder="WIKI / references / story links..."
+              data-i18n-placeholder="settings.sourcesPlaceholder"
+            ></textarea>
+          </label>
+          <div class="seed-script-panel">
+            <div class="seed-script-tabs scroll-peek" data-scroll-peek>
+              <button class="cta ghost tiny active" type="button" id="seed-tab-music" data-seed-tab="music" data-i18n="settings.musicStructure">Music Structure</button>
+              <button class="cta ghost tiny" type="button" id="seed-tab-outline" data-seed-tab="outline" data-i18n="settings.videoOutline">Video Outline</button>
+              <button class="cta ghost tiny" type="button" id="seed-tab-scenes" data-seed-tab="scenes" data-i18n="settings.sectionPrompts">Section Scene Prompts</button>
+            </div>
+            <div class="seed-script-panes">
+              <div class="seed-script-pane active" id="seed-pane-music">
+                <div class="field-label-row seed-pane-label-row">
+                  <span data-i18n="settings.musicStructure">Music Structure</span>
+                  <button
+                    id="music-structure-regenerate"
+                    class="field-action-btn"
+                    type="button"
+                    data-i18n-aria="action.regenerateStyle"
+                    aria-label="Regenerate music structure"
+                  >
+                    🪄
+                  </button>
+                </div>
+                <textarea
+                  id="music-structure-input"
+                  rows="7"
+                  placeholder="Section-by-section beat map and arrangement arc..."
+                  data-i18n-placeholder="settings.musicStructurePlaceholder"
+                ></textarea>
+              </div>
+              <div class="seed-script-pane" id="seed-pane-outline">
+                <div class="field-label-row seed-pane-label-row">
+                  <span data-i18n="settings.videoOutline">Video Outline</span>
+                  <button
+                    id="video-outline-regenerate"
+                    class="field-action-btn"
+                    type="button"
+                    data-i18n-aria="action.regenerateStyle"
+                    aria-label="Regenerate video outline"
+                  >
+                    🪄
+                  </button>
+                </div>
+                <textarea
+                  id="video-outline-input"
+                  rows="6"
+                  placeholder="Overall MV visual outline..."
+                  data-i18n-placeholder="settings.videoOutlinePlaceholder"
+                ></textarea>
+              </div>
+              <div class="seed-script-pane" id="seed-pane-scenes">
+                <div class="field-label-row seed-pane-label-row">
+                  <span data-i18n="settings.sectionPrompts">Section Scene Prompts</span>
+                  <button
+                    id="section-prompts-regenerate"
+                    class="field-action-btn"
+                    type="button"
+                    data-i18n-aria="action.regenerateStyle"
+                    aria-label="Regenerate section prompts"
+                  >
+                    🪄
+                  </button>
+                </div>
+                <textarea
+                  id="section-prompts-input"
+                  rows="10"
+                  placeholder="One section prompt per section..."
+                  data-i18n-placeholder="settings.sectionPromptsPlaceholder"
+                ></textarea>
+              </div>
+            </div>
+          </div>
           <div class="creation-console" id="creation-console">
-            <div class="creation-tabs" id="creation-tabs"></div>
-            <div class="creation-chips" id="creation-chips"></div>
+            <div class="creation-tabs scroll-peek" id="creation-tabs" data-scroll-peek></div>
+            <div class="creation-chips scroll-peek" id="creation-chips" data-scroll-peek></div>
+            <label class="field-shell creation-style-shell">
+              <span class="field-label-row">
+                <span data-i18n="settings.musicStyle">Music Style</span>
+                <button
+                  id="style-regenerate"
+                  class="field-action-btn"
+                  type="button"
+                  data-i18n-aria="action.regenerateStyle"
+                  aria-label="Regenerate music style"
+                >
+                  🪄
+                </button>
+              </span>
+              <textarea
+                id="style-input"
+                rows="3"
+                maxlength="2000"
+                placeholder="Chinese GuFeng / Neo-Opera / Future Ballad"
+                data-i18n-placeholder="settings.musicStylePlaceholder"
+              ></textarea>
+            </label>
+            <div class="creation-meta">
+              <span id="creation-style-count">0/2000</span>
+            </div>
             <div class="row">
               <label>
-                <span>Tempo (BPM)</span>
+                <span data-i18n="settings.tempoBpm">Tempo (BPM)</span>
                 <input id="creation-tempo" type="number" min="40" max="220" step="1" value="88" />
               </label>
               <label>
-                <span>Key</span>
+                <span data-i18n="settings.key">Key</span>
                 <select id="creation-key">
                   <option value="C">C</option>
                   <option value="D">D</option>
@@ -520,44 +1050,212 @@
             </div>
             <div class="row">
               <label>
-                <span>Duration (sec)</span>
+                <span data-i18n="settings.durationSec">Duration (sec)</span>
                 <input id="creation-duration" type="number" min="30" max="600" step="5" value="180" />
               </label>
               <label>
-                <span>Language</span>
+                <span data-i18n="settings.language">Language</span>
                 <select id="creation-language">
-                  <option value="zh">Chinese</option>
-                  <option value="en">English</option>
-                  <option value="ja">Japanese</option>
+                  <option value="zh" data-i18n="lang.zh">Chinese</option>
+                  <option value="en" data-i18n="lang.en">English</option>
+                  <option value="ja" data-i18n="lang.ja">Japanese</option>
                 </select>
               </label>
             </div>
-            <label>
-              <span>Creative Prompt</span>
-              <textarea id="creation-prompt" rows="3" maxlength="500" placeholder="Describe the mood, era, references, and arrangement..."></textarea>
+            <div class="row">
+              <label>
+                <span>Work Type</span>
+                <select id="creation-work-type">
+                  <option value="single">Single</option>
+                  <option value="triptych">Triptych</option>
+                  <option value="opera">Opera</option>
+                </select>
+              </label>
+            </div>
+            <div class="row">
+              <label>
+                <span>Instrumentation</span>
+                <input
+                  id="creation-instrumentation"
+                  type="text"
+                  maxlength="400"
+                  placeholder="e.g. guzheng, dizi, low strings, taiko, analog bass"
+                />
+              </label>
+              <label>
+                <span>Vocal Style</span>
+                <input
+                  id="creation-vocal-style"
+                  type="text"
+                  maxlength="240"
+                  placeholder="e.g. airy bel canto, chesty soul, close-mic whisper"
+                />
+              </label>
+            </div>
+            <div class="row">
+              <label>
+                <span>Ensemble Style</span>
+                <input
+                  id="creation-ensemble-style"
+                  type="text"
+                  maxlength="240"
+                  placeholder="e.g. chamber strings, festival drums, synth-pop band"
+                />
+              </label>
+              <label>
+                <span>Licensed Style Pack</span>
+                <input
+                  id="creation-licensed-style-pack"
+                  type="text"
+                  maxlength="240"
+                  placeholder="e.g. orchestra.core.v1"
+                />
+              </label>
+            </div>
+            <div class="row">
+              <label>
+                <span>External Audio Adapter</span>
+                <input
+                  id="creation-external-audio-adapter"
+                  type="text"
+                  maxlength="240"
+                  placeholder="e.g. kontakt, spitfire, eastwest, custom://orchestra"
+                />
+              </label>
+            </div>
+            <div class="row">
+              <label>
+                <span>Arrangement Density</span>
+                <input
+                  id="creation-arrangement-density"
+                  type="range"
+                  min="0.2"
+                  max="1"
+                  step="0.05"
+                  value="0.6"
+                />
+              </label>
+              <label>
+                <span>Dynamics Curve</span>
+                <input
+                  id="creation-dynamics-curve"
+                  type="text"
+                  maxlength="240"
+                  placeholder="e.g. rising arc, soft verse / explosive chorus"
+                />
+              </label>
+            </div>
+            <div class="row">
+              <label>
+                <span>Section Form</span>
+                <input
+                  id="creation-section-form"
+                  type="text"
+                  maxlength="240"
+                  placeholder="e.g. intro, verse, pre-chorus, chorus, bridge, chorus, outro"
+                />
+              </label>
+              <label>
+                <span>Articulation Bias</span>
+                <input
+                  id="creation-articulation-bias"
+                  type="text"
+                  maxlength="240"
+                  placeholder="e.g. legato lead, staccato pulse, pizzicato bridge"
+                />
+              </label>
+            </div>
+            <div class="row">
+              <label>
+                <span>Voicing Register</span>
+                <input
+                  id="creation-voicing-register"
+                  type="text"
+                  maxlength="240"
+                  placeholder="e.g. low cinematic bed, mid vocal pocket, bright high lead"
+                />
+              </label>
+              <label>
+                <span>Percussion Activity</span>
+                <input
+                  id="creation-percussion-activity"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value="0.45"
+                />
+              </label>
+            </div>
+            <div class="row">
+              <label>
+                <span>Expression CC Bias</span>
+                <input
+                  id="creation-expression-cc-bias"
+                  type="text"
+                  maxlength="240"
+                  placeholder="e.g. swell into chorus, breathing verse, restrained intro"
+                />
+              </label>
+              <label>
+                <span>Humanization</span>
+                <input
+                  id="creation-humanization"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value="0.35"
+                />
+              </label>
+            </div>
+            <label class="field-shell">
+              <span>Inspiration Notes</span>
+              <textarea
+                id="creation-inspiration-notes"
+                rows="3"
+                maxlength="1000"
+                placeholder="Use high-level references, eras, regions, instrumentation, emotional pacing, and legally licensed packs. Avoid requesting a direct clone of a specific artist or recording."
+              ></textarea>
             </label>
-            <div class="creation-meta">
-              <span id="creation-prompt-count">0/500</span>
-              <button id="creation-clear" class="cta ghost tiny" type="button">Clear All</button>
+            <div class="creation-reference-library">
+              <div class="panel-label">Reference Atlas</div>
+              <div class="creation-reference-note">
+                Use these as broad musical inspirations and ensemble references, not as a request to clone a specific living artist or copyrighted recording.
+              </div>
+              <div id="creation-reference-library"></div>
+            </div>
+            <div class="row creation-defaults-row" id="creation-defaults-row" hidden>
+              <label>
+                <span>Default Listen Price</span>
+                <input id="creation-default-listen" type="number" min="0.01" step="0.01" value="0.99" />
+              </label>
+              <label>
+                <span>Default Buyout Price</span>
+                <input id="creation-default-buyout" type="number" min="0" step="0.01" value="2.99" />
+              </label>
             </div>
             <div class="creation-summary" id="creation-summary"></div>
+            <div class="creation-universe-card" id="creation-universe-card"></div>
+            <div class="creation-actions">
+              <button id="creation-set-defaults" class="cta ghost tiny" type="button" hidden>设为默认</button>
+              <button id="creation-clear" class="cta ghost tiny" type="button" data-i18n="action.clearAll">Clear All</button>
+            </div>
           </div>
-          <div class="row">
-            <label>
+          <div class="palette-color-tabs scroll-peek" id="palette-color-tabs" data-scroll-peek>
+            <label class="palette-color-card">
               <span data-i18n="settings.bg1">Background Color 1</span>
               <input id="bg-color-1" type="color" value="#00f5a0" />
             </label>
-            <label>
+            <label class="palette-color-card">
               <span data-i18n="settings.bg2">Background Color 2</span>
               <input id="bg-color-2" type="color" value="#040a08" />
             </label>
-          </div>
-          <div class="row">
-            <label>
+            <label class="palette-color-card">
               <span data-i18n="settings.bg3">Background Color 3</span>
               <input id="bg-color-3" type="color" value="#008c64" />
             </label>
-            <label>
+            <label class="palette-color-card">
               <span data-i18n="settings.bg4">Background Color 4</span>
               <input id="bg-color-4" type="color" value="#010302" />
             </label>
@@ -570,6 +1268,13 @@
           >
             随机水彩配色
           </button>
+          <div class="palette-presets scroll-peek" role="tablist" aria-label="Palette presets" data-scroll-peek>
+            <button class="cta ghost tiny" type="button" data-palette-preset="mono-green" data-i18n="settings.palettePreset.green">Emerald</button>
+            <button class="cta ghost tiny" type="button" data-palette-preset="mono-red" data-i18n="settings.palettePreset.red">Crimson</button>
+            <button class="cta ghost tiny" type="button" data-palette-preset="mono-blue" data-i18n="settings.palettePreset.blue">Azure</button>
+            <button class="cta ghost tiny" type="button" data-palette-preset="mono-purple" data-i18n="settings.palettePreset.purple">Violet</button>
+            <button class="cta ghost tiny" type="button" data-palette-preset="mono-gold" data-i18n="settings.palettePreset.gold">Gold</button>
+          </div>
           <button id="apply-settings" class="cta" data-i18n="action.applyRender">
             Apply & Render
           </button>
@@ -805,9 +1510,44 @@
         </div>
         <div class="resize-handle"></div>
       </section>
+
+      <section class="panel flow hidden" id="seller-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">💸</div>
+          <div class="panel-title">经营中心</div>
+          <div class="panel-actions">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body seller-body">
+          <div class="panel-label">创作者订单 / 收入</div>
+          <div class="seller-metrics" id="seller-metrics"></div>
+          <div class="works-grid seller-grid">
+            <div class="works-section">
+              <div class="section-title">订单</div>
+              <div class="seller-list" id="seller-orders-list"></div>
+            </div>
+            <div class="works-section">
+              <div class="section-title">收入</div>
+              <div class="seller-list" id="seller-ledger-list"></div>
+            </div>
+          </div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
     </main>
 
     <footer class="dock" id="dock">
+      <div class="dock-item" data-action="mic" data-actions="click,dblclick,longpress">
+        <div class="dock-icon dock-icon-media dock-mic-icon">
+          <img class="dock-mic-img dock-mic-a" src="assets/dock-mic-1.png" alt="" aria-hidden="true" />
+          <img class="dock-mic-img dock-mic-b" src="assets/dock-mic-2.png" alt="" aria-hidden="true" />
+        </div>
+        <div class="dock-label" data-i18n="dock.mic">Mic</div>
+      </div>
       <div class="dock-item" data-action="foryou" data-actions="click,dblclick,longpress">
         <div class="dock-icon">✨</div>
         <div class="dock-label" data-i18n="dock.foryou">For You</div>
@@ -840,6 +1580,14 @@
         <div class="dock-icon">⌁</div>
         <div class="dock-label" data-i18n="dock.api">API</div>
       </div>
+      <div class="dock-item" data-action="reports" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">📊</div>
+        <div class="dock-label" data-i18n="dock.reports">Reports</div>
+      </div>
+      <div class="dock-item" data-action="delivery-ops" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">🛰</div>
+        <div class="dock-label" data-i18n="dock.deliveryOps">Delivery Ops</div>
+      </div>
       <div class="dock-item" data-action="login" data-actions="click,dblclick,longpress">
         <div class="dock-icon">🔐</div>
         <div class="dock-label" data-i18n="dock.login">Login</div>
@@ -847,6 +1595,10 @@
       <div class="dock-item" data-action="works" data-actions="click,dblclick,longpress">
         <div class="dock-icon">🗂</div>
         <div class="dock-label" data-i18n="dock.works">Works</div>
+      </div>
+      <div class="dock-item" data-action="seller" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">💸</div>
+        <div class="dock-label">卖家</div>
       </div>
       <div class="dock-item" data-action="language" data-actions="click,dblclick,longpress">
         <div class="dock-icon">🌐</div>

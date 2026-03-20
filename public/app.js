@@ -990,11 +990,19 @@ const deliveryDashboardState = {
   crossRunIncidentSnapshots: [],
   probeSummary: null,
   probeHistory: [],
+  lyricsSeedHistory: [],
   probeOperatorNotes: "",
   probeHandoffAcknowledgments: [],
   probeTimelineCompareA: "",
   probeTimelineCompareB: "",
   probeExportReceipts: [],
+  probeDispatchDoneAt: "",
+  probeReceiptCopiedAt: "",
+  probeFollowUpCopiedAt: "",
+  probeDispatchHistory: [],
+  probeReceiptCopyHistory: [],
+  probeFollowUpCopyHistory: [],
+  probeDispatchHistoryExportAt: "",
   probeError: ""
 };
 
@@ -2164,20 +2172,10 @@ function initCreationConsole() {
     renderCreationConsole();
     showToast(t("action.clearAll"));
   });
-  lyricsRegenerate?.addEventListener("click", () => {
-    void regenerateSeedFields("lyrics");
-  });
-  styleRegenerate?.addEventListener("click", () => {
-    void regenerateSeedFields("style");
-  });
-  musicStructureRegenerate?.addEventListener("click", () => {
-    void regenerateSeedFields("structure");
-  });
-  videoOutlineRegenerate?.addEventListener("click", () => {
-    void regenerateSeedFields("outline");
-  });
-  sectionPromptsRegenerate?.addEventListener("click", () => {
-    void regenerateSeedFields("scenes");
+  lyricsRegenerate?.addEventListener("pointerdown", (event) => {
+    if (window.CSSOS_primeLyricsRegenerate) {
+      window.CSSOS_primeLyricsRegenerate(event);
+    }
   });
   creationSetDefaults?.addEventListener("click", () => {
     void saveCreationPanelDefaults(creationSetDefaults);
@@ -2264,6 +2262,74 @@ function setButtonBusy(button, busy) {
   button.classList.toggle("is-busy", !!busy);
 }
 
+window.CSSOS_primeLyricsRegenerate = function primeLyricsRegenerate(event) {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  try {
+    enterLyricSpellcast();
+  } catch {}
+  try {
+    showToast(loginCopy("Casting lyric magic...", "歌词魔法施展中..."));
+  } catch {}
+  return false;
+};
+
+window.CSSOS_forceLyricsRegenerate = function forceLyricsRegenerate(event) {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  void regenerateSeedFields("lyrics");
+  return false;
+};
+
+function refreshLyricsPresentation(title, lines) {
+  const safeTitle = String(title || state.title || "").trim();
+  const safeLines = Array.isArray(lines) ? lines : [];
+  if (lyricsEl) {
+    lyricsEl.textContent = buildLyricsText(safeTitle, safeLines);
+    lyricsEl.classList.remove("paused", "canceled");
+  }
+  if (watchLyricsEditor) {
+    watchLyricsEditor.value = safeLines.join("\n");
+  }
+  setForyouStatusVisible(true);
+  setForyouCompact(false);
+  layoutShowcasePanels();
+}
+
+function getSongSeedTitleContext() {
+  const candidates = [
+    titleInput?.value?.trim?.() || "",
+    state.songSeed?.title || "",
+    state.title || "",
+    foryouExpandedTitle?.textContent?.trim?.() || "",
+    foryouCompactTitle?.textContent?.trim?.() || ""
+  ];
+  return candidates.find((value) => String(value || "").trim()) || "";
+}
+
+function buildFallbackSongSeedTitle() {
+  const genre = String(creationState.selections?.genre || styleInput?.value || "").trim();
+  const lang = String(creationState.language || document.documentElement.lang || "zh").toLowerCase();
+  const bankTitle = lyricBank[Math.floor(Math.random() * lyricBank.length)]?.title || "";
+  if (bankTitle) return bankTitle;
+  if (lang.startsWith("zh")) {
+    return genre ? `${genre} 即兴命题` : "即兴歌词命题";
+  }
+  if (lang.startsWith("ja")) {
+    return genre ? `${genre} improvisation` : "improvisation theme";
+  }
+  return genre ? `${genre} improvisation` : "improvisation theme";
+}
+
+function ensureSongSeedTitleContext() {
+  const existing = getSongSeedTitleContext();
+  if (existing) return existing;
+  const fallback = buildFallbackSongSeedTitle();
+  if (titleInput) titleInput.value = fallback;
+  state.title = fallback;
+  return fallback;
+}
+
 async function regenerateSeedFields(target) {
   const triggerMap = {
     lyrics: lyricsRegenerate,
@@ -2273,26 +2339,46 @@ async function regenerateSeedFields(target) {
     scenes: sectionPromptsRegenerate
   };
   const trigger = triggerMap[target] || lyricsRegenerate;
-  const title = titleInput?.value?.trim() || "";
-  if (!title) {
-    showToast(t("toast.seedRefreshNeedsTitle"));
-    titleInput?.focus?.();
-    return;
-  }
+  const title = ensureSongSeedTitleContext();
   try {
     setButtonBusy(trigger, true);
+    const previousSignature = buildLyricsSeedVisualSignature({
+      title,
+      lyrics: lyricsInput?.value || compactLyricLines(state.lines || []).join("\n")
+    });
     if (target === "lyrics") {
       enterLyricSpellcast();
       showToast(loginCopy("Casting lyric magic...", "歌词魔法施展中..."));
       randomizeCreationForLyricsRefresh(title);
     }
-    const payload = await runLyricsGenerate(target === "style" ? "style_refresh" : "music_video");
-    const raw = getApiData(payload);
+    let payload = null;
+    let raw = null;
+    let normalized = null;
+    let nextSignature = "";
+    const maxAttempts = target === "lyrics" ? 3 : 1;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      payload = await runLyricsGenerate(target === "style" ? "style_refresh" : "music_video", { apply: false });
+      raw = getApiData(payload);
+      if (!payload?.ok || payload?.empty || !raw) break;
+      normalized = normalizeSongSeed(raw);
+      nextSignature = buildLyricsSeedVisualSignature(normalized);
+      if (target !== "lyrics" || !previousSignature || !nextSignature || nextSignature !== previousSignature) {
+        break;
+      }
+      if (attempt < maxAttempts) {
+        showToast(
+          loginCopy(
+            `Retrying lyric variation ${attempt + 1}/${maxAttempts}...`,
+            `歌词随机撞脸，正在重试第 ${attempt + 1}/${maxAttempts} 次...`
+          )
+        );
+      }
+    }
     if (!payload?.ok || payload?.empty || !raw) {
       showToast(t("toast.seedRefreshFailed"));
       return;
     }
-    const normalized = normalizeSongSeed(raw);
+    if (!normalized) normalized = normalizeSongSeed(raw);
     if (target === "style") {
       if (styleInput && normalized.musicStyle) styleInput.value = normalized.musicStyle;
       state.songSeed = { ...(state.songSeed || {}), ...normalized };
@@ -2329,10 +2415,21 @@ async function regenerateSeedFields(target) {
     applySongSeedToSettings(raw);
     if (target === "lyrics") {
       const universeSummary = describeSongSeedUniverse(state.songSeed);
+      const unchanged = previousSignature && nextSignature && previousSignature === nextSignature;
       showToast(
         loginCopy(
-          `Lyrics regenerated · ${[universeSummary, describeCreationRandomization()].filter(Boolean).join(" · ")}`,
-          `歌词已刷新 · ${[universeSummary, describeCreationRandomization()].filter(Boolean).join(" · ")}`
+          `${unchanged ? "Lyric refresh stayed visually similar" : "Lyrics regenerated"} · ${[
+            universeSummary,
+            describeCreationRandomization()
+          ]
+            .filter(Boolean)
+            .join(" · ")}`,
+          `${unchanged ? "歌词已重试，但这次结果仍然比较像" : "歌词已刷新"} · ${[
+            universeSummary,
+            describeCreationRandomization()
+          ]
+            .filter(Boolean)
+            .join(" · ")}`
         )
       );
       return;
@@ -3455,6 +3552,7 @@ let currentPreviewVideoHasUsableFrame = false;
 let currentPreviewFrameDataUrl = "";
 let currentPreviewFrameSequence = [];
 let currentPreviewMotionClipUrl = "";
+let currentForyouThumbFallbackDataUrl = "";
 const watchFrameCache = new Map();
 const watchFrameSequenceCache = new Map();
 let watchFrameLoopTimer = null;
@@ -3462,6 +3560,7 @@ let typingTimer;
 let progressTimer;
 let topZ = 10;
 let lyricSpellcastDepth = 0;
+let lyricSpellcastColorTimer = null;
 let lastTrailTime = 0;
 let lastTrailPoint = null;
 let watchTriggered = false;
@@ -4056,6 +4155,14 @@ function syncForyouActionButtons() {
   }
 }
 
+foryouThumbImage?.addEventListener("error", () => {
+  restoreForyouThumbFallback();
+});
+
+foryouThumbVideo?.addEventListener("error", () => {
+  restoreForyouThumbFallback();
+});
+
 function armAutoEnjoy() {
   cancelAutoEnjoy();
   autoEnjoyArmed = true;
@@ -4124,6 +4231,7 @@ function buildForyouThumbSvg(title, subtitle, lines = []) {
 function syncForyouThumbFromLyrics(title, lines = []) {
   const subtitle = `${state.style || ""} · ${state.voice || ""}`.replace(/^ · | · $/g, "");
   const fallback = buildForyouThumbSvg(title, subtitle, lines);
+  currentForyouThumbFallbackDataUrl = fallback;
   setForyouThumbImage(fallback);
   syncWatchPlaceholderFromCurrentState();
   void requestForyouThumbnail(title, subtitle, lines);
@@ -4229,6 +4337,49 @@ function describeSongSeedUniverse(seed = state.songSeed) {
   return [summary.civilization, summary.perspective, summary.emotion, summary.structure]
     .filter(Boolean)
     .join(" · ");
+}
+
+function compactLyricLines(lines = []) {
+  return (Array.isArray(lines) ? lines : [])
+    .map((line) => String(line || "").trim())
+    .filter((line) => line && !/^title\s*·/i.test(line) && !/^\[[^\]]+\]$/.test(line));
+}
+
+function buildLyricsSeedVisualSignature(seed) {
+  const normalized = normalizeSongSeed(seed);
+  const title = String(normalized?.title || "").trim();
+  const lines = compactLyricLines(String(normalized?.lyrics || "").split("\n")).slice(0, 3);
+  return [title, ...lines].filter(Boolean).join(" || ");
+}
+
+function recordLyricsSeedSnapshot(seed = state.songSeed, title = state.title, lines = state.lines) {
+  if (!seed) return;
+  const compactLines = compactLyricLines(lines).slice(0, 8);
+  const entry = {
+    at: new Date().toISOString(),
+    title: String(title || seed?.title || "").trim(),
+    seedTag: String(seed?.seedTag || "").trim(),
+    family: String(seed?.creativeSummary?.family || "").trim(),
+    civilization: String(seed?.creativeSummary?.civilization || "").trim(),
+    perspective: String(seed?.creativeSummary?.perspective || "").trim(),
+    emotion: String(seed?.creativeSummary?.emotion || "").trim(),
+    firstLine: String(compactLines[0] || "").trim(),
+    secondLine: String(compactLines[1] || "").trim(),
+    lineSignature: compactLines.slice(0, 2).join(" | ")
+  };
+  const history = Array.isArray(deliveryDashboardState.lyricsSeedHistory)
+    ? deliveryDashboardState.lyricsSeedHistory
+    : [];
+  const previous = history[history.length - 1];
+  if (
+    previous &&
+    previous.seedTag === entry.seedTag &&
+    previous.title === entry.title &&
+    previous.lineSignature === entry.lineSignature
+  ) {
+    return;
+  }
+  deliveryDashboardState.lyricsSeedHistory = [...history, entry].slice(-12);
 }
 
 function resolveSectionProfile(section) {
@@ -5535,7 +5686,9 @@ function applySongSeedToSettings(seed) {
     state.lines = lines;
     state.baseLines = lines;
     updateEnginePanels(title || state.title, lines);
+    refreshLyricsPresentation(title || state.title, lines);
     syncForyouThumbFromLyrics(title || state.title, lines);
+    recordLyricsSeedSnapshot(data, title || state.title, lines);
   }
   renderSongSeedPreview(data);
 }
@@ -5622,6 +5775,15 @@ function setForyouThumbImage(uri) {
   return true;
 }
 
+function restoreForyouThumbFallback() {
+  if (!currentForyouThumbFallbackDataUrl) {
+    syncForyouThumbFallback("fallback");
+    return false;
+  }
+  setForyouThumbImage(currentForyouThumbFallbackDataUrl);
+  return true;
+}
+
 function resetForyouThumb() {
   if (foryouThumbVideo) {
     foryouThumbVideo.pause?.();
@@ -5641,16 +5803,58 @@ function showToast(message) {
   setTimeout(() => toast.classList.remove("show"), 2200);
 }
 
+function applyRandomLyricSpellcastPalette() {
+  const spellcastPanels = [logoPanel, settingsPanel].filter(Boolean);
+  if (!spellcastPanels.length) return;
+  const hue = Math.floor(Math.random() * 360);
+  const accentHue = (hue + 36 + Math.floor(Math.random() * 88)) % 360;
+  const glowHue = (hue + 180 + Math.floor(Math.random() * 72)) % 360;
+  spellcastPanels.forEach((panel) => {
+    panel.style.setProperty(
+      "--lyric-spellcast-primary",
+      `hsla(${hue}, 100%, 64%, 0.72)`,
+    );
+    panel.style.setProperty(
+      "--lyric-spellcast-secondary",
+      `hsla(${accentHue}, 100%, 58%, 0.42)`,
+    );
+    panel.style.setProperty(
+      "--lyric-spellcast-glow",
+      `hsla(${glowHue}, 100%, 72%, 0.34)`,
+    );
+    panel.style.setProperty(
+      "--lyric-spellcast-text",
+      `hsla(${hue}, 100%, 74%, 0.44)`,
+    );
+  });
+}
+
 function enterLyricSpellcast() {
   lyricSpellcastDepth += 1;
   if (!logoPanel || lyricSpellcastDepth !== 1) return;
+  clearInterval(lyricSpellcastColorTimer);
+  applyRandomLyricSpellcastPalette();
+  lyricSpellcastColorTimer = window.setInterval(
+    applyRandomLyricSpellcastPalette,
+    220,
+  );
   logoPanel.classList.add("lyric-spellcast");
+  settingsPanel?.classList.add("lyric-spellcast-sync");
 }
 
 function exitLyricSpellcast(force = false) {
   lyricSpellcastDepth = force ? 0 : Math.max(0, lyricSpellcastDepth - 1);
   if (!logoPanel || lyricSpellcastDepth > 0) return;
+  clearInterval(lyricSpellcastColorTimer);
+  lyricSpellcastColorTimer = null;
   logoPanel.classList.remove("lyric-spellcast");
+  settingsPanel?.classList.remove("lyric-spellcast-sync");
+  [logoPanel, settingsPanel].filter(Boolean).forEach((panel) => {
+    panel.style.removeProperty("--lyric-spellcast-primary");
+    panel.style.removeProperty("--lyric-spellcast-secondary");
+    panel.style.removeProperty("--lyric-spellcast-glow");
+    panel.style.removeProperty("--lyric-spellcast-text");
+  });
 }
 
 function typewriter(el, text, speed = 24, callback) {
@@ -5663,7 +5867,6 @@ function typewriter(el, text, speed = 24, callback) {
   const step = () => {
     if (typingState.canceled) {
       if (lyricsProgress) setProgress(lyricsProgress, 0);
-      setForyouStatusVisible(false);
       exitLyricSpellcast(true);
       return;
     }
@@ -5684,7 +5887,6 @@ function typewriter(el, text, speed = 24, callback) {
       exitLyricSpellcast(true);
       callback();
     } else {
-      setForyouStatusVisible(false);
       exitLyricSpellcast(true);
     }
   };
@@ -14152,6 +14354,389 @@ function buildWatchArchiveFollowUpNoteTemplate(escalationFollowUpPrompt, escalat
   };
 }
 
+function buildWatchArchiveDispatchHistoryMiniLedger(dispatchHistory) {
+  const rows = Array.isArray(dispatchHistory) ? dispatchHistory.slice(-5).reverse() : [];
+  return rows.length
+    ? rows.map((item) =>
+        dashboardCopy(
+          `${item.at} · dispatch done`,
+          `${item.at} · 发出完成`
+        )
+      )
+    : [dashboardCopy("No dispatch history yet.", "当前还没有发出历史。")];
+}
+
+function buildWatchArchiveReceiptCopyHistoryChip(receiptCopyHistory) {
+  const latest = Array.isArray(receiptCopyHistory) ? receiptCopyHistory.slice(-1)[0] : null;
+  return latest
+    ? {
+        chip: dashboardCopy("receipt copied recently", "最近已复制回执"),
+        note: latest.fileName
+          ? `${latest.at} · ${latest.fileName}`
+          : `${latest.at}`
+      }
+    : {
+        chip: dashboardCopy("receipt not copied yet", "回执尚未复制"),
+        note: dashboardCopy(
+          "Copy the latest receipt when you need to hand it off.",
+          "需要交接时再复制最新回执。"
+        )
+      };
+}
+
+function buildWatchArchiveFollowUpSendReadyBadge(followUpCopiedAt, escalationAckTracker) {
+  const ackState = String(escalationAckTracker?.state || "").toLowerCase();
+  const ready = Boolean(followUpCopiedAt) || ackState.includes("ack");
+  return {
+    badge: ready
+      ? dashboardCopy("follow-up send-ready", "跟进可发送")
+      : dashboardCopy("follow-up not ready", "跟进未就绪"),
+    note: ready
+      ? dashboardCopy(
+          "Template copy or acknowledgment is already in place.",
+          "跟进模板复制或接手确认已经具备。"
+        )
+      : dashboardCopy(
+          "Copy the follow-up note or wait for acknowledgment first.",
+          "先复制跟进备注，或等待接手确认。"
+      )
+  };
+}
+
+function buildWatchArchiveReceiptRecencyBadge(receiptCopiedAt) {
+  if (!receiptCopiedAt) {
+    return {
+      badge: dashboardCopy("receipt not copied", "回执未复制"),
+      note: dashboardCopy(
+        "No recent receipt copy action is recorded.",
+        "当前还没有最近一次回执复制记录。"
+      )
+    };
+  }
+  const deltaMs = Math.max(0, Date.now() - new Date(receiptCopiedAt).getTime());
+  const deltaMin = Math.round(deltaMs / 60000);
+  const fresh = deltaMin <= 15;
+  return {
+    badge: fresh
+      ? dashboardCopy("receipt fresh", "回执较新")
+      : dashboardCopy("receipt aging", "回执变旧"),
+    note: dashboardCopy(
+      `Last copied about ${deltaMin} minute(s) ago.`,
+      `最近一次复制大约在 ${deltaMin} 分钟前。`
+    )
+  };
+}
+
+function buildWatchArchiveFollowUpDeliveryNote(
+  followUpNoteTemplate,
+  escalationOwnerLane,
+  followUpSendReadyBadge
+) {
+  const owner = String(escalationOwnerLane?.owner || dashboardCopy("接手人", "接手人"));
+  return {
+    headline: dashboardCopy(
+      `Delivery note for ${owner}`,
+      `给 ${owner} 的交接备注`
+    ),
+    body: dashboardCopy(
+      `${followUpSendReadyBadge.badge}. ${followUpNoteTemplate.note}`,
+      `${followUpSendReadyBadge.badge}。${followUpNoteTemplate.note}`
+    )
+  };
+}
+
+function buildWatchArchiveDispatchHandoffBundleCard(
+  dispatchHistoryMiniLedger,
+  handoffPacketPreview,
+  dispatchHistoryExportAt
+) {
+  return {
+    headline: dashboardCopy(
+      "Dispatch handoff bundle is ready",
+      "发出交接包已就绪"
+    ),
+    rows: [
+      ...(Array.isArray(dispatchHistoryMiniLedger) ? dispatchHistoryMiniLedger.slice(0, 3) : []),
+      ...((handoffPacketPreview?.rows || []).slice(0, 2)),
+      dispatchHistoryExportAt
+        ? dashboardCopy(
+            `Last bundle export ${dispatchHistoryExportAt}`,
+            `最近一次交接包导出：${dispatchHistoryExportAt}`
+          )
+        : dashboardCopy(
+            "Bundle has not been exported yet.",
+            "交接包还没有导出。"
+          )
+    ]
+  };
+}
+
+function buildWatchArchiveReceiptStalenessAlert(receiptRecencyBadge) {
+  const stale = String(receiptRecencyBadge?.badge || "").includes("aging") || String(receiptRecencyBadge?.badge || "").includes("变旧");
+  return {
+    level: stale ? dashboardCopy("watch", "关注") : dashboardCopy("normal", "正常"),
+    headline: stale
+      ? dashboardCopy("Receipt follow-up is starting to age", "回执跟进开始变旧")
+      : dashboardCopy("Receipt follow-up is still fresh", "回执跟进仍然较新"),
+    note: String(receiptRecencyBadge?.note || "")
+  };
+}
+
+function buildWatchArchiveFollowUpDeliveryReceipt(
+  followUpCopiedAt,
+  followUpDeliveryNote,
+  escalationAckTracker
+) {
+  return {
+    headline: followUpCopiedAt
+      ? dashboardCopy("Follow-up delivery receipt recorded", "已记录跟进交接回执")
+      : dashboardCopy("Follow-up delivery receipt pending", "跟进交接回执待记录"),
+    rows: [
+      followUpCopiedAt
+        ? dashboardCopy(
+            `Last delivery copy ${followUpCopiedAt}`,
+            `最近一次交接备注复制：${followUpCopiedAt}`
+          )
+        : dashboardCopy(
+            "No follow-up delivery copy has been recorded yet.",
+            "当前还没有记录跟进交接备注复制。"
+          ),
+      String(followUpDeliveryNote?.body || ""),
+      dashboardCopy(
+        `Escalation state · ${escalationAckTracker?.state || "unknown"}`,
+        `升级状态 · ${escalationAckTracker?.state || "未知"}`
+      )
+    ]
+  };
+}
+
+function buildLyricsFallbackDiversityAudit(history = []) {
+  const rows = Array.isArray(history) ? history : [];
+  const families = new Set(rows.map((item) => String(item.family || "")).filter(Boolean));
+  const titles = new Set(rows.map((item) => String(item.title || "")).filter(Boolean));
+  const firstLines = new Set(rows.map((item) => String(item.firstLine || "")).filter(Boolean));
+  const score = Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round(
+        families.size * 24 +
+          titles.size * 12 +
+          firstLines.size * 8 +
+          Math.min(rows.length, 6) * 4
+      )
+    )
+  );
+  const level =
+    score >= 72
+      ? dashboardCopy("healthy spread", "多样性健康")
+      : score >= 44
+        ? dashboardCopy("mixed spread", "多样性一般")
+        : dashboardCopy("collapsed spread", "多样性塌缩");
+  return {
+    level,
+    score,
+    note: dashboardCopy(
+      `Families ${families.size} · titles ${titles.size} · first lines ${firstLines.size} across ${rows.length} recent seed(s).`,
+      `最近 ${rows.length} 次 seed 里，家族 ${families.size} 个 · 标题 ${titles.size} 个 · 首句 ${firstLines.size} 个。`
+    )
+  };
+}
+
+function buildLyricsSeedSpreadCard(history = []) {
+  const rows = (Array.isArray(history) ? history : []).slice(-6).reverse();
+  return {
+    headline: dashboardCopy("Recent seed spread", "最近 seed 扩散"),
+    rows: rows.length
+      ? rows.map((item) =>
+          dashboardCopy(
+            `${item.at} · ${item.seedTag || "no-tag"} · ${item.family || "unknown family"} · ${item.title || "untitled"}`,
+            `${item.at} · ${item.seedTag || "无标记"} · ${item.family || "未知家族"} · ${item.title || "未命名"}`
+          )
+        )
+      : [dashboardCopy("No recent seed spread yet.", "当前还没有最近 seed 扩散记录。")]
+  };
+}
+
+function buildLyricsRepeatedPhraseAlarm(history = []) {
+  const rows = Array.isArray(history) ? history : [];
+  const firstLineCounts = new Map();
+  rows.forEach((item) => {
+    const line = String(item.firstLine || "").trim();
+    if (!line) return;
+    firstLineCounts.set(line, (firstLineCounts.get(line) || 0) + 1);
+  });
+  const repeated = [...firstLineCounts.entries()].find(([, count]) => count >= 2);
+  const suspiciousPhrases = ["不是口号", "先露出侧脸", "roulette rose", "Surreal cabaret"];
+  const suspiciousHit = rows.find((item) =>
+    suspiciousPhrases.some((phrase) =>
+      [item.firstLine, item.secondLine, item.family, item.title].some((part) =>
+        String(part || "").includes(phrase)
+      )
+    )
+  );
+  const alert =
+    suspiciousHit || repeated
+      ? dashboardCopy("repeat risk detected", "检测到重复风险")
+      : dashboardCopy("no repeat alarm", "未发现重复报警");
+  const note = suspiciousHit
+    ? dashboardCopy(
+        `Suspicious fixed phrase surfaced again near "${suspiciousHit.firstLine || suspiciousHit.title || "unknown"}".`,
+        `可疑固定短语再次出现，位置接近“${suspiciousHit.firstLine || suspiciousHit.title || "未知"}”。`
+      )
+    : repeated
+      ? dashboardCopy(
+          `Repeated first line "${repeated[0]}" appeared ${repeated[1]} times in recent seeds.`,
+          `重复首句“${repeated[0]}”在最近 seed 中出现了 ${repeated[1]} 次。`
+        )
+      : dashboardCopy(
+          "Recent seeds do not show an obvious repeated-phrase collapse.",
+          "最近几次 seed 暂时没有出现明显的重复句塌缩。"
+        );
+  return { alert, note };
+}
+
+function buildLyricsUniverseRotationLane(history = []) {
+  const rows = (Array.isArray(history) ? history : []).slice(-6).reverse();
+  const civilizations = rows
+    .map((item) => String(item.civilization || item.family || "").trim())
+    .filter(Boolean);
+  const unique = new Set(civilizations);
+  return {
+    headline: dashboardCopy("Universe rotation lane", "宇宙轮换轨道"),
+    note: dashboardCopy(
+      `Recent rotations ${unique.size}/${Math.max(civilizations.length, 1)} unique worlds.`,
+      `最近轮换 ${unique.size}/${Math.max(civilizations.length, 1)} 个独特宇宙。`
+    ),
+    rows: rows.length
+      ? rows.map((item) =>
+          dashboardCopy(
+            `${item.at} · ${item.civilization || item.family || "unknown world"}`,
+            `${item.at} · ${item.civilization || item.family || "未知宇宙"}`
+          )
+        )
+      : [dashboardCopy("No universe rotation history yet.", "当前还没有宇宙轮换历史。")]
+  };
+}
+
+function buildLyricsTitleRepetitionMeter(history = []) {
+  const rows = Array.isArray(history) ? history : [];
+  const counts = new Map();
+  rows.forEach((item) => {
+    const title = String(item.title || "").trim();
+    if (!title) return;
+    counts.set(title, (counts.get(title) || 0) + 1);
+  });
+  const repeated = [...counts.entries()].filter(([, count]) => count >= 2);
+  const worst = repeated.sort((a, b) => b[1] - a[1])[0];
+  return {
+    meter: repeated.length
+      ? dashboardCopy("title repetition detected", "检测到标题撞车")
+      : dashboardCopy("title spread looks healthy", "标题分布看起来健康"),
+    note: worst
+      ? dashboardCopy(
+          `"${worst[0]}" appeared ${worst[1]} times in recent seeds.`,
+          `“${worst[0]}”在最近 seed 中出现了 ${worst[1]} 次。`
+        )
+      : dashboardCopy(
+          "Recent seed titles do not show obvious collisions.",
+          "最近几次 seed 标题暂时没有明显撞车。"
+        )
+  };
+}
+
+function buildLyricsFallbackPhraseBlacklistCard(history = []) {
+  const rows = Array.isArray(history) ? history : [];
+  const blacklist = ["不是口号", "先露出侧脸", "roulette rose", "Surreal cabaret", "玉京长歌"];
+  const hits = blacklist.filter((phrase) =>
+    rows.some((item) =>
+      [item.title, item.firstLine, item.secondLine, item.family, item.civilization].some((part) =>
+        String(part || "").includes(phrase)
+      )
+    )
+  );
+  return {
+    headline: dashboardCopy("Fallback phrase blacklist", "fallback 短语黑名单"),
+    note: hits.length
+      ? dashboardCopy(
+          `Flagged phrases seen recently: ${hits.join(" · ")}`,
+          `最近命中的黑名单短语：${hits.join(" · ")}`
+        )
+      : dashboardCopy(
+          "No blacklisted fallback phrases were seen in recent seeds.",
+          "最近几次 seed 没有命中黑名单短语。"
+      )
+  };
+}
+
+function buildLyricsDiversityTimelineStrip(history = []) {
+  const rows = (Array.isArray(history) ? history : []).slice(-8);
+  if (!rows.length) {
+    return {
+      headline: dashboardCopy("No diversity timeline yet", "当前还没有随机性时间线"),
+      chips: [dashboardCopy("Waiting for more lyric generations.", "等待更多歌词生成样本。")]
+    };
+  }
+  const chips = rows.map((item, index) => {
+    const family = String(item.family || item.civilization || "unknown").trim();
+    const shortFamily = family.length > 18 ? `${family.slice(0, 18)}…` : family;
+    return dashboardCopy(
+      `${index + 1}. ${item.title || "untitled"} · ${shortFamily}`,
+      `${index + 1}. ${item.title || "未命名"} · ${shortFamily || "未知"}`
+    );
+  });
+  return {
+    headline: dashboardCopy("Diversity timeline strip", "随机性时间线条"),
+    chips
+  };
+}
+
+function buildLyricsTitleCollisionWatchlist(history = []) {
+  const rows = Array.isArray(history) ? history : [];
+  const counts = new Map();
+  rows.forEach((item) => {
+    const title = String(item.title || "").trim();
+    if (!title) return;
+    counts.set(title, (counts.get(title) || 0) + 1);
+  });
+  const collisions = [...counts.entries()]
+    .filter(([, count]) => count >= 2)
+    .sort((a, b) => b[1] - a[1]);
+  return {
+    headline: dashboardCopy("Title collision watchlist", "标题撞车观察名单"),
+    rows: collisions.length
+      ? collisions.map(([title, count]) =>
+          dashboardCopy(`"${title}" repeated ${count} times`, `“${title}”重复了 ${count} 次`)
+        )
+      : [dashboardCopy("No repeated titles in recent history.", "最近历史里没有重复标题。")]
+  };
+}
+
+function buildLyricsBlacklistHitHistory(history = []) {
+  const rows = Array.isArray(history) ? history : [];
+  const blacklist = ["不是口号", "先露出侧脸", "roulette rose", "Surreal cabaret", "玉京长歌"];
+  const hits = rows
+    .map((item) => {
+      const matched = blacklist.filter((phrase) =>
+        [item.title, item.firstLine, item.secondLine, item.family, item.civilization].some((part) =>
+          String(part || "").includes(phrase)
+        )
+      );
+      if (!matched.length) return null;
+      return dashboardCopy(
+        `${item.at} · ${item.title || "untitled"} · ${matched.join(" / ")}`,
+        `${item.at} · ${item.title || "未命名"} · ${matched.join(" / ")}`
+      );
+    })
+    .filter(Boolean);
+  return {
+    headline: dashboardCopy("Blacklist hit history", "黑名单命中历史"),
+    rows: hits.length
+      ? hits
+      : [dashboardCopy("No blacklist hits in recent lyric history.", "最近歌词历史里没有黑名单命中。")]
+  };
+}
+
 function buildWatchArchiveCrossBorderAnomalyAlert(probeSummary) {
   const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
   const conclusion = payload?.conclusion || {};
@@ -15931,6 +16516,106 @@ function bindMusicDeliveryPreviewButtons() {
         }
       ];
       renderMusicDeliveryDashboard();
+    });
+  });
+  deliveryDashboardBody.querySelectorAll("[data-delivery-probe-dispatch-done]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const at = new Date().toISOString();
+      deliveryDashboardState.probeDispatchDoneAt = at;
+      deliveryDashboardState.probeDispatchHistory = [
+        ...(Array.isArray(deliveryDashboardState.probeDispatchHistory)
+          ? deliveryDashboardState.probeDispatchHistory
+          : []),
+        { at }
+      ];
+      showToast(dashboardCopy("Dispatch marked done", "已标记发出完成"));
+      renderMusicDeliveryDashboard();
+    });
+  });
+  deliveryDashboardBody.querySelectorAll("[data-delivery-probe-dispatch-history-export]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const payload = {
+        exported_at: new Date().toISOString(),
+        dispatch_history: Array.isArray(deliveryDashboardState.probeDispatchHistory)
+          ? deliveryDashboardState.probeDispatchHistory
+          : []
+      };
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const fileName = `zh_probe_dispatch_history_${stamp}.json`;
+      downloadJsonArtifact(payload, fileName);
+      deliveryDashboardState.probeDispatchHistoryExportAt = payload.exported_at;
+      showToast(dashboardCopy("Dispatch history exported", "发出历史已导出"));
+      renderMusicDeliveryDashboard();
+    });
+  });
+  deliveryDashboardBody.querySelectorAll("[data-delivery-probe-receipt-copy]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const latestReceipt = Array.isArray(deliveryDashboardState.probeExportReceipts)
+        ? deliveryDashboardState.probeExportReceipts.slice(-1)[0]
+        : null;
+      const body = latestReceipt
+        ? `${latestReceipt.at} · ${latestReceipt.fileName}`
+        : dashboardCopy("No export receipt is available yet.", "当前还没有导出回执。");
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(body);
+        } else {
+          const fallback = document.createElement("textarea");
+          fallback.value = body;
+          document.body.appendChild(fallback);
+          fallback.select();
+          document.execCommand("copy");
+          fallback.remove();
+        }
+        const at = new Date().toISOString();
+        deliveryDashboardState.probeReceiptCopiedAt = at;
+        deliveryDashboardState.probeReceiptCopyHistory = [
+          ...(Array.isArray(deliveryDashboardState.probeReceiptCopyHistory)
+            ? deliveryDashboardState.probeReceiptCopyHistory
+            : []),
+          {
+            at,
+            fileName: String(latestReceipt?.fileName || "")
+          }
+        ];
+        showToast(dashboardCopy("Receipt copied", "回执已复制"));
+        renderMusicDeliveryDashboard();
+      } catch {
+        showToast(dashboardCopy("Receipt copy failed", "回执复制失败"));
+      }
+    });
+  });
+  deliveryDashboardBody.querySelectorAll("[data-delivery-probe-followup-copy]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const body = String(button.getAttribute("data-delivery-probe-followup-copy") || "");
+      if (!body) return;
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(body);
+        } else {
+          const fallback = document.createElement("textarea");
+          fallback.value = body;
+          document.body.appendChild(fallback);
+          fallback.select();
+          document.execCommand("copy");
+          fallback.remove();
+        }
+        const at = new Date().toISOString();
+        deliveryDashboardState.probeFollowUpCopiedAt = at;
+        deliveryDashboardState.probeFollowUpCopyHistory = [
+          ...(Array.isArray(deliveryDashboardState.probeFollowUpCopyHistory)
+            ? deliveryDashboardState.probeFollowUpCopyHistory
+            : []),
+          {
+            at,
+            note: body
+          }
+        ];
+        showToast(dashboardCopy("Follow-up copied", "跟进备注已复制"));
+        renderMusicDeliveryDashboard();
+      } catch {
+        showToast(dashboardCopy("Follow-up copy failed", "跟进备注复制失败"));
+      }
     });
   });
   deliveryDashboardBody.querySelectorAll("[data-delivery-probe-compare-select]").forEach((select) => {
@@ -25067,6 +25752,37 @@ function renderMusicDeliveryDashboard() {
     escalationFollowUpPrompt,
     escalationOwnerLane
   );
+  const dispatchHistoryMiniLedger = buildWatchArchiveDispatchHistoryMiniLedger(
+    deliveryDashboardState.probeDispatchHistory
+  );
+  const receiptCopyHistoryChip = buildWatchArchiveReceiptCopyHistoryChip(
+    deliveryDashboardState.probeReceiptCopyHistory
+  );
+  const followUpSendReadyBadge = buildWatchArchiveFollowUpSendReadyBadge(
+    deliveryDashboardState.probeFollowUpCopiedAt,
+    escalationAckTracker
+  );
+  const receiptRecencyBadge = buildWatchArchiveReceiptRecencyBadge(
+    deliveryDashboardState.probeReceiptCopiedAt
+  );
+  const followUpDeliveryNote = buildWatchArchiveFollowUpDeliveryNote(
+    followUpNoteTemplate,
+    escalationOwnerLane,
+    followUpSendReadyBadge
+  );
+  const dispatchHandoffBundleCard = buildWatchArchiveDispatchHandoffBundleCard(
+    dispatchHistoryMiniLedger,
+    handoffPacketPreview,
+    deliveryDashboardState.probeDispatchHistoryExportAt
+  );
+  const receiptStalenessAlert = buildWatchArchiveReceiptStalenessAlert(
+    receiptRecencyBadge
+  );
+  const followUpDeliveryReceipt = buildWatchArchiveFollowUpDeliveryReceipt(
+    deliveryDashboardState.probeFollowUpCopiedAt,
+    followUpDeliveryNote,
+    escalationAckTracker
+  );
   const regionLinkConclusionHtml = deliveryDashboardState.probeSummary
     ? `
         <div class="report-list">
@@ -25268,6 +25984,44 @@ function renderMusicDeliveryDashboard() {
             <div class="report-preview-title">Dispatch Outcome Badge</div>
             <div class="report-card-copy">${escapeHtml(dispatchOutcomeBadge.badge)}</div>
             <div class="report-card-copy">${escapeHtml(dispatchOutcomeBadge.note)}</div>
+            <div class="report-export-actions" style="flex-wrap:wrap; margin-top:8px;">
+              <button class="report-export-action is-muted" type="button" data-delivery-probe-dispatch-done>${escapeHtml(
+                dashboardCopy("Mark dispatch done", "标记发出完成")
+              )}</button>
+              <button class="report-export-action is-muted" type="button" data-delivery-probe-dispatch-history-export>${escapeHtml(
+                dashboardCopy("Export dispatch history", "导出发出历史")
+              )}</button>
+            </div>
+            ${
+              deliveryDashboardState.probeDispatchDoneAt
+                ? `<div class="report-card-copy">${escapeHtml(
+                    dashboardCopy(
+                      `Last marked done at ${deliveryDashboardState.probeDispatchDoneAt}`,
+                      `最近一次标记完成时间：${deliveryDashboardState.probeDispatchDoneAt}`
+                    )
+                  )}</div>`
+                : ""
+            }
+            ${dispatchHistoryMiniLedger
+              .map((item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`)
+              .join("")}
+            ${
+              deliveryDashboardState.probeDispatchHistoryExportAt
+                ? `<div class="report-card-copy">${escapeHtml(
+                    dashboardCopy(
+                      `History exported at ${deliveryDashboardState.probeDispatchHistoryExportAt}`,
+                      `历史导出时间：${deliveryDashboardState.probeDispatchHistoryExportAt}`
+                    )
+                  )}</div>`
+                : ""
+            }
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Dispatch Handoff Bundle Card</div>
+            <div class="report-card-copy">${escapeHtml(dispatchHandoffBundleCard.headline)}</div>
+            ${dispatchHandoffBundleCard.rows
+              .map((item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`)
+              .join("")}
           </div>
           <div class="report-list-item">
             <div class="report-preview-title">Packet Handoff Receipt Card</div>
@@ -25281,6 +26035,32 @@ function renderMusicDeliveryDashboard() {
             ${receiptTimelineStrip
               .map((item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`)
               .join("")}
+            <div class="report-card-copy">${escapeHtml(receiptCopyHistoryChip.chip)}</div>
+            <div class="report-card-copy">${escapeHtml(receiptCopyHistoryChip.note)}</div>
+            <div class="report-card-copy">${escapeHtml(receiptRecencyBadge.badge)}</div>
+            <div class="report-card-copy">${escapeHtml(receiptRecencyBadge.note)}</div>
+            <div class="report-export-actions" style="flex-wrap:wrap; margin-top:8px;">
+              <button class="report-export-action is-muted" type="button" data-delivery-probe-receipt-copy>${escapeHtml(
+                dashboardCopy("Copy latest receipt", "复制最新回执")
+              )}</button>
+            </div>
+            ${
+              deliveryDashboardState.probeReceiptCopiedAt
+                ? `<div class="report-card-copy">${escapeHtml(
+                    dashboardCopy(
+                      `Receipt copied at ${deliveryDashboardState.probeReceiptCopiedAt}`,
+                      `回执复制时间：${deliveryDashboardState.probeReceiptCopiedAt}`
+                    )
+                  )}</div>`
+                : ""
+            }
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Receipt Staleness Alert</div>
+            <div class="report-card-copy">${escapeHtml(
+              `${receiptStalenessAlert.level} · ${receiptStalenessAlert.headline}`
+            )}</div>
+            <div class="report-card-copy">${escapeHtml(receiptStalenessAlert.note)}</div>
           </div>
           <div class="report-list-item">
             <div class="report-preview-title">On-Call Action Checklist</div>
@@ -25668,6 +26448,37 @@ function renderMusicDeliveryDashboard() {
           <div class="report-list-item">
             <div class="report-preview-title">Follow-Up Note Template</div>
             <div class="report-card-copy">${escapeHtml(followUpNoteTemplate.note)}</div>
+            <div class="report-card-copy">${escapeHtml(followUpSendReadyBadge.badge)}</div>
+            <div class="report-card-copy">${escapeHtml(followUpSendReadyBadge.note)}</div>
+            <div class="report-preview-title" style="margin-top:8px;">${escapeHtml(
+              dashboardCopy("Follow-Up Delivery Note", "跟进交接备注")
+            )}</div>
+            <div class="report-card-copy">${escapeHtml(followUpDeliveryNote.headline)}</div>
+            <div class="report-card-copy">${escapeHtml(followUpDeliveryNote.body)}</div>
+            <div class="report-export-actions" style="flex-wrap:wrap; margin-top:8px;">
+              <button class="report-export-action is-muted" type="button" data-delivery-probe-followup-copy="${escapeHtml(
+                followUpDeliveryNote.body
+              )}">${escapeHtml(
+                dashboardCopy("Copy follow-up note", "复制跟进备注")
+              )}</button>
+            </div>
+            ${
+              deliveryDashboardState.probeFollowUpCopiedAt
+                ? `<div class="report-card-copy">${escapeHtml(
+                    dashboardCopy(
+                      `Follow-up copied at ${deliveryDashboardState.probeFollowUpCopiedAt}`,
+                      `跟进备注复制时间：${deliveryDashboardState.probeFollowUpCopiedAt}`
+                    )
+                  )}</div>`
+                : ""
+            }
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Follow-Up Delivery Receipt</div>
+            <div class="report-card-copy">${escapeHtml(followUpDeliveryReceipt.headline)}</div>
+            ${followUpDeliveryReceipt.rows
+              .map((item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`)
+              .join("")}
           </div>
         </div>
       `
@@ -25740,6 +26551,34 @@ function renderMusicDeliveryDashboard() {
     `;
   }
 
+  const lyricsFallbackDiversityAudit = buildLyricsFallbackDiversityAudit(
+    deliveryDashboardState.lyricsSeedHistory
+  );
+  const lyricsSeedSpreadCard = buildLyricsSeedSpreadCard(
+    deliveryDashboardState.lyricsSeedHistory
+  );
+  const lyricsRepeatedPhraseAlarm = buildLyricsRepeatedPhraseAlarm(
+    deliveryDashboardState.lyricsSeedHistory
+  );
+  const lyricsUniverseRotationLane = buildLyricsUniverseRotationLane(
+    deliveryDashboardState.lyricsSeedHistory
+  );
+  const lyricsTitleRepetitionMeter = buildLyricsTitleRepetitionMeter(
+    deliveryDashboardState.lyricsSeedHistory
+  );
+  const lyricsFallbackPhraseBlacklistCard = buildLyricsFallbackPhraseBlacklistCard(
+    deliveryDashboardState.lyricsSeedHistory
+  );
+  const lyricsDiversityTimelineStrip = buildLyricsDiversityTimelineStrip(
+    deliveryDashboardState.lyricsSeedHistory
+  );
+  const lyricsTitleCollisionWatchlist = buildLyricsTitleCollisionWatchlist(
+    deliveryDashboardState.lyricsSeedHistory
+  );
+  const lyricsBlacklistHitHistory = buildLyricsBlacklistHitHistory(
+    deliveryDashboardState.lyricsSeedHistory
+  );
+
   deliveryDashboardBody.innerHTML = `
     <div class="report-result-stats">
       ${rows
@@ -25755,6 +26594,70 @@ function renderMusicDeliveryDashboard() {
     </div>
     <div class="report-section-title">Notes</div>
     <div class="report-list">${noteItems}</div>
+    <div class="report-section-title">Lyrics Diversity</div>
+    <div class="report-list">
+      <div class="report-list-item">
+        <div class="report-preview-title">Fallback Diversity Audit</div>
+        <div class="report-card-copy">${escapeHtml(
+          dashboardCopy(
+            `${lyricsFallbackDiversityAudit.level} · score ${lyricsFallbackDiversityAudit.score}/100`,
+            `${lyricsFallbackDiversityAudit.level} · 分数 ${lyricsFallbackDiversityAudit.score}/100`
+          )
+        )}</div>
+        <div class="report-card-copy">${escapeHtml(lyricsFallbackDiversityAudit.note)}</div>
+      </div>
+      <div class="report-list-item">
+        <div class="report-preview-title">Seed Spread Card</div>
+        <div class="report-card-copy">${escapeHtml(lyricsSeedSpreadCard.headline)}</div>
+        ${lyricsSeedSpreadCard.rows
+          .map((item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`)
+          .join("")}
+      </div>
+      <div class="report-list-item">
+        <div class="report-preview-title">Repeated-Phrase Alarm</div>
+        <div class="report-card-copy">${escapeHtml(lyricsRepeatedPhraseAlarm.alert)}</div>
+        <div class="report-card-copy">${escapeHtml(lyricsRepeatedPhraseAlarm.note)}</div>
+      </div>
+      <div class="report-list-item">
+        <div class="report-preview-title">Universe Rotation Lane</div>
+        <div class="report-card-copy">${escapeHtml(lyricsUniverseRotationLane.headline)}</div>
+        <div class="report-card-copy">${escapeHtml(lyricsUniverseRotationLane.note)}</div>
+        ${lyricsUniverseRotationLane.rows
+          .map((item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`)
+          .join("")}
+      </div>
+      <div class="report-list-item">
+        <div class="report-preview-title">Title Repetition Meter</div>
+        <div class="report-card-copy">${escapeHtml(lyricsTitleRepetitionMeter.meter)}</div>
+        <div class="report-card-copy">${escapeHtml(lyricsTitleRepetitionMeter.note)}</div>
+      </div>
+      <div class="report-list-item">
+        <div class="report-preview-title">Fallback Phrase Blacklist Card</div>
+        <div class="report-card-copy">${escapeHtml(lyricsFallbackPhraseBlacklistCard.headline)}</div>
+        <div class="report-card-copy">${escapeHtml(lyricsFallbackPhraseBlacklistCard.note)}</div>
+      </div>
+      <div class="report-list-item">
+        <div class="report-preview-title">Diversity Timeline Strip</div>
+        <div class="report-card-copy">${escapeHtml(lyricsDiversityTimelineStrip.headline)}</div>
+        ${lyricsDiversityTimelineStrip.chips
+          .map((item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`)
+          .join("")}
+      </div>
+      <div class="report-list-item">
+        <div class="report-preview-title">Title Collision Watchlist</div>
+        <div class="report-card-copy">${escapeHtml(lyricsTitleCollisionWatchlist.headline)}</div>
+        ${lyricsTitleCollisionWatchlist.rows
+          .map((item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`)
+          .join("")}
+      </div>
+      <div class="report-list-item">
+        <div class="report-preview-title">Blacklist Hit History</div>
+        <div class="report-card-copy">${escapeHtml(lyricsBlacklistHitHistory.headline)}</div>
+        ${lyricsBlacklistHitHistory.rows
+          .map((item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`)
+          .join("")}
+      </div>
+    </div>
     <div class="report-section-title">Region Link Conclusion</div>
     ${regionLinkConclusionHtml}
     <div class="report-section-title">Package Browser</div>
@@ -29736,9 +30639,6 @@ function markCreationFinished() {
 
 function finishCreationSession() {
   markCreationFinished();
-  if (!typingState.paused && !typingState.canceled) {
-    setForyouStatusVisible(false);
-  }
 }
 
 async function startCreation(customTitle, customLyrics) {
@@ -29790,7 +30690,6 @@ async function startCreation(customTitle, customLyrics) {
     watchPanel.classList.add("hidden");
     updateDockVisibility();
     typewriter(lyricsEl, lyricText, 18, () => {
-      setForyouStatusVisible(false);
       setForyouCompact(true);
       layoutShowcasePanels();
     });
@@ -30054,14 +30953,16 @@ async function submitMicTranscription(blob) {
   }
 }
 
-async function runLyricsGenerate(mode) {
+async function runLyricsGenerate(mode, options = {}) {
   songSeedVariationCounter += 1;
   const jobId = getMicJobId();
+  const title = getSongSeedTitleContext();
+  const apply = options?.apply !== false;
   const payload = {
     job_id: jobId,
     mode,
     transcript: micState.transcript || "",
-    title: titleInput?.value?.trim() || "",
+    title,
     style: styleInput?.value?.trim() || state.style || "",
     voice: voiceInput?.value?.trim() || state.voice || "",
     language: creationState.language || document.documentElement.lang || "zh",
@@ -30073,7 +30974,7 @@ async function runLyricsGenerate(mode) {
     body: JSON.stringify(payload)
   });
   const json = await res.json().catch(() => null);
-  if (json?.ok && !json?.empty) {
+  if (apply && json?.ok && !json?.empty) {
     applySongSeedToSettings(json.data || json);
   }
   return json;
@@ -30116,7 +31017,6 @@ async function startCreationWithLyrics(title, lyricsText) {
     watchPanel.classList.add("hidden");
     updateDockVisibility();
     typewriter(lyricsEl, lyricText, 18, () => {
-      setForyouStatusVisible(false);
       setForyouCompact(true);
       layoutShowcasePanels();
     });
@@ -31049,6 +31949,34 @@ function attachGlobalActionDispatcher() {
   document.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
+    const seedRegenerateEl = target.closest(
+      "#lyrics-regenerate, #style-regenerate, #music-structure-regenerate, #video-outline-regenerate, #section-prompts-regenerate"
+    );
+    if (seedRegenerateEl instanceof HTMLElement) {
+      event.preventDefault();
+      event.stopPropagation();
+      const id = seedRegenerateEl.id || "";
+      if (id === "lyrics-regenerate") {
+        void regenerateSeedFields("lyrics");
+        return;
+      }
+      if (id === "style-regenerate") {
+        void regenerateSeedFields("style");
+        return;
+      }
+      if (id === "music-structure-regenerate") {
+        void regenerateSeedFields("structure");
+        return;
+      }
+      if (id === "video-outline-regenerate") {
+        void regenerateSeedFields("outline");
+        return;
+      }
+      if (id === "section-prompts-regenerate") {
+        void regenerateSeedFields("scenes");
+        return;
+      }
+    }
     if (target.closest(".dock-item")) return;
     const actionEl = target.closest("[data-action]");
     if (!actionEl) return;

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::dag::Dag;
 use serde_json::json;
 use std::{fs, path::Path};

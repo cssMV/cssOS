@@ -1,7 +1,9 @@
-use crate::dag::{cssmv_dag_v1, Dag};
+use crate::dag::{cssmv_dag_active, Dag};
 use crate::dag_export;
 use crate::dag_viz_html;
+use crate::engines;
 use crate::events;
+use crate::immersion_engine::runtime::ImmersionEngine;
 use crate::metrics;
 use crate::procutil;
 use crate::ready::{
@@ -11,6 +13,10 @@ use crate::run_state::{RunState, RunStatus, StageRecord, StageStatus};
 use crate::run_state_io::save_state_atomic;
 use crate::run_store;
 use crate::scheduler::Scheduler;
+use crate::schema_keys::{
+    is_video_assemble_stage, is_video_plan_stage, is_video_shot_stage, video_shot_stage_key,
+    VIDEO_ASSEMBLE_STAGE, VIDEO_PLAN_STAGE, VIDEO_SHOT_LEGACY_PREFIX, VIDEO_SHOT_PREFIX,
+};
 use crate::video::duration::probe_media_duration_s;
 use crate::video::storyboard::{ensure_storyboard_auto, AutoShotConfig};
 use anyhow::Result;
@@ -20,7 +26,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
-use std::thread;
 use std::time::{Duration, Instant};
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
@@ -53,6 +58,62 @@ fn bump_event(
         },
     };
     crate::events::bump_event(st, event_kind, &stage, &status, now_rfc3339(), Some(meta));
+}
+
+fn build_immersion_scheduler(state: &RunState) -> Scheduler {
+    let pos = state
+        .viewer_position
+        .unwrap_or(crate::physics_engine::types::Vec3::new(0.0, 0.0, 0.0));
+    let engine = ImmersionEngine::new(state.immersion.clone(), state.immersion_zones.clone());
+    Scheduler::from_immersion(engine.snapshot_at(pos))
+}
+
+fn film_runtime_enabled(st: &RunState) -> bool {
+    st.commands
+        .get("film_runtime")
+        .and_then(|x| x.get("enabled"))
+        .and_then(|x| x.as_bool())
+        .unwrap_or(false)
+}
+
+fn film_runtime_mode(st: &RunState) -> crate::film_runtime::types::RuntimeMode {
+    match st
+        .commands
+        .get("film_runtime")
+        .and_then(|x| x.get("mode"))
+        .and_then(|x| x.as_str())
+        .unwrap_or("interactive_film")
+    {
+        "passive_playback" => crate::film_runtime::types::RuntimeMode::PassivePlayback,
+        "spatial_film" => crate::film_runtime::types::RuntimeMode::SpatialFilm,
+        _ => crate::film_runtime::types::RuntimeMode::InteractiveFilm,
+    }
+}
+
+fn maybe_tick_film_runtime(st: &mut RunState) -> Result<()> {
+    if !film_runtime_enabled(st) {
+        return Ok(());
+    }
+
+    let mut runtime = crate::film_runtime::runtime::FilmRuntime::from_run_state(st);
+    runtime.config.mode = film_runtime_mode(st);
+    let _update = runtime.tick(crate::film_runtime::types::RuntimeTickReason::Frame);
+    runtime.write_back(st);
+
+    let snapshot = runtime.snapshot();
+    crate::run_store::save_film_runtime_snapshot(&st.run_id, &snapshot)?;
+    crate::run_store::save_film_runtime_events(&st.run_id, &runtime.events.bus.history)?;
+    crate::runtime_replay::storage::save_runtime_events(&st.run_id, &runtime.events.bus.history)?;
+    crate::runtime_replay::storage::save_replay_manifest(
+        &st.run_id,
+        &crate::runtime_replay::types::ReplayManifest {
+            replayable: true,
+            total_events: runtime.events.bus.history.len(),
+            latest_checkpoint_event_index: None,
+        },
+    )?;
+
+    Ok(())
 }
 
 fn stage_has_gate_meta(rec: &StageRecord) -> bool {
@@ -215,14 +276,14 @@ fn stage_plan(
             ),
         ),
         (
-            "video_plan",
+            VIDEO_PLAN_STAGE,
             (
                 "internal:video_plan".to_string(),
                 vec![PathBuf::from("./video/storyboard.json")],
             ),
         ),
         (
-            "video_assemble",
+            VIDEO_ASSEMBLE_STAGE,
             (
                 "echo video assemble by internal dispatch".to_string(),
                 vec![PathBuf::from("./build/video/video.mp4")],
@@ -258,37 +319,315 @@ fn backoff_delay(base: u64, attempt: u32) -> u64 {
 
 fn is_video_stage(stage: &str) -> bool {
     stage == "video"
-        || stage == "video_plan"
-        || stage == "video_assemble"
+        || is_video_plan_stage(&stage)
+        || is_video_assemble_stage(&stage)
         || stage == "mix"
         || stage == "subtitles"
         || stage == "render"
         || is_video_shot_stage(stage)
 }
 
-fn is_video_shot_stage(stage: &str) -> bool {
-    stage.starts_with("video_shot_") || stage.starts_with("video.shot:")
+async fn run_engine_stage_if_applicable(
+    stage: &str,
+    run_out_dir: &Path,
+    commands: &serde_json::Value,
+    ui_lang: &str,
+) -> Option<anyhow::Result<()>> {
+    let ctx = engines::EngineCtx::new(run_out_dir.to_path_buf());
+    match stage {
+        "lyrics" => Some(engines::lyrics::run(&ctx, commands, ui_lang).await),
+        "music" => Some(engines::music::run(&ctx, commands, ui_lang).await),
+        "vocals" => Some(engines::vocals::run(&ctx, commands, ui_lang).await),
+        "mix" => Some(engines::mix::run(&ctx, commands, ui_lang).await),
+        "subtitles" => Some(engines::subtitles::run(&ctx, commands, ui_lang).await),
+        "render" => Some(engines::render::run(&ctx, commands, ui_lang).await),
+        _ => None,
+    }
+}
+
+fn engine_error_code_for_stage(stage: &str) -> Option<&'static str> {
+    if is_video_plan_stage(stage) {
+        return Some("ENGINE_VIDEO_PLAN_FAILED");
+    }
+    if is_video_shot_stage(stage) {
+        return Some("ENGINE_VIDEO_SHOT_FAILED");
+    }
+    if is_video_assemble_stage(stage) {
+        return Some("ENGINE_VIDEO_ASSEMBLE_FAILED");
+    }
+    match stage {
+        "lyrics" => Some("ENGINE_LYRICS_FAILED"),
+        "music" => Some("ENGINE_MUSIC_FAILED"),
+        "vocals" => Some("ENGINE_VOCALS_FAILED"),
+        "mix" => Some("ENGINE_MIX_FAILED"),
+        "subtitles" => Some("ENGINE_SUBTITLES_FAILED"),
+        "render" => Some("ENGINE_RENDER_FAILED"),
+        _ => None,
+    }
+}
+
+fn stage_version_for_quality(stage: &str) -> Option<crate::dag_v3::matrix::VersionKey> {
+    let parts: Vec<&str> = stage.split(".").collect();
+    if parts.is_empty() {
+        return None;
+    }
+    let output = match parts[0] {
+        "render_mv" => Some(crate::dag_v3::types::OutputKind::Mv),
+        "render_karaoke_mv" => Some(crate::dag_v3::types::OutputKind::KaraokeMv),
+        "render_audio_only" => Some(crate::dag_v3::types::OutputKind::AudioOnly),
+        _ => None,
+    };
+    let lang = match parts[0] {
+        "lyrics_primary" | "lyrics_adapt" | "lyrics_timing" | "subtitles" | "karaoke_ass"
+        | "karaoke_map" | "lyrics_lrc" => parts
+            .get(1)
+            .map(|s| crate::dag_v3::LangCode((*s).to_string())),
+        "vocals" | "vocals_align" | "mix" | "master" | "render_mv" | "render_karaoke_mv"
+        | "render_audio_only" => parts
+            .get(1)
+            .map(|s| crate::dag_v3::LangCode((*s).to_string())),
+        _ => None,
+    };
+    let voice = match parts[0] {
+        "vocals" | "vocals_align" | "mix" | "master" | "render_mv" | "render_karaoke_mv"
+        | "render_audio_only" => parts
+            .get(2)
+            .map(|s| crate::dag_v3::VoiceId((*s).to_string())),
+        _ => None,
+    };
+
+    if lang.is_none() && voice.is_none() && output.is_none() {
+        None
+    } else {
+        Some(crate::dag_v3::matrix::VersionKey {
+            lang,
+            voice,
+            output,
+        })
+    }
+}
+
+fn append_quality_gate_result(
+    rec: &mut StageRecord,
+    ok: bool,
+    code: &str,
+    reason: &str,
+    metrics: serde_json::Value,
+    version: Option<crate::dag_v3::matrix::VersionKey>,
+) {
+    if !rec.meta.is_object() {
+        rec.meta = serde_json::json!({});
+    }
+    let obj = rec.meta.as_object_mut().expect("meta object");
+    let arr = obj
+        .entry("quality_gates".to_string())
+        .or_insert_with(|| serde_json::json!([]));
+    if !arr.is_array() {
+        *arr = serde_json::json!([]);
+    }
+    if let Some(gates) = arr.as_array_mut() {
+        gates.push(serde_json::json!({
+            "ok": ok,
+            "code": code,
+            "reason": reason,
+            "metrics": metrics,
+            "version": version.as_ref().map(|v| serde_json::json!({
+                "lang": v.lang.as_ref().map(|x| x.0.clone()),
+                "voice": v.voice.as_ref().map(|x| x.0.clone()),
+                "output": v.output.as_ref().map(|x| match x {
+                    crate::dag_v3::types::OutputKind::Mv => "mv",
+                    crate::dag_v3::types::OutputKind::KaraokeMv => "karaoke_mv",
+                    crate::dag_v3::types::OutputKind::AudioOnly => "audio_only",
+                    crate::dag_v3::types::OutputKind::Instrumental => "instrumental",
+                    crate::dag_v3::types::OutputKind::Preview15s => "preview_15s",
+                    crate::dag_v3::types::OutputKind::Preview30s => "preview_30s",
+                    crate::dag_v3::types::OutputKind::MarketPack => "market_pack",
+                }),
+            }))
+        }));
+    }
+}
+
+fn append_quality_passes_for_stage(stage: &str, rec: &mut StageRecord) {
+    let v = stage_version_for_quality(stage);
+    match stage {
+        "lyrics" => append_quality_gate_result(
+            rec,
+            true,
+            "LYRICS_NONEMPTY_OK",
+            "",
+            serde_json::json!({}),
+            v.clone(),
+        ),
+        "music" | "vocals" => append_quality_gate_result(
+            rec,
+            true,
+            "AUDIO_DURATION_OK",
+            "",
+            serde_json::json!({}),
+            v.clone(),
+        ),
+        "mix" => {
+            append_quality_gate_result(
+                rec,
+                true,
+                "AUDIO_DURATION_OK",
+                "",
+                serde_json::json!({}),
+                v.clone(),
+            );
+            append_quality_gate_result(
+                rec,
+                true,
+                "AUDIO_NOT_SILENT_OK",
+                "",
+                serde_json::json!({}),
+                v.clone(),
+            );
+        }
+        "render" => {
+            append_quality_gate_result(
+                rec,
+                true,
+                "VIDEO_DURATION_OK",
+                "",
+                serde_json::json!({}),
+                v.clone(),
+            );
+            append_quality_gate_result(
+                rec,
+                true,
+                "AV_DURATION_DELTA_OK",
+                "",
+                serde_json::json!({}),
+                v.clone(),
+            );
+        }
+        _ => {}
+    }
 }
 
 fn shot_stage_name_from_storyboard_id(id: &str) -> String {
-    if let Some(rest) = id.strip_prefix("video_shot_") {
-        return format!("video.shot:shot_{rest}");
+    if let Some(rest) = id.strip_prefix(VIDEO_SHOT_PREFIX) {
+        return format!("{VIDEO_SHOT_LEGACY_PREFIX}shot_{rest}");
     }
-    format!("video.shot:{id}")
+    format!("{VIDEO_SHOT_LEGACY_PREFIX}{id}")
+}
+
+async fn run_subtitles_quality_gates(
+    stage: &str,
+    run_out_dir: &Path,
+    rec: &mut StageRecord,
+) -> Result<()> {
+    let v = stage_version_for_quality(stage);
+    let out = crate::engines::subtitles_ass_path(run_out_dir);
+    let mix = crate::engines::mix_wav_path(run_out_dir);
+    let qc = crate::quality_config::load_quality_config();
+
+    let cov =
+        crate::quality_gates::gate_subtitles_coverage(&out, qc.min_subtitle_dialogues).await?;
+    if !cov.ok {
+        append_quality_gate_result(
+            rec,
+            false,
+            &cov.code,
+            &cov.reason,
+            cov.metrics.clone(),
+            v.clone(),
+        );
+        return Err(crate::quality_gates::fail_gate(cov));
+    }
+    append_quality_gate_result(
+        rec,
+        true,
+        &cov.code,
+        &cov.reason,
+        cov.metrics.clone(),
+        v.clone(),
+    );
+
+    let av = crate::quality_gates::gate_subtitles_audio_delta(
+        &out,
+        &mix,
+        qc.max_subtitles_audio_delta_s,
+    )
+    .await?;
+    if av.ok {
+        append_quality_gate_result(
+            rec,
+            true,
+            &av.code,
+            &av.reason,
+            av.metrics.clone(),
+            v.clone(),
+        );
+        return Ok(());
+    }
+
+    let align = crate::engines::subtitles::auto_align_to_audio_once(
+        &out,
+        &mix,
+        qc.max_subtitles_audio_delta_s,
+    )
+    .await?;
+    if !rec.meta.is_object() {
+        rec.meta = serde_json::json!({});
+    }
+    if let Some(obj) = rec.meta.as_object_mut() {
+        obj.insert(
+            "subtitles_auto_align".to_string(),
+            serde_json::to_value(&align)
+                .unwrap_or_else(|_| serde_json::json!({ "changed": false })),
+        );
+    }
+
+    let av2 = crate::quality_gates::gate_subtitles_audio_delta(
+        &out,
+        &mix,
+        qc.max_subtitles_audio_delta_s,
+    )
+    .await?;
+    if av2.ok {
+        let before_delta = av.metrics.get("delta_s").and_then(|v| v.as_f64());
+        let mut metrics = av2.metrics.clone();
+        if let Some(m) = metrics.as_object_mut() {
+            m.insert("auto_aligned".to_string(), serde_json::json!(align.changed));
+            if let Some(v) = before_delta {
+                m.insert("delta_s_before".to_string(), serde_json::json!(v));
+            }
+            m.insert(
+                "delta_s_after".to_string(),
+                serde_json::json!(align.delta_s_after),
+            );
+            m.insert("scale".to_string(), serde_json::json!(align.scale));
+        }
+        append_quality_gate_result(rec, true, &av2.code, "", metrics, v.clone());
+        return Ok(());
+    }
+
+    append_quality_gate_result(
+        rec,
+        false,
+        &av2.code,
+        &av2.reason,
+        av2.metrics.clone(),
+        v.clone(),
+    );
+    Err(crate::quality_gates::fail_gate(av2))
 }
 
 fn storyboard_id_from_shot_stage(stage: &str) -> Option<String> {
-    if let Some(id) = stage.strip_prefix("video_shot_") {
-        return Some(format!("video_shot_{id}"));
+    if let Some(id) = stage.strip_prefix(VIDEO_SHOT_PREFIX) {
+        return Some(format!("{VIDEO_SHOT_PREFIX}{id}"));
     }
-    if let Some(id) = stage.strip_prefix("video.shot:") {
-        if id.starts_with("video_shot_") {
+    if let Some(id) = stage.strip_prefix(VIDEO_SHOT_LEGACY_PREFIX) {
+        if id.starts_with(VIDEO_SHOT_PREFIX) {
             return Some(id.to_string());
         }
         if let Some(rest) = id.strip_prefix("shot_") {
-            return Some(format!("video_shot_{rest}"));
+            return Some(format!("{VIDEO_SHOT_PREFIX}{rest}"));
         }
-        return Some(id.to_string());
+        return Some(format!("{VIDEO_SHOT_PREFIX}{id}"));
     }
     None
 }
@@ -361,7 +700,7 @@ fn maybe_expand_video_shots(state: &mut RunState) -> bool {
         ids.truncate(n);
     } else if ids.len() < n {
         for i in ids.len()..n {
-            ids.push(format!("video_shot_{:03}", i));
+            ids.push(video_shot_stage_key(i));
         }
     }
 
@@ -397,13 +736,13 @@ fn maybe_expand_video_shots(state: &mut RunState) -> bool {
         state
             .dag_edges
             .entry(stage_name)
-            .or_insert_with(|| vec!["video_plan".to_string()]);
+            .or_insert_with(|| vec![VIDEO_PLAN_STAGE.to_string()]);
     }
 
     let mut new_order: Vec<String> = Vec::new();
     let mut shot_nodes: Vec<String> = Vec::new();
     for st in &state.topo_order {
-        if st == "video_assemble" {
+        if st == VIDEO_ASSEMBLE_STAGE {
             for sid in &ids {
                 let shot = shot_stage_name_from_storyboard_id(sid);
                 new_order.push(shot.clone());
@@ -415,13 +754,13 @@ fn maybe_expand_video_shots(state: &mut RunState) -> bool {
     state.topo_order = new_order;
     state
         .dag_edges
-        .insert("video_assemble".to_string(), shot_nodes);
+        .insert(VIDEO_ASSEMBLE_STAGE.to_string(), shot_nodes);
     for sid in &ids {
         let shot = shot_stage_name_from_storyboard_id(sid);
         if !state.dag.nodes.iter().any(|n| n.name == shot) {
             state.dag.nodes.push(crate::run_state::DagNodeMeta {
                 name: shot,
-                deps: vec!["video_plan".to_string()],
+                deps: vec![VIDEO_PLAN_STAGE.to_string()],
             });
         }
     }
@@ -429,11 +768,11 @@ fn maybe_expand_video_shots(state: &mut RunState) -> bool {
         .dag
         .nodes
         .iter_mut()
-        .find(|n| n.name == "video_assemble")
+        .find(|n| n.name == VIDEO_ASSEMBLE_STAGE)
     {
         n.deps = state
             .dag_edges
-            .get("video_assemble")
+            .get(VIDEO_ASSEMBLE_STAGE)
             .cloned()
             .unwrap_or_default();
     }
@@ -636,8 +975,9 @@ async fn run_cmd_async(
     timeout_s: Option<u64>,
     state_path: Option<&Path>,
 ) -> Result<(i32, String, String, bool, bool, i32, i32)> {
+    let command_line = crate::media::runtime::wrap_stage_command(stage, command_line);
     let mut cmd = Command::new("bash");
-    cmd.arg("-lc").arg(command_line);
+    cmd.arg("-lc").arg(&command_line);
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
@@ -960,8 +1300,8 @@ pub async fn run_pipeline(
     compiled: crate::dsl::compile::CompiledCommands,
 ) -> Result<RunState> {
     let run_started = Instant::now();
-    let scheduler = Scheduler::new();
-    let dag = cssmv_dag_v1();
+    let scheduler = build_immersion_scheduler(&state);
+    let dag = cssmv_dag_active();
     let order = dag.topo_order().unwrap_or_default();
 
     state.dag.schema = "css.pipeline.dag.v1".to_string();
@@ -993,12 +1333,14 @@ pub async fn run_pipeline(
 
     state.status = RunStatus::RUNNING;
     state.updated_at = now_rfc3339();
+    maybe_tick_film_runtime(&mut state)?;
     persist_state(state_path, &state)?;
 
     let plan = stage_plan(&compiled);
 
     for name in order {
         let stage = name.to_string();
+        maybe_tick_film_runtime(&mut state)?;
         let (cmdline, outputs) = plan.get(name).expect("stage in plan").clone();
 
         state
@@ -1043,6 +1385,7 @@ pub async fn run_pipeline(
                 .expect("stage record must exist");
             rec.status = StageStatus::SKIPPED;
             state.updated_at = now_rfc3339();
+            maybe_tick_film_runtime(&mut state)?;
             persist_state(state_path, &state)?;
             continue;
         }
@@ -1057,6 +1400,7 @@ pub async fn run_pipeline(
             state.status = RunStatus::FAILED;
             state.updated_at = now_rfc3339();
             state.total_duration_seconds = Some(run_started.elapsed().as_secs_f64());
+            maybe_tick_film_runtime(&mut state)?;
             persist_state(state_path, &state)?;
             events::emit_snapshot(&state);
             return Ok(state);
@@ -1108,6 +1452,7 @@ pub async fn run_pipeline(
             .await?
         };
         let stage_dur = stage_exec_started.elapsed().as_secs_f64();
+        maybe_tick_film_runtime(&mut state)?;
         metrics::STAGE_DURATION
             .with_label_values(&[stage.as_str()])
             .observe(stage_dur);
@@ -1237,6 +1582,13 @@ async fn run_one_stage_task(
             rec.ended_at = None;
             rec.error = None;
             rec.exit_code = None;
+            if let Some(meta) = rec.meta.as_object_mut() {
+                meta.insert(
+                    "immersion".into(),
+                    serde_json::to_value(&scheduler.immersion)
+                        .unwrap_or_else(|_| serde_json::json!({})),
+                );
+            }
         }
         s.status = RunStatus::RUNNING;
         s.updated_at = now_rfc3339();
@@ -1299,14 +1651,22 @@ async fn run_one_stage_task(
     };
 
     let success = if stage == "video"
-        || stage == "video_plan"
+        || is_video_plan_stage(&stage)
         || is_video_shot_stage(&stage)
-        || stage == "video_assemble"
+        || is_video_assemble_stage(&stage)
         || stage == "mix"
         || stage == "subtitles"
         || stage == "render"
     {
-        let (storyboard_path, video_dir, seed, vocals_path, music_path, creative_hint) = {
+        let (
+            storyboard_path,
+            video_dir,
+            seed,
+            vocals_path,
+            music_path,
+            creative_hint,
+            scene_semantics,
+        ) = {
             let s = shared.lock().await;
             let out_dir = s.config.out_dir.clone();
             let video_dir = out_dir.join("build").join("video");
@@ -1332,7 +1692,16 @@ async fn run_one_stage_task(
                         .and_then(|v| v.as_str())
                         .map(|s| format!("genre: {s}"))
                 });
-            (storyboard_path, video_dir, seed, vocals_path, music_path, creative_hint)
+            let scene_semantics = s.scene_semantics.get(&s.immersion.anchor.scene_id).cloned();
+            (
+                storyboard_path,
+                video_dir,
+                seed,
+                vocals_path,
+                music_path,
+                creative_hint,
+                scene_semantics,
+            )
         };
 
         let _ = fs::create_dir_all(&video_dir);
@@ -1343,29 +1712,34 @@ async fn run_one_stage_task(
             .or(probe_media_duration_s(&music_path).await.unwrap_or(None));
 
         let cfg = AutoShotConfig::default();
+        let immersion_snapshot = rec.meta.get("immersion").cloned().and_then(|v| {
+            serde_json::from_value::<crate::immersion_engine::runtime::ImmersionSnapshot>(v).ok()
+        });
         let (_sb, sb_meta) = match ensure_storyboard_auto(
             &storyboard_path,
             seed,
             duration_s,
             cfg.clone(),
             creative_hint,
+            immersion_snapshot.as_ref(),
+            scene_semantics.as_ref(),
         ) {
-                Ok(v) => v,
-                Err(e) => {
-                    rec.status = StageStatus::FAILED;
-                    rec.error = Some(e.to_string());
-                    (
-                        crate::video::storyboard::Storyboard {
-                            schema: "css.video.storyboard.v1".to_string(),
-                            seed,
-                            fps: 30,
-                            resolution: crate::video::storyboard::Resolution { w: 1280, h: 720 },
-                            shots: vec![],
-                        },
-                        serde_json::json!({"error": e.to_string()}),
-                    )
-                }
-            };
+            Ok(v) => v,
+            Err(e) => {
+                rec.status = StageStatus::FAILED;
+                rec.error = Some(e.to_string());
+                (
+                    crate::video::storyboard::Storyboard {
+                        schema: "css.video.storyboard.v1".to_string(),
+                        seed,
+                        fps: 30,
+                        resolution: crate::video::storyboard::Resolution { w: 1280, h: 720 },
+                        shots: vec![],
+                    },
+                    serde_json::json!({"error": e.to_string()}),
+                )
+            }
+        };
         let shots_summary = format!(
             "Video Shots: N={} (auto, {}..{}s, clamp {}..{})",
             _sb.shots.len(),
@@ -1377,87 +1751,165 @@ async fn run_one_stage_task(
         if matches!(rec.status, StageStatus::FAILED) {
             false
         } else {
-            if stage == "video_plan" {
-                rec.outputs = vec![storyboard_path.clone()];
-                rec.meta = serde_json::json!({
-                    "storyboard": sb_meta,
-                    "shots_summary": shots_summary
-                });
-                true
-            } else {
-                let mut dispatch_state = {
-                    let s = shared.lock().await;
-                    s.clone()
-                };
-                let stage_name = stage.clone();
-                let compiled_value = serde_json::to_value(compiled.as_ref()).ok();
-                let dispatch_fut = crate::video_dispatch::run_one_stage_video_dispatch(
-                    &stage_name,
-                    &mut dispatch_state,
-                    compiled_value.as_ref(),
-                    &scheduler,
-                );
-                let dispatch_result = tokio::time::timeout(
-                    std::time::Duration::from_secs(stage_timeout_seconds.max(1)),
-                    dispatch_fut,
-                )
-                .await
-                .map_err(|_| anyhow::anyhow!("stage timeout after {}s", stage_timeout_seconds))
-                .and_then(|r| r.map_err(anyhow::Error::msg));
+            let mut dispatch_state = {
+                let s = shared.lock().await;
+                s.clone()
+            };
+            let stage_name = stage.clone();
+            let compiled_value = serde_json::to_value(compiled.as_ref()).ok();
+            let dispatch_fut = crate::video_dispatch::run_one_stage_video_dispatch(
+                &stage_name,
+                &mut dispatch_state,
+                compiled_value.as_ref(),
+                &scheduler,
+            );
+            let dispatch_result = tokio::time::timeout(
+                std::time::Duration::from_secs(stage_timeout_seconds.max(1)),
+                dispatch_fut,
+            )
+            .await
+            .map_err(|_| anyhow::anyhow!("stage timeout after {}s", stage_timeout_seconds))
+            .and_then(|r| r.map_err(anyhow::Error::msg));
 
-                match dispatch_result {
-                    Ok(outputs) => {
-                        rec.outputs = outputs;
-                        let dispatch_meta = dispatch_state
-                            .stages
-                            .get(&stage_name)
-                            .map(|r| r.meta.clone())
-                            .unwrap_or_else(|| serde_json::json!({}));
-                        rec.meta = serde_json::json!({
-                            "storyboard": sb_meta,
-                            "shots_summary": shots_summary,
-                            "dispatch": dispatch_meta,
-                        });
-                        if let Some(dm) = dispatch_meta.as_object() {
-                            if let Some(m) = rec.meta.as_object_mut() {
-                                for (k, v) in dm {
-                                    m.insert(k.clone(), v.clone());
-                                }
+            match dispatch_result {
+                Ok(outputs) => {
+                    rec.outputs = outputs;
+                    let dispatch_meta = dispatch_state
+                        .stages
+                        .get(&stage_name)
+                        .map(|r| r.meta.clone())
+                        .unwrap_or_else(|| serde_json::json!({}));
+                    rec.meta = serde_json::json!({
+                        "storyboard": sb_meta,
+                        "shots_summary": shots_summary,
+                        "dispatch": dispatch_meta,
+                    });
+                    if let Some(dm) = dispatch_meta.as_object() {
+                        if let Some(m) = rec.meta.as_object_mut() {
+                            for (k, v) in dm {
+                                m.insert(k.clone(), v.clone());
                             }
                         }
-                        true
                     }
-                    Err(e) => {
-                        rec.status = StageStatus::FAILED;
+                    true
+                }
+                Err(e) => {
+                    rec.status = StageStatus::FAILED;
+                    if let Some(g) = e.downcast_ref::<crate::quality_gates::GateError>() {
+                        rec.error = Some(g.reason.clone());
+                        rec.error_code = Some(g.code.clone());
+                        append_quality_gate_result(
+                            &mut rec,
+                            false,
+                            &g.code,
+                            &g.reason,
+                            g.metrics.clone(),
+                            stage_version_for_quality(&stage),
+                        );
+                        rec.meta = serde_json::json!({
+                            "bad_kind": "gate",
+                            "gate_code": g.code,
+                            "gate_metrics": g.metrics,
+                            "quality_gates": rec.meta.get("quality_gates").cloned().unwrap_or_else(|| serde_json::json!([]))
+                        });
+                    } else {
                         rec.error = Some(e.to_string());
-                        false
+                        rec.error_code = engine_error_code_for_stage(&stage).map(|s| s.to_string());
                     }
+                    false
                 }
             }
         }
     } else {
         let timeout_s = rec.timeout_seconds;
-        let run_out_dir = {
+        let (run_out_dir, commands, ui_lang) = {
             let s = shared.lock().await;
-            s.config.out_dir.clone()
+            (
+                s.config.out_dir.clone(),
+                s.commands.clone(),
+                s.ui_lang.clone(),
+            )
         };
-        match run_stage_with_retry(
-            &run_out_dir,
-            &stage,
-            &cmdline,
-            &mut rec,
-            &state_path,
-            max_retries,
-            backoff_base,
-            timeout_s,
-        )
-        .await
+
+        if let Some(engine_result) =
+            run_engine_stage_if_applicable(&stage, &run_out_dir, &commands, &ui_lang).await
         {
-            Ok(ok) => ok,
-            Err(e) => {
-                rec.status = StageStatus::FAILED;
-                rec.error = Some(e.to_string());
-                false
+            match engine_result {
+                Ok(()) => {
+                    if stage == "subtitles" {
+                        if let Err(e) =
+                            run_subtitles_quality_gates(&stage, &run_out_dir, &mut rec).await
+                        {
+                            rec.status = StageStatus::FAILED;
+                            if let Some(g) = e.downcast_ref::<crate::quality_gates::GateError>() {
+                                rec.error = Some(g.reason.clone());
+                                rec.error_code = Some(g.code.clone());
+                                rec.meta = serde_json::json!({
+                                    "bad_kind": "gate",
+                                    "gate_code": g.code,
+                                    "gate_metrics": g.metrics,
+                                    "quality_gates": rec.meta.get("quality_gates").cloned().unwrap_or_else(|| serde_json::json!([])),
+                                    "subtitles_auto_align": rec.meta.get("subtitles_auto_align").cloned().unwrap_or(serde_json::json!({}))
+                                });
+                            } else {
+                                rec.error = Some(e.to_string());
+                                rec.error_code =
+                                    engine_error_code_for_stage(&stage).map(|s| s.to_string());
+                            }
+                            false
+                        } else {
+                            true
+                        }
+                    } else {
+                        append_quality_passes_for_stage(&stage, &mut rec);
+                        true
+                    }
+                }
+                Err(e) => {
+                    rec.status = StageStatus::FAILED;
+                    if let Some(g) = e.downcast_ref::<crate::quality_gates::GateError>() {
+                        rec.error = Some(g.reason.clone());
+                        rec.error_code = Some(g.code.clone());
+                        append_quality_gate_result(
+                            &mut rec,
+                            false,
+                            &g.code,
+                            &g.reason,
+                            g.metrics.clone(),
+                            stage_version_for_quality(&stage),
+                        );
+                        rec.meta = serde_json::json!({
+                            "bad_kind": "gate",
+                            "gate_code": g.code,
+                            "gate_metrics": g.metrics,
+                            "quality_gates": rec.meta.get("quality_gates").cloned().unwrap_or_else(|| serde_json::json!([]))
+                        });
+                    } else {
+                        rec.error = Some(e.to_string());
+                        rec.error_code = engine_error_code_for_stage(&stage).map(|s| s.to_string());
+                    }
+                    false
+                }
+            }
+        } else {
+            match run_stage_with_retry(
+                &run_out_dir,
+                &stage,
+                &cmdline,
+                &mut rec,
+                &state_path,
+                max_retries,
+                backoff_base,
+                timeout_s,
+            )
+            .await
+            {
+                Ok(ok) => ok,
+                Err(e) => {
+                    rec.status = StageStatus::FAILED;
+                    rec.error = Some(e.to_string());
+                    false
+                }
             }
         }
     };
@@ -1532,18 +1984,82 @@ pub async fn run_pipeline_dag_concurrent(
     compiled: crate::dsl::compile::CompiledCommands,
 ) {
     let run_started = Instant::now();
-    let scheduler = Scheduler::new();
-    let dag = cssmv_dag_v1();
-    let order = dag
+    let scheduler = build_immersion_scheduler(&state);
+    let mut dag = cssmv_dag_active();
+    let mut order = dag
         .topo_order()
         .unwrap_or_default()
         .into_iter()
         .map(|s| s.to_string())
         .collect::<Vec<_>>();
 
+    // v3 plan-first: load persisted plan; if missing, rebuild from commands bridge.
+    let dag_version = state
+        .commands
+        .get("dag_version")
+        .and_then(|v| v.as_str())
+        .unwrap_or("v2");
+    if dag_version == "v3" {
+        let plan = crate::run_store::load_run_plan_v3(&state.run_id)
+            .ok()
+            .or_else(|| crate::dag_v3::bridge::build_execution_plan_from_commands(&state).ok());
+        if let Some(plan) = plan {
+            order = plan.topo_order.iter().map(|s| s.0.clone()).collect();
+            if !order.is_empty() {
+                state.topo_order = order.clone();
+                state.dag.schema = "css.pipeline.dag.v3".to_string();
+                state.dag.nodes = plan
+                    .stages
+                    .iter()
+                    .map(|s| crate::run_state::DagNodeMeta {
+                        name: s.name.0.clone(),
+                        deps: s.deps.iter().map(|d| d.0.clone()).collect(),
+                    })
+                    .collect();
+                state.dag_edges = plan
+                    .stages
+                    .iter()
+                    .map(|s| {
+                        (
+                            s.name.0.clone(),
+                            s.deps.iter().map(|d| d.0.clone()).collect::<Vec<_>>(),
+                        )
+                    })
+                    .collect();
+                for s in &plan.stages {
+                    state
+                        .stages
+                        .entry(s.name.0.clone())
+                        .or_insert_with(|| StageRecord {
+                            status: StageStatus::PENDING,
+                            started_at: None,
+                            ended_at: None,
+                            exit_code: None,
+                            command: None,
+                            outputs: s.outputs.iter().map(PathBuf::from).collect(),
+                            retries: 0,
+                            error: None,
+                            heartbeat_at: None,
+                            last_heartbeat_at: None,
+                            timeout_seconds: Some(state.config.stage_timeout_seconds),
+                            error_code: None,
+                            pid: None,
+                            pgid: None,
+                            meta: serde_json::Value::Object(Default::default()),
+                            duration_seconds: None,
+                        });
+                }
+            }
+            // Keep using active dag for generic behavior; readiness/deps comes from state.dag_edges.
+            dag = cssmv_dag_active();
+        }
+    }
+
     state.topo_order = order.clone();
-    state.dag.schema = "css.pipeline.dag.v1".to_string();
-    fill_dag_edges(&mut state, &dag);
+    if dag_version != "v3" {
+        state.dag.schema = "css.pipeline.dag.v1".to_string();
+        fill_dag_edges(&mut state, &dag);
+    }
     let _ = backfill_last_heartbeat_from_legacy(&mut state);
     state.status = RunStatus::RUNNING;
     state.updated_at = now_rfc3339();
@@ -1569,7 +2085,7 @@ pub async fn run_pipeline_dag_concurrent(
         });
 
         if matches!(
-            snapshot.stages.get("video_plan").map(|r| &r.status),
+            snapshot.stages.get(VIDEO_PLAN_STAGE).map(|r| &r.status),
             Some(StageStatus::SUCCEEDED)
         ) && !snapshot.stages.keys().any(|k| is_video_shot_stage(k))
         {
@@ -1767,7 +2283,7 @@ pub async fn run_pipeline_dag_concurrent(
             match joined {
                 Ok((stage, ok)) => {
                     running.remove(&stage);
-                    if ok && stage == "video_plan" {
+                    if ok && is_video_plan_stage(&stage) {
                         let mut s3 = shared.lock().await;
                         if maybe_expand_video_shots(&mut s3) {
                             let _ = run_store::write_run_state(state_path, &s3);
@@ -1830,7 +2346,7 @@ pub fn new_run_id() -> String {
 
 pub fn init_run_state(run_id: String, ui_lang: String, tier: String, cssl: String) -> RunState {
     let now = Utc::now().to_rfc3339();
-    let dag = cssmv_dag_v1();
+    let dag = cssmv_dag_active();
     let topo_order = dag
         .topo_order()
         .unwrap_or_default()
@@ -1850,8 +2366,8 @@ pub fn init_run_state(run_id: String, ui_lang: String, tier: String, cssl: Strin
         "lyrics",
         "music",
         "vocals",
-        "video_plan",
-        "video_assemble",
+        VIDEO_PLAN_STAGE,
+        VIDEO_ASSEMBLE_STAGE,
         "subtitles",
         "render",
     ] {
@@ -1927,15 +2443,20 @@ pub fn init_run_state(run_id: String, ui_lang: String, tier: String, cssl: Strin
         slowest_leader: None,
         slowest_tick: None,
         last_event: None,
+        immersion: crate::immersion_engine::state::ImmersionState::default(),
+        presence: crate::presence_engine::state::PresenceState::default(),
+        scene_semantics: crate::scene_semantics_engine::state::SceneSemanticStateStore::default(),
+        event_engine: crate::event_engine::runtime::EventEngineState::default(),
+        immersion_zones: Vec::new(),
+        viewer_position: None,
     }
 }
 
 pub fn compute_ready_running_summary(
     state: &RunState,
 ) -> (Vec<String>, Vec<String>, u32, u32, u32) {
-    let dag = cssmv_dag_v1();
+    let dag = cssmv_dag_active();
 
-    let mut ready: Vec<String> = Vec::new();
     let mut running: Vec<String> = Vec::new();
 
     let mut pending: u32 = 0;
@@ -1952,17 +2473,7 @@ pub fn compute_ready_running_summary(
         }
     }
 
-    let order: Vec<String> = if !state.topo_order.is_empty() {
-        state.topo_order.clone()
-    } else {
-        dag.topo_order()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|s| s.to_string())
-            .collect()
-    };
-
-    ready = compute_ready_view_with_dag_limited(state, &dag, usize::MAX).ready;
+    let ready = compute_ready_view_with_dag_limited(state, &dag, usize::MAX).ready;
 
     if !state.topo_order.is_empty() {
         let idx = |name: &String| {
@@ -1982,7 +2493,7 @@ pub fn compute_ready_running_summary(
 
 pub fn init_stage_records() -> BTreeMap<String, StageRecord> {
     let mut m = BTreeMap::new();
-    let order = cssmv_dag_v1().topo_order().unwrap_or_default();
+    let order = cssmv_dag_active().topo_order().unwrap_or_default();
     for name in order {
         m.insert(
             name.to_string(),
@@ -2041,4 +2552,69 @@ pub async fn run_pipeline_async(state_path: &std::path::Path) -> anyhow::Result<
 
 pub async fn run_pipeline_async_shared(state: Arc<RwLock<RunState>>) -> anyhow::Result<()> {
     run_pipeline_default_async(state).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn v115_smoke_writes_quality_gate_with_version() {
+        let mut rec = StageRecord {
+            status: StageStatus::PENDING,
+            started_at: None,
+            ended_at: None,
+            exit_code: None,
+            command: None,
+            outputs: vec![],
+            retries: 0,
+            error: None,
+            heartbeat_at: None,
+            last_heartbeat_at: None,
+            timeout_seconds: None,
+            error_code: None,
+            pid: None,
+            pgid: None,
+            meta: serde_json::json!({}),
+            duration_seconds: None,
+        };
+        let v = stage_version_for_quality("render_mv.en.female").expect("version");
+        append_quality_gate_result(
+            &mut rec,
+            true,
+            "VIDEO_DURATION_OK",
+            "",
+            serde_json::json!({}),
+            Some(v),
+        );
+        let gates = rec
+            .meta
+            .get("quality_gates")
+            .and_then(|x| x.as_array())
+            .expect("quality_gates array");
+        assert_eq!(gates.len(), 1);
+        let g = &gates[0];
+        assert_eq!(
+            g.get("code").and_then(|x| x.as_str()),
+            Some("VIDEO_DURATION_OK")
+        );
+        assert_eq!(
+            g.get("version")
+                .and_then(|x| x.get("lang"))
+                .and_then(|x| x.as_str()),
+            Some("en")
+        );
+        assert_eq!(
+            g.get("version")
+                .and_then(|x| x.get("voice"))
+                .and_then(|x| x.as_str()),
+            Some("female")
+        );
+        assert_eq!(
+            g.get("version")
+                .and_then(|x| x.get("output"))
+                .and_then(|x| x.as_str()),
+            Some("mv")
+        );
+    }
 }

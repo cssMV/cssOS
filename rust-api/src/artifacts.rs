@@ -1,4 +1,7 @@
 use crate::run_state::{Artifact, RunState};
+use crate::schema_keys::{
+    ordered_keys_stable_first, present_keys_ordered, stable_keys_v46, stable_keys_v46_vec,
+};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -209,12 +212,24 @@ pub async fn record_stage_artifacts(st: &mut RunState, run_dir: &Path, stage: &s
         }
         "mix" => {
             record_if_exists(st, run_dir, "mix.wav", "./build/mix.wav", "audio").await;
-            record_if_exists(st, run_dir, "mix.wav", "./build/audio/mix.primary.wav", "audio")
-                .await;
+            record_if_exists(
+                st,
+                run_dir,
+                "mix.wav",
+                "./build/audio/mix.primary.wav",
+                "audio",
+            )
+            .await;
         }
         "subtitles" => {
-            record_if_exists(st, run_dir, "subtitles.ass", "./build/subtitles.ass", "subtitles")
-                .await;
+            record_if_exists(
+                st,
+                run_dir,
+                "subtitles.ass",
+                "./build/subtitles.ass",
+                "subtitles",
+            )
+            .await;
             record_if_exists(
                 st,
                 run_dir,
@@ -235,45 +250,23 @@ pub async fn record_stage_artifacts(st: &mut RunState, run_dir: &Path, stage: &s
     }
 }
 
-pub fn stable_artifact_keys() -> Vec<&'static str> {
-    vec![
-        "final.mv",
-        "subtitles.ass",
-        "mix.wav",
-        "lyrics.json",
-        "video.mp4",
-    ]
+pub fn stable_artifact_keys() -> Vec<String> {
+    stable_keys_v46_vec()
 }
 
 pub fn stable_order_map() -> BTreeMap<String, usize> {
     let mut m = BTreeMap::new();
-    for (i, k) in stable_artifact_keys().into_iter().enumerate() {
-        m.insert(k.to_string(), i);
+    for (i, k) in stable_keys_v46().iter().enumerate() {
+        m.insert((*k).to_string(), i);
     }
     m
 }
 
 pub fn stable_sort_keys(mut keys: Vec<String>) -> Vec<String> {
-    let order = stable_order_map();
-    keys.sort_by(|a, b| {
-        let ia = order.get(a).copied().unwrap_or(usize::MAX);
-        let ib = order.get(b).copied().unwrap_or(usize::MAX);
-        ia.cmp(&ib).then_with(|| a.cmp(b))
-    });
-    keys
+    let set: BTreeSet<String> = keys.drain(..).collect();
+    ordered_keys_stable_first(stable_keys_v46(), &set)
 }
 
 pub fn stable_present_keys(present: &BTreeSet<String>) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for k in stable_artifact_keys() {
-        if present.contains(k) {
-            out.push(k.to_string());
-        }
-    }
-    for k in present {
-        if !out.iter().any(|x| x == k) {
-            out.push(k.clone());
-        }
-    }
-    out
+    present_keys_ordered(stable_keys_v46(), present)
 }

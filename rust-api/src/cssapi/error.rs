@@ -7,6 +7,8 @@ use crate::cssapi::problem::Problem;
 pub enum ApiError {
     #[error("bad request: {0}")]
     BadRequest(String),
+    #[error("forbidden: {0}")]
+    Forbidden(String),
     #[error("not found: {0}")]
     NotFound(String),
     #[error("conflict: {0}")]
@@ -28,6 +30,10 @@ impl ApiError {
         Self::NotFound(format!("{code}: {msg}"))
     }
 
+    pub fn forbidden(code: &str, msg: &str) -> Self {
+        Self::Forbidden(format!("{code}: {msg}"))
+    }
+
     pub fn conflict(code: &str, msg: &str) -> Self {
         Self::Conflict(format!("{code}: {msg}"))
     }
@@ -47,6 +53,7 @@ impl ApiError {
     pub fn with_details(self, details: serde_json::Value) -> Self {
         match self {
             Self::BadRequest(base) => Self::BadRequest(format!("{base}; details={details}")),
+            Self::Forbidden(base) => Self::Forbidden(format!("{base}; details={details}")),
             Self::NotFound(base) => Self::NotFound(format!("{base}; details={details}")),
             Self::Conflict(base) => Self::Conflict(format!("{base}; details={details}")),
             Self::Unprocessable(base) => Self::Unprocessable(format!("{base}; details={details}")),
@@ -68,6 +75,7 @@ impl ApiError {
     fn status(&self) -> StatusCode {
         match self {
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
+            Self::Forbidden(_) => StatusCode::FORBIDDEN,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::Unprocessable(_) => StatusCode::UNPROCESSABLE_ENTITY,
@@ -79,6 +87,7 @@ impl ApiError {
     fn payload(&self) -> &str {
         match self {
             Self::BadRequest(s)
+            | Self::Forbidden(s)
             | Self::NotFound(s)
             | Self::Conflict(s)
             | Self::Unprocessable(s)
@@ -118,6 +127,7 @@ fn parse_payload(payload: &str) -> (String, String, Option<String>) {
 fn problem_title(lang: &str, status: StatusCode) -> String {
     let key = match status {
         StatusCode::BAD_REQUEST => "problem_bad_request",
+        StatusCode::FORBIDDEN => "problem_forbidden",
         StatusCode::NOT_FOUND => "problem_not_found",
         StatusCode::CONFLICT => "problem_conflict",
         StatusCode::UNPROCESSABLE_ENTITY => "problem_unprocessable",

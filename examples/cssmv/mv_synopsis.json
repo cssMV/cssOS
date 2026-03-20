@@ -1,0 +1,9 @@
+{
+  "projectId": "mv_afterglow_synopsis",
+  "mode": "music_video",
+  "sourceType": "synopsis",
+  "title": "Afterglow Signals",
+  "sourceText": "An after-midnight train ride becomes a visual anthem about missed chances, neon reflections, and one final decision to stay.",
+  "durationSec": 210,
+  "capabilities": ["single_line"]
+}

@@ -53,8 +53,8 @@ use serde::Serialize;
 use serde_json::json;
 use sqlx::PgPool;
 
-use crate::auth::AuthSession;
 use crate::artifacts_api;
+use crate::auth::AuthSession;
 use crate::billing::{ensure_account, meter_usage, reset_month};
 use crate::config::Config;
 use crate::cssapi::docs::docs_router;
@@ -62,6 +62,7 @@ use crate::events::EventBus;
 use crate::jobs::Jobs;
 use crate::models::User;
 use crate::passkey;
+use crate::public_api;
 use crate::run_state::{DagMeta, RetryPolicy, RunConfig, RunState, RunStatus};
 use crate::runner::run_pipeline_default;
 use crate::runs_api;
@@ -114,14 +115,48 @@ pub fn router(state: AppState) -> Router {
         .merge(docs_router())
         .merge(runs_api::router())
         .merge(artifacts_api::router())
+        .merge(crate::css_assurance_api::router::router())
+        .merge(crate::css_case_api::router::router())
+        .merge(crate::css_explain_api::router::router())
+        .merge(crate::css_trust_api::router::router())
+        .merge(crate::css_risk_api::router::router())
+        .route(
+            "/cssapi/v1/mv",
+            post(crate::orchestrator::api::create_mv_api),
+        )
+        .route(
+            "/cssapi/v1/engines",
+            get(public_api::engines::api_list_engines),
+        )
+        .route(
+            "/cssapi/v1/engines/:engine",
+            get(public_api::engines::api_get_engine),
+        )
+        .route("/cssapi/v1/pricing", get(public_api::pricing::api_pricing))
+        .route(
+            "/cssapi/v1/schema/mv",
+            get(public_api::schema::api_mv_schema),
+        )
         .route("/cssapi/v1/ws", get(crate::ws::ws_handler))
         .route("/metrics", get(metrics_handler))
         .route("/api/health", get(health_handler))
         .route("/api/auth/providers", get(auth_providers))
-        .route("/api/auth/passkey/register/options", get(passkey::register_options))
-        .route("/api/auth/passkey/register/verify", post(passkey::register_verify))
-        .route("/api/auth/passkey/login/options", get(passkey::login_options))
-        .route("/api/auth/passkey/login/verify", post(passkey::login_verify))
+        .route(
+            "/api/auth/passkey/register/options",
+            get(passkey::register_options),
+        )
+        .route(
+            "/api/auth/passkey/register/verify",
+            post(passkey::register_verify),
+        )
+        .route(
+            "/api/auth/passkey/login/options",
+            get(passkey::login_options),
+        )
+        .route(
+            "/api/auth/passkey/login/verify",
+            post(passkey::login_verify),
+        )
         .route("/api/me", get(me))
         .route("/api/billing/status", get(billing_status))
         .route(
@@ -155,7 +190,7 @@ async fn pipeline_start(
     let run_id = format!("run_{}", Utc::now().format("%Y%m%d_%H%M%S"));
     let now = Utc::now().to_rfc3339();
     let out_dir = body.out_dir.unwrap_or_else(|| "./build".to_string());
-    let dag = crate::dag::cssmv_dag_v1();
+    let dag = crate::dag::cssmv_dag_active();
     let topo_order = dag
         .topo_order()
         .unwrap_or_default()
@@ -222,6 +257,12 @@ async fn pipeline_start(
         slowest_leader: None,
         slowest_tick: None,
         last_event: None,
+        immersion: crate::immersion_engine::state::ImmersionState::default(),
+        presence: crate::presence_engine::state::PresenceState::default(),
+        scene_semantics: crate::scene_semantics_engine::state::SceneSemanticStateStore::default(),
+        event_engine: crate::event_engine::runtime::EventEngineState::default(),
+        immersion_zones: Vec::new(),
+        viewer_position: None,
     };
 
     crate::events::emit_snapshot(&state);

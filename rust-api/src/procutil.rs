@@ -1,7 +1,6 @@
 use nix::sys::signal::{killpg, Signal};
 use nix::unistd::Pid;
 use std::io;
-use std::os::unix::process::CommandExt;
 use std::path::Path;
 use tokio::process::Command;
 

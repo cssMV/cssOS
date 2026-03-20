@@ -1,4 +1,4 @@
-use crate::dag::topo_order_v1;
+use crate::dag::topo_order_for_state;
 use crate::dsl::compile::CompiledCommands;
 use crate::run_state::{DagMeta, RetryPolicy, RunConfig, RunState, RunStatus};
 use crate::runner::run_pipeline_default;
@@ -106,7 +106,7 @@ pub fn spawn_run_worker(run_dir: PathBuf, commands: Value) {
         };
 
         let now = Utc::now().to_rfc3339();
-        let dag = crate::dag::cssmv_dag_v1();
+        let dag = crate::dag::cssmv_dag_active();
         let topo_order = dag
             .topo_order()
             .unwrap_or_default()
@@ -170,6 +170,13 @@ pub fn spawn_run_worker(run_dir: PathBuf, commands: Value) {
             slowest_leader: None,
             slowest_tick: None,
             last_event: None,
+            immersion: crate::immersion_engine::state::ImmersionState::default(),
+            presence: crate::presence_engine::state::PresenceState::default(),
+            scene_semantics: crate::scene_semantics_engine::state::SceneSemanticStateStore::default(
+            ),
+            event_engine: crate::event_engine::runtime::EventEngineState::default(),
+            immersion_zones: Vec::new(),
+            viewer_position: None,
         };
 
         state.set_artifact_path("run.input.commands", commands);
@@ -182,7 +189,7 @@ pub fn spawn_run_worker(run_dir: PathBuf, commands: Value) {
             serde_json::to_vec_pretty(&state).unwrap_or_default(),
         );
 
-        state.topo_order = topo_order_v1(&state);
+        state.topo_order = topo_order_for_state(&state);
         let _ = fs::write(
             &state_path,
             serde_json::to_vec_pretty(&state).unwrap_or_default(),

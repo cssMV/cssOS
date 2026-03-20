@@ -82,3 +82,115 @@ pub fn read_compiled_commands(run_id: &str) -> io::Result<CompiledCommands> {
     serde_json::from_slice::<CompiledCommands>(&bytes)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
 }
+
+pub fn run_plan_v3_path(run_id: &str) -> PathBuf {
+    run_dir(run_id).join("dag_v3_plan.json")
+}
+
+pub fn run_artifacts_index_path(run_id: &str) -> PathBuf {
+    run_dir(run_id).join("artifacts_index.json")
+}
+
+pub fn film_runtime_snapshot_path(run_id: &str) -> PathBuf {
+    run_dir(run_id).join("film_runtime_snapshot.json")
+}
+
+pub fn film_runtime_events_path(run_id: &str) -> PathBuf {
+    run_dir(run_id).join("film_runtime_events.json")
+}
+
+pub fn list_run_files(run_id: &str) -> anyhow::Result<Vec<String>> {
+    fn walk(dir: &Path, out: &mut Vec<String>) -> anyhow::Result<()> {
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, out)?;
+            } else if path.is_file() {
+                out.push(path.to_string_lossy().to_string());
+            }
+        }
+        Ok(())
+    }
+
+    let root = run_dir(run_id);
+    if !root.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut out = Vec::new();
+    walk(&root, &mut out)?;
+    out.sort();
+    Ok(out)
+}
+
+pub fn save_film_runtime_snapshot(
+    run_id: &str,
+    snapshot: &crate::film_runtime::snapshot::FilmRuntimeSnapshot,
+) -> anyhow::Result<()> {
+    let dir = run_dir(run_id);
+    fs::create_dir_all(&dir)?;
+    let data = serde_json::to_vec_pretty(snapshot)?;
+    fs::write(film_runtime_snapshot_path(run_id), data)?;
+    Ok(())
+}
+
+pub fn load_film_runtime_snapshot(
+    run_id: &str,
+) -> anyhow::Result<crate::film_runtime::snapshot::FilmRuntimeSnapshot> {
+    let data = fs::read(film_runtime_snapshot_path(run_id))?;
+    Ok(serde_json::from_slice(&data)?)
+}
+
+pub fn save_film_runtime_events(
+    run_id: &str,
+    events: &[crate::event_engine::types::EngineEvent],
+) -> anyhow::Result<()> {
+    let dir = run_dir(run_id);
+    fs::create_dir_all(&dir)?;
+    let data = serde_json::to_vec_pretty(events)?;
+    fs::write(film_runtime_events_path(run_id), data)?;
+    Ok(())
+}
+
+pub fn save_run_plan_v3(
+    run_id: &str,
+    plan: &crate::dag_v3::plan::DagExecutionPlan,
+) -> io::Result<()> {
+    let p = run_plan_v3_path(run_id);
+    if let Some(parent) = p.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let bytes = serde_json::to_vec_pretty(plan)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+    fs::write(p, bytes)
+}
+
+pub fn load_run_plan_v3(run_id: &str) -> io::Result<crate::dag_v3::plan::DagExecutionPlan> {
+    let p = run_plan_v3_path(run_id);
+    let bytes = fs::read(p)?;
+    serde_json::from_slice::<crate::dag_v3::plan::DagExecutionPlan>(&bytes)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
+}
+
+pub fn save_run_artifacts_index(
+    run_id: &str,
+    idx: &crate::dag_v3::artifacts::ArtifactIndex,
+) -> io::Result<()> {
+    let p = run_artifacts_index_path(run_id);
+    if let Some(parent) = p.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let bytes = serde_json::to_vec_pretty(idx)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+    fs::write(p, bytes)
+}
+
+pub fn load_run_artifacts_index(
+    run_id: &str,
+) -> io::Result<crate::dag_v3::artifacts::ArtifactIndex> {
+    let p = run_artifacts_index_path(run_id);
+    let bytes = fs::read(p)?;
+    serde_json::from_slice::<crate::dag_v3::artifacts::ArtifactIndex>(&bytes)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
+}

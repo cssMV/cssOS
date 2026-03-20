@@ -121,7 +121,7 @@ pub fn subscribe() -> broadcast::Receiver<RunEvent> {
 }
 
 pub fn emit_snapshot(state: &RunState) {
-    let dag = crate::dag::cssmv_dag_v1();
+    let dag = crate::dag::cssmv_dag_active();
     let view = compute_ready_view_with_dag_limited(state, &dag, 64);
     let video_shots = state
         .video_shots_total

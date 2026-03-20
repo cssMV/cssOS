@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::run_state::{RunState, StageRecord, StageStatus};
 use std::collections::{BTreeMap, BTreeSet};
 

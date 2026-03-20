@@ -1,3 +1,6 @@
+use crate::immersion_engine::runtime::ImmersionSnapshot;
+use crate::scene_semantics_engine::state::SceneSemanticState;
+use crate::scene_semantics_engine::types::{SceneCameraHint, SceneSemanticKind, SceneTensionLevel};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -38,6 +41,8 @@ pub struct Bg {
 pub struct Camera {
     pub r#move: String,
     pub strength: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,6 +81,8 @@ pub fn ensure_storyboard_auto(
     duration_s: Option<f64>,
     cfg: AutoShotConfig,
     creative_hint: Option<String>,
+    immersion: Option<&ImmersionSnapshot>,
+    scene_semantics: Option<&SceneSemanticState>,
 ) -> anyhow::Result<(Storyboard, serde_json::Value)> {
     if storyboard_path.exists() {
         let sb = load_storyboard(storyboard_path)?;
@@ -90,7 +97,14 @@ pub fn ensure_storyboard_auto(
     }
 
     let dur = duration_s.unwrap_or(60.0);
-    let shots = generate_auto_shots(seed, dur, &cfg, creative_hint.clone());
+    let shots = generate_auto_shots(
+        seed,
+        dur,
+        &cfg,
+        creative_hint.clone(),
+        immersion,
+        scene_semantics,
+    );
     let sb = Storyboard {
         schema: "css.video.storyboard.v1".to_string(),
         seed,
@@ -109,7 +123,9 @@ pub fn ensure_storyboard_auto(
         "fps": sb.fps,
         "resolution": { "w": sb.resolution.w, "h": sb.resolution.h },
         "path": storyboard_path.to_string_lossy(),
-        "creative_hint": creative_hint
+        "creative_hint": creative_hint,
+        "immersion": immersion,
+        "scene_semantics": scene_semantics
     });
     Ok((sb, meta))
 }
@@ -141,6 +157,8 @@ fn generate_auto_shots(
     duration_s: f64,
     cfg: &AutoShotConfig,
     creative_hint: Option<String>,
+    immersion: Option<&ImmersionSnapshot>,
+    scene_semantics: Option<&SceneSemanticState>,
 ) -> Vec<Shot> {
     let mut rng = Lcg::new(seed ^ 0xC55A_5A5A_A11C_EE11);
     let avg = (cfg.min_len_s + cfg.max_len_s) * 0.5;
@@ -154,7 +172,7 @@ fn generate_auto_shots(
         let min_total = cfg.min_len_s * left as f64;
         let max_total = cfg.max_len_s * left as f64;
 
-        let mut d = cfg.min_len_s + rng.f64() * (cfg.max_len_s - cfg.min_len_s);
+        let d;
         if remain < min_total {
             d = (remain / left as f64).max(0.8);
         } else if remain > max_total {
@@ -168,7 +186,7 @@ fn generate_auto_shots(
         remain = (remain - d).max(0.0);
 
         let color = pick_color(&mut rng);
-        let cam = pick_camera(&mut rng);
+        let cam = pick_camera(&mut rng, immersion, scene_semantics, i, n);
 
         out.push(Shot {
             id: format!("video_shot_{:03}", i),
@@ -195,7 +213,13 @@ fn pick_color(rng: &mut Lcg) -> String {
     COLORS[idx].to_string()
 }
 
-fn pick_camera(rng: &mut Lcg) -> Camera {
+fn pick_camera(
+    rng: &mut Lcg,
+    immersion: Option<&ImmersionSnapshot>,
+    scene_semantics: Option<&SceneSemanticState>,
+    index: usize,
+    total: usize,
+) -> Camera {
     const MOVES: [&str; 6] = [
         "push_in",
         "pull_out",
@@ -204,11 +228,93 @@ fn pick_camera(rng: &mut Lcg) -> Camera {
         "tilt_up",
         "tilt_down",
     ];
-    let mv = MOVES[(rng.u32() as usize) % MOVES.len()].to_string();
-    let strength = 0.25 + rng.f64() * 0.45;
+
+    let semantic_camera_hint = scene_semantics.map(|scene| {
+        crate::scene_semantics_engine::rules::preferred_camera_mode(&scene.semantic, &scene.tension)
+    });
+
+    let (mv, strength, strategy) =
+        if let Some(SceneCameraHint::DialogueTwoShot) = semantic_camera_hint {
+            let mv = if index % 2 == 0 {
+                "pan_left"
+            } else {
+                "pan_right"
+            }
+            .to_string();
+            (
+                mv,
+                0.14 + rng.f64() * 0.08,
+                "scene_dialogue_two_shot".to_string(),
+            )
+        } else if let Some(SceneCameraHint::WideScene) = semantic_camera_hint {
+            (
+                "pull_out".to_string(),
+                0.42 + rng.f64() * 0.18,
+                "scene_wide_exploration".to_string(),
+            )
+        } else if let Some(SceneCameraHint::FollowCharacter) = semantic_camera_hint {
+            let mv = if matches!(
+                scene_semantics.map(|scene| &scene.semantic),
+                Some(SceneSemanticKind::Chase | SceneSemanticKind::Escape)
+            ) {
+                "pan_right".to_string()
+            } else {
+                "push_in".to_string()
+            };
+            (
+                mv,
+                0.46 + rng.f64() * 0.2,
+                "scene_follow_character".to_string(),
+            )
+        } else if let Some(SceneCameraHint::OverShoulder) = semantic_camera_hint {
+            (
+                "push_in".to_string(),
+                0.18 + rng.f64() * 0.1,
+                "scene_over_shoulder".to_string(),
+            )
+        } else if let Some(immersion) = immersion {
+            if immersion.preserve_director_focus || immersion.in_focus_zone {
+                let focus_moves = ["push_in", "tilt_down", "pan_left", "pan_right"];
+                let mv = focus_moves[(rng.u32() as usize) % focus_moves.len()].to_string();
+                let strength = 0.16 + rng.f64() * 0.18;
+                (mv, strength, "director_focus".to_string())
+            } else if immersion.allow_free_movement {
+                let roam_moves = ["pan_left", "pan_right", "pull_out", "tilt_up"];
+                let mv = if index + 1 == total {
+                    "pull_out".to_string()
+                } else {
+                    roam_moves[(rng.u32() as usize) % roam_moves.len()].to_string()
+                };
+                let strength = 0.38 + rng.f64() * 0.32;
+                (mv, strength, "free_immersion".to_string())
+            } else if immersion.in_trigger_zone {
+                (
+                    "push_in".to_string(),
+                    0.28 + rng.f64() * 0.12,
+                    "trigger_focus".to_string(),
+                )
+            } else {
+                let mv = MOVES[(rng.u32() as usize) % MOVES.len()].to_string();
+                let strength = 0.25 + rng.f64() * 0.45;
+                (mv, strength, "neutral".to_string())
+            }
+        } else {
+            let mv = MOVES[(rng.u32() as usize) % MOVES.len()].to_string();
+            let strength = if matches!(
+                scene_semantics.map(|scene| &scene.tension),
+                Some(SceneTensionLevel::Critical | SceneTensionLevel::Tense)
+            ) {
+                0.4 + rng.f64() * 0.22
+            } else {
+                0.25 + rng.f64() * 0.45
+            };
+            (mv, strength, "neutral".to_string())
+        };
+
     Camera {
         r#move: mv,
         strength: round_2(strength),
+        strategy: Some(strategy),
     }
 }
 

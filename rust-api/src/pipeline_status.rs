@@ -1,4 +1,4 @@
-use crate::dag::{cssmv_dag_v1, Dag};
+use crate::dag::{cssmv_dag_active, Dag};
 use crate::run_worker;
 use serde_json::json;
 use std::{fs, path::Path};
@@ -74,7 +74,7 @@ fn artifacts_get<'a>(v: &'a serde_json::Value, path: &str) -> Option<&'a serde_j
 pub fn build_status_json(state_path: &Path) -> anyhow::Result<serde_json::Value> {
     let s = fs::read_to_string(state_path)?;
     let state: serde_json::Value = serde_json::from_str(&s)?;
-    let dag = cssmv_dag_v1();
+    let dag = cssmv_dag_active();
 
     let ready = ready_queue(&dag, &state);
     let artifacts = state.get("artifacts").cloned().unwrap_or_else(|| json!({}));

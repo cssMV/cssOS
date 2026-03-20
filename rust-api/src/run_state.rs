@@ -80,6 +80,24 @@ pub struct RunState {
 
     #[serde(default)]
     pub last_event: Option<crate::events::LastEvent>,
+
+    #[serde(default)]
+    pub immersion: crate::immersion_engine::state::ImmersionState,
+
+    #[serde(default)]
+    pub presence: crate::presence_engine::state::PresenceState,
+
+    #[serde(default)]
+    pub scene_semantics: crate::scene_semantics_engine::state::SceneSemanticStateStore,
+
+    #[serde(default)]
+    pub event_engine: crate::event_engine::runtime::EventEngineState,
+
+    #[serde(default)]
+    pub immersion_zones: Vec<crate::immersion_engine::zones::ImmersionZone>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub viewer_position: Option<crate::physics_engine::types::Vec3>,
 }
 
 fn deserialize_artifacts<'de, D>(deserializer: D) -> Result<Vec<Artifact>, D::Error>

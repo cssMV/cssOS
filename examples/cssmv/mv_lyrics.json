@@ -1,0 +1,9 @@
+{
+  "projectId": "mv_echo_lyrics",
+  "mode": "music_video",
+  "sourceType": "lyrics",
+  "title": "Echo Lights",
+  "sourceText": "Verse 1: We run through the static glow\nChorus: Echo lights, carry me home tonight",
+  "durationSec": 150,
+  "capabilities": ["single_line"]
+}

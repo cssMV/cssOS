@@ -70,7 +70,7 @@ struct SubscribeMsg {
 }
 
 fn snapshot_from_state(st: &crate::run_state::RunState) -> crate::events::RunReadySnapshot {
-    let dag = crate::dag::cssmv_dag_v1();
+    let dag = crate::dag::cssmv_dag_active();
     let view = crate::ready::compute_ready_view_with_dag_limited(st, &dag, 64);
     crate::events::RunReadySnapshot {
         schema: "cssapi.runs.ready.v1".to_string(),

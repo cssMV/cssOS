@@ -13685,6 +13685,85 @@ function buildWatchArchiveConfidenceTrendStrip(probeHistory) {
   };
 }
 
+function buildWatchArchiveShiftActionRail(
+  shiftRiskBadge,
+  shiftExitRecommendation,
+  crossBorderAnomalyAlert
+) {
+  const risk = String(shiftRiskBadge?.badge || "");
+  const severeCrossBorder = String(crossBorderAnomalyAlert?.level || "") === dashboardCopy("alert", "告警");
+  const exitHeadline = String(shiftExitRecommendation?.headline || "");
+  const actions = [];
+  if (risk === dashboardCopy("high", "高")) {
+    actions.push(dashboardCopy("Keep this shift open and continue active monitoring.", "继续保持这一班开启，持续主动观察。"));
+  }
+  if (severeCrossBorder) {
+    actions.push(dashboardCopy("Route investigation toward network path checks first.", "优先把排查路由到网络链路检查。"));
+  }
+  if (exitHeadline.includes("exit cleanly") || exitHeadline.includes("平稳收班")) {
+    actions.push(dashboardCopy("Prepare the handoff package and close the shift in order.", "准备交接包，并按顺序完成收班。"));
+  }
+  if (!actions.length) {
+    actions.push(dashboardCopy("Refresh probes, confirm the latest sample, then decide whether to hand off.", "刷新探针，确认最新样本后，再决定是否交接。"));
+  }
+  return {
+    headline: dashboardCopy("Next actions for this shift.", "这一班接下来该做的动作。"),
+    actions: actions.slice(0, 3)
+  };
+}
+
+function buildWatchArchiveHandoffSendGate(handoffReadinessBanner, shiftCloseChecklist) {
+  const level = String(handoffReadinessBanner?.level || "");
+  const pendingCount = Array.isArray(shiftCloseChecklist?.checklist)
+    ? shiftCloseChecklist.checklist.filter((item) => item.state !== dashboardCopy("ready", "就绪")).length
+    : 0;
+  let status = dashboardCopy("blocked", "阻塞");
+  let note = dashboardCopy("Do not send the handoff yet.", "现在还不建议发出交接。");
+  if (level === dashboardCopy("ready", "可发") && pendingCount === 0) {
+    status = dashboardCopy("open", "已开闸");
+    note = dashboardCopy("Handoff can be sent now.", "当前交接现在可以发出。");
+  } else if (level === dashboardCopy("almost", "接近可发")) {
+    status = dashboardCopy("review", "待复核");
+    note = dashboardCopy("One more review pass is recommended before sending.", "建议再做一遍复核后再发出。");
+  }
+  return {
+    status,
+    note,
+    detail: dashboardCopy(
+      `Pending close items=${pendingCount} · Readiness=${level || "unknown"}`,
+      `待收口项=${pendingCount} · 就绪度=${level || "未知"}`
+    )
+  };
+}
+
+function buildWatchArchiveConfidenceFallbackHints(
+  verdictConfidenceCard,
+  crossBorderAnomalyAlert,
+  routeComparisonMemo
+) {
+  const confidence = String(verdictConfidenceCard?.confidence || "");
+  const severeCrossBorder = String(crossBorderAnomalyAlert?.level || "") === dashboardCopy("alert", "告警");
+  const hints = [];
+  if (confidence === dashboardCopy("low", "低")) {
+    hints.push(dashboardCopy("Use the most conservative wording in handoff notes.", "在交接备注里使用最保守的结论表述。"));
+    hints.push(dashboardCopy("Avoid strong server-down claims unless gzvm public also fails.", "除非 gzvm 公网也失败，否则不要下很重的服务器宕机结论。"));
+  } else if (confidence === dashboardCopy("medium", "中")) {
+    hints.push(dashboardCopy("Keep the current conclusion, but call out remaining uncertainty.", "可以保留当前结论，但要明确剩余不确定性。"));
+  } else {
+    hints.push(dashboardCopy("Current verdict confidence is good enough for a normal handoff summary.", "当前结论把握度足够支撑常规交接摘要。"));
+  }
+  if (severeCrossBorder) {
+    hints.push(dashboardCopy("Prefer path-level language over host-level blame.", "优先使用链路级表述，不要先归因到主机本身。"));
+  }
+  if (routeComparisonMemo?.headline) {
+    hints.push(dashboardCopy(`Route memo: ${routeComparisonMemo.headline}`, `链路备忘：${routeComparisonMemo.headline}`));
+  }
+  return {
+    headline: dashboardCopy("Fallback hints when confidence is lower.", "把握度较低时的保守处理提示。"),
+    hints: hints.slice(0, 4)
+  };
+}
+
 function buildWatchArchiveCrossBorderAnomalyAlert(probeSummary) {
   const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
   const conclusion = payload?.conclusion || {};
@@ -24508,6 +24587,20 @@ function renderMusicDeliveryDashboard() {
   const crossBorderAnomalyAlert = buildWatchArchiveCrossBorderAnomalyAlert(
     deliveryDashboardState.probeSummary
   );
+  const shiftActionRail = buildWatchArchiveShiftActionRail(
+    shiftRiskBadge,
+    shiftExitRecommendation,
+    crossBorderAnomalyAlert
+  );
+  const handoffSendGate = buildWatchArchiveHandoffSendGate(
+    handoffReadinessBanner,
+    shiftCloseChecklist
+  );
+  const confidenceFallbackHints = buildWatchArchiveConfidenceFallbackHints(
+    verdictConfidenceCard,
+    crossBorderAnomalyAlert,
+    routeComparisonMemo
+  );
   const regionLinkConclusionHtml = deliveryDashboardState.probeSummary
     ? `
         <div class="report-list">
@@ -24629,6 +24722,20 @@ function renderMusicDeliveryDashboard() {
               `${handoffReadinessBanner.level} · ${handoffReadinessBanner.headline}`
             )}</div>
             <div class="report-card-copy">${escapeHtml(handoffReadinessBanner.note)}</div>
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Shift Action Rail</div>
+            <div class="report-card-copy">${escapeHtml(shiftActionRail.headline)}</div>
+            ${shiftActionRail.actions
+              .map((item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`)
+              .join("")}
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Handoff Send Gate</div>
+            <div class="report-card-copy">${escapeHtml(
+              `${handoffSendGate.status} · ${handoffSendGate.note}`
+            )}</div>
+            <div class="report-card-copy">${escapeHtml(handoffSendGate.detail)}</div>
           </div>
           <div class="report-list-item">
             <div class="report-preview-title">On-Call Action Checklist</div>
@@ -24966,6 +25073,13 @@ function renderMusicDeliveryDashboard() {
               )
             )}</div>
             <div class="report-card-copy">${escapeHtml(verdictConfidenceCard.note)}</div>
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Confidence Fallback Hints</div>
+            <div class="report-card-copy">${escapeHtml(confidenceFallbackHints.headline)}</div>
+            ${confidenceFallbackHints.hints
+              .map((item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`)
+              .join("")}
           </div>
         </div>
       `

@@ -13858,6 +13858,74 @@ function buildWatchArchiveConfidenceEscalationLadder(
   };
 }
 
+function buildWatchArchiveShiftSendButtonState(handoffSendGate, shiftSendChecklist) {
+  const status = String(handoffSendGate?.status || "");
+  const pendingCount = Array.isArray(shiftSendChecklist?.checklist)
+    ? shiftSendChecklist.checklist.filter((item) => item.state !== dashboardCopy("ready", "就绪")).length
+    : 0;
+  let state = dashboardCopy("disabled", "不可发");
+  let note = dashboardCopy("Keep the send button disabled until the handoff gate opens.", "在交接发送门打开前，发送按钮应保持不可发。");
+  if (status === dashboardCopy("open", "已开闸") && pendingCount === 0) {
+    state = dashboardCopy("armed", "可发送");
+    note = dashboardCopy("The send button can be armed now.", "发送按钮现在可以放开。");
+  } else if (status === dashboardCopy("review", "待复核")) {
+    state = dashboardCopy("review", "待复核");
+    note = dashboardCopy("Keep the send button behind one more human review.", "发送按钮应继续放在一次人工复核之后。");
+  }
+  return {
+    state,
+    note
+  };
+}
+
+function buildWatchArchivePacketExportPreviewDiff(handoffPacketPreview, exportReceipts) {
+  const receiptCount = Array.isArray(exportReceipts) ? exportReceipts.length : 0;
+  const lastReceipt = receiptCount ? exportReceipts[receiptCount - 1] : null;
+  return {
+    headline: dashboardCopy("How this packet preview differs from the last exported handoff.", "这次交接包预览与上一次导出相比的差异。"),
+    rows: [
+      dashboardCopy(
+        `Current packet rows · ${Array.isArray(handoffPacketPreview?.rows) ? handoffPacketPreview.rows.length : 0}`,
+        `当前包行数 · ${Array.isArray(handoffPacketPreview?.rows) ? handoffPacketPreview.rows.length : 0}`
+      ),
+      dashboardCopy(
+        `Previous export receipt · ${lastReceipt?.at || dashboardCopy("none", "无")}`,
+        `上次导出回执 · ${lastReceipt?.at || dashboardCopy("无", "无")}`
+      ),
+      dashboardCopy(
+        `Previous export file · ${lastReceipt?.fileName || dashboardCopy("none", "无")}`,
+        `上次导出文件 · ${lastReceipt?.fileName || dashboardCopy("无", "无")}`
+      ),
+      receiptCount
+        ? dashboardCopy("Packet preview should be checked against the most recent receipt before sending again.", "再次发送前，应把当前包预览和最近回执对照确认。")
+        : dashboardCopy("No previous export receipt exists yet, so this packet will be the first handoff bundle.", "当前还没有历史导出回执，所以这次会是第一份交接包。")
+    ]
+  };
+}
+
+function buildWatchArchiveEscalationOwnerLane(
+  confidenceEscalationLadder,
+  crossBorderAnomalyAlert,
+  shiftRiskBadge
+) {
+  const lane = String(confidenceEscalationLadder?.lane || "");
+  const risk = String(shiftRiskBadge?.badge || "");
+  const severeCrossBorder = String(crossBorderAnomalyAlert?.level || "") === dashboardCopy("alert", "告警");
+  let owner = dashboardCopy("current operator", "当前值班人");
+  if (lane.includes("active review") || lane.includes("主动复核")) {
+    owner = dashboardCopy("senior on-call reviewer", "高级值班复核人");
+  } else if (severeCrossBorder || risk === dashboardCopy("medium", "中")) {
+    owner = dashboardCopy("network-path reviewer", "网络链路复核人");
+  }
+  return {
+    owner,
+    note: dashboardCopy(
+      `Escalation lane=${lane || "unknown"} · Suggested owner=${owner}`,
+      `升级路径=${lane || "未知"} · 建议接手人=${owner}`
+    )
+  };
+}
+
 function buildWatchArchiveCrossBorderAnomalyAlert(probeSummary) {
   const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
   const conclusion = payload?.conclusion || {};
@@ -24712,6 +24780,19 @@ function renderMusicDeliveryDashboard() {
     shiftRiskBadge,
     crossBorderAnomalyAlert
   );
+  const shiftSendButtonState = buildWatchArchiveShiftSendButtonState(
+    handoffSendGate,
+    shiftSendChecklist
+  );
+  const packetExportPreviewDiff = buildWatchArchivePacketExportPreviewDiff(
+    handoffPacketPreview,
+    deliveryDashboardState.probeExportReceipts
+  );
+  const escalationOwnerLane = buildWatchArchiveEscalationOwnerLane(
+    confidenceEscalationLadder,
+    crossBorderAnomalyAlert,
+    shiftRiskBadge
+  );
   const regionLinkConclusionHtml = deliveryDashboardState.probeSummary
     ? `
         <div class="report-list">
@@ -24856,9 +24937,22 @@ function renderMusicDeliveryDashboard() {
               .join("")}
           </div>
           <div class="report-list-item">
+            <div class="report-preview-title">Shift Send Button State</div>
+            <div class="report-card-copy">${escapeHtml(
+              `${shiftSendButtonState.state} · ${shiftSendButtonState.note}`
+            )}</div>
+          </div>
+          <div class="report-list-item">
             <div class="report-preview-title">Handoff Packet Preview</div>
             <div class="report-card-copy">${escapeHtml(handoffPacketPreview.headline)}</div>
             ${handoffPacketPreview.rows
+              .map((item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`)
+              .join("")}
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Packet Export Preview Diff</div>
+            <div class="report-card-copy">${escapeHtml(packetExportPreviewDiff.headline)}</div>
+            ${packetExportPreviewDiff.rows
               .map((item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`)
               .join("")}
           </div>
@@ -25217,6 +25311,16 @@ function renderMusicDeliveryDashboard() {
             ${confidenceEscalationLadder.steps
               .map((item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`)
               .join("")}
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Escalation Owner Lane</div>
+            <div class="report-card-copy">${escapeHtml(
+              dashboardCopy(
+                `Suggested owner · ${escalationOwnerLane.owner}`,
+                `建议接手人 · ${escalationOwnerLane.owner}`
+              )
+            )}</div>
+            <div class="report-card-copy">${escapeHtml(escalationOwnerLane.note)}</div>
           </div>
         </div>
       `

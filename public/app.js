@@ -2446,6 +2446,14 @@ function ensureSongSeedTitleContext() {
   return fallback;
 }
 
+function safeBuildLyricsSeedVisualSignature(seed) {
+  try {
+    return buildLyricsSeedVisualSignature(seed);
+  } catch (_error) {
+    return "";
+  }
+}
+
 async function regenerateSeedFields(target) {
   const triggerMap = {
     lyrics: lyricsRegenerate,
@@ -2455,18 +2463,18 @@ async function regenerateSeedFields(target) {
     scenes: sectionPromptsRegenerate
   };
   const trigger = triggerMap[target] || lyricsRegenerate;
-  const title = ensureSongSeedTitleContext();
   try {
     if (target === "lyrics") {
+      setLyricsDebugStatus(
+        loginCopy(
+          "Button triggered. Checking lyric title context...",
+          "按钮已触发，正在检查歌词标题上下文..."
+        ),
+        "pending"
+      );
       lyricRegenerateRequestActive = true;
     }
-    setButtonBusy(trigger, true);
-    const previousLyricsValue = String(lyricsInput?.value || "");
-    const previousTitleValue = String(titleInput?.value || "");
-    const previousSignature = buildLyricsSeedVisualSignature({
-      title,
-      lyrics: lyricsInput?.value || compactLyricLines(state.lines || []).join("\n")
-    });
+    const title = ensureSongSeedTitleContext();
     if (target === "lyrics") {
       setLyricsDebugStatus(
         loginCopy(
@@ -2475,6 +2483,15 @@ async function regenerateSeedFields(target) {
         ),
         "pending"
       );
+    }
+    setButtonBusy(trigger, true);
+    const previousLyricsValue = String(lyricsInput?.value || "");
+    const previousTitleValue = String(titleInput?.value || "");
+    const previousSignature = safeBuildLyricsSeedVisualSignature({
+      title,
+      lyrics: lyricsInput?.value || compactLyricLines(state.lines || []).join("\n")
+    });
+    if (target === "lyrics") {
       enterLyricSpellcast();
       randomizeCreationForLyricsRefresh(title);
     }
@@ -2489,7 +2506,7 @@ async function regenerateSeedFields(target) {
       raw = getApiData(payload);
       if (!payload?.ok || payload?.empty || !raw) break;
       normalized = normalizeSongSeed(raw);
-      nextSignature = buildLyricsSeedVisualSignature(normalized);
+      nextSignature = safeBuildLyricsSeedVisualSignature(normalized);
       if (target !== "lyrics" || !previousSignature || !nextSignature || nextSignature !== previousSignature) {
         break;
       }

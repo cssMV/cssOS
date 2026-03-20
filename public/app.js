@@ -1823,6 +1823,7 @@ function buildCurrentCreationDefaultsPayload() {
 function applyCreationDefaults(template) {
   if (!template || typeof template !== "object") return;
   panelDefaultsState.creation = template;
+  resetCreationTouchedFields();
   const creative = template.creative || {};
   creationState.selections = {
     genre: String(creative.genre || "Chinese GuFeng"),
@@ -2105,50 +2106,61 @@ function initCreationConsole() {
     const chip = target.dataset.creationChip;
     if (!chip) return;
     const key = creationState.activeTab;
+    markCreationFieldTouched(key);
     creationState.selections[key] = creationState.selections[key] === chip ? "" : chip;
     syncCreationStateToLegacyInputs();
     renderCreationConsole();
   });
 
   creationTempo?.addEventListener("input", () => {
+    markCreationFieldTouched("tempo");
     creationState.tempo = Math.max(40, Math.min(220, Number(creationTempo.value || 88)));
     renderCreationConsole();
   });
   creationKey?.addEventListener("change", () => {
+    markCreationFieldTouched("key");
     creationState.key = creationKey.value || "C";
     renderCreationConsole();
   });
   creationDuration?.addEventListener("input", () => {
+    markCreationFieldTouched("duration");
     creationState.duration = Math.max(30, Math.min(600, Number(creationDuration.value || 180)));
     renderCreationConsole();
   });
   creationLanguage?.addEventListener("change", () => {
+    markCreationFieldTouched("language");
     creationState.language = creationLanguage.value || "zh";
     renderCreationConsole();
   });
   creationWorkType?.addEventListener("change", () => {
+    markCreationFieldTouched("workType");
     creationState.workType = normalizeWorkTypeClient(creationWorkType.value || "single");
     renderCreationConsole();
   });
   creationInstrumentation?.addEventListener("input", () => {
+    markCreationFieldTouched("instrumentation");
     creationState.instrumentation = String(creationInstrumentation.value || "").slice(0, 400);
     syncCreationStateToLegacyInputs();
     renderCreationConsole();
   });
   creationVocalStyle?.addEventListener("input", () => {
+    markCreationFieldTouched("vocalStyle");
     creationState.vocalStyle = String(creationVocalStyle.value || "").slice(0, 240);
     renderCreationConsole();
   });
   creationEnsembleStyle?.addEventListener("input", () => {
+    markCreationFieldTouched("ensembleStyle");
     creationState.ensembleStyle = String(creationEnsembleStyle.value || "").slice(0, 240);
     syncCreationStateToLegacyInputs();
     renderCreationConsole();
   });
   creationLicensedStylePack?.addEventListener("input", () => {
+    markCreationFieldTouched("licensedStylePack");
     creationState.licensedStylePack = String(creationLicensedStylePack.value || "").slice(0, 240);
     renderCreationConsole();
   });
   creationExternalAudioAdapter?.addEventListener("input", () => {
+    markCreationFieldTouched("externalAudioAdapter");
     creationState.externalAudioAdapter = String(creationExternalAudioAdapter.value || "").slice(0, 240);
     renderCreationConsole();
   });
@@ -2185,6 +2197,7 @@ function initCreationConsole() {
     renderCreationConsole();
   });
   creationInspirationNotes?.addEventListener("input", () => {
+    markCreationFieldTouched("inspirationNotes");
     creationState.inspirationNotes = String(creationInspirationNotes.value || "").slice(0, 1000);
     renderCreationConsole();
   });
@@ -2195,6 +2208,7 @@ function initCreationConsole() {
     // keep value user-editable until save
   });
   creationPrompt?.addEventListener("input", () => {
+    markCreationFieldTouched("prompt");
     creationState.prompt = String(creationPrompt.value || "").slice(0, 500);
     renderCreationConsole();
   });
@@ -2204,6 +2218,7 @@ function initCreationConsole() {
     updateEnginePanels(titleInput?.value?.trim() || state.title, (lyricsInput?.value || "").split("\n"));
   });
   styleInput?.addEventListener("input", () => {
+    markCreationFieldTouched("styleText");
     renderCreationConsole();
     updateEnginePanels(titleInput?.value?.trim() || state.title, (lyricsInput?.value || "").split("\n"));
   });
@@ -2264,23 +2279,49 @@ function initCreationConsole() {
 
 function randomizeCreationForLyricsRefresh(title) {
   const seed = hashSeedString(`${title}::${Date.now()}::${songSeedVariationCounter}`);
+  const preservedStyleText = hasCreationFieldTouched("styleText") ? String(styleInput?.value || "").trim() : "";
+  const preservedVoiceValue = hasCreationFieldTouched("vocalGender") ? String(voiceInput?.value || "").trim() : "";
   creationState.selections = {
-    genre: seededPick(creationOptionCatalog.genre, seed, 1) || "Chinese GuFeng",
-    mood: seededPick(creationOptionCatalog.mood, seed, 2) || "",
-    instrument: seededPick(creationOptionCatalog.instrument, seed, 3) || "",
-    ambience: seededPick(creationOptionCatalog.ambience, seed, 4) || "",
-    vocalGender: seededPick(creationOptionCatalog.vocalGender, seed, 5) || "Feminine"
+    genre: hasCreationFieldTouched("genre")
+      ? creationState.selections.genre
+      : seededPick(creationOptionCatalog.genre, seed, 1) || "Chinese GuFeng",
+    mood: hasCreationFieldTouched("mood")
+      ? creationState.selections.mood
+      : seededPick(creationOptionCatalog.mood, seed, 2) || "",
+    instrument: hasCreationFieldTouched("instrument")
+      ? creationState.selections.instrument
+      : seededPick(creationOptionCatalog.instrument, seed, 3) || "",
+    ambience: hasCreationFieldTouched("ambience")
+      ? creationState.selections.ambience
+      : seededPick(creationOptionCatalog.ambience, seed, 4) || "",
+    vocalGender: hasCreationFieldTouched("vocalGender")
+      ? creationState.selections.vocalGender
+      : seededPick(creationOptionCatalog.vocalGender, seed, 5) || "Feminine"
   };
-  creationState.tempo = seededNumber(68, 168, 4, seed, 6);
-  creationState.key = seededPick(["C", "D", "E", "F", "G", "A", "B"], seed, 7) || "C";
-  creationState.duration = seededPick([30, 45, 60, 75, 90, 120], seed, 8) || 60;
-  creationState.language = seededPick(["zh", "en", "ja"], seed, 9) || "zh";
-  creationState.workType = seededPick(["single", "triptych", "opera"], seed, 10) || "single";
-  creationState.prompt = loginCopy(
-    `Randomized from title: ${title}`,
-    `由标题随机生成：${title}`
-  );
-  creationState.instrumentation = seededPick(
+  creationState.tempo = hasCreationFieldTouched("tempo")
+    ? creationState.tempo
+    : seededNumber(68, 168, 4, seed, 6);
+  creationState.key = hasCreationFieldTouched("key")
+    ? creationState.key
+    : seededPick(["C", "D", "E", "F", "G", "A", "B"], seed, 7) || "C";
+  creationState.duration = hasCreationFieldTouched("duration")
+    ? creationState.duration
+    : seededPick([30, 45, 60, 75, 90, 120], seed, 8) || 60;
+  creationState.language = hasCreationFieldTouched("language")
+    ? creationState.language
+    : seededPick(["zh", "en", "ja"], seed, 9) || "zh";
+  creationState.workType = hasCreationFieldTouched("workType")
+    ? creationState.workType
+    : seededPick(["single", "triptych", "opera"], seed, 10) || "single";
+  creationState.prompt = hasCreationFieldTouched("prompt")
+    ? creationState.prompt
+    : loginCopy(
+        `Randomized from title: ${title}`,
+        `由标题随机生成：${title}`
+      );
+  creationState.instrumentation = hasCreationFieldTouched("instrumentation")
+    ? creationState.instrumentation
+    : seededPick(
     [
       "guzheng, dizi, low strings",
       "grand piano, cello, brushed drums",
@@ -2290,23 +2331,35 @@ function randomizeCreationForLyricsRefresh(title) {
     seed,
     11
   ) || "";
-  creationState.vocalStyle = seededPick(
+  creationState.vocalStyle = hasCreationFieldTouched("vocalStyle")
+    ? creationState.vocalStyle
+    : seededPick(
     ["airy close-mic", "lyric belt", "soft opera shimmer", "soul rasp", "choral unison"],
     seed,
     12
   ) || "";
-  creationState.ensembleStyle = seededPick(
+  creationState.ensembleStyle = hasCreationFieldTouched("ensembleStyle")
+    ? creationState.ensembleStyle
+    : seededPick(
     ["chamber ensemble", "festival percussion circle", "synth-pop band", "cinematic orchestra"],
     seed,
     13
   ) || "";
-  creationState.licensedStylePack = "";
-  creationState.externalAudioAdapter = "";
-  creationState.inspirationNotes = loginCopy(
-    "Use broad lawful references: era, region, instrumentation, emotional pacing, and any licensed pack names.",
-    "使用合法的宽参考：时代、地域、编制、情绪推进，以及已授权音源包名称。"
-  );
+  creationState.licensedStylePack = hasCreationFieldTouched("licensedStylePack")
+    ? creationState.licensedStylePack
+    : "";
+  creationState.externalAudioAdapter = hasCreationFieldTouched("externalAudioAdapter")
+    ? creationState.externalAudioAdapter
+    : "";
+  creationState.inspirationNotes = hasCreationFieldTouched("inspirationNotes")
+    ? creationState.inspirationNotes
+    : loginCopy(
+        "Use broad lawful references: era, region, instrumentation, emotional pacing, and any licensed pack names.",
+        "使用合法的宽参考：时代、地域、编制、情绪推进，以及已授权音源包名称。"
+      );
   syncCreationStateToLegacyInputs();
+  if (preservedStyleText && styleInput) styleInput.value = preservedStyleText;
+  if (preservedVoiceValue && voiceInput) setSelectValueSafe(voiceInput, preservedVoiceValue);
   randomizePalette();
   renderCreationConsole();
 }
@@ -4051,6 +4104,19 @@ const creationState = {
   workType: "single",
   prompt: ""
 };
+const creationTouchedFields = new Set();
+
+function markCreationFieldTouched(field) {
+  if (field) creationTouchedFields.add(String(field));
+}
+
+function hasCreationFieldTouched(field) {
+  return creationTouchedFields.has(String(field));
+}
+
+function resetCreationTouchedFields() {
+  creationTouchedFields.clear();
+}
 
 const panelDefaultsState = {
   creation: null,
@@ -32873,7 +32939,10 @@ if (styleInput) {
 }
 
 if (voiceInput) {
-  voiceInput.addEventListener("change", () => updateEnginePanels(state.title, state.lines));
+voiceInput.addEventListener("change", () => {
+  markCreationFieldTouched("vocalGender");
+  updateEnginePanels(state.title, state.lines);
+});
 }
 
 lyricsInput?.addEventListener("input", () => syncWatchEditorsFromSettings());

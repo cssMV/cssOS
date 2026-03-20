@@ -2198,6 +2198,11 @@ function initCreationConsole() {
     creationState.prompt = String(creationPrompt.value || "").slice(0, 500);
     renderCreationConsole();
   });
+  titleInput?.addEventListener("input", () => {
+    titleInput.dataset.userEdited = "1";
+    state.title = String(titleInput.value || "").trim() || state.title;
+    updateEnginePanels(titleInput?.value?.trim() || state.title, (lyricsInput?.value || "").split("\n"));
+  });
   styleInput?.addEventListener("input", () => {
     renderCreationConsole();
     updateEnginePanels(titleInput?.value?.trim() || state.title, (lyricsInput?.value || "").split("\n"));
@@ -2233,7 +2238,10 @@ function initCreationConsole() {
       }
     };
     applyCreationDefaults(defaults);
-    if (titleInput) titleInput.value = "";
+    if (titleInput) {
+      titleInput.value = "";
+      titleInput.dataset.userEdited = "0";
+    }
     if (lyricsInput) lyricsInput.value = "";
     if (lyricsSourceInput) lyricsSourceInput.value = "";
     if (styleInput) styleInput.value = "";
@@ -2452,13 +2460,34 @@ function getSongSeedTitleContext() {
   return candidates.find((value) => String(value || "").trim()) || "";
 }
 
+function setSongSeedTitleValue(value, options = {}) {
+  const text = String(value || "").trim();
+  if (titleInput) {
+    titleInput.value = text;
+    titleInput.dataset.userEdited = options.userEdited ? "1" : "0";
+  }
+  state.title = text;
+  return text;
+}
+
+function shouldPreserveSongSeedTitleForRefresh() {
+  return titleInput?.dataset?.userEdited === "1";
+}
+
+function getSongSeedRequestTitle() {
+  if (shouldPreserveSongSeedTitleForRefresh()) {
+    return getSongSeedTitleContext();
+  }
+  return "";
+}
+
 function buildFallbackSongSeedTitle() {
   const genre = String(creationState.selections?.genre || styleInput?.value || "").trim();
   const lang = String(creationState.language || document.documentElement.lang || "zh").toLowerCase();
-  const bankTitle = lyricBank[Math.floor(Math.random() * lyricBank.length)]?.title || "";
-  if (bankTitle) return bankTitle;
   if (lang.startsWith("zh")) {
-    return genre ? `${genre} 即兴命题` : "即兴歌词命题";
+    const leads = ["河灯", "旧埠", "霓虹", "失重", "暗场", "火线", "潮声", "晚灶"];
+    const tails = ["回响", "夜航", "慢信", "余温", "偏光", "返照", "共振", "潮生"];
+    return `${leads[Math.floor(Math.random() * leads.length)]}${tails[Math.floor(Math.random() * tails.length)]}`;
   }
   if (lang.startsWith("ja")) {
     return genre ? `${genre} improvisation` : "improvisation theme";
@@ -2470,9 +2499,7 @@ function ensureSongSeedTitleContext() {
   const existing = getSongSeedTitleContext();
   if (existing) return existing;
   const fallback = buildFallbackSongSeedTitle();
-  if (titleInput) titleInput.value = fallback;
-  state.title = fallback;
-  return fallback;
+  return setSongSeedTitleValue(fallback, { userEdited: false });
 }
 
 function safeBuildLyricsSeedVisualSignature(seed) {
@@ -2505,7 +2532,10 @@ async function regenerateSeedFields(target) {
       lyricRegenerateRequestActive = true;
     }
     lyricStage = "title-context";
-    const title = ensureSongSeedTitleContext();
+    const title =
+      target === "lyrics" && !shouldPreserveSongSeedTitleForRefresh()
+        ? ""
+        : ensureSongSeedTitleContext();
     if (target === "lyrics") {
       setLyricsDebugStatus(
         loginCopy(
@@ -5910,7 +5940,7 @@ function applySongSeedToSettings(seed) {
   const sectionPrompts = data.sectionPrompts;
   const sectionBeats = data.sectionBeats;
 
-  if (titleInput && title) titleInput.value = title;
+  if (title) setSongSeedTitleValue(title, { userEdited: false });
   if (lyricsInput && lyrics) lyricsInput.value = lyrics;
   if (styleInput && musicStyleText) styleInput.value = musicStyleText;
   if (lyricsSourceInput) lyricsSourceInput.value = references.join("\n");
@@ -5923,7 +5953,6 @@ function applySongSeedToSettings(seed) {
   if (videoOutlineInput) videoOutlineInput.value = videoOutlineText;
   if (sectionPromptsInput) sectionPromptsInput.value = renderSectionPromptsText(sectionPrompts);
   state.songSeed = data;
-  if (title) state.title = title;
   if (lyrics) {
     const lines = lyrics.split("\n");
     state.lines = lines;
@@ -31197,7 +31226,7 @@ async function submitMicTranscription(blob) {
 async function runLyricsGenerate(mode, options = {}) {
   songSeedVariationCounter += 1;
   const jobId = getMicJobId();
-  const title = getSongSeedTitleContext();
+  const title = getSongSeedRequestTitle();
   const apply = options?.apply !== false;
   const payload = {
     job_id: jobId,

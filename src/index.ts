@@ -1407,223 +1407,115 @@ function buildFallbackCssmvLyrics(
   }
   const pickByHash = (choices: string[], offset: number) =>
     choices[(blueprint.hash + offset) % choices.length] || choices[0] || "";
-  const zhResponse = pickByHash(
-    ["回应：先别退场", "回应：把火留住", "回应：别松开手", "回应：继续靠近", "回应：别让它停"],
-    3
-  );
+  const localizedAnchors = blueprint.imageryAnchors.map((anchor) => {
+    const map: Record<string, string> = {
+      "incense ash": "香灰",
+      "eclipse river": "蚀河",
+      "jade bell": "玉铃",
+      "paper talisman": "纸符",
+      "star map": "星图",
+      "exit sign": "出口灯",
+      "wet taxi": "雨夜旧车",
+      "answering machine": "答录机",
+      "broken lipstick": "残口红",
+      "subway sparks": "地铁火花",
+      "airlock frost": "舱门霜痕",
+      "red warning light": "红色警灯",
+      "burned signal": "焦黑讯号",
+      "orbit debris": "轨道碎屑",
+      "oxygen bloom": "氧焰",
+      "rusted gate": "生锈院门",
+      "rice field wind": "稻田风",
+      "yellow lamp": "黄灯",
+      "old radio": "旧收音机",
+      "laundry line": "晾衣绳",
+      "roulette rose": "轮盘玫瑰",
+      "mirror teeth": "镜面冷光",
+      "silk gloves": "丝绸手套",
+      "gold dust": "金粉",
+      "paper crown": "纸王冠",
+      "flare smoke": "信号烟",
+      "poster paste": "海报浆糊",
+      "rooftop antenna": "屋顶天线",
+      "megaphone hiss": "扩音器电流",
+      "street sparks": "街口火星"
+    };
+    return map[anchor] || anchor;
+  });
+  const zhFamilyPalette: Record<string, {
+    world: string;
+    opening: string;
+    feeling: string;
+    hook: string;
+    bridge: string;
+    ending: string;
+  }> = {
+    "mythic-rite": {
+      world: "庙火、潮声和旧誓之间",
+      opening: "钟声还没落稳，暗水已经先一步漫过台阶",
+      feeling: "敬畏、悲伤和被命运追上的颤意",
+      hook: "把誓言唱到潮声尽头",
+      bridge: "让旧神谕失效，让人心自己发光",
+      ending: "别把香火吹灭，让回声替我们守夜"
+    },
+    "neon-heartbreak": {
+      world: "末班车、便利店和湿玻璃之间",
+      opening: "霓虹在窗上晕开，像没说完的话反复重播",
+      feeling: "迟疑、余温和睡不着的心跳",
+      hook: "别让未接来电替我们说爱",
+      bridge: "把压在舌尖上的那句真话终于说出来",
+      ending: "让街灯继续亮着，像谁还没舍得走"
+    },
+    "gravity-fiction": {
+      world: "冷舱、静压和失重的夜航之间",
+      opening: "舱门结霜，远处的讯号像心跳一样忽明忽暗",
+      feeling: "孤独、惊惧和还想靠近的勇气",
+      hook: "把名字唱过真空，也别让它失真",
+      bridge: "让规则停电一秒，让思念接管航线",
+      ending: "别切断回路，让那束微光继续漂流"
+    },
+    "pastoral-memory": {
+      world: "旧河埠、晚灶和夏风之间",
+      opening: "蝉声压低了傍晚，旧院门还留着你推开的响动",
+      feeling: "温柔、遗憾和迟到太久的想念",
+      hook: "把没说完的话唱给旧时光听",
+      bridge: "把逞强放下，让回忆自己长出重量",
+      ending: "留一盏黄灯吧，给会折返的人看见"
+    },
+    "surreal-cabaret": {
+      world: "镜厅、绒幕和偏光之间",
+      opening: "暗场一落下，谁的笑意就先在镜边点亮",
+      feeling: "诱惑、危险和故意不说破的暧昧",
+      hook: "把掌声、谎言和心跳一起推向台口",
+      bridge: "让假面先碎，再让真话带着香气上场",
+      ending: "别急着退场，灯灭以后戏还在继续"
+    },
+    "riot-romance": {
+      world: "屋顶风、街口火和人群脚步之间",
+      opening: "口号还没喊出口，心先在烟里亮了一下",
+      feeling: "热望、冒险和想一起活下去的执拗",
+      hook: "把喜欢唱成并肩往前的力气",
+      bridge: "让胆怯退后，让爱先替我们抬头",
+      ending: "别收队太早，天亮前我们还在同路"
+    }
+  };
+  const palette = zhFamilyPalette[blueprint.id] || zhFamilyPalette["mythic-rite"]!;
+  const a0 = localizedAnchors[0] || "灯影";
+  const a1 = localizedAnchors[1] || "风声";
+  const a2 = localizedAnchors[2] || "人群";
+  const a3 = localizedAnchors[3] || "夜色";
   const zhSections = [
-    [
-      "[Intro]",
-      "（器乐与氛围铺垫）",
-      pickByHash(
-        [
-          `这一版从${blueprint.storyWorld}出发，不再重复旧模板`,
-          `先把${blueprint.civilizationAtmosphere}点亮，再让旋律决定往哪种命运偏航`,
-          `我不急着解释立场，先把${blueprint.storyWorld}推到你眼前`
-        ],
-        5
-      )
-    ],
-    [
-      `[Verse 1: ${blueprint.imageryAnchors[0]}入场]`,
-      pickByHash(
-        [
-          `${title}先从${blueprint.imageryAnchors[0]}里显影，不向现成宣言借力`,
-          `${title}先停在${blueprint.imageryAnchors[0]}旁边，再慢慢逼近人群的耳边`,
-          `我让${title}先落在${blueprint.imageryAnchors[0]}上，再让整个现场学会怎么称呼它`
-        ],
-        7
-      ),
-      pickByHash(
-        [
-          `先把${blueprint.familyLabel}的空气、礼法和疼痛逐件摆出来，再让旋律开口`,
-          `我拒绝空喊情绪，宁可先把${blueprint.familyLabel}的细节一件件钉在现场里`,
-          `与其重复万能句，不如让${blueprint.familyLabel}的纹理、规矩和体温先长进歌词里`
-        ],
-        11
-      ),
-      zhResponse
-    ],
-    [
-      `[Verse 2: ${blueprint.imageryAnchors[1]}存档]`,
-      pickByHash(
-        [
-          `记忆落在${blueprint.imageryAnchors[1]}上，光线和气味都开始作证`,
-          `${blueprint.imageryAnchors[1]}记下谁在迟疑，谁把沉默当成借口`,
-          `我把证词压进${blueprint.imageryAnchors[1]}，让场景替人开口`
-        ],
-        13
-      ),
-      pickByHash(
-        [
-          `情绪不是抽象的命运，而是${blueprint.emotionalWeather}一步一步逼近胸口`,
-          `${blueprint.emotionalWeather}不是旁白，它是贴着皮肤推进来的天气`,
-          `这次情绪不躲在大词里，它直接带着${blueprint.emotionalWeather}来敲门`
-        ],
-        17
-      ),
-      pickByHash(["回应：把名字留下", "回应：继续作证", "回应：别把灯熄灭"], 19)
-    ],
-    [
-      "[Chorus 1: 第一次破门]",
-      pickByHash(
-        [
-          `把${title}唱成一把钥匙，不唱成空泛宣言`,
-          `副歌第一次开门时，我只允许${title}像钥匙一样转动`,
-          `我要把${title}唱成触发器，而不是谁都能借走的漂亮口号`
-        ],
-        23
-      ),
-      pickByHash(
-        [
-          `让副歌先撬开伤口，再把人群慢慢带进来`,
-          `先让这一句把裂缝掰开，再让更多呼吸接进来`,
-          `副歌不负责安慰，它先负责把门撞开`
-        ],
-        29
-      ),
-      pickByHash(["回应：跟上我", "回应：一起进来", "回应：别退回去"], 31)
-    ],
-    [
-      "[Verse 3: 冲突转面]",
-      pickByHash(
-        [
-          `此刻矛盾不再只在心里，它开始改写房间、街道和彼此的站位`,
-          `冲突忽然有了形体，它挤进房间，也挤进彼此的步伐`,
-          `从这一段起，问题不再只属于内心，它开始重新排列整个现场`
-        ],
-        37
-      ),
-      pickByHash(
-        [
-          `我不用旧神话兜底，我让风险直接长在句子里`,
-          `我不借旧圣歌抬高自己，我让风险明晃晃地留在字面上`,
-          `这次不靠熟模板撑场，我让危险直接写进每一行`
-        ],
-        41
-      ),
-      pickByHash(["回应：别移开眼", "回应：先承认它", "回应：站稳这里"], 43)
-    ],
-    [
-      `[Verse 4: ${blueprint.imageryAnchors[2]}扩城]`,
-      pickByHash(
-        [
-          `故事忽然变大，连远处的天色和噪声都加入了证词`,
-          `${blueprint.imageryAnchors[2]}一出现，整个场景都被迫扩容`,
-          `从这一拍开始，远处的风声、灯色、围观者都成了证人`
-        ],
-        47
-      ),
-      pickByHash(
-        [
-          `私人欲望推开了更大的舞台，世界被迫回应`,
-          `一开始只是私人心愿，现在却把更大的秩序一起牵动`,
-          `这点私人的偏执终于把整个世界都拖进回应里`
-        ],
-        53
-      ),
-      pickByHash(["回应：继续上行", "回应：再推远一点", "回应：把边界撑开"], 59)
-    ],
-    [
-      "[Chorus 2: 副歌变体]",
-      pickByHash(
-        [
-          `同一句钩子再回来时，意思已经变了，伤口也有了新纹路`,
-          `副歌第二次归来时，已经不肯重复第一次的脸`,
-          `同一句再度响起，已经带着不同的伤口和不同的命令`
-        ],
-        61
-      ),
-      pickByHash(
-        [
-          `这一次它更像集体回声，却依然带着危险`,
-          `它开始像群体回声，但危险感一点没有变淡`,
-          `它终于像合唱了，可里面还是藏着锋利的边`
-        ],
-        67
-      ),
-      pickByHash(["回应：一起喊出", "回应：抬高一点", "回应：别把声线收回"], 71)
-    ],
-    [
-      "[Bridge: 新物理]",
-      pickByHash(
-        [
-          `桥段不负责重复，它负责掀桌，负责提出更大的问题`,
-          `桥段来到这里，不是为了过渡，而是为了改写规则`,
-          `从桥开始，逻辑会换轨，问题也会突然变大`
-        ],
-        73
-      ),
-      pickByHash(
-        [
-          `答案先以画面降临，再以震动进入身体，最后才变成承认`,
-          `先到达的不是结论，而是画面、压力和身体反应`,
-          `承认来得最晚，先来的总是图像和震感`
-        ],
-        79
-      ),
-      pickByHash(["回应：把天翻过来", "回应：先让规则失效", "回应：把门轴扭断"], 83)
-    ],
-    [
-      "[Chorus 3: 视觉引爆]",
-      pickByHash(
-        [
-          `粒子、镜头、字体、呼吸在这里一起失控`,
-          `这一轮副歌里，镜头、粒子和呼吸都不再服从原本秩序`,
-          `到了这里，一切可见之物都开始跟着副歌偏航`
-        ],
-        89
-      ),
-      pickByHash(
-        [
-          `我要让这次爆发属于${blueprint.visualGrammar}，而不是任何熟悉圣歌的复制品`,
-          `这次引爆只属于${blueprint.visualGrammar}，不借任何现成圣歌的壳`,
-          `我要让它长成${blueprint.visualGrammar}的样子，而不是回头抄旧胜利姿态`
-        ],
-        97
-      ),
-      pickByHash(["回应：让它燃烧", "回应：别关掉镜头", "回应：把亮度推满"], 101)
-    ],
-    [
-      "[Chorus 4: 变身归来]",
-      pickByHash(
-        [
-          `最后一次副歌不是更大声而已，而是整个人已经换了重力`,
-          `最后回来时，变化不止是音量，而是整个人的物理法则都不同了`,
-          `这一轮归来不只是抬高声量，而是连重力和站姿都换掉了`
-        ],
-        103
-      ),
-      pickByHash(
-        [
-          `一开始的那点情绪，此刻要么变成人群，要么变成废墟里的新秩序`,
-          `最初那点私人感受，到这里已经足够长成人群或秩序`,
-          `开头那点隐秘情绪，现在已经可以变成广场，也可以变成废墟后的新规则`
-        ],
-        107
-      ),
-      pickByHash(["回应：记住现在", "回应：把这一刻留下", "回应：别让它退回去"], 109)
-    ],
-    [
-      "[Outro: 余烬挂钩]",
-      pickByHash(
-        [
-          `别把门关死，让最后一幅画面继续在远处呼吸`,
-          `结尾别急着熄灯，让最后那幅景象继续留在远处喘息`,
-          `我要把门留一道缝，让那幅画在远处继续呼吸`
-        ],
-        113
-      ),
-      pickByHash(
-        [
-          `如果有人再叫一次${title}，它就会从另一种命运里回来`,
-          `下次谁再叫${title}，它会带着另一种命运折返`,
-          `只要再有人叫起${title}，它就会从另一条命运线里归来`
-        ],
-        127
-      ),
-      pickByHash(["回应：未完待续", "回应：以后还会回来", "回应：把余烬留着"], 131)
-    ]
+    ["[Intro]", "（器乐与氛围铺垫）", palette.opening, `风先从${palette.world}吹过`],
+    [`[Verse 1: ${a0}]`, `我把${title}写在${a0}背面`, "怕你一转身，就把整夜沉默都带走", `这一首先不谈大道理，只把${palette.feeling}轻轻压在喉咙口`],
+    [`[Verse 2: ${a1}]`, `${a1}路过的时候，旧事全都醒了`, "谁的脚步停在门外，谁的名字还没说破", "我不肯把心事写成空话，只肯把它写成能被你认出的温度"],
+    ["[Chorus 1: 第一次开口]", `${title}，别只停在唇边`, `${title}，再近一点，让我听见`, palette.hook],
+    ["[Verse 3: 冲突转面]", "风向忽然改了，连屋里影子都开始站队", "我嘴上说没事，心却比火更先露馅", "原来人不是怕天黑，是怕有些话再也来不及"],
+    [`[Verse 4: ${a2}]`, `${a2}慢慢围过来，连远处灯色也成了证人`, "这点私人的疼，终于被整条街听见", `我想留下的不是胜负，只是你走近时那一下停顿`],
+    ["[Chorus 2: 记忆回身]", `${title}，别让回声替我承认`, `${title}，再唱一遍，把迟疑也点亮`, `如果今晚必须失控，就先让我为你失控`],
+    ["[Bridge: 变轨时刻]", palette.bridge, `让${a3}落下来，让呼吸先替我们回答`, "有些真心不必证明，只要在这一拍彻底发亮"],
+    ["[Chorus 3: 视觉引爆]", `${title}，把夜色推到最高处`, `${title}，把人群和心跳一起带动`, "镜头、风声、亮片、眼泪，都在这一刻向你奔涌"],
+    ["[Chorus 4: 变身归来]", `${title}，我已经不是原来那个我`, `${title}，连沉默都学会和你合唱`, "开头那点不敢承认的心事，到这里已经长成整片天空"],
+    ["[Outro: 余烬挂钩]", palette.ending, `如果还有人轻声叫起${title}`, "这首歌就会带着新的命运再回来"]
   ];
   return zhSections.map((chunk) => chunk.join("\n")).join("\n\n");
 }

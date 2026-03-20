@@ -19,7 +19,7 @@ const PORT = 3000;
 const REGISTRY_URL = "http://localhost:8080";
 const IS_PROD = process.env.NODE_ENV === "production";
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
-const SHARED_DIR = path.join(__dirname, "..", "..", "shared");
+const SHARED_DIR = IS_PROD ? "/srv/cssos/shared" : path.join(__dirname, "..", "..", "shared");
 const SHARED_VERSIONS_FILE = path.join(SHARED_DIR, "versions.json");
 
 const DATABASE_URL = getDatabaseUrl();

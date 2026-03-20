@@ -2279,24 +2279,53 @@ function initCreationConsole() {
 
 function randomizeCreationForLyricsRefresh(title) {
   const seed = hashSeedString(`${title}::${Date.now()}::${songSeedVariationCounter}`);
+  const currentLanguage = String(creationState.language || document.documentElement.lang || "zh").trim().toLowerCase();
+  const normalizedTitle = String(title || "").trim().toLowerCase();
+  const styleContext = String(styleInput?.value || creationState.prompt || "").trim().toLowerCase();
+  const allowChildlike =
+    normalizedTitle.includes("童") ||
+    normalizedTitle.includes("子供") ||
+    normalizedTitle.includes("children") ||
+    styleContext.includes("child") ||
+    styleContext.includes("children") ||
+    styleContext.includes("choir");
+  const compatibleGenres = currentLanguage.startsWith("ja")
+    ? ["Pop", "Rock", "Jazz", "R&B", "EDM", "Folk", "Classical"]
+    : currentLanguage.startsWith("zh")
+      ? ["Chinese GuFeng", "Pop", "Folk", "Classical", "R&B", "Jazz"]
+      : ["Pop", "Rock", "R&B", "Jazz", "Folk", "Country", "EDM", "Classical"];
+  const compatibleInstruments = currentLanguage.startsWith("ja")
+    ? ["Piano", "Guitar", "Violin", "Flute", "String Ensemble", "Cello", "Drums"]
+    : currentLanguage.startsWith("zh")
+      ? ["Guzheng", "Dizi", "Pipa", "Piano", "Violin", "Cello", "String Ensemble"]
+      : ["Guitar", "Piano", "Bass", "Drums", "Violin", "Saxophone", "Trumpet"];
+  const compatibleVocalGenders = allowChildlike
+    ? ["Feminine", "Masculine", "Duet", "Androgynous", "Polyphonic Choir", "Childlike"]
+    : ["Feminine", "Masculine", "Duet", "Androgynous", "Polyphonic Choir"];
+  const compatibleVocalStyles = currentLanguage.startsWith("ja")
+    ? ["airy close-mic", "lyric belt", "soft opera shimmer", "choral unison"]
+    : ["airy close-mic", "lyric belt", "soft opera shimmer", "soul rasp", "choral unison"];
+  const compatibleEnsembles = currentLanguage.startsWith("ja")
+    ? ["chamber ensemble", "synth-pop band", "cinematic orchestra"]
+    : ["chamber ensemble", "festival percussion circle", "synth-pop band", "cinematic orchestra"];
   const preservedStyleText = hasCreationFieldTouched("styleText") ? String(styleInput?.value || "").trim() : "";
   const preservedVoiceValue = hasCreationFieldTouched("vocalGender") ? String(voiceInput?.value || "").trim() : "";
   creationState.selections = {
     genre: hasCreationFieldTouched("genre")
       ? creationState.selections.genre
-      : seededPick(creationOptionCatalog.genre, seed, 1) || "Chinese GuFeng",
+      : seededPick(compatibleGenres, seed, 1) || compatibleGenres[0] || "Pop",
     mood: hasCreationFieldTouched("mood")
       ? creationState.selections.mood
       : seededPick(creationOptionCatalog.mood, seed, 2) || "",
     instrument: hasCreationFieldTouched("instrument")
       ? creationState.selections.instrument
-      : seededPick(creationOptionCatalog.instrument, seed, 3) || "",
+      : seededPick(compatibleInstruments, seed, 3) || "",
     ambience: hasCreationFieldTouched("ambience")
       ? creationState.selections.ambience
       : seededPick(creationOptionCatalog.ambience, seed, 4) || "",
     vocalGender: hasCreationFieldTouched("vocalGender")
       ? creationState.selections.vocalGender
-      : seededPick(creationOptionCatalog.vocalGender, seed, 5) || "Feminine"
+      : seededPick(compatibleVocalGenders, seed, 5) || "Feminine"
   };
   creationState.tempo = hasCreationFieldTouched("tempo")
     ? creationState.tempo
@@ -2312,7 +2341,7 @@ function randomizeCreationForLyricsRefresh(title) {
     : seededPick(["zh", "en", "ja"], seed, 9) || "zh";
   creationState.workType = hasCreationFieldTouched("workType")
     ? creationState.workType
-    : seededPick(["single", "triptych", "opera"], seed, 10) || "single";
+    : "single";
   creationState.prompt = hasCreationFieldTouched("prompt")
     ? creationState.prompt
     : loginCopy(
@@ -2334,14 +2363,14 @@ function randomizeCreationForLyricsRefresh(title) {
   creationState.vocalStyle = hasCreationFieldTouched("vocalStyle")
     ? creationState.vocalStyle
     : seededPick(
-    ["airy close-mic", "lyric belt", "soft opera shimmer", "soul rasp", "choral unison"],
+    compatibleVocalStyles,
     seed,
     12
   ) || "";
   creationState.ensembleStyle = hasCreationFieldTouched("ensembleStyle")
     ? creationState.ensembleStyle
     : seededPick(
-    ["chamber ensemble", "festival percussion circle", "synth-pop band", "cinematic orchestra"],
+    compatibleEnsembles,
     seed,
     13
   ) || "";

@@ -994,6 +994,7 @@ const deliveryDashboardState = {
   probeHandoffAcknowledgments: [],
   probeTimelineCompareA: "",
   probeTimelineCompareB: "",
+  probeExportReceipts: [],
   probeError: ""
 };
 
@@ -13362,6 +13363,39 @@ function buildWatchArchiveIncidentTimelineCompare(probeHistory, compareAId, comp
   };
 }
 
+function buildWatchArchiveOperatorShiftSummary(probeSummary, operatorNotes, handoffAcknowledgments) {
+  const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
+  const verdict = String(payload?.conclusion?.verdict || "unknown");
+  const ackCount = Array.isArray(handoffAcknowledgments) ? handoffAcknowledgments.length : 0;
+  return {
+    headline: dashboardCopy(
+      `Shift summary: ${verdict} · ${ackCount} handoff acknowledgments`,
+      `值班小结：${verdict} · ${ackCount} 次接班确认`
+    ),
+    note:
+      String(operatorNotes || "").trim() ||
+      dashboardCopy("No operator note yet.", "当前还没有值班备注。")
+  };
+}
+
+function buildWatchArchiveVerdictDelta(currentProbeSummary, timelineCompare) {
+  const currentVerdict = String(currentProbeSummary?.conclusion?.verdict || "unknown");
+  const compareVerdict = String(timelineCompare?.b?.verdict || timelineCompare?.a?.verdict || "unknown");
+  const changed = currentVerdict !== compareVerdict;
+  return {
+    headline: changed
+      ? dashboardCopy(
+          `Current verdict changed from ${compareVerdict} to ${currentVerdict}.`,
+          `当前结论已从 ${compareVerdict} 变化为 ${currentVerdict}。`
+        )
+      : dashboardCopy(
+          `Current verdict still matches ${currentVerdict}.`,
+          `当前结论仍然与 ${currentVerdict} 一致。`
+        ),
+    changed
+  };
+}
+
 function buildWatchArchiveCrossBorderAnomalyAlert(probeSummary) {
   const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
   const conclusion = payload?.conclusion || {};
@@ -15109,7 +15143,18 @@ function bindMusicDeliveryPreviewButtons() {
         deliveryDashboardState.probeHistory
       );
       const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-      downloadJsonArtifact(payload, `zh_probe_incident_bundle_${stamp}.json`);
+      const fileName = `zh_probe_incident_bundle_${stamp}.json`;
+      downloadJsonArtifact(payload, fileName);
+      deliveryDashboardState.probeExportReceipts = [
+        ...(Array.isArray(deliveryDashboardState.probeExportReceipts)
+          ? deliveryDashboardState.probeExportReceipts
+          : []),
+        {
+          at: new Date().toISOString(),
+          fileName
+        }
+      ];
+      renderMusicDeliveryDashboard();
     });
   });
   const probeNotesInput = deliveryDashboardBody.querySelector("[data-delivery-probe-operator-notes]");
@@ -24110,6 +24155,15 @@ function renderMusicDeliveryDashboard() {
     deliveryDashboardState.probeTimelineCompareA,
     deliveryDashboardState.probeTimelineCompareB
   );
+  const operatorShiftSummary = buildWatchArchiveOperatorShiftSummary(
+    deliveryDashboardState.probeSummary,
+    deliveryDashboardState.probeOperatorNotes,
+    deliveryDashboardState.probeHandoffAcknowledgments
+  );
+  const verdictDelta = buildWatchArchiveVerdictDelta(
+    deliveryDashboardState.probeSummary,
+    incidentTimelineCompare
+  );
   const crossBorderAnomalyAlert = buildWatchArchiveCrossBorderAnomalyAlert(
     deliveryDashboardState.probeSummary
   );
@@ -24196,6 +24250,11 @@ function renderMusicDeliveryDashboard() {
               `${onCallSummaryBanner.level} · ${onCallSummaryBanner.headline}`
             )}</div>
             <div class="report-card-copy">${escapeHtml(onCallSummaryBanner.note)}</div>
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Operator Shift Summary</div>
+            <div class="report-card-copy">${escapeHtml(operatorShiftSummary.headline)}</div>
+            <div class="report-card-copy">${escapeHtml(operatorShiftSummary.note)}</div>
           </div>
           <div class="report-list-item">
             <div class="report-preview-title">On-Call Action Checklist</div>
@@ -24366,6 +24425,24 @@ function renderMusicDeliveryDashboard() {
                 dashboardCopy("Acknowledge handoff", "确认已接班")
               )}</button>
             </div>
+            ${
+              deliveryDashboardState.probeExportReceipts.length
+                ? `<div class="report-list-item">
+                    <div class="report-preview-title">${escapeHtml(
+                      dashboardCopy("Handoff export receipts", "交接导出回执")
+                    )}</div>
+                    ${deliveryDashboardState.probeExportReceipts
+                      .slice(-6)
+                      .reverse()
+                      .map(
+                        (item) => `<div class="report-card-copy">${escapeHtml(
+                          `${item.at} · ${item.fileName}`
+                        )}</div>`
+                      )
+                      .join("")}
+                  </div>`
+                : ""
+            }
           </div>
           <div class="report-list-item">
             <div class="report-preview-title">Incident Handoff History Shelf</div>
@@ -24408,6 +24485,7 @@ function renderMusicDeliveryDashboard() {
           <div class="report-list-item">
             <div class="report-preview-title">Incident Timeline Compare</div>
             <div class="report-card-copy">${escapeHtml(incidentTimelineCompare.summary)}</div>
+            <div class="report-card-copy">${escapeHtml(verdictDelta.headline)}</div>
             ${
               incidentTimelineCompare.entries.length
                 ? `<div class="report-export-actions" style="flex-wrap:wrap; margin-top:8px;">

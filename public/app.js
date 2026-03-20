@@ -585,6 +585,23 @@ Object.assign(I18N.en, {
   "reports.export.historyBundleDownloaded": "Combined export bundle downloaded",
   "reports.export.latestCard": "Latest Export Snapshot",
   "reports.export.latestReportKind": "Report",
+  "reports.opsHealth.actions": "Suggested actions",
+  "reports.opsHealth.activeSubscriptions": "Active subscriptions",
+  "reports.opsHealth.alerts": "Alerts",
+  "reports.opsHealth.api": "API status",
+  "reports.opsHealth.checkedAt": "Checked at",
+  "reports.opsHealth.overview": "Ops overview",
+  "reports.opsHealth.pendingRecovery": "Pending recovery",
+  "reports.opsHealth.queues": "Queues",
+  "reports.opsHealth.reason": "Reason",
+  "reports.opsHealth.reasons": "Health reasons",
+  "reports.opsHealth.statusBlocked": "Blocked",
+  "reports.opsHealth.statusDegraded": "Degraded",
+  "reports.opsHealth.statusHealthy": "Healthy",
+  "reports.opsHealth.statusUnknown": "Unknown",
+  "reports.opsHealth.stillFailing": "Still failing",
+  "reports.opsHealth.subscriptions": "Subscriptions",
+  "reports.opsHealth.title": "Ops health",
   "reports.queue.open": "Open queue in CSS MV",
   "reports.queue.jumpReady": "Linked to CSS MV queue",
   "about.tab.whitepaper": "Whitepaper",
@@ -845,6 +862,23 @@ Object.assign(I18N.zh, {
   "reports.export.historyBundleDownloaded": "已下载合并导出包",
   "reports.export.latestCard": "最近一次导出摘要",
   "reports.export.latestReportKind": "报表",
+  "reports.opsHealth.actions": "建议动作",
+  "reports.opsHealth.activeSubscriptions": "活跃订阅",
+  "reports.opsHealth.alerts": "预警",
+  "reports.opsHealth.api": "API 状态",
+  "reports.opsHealth.checkedAt": "检查时间",
+  "reports.opsHealth.overview": "运维概览",
+  "reports.opsHealth.pendingRecovery": "待恢复",
+  "reports.opsHealth.queues": "队列",
+  "reports.opsHealth.reason": "原因",
+  "reports.opsHealth.reasons": "健康原因",
+  "reports.opsHealth.statusBlocked": "阻塞",
+  "reports.opsHealth.statusDegraded": "降级",
+  "reports.opsHealth.statusHealthy": "正常",
+  "reports.opsHealth.statusUnknown": "未知",
+  "reports.opsHealth.stillFailing": "仍失败",
+  "reports.opsHealth.subscriptions": "订阅数",
+  "reports.opsHealth.title": "运维健康",
   "reports.queue.open": "在 CSS MV 中打开队列",
   "reports.queue.jumpReady": "已联动到 CSS MV 队列"
 });
@@ -872,6 +906,7 @@ const DELIVERY_EXPORT_FORMATS = [
 
 const DELIVERY_REPORT_KINDS = [
   "dashboard",
+  "ops_health",
   "kpi",
   "analytics",
   "trends",
@@ -28298,6 +28333,7 @@ async function loadDeliveryDigestBundle(force = false) {
       days: 14,
       preview_limit: 5,
       include_dashboard: true,
+      include_ops_health: true,
       include_alerts: true,
       include_digest: true,
       include_kpi: false,
@@ -28343,6 +28379,8 @@ function exportTargetFromReportKind(kind) {
   switch (kind) {
     case "dashboard":
       return "dashboard";
+    case "ops_health":
+      return "ops_health";
     case "kpi":
       return "kpi";
     case "analytics":
@@ -28477,6 +28515,7 @@ function summarizeBundle(bundle) {
   if (!bundle) return [];
   const sections = [
     bundle.dashboard ? `dashboard: ${bundle.dashboard.metrics?.length || 0} metrics` : null,
+    bundle.ops_health ? `ops health: ${bundle.ops_health.reasons?.length || 0} reasons` : null,
     bundle.kpi ? `kpi: ${bundle.kpi.metrics?.length || 0} metrics` : null,
     bundle.analytics ? `analytics: ${bundle.analytics.insights?.length || 0} insights` : null,
     bundle.trends ? `trends: ${bundle.trends.series?.length || 0} series` : null,
@@ -28565,6 +28604,8 @@ function deliveryReportKindLabel(kind) {
   switch (key) {
     case "dashboard":
       return "Dashboard";
+    case "ops_health":
+      return "Ops Health";
     case "kpi":
       return "KPI";
     case "analytics":
@@ -28723,6 +28764,7 @@ async function loadDeliveryBundlePreview(force = false) {
       days: 14,
       preview_limit: 5,
       include_dashboard: true,
+      include_ops_health: true,
       include_kpi: true,
       include_analytics: true,
       include_trends: true,
@@ -28973,10 +29015,113 @@ function renderAlertsReport(alerts) {
   `;
 }
 
+function formatOpsHealthStatus(status) {
+  const key = String(status || "").toLowerCase();
+  if (key === "healthy") return t("reports.opsHealth.statusHealthy");
+  if (key === "degraded") return t("reports.opsHealth.statusDegraded");
+  if (key === "blocked") return t("reports.opsHealth.statusBlocked");
+  return t("reports.opsHealth.statusUnknown");
+}
+
+function opsHealthBadgeClass(status) {
+  const key = String(status || "").toLowerCase();
+  if (key === "healthy") return "success";
+  if (key === "degraded") return "warning";
+  if (key === "blocked") return "critical";
+  return "warning";
+}
+
+function renderOpsHealthOverviewList(report) {
+  const items = [
+    `${t("reports.opsHealth.api")}: ${report?.api_status || "--"}`,
+    `${t("reports.opsHealth.checkedAt")}: ${report?.checked_at || "--"}`,
+    `${t("reports.opsHealth.subscriptions")}: ${String(report?.subscription_count ?? 0)}`,
+    `${t("reports.opsHealth.activeSubscriptions")}: ${String(report?.active_subscription_count ?? 0)}`,
+    `${t("reports.opsHealth.queues")}: ${String(report?.queue_count ?? 0)}`,
+    `${t("reports.opsHealth.alerts")}: ${String(report?.alert_count ?? 0)}`,
+    `${t("reports.opsHealth.pendingRecovery")}: ${String(report?.pending_recovery_count ?? 0)}`,
+    `${t("reports.opsHealth.stillFailing")}: ${String(report?.still_failing_count ?? 0)}`
+  ];
+  return renderStringList(items, t("reports.empty"));
+}
+
+function renderOpsHealthCard(report) {
+  if (!report) {
+    return `
+      <article class="report-card">
+        <div class="report-section-title">${escapeHtml(t("reports.opsHealth.title"))}</div>
+        <div class="report-empty">${escapeHtml(t("reports.empty"))}</div>
+      </article>
+    `;
+  }
+
+  return `
+    <article class="report-card">
+      <div class="report-section-title">${escapeHtml(t("reports.opsHealth.title"))}</div>
+      <div class="report-list-item report-alert-row">
+        <span class="report-badge ${escapeHtml(opsHealthBadgeClass(report?.status))}">${escapeHtml(
+          formatOpsHealthStatus(report?.status)
+        )}</span>
+        <div>
+          <div class="report-preview-title">${escapeHtml(report?.title || t("reports.opsHealth.title"))}</div>
+          <div class="report-card-copy">${escapeHtml(report?.summary || "")}</div>
+        </div>
+      </div>
+      ${renderOpsHealthOverviewList(report)}
+    </article>
+  `;
+}
+
+function renderOpsHealthStandaloneReport(report) {
+  if (!report) {
+    return `
+      <article class="report-card">
+        <div class="report-section-title">${escapeHtml(t("reports.opsHealth.title"))}</div>
+        <div class="report-empty">${escapeHtml(t("reports.empty"))}</div>
+      </article>
+    `;
+  }
+
+  return `
+    <article class="report-card">
+      <div class="report-section-title">${escapeHtml(t("reports.opsHealth.title"))}</div>
+      <div class="report-list-item report-alert-row">
+        <span class="report-badge ${escapeHtml(opsHealthBadgeClass(report?.status))}">${escapeHtml(
+          formatOpsHealthStatus(report?.status)
+        )}</span>
+        <div>
+          <div class="report-preview-title">${escapeHtml(report?.title || t("reports.opsHealth.title"))}</div>
+          <div class="report-card-copy">${escapeHtml(report?.summary || "")}</div>
+        </div>
+      </div>
+      <div class="report-grid">
+        <article class="report-card">
+          <div class="report-section-title">${escapeHtml(t("reports.opsHealth.overview"))}</div>
+          ${renderOpsHealthOverviewList(report)}
+        </article>
+        <article class="report-card">
+          <div class="report-section-title">${escapeHtml(t("reports.opsHealth.reasons"))}</div>
+          ${renderStringList(
+            Array.isArray(report?.reasons)
+              ? report.reasons.map((item) => `${item?.label || t("reports.opsHealth.reason")}: ${item?.summary || ""}`)
+              : [],
+            t("reports.empty")
+          )}
+        </article>
+      </div>
+      <article class="report-card">
+        <div class="report-section-title">${escapeHtml(t("reports.opsHealth.actions"))}</div>
+        ${renderStringList(report?.suggested_actions, t("reports.empty"))}
+      </article>
+    </article>
+  `;
+}
+
 function renderDigestReport(digest) {
   return `
     ${renderMetricGrid(digest?.daily_metrics)}
     <div class="report-grid">
+      ${renderOpsHealthCard(digest?.ops_health)}
       <article class="report-card">
         <div class="report-section-title">${escapeHtml(t("reports.digest.queues"))}</div>
         ${
@@ -29017,6 +29162,7 @@ function renderBriefingReport(briefing) {
       <div class="report-section-title">${escapeHtml(t("reports.briefing.highlights"))}</div>
       ${renderStringList(briefing?.highlights, t("reports.empty"))}
     </article>
+    ${renderOpsHealthStandaloneReport(briefing?.ops_health?.report || null)}
     <div class="report-grid">
       <article class="report-card">
         <div class="report-section-title">${escapeHtml(t("reports.briefing.kpi"))}</div>
@@ -29527,6 +29673,9 @@ function renderDeliveryReportBody(response) {
   switch (payloadKind) {
     case "dashboard":
       deliveryReportBody.innerHTML = renderDashboardReport(payload);
+      break;
+    case "ops_health":
+      deliveryReportBody.innerHTML = renderOpsHealthStandaloneReport(payload);
       break;
     case "kpi":
       deliveryReportBody.innerHTML = renderKpiReport(payload);

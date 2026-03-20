@@ -265,6 +265,7 @@ fn delivery_mode_from_db(mode: &str) -> anyhow::Result<DeliveryApiMode> {
 
 fn report_type_to_db(kind: &DeliveryReportType) -> &'static str {
     match kind {
+        DeliveryReportType::OpsHealth => "ops_health",
         DeliveryReportType::Dashboard => "dashboard",
         DeliveryReportType::Kpi => "kpi",
         DeliveryReportType::Analytics => "analytics",
@@ -277,6 +278,7 @@ fn report_type_to_db(kind: &DeliveryReportType) -> &'static str {
 
 fn report_type_from_db(kind: &str) -> anyhow::Result<DeliveryReportType> {
     match kind {
+        "ops_health" => Ok(DeliveryReportType::OpsHealth),
         "dashboard" => Ok(DeliveryReportType::Dashboard),
         "kpi" => Ok(DeliveryReportType::Kpi),
         "analytics" => Ok(DeliveryReportType::Analytics),

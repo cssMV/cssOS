@@ -68,8 +68,16 @@ fn highlights(
     metrics: &DeliveryDigestDailyMetrics,
     alerts: &CssCaseDeliveryAlertsView,
     analytics: &crate::css_case_delivery_analytics_view::types::CssCaseDeliveryAnalyticsView,
+    ops_health: &crate::css_case_delivery_ops_health::types::CssCaseDeliveryOpsHealthReport,
 ) -> Vec<String> {
     let mut out = Vec::new();
+
+    out.push(format!(
+        "系统健康状态：{:?}，pending_recovery={}，still_failing={}。",
+        ops_health.status,
+        ops_health.pending_recovery_count,
+        ops_health.still_failing_count,
+    ));
 
     out.push(format!(
         "今日 escalated={}, manual_intervention={}, retry={}, resolution_change={}",
@@ -95,8 +103,19 @@ fn highlights(
 fn digest_summary(
     metrics: &DeliveryDigestDailyMetrics,
     alerts: &CssCaseDeliveryAlertsView,
+    ops_health: &crate::css_case_delivery_ops_health::types::CssCaseDeliveryOpsHealthReport,
 ) -> String {
-    if alerts.alerts.is_empty() {
+    if matches!(
+        ops_health.status,
+        crate::css_case_delivery_ops_health::types::DeliveryOpsHealthStatus::Blocked
+    ) {
+        format!(
+            "今日交付运营进入阻塞关注状态，still_failing={}，alerts={}，retry={}。",
+            ops_health.still_failing_count,
+            alerts.alerts.len(),
+            metrics.retry_count,
+        )
+    } else if alerts.alerts.is_empty() {
         format!(
             "今日交付运营整体平稳，escalated={}，manual_intervention={}，retry={}。",
             metrics.escalated_count, metrics.manual_intervention_count, metrics.retry_count,
@@ -148,16 +167,27 @@ pub async fn build_delivery_digest(
             now_rfc3339,
         )
         .await?;
+    let ops_health = crate::css_case_delivery_ops_health::runtime::build_delivery_ops_health(
+        pool,
+        crate::css_case_delivery_ops_health::types::DeliveryOpsHealthRequest {
+            days: req.days,
+            preview_limit: req.preview_limit,
+            recovery_limit: req.preview_limit,
+        },
+        now_rfc3339,
+    )
+    .await?;
 
     let metrics = daily_metrics(&trends);
     let inbox_counts = inbox_counts(&dashboard);
     let alert_titles = alert_titles(&alerts);
-    let highlights = highlights(&metrics, &alerts, &analytics);
-    let summary = digest_summary(&metrics, &alerts);
+    let highlights = highlights(&metrics, &alerts, &analytics, &ops_health);
+    let summary = digest_summary(&metrics, &alerts, &ops_health);
 
     Ok(CssCaseDeliveryDigest {
         title: "交付运营日报".into(),
         summary,
+        ops_health: Some(ops_health),
         daily_metrics: metrics,
         inbox_counts,
         alert_titles,
@@ -222,6 +252,23 @@ mod tests {
             ],
         };
 
-        assert!(digest_summary(&metrics, &alerts).contains("1 条异常预警"));
+        let ops_health = crate::css_case_delivery_ops_health::types::CssCaseDeliveryOpsHealthReport {
+            title: "ok".into(),
+            summary: "ok".into(),
+            status: crate::css_case_delivery_ops_health::types::DeliveryOpsHealthStatus::Degraded,
+            checked_at: "2026-03-17T00:00:00Z".into(),
+            api_status: "ok".into(),
+            subscription_count: 1,
+            active_subscription_count: 1,
+            queue_count: 1,
+            alert_count: 1,
+            pending_recovery_count: 0,
+            still_failing_count: 0,
+            recent_failed_log_count: 0,
+            reasons: Vec::new(),
+            suggested_actions: Vec::new(),
+        };
+
+        assert!(digest_summary(&metrics, &alerts, &ops_health).contains("1 条异常预警"));
     }
 }

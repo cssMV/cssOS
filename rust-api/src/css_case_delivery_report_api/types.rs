@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum DeliveryReportKind {
+    OpsHealth,
     Dashboard,
     Kpi,
     Analytics,
@@ -75,11 +76,23 @@ pub struct GetDeliveryBriefingPackRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetDeliveryOpsHealthRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub days: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview_limit: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetDeliveryReportBundleRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub days: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preview_limit: Option<usize>,
+    #[serde(default)]
+    pub include_ops_health: bool,
     #[serde(default)]
     pub include_dashboard: bool,
     #[serde(default)]
@@ -106,6 +119,9 @@ pub struct DeliveryReportMeta {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CssCaseDeliveryReportBundleResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ops_health:
+        Option<crate::css_case_delivery_ops_health::types::CssCaseDeliveryOpsHealthReport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dashboard:
         Option<crate::css_case_delivery_dashboard_view::types::CssCaseDeliveryDashboardView>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -127,6 +143,7 @@ pub struct CssCaseDeliveryReportBundleResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "payload_kind", content = "payload", rename_all = "snake_case")]
 pub enum DeliveryReportPayload {
+    OpsHealth(crate::css_case_delivery_ops_health::types::CssCaseDeliveryOpsHealthReport),
     Dashboard(crate::css_case_delivery_dashboard_view::types::CssCaseDeliveryDashboardView),
     Kpi(crate::css_case_delivery_kpi_view::types::CssCaseDeliveryKpiView),
     Analytics(crate::css_case_delivery_analytics_view::types::CssCaseDeliveryAnalyticsView),

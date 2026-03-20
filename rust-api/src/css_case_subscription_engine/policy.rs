@@ -38,6 +38,7 @@ pub fn recommended_format(
     use crate::css_case_delivery_report_api::types::DeliveryReportKind::*;
 
     match kind {
+        OpsHealth => Some(DeliveryExportFormat::BriefingText),
         Digest => Some(DeliveryExportFormat::BriefingText),
         BriefingPack => Some(DeliveryExportFormat::BriefingText),
         Dashboard | Kpi | Trends => Some(DeliveryExportFormat::Csv),
@@ -50,6 +51,10 @@ pub fn validate_subscription_target(target: &DeliverySubscriptionTarget) -> anyh
 
     match (&target.kind, &target.format) {
         (_, None) => Ok(()),
+        (
+            OpsHealth,
+            Some(DeliveryExportFormat::BriefingText | DeliveryExportFormat::JsonPackage),
+        ) => Ok(()),
         (Digest, Some(DeliveryExportFormat::BriefingText | DeliveryExportFormat::JsonPackage)) => {
             Ok(())
         }

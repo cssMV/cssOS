@@ -49,6 +49,7 @@ mod css_case_delivery_kpi_view;
 mod css_case_delivery_lifecycle_view;
 mod css_case_delivery_log;
 mod css_case_delivery_ops_console;
+mod css_case_delivery_ops_health;
 mod css_case_delivery_policy_audit;
 mod css_case_delivery_policy_engine;
 mod css_case_delivery_policy_versioning;

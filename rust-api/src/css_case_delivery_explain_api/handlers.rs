@@ -29,6 +29,9 @@ pub async fn get_delivery_explain_for_recovery_item(
 ) -> anyhow::Result<crate::css_case_delivery_explain_api::types::CssCaseDeliveryExplainApiResponse>
 {
     let target = match item.report_type {
+        crate::css_case_delivery_report_api::types::DeliveryReportType::OpsHealth => {
+            crate::css_case_delivery_log::types::CaseDeliveryLogTarget::OpsHealth
+        }
         crate::css_case_delivery_report_api::types::DeliveryReportType::Dashboard => {
             crate::css_case_delivery_log::types::CaseDeliveryLogTarget::Dashboard
         }

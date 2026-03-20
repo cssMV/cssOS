@@ -2,6 +2,9 @@ pub fn to_case_export_target(
     target: &crate::css_case_delivery_export_engine::types::DeliveryExportTarget,
 ) -> crate::css_case_export_engine::types::CaseExportTarget {
     match target {
+        crate::css_case_delivery_export_engine::types::DeliveryExportTarget::OpsHealth => {
+            crate::css_case_export_engine::types::CaseExportTarget::Digest
+        }
         crate::css_case_delivery_export_engine::types::DeliveryExportTarget::Dashboard => {
             crate::css_case_export_engine::types::CaseExportTarget::Dashboard
         }

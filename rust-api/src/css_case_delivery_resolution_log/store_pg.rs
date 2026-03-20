@@ -292,6 +292,7 @@ pub async fn list_all_delivery_resolution_logs(
 fn target_to_db(target: &CaseDeliveryLogTarget) -> &'static str {
     match target {
         CaseDeliveryLogTarget::ReportBundle => "report_bundle",
+        CaseDeliveryLogTarget::OpsHealth => "ops_health",
         CaseDeliveryLogTarget::Digest => "digest",
         CaseDeliveryLogTarget::Briefing => "briefing",
         CaseDeliveryLogTarget::Dashboard => "dashboard",
@@ -305,6 +306,7 @@ fn target_to_db(target: &CaseDeliveryLogTarget) -> &'static str {
 fn target_from_db(value: &str) -> anyhow::Result<CaseDeliveryLogTarget> {
     match value {
         "report_bundle" => Ok(CaseDeliveryLogTarget::ReportBundle),
+        "ops_health" => Ok(CaseDeliveryLogTarget::OpsHealth),
         "digest" => Ok(CaseDeliveryLogTarget::Digest),
         "briefing" => Ok(CaseDeliveryLogTarget::Briefing),
         "dashboard" => Ok(CaseDeliveryLogTarget::Dashboard),

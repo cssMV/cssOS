@@ -1,18 +1,23 @@
 use crate::css_case_delivery_alerts_view::types::CssCaseDeliveryAlertsView;
 use crate::css_case_delivery_briefing_pack::types::{
     CssCaseDeliveryBriefingPack, DeliveryBriefingAlertsBlock, DeliveryBriefingAnalyticsBlock,
-    DeliveryBriefingInboxBlock, DeliveryBriefingKpiBlock, DeliveryBriefingPackRequest,
-    DeliveryBriefingTrendsBlock,
+    DeliveryBriefingInboxBlock, DeliveryBriefingKpiBlock, DeliveryBriefingOpsHealthBlock,
+    DeliveryBriefingPackRequest, DeliveryBriefingTrendsBlock,
 };
 use crate::css_case_delivery_digest_engine::types::CssCaseDeliveryDigest;
 
 fn briefing_highlights(
     digest: &CssCaseDeliveryDigest,
     alerts: &CssCaseDeliveryAlertsView,
+    ops_health: &crate::css_case_delivery_ops_health::types::CssCaseDeliveryOpsHealthReport,
 ) -> Vec<String> {
     let mut out = Vec::new();
 
     out.push(digest.summary.clone());
+    out.push(format!(
+        "系统健康状态为 {:?}，最近失败日志 {} 条。",
+        ops_health.status, ops_health.recent_failed_log_count
+    ));
 
     if !alerts.alerts.is_empty() {
         out.push(format!(
@@ -88,7 +93,18 @@ pub async fn build_delivery_briefing_pack(
         )
         .await?;
 
-    let highlights = briefing_highlights(&digest, &alerts);
+    let ops_health = crate::css_case_delivery_ops_health::runtime::build_delivery_ops_health(
+        pool,
+        crate::css_case_delivery_ops_health::types::DeliveryOpsHealthRequest {
+            days: req.days,
+            preview_limit: req.preview_limit,
+            recovery_limit: req.preview_limit,
+        },
+        now_rfc3339,
+    )
+    .await?;
+
+    let highlights = briefing_highlights(&digest, &alerts, &ops_health);
     let summary = briefing_summary(&digest);
 
     Ok(CssCaseDeliveryBriefingPack {
@@ -96,6 +112,7 @@ pub async fn build_delivery_briefing_pack(
         summary,
         highlights,
         digest,
+        ops_health: DeliveryBriefingOpsHealthBlock { report: ops_health },
         kpi: DeliveryBriefingKpiBlock {
             metrics: kpi.metrics,
         },

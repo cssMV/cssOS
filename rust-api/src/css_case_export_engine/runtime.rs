@@ -185,6 +185,7 @@ pub async fn export_case_report(
                 crate::css_case_delivery_report_api::types::GetDeliveryReportBundleRequest {
                     days: Some(trend_days),
                     preview_limit: Some(3),
+                    include_ops_health: true,
                     include_dashboard: true,
                     include_kpi: true,
                     include_analytics: true,

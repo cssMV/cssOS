@@ -9,6 +9,7 @@ use crate::css_case_delivery_report_api::types::{
 
 fn report_kind_to_export_target(kind: &DeliveryReportKind) -> DeliveryExportTarget {
     match kind {
+        DeliveryReportKind::OpsHealth => DeliveryExportTarget::OpsHealth,
         DeliveryReportKind::Dashboard => DeliveryExportTarget::Dashboard,
         DeliveryReportKind::Kpi => DeliveryExportTarget::Kpi,
         DeliveryReportKind::Analytics => DeliveryExportTarget::Analytics,

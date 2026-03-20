@@ -13,6 +13,7 @@ use crate::css_case_delivery_signals_invalidation::types::{
 fn export_target_from_log_target(target: &CaseDeliveryLogTarget) -> DeliveryExportTarget {
     match target {
         CaseDeliveryLogTarget::ReportBundle => DeliveryExportTarget::Bundle,
+        CaseDeliveryLogTarget::OpsHealth => DeliveryExportTarget::OpsHealth,
         CaseDeliveryLogTarget::Digest => DeliveryExportTarget::Digest,
         CaseDeliveryLogTarget::Briefing => DeliveryExportTarget::Briefing,
         CaseDeliveryLogTarget::Dashboard => DeliveryExportTarget::Dashboard,

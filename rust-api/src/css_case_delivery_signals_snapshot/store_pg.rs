@@ -243,6 +243,9 @@ fn parse_subject_from_raw(
         "reportbundle" | "report_bundle" => {
             crate::css_case_delivery_log::types::CaseDeliveryLogTarget::ReportBundle
         }
+        "opshealth" | "ops_health" => {
+            crate::css_case_delivery_log::types::CaseDeliveryLogTarget::OpsHealth
+        }
         "dashboard" => crate::css_case_delivery_log::types::CaseDeliveryLogTarget::Dashboard,
         "kpi" => crate::css_case_delivery_log::types::CaseDeliveryLogTarget::Kpi,
         "analytics" => crate::css_case_delivery_log::types::CaseDeliveryLogTarget::Analytics,

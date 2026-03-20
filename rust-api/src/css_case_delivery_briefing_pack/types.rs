@@ -31,6 +31,11 @@ pub struct DeliveryBriefingAnalyticsBlock {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeliveryBriefingOpsHealthBlock {
+    pub report: crate::css_case_delivery_ops_health::types::CssCaseDeliveryOpsHealthReport,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CssCaseDeliveryBriefingPack {
     pub title: String,
     pub summary: String,
@@ -39,6 +44,7 @@ pub struct CssCaseDeliveryBriefingPack {
     pub highlights: Vec<String>,
 
     pub digest: crate::css_case_delivery_digest_engine::types::CssCaseDeliveryDigest,
+    pub ops_health: DeliveryBriefingOpsHealthBlock,
     pub kpi: DeliveryBriefingKpiBlock,
     pub alerts: DeliveryBriefingAlertsBlock,
     pub inbox: DeliveryBriefingInboxBlock,

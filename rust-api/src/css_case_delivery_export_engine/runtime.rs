@@ -2,6 +2,9 @@ fn report_type_from_target(
     target: &crate::css_case_delivery_export_engine::types::DeliveryExportTarget,
 ) -> Option<crate::css_case_delivery_report_api::types::DeliveryReportType> {
     match target {
+        crate::css_case_delivery_export_engine::types::DeliveryExportTarget::OpsHealth => {
+            Some(crate::css_case_delivery_report_api::types::DeliveryReportType::OpsHealth)
+        }
         crate::css_case_delivery_export_engine::types::DeliveryExportTarget::Dashboard => {
             Some(crate::css_case_delivery_report_api::types::DeliveryReportType::Dashboard)
         }
@@ -42,6 +45,9 @@ fn report_slug(
     target: &crate::css_case_delivery_export_engine::types::DeliveryExportTarget,
 ) -> &'static str {
     match report_type {
+        Some(crate::css_case_delivery_report_api::types::DeliveryReportType::OpsHealth) => {
+            "ops_health"
+        }
         Some(crate::css_case_delivery_report_api::types::DeliveryReportType::Dashboard) => {
             "dashboard"
         }
@@ -58,6 +64,9 @@ fn report_slug(
         None => match target {
             crate::css_case_delivery_export_engine::types::DeliveryExportTarget::Bundle => {
                 "report_bundle"
+            }
+            crate::css_case_delivery_export_engine::types::DeliveryExportTarget::OpsHealth => {
+                "ops_health"
             }
             crate::css_case_delivery_export_engine::types::DeliveryExportTarget::Dashboard => {
                 "dashboard"
@@ -134,6 +143,7 @@ async fn export_bundle_json(
         crate::css_case_delivery_report_api::types::GetDeliveryReportBundleRequest {
             days: req.days,
             preview_limit: req.preview_limit,
+            include_ops_health: true,
             include_dashboard: true,
             include_kpi: true,
             include_analytics: true,
@@ -186,6 +196,9 @@ fn export_csv(
         DeliveryReportPayload::Dashboard(x) => {
             crate::css_case_export_engine::formatters::delivery_dashboard_to_csv(x)
         }
+        DeliveryReportPayload::OpsHealth(x) => {
+            crate::css_case_export_engine::formatters::delivery_ops_health_to_csv(x)
+        }
         DeliveryReportPayload::Kpi(x) => {
             crate::css_case_export_engine::formatters::delivery_kpi_to_csv(x)
         }
@@ -224,6 +237,9 @@ fn export_briefing_text(
     let body = match &resp.data {
         DeliveryReportPayload::Digest(x) => {
             crate::css_case_export_engine::formatters::delivery_digest_to_text(x)
+        }
+        DeliveryReportPayload::OpsHealth(x) => {
+            crate::css_case_export_engine::formatters::delivery_ops_health_to_text(x)
         }
         DeliveryReportPayload::BriefingPack(x) => {
             crate::css_case_export_engine::formatters::delivery_briefing_to_text(x)

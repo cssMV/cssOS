@@ -2,6 +2,7 @@ fn report_title(kind: &crate::css_case_delivery_report_api::types::DeliveryRepor
     use crate::css_case_delivery_report_api::types::DeliveryReportKind as K;
 
     match kind {
+        K::OpsHealth => "交付运维健康报表".into(),
         K::Dashboard => "交付看板报表".into(),
         K::Kpi => "交付 KPI 报表".into(),
         K::Analytics => "交付分析报表".into(),
@@ -10,6 +11,23 @@ fn report_title(kind: &crate::css_case_delivery_report_api::types::DeliveryRepor
         K::Digest => "交付日报报表".into(),
         K::BriefingPack => "交付简报包".into(),
     }
+}
+
+pub async fn build_delivery_ops_health(
+    pool: &sqlx::PgPool,
+    req: crate::css_case_delivery_report_api::types::GetDeliveryOpsHealthRequest,
+    now_rfc3339: &str,
+) -> anyhow::Result<crate::css_case_delivery_ops_health::types::CssCaseDeliveryOpsHealthReport> {
+    crate::css_case_delivery_ops_health::runtime::build_delivery_ops_health(
+        pool,
+        crate::css_case_delivery_ops_health::types::DeliveryOpsHealthRequest {
+            days: req.days,
+            preview_limit: req.preview_limit,
+            recovery_limit: req.recovery_limit,
+        },
+        now_rfc3339,
+    )
+    .await
 }
 
 fn report_meta(
@@ -132,6 +150,18 @@ pub async fn build_delivery_report(
     let kind = req.kind.clone();
 
     let data = match req.kind {
+        K::OpsHealth => DeliveryReportPayload::OpsHealth(
+            build_delivery_ops_health(
+                pool,
+                crate::css_case_delivery_report_api::types::GetDeliveryOpsHealthRequest {
+                    days: req.days,
+                    preview_limit: req.preview_limit,
+                    recovery_limit: req.preview_limit,
+                },
+                now_rfc3339,
+            )
+            .await?,
+        ),
         K::Dashboard => DeliveryReportPayload::Dashboard(
             build_delivery_dashboard(
                 pool,

@@ -197,6 +197,16 @@ pub fn delivery_briefing_to_text(
     }
 
     out.push(String::new());
+    out.push("Ops Health：".into());
+    out.push(format!(
+        "- {:?} · alerts={} · pending_recovery={} · still_failing={}",
+        briefing.ops_health.report.status,
+        briefing.ops_health.report.alert_count,
+        briefing.ops_health.report.pending_recovery_count,
+        briefing.ops_health.report.still_failing_count
+    ));
+
+    out.push(String::new());
     out.push("KPI 摘要：".into());
     for metric in &briefing.kpi.metrics {
         out.push(format!("- {}：{:.1}%", metric.label, metric.ratio * 100.0));
@@ -235,6 +245,42 @@ pub fn delivery_briefing_to_text(
     out.join("\n")
 }
 
+pub fn delivery_ops_health_to_text(
+    health: &crate::css_case_delivery_ops_health::types::CssCaseDeliveryOpsHealthReport,
+) -> String {
+    let mut out = Vec::new();
+    out.push(health.title.clone());
+    out.push(String::new());
+    out.push(health.summary.clone());
+    out.push(String::new());
+    out.push(format!("API: {}", health.api_status));
+    out.push(format!(
+        "subscriptions={} active={} queues={} alerts={} pending_recovery={} still_failing={} recent_failed_logs={}",
+        health.subscription_count,
+        health.active_subscription_count,
+        health.queue_count,
+        health.alert_count,
+        health.pending_recovery_count,
+        health.still_failing_count,
+        health.recent_failed_log_count
+    ));
+    if !health.reasons.is_empty() {
+        out.push(String::new());
+        out.push("Reasons:".into());
+        for reason in &health.reasons {
+            out.push(format!("- {}: {}", reason.label, reason.summary));
+        }
+    }
+    if !health.suggested_actions.is_empty() {
+        out.push(String::new());
+        out.push("Suggested actions:".into());
+        for action in &health.suggested_actions {
+            out.push(format!("- {action}"));
+        }
+    }
+    out.join("\n")
+}
+
 pub fn delivery_dashboard_to_csv(
     dashboard: &crate::css_case_delivery_dashboard_view::types::CssCaseDeliveryDashboardView,
 ) -> String {
@@ -262,6 +308,28 @@ pub fn delivery_dashboard_to_csv(
     }
 
     lines.join("\n")
+}
+
+pub fn delivery_ops_health_to_csv(
+    health: &crate::css_case_delivery_ops_health::types::CssCaseDeliveryOpsHealthReport,
+) -> String {
+    vec![
+        "status,api_status,subscription_count,active_subscription_count,queue_count,alert_count,pending_recovery_count,still_failing_count,recent_failed_log_count,checked_at".to_string(),
+        format!(
+            "{:?},{},{},{},{},{},{},{},{},{}",
+            health.status,
+            health.api_status,
+            health.subscription_count,
+            health.active_subscription_count,
+            health.queue_count,
+            health.alert_count,
+            health.pending_recovery_count,
+            health.still_failing_count,
+            health.recent_failed_log_count,
+            health.checked_at
+        ),
+    ]
+    .join("\n")
 }
 
 pub fn delivery_kpi_to_csv(

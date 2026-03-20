@@ -299,6 +299,7 @@ pub async fn get_latest_failed_delivery_log_by_target(
 fn target_to_db(target: &CaseDeliveryLogTarget) -> &'static str {
     match target {
         CaseDeliveryLogTarget::ReportBundle => "report_bundle",
+        CaseDeliveryLogTarget::OpsHealth => "ops_health",
         CaseDeliveryLogTarget::Digest => "digest",
         CaseDeliveryLogTarget::Briefing => "briefing",
         CaseDeliveryLogTarget::Dashboard => "dashboard",
@@ -312,6 +313,7 @@ fn target_to_db(target: &CaseDeliveryLogTarget) -> &'static str {
 fn target_from_db(value: &str) -> anyhow::Result<CaseDeliveryLogTarget> {
     match value {
         "report_bundle" => Ok(CaseDeliveryLogTarget::ReportBundle),
+        "ops_health" => Ok(CaseDeliveryLogTarget::OpsHealth),
         "digest" => Ok(CaseDeliveryLogTarget::Digest),
         "briefing" => Ok(CaseDeliveryLogTarget::Briefing),
         "dashboard" => Ok(CaseDeliveryLogTarget::Dashboard),
@@ -423,6 +425,9 @@ fn row_to_delivery_log(row: sqlx::postgres::PgRow) -> anyhow::Result<CssCaseDeli
         report_type: match target {
             CaseDeliveryLogTarget::ReportBundle | CaseDeliveryLogTarget::Briefing => {
                 crate::css_case_delivery_report_api::types::DeliveryReportType::BriefingPack
+            }
+            CaseDeliveryLogTarget::OpsHealth => {
+                crate::css_case_delivery_report_api::types::DeliveryReportType::OpsHealth
             }
             CaseDeliveryLogTarget::Digest => {
                 crate::css_case_delivery_report_api::types::DeliveryReportType::Digest

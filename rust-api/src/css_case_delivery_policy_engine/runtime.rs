@@ -123,7 +123,8 @@ fn api_target_from_log_target(
         | crate::css_case_delivery_log::types::CaseDeliveryLogTarget::Briefing => {
             crate::css_case_delivery_api::types::DeliveryApiTarget::Email
         }
-        crate::css_case_delivery_log::types::CaseDeliveryLogTarget::Dashboard => {
+        crate::css_case_delivery_log::types::CaseDeliveryLogTarget::OpsHealth
+        | crate::css_case_delivery_log::types::CaseDeliveryLogTarget::Dashboard => {
             crate::css_case_delivery_api::types::DeliveryApiTarget::FrontendDownload
         }
         crate::css_case_delivery_log::types::CaseDeliveryLogTarget::Alerts => {

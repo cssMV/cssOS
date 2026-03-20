@@ -2,8 +2,18 @@ use crate::css_case_delivery_report_api::types::{
     CssCaseDeliveryReportApiResponse, CssCaseDeliveryReportBundleResponse,
     GetDeliveryAlertsRequest, GetDeliveryAnalyticsRequest, GetDeliveryBriefingPackRequest,
     GetDeliveryDashboardRequest, GetDeliveryDigestRequest, GetDeliveryKpiRequest,
-    GetDeliveryReportBundleRequest, GetDeliveryReportRequest, GetDeliveryTrendsRequest,
+    GetDeliveryOpsHealthRequest, GetDeliveryReportBundleRequest, GetDeliveryReportRequest,
+    GetDeliveryTrendsRequest,
 };
+
+pub async fn get_delivery_ops_health(
+    pool: &sqlx::PgPool,
+    req: GetDeliveryOpsHealthRequest,
+    now_rfc3339: &str,
+) -> anyhow::Result<crate::css_case_delivery_ops_health::types::CssCaseDeliveryOpsHealthReport> {
+    crate::css_case_delivery_report_api::runtime::build_delivery_ops_health(pool, req, now_rfc3339)
+        .await
+}
 
 pub async fn get_delivery_dashboard(
     pool: &sqlx::PgPool,
@@ -81,6 +91,23 @@ pub async fn get_delivery_report_bundle(
     req: GetDeliveryReportBundleRequest,
     now_rfc3339: &str,
 ) -> anyhow::Result<CssCaseDeliveryReportBundleResponse> {
+    let ops_health = if req.include_ops_health {
+        Some(
+            get_delivery_ops_health(
+                pool,
+                GetDeliveryOpsHealthRequest {
+                    days: req.days,
+                    preview_limit: req.preview_limit,
+                    recovery_limit: req.preview_limit,
+                },
+                now_rfc3339,
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
+
     let dashboard = if req.include_dashboard {
         Some(
             get_delivery_dashboard(
@@ -156,6 +183,7 @@ pub async fn get_delivery_report_bundle(
     };
 
     Ok(CssCaseDeliveryReportBundleResponse {
+        ops_health,
         dashboard,
         kpi,
         analytics,

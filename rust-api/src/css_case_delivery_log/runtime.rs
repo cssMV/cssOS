@@ -8,6 +8,7 @@ use crate::css_case_delivery_log::types::{
 fn map_target(target: &DeliveryExportTarget) -> CaseDeliveryLogTarget {
     match target {
         DeliveryExportTarget::Bundle => CaseDeliveryLogTarget::ReportBundle,
+        DeliveryExportTarget::OpsHealth => CaseDeliveryLogTarget::OpsHealth,
         DeliveryExportTarget::Digest => CaseDeliveryLogTarget::Digest,
         DeliveryExportTarget::Briefing => CaseDeliveryLogTarget::Briefing,
         DeliveryExportTarget::Dashboard => CaseDeliveryLogTarget::Dashboard,
@@ -62,6 +63,9 @@ fn report_type_from_target(
     match target {
         CaseDeliveryLogTarget::ReportBundle => {
             crate::css_case_delivery_report_api::types::DeliveryReportType::BriefingPack
+        }
+        CaseDeliveryLogTarget::OpsHealth => {
+            crate::css_case_delivery_report_api::types::DeliveryReportType::OpsHealth
         }
         CaseDeliveryLogTarget::Digest => {
             crate::css_case_delivery_report_api::types::DeliveryReportType::Digest
@@ -146,6 +150,9 @@ pub fn target_from_report_kind(
     kind: &crate::css_case_delivery_report_api::types::DeliveryReportKind,
 ) -> CaseDeliveryLogTarget {
     match kind {
+        crate::css_case_delivery_report_api::types::DeliveryReportKind::OpsHealth => {
+            CaseDeliveryLogTarget::OpsHealth
+        }
         crate::css_case_delivery_report_api::types::DeliveryReportKind::Dashboard => {
             CaseDeliveryLogTarget::Dashboard
         }

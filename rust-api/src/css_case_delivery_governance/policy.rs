@@ -15,6 +15,9 @@ pub fn guarantee_class_for_target(
         crate::css_case_delivery_log::types::CaseDeliveryLogTarget::Digest => {
             DeliveryGuaranteeClass::Important
         }
+        crate::css_case_delivery_log::types::CaseDeliveryLogTarget::OpsHealth => {
+            DeliveryGuaranteeClass::Important
+        }
         _ => DeliveryGuaranteeClass::BestEffort,
     }
 }
@@ -26,6 +29,7 @@ pub fn silent_failure_not_allowed(
         target,
         crate::css_case_delivery_log::types::CaseDeliveryLogTarget::Digest
             | crate::css_case_delivery_log::types::CaseDeliveryLogTarget::Briefing
+            | crate::css_case_delivery_log::types::CaseDeliveryLogTarget::OpsHealth
             | crate::css_case_delivery_log::types::CaseDeliveryLogTarget::Alerts
     )
 }
@@ -57,6 +61,7 @@ pub fn is_must_deliver_target(
         target,
         crate::css_case_delivery_log::types::CaseDeliveryLogTarget::Digest
             | crate::css_case_delivery_log::types::CaseDeliveryLogTarget::Briefing
+            | crate::css_case_delivery_log::types::CaseDeliveryLogTarget::OpsHealth
     )
 }
 

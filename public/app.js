@@ -2243,7 +2243,6 @@ function initCreationConsole() {
     renderCreationConsole();
     showToast(t("action.clearAll"));
   });
-  bindSeedRefreshButton(lyricsRegenerate, "lyrics", { prime: true });
   bindSeedRefreshButton(styleRegenerate, "style");
   bindSeedRefreshButton(musicStructureRegenerate, "structure");
   bindSeedRefreshButton(videoOutlineRegenerate, "outline");
@@ -5927,7 +5926,6 @@ function enterLyricSpellcast() {
     220,
   );
   logoPanel.classList.add("lyric-spellcast");
-  settingsPanel?.classList.add("lyric-spellcast-sync");
 }
 
 function exitLyricSpellcast(force = false) {
@@ -5936,8 +5934,7 @@ function exitLyricSpellcast(force = false) {
   clearInterval(lyricSpellcastColorTimer);
   lyricSpellcastColorTimer = null;
   logoPanel.classList.remove("lyric-spellcast");
-  settingsPanel?.classList.remove("lyric-spellcast-sync");
-  [logoPanel, settingsPanel].filter(Boolean).forEach((panel) => {
+  [logoPanel].filter(Boolean).forEach((panel) => {
     panel.style.removeProperty("--lyric-spellcast-primary");
     panel.style.removeProperty("--lyric-spellcast-secondary");
     panel.style.removeProperty("--lyric-spellcast-glow");

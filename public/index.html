@@ -906,6 +906,8 @@
                 type="button"
                 data-i18n-aria="action.regenerateLyrics"
                 aria-label="Regenerate lyrics"
+                onpointerdown="return window.CSSOS_primeLyricsRegenerate ? window.CSSOS_primeLyricsRegenerate(event) : true;"
+                onclick="return window.CSSOS_forceLyricsRegenerate ? window.CSSOS_forceLyricsRegenerate(event) : true;"
               >
                 🪄
               </button>

@@ -13764,6 +13764,100 @@ function buildWatchArchiveConfidenceFallbackHints(
   };
 }
 
+function buildWatchArchiveShiftSendChecklist(
+  shiftCloseChecklist,
+  handoffSendGate,
+  operatorNotes,
+  exportReceipts
+) {
+  const checklist = [];
+  checklist.push({
+    label: dashboardCopy("Close checklist cleared", "收口清单已清空"),
+    state:
+      Array.isArray(shiftCloseChecklist?.checklist) &&
+      shiftCloseChecklist.checklist.every((item) => item.state === dashboardCopy("ready", "就绪"))
+        ? dashboardCopy("ready", "就绪")
+        : dashboardCopy("pending", "待处理")
+  });
+  checklist.push({
+    label: dashboardCopy("Handoff gate open", "交接发送门已打开"),
+    state:
+      String(handoffSendGate?.status || "") === dashboardCopy("open", "已开闸")
+        ? dashboardCopy("ready", "就绪")
+        : dashboardCopy("pending", "待处理")
+  });
+  checklist.push({
+    label: dashboardCopy("Operator notes written", "值班备注已填写"),
+    state: String(operatorNotes || "").trim()
+      ? dashboardCopy("ready", "就绪")
+      : dashboardCopy("pending", "待处理")
+  });
+  checklist.push({
+    label: dashboardCopy("Export receipt recorded", "导出回执已记录"),
+    state: Array.isArray(exportReceipts) && exportReceipts.length
+      ? dashboardCopy("ready", "就绪")
+      : dashboardCopy("pending", "待处理")
+  });
+  return {
+    headline: dashboardCopy("Final checks before sending this handoff.", "发出这次交接前的最后核对。"),
+    checklist
+  };
+}
+
+function buildWatchArchiveHandoffPacketPreview(probeSummary, probeHistory, operatorNotes, handoffAcknowledgments) {
+  const bundle = buildWatchArchiveIncidentExportBundle(probeSummary, probeHistory);
+  const ack = Array.isArray(handoffAcknowledgments) && handoffAcknowledgments.length
+    ? handoffAcknowledgments[handoffAcknowledgments.length - 1]
+    : null;
+  return {
+    headline: dashboardCopy("What the handoff packet would contain right now.", "当前交接包里将会包含这些内容。"),
+    rows: [
+      dashboardCopy(`Schema · ${bundle?.schema || "unknown"}`, `结构 · ${bundle?.schema || "未知"}`),
+      dashboardCopy(
+        `Latest verdict · ${bundle?.latest_probe?.conclusion?.verdict || "unknown"}`,
+        `最新结论 · ${bundle?.latest_probe?.conclusion?.verdict || "未知"}`
+      ),
+      dashboardCopy(
+        `History samples · ${Array.isArray(bundle?.probe_history) ? bundle.probe_history.length : 0}`,
+        `历史样本 · ${Array.isArray(bundle?.probe_history) ? bundle.probe_history.length : 0}`
+      ),
+      dashboardCopy(
+        `Operator notes · ${String(operatorNotes || "").trim() ? dashboardCopy("included", "已包含") : dashboardCopy("missing", "缺失")}`,
+        `值班备注 · ${String(operatorNotes || "").trim() ? dashboardCopy("已包含", "已包含") : dashboardCopy("缺失", "缺失")}`
+      ),
+      dashboardCopy(
+        `Latest acknowledgment · ${ack?.at || dashboardCopy("none", "无")}`,
+        `最近接班确认 · ${ack?.at || dashboardCopy("无", "无")}`
+      )
+    ]
+  };
+}
+
+function buildWatchArchiveConfidenceEscalationLadder(
+  verdictConfidenceCard,
+  shiftRiskBadge,
+  crossBorderAnomalyAlert
+) {
+  const confidence = String(verdictConfidenceCard?.confidence || "");
+  const risk = String(shiftRiskBadge?.badge || "");
+  const severeCrossBorder = String(crossBorderAnomalyAlert?.level || "") === dashboardCopy("alert", "告警");
+  let lane = dashboardCopy("normal follow-through", "常规跟进");
+  if (confidence === dashboardCopy("low", "低") || risk === dashboardCopy("high", "高")) {
+    lane = dashboardCopy("escalate to active review", "升级到主动复核");
+  } else if (confidence === dashboardCopy("medium", "中") || severeCrossBorder) {
+    lane = dashboardCopy("route to cautious review", "进入谨慎复核");
+  }
+  const steps = [
+    dashboardCopy("1. Confirm the latest probe sample and route comparison.", "1. 确认最新探针样本和链路对比。"),
+    dashboardCopy("2. Choose conservative wording if confidence is not high.", "2. 如果把握度不高，采用更保守的表述。"),
+    dashboardCopy("3. Escalate to active review before sending when risk stays high.", "3. 如果风险仍高，在发出前升级到主动复核。")
+  ];
+  return {
+    lane,
+    steps
+  };
+}
+
 function buildWatchArchiveCrossBorderAnomalyAlert(probeSummary) {
   const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
   const conclusion = payload?.conclusion || {};
@@ -24601,6 +24695,23 @@ function renderMusicDeliveryDashboard() {
     crossBorderAnomalyAlert,
     routeComparisonMemo
   );
+  const shiftSendChecklist = buildWatchArchiveShiftSendChecklist(
+    shiftCloseChecklist,
+    handoffSendGate,
+    deliveryDashboardState.probeOperatorNotes,
+    deliveryDashboardState.probeExportReceipts
+  );
+  const handoffPacketPreview = buildWatchArchiveHandoffPacketPreview(
+    deliveryDashboardState.probeSummary,
+    deliveryDashboardState.probeHistory,
+    deliveryDashboardState.probeOperatorNotes,
+    deliveryDashboardState.probeHandoffAcknowledgments
+  );
+  const confidenceEscalationLadder = buildWatchArchiveConfidenceEscalationLadder(
+    verdictConfidenceCard,
+    shiftRiskBadge,
+    crossBorderAnomalyAlert
+  );
   const regionLinkConclusionHtml = deliveryDashboardState.probeSummary
     ? `
         <div class="report-list">
@@ -24736,6 +24847,20 @@ function renderMusicDeliveryDashboard() {
               `${handoffSendGate.status} · ${handoffSendGate.note}`
             )}</div>
             <div class="report-card-copy">${escapeHtml(handoffSendGate.detail)}</div>
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Shift Send Checklist</div>
+            <div class="report-card-copy">${escapeHtml(shiftSendChecklist.headline)}</div>
+            ${shiftSendChecklist.checklist
+              .map((item) => `<div class="report-card-copy">${escapeHtml(`${item.label} · ${item.state}`)}</div>`)
+              .join("")}
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Handoff Packet Preview</div>
+            <div class="report-card-copy">${escapeHtml(handoffPacketPreview.headline)}</div>
+            ${handoffPacketPreview.rows
+              .map((item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`)
+              .join("")}
           </div>
           <div class="report-list-item">
             <div class="report-preview-title">On-Call Action Checklist</div>
@@ -25078,6 +25203,18 @@ function renderMusicDeliveryDashboard() {
             <div class="report-preview-title">Confidence Fallback Hints</div>
             <div class="report-card-copy">${escapeHtml(confidenceFallbackHints.headline)}</div>
             ${confidenceFallbackHints.hints
+              .map((item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`)
+              .join("")}
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Confidence Escalation Ladder</div>
+            <div class="report-card-copy">${escapeHtml(
+              dashboardCopy(
+                `Escalation lane · ${confidenceEscalationLadder.lane}`,
+                `升级路径 · ${confidenceEscalationLadder.lane}`
+              )
+            )}</div>
+            ${confidenceEscalationLadder.steps
               .map((item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`)
               .join("")}
           </div>

@@ -2340,6 +2340,15 @@ function setLyricsDebugStatus(message, state = "idle") {
   lyricsDebugStatus.dataset.state = state;
 }
 
+function runNonCriticalUiStep(task) {
+  try {
+    task?.();
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}
+
 function getSeedRefreshToast(target) {
   if (target === "lyrics") {
     return loginCopy("Casting lyric magic...", "歌词魔法施展中...");
@@ -2492,8 +2501,19 @@ async function regenerateSeedFields(target) {
       lyrics: lyricsInput?.value || compactLyricLines(state.lines || []).join("\n")
     });
     if (target === "lyrics") {
-      enterLyricSpellcast();
-      randomizeCreationForLyricsRefresh(title);
+      const lyricUiOk = runNonCriticalUiStep(() => {
+        enterLyricSpellcast();
+        randomizeCreationForLyricsRefresh(title);
+      });
+      if (!lyricUiOk) {
+        setLyricsDebugStatus(
+          loginCopy(
+            "Lyric UI warmup failed. Continuing with a direct lyric request...",
+            "歌词界面预热失败，已继续直接请求随机歌词..."
+          ),
+          "pending"
+        );
+      }
     }
     showToast(getSeedRefreshToast(target));
     let payload = null;
@@ -5877,12 +5897,12 @@ function applySongSeedToSettings(seed) {
     const lines = lyrics.split("\n");
     state.lines = lines;
     state.baseLines = lines;
-    updateEnginePanels(title || state.title, lines);
-    refreshLyricsPresentation(title || state.title, lines);
-    syncForyouThumbFromLyrics(title || state.title, lines);
-    recordLyricsSeedSnapshot(data, title || state.title, lines);
+    runNonCriticalUiStep(() => updateEnginePanels(title || state.title, lines));
+    runNonCriticalUiStep(() => refreshLyricsPresentation(title || state.title, lines));
+    runNonCriticalUiStep(() => syncForyouThumbFromLyrics(title || state.title, lines));
+    runNonCriticalUiStep(() => recordLyricsSeedSnapshot(data, title || state.title, lines));
   }
-  renderSongSeedPreview(data);
+  runNonCriticalUiStep(() => renderSongSeedPreview(data));
 }
 
 function activateSeedTab(tab) {

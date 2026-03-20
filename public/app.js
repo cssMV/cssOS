@@ -2364,6 +2364,10 @@ function randomizeCreationForLyricsRefresh(title) {
   renderCreationConsole();
 }
 
+function shouldRetryAutoSongSeedTitle(title) {
+  return !shouldPreserveSongSeedTitleForRefresh() && hasRecentAutoSongSeedTitle(title);
+}
+
 function formatCreationLanguageBadge(lang) {
   const value = String(lang || "").trim().toLowerCase();
   if (value === "ja") return "JP";
@@ -2629,7 +2633,7 @@ async function regenerateSeedFields(target) {
     let raw = null;
     let normalized = null;
     let nextSignature = "";
-    const maxAttempts = target === "lyrics" ? 3 : 1;
+    const maxAttempts = target === "lyrics" ? 5 : 1;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       lyricStage = `request-${attempt}`;
       payload = await runLyricsGenerate(target === "style" ? "style_refresh" : "music_video", { apply: false });
@@ -2639,15 +2643,24 @@ async function regenerateSeedFields(target) {
       lyricStage = `normalize-${attempt}`;
       normalized = normalizeSongSeed(raw);
       nextSignature = safeBuildLyricsSeedVisualSignature(normalized);
-      if (target !== "lyrics" || !previousSignature || !nextSignature || nextSignature !== previousSignature) {
+      const repeatedAutoTitle = target === "lyrics" && shouldRetryAutoSongSeedTitle(normalized?.title);
+      if (
+        target !== "lyrics" ||
+        ( !repeatedAutoTitle &&
+          (!previousSignature || !nextSignature || nextSignature !== previousSignature))
+      ) {
         break;
       }
       if (attempt < maxAttempts) {
         lyricStage = `retry-toast-${attempt}`;
         safeShowToast(
           loginCopy(
-            `Retrying lyric variation ${attempt + 1}/${maxAttempts}...`,
-            `歌词随机撞脸，正在重试第 ${attempt + 1}/${maxAttempts} 次...`
+            repeatedAutoTitle
+              ? `Retrying lyric title ${attempt + 1}/${maxAttempts} to avoid a recent duplicate...`
+              : `Retrying lyric variation ${attempt + 1}/${maxAttempts}...`,
+            repeatedAutoTitle
+              ? `标题刚刚重复，正在重试第 ${attempt + 1}/${maxAttempts} 次...`
+              : `歌词随机撞脸，正在重试第 ${attempt + 1}/${maxAttempts} 次...`
           )
         );
       }
@@ -2730,6 +2743,9 @@ async function regenerateSeedFields(target) {
       );
       const universeSummary = describeSongSeedUniverse(state.songSeed);
       const unchanged = previousSignature && nextSignature && previousSignature === nextSignature;
+      if (!shouldPreserveSongSeedTitleForRefresh()) {
+        recordRecentAutoSongSeedTitle(currentTitleValue);
+      }
       safeShowToast(
         loginCopy(
           `${unchanged ? "Lyric refresh stayed visually similar" : "Lyrics regenerated"} · ${[
@@ -4065,6 +4081,19 @@ const state = {
   songSeed: null
 };
 let songSeedVariationCounter = 0;
+const recentAutoSongSeedTitles = [];
+
+function hasRecentAutoSongSeedTitle(title) {
+  const value = String(title || "").trim();
+  return !!value && recentAutoSongSeedTitles.includes(value);
+}
+
+function recordRecentAutoSongSeedTitle(title) {
+  const value = String(title || "").trim();
+  if (!value) return;
+  const next = [value, ...recentAutoSongSeedTitles.filter((item) => item !== value)].slice(0, 16);
+  recentAutoSongSeedTitles.splice(0, recentAutoSongSeedTitles.length, ...next);
+}
 
 const creationOptionCatalog = {
   genre: ["Chinese GuFeng", "Hip Hop", "Jazz", "Reggae", "Pop", "R&B", "EDM", "Country", "Folk", "Rock", "Classical"],

@@ -981,54 +981,54 @@ function buildCssmvDynamicTitle(
   const titleBanks = zh
     ? {
         "mythic-rite": {
-          lead: ["玄钟", "瑶台", "星诏", "天阙", "烬河", "霜铃"],
-          tail: ["回潮", "断誓", "夜谕", "遗烬", "长汐", "远响"]
+          lead: ["玄钟", "瑶台", "星诏", "天阙", "烬河", "霜铃", "潮灯", "夜坛", "云篆", "祭潮", "山祷", "月碑"],
+          tail: ["回潮", "断誓", "夜谕", "遗烬", "长汐", "远响", "归潮", "余照", "隐歌", "落谶", "回铭", "沉钟"]
         },
         "neon-heartbreak": {
-          lead: ["霓虹", "末班", "空站", "雨幕", "旧屏", "余电"],
-          tail: ["未接", "失真", "回音", "余温", "慢闪", "断讯"]
+          lead: ["霓虹", "末班", "空站", "雨幕", "旧屏", "余电", "夜窗", "慢街", "孤站", "灯影", "碎讯", "残照"],
+          tail: ["未接", "失真", "回音", "余温", "慢闪", "断讯", "空白", "回拨", "潮湿", "低烧", "返场", "静音"]
         },
         "gravity-fiction": {
-          lead: ["轨道", "失重", "晨轨", "氧焰", "冷舱", "星港"],
-          tail: ["漂流", "回讯", "静压", "残频", "夜航", "返照"]
+          lead: ["轨道", "失重", "晨轨", "氧焰", "冷舱", "星港", "回路", "赤移", "舷窗", "空舱", "霜轨", "深空"],
+          tail: ["漂流", "回讯", "静压", "残频", "夜航", "返照", "返讯", "低温", "回声", "余波", "断链", "潮汐"]
         },
         "pastoral-memory": {
-          lead: ["河灯", "旧埠", "蝉夏", "稻风", "晚灶", "黄灯"],
-          tail: ["慢信", "旧梦", "余响", "回南", "晚晴", "潮生"]
+          lead: ["河灯", "旧埠", "蝉夏", "稻风", "晚灶", "黄灯", "旧巷", "暮雨", "木窗", "桥影", "晚潮", "茶烟"],
+          tail: ["慢信", "旧梦", "余响", "回南", "晚晴", "潮生", "旧事", "归路", "余温", "暮色", "迟夏", "回声"]
         },
         "surreal-cabaret": {
-          lead: ["镜厅", "绒幕", "纸冠", "暗场", "夜戏", "金粉"],
-          tail: ["私咒", "换幕", "回眸", "幻席", "偏光", "退场"]
+          lead: ["镜厅", "绒幕", "纸冠", "暗场", "夜戏", "金粉", "偏厅", "幻灯", "暗吻", "侧幕", "夜牌", "珠幕"],
+          tail: ["私咒", "换幕", "回眸", "幻席", "偏光", "退场", "余兴", "返场", "私语", "落幕", "残妆", "旧梦"]
         },
         "riot-romance": {
-          lead: ["火线", "屋顶", "街电", "海报", "号角", "风灯"],
-          tail: ["并肩", "余热", "同途", "回燃", "夜奔", "共振"]
+          lead: ["火线", "屋顶", "街电", "海报", "号角", "风灯", "夜奔", "街旗", "热流", "路标", "侧街", "烟灯"],
+          tail: ["并肩", "余热", "同途", "回燃", "夜奔", "共振", "回火", "呼喊", "潮声", "照面", "逆风", "余烬"]
         }
       }
     : {
         "mythic-rite": {
-          lead: ["Jade", "Astral", "Temple", "Ashen", "Bell", "Eclipse"],
-          tail: ["Vow", "Tide", "Edict", "Afterglow", "Echo", "Undertow"]
+          lead: ["Jade", "Astral", "Temple", "Ashen", "Bell", "Eclipse", "Votive", "Ember", "Oracle", "Moonlit", "Tidal", "Cinder"],
+          tail: ["Vow", "Tide", "Edict", "Afterglow", "Echo", "Undertow", "Script", "Requiem", "Undersong", "Omen", "Lantern", "Undercurrent"]
         },
         "neon-heartbreak": {
-          lead: ["Neon", "Midnight", "Platform", "Static", "Rain", "Motel"],
-          tail: ["Voicemail", "Afterheat", "Blur", "Disconnect", "Echo", "Spark"]
+          lead: ["Neon", "Midnight", "Platform", "Static", "Rain", "Motel", "Taxi", "Velvet", "Signal", "Backseat", "Window", "Sleepless"],
+          tail: ["Voicemail", "Afterheat", "Blur", "Disconnect", "Echo", "Spark", "Lowlight", "Fever", "Replay", "Undertone", "Callback", "Shadow"]
         },
         "gravity-fiction": {
-          lead: ["Orbit", "Oxygen", "Signal", "Airlock", "Redshift", "Drift"],
-          tail: ["Bloom", "Lifeline", "Afterburn", "Telemetry", "Undersky", "Return"]
+          lead: ["Orbit", "Oxygen", "Signal", "Airlock", "Redshift", "Drift", "Telemetry", "Cryo", "Vacuum", "Hull", "Starport", "Zero-G"],
+          tail: ["Bloom", "Lifeline", "Afterburn", "Telemetry", "Undersky", "Return", "Undercurrent", "Static", "Pulse", "Wake", "Relay", "Fallback"]
         },
         "pastoral-memory": {
-          lead: ["River", "Harvest", "Porchlight", "Cicada", "Lantern", "Letter"],
-          tail: ["Memory", "Afterglow", "Return", "Softfall", "Summer", "Undertide"]
+          lead: ["River", "Harvest", "Porchlight", "Cicada", "Lantern", "Letter", "Kitchen", "Dust", "Woodsmoke", "Willow", "Evening", "Window"],
+          tail: ["Memory", "Afterglow", "Return", "Softfall", "Summer", "Undertide", "Homecoming", "Lowlight", "Undersong", "Rain", "Drift", "Keep"]
         },
         "surreal-cabaret": {
-          lead: ["Velvet", "Mirror", "Paper", "Shadow", "Gold", "Mask"],
-          tail: ["Spell", "Curtain", "Turn", "Whisper", "Riot", "Encore"]
+          lead: ["Velvet", "Mirror", "Paper", "Shadow", "Gold", "Mask", "Silk", "Candle", "Phantom", "Cabaret", "Private", "Gilded"],
+          tail: ["Spell", "Curtain", "Turn", "Whisper", "Riot", "Encore", "Exit", "Murmur", "Afterparty", "Glare", "Riddle", "Bloom"]
         },
         "riot-romance": {
-          lead: ["Flare", "Poster", "Rooftop", "March", "Siren", "Spark"],
-          tail: ["Promise", "Signal", "Heartbeat", "Afterglow", "Route", "Rescue"]
+          lead: ["Flare", "Poster", "Rooftop", "March", "Siren", "Spark", "Beacon", "Crowd", "Signal", "Laneway", "Static", "Streetlight"],
+          tail: ["Promise", "Signal", "Heartbeat", "Afterglow", "Route", "Rescue", "Uprising", "Return", "Undertone", "Rush", "Bond", "Ember"]
         }
       };
   const bank =
@@ -1036,7 +1036,7 @@ function buildCssmvDynamicTitle(
     titleBanks["mythic-rite" as keyof typeof titleBanks];
   const lead = bank.lead[blueprint.hash % bank.lead.length] || bank.lead[0] || "CSS";
   const tail =
-    bank.tail[Math.floor(blueprint.hash / 7) % bank.tail.length] || bank.tail[0] || "MV";
+    bank.tail[Math.floor(blueprint.hash / 11) % bank.tail.length] || bank.tail[0] || "MV";
   return zh ? `${lead}${tail}` : `${lead} ${tail}`;
 }
 

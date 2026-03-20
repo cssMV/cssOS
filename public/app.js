@@ -14097,6 +14097,41 @@ function buildWatchArchiveEscalationFollowUpPrompt(escalationAckTracker, escalat
   };
 }
 
+function buildWatchArchiveDispatchOutcomeBadge(sendDecisionBanner, shiftSendButtonState) {
+  const level = String(sendDecisionBanner?.level || "");
+  const state = String(shiftSendButtonState?.state || "");
+  let badge = dashboardCopy("pending dispatch", "待发出");
+  if (level === dashboardCopy("send", "发送") && state === dashboardCopy("armed", "可发送")) {
+    badge = dashboardCopy("ready to dispatch", "可发出");
+  } else if (level === dashboardCopy("review", "复核")) {
+    badge = dashboardCopy("dispatch after review", "复核后发出");
+  }
+  return {
+    badge,
+    note: dashboardCopy(
+      `Decision=${level || "unknown"} · Send state=${state || "unknown"}`,
+      `决策=${level || "未知"} · 发送状态=${state || "未知"}`
+    )
+  };
+}
+
+function buildWatchArchiveReceiptTimelineStrip(exportReceipts) {
+  const receipts = Array.isArray(exportReceipts) ? exportReceipts.slice(-5) : [];
+  return receipts.length
+    ? receipts.map((item) => `${item.at}`)
+    : [dashboardCopy("No receipt timeline yet.", "当前还没有回执时间线。")];
+}
+
+function buildWatchArchiveFollowUpNoteTemplate(escalationFollowUpPrompt, escalationOwnerLane) {
+  const owner = String(escalationOwnerLane?.owner || dashboardCopy("接手人", "接手人"));
+  return {
+    note: dashboardCopy(
+      `Follow-up to ${owner}: ${escalationFollowUpPrompt?.headline || dashboardCopy("Please confirm the latest status.", "请确认最新状态。")}`,
+      `给 ${owner} 的跟进备注：${escalationFollowUpPrompt?.headline || dashboardCopy("请确认最新状态。", "请确认最新状态。")}`
+    )
+  };
+}
+
 function buildWatchArchiveCrossBorderAnomalyAlert(probeSummary) {
   const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
   const conclusion = payload?.conclusion || {};
@@ -25001,6 +25036,17 @@ function renderMusicDeliveryDashboard() {
     escalationAckTracker,
     escalationOwnerLane
   );
+  const dispatchOutcomeBadge = buildWatchArchiveDispatchOutcomeBadge(
+    sendDecisionBanner,
+    shiftSendButtonState
+  );
+  const receiptTimelineStrip = buildWatchArchiveReceiptTimelineStrip(
+    deliveryDashboardState.probeExportReceipts
+  );
+  const followUpNoteTemplate = buildWatchArchiveFollowUpNoteTemplate(
+    escalationFollowUpPrompt,
+    escalationOwnerLane
+  );
   const regionLinkConclusionHtml = deliveryDashboardState.probeSummary
     ? `
         <div class="report-list">
@@ -25199,9 +25245,20 @@ function renderMusicDeliveryDashboard() {
               .join("")}
           </div>
           <div class="report-list-item">
+            <div class="report-preview-title">Dispatch Outcome Badge</div>
+            <div class="report-card-copy">${escapeHtml(dispatchOutcomeBadge.badge)}</div>
+            <div class="report-card-copy">${escapeHtml(dispatchOutcomeBadge.note)}</div>
+          </div>
+          <div class="report-list-item">
             <div class="report-preview-title">Packet Handoff Receipt Card</div>
             <div class="report-card-copy">${escapeHtml(packetHandoffReceiptCard.headline)}</div>
             ${packetHandoffReceiptCard.rows
+              .map((item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`)
+              .join("")}
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Receipt Timeline Strip</div>
+            ${receiptTimelineStrip
               .map((item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`)
               .join("")}
           </div>
@@ -25587,6 +25644,10 @@ function renderMusicDeliveryDashboard() {
             <div class="report-preview-title">Escalation Follow-Up Prompt</div>
             <div class="report-card-copy">${escapeHtml(escalationFollowUpPrompt.headline)}</div>
             <div class="report-card-copy">${escapeHtml(escalationFollowUpPrompt.note)}</div>
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Follow-Up Note Template</div>
+            <div class="report-card-copy">${escapeHtml(followUpNoteTemplate.note)}</div>
           </div>
         </div>
       `

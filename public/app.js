@@ -14035,6 +14035,68 @@ function buildWatchArchiveEscalationTimerCard(handoffAcknowledgments, escalation
   };
 }
 
+function buildWatchArchiveShiftDispatchPanel(sendDecisionBanner, shiftSendButtonState, escalationAckTracker) {
+  return {
+    headline: dashboardCopy("Post-send dispatch view for this shift.", "这一班发出交接后的动作面板。"),
+    rows: [
+      dashboardCopy(
+        `Decision · ${sendDecisionBanner?.headline || dashboardCopy("hold", "暂缓")}`,
+        `决策 · ${sendDecisionBanner?.headline || dashboardCopy("暂缓", "暂缓")}`
+      ),
+      dashboardCopy(
+        `Send state · ${shiftSendButtonState?.state || dashboardCopy("disabled", "不可发")}`,
+        `发送状态 · ${shiftSendButtonState?.state || dashboardCopy("不可发", "不可发")}`
+      ),
+      dashboardCopy(
+        `Escalation ack · ${escalationAckTracker?.state || dashboardCopy("pending", "待确认")}`,
+        `升级确认 · ${escalationAckTracker?.state || dashboardCopy("待确认", "待确认")}`
+      )
+    ]
+  };
+}
+
+function buildWatchArchivePacketHandoffReceiptCard(exportReceipts, handoffPacketPreview) {
+  const lastReceipt = Array.isArray(exportReceipts) && exportReceipts.length
+    ? exportReceipts[exportReceipts.length - 1]
+    : null;
+  return {
+    headline: dashboardCopy("Most recent handoff export receipt.", "最近一次交接发出回执。"),
+    rows: [
+      dashboardCopy(
+        `Receipt time · ${lastReceipt?.at || dashboardCopy("none", "无")}`,
+        `回执时间 · ${lastReceipt?.at || dashboardCopy("无", "无")}`
+      ),
+      dashboardCopy(
+        `Receipt file · ${lastReceipt?.fileName || dashboardCopy("none", "无")}`,
+        `回执文件 · ${lastReceipt?.fileName || dashboardCopy("无", "无")}`
+      ),
+      dashboardCopy(
+        `Current packet rows · ${Array.isArray(handoffPacketPreview?.rows) ? handoffPacketPreview.rows.length : 0}`,
+        `当前交接包行数 · ${Array.isArray(handoffPacketPreview?.rows) ? handoffPacketPreview.rows.length : 0}`
+      )
+    ]
+  };
+}
+
+function buildWatchArchiveEscalationFollowUpPrompt(escalationAckTracker, escalationOwnerLane) {
+  const acked = String(escalationAckTracker?.state || "") === dashboardCopy("acked", "已确认");
+  const owner = String(escalationOwnerLane?.owner || dashboardCopy("owner", "接手人"));
+  return {
+    headline: acked
+      ? dashboardCopy("Next prompt: ask the owner for a short follow-up status.", "下一句提醒：请接手人给出简短跟进状态。")
+      : dashboardCopy("Next prompt: ask the owner to acknowledge the escalation now.", "下一句提醒：请接手人现在确认升级接手。"),
+    note: acked
+      ? dashboardCopy(
+          `Follow up with ${owner} for the next status update.`,
+          `请继续向 ${owner} 追问下一条状态更新。`
+        )
+      : dashboardCopy(
+          `Prompt ${owner} to acknowledge the escalation handoff.`,
+          `提醒 ${owner} 确认这次升级交接。`
+        )
+  };
+}
+
 function buildWatchArchiveCrossBorderAnomalyAlert(probeSummary) {
   const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
   const conclusion = payload?.conclusion || {};
@@ -24926,6 +24988,19 @@ function renderMusicDeliveryDashboard() {
     deliveryDashboardState.probeHandoffAcknowledgments,
     escalationAckTracker
   );
+  const shiftDispatchPanel = buildWatchArchiveShiftDispatchPanel(
+    sendDecisionBanner,
+    shiftSendButtonState,
+    escalationAckTracker
+  );
+  const packetHandoffReceiptCard = buildWatchArchivePacketHandoffReceiptCard(
+    deliveryDashboardState.probeExportReceipts,
+    handoffPacketPreview
+  );
+  const escalationFollowUpPrompt = buildWatchArchiveEscalationFollowUpPrompt(
+    escalationAckTracker,
+    escalationOwnerLane
+  );
   const regionLinkConclusionHtml = deliveryDashboardState.probeSummary
     ? `
         <div class="report-list">
@@ -25115,6 +25190,20 @@ function renderMusicDeliveryDashboard() {
             <div class="report-preview-title">Packet Freshness Strip</div>
             <div class="report-card-copy">${escapeHtml(packetFreshnessStrip.label)}</div>
             <div class="report-card-copy">${escapeHtml(packetFreshnessStrip.note)}</div>
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Shift Dispatch Panel</div>
+            <div class="report-card-copy">${escapeHtml(shiftDispatchPanel.headline)}</div>
+            ${shiftDispatchPanel.rows
+              .map((item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`)
+              .join("")}
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Packet Handoff Receipt Card</div>
+            <div class="report-card-copy">${escapeHtml(packetHandoffReceiptCard.headline)}</div>
+            ${packetHandoffReceiptCard.rows
+              .map((item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`)
+              .join("")}
           </div>
           <div class="report-list-item">
             <div class="report-preview-title">On-Call Action Checklist</div>
@@ -25493,6 +25582,11 @@ function renderMusicDeliveryDashboard() {
             <div class="report-card-copy">${escapeHtml(
               `${escalationTimerCard.state} · ${escalationTimerCard.note}`
             )}</div>
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Escalation Follow-Up Prompt</div>
+            <div class="report-card-copy">${escapeHtml(escalationFollowUpPrompt.headline)}</div>
+            <div class="report-card-copy">${escapeHtml(escalationFollowUpPrompt.note)}</div>
           </div>
         </div>
       `

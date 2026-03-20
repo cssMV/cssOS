@@ -18,6 +18,7 @@ STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 
 TMP_DIR="$(mktemp -d)"
 RESULTS_TSV="${TMP_DIR}/zh-probe-results.tsv"
+METADATA_JSON="${TMP_DIR}/zh-probe-metadata.json"
 trap 'rm -rf "${TMP_DIR}"' EXIT
 
 worker_script='
@@ -140,6 +141,86 @@ run_remote_probe() {
   append_result "$line"
 }
 
+capture_metadata() {
+  local api_vm_reachable="unknown"
+  local gzvm_reachable="unknown"
+  local gzvm_nginx_status="unknown"
+  local gzvm_cssos_status="unknown"
+  local gzvm_cert_not_after=""
+
+  if [[ "${PUBLIC_ONLY}" != "1" ]]; then
+    if ssh api-vm "command -v bash >/dev/null 2>&1" >/dev/null 2>&1; then
+      api_vm_reachable="reachable"
+    else
+      api_vm_reachable="unreachable"
+    fi
+
+    if ssh -o RemoteCommand=none -T gzvm "command -v bash >/dev/null 2>&1" >/dev/null 2>&1; then
+      gzvm_reachable="reachable"
+      gzvm_nginx_status="$(
+        ssh -o RemoteCommand=none -T gzvm "systemctl is-active nginx 2>/dev/null || echo unknown" 2>/dev/null \
+          | tail -n 1 | tr -d '\r'
+      )"
+      gzvm_cssos_status="$(
+        ssh -o RemoteCommand=none -T gzvm 'if command -v pm2 >/dev/null 2>&1; then pid="$(pm2 pid cssos 2>/dev/null | head -n 1 | tr -d '"'"'"'"'"'"'"'"'[:space:]'"'"'"'"'"'"'"'"')"; if [ -n "$pid" ] && [ "$pid" != "0" ]; then echo online; else echo stopped; fi; else echo unknown; fi' 2>/dev/null \
+          | tail -n 1 | tr -d '\r'
+      )"
+      gzvm_cert_not_after="$(
+        ssh -o RemoteCommand=none -T gzvm "if command -v openssl >/dev/null 2>&1; then echo | openssl s_client -servername ${ZH_HOST} -connect ${ZH_HOST}:443 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null | sed 's/notAfter=//'; else echo unknown; fi" 2>/dev/null \
+          | tail -n 1 | tr -d '\r'
+      )"
+    else
+      gzvm_reachable="unreachable"
+    fi
+  fi
+
+  API_VM_REACHABLE="${api_vm_reachable}" \
+  GZVM_REACHABLE="${gzvm_reachable}" \
+  GZVM_NGINX_STATUS="${gzvm_nginx_status}" \
+  GZVM_CSSOS_STATUS="${gzvm_cssos_status}" \
+  GZVM_CERT_NOT_AFTER="${gzvm_cert_not_after}" \
+  METADATA_JSON="${METADATA_JSON}" \
+  python3 - <<'PY'
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+
+cert_not_after = os.environ.get("GZVM_CERT_NOT_AFTER", "").strip()
+days_remaining = None
+if cert_not_after and cert_not_after.lower() != "unknown":
+    try:
+        expiry = datetime.strptime(cert_not_after, "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc)
+        delta = expiry - datetime.now(timezone.utc)
+        days_remaining = max(0, delta.days)
+    except Exception:
+        days_remaining = None
+
+payload = {
+    "servers": [
+        {"server": "api-vm", "reachable": os.environ.get("API_VM_REACHABLE", "unknown")},
+        {
+            "server": "gzvm",
+            "reachable": os.environ.get("GZVM_REACHABLE", "unknown"),
+            "nginx_status": os.environ.get("GZVM_NGINX_STATUS", "unknown"),
+            "cssos_status": os.environ.get("GZVM_CSSOS_STATUS", "unknown"),
+        },
+    ],
+    "certificate": {
+        "server": "gzvm",
+        "host": os.environ.get("ZH_HOST", "zh.cssstudio.app"),
+        "not_after": cert_not_after,
+        "days_remaining": days_remaining,
+    },
+}
+
+Path(os.environ["METADATA_JSON"]).write_text(
+    json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+    encoding="utf-8",
+)
+PY
+}
+
 print_table() {
   printf '%-18s %-9s %-10s %-10s %-12s %s\n' "Target" "TLS" "HTTP" "Resets" "Latency" "Note"
   printf '%-18s %-9s %-10s %-10s %-12s %s\n' "------" "---" "----" "------" "-------" "----"
@@ -182,7 +263,7 @@ write_github_summary() {
 
 write_outputs() {
   mkdir -p "${ARTIFACT_DIR}" "${PUBLIC_OPS_DIR}"
-  RESULTS_TSV="${RESULTS_TSV}" ARTIFACT_DIR="${ARTIFACT_DIR}" PUBLIC_OPS_DIR="${PUBLIC_OPS_DIR}" TS_UTC="${TS_UTC}" STAMP="${STAMP}" python3 - <<'PY'
+  RESULTS_TSV="${RESULTS_TSV}" ARTIFACT_DIR="${ARTIFACT_DIR}" PUBLIC_OPS_DIR="${PUBLIC_OPS_DIR}" TS_UTC="${TS_UTC}" STAMP="${STAMP}" METADATA_JSON="${METADATA_JSON}" python3 - <<'PY'
 import json
 import os
 from pathlib import Path
@@ -192,6 +273,7 @@ artifact_dir = Path(os.environ["ARTIFACT_DIR"])
 public_ops_dir = Path(os.environ["PUBLIC_OPS_DIR"])
 timestamp = os.environ["TS_UTC"]
 stamp = os.environ["STAMP"]
+metadata_path = Path(os.environ["METADATA_JSON"])
 
 rows = []
 for line in results_path.read_text(encoding="utf-8").splitlines():
@@ -259,6 +341,7 @@ payload = {
         "gzvm_loopback_avg_total_latency_ms": gzvm_loopback.get("avg_total_latency_ms", 0),
     },
     "targets": rows,
+    "metadata": json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {},
 }
 
 artifact_file = artifact_dir / f"{stamp}.json"
@@ -337,6 +420,7 @@ if [[ "${PUBLIC_ONLY}" != "1" ]]; then
   run_remote_probe "gzvm" "-o RemoteCommand=none -T" "gzvm_loopback" "${ZH_URL}" "${ZH_HOST}:443:127.0.0.1"
 fi
 
+capture_metadata
 print_table
 write_outputs
 write_github_summary

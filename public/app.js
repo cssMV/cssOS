@@ -13035,6 +13035,97 @@ function buildWatchArchiveEndpointLatencyMemo(probeSummary) {
   return { headline, rows };
 }
 
+function buildWatchArchiveServiceStatusStrip(probeSummary) {
+  const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
+  const servers = Array.isArray(payload?.metadata?.servers) ? payload.metadata.servers : [];
+  return servers.map((item) => {
+    const server = String(item?.server || "server");
+    if (server === "gzvm") {
+      return {
+        server,
+        line: dashboardCopy(
+          `reachable=${item?.reachable || "unknown"} · nginx=${item?.nginx_status || "unknown"} · cssos=${item?.cssos_status || "unknown"}`,
+          `可达=${item?.reachable || "unknown"} · nginx=${item?.nginx_status || "unknown"} · cssos=${item?.cssos_status || "unknown"}`
+        )
+      };
+    }
+    return {
+      server,
+      line: dashboardCopy(
+        `reachable=${item?.reachable || "unknown"}`,
+        `可达=${item?.reachable || "unknown"}`
+      )
+    };
+  });
+}
+
+function buildWatchArchiveCertExpiryCard(probeSummary) {
+  const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
+  const cert = payload?.metadata?.certificate || {};
+  const daysRemaining = Number(cert?.days_remaining);
+  let level = dashboardCopy("unknown", "未知");
+  if (Number.isFinite(daysRemaining)) {
+    if (daysRemaining >= 21) level = dashboardCopy("healthy", "健康");
+    else if (daysRemaining >= 7) level = dashboardCopy("watch", "观察");
+    else level = dashboardCopy("alert", "告警");
+  }
+  return {
+    level,
+    title: dashboardCopy("TLS certificate expiry", "TLS 证书到期"),
+    note: cert?.not_after
+      ? dashboardCopy(
+          `gzvm cert expires at ${cert.not_after}${Number.isFinite(daysRemaining) ? ` · ${daysRemaining} days left` : ""}`,
+          `gzvm 证书到期时间 ${cert.not_after}${Number.isFinite(daysRemaining) ? ` · 剩余 ${daysRemaining} 天` : ""}`
+        )
+      : dashboardCopy("Certificate expiry is not available yet.", "证书到期信息暂时不可用。")
+  };
+}
+
+function buildWatchArchiveUpstreamDependencyMemo(probeSummary) {
+  const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
+  const targets = Array.isArray(payload?.targets) ? payload.targets : [];
+  const targetByName = Object.fromEntries(targets.map((item) => [String(item?.target || ""), item]));
+  const gzvmPublic = targetByName.gzvm_public || null;
+  const gzvmLoopback = targetByName.gzvm_loopback || null;
+  const localPublic = targetByName.local_public || null;
+  const apiVmPublic = targetByName.api_vm_public || null;
+  const gzvmServer = (Array.isArray(payload?.metadata?.servers) ? payload.metadata.servers : []).find(
+    (item) => String(item?.server || "") === "gzvm"
+  );
+
+  const hostHealthy =
+    String(gzvmServer?.nginx_status || "") === "active" &&
+    String(gzvmServer?.cssos_status || "") === "online" &&
+    Number(gzvmPublic?.http_success_rate || 0) >= 80 &&
+    Number(gzvmLoopback?.http_success_rate || 0) >= 80;
+  const edgeWeak =
+    Number(localPublic?.http_success_rate || 0) < 50 || Number(apiVmPublic?.http_success_rate || 0) < 50;
+
+  let headline = dashboardCopy(
+    "Dependency picture is still mixed.",
+    "当前依赖链画像仍然混合。"
+  );
+  if (hostHealthy && edgeWeak) {
+    headline = dashboardCopy(
+      "Core host dependencies look healthy; the weaker dependency is the external route path.",
+      "核心主机依赖看起来健康，偏弱的是外部路由路径。"
+    );
+  } else if (!hostHealthy) {
+    headline = dashboardCopy(
+      "The host stack still needs attention before blaming upstream routing.",
+      "在怀疑上游路由之前，主机栈仍需先处理。"
+    );
+  }
+
+  return {
+    headline,
+    note: dashboardCopy(
+      `gzvm nginx=${gzvmServer?.nginx_status || "unknown"} · cssos=${gzvmServer?.cssos_status || "unknown"} · public=${gzvmPublic?.http_success_rate ?? 0}% · loopback=${gzvmLoopback?.http_success_rate ?? 0}%`,
+      `gzvm nginx=${gzvmServer?.nginx_status || "unknown"} · cssos=${gzvmServer?.cssos_status || "unknown"} · 公网=${gzvmPublic?.http_success_rate ?? 0}% · 回环=${gzvmLoopback?.http_success_rate ?? 0}%`
+    )
+  };
+}
+
 function buildWatchArchiveCrossBorderAnomalyAlert(probeSummary) {
   const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
   const conclusion = payload?.conclusion || {};
@@ -23714,6 +23805,9 @@ function renderMusicDeliveryDashboard() {
   const uptimeStrip = buildWatchArchiveUptimeStrip(deliveryDashboardState.probeHistory);
   const serverHealthCard = buildWatchArchiveServerHealthCard(deliveryDashboardState.probeSummary);
   const endpointLatencyMemo = buildWatchArchiveEndpointLatencyMemo(deliveryDashboardState.probeSummary);
+  const serviceStatusStrip = buildWatchArchiveServiceStatusStrip(deliveryDashboardState.probeSummary);
+  const certExpiryCard = buildWatchArchiveCertExpiryCard(deliveryDashboardState.probeSummary);
+  const upstreamDependencyMemo = buildWatchArchiveUpstreamDependencyMemo(deliveryDashboardState.probeSummary);
   const crossBorderAnomalyAlert = buildWatchArchiveCrossBorderAnomalyAlert(
     deliveryDashboardState.probeSummary
   );
@@ -23858,6 +23952,35 @@ function renderMusicDeliveryDashboard() {
                     .join("")
                 : ""
             }
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Service Status Strip</div>
+            ${
+              serviceStatusStrip.length
+                ? serviceStatusStrip
+                    .map(
+                      (item) => `<div class="report-list-item">
+                          <div class="report-preview-title">${escapeHtml(item.server)}</div>
+                          <div class="report-card-copy">${escapeHtml(item.line)}</div>
+                        </div>`
+                    )
+                    .join("")
+                : `<div class="report-empty">${escapeHtml(
+                    dashboardCopy("Service status is not available yet.", "服务状态暂时不可用。")
+                  )}</div>`
+            }
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Cert-Expiry Card</div>
+            <div class="report-card-copy">${escapeHtml(
+              `${certExpiryCard.level} · ${certExpiryCard.title}`
+            )}</div>
+            <div class="report-card-copy">${escapeHtml(certExpiryCard.note)}</div>
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Upstream Dependency Memo</div>
+            <div class="report-card-copy">${escapeHtml(upstreamDependencyMemo.headline)}</div>
+            <div class="report-card-copy">${escapeHtml(upstreamDependencyMemo.note)}</div>
           </div>
         </div>
       `

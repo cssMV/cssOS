@@ -2434,12 +2434,20 @@ function refreshLyricsPresentation(title, lines) {
 }
 
 function getSongSeedTitleContext() {
+  const expandedTitleText =
+    typeof foryouExpandedTitle !== "undefined" && foryouExpandedTitle
+      ? foryouExpandedTitle.textContent?.trim?.() || ""
+      : "";
+  const compactTitleText =
+    typeof foryouCompactTitle !== "undefined" && foryouCompactTitle
+      ? foryouCompactTitle.textContent?.trim?.() || ""
+      : "";
   const candidates = [
     titleInput?.value?.trim?.() || "",
     state.songSeed?.title || "",
     state.title || "",
-    foryouExpandedTitle?.textContent?.trim?.() || "",
-    foryouCompactTitle?.textContent?.trim?.() || ""
+    expandedTitleText,
+    compactTitleText
   ];
   return candidates.find((value) => String(value || "").trim()) || "";
 }

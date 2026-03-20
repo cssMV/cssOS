@@ -13534,6 +13534,58 @@ function buildWatchArchiveVerdictStabilitySummary(probeHistory) {
   };
 }
 
+function buildWatchArchiveShiftExitRecommendation(shiftRiskBadge, shiftCloseChecklist) {
+  const risk = String(shiftRiskBadge?.badge || "");
+  const pendingCount = Array.isArray(shiftCloseChecklist?.checklist)
+    ? shiftCloseChecklist.checklist.filter((item) => item.state !== dashboardCopy("ready", "就绪")).length
+    : 0;
+  let headline = dashboardCopy("Keep watching this shift a bit longer.", "这一班建议继续观察一会儿。");
+  if (risk === dashboardCopy("low", "低") && pendingCount === 0) {
+    headline = dashboardCopy("This shift can exit cleanly.", "这一班可以平稳收班。");
+  } else if (risk === dashboardCopy("high", "高")) {
+    headline = dashboardCopy("Do not exit yet. Keep the shift open and continue monitoring.", "现在不建议收班，继续值守观察。");
+  }
+  return {
+    headline,
+    note: dashboardCopy(
+      `Risk=${risk || "unknown"} · Pending close items=${pendingCount}`,
+      `风险=${risk || "未知"} · 待收口项=${pendingCount}`
+    )
+  };
+}
+
+function buildWatchArchiveHandoffQualityBadge(handoffCompletenessScore, handoffAcknowledgments) {
+  const score = Number(handoffCompletenessScore?.score || 0);
+  const ackCount = Array.isArray(handoffAcknowledgments) ? handoffAcknowledgments.length : 0;
+  let badge = dashboardCopy("weak", "偏弱");
+  if (score >= 85 && ackCount >= 1) badge = dashboardCopy("strong", "较强");
+  else if (score >= 50) badge = dashboardCopy("fair", "一般");
+  return {
+    badge,
+    note: dashboardCopy(
+      `Completeness ${score}/100 with ${ackCount} acknowledgments.`,
+      `完整度 ${score}/100，已有 ${ackCount} 次接班确认。`
+    )
+  };
+}
+
+function buildWatchArchiveVerdictConfidenceCard(probeSummary, verdictStabilitySummary, verdictDriftSparkline) {
+  const verdict = String(probeSummary?.conclusion?.verdict || "unknown");
+  const driftCount = Number(verdictDriftSparkline?.driftCount || 0);
+  const stable = String(verdictStabilitySummary?.headline || "").includes("stable") ||
+    String(verdictStabilitySummary?.headline || "").includes("稳定");
+  let confidence = dashboardCopy("medium", "中");
+  if (verdict === "unknown" || driftCount >= 3) confidence = dashboardCopy("low", "低");
+  else if (stable && driftCount === 0) confidence = dashboardCopy("high", "高");
+  return {
+    confidence,
+    note: dashboardCopy(
+      `Verdict=${verdict} · Drift count=${driftCount}`,
+      `结论=${verdict} · 漂移次数=${driftCount}`
+    )
+  };
+}
+
 function buildWatchArchiveCrossBorderAnomalyAlert(probeSummary) {
   const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
   const conclusion = payload?.conclusion || {};
@@ -24326,6 +24378,19 @@ function renderMusicDeliveryDashboard() {
   const verdictStabilitySummary = buildWatchArchiveVerdictStabilitySummary(
     deliveryDashboardState.probeHistory
   );
+  const shiftExitRecommendation = buildWatchArchiveShiftExitRecommendation(
+    shiftRiskBadge,
+    shiftCloseChecklist
+  );
+  const handoffQualityBadge = buildWatchArchiveHandoffQualityBadge(
+    handoffCompletenessScore,
+    deliveryDashboardState.probeHandoffAcknowledgments
+  );
+  const verdictConfidenceCard = buildWatchArchiveVerdictConfidenceCard(
+    deliveryDashboardState.probeSummary,
+    verdictStabilitySummary,
+    verdictDriftSparkline
+  );
   const crossBorderAnomalyAlert = buildWatchArchiveCrossBorderAnomalyAlert(
     deliveryDashboardState.probeSummary
   );
@@ -24431,6 +24496,11 @@ function renderMusicDeliveryDashboard() {
             <div class="report-preview-title">Shift Risk Badge</div>
             <div class="report-card-copy">${escapeHtml(shiftRiskBadge.badge)}</div>
             <div class="report-card-copy">${escapeHtml(shiftRiskBadge.note)}</div>
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Shift Exit Recommendation</div>
+            <div class="report-card-copy">${escapeHtml(shiftExitRecommendation.headline)}</div>
+            <div class="report-card-copy">${escapeHtml(shiftExitRecommendation.note)}</div>
           </div>
           <div class="report-list-item">
             <div class="report-preview-title">On-Call Action Checklist</div>
@@ -24673,6 +24743,13 @@ function renderMusicDeliveryDashboard() {
               )
             )}</div>
             <div class="report-card-copy">${escapeHtml(handoffCompletenessScore.note)}</div>
+            <div class="report-card-copy">${escapeHtml(
+              dashboardCopy(
+                `Handoff quality: ${handoffQualityBadge.badge}`,
+                `交接质量：${handoffQualityBadge.badge}`
+              )
+            )}</div>
+            <div class="report-card-copy">${escapeHtml(handoffQualityBadge.note)}</div>
             ${
               ackedHandoffLedger.rows.length
                 ? ackedHandoffLedger.rows
@@ -24746,6 +24823,13 @@ function renderMusicDeliveryDashboard() {
             <div class="report-card-copy">${escapeHtml(verdictDriftSparkline.note)}</div>
             <div class="report-card-copy">${escapeHtml(verdictStabilitySummary.headline)}</div>
             <div class="report-card-copy">${escapeHtml(verdictStabilitySummary.note)}</div>
+            <div class="report-card-copy">${escapeHtml(
+              dashboardCopy(
+                `Verdict confidence: ${verdictConfidenceCard.confidence}`,
+                `结论把握度：${verdictConfidenceCard.confidence}`
+              )
+            )}</div>
+            <div class="report-card-copy">${escapeHtml(verdictConfidenceCard.note)}</div>
           </div>
         </div>
       `

@@ -990,6 +990,10 @@ const deliveryDashboardState = {
   crossRunIncidentSnapshots: [],
   probeSummary: null,
   probeHistory: [],
+  probeOperatorNotes: "",
+  probeHandoffAcknowledgments: [],
+  probeTimelineCompareA: "",
+  probeTimelineCompareB: "",
   probeError: ""
 };
 
@@ -13329,6 +13333,35 @@ function buildWatchArchiveIncidentHandoffHistoryShelf(probeHistory) {
     }));
 }
 
+function buildWatchArchiveIncidentTimelineCompare(probeHistory, compareAId, compareBId) {
+  const entries = buildWatchArchiveIncidentHandoffHistoryShelf(probeHistory);
+  const a = entries.find((item) => item.id === compareAId) || entries[0] || null;
+  const b = entries.find((item) => item.id === compareBId) || entries[1] || entries[0] || null;
+  if (!a || !b) {
+    return {
+      entries,
+      summary: dashboardCopy("Not enough incident history to compare yet.", "当前异常历史还不足以做对比。"),
+      a: null,
+      b: null
+    };
+  }
+  const sameVerdict = a.verdict === b.verdict;
+  return {
+    entries,
+    a,
+    b,
+    summary: sameVerdict
+      ? dashboardCopy(
+          `Both incident samples point to ${a.verdict}.`,
+          `两次异常样本都指向 ${a.verdict}。`
+        )
+      : dashboardCopy(
+          `${a.verdict} changed to ${b.verdict}.`,
+          `${a.verdict} 已变化为 ${b.verdict}。`
+        )
+  };
+}
+
 function buildWatchArchiveCrossBorderAnomalyAlert(probeSummary) {
   const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
   const conclusion = payload?.conclusion || {};
@@ -15077,6 +15110,37 @@ function bindMusicDeliveryPreviewButtons() {
       );
       const stamp = new Date().toISOString().replace(/[:.]/g, "-");
       downloadJsonArtifact(payload, `zh_probe_incident_bundle_${stamp}.json`);
+    });
+  });
+  const probeNotesInput = deliveryDashboardBody.querySelector("[data-delivery-probe-operator-notes]");
+  if (probeNotesInput) {
+    probeNotesInput.addEventListener("input", () => {
+      deliveryDashboardState.probeOperatorNotes = String(probeNotesInput.value || "");
+    });
+  }
+  deliveryDashboardBody.querySelectorAll("[data-delivery-probe-handoff-ack]").forEach((button) => {
+    button.addEventListener("click", () => {
+      deliveryDashboardState.probeHandoffAcknowledgments = [
+        ...(Array.isArray(deliveryDashboardState.probeHandoffAcknowledgments)
+          ? deliveryDashboardState.probeHandoffAcknowledgments
+          : []),
+        {
+          at: new Date().toISOString(),
+          note: String(deliveryDashboardState.probeOperatorNotes || "").trim()
+        }
+      ];
+      renderMusicDeliveryDashboard();
+    });
+  });
+  deliveryDashboardBody.querySelectorAll("[data-delivery-probe-compare-select]").forEach((select) => {
+    select.addEventListener("change", () => {
+      const slot = String(select.getAttribute("data-delivery-probe-compare-select") || "");
+      if (slot === "A") {
+        deliveryDashboardState.probeTimelineCompareA = String(select.value || "");
+      } else if (slot === "B") {
+        deliveryDashboardState.probeTimelineCompareB = String(select.value || "");
+      }
+      renderMusicDeliveryDashboard();
     });
   });
 }
@@ -24041,6 +24105,11 @@ function renderMusicDeliveryDashboard() {
   const incidentHandoffHistoryShelf = buildWatchArchiveIncidentHandoffHistoryShelf(
     deliveryDashboardState.probeHistory
   );
+  const incidentTimelineCompare = buildWatchArchiveIncidentTimelineCompare(
+    deliveryDashboardState.probeHistory,
+    deliveryDashboardState.probeTimelineCompareA,
+    deliveryDashboardState.probeTimelineCompareB
+  );
   const crossBorderAnomalyAlert = buildWatchArchiveCrossBorderAnomalyAlert(
     deliveryDashboardState.probeSummary
   );
@@ -24135,6 +24204,11 @@ function renderMusicDeliveryDashboard() {
                 (item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`
               )
               .join("")}
+            <div class="report-export-actions" style="flex-wrap:wrap; margin-top:8px;">
+              <textarea class="report-preview-code" data-delivery-probe-operator-notes placeholder="${escapeHtml(
+                dashboardCopy("Write handoff notes for the next operator...", "给下一位值班人写交接备注...")
+              )}">${escapeHtml(deliveryDashboardState.probeOperatorNotes || "")}</textarea>
+            </div>
           </div>
           <div class="report-list-item">
             <div class="report-preview-title">Cross-Border Anomaly Alert</div>
@@ -24288,6 +24362,9 @@ function renderMusicDeliveryDashboard() {
               <button class="report-export-action is-muted" type="button" data-delivery-probe-incident-export>${escapeHtml(
                 dashboardCopy("Export incident bundle", "导出异常交接包")
               )}</button>
+              <button class="report-export-action is-muted" type="button" data-delivery-probe-handoff-ack>${escapeHtml(
+                dashboardCopy("Acknowledge handoff", "确认已接班")
+              )}</button>
             </div>
           </div>
           <div class="report-list-item">
@@ -24308,6 +24385,76 @@ function renderMusicDeliveryDashboard() {
                 : `<div class="report-empty">${escapeHtml(
                     dashboardCopy("No handoff history is available yet.", "当前还没有交接历史。")
                   )}</div>`
+            }
+            ${
+              deliveryDashboardState.probeHandoffAcknowledgments.length
+                ? `<div class="report-list-item">
+                    <div class="report-preview-title">${escapeHtml(
+                      dashboardCopy("Handoff acknowledgments", "接班确认记录")
+                    )}</div>
+                    ${deliveryDashboardState.probeHandoffAcknowledgments
+                      .slice(-6)
+                      .reverse()
+                      .map(
+                        (item) => `<div class="report-card-copy">${escapeHtml(
+                          `${item.at} · ${item.note || dashboardCopy("acknowledged", "已确认接班")}`
+                        )}</div>`
+                      )
+                      .join("")}
+                  </div>`
+                : ""
+            }
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Incident Timeline Compare</div>
+            <div class="report-card-copy">${escapeHtml(incidentTimelineCompare.summary)}</div>
+            ${
+              incidentTimelineCompare.entries.length
+                ? `<div class="report-export-actions" style="flex-wrap:wrap; margin-top:8px;">
+                    <select class="billing-input" data-delivery-probe-compare-select="A">
+                      ${incidentTimelineCompare.entries
+                        .map(
+                          (item) => `<option value="${escapeHtml(item.id)}"${
+                            incidentTimelineCompare.a?.id === item.id ? " selected" : ""
+                          }>${escapeHtml(item.capturedAt || item.id)}</option>`
+                        )
+                        .join("")}
+                    </select>
+                    <select class="billing-input" data-delivery-probe-compare-select="B">
+                      ${incidentTimelineCompare.entries
+                        .map(
+                          (item) => `<option value="${escapeHtml(item.id)}"${
+                            incidentTimelineCompare.b?.id === item.id ? " selected" : ""
+                          }>${escapeHtml(item.capturedAt || item.id)}</option>`
+                        )
+                        .join("")}
+                    </select>
+                  </div>`
+                : ""
+            }
+            ${
+              incidentTimelineCompare.a && incidentTimelineCompare.b
+                ? `<div class="report-list-item">
+                    <div class="report-preview-title">${escapeHtml(
+                      dashboardCopy("Sample A", "样本 A")
+                    )}</div>
+                    <div class="report-card-copy">${escapeHtml(
+                      `${incidentTimelineCompare.a.capturedAt} · ${incidentTimelineCompare.a.verdict}`
+                    )}</div>
+                    <div class="report-card-copy">${escapeHtml(
+                      incidentTimelineCompare.a.summary
+                    )}</div>
+                    <div class="report-preview-title" style="margin-top:8px;">${escapeHtml(
+                      dashboardCopy("Sample B", "样本 B")
+                    )}</div>
+                    <div class="report-card-copy">${escapeHtml(
+                      `${incidentTimelineCompare.b.capturedAt} · ${incidentTimelineCompare.b.verdict}`
+                    )}</div>
+                    <div class="report-card-copy">${escapeHtml(
+                      incidentTimelineCompare.b.summary
+                    )}</div>
+                  </div>`
+                : ""
             }
           </div>
         </div>

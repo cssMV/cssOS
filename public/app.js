@@ -13926,6 +13926,54 @@ function buildWatchArchiveEscalationOwnerLane(
   };
 }
 
+function buildWatchArchiveSendReadinessScore(shiftSendChecklist, handoffSendGate, handoffReadinessBanner) {
+  let score = 0;
+  const checklist = Array.isArray(shiftSendChecklist?.checklist) ? shiftSendChecklist.checklist : [];
+  checklist.forEach((item) => {
+    if (item.state === dashboardCopy("ready", "就绪")) score += 20;
+  });
+  if (String(handoffSendGate?.status || "") === dashboardCopy("open", "已开闸")) score += 10;
+  if (String(handoffReadinessBanner?.level || "") === dashboardCopy("ready", "可发")) score += 10;
+  return {
+    score: Math.min(100, score),
+    note: dashboardCopy(
+      `Checklist + gate + readiness combine into this send score.`,
+      `发送准备度由清单、发送门和交接就绪度共同组成。`
+    )
+  };
+}
+
+function buildWatchArchivePacketDeltaSummaryChip(packetExportPreviewDiff) {
+  const rows = Array.isArray(packetExportPreviewDiff?.rows) ? packetExportPreviewDiff.rows : [];
+  const hasPrevious = rows.some((row) => String(row).includes("Previous export receipt")) &&
+    !rows.some((row) => String(row).includes(dashboardCopy("none", "无")));
+  return {
+    chip: hasPrevious
+      ? dashboardCopy("Packet changed since last export", "交接包相较上次已有变化")
+      : dashboardCopy("First packet export draft", "第一版交接包草稿"),
+    note: rows[rows.length - 1] || ""
+  };
+}
+
+function buildWatchArchiveEscalationAckTracker(escalationOwnerLane, handoffAcknowledgments) {
+  const owner = String(escalationOwnerLane?.owner || "");
+  const acknowledgments = Array.isArray(handoffAcknowledgments) ? handoffAcknowledgments : [];
+  const lastAck = acknowledgments.length ? acknowledgments[acknowledgments.length - 1] : null;
+  const acknowledged = !!lastAck;
+  return {
+    state: acknowledged ? dashboardCopy("acked", "已确认") : dashboardCopy("pending", "待确认"),
+    note: acknowledged
+      ? dashboardCopy(
+          `${owner || dashboardCopy("owner", "接手人")} already has a handoff acknowledgment at ${lastAck.at}.`,
+          `${owner || dashboardCopy("接手人", "接手人")} 已在 ${lastAck.at} 完成接班确认。`
+        )
+      : dashboardCopy(
+          `${owner || dashboardCopy("owner", "接手人")} still needs to acknowledge this escalation handoff.`,
+          `${owner || dashboardCopy("接手人", "接手人")} 还需要确认这次升级接手。`
+        )
+  };
+}
+
 function buildWatchArchiveCrossBorderAnomalyAlert(probeSummary) {
   const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
   const conclusion = payload?.conclusion || {};
@@ -24793,6 +24841,18 @@ function renderMusicDeliveryDashboard() {
     crossBorderAnomalyAlert,
     shiftRiskBadge
   );
+  const sendReadinessScore = buildWatchArchiveSendReadinessScore(
+    shiftSendChecklist,
+    handoffSendGate,
+    handoffReadinessBanner
+  );
+  const packetDeltaSummaryChip = buildWatchArchivePacketDeltaSummaryChip(
+    packetExportPreviewDiff
+  );
+  const escalationAckTracker = buildWatchArchiveEscalationAckTracker(
+    escalationOwnerLane,
+    deliveryDashboardState.probeHandoffAcknowledgments
+  );
   const regionLinkConclusionHtml = deliveryDashboardState.probeSummary
     ? `
         <div class="report-list">
@@ -24943,6 +25003,16 @@ function renderMusicDeliveryDashboard() {
             )}</div>
           </div>
           <div class="report-list-item">
+            <div class="report-preview-title">Send Readiness Score</div>
+            <div class="report-card-copy">${escapeHtml(
+              dashboardCopy(
+                `Send readiness · ${sendReadinessScore.score}/100`,
+                `发送准备度 · ${sendReadinessScore.score}/100`
+              )
+            )}</div>
+            <div class="report-card-copy">${escapeHtml(sendReadinessScore.note)}</div>
+          </div>
+          <div class="report-list-item">
             <div class="report-preview-title">Handoff Packet Preview</div>
             <div class="report-card-copy">${escapeHtml(handoffPacketPreview.headline)}</div>
             ${handoffPacketPreview.rows
@@ -24955,6 +25025,11 @@ function renderMusicDeliveryDashboard() {
             ${packetExportPreviewDiff.rows
               .map((item) => `<div class="report-card-copy">${escapeHtml(item)}</div>`)
               .join("")}
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Packet Delta Summary Chip</div>
+            <div class="report-card-copy">${escapeHtml(packetDeltaSummaryChip.chip)}</div>
+            <div class="report-card-copy">${escapeHtml(packetDeltaSummaryChip.note)}</div>
           </div>
           <div class="report-list-item">
             <div class="report-preview-title">On-Call Action Checklist</div>
@@ -25321,6 +25396,12 @@ function renderMusicDeliveryDashboard() {
               )
             )}</div>
             <div class="report-card-copy">${escapeHtml(escalationOwnerLane.note)}</div>
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Escalation Ack Tracker</div>
+            <div class="report-card-copy">${escapeHtml(
+              `${escalationAckTracker.state} · ${escalationAckTracker.note}`
+            )}</div>
           </div>
         </div>
       `

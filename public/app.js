@@ -162,6 +162,7 @@ const palettePresetButtons = document.querySelectorAll("[data-palette-preset]");
 const titleInput = document.getElementById("title-input");
 const lyricsInput = document.getElementById("lyrics-input");
 const lyricsRegenerate = document.getElementById("lyrics-regenerate");
+const lyricsDebugStatus = document.getElementById("lyrics-debug-status");
 const lyricsSourceInput = document.getElementById("lyrics-source-input");
 const styleInput = document.getElementById("style-input");
 const styleRegenerate = document.getElementById("style-regenerate");
@@ -2332,6 +2333,12 @@ function setButtonBusy(button, busy) {
   button.classList.toggle("is-busy", !!busy);
 }
 
+function setLyricsDebugStatus(message, state = "idle") {
+  if (!lyricsDebugStatus) return;
+  lyricsDebugStatus.textContent = String(message || "").trim();
+  lyricsDebugStatus.dataset.state = state;
+}
+
 function bindSeedRefreshButton(button, target, options = {}) {
   if (!(button instanceof HTMLButtonElement)) return;
   if (button.dataset.seedRefreshBound === "1") return;
@@ -2352,6 +2359,13 @@ function bindSeedRefreshButton(button, target, options = {}) {
 }
 
 window.CSSOS_primeLyricsRegenerate = function primeLyricsRegenerate(event) {
+  setLyricsDebugStatus(
+    loginCopy(
+      "Button triggered. Preparing random lyric request...",
+      "按钮已触发，正在准备随机歌词请求..."
+    ),
+    "pending"
+  );
   try {
     enterLyricSpellcast();
   } catch {}
@@ -2429,11 +2443,20 @@ async function regenerateSeedFields(target) {
   const title = ensureSongSeedTitleContext();
   try {
     setButtonBusy(trigger, true);
+    const previousLyricsValue = String(lyricsInput?.value || "");
+    const previousTitleValue = String(titleInput?.value || "");
     const previousSignature = buildLyricsSeedVisualSignature({
       title,
       lyrics: lyricsInput?.value || compactLyricLines(state.lines || []).join("\n")
     });
     if (target === "lyrics") {
+      setLyricsDebugStatus(
+        loginCopy(
+          "Button triggered. Requesting random lyrics from the server...",
+          "按钮已触发，正在向服务器请求随机歌词..."
+        ),
+        "pending"
+      );
       enterLyricSpellcast();
       showToast(loginCopy("Casting lyric magic...", "歌词魔法施展中..."));
       randomizeCreationForLyricsRefresh(title);
@@ -2462,8 +2485,26 @@ async function regenerateSeedFields(target) {
       }
     }
     if (!payload?.ok || payload?.empty || !raw) {
+      if (target === "lyrics") {
+        setLyricsDebugStatus(
+          loginCopy(
+            "Button triggered, but the lyric API did not return usable data.",
+            "按钮已触发，但随机歌词接口没有返回可用结果。"
+          ),
+          "error"
+        );
+      }
       showToast(t("toast.seedRefreshFailed"));
       return;
+    }
+    if (target === "lyrics") {
+      setLyricsDebugStatus(
+        loginCopy(
+          "API responded. Applying generated lyrics into the editor...",
+          "接口已经返回，正在把歌词回填进编辑框..."
+        ),
+        "pending"
+      );
     }
     if (!normalized) normalized = normalizeSongSeed(raw);
     if (target === "style") {
@@ -2501,6 +2542,23 @@ async function regenerateSeedFields(target) {
     }
     applySongSeedToSettings(raw);
     if (target === "lyrics") {
+      const currentLyricsValue = String(lyricsInput?.value || "");
+      const currentTitleValue = String(titleInput?.value || "");
+      const applied =
+        currentLyricsValue.trim().length > 0 &&
+        (currentLyricsValue !== previousLyricsValue || currentTitleValue !== previousTitleValue);
+      setLyricsDebugStatus(
+        applied
+          ? loginCopy(
+              "API responded and the lyrics were filled into the editor successfully.",
+              "接口已返回，歌词也已经成功回填到编辑框。"
+            )
+          : loginCopy(
+              "API responded, but the lyrics were not filled into the editor.",
+              "接口已经返回，但歌词没有成功回填到编辑框。"
+            ),
+        applied ? "success" : "error"
+      );
       const universeSummary = describeSongSeedUniverse(state.songSeed);
       const unchanged = previousSignature && nextSignature && previousSignature === nextSignature;
       showToast(
@@ -2523,6 +2581,15 @@ async function regenerateSeedFields(target) {
     }
     showToast(t("toast.lyricsRegenerated"));
   } catch (_err) {
+    if (target === "lyrics") {
+      setLyricsDebugStatus(
+        loginCopy(
+          "Button triggered, but the request failed before lyrics could be filled in.",
+          "按钮已触发，但请求在回填歌词之前失败了。"
+        ),
+        "error"
+      );
+    }
     showToast(t("toast.seedRefreshFailed"));
   } finally {
     if (target === "lyrics") exitLyricSpellcast(true);

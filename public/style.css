@@ -1030,6 +1030,34 @@ body.longpress-guard * {
   animation: wandSparkle 0.5s ease-in-out infinite;
 }
 
+.field-debug-status {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(232, 253, 244, 0.72);
+  font-size: 12px;
+  line-height: 1.5;
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+.field-debug-status[data-state="pending"] {
+  border-color: rgba(11, 247, 255, 0.32);
+  color: #d9fbff;
+}
+
+.field-debug-status[data-state="success"] {
+  border-color: rgba(0, 245, 160, 0.34);
+  color: #ddffe9;
+}
+
+.field-debug-status[data-state="error"] {
+  border-color: rgba(255, 120, 120, 0.34);
+  color: #ffd7d7;
+}
+
 @keyframes wandCastPulse {
   0%,
   100% {

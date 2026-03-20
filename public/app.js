@@ -13970,6 +13970,67 @@ function buildWatchArchiveEscalationAckTracker(escalationOwnerLane, handoffAckno
       : dashboardCopy(
           `${owner || dashboardCopy("owner", "接手人")} still needs to acknowledge this escalation handoff.`,
           `${owner || dashboardCopy("接手人", "接手人")} 还需要确认这次升级接手。`
+      )
+  };
+}
+
+function buildWatchArchiveSendDecisionBanner(sendReadinessScore, shiftSendButtonState, shiftExitRecommendation) {
+  const score = Number(sendReadinessScore?.score || 0);
+  const sendState = String(shiftSendButtonState?.state || "");
+  const exitHeadline = String(shiftExitRecommendation?.headline || "");
+  let level = dashboardCopy("hold", "暂缓");
+  let headline = dashboardCopy("Do not send yet.", "现在先不要发。");
+  if (sendState === dashboardCopy("armed", "可发送") && score >= 90) {
+    level = dashboardCopy("send", "发送");
+    headline = dashboardCopy("Send now.", "现在可以发。");
+  } else if (sendState === dashboardCopy("review", "待复核") || exitHeadline.includes("继续")) {
+    level = dashboardCopy("review", "复核");
+    headline = dashboardCopy("Review once more before sending.", "发之前再复核一次。");
+  }
+  return {
+    level,
+    headline,
+    note: dashboardCopy(
+      `Send score=${score}/100 · Button=${sendState || "unknown"}`,
+      `发送分数=${score}/100 · 按钮状态=${sendState || "未知"}`
+    )
+  };
+}
+
+function buildWatchArchivePacketFreshnessStrip(exportReceipts) {
+  const lastReceipt = Array.isArray(exportReceipts) && exportReceipts.length
+    ? exportReceipts[exportReceipts.length - 1]
+    : null;
+  return {
+    label: lastReceipt
+      ? dashboardCopy("recent export on record", "已有最近导出记录")
+      : dashboardCopy("no export yet", "尚无导出记录"),
+    note: lastReceipt
+      ? dashboardCopy(
+          `Last export at ${lastReceipt.at} · ${lastReceipt.fileName}`,
+          `最近导出于 ${lastReceipt.at} · ${lastReceipt.fileName}`
+        )
+      : dashboardCopy(
+          "This packet is still fresh because no previous export exists.",
+          "当前还没有历史导出，所以这份包仍是最新草稿。"
+        )
+  };
+}
+
+function buildWatchArchiveEscalationTimerCard(handoffAcknowledgments, escalationAckTracker) {
+  const lastAck = Array.isArray(handoffAcknowledgments) && handoffAcknowledgments.length
+    ? handoffAcknowledgments[handoffAcknowledgments.length - 1]
+    : null;
+  return {
+    state: escalationAckTracker?.state || dashboardCopy("pending", "待确认"),
+    note: lastAck
+      ? dashboardCopy(
+          `Escalation waited until ${lastAck.at} for the latest acknowledgment.`,
+          `这次升级至少等待到 ${lastAck.at} 才拿到最近一次确认。`
+        )
+      : dashboardCopy(
+          "Escalation is still waiting for its first acknowledgment.",
+          "这次升级仍在等待第一条确认。"
         )
   };
 }
@@ -24853,6 +24914,18 @@ function renderMusicDeliveryDashboard() {
     escalationOwnerLane,
     deliveryDashboardState.probeHandoffAcknowledgments
   );
+  const sendDecisionBanner = buildWatchArchiveSendDecisionBanner(
+    sendReadinessScore,
+    shiftSendButtonState,
+    shiftExitRecommendation
+  );
+  const packetFreshnessStrip = buildWatchArchivePacketFreshnessStrip(
+    deliveryDashboardState.probeExportReceipts
+  );
+  const escalationTimerCard = buildWatchArchiveEscalationTimerCard(
+    deliveryDashboardState.probeHandoffAcknowledgments,
+    escalationAckTracker
+  );
   const regionLinkConclusionHtml = deliveryDashboardState.probeSummary
     ? `
         <div class="report-list">
@@ -25003,6 +25076,13 @@ function renderMusicDeliveryDashboard() {
             )}</div>
           </div>
           <div class="report-list-item">
+            <div class="report-preview-title">Send Decision Banner</div>
+            <div class="report-card-copy">${escapeHtml(
+              `${sendDecisionBanner.level} · ${sendDecisionBanner.headline}`
+            )}</div>
+            <div class="report-card-copy">${escapeHtml(sendDecisionBanner.note)}</div>
+          </div>
+          <div class="report-list-item">
             <div class="report-preview-title">Send Readiness Score</div>
             <div class="report-card-copy">${escapeHtml(
               dashboardCopy(
@@ -25030,6 +25110,11 @@ function renderMusicDeliveryDashboard() {
             <div class="report-preview-title">Packet Delta Summary Chip</div>
             <div class="report-card-copy">${escapeHtml(packetDeltaSummaryChip.chip)}</div>
             <div class="report-card-copy">${escapeHtml(packetDeltaSummaryChip.note)}</div>
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Packet Freshness Strip</div>
+            <div class="report-card-copy">${escapeHtml(packetFreshnessStrip.label)}</div>
+            <div class="report-card-copy">${escapeHtml(packetFreshnessStrip.note)}</div>
           </div>
           <div class="report-list-item">
             <div class="report-preview-title">On-Call Action Checklist</div>
@@ -25401,6 +25486,12 @@ function renderMusicDeliveryDashboard() {
             <div class="report-preview-title">Escalation Ack Tracker</div>
             <div class="report-card-copy">${escapeHtml(
               `${escalationAckTracker.state} · ${escalationAckTracker.note}`
+            )}</div>
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Escalation Timer Card</div>
+            <div class="report-card-copy">${escapeHtml(
+              `${escalationTimerCard.state} · ${escalationTimerCard.note}`
             )}</div>
           </div>
         </div>

@@ -13471,6 +13471,69 @@ function buildWatchArchiveVerdictDriftSparkline(probeHistory) {
   };
 }
 
+function buildWatchArchiveShiftRiskBadge(probeSummary, shiftCloseChecklist, verdictDriftSparkline) {
+  const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
+  const verdict = String(payload?.conclusion?.verdict || "unknown");
+  const pendingCount = Array.isArray(shiftCloseChecklist?.checklist)
+    ? shiftCloseChecklist.checklist.filter((item) => item.state !== dashboardCopy("ready", "就绪")).length
+    : 0;
+  const driftCount = Number(verdictDriftSparkline?.driftCount || 0);
+  let badge = dashboardCopy("low", "低");
+  if (verdict === "server_side_degradation" || pendingCount >= 2 || driftCount >= 3) {
+    badge = dashboardCopy("high", "高");
+  } else if (verdict === "cross_border_path_anomaly" || pendingCount >= 1 || driftCount >= 1) {
+    badge = dashboardCopy("medium", "中");
+  }
+  return {
+    badge,
+    note: dashboardCopy(
+      `Pending close items: ${pendingCount} · Verdict drift: ${driftCount}`,
+      `待收口项：${pendingCount} · 结论漂移：${driftCount}`
+    )
+  };
+}
+
+function buildWatchArchiveHandoffCompletenessScore(operatorNotes, handoffAcknowledgments, exportReceipts) {
+  let score = 0;
+  if (String(operatorNotes || "").trim()) score += 35;
+  if (Array.isArray(handoffAcknowledgments) && handoffAcknowledgments.length) score += 35;
+  if (Array.isArray(exportReceipts) && exportReceipts.length) score += 30;
+  return {
+    score,
+    note: dashboardCopy(
+      `Notes + ack + export receipt drive this handoff completeness score.`,
+      `备注、接班确认、导出回执共同决定交接完整度分数。`
+    )
+  };
+}
+
+function buildWatchArchiveVerdictStabilitySummary(probeHistory) {
+  const samples = Array.isArray(probeHistory) ? probeHistory : [];
+  const verdicts = samples
+    .slice(-8)
+    .map((sample) => String(sample?.conclusion?.verdict || "unknown"));
+  if (!verdicts.length) {
+    return {
+      headline: dashboardCopy("No verdict stability summary yet.", "当前还没有结论稳定性摘要。"),
+      note: ""
+    };
+  }
+  const uniqueCount = new Set(verdicts).size;
+  let headline = dashboardCopy("Verdict looks stable.", "结论看起来比较稳定。");
+  if (uniqueCount >= 3) {
+    headline = dashboardCopy("Verdict is shifting across multiple states.", "结论正在多个状态之间切换。");
+  } else if (uniqueCount === 2) {
+    headline = dashboardCopy("Verdict is moderately stable but still drifting.", "结论中等稳定，但仍有漂移。");
+  }
+  return {
+    headline,
+    note: dashboardCopy(
+      `${uniqueCount} unique verdict states across the recent probe window.`,
+      `最近探针窗口里出现了 ${uniqueCount} 种不同结论状态。`
+    )
+  };
+}
+
 function buildWatchArchiveCrossBorderAnomalyAlert(probeSummary) {
   const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
   const conclusion = payload?.conclusion || {};
@@ -24250,6 +24313,19 @@ function renderMusicDeliveryDashboard() {
   const verdictDriftSparkline = buildWatchArchiveVerdictDriftSparkline(
     deliveryDashboardState.probeHistory
   );
+  const shiftRiskBadge = buildWatchArchiveShiftRiskBadge(
+    deliveryDashboardState.probeSummary,
+    shiftCloseChecklist,
+    verdictDriftSparkline
+  );
+  const handoffCompletenessScore = buildWatchArchiveHandoffCompletenessScore(
+    deliveryDashboardState.probeOperatorNotes,
+    deliveryDashboardState.probeHandoffAcknowledgments,
+    deliveryDashboardState.probeExportReceipts
+  );
+  const verdictStabilitySummary = buildWatchArchiveVerdictStabilitySummary(
+    deliveryDashboardState.probeHistory
+  );
   const crossBorderAnomalyAlert = buildWatchArchiveCrossBorderAnomalyAlert(
     deliveryDashboardState.probeSummary
   );
@@ -24350,6 +24426,11 @@ function renderMusicDeliveryDashboard() {
                 (item) => `<div class="report-card-copy">${escapeHtml(`${item.label} · ${item.state}`)}</div>`
               )
               .join("")}
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Shift Risk Badge</div>
+            <div class="report-card-copy">${escapeHtml(shiftRiskBadge.badge)}</div>
+            <div class="report-card-copy">${escapeHtml(shiftRiskBadge.note)}</div>
           </div>
           <div class="report-list-item">
             <div class="report-preview-title">On-Call Action Checklist</div>
@@ -24585,6 +24666,13 @@ function renderMusicDeliveryDashboard() {
                 `累计记录了 ${ackedHandoffLedger.count} 次接班确认。`
               )
             )}</div>
+            <div class="report-card-copy">${escapeHtml(
+              dashboardCopy(
+                `Handoff completeness score: ${handoffCompletenessScore.score}/100`,
+                `交接完整度：${handoffCompletenessScore.score}/100`
+              )
+            )}</div>
+            <div class="report-card-copy">${escapeHtml(handoffCompletenessScore.note)}</div>
             ${
               ackedHandoffLedger.rows.length
                 ? ackedHandoffLedger.rows
@@ -24656,6 +24744,8 @@ function renderMusicDeliveryDashboard() {
             <div class="report-preview-title">Verdict Drift Sparkline</div>
             <div class="report-card-copy">${escapeHtml(verdictDriftSparkline.sparkline || "·")}</div>
             <div class="report-card-copy">${escapeHtml(verdictDriftSparkline.note)}</div>
+            <div class="report-card-copy">${escapeHtml(verdictStabilitySummary.headline)}</div>
+            <div class="report-card-copy">${escapeHtml(verdictStabilitySummary.note)}</div>
           </div>
         </div>
       `

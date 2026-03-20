@@ -2282,6 +2282,7 @@ async function regenerateSeedFields(target) {
   try {
     setButtonBusy(trigger, true);
     if (target === "lyrics") {
+      enterLyricSpellcast();
       showToast(loginCopy("Casting lyric magic...", "歌词魔法施展中..."));
       randomizeCreationForLyricsRefresh(title);
     }
@@ -2340,6 +2341,7 @@ async function regenerateSeedFields(target) {
   } catch (_err) {
     showToast(t("toast.seedRefreshFailed"));
   } finally {
+    if (target === "lyrics") exitLyricSpellcast(true);
     setButtonBusy(trigger, false);
   }
 }
@@ -3459,6 +3461,7 @@ let watchFrameLoopTimer = null;
 let typingTimer;
 let progressTimer;
 let topZ = 10;
+let lyricSpellcastDepth = 0;
 let lastTrailTime = 0;
 let lastTrailPoint = null;
 let watchTriggered = false;
@@ -5638,6 +5641,18 @@ function showToast(message) {
   setTimeout(() => toast.classList.remove("show"), 2200);
 }
 
+function enterLyricSpellcast() {
+  lyricSpellcastDepth += 1;
+  if (!logoPanel || lyricSpellcastDepth !== 1) return;
+  logoPanel.classList.add("lyric-spellcast");
+}
+
+function exitLyricSpellcast(force = false) {
+  lyricSpellcastDepth = force ? 0 : Math.max(0, lyricSpellcastDepth - 1);
+  if (!logoPanel || lyricSpellcastDepth > 0) return;
+  logoPanel.classList.remove("lyric-spellcast");
+}
+
 function typewriter(el, text, speed = 24, callback) {
   clearTimeout(typingTimer);
   el.textContent = "";
@@ -5649,6 +5664,7 @@ function typewriter(el, text, speed = 24, callback) {
     if (typingState.canceled) {
       if (lyricsProgress) setProgress(lyricsProgress, 0);
       setForyouStatusVisible(false);
+      exitLyricSpellcast(true);
       return;
     }
     if (typingState.paused) {
@@ -5665,9 +5681,11 @@ function typewriter(el, text, speed = 24, callback) {
       typingTimer = setTimeout(step, speed);
     } else if (callback) {
       if (lyricsProgress) setProgress(lyricsProgress, 100);
+      exitLyricSpellcast(true);
       callback();
     } else {
       setForyouStatusVisible(false);
+      exitLyricSpellcast(true);
     }
   };
 
@@ -6240,6 +6258,7 @@ function resetTypingState() {
   if (lyricsEl) {
     lyricsEl.classList.remove("paused", "canceled");
   }
+  enterLyricSpellcast();
   setForyouStatusVisible(true);
   setEngineState("lyrics", "running");
   if (lyricsProgress) setProgress(lyricsProgress, 0);
@@ -6259,6 +6278,7 @@ function cycleLyricsState() {
   lyricsEl.classList.add("canceled");
   clearTimeout(typingTimer);
   setForyouStatusVisible(false);
+  exitLyricSpellcast(true);
   setEngineState("lyrics", "canceled");
   showToast("Lyrics canceled");
 }

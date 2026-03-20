@@ -3289,6 +3289,11 @@ body.longpress-guard * {
   border-color: rgba(255, 209, 102, 0.3);
 }
 
+.report-badge.success {
+  color: #63f7c5;
+  border-color: rgba(99, 247, 197, 0.3);
+}
+
 .report-badge.critical {
   color: #ff8b8b;
   border-color: rgba(255, 107, 107, 0.3);

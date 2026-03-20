@@ -1041,6 +1041,7 @@ let deliveryOpsRequest = null;
 const deliveryOpsState = {
   loading: false,
   console: null,
+  health: null,
   subscriptions: [],
   logs: [],
   recovery: null,
@@ -29748,6 +29749,7 @@ function renderDeliveryOpsConsolePanel() {
   const dashboard = consolePayload?.dashboard || null;
   const alerts = consolePayload?.alerts || null;
   const recovery = deliveryOpsState.recovery || consolePayload?.recovery || null;
+  const healthSnapshot = buildDeliveryOpsHealthSnapshot(consolePayload, alerts, recovery);
 
   if (deliveryOpsConsoleOverview) {
     if (!consolePayload || !dashboard || !recovery) {
@@ -29759,6 +29761,38 @@ function renderDeliveryOpsConsolePanel() {
       `;
     } else {
       deliveryOpsConsoleOverview.innerHTML = `
+        <article class="report-card">
+          <div class="report-section-title">${escapeHtml(t("deliveryOps.healthTitle"))}</div>
+          <div class="delivery-ops-status-card">
+            <div class="delivery-ops-status-row">
+              <div class="delivery-ops-status-title">${escapeHtml(healthSnapshot.title)}</div>
+              <span class="report-badge ${escapeHtml(healthSnapshot.badgeClass)}">${escapeHtml(healthSnapshot.badgeLabel)}</span>
+            </div>
+            <div class="delivery-ops-status-summary">${escapeHtml(healthSnapshot.summary)}</div>
+            <div class="delivery-ops-status-grid">
+              <div class="delivery-ops-status-cell">
+                <div class="delivery-ops-status-label">${escapeHtml(t("deliveryOps.healthApi"))}</div>
+                <div class="delivery-ops-status-value">${escapeHtml(healthSnapshot.apiStatus)}</div>
+              </div>
+              <div class="delivery-ops-status-cell">
+                <div class="delivery-ops-status-label">${escapeHtml(t("deliveryOps.overviewAlerts"))}</div>
+                <div class="delivery-ops-status-value">${escapeHtml(String(healthSnapshot.alertCount))}</div>
+              </div>
+              <div class="delivery-ops-status-cell">
+                <div class="delivery-ops-status-label">${escapeHtml(t("deliveryOps.overviewPending"))}</div>
+                <div class="delivery-ops-status-value">${escapeHtml(String(healthSnapshot.pendingCount))}</div>
+              </div>
+              <div class="delivery-ops-status-cell">
+                <div class="delivery-ops-status-label">${escapeHtml(t("deliveryOps.healthRecentFailures"))}</div>
+                <div class="delivery-ops-status-value">${escapeHtml(String(healthSnapshot.failedCount))}</div>
+              </div>
+              <div class="delivery-ops-status-cell">
+                <div class="delivery-ops-status-label">${escapeHtml(t("deliveryOps.healthLastCheck"))}</div>
+                <div class="delivery-ops-status-value">${escapeHtml(healthSnapshot.lastChecked)}</div>
+              </div>
+            </div>
+          </div>
+        </article>
         <article class="report-card">
           <div class="report-section-title">${escapeHtml(t("deliveryOps.overview"))}</div>
           <div class="report-result-stats">
@@ -30083,6 +30117,102 @@ function renderDeliveryOpsPanel() {
   }
 }
 
+function normalizeDeliveryOpsHealth(payload) {
+  const statusText =
+    typeof payload?.status === "string" && payload.status.trim()
+      ? payload.status.trim()
+      : payload?.ok === false
+        ? "Unavailable"
+        : "OK";
+  const explicitOk = typeof payload?.ok === "boolean" ? payload.ok : null;
+  const derivedOk = !/(fail|down|error|unavailable)/i.test(statusText);
+  return {
+    ok: explicitOk ?? derivedOk,
+    statusText,
+    checkedAt:
+      typeof payload?.checked_at === "string" && payload.checked_at.trim()
+        ? payload.checked_at
+        : new Date().toISOString()
+  };
+}
+
+function formatDeliveryOpsHealthTimestamp(value) {
+  if (!value) return t("deliveryOps.healthUnknown");
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return t("deliveryOps.healthUnknown");
+  try {
+    return new Intl.DateTimeFormat(getLocale(), {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit"
+    }).format(date);
+  } catch (_error) {
+    return date.toLocaleString();
+  }
+}
+
+function buildDeliveryOpsHealthSnapshot(consolePayload, alertsPayload, recoveryPayload) {
+  const health = deliveryOpsState.health || normalizeDeliveryOpsHealth(null);
+  const alertCount = Array.isArray(alertsPayload?.alerts) ? alertsPayload.alerts.length : 0;
+  const queueCount = Array.isArray(consolePayload?.dashboard?.metrics)
+    ? consolePayload.dashboard.metrics.length
+    : 0;
+  const pendingCount = recoveryPayload?.summary?.pending_recovery_count ?? 0;
+  const stillFailingCount = recoveryPayload?.summary?.still_failing_count ?? 0;
+  const failedCount = deliveryOpsState.logs.filter((log) => log?.succeeded === false).length;
+
+  let level = "healthy";
+  if (!health.ok || stillFailingCount > 0 || failedCount >= 3) {
+    level = "blocked";
+  } else if (alertCount > 0 || pendingCount > 0 || failedCount > 0) {
+    level = "degraded";
+  }
+
+  const badgeMap = {
+    healthy: {
+      badgeClass: "success",
+      badgeLabel: t("deliveryOps.healthHealthy"),
+      title: t("deliveryOps.healthHealthyTitle")
+    },
+    degraded: {
+      badgeClass: "warning",
+      badgeLabel: t("deliveryOps.healthDegraded"),
+      title: t("deliveryOps.healthDegradedTitle")
+    },
+    blocked: {
+      badgeClass: "critical",
+      badgeLabel: t("deliveryOps.healthBlocked"),
+      title: t("deliveryOps.healthBlockedTitle")
+    }
+  };
+  const summaryKeyMap = {
+    healthy: "deliveryOps.healthSummaryHealthy",
+    degraded: "deliveryOps.healthSummaryDegraded",
+    blocked: "deliveryOps.healthSummaryBlocked"
+  };
+  const badge = badgeMap[level];
+
+  return {
+    ...badge,
+    level,
+    apiStatus: health.ok ? health.statusText : `${t("deliveryOps.healthApiDown")} · ${health.statusText}`,
+    alertCount,
+    queueCount,
+    pendingCount,
+    stillFailingCount,
+    failedCount,
+    lastChecked: formatDeliveryOpsHealthTimestamp(health.checkedAt),
+    summary: t(summaryKeyMap[level], {
+      alerts: alertCount,
+      pending: pendingCount,
+      failing: stillFailingCount,
+      failedLogs: failedCount,
+      queues: queueCount
+    })
+  };
+}
+
 async function loadDeliveryOps(force = false) {
   if (!force && deliveryOpsRequest) return deliveryOpsRequest;
 
@@ -30121,10 +30251,31 @@ async function loadDeliveryOps(force = false) {
     }).then(async (res) => {
       if (!res.ok) throw new Error(`delivery recovery request failed: ${res.status}`);
       return res.json();
-    })
+    }),
+    fetch(`${apiBase()}/health`, { cache: "no-store" })
+      .then(async (res) => {
+        if (!res.ok) {
+          return {
+            ok: false,
+            status: `HTTP ${res.status}`,
+            checked_at: new Date().toISOString()
+          };
+        }
+        const payload = await res.json();
+        return {
+          ...payload,
+          checked_at: new Date().toISOString()
+        };
+      })
+      .catch((error) => ({
+        ok: false,
+        status: String(error),
+        checked_at: new Date().toISOString()
+      }))
   ])
-    .then(([opsConsolePayload, subscriptionsPayload, logsPayload, recoveryPayload]) => {
+    .then(([opsConsolePayload, subscriptionsPayload, logsPayload, recoveryPayload, healthPayload]) => {
       deliveryOpsState.console = opsConsolePayload?.console || null;
+      deliveryOpsState.health = normalizeDeliveryOpsHealth(healthPayload);
       deliveryOpsState.subscriptions = Array.isArray(subscriptionsPayload?.subscriptions)
         ? subscriptionsPayload.subscriptions
         : [];
@@ -30143,6 +30294,11 @@ async function loadDeliveryOps(force = false) {
     .catch((error) => {
       deliveryOpsState.subscriptions = [];
       deliveryOpsState.console = null;
+      deliveryOpsState.health = {
+        ok: false,
+        statusText: String(error),
+        checkedAt: new Date().toISOString()
+      };
       deliveryOpsState.selectedSubscriptionId = null;
       deliveryOpsState.executionStatus = null;
       deliveryOpsState.recovery = null;

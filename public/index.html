@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
     <title>CSS Studio</title>
     <link rel="stylesheet" href="style.css" />
   </head>
@@ -906,8 +907,8 @@
                 type="button"
                 data-i18n-aria="action.regenerateLyrics"
                 aria-label="Regenerate lyrics"
-                onpointerdown="return window.CSSOS_primeLyricsRegenerate ? window.CSSOS_primeLyricsRegenerate(event) : true;"
-                onclick="return window.CSSOS_forceLyricsRegenerate ? window.CSSOS_forceLyricsRegenerate(event) : true;"
+                onpointerdown="window.CSSOS_primeLyricsRegenerate && window.CSSOS_primeLyricsRegenerate(event);"
+                onpointerup="return window.CSSOS_forceLyricsRegenerate ? window.CSSOS_forceLyricsRegenerate(event) : true;"
               >
                 🪄
               </button>

@@ -2339,6 +2339,25 @@ function setLyricsDebugStatus(message, state = "idle") {
   lyricsDebugStatus.dataset.state = state;
 }
 
+function getSeedRefreshToast(target) {
+  if (target === "lyrics") {
+    return loginCopy("Casting lyric magic...", "歌词魔法施展中...");
+  }
+  if (target === "style") {
+    return loginCopy("Music style magic in progress...", "音乐风格魔法施展中...");
+  }
+  if (target === "structure") {
+    return loginCopy("Music structure magic in progress...", "音乐结构魔法施展中...");
+  }
+  if (target === "outline") {
+    return loginCopy("Video outline magic in progress...", "视频提纲魔法施展中...");
+  }
+  if (target === "scenes") {
+    return loginCopy("Scene prompt magic in progress...", "分镜脚本魔法施展中...");
+  }
+  return loginCopy("Magic in progress...", "魔法施展中...");
+}
+
 function bindSeedRefreshButton(button, target, options = {}) {
   if (!(button instanceof HTMLButtonElement)) return;
   if (button.dataset.seedRefreshBound === "1") return;
@@ -2372,7 +2391,7 @@ window.CSSOS_primeLyricsRegenerate = function primeLyricsRegenerate(event) {
   try {
     showToast(loginCopy("Casting lyric magic...", "歌词魔法施展中..."));
   } catch {}
-  return false;
+  return true;
 };
 
 window.CSSOS_forceLyricsRegenerate = function forceLyricsRegenerate(event) {
@@ -2458,9 +2477,9 @@ async function regenerateSeedFields(target) {
         "pending"
       );
       enterLyricSpellcast();
-      showToast(loginCopy("Casting lyric magic...", "歌词魔法施展中..."));
       randomizeCreationForLyricsRefresh(title);
     }
+    showToast(getSeedRefreshToast(target));
     let payload = null;
     let raw = null;
     let normalized = null;

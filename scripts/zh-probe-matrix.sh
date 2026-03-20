@@ -32,13 +32,16 @@ max_time="$6"
 tls_success=0
 http_success=0
 reset_count=0
+latency_total_ms_sum=0
+latency_connect_ms_sum=0
+latency_samples=0
 sample_note=""
 
 for i in $(seq 1 "$attempts"); do
   if [ -n "$resolve" ]; then
-    out="$(curl -vkI --connect-timeout "$connect_timeout" --max-time "$max_time" --resolve "$resolve" -k "$url" -o /dev/null 2>&1 || true)"
+    out="$(curl -vkI --connect-timeout "$connect_timeout" --max-time "$max_time" --resolve "$resolve" -k "$url" -o /dev/null -w "__CSSOS_TIMING__ total=%{time_total} connect=%{time_connect}" 2>&1 || true)"
   else
-    out="$(curl -vkI --connect-timeout "$connect_timeout" --max-time "$max_time" "$url" -o /dev/null 2>&1 || true)"
+    out="$(curl -vkI --connect-timeout "$connect_timeout" --max-time "$max_time" "$url" -o /dev/null -w "__CSSOS_TIMING__ total=%{time_total} connect=%{time_connect}" 2>&1 || true)"
   fi
 
   case "$out" in
@@ -59,15 +62,43 @@ for i in $(seq 1 "$attempts"); do
       ;;
   esac
 
+  timing_line="$(printf "%s\n" "$out" | grep "__CSSOS_TIMING__" | tail -n 1 || true)"
+  total_seconds="$(printf "%s\n" "$timing_line" | sed -n "s/.*total=\\([0-9.]*\\).*/\\1/p")"
+  connect_seconds="$(printf "%s\n" "$timing_line" | sed -n "s/.*connect=\\([0-9.]*\\).*/\\1/p")"
+  if [ -n "$total_seconds" ] && [ -n "$connect_seconds" ]; then
+    total_ms="$(python3 - <<PY
+import math
+print(int(round(float("$total_seconds") * 1000)))
+PY
+)"
+    connect_ms="$(python3 - <<PY
+import math
+print(int(round(float("$connect_seconds") * 1000)))
+PY
+)"
+    latency_total_ms_sum=$((latency_total_ms_sum + total_ms))
+    latency_connect_ms_sum=$((latency_connect_ms_sum + connect_ms))
+    latency_samples=$((latency_samples + 1))
+  fi
+
   sample_note="$(printf "%s\n" "$out" | tail -n 3 | tr "\r\t\n" "   " | sed "s/[[:space:]]\\+/ /g")"
 done
 
-printf "%s\t%s\t%s\t%s\t%s\t%s\n" \
+avg_total_ms=0
+avg_connect_ms=0
+if [ "$latency_samples" -gt 0 ]; then
+  avg_total_ms=$((latency_total_ms_sum / latency_samples))
+  avg_connect_ms=$((latency_connect_ms_sum / latency_samples))
+fi
+
+printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
   "$label" \
   "$tls_success" \
   "$http_success" \
   "$reset_count" \
   "$attempts" \
+  "$avg_total_ms" \
+  "$avg_connect_ms" \
   "$sample_note"
 '
 
@@ -100,7 +131,7 @@ run_remote_probe() {
   ssh_cmd+=("$alias")
 
   if ! "${ssh_cmd[@]}" "command -v bash >/dev/null 2>&1 && command -v curl >/dev/null 2>&1" >/dev/null 2>&1; then
-    append_result "$(printf "%s\t0\t0\t0\t%s\t%s" "$label" "$ATTEMPTS" "probe skipped: ssh target unavailable")"
+    append_result "$(printf "%s\t0\t0\t0\t%s\t0\t0\t%s" "$label" "$ATTEMPTS" "probe skipped: ssh target unavailable")"
     return 0
   fi
 
@@ -110,18 +141,19 @@ run_remote_probe() {
 }
 
 print_table() {
-  printf '%-18s %-9s %-10s %-10s %s\n' "Target" "TLS" "HTTP" "Resets" "Note"
-  printf '%-18s %-9s %-10s %-10s %s\n' "------" "---" "----" "------" "----"
-  while IFS=$'\t' read -r label tls_count http_count reset_count attempts note; do
+  printf '%-18s %-9s %-10s %-10s %-12s %s\n' "Target" "TLS" "HTTP" "Resets" "Latency" "Note"
+  printf '%-18s %-9s %-10s %-10s %-12s %s\n' "------" "---" "----" "------" "-------" "----"
+  while IFS=$'\t' read -r label tls_count http_count reset_count attempts avg_total_ms avg_connect_ms note; do
     local tls_pct http_pct reset_pct
     tls_pct=$(( tls_count * 100 / attempts ))
     http_pct=$(( http_count * 100 / attempts ))
     reset_pct=$(( reset_count * 100 / attempts ))
-    printf '%-18s %-9s %-10s %-10s %s\n' \
+    printf '%-18s %-9s %-10s %-10s %-12s %s\n' \
       "$label" \
       "${tls_count}/${attempts} (${tls_pct}%)" \
       "${http_count}/${attempts} (${http_pct}%)" \
       "${reset_count}/${attempts} (${reset_pct}%)" \
+      "${avg_total_ms}ms/${avg_connect_ms}ms" \
       "${note:-n/a}"
   done < "${RESULTS_TSV}"
 }
@@ -133,15 +165,16 @@ write_github_summary() {
     echo
     echo "| Target | TLS | HTTP | Resets | Note |"
     echo "| --- | --- | --- | --- | --- |"
-    while IFS=$'\t' read -r label tls_count http_count reset_count attempts note; do
+    while IFS=$'\t' read -r label tls_count http_count reset_count attempts avg_total_ms avg_connect_ms note; do
       tls_pct=$(( tls_count * 100 / attempts ))
       http_pct=$(( http_count * 100 / attempts ))
       reset_pct=$(( reset_count * 100 / attempts ))
-      printf '| %s | %s/%s (%s%%) | %s/%s (%s%%) | %s/%s (%s%%) | %s |\n' \
+      printf '| %s | %s/%s (%s%%) | %s/%s (%s%%) | %s/%s (%s%%) | %sms/%sms | %s |\n' \
         "$label" \
         "$tls_count" "$attempts" "$tls_pct" \
         "$http_count" "$attempts" "$http_pct" \
         "$reset_count" "$attempts" "$reset_pct" \
+        "$avg_total_ms" "$avg_connect_ms" \
         "${note:-n/a}"
     done < "${RESULTS_TSV}"
   } >> "${GITHUB_STEP_SUMMARY}"
@@ -164,14 +197,16 @@ rows = []
 for line in results_path.read_text(encoding="utf-8").splitlines():
     if not line.strip():
         continue
-    parts = line.split("\t", 5)
-    if len(parts) < 6:
+    parts = line.split("\t", 7)
+    if len(parts) < 8:
         continue
-    label, tls_count, http_count, reset_count, attempts, note = parts
+    label, tls_count, http_count, reset_count, attempts, avg_total_ms, avg_connect_ms, note = parts
     attempts_i = int(attempts)
     tls_i = int(tls_count)
     http_i = int(http_count)
     reset_i = int(reset_count)
+    avg_total_ms_i = int(avg_total_ms)
+    avg_connect_ms_i = int(avg_connect_ms)
     rows.append(
         {
             "target": label,
@@ -182,6 +217,8 @@ for line in results_path.read_text(encoding="utf-8").splitlines():
             "tls_success_rate": round((tls_i / attempts_i) * 100, 2) if attempts_i else 0,
             "http_success_rate": round((http_i / attempts_i) * 100, 2) if attempts_i else 0,
             "reset_rate": round((reset_i / attempts_i) * 100, 2) if attempts_i else 0,
+            "avg_total_latency_ms": avg_total_ms_i,
+            "avg_connect_latency_ms": avg_connect_ms_i,
             "note": note.strip(),
         }
     )
@@ -216,6 +253,10 @@ payload = {
         "api_vm_public_http_success_rate": api_vm_public.get("http_success_rate", 0),
         "gzvm_public_http_success_rate": gzvm_public.get("http_success_rate", 0),
         "gzvm_loopback_http_success_rate": gzvm_loopback.get("http_success_rate", 0),
+        "local_public_avg_total_latency_ms": local_public.get("avg_total_latency_ms", 0),
+        "api_vm_public_avg_total_latency_ms": api_vm_public.get("avg_total_latency_ms", 0),
+        "gzvm_public_avg_total_latency_ms": gzvm_public.get("avg_total_latency_ms", 0),
+        "gzvm_loopback_avg_total_latency_ms": gzvm_loopback.get("avg_total_latency_ms", 0),
     },
     "targets": rows,
 }
@@ -266,7 +307,7 @@ PY
 
 enforce_thresholds() {
   local status=0
-  while IFS=$'\t' read -r label tls_count http_count _reset_count attempts _note; do
+  while IFS=$'\t' read -r label tls_count http_count _reset_count attempts _avg_total_ms _avg_connect_ms _note; do
     if [[ "$label" != "local_public" ]]; then
       continue
     fi

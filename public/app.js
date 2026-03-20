@@ -12941,6 +12941,100 @@ function buildWatchArchiveRouteComparisonMemo(probeSummary) {
   };
 }
 
+function buildWatchArchiveUptimeStrip(probeHistory) {
+  const samples = Array.isArray(probeHistory) ? probeHistory : [];
+  if (!samples.length) return [];
+  const targetSeries = new Map();
+  samples.forEach((sample) => {
+    const targets = Array.isArray(sample?.targets) ? sample.targets : [];
+    targets.forEach((target) => {
+      const key = String(target?.target || "").trim();
+      if (!key) return;
+      if (!targetSeries.has(key)) targetSeries.set(key, []);
+      targetSeries.get(key).push(Number(target?.http_success_rate || 0) >= 80 ? 1 : 0);
+    });
+  });
+  return Array.from(targetSeries.entries()).map(([target, series]) => {
+    const successful = series.reduce((sum, value) => sum + value, 0);
+    const percent = series.length ? Math.round((successful / series.length) * 100) : 0;
+    return {
+      target,
+      uptimePercent: percent,
+      strip: series.map((value) => (value ? "█" : "·")).join("")
+    };
+  });
+}
+
+function buildWatchArchiveServerHealthCard(probeSummary) {
+  const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
+  const targets = Array.isArray(payload?.targets) ? payload.targets : [];
+  const targetByName = Object.fromEntries(targets.map((item) => [String(item?.target || ""), item]));
+  const gzvmPublic = targetByName.gzvm_public || null;
+  const gzvmLoopback = targetByName.gzvm_loopback || null;
+  const localPublic = targetByName.local_public || null;
+  const apiVmPublic = targetByName.api_vm_public || null;
+
+  const serverHealthy =
+    Number(gzvmPublic?.http_success_rate || 0) >= 80 && Number(gzvmLoopback?.http_success_rate || 0) >= 80;
+  const remoteWeak =
+    Number(localPublic?.http_success_rate || 0) < 50 || Number(apiVmPublic?.http_success_rate || 0) < 50;
+
+  let title = dashboardCopy("Server health is mixed", "服务器健康度混合");
+  let level = dashboardCopy("watch", "观察");
+  let summary = dashboardCopy(
+    "The probe set is still mixed, so server health is not fully settled yet.",
+    "当前探针结果仍然混合，服务器健康度还不能完全下定论。"
+  );
+  if (serverHealthy && remoteWeak) {
+    title = dashboardCopy("Server path looks healthy", "服务器路径看起来健康");
+    level = dashboardCopy("healthy", "健康");
+    summary = dashboardCopy(
+      "gzvm public and loopback both look healthy, which points more to route weakness than server failure.",
+      "中国公网与中国回环都健康，更像路径偏弱，不像服务器失败。"
+    );
+  } else if (!serverHealthy) {
+    title = dashboardCopy("Server path still needs work", "服务器路径仍需处理");
+    level = dashboardCopy("alert", "告警");
+    summary = dashboardCopy(
+      "gzvm public or loopback is still below the health threshold, so server-side recovery is incomplete.",
+      "中国公网或中国回环仍低于健康阈值，说明服务器侧恢复还没完全到位。"
+    );
+  }
+
+  return {
+    title,
+    level,
+    summary,
+    note: dashboardCopy(
+      `gzvm public=${gzvmPublic?.http_success_rate ?? 0}% @ ${gzvmPublic?.avg_total_latency_ms ?? 0}ms · loopback=${gzvmLoopback?.http_success_rate ?? 0}% @ ${gzvmLoopback?.avg_total_latency_ms ?? 0}ms`,
+      `中国公网=${gzvmPublic?.http_success_rate ?? 0}% @ ${gzvmPublic?.avg_total_latency_ms ?? 0}ms · 中国回环=${gzvmLoopback?.http_success_rate ?? 0}% @ ${gzvmLoopback?.avg_total_latency_ms ?? 0}ms`
+    )
+  };
+}
+
+function buildWatchArchiveEndpointLatencyMemo(probeSummary) {
+  const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
+  const targets = Array.isArray(payload?.targets) ? payload.targets : [];
+  if (!targets.length) {
+    return {
+      headline: dashboardCopy("No latency memo yet.", "当前还没有延迟备忘。"),
+      rows: []
+    };
+  }
+  const rows = targets
+    .filter((item) => item && item.target)
+    .map((item) => ({
+      target: String(item.target),
+      totalLatency: Number(item.avg_total_latency_ms || 0),
+      connectLatency: Number(item.avg_connect_latency_ms || 0)
+    }));
+  const headline = dashboardCopy(
+    "Average endpoint latency from each probe path.",
+    "每条探针路径的平均端点延迟。"
+  );
+  return { headline, rows };
+}
+
 function buildWatchArchiveCrossBorderAnomalyAlert(probeSummary) {
   const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
   const conclusion = payload?.conclusion || {};
@@ -23617,6 +23711,9 @@ function renderMusicDeliveryDashboard() {
   const routeComparisonMemo = buildWatchArchiveRouteComparisonMemo(
     deliveryDashboardState.probeSummary
   );
+  const uptimeStrip = buildWatchArchiveUptimeStrip(deliveryDashboardState.probeHistory);
+  const serverHealthCard = buildWatchArchiveServerHealthCard(deliveryDashboardState.probeSummary);
+  const endpointLatencyMemo = buildWatchArchiveEndpointLatencyMemo(deliveryDashboardState.probeSummary);
   const crossBorderAnomalyAlert = buildWatchArchiveCrossBorderAnomalyAlert(
     deliveryDashboardState.probeSummary
   );
@@ -23709,6 +23806,58 @@ function renderMusicDeliveryDashboard() {
             <div class="report-preview-title">Route Comparison Memo</div>
             <div class="report-card-copy">${escapeHtml(routeComparisonMemo.headline)}</div>
             <div class="report-card-copy">${escapeHtml(routeComparisonMemo.note)}</div>
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Uptime Strip</div>
+            ${
+              uptimeStrip.length
+                ? uptimeStrip
+                    .map(
+                      (item) => `<div class="report-list-item">
+                          <div class="report-preview-title">${escapeHtml(item.target)}</div>
+                          <div class="report-card-copy">${escapeHtml(item.strip)}</div>
+                          <div class="report-card-copy">${escapeHtml(
+                            dashboardCopy(
+                              `Historical uptime ${item.uptimePercent}%`,
+                              `历史可用率 ${item.uptimePercent}%`
+                            )
+                          )}</div>
+                        </div>`
+                    )
+                    .join("")
+                : `<div class="report-empty">${escapeHtml(
+                    dashboardCopy("Uptime strip is waiting for probe history.", "可用率条正在等待探针历史。")
+                  )}</div>`
+            }
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Server Health Card</div>
+            <div class="report-card-copy">${escapeHtml(
+              `${serverHealthCard.level} · ${serverHealthCard.title}`
+            )}</div>
+            <div class="report-card-copy">${escapeHtml(serverHealthCard.summary)}</div>
+            <div class="report-card-copy">${escapeHtml(serverHealthCard.note)}</div>
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Endpoint Latency Memo</div>
+            <div class="report-card-copy">${escapeHtml(endpointLatencyMemo.headline)}</div>
+            ${
+              endpointLatencyMemo.rows.length
+                ? endpointLatencyMemo.rows
+                    .map(
+                      (item) => `<div class="report-list-item">
+                          <div class="report-preview-title">${escapeHtml(item.target)}</div>
+                          <div class="report-card-copy">${escapeHtml(
+                            dashboardCopy(
+                              `total ${item.totalLatency}ms · connect ${item.connectLatency}ms`,
+                              `总时延 ${item.totalLatency}ms · 建连 ${item.connectLatency}ms`
+                            )
+                          )}</div>
+                        </div>`
+                    )
+                    .join("")
+                : ""
+            }
           </div>
         </div>
       `

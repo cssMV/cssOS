@@ -13126,6 +13126,69 @@ function buildWatchArchiveUpstreamDependencyMemo(probeSummary) {
   };
 }
 
+function buildWatchArchiveHttpStatusBreakdown(probeSummary) {
+  const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
+  const targets = Array.isArray(payload?.targets) ? payload.targets : [];
+  return targets
+    .filter((item) => item && item.target)
+    .map((item) => {
+      const breakdown = item?.http_status_breakdown || {};
+      return {
+        target: String(item.target),
+        line: dashboardCopy(
+          `200:${Number(breakdown["200"] || 0)} · 301:${Number(breakdown["301"] || 0)} · 000:${Number(breakdown["000"] || 0)} · other:${Number(breakdown.other || 0)}`,
+          `200:${Number(breakdown["200"] || 0)} · 301:${Number(breakdown["301"] || 0)} · 000:${Number(breakdown["000"] || 0)} · 其他:${Number(breakdown.other || 0)}`
+        )
+      };
+    });
+}
+
+function buildWatchArchiveCertRenewalCountdown(probeSummary) {
+  const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
+  const cert = payload?.metadata?.certificate || {};
+  const daysRemaining = Number(cert?.days_remaining);
+  let band = dashboardCopy("unknown", "未知");
+  if (Number.isFinite(daysRemaining)) {
+    if (daysRemaining >= 30) band = dashboardCopy("safe window", "安全窗口");
+    else if (daysRemaining >= 14) band = dashboardCopy("renew soon", "建议续期");
+    else band = dashboardCopy("urgent", "紧急");
+  }
+  return {
+    band,
+    note: cert?.not_after
+      ? dashboardCopy(
+          `${daysRemaining} days left until ${cert.not_after}`,
+          `距离 ${cert.not_after} 还剩 ${daysRemaining} 天`
+        )
+      : dashboardCopy("Certificate countdown is not available yet.", "证书倒计时暂时不可用。")
+  };
+}
+
+function buildWatchArchiveServerIncidentLogStrip(probeHistory) {
+  const samples = Array.isArray(probeHistory) ? probeHistory : [];
+  return samples
+    .slice(-6)
+    .reverse()
+    .map((sample) => {
+      const verdict = String(sample?.conclusion?.verdict || "unknown");
+      const label =
+        verdict === "cross_border_path_anomaly"
+          ? dashboardCopy("route anomaly", "链路异常")
+          : verdict === "server_recovered"
+            ? dashboardCopy("recovered", "已恢复")
+            : verdict === "server_side_degradation"
+              ? dashboardCopy("server degradation", "服务器退化")
+              : dashboardCopy("mixed", "混合");
+      return {
+        capturedAt: String(sample?.captured_at || ""),
+        summary:
+          sample?.conclusion?.summary ||
+          dashboardCopy("No incident summary yet.", "当前还没有异常摘要。"),
+        label
+      };
+    });
+}
+
 function buildWatchArchiveCrossBorderAnomalyAlert(probeSummary) {
   const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
   const conclusion = payload?.conclusion || {};
@@ -23808,6 +23871,11 @@ function renderMusicDeliveryDashboard() {
   const serviceStatusStrip = buildWatchArchiveServiceStatusStrip(deliveryDashboardState.probeSummary);
   const certExpiryCard = buildWatchArchiveCertExpiryCard(deliveryDashboardState.probeSummary);
   const upstreamDependencyMemo = buildWatchArchiveUpstreamDependencyMemo(deliveryDashboardState.probeSummary);
+  const httpStatusBreakdown = buildWatchArchiveHttpStatusBreakdown(deliveryDashboardState.probeSummary);
+  const certRenewalCountdown = buildWatchArchiveCertRenewalCountdown(deliveryDashboardState.probeSummary);
+  const serverIncidentLogStrip = buildWatchArchiveServerIncidentLogStrip(
+    deliveryDashboardState.probeHistory
+  );
   const crossBorderAnomalyAlert = buildWatchArchiveCrossBorderAnomalyAlert(
     deliveryDashboardState.probeSummary
   );
@@ -23981,6 +24049,48 @@ function renderMusicDeliveryDashboard() {
             <div class="report-preview-title">Upstream Dependency Memo</div>
             <div class="report-card-copy">${escapeHtml(upstreamDependencyMemo.headline)}</div>
             <div class="report-card-copy">${escapeHtml(upstreamDependencyMemo.note)}</div>
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">HTTP Status Breakdown</div>
+            ${
+              httpStatusBreakdown.length
+                ? httpStatusBreakdown
+                    .map(
+                      (item) => `<div class="report-list-item">
+                          <div class="report-preview-title">${escapeHtml(item.target)}</div>
+                          <div class="report-card-copy">${escapeHtml(item.line)}</div>
+                        </div>`
+                    )
+                    .join("")
+                : `<div class="report-empty">${escapeHtml(
+                    dashboardCopy("HTTP status breakdown is not available yet.", "HTTP 状态码分布暂时不可用。")
+                  )}</div>`
+            }
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Cert Renewal Countdown</div>
+            <div class="report-card-copy">${escapeHtml(certRenewalCountdown.band)}</div>
+            <div class="report-card-copy">${escapeHtml(certRenewalCountdown.note)}</div>
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Server Incident Log Strip</div>
+            ${
+              serverIncidentLogStrip.length
+                ? serverIncidentLogStrip
+                    .map(
+                      (item) => `<div class="report-list-item">
+                          <div class="report-preview-title">${escapeHtml(
+                            item.capturedAt || dashboardCopy("unknown time", "未知时间")
+                          )}</div>
+                          <div class="report-card-copy">${escapeHtml(item.label)}</div>
+                          <div class="report-card-copy">${escapeHtml(item.summary)}</div>
+                        </div>`
+                    )
+                    .join("")
+                : `<div class="report-empty">${escapeHtml(
+                    dashboardCopy("No incident history is available yet.", "当前还没有异常历史。")
+                  )}</div>`
+            }
           </div>
         </div>
       `

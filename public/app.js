@@ -2349,6 +2349,18 @@ function runNonCriticalUiStep(task) {
   }
 }
 
+function safeShowToast(message) {
+  return runNonCriticalUiStep(() => showToast(message));
+}
+
+function summarizeError(err) {
+  if (!err) return "unknown";
+  if (typeof err === "string") return err.slice(0, 120);
+  const name = String(err?.name || "").trim();
+  const message = String(err?.message || "").trim();
+  return [name, message].filter(Boolean).join(": ").slice(0, 160) || "unknown";
+}
+
 function getSeedRefreshToast(target) {
   if (target === "lyrics") {
     return loginCopy("Casting lyric magic...", "歌词魔法施展中...");
@@ -2472,6 +2484,7 @@ async function regenerateSeedFields(target) {
     scenes: sectionPromptsRegenerate
   };
   const trigger = triggerMap[target] || lyricsRegenerate;
+  let lyricStage = "init";
   try {
     if (target === "lyrics") {
       setLyricsDebugStatus(
@@ -2483,6 +2496,7 @@ async function regenerateSeedFields(target) {
       );
       lyricRegenerateRequestActive = true;
     }
+    lyricStage = "title-context";
     const title = ensureSongSeedTitleContext();
     if (target === "lyrics") {
       setLyricsDebugStatus(
@@ -2493,14 +2507,17 @@ async function regenerateSeedFields(target) {
         "pending"
       );
     }
+    lyricStage = "button-busy";
     setButtonBusy(trigger, true);
     const previousLyricsValue = String(lyricsInput?.value || "");
     const previousTitleValue = String(titleInput?.value || "");
+    lyricStage = "signature";
     const previousSignature = safeBuildLyricsSeedVisualSignature({
       title,
       lyrics: lyricsInput?.value || compactLyricLines(state.lines || []).join("\n")
     });
     if (target === "lyrics") {
+      lyricStage = "ui-warmup";
       const lyricUiOk = runNonCriticalUiStep(() => {
         enterLyricSpellcast();
         randomizeCreationForLyricsRefresh(title);
@@ -2515,23 +2532,28 @@ async function regenerateSeedFields(target) {
         );
       }
     }
-    showToast(getSeedRefreshToast(target));
+    lyricStage = "toast";
+    safeShowToast(getSeedRefreshToast(target));
     let payload = null;
     let raw = null;
     let normalized = null;
     let nextSignature = "";
     const maxAttempts = target === "lyrics" ? 3 : 1;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      lyricStage = `request-${attempt}`;
       payload = await runLyricsGenerate(target === "style" ? "style_refresh" : "music_video", { apply: false });
+      lyricStage = `response-${attempt}`;
       raw = getApiData(payload);
       if (!payload?.ok || payload?.empty || !raw) break;
+      lyricStage = `normalize-${attempt}`;
       normalized = normalizeSongSeed(raw);
       nextSignature = safeBuildLyricsSeedVisualSignature(normalized);
       if (target !== "lyrics" || !previousSignature || !nextSignature || nextSignature !== previousSignature) {
         break;
       }
       if (attempt < maxAttempts) {
-        showToast(
+        lyricStage = `retry-toast-${attempt}`;
+        safeShowToast(
           loginCopy(
             `Retrying lyric variation ${attempt + 1}/${maxAttempts}...`,
             `歌词随机撞脸，正在重试第 ${attempt + 1}/${maxAttempts} 次...`
@@ -2546,10 +2568,10 @@ async function regenerateSeedFields(target) {
             "Button triggered, but the lyric API did not return usable data.",
             "按钮已触发，但随机歌词接口没有返回可用结果。"
           ),
-          "error"
+        "error"
         );
       }
-      showToast(t("toast.seedRefreshFailed"));
+      safeShowToast(t("toast.seedRefreshFailed"));
       return;
     }
     if (target === "lyrics") {
@@ -2561,13 +2583,14 @@ async function regenerateSeedFields(target) {
         "pending"
       );
     }
+    lyricStage = "apply";
     if (!normalized) normalized = normalizeSongSeed(raw);
     if (target === "style") {
       if (styleInput && normalized.musicStyle) styleInput.value = normalized.musicStyle;
       state.songSeed = { ...(state.songSeed || {}), ...normalized };
       updateEnginePanels(titleInput?.value?.trim() || state.title, (lyricsInput?.value || "").split("\n"));
       renderSongSeedPreview(state.songSeed);
-      showToast(t("toast.musicStyleRegenerated"));
+      safeShowToast(t("toast.musicStyleRegenerated"));
       return;
     }
     if (target === "structure") {
@@ -2578,21 +2601,21 @@ async function regenerateSeedFields(target) {
       }
       state.songSeed = { ...(state.songSeed || {}), ...normalized };
       renderSongSeedPreview(state.songSeed);
-      showToast(loginCopy("Music structure updated.", "音乐结构已更新。"));
+      safeShowToast(loginCopy("Music structure updated.", "音乐结构已更新。"));
       return;
     }
     if (target === "outline") {
       if (videoOutlineInput) videoOutlineInput.value = normalized.videoOutline;
       state.songSeed = { ...(state.songSeed || {}), ...normalized };
       renderSongSeedPreview(state.songSeed);
-      showToast(loginCopy("Video outline updated.", "总视频提纲已更新。"));
+      safeShowToast(loginCopy("Video outline updated.", "总视频提纲已更新。"));
       return;
     }
     if (target === "scenes") {
       if (sectionPromptsInput) sectionPromptsInput.value = renderSectionPromptsText(normalized.sectionPrompts);
       state.songSeed = { ...(state.songSeed || {}), ...normalized };
       renderSongSeedPreview(state.songSeed);
-      showToast(loginCopy("Section prompts updated.", "分节视频脚本已更新。"));
+      safeShowToast(loginCopy("Section prompts updated.", "分节视频脚本已更新。"));
       return;
     }
     applySongSeedToSettings(raw);
@@ -2616,7 +2639,7 @@ async function regenerateSeedFields(target) {
       );
       const universeSummary = describeSongSeedUniverse(state.songSeed);
       const unchanged = previousSignature && nextSignature && previousSignature === nextSignature;
-      showToast(
+      safeShowToast(
         loginCopy(
           `${unchanged ? "Lyric refresh stayed visually similar" : "Lyrics regenerated"} · ${[
             universeSummary,
@@ -2634,18 +2657,18 @@ async function regenerateSeedFields(target) {
       );
       return;
     }
-    showToast(t("toast.lyricsRegenerated"));
-  } catch (_err) {
+    safeShowToast(t("toast.lyricsRegenerated"));
+  } catch (err) {
     if (target === "lyrics") {
       setLyricsDebugStatus(
         loginCopy(
-          "Button triggered, but the request failed before lyrics could be filled in.",
-          "按钮已触发，但请求在回填歌词之前失败了。"
+          `Request failed at ${lyricStage}. ${summarizeError(err)}`,
+          `请求在 ${lyricStage} 阶段失败：${summarizeError(err)}`
         ),
         "error"
       );
     }
-    showToast(t("toast.seedRefreshFailed"));
+    safeShowToast(t("toast.seedRefreshFailed"));
   } finally {
     if (target === "lyrics") {
       lyricRegenerateRequestActive = false;

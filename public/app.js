@@ -2172,11 +2172,11 @@ function initCreationConsole() {
     renderCreationConsole();
     showToast(t("action.clearAll"));
   });
-  lyricsRegenerate?.addEventListener("pointerdown", (event) => {
-    if (window.CSSOS_primeLyricsRegenerate) {
-      window.CSSOS_primeLyricsRegenerate(event);
-    }
-  });
+  bindSeedRefreshButton(lyricsRegenerate, "lyrics", { prime: true });
+  bindSeedRefreshButton(styleRegenerate, "style");
+  bindSeedRefreshButton(musicStructureRegenerate, "structure");
+  bindSeedRefreshButton(videoOutlineRegenerate, "outline");
+  bindSeedRefreshButton(sectionPromptsRegenerate, "scenes");
   creationSetDefaults?.addEventListener("click", () => {
     void saveCreationPanelDefaults(creationSetDefaults);
   });
@@ -2260,6 +2260,25 @@ function setButtonBusy(button, busy) {
   if (!(button instanceof HTMLButtonElement)) return;
   button.disabled = !!busy;
   button.classList.toggle("is-busy", !!busy);
+}
+
+function bindSeedRefreshButton(button, target, options = {}) {
+  if (!(button instanceof HTMLButtonElement)) return;
+  if (button.dataset.seedRefreshBound === "1") return;
+  button.dataset.seedRefreshBound = "1";
+  const shouldPrime = options?.prime === true;
+  if (shouldPrime) {
+    button.addEventListener("pointerdown", (event) => {
+      if (window.CSSOS_primeLyricsRegenerate) {
+        window.CSSOS_primeLyricsRegenerate(event);
+      }
+    });
+  }
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    void regenerateSeedFields(target);
+  });
 }
 
 window.CSSOS_primeLyricsRegenerate = function primeLyricsRegenerate(event) {
@@ -31949,34 +31968,6 @@ function attachGlobalActionDispatcher() {
   document.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
-    const seedRegenerateEl = target.closest(
-      "#lyrics-regenerate, #style-regenerate, #music-structure-regenerate, #video-outline-regenerate, #section-prompts-regenerate"
-    );
-    if (seedRegenerateEl instanceof HTMLElement) {
-      event.preventDefault();
-      event.stopPropagation();
-      const id = seedRegenerateEl.id || "";
-      if (id === "lyrics-regenerate") {
-        void regenerateSeedFields("lyrics");
-        return;
-      }
-      if (id === "style-regenerate") {
-        void regenerateSeedFields("style");
-        return;
-      }
-      if (id === "music-structure-regenerate") {
-        void regenerateSeedFields("structure");
-        return;
-      }
-      if (id === "video-outline-regenerate") {
-        void regenerateSeedFields("outline");
-        return;
-      }
-      if (id === "section-prompts-regenerate") {
-        void regenerateSeedFields("scenes");
-        return;
-      }
-    }
     if (target.closest(".dock-item")) return;
     const actionEl = target.closest("[data-action]");
     if (!actionEl) return;

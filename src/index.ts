@@ -68,7 +68,13 @@ if (DATABASE_URL) {
 }
 
 app.use(session(sessionConfig));
-app.use(express.static(path.join(__dirname, "..", "public")));
+app.use(
+  express.static(path.join(__dirname, "..", "public"), {
+    setHeaders(res) {
+      res.setHeader("Cache-Control", "no-store");
+    }
+  })
+);
 
 function noStore(res: express.Response) {
   res.setHeader("Cache-Control", "no-store");
@@ -5486,6 +5492,7 @@ app.get("/health", (_req, res) => {
 });
 
 app.get("/", (_req, res) => {
+  noStore(res);
   res.sendFile(path.join(__dirname, "..", "public", "index.html"));
 });
 

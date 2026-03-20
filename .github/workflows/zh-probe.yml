@@ -1,0 +1,37 @@
+name: zh.cssstudio.app probe
+
+on:
+  push:
+    branches:
+      - "codex/cssmv-day5"
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run public probe
+        run: |
+          chmod +x ./scripts/zh-probe-matrix.sh
+          PUBLIC_ONLY=1 \
+          ATTEMPTS=12 \
+          MIN_TLS_SUCCESS_RATE=80 \
+          MIN_HTTP_SUCCESS_RATE=80 \
+          ./scripts/zh-probe-matrix.sh | tee zh-probe-report.txt
+
+      - name: Upload probe artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zh-probe-report
+          path: |
+            zh-probe-report.txt
+            artifacts/zh-probe/latest.json

@@ -13396,6 +13396,81 @@ function buildWatchArchiveVerdictDelta(currentProbeSummary, timelineCompare) {
   };
 }
 
+function buildWatchArchiveShiftCloseChecklist(probeSummary, operatorNotes, handoffAcknowledgments) {
+  const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
+  const metadata = payload?.metadata || {};
+  const gzvm = (Array.isArray(metadata?.servers) ? metadata.servers : []).find(
+    (item) => String(item?.server || "") === "gzvm"
+  );
+  const verdict = String(payload?.conclusion?.verdict || "unknown");
+  const notesReady = !!String(operatorNotes || "").trim();
+  const ackReady = Array.isArray(handoffAcknowledgments) && handoffAcknowledgments.length > 0;
+  const hostReady =
+    String(gzvm?.nginx_status || "") === "active" && String(gzvm?.cssos_status || "") === "online";
+  const checklist = [
+    {
+      label: dashboardCopy("Host services healthy", "主机服务健康"),
+      state: hostReady ? dashboardCopy("ready", "就绪") : dashboardCopy("pending", "待完成")
+    },
+    {
+      label: dashboardCopy("Operator notes captured", "值班备注已记录"),
+      state: notesReady ? dashboardCopy("ready", "就绪") : dashboardCopy("pending", "待完成")
+    },
+    {
+      label: dashboardCopy("At least one handoff acknowledgment", "至少一次接班确认"),
+      state: ackReady ? dashboardCopy("ready", "就绪") : dashboardCopy("pending", "待完成")
+    },
+    {
+      label: dashboardCopy("Verdict understood", "当前结论已确认"),
+      state: verdict !== "unknown" ? dashboardCopy("ready", "就绪") : dashboardCopy("pending", "待完成")
+    }
+  ];
+  const readyCount = checklist.filter((item) => item.state === dashboardCopy("ready", "就绪")).length;
+  return {
+    headline:
+      readyCount === checklist.length
+        ? dashboardCopy("Shift can close cleanly.", "这一班可以干净收口。")
+        : dashboardCopy("Shift still has open handoff items.", "这一班仍有交接项未收口。"),
+    checklist
+  };
+}
+
+function buildWatchArchiveAckedHandoffLedger(handoffAcknowledgments) {
+  const rows = Array.isArray(handoffAcknowledgments) ? handoffAcknowledgments : [];
+  return {
+    count: rows.length,
+    rows: rows.slice(-8).reverse()
+  };
+}
+
+function buildWatchArchiveVerdictDriftSparkline(probeHistory) {
+  const samples = Array.isArray(probeHistory) ? probeHistory : [];
+  const verdicts = samples
+    .slice(-16)
+    .map((sample) => String(sample?.conclusion?.verdict || "unknown"));
+  const sparkline = verdicts
+    .map((verdict) => {
+      if (verdict === "server_recovered") return "█";
+      if (verdict === "cross_border_path_anomaly") return "▆";
+      if (verdict === "server_side_degradation") return "▁";
+      if (verdict === "mixed_or_unknown") return "▄";
+      return "·";
+    })
+    .join("");
+  let driftCount = 0;
+  for (let i = 1; i < verdicts.length; i += 1) {
+    if (verdicts[i] !== verdicts[i - 1]) driftCount += 1;
+  }
+  return {
+    sparkline,
+    driftCount,
+    note: dashboardCopy(
+      `${driftCount} verdict changes across the recent probe window.`,
+      `最近探针窗口里共有 ${driftCount} 次结论变化。`
+    )
+  };
+}
+
 function buildWatchArchiveCrossBorderAnomalyAlert(probeSummary) {
   const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
   const conclusion = payload?.conclusion || {};
@@ -24164,6 +24239,17 @@ function renderMusicDeliveryDashboard() {
     deliveryDashboardState.probeSummary,
     incidentTimelineCompare
   );
+  const shiftCloseChecklist = buildWatchArchiveShiftCloseChecklist(
+    deliveryDashboardState.probeSummary,
+    deliveryDashboardState.probeOperatorNotes,
+    deliveryDashboardState.probeHandoffAcknowledgments
+  );
+  const ackedHandoffLedger = buildWatchArchiveAckedHandoffLedger(
+    deliveryDashboardState.probeHandoffAcknowledgments
+  );
+  const verdictDriftSparkline = buildWatchArchiveVerdictDriftSparkline(
+    deliveryDashboardState.probeHistory
+  );
   const crossBorderAnomalyAlert = buildWatchArchiveCrossBorderAnomalyAlert(
     deliveryDashboardState.probeSummary
   );
@@ -24255,6 +24341,15 @@ function renderMusicDeliveryDashboard() {
             <div class="report-preview-title">Operator Shift Summary</div>
             <div class="report-card-copy">${escapeHtml(operatorShiftSummary.headline)}</div>
             <div class="report-card-copy">${escapeHtml(operatorShiftSummary.note)}</div>
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Shift Close Checklist</div>
+            <div class="report-card-copy">${escapeHtml(shiftCloseChecklist.headline)}</div>
+            ${shiftCloseChecklist.checklist
+              .map(
+                (item) => `<div class="report-card-copy">${escapeHtml(`${item.label} · ${item.state}`)}</div>`
+              )
+              .join("")}
           </div>
           <div class="report-list-item">
             <div class="report-preview-title">On-Call Action Checklist</div>
@@ -24483,6 +24578,28 @@ function renderMusicDeliveryDashboard() {
             }
           </div>
           <div class="report-list-item">
+            <div class="report-preview-title">Acked Handoff Ledger</div>
+            <div class="report-card-copy">${escapeHtml(
+              dashboardCopy(
+                `${ackedHandoffLedger.count} total handoff acknowledgments recorded.`,
+                `累计记录了 ${ackedHandoffLedger.count} 次接班确认。`
+              )
+            )}</div>
+            ${
+              ackedHandoffLedger.rows.length
+                ? ackedHandoffLedger.rows
+                    .map(
+                      (item) => `<div class="report-card-copy">${escapeHtml(
+                        `${item.at} · ${item.note || dashboardCopy("acknowledged", "已确认接班")}`
+                      )}</div>`
+                    )
+                    .join("")
+                : `<div class="report-empty">${escapeHtml(
+                    dashboardCopy("No handoff acknowledgments yet.", "当前还没有接班确认记录。")
+                  )}</div>`
+            }
+          </div>
+          <div class="report-list-item">
             <div class="report-preview-title">Incident Timeline Compare</div>
             <div class="report-card-copy">${escapeHtml(incidentTimelineCompare.summary)}</div>
             <div class="report-card-copy">${escapeHtml(verdictDelta.headline)}</div>
@@ -24534,6 +24651,11 @@ function renderMusicDeliveryDashboard() {
                   </div>`
                 : ""
             }
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Verdict Drift Sparkline</div>
+            <div class="report-card-copy">${escapeHtml(verdictDriftSparkline.sparkline || "·")}</div>
+            <div class="report-card-copy">${escapeHtml(verdictDriftSparkline.note)}</div>
           </div>
         </div>
       `

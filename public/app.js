@@ -259,6 +259,8 @@ const FORYOU_PREVIEW_MODE_KEY = "cssos.foryou.previewMode";
 const workThumbCache = new Map();
 let dockSuppressUntil = 0;
 let dockDraggingAction = "";
+let lyricRegenerateFallbackTimer = null;
+let lyricRegenerateRequestActive = false;
 const VERSION_RELEASE_NOTES = {
   "20260320_184041": {
     headline: "随机歌词生成已修复",
@@ -2378,6 +2380,10 @@ function bindSeedRefreshButton(button, target, options = {}) {
 }
 
 window.CSSOS_primeLyricsRegenerate = function primeLyricsRegenerate(event) {
+  if (lyricRegenerateFallbackTimer) {
+    clearTimeout(lyricRegenerateFallbackTimer);
+    lyricRegenerateFallbackTimer = null;
+  }
   setLyricsDebugStatus(
     loginCopy(
       "Button triggered. Preparing random lyric request...",
@@ -2391,10 +2397,21 @@ window.CSSOS_primeLyricsRegenerate = function primeLyricsRegenerate(event) {
   try {
     showToast(loginCopy("Casting lyric magic...", "歌词魔法施展中..."));
   } catch {}
+  lyricRegenerateFallbackTimer = window.setTimeout(() => {
+    lyricRegenerateFallbackTimer = null;
+    if (!lyricRegenerateRequestActive) {
+      void window.CSSOS_forceLyricsRegenerate?.();
+    }
+  }, 180);
   return true;
 };
 
 window.CSSOS_forceLyricsRegenerate = function forceLyricsRegenerate(event) {
+  if (lyricRegenerateFallbackTimer) {
+    clearTimeout(lyricRegenerateFallbackTimer);
+    lyricRegenerateFallbackTimer = null;
+  }
+  if (lyricRegenerateRequestActive) return false;
   event?.preventDefault?.();
   event?.stopPropagation?.();
   void regenerateSeedFields("lyrics");
@@ -2461,6 +2478,9 @@ async function regenerateSeedFields(target) {
   const trigger = triggerMap[target] || lyricsRegenerate;
   const title = ensureSongSeedTitleContext();
   try {
+    if (target === "lyrics") {
+      lyricRegenerateRequestActive = true;
+    }
     setButtonBusy(trigger, true);
     const previousLyricsValue = String(lyricsInput?.value || "");
     const previousTitleValue = String(titleInput?.value || "");
@@ -2611,6 +2631,13 @@ async function regenerateSeedFields(target) {
     }
     showToast(t("toast.seedRefreshFailed"));
   } finally {
+    if (target === "lyrics") {
+      lyricRegenerateRequestActive = false;
+      if (lyricRegenerateFallbackTimer) {
+        clearTimeout(lyricRegenerateFallbackTimer);
+        lyricRegenerateFallbackTimer = null;
+      }
+    }
     if (target === "lyrics") exitLyricSpellcast(true);
     setButtonBusy(trigger, false);
   }

@@ -228,6 +228,9 @@ const versionToggle = document.getElementById("version-toggle");
 const versionMenu = document.getElementById("version-menu");
 const versionList = document.getElementById("version-list");
 const versionCurrentLabel = document.getElementById("version-current");
+const versionHero = document.getElementById("version-hero");
+const versionHighlights = document.getElementById("version-highlights");
+const versionTechSummary = document.getElementById("version-tech-summary");
 const versionActions = versionMenu ? versionMenu.querySelector(".version-actions") : null;
 const profileGrid = profilePanel ? profilePanel.querySelector(".profile-grid") : null;
 
@@ -255,6 +258,22 @@ const FORYOU_PREVIEW_MODE_KEY = "cssos.foryou.previewMode";
 const workThumbCache = new Map();
 let dockSuppressUntil = 0;
 let dockDraggingAction = "";
+const VERSION_RELEASE_NOTES = {
+  "20260320_184041": {
+    headline: "随机歌词生成已修复",
+    copy: "高级设置里的歌词魔法棒现在会稳定生成并回填歌词，不再只闪动不工作。",
+    highlights: [
+      "Safari 点击链路已修复",
+      "每次部署后静态资源都强制不缓存",
+      "版本面板改成用户版更新卡片"
+    ]
+  },
+  "20260320_174100": {
+    headline: "歌词刷新链路已接通",
+    copy: "高级设置开始接入现有的随机歌词生成能力，并补上标题兜底。",
+    highlights: ["随机歌词可回填", "高级设置联动增强", "线上缓存策略已收紧"]
+  }
+};
 
 const { languageCatalog } = window.CSSOS_I18N_CATALOG;
 
@@ -1450,6 +1469,57 @@ function normalizeVersionList(payload) {
   return [];
 }
 
+function extractVersionDateParts(entry) {
+  const raw = String(entry?.createdAt || entry?.date || entry?.id || "").trim();
+  const match = raw.match(/(\d{4})-?(\d{2})-?(\d{2})/);
+  if (!match) return null;
+  return { year: match[1], month: match[2], day: match[3] };
+}
+
+function formatVersionBadge(entry) {
+  const parts = extractVersionDateParts(entry);
+  if (!parts) return String(entry?.id || "").replace(/_/g, "");
+  return `${parts.month}${parts.day}${parts.year}`;
+}
+
+function formatVersionDateLabel(entry) {
+  const parts = extractVersionDateParts(entry);
+  if (!parts) return String(entry?.createdAt || entry?.date || entry?.id || "").trim();
+  return `${parts.month}/${parts.day}/${parts.year}`;
+}
+
+function getVersionReleaseNotes(entry) {
+  const id = String(entry?.id || entry?.version || "").trim();
+  return VERSION_RELEASE_NOTES[id] || {
+    headline: "最新版本已上线",
+    copy: "这里会告诉你这次更新修了什么，而不是只显示工程编号。",
+    highlights: ["版本信息更清楚", "技术编号收进详情", "刷新即可使用新版本"]
+  };
+}
+
+function renderVersionHero(entry, currentId) {
+  if (!versionHero || !versionHighlights) return;
+  const notes = getVersionReleaseNotes(entry);
+  versionHero.innerHTML = `
+    <div class="version-badge">${escapeHtml(formatVersionBadge(entry))}</div>
+    <div class="version-headline">${escapeHtml(notes.headline)}</div>
+    <div class="version-copy">${escapeHtml(notes.copy)}</div>
+  `;
+  versionHighlights.innerHTML = "";
+  notes.highlights.forEach((line) => {
+    const item = document.createElement("div");
+    item.className = "version-highlight";
+    item.textContent = line;
+    versionHighlights.appendChild(item);
+  });
+  if (versionCurrentLabel) {
+    versionCurrentLabel.textContent = `${formatVersionDateLabel(entry)} · ${currentId}`;
+  }
+  if (versionTechSummary) {
+    versionTechSummary.textContent = `Technical details · ${currentId}`;
+  }
+}
+
 async function loadVersions() {
   if (!versionToggle || !versionMenu || !versionList) return;
   try {
@@ -1460,27 +1530,28 @@ async function loadVersions() {
     const currentData = currentRes && currentRes.ok ? await currentRes.json() : null;
     const listData = listRes && listRes.ok ? await listRes.json() : null;
     const current =
-      currentData?.version || currentData?.id || listData?.current || "current";
+      listData?.current || currentData?.version || currentData?.id || "current";
     const versions = normalizeVersionList(listData);
     if (!versions.length) {
       versionToggle.classList.add("is-hidden");
       return;
     }
-    if (versionCurrentLabel) {
-      versionCurrentLabel.textContent = `${t("versions.current")} · ${current}`;
-    }
+    const activeEntry =
+      versions.find((entry) => String(entry?.id || entry?.version || entry?.name || "").trim() === current) ||
+      versions[0];
+    renderVersionHero(activeEntry, current);
     versionList.innerHTML = "";
     versions.forEach((entry) => {
       const id = entry.id || entry.version || entry.name;
       if (!id) return;
-      const safePath = `/v/${encodeURIComponent(id)}/`;
-      const label = entry.label || id;
+      const safePath = entry.path || `/v/${encodeURIComponent(id)}`;
+      const label = entry.label || formatVersionBadge(entry) || id;
       const item = document.createElement("a");
       item.href = safePath;
       item.className = `version-item ${id === current ? "active" : ""}`;
       item.innerHTML = `
-        <span>${label}</span>
-        <span>${entry.createdAt || entry.date || ""}</span>
+        <strong>${escapeHtml(label)}</strong>
+        <span>${escapeHtml(formatVersionDateLabel(entry))}</span>
       `;
       item.addEventListener("click", (event) => {
         event.preventDefault();
@@ -2282,8 +2353,6 @@ function bindSeedRefreshButton(button, target, options = {}) {
 }
 
 window.CSSOS_primeLyricsRegenerate = function primeLyricsRegenerate(event) {
-  event?.preventDefault?.();
-  event?.stopPropagation?.();
   try {
     enterLyricSpellcast();
   } catch {}

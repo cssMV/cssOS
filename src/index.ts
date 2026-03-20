@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import crypto from "node:crypto";
+import fs from "node:fs";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import type { QueryResult } from "pg";
@@ -17,6 +18,9 @@ const app = express();
 const PORT = 3000;
 const REGISTRY_URL = "http://localhost:8080";
 const IS_PROD = process.env.NODE_ENV === "production";
+const PUBLIC_DIR = path.join(__dirname, "..", "public");
+const SHARED_DIR = path.join(__dirname, "..", "..", "shared");
+const SHARED_VERSIONS_FILE = path.join(SHARED_DIR, "versions.json");
 
 const DATABASE_URL = getDatabaseUrl();
 if (process.env.NODE_ENV === "production" && !DATABASE_URL) {
@@ -68,8 +72,34 @@ if (DATABASE_URL) {
 }
 
 app.use(session(sessionConfig));
+app.get("/version.json", (_req, res) => {
+  noStore(res);
+  try {
+    if (fs.existsSync(SHARED_VERSIONS_FILE)) {
+      const payload = JSON.parse(fs.readFileSync(SHARED_VERSIONS_FILE, "utf8"));
+      const current = String(payload?.current || "").trim();
+      return res.json({ version: current || "current" });
+    }
+  } catch {}
+  return res.json({ version: "current" });
+});
+app.get("/versions.json", (_req, res) => {
+  noStore(res);
+  try {
+    if (fs.existsSync(SHARED_VERSIONS_FILE)) {
+      const payload = JSON.parse(fs.readFileSync(SHARED_VERSIONS_FILE, "utf8"));
+      return res.json(payload && typeof payload === "object" ? payload : { current: "", versions: [] });
+    }
+  } catch {}
+  return res.json({ current: "", versions: [] });
+});
+app.get("/v/:version", (_req, res) => {
+  noStore(res);
+  res.type("html");
+  return res.sendFile(path.join(PUBLIC_DIR, "index.html"));
+});
 app.use(
-  express.static(path.join(__dirname, "..", "public"), {
+  express.static(PUBLIC_DIR, {
     setHeaders(res) {
       res.setHeader("Cache-Control", "no-store");
     }
@@ -5493,7 +5523,7 @@ app.get("/health", (_req, res) => {
 
 app.get("/", (_req, res) => {
   noStore(res);
-  res.sendFile(path.join(__dirname, "..", "public", "index.html"));
+  res.sendFile(path.join(PUBLIC_DIR, "index.html"));
 });
 
 async function start() {

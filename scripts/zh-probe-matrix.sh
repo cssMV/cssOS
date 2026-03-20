@@ -224,6 +224,7 @@ artifact_file = artifact_dir / f"{stamp}.json"
 latest_file = artifact_dir / "latest.json"
 history_file = artifact_dir / "history.ndjson"
 public_latest_file = public_ops_dir / "zh-probe-latest.json"
+public_history_file = public_ops_dir / "zh-probe-history.json"
 
 artifact_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 latest_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -231,9 +232,35 @@ with history_file.open("a", encoding="utf-8") as fh:
     fh.write(json.dumps(payload, ensure_ascii=False) + "\n")
 public_latest_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
+history_rows = []
+if history_file.exists():
+    for raw in history_file.read_text(encoding="utf-8").splitlines():
+        if not raw.strip():
+            continue
+        try:
+            history_rows.append(json.loads(raw))
+        except json.JSONDecodeError:
+            continue
+history_rows = history_rows[-48:]
+public_history_file.write_text(
+    json.dumps(
+        {
+            "schema": "cssos.zh_probe_history.v1",
+            "updated_at": timestamp,
+            "count": len(history_rows),
+            "samples": history_rows,
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+
 print(f"[probe] wrote {artifact_file}")
 print(f"[probe] updated {latest_file}")
 print(f"[probe] updated {public_latest_file}")
+print(f"[probe] updated {public_history_file}")
 PY
 }
 

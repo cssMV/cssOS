@@ -989,6 +989,7 @@ const deliveryDashboardState = {
   crossRunIncidentRunId: "",
   crossRunIncidentSnapshots: [],
   probeSummary: null,
+  probeHistory: [],
   probeError: ""
 };
 
@@ -12829,6 +12830,117 @@ function buildWatchArchiveRegionLinkTrendStrip(probeSummary) {
     }));
 }
 
+function buildProbeSparkline(points) {
+  const values = Array.isArray(points)
+    ? points.map((value) => Math.max(0, Math.min(100, Number(value || 0))))
+    : [];
+  if (!values.length) return "";
+  return values
+    .map((value) => {
+      if (value >= 95) return "█";
+      if (value >= 80) return "▇";
+      if (value >= 60) return "▆";
+      if (value >= 40) return "▄";
+      if (value >= 20) return "▂";
+      return "▁";
+    })
+    .join("");
+}
+
+function buildWatchArchiveLinkStabilitySparkline(probeHistory) {
+  const samples = Array.isArray(probeHistory) ? probeHistory : [];
+  if (!samples.length) return [];
+  const targetSeries = new Map();
+  samples.forEach((sample) => {
+    const targets = Array.isArray(sample?.targets) ? sample.targets : [];
+    targets.forEach((target) => {
+      const key = String(target?.target || "").trim();
+      if (!key) return;
+      if (!targetSeries.has(key)) targetSeries.set(key, []);
+      targetSeries.get(key).push(Number(target?.http_success_rate || 0));
+    });
+  });
+  return Array.from(targetSeries.entries()).map(([target, series]) => ({
+    target,
+    sparkline: buildProbeSparkline(series),
+    latest: series.length ? Number(series[series.length - 1] || 0) : 0,
+    floor: series.length ? Math.min(...series) : 0,
+    ceiling: series.length ? Math.max(...series) : 0
+  }));
+}
+
+function buildWatchArchiveAlertThresholdCards(probeSummary, probeHistory) {
+  const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
+  const historySamples = Array.isArray(probeHistory) ? probeHistory : [];
+  const latestTargets = Array.isArray(payload?.targets) ? payload.targets : [];
+  const historyCount = historySamples.length;
+  return latestTargets
+    .filter((item) => item && item.target)
+    .map((item) => {
+      const httpRate = Number(item.http_success_rate || 0);
+      const resetRate = Number(item.reset_rate || 0);
+      const level =
+        httpRate >= 95 && resetRate <= 5
+          ? dashboardCopy("healthy", "健康")
+          : httpRate >= 70 && resetRate <= 25
+            ? dashboardCopy("watch", "观察")
+            : dashboardCopy("alert", "告警");
+      return {
+        target: String(item.target),
+        level,
+        status: dashboardCopy(
+          `HTTP ${httpRate}% vs reset ${resetRate}%`,
+          `HTTP ${httpRate}%，重置 ${resetRate}%`
+        ),
+        note: dashboardCopy(
+          `${historyCount} historical samples in trend memory.`,
+          `趋势记忆里已有 ${historyCount} 个历史样本。`
+        )
+      };
+    });
+}
+
+function buildWatchArchiveRouteComparisonMemo(probeSummary) {
+  const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
+  const targets = Array.isArray(payload?.targets) ? payload.targets : [];
+  const targetByName = Object.fromEntries(targets.map((item) => [String(item?.target || ""), item]));
+  const localPublic = targetByName.local_public || null;
+  const apiVmPublic = targetByName.api_vm_public || null;
+  const gzvmPublic = targetByName.gzvm_public || null;
+  const gzvmLoopback = targetByName.gzvm_loopback || null;
+
+  const outsideWeak =
+    Number(localPublic?.http_success_rate || 0) < 50 || Number(apiVmPublic?.http_success_rate || 0) < 50;
+  const serverStrong =
+    Number(gzvmPublic?.http_success_rate || 0) >= 80 && Number(gzvmLoopback?.http_success_rate || 0) >= 80;
+
+  let headline = dashboardCopy("Route comparison is still mixed.", "当前路径对比仍然混合。");
+  if (outsideWeak && serverStrong) {
+    headline = dashboardCopy(
+      "Cross-border or external path weakness is more likely than a server crash.",
+      "当前更像跨境或外部路径偏弱，不像服务器宕机。"
+    );
+  } else if (!outsideWeak && serverStrong) {
+    headline = dashboardCopy(
+      "Server path and external path look aligned.",
+      "服务器路径与外部路径目前基本一致。"
+    );
+  } else if (!serverStrong) {
+    headline = dashboardCopy(
+      "Server-side path still needs attention before blaming the route.",
+      "在怀疑链路之前，服务器侧路径仍需先关注。"
+    );
+  }
+
+  return {
+    headline,
+    note: dashboardCopy(
+      `Local=${localPublic?.http_success_rate ?? 0}% · api-vm=${apiVmPublic?.http_success_rate ?? 0}% · gzvm public=${gzvmPublic?.http_success_rate ?? 0}% · gzvm loopback=${gzvmLoopback?.http_success_rate ?? 0}%`,
+      `本机=${localPublic?.http_success_rate ?? 0}% · 美国机=${apiVmPublic?.http_success_rate ?? 0}% · 中国公网=${gzvmPublic?.http_success_rate ?? 0}% · 中国回环=${gzvmLoopback?.http_success_rate ?? 0}%`
+    )
+  };
+}
+
 function buildWatchArchiveCrossBorderAnomalyAlert(probeSummary) {
   const payload = probeSummary && typeof probeSummary === "object" ? probeSummary : null;
   const conclusion = payload?.conclusion || {};
@@ -23495,6 +23607,16 @@ function renderMusicDeliveryDashboard() {
   const regionLinkTrendStrip = buildWatchArchiveRegionLinkTrendStrip(
     deliveryDashboardState.probeSummary
   );
+  const linkStabilitySparkline = buildWatchArchiveLinkStabilitySparkline(
+    deliveryDashboardState.probeHistory
+  );
+  const alertThresholdCards = buildWatchArchiveAlertThresholdCards(
+    deliveryDashboardState.probeSummary,
+    deliveryDashboardState.probeHistory
+  );
+  const routeComparisonMemo = buildWatchArchiveRouteComparisonMemo(
+    deliveryDashboardState.probeSummary
+  );
   const crossBorderAnomalyAlert = buildWatchArchiveCrossBorderAnomalyAlert(
     deliveryDashboardState.probeSummary
   );
@@ -23533,12 +23655,60 @@ function renderMusicDeliveryDashboard() {
             }
           </div>
           <div class="report-list-item">
+            <div class="report-preview-title">Link Stability Sparkline</div>
+            ${
+              linkStabilitySparkline.length
+                ? linkStabilitySparkline
+                    .map(
+                      (item) => `<div class="report-list-item">
+                          <div class="report-preview-title">${escapeHtml(item.target)}</div>
+                          <div class="report-card-copy">${escapeHtml(item.sparkline || "n/a")}</div>
+                          <div class="report-card-copy">${escapeHtml(
+                            dashboardCopy(
+                              `Latest ${item.latest}% · Floor ${item.floor}% · Ceiling ${item.ceiling}%`,
+                              `当前 ${item.latest}% · 最低 ${item.floor}% · 最高 ${item.ceiling}%`
+                            )
+                          )}</div>
+                        </div>`
+                    )
+                    .join("")
+                : `<div class="report-empty">${escapeHtml(
+                    dashboardCopy("Probe history is not available yet.", "探针历史暂时还不可用。")
+                  )}</div>`
+            }
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Alert Threshold Cards</div>
+            ${
+              alertThresholdCards.length
+                ? alertThresholdCards
+                    .map(
+                      (item) => `<div class="report-list-item">
+                          <div class="report-preview-title">${escapeHtml(item.target)}</div>
+                          <div class="report-card-copy">${escapeHtml(
+                            `${item.level} · ${item.status}`
+                          )}</div>
+                          <div class="report-card-copy">${escapeHtml(item.note)}</div>
+                        </div>`
+                    )
+                    .join("")
+                : `<div class="report-empty">${escapeHtml(
+                    dashboardCopy("Alert thresholds are waiting for probe data.", "告警阈值卡正在等待探针数据。")
+                  )}</div>`
+            }
+          </div>
+          <div class="report-list-item">
             <div class="report-preview-title">Cross-Border Anomaly Alert</div>
             <div class="report-card-copy">${escapeHtml(
               `${crossBorderAnomalyAlert.level} · ${crossBorderAnomalyAlert.title}`
             )}</div>
             <div class="report-card-copy">${escapeHtml(crossBorderAnomalyAlert.summary)}</div>
             <div class="report-card-copy">${escapeHtml(crossBorderAnomalyAlert.note)}</div>
+          </div>
+          <div class="report-list-item">
+            <div class="report-preview-title">Route Comparison Memo</div>
+            <div class="report-card-copy">${escapeHtml(routeComparisonMemo.headline)}</div>
+            <div class="report-card-copy">${escapeHtml(routeComparisonMemo.note)}</div>
           </div>
         </div>
       `
@@ -23740,9 +23910,14 @@ async function loadMusicDeliveryDashboard(runId = deliveryDashboardState.runId, 
     headers: { accept: "application/json" },
     cache: "no-store"
   }).catch(() => null);
+  const probeHistoryFetch = fetch("/ops/zh-probe-history.json", {
+    method: "GET",
+    headers: { accept: "application/json" },
+    cache: "no-store"
+  }).catch(() => null);
 
-  deliveryDashboardRequest = Promise.all([dashboardFetch, probeFetch])
-    .then(async ([res, probeRes]) => {
+  deliveryDashboardRequest = Promise.all([dashboardFetch, probeFetch, probeHistoryFetch])
+    .then(async ([res, probeRes, probeHistoryRes]) => {
       if (!res.ok) {
         throw new Error(`music delivery dashboard request failed: ${res.status}`);
       }
@@ -23754,6 +23929,14 @@ async function loadMusicDeliveryDashboard(runId = deliveryDashboardState.runId, 
       } else {
         deliveryDashboardState.probeSummary = null;
         deliveryDashboardState.probeError = "";
+      }
+      if (probeHistoryRes && probeHistoryRes.ok) {
+        const probeHistoryPayload = await probeHistoryRes.json().catch(() => null);
+        deliveryDashboardState.probeHistory = Array.isArray(probeHistoryPayload?.samples)
+          ? probeHistoryPayload.samples
+          : [];
+      } else {
+        deliveryDashboardState.probeHistory = [];
       }
       deliveryDashboardState.loadedAt = Date.now();
       const arrangementItems = Array.isArray(payload?.package_browser)

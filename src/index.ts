@@ -1661,17 +1661,45 @@ function buildFallbackCssmvSongSeed(input: {
   };
 }
 
+type CssmvSongSeedInput = {
+  mode: string;
+  transcript: string;
+  title: string;
+  style: string;
+  voice: string;
+  language: string;
+  variationNonce?: string;
+  constraints?: Record<string, unknown>;
+};
+
+type CssmvOpenAiFailure = {
+  status?: number;
+  code?: string;
+  message?: string;
+  type?: string;
+} | null;
+
+type CssmvOpenAiSongSeedRaw = {
+  title?: unknown;
+  lyrics?: unknown;
+  music_style?: unknown;
+  references?: unknown;
+  music_structure?: unknown;
+  video_outline?: unknown;
+  section_prompts?: unknown;
+  section_beats?: unknown;
+  style_tags?: unknown;
+};
+
+function tagCssmvSongSeedSource(seed: Record<string, unknown>, source: "openai" | "cssmv-fallback") {
+  seed.seed_source = source;
+  seed.seed_pipeline =
+    source === "openai" ? "openai_primary_cssmv_rules" : "cssmv_rules_fallback";
+  return seed;
+}
+
 function buildCssmvSongSeedFallbackWithMeta(
-  input: {
-    mode: string;
-    transcript: string;
-    title: string;
-    style: string;
-    voice: string;
-    language: string;
-    variationNonce?: string;
-    constraints?: Record<string, unknown>;
-  },
+  input: CssmvSongSeedInput,
   meta?: {
     openaiErrorCode?: string;
     openaiErrorMessage?: string;
@@ -1681,6 +1709,7 @@ function buildCssmvSongSeedFallbackWithMeta(
   }
 ) {
   const fallback = buildFallbackCssmvSongSeed(input) as Record<string, unknown>;
+  tagCssmvSongSeedSource(fallback, "cssmv-fallback");
   if (meta?.openaiErrorCode) fallback.openai_error_code = meta.openaiErrorCode;
   if (meta?.openaiErrorMessage) fallback.openai_error_message = meta.openaiErrorMessage;
   if (typeof meta?.openaiErrorStatus === "number") fallback.openai_error_status = meta.openaiErrorStatus;
@@ -1689,297 +1718,104 @@ function buildCssmvSongSeedFallbackWithMeta(
   return fallback;
 }
 
-async function generateCssmvSongSeed(input: {
-  mode: string;
-  transcript: string;
-  title: string;
-  style: string;
-  voice: string;
-  language: string;
-  variationNonce?: string;
-  constraints?: Record<string, unknown>;
-}) {
-  const apiKey = process.env.OPENAI_API_KEY || "";
-  if (!apiKey) {
+function normalizeCssmvOpenAiSongSeed(
+  input: CssmvSongSeedInput,
+  parsed: CssmvOpenAiSongSeedRaw,
+  model: string
+) {
+  const title = String(parsed?.title || "").trim();
+  const rawLyrics = String(parsed?.lyrics || "").trim();
+  const musicStyle = String(parsed?.music_style || "").trim();
+  const referencesRaw = Array.isArray(parsed?.references)
+    ? parsed.references.map((x: unknown) => String(x || "").trim()).filter(Boolean)
+    : [];
+  const musicStructure = String(parsed?.music_structure || "").trim();
+  const videoOutline = String(parsed?.video_outline || "").trim();
+  const sectionPrompts = Array.isArray(parsed?.section_prompts)
+    ? parsed.section_prompts
+        .map((item: unknown) => {
+          const row = item as { section?: unknown; title?: unknown; prompt?: unknown };
+          return {
+            section: String(row?.section || "").trim(),
+            title: String(row?.title || "").trim(),
+            prompt: String(row?.prompt || "").trim()
+          };
+        })
+        .filter((item: { section: string; title: string; prompt: string }) => item.section && item.title && item.prompt)
+    : [];
+  const sectionBeats = Array.isArray(parsed?.section_beats)
+    ? parsed.section_beats
+        .map((item: unknown) => {
+          const row = item as {
+            section?: unknown;
+            title?: unknown;
+            bars?: unknown;
+            energy?: unknown;
+            focus?: unknown;
+            visual_role?: unknown;
+          };
+          return {
+            section: String(row?.section || "").trim(),
+            title: String(row?.title || "").trim(),
+            bars: Number.parseInt(String(row?.bars || "0"), 10) || 0,
+            energy: String(row?.energy || "").trim(),
+            focus: String(row?.focus || "").trim(),
+            visual_role: String(row?.visual_role || "").trim()
+          };
+        })
+        .filter(
+          (item: {
+            section: string;
+            title: string;
+            bars: number;
+            energy: string;
+            focus: string;
+            visual_role: string;
+          }) =>
+            item.section &&
+            item.title &&
+            item.bars > 0 &&
+            item.energy &&
+            item.focus &&
+            item.visual_role
+        )
+    : [];
+  const styleTags = Array.isArray(parsed?.style_tags)
+    ? parsed.style_tags.map((x: unknown) => String(x || "").trim()).filter(Boolean)
+    : [];
+  const normalizedLyrics = normalizeCssmvLyrics(rawLyrics);
+  if (!title || !normalizedLyrics) {
     return buildCssmvSongSeedFallbackWithMeta(input, {
-      fallbackReason: "missing_api_key"
+      openaiModel: model,
+      fallbackReason: "invalid_openai_payload"
     });
   }
-  const model =
-    process.env.OPENAI_TEXT_MODEL || process.env.OPENAI_MODEL || "gpt-4.1-mini";
-  const timeoutMs = Math.max(
-    5000,
-    Number.parseInt(String(process.env.OPENAI_TEXT_TIMEOUT_MS || "30000"), 10) || 30000
-  );
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  let openAiFailure: {
-    status?: number;
-    code?: string;
-    message?: string;
-    type?: string;
-  } | null = null;
-  try {
-    const messages = [
-      {
-        role: "system" as const,
-        content:
-          "Generate structured creative seeds for cssMV. Favor bold divergence, vivid specificity, and materially different song identities across variations while preserving the requested title and output schema."
-      },
-      {
-        role: "user" as const,
-        content: buildCssmvSongSeedPrompt(input)
-      }
-    ];
-    const jsonSchema = {
-      type: "json_schema" as const,
-      json_schema: {
-        name: "cssmv_song_seed",
-        schema: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            title: { type: "string" },
-            lyrics: { type: "string" },
-            music_style: { type: "string" },
-            references: {
-              type: "array",
-              items: { type: "string" }
-            },
-            music_structure: { type: "string" },
-            video_outline: { type: "string" },
-            section_prompts: {
-              type: "array",
-              items: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  section: { type: "string" },
-                  title: { type: "string" },
-                  prompt: { type: "string" }
-                },
-                required: ["section", "title", "prompt"]
-              }
-            },
-            section_beats: {
-              type: "array",
-              items: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  section: { type: "string" },
-                  title: { type: "string" },
-                  bars: { type: "number" },
-                  energy: { type: "string" },
-                  focus: { type: "string" },
-                  visual_role: { type: "string" }
-                },
-                required: ["section", "title", "bars", "energy", "focus", "visual_role"]
-              }
-            },
-            style_tags: {
-              type: "array",
-              items: { type: "string" }
-            }
-          },
-          required: [
-            "title",
-            "lyrics",
-            "music_style",
-            "references",
-            "music_structure",
-            "video_outline",
-            "section_prompts",
-            "section_beats",
-            "style_tags"
-          ]
-        }
-      }
-    };
-    const requestPayload = async (responseFormat?: Record<string, unknown>) => {
-      try {
-        const upstream = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            authorization: `Bearer ${apiKey}`
-          },
-          body: JSON.stringify({
-            model,
-            messages,
-            ...(responseFormat ? { response_format: responseFormat } : {})
-          }),
-          signal: controller.signal
-        });
-        const payload = await upstream.json().catch(() => null);
-        if (!upstream.ok) {
-          const errorBody =
-            payload && typeof payload === "object"
-              ? (payload.error as Record<string, unknown> | undefined)
-              : undefined;
-          openAiFailure = {
-            status: upstream.status,
-            code: String(errorBody?.code || errorBody?.type || `http_${upstream.status}`),
-            message: String(errorBody?.message || "OpenAI request failed"),
-            type: String(errorBody?.type || "")
-          };
-          console.warn("[cssmv.song_seed] OpenAI request failed", {
-            status: openAiFailure.status,
-            code: openAiFailure.code,
-            type: openAiFailure.type,
-            model,
-            hasTitle: Boolean(String(input.title || "").trim()),
-            language: String(input.language || "").trim() || "zh"
-          });
-          return null;
-        }
-        const content = String(payload?.choices?.[0]?.message?.content || "").trim();
-        if (!content) return null;
-        try {
-          return JSON.parse(content);
-        } catch {
-          const match = content.match(/\{[\s\S]*\}$/);
-          if (!match) return null;
-          try {
-            return JSON.parse(match[0]);
-          } catch {
-            return null;
-          }
-        }
-      } catch (error) {
-        openAiFailure = {
-          status: controller.signal.aborted ? 408 : 0,
-          code: controller.signal.aborted ? "request_timeout" : "request_failed",
-          message:
-            error instanceof Error ? error.message : "OpenAI request failed unexpectedly",
-          type: controller.signal.aborted ? "timeout" : "network_error"
-        };
-        console.warn("[cssmv.song_seed] OpenAI request threw", {
-          status: openAiFailure.status,
-          code: openAiFailure.code,
-          type: openAiFailure.type,
-          model,
-          hasTitle: Boolean(String(input.title || "").trim()),
-          language: String(input.language || "").trim() || "zh"
-        });
-        return null;
-      }
-    };
-    const parsed =
-      (await requestPayload(jsonSchema)) ||
-      (await requestPayload({ type: "json_object" })) ||
-      null;
-    if (!parsed) {
-      const failure = openAiFailure as
-        | { status?: number; code?: string; message?: string; type?: string }
-        | null;
-      const meta: {
-        openaiErrorCode?: string;
-        openaiErrorMessage?: string;
-        openaiErrorStatus?: number;
-        openaiModel?: string;
-        fallbackReason?: string;
-      } = {
-        openaiModel: model,
-        fallbackReason: failure?.code ? "openai_error" : "openai_empty_response"
-      };
-      if (failure?.code) meta.openaiErrorCode = failure.code;
-      if (failure?.message) meta.openaiErrorMessage = failure.message;
-      if (typeof failure?.status === "number") meta.openaiErrorStatus = failure.status;
-      return buildCssmvSongSeedFallbackWithMeta(input, meta);
-    }
-    const title = String(parsed?.title || "").trim();
-    const rawLyrics = String(parsed?.lyrics || "").trim();
-    const musicStyle = String(parsed?.music_style || "").trim();
-    const referencesRaw = Array.isArray(parsed?.references)
-      ? parsed.references.map((x: unknown) => String(x || "").trim()).filter(Boolean)
-      : [];
-    const musicStructure = String(parsed?.music_structure || "").trim();
-    const videoOutline = String(parsed?.video_outline || "").trim();
-    const sectionPrompts = Array.isArray(parsed?.section_prompts)
-      ? parsed.section_prompts
-          .map((item: unknown) => {
-            const row = item as { section?: unknown; title?: unknown; prompt?: unknown };
-            return {
-              section: String(row?.section || "").trim(),
-              title: String(row?.title || "").trim(),
-              prompt: String(row?.prompt || "").trim()
-            };
-          })
-          .filter((item: { section: string; title: string; prompt: string }) => item.section && item.title && item.prompt)
-      : [];
-    const sectionBeats = Array.isArray(parsed?.section_beats)
-      ? parsed.section_beats
-          .map((item: unknown) => {
-            const row = item as {
-              section?: unknown;
-              title?: unknown;
-              bars?: unknown;
-              energy?: unknown;
-              focus?: unknown;
-              visual_role?: unknown;
-            };
-            return {
-              section: String(row?.section || "").trim(),
-              title: String(row?.title || "").trim(),
-              bars: Number.parseInt(String(row?.bars || "0"), 10) || 0,
-              energy: String(row?.energy || "").trim(),
-              focus: String(row?.focus || "").trim(),
-              visual_role: String(row?.visual_role || "").trim()
-            };
-          })
-          .filter(
-            (item: {
-              section: string;
-              title: string;
-              bars: number;
-              energy: string;
-              focus: string;
-              visual_role: string;
-            }) =>
-              item.section &&
-              item.title &&
-              item.bars > 0 &&
-              item.energy &&
-              item.focus &&
-              item.visual_role
-          )
-      : [];
-    const styleTags = Array.isArray(parsed?.style_tags)
-      ? parsed.style_tags.map((x: unknown) => String(x || "").trim()).filter(Boolean)
-      : [];
-    const normalizedLyrics = normalizeCssmvLyrics(rawLyrics);
-    const references = referencesRaw.map((ref: string) => {
-      if (/^https?:\/\//i.test(ref)) return ref;
-      return `https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(ref)}`;
+  if (!lyricsMatchTargetLanguage(normalizedLyrics, input.language)) {
+    return buildCssmvSongSeedFallbackWithMeta(input, {
+      openaiModel: model,
+      fallbackReason: "language_mismatch"
     });
-    if (!title || !normalizedLyrics) {
-      return buildCssmvSongSeedFallbackWithMeta(input, {
-        openaiModel: model,
-        fallbackReason: "invalid_openai_payload"
-      });
-    }
-    if (!lyricsMatchTargetLanguage(normalizedLyrics, input.language)) {
-      return buildCssmvSongSeedFallbackWithMeta(input, {
-        openaiModel: model,
-        fallbackReason: "language_mismatch"
-      });
-    }
-    if (shouldRejectCssmvSeed(title, normalizedLyrics)) {
-      return buildCssmvSongSeedFallbackWithMeta(input, {
-        openaiModel: model,
-        fallbackReason: "quality_rejected"
-      });
-    }
-    const blueprint = buildCssmvCreativeBlueprint(input);
-    const safeTitle =
-      String(input.title || "").trim() ||
-      (titleMatchesTargetLanguage(title, input.language)
-        ? title
-        : buildCssmvDynamicTitle(blueprint, input.language));
-    const defaultSectionPrompts = buildDefaultCssmvSectionPrompts(safeTitle, blueprint);
-    const defaultSectionBeats = buildDefaultCssmvSectionBeats(blueprint);
-    return {
+  }
+  if (shouldRejectCssmvSeed(title, normalizedLyrics)) {
+    return buildCssmvSongSeedFallbackWithMeta(input, {
+      openaiModel: model,
+      fallbackReason: "quality_rejected"
+    });
+  }
+  const references = referencesRaw.map((ref: string) => {
+    if (/^https?:\/\//i.test(ref)) return ref;
+    return `https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(ref)}`;
+  });
+  const blueprint = buildCssmvCreativeBlueprint(input);
+  const safeTitle =
+    String(input.title || "").trim() ||
+    (titleMatchesTargetLanguage(title, input.language)
+      ? title
+      : buildCssmvDynamicTitle(blueprint, input.language));
+  const defaultSectionPrompts = buildDefaultCssmvSectionPrompts(safeTitle, blueprint);
+  const defaultSectionBeats = buildDefaultCssmvSectionBeats(blueprint);
+  return tagCssmvSongSeedSource(
+    {
       model,
       openai_model: model,
       title: safeTitle,
@@ -2024,7 +1860,223 @@ async function generateCssmvSongSeed(input: {
           : defaultSectionBeats,
       style_tags: styleTags,
       creative_summary: buildCssmvCreativeSummary(blueprint)
-    };
+    },
+    "openai"
+  );
+}
+
+async function requestOpenAiCssmvSongSeed(
+  input: CssmvSongSeedInput,
+  apiKey: string,
+  model: string,
+  controller: AbortController,
+  onFailure: (failure: CssmvOpenAiFailure) => void
+) {
+  const messages = [
+    {
+      role: "system" as const,
+      content:
+        "Generate structured creative seeds for cssMV. Favor bold divergence, vivid specificity, and materially different song identities across variations while preserving the requested title and output schema."
+    },
+    {
+      role: "user" as const,
+      content: buildCssmvSongSeedPrompt(input)
+    }
+  ];
+  const jsonSchema = {
+    type: "json_schema" as const,
+    json_schema: {
+      name: "cssmv_song_seed",
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          title: { type: "string" },
+          lyrics: { type: "string" },
+          music_style: { type: "string" },
+          references: {
+            type: "array",
+            items: { type: "string" }
+          },
+          music_structure: { type: "string" },
+          video_outline: { type: "string" },
+          section_prompts: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                section: { type: "string" },
+                title: { type: "string" },
+                prompt: { type: "string" }
+              },
+              required: ["section", "title", "prompt"]
+            }
+          },
+          section_beats: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                section: { type: "string" },
+                title: { type: "string" },
+                bars: { type: "number" },
+                energy: { type: "string" },
+                focus: { type: "string" },
+                visual_role: { type: "string" }
+              },
+              required: ["section", "title", "bars", "energy", "focus", "visual_role"]
+            }
+          },
+          style_tags: {
+            type: "array",
+            items: { type: "string" }
+          }
+        },
+        required: [
+          "title",
+          "lyrics",
+          "music_style",
+          "references",
+          "music_structure",
+          "video_outline",
+          "section_prompts",
+          "section_beats",
+          "style_tags"
+        ]
+      }
+    }
+  };
+  const requestPayload = async (responseFormat?: Record<string, unknown>) => {
+    try {
+      const upstream = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          ...(responseFormat ? { response_format: responseFormat } : {})
+        }),
+        signal: controller.signal
+      });
+      const payload = await upstream.json().catch(() => null);
+      if (!upstream.ok) {
+        const errorBody =
+          payload && typeof payload === "object"
+            ? (payload.error as Record<string, unknown> | undefined)
+            : undefined;
+        const failure = {
+          status: upstream.status,
+          code: String(errorBody?.code || errorBody?.type || `http_${upstream.status}`),
+          message: String(errorBody?.message || "OpenAI request failed"),
+          type: String(errorBody?.type || "")
+        };
+        onFailure(failure);
+        console.warn("[cssmv.song_seed] OpenAI request failed", {
+          status: failure.status,
+          code: failure.code,
+          type: failure.type,
+          model,
+          hasTitle: Boolean(String(input.title || "").trim()),
+          language: String(input.language || "").trim() || "zh"
+        });
+        return null;
+      }
+      const content = String(payload?.choices?.[0]?.message?.content || "").trim();
+      if (!content) return null;
+      try {
+        return JSON.parse(content) as CssmvOpenAiSongSeedRaw;
+      } catch {
+        const match = content.match(/\{[\s\S]*\}$/);
+        if (!match) return null;
+        try {
+          return JSON.parse(match[0]) as CssmvOpenAiSongSeedRaw;
+        } catch {
+          return null;
+        }
+      }
+    } catch (error) {
+      const failure = {
+        status: controller.signal.aborted ? 408 : 0,
+        code: controller.signal.aborted ? "request_timeout" : "request_failed",
+        message:
+          error instanceof Error ? error.message : "OpenAI request failed unexpectedly",
+        type: controller.signal.aborted ? "timeout" : "network_error"
+      };
+      onFailure(failure);
+      console.warn("[cssmv.song_seed] OpenAI request threw", {
+        status: failure.status,
+        code: failure.code,
+        type: failure.type,
+        model,
+        hasTitle: Boolean(String(input.title || "").trim()),
+        language: String(input.language || "").trim() || "zh"
+      });
+      return null;
+    }
+  };
+  return (
+    (await requestPayload(jsonSchema)) ||
+    (await requestPayload({ type: "json_object" })) ||
+    null
+  );
+}
+
+async function generateCssmvSongSeed(input: CssmvSongSeedInput) {
+  const apiKey = process.env.OPENAI_API_KEY || "";
+  if (!apiKey) {
+    return buildCssmvSongSeedFallbackWithMeta(input, {
+      fallbackReason: "missing_api_key"
+    });
+  }
+  const model =
+    process.env.OPENAI_TEXT_MODEL || process.env.OPENAI_MODEL || "gpt-4.1-mini";
+  const timeoutMs = Math.max(
+    5000,
+    Number.parseInt(String(process.env.OPENAI_TEXT_TIMEOUT_MS || "30000"), 10) || 30000
+  );
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let openAiFailure: {
+    status?: number;
+    code?: string;
+    message?: string;
+    type?: string;
+  } | null = null;
+  try {
+    const parsed = await requestOpenAiCssmvSongSeed(
+      input,
+      apiKey,
+      model,
+      controller,
+      (failure) => {
+        openAiFailure = failure;
+      }
+    );
+    if (!parsed) {
+      const failure = openAiFailure as
+        | { status?: number; code?: string; message?: string; type?: string }
+        | null;
+      const meta: {
+        openaiErrorCode?: string;
+        openaiErrorMessage?: string;
+        openaiErrorStatus?: number;
+        openaiModel?: string;
+        fallbackReason?: string;
+      } = {
+        openaiModel: model,
+        fallbackReason: failure?.code ? "openai_error" : "openai_empty_response"
+      };
+      if (failure?.code) meta.openaiErrorCode = failure.code;
+      if (failure?.message) meta.openaiErrorMessage = failure.message;
+      if (typeof failure?.status === "number") meta.openaiErrorStatus = failure.status;
+      return buildCssmvSongSeedFallbackWithMeta(input, meta);
+    }
+    return normalizeCssmvOpenAiSongSeed(input, parsed, model);
   } catch {
     const failure = openAiFailure as
       | { status?: number; code?: string; message?: string; type?: string }

@@ -918,7 +918,7 @@
               placeholder="Drop your own verses or a full opera..."
               data-i18n-placeholder="settings.lyricsPlaceholder"
             ></textarea>
-            <div id="lyrics-debug-status" class="field-debug-status" aria-live="polite" data-i18n="settings.lyricsDebugIdle">
+            <div id="lyrics-debug-status" class="field-debug-status" aria-live="polite" data-i18n="settings.lyricsDebugIdle" hidden>
               Click the wand to view lyric generation status.
             </div>
           </label>
@@ -1093,49 +1093,53 @@
                 />
               </label>
               <label>
-                <span>Vocal Style</span>
+                <span data-i18n="creation.vocalStyle">Vocal Style</span>
                 <input
                   id="creation-vocal-style"
                   type="text"
                   maxlength="240"
                   placeholder="e.g. airy bel canto, chesty soul, close-mic whisper"
+                  data-i18n-placeholder="creation.vocalStylePlaceholder"
                 />
               </label>
             </div>
             <div class="row">
               <label>
-                <span>Ensemble Style</span>
+                <span data-i18n="creation.ensembleStyle">Ensemble Style</span>
                 <input
                   id="creation-ensemble-style"
                   type="text"
                   maxlength="240"
                   placeholder="e.g. chamber strings, festival drums, synth-pop band"
+                  data-i18n-placeholder="creation.ensembleStylePlaceholder"
                 />
               </label>
               <label>
-                <span>Licensed Style Pack</span>
+                <span data-i18n="creation.licensedStylePack">Licensed Style Pack</span>
                 <input
                   id="creation-licensed-style-pack"
                   type="text"
                   maxlength="240"
                   placeholder="e.g. orchestra.core.v1"
+                  data-i18n-placeholder="creation.licensedStylePackPlaceholder"
                 />
               </label>
             </div>
             <div class="row">
               <label>
-                <span>External Audio Adapter</span>
+                <span data-i18n="creation.externalAudioAdapter">External Audio Adapter</span>
                 <input
                   id="creation-external-audio-adapter"
                   type="text"
                   maxlength="240"
                   placeholder="e.g. kontakt, spitfire, eastwest, custom://orchestra"
+                  data-i18n-placeholder="creation.externalAudioAdapterPlaceholder"
                 />
               </label>
             </div>
             <div class="row">
               <label>
-                <span>Arrangement Density</span>
+                <span data-i18n="creation.arrangementDensity">Arrangement Density</span>
                 <input
                   id="creation-arrangement-density"
                   type="range"
@@ -1146,47 +1150,51 @@
                 />
               </label>
               <label>
-                <span>Dynamics Curve</span>
+                <span data-i18n="creation.dynamicsCurve">Dynamics Curve</span>
                 <input
                   id="creation-dynamics-curve"
                   type="text"
                   maxlength="240"
                   placeholder="e.g. rising arc, soft verse / explosive chorus"
+                  data-i18n-placeholder="creation.dynamicsCurvePlaceholder"
                 />
               </label>
             </div>
             <div class="row">
               <label>
-                <span>Section Form</span>
+                <span data-i18n="creation.sectionForm">Section Form</span>
                 <input
                   id="creation-section-form"
                   type="text"
                   maxlength="240"
                   placeholder="e.g. intro, verse, pre-chorus, chorus, bridge, chorus, outro"
+                  data-i18n-placeholder="creation.sectionFormPlaceholder"
                 />
               </label>
               <label>
-                <span>Articulation Bias</span>
+                <span data-i18n="creation.articulationBias">Articulation Bias</span>
                 <input
                   id="creation-articulation-bias"
                   type="text"
                   maxlength="240"
                   placeholder="e.g. legato lead, staccato pulse, pizzicato bridge"
+                  data-i18n-placeholder="creation.articulationBiasPlaceholder"
                 />
               </label>
             </div>
             <div class="row">
               <label>
-                <span>Voicing Register</span>
+                <span data-i18n="creation.voicingRegister">Voicing Register</span>
                 <input
                   id="creation-voicing-register"
                   type="text"
                   maxlength="240"
                   placeholder="e.g. low cinematic bed, mid vocal pocket, bright high lead"
+                  data-i18n-placeholder="creation.voicingRegisterPlaceholder"
                 />
               </label>
               <label>
-                <span>Percussion Activity</span>
+                <span data-i18n="creation.percussionActivity">Percussion Activity</span>
                 <input
                   id="creation-percussion-activity"
                   type="range"

@@ -2468,6 +2468,7 @@ function setLyricsDebugStatus(message, state = "idle") {
   if (!lyricsDebugStatus) return;
   lyricsDebugStatus.textContent = String(message || "").trim();
   lyricsDebugStatus.dataset.state = state;
+  lyricsDebugStatus.hidden = !message || state === "idle" || state === "success";
 }
 
 function runNonCriticalUiStep(task) {
@@ -2612,9 +2613,41 @@ function buildFallbackSongSeedTitle() {
     return `${leads[Math.floor(Math.random() * leads.length)]}${tails[Math.floor(Math.random() * tails.length)]}`;
   }
   if (lang.startsWith("ja")) {
-    return genre ? `${genre} improvisation` : "improvisation theme";
+    const leads = ["月影", "宵風", "海鳴", "灯守", "星詠", "薄明", "夜航", "雨声"];
+    const tails = ["の祈り", "の残響", "の歌", "の約束", "の灯", "の航路", "の記憶", "の羽音"];
+    return `${leads[Math.floor(Math.random() * leads.length)]}${tails[Math.floor(Math.random() * tails.length)]}`;
   }
   return genre ? `${genre} improvisation` : "improvisation theme";
+}
+
+function buildSongSeedGenerationConstraints() {
+  return {
+    language: creationState.language || document.documentElement.lang || "zh",
+    work_type: creationState.workType || "single",
+    genre: creationState.selections?.genre || "",
+    mood: creationState.selections?.mood || "",
+    lead_instrument: creationState.selections?.instrument || "",
+    ambience: creationState.selections?.ambience || "",
+    vocal_gender: creationState.selections?.vocalGender || creationState.voice || "",
+    style_text: styleInput?.value?.trim() || state.style || "",
+    instrumentation: creationState.instrumentation || "",
+    vocal_style: creationState.vocalStyle || "",
+    ensemble_style: creationState.ensembleStyle || "",
+    licensed_style_pack: creationState.licensedStylePack || "",
+    external_audio_adapter: creationState.externalAudioAdapter || "",
+    arrangement_density: creationState.arrangementDensity,
+    dynamics_curve: creationState.dynamicsCurve || "",
+    section_form: creationState.sectionForm || "",
+    articulation_bias: creationState.articulationBias || "",
+    voicing_register: creationState.voicingRegister || "",
+    percussion_activity: creationState.percussionActivity,
+    humanization: creationState.humanization,
+    tempo_bpm: creationState.tempo,
+    key: creationState.key,
+    duration_sec: creationState.duration,
+    user_prompt: creationState.prompt || "",
+    inspiration_notes: creationState.inspirationNotes || ""
+  };
 }
 
 function ensureSongSeedTitleContext() {
@@ -5326,6 +5359,14 @@ function renderSongSeedPreview(seed = state.songSeed) {
   syncWatchMusicState();
   syncWatchEditorsFromSettings();
   renderWatchMetaPanels();
+  if (
+    seed?.title &&
+    !hasEffectivePreviewVideo() &&
+    !String(foryouThumbImage?.src || "").trim() &&
+    !String(currentForyouThumbFallbackDataUrl || "").trim()
+  ) {
+    syncForyouThumbFromLyrics(seed.title, compactLyricLines(String(seed.lyrics || "").split("\n")));
+  }
 }
 
 function getCurrentWatchArtwork() {
@@ -31665,7 +31706,8 @@ async function runLyricsGenerate(mode, options = {}) {
     style: styleInput?.value?.trim() || state.style || "",
     voice: voiceInput?.value?.trim() || state.voice || "",
     language: creationState.language || document.documentElement.lang || "zh",
-    variation_nonce: `${Date.now()}_${songSeedVariationCounter}_${mode}`
+    variation_nonce: `${Date.now()}_${songSeedVariationCounter}_${mode}`,
+    constraints: buildSongSeedGenerationConstraints()
   };
   const res = await fetch("/api/cssmv/song-seed", {
     method: "POST",

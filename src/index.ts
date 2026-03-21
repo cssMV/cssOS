@@ -747,6 +747,7 @@ function buildCssmvSongSeedPrompt(input: {
   voice: string;
   language: string;
   variationNonce?: string;
+  constraints?: Record<string, unknown>;
 }) {
   const language = input.language || "zh";
   const mode = input.mode || "music_video";
@@ -767,9 +768,16 @@ function buildCssmvSongSeedPrompt(input: {
       : String(language).toLowerCase().startsWith("zh")
         ? "Write the lyrics almost entirely in natural Chinese. Do not output an English lyric body. The actual sung lines, crowd lines, and emotional core must read as Chinese."
         : "Write the lyrics almost entirely in natural English. Do not switch the lyric body into Chinese or Japanese.";
+  const titleDirective =
+    String(language).toLowerCase().startsWith("ja")
+      ? "If the user did not provide a title, invent the main title in Japanese first. Do not default to an English title for a Japanese lyric unless the user explicitly requested it."
+      : String(language).toLowerCase().startsWith("zh")
+        ? "If the user did not provide a title, invent the main title in Chinese first. Do not default to an English title for a Chinese lyric unless the user explicitly requested it."
+        : "If the user did not provide a title, invent the main title in natural English first.";
+  const constraintBlock = formatSongSeedConstraintBlock(input.constraints);
 
   return [
-    "You are generating a cssMV creative seed.",
+    "You are generating a cssMV creative seed in Du Jing's classic sacred-lyric template.",
     `Target language: ${language}.`,
     `Mode: ${mode}.`,
     `Creative kind: ${kind}.`,
@@ -781,6 +789,7 @@ function buildCssmvSongSeedPrompt(input: {
     hasTranscript
       ? `Use this transcript as inspiration:\n${input.transcript}`
       : "No voice transcript is available. Invent a fresh concept instead of using placeholder titles such as Untitled.",
+    constraintBlock || "User constraints are sparse. You may invent the missing details, but they still need to feel coherent with one another.",
     input.variationNonce
       ? `Variation nonce: ${input.variationNonce}. Treat this as a hard command to generate a genuinely different song family, not a paraphrase of a previous draft. Preserve the title and language, but change the world, imagery, emotional arc, diction, and hook behavior.`
       : "Generate a fresh but coherent variation.",
@@ -816,6 +825,14 @@ function buildCssmvSongSeedPrompt(input: {
     ].join("\n"),
     "Lyrics rules:",
     `- ${languageDirective}`,
+    `- ${titleDirective}`,
+    "- If the user provided a title, treat it as law. Do not rename it, reinterpret it away, or switch it into a different language.",
+    "- The title, lyric imagery, music style, instrumentation, and emotional arc must all point to the same world. They cannot feel like separate random buckets.",
+    "- If the language is Japanese, prefer title diction, imagery, instrumentation, and vocal phrasing that plausibly belong together in a Japanese release context unless the user explicitly requested cross-cultural fusion.",
+    "- If the language is Chinese, prefer title diction, imagery, instrumentation, and vocal phrasing that plausibly belong together in a Chinese release context unless the user explicitly requested cross-cultural fusion.",
+    "- If the language is English, keep the title and lyric body naturally English unless the user explicitly requested multilingual mixing.",
+    "- Obey every explicit user constraint. Only randomize the fields the user did not specify.",
+    "- Never output a title in one language while the lyric body is in another language by accident.",
     "- Write complete lyrics, not an outline.",
     "- Keep them singable and emotionally coherent.",
     "- The lyrics must feel like a brand-new finished song, not a rewrite of a stock template.",
@@ -827,6 +844,10 @@ function buildCssmvSongSeedPrompt(input: {
     "- Every section must have an explicit section header.",
     "- Use this section order exactly: [Intro], [Verse 1], [Verse 2], [Chorus 1], [Verse 3], [Verse 4], [Chorus 2], [Bridge], [Chorus 3], [Chorus 4], [Outro].",
     "- Use ASCII square brackets for every section header, for example [Verse 1: Moonlit Oath].",
+    "- Use Du Jing's sacred lyric discipline: Verse 1, Verse 2, Chorus 1, Verse 3, Verse 4, Chorus 2, Bridge, Chorus 3, Chorus 4, and Outro should each feel like a completed lyrical scene rather than a note dump.",
+    "- For Verse 1, Verse 2, Verse 3, Verse 4, Chorus 1, Chorus 2, Bridge, Chorus 3, Chorus 4, and Outro, aim for four narrative lines plus one response / incantation line from the civilization's original tongue or ritual speech.",
+    "- When you include an incantation or response line, place an English translation in square brackets at the end of that line or immediately after it.",
+    "- Put musical background, style, instrumentation, and stage feeling into music_style, music_structure, video_outline, section_prompts, and section_beats so the whole package stays coherent.",
     "- Return exactly 11 section_prompts entries, one for each section including [Intro] and [Outro].",
     "- Return exactly 11 section_beats entries, aligned one-to-one with the section order.",
     "- Every lyrical section except Intro must include a subsection title after the colon, for example [Verse 2: Lanterns Over the River]. The subsection titles themselves must be original and specific to this attempt.",
@@ -978,6 +999,42 @@ function buildCssmvDynamicTitle(
   language: string
 ) {
   const zh = String(language || "zh").toLowerCase().startsWith("zh");
+  const ja = String(language || "zh").toLowerCase().startsWith("ja");
+  if (ja) {
+    const titleBanks = {
+      "mythic-rite": {
+        lead: ["月読", "星祷", "鈴焔", "天廟", "潮鐘", "霧殿", "祭灯", "雲札"],
+        tail: ["の誓い", "の余響", "の夜航", "の灯火", "の記憶", "の断章", "の潮汐", "の祈り"]
+      },
+      "neon-heartbreak": {
+        lead: ["雨窓", "終電", "深夜", "残光", "空駅", "灯街", "静電", "夜更け"],
+        tail: ["の未読", "の微熱", "の失声", "の残響", "の回線", "の別れ", "の低音", "の余白"]
+      },
+      "gravity-fiction": {
+        lead: ["軌道", "無重力", "星港", "赤方", "船窓", "冷槽", "深空", "回路"],
+        tail: ["の漂流", "の帰還", "の脈動", "の静圧", "の残波", "の通信", "の夜航", "の記録"]
+      },
+      "pastoral-memory": {
+        lead: ["川灯", "蝉夏", "稲風", "夕灶", "木窓", "橋影", "茶煙", "黄灯"],
+        tail: ["の便り", "の帰路", "の余温", "の晩鐘", "の夏影", "の暮色", "の夢路", "の遠音"]
+      },
+      "surreal-cabaret": {
+        lead: ["鏡幕", "絹灯", "夜席", "紙冠", "幻灯", "暗場", "珠幕", "側幕"],
+        tail: ["の囁き", "の返幕", "の残香", "の微光", "の余興", "の退場", "の迷路", "の私語"]
+      },
+      "riot-romance": {
+        lead: ["街灯", "火線", "屋上", "旗影", "夜奔", "煙灯", "路標", "群青"],
+        tail: ["の共振", "の逆風", "の余火", "の誓約", "の呼声", "の奔流", "の接吻", "の残火"]
+      }
+    };
+    const bank =
+      titleBanks[blueprint.id as keyof typeof titleBanks] ||
+      titleBanks["mythic-rite" as keyof typeof titleBanks];
+    const lead = bank.lead[blueprint.hash % bank.lead.length] || bank.lead[0] || "星歌";
+    const tail =
+      bank.tail[Math.floor(blueprint.hash / 11) % bank.tail.length] || bank.tail[0] || "の歌";
+    return `${lead}${tail}`;
+  }
   const titleBanks = zh
     ? {
         "mythic-rite": {
@@ -1038,6 +1095,34 @@ function buildCssmvDynamicTitle(
   const tail =
     bank.tail[Math.floor(blueprint.hash / 11) % bank.tail.length] || bank.tail[0] || "MV";
   return zh ? `${lead}${tail}` : `${lead} ${tail}`;
+}
+
+function titleMatchesTargetLanguage(title: string, language: string) {
+  const normalizedTitle = String(title || "").trim();
+  if (!normalizedTitle) return false;
+  const latin = (normalizedTitle.match(/[A-Za-z]/g) || []).length;
+  const han = (normalizedTitle.match(/[\u4E00-\u9FFF]/g) || []).length;
+  const hiraKata = (normalizedTitle.match(/[\u3040-\u30FF]/g) || []).length;
+  const normalizedLanguage = String(language || "zh").toLowerCase();
+  if (normalizedLanguage.startsWith("ja")) {
+    return hiraKata + han >= Math.max(2, latin);
+  }
+  if (normalizedLanguage.startsWith("zh")) {
+    return han >= Math.max(2, latin);
+  }
+  return latin >= Math.max(2, han + hiraKata);
+}
+
+function formatSongSeedConstraintBlock(constraints?: Record<string, unknown>) {
+  if (!constraints || typeof constraints !== "object") return "";
+  const rows = Object.entries(constraints)
+    .map(([key, value]) => {
+      if (value === null || value === undefined) return "";
+      if (typeof value === "string" && !value.trim()) return "";
+      return `- ${key}: ${String(value)}`;
+    })
+    .filter(Boolean);
+  return rows.length ? `User constraints that must be obeyed whenever provided:\n${rows.join("\n")}` : "";
 }
 
 function containsCssmvBlockedPhrase(value: string) {
@@ -1548,6 +1633,7 @@ function buildFallbackCssmvSongSeed(input: {
   voice: string;
   language: string;
   variationNonce?: string;
+  constraints?: Record<string, unknown>;
 }) {
   const blueprint = buildCssmvCreativeBlueprint(input);
   const title =
@@ -1583,9 +1669,8 @@ async function generateCssmvSongSeed(input: {
   voice: string;
   language: string;
   variationNonce?: string;
+  constraints?: Record<string, unknown>;
 }) {
-  const blankSeedRequest = !String(input.title || "").trim() && !String(input.transcript || "").trim();
-  if (blankSeedRequest) return buildFallbackCssmvSongSeed(input);
   const apiKey = process.env.OPENAI_API_KEY || "";
   if (!apiKey) return buildFallbackCssmvSongSeed(input);
   const model = process.env.OPENAI_TEXT_MODEL || "gpt-4.1-mini";
@@ -1780,11 +1865,16 @@ async function generateCssmvSongSeed(input: {
       return buildFallbackCssmvSongSeed(input);
     }
     const blueprint = buildCssmvCreativeBlueprint(input);
-    const defaultSectionPrompts = buildDefaultCssmvSectionPrompts(title, blueprint);
+    const safeTitle =
+      String(input.title || "").trim() ||
+      (titleMatchesTargetLanguage(title, input.language)
+        ? title
+        : buildCssmvDynamicTitle(blueprint, input.language));
+    const defaultSectionPrompts = buildDefaultCssmvSectionPrompts(safeTitle, blueprint);
     const defaultSectionBeats = buildDefaultCssmvSectionBeats(blueprint);
     return {
       model,
-      title,
+      title: safeTitle,
       lyrics: normalizedLyrics,
       music_style: musicStyle,
       references,
@@ -1965,6 +2055,10 @@ app.post("/api/cssmv/song-seed", async (req, res) => {
     const voice = String(req.body?.voice || "").trim();
     const language = String(req.body?.language || "zh").trim();
     const variationNonce = String(req.body?.variation_nonce || "").trim();
+    const constraints =
+      req.body?.constraints && typeof req.body.constraints === "object"
+        ? req.body.constraints
+        : undefined;
     const seed = await generateCssmvSongSeed({
       mode,
       transcript,
@@ -1972,7 +2066,8 @@ app.post("/api/cssmv/song-seed", async (req, res) => {
       style,
       voice,
       language,
-      variationNonce
+      variationNonce,
+      constraints
     });
     if (!seed) {
       return res.json(okEmpty({ generated: false }, "No data yet"));

@@ -738,13 +738,17 @@ body.longpress-guard * {
 }
 
 .foryou-full {
-  order: 1;
+  order: 0;
   display: grid;
   gap: 12px;
 }
 
 #foryou-panel.foryou-panel-compact .foryou-compact {
   display: block;
+}
+
+#foryou-panel .works-section {
+  order: 3;
 }
 
 .foryou-card {
@@ -1041,6 +1045,10 @@ body.longpress-guard * {
   line-height: 1.5;
   text-transform: none;
   letter-spacing: 0.02em;
+}
+
+.field-debug-status[hidden] {
+  display: none !important;
 }
 
 .field-debug-status[data-state="pending"] {

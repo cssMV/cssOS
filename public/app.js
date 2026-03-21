@@ -528,6 +528,7 @@ Object.assign(I18N.en, {
   "reports.digest.highlights": "Digest highlights",
   "reports.digest.queues": "Queue counts",
   "reports.digest.alerts": "Alert headlines",
+  "reports.digest.probeSummary": "Probe summary",
   "reports.briefing.highlights": "Briefing highlights",
   "reports.briefing.kpi": "KPI snapshot",
   "reports.briefing.analytics": "Analytics insights",
@@ -809,6 +810,7 @@ Object.assign(I18N.zh, {
   "reports.digest.highlights": "日报重点",
   "reports.digest.queues": "队列计数",
   "reports.digest.alerts": "预警标题",
+  "reports.digest.probeSummary": "探针总览",
   "reports.briefing.highlights": "简报重点",
   "reports.briefing.kpi": "KPI 摘要",
   "reports.briefing.analytics": "分析洞察",
@@ -29139,6 +29141,45 @@ function renderOpsProbeList(report) {
   );
 }
 
+function countOpsProbeStatuses(report) {
+  const probes = Array.isArray(report?.probe_checks) ? report.probe_checks : [];
+  return probes.reduce(
+    (acc, probe) => {
+      const key = String(probe?.status || "").toLowerCase();
+      if (key === "pass") acc.pass += 1;
+      else if (key === "warn") acc.warn += 1;
+      else if (key === "fail") acc.fail += 1;
+      return acc;
+    },
+    { pass: 0, warn: 0, fail: 0 }
+  );
+}
+
+function renderDigestProbeSummaryCard(digest) {
+  const report = digest?.ops_health || null;
+  const counts = countOpsProbeStatuses(report);
+  const summaryLines = [
+    `${t("reports.opsHealth.probePass")}: ${counts.pass}`,
+    `${t("reports.opsHealth.probeWarn")}: ${counts.warn}`,
+    `${t("reports.opsHealth.probeFail")}: ${counts.fail}`
+  ];
+  return `
+    <article class="report-card">
+      <div class="report-section-title">${escapeHtml(t("reports.digest.probeSummary"))}</div>
+      <div class="report-list-item report-alert-row">
+        <span class="report-badge ${escapeHtml(opsHealthBadgeClass(report?.status))}">${escapeHtml(
+          formatOpsHealthStatus(report?.status)
+        )}</span>
+        <div>
+          <div class="report-preview-title">${escapeHtml(report?.title || t("reports.opsHealth.title"))}</div>
+          <div class="report-card-copy">${escapeHtml(report?.summary || "")}</div>
+        </div>
+      </div>
+      ${renderStringList(summaryLines, t("reports.empty"))}
+    </article>
+  `;
+}
+
 function renderOpsHealthCard(report) {
   if (!report) {
     return `
@@ -29217,6 +29258,7 @@ function renderOpsHealthStandaloneReport(report) {
 
 function renderDigestReport(digest) {
   return `
+    ${renderDigestProbeSummaryCard(digest)}
     ${renderMetricGrid(digest?.daily_metrics)}
     <div class="report-grid">
       ${renderOpsHealthCard(digest?.ops_health)}

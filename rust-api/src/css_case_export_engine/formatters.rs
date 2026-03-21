@@ -153,6 +153,30 @@ pub fn delivery_digest_to_text(
         digest.daily_metrics.resolution_change_count
     ));
 
+    if let Some(ops_health) = &digest.ops_health {
+        let pass = ops_health
+            .probe_checks
+            .iter()
+            .filter(|probe| matches!(probe.status, crate::css_case_delivery_ops_health::types::DeliveryOpsProbeStatus::Pass))
+            .count();
+        let warn = ops_health
+            .probe_checks
+            .iter()
+            .filter(|probe| matches!(probe.status, crate::css_case_delivery_ops_health::types::DeliveryOpsProbeStatus::Warn))
+            .count();
+        let fail = ops_health
+            .probe_checks
+            .iter()
+            .filter(|probe| matches!(probe.status, crate::css_case_delivery_ops_health::types::DeliveryOpsProbeStatus::Fail))
+            .count();
+        out.push(String::new());
+        out.push("探针总览：".into());
+        out.push(format!(
+            "- status={:?}，pass={}，warn={}，fail={}",
+            ops_health.status, pass, warn, fail
+        ));
+    }
+
     if !digest.inbox_counts.is_empty() {
         out.push(String::new());
         out.push("关键队列：".into());

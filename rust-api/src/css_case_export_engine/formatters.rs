@@ -271,6 +271,16 @@ pub fn delivery_ops_health_to_text(
             out.push(format!("- {}: {}", reason.label, reason.summary));
         }
     }
+    if !health.probe_checks.is_empty() {
+        out.push(String::new());
+        out.push("Probe checks:".into());
+        for probe in &health.probe_checks {
+            out.push(format!(
+                "- {} [{:?}]: {}",
+                probe.label, probe.status, probe.summary
+            ));
+        }
+    }
     if !health.suggested_actions.is_empty() {
         out.push(String::new());
         out.push("Suggested actions:".into());
@@ -313,10 +323,16 @@ pub fn delivery_dashboard_to_csv(
 pub fn delivery_ops_health_to_csv(
     health: &crate::css_case_delivery_ops_health::types::CssCaseDeliveryOpsHealthReport,
 ) -> String {
+    let probe_summary = health
+        .probe_checks
+        .iter()
+        .map(|probe| format!("{}:{:?}", probe.key, probe.status))
+        .collect::<Vec<_>>()
+        .join("|");
     vec![
-        "status,api_status,subscription_count,active_subscription_count,queue_count,alert_count,pending_recovery_count,still_failing_count,recent_failed_log_count,checked_at".to_string(),
+        "status,api_status,subscription_count,active_subscription_count,queue_count,alert_count,pending_recovery_count,still_failing_count,recent_failed_log_count,probe_summary,checked_at".to_string(),
         format!(
-            "{:?},{},{},{},{},{},{},{},{},{}",
+            "{:?},{},{},{},{},{},{},{},{},{},{}",
             health.status,
             health.api_status,
             health.subscription_count,
@@ -326,6 +342,7 @@ pub fn delivery_ops_health_to_csv(
             health.pending_recovery_count,
             health.still_failing_count,
             health.recent_failed_log_count,
+            probe_summary,
             health.checked_at
         ),
     ]

@@ -14,6 +14,22 @@ pub struct DeliveryOpsHealthReason {
     pub summary: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DeliveryOpsProbeStatus {
+    Pass,
+    Warn,
+    Fail,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeliveryOpsProbeCheck {
+    pub key: String,
+    pub label: String,
+    pub status: DeliveryOpsProbeStatus,
+    pub summary: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CssCaseDeliveryOpsHealthReport {
     pub title: String,
@@ -28,6 +44,8 @@ pub struct CssCaseDeliveryOpsHealthReport {
     pub pending_recovery_count: usize,
     pub still_failing_count: usize,
     pub recent_failed_log_count: usize,
+    #[serde(default)]
+    pub probe_checks: Vec<DeliveryOpsProbeCheck>,
     #[serde(default)]
     pub reasons: Vec<DeliveryOpsHealthReason>,
     #[serde(default)]

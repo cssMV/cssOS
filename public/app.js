@@ -592,6 +592,10 @@ Object.assign(I18N.en, {
   "reports.opsHealth.checkedAt": "Checked at",
   "reports.opsHealth.overview": "Ops overview",
   "reports.opsHealth.pendingRecovery": "Pending recovery",
+  "reports.opsHealth.probeChecks": "Probe checks",
+  "reports.opsHealth.probeFail": "Fail",
+  "reports.opsHealth.probePass": "Pass",
+  "reports.opsHealth.probeWarn": "Warn",
   "reports.opsHealth.queues": "Queues",
   "reports.opsHealth.reason": "Reason",
   "reports.opsHealth.reasons": "Health reasons",
@@ -869,6 +873,10 @@ Object.assign(I18N.zh, {
   "reports.opsHealth.checkedAt": "检查时间",
   "reports.opsHealth.overview": "运维概览",
   "reports.opsHealth.pendingRecovery": "待恢复",
+  "reports.opsHealth.probeChecks": "探针检查",
+  "reports.opsHealth.probeFail": "失败",
+  "reports.opsHealth.probePass": "通过",
+  "reports.opsHealth.probeWarn": "告警",
   "reports.opsHealth.queues": "队列",
   "reports.opsHealth.reason": "原因",
   "reports.opsHealth.reasons": "健康原因",
@@ -29115,6 +29123,22 @@ function renderOpsHealthOverviewList(report) {
   return renderStringList(items, t("reports.empty"));
 }
 
+function formatOpsProbeStatus(status) {
+  const key = String(status || "").toLowerCase();
+  if (key === "pass") return t("reports.opsHealth.probePass");
+  if (key === "warn") return t("reports.opsHealth.probeWarn");
+  if (key === "fail") return t("reports.opsHealth.probeFail");
+  return key || t("reports.empty");
+}
+
+function renderOpsProbeList(report) {
+  const probes = Array.isArray(report?.probe_checks) ? report.probe_checks : [];
+  return renderStringList(
+    probes.map((probe) => `${probe?.label || probe?.key || "Probe"} [${formatOpsProbeStatus(probe?.status)}]: ${probe?.summary || ""}`),
+    t("reports.empty")
+  );
+}
+
 function renderOpsHealthCard(report) {
   if (!report) {
     return `
@@ -29177,6 +29201,10 @@ function renderOpsHealthStandaloneReport(report) {
               : [],
             t("reports.empty")
           )}
+        </article>
+        <article class="report-card">
+          <div class="report-section-title">${escapeHtml(t("reports.opsHealth.probeChecks"))}</div>
+          ${renderOpsProbeList(report)}
         </article>
       </div>
       <article class="report-card">

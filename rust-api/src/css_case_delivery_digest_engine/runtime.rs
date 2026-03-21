@@ -265,6 +265,7 @@ mod tests {
             pending_recovery_count: 0,
             still_failing_count: 0,
             recent_failed_log_count: 0,
+            probe_checks: Vec::new(),
             reasons: Vec::new(),
             suggested_actions: Vec::new(),
         };

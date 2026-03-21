@@ -1661,6 +1661,34 @@ function buildFallbackCssmvSongSeed(input: {
   };
 }
 
+function buildCssmvSongSeedFallbackWithMeta(
+  input: {
+    mode: string;
+    transcript: string;
+    title: string;
+    style: string;
+    voice: string;
+    language: string;
+    variationNonce?: string;
+    constraints?: Record<string, unknown>;
+  },
+  meta?: {
+    openaiErrorCode?: string;
+    openaiErrorMessage?: string;
+    openaiErrorStatus?: number;
+    openaiModel?: string;
+    fallbackReason?: string;
+  }
+) {
+  const fallback = buildFallbackCssmvSongSeed(input) as Record<string, unknown>;
+  if (meta?.openaiErrorCode) fallback.openai_error_code = meta.openaiErrorCode;
+  if (meta?.openaiErrorMessage) fallback.openai_error_message = meta.openaiErrorMessage;
+  if (typeof meta?.openaiErrorStatus === "number") fallback.openai_error_status = meta.openaiErrorStatus;
+  if (meta?.openaiModel) fallback.openai_model = meta.openaiModel;
+  if (meta?.fallbackReason) fallback.fallback_reason = meta.fallbackReason;
+  return fallback;
+}
+
 async function generateCssmvSongSeed(input: {
   mode: string;
   transcript: string;
@@ -1672,14 +1700,25 @@ async function generateCssmvSongSeed(input: {
   constraints?: Record<string, unknown>;
 }) {
   const apiKey = process.env.OPENAI_API_KEY || "";
-  if (!apiKey) return buildFallbackCssmvSongSeed(input);
-  const model = process.env.OPENAI_TEXT_MODEL || "gpt-4.1-mini";
+  if (!apiKey) {
+    return buildCssmvSongSeedFallbackWithMeta(input, {
+      fallbackReason: "missing_api_key"
+    });
+  }
+  const model =
+    process.env.OPENAI_TEXT_MODEL || process.env.OPENAI_MODEL || "gpt-4.1-mini";
   const timeoutMs = Math.max(
     5000,
     Number.parseInt(String(process.env.OPENAI_TEXT_TIMEOUT_MS || "30000"), 10) || 30000
   );
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let openAiFailure: {
+    status?: number;
+    code?: string;
+    message?: string;
+    type?: string;
+  } | null = null;
   try {
     const messages = [
       {
@@ -1758,40 +1797,97 @@ async function generateCssmvSongSeed(input: {
       }
     };
     const requestPayload = async (responseFormat?: Record<string, unknown>) => {
-      const upstream = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model,
-          messages,
-          ...(responseFormat ? { response_format: responseFormat } : {})
-        }),
-        signal: controller.signal
-      });
-      const payload = await upstream.json().catch(() => null);
-      if (!upstream.ok) return null;
-      const content = String(payload?.choices?.[0]?.message?.content || "").trim();
-      if (!content) return null;
       try {
-        return JSON.parse(content);
-      } catch {
-        const match = content.match(/\{[\s\S]*\}$/);
-        if (!match) return null;
-        try {
-          return JSON.parse(match[0]);
-        } catch {
+        const upstream = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model,
+            messages,
+            ...(responseFormat ? { response_format: responseFormat } : {})
+          }),
+          signal: controller.signal
+        });
+        const payload = await upstream.json().catch(() => null);
+        if (!upstream.ok) {
+          const errorBody =
+            payload && typeof payload === "object"
+              ? (payload.error as Record<string, unknown> | undefined)
+              : undefined;
+          openAiFailure = {
+            status: upstream.status,
+            code: String(errorBody?.code || errorBody?.type || `http_${upstream.status}`),
+            message: String(errorBody?.message || "OpenAI request failed"),
+            type: String(errorBody?.type || "")
+          };
+          console.warn("[cssmv.song_seed] OpenAI request failed", {
+            status: openAiFailure.status,
+            code: openAiFailure.code,
+            type: openAiFailure.type,
+            model,
+            hasTitle: Boolean(String(input.title || "").trim()),
+            language: String(input.language || "").trim() || "zh"
+          });
           return null;
         }
+        const content = String(payload?.choices?.[0]?.message?.content || "").trim();
+        if (!content) return null;
+        try {
+          return JSON.parse(content);
+        } catch {
+          const match = content.match(/\{[\s\S]*\}$/);
+          if (!match) return null;
+          try {
+            return JSON.parse(match[0]);
+          } catch {
+            return null;
+          }
+        }
+      } catch (error) {
+        openAiFailure = {
+          status: controller.signal.aborted ? 408 : 0,
+          code: controller.signal.aborted ? "request_timeout" : "request_failed",
+          message:
+            error instanceof Error ? error.message : "OpenAI request failed unexpectedly",
+          type: controller.signal.aborted ? "timeout" : "network_error"
+        };
+        console.warn("[cssmv.song_seed] OpenAI request threw", {
+          status: openAiFailure.status,
+          code: openAiFailure.code,
+          type: openAiFailure.type,
+          model,
+          hasTitle: Boolean(String(input.title || "").trim()),
+          language: String(input.language || "").trim() || "zh"
+        });
+        return null;
       }
     };
     const parsed =
       (await requestPayload(jsonSchema)) ||
       (await requestPayload({ type: "json_object" })) ||
       null;
-    if (!parsed) return buildFallbackCssmvSongSeed(input);
+    if (!parsed) {
+      const failure = openAiFailure as
+        | { status?: number; code?: string; message?: string; type?: string }
+        | null;
+      const meta: {
+        openaiErrorCode?: string;
+        openaiErrorMessage?: string;
+        openaiErrorStatus?: number;
+        openaiModel?: string;
+        fallbackReason?: string;
+      } = {
+        openaiModel: model,
+        fallbackReason: failure?.code ? "openai_error" : "openai_empty_response"
+      };
+      if (failure?.code) meta.openaiErrorCode = failure.code;
+      if (failure?.message) meta.openaiErrorMessage = failure.message;
+      if (typeof failure?.status === "number") meta.openaiErrorStatus = failure.status;
+      return buildCssmvSongSeedFallbackWithMeta(input, meta);
+    }
     const title = String(parsed?.title || "").trim();
     const rawLyrics = String(parsed?.lyrics || "").trim();
     const musicStyle = String(parsed?.music_style || "").trim();
@@ -1857,12 +1953,23 @@ async function generateCssmvSongSeed(input: {
       if (/^https?:\/\//i.test(ref)) return ref;
       return `https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(ref)}`;
     });
-    if (!title || !normalizedLyrics) return buildFallbackCssmvSongSeed(input);
+    if (!title || !normalizedLyrics) {
+      return buildCssmvSongSeedFallbackWithMeta(input, {
+        openaiModel: model,
+        fallbackReason: "invalid_openai_payload"
+      });
+    }
     if (!lyricsMatchTargetLanguage(normalizedLyrics, input.language)) {
-      return buildFallbackCssmvSongSeed(input);
+      return buildCssmvSongSeedFallbackWithMeta(input, {
+        openaiModel: model,
+        fallbackReason: "language_mismatch"
+      });
     }
     if (shouldRejectCssmvSeed(title, normalizedLyrics)) {
-      return buildFallbackCssmvSongSeed(input);
+      return buildCssmvSongSeedFallbackWithMeta(input, {
+        openaiModel: model,
+        fallbackReason: "quality_rejected"
+      });
     }
     const blueprint = buildCssmvCreativeBlueprint(input);
     const safeTitle =
@@ -1874,6 +1981,7 @@ async function generateCssmvSongSeed(input: {
     const defaultSectionBeats = buildDefaultCssmvSectionBeats(blueprint);
     return {
       model,
+      openai_model: model,
       title: safeTitle,
       lyrics: normalizedLyrics,
       music_style: musicStyle,
@@ -1918,7 +2026,23 @@ async function generateCssmvSongSeed(input: {
       creative_summary: buildCssmvCreativeSummary(blueprint)
     };
   } catch {
-    return buildFallbackCssmvSongSeed(input);
+    const failure = openAiFailure as
+      | { status?: number; code?: string; message?: string; type?: string }
+      | null;
+    const meta: {
+      openaiErrorCode?: string;
+      openaiErrorMessage?: string;
+      openaiErrorStatus?: number;
+      openaiModel?: string;
+      fallbackReason?: string;
+    } = {
+      openaiErrorCode: failure?.code || "seed_generation_failed",
+      openaiErrorMessage: failure?.message || "Song seed generation failed",
+      openaiModel: model,
+      fallbackReason: "unexpected_error"
+    };
+    if (typeof failure?.status === "number") meta.openaiErrorStatus = failure.status;
+    return buildCssmvSongSeedFallbackWithMeta(input, meta);
   } finally {
     clearTimeout(timeout);
   }
@@ -2072,6 +2196,7 @@ app.post("/api/cssmv/song-seed", async (req, res) => {
     if (!seed) {
       return res.json(okEmpty({ generated: false }, "No data yet"));
     }
+    const seedMeta = seed as Record<string, unknown>;
     return res.json(
       okData({
         generated: true,
@@ -2085,7 +2210,12 @@ app.post("/api/cssmv/song-seed", async (req, res) => {
         section_beats: seed.section_beats,
         style_tags: seed.style_tags,
         creative_summary: seed.creative_summary,
-        model: seed.model
+        model: seed.model,
+        openai_model: seedMeta.openai_model,
+        openai_error_code: seedMeta.openai_error_code,
+        openai_error_message: seedMeta.openai_error_message,
+        openai_error_status: seedMeta.openai_error_status,
+        fallback_reason: seedMeta.fallback_reason
       })
     );
   } catch {

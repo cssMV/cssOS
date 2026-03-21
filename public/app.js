@@ -2471,6 +2471,29 @@ function setLyricsDebugStatus(message, state = "idle") {
   lyricsDebugStatus.hidden = !message || state === "idle" || state === "success";
 }
 
+function getSongSeedErrorCode(payload) {
+  const data = getApiData(payload);
+  return String(data?.openai_error_code || payload?.openai_error_code || "").trim();
+}
+
+function getSongSeedErrorMessage(payload) {
+  const data = getApiData(payload);
+  return String(data?.openai_error_message || payload?.openai_error_message || "").trim();
+}
+
+function isSongSeedQuotaExceeded(payload) {
+  const code = getSongSeedErrorCode(payload);
+  return code === "insufficient_quota" || code === "billing_hard_limit_reached";
+}
+
+function getSongSeedQuotaExceededMessage(payload) {
+  const detail = getSongSeedErrorMessage(payload);
+  return loginCopy(
+    `OpenAI API budget is exhausted. Add API budget or credits, then try lyric generation again${detail ? ` · ${detail}` : ""}.`,
+    `OpenAI API 配额已经用尽。请先补充 API 预算或 credits，再重新生成歌词${detail ? ` · ${detail}` : ""}。`
+  );
+}
+
 function runNonCriticalUiStep(task) {
   try {
     task?.();
@@ -2735,6 +2758,12 @@ async function regenerateSeedFields(target) {
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       lyricStage = `request-${attempt}`;
       payload = await runLyricsGenerate(target === "style" ? "style_refresh" : "music_video", { apply: false });
+      if (isSongSeedQuotaExceeded(payload)) {
+        const quotaMessage = getSongSeedQuotaExceededMessage(payload);
+        setLyricsDebugStatus(quotaMessage, "error");
+        safeShowToast(quotaMessage);
+        return;
+      }
       lyricStage = `response-${attempt}`;
       raw = getApiData(payload);
       if (!payload?.ok || payload?.empty || !raw) break;
@@ -31396,6 +31425,10 @@ async function startCreation(customTitle, customLyrics) {
     let usedSongSeed = false;
     if (!baseLines.length) {
       const seed = await runLyricsGenerate("music_video");
+      if (isSongSeedQuotaExceeded(seed)) {
+        safeShowToast(getSongSeedQuotaExceededMessage(seed));
+        return false;
+      }
       if (seed?.ok && !seed?.empty && seed?.data?.lyrics) {
         usedSongSeed = true;
         title = String(title || seed.data.title || "").trim();
@@ -31715,7 +31748,7 @@ async function runLyricsGenerate(mode, options = {}) {
     body: JSON.stringify(payload)
   });
   const json = await res.json().catch(() => null);
-  if (apply && json?.ok && !json?.empty) {
+  if (apply && json?.ok && !json?.empty && !isSongSeedQuotaExceeded(json)) {
     applySongSeedToSettings(json.data || json);
   }
   return json;
@@ -31780,6 +31813,11 @@ async function startCreationWithLyrics(title, lyricsText) {
 async function runMicFlow() {
   const mode = micState.transcript ? "mic" : "random";
   const lyricPayload = await runLyricsGenerate(mode);
+  if (isSongSeedQuotaExceeded(lyricPayload)) {
+    safeShowToast(getSongSeedQuotaExceededMessage(lyricPayload));
+    await playDemoMV();
+    return;
+  }
   if (!lyricPayload || !lyricPayload.ok || lyricPayload.no_data) {
     await playDemoMV();
     return;
@@ -32375,6 +32413,9 @@ async function submitVoiceOrFallbackTitle(blobOrNull) {
 
   if (!title) {
     const seed = await runLyricsGenerate("music_video").catch(() => null);
+    if (isSongSeedQuotaExceeded(seed)) {
+      safeShowToast(getSongSeedQuotaExceededMessage(seed));
+    }
     if (seed?.ok && !seed?.empty && seed?.data?.title) {
       title = String(seed.data.title || "").trim();
       if (titleInput && title) titleInput.value = title;

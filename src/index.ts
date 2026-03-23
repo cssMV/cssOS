@@ -10,9 +10,146 @@ import Stripe from "stripe";
 import dotenv from "dotenv";
 import { getDatabaseUrl, getPool, withClient } from "./db";
 import { runMigrations } from "./db/migrate";
+import {
+  inferStructureTreeFromSongSeed,
+  normalizeStructuredWorkType,
+  type StructurePlan
+} from "./cssmv/schemas/structure-tree";
 
-dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
-dotenv.config({ path: path.resolve(process.cwd(), ".env") });
+const ENV_CONFIG_PATHS = [
+  "/etc/cssos.env",
+  "/private/etc/cssos.env",
+  path.resolve(process.cwd(), ".env.local"),
+  path.resolve(process.cwd(), ".env")
+];
+
+for (const envPath of ENV_CONFIG_PATHS) {
+  dotenv.config({ path: envPath });
+}
+
+function loadEnvValueFromPaths(key: string) {
+  for (const envPath of ENV_CONFIG_PATHS) {
+    try {
+      if (!fs.existsSync(envPath)) continue;
+      const parsed = dotenv.parse(fs.readFileSync(envPath));
+      const value = String(parsed[key] || "").trim();
+      if (value) {
+        return {
+          path: envPath,
+          value
+        };
+      }
+    } catch {
+      continue;
+    }
+  }
+  const value = String(process.env[key] || "").trim();
+  if (!value) return null;
+  return {
+    path: "process.env",
+    value
+  };
+}
+
+function getOpenAiRuntimeConfig() {
+  const apiKeyEntry = loadEnvValueFromPaths("OPENAI_API_KEY");
+  const textModelEntry =
+    loadEnvValueFromPaths("OPENAI_TEXT_MODEL") || loadEnvValueFromPaths("OPENAI_MODEL");
+  const apiKey = apiKeyEntry?.value || String(process.env.OPENAI_API_KEY || "").trim();
+  const model =
+    textModelEntry?.value ||
+    String(process.env.OPENAI_TEXT_MODEL || process.env.OPENAI_MODEL || "gpt-4.1-mini").trim();
+  const fingerprint = apiKey
+    ? crypto.createHash("sha256").update(apiKey).digest("hex").slice(0, 12)
+    : "";
+  return {
+    apiKey,
+    model,
+    envSource: apiKeyEntry?.path || textModelEntry?.path || "process.env",
+    keyFingerprint: fingerprint
+  };
+}
+
+function getOpenAiDiagnosticsPayload() {
+  const runtimeConfig = getOpenAiRuntimeConfig();
+  const envCandidates = ENV_CONFIG_PATHS.map((envPath) => ({
+    path: envPath,
+    exists: fs.existsSync(envPath)
+  }));
+  return {
+    provider: "openai",
+    env_source: runtimeConfig.envSource,
+    model: runtimeConfig.model,
+    key_fingerprint: runtimeConfig.keyFingerprint,
+    has_api_key: Boolean(runtimeConfig.apiKey),
+    key_prefix: runtimeConfig.apiKey ? runtimeConfig.apiKey.slice(0, 12) : "",
+    env_candidates: envCandidates
+  };
+}
+
+async function runOpenAiProbe() {
+  const runtimeConfig = getOpenAiRuntimeConfig();
+  if (!runtimeConfig.apiKey) {
+    return {
+      ok: false,
+      provider: "openai",
+      status: 0,
+      model: runtimeConfig.model,
+      env_source: runtimeConfig.envSource,
+      key_fingerprint: runtimeConfig.keyFingerprint,
+      error_type: "missing_api_key",
+      error_code: "missing_api_key",
+      error_message: "OPENAI_API_KEY is not configured"
+    };
+  }
+
+  try {
+    const upstream = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${runtimeConfig.apiKey}`
+      },
+      body: JSON.stringify({
+        model: runtimeConfig.model,
+        messages: [{ role: "user", content: "ping" }],
+        max_completion_tokens: 8
+      })
+    });
+    const payload = await upstream.json().catch(() => null);
+    const errorBody =
+      payload && typeof payload === "object"
+        ? (payload.error as Record<string, unknown> | undefined)
+        : undefined;
+
+    return {
+      ok: upstream.ok,
+      provider: "openai",
+      status: upstream.status,
+      model: runtimeConfig.model,
+      env_source: runtimeConfig.envSource,
+      key_fingerprint: runtimeConfig.keyFingerprint,
+      key_prefix: runtimeConfig.apiKey.slice(0, 12),
+      error_type: String(errorBody?.type || ""),
+      error_code: String(errorBody?.code || errorBody?.type || ""),
+      error_message: String(errorBody?.message || ""),
+      response_id: String(payload?.id || "")
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      provider: "openai",
+      status: 0,
+      model: runtimeConfig.model,
+      env_source: runtimeConfig.envSource,
+      key_fingerprint: runtimeConfig.keyFingerprint,
+      key_prefix: runtimeConfig.apiKey.slice(0, 12),
+      error_type: "network_error",
+      error_code: "network_error",
+      error_message: error instanceof Error ? error.message : "OpenAI probe failed"
+    };
+  }
+}
 
 const app = express();
 const PORT = 3000;
@@ -21,6 +158,7 @@ const IS_PROD = process.env.NODE_ENV === "production";
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
 const SHARED_DIR = IS_PROD ? "/srv/cssos/shared" : path.join(__dirname, "..", "..", "shared");
 const SHARED_VERSIONS_FILE = path.join(SHARED_DIR, "versions.json");
+const PANEL_MEDIA_DIR = path.join(PUBLIC_DIR, "uploads", "panel-media");
 
 const DATABASE_URL = getDatabaseUrl();
 if (process.env.NODE_ENV === "production" && !DATABASE_URL) {
@@ -31,6 +169,7 @@ app.set("trust proxy", 1);
 
 app.use(
   express.json({
+    limit: "35mb",
     verify(req, _res, buf) {
       (req as any).rawBody = Buffer.from(buf);
     }
@@ -318,6 +457,128 @@ function mergeCreationPanelTemplate(value: any) {
       }
     }
   };
+}
+
+function normalizePanelDefaultsKey(value: unknown) {
+  const key = String(value || "").trim().toLowerCase();
+  return [
+    "creation",
+    "behavior",
+    "logo",
+    "dock",
+    "foryou",
+    "watch",
+    "lyrics",
+    "music",
+    "video"
+  ].includes(key)
+    ? key
+    : "";
+}
+
+function sanitizeGenericPanelTemplate(value: any) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return JSON.parse(JSON.stringify(value));
+}
+
+function sanitizeBehaviorPanelTemplate(value: any) {
+  const source = value && typeof value === "object" ? value : {};
+  const modeValues = new Set(["halo", "breath", "prism", "oracle"]);
+  const strategyValues = new Set(["random", "fixed", "per_type"]);
+  const previewValues = new Set(["auto", "image", "video"]);
+  const watchTabs = new Set(["mv", "music", "lyrics", "script", "comments", "revenue", "ownership"]);
+  const dockPositions = new Set(["left", "right", "top", "bottom"]);
+  const safeMode = (input: any, fallback: string) => (modeValues.has(String(input || "")) ? String(input) : fallback);
+  return {
+    logo: {
+      spell: String(source?.logo?.spell || "CSS").slice(0, 24) || "CSS",
+      subtitle: String(source?.logo?.subtitle || "Studio").slice(0, 40) || "Studio",
+      slogan_template:
+        String(source?.logo?.slogan_template || "Just say <span class=\"spell\">{spell}</span>, witness the miracle!").slice(0, 240) ||
+        "Just say <span class=\"spell\">{spell}</span>, witness the miracle!",
+      mirror_size_px: Math.max(420, Math.min(880, Number(source?.logo?.mirror_size_px ?? 600) || 600)),
+      mask_inset_percent: Math.max(0, Math.min(28, Number(source?.logo?.mask_inset_percent ?? 12) || 12)),
+      media: {
+        image_1: String(source?.logo?.media?.image_1 || "assets/mirror-1.webp").slice(0, 512) || "assets/mirror-1.webp",
+        image_2: String(source?.logo?.media?.image_2 || "assets/mirror-2.webp").slice(0, 512) || "assets/mirror-2.webp",
+        video: String(source?.logo?.media?.video || "").slice(0, 512)
+      },
+      mirror_strategy: strategyValues.has(String(source?.logo?.mirror_strategy || "")) ? String(source.logo.mirror_strategy) : "per_type",
+      fixed_mode: safeMode(source?.logo?.fixed_mode, "halo"),
+      per_type: {
+        single: safeMode(source?.logo?.per_type?.single, "halo"),
+        triptych: safeMode(source?.logo?.per_type?.triptych, "breath"),
+        opera: safeMode(source?.logo?.per_type?.opera, "prism")
+      }
+    },
+    dock: {
+      scale: Math.max(0.8, Math.min(1.35, Number(source?.dock?.scale ?? 1) || 1)),
+      show_labels: source?.dock?.show_labels !== false,
+      docking_enabled: source?.dock?.docking_enabled !== false,
+      dock_position: dockPositions.has(String(source?.dock?.dock_position || "")) ? String(source.dock.dock_position) : "bottom"
+    },
+    mic: {
+      longpress_ms: Math.max(250, Math.min(3000, Number(source?.mic?.longpress_ms ?? 600) || 600)),
+      max_hold_sec: [3, 5, 10, 15, 30].includes(Number(source?.mic?.max_hold_sec))
+        ? Number(source.mic.max_hold_sec)
+        : 30
+    },
+    foryou: {
+      preview_mode: previewValues.has(String(source?.foryou?.preview_mode || "")) ? String(source.foryou.preview_mode) : "auto",
+      compact_after_lyrics: source?.foryou?.compact_after_lyrics !== false,
+      hold_ms: Math.max(0, Math.min(30000, Number(source?.foryou?.hold_ms ?? 10000) || 10000)),
+      auto_watch_ms: Math.max(0, Math.min(30000, Number(source?.foryou?.auto_watch_ms ?? 10000) || 10000))
+    },
+    watch: {
+      default_tab: watchTabs.has(String(source?.watch?.default_tab || "")) ? String(source.watch.default_tab) : "mv",
+      preview_limit_sec: Math.max(0, Math.min(180, Number(source?.watch?.preview_limit_sec ?? 30) || 30)),
+      subtitle_scale: Math.max(0.8, Math.min(1.4, Number(source?.watch?.subtitle_scale ?? 1) || 1)),
+      engine_detail: ["compact", "full"].includes(String(source?.watch?.engine_detail || "")) ? String(source.watch.engine_detail) : "full"
+    },
+    lyrics: {
+      typewriter_speed: Math.max(8, Math.min(60, Number(source?.lyrics?.typewriter_speed ?? 18) || 18)),
+      font_scale: Math.max(0.85, Math.min(1.4, Number(source?.lyrics?.font_scale ?? 1) || 1)),
+      auto_collapse: source?.lyrics?.auto_collapse !== false
+    },
+    music: {
+      waveform_bars: Math.max(12, Math.min(48, Number(source?.music?.waveform_bars ?? 24) || 24)),
+      layer_cards: Math.max(3, Math.min(8, Number(source?.music?.layer_cards ?? 5) || 5))
+    },
+    video: {
+      storyboard_frames: Math.max(4, Math.min(16, Number(source?.video?.storyboard_frames ?? 8) || 8)),
+      camera_slots: Math.max(2, Math.min(8, Number(source?.video?.camera_slots ?? 4) || 4))
+    }
+  };
+}
+
+function decodeDataUrlToFile(dataUrl: string) {
+  const match = String(dataUrl || "").match(/^data:([^;,]+);base64,(.+)$/);
+  if (!match) return null;
+  const mime = String(match[1] || "").toLowerCase();
+  const encoded = String(match[2] || "");
+  if (!mime || !encoded) return null;
+  try {
+    return {
+      mime,
+      buffer: Buffer.from(encoded, "base64")
+    };
+  } catch {
+    return null;
+  }
+}
+
+function extensionForMime(mime: string, fallback = ".bin") {
+  const map: Record<string, string> = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+    "video/mp4": ".mp4",
+    "video/webm": ".webm",
+    "video/quicktime": ".mov"
+  };
+  return map[String(mime || "").toLowerCase()] || fallback;
 }
 
 function inferWorkPricingPreset(args: { title?: string | null | undefined; style?: string | null | undefined; workType?: unknown }) {
@@ -762,6 +1023,7 @@ function buildCssmvSongSeedPrompt(input: {
           ? "cinema scene seed"
           : "single song or opera seed";
   const blueprint = buildCssmvCreativeBlueprint(input);
+  const structurePlan = normalizeSongSeedStructurePlan(input.constraints?.structure_plan);
   const languageDirective =
     String(language).toLowerCase().startsWith("ja")
       ? "Write the lyrics almost entirely in natural Japanese. Do not output an English lyric body. Sparse loanwords are acceptable, but the actual sung lines, crowd lines, and emotional core must read as Japanese."
@@ -827,10 +1089,22 @@ function buildCssmvSongSeedPrompt(input: {
     `- ${languageDirective}`,
     `- ${titleDirective}`,
     "- If the user provided a title, treat it as law. Do not rename it, reinterpret it away, or switch it into a different language.",
+    "- The work_type user constraint is mandatory. If work_type is triptych, generate a triptych concept rather than collapsing it into a single-song framing. If work_type is opera, generate an opera concept rather than collapsing it into a single-song framing.",
+    ...(structurePlan?.targetPartNumber
+      ? [
+          `- structure_plan is mandatory for this attempt. Generate only Part ${structurePlan.targetPartNumber} of ${structurePlan.totalParts || 3}. Do not jump to other parts in this attempt.`
+        ]
+      : []),
+    ...(structurePlan?.targetActNumber
+      ? [
+          `- structure_plan is mandatory for this attempt. Generate only Act ${structurePlan.targetActNumber || 1}, Scene ${structurePlan.sceneStart || 1}-${structurePlan.sceneEnd || structurePlan.sceneStart || structurePlan.scenesPerBatch || 1}.`,
+          "- Do not restart the opera from Scene 1 if structure_plan asks for a later window, and do not leak scenes from other acts into this attempt."
+        ]
+      : []),
     "- The title, lyric imagery, music style, instrumentation, and emotional arc must all point to the same world. They cannot feel like separate random buckets.",
-    "- If the language is Japanese, prefer title diction, imagery, instrumentation, and vocal phrasing that plausibly belong together in a Japanese release context unless the user explicitly requested cross-cultural fusion.",
-    "- If the language is Chinese, prefer title diction, imagery, instrumentation, and vocal phrasing that plausibly belong together in a Chinese release context unless the user explicitly requested cross-cultural fusion.",
-    "- If the language is English, keep the title and lyric body naturally English unless the user explicitly requested multilingual mixing.",
+    "- If the language is Japanese, keep the lyric body, imagery, instrumentation, and vocal phrasing plausibly Japanese unless the user explicitly requested cross-cultural fusion. Never overwrite a user-provided title.",
+    "- If the language is Chinese, keep the lyric body, imagery, instrumentation, and vocal phrasing plausibly Chinese unless the user explicitly requested cross-cultural fusion. Never overwrite a user-provided title.",
+    "- If the language is English, keep the lyric body naturally English unless the user explicitly requested multilingual mixing. Never overwrite a user-provided title.",
     "- Obey every explicit user constraint. Only randomize the fields the user did not specify.",
     "- Never output a title in one language while the lyric body is in another language by accident.",
     "- Write complete lyrics, not an outline.",
@@ -841,6 +1115,7 @@ function buildCssmvSongSeedPrompt(input: {
     "- Randomize the theme universe, civilization atmosphere, cultural habits, narrator stance, mood field, and language texture according to the blueprint.",
     "- The society around the song must feel different each time: different rituals, gestures, objects, etiquette, and social rules.",
     "- The lyrics must contain the full standard section sequence including Intro and Outro for downstream compatibility.",
+    "- If the concept naturally expands into a triptych or opera, the package must still present a strong parent title and every internal unit must have its own explicit title. No unnamed parts, unnamed acts, or unnamed scenes are allowed.",
     "- Every section must have an explicit section header.",
     "- Use this section order exactly: [Intro], [Verse 1], [Verse 2], [Chorus 1], [Verse 3], [Verse 4], [Chorus 2], [Bridge], [Chorus 3], [Chorus 4], [Outro].",
     "- Use ASCII square brackets for every section header, for example [Verse 1: Moonlit Oath].",
@@ -850,7 +1125,10 @@ function buildCssmvSongSeedPrompt(input: {
     "- Put musical background, style, instrumentation, and stage feeling into music_style, music_structure, video_outline, section_prompts, and section_beats so the whole package stays coherent.",
     "- Return exactly 11 section_prompts entries, one for each section including [Intro] and [Outro].",
     "- Return exactly 11 section_beats entries, aligned one-to-one with the section order.",
+    "- Every section_prompts.title value must be non-empty, original, and usable as a scene title in the UI.",
+    "- Every section_beats.title value must be non-empty, original, and aligned with the matching section prompt title.",
     "- Every lyrical section except Intro must include a subsection title after the colon, for example [Verse 2: Lanterns Over the River]. The subsection titles themselves must be original and specific to this attempt.",
+    "- Put each sung lyric sentence on its own line. Do not merge multiple lyrical sentences into one long wrapped paragraph.",
     "- Keep the required section order, but vary the internal paragraph feel: some attempts should use compact lines, some longer cinematic lines, some call-and-response, some confession, some crowd speech.",
     "- Chorus 1, Chorus 2, Chorus 3, and Chorus 4 must be memorable, but they do not need to reuse the same exact mantra every time. Some songs can use escalation, some can use rupture, some can use whisper-to-shout transformation.",
     "- Bridge must reveal a new dimension: philosophy, confession, collapse, hallucination, social reversal, memory fracture, or metaphysical insight.",
@@ -1119,10 +1397,61 @@ function formatSongSeedConstraintBlock(constraints?: Record<string, unknown>) {
     .map(([key, value]) => {
       if (value === null || value === undefined) return "";
       if (typeof value === "string" && !value.trim()) return "";
+      if (typeof value === "object") {
+        try {
+          return `- ${key}: ${JSON.stringify(value)}`;
+        } catch {
+          return "";
+        }
+      }
       return `- ${key}: ${String(value)}`;
     })
     .filter(Boolean);
   return rows.length ? `User constraints that must be obeyed whenever provided:\n${rows.join("\n")}` : "";
+}
+
+function positiveConstraintInt(value: unknown, fallback = 0) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
+function normalizeSongSeedStructurePlan(value: unknown): StructurePlan | null {
+  if (!value || typeof value !== "object") return null;
+  const plan = value as Record<string, unknown>;
+  const totalActs = positiveConstraintInt(plan.totalActs);
+  const scenesPerAct = positiveConstraintInt(plan.scenesPerAct);
+  const scenesPerBatch = positiveConstraintInt(plan.scenesPerBatch);
+  const targetActNumber = positiveConstraintInt(plan.targetActNumber);
+  const sceneStart = positiveConstraintInt(plan.sceneStart);
+  const sceneEnd = positiveConstraintInt(plan.sceneEnd);
+  const totalParts = positiveConstraintInt(plan.totalParts);
+  const partsPerBatch = positiveConstraintInt(plan.partsPerBatch);
+  const targetPartNumber = positiveConstraintInt(plan.targetPartNumber);
+  if (
+    !totalActs &&
+    !scenesPerAct &&
+    !scenesPerBatch &&
+    !targetActNumber &&
+    !sceneStart &&
+    !sceneEnd &&
+    !totalParts &&
+    !partsPerBatch &&
+    !targetPartNumber
+  ) {
+    return null;
+  }
+  return {
+    ...(totalActs ? { totalActs } : {}),
+    ...(scenesPerAct ? { scenesPerAct } : {}),
+    ...(scenesPerBatch ? { scenesPerBatch } : {}),
+    ...(targetActNumber ? { targetActNumber } : {}),
+    ...(sceneStart ? { sceneStart } : {}),
+    ...(sceneEnd ? { sceneEnd } : {}),
+    ...(totalParts ? { totalParts } : {}),
+    ...(partsPerBatch ? { partsPerBatch } : {}),
+    ...(targetPartNumber ? { targetPartNumber } : {})
+  };
 }
 
 function containsCssmvBlockedPhrase(value: string) {
@@ -1641,21 +1970,34 @@ function buildFallbackCssmvSongSeed(input: {
     pickCssmvSeedTitle(input.style, input.transcript, input.variationNonce, blueprint, input.language);
   const style = String(input.style || "Chinese GuFeng / Neo Opera").trim();
   const voice = String(input.voice || "Feminine").trim();
+  const workType = normalizeStructuredWorkType(input.constraints?.work_type);
+  const structurePlan = normalizeSongSeedStructurePlan(input.constraints?.structure_plan);
+  const sectionPrompts = buildDefaultCssmvSectionPrompts(title, blueprint);
+  const sectionBeats = buildDefaultCssmvSectionBeats(blueprint);
+  const buildReferenceSearchUrl = (query: string) => `https://duckduckgo.com/?q=${encodeURIComponent(query)}`;
   return {
     model: "fallback-template",
     title,
+    work_type: workType,
     lyrics: buildFallbackCssmvLyrics(title, input),
     music_style: `${style} · ${voice} vocal lead · ${blueprint.soundPressure}. Build toward a transformed Chorus 4, not a copied loop.`,
     references: [
-      `https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(title)}`,
-      `https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(blueprint.familyLabel)}`,
-      `https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(blueprint.imageryAnchors[0])}`
+      buildReferenceSearchUrl(title),
+      buildReferenceSearchUrl(blueprint.familyLabel),
+      buildReferenceSearchUrl(blueprint.imageryAnchors[0])
     ],
     music_structure: `Intro opens with ${blueprint.emotionalWeather}, Verses 1-4 expand the chosen story world, Chorus 1 establishes the first hook, Chorus 2 mutates it, Bridge breaks the song's logic open, Chorus 3 detonates the visual peak, Chorus 4 returns transformed, and Outro leaves an afterimage rather than closure.`,
     video_outline:
       `Use "${title}" as a ${blueprint.familyLabel.toLowerCase()} cssMV arc: start inside ${blueprint.storyWorld}, reveal the conflict through ${blueprint.visualGrammar}, let the bridge open a new reality rule, explode the main visual language in Chorus 3, and end with an unresolved afterimage.`,
-    section_prompts: buildDefaultCssmvSectionPrompts(title, blueprint),
-    section_beats: buildDefaultCssmvSectionBeats(blueprint),
+    section_prompts: sectionPrompts,
+    section_beats: sectionBeats,
+    structure_tree: inferStructureTreeFromSongSeed({
+      title,
+      workType,
+      sectionRows: sectionBeats,
+      ...(structurePlan ? { structurePlan } : {})
+    }),
+    ...(structurePlan ? { structure_plan: structurePlan } : {}),
     style_tags: [style, voice, blueprint.id, "cssmv", ...blueprint.imageryAnchors.slice(0, 2)],
     creative_summary: buildCssmvCreativeSummary(blueprint)
   };
@@ -1702,18 +2044,24 @@ function buildCssmvSongSeedFallbackWithMeta(
   input: CssmvSongSeedInput,
   meta?: {
     openaiErrorCode?: string;
+    openaiErrorType?: string;
     openaiErrorMessage?: string;
     openaiErrorStatus?: number;
     openaiModel?: string;
+    openaiEnvSource?: string;
+    openaiKeyFingerprint?: string;
     fallbackReason?: string;
   }
 ) {
   const fallback = buildFallbackCssmvSongSeed(input) as Record<string, unknown>;
   tagCssmvSongSeedSource(fallback, "cssmv-fallback");
   if (meta?.openaiErrorCode) fallback.openai_error_code = meta.openaiErrorCode;
+  if (meta?.openaiErrorType) fallback.openai_error_type = meta.openaiErrorType;
   if (meta?.openaiErrorMessage) fallback.openai_error_message = meta.openaiErrorMessage;
   if (typeof meta?.openaiErrorStatus === "number") fallback.openai_error_status = meta.openaiErrorStatus;
   if (meta?.openaiModel) fallback.openai_model = meta.openaiModel;
+  if (meta?.openaiEnvSource) fallback.openai_env_source = meta.openaiEnvSource;
+  if (meta?.openaiKeyFingerprint) fallback.openai_key_fingerprint = meta.openaiKeyFingerprint;
   if (meta?.fallbackReason) fallback.fallback_reason = meta.fallbackReason;
   return fallback;
 }
@@ -1804,7 +2152,7 @@ function normalizeCssmvOpenAiSongSeed(
   }
   const references = referencesRaw.map((ref: string) => {
     if (/^https?:\/\//i.test(ref)) return ref;
-    return `https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(ref)}`;
+    return `https://duckduckgo.com/?q=${encodeURIComponent(ref)}`;
   });
   const blueprint = buildCssmvCreativeBlueprint(input);
   const safeTitle =
@@ -1814,11 +2162,46 @@ function normalizeCssmvOpenAiSongSeed(
       : buildCssmvDynamicTitle(blueprint, input.language));
   const defaultSectionPrompts = buildDefaultCssmvSectionPrompts(safeTitle, blueprint);
   const defaultSectionBeats = buildDefaultCssmvSectionBeats(blueprint);
+  const workType = normalizeStructuredWorkType(input.constraints?.work_type);
+  const structurePlan = normalizeSongSeedStructurePlan(input.constraints?.structure_plan);
+  const normalizedSectionPrompts =
+    sectionPrompts.length === CSSMV_CANONICAL_SECTIONS.length
+      ? sectionPrompts.map((
+          item: { section: string; title: string; prompt: string },
+          index: number
+        ) => ({
+          section: normalizeCssmvSectionLabel(item.section) || defaultSectionPrompts[index]?.section || item.section,
+          title: item.title || defaultSectionPrompts[index]?.title || item.section,
+          prompt: item.prompt
+        }))
+      : defaultSectionPrompts;
+  const normalizedSectionBeats =
+    sectionBeats.length === CSSMV_CANONICAL_SECTIONS.length
+      ? sectionBeats.map((
+          item: {
+            section: string;
+            title: string;
+            bars: number;
+            energy: string;
+            focus: string;
+            visual_role: string;
+          },
+          index: number
+        ) => ({
+          section: normalizeCssmvSectionLabel(item.section) || defaultSectionBeats[index]?.section || item.section,
+          title: item.title || defaultSectionBeats[index]?.title || item.section,
+          bars: item.bars || defaultSectionBeats[index]?.bars || 8,
+          energy: item.energy || defaultSectionBeats[index]?.energy || "medium",
+          focus: item.focus || defaultSectionBeats[index]?.focus || "",
+          visual_role: item.visual_role || defaultSectionBeats[index]?.visual_role || ""
+        }))
+      : defaultSectionBeats;
   return tagCssmvSongSeedSource(
     {
       model,
       openai_model: model,
       title: safeTitle,
+      work_type: workType,
       lyrics: normalizedLyrics,
       music_style: musicStyle,
       references,
@@ -1826,38 +2209,15 @@ function normalizeCssmvOpenAiSongSeed(
         musicStructure ||
         "Begin with a low-energy atmospheric intro, grow through Verses 1-4, make Chorus 1 and Chorus 2 chantable, lift into a cosmic Bridge, explode at Chorus 3, intensify further at Chorus 4, and land with an unresolved Outro echo.",
       video_outline: videoOutline,
-      section_prompts:
-        sectionPrompts.length === CSSMV_CANONICAL_SECTIONS.length
-          ? sectionPrompts.map((
-              item: { section: string; title: string; prompt: string },
-              index: number
-            ) => ({
-              section: normalizeCssmvSectionLabel(item.section) || defaultSectionPrompts[index]?.section || item.section,
-              title: item.title || defaultSectionPrompts[index]?.title || item.section,
-              prompt: item.prompt
-            }))
-          : defaultSectionPrompts,
-      section_beats:
-        sectionBeats.length === CSSMV_CANONICAL_SECTIONS.length
-          ? sectionBeats.map((
-              item: {
-                section: string;
-                title: string;
-                bars: number;
-                energy: string;
-                focus: string;
-                visual_role: string;
-              },
-              index: number
-            ) => ({
-              section: normalizeCssmvSectionLabel(item.section) || defaultSectionBeats[index]?.section || item.section,
-              title: item.title || defaultSectionBeats[index]?.title || item.section,
-              bars: item.bars || defaultSectionBeats[index]?.bars || 8,
-              energy: item.energy || defaultSectionBeats[index]?.energy || "medium",
-              focus: item.focus || defaultSectionBeats[index]?.focus || "",
-              visual_role: item.visual_role || defaultSectionBeats[index]?.visual_role || ""
-            }))
-          : defaultSectionBeats,
+      section_prompts: normalizedSectionPrompts,
+      section_beats: normalizedSectionBeats,
+      structure_tree: inferStructureTreeFromSongSeed({
+        title: safeTitle,
+        workType,
+        sectionRows: normalizedSectionBeats,
+        ...(structurePlan ? { structurePlan } : {})
+      }),
+      ...(structurePlan ? { structure_plan: structurePlan } : {}),
       style_tags: styleTags,
       creative_summary: buildCssmvCreativeSummary(blueprint)
     },
@@ -2027,14 +2387,15 @@ async function requestOpenAiCssmvSongSeed(
 }
 
 async function generateCssmvSongSeed(input: CssmvSongSeedInput) {
-  const apiKey = process.env.OPENAI_API_KEY || "";
+  const runtimeConfig = getOpenAiRuntimeConfig();
+  const apiKey = runtimeConfig.apiKey;
   if (!apiKey) {
     return buildCssmvSongSeedFallbackWithMeta(input, {
+      openaiEnvSource: runtimeConfig.envSource,
       fallbackReason: "missing_api_key"
     });
   }
-  const model =
-    process.env.OPENAI_TEXT_MODEL || process.env.OPENAI_MODEL || "gpt-4.1-mini";
+  const model = runtimeConfig.model;
   const timeoutMs = Math.max(
     5000,
     Number.parseInt(String(process.env.OPENAI_TEXT_TIMEOUT_MS || "30000"), 10) || 30000
@@ -2063,15 +2424,21 @@ async function generateCssmvSongSeed(input: CssmvSongSeedInput) {
         | null;
       const meta: {
         openaiErrorCode?: string;
+        openaiErrorType?: string;
         openaiErrorMessage?: string;
         openaiErrorStatus?: number;
         openaiModel?: string;
+        openaiEnvSource?: string;
+        openaiKeyFingerprint?: string;
         fallbackReason?: string;
       } = {
         openaiModel: model,
+        openaiEnvSource: runtimeConfig.envSource,
+        openaiKeyFingerprint: runtimeConfig.keyFingerprint,
         fallbackReason: failure?.code ? "openai_error" : "openai_empty_response"
       };
       if (failure?.code) meta.openaiErrorCode = failure.code;
+      if (failure?.type) meta.openaiErrorType = failure.type;
       if (failure?.message) meta.openaiErrorMessage = failure.message;
       if (typeof failure?.status === "number") meta.openaiErrorStatus = failure.status;
       return buildCssmvSongSeedFallbackWithMeta(input, meta);
@@ -2083,16 +2450,22 @@ async function generateCssmvSongSeed(input: CssmvSongSeedInput) {
       | null;
     const meta: {
       openaiErrorCode?: string;
+      openaiErrorType?: string;
       openaiErrorMessage?: string;
       openaiErrorStatus?: number;
       openaiModel?: string;
+      openaiEnvSource?: string;
+      openaiKeyFingerprint?: string;
       fallbackReason?: string;
     } = {
       openaiErrorCode: failure?.code || "seed_generation_failed",
       openaiErrorMessage: failure?.message || "Song seed generation failed",
       openaiModel: model,
+      openaiEnvSource: runtimeConfig.envSource,
+      openaiKeyFingerprint: runtimeConfig.keyFingerprint,
       fallbackReason: "unexpected_error"
     };
+    if (failure?.type) meta.openaiErrorType = failure.type;
     if (typeof failure?.status === "number") meta.openaiErrorStatus = failure.status;
     return buildCssmvSongSeedFallbackWithMeta(input, meta);
   } finally {
@@ -2253,6 +2626,7 @@ app.post("/api/cssmv/song-seed", async (req, res) => {
       okData({
         generated: true,
         title: seed.title,
+        work_type: seedMeta.work_type,
         lyrics: seed.lyrics,
         music_style: seed.music_style,
         references: seed.references,
@@ -2260,10 +2634,15 @@ app.post("/api/cssmv/song-seed", async (req, res) => {
         video_outline: seed.video_outline,
         section_prompts: seed.section_prompts,
         section_beats: seed.section_beats,
+        structure_tree: seedMeta.structure_tree,
+        structure_plan: seedMeta.structure_plan,
         style_tags: seed.style_tags,
         creative_summary: seed.creative_summary,
         model: seed.model,
         openai_model: seedMeta.openai_model,
+        openai_env_source: seedMeta.openai_env_source,
+        openai_key_fingerprint: seedMeta.openai_key_fingerprint,
+        openai_error_type: seedMeta.openai_error_type,
         openai_error_code: seedMeta.openai_error_code,
         openai_error_message: seedMeta.openai_error_message,
         openai_error_status: seedMeta.openai_error_status,
@@ -2272,6 +2651,41 @@ app.post("/api/cssmv/song-seed", async (req, res) => {
     );
   } catch {
     return res.json(okEmpty({ generated: false }, "No data yet"));
+  }
+});
+
+app.get("/api/cssmv/openai-diagnostics", (_req, res) => {
+  noStore(res);
+  try {
+    return res.json(okData(getOpenAiDiagnosticsPayload()));
+  } catch (error) {
+    return res.status(500).json(
+      okEmpty(
+        {
+          provider: "openai",
+          diagnostics_error: error instanceof Error ? error.message : "diagnostics_failed"
+        },
+        "No data yet"
+      )
+    );
+  }
+});
+
+app.get("/api/cssmv/openai-probe", async (_req, res) => {
+  noStore(res);
+  try {
+    const probe = await runOpenAiProbe();
+    return res.status(probe.ok ? 200 : 502).json(okData(probe));
+  } catch (error) {
+    return res.status(500).json(
+      okEmpty(
+        {
+          provider: "openai",
+          probe_error: error instanceof Error ? error.message : "probe_failed"
+        },
+        "No data yet"
+      )
+    );
   }
 });
 
@@ -3687,6 +4101,124 @@ app.patch("/api/panel-defaults/creation", async (req, res) => {
   }
 });
 
+app.get("/api/panel-defaults/:panelKey", async (req, res) => {
+  noStore(res);
+  try {
+    const panelKey = normalizePanelDefaultsKey(req.params.panelKey);
+    if (!panelKey) {
+      return res.status(404).json({ ok: false, code: "UNKNOWN_PANEL_KEY" });
+    }
+    if (panelKey === "creation") {
+      const base = defaultCreationPanelTemplate();
+      if (!DATABASE_URL) {
+        return res.json(okData({ defaults: base }));
+      }
+      const row = await withClient((client) =>
+        client.query<{ value: any }>(
+          `SELECT value FROM panel_default_templates WHERE panel_key = 'creation' LIMIT 1`
+        )
+      );
+      const merged = mergeCreationPanelTemplate(row.rows[0]?.value || base);
+      return res.json(okData({ defaults: merged }));
+    }
+    if (!DATABASE_URL) {
+      return res.json(okData({ defaults: {} }));
+    }
+    const row = await withClient((client) =>
+      client.query<{ value: any }>(
+        `SELECT value FROM panel_default_templates WHERE panel_key = $1 LIMIT 1`,
+        [panelKey]
+      )
+    );
+    const defaults =
+      panelKey === "behavior"
+        ? sanitizeBehaviorPanelTemplate(row.rows[0]?.value || {})
+        : sanitizeGenericPanelTemplate(row.rows[0]?.value || {});
+    return res.json(okData({ defaults }));
+  } catch {
+    return res.status(500).json({ ok: false, code: "PANEL_DEFAULTS_LOAD_FAILED" });
+  }
+});
+
+app.post("/api/panel-media/logo", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    if (roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const slot = String(req.body?.slot || "").trim().toLowerCase();
+    if (!["image_1", "image_2", "video"].includes(slot)) {
+      return res.status(400).json({ ok: false, code: "INVALID_SLOT" });
+    }
+    const decoded = decodeDataUrlToFile(String(req.body?.data_url || ""));
+    if (!decoded || !decoded.buffer?.length) {
+      return res.status(400).json({ ok: false, code: "INVALID_MEDIA_DATA" });
+    }
+    const isVideo = slot === "video";
+    if (isVideo && !decoded.mime.startsWith("video/")) {
+      return res.status(400).json({ ok: false, code: "INVALID_VIDEO_MIME" });
+    }
+    if (!isVideo && !decoded.mime.startsWith("image/")) {
+      return res.status(400).json({ ok: false, code: "INVALID_IMAGE_MIME" });
+    }
+    const sizeLimit = isVideo ? 30 * 1024 * 1024 : 12 * 1024 * 1024;
+    if (decoded.buffer.length > sizeLimit) {
+      return res.status(413).json({ ok: false, code: "MEDIA_TOO_LARGE" });
+    }
+    const safeExt = extensionForMime(decoded.mime, isVideo ? ".mp4" : ".webp");
+    const mediaDir = path.join(PANEL_MEDIA_DIR, "logo");
+    fs.mkdirSync(mediaDir, { recursive: true });
+    const filename = `${slot}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}${safeExt}`;
+    const absolutePath = path.join(mediaDir, filename);
+    fs.writeFileSync(absolutePath, decoded.buffer);
+    const publicUrl = `/uploads/panel-media/logo/${filename}`;
+    return res.json(okData({ url: publicUrl, slot, saved: true }));
+  } catch {
+    return res.status(500).json({ ok: false, code: "PANEL_MEDIA_SAVE_FAILED" });
+  }
+});
+
+app.patch("/api/panel-defaults/:panelKey", async (req, res) => {
+  noStore(res);
+  try {
+    const panelKey = normalizePanelDefaultsKey(req.params.panelKey);
+    if (!panelKey) {
+      return res.status(404).json({ ok: false, code: "UNKNOWN_PANEL_KEY" });
+    }
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    if (roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const defaults =
+      panelKey === "creation"
+        ? mergeCreationPanelTemplate(req.body?.defaults || req.body || {})
+        : panelKey === "behavior"
+          ? sanitizeBehaviorPanelTemplate(req.body?.defaults || req.body || {})
+          : sanitizeGenericPanelTemplate(req.body?.defaults || req.body || {});
+    if (DATABASE_URL) {
+      await withClient((client) =>
+        client.query(
+          `INSERT INTO panel_default_templates (panel_key, value, updated_by_user_id)
+           VALUES ($1, $2::jsonb, $3)
+           ON CONFLICT (panel_key)
+           DO UPDATE SET value = EXCLUDED.value, updated_by_user_id = EXCLUDED.updated_by_user_id, updated_at = now()`,
+          [panelKey, JSON.stringify(defaults), user.id]
+        )
+      );
+    }
+    return res.json(okData({ defaults, saved: true }));
+  } catch {
+    return res.status(500).json({ ok: false, code: "PANEL_DEFAULTS_SAVE_FAILED" });
+  }
+});
+
 app.post("/api/profile/unlink", async (req, res) => {
   noStore(res);
   try {
@@ -3745,6 +4277,7 @@ type WorkTreeRow = {
   root_work_id: string | null;
   structure_role: string | null;
   sequence_index: number | null;
+  structure_plan: Record<string, unknown> | null;
   visibility?: string | null;
   owner_user_id?: string;
   owner_name?: string | null;
@@ -3775,8 +4308,117 @@ function normalizeWorkTreeRow<T extends WorkTreeRow>(row: T) {
     current_buyout_price_cents: Number(row.current_buyout_price_cents || defaultBuyoutPriceCents()),
     buyout_enabled: row.buyout_enabled !== false,
     structure_role: workStructureRoleLabel(row.structure_role, row.work_type),
-    sequence_index: Number(row.sequence_index || 0)
+    sequence_index: Number(row.sequence_index || 0),
+    structure_plan:
+      row.structure_plan && typeof row.structure_plan === "object"
+        ? row.structure_plan
+        : null
   };
+}
+
+function parseStructuredWorkTitle(title: string) {
+  const raw = String(title || "").trim();
+  const parts = raw.split("·").map((part) => part.trim()).filter(Boolean);
+  const rootTitle = parts[0] || raw;
+  const actMatch = raw.match(/第\s*([0-9一二三四五六七八九十两]+)\s*幕/i);
+  const sceneMatch = raw.match(/scene\s*([0-9]+)/i);
+  const partMatch = raw.match(/(?:part|单曲)\s*([0-9]+)/i);
+  return {
+    rootTitle,
+    hasAct: Boolean(actMatch),
+    hasScene: Boolean(sceneMatch),
+    hasPart: Boolean(partMatch)
+  };
+}
+
+function reconcileLegacyStructuredRoots(nodes: any[]) {
+  const roots = [...nodes];
+  const grouped = new Map<string, any[]>();
+  roots.forEach((node) => {
+    const parsed = parseStructuredWorkTitle(String(node?.title || ""));
+    const role = String(node?.structure_role || "").trim().toLowerCase();
+    const workType = String(node?.work_type || "").trim().toLowerCase();
+    const family =
+      role === "opera" || parsed.hasAct || parsed.hasScene
+        ? "opera"
+        : role === "triptych" || parsed.hasPart
+          ? "triptych"
+          : "";
+    if (!family) return;
+    const key = `${family}::${parsed.rootTitle}`;
+    grouped.set(key, [...(grouped.get(key) || []), node]);
+  });
+  const consumed = new Set<string>();
+  const rebuilt: any[] = [];
+
+  grouped.forEach((items, key) => {
+    const [family, rootTitle] = key.split("::");
+    const explicitRoot = items.find((item) => {
+      const role = String(item?.structure_role || "").trim().toLowerCase();
+      return role === family && String(item?.title || "").trim() === rootTitle;
+    });
+    const root = explicitRoot
+      ? explicitRoot
+      : {
+          ...items[0],
+          title: rootTitle,
+          work_type: family,
+          structure_role: family,
+          children: []
+        };
+    const acts = new Map<string, any>();
+    const parts = new Map<string, any>();
+
+    items.forEach((item) => {
+      consumed.add(String(item?.id || ""));
+      if (item === explicitRoot) return;
+      const title = String(item?.title || "").trim();
+      const role = String(item?.structure_role || "").trim().toLowerCase();
+      const parsed = parseStructuredWorkTitle(title);
+      if (family === "opera") {
+        if (role === "act" || (parsed.hasAct && !parsed.hasScene)) {
+          acts.set(title, { ...item, structure_role: "act", work_type: "opera", children: Array.isArray(item?.children) ? item.children : [] });
+          return;
+        }
+        if (role === "scene" || parsed.hasScene) {
+          const actKey = title.includes("·")
+            ? title.split("·").slice(0, 2).map((part) => part.trim()).join(" · ")
+            : `${rootTitle} · 第1幕`;
+          const actNode =
+            acts.get(actKey) ||
+            {
+              ...item,
+              id: `${String(item?.id || title)}__act`,
+              title: actKey,
+              work_type: "opera",
+              structure_role: "act",
+              children: []
+            };
+          actNode.children = [...(Array.isArray(actNode.children) ? actNode.children : []), { ...item, structure_role: "scene", work_type: "single", children: [] }];
+          acts.set(actKey, actNode);
+          return;
+        }
+      }
+      if (family === "triptych") {
+        if (role === "part" || role === "single" || parsed.hasPart) {
+          parts.set(title, { ...item, structure_role: "part", work_type: "single", children: Array.isArray(item?.children) ? item.children : [] });
+          return;
+        }
+      }
+    });
+
+    root.children = family === "opera"
+      ? [...acts.values()].sort((a, b) => Number(a.sequence_index || 0) - Number(b.sequence_index || 0))
+      : [...parts.values()].sort((a, b) => Number(a.sequence_index || 0) - Number(b.sequence_index || 0));
+    rebuilt.push(root);
+  });
+
+  roots.forEach((node) => {
+    if (consumed.has(String(node?.id || ""))) return;
+    rebuilt.push(node);
+  });
+
+  return rebuilt;
 }
 
 function buildWorkTree<T extends WorkTreeRow>(rows: T[]) {
@@ -3803,8 +4445,9 @@ function buildWorkTree<T extends WorkTreeRow>(rows: T[]) {
     });
     items.forEach((item) => sorter(Array.isArray(item.children) ? item.children : []));
   };
-  sorter(roots);
-  return roots;
+  const reconciled = reconcileLegacyStructuredRoots(roots);
+  sorter(reconciled);
+  return reconciled;
 }
 
 function buildOwnerChain(rows: Array<{ to_user_id: string | null; to_label: string | null }>, fallbackLabel: string) {
@@ -3832,7 +4475,7 @@ app.get("/api/works/mine", async (req, res) => {
     const q: QueryResult<Row> = await withClient((client) =>
       client.query<Row>(
         `SELECT w.id, w.title, w.style, w.work_type, w.lyrics_preview, w.status, w.created_at, w.updated_at,
-                w.parent_work_id, w.root_work_id, w.structure_role, w.sequence_index,
+                w.parent_work_id, w.root_work_id, w.structure_role, w.sequence_index, w.structure_plan,
                 mp.visibility
          FROM user_works w
          LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
@@ -3849,7 +4492,7 @@ app.get("/api/works/mine", async (req, res) => {
       const childRes = await withClient((client) =>
         client.query<Row>(
           `SELECT w.id, w.title, w.style, w.work_type, w.lyrics_preview, w.status, w.created_at, w.updated_at,
-                  w.parent_work_id, w.root_work_id, w.structure_role, w.sequence_index,
+                  w.parent_work_id, w.root_work_id, w.structure_role, w.sequence_index, w.structure_plan,
                   mp.visibility
            FROM user_works w
            LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
@@ -3893,6 +4536,7 @@ app.get("/api/works/market", async (req, res) => {
            w.root_work_id,
            w.structure_role,
            w.sequence_index,
+           w.structure_plan,
            u.display_name AS owner_name,
            u.email AS owner_email,
            mp.current_listen_price_cents,
@@ -3905,12 +4549,11 @@ app.get("/api/works/market", async (req, res) => {
          JOIN users u ON u.id = w.user_id
          LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
          WHERE COALESCE(mp.visibility, 'public') <> 'private'
-           AND COALESCE(mp.current_listen_price_cents, $3) > 0
+           AND COALESCE(mp.current_listen_price_cents, $2) > 0
            AND w.parent_work_id IS NULL
-           AND ($1::uuid IS NULL OR w.user_id <> $1::uuid)
          ORDER BY w.updated_at DESC, w.created_at DESC
-         LIMIT $2`,
-        [viewer?.id || null, limit, defaultListenPriceCents()]
+         LIMIT $1`,
+        [limit, defaultListenPriceCents()]
       )
     );
     const rootIds = q.rows.map((row) => row.id);
@@ -3932,6 +4575,7 @@ app.get("/api/works/market", async (req, res) => {
              w.root_work_id,
              w.structure_role,
              w.sequence_index,
+             w.structure_plan,
              u.display_name AS owner_name,
              u.email AS owner_email,
              mp.current_listen_price_cents,
@@ -4039,6 +4683,7 @@ app.post("/api/works", async (req, res) => {
     const requestedRootWorkId = String(req.body?.root_work_id || "").trim() || null;
     const structureRole = String(req.body?.structure_role || "").trim().toLowerCase() || workType;
     const sequenceIndex = Math.max(0, Number.parseInt(String(req.body?.sequence_index || "0"), 10) || 0);
+    const structurePlan = normalizeSongSeedStructurePlan(req.body?.structure_plan);
     const listenPriceCents = Number.parseInt(String(req.body?.listen_price_cents || "0"), 10);
     const buyoutPriceCents = Number.parseInt(String(req.body?.buyout_price_cents || "0"), 10);
     const lyricsRaw = req.body?.lyrics_preview ? String(req.body.lyrics_preview) : "";
@@ -4047,11 +4692,22 @@ app.post("/api/works", async (req, res) => {
     const inserted: QueryResult<Row> = await withClient((client) =>
       client.query<Row>(
         `INSERT INTO user_works (
-           user_id, title, style, work_type, lyrics_preview, status, parent_work_id, root_work_id, structure_role, sequence_index
+           user_id, title, style, work_type, lyrics_preview, status, parent_work_id, root_work_id, structure_role, sequence_index, structure_plan
          )
-         VALUES ($1, $2, $3, $4, $5, 'draft', $6::uuid, $7::uuid, $8, $9)
+         VALUES ($1, $2, $3, $4, $5, 'draft', $6::uuid, $7::uuid, $8, $9, $10::jsonb)
          RETURNING id`,
-        [user.id, title, style, workType, lyricsPreview, parentWorkId, requestedRootWorkId, structureRole, sequenceIndex]
+        [
+          user.id,
+          title,
+          style,
+          workType,
+          lyricsPreview,
+          parentWorkId,
+          requestedRootWorkId,
+          structureRole,
+          sequenceIndex,
+          structurePlan ? JSON.stringify(structurePlan) : null
+        ]
       )
     );
     const workId = inserted.rows[0]?.id || null;
@@ -4078,7 +4734,8 @@ app.post("/api/works", async (req, res) => {
         parent_work_id: parentWorkId,
         root_work_id: requestedRootWorkId || workId,
         structure_role: structureRole,
-        sequence_index: sequenceIndex
+        sequence_index: sequenceIndex,
+        structure_plan: structurePlan
       })
     );
   } catch {
@@ -4181,6 +4838,45 @@ app.patch("/api/works/:id/pricing", async (req, res) => {
     );
   } catch {
     return res.status(500).json({ ok: false, code: "WORK_PRICING_UPDATE_FAILED" });
+  }
+});
+
+app.patch("/api/works/:id/structure-plan", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const workId = String(req.params.id || "").trim();
+    const structurePlan = normalizeSongSeedStructurePlan(req.body?.structure_plan);
+    if (!workId) {
+      return res.status(400).json({ ok: false, code: "WORK_REQUIRED" });
+    }
+    if (!structurePlan) {
+      return res.status(400).json({ ok: false, code: "STRUCTURE_PLAN_REQUIRED" });
+    }
+    const ownerCheck = await withClient((client) =>
+      client.query<{ id: string }>(
+        `SELECT id FROM user_works WHERE id = $1 AND user_id = $2 LIMIT 1`,
+        [workId, user.id]
+      )
+    );
+    if (!ownerCheck.rows[0]?.id) {
+      return res.status(404).json({ ok: false, code: "WORK_NOT_FOUND" });
+    }
+    await withClient((client) =>
+      client.query(
+        `UPDATE user_works
+         SET structure_plan = $2::jsonb,
+             updated_at = now()
+         WHERE id = $1`,
+        [workId, JSON.stringify(structurePlan)]
+      )
+    );
+    return res.json(okData({ id: workId, structure_plan: structurePlan }));
+  } catch {
+    return res.status(500).json({ ok: false, code: "WORK_STRUCTURE_PLAN_FAILED" });
   }
 });
 

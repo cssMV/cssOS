@@ -64,52 +64,59 @@
           <div class="panel-icon">♫</div>
           <div class="panel-title" data-i18n="panel.foryou">For You</div>
           <div class="panel-actions">
-            <button class="icon-btn" type="button" data-action="profile.open" data-i18n-aria="action.settings" aria-label="Settings">⚙</button>
+            <button class="icon-btn" type="button" data-i18n-aria="action.settings" aria-label="settings">⚙</button>
             <button class="icon-btn" aria-label="minimize">—</button>
             <button class="icon-btn" aria-label="lock">⛶</button>
             <button class="icon-btn" aria-label="close">×</button>
           </div>
         </div>
         <div class="panel-body">
-          <div class="foryou-full">
-            <div class="status-grid" id="foryou-status-grid" hidden>
-              <div class="status-card">
-                <div class="status-title" data-i18n="status.lyricsEngine">Lyrics Engine</div>
-                <div class="status-bar"><span id="lyrics-progress"></span></div>
-              </div>
-              <div class="status-card">
-                <div class="status-title" data-i18n="status.audioEngine">Audio Engine</div>
-                <div class="status-bar"><span id="music-progress"></span></div>
-              </div>
-              <div class="status-card">
-                <div class="status-title" data-i18n="status.videoEngine">Video Engine</div>
-                <div class="status-bar"><span id="video-progress"></span></div>
-              </div>
-              <div class="status-card">
-                <div class="status-title" data-i18n="status.karaokeSync">Karaoke Sync</div>
-                <div class="status-bar"><span id="kara-progress"></span></div>
-              </div>
+          <div class="status-grid" id="foryou-status-grid" hidden>
+            <div class="status-card">
+              <div class="status-title" data-i18n="status.lyricsEngine">Lyrics Engine</div>
+              <div class="status-bar"><span id="lyrics-progress"></span></div>
+              <div class="status-detail" id="lyrics-progress-detail"></div>
             </div>
-            <pre class="lyrics" id="lyrics"></pre>
+            <div class="status-card">
+              <div class="status-title" data-i18n="status.audioEngine">Audio Engine</div>
+              <div class="status-bar"><span id="music-progress"></span></div>
+              <div class="status-detail" id="music-progress-detail"></div>
+            </div>
+            <div class="status-card">
+              <div class="status-title" data-i18n="status.videoEngine">Video Engine</div>
+              <div class="status-bar"><span id="video-progress"></span></div>
+              <div class="status-detail" id="video-progress-detail"></div>
+            </div>
+            <div class="status-card">
+              <div class="status-title" data-i18n="status.karaokeSync">Karaoke Sync</div>
+              <div class="status-bar"><span id="kara-progress"></span></div>
+              <div class="status-detail" id="kara-progress-detail"></div>
+            </div>
           </div>
           <div class="foryou-compact">
-            <div class="foryou-card">
-              <div class="foryou-thumb">
-                <video id="foryou-thumb-video" class="foryou-thumb-video" autoplay muted loop playsinline></video>
-                <img id="foryou-thumb-image" class="foryou-thumb-image" alt="For You preview" />
-                <div id="foryou-thumb-fallback" class="foryou-thumb-fallback">♪</div>
+            <div class="works-list foryou-works-list">
+              <div class="work-card foryou-card">
+                <div class="work-cover foryou-thumb">
+                  <video id="foryou-thumb-video" class="foryou-thumb-video" autoplay muted loop playsinline></video>
+                  <img id="foryou-thumb-image" class="foryou-thumb-image" alt="For You preview" />
+                  <div id="foryou-thumb-fallback" class="foryou-thumb-fallback">♪</div>
+                </div>
+                <div class="work-info foryou-meta">
+                  <div class="work-title foryou-title" id="foryou-title">CSS MV</div>
+                  <div class="work-tags foryou-style" id="foryou-style">Future Ballad</div>
+                  <div class="foryou-tags" id="foryou-tags"></div>
+                  <div class="foryou-seed-copy" id="foryou-seed-copy"></div>
+                </div>
+                <div class="work-actions foryou-actions">
+                  <button class="mini-btn ghost" id="watch-btn" type="button">Enjoy</button>
+                </div>
               </div>
-              <div class="foryou-meta">
-                <div class="foryou-title" id="foryou-title">CSS MV</div>
-                <div class="foryou-style" id="foryou-style">Future Ballad</div>
-                <div class="foryou-tags" id="foryou-tags"></div>
-                <div class="foryou-seed-copy" id="foryou-seed-copy"></div>
-              </div>
-              <div class="foryou-actions">
-                <button class="cta tiny" id="watch-btn" type="button">
-                  Enjoy
-                </button>
-              </div>
+              <div class="foryou-structure" id="foryou-structure"></div>
+              <section class="foryou-selection" id="foryou-selection" hidden>
+                <div class="foryou-selection-kicker" id="foryou-selection-kicker"></div>
+                <div class="foryou-selection-title" id="foryou-selection-title"></div>
+                <pre class="foryou-selection-lyrics" id="foryou-selection-lyrics"></pre>
+              </section>
             </div>
           </div>
         </div>
@@ -146,11 +153,14 @@
                   <span class="watch-overlay-play-ring"></span>
                   <span class="watch-overlay-play-icon">▶</span>
                 </button>
+                <div class="watch-karaoke-line" id="watch-karaoke-line"></div>
                 <div class="watch-subtitle" id="watch-subtitle" data-i18n="status.composing">
                   CSS is composing...
                 </div>
               </div>
             </div>
+            <div class="watch-engine-grid" id="watch-engine-grid"></div>
+            <div class="kara-runtime-board" id="kara-runtime-board"></div>
           </div>
           <div class="watch-pane" id="watch-pane-music" data-watch-pane="music">
             <div class="watch-info-card">
@@ -779,6 +789,7 @@
         <div class="panel-body">
           <div class="panel-label" data-i18n="label.sceneMap">Scene Map · Flowing Typewriter</div>
           <div class="engine-grid" id="lyrics-grid"></div>
+          <pre class="lyrics engine-lyrics" id="lyrics"></pre>
           <div class="lyric-flow" id="lyric-flow"></div>
         </div>
         <div class="resize-handle"></div>
@@ -802,6 +813,7 @@
             <div><span data-i18n="label.voice">Voice</span> <span id="voice-style">Feminine</span></div>
           </div>
           <div class="tag-row" id="music-tags"></div>
+          <div class="music-runtime-board" id="music-runtime-board"></div>
           <div class="waveform" id="waveform">
             <span style="--i: 1; --h: 30%"></span>
             <span style="--i: 2; --h: 60%"></span>
@@ -828,7 +840,7 @@
             <span style="--i: 23; --h: 46%"></span>
             <span style="--i: 24; --h: 68%"></span>
           </div>
-          <div class="track-list">
+          <div class="track-list" id="music-track-list">
             <div class="track-row">
               <div class="track-label" data-i18n="track.leadVocal">Lead Vocal</div>
               <div class="track-bar"><span style="width: 78%"></span></div>
@@ -861,6 +873,7 @@
         <div class="panel-body">
           <div class="panel-label" data-i18n="label.storyboard">Storyboard · Camera Flow</div>
           <div class="tag-row" id="video-tags"></div>
+          <div class="video-runtime-board" id="video-runtime-board"></div>
           <div class="storyboard" id="storyboard">
             <div class="story-frame" data-i18n="shot.01">Shot 01</div>
             <div class="story-frame" data-i18n="shot.02">Shot 02</div>
@@ -940,7 +953,7 @@
             <textarea
               id="lyrics-source-input"
               rows="3"
-              placeholder="WIKI / references / story links..."
+              placeholder="Related references / source pages / story links..."
               data-i18n-placeholder="settings.sourcesPlaceholder"
             ></textarea>
           </label>
@@ -1296,6 +1309,8 @@
           <button id="apply-settings" class="cta" data-i18n="action.applyRender">
             Apply & Render
           </button>
+          <button id="advanced-panel-settings-toggle" class="cta ghost tiny" type="button">面板参数中心</button>
+          <div class="advanced-panel-settings" id="advanced-panel-settings"></div>
         </div>
         <div class="resize-handle"></div>
       </section>
@@ -1331,7 +1346,7 @@
           <div class="panel-icon">🔐</div>
           <div class="panel-title" data-i18n="panel.login">Login</div>
           <div class="panel-actions">
-            <button class="icon-btn" type="button" data-action="profile.open" data-i18n-aria="action.settings" aria-label="Settings">⚙</button>
+            <button class="icon-btn" type="button" data-i18n-aria="action.settings" aria-label="settings">⚙</button>
             <button class="icon-btn" aria-label="minimize">—</button>
             <button class="icon-btn" aria-label="lock">⛶</button>
             <button class="icon-btn" aria-label="close">×</button>

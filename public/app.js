@@ -29,6 +29,8 @@ const apiAutoRecharge = document.getElementById("api-auto-recharge");
 const apiMonthlyLimit = document.getElementById("api-monthly-limit");
 const lyricsEl = document.getElementById("lyrics");
 const watchSubtitle = document.getElementById("watch-subtitle");
+const watchKaraokeLine = document.getElementById("watch-karaoke-line");
+const watchEngineGrid = document.getElementById("watch-engine-grid");
 const watchVideo = document.getElementById("watch-video");
 const watchSvg = document.getElementById("watch-svg");
 const watchOverlayPlay = document.getElementById("watch-overlay-play");
@@ -38,6 +40,7 @@ const watchMusicStage = document.getElementById("watch-music-stage");
 const watchMusicRing = document.getElementById("watch-music-ring");
 const watchMusicPlay = document.getElementById("watch-music-play");
 const watchMusicPlayIcon = document.getElementById("watch-music-play-icon");
+const karaRuntimeBoard = document.getElementById("kara-runtime-board");
 let watchMusicAudioContext = null;
 let watchMusicAnalyser = null;
 let watchMusicSourceNode = null;
@@ -57,7 +60,12 @@ const musicProgress = document.getElementById("music-progress");
 const videoProgress = document.getElementById("video-progress");
 const karaProgress = document.getElementById("kara-progress");
 const lyricsProgress = document.getElementById("lyrics-progress");
+const musicProgressDetail = document.getElementById("music-progress-detail");
+const videoProgressDetail = document.getElementById("video-progress-detail");
+const karaProgressDetail = document.getElementById("kara-progress-detail");
+const lyricsProgressDetail = document.getElementById("lyrics-progress-detail");
 const mirrorTitle = document.querySelector(".mirror-title");
+const mirrorSubtitle = document.querySelector(".mirror-subtitle");
 const mirrorSlogan = document.querySelector(".mirror-slogan");
 const foryouTitle = document.getElementById("foryou-title");
 const foryouStyle = document.getElementById("foryou-style");
@@ -67,6 +75,11 @@ const foryouThumbVideo = document.getElementById("foryou-thumb-video");
 const foryouThumbImage = document.getElementById("foryou-thumb-image");
 const foryouThumbFallback = document.getElementById("foryou-thumb-fallback");
 const foryouSeedCopy = document.getElementById("foryou-seed-copy");
+const foryouStructure = document.getElementById("foryou-structure");
+const foryouSelection = document.getElementById("foryou-selection");
+const foryouSelectionKicker = document.getElementById("foryou-selection-kicker");
+const foryouSelectionTitle = document.getElementById("foryou-selection-title");
+const foryouSelectionLyrics = document.getElementById("foryou-selection-lyrics");
 const listenButton = document.getElementById("listen-btn");
 const watchButton = document.getElementById("watch-btn");
 const mvTitle = document.getElementById("mv-title");
@@ -76,6 +89,8 @@ const lyricsGrid = document.getElementById("lyrics-grid");
 const musicStyle = document.getElementById("music-style");
 const voiceStyle = document.getElementById("voice-style");
 const videoScript = document.getElementById("video-script");
+const musicRuntimeBoard = document.getElementById("music-runtime-board");
+const videoRuntimeBoard = document.getElementById("video-runtime-board");
 const mvTags = document.getElementById("mv-tags");
 const mvStats = document.getElementById("mv-stats");
 const cameraBoard = document.getElementById("camera-board");
@@ -151,6 +166,8 @@ const mvTimelineExplainSummary = document.getElementById("mv-timeline-explain-su
 const mvTimelineExplainList = document.getElementById("mv-timeline-explain-list");
 const lyricFlow = document.getElementById("lyric-flow");
 const musicTags = document.getElementById("music-tags");
+const waveformEl = document.getElementById("waveform");
+const musicTrackList = document.getElementById("music-track-list");
 const mixGrid = document.getElementById("mix-grid");
 const videoTags = document.getElementById("video-tags");
 const cameraList = document.getElementById("camera-list");
@@ -209,6 +226,8 @@ const creationSetDefaults = document.getElementById("creation-set-defaults");
 const creationSummary = document.getElementById("creation-summary");
 const creationUniverseCard = document.getElementById("creation-universe-card");
 const creationReferenceLibrary = document.getElementById("creation-reference-library");
+const advancedPanelSettings = document.getElementById("advanced-panel-settings");
+const advancedPanelSettingsToggle = document.getElementById("advanced-panel-settings-toggle");
 const bgColorInputs = [
   document.getElementById("bg-color-1"),
   document.getElementById("bg-color-2"),
@@ -455,9 +474,23 @@ Object.assign(I18N.en, {
   "settings.panel.width": "Width (px)",
   "settings.panel.height": "Height (px)",
   "settings.panel.mirrorMedia": "Mirror Media",
+  "settings.panel.mirrorAnimation": "Mirror Spellcast",
+  "settings.panel.mirrorStrategy": "Mirror Strategy",
+  "settings.panel.mirrorStrategy.random": "System Random",
+  "settings.panel.mirrorStrategy.fixed": "User Fixed",
+  "settings.panel.mirrorStrategy.perType": "Per Work Type",
+  "settings.panel.mirrorFixedMode": "Fixed Animation",
+  "settings.panel.mirrorSingleMode": "Single Spellcast",
+  "settings.panel.mirrorTriptychMode": "Triptych Spellcast",
+  "settings.panel.mirrorOperaMode": "Opera Spellcast",
+  "settings.panel.mirrorAnimation.halo": "Current Halo",
+  "settings.panel.mirrorAnimation.breath": "Twin Breath",
+  "settings.panel.mirrorAnimation.prism": "Prism Pulse",
+  "settings.panel.mirrorAnimation.oracle": "Oracle Bloom",
   "settings.panel.mirrorImage1": "Mirror Image 1",
   "settings.panel.mirrorImage2": "Mirror Image 2",
   "settings.panel.mirrorVideo": "Mirror Video",
+  "settings.panel.setDefault": "Set as Default",
   "settings.panel.reset": "Reset",
   "settings.foryou.previewMode": "For You Preview",
   "settings.foryou.previewMode.auto": "Auto",
@@ -604,6 +637,7 @@ Object.assign(I18N.en, {
   "reports.opsHealth.statusDegraded": "Degraded",
   "reports.opsHealth.statusHealthy": "Healthy",
   "reports.opsHealth.statusUnknown": "Unknown",
+  "status.composing": "The mirror is conjuring...",
   "reports.opsHealth.stillFailing": "Still failing",
   "reports.opsHealth.subscriptions": "Subscriptions",
   "reports.opsHealth.title": "Ops health",
@@ -737,9 +771,23 @@ Object.assign(I18N.zh, {
   "settings.panel.width": "宽度（px）",
   "settings.panel.height": "高度（px）",
   "settings.panel.mirrorMedia": "镜像媒体",
+  "settings.panel.mirrorAnimation": "魔镜施法动画",
+  "settings.panel.mirrorStrategy": "魔镜策略",
+  "settings.panel.mirrorStrategy.random": "系统随机",
+  "settings.panel.mirrorStrategy.fixed": "用户固定",
+  "settings.panel.mirrorStrategy.perType": "按作品类型分别指定",
+  "settings.panel.mirrorFixedMode": "固定动画",
+  "settings.panel.mirrorSingleMode": "单曲施法",
+  "settings.panel.mirrorTriptychMode": "三部曲施法",
+  "settings.panel.mirrorOperaMode": "歌剧施法",
+  "settings.panel.mirrorAnimation.halo": "当前光环版",
+  "settings.panel.mirrorAnimation.breath": "双图急促呼吸版",
+  "settings.panel.mirrorAnimation.prism": "棱镜脉冲版",
+  "settings.panel.mirrorAnimation.oracle": "神谕绽放版",
   "settings.panel.mirrorImage1": "镜像图片 1",
   "settings.panel.mirrorImage2": "镜像图片 2",
   "settings.panel.mirrorVideo": "镜像视频",
+  "settings.panel.setDefault": "设为默认",
   "settings.panel.reset": "重置",
   "settings.foryou.previewMode": "For You 预览",
   "settings.foryou.previewMode.auto": "自动",
@@ -886,6 +934,7 @@ Object.assign(I18N.zh, {
   "reports.opsHealth.statusDegraded": "降级",
   "reports.opsHealth.statusHealthy": "正常",
   "reports.opsHealth.statusUnknown": "未知",
+  "status.composing": "魔镜正在施法中。。。",
   "reports.opsHealth.stillFailing": "仍失败",
   "reports.opsHealth.subscriptions": "订阅数",
   "reports.opsHealth.title": "运维健康",
@@ -1717,6 +1766,18 @@ function inferStructuredWorkType(title, fallback = "single") {
   return normalizeWorkTypeClient(fallback);
 }
 
+function inferLanguageFromTitleText(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const han = (text.match(/[\u4E00-\u9FFF]/g) || []).length;
+  const hiraKata = (text.match(/[\u3040-\u30FF]/g) || []).length;
+  const latin = (text.match(/[A-Za-z]/g) || []).length;
+  if (hiraKata >= Math.max(2, han, latin)) return "ja";
+  if (han >= Math.max(2, hiraKata, latin)) return "zh";
+  if (latin >= Math.max(2, han + hiraKata)) return "en";
+  return "";
+}
+
 function workTypeLabel(workType) {
   const normalized = normalizeWorkTypeClient(workType);
   if (normalized === "triptych") return loginCopy("Triptych", "三部曲");
@@ -1755,6 +1816,68 @@ function flattenHierarchyWorks(items) {
   return flat;
 }
 
+function sortHierarchyNodes(nodes) {
+  return [...(Array.isArray(nodes) ? nodes : [])].sort((a, b) => {
+    const seqDelta = Number(a?.sequence_index || 0) - Number(b?.sequence_index || 0);
+    if (seqDelta !== 0) return seqDelta;
+    const timeDelta = workCreatedTimestamp(b) - workCreatedTimestamp(a);
+    if (timeDelta !== 0) return timeDelta;
+    return String(a?.title || "").localeCompare(String(b?.title || ""));
+  });
+}
+
+function buildWorkHierarchy(items) {
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) return [];
+  const nodesById = new Map();
+  list.forEach((item) => {
+    const id = String(item?.work_id || item?.id || item?.local_id || "").trim();
+    if (!id) return;
+    const existing = nodesById.get(id) || {};
+    nodesById.set(id, {
+      ...existing,
+      ...item,
+      children: [...(Array.isArray(existing.children) ? existing.children : []), ...(Array.isArray(item?.children) ? item.children : [])]
+    });
+  });
+  nodesById.forEach((node) => {
+    node.children = buildWorkHierarchy(node.children || []);
+  });
+  const roots = [];
+  nodesById.forEach((node) => {
+    const parentId = String(node?.parent_work_id || "").trim();
+    if (!parentId || !nodesById.has(parentId)) {
+      roots.push(node);
+      return;
+    }
+    const parent = nodesById.get(parentId);
+    parent.children = Array.isArray(parent.children) ? parent.children : [];
+    const nodeId = String(node?.work_id || node?.id || node?.local_id || "").trim();
+    if (!parent.children.some((child) => String(child?.work_id || child?.id || child?.local_id || "").trim() === nodeId)) {
+      parent.children.push(node);
+    }
+  });
+  const walk = (nodes) =>
+    sortHierarchyNodes(nodes).map((node) => ({
+      ...node,
+      children: walk(node.children || [])
+    }));
+  return walk(roots);
+}
+
+function filterDisplayWorkRoots(nodes) {
+  const roots = Array.isArray(nodes) ? nodes : [];
+  const allIds = new Set(flattenHierarchyWorks(roots).map((node) => String(node?.work_id || node?.id || node?.local_id || "").trim()).filter(Boolean));
+  return roots.filter((node) => {
+    const nodeId = String(node?.work_id || node?.id || node?.local_id || "").trim();
+    const rootId = String(node?.root_work_id || "").trim();
+    const parentId = String(node?.parent_work_id || "").trim();
+    if (parentId) return false;
+    if (rootId && rootId !== nodeId && allIds.has(rootId)) return false;
+    return true;
+  });
+}
+
 function renderHierarchyTree(nodes, context = "market") {
   const items = Array.isArray(nodes) ? nodes : [];
   if (!items.length) return "";
@@ -1764,10 +1887,17 @@ function renderHierarchyTree(nodes, context = "market") {
         .map((node, index) => {
           const title = escapeHtml(String(node?.title || "").trim() || loginCopy("Untitled", "未命名"));
           const role = escapeHtml(workStructureRoleLabel(node?.structure_role, node?.work_type));
-          const summary = escapeHtml(String(node?.style || node?.lyrics_preview || "").trim());
+          const nodeRole = String(node?.structure_role || "").trim().toLowerCase();
+          const summary = escapeHtml(
+            context === "works" && ["opera", "triptych", "act"].includes(nodeRole)
+              ? ""
+              : String(node?.style || node?.lyrics_preview || "").trim()
+          );
           const createdAt = formatDateTime(node?.created_at);
           const children = renderHierarchyTree(node?.children || [], context);
           const workId = escapeHtml(String(node?.id || "").trim());
+          const isOwnedByViewer =
+            Boolean(authState.user?.id) && String(node?.owner_user_id || "").trim() === String(authState.user?.id || "").trim();
           const listenCents = Number(node?.current_listen_price_cents || 0);
           const buyoutCents = Number(node?.current_buyout_price_cents || 0);
           const buyoutEnabled = Boolean(node?.buyout_enabled) && buyoutCents > 0;
@@ -1776,8 +1906,8 @@ function renderHierarchyTree(nodes, context = "market") {
               ? `
                 <div class="work-hierarchy-actions">
                   <button class="mini-btn ghost tiny" type="button" data-market-action="preview" data-market-child-id="${workId}">${loginCopy("Preview", "预览")}</button>
-                  <button class="mini-btn ghost tiny" type="button" data-market-action="listen" data-market-child-id="${workId}" ${listenCents > 0 ? "" : "disabled"}>${loginCopy("Listen", "聆听")}</button>
-                  <button class="mini-btn market-buyout-btn tiny" type="button" data-market-action="buyout" data-market-child-id="${workId}" ${buyoutEnabled ? "" : "disabled"}>${loginCopy("Buyout", "买断")}</button>
+                  ${isOwnedByViewer ? "" : `<button class="mini-btn ghost tiny" type="button" data-market-action="listen" data-market-child-id="${workId}" ${listenCents > 0 ? "" : "disabled"}>${loginCopy("Listen", "聆听")}</button>`}
+                  ${isOwnedByViewer ? "" : `<button class="mini-btn market-buyout-btn tiny" type="button" data-market-action="buyout" data-market-child-id="${workId}" ${buyoutEnabled ? "" : "disabled"}>${loginCopy("Buyout", "买断")}</button>`}
                 </div>
               `
               : context === "works" && workId
@@ -1789,7 +1919,7 @@ function renderHierarchyTree(nodes, context = "market") {
               : "";
           return `
             <details class="work-hierarchy-item" ${index === 0 ? "open" : ""}>
-              <summary>
+              <summary data-foryou-summary data-node-key="${escapeHtml(String(node?.foryou_key || ""))}" data-structure-role="${escapeHtml(String(node?.structure_role || ""))}" data-has-children="${Array.isArray(node?.children) && node.children.length ? "1" : "0"}">
                 <span class="work-hierarchy-role">${role}</span>
                 <span class="work-hierarchy-title">${title}</span>
                 ${createdAt ? `<span class="work-hierarchy-time">${escapeHtml(createdAt)}</span>` : ""}
@@ -2032,15 +2162,11 @@ function renderCreationReferenceLibrary() {
     <div class="creation-reference-region">${escapeHtml(atlas.region || "")}</div>
     <div class="creation-reference-group">
       <div class="creation-reference-title">${escapeHtml(loginCopy("Reference Artists", "参考音乐人"))}</div>
-      <div class="creation-reference-chips">
-        ${atlas.artists.map((item) => `<span class="creation-reference-chip">${escapeHtml(item)}</span>`).join("")}
-      </div>
+      <div class="creation-reference-note">${escapeHtml(atlas.artists.join(", "))}</div>
     </div>
     <div class="creation-reference-group">
       <div class="creation-reference-title">${escapeHtml(loginCopy("Reference Ensembles", "参考乐团/编制"))}</div>
-      <div class="creation-reference-chips">
-        ${atlas.ensembles.map((item) => `<span class="creation-reference-chip">${escapeHtml(item)}</span>`).join("")}
-      </div>
+      <div class="creation-reference-note">${escapeHtml(atlas.ensembles.join(", "))}</div>
     </div>
   `;
 }
@@ -2323,6 +2449,206 @@ function initCreationConsole() {
   });
 }
 
+function buildAdvancedPanelSettingsMarkup(settings) {
+  const current = sanitizePanelBehaviorSettings(settings);
+  const admin = getUserRole() === "admin";
+  const modeOptions = (selected) =>
+    Object.values(MIRROR_ANIMATION_MODES)
+      .map((mode) => `<option value="${escapeHtml(mode)}" ${selected === mode ? "selected" : ""}>${escapeHtml(t(`settings.panel.mirrorAnimation.${mode}`))}</option>`)
+      .join("");
+  return `
+    <div class="panel-label">${escapeHtml(loginCopy("Panel Parameter Center", "面板参数中心"))}</div>
+    <div class="advanced-panel-grid">
+      <section class="advanced-panel-card" data-advanced-panel="logo">
+        <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Logo Mirror", "Logo 魔镜"))}</div>
+        <label><span>${escapeHtml(loginCopy("Spell", "咒语"))}</span><input type="text" data-advanced-setting="logo-spell" value="${escapeHtml(current.logo.spell)}" /></label>
+        <label><span>${escapeHtml(loginCopy("Subtitle", "副标题"))}</span><input type="text" data-advanced-setting="logo-subtitle" value="${escapeHtml(current.logo.subtitle)}" /></label>
+        <label><span>${escapeHtml(loginCopy("Slogan template", "口号模板"))}</span><input type="text" data-advanced-setting="logo-slogan-template" value="${escapeHtml(current.logo.slogan_template)}" /></label>
+        <label><span>${escapeHtml(loginCopy("Mirror size (px)", "魔镜尺寸（px）"))}</span><input type="range" min="420" max="880" step="10" data-advanced-setting="logo-size" value="${escapeHtml(String(current.logo.mirror_size_px))}" /></label>
+        <label><span>${escapeHtml(loginCopy("Halo inset (%)", "遮罩圈内缩（%）"))}</span><input type="range" min="0" max="28" step="1" data-advanced-setting="logo-mask-inset" value="${escapeHtml(String(current.logo.mask_inset_percent))}" /></label>
+        <label><span>${escapeHtml(loginCopy("Mirror image A", "魔镜图片 A"))}</span><input type="file" accept="image/*" data-advanced-setting="logo-image-1" /></label>
+        <label><span>${escapeHtml(loginCopy("Mirror image B", "魔镜图片 B"))}</span><input type="file" accept="image/*" data-advanced-setting="logo-image-2" /></label>
+        <label><span>${escapeHtml(loginCopy("Mirror video", "魔镜视频"))}</span><input type="file" accept="video/*" data-advanced-setting="logo-video" /></label>
+        <div class="advanced-panel-note">${escapeHtml(loginCopy(`Current media: ${current.logo.media.image_1.split("/").pop() || "A"} / ${current.logo.media.image_2.split("/").pop() || "B"}${current.logo.media.video ? ` / ${current.logo.media.video.split("/").pop() || "video"}` : ""}`, `当前素材：${current.logo.media.image_1.split("/").pop() || "A"} / ${current.logo.media.image_2.split("/").pop() || "B"}${current.logo.media.video ? ` / ${current.logo.media.video.split("/").pop() || "video"}` : ""}`))}</div>
+        <label><span>${escapeHtml(t("settings.panel.mirrorStrategy"))}</span>
+          <select data-advanced-setting="logo-strategy">
+            <option value="random" ${current.logo.mirror_strategy === "random" ? "selected" : ""}>${escapeHtml(t("settings.panel.mirrorStrategy.random"))}</option>
+            <option value="fixed" ${current.logo.mirror_strategy === "fixed" ? "selected" : ""}>${escapeHtml(t("settings.panel.mirrorStrategy.fixed"))}</option>
+            <option value="per_type" ${current.logo.mirror_strategy === "per_type" ? "selected" : ""}>${escapeHtml(t("settings.panel.mirrorStrategy.perType"))}</option>
+          </select>
+        </label>
+        <label><span>${escapeHtml(t("settings.panel.mirrorFixedMode"))}</span><select data-advanced-setting="logo-fixed">${modeOptions(current.logo.fixed_mode)}</select></label>
+        <label><span>${escapeHtml(t("settings.panel.mirrorSingleMode"))}</span><select data-advanced-setting="logo-single">${modeOptions(current.logo.per_type.single)}</select></label>
+        <label><span>${escapeHtml(t("settings.panel.mirrorTriptychMode"))}</span><select data-advanced-setting="logo-triptych">${modeOptions(current.logo.per_type.triptych)}</select></label>
+        <label><span>${escapeHtml(t("settings.panel.mirrorOperaMode"))}</span><select data-advanced-setting="logo-opera">${modeOptions(current.logo.per_type.opera)}</select></label>
+        ${admin ? `<button class="cta ghost tiny" type="button" data-advanced-save="logo">${escapeHtml(t("settings.panel.setDefault"))}</button>` : ""}
+      </section>
+      <section class="advanced-panel-card" data-advanced-panel="dock">
+        <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Dock", "Dock"))}</div>
+        <label><span>${escapeHtml(loginCopy("Scale", "缩放"))}</span><input type="range" min="0.8" max="1.35" step="0.05" data-advanced-setting="dock-scale" value="${escapeHtml(String(current.dock.scale))}" /></label>
+        <label class="advanced-panel-check"><input type="checkbox" data-advanced-setting="dock-labels" ${current.dock.show_labels ? "checked" : ""} /><span>${escapeHtml(loginCopy("Show labels", "显示标签"))}</span></label>
+        <label class="advanced-panel-check"><input type="checkbox" data-advanced-setting="dock-docking" ${current.dock.docking_enabled ? "checked" : ""} /><span>${escapeHtml(loginCopy("Allow edge docking", "允许边缘停靠"))}</span></label>
+        <label><span>${escapeHtml(loginCopy("Dock position", "Dock 停靠位"))}</span>
+          <select data-advanced-setting="dock-position">
+            <option value="bottom" ${current.dock.dock_position === "bottom" ? "selected" : ""}>${escapeHtml(loginCopy("Bottom", "底部"))}</option>
+            <option value="left" ${current.dock.dock_position === "left" ? "selected" : ""}>${escapeHtml(loginCopy("Left", "左侧"))}</option>
+            <option value="right" ${current.dock.dock_position === "right" ? "selected" : ""}>${escapeHtml(loginCopy("Right", "右侧"))}</option>
+            <option value="top" ${current.dock.dock_position === "top" ? "selected" : ""}>${escapeHtml(loginCopy("Top", "顶部"))}</option>
+          </select>
+        </label>
+        <button class="cta ghost tiny" type="button" data-advanced-dock-reset>${escapeHtml(loginCopy("Reset to bottom center", "恢复到底部中央"))}</button>
+        ${admin ? `<button class="cta ghost tiny" type="button" data-advanced-save="dock">${escapeHtml(t("settings.panel.setDefault"))}</button>` : ""}
+      </section>
+      <section class="advanced-panel-card" data-advanced-panel="mic">
+        <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Mic Topic Panel", "话筒话题面板"))}</div>
+        <label><span>${escapeHtml(loginCopy("Long press threshold (ms)", "长按阈值（毫秒）"))}</span><input type="range" min="250" max="3000" step="50" data-advanced-setting="mic-longpress-ms" value="${escapeHtml(String(current.mic.longpress_ms))}" /></label>
+        <label><span>${escapeHtml(loginCopy("Voice capture length", "语音截取长度"))}</span>
+          <select data-advanced-setting="mic-max-hold-sec">
+            ${[3, 5, 10, 15, 30].map((sec) => `<option value="${sec}" ${current.mic.max_hold_sec === sec ? "selected" : ""}>${escapeHtml(loginCopy(`${sec} sec`, `${sec} 秒`))}</option>`).join("")}
+          </select>
+        </label>
+        <div class="advanced-panel-note">${escapeHtml(loginCopy("If voice title capture fails, the system falls back to direct generation just like the lyrics wand.", "如果语音标题截取失败，系统会像歌词魔法棒一样直接回退到完整生成链路。"))}</div>
+        ${admin ? `<button class="cta ghost tiny" type="button" data-advanced-save="mic">${escapeHtml(t("settings.panel.setDefault"))}</button>` : ""}
+      </section>
+      <section class="advanced-panel-card" data-advanced-panel="global">
+        <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Global Visuals", "全局视觉"))}</div>
+        <div class="advanced-panel-note">${escapeHtml(loginCopy("Global palette and ambient background controls stay here. Panel-specific playback and engine tuning now live inside each panel's own settings.", "全局配色与环境背景控制保留在这里。各面板自己的播放与引擎参数，已经回到各自的设置区。"))}</div>
+        ${admin ? `<button class="cta ghost tiny" type="button" data-advanced-save="global">${escapeHtml(t("settings.panel.setDefault"))}</button>` : ""}
+      </section>
+    </div>
+  `;
+}
+
+function collectAdvancedPanelSettingsFromDom() {
+  const pick = (sel) => advancedPanelSettings?.querySelector(sel);
+  const current = readPanelBehaviorSettingsLocal();
+  return sanitizePanelBehaviorSettings({
+    ...current,
+    logo: {
+      ...current.logo,
+      spell: pick('[data-advanced-setting="logo-spell"]')?.value || DEFAULT_SPELL,
+      subtitle: pick('[data-advanced-setting="logo-subtitle"]')?.value || "Studio",
+      slogan_template: pick('[data-advanced-setting="logo-slogan-template"]')?.value || "Just say <span class=\"spell\">{spell}</span>, witness the miracle!",
+      mirror_size_px: Number(pick('[data-advanced-setting="logo-size"]')?.value || 600),
+      mask_inset_percent: Number(pick('[data-advanced-setting="logo-mask-inset"]')?.value || 12),
+      mirror_strategy: pick('[data-advanced-setting="logo-strategy"]')?.value || MIRROR_ANIMATION_STRATEGIES.PER_TYPE,
+      fixed_mode: pick('[data-advanced-setting="logo-fixed"]')?.value || MIRROR_ANIMATION_MODES.HALO,
+      per_type: {
+        single: pick('[data-advanced-setting="logo-single"]')?.value || MIRROR_ANIMATION_MODES.HALO,
+        triptych: pick('[data-advanced-setting="logo-triptych"]')?.value || MIRROR_ANIMATION_MODES.BREATH,
+        opera: pick('[data-advanced-setting="logo-opera"]')?.value || MIRROR_ANIMATION_MODES.PRISM
+      }
+    },
+    mic: {
+      ...current.mic,
+      longpress_ms: Number(pick('[data-advanced-setting="mic-longpress-ms"]')?.value || 600),
+      max_hold_sec: Number(pick('[data-advanced-setting="mic-max-hold-sec"]')?.value || 30)
+    },
+    dock: {
+      ...current.dock,
+      scale: Number(pick('[data-advanced-setting="dock-scale"]')?.value || 1),
+      show_labels: !!pick('[data-advanced-setting="dock-labels"]')?.checked,
+      docking_enabled: !!pick('[data-advanced-setting="dock-docking"]')?.checked,
+      dock_position: pick('[data-advanced-setting="dock-position"]')?.value || "bottom"
+    }
+  });
+}
+
+async function renderAdvancedPanelSettings() {
+  if (!advancedPanelSettings) return;
+  const local = readPanelBehaviorSettingsLocal();
+  const remote = await loadPanelDefaults("behavior", local);
+  const merged = sanitizePanelBehaviorSettings(remote || local);
+  applyPanelBehaviorSettings(merged);
+  const wasHidden = advancedPanelSettings.hidden;
+  advancedPanelSettings.innerHTML = buildAdvancedPanelSettingsMarkup(merged);
+  advancedPanelSettings.hidden = wasHidden;
+  advancedPanelSettings.querySelectorAll("input, select").forEach((control) => {
+    if (control instanceof HTMLInputElement && control.type === "file") return;
+    control.addEventListener("input", () => {
+      const next = collectAdvancedPanelSettingsFromDom();
+      applyPanelBehaviorSettings(next);
+      if (watchTabButtons.length) activateWatchTab(watchActiveTab);
+      renderSongSeedPreview(state.songSeed);
+    });
+    control.addEventListener("change", () => {
+      const next = collectAdvancedPanelSettingsFromDom();
+      applyPanelBehaviorSettings(next);
+      if (watchTabButtons.length) activateWatchTab(watchActiveTab);
+      renderSongSeedPreview(state.songSeed);
+    });
+  });
+  const advancedLogoImage1 = advancedPanelSettings.querySelector('[data-advanced-setting="logo-image-1"]');
+  const advancedLogoImage2 = advancedPanelSettings.querySelector('[data-advanced-setting="logo-image-2"]');
+  const advancedLogoVideo = advancedPanelSettings.querySelector('[data-advanced-setting="logo-video"]');
+  if (advancedLogoImage1 instanceof HTMLInputElement) {
+    advancedLogoImage1.addEventListener("change", async () => {
+      const file = advancedLogoImage1.files?.[0];
+      if (!file) return;
+      const uploadedUrl = authState.user && getUserRole() === "admin"
+        ? await uploadLogoMediaFile(file, "image_1", advancedLogoImage1)
+        : "";
+      if (!uploadedUrl) return;
+      const next = updatePanelBehaviorSettings((current) => ({
+        ...current,
+        logo: { ...current.logo, media: { ...current.logo.media, image_1: uploadedUrl } }
+      }));
+      await savePanelDefaults("behavior", next, advancedLogoImage1);
+      void renderAdvancedPanelSettings();
+    });
+  }
+  if (advancedLogoImage2 instanceof HTMLInputElement) {
+    advancedLogoImage2.addEventListener("change", async () => {
+      const file = advancedLogoImage2.files?.[0];
+      if (!file) return;
+      const uploadedUrl = authState.user && getUserRole() === "admin"
+        ? await uploadLogoMediaFile(file, "image_2", advancedLogoImage2)
+        : "";
+      if (!uploadedUrl) return;
+      const next = updatePanelBehaviorSettings((current) => ({
+        ...current,
+        logo: { ...current.logo, media: { ...current.logo.media, image_2: uploadedUrl } }
+      }));
+      await savePanelDefaults("behavior", next, advancedLogoImage2);
+      void renderAdvancedPanelSettings();
+    });
+  }
+  if (advancedLogoVideo instanceof HTMLInputElement) {
+    advancedLogoVideo.addEventListener("change", async () => {
+      const file = advancedLogoVideo.files?.[0];
+      if (!file) return;
+      const uploadedUrl = authState.user && getUserRole() === "admin"
+        ? await uploadLogoMediaFile(file, "video", advancedLogoVideo)
+        : "";
+      if (!uploadedUrl) return;
+      const next = updatePanelBehaviorSettings((current) => ({
+        ...current,
+        logo: { ...current.logo, media: { ...current.logo.media, video: uploadedUrl } }
+      }));
+      await savePanelDefaults("behavior", next, advancedLogoVideo);
+      void renderAdvancedPanelSettings();
+    });
+  }
+  advancedPanelSettings.querySelectorAll("[data-advanced-save]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const next = collectAdvancedPanelSettingsFromDom();
+      const saved = await savePanelDefaults("behavior", next, button);
+      if (saved) {
+        applyPanelBehaviorSettings(saved);
+        showToast(loginCopy("Panel defaults saved.", "面板默认值已保存。"));
+      }
+    });
+  });
+  advancedPanelSettings.querySelector("[data-advanced-dock-reset]")?.addEventListener("click", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      dock: { ...current.dock, dock_position: "bottom" }
+    }));
+    dock?.classList.add("is-snapping");
+    setTimeout(() => dock?.classList.remove("is-snapping"), 520);
+  });
+}
+
 function randomizeCreationForLyricsRefresh(title) {
   const seed = hashSeedString(`${title}::${Date.now()}::${songSeedVariationCounter}`);
   const currentLanguage = String(creationState.language || document.documentElement.lang || "zh").trim().toLowerCase();
@@ -2486,21 +2812,86 @@ function getSongSeedErrorCode(payload) {
   return String(data?.openai_error_code || payload?.openai_error_code || "").trim();
 }
 
+function getSongSeedErrorType(payload) {
+  const data = getApiData(payload);
+  return String(data?.openai_error_type || payload?.openai_error_type || "").trim();
+}
+
 function getSongSeedErrorMessage(payload) {
   const data = getApiData(payload);
   return String(data?.openai_error_message || payload?.openai_error_message || "").trim();
 }
 
+function getSongSeedErrorStatus(payload) {
+  const data = getApiData(payload);
+  const value = Number(data?.openai_error_status ?? payload?.openai_error_status);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function getSongSeedOpenAiModel(payload) {
+  const data = getApiData(payload);
+  return String(data?.openai_model || data?.model || payload?.openai_model || payload?.model || "").trim();
+}
+
+function getSongSeedOpenAiEnvSource(payload) {
+  const data = getApiData(payload);
+  return String(data?.openai_env_source || payload?.openai_env_source || "").trim();
+}
+
+function getSongSeedOpenAiKeyFingerprint(payload) {
+  const data = getApiData(payload);
+  return String(data?.openai_key_fingerprint || payload?.openai_key_fingerprint || "").trim();
+}
+
 function isSongSeedQuotaExceeded(payload) {
   const code = getSongSeedErrorCode(payload);
-  return code === "insufficient_quota" || code === "billing_hard_limit_reached";
+  const type = getSongSeedErrorType(payload);
+  return (
+    code === "insufficient_quota" ||
+    code === "billing_hard_limit_reached" ||
+    type === "insufficient_quota"
+  );
+}
+
+function isSongSeedRateLimited(payload) {
+  const status = getSongSeedErrorStatus(payload);
+  const code = getSongSeedErrorCode(payload);
+  const type = getSongSeedErrorType(payload);
+  return status === 429 && !isSongSeedQuotaExceeded(payload) && (code === "rate_limit_exceeded" || type === "rate_limit_exceeded" || !code);
+}
+
+function formatSongSeedUpstreamDebug(payload) {
+  const status = getSongSeedErrorStatus(payload);
+  const type = getSongSeedErrorType(payload);
+  const code = getSongSeedErrorCode(payload);
+  const model = getSongSeedOpenAiModel(payload);
+  const envSource = getSongSeedOpenAiEnvSource(payload);
+  const keyFingerprint = getSongSeedOpenAiKeyFingerprint(payload);
+  return [
+    status ? `status=${status}` : "",
+    type ? `type=${type}` : "",
+    code ? `code=${code}` : "",
+    model ? `model=${model}` : "",
+    envSource ? `env=${envSource}` : "",
+    keyFingerprint ? `key=${keyFingerprint}` : ""
+  ].filter(Boolean).join(" · ");
 }
 
 function getSongSeedQuotaExceededMessage(payload) {
   const detail = getSongSeedErrorMessage(payload);
+  const debug = formatSongSeedUpstreamDebug(payload);
   return loginCopy(
-    `OpenAI API budget is exhausted. Add API budget or credits, then try lyric generation again${detail ? ` · ${detail}` : ""}.`,
-    `OpenAI API 配额已经用尽。请先补充 API 预算或 credits，再重新生成歌词${detail ? ` · ${detail}` : ""}。`
+    `OpenAI upstream rejected lyric generation as quota-related${debug ? ` · ${debug}` : ""}${detail ? ` · ${detail}` : ""}.`,
+    `OpenAI 上游将这次歌词生成判定为 quota 类错误${debug ? ` · ${debug}` : ""}${detail ? ` · ${detail}` : ""}。`
+  );
+}
+
+function getSongSeedRateLimitMessage(payload) {
+  const detail = getSongSeedErrorMessage(payload);
+  const debug = formatSongSeedUpstreamDebug(payload);
+  return loginCopy(
+    `OpenAI upstream rate-limited lyric generation${debug ? ` · ${debug}` : ""}${detail ? ` · ${detail}` : ""}.`,
+    `OpenAI 上游对这次歌词生成触发了限流${debug ? ` · ${debug}` : ""}${detail ? ` · ${detail}` : ""}。`
   );
 }
 
@@ -2592,7 +2983,7 @@ function refreshLyricsPresentation(title, lines) {
   if (watchLyricsEditor) {
     watchLyricsEditor.value = safeLines.join("\n");
   }
-  setForyouStatusVisible(true);
+  setForyouStatusVisible(false);
   setForyouCompact(false);
   layoutShowcasePanels();
 }
@@ -2653,10 +3044,46 @@ function buildFallbackSongSeedTitle() {
   return genre ? `${genre} improvisation` : "improvisation theme";
 }
 
-function buildSongSeedGenerationConstraints() {
+async function buildSongSeedGenerationConstraints() {
+  const workType = normalizeWorkTypeClient(creationState.workType || "single");
+  const titleLanguage = inferLanguageFromTitleText(titleInput?.value || state.title || "");
+  const explicitLanguage = String(creationLanguage?.value || creationState.language || "").trim().toLowerCase();
+  const preferredLanguage = explicitLanguage || titleLanguage || document.documentElement.lang || "zh";
+  let structurePlan = null;
+  if (workType === "opera") {
+    const requestedTitle = String(getSongSeedRequestTitle() || titleInput?.value || state.title || "").trim();
+    if (requestedTitle && authState.user) {
+      const works = await fetchMyWorkHierarchy();
+      const root = findWorkByTitleAndType(works, requestedTitle, "opera");
+      structurePlan = buildOperaStructurePlan(root, state.songSeed, requestedTitle);
+    } else if (requestedTitle) {
+      structurePlan = buildOperaStructurePlan(null, state.songSeed, requestedTitle);
+    }
+  } else if (workType === "triptych") {
+    const requestedTitle = String(getSongSeedRequestTitle() || titleInput?.value || state.title || "").trim();
+    if (requestedTitle && authState.user) {
+      const works = await fetchMyWorkHierarchy();
+      const root = findWorkByTitleAndType(works, requestedTitle, "triptych");
+      structurePlan = buildTriptychStructurePlan(root, state.songSeed, requestedTitle);
+    } else if (requestedTitle) {
+      structurePlan = buildTriptychStructurePlan(null, state.songSeed, requestedTitle);
+    }
+  }
   return {
-    language: creationState.language || document.documentElement.lang || "zh",
-    work_type: creationState.workType || "single",
+    language: preferredLanguage,
+    work_type: workType,
+    work_type_mandate:
+      workType === "triptych"
+        ? loginCopy("Generate a triptych with one parent title and three titled singles.", "必须生成三部曲：一个总标题，加三首都有标题的单曲。")
+        : workType === "opera"
+        ? loginCopy("Generate an opera with one opera title, titled acts, and titled scenes.", "必须生成歌剧：一个歌剧总标题，并且每一幕、每一场都有标题。")
+        : loginCopy("Generate a single song release.", "生成单曲。"),
+    title_language_mandate:
+      preferredLanguage === "zh"
+        ? loginCopy("Keep the lyric body naturally Chinese unless multilingual mixing was explicitly requested. If the user already provided a title, preserve that title exactly.", "歌词正文必须自然使用中文，除非用户明确要求多语混写。如果用户已经给出标题，必须原样保留该标题。")
+        : preferredLanguage === "ja"
+          ? loginCopy("Keep the lyric body naturally Japanese unless multilingual mixing was explicitly requested. If the user already provided a title, preserve that title exactly.", "歌词正文必须自然使用日文，除非用户明确要求多语混写。如果用户已经给出标题，必须原样保留该标题。")
+          : loginCopy("Keep the lyric body naturally English unless multilingual mixing was explicitly requested. If the user already provided a title, preserve that title exactly.", "歌词正文必须自然使用英文，除非用户明确要求多语混写。如果用户已经给出标题，必须原样保留该标题。"),
     genre: creationState.selections?.genre || "",
     mood: creationState.selections?.mood || "",
     lead_instrument: creationState.selections?.instrument || "",
@@ -2679,7 +3106,8 @@ function buildSongSeedGenerationConstraints() {
     key: creationState.key,
     duration_sec: creationState.duration,
     user_prompt: creationState.prompt || "",
-    inspiration_notes: creationState.inspirationNotes || ""
+    inspiration_notes: creationState.inspirationNotes || "",
+    ...(structurePlan ? { structure_plan: structurePlan } : {})
   };
 }
 
@@ -2772,6 +3200,12 @@ async function regenerateSeedFields(target) {
         const quotaMessage = getSongSeedQuotaExceededMessage(payload);
         setLyricsDebugStatus(quotaMessage, "error");
         safeShowToast(quotaMessage);
+        return;
+      }
+      if (isSongSeedRateLimited(payload)) {
+        const rateLimitMessage = getSongSeedRateLimitMessage(payload);
+        setLyricsDebugStatus(rateLimitMessage, "error");
+        safeShowToast(rateLimitMessage);
         return;
       }
       lyricStage = `response-${attempt}`;
@@ -2878,27 +3312,9 @@ async function regenerateSeedFields(target) {
             ),
         applied ? "success" : "error"
       );
-      const universeSummary = describeSongSeedUniverse(state.songSeed);
-      const unchanged = previousSignature && nextSignature && previousSignature === nextSignature;
       if (!shouldPreserveSongSeedTitleForRefresh()) {
         recordRecentAutoSongSeedTitle(currentTitleValue);
       }
-      safeShowToast(
-        loginCopy(
-          `${unchanged ? "Lyric refresh stayed visually similar" : "Lyrics regenerated"} · ${[
-            universeSummary,
-            describeCreationRandomization()
-          ]
-            .filter(Boolean)
-            .join(" · ")}`,
-          `${unchanged ? "歌词已重试，但这次结果仍然比较像" : "歌词已刷新"} · ${[
-            universeSummary,
-            describeCreationRandomization()
-          ]
-            .filter(Boolean)
-            .join(" · ")}`
-        )
-      );
       return;
     }
     safeShowToast(t("toast.lyricsRegenerated"));
@@ -2952,7 +3368,7 @@ function writeLocalWorks(works) {
 
 function listLocalWorksForCurrentUser() {
   const ownerKey = getCurrentWorksOwnerKey();
-  return readLocalWorks().filter((item) => String(item?.ownerKey || "") === ownerKey);
+  return filterDisplayWorkRoots(buildWorkHierarchy(readLocalWorks().filter((item) => String(item?.ownerKey || "") === ownerKey)));
 }
 
 function upsertLocalWorkRecord(work) {
@@ -2966,10 +3382,13 @@ function upsertLocalWorkRecord(work) {
     title: String(work?.title || "").trim() || "CSS MV",
     style: String(work?.style || "").trim(),
     work_type: normalizeWorkTypeClient(work?.work_type),
+    structure_role: String(work?.structure_role || work?.work_type || "single").trim(),
+    structure_plan: work?.structure_plan && typeof work.structure_plan === "object" ? work.structure_plan : null,
     cover_image: String(work?.cover_image || "").trim(),
     status: String(work?.status || "draft"),
     created_at: work?.created_at || new Date().toISOString(),
-    lyrics_preview: String(work?.lyrics_preview || "").trim().slice(0, 500)
+    lyrics_preview: String(work?.lyrics_preview || "").trim().slice(0, 500),
+    children: Array.isArray(work?.children) ? work.children : []
   };
   const index = works.findIndex(
     (item) =>
@@ -2983,6 +3402,30 @@ function upsertLocalWorkRecord(work) {
   }
   writeLocalWorks(works.slice(0, 40));
   return next;
+}
+
+function updateLocalWorkCoverImage(workId, coverImage) {
+  const targetId = String(workId || "").trim();
+  const image = String(coverImage || "").trim();
+  if (!targetId || !image) return;
+  const works = readLocalWorks();
+  let changed = false;
+  const patchNode = (node) => {
+    if (!node || typeof node !== "object") return node;
+    const nodeId = String(node?.work_id || node?.local_id || "").trim();
+    const nextChildren = Array.isArray(node?.children) ? node.children.map((child) => patchNode(child)) : [];
+    if (nodeId === targetId && String(node?.cover_image || "").trim() !== image) {
+      changed = true;
+      return { ...node, cover_image: image, children: nextChildren };
+    }
+    if (nextChildren !== node.children) {
+      return { ...node, children: nextChildren };
+    }
+    return node;
+  };
+  const nextWorks = works.map((item) => patchNode(item));
+  if (!changed) return;
+  writeLocalWorks(nextWorks.slice(0, 40));
 }
 
 function workCreatedTimestamp(work) {
@@ -3064,10 +3507,11 @@ function renderWorksPanel() {
   }
 
   const displayName = authState.user?.name || authState.user?.email || "User";
+  const avatarUrl = readProfileAvatarOverride() || authState.user?.avatar || "";
   worksBody.innerHTML = `
     <div class="panel-label">${loginCopy("Creator Works Center", "创作者作品中心")}</div>
     <div class="works-hero">
-      <div class="works-avatar">${displayName.slice(0, 2).toUpperCase()}</div>
+      <div class="works-avatar">${avatarUrl ? `<img class="profile-avatar-image" src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(displayName)}" />` : displayName.slice(0, 2).toUpperCase()}</div>
       <div class="works-meta">
         <div class="works-name">${displayName}</div>
         <div class="works-role">${loginCopy("Logged in creator", "已登录创作者")}</div>
@@ -3087,7 +3531,7 @@ async function loadMyWorks() {
   const list = document.getElementById("works-list-dynamic");
   if (!list || !authState.user) return;
   const renderWorksList = (works) => {
-    const sortedWorks = sortWorksNewestFirst(works);
+    const sortedWorks = sortWorksNewestFirst(filterDisplayWorkRoots(buildWorkHierarchy(works)));
     if (!sortedWorks.length) {
       list.innerHTML = `<div class="works-note">${loginCopy("No works yet. Create one to see it here.", "还没有作品，先创作一个吧。")}</div>`;
       return;
@@ -3154,7 +3598,6 @@ async function loadMyWorks() {
                   </select>
                 </label>
               </div>
-              ${getUserRole() === "admin" ? `<div class="work-admin-actions"><button class="mini-btn ghost" type="button" data-work-action="set-defaults">${loginCopy("Set Default", "设为默认")}</button></div>` : ""}
             </div>
           </article>
         `;
@@ -3186,21 +3629,6 @@ async function loadMyWorks() {
         if (!usedCurrent) {
           await playDemoInWatchPanel();
         }
-      });
-    });
-    list.querySelectorAll("[data-work-action='set-defaults']").forEach((button) => {
-      button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        const card = button.closest("[data-work-id]");
-        const workTypeInput = card?.querySelector("[data-work-type]");
-        const listenInput = card?.querySelector('[data-work-price="listen"]');
-        const buyoutInput = card?.querySelector('[data-work-price="buyout"]');
-        if (workTypeInput instanceof HTMLSelectElement) {
-          creationState.workType = normalizeWorkTypeClient(workTypeInput.value);
-        }
-        if (listenInput instanceof HTMLInputElement && creationDefaultListen) creationDefaultListen.value = listenInput.value;
-        if (buyoutInput instanceof HTMLInputElement && creationDefaultBuyout) creationDefaultBuyout.value = buyoutInput.value;
-        void saveCreationPanelDefaults(button);
       });
     });
     list.querySelectorAll("[data-work-type]").forEach((select) => {
@@ -3310,6 +3738,7 @@ async function hydrateWorkCardThumbnails(container, works) {
     const image = await requestThumbnailDataUrl(title, subtitle, lines);
     if (!image) continue;
     cover.innerHTML = `<img src="${escapeHtml(image)}" alt="${escapeHtml(title)}" />`;
+    updateLocalWorkCoverImage(workId, image);
   }
 }
 
@@ -3332,6 +3761,127 @@ async function hydrateMarketCardThumbnails(container, works) {
 
 const OPERA_SCENES_PER_BATCH = 3;
 const OPERA_SCENES_PER_ACT = 6;
+
+function normalizeStructurePlanClient(value) {
+  if (!value || typeof value !== "object") return null;
+  const plan = value;
+  const normalizeInt = (input, fallback = 0) => {
+    const parsed = Number.parseInt(String(input ?? ""), 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+    return parsed;
+  };
+  const totalActs = normalizeInt(plan.totalActs);
+  const scenesPerAct = normalizeInt(plan.scenesPerAct);
+  const scenesPerBatch = normalizeInt(plan.scenesPerBatch);
+  const targetActNumber = normalizeInt(plan.targetActNumber);
+  const sceneStart = normalizeInt(plan.sceneStart);
+  const sceneEnd = normalizeInt(plan.sceneEnd);
+  if (!totalActs && !scenesPerAct && !scenesPerBatch && !targetActNumber && !sceneStart && !sceneEnd) {
+    return null;
+  }
+  return {
+    ...(totalActs ? { totalActs } : {}),
+    ...(scenesPerAct ? { scenesPerAct } : {}),
+    ...(scenesPerBatch ? { scenesPerBatch } : {}),
+    ...(targetActNumber ? { targetActNumber } : {}),
+    ...(sceneStart ? { sceneStart } : {}),
+    ...(sceneEnd ? { sceneEnd } : {})
+  };
+}
+
+function buildOperaStructurePlan(existingRoot, seed = state.songSeed, rootTitle = "") {
+  const requestedTitle = String(rootTitle || seed?.title || "").trim();
+  const planFromSeed =
+    requestedTitle && String(seed?.title || "").trim() === requestedTitle
+      ? normalizeStructurePlanClient(seed?.structurePlan)
+      : null;
+  const planFromRoot = normalizeStructurePlanClient(existingRoot?.structure_plan);
+  const totalActs = Math.max(
+    1,
+    planFromRoot?.totalActs || planFromSeed?.totalActs || 2
+  );
+  const scenesPerAct = Math.max(
+    1,
+    planFromRoot?.scenesPerAct || planFromSeed?.scenesPerAct || OPERA_SCENES_PER_ACT
+  );
+  const scenesPerBatch = Math.max(
+    1,
+    planFromRoot?.scenesPerBatch || planFromSeed?.scenesPerBatch || OPERA_SCENES_PER_BATCH
+  );
+  const acts = Array.isArray(existingRoot?.children)
+    ? existingRoot.children
+        .filter((child) => String(child?.structure_role || "").trim().toLowerCase() === "act")
+        .sort((a, b) => Number(a?.sequence_index || 0) - Number(b?.sequence_index || 0))
+    : [];
+  for (let actIndex = 1; actIndex <= totalActs; actIndex += 1) {
+    const actNode = acts.find((item) => Number(item?.sequence_index || 0) === actIndex);
+    const existingSceneNumbers = new Set(
+      (Array.isArray(actNode?.children) ? actNode.children : [])
+        .filter((child) => String(child?.structure_role || "").trim().toLowerCase() === "scene")
+        .map((child) => Number(child?.sequence_index || 0))
+        .filter((value) => value > 0)
+    );
+    for (let sceneStart = 1; sceneStart <= scenesPerAct; sceneStart += scenesPerBatch) {
+      const sceneEnd = Math.min(scenesPerAct, sceneStart + scenesPerBatch - 1);
+      const pending = [];
+      for (let sceneNumber = sceneStart; sceneNumber <= sceneEnd; sceneNumber += 1) {
+        if (!existingSceneNumbers.has(sceneNumber)) pending.push(sceneNumber);
+      }
+      if (pending.length) {
+        return {
+          totalActs,
+          scenesPerAct,
+          scenesPerBatch,
+          targetActNumber: actIndex,
+          sceneStart: pending[0],
+          sceneEnd: pending[pending.length - 1]
+        };
+      }
+    }
+  }
+  return {
+    totalActs,
+    scenesPerAct,
+    scenesPerBatch,
+    targetActNumber: totalActs,
+    sceneStart: scenesPerAct,
+    sceneEnd: scenesPerAct,
+    completed: true
+  };
+}
+
+function buildTriptychStructurePlan(existingRoot, seed = state.songSeed, rootTitle = "") {
+  const requestedTitle = String(rootTitle || seed?.title || "").trim();
+  const planFromSeed =
+    requestedTitle && String(seed?.title || "").trim() === requestedTitle
+      ? normalizeStructurePlanClient(seed?.structurePlan)
+      : null;
+  const planFromRoot = normalizeStructurePlanClient(existingRoot?.structure_plan);
+  const totalParts = Math.max(1, planFromRoot?.totalParts || planFromSeed?.totalParts || 3);
+  const partsPerBatch = Math.max(1, planFromRoot?.partsPerBatch || planFromSeed?.partsPerBatch || 1);
+  const parts = Array.isArray(existingRoot?.children)
+    ? existingRoot.children
+        .filter((child) => String(child?.structure_role || "").trim().toLowerCase() === "part")
+        .sort((a, b) => Number(a?.sequence_index || 0) - Number(b?.sequence_index || 0))
+    : [];
+  for (let partNumber = 1; partNumber <= totalParts; partNumber += partsPerBatch) {
+    const targetPartNumber = partNumber;
+    const existingPart = parts.find((item) => Number(item?.sequence_index || 0) === targetPartNumber);
+    if (!existingPart) {
+      return {
+        totalParts,
+        partsPerBatch,
+        targetPartNumber
+      };
+    }
+  }
+  return {
+    totalParts,
+    partsPerBatch,
+    targetPartNumber: totalParts,
+    completed: true
+  };
+}
 
 function parseChineseNumeral(input) {
   const text = String(input || "").trim();
@@ -3386,6 +3936,153 @@ function buildStructuredSegments(lines, count, baseTitle) {
   }));
 }
 
+function storedWorkTypeForStructuredRole(role, fallbackWorkType = "single") {
+  const normalizedRole = String(role || "").trim().toLowerCase();
+  const normalizedType = normalizeWorkTypeClient(fallbackWorkType);
+  if (normalizedRole === "opera" || normalizedRole === "act") return "opera";
+  if (normalizedRole === "triptych") return "triptych";
+  if (normalizedRole === "scene" || normalizedRole === "single" || normalizedRole === "part") return "single";
+  return normalizedType;
+}
+
+function buildHierarchyFromStructureTree(tree, lyricsText, fallbackTitle, fallbackWorkType) {
+  const nodes = Array.isArray(tree) ? tree : [];
+  if (!nodes.length) return [];
+  const lyricLines = String(lyricsText || "")
+    .split("\n")
+    .map((line) => String(line || "").trim())
+    .filter(Boolean);
+  const leaves = [];
+  const collectLeaves = (items) => {
+    items.forEach((node) => {
+      const children = Array.isArray(node?.children) ? node.children : [];
+      if (!children.length) {
+        leaves.push(node);
+        return;
+      }
+      collectLeaves(children);
+    });
+  };
+  collectLeaves(nodes);
+  const segments = buildStructuredSegments(
+    lyricLines,
+    Math.max(leaves.length, 1),
+    String(fallbackTitle || "CSS MV").trim() || "CSS MV"
+  );
+  let leafIndex = 0;
+  const mapNode = (node) => {
+    const children = Array.isArray(node?.children) ? node.children : [];
+    const role = String(node?.role || "scene").trim().toLowerCase();
+    const title = String(node?.title || "").trim() || String(fallbackTitle || "CSS MV").trim() || "CSS MV";
+    const sequenceIndex = Number(node?.sequenceIndex || 0);
+    if (!children.length) {
+      const segment = segments[leafIndex] || segments[segments.length - 1] || { lines: lyricLines };
+      const segmentLines = Array.isArray(segment?.lines) ? segment.lines : lyricLines;
+      leafIndex += 1;
+      return {
+        title,
+        work_type: storedWorkTypeForStructuredRole(role, node?.workType || fallbackWorkType || "single"),
+        structure_role: role,
+        sequence_index: sequenceIndex || leafIndex,
+        lyrics_text: segmentLines.join("\n"),
+        lyrics_preview: segmentLines.join("\n").slice(0, 500),
+        cover_image: buildForyouThumbSvg(title, "", segmentLines),
+        style: "",
+        children: []
+      };
+    }
+    const mappedChildren = children.map((child) => mapNode(child));
+    const aggregatePreview = mappedChildren
+      .map((child) => String(child?.lyrics_preview || "").trim())
+      .filter(Boolean)
+      .join("\n")
+      .slice(0, 500);
+    return {
+      title,
+      work_type: storedWorkTypeForStructuredRole(role, node?.workType || fallbackWorkType || "single"),
+      structure_role: role,
+      sequence_index: sequenceIndex || 0,
+      lyrics_preview: aggregatePreview,
+      cover_image: buildForyouThumbSvg(title, "", aggregatePreview.split("\n").filter(Boolean)),
+      style: "",
+      children: mappedChildren
+    };
+  };
+  return nodes.map((node) => mapNode(node));
+}
+
+function buildLocalStructuredChildren(title, lines, style, workType) {
+  const seedTree = Array.isArray(state.songSeed?.structureTree) ? state.songSeed.structureTree : [];
+  if (seedTree.length) {
+    const hierarchy = buildHierarchyFromStructureTree(
+      seedTree,
+      Array.isArray(lines) ? lines.join("\n") : "",
+      title,
+      workType
+    );
+    return (hierarchy[0]?.children || []).map((child, index) => ({
+      ...child,
+      local_id: child.local_id || `local_structured_${Date.now()}_${index + 1}`,
+      style
+    }));
+  }
+  const normalizedType = normalizeWorkTypeClient(workType);
+  if (normalizedType === "triptych") {
+    return buildStructuredSegments(lines, 3, title).map((segment, index) => ({
+      local_id: `local_triptych_${Date.now()}_${index + 1}`,
+      title: String(segment?.title || `${title} · ${loginCopy("Part", "单曲")} ${index + 1}`).trim(),
+      style,
+      work_type: "single",
+      structure_role: "single",
+      sequence_index: index + 1,
+      lyrics_text: (Array.isArray(segment?.lines) ? segment.lines : []).join("\n"),
+      lyrics_preview: (Array.isArray(segment?.lines) ? segment.lines : []).join("\n").slice(0, 500),
+      cover_image: buildForyouThumbSvg(String(segment?.title || `${title} · ${loginCopy("Part", "单曲")} ${index + 1}`).trim(), "", Array.isArray(segment?.lines) ? segment.lines : []),
+      children: []
+    }));
+  }
+  if (normalizedType === "opera") {
+    const scenes = buildStructuredSegments(lines, 6, title).map((segment, index) => ({
+      local_id: `local_scene_${Date.now()}_${index + 1}`,
+      title: String(segment?.title || `${title} · Scene ${index + 1}`).trim(),
+      style,
+      work_type: "single",
+      structure_role: "scene",
+      sequence_index: index + 1,
+      lyrics_text: (Array.isArray(segment?.lines) ? segment.lines : []).join("\n"),
+      lyrics_preview: (Array.isArray(segment?.lines) ? segment.lines : []).join("\n").slice(0, 500),
+      cover_image: buildForyouThumbSvg(String(segment?.title || `${title} · Scene ${index + 1}`).trim(), "", Array.isArray(segment?.lines) ? segment.lines : []),
+      children: []
+    }));
+    const split = Math.max(1, Math.ceil(scenes.length / 2));
+    return [
+      {
+        local_id: `local_act_${Date.now()}_1`,
+        title: `${title} · ${formatActLabel(1)}`,
+        style,
+        work_type: "opera",
+        structure_role: "act",
+        sequence_index: 1,
+        lyrics_preview: scenes.slice(0, split).map((item) => item.lyrics_preview).join("\n").slice(0, 500),
+        cover_image: buildForyouThumbSvg(`${title} · ${formatActLabel(1)}`, "", scenes.slice(0, split).map((item) => item.lyrics_preview).join("\n").split("\n").filter(Boolean)),
+        children: scenes.slice(0, split)
+      },
+      {
+        local_id: `local_act_${Date.now()}_2`,
+        title: `${title} · ${formatActLabel(2)}`,
+        style,
+        work_type: "opera",
+        structure_role: "act",
+        sequence_index: 2,
+        lyrics_preview: scenes.slice(split).map((item) => item.lyrics_preview).join("\n").slice(0, 500),
+        cover_image: buildForyouThumbSvg(`${title} · ${formatActLabel(2)}`, "", scenes.slice(split).map((item) => item.lyrics_preview).join("\n").split("\n").filter(Boolean)),
+        children: scenes.slice(split)
+      }
+    ].filter((item) => Array.isArray(item.children) && item.children.length);
+  }
+  return [];
+}
+
 async function fetchMyWorkHierarchy(limit = 200) {
   if (!authState.user) return [];
   try {
@@ -3413,6 +4110,60 @@ async function createWorkNodeRecord(payload) {
   return data;
 }
 
+async function updateWorkStructurePlan(workId, structurePlan) {
+  const targetId = String(workId || "").trim();
+  if (!targetId || !structurePlan) return null;
+  const res = await fetch(`/api/works/${encodeURIComponent(targetId)}/structure-plan`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ structure_plan: structurePlan })
+  });
+  const response = await res.json().catch(() => null);
+  const data = getApiData(response);
+  if (!res.ok) {
+    throw new Error(response?.code || `work_structure_plan_failed:${res.status}`);
+  }
+  return data;
+}
+
+async function createStructuredWorkNodes(nodes, style, pricingDefaults, parentWorkId = null, rootWorkId = null) {
+  const list = Array.isArray(nodes) ? nodes : [];
+  const created = [];
+  for (const node of list) {
+    const record = await createWorkNodeRecord({
+      title: String(node?.title || "").trim(),
+      style,
+      work_type: storedWorkTypeForStructuredRole(node?.structure_role, node?.work_type),
+      parent_work_id: parentWorkId,
+      root_work_id: rootWorkId,
+      structure_role: String(node?.structure_role || "single").trim(),
+      sequence_index: Number(node?.sequence_index || 0),
+      structure_plan: node?.structure_plan || null,
+      listen_price_cents: pricingDefaults.listenCents,
+      buyout_price_cents: pricingDefaults.buyoutCents,
+      lyrics_preview: String(node?.lyrics_preview || "").trim().slice(0, 500)
+    });
+    const createdNode = {
+      ...node,
+      ...record,
+      children: Array.isArray(node?.children) ? node.children : []
+    };
+    const resolvedRootId = rootWorkId || record.id;
+    if (Array.isArray(node?.children) && node.children.length) {
+      createdNode.children = await createStructuredWorkNodes(
+        node.children,
+        style,
+        pricingDefaults,
+        record.id,
+        resolvedRootId
+      );
+    }
+    created.push(createdNode);
+  }
+  return created;
+}
+
 function findWorkByTitleAndType(works, title, workType) {
   const expectedTitle = String(title || "").trim();
   const expectedType = normalizeWorkTypeClient(workType);
@@ -3433,111 +4184,233 @@ function findActNode(rootWork, actNumber) {
 }
 
 async function createTriptychWorkRecord(title, lines, style, pricingDefaults) {
-  const root = await createWorkNodeRecord({
+  const hierarchy = buildSongSeedHierarchy({
+    ...state.songSeed,
+    title: String(title || "").trim(),
+    lyrics: Array.isArray(lines) ? lines.join("\n") : "",
+    workType: "triptych"
+  });
+  const rootSeed = hierarchy[0] || {
     title,
-    style,
     work_type: "triptych",
     structure_role: "triptych",
-    listen_price_cents: pricingDefaults.listenCents,
-    buyout_price_cents: pricingDefaults.buyoutCents,
-    lyrics_preview: Array.isArray(lines) ? lines.join("\n").slice(0, 500) : ""
-  });
-  const segments = buildStructuredSegments(lines, 3, title);
-  for (let index = 0; index < 3; index += 1) {
-    const segment = segments[index] || { lines: lines.slice(0, 6) };
-    await createWorkNodeRecord({
-      title: `${title} · ${loginCopy("Part", "单曲")} ${index + 1}`,
+    sequence_index: 1,
+    lyrics_preview: Array.isArray(lines) ? lines.join("\n").slice(0, 500) : "",
+    children: []
+  };
+  const allWorks = await fetchMyWorkHierarchy();
+  let root = findWorkByTitleAndType(allWorks, String(title || "").trim(), "triptych");
+  if (!root) {
+    const initialPlan = buildTriptychStructurePlan(null, state.songSeed, String(title || "").trim());
+    const [createdRoot] = await createStructuredWorkNodes(
+      [{ ...rootSeed, children: [], structure_plan: initialPlan }],
       style,
-      work_type: "single",
-      parent_work_id: root.id,
-      root_work_id: root.id,
-      structure_role: "single",
-      sequence_index: index + 1,
-      listen_price_cents: pricingDefaults.listenCents,
-      buyout_price_cents: pricingDefaults.buyoutCents,
-      lyrics_preview: Array.isArray(segment.lines) ? segment.lines.join("\n").slice(0, 500) : ""
-    });
+      pricingDefaults,
+      null,
+      null
+    );
+    root = createdRoot;
+  } else if (!normalizeStructurePlanClient(root?.structure_plan)) {
+    const initialPlan = buildTriptychStructurePlan(root, state.songSeed, String(title || "").trim());
+    try {
+      const updated = await updateWorkStructurePlan(root.id, initialPlan);
+      root.structure_plan = updated?.structure_plan || initialPlan;
+    } catch (_err) {
+      root.structure_plan = initialPlan;
+    }
   }
-  showToast(loginCopy("Triptych created with 3 singles.", "三部曲已生成 3 首单曲。"));
+  root.children = Array.isArray(root?.children) ? root.children : [];
+  const nextPlan = buildTriptychStructurePlan(root, state.songSeed, String(title || "").trim());
+  if (nextPlan?.completed) {
+    showToast(loginCopy("This triptych is already complete.", "这组三部曲已经全部完成。"));
+    return root;
+  }
+  const targetPartNumber = Number(nextPlan?.targetPartNumber || 1);
+  const partBlueprint = (Array.isArray(rootSeed.children) ? rootSeed.children : []).find(
+    (item) => Number(item?.sequence_index || 0) === targetPartNumber
+  ) || {
+    title: `${title} · ${loginCopy("Part", "Part")} ${targetPartNumber}`,
+    work_type: "single",
+    structure_role: "part",
+    sequence_index: targetPartNumber,
+    lyrics_preview: Array.isArray(lines) ? lines.join("\n").slice(0, 500) : "",
+    children: []
+  };
+  const [createdPart] = await createStructuredWorkNodes(
+    [{ ...partBlueprint, children: [] }],
+    style,
+    pricingDefaults,
+    root.id,
+    root.id
+  );
+  root.children.push(createdPart);
+  showToast(
+    loginCopy(
+      `Triptych advanced to Part ${targetPartNumber}.`,
+      `三部曲已推进到 Part ${targetPartNumber}。`
+    )
+  );
   return root;
 }
 
 async function createOperaWorkRecord(title, lines, style, pricingDefaults) {
-  const actNumber = parseOperaActNumber(title) || 1;
-  const rootTitle = stripOperaActSuffix(title) || title;
-  const actLabel = formatActLabel(actNumber);
+  const rootTitle = String(title || "").trim();
+  const structurePlan = buildOperaStructurePlan(null, state.songSeed, rootTitle);
+  const hierarchy = buildSongSeedHierarchy({
+    ...state.songSeed,
+    title: rootTitle,
+    lyrics: Array.isArray(lines) ? lines.join("\n") : "",
+    workType: "opera"
+  });
+  const rootSeed = hierarchy[0] || {
+    title: rootTitle,
+    work_type: "opera",
+    structure_role: "opera",
+    sequence_index: 1,
+    lyrics_preview: Array.isArray(lines) ? lines.join("\n").slice(0, 500) : "",
+    children: []
+  };
+  const blueprintActs = Array.isArray(rootSeed.children) ? rootSeed.children : [];
   const allWorks = await fetchMyWorkHierarchy();
   let root = findWorkByTitleAndType(allWorks, rootTitle, "opera");
   if (!root) {
-    root = await createWorkNodeRecord({
-      title: rootTitle,
+    const [createdRoot] = await createStructuredWorkNodes(
+      [{ ...rootSeed, children: [], structure_plan: structurePlan }],
       style,
-      work_type: "opera",
-      structure_role: "opera",
-      listen_price_cents: pricingDefaults.listenCents,
-      buyout_price_cents: pricingDefaults.buyoutCents,
-      lyrics_preview: Array.isArray(lines) ? lines.join("\n").slice(0, 500) : ""
-    });
+      pricingDefaults,
+      null,
+      null
+    );
+    root = createdRoot;
+  } else if (!normalizeStructurePlanClient(root?.structure_plan)) {
+    try {
+      const updated = await updateWorkStructurePlan(root.id, structurePlan);
+      root.structure_plan = updated?.structure_plan || structurePlan;
+    } catch (_err) {
+      root.structure_plan = structurePlan;
+    }
   }
-  let actNode = findActNode(root, actNumber);
-  if (!actNode) {
-    actNode = await createWorkNodeRecord({
-      title: `${rootTitle} · ${actLabel}`,
-      style,
-      work_type: "opera",
-      parent_work_id: root.id,
-      root_work_id: root.id,
-      structure_role: "act",
-      sequence_index: actNumber,
-      lyrics_preview: Array.isArray(lines) ? lines.join("\n").slice(0, 500) : ""
-    });
-  }
-  const currentChildren = Array.isArray(actNode?.children) ? actNode.children : [];
-  const existingScenes = currentChildren.filter((child) => String(child?.structure_role || "").trim().toLowerCase() === "scene").length;
-  if (existingScenes >= OPERA_SCENES_PER_ACT) {
-    showToast(loginCopy(`${actLabel} is complete. Move to the next act.`, `${actLabel} 已完成，请进入下一幕。`));
+  root.children = Array.isArray(root?.children) ? root.children : [];
+  const nextPlan = buildOperaStructurePlan(root, {
+    ...(state.songSeed || {}),
+    structurePlan
+  }, rootTitle);
+  if (nextPlan?.completed) {
+    showToast(loginCopy("This opera is already complete.", "这部歌剧已经全部完成。"));
     return root;
   }
-  const remaining = OPERA_SCENES_PER_ACT - existingScenes;
-  const sceneBatchCount = Math.min(OPERA_SCENES_PER_BATCH, remaining);
-  const segments = buildStructuredSegments(lines, sceneBatchCount, `${rootTitle} ${actLabel}`);
-  for (let index = 0; index < sceneBatchCount; index += 1) {
-    const sceneNumber = existingScenes + index + 1;
-    const segment = segments[index] || { lines: lines.slice(0, 6) };
-    await createWorkNodeRecord({
-      title: `${rootTitle} · ${actLabel} · Scene ${sceneNumber}`,
+
+  const actNumber = Number(nextPlan?.targetActNumber || 1);
+  const sceneStart = Number(nextPlan?.sceneStart || 1);
+  const sceneEnd = Number(nextPlan?.sceneEnd || sceneStart);
+  const actBlueprint = blueprintActs.find((item) => Number(item?.sequence_index || 0) === actNumber) || {
+    title: `${rootTitle} · ${formatActLabel(actNumber)}`,
+    sequence_index: actNumber,
+    children: []
+  };
+  let actNode = root.children.find(
+    (child) =>
+      String(child?.structure_role || "").trim().toLowerCase() === "act" &&
+      Number(child?.sequence_index || 0) === actNumber
+  );
+  if (!actNode) {
+    const [createdAct] = await createStructuredWorkNodes(
+      [{ ...actBlueprint, children: [] }],
       style,
+      pricingDefaults,
+      root.id,
+      root.id
+    );
+    actNode = createdAct;
+    root.children.push(actNode);
+  }
+  actNode.children = Array.isArray(actNode?.children) ? actNode.children : [];
+  const existingSceneNumbers = new Set(
+    actNode.children
+      .filter((child) => String(child?.structure_role || "").trim().toLowerCase() === "scene")
+      .map((child) => Number(child?.sequence_index || 0))
+      .filter((value) => value > 0)
+  );
+  const blueprintScenes = Array.isArray(actBlueprint.children) ? actBlueprint.children : [];
+  const pendingSceneNumbers = [];
+  for (let sceneNumber = sceneStart; sceneNumber <= sceneEnd; sceneNumber += 1) {
+    if (!existingSceneNumbers.has(sceneNumber)) pendingSceneNumbers.push(sceneNumber);
+  }
+  const fallbackSegments = buildStructuredSegments(lines, Math.max(pendingSceneNumbers.length, 1), `${rootTitle} ${formatActLabel(actNumber)}`);
+  const scenesToCreate = pendingSceneNumbers.map((sceneNumber, index) => {
+    const blueprintScene = blueprintScenes.find((scene) => Number(scene?.sequence_index || 0) === sceneNumber);
+    return {
+      ...(blueprintScene || {}),
+      title: String(
+        blueprintScene?.title || `${rootTitle} · ${formatActLabel(actNumber)} · Scene ${sceneNumber}`
+      ).trim(),
       work_type: "single",
-      parent_work_id: actNode.id,
-      root_work_id: root.id,
       structure_role: "scene",
       sequence_index: sceneNumber,
-      listen_price_cents: pricingDefaults.listenCents,
-      buyout_price_cents: pricingDefaults.buyoutCents,
-      lyrics_preview: Array.isArray(segment.lines) ? segment.lines.join("\n").slice(0, 500) : ""
-    });
+      lyrics_preview:
+        String(blueprintScene?.lyrics_preview || "").trim() ||
+        (Array.isArray(fallbackSegments[index]?.lines) ? fallbackSegments[index].lines.join("\n").slice(0, 500) : ""),
+      children: []
+    };
+  });
+
+  if (!scenesToCreate.length) {
+    showToast(loginCopy("This opera is already complete.", "这部歌剧已经全部完成。"));
+    return root;
   }
-  const nextTotal = existingScenes + sceneBatchCount;
-  if (nextTotal >= OPERA_SCENES_PER_ACT) {
-    showToast(loginCopy(`${actLabel} is complete. Move to the next act.`, `${actLabel} 已完成，请进入下一幕。`));
+
+  const createdScenes = await createStructuredWorkNodes(
+    scenesToCreate,
+    style,
+    pricingDefaults,
+    actNode.id,
+    root.id
+  );
+  actNode.children.push(...createdScenes);
+  const totalActScenes = Math.max(
+    blueprintScenes.length,
+    Number(nextPlan?.scenesPerAct || OPERA_SCENES_PER_ACT)
+  );
+  if (sceneEnd >= totalActScenes) {
+    showToast(
+      loginCopy(
+        `${formatActLabel(actNumber)} completed. Next creation will continue into the following act.`,
+        `${formatActLabel(actNumber)} 已完成，下一次创作将继续进入下一幕。`
+      )
+    );
   } else {
-    showToast(loginCopy(`${actLabel} added Scene ${existingScenes + 1}-${nextTotal}.`, `${actLabel} 已新增 Scene ${existingScenes + 1}-${nextTotal}。`));
+    showToast(
+      loginCopy(
+        `${formatActLabel(actNumber)} added Scene ${sceneStart}-${sceneEnd}.`,
+        `${formatActLabel(actNumber)} 已新增 Scene ${sceneStart}-${sceneEnd}。`
+      )
+    );
   }
   return root;
 }
 
 async function createMyWorkRecord(title, lines) {
-  const workType = inferStructuredWorkType(title, creationState.workType);
+  const workType = normalizeWorkTypeClient(
+    creationState.workType || state.songSeed?.workType || "single"
+  );
   const pricingDefaults = workTypePricingDefaults(workType);
   const style = styleInput ? styleInput.value : "";
   const localRecord = upsertLocalWorkRecord({
     title: String(title || "").trim(),
     style,
     work_type: workType,
+    structure_role: workType,
+    structure_plan:
+      workType === "opera"
+        ? buildOperaStructurePlan(null, state.songSeed, String(title || "").trim())
+        : workType === "triptych"
+          ? buildTriptychStructurePlan(null, state.songSeed, String(title || "").trim())
+          : null,
     cover_image: currentWorkCoverImage(title, lines),
     status: "generating",
     created_at: new Date().toISOString(),
-    lyrics_preview: Array.isArray(lines) ? lines.join("\n").slice(0, 500) : ""
+    lyrics_preview: Array.isArray(lines) ? lines.join("\n").slice(0, 500) : "",
+    children: buildLocalStructuredChildren(String(title || "").trim(), lines, style, workType)
   });
   void refreshWorkSurfaces();
   if (!authState.user) return localRecord;
@@ -3690,6 +4563,83 @@ function bindInlineChipEditors(container) {
 function updateComposingText() {
   if (!watchSubtitle) return;
   watchSubtitle.textContent = t("status.composing", { spell: state.spell });
+}
+
+function currentLyricsProgressPercent() {
+  const current = lyricsEl?.textContent?.length || 0;
+  return lyricsTargetLength ? Math.min(100, (current / lyricsTargetLength) * 100) : 0;
+}
+
+function syncWatchEngineGrid() {
+  if (!watchEngineGrid) return;
+  clearChildren(watchEngineGrid);
+  const behavior = readPanelBehaviorSettingsLocal();
+  const compactDetail = behavior.watch.engine_detail === "compact";
+  const cards = [
+    {
+      engine: "lyrics",
+      title: loginCopy("Lyrics Engine", "歌词引擎"),
+      progress: currentLyricsProgressPercent(),
+      detail: engineDetailState.lyrics || loginCopy("Waiting", "等待中")
+    },
+    {
+      engine: "music",
+      title: loginCopy("Audio Engine", "音频引擎"),
+      progress: engineProgressState.music,
+      detail: engineDetailState.music || loginCopy("Waiting", "等待中")
+    },
+    {
+      engine: "video",
+      title: loginCopy("Video Engine", "视频引擎"),
+      progress: engineProgressState.video,
+      detail: engineDetailState.video || loginCopy("Waiting", "等待中")
+    },
+    {
+      engine: "kara",
+      title: loginCopy("Karaoke Sync", "卡拉 OK 同步"),
+      progress: engineProgressState.kara,
+      detail: engineDetailState.kara || loginCopy("Waiting", "等待中")
+    }
+  ];
+  cards.forEach((cardInfo) => {
+    const card = document.createElement("div");
+    card.className = "watch-engine-card";
+    const title = document.createElement("div");
+    title.className = "watch-engine-title";
+    title.textContent = cardInfo.title;
+    const progress = document.createElement("div");
+    progress.className = "watch-engine-progress";
+    const fill = document.createElement("span");
+    fill.style.width = `${Math.round(clampPercent(cardInfo.progress || 0))}%`;
+    progress.appendChild(fill);
+    const detail = document.createElement("div");
+    detail.className = "watch-engine-detail";
+    detail.textContent = cardInfo.detail;
+    if (compactDetail) detail.hidden = true;
+    card.appendChild(title);
+    card.appendChild(progress);
+    card.appendChild(detail);
+    watchEngineGrid.appendChild(card);
+  });
+}
+
+function renderWatchKaraokeOverlay(progress = 0) {
+  if (!watchKaraokeLine) return;
+  const lines = compactLyricLines(state.lines || []).filter(Boolean);
+  if (!lines.length) {
+    watchKaraokeLine.innerHTML = "";
+    return;
+  }
+  const normalizedProgress = clampPercent(progress);
+  const currentIndex = Math.min(lines.length - 1, Math.floor((normalizedProgress / 100) * lines.length));
+  const prev = lines[Math.max(0, currentIndex - 1)] || "";
+  const current = lines[currentIndex] || lines[0] || "";
+  const next = lines[Math.min(lines.length - 1, currentIndex + 1)] || "";
+  watchKaraokeLine.innerHTML = `
+    ${prev && prev !== current ? `<div class="watch-karaoke-prev">${escapeHtml(prev)}</div>` : ""}
+    <div class="watch-karaoke-current ${normalizedProgress > 0 ? "is-active" : ""}">${escapeHtml(current)}</div>
+    ${next && next !== current ? `<div class="watch-karaoke-next">${escapeHtml(next)}</div>` : ""}
+  `;
 }
 
 function renderLanguageButtons(container) {
@@ -4016,11 +4966,44 @@ const LOCAL_FALLBACK_MP4 =
   "data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAABQVtZGF0AAACrwYF//+r3EXpvebZSLeWLNgg2SPu73gyNjQgLSBjb3JlIDE2NSByMzIyMiBiMzU2MDVhIC0gSC4yNjQvTVBFRy00IEFWQyBjb2RlYyAtIENvcHlsZWZ0IDIwMDMtMjAyNSAtIGh0dHA6Ly93d3cudmlkZW9sYW4ub3JnL3gyNjQuaHRtbCAtIG9wdGlvbnM6IGNhYmFjPTEgcmVmPTMgZGVibG9jaz0xOjA6MCBhbmFseXNlPTB4MzoweDExMyBtZT1oZXggc3VibWU9NyBwc3k9MSBwc3lfcmQ9MS4wMDowLjAwIG1peGVkX3JlZj0xIG1lX3JhbmdlPTE2IGNocm9tYV9tZT0xIHRyZWxsaXM9MSA4eDhkY3Q9MSBjcW09MCBkZWFkem9uZT0yMSwxMSBmYXN0X3Bza2lwPTEgY2hyb21hX3FwX29mZnNldD0tMiB0aHJlYWRzPTExIGxvb2thaGVhZF90aHJlYWRzPTEgc2xpY2VkX3RocmVhZHM9MCBucj0wIGRlY2ltYXRlPTEgaW50ZXJsYWNlZD0wIGJsdXJheV9jb21wYXQ9MCBjb25zdHJhaW5lZF9pbnRyYT0wIGJmcmFtZXM9MyBiX3B5cmFtaWQ9MiBiX2FkYXB0PTEgYl9iaWFzPTAgZGlyZWN0PTEgd2VpZ2h0Yj0xIG9wZW5fZ29wPTAgd2VpZ2h0cD0yIGtleWludD0yNTAga2V5aW50X21pbj0yNCBzY2VuZWN1dD00MCBpbnRyYV9yZWZyZXNoPTAgcmNfbG9va2FoZWFkPTQwIHJjPWNyZiBtYnRyZWU9MSBjcmY9MjMuMCBxY29tcD0wLjYwIHFwbWluPTAgcXBtYXg9NjkgcXBzdGVwPTQgaXBfcmF0aW89MS40MCBhcT0xOjEuMDAAgAAAAFpliIQAO//+906/AptO4yoDklcK9sqkJlm5UmsB8qYAAAMAAAMAAAMAkIRx7muVyT1mgAAAL2AI2DJhyBRBFxCBHBniWEKHSMoAAAMAAAMAAAMAAAMAAAMA/YEAAAASQZokbEO//qmWAAADAAADAOWAAAAADkGeQniF/wAAAwAAAwEPAAAADgGeYXRCvwAAAwAAAwF3AAAADgGeY2pCvwAAAwAAAwF3AAAAGEGaaEmoQWiZTAh3//6plgAAAwAAAwDlgQAAABBBnoZFESwv/wAAAwAAAwEPAAAADgGepXRCvwAAAwAAAwF3AAAADgGep2pCvwAAAwAAAwF3AAAAGEGarEmoQWyZTAh3//6plgAAAwAAAwDlgAAAABBBnspFFSwv/wAAAwAAAwEPAAAADgGe6XRCvwAAAwAAAwF3AAAADgGe62pCvwAAAwAAAwF3AAAAF0Ga8EmoQWyZTAhv//6nhAAAAwAAAwHHAAAAEEGfDkUVLC//AAADAAADAQ8AAAAOAZ8tdEK/AAADAAADAXcAAAAOAZ8vakK/AAADAAADAXcAAAAXQZs0SahBbJlMCG///qeEAAADAAADAccAAAAQQZ9SRRUsL/8AAAMAAAMBDwAAAA4Bn3F0Qr8AAAMAAAMBdwAAAA4Bn3NqQr8AAAMAAAMBdwAAABZBm3hJqEFsmUwIV//+OEAAAAMAABsxAAAAEEGflkUVLC//AAADAAADAQ8AAAAOAZ+1dEK/AAADAAADAXcAAAAOAZ+3akK/AAADAAADAXcAAARnbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAABBIAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAA5J0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAABBIAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAoAAAAFoAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAAQSAAAEAAABAAAAAAMKbWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAAAwAAAAMgBVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAACtW1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAnVzdGJsAAAAwXN0c2QAAAAAAAAAAQAAALFhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAoABaABIAAAASAAAAAAAAAABFUxhdmM2Mi4xMS4xMDAgbGlieDI2NAAAAAAAAAAAAAAAGP//AAAAN2F2Y0MBZAAe/+EAGmdkAB6s2UCgL/lwEQAAAwABAAADADAPFi2WAQAGaOvjyyLA/fj4AAAAABBwYXNwAAAAAQAAAAEAAAAUYnRydAAAAAAAACZPAAAAAAAAABhzdHRzAAAAAAAAAAEAAAAZAAACAAAAABRzdHNzAAAAAAAAAAEAAAABAAAA2GN0dHMAAAAAAAAAGQAAAAEAAAQAAAAAAQAACgAAAAABAAAEAAAAAAEAAAAAAAAAAQAAAgAAAAABAAAKAAAAAAEAAAQAAAAAAQAAAAAAAAABAAACAAAAAAEAAAoAAAAAAQAABAAAAAABAAAAAAAAAAEAAAIAAAAAAQAACgAAAAABAAAEAAAAAAEAAAAAAAAAAQAAAgAAAAABAAAKAAAAAAEAAAQAAAAAAQAAAAAAAAABAAACAAAAAAEAAAoAAAAAAQAABAAAAAABAAAAAAAAAAEAAAIAAAAAHHN0c2MAAAAAAAAAAQAAAAEAAAAZAAAAAQAAAHhzdHN6AAAAAAAAAAAAAAAZAAADEQAAABYAAAASAAAAEgAAABIAAAAcAAAAFAAAABIAAAASAAAAHAAAABQAAAASAAAAEgAAABsAAAAUAAAAEgAAABIAAAAbAAAAFAAAABIAAAASAAAAGgAAABQAAAASAAAAEgAAABRzdGNvAAAAAAAAAAEAAAAwAAAAYXVkdGEAAABZbWV0YQAAAAAAAAAhaGRscgAAAAAAAAAAbWRpcmFwcGwAAAAAAAAAAAAAAAAsaWxzdAAAACSpdG9vAAAAHGRhdGEAAAABAAAAAExhdmY2Mi4zLjEwMA==";
 
 const panelSettingsDefaults = new WeakMap();
+const MIRROR_ANIMATION_MODE_KEY = "cssos.logo.mirrorAnimationMode";
+const MIRROR_ANIMATION_STRATEGY_KEY = "cssos.logo.mirrorAnimationStrategy";
+const MIRROR_ANIMATION_PER_TYPE_KEY = "cssos.logo.mirrorAnimationPerType";
+const MIRROR_ANIMATION_MODES = Object.freeze({
+  HALO: "halo",
+  BREATH: "breath",
+  PRISM: "prism",
+  ORACLE: "oracle"
+});
+const MIRROR_ANIMATION_STRATEGIES = Object.freeze({
+  RANDOM: "random",
+  FIXED: "fixed",
+  PER_TYPE: "per_type"
+});
+const MIRROR_SPELLCAST_CLASSNAMES = [
+  "lyric-spellcast--halo",
+  "lyric-spellcast--breath",
+  "lyric-spellcast--prism",
+  "lyric-spellcast--oracle"
+];
+const PANEL_SETTINGS_DEFAULTS_KEY = "cssos.panelSettingsDefaults";
 
 let inactivityTimer;
 let autoEnjoyTimer;
 let autoEnjoyArmed = false;
+let foryouStatusHideTimer = null;
+let foryouCompletionHoldTimer = null;
 const MARKET_WATCH_PREVIEW_LIMIT_SEC = 30;
+const PANEL_BEHAVIOR_SETTINGS_KEY = "cssos.panelBehaviorSettings";
+let FORYOU_POST_COMPLETE_HOLD_MS = 10000;
+let FORYOU_AUTO_ENJOY_DELAY_MS = 10000;
+let LYRICS_TYPEWRITER_SPEED = 18;
+let MUSIC_WAVEFORM_BAR_COUNT = 24;
+let VIDEO_STORYBOARD_FRAME_COUNT = 8;
+let DOCK_SCALE = 1;
+let DOCK_LABEL_VISIBLE = true;
+let DOCK_DOCKING_ENABLED = true;
+let DOCK_POSITION = "bottom";
 const MIN_EFFECTIVE_PREVIEW_DURATION_SEC = 5;
 const MIN_EFFECTIVE_PREVIEW_FRAME_LUMA = 22;
 let lastRequestedVideoDurationSec = 0;
@@ -4037,14 +5020,534 @@ const watchFrameSequenceCache = new Map();
 let watchFrameLoopTimer = null;
 let typingTimer;
 let progressTimer;
+let pipelineStatusTimer = null;
+let activePipelineRunId = "";
 let topZ = 10;
 let lyricSpellcastDepth = 0;
 let lyricSpellcastColorTimer = null;
 let lastTrailTime = 0;
+
+function getStoredMirrorAnimationMode() {
+  try {
+    const stored = String(localStorage.getItem(MIRROR_ANIMATION_MODE_KEY) || "").trim();
+    return Object.values(MIRROR_ANIMATION_MODES).includes(stored)
+      ? stored
+      : MIRROR_ANIMATION_MODES.HALO;
+  } catch {
+    return MIRROR_ANIMATION_MODES.HALO;
+  }
+}
+
+function setStoredMirrorAnimationMode(mode) {
+  const next = Object.values(MIRROR_ANIMATION_MODES).includes(mode)
+    ? mode
+    : MIRROR_ANIMATION_MODES.HALO;
+  try {
+    localStorage.setItem(MIRROR_ANIMATION_MODE_KEY, next);
+  } catch {
+    // ignore storage quota
+  }
+  if (logoPanel) logoPanel.dataset.mirrorAnimationMode = next;
+  return next;
+}
+
+function getStoredMirrorAnimationStrategy() {
+  try {
+    const stored = String(localStorage.getItem(MIRROR_ANIMATION_STRATEGY_KEY) || "").trim();
+    if (Object.values(MIRROR_ANIMATION_STRATEGIES).includes(stored)) return stored;
+    const legacyMode = String(localStorage.getItem(MIRROR_ANIMATION_MODE_KEY) || "").trim();
+    if (legacyMode === "random") return MIRROR_ANIMATION_STRATEGIES.RANDOM;
+    if (legacyMode === "auto") return MIRROR_ANIMATION_STRATEGIES.PER_TYPE;
+    return MIRROR_ANIMATION_STRATEGIES.PER_TYPE;
+  } catch {
+    return MIRROR_ANIMATION_STRATEGIES.PER_TYPE;
+  }
+}
+
+function setStoredMirrorAnimationStrategy(strategy) {
+  const next = Object.values(MIRROR_ANIMATION_STRATEGIES).includes(strategy)
+    ? strategy
+    : MIRROR_ANIMATION_STRATEGIES.PER_TYPE;
+  try {
+    localStorage.setItem(MIRROR_ANIMATION_STRATEGY_KEY, next);
+  } catch {
+    // ignore storage quota
+  }
+  if (logoPanel) logoPanel.dataset.mirrorAnimationStrategy = next;
+  return next;
+}
+
+function getStoredMirrorAnimationPerType() {
+  const fallback = {
+    single: MIRROR_ANIMATION_MODES.HALO,
+    triptych: MIRROR_ANIMATION_MODES.BREATH,
+    opera: MIRROR_ANIMATION_MODES.PRISM
+  };
+  try {
+    const raw = JSON.parse(localStorage.getItem(MIRROR_ANIMATION_PER_TYPE_KEY) || "{}");
+    return {
+      single: Object.values(MIRROR_ANIMATION_MODES).includes(raw?.single) ? raw.single : fallback.single,
+      triptych: Object.values(MIRROR_ANIMATION_MODES).includes(raw?.triptych) ? raw.triptych : fallback.triptych,
+      opera: Object.values(MIRROR_ANIMATION_MODES).includes(raw?.opera) ? raw.opera : fallback.opera
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function setStoredMirrorAnimationPerType(nextMap = {}) {
+  const current = getStoredMirrorAnimationPerType();
+  const normalized = {
+    single: Object.values(MIRROR_ANIMATION_MODES).includes(nextMap.single) ? nextMap.single : current.single,
+    triptych: Object.values(MIRROR_ANIMATION_MODES).includes(nextMap.triptych) ? nextMap.triptych : current.triptych,
+    opera: Object.values(MIRROR_ANIMATION_MODES).includes(nextMap.opera) ? nextMap.opera : current.opera
+  };
+  try {
+    localStorage.setItem(MIRROR_ANIMATION_PER_TYPE_KEY, JSON.stringify(normalized));
+  } catch {
+    // ignore storage quota
+  }
+  if (logoPanel) logoPanel.dataset.mirrorAnimationPerType = JSON.stringify(normalized);
+  return normalized;
+}
+
+function getDefaultMirrorAnimationModeForWorkType(workType) {
+  const normalized = normalizeWorkTypeClient(workType || creationState?.workType || "single");
+  if (normalized === "triptych") return MIRROR_ANIMATION_MODES.BREATH;
+  if (normalized === "opera") return MIRROR_ANIMATION_MODES.PRISM;
+  return MIRROR_ANIMATION_MODES.HALO;
+}
+
+function resolveMirrorAnimationMode() {
+  const strategy = getStoredMirrorAnimationStrategy();
+  if (strategy === MIRROR_ANIMATION_STRATEGIES.RANDOM) {
+    const variants = Object.values(MIRROR_ANIMATION_MODES);
+    return variants[Math.floor(Math.random() * variants.length)];
+  }
+  if (strategy === MIRROR_ANIMATION_STRATEGIES.FIXED) {
+    return getStoredMirrorAnimationMode();
+  }
+  const perType = getStoredMirrorAnimationPerType();
+  const workType = normalizeWorkTypeClient(creationState?.workType || "single");
+  return perType[workType] || getDefaultMirrorAnimationModeForWorkType(workType);
+}
+
+function applyMirrorAnimationMode(mode) {
+  if (!logoPanel) return;
+  MIRROR_SPELLCAST_CLASSNAMES.forEach((className) => logoPanel.classList.remove(className));
+  const resolved = resolveMirrorAnimationMode();
+  logoPanel.dataset.mirrorAnimationResolved = resolved;
+  if (!logoPanel.classList.contains("lyric-spellcast")) return;
+  if (resolved === MIRROR_ANIMATION_MODES.BREATH) {
+    logoPanel.classList.add("lyric-spellcast--breath");
+    return;
+  }
+  if (resolved === MIRROR_ANIMATION_MODES.PRISM) {
+    logoPanel.classList.add("lyric-spellcast--prism");
+    return;
+  }
+  if (resolved === MIRROR_ANIMATION_MODES.ORACLE) {
+    logoPanel.classList.add("lyric-spellcast--oracle");
+    return;
+  }
+  logoPanel.classList.add("lyric-spellcast--halo");
+}
+
+function readPanelDefaultStore() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PANEL_SETTINGS_DEFAULTS_KEY) || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writePanelDefaultStore(store) {
+  try {
+    localStorage.setItem(PANEL_SETTINGS_DEFAULTS_KEY, JSON.stringify(store || {}));
+  } catch {
+    // ignore
+  }
+}
+
+function getStoredPanelDefaultSnapshot(panelId) {
+  const store = readPanelDefaultStore();
+  const snapshot = store?.[panelId];
+  return snapshot && typeof snapshot === "object" ? snapshot : null;
+}
+
+function savePanelDefaultSnapshot(panelId, snapshot) {
+  const store = readPanelDefaultStore();
+  store[panelId] = snapshot;
+  writePanelDefaultStore(store);
+}
+
+function panelDefaultsApiKey(panelOrId) {
+  const id = typeof panelOrId === "string" ? panelOrId : panelOrId?.id;
+  const normalized = String(id || "").trim().toLowerCase();
+  const map = {
+    "logo-panel": "logo",
+    "dock-panel": "dock",
+    "foryou-panel": "foryou",
+    "watch-panel": "watch",
+    "lyrics-panel": "lyrics",
+    "music-panel": "music",
+    "video-panel": "video"
+  };
+  return map[normalized] || "";
+}
+
+function panelElementByDefaultKey(panelKey) {
+  const map = {
+    logo: logoPanel,
+    foryou: foryouPanel,
+    watch: watchPanel,
+    lyrics: lyricsPanel,
+    music: musicPanel,
+    video: videoPanel
+  };
+  return map[String(panelKey || "").trim().toLowerCase()] || null;
+}
+
+function defaultPanelBehaviorSettings() {
+  return {
+    logo: {
+      spell: DEFAULT_SPELL,
+      subtitle: "Studio",
+      slogan_template: "Just say <span class=\"spell\">{spell}</span>, witness the miracle!",
+      mirror_size_px: 600,
+      mask_inset_percent: 12,
+      media: {
+        image_1: "assets/mirror-1.webp",
+        image_2: "assets/mirror-2.webp",
+        video: ""
+      },
+      mirror_strategy: MIRROR_ANIMATION_STRATEGIES.PER_TYPE,
+      fixed_mode: MIRROR_ANIMATION_MODES.HALO,
+      per_type: {
+        single: MIRROR_ANIMATION_MODES.HALO,
+        triptych: MIRROR_ANIMATION_MODES.BREATH,
+        opera: MIRROR_ANIMATION_MODES.PRISM
+      }
+    },
+    dock: {
+      scale: 1,
+      show_labels: true,
+      docking_enabled: true,
+      dock_position: "bottom"
+    },
+    mic: {
+      longpress_ms: 600,
+      max_hold_sec: 30
+    },
+    foryou: {
+      preview_mode: FORYOU_PREVIEW_MODES.AUTO,
+      compact_after_lyrics: true,
+      hold_ms: 10000,
+      auto_watch_ms: 10000
+    },
+    watch: {
+      default_tab: "mv",
+      preview_limit_sec: 30,
+      subtitle_scale: 1,
+      engine_detail: "full"
+    },
+    lyrics: {
+      typewriter_speed: 18,
+      font_scale: 1,
+      auto_collapse: true
+    },
+    music: {
+      waveform_bars: 24,
+      layer_cards: 5
+    },
+    video: {
+      storyboard_frames: 8,
+      camera_slots: 4
+    }
+  };
+}
+
+function sanitizePanelBehaviorSettings(value = {}) {
+  const base = defaultPanelBehaviorSettings();
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    logo: {
+      spell: String(source?.logo?.spell || base.logo.spell).slice(0, 24) || DEFAULT_SPELL,
+      subtitle: String(source?.logo?.subtitle || base.logo.subtitle).slice(0, 40) || "Studio",
+      slogan_template: String(source?.logo?.slogan_template || base.logo.slogan_template).slice(0, 240) || base.logo.slogan_template,
+      mirror_size_px: Math.max(420, Math.min(880, Number(source?.logo?.mirror_size_px ?? base.logo.mirror_size_px) || 600)),
+      mask_inset_percent: Math.max(0, Math.min(28, Number(source?.logo?.mask_inset_percent ?? base.logo.mask_inset_percent) || 12)),
+      media: {
+        image_1: String(source?.logo?.media?.image_1 || base.logo.media.image_1 || "assets/mirror-1.webp").slice(0, 512),
+        image_2: String(source?.logo?.media?.image_2 || base.logo.media.image_2 || "assets/mirror-2.webp").slice(0, 512),
+        video: String(source?.logo?.media?.video || base.logo.media.video || "").slice(0, 512)
+      },
+      mirror_strategy: Object.values(MIRROR_ANIMATION_STRATEGIES).includes(source?.logo?.mirror_strategy)
+        ? source.logo.mirror_strategy
+        : base.logo.mirror_strategy,
+      fixed_mode: Object.values(MIRROR_ANIMATION_MODES).includes(source?.logo?.fixed_mode)
+        ? source.logo.fixed_mode
+        : base.logo.fixed_mode,
+      per_type: {
+        single: Object.values(MIRROR_ANIMATION_MODES).includes(source?.logo?.per_type?.single)
+          ? source.logo.per_type.single
+          : base.logo.per_type.single,
+        triptych: Object.values(MIRROR_ANIMATION_MODES).includes(source?.logo?.per_type?.triptych)
+          ? source.logo.per_type.triptych
+          : base.logo.per_type.triptych,
+        opera: Object.values(MIRROR_ANIMATION_MODES).includes(source?.logo?.per_type?.opera)
+          ? source.logo.per_type.opera
+          : base.logo.per_type.opera
+      }
+    },
+    dock: {
+      scale: Math.max(0.8, Math.min(1.35, Number(source?.dock?.scale ?? base.dock.scale) || 1)),
+      show_labels: source?.dock?.show_labels !== false,
+      docking_enabled: source?.dock?.docking_enabled !== false,
+      dock_position: ["left", "right", "top", "bottom"].includes(String(source?.dock?.dock_position || ""))
+        ? String(source.dock.dock_position)
+        : base.dock.dock_position
+    },
+    mic: {
+      longpress_ms: Math.max(250, Math.min(3000, Number(source?.mic?.longpress_ms ?? base.mic.longpress_ms) || 600)),
+      max_hold_sec: [3, 5, 10, 15, 30].includes(Number(source?.mic?.max_hold_sec))
+        ? Number(source.mic.max_hold_sec)
+        : base.mic.max_hold_sec
+    },
+    foryou: {
+      preview_mode: Object.values(FORYOU_PREVIEW_MODES).includes(source?.foryou?.preview_mode)
+        ? source.foryou.preview_mode
+        : base.foryou.preview_mode,
+      compact_after_lyrics: source?.foryou?.compact_after_lyrics !== false,
+      hold_ms: Math.max(0, Math.min(30000, Number(source?.foryou?.hold_ms ?? base.foryou.hold_ms) || 10000)),
+      auto_watch_ms: Math.max(0, Math.min(30000, Number(source?.foryou?.auto_watch_ms ?? base.foryou.auto_watch_ms) || 10000))
+    },
+    watch: {
+      default_tab: ["mv", "music", "lyrics", "script", "comments", "revenue", "ownership"].includes(String(source?.watch?.default_tab || ""))
+        ? String(source.watch.default_tab)
+        : base.watch.default_tab,
+      preview_limit_sec: Math.max(0, Math.min(180, Number(source?.watch?.preview_limit_sec ?? base.watch.preview_limit_sec) || 30)),
+      subtitle_scale: Math.max(0.8, Math.min(1.4, Number(source?.watch?.subtitle_scale ?? base.watch.subtitle_scale) || 1)),
+      engine_detail: ["compact", "full"].includes(String(source?.watch?.engine_detail || "")) ? String(source.watch.engine_detail) : base.watch.engine_detail
+    },
+    lyrics: {
+      typewriter_speed: Math.max(8, Math.min(60, Number(source?.lyrics?.typewriter_speed ?? base.lyrics.typewriter_speed) || 18)),
+      font_scale: Math.max(0.85, Math.min(1.4, Number(source?.lyrics?.font_scale ?? base.lyrics.font_scale) || 1)),
+      auto_collapse: source?.lyrics?.auto_collapse !== false
+    },
+    music: {
+      waveform_bars: Math.max(12, Math.min(48, Number(source?.music?.waveform_bars ?? base.music.waveform_bars) || 24)),
+      layer_cards: Math.max(3, Math.min(8, Number(source?.music?.layer_cards ?? base.music.layer_cards) || 5))
+    },
+    video: {
+      storyboard_frames: Math.max(4, Math.min(16, Number(source?.video?.storyboard_frames ?? base.video.storyboard_frames) || 8)),
+      camera_slots: Math.max(2, Math.min(8, Number(source?.video?.camera_slots ?? base.video.camera_slots) || 4))
+    }
+  };
+}
+
+function readPanelBehaviorSettingsLocal() {
+  try {
+    return sanitizePanelBehaviorSettings(JSON.parse(localStorage.getItem(PANEL_BEHAVIOR_SETTINGS_KEY) || "{}"));
+  } catch {
+    return defaultPanelBehaviorSettings();
+  }
+}
+
+function writePanelBehaviorSettingsLocal(settings) {
+  try {
+    localStorage.setItem(PANEL_BEHAVIOR_SETTINGS_KEY, JSON.stringify(sanitizePanelBehaviorSettings(settings)));
+  } catch {
+    // ignore
+  }
+}
+
+function updatePanelBehaviorSettings(mutator) {
+  const current = readPanelBehaviorSettingsLocal();
+  const draft = sanitizePanelBehaviorSettings(typeof mutator === "function" ? mutator(current) : current);
+  applyPanelBehaviorSettings(draft);
+  void renderAdvancedPanelSettings();
+  return draft;
+}
+
+function applyPanelBehaviorSettings(settings) {
+  const next = sanitizePanelBehaviorSettings(settings);
+  FORYOU_POST_COMPLETE_HOLD_MS = next.foryou.hold_ms;
+  FORYOU_AUTO_ENJOY_DELAY_MS = next.foryou.auto_watch_ms;
+  LYRICS_TYPEWRITER_SPEED = next.lyrics.typewriter_speed;
+  MUSIC_WAVEFORM_BAR_COUNT = next.music.waveform_bars;
+  VIDEO_STORYBOARD_FRAME_COUNT = next.video.storyboard_frames;
+  LONGPRESS_MS = next.mic.longpress_ms;
+  HOLD_MAX_MS = next.mic.max_hold_sec * 1000;
+  MIRROR_SIZE_PX = next.logo.mirror_size_px;
+  MIRROR_MASK_INSET_PERCENT = next.logo.mask_inset_percent;
+  logoSubtitleText = next.logo.subtitle;
+  logoSloganTemplate = next.logo.slogan_template;
+  DOCK_SCALE = next.dock.scale;
+  DOCK_LABEL_VISIBLE = next.dock.show_labels;
+  DOCK_DOCKING_ENABLED = next.dock.docking_enabled;
+  DOCK_POSITION = next.dock.dock_position;
+  setStoredMirrorAnimationStrategy(next.logo.mirror_strategy);
+  setStoredMirrorAnimationMode(next.logo.fixed_mode);
+  setStoredMirrorAnimationPerType(next.logo.per_type);
+  if (state.spell !== next.logo.spell) {
+    applySpell(next.logo.spell, { force: true, refreshPanels: true });
+  }
+  if (mirrorSubtitle) mirrorSubtitle.textContent = logoSubtitleText;
+  if (mirrorSlogan) mirrorSlogan.innerHTML = formatSlogan(state.spell || next.logo.spell);
+  if (logoPanel) {
+    logoPanel.style.setProperty("--mirror-size", `${MIRROR_SIZE_PX}px`);
+    logoPanel.style.setProperty("--mirror-mask-inset", `${MIRROR_MASK_INSET_PERCENT}%`);
+    logoPanel.style.setProperty("--hold-ring-inset", `${Math.max(48, Math.round(MIRROR_SIZE_PX * 0.14))}px`);
+    const mirrorA = logoPanel.querySelector(".mirror-img.mirror-a");
+    const mirrorB = logoPanel.querySelector(".mirror-img.mirror-b");
+    const mirrorVideo = logoPanel.querySelector(".mirror-video");
+    if (mirrorA && next.logo.media.image_1) mirrorA.src = next.logo.media.image_1;
+    if (mirrorB && next.logo.media.image_2) mirrorB.src = next.logo.media.image_2;
+    if (mirrorVideo instanceof HTMLVideoElement) {
+      if (next.logo.media.video) {
+        if (mirrorVideo.src !== next.logo.media.video) mirrorVideo.src = next.logo.media.video;
+        mirrorVideo.play().catch(() => {});
+        logoPanel.classList.add("mirror-video-active");
+      } else {
+        mirrorVideo.pause();
+        mirrorVideo.removeAttribute("src");
+        mirrorVideo.load();
+        logoPanel.classList.remove("mirror-video-active");
+      }
+    }
+  }
+  if (foryouPanel) {
+    foryouPanel.dataset.previewMode = next.foryou.preview_mode;
+    foryouPanel.dataset.compactAfterLyrics = next.foryou.compact_after_lyrics ? "true" : "false";
+    localStorage.setItem(FORYOU_PREVIEW_MODE_KEY, next.foryou.preview_mode);
+  }
+  watchActiveTab = next.watch.default_tab;
+  localStorage.setItem(WATCH_ACTIVE_TAB_KEY, watchActiveTab);
+  watchPreviewLimitSec = next.watch.preview_limit_sec;
+  if (watchPanel) {
+    watchPanel.style.setProperty("--watch-karaoke-scale", String(next.watch.subtitle_scale));
+    watchPanel.dataset.engineDetail = next.watch.engine_detail;
+  }
+  if (lyricsPanel) {
+    lyricsPanel.style.setProperty("--lyrics-font-scale", String(next.lyrics.font_scale));
+    lyricsPanel.dataset.autoCollapse = next.lyrics.auto_collapse ? "true" : "false";
+  }
+  if (musicPanel) musicPanel.dataset.layerCards = String(next.music.layer_cards);
+  if (videoPanel) videoPanel.dataset.cameraSlots = String(next.video.camera_slots);
+  if (dock) {
+    dock.style.setProperty("--dock-scale", String(DOCK_SCALE));
+    dock.classList.toggle("dock-labels-hidden", !DOCK_LABEL_VISIBLE);
+    dock.dataset.dockPosition = DOCK_POSITION;
+  }
+  writePanelBehaviorSettingsLocal(next);
+  if (creationSetDefaults) creationSetDefaults.hidden = getUserRole() !== "admin";
+  return next;
+}
+
+async function loadPanelDefaults(panelKey, fallback) {
+  try {
+    const res = await fetch(`/api/panel-defaults/${encodeURIComponent(panelKey)}`, { credentials: "include" });
+    const payload = await res.json().catch(() => null);
+    const data = getApiData(payload);
+    return data?.defaults || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function savePanelDefaults(panelKey, defaults, trigger = null) {
+  if (getUserRole() !== "admin") return null;
+  try {
+    setButtonBusy(trigger, true);
+    const res = await fetch(`/api/panel-defaults/${encodeURIComponent(panelKey)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ defaults })
+    });
+    const payload = await res.json().catch(() => null);
+    const data = getApiData(payload);
+    if (!res.ok || payload?.ok === false) {
+      throw new Error(payload?.code || `panel_defaults_save_failed:${res.status}`);
+    }
+    return data?.defaults || defaults;
+  } catch {
+    showToast(loginCopy("Failed to save defaults.", "保存默认模板失败。"));
+    return null;
+  } finally {
+    setButtonBusy(trigger, false);
+  }
+}
+
+async function fileToDataUrl(file) {
+  if (!(file instanceof File)) return "";
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("file_read_failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function hydrateBehaviorDefaultsFromServer(force = false) {
+  if (!authState.user && !force) return null;
+  const local = readPanelBehaviorSettingsLocal();
+  const remote = await loadPanelDefaults("behavior", local);
+  const merged = sanitizePanelBehaviorSettings(remote || local);
+  applyPanelBehaviorSettings(merged);
+  return merged;
+}
+
+async function hydratePanelDefaultsFromServer(force = false) {
+  if (!authState.user && !force) return;
+  const targets = ["logo", "foryou", "watch", "lyrics", "music", "video"];
+  for (const panelKey of targets) {
+    const panel = panelElementByDefaultKey(panelKey);
+    if (!panel) continue;
+    const local = getStoredPanelDefaultSnapshot(panel.id) || {};
+    const remote = await loadPanelDefaults(panelKey, local);
+    const snapshot = remote && typeof remote === "object" ? remote : local;
+    savePanelDefaultSnapshot(panel.id, snapshot);
+    if (typeof panel.__applyDefaultSnapshot === "function") {
+      panel.__applyDefaultSnapshot(snapshot);
+    }
+  }
+}
+
+async function uploadLogoMediaFile(file, slot, trigger = null) {
+  if (!(file instanceof File)) return "";
+  try {
+    setButtonBusy(trigger, true);
+    const dataUrl = await fileToDataUrl(file);
+    const res = await fetch("/api/panel-media/logo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        slot,
+        file_name: file.name || `${slot}.bin`,
+        data_url: dataUrl
+      })
+    });
+    const payload = await res.json().catch(() => null);
+    const data = getApiData(payload);
+    if (!res.ok || payload?.ok === false || !data?.url) {
+      throw new Error(payload?.code || `logo_media_upload_failed:${res.status}`);
+    }
+    return String(data.url || "");
+  } catch {
+    showToast(loginCopy("Failed to upload logo media.", "保存 Logo 素材失败。"));
+    return "";
+  } finally {
+    setButtonBusy(trigger, false);
+  }
+}
 let lastTrailPoint = null;
 let watchTriggered = false;
 let cssmvTriggered = false;
-let typingState = { paused: false, canceled: false };
+let typingState = { paused: false, canceled: false, completed: false };
 let sceneRows = [];
 let videoJobId = null;
 let videoJobPoll = null;
@@ -4061,6 +5564,17 @@ let lastCreationStartedAt = 0;
 let watchPreviewLimitSec = 0;
 let watchPreviewLimitReason = "";
 let watchPreviewLimitNoticeShown = false;
+let foryouCompletionCommitted = false;
+let karaCompletionAt = 0;
+let currentForyouHierarchy = [];
+let currentForyouLeafKey = "";
+let foryouStructureNodeMap = new Map();
+const enginePanelRevealState = {
+  lyrics: false,
+  music: false,
+  video: false,
+  kara: false
+};
 const checkoutLocks = new Set();
 
 const engineStates = {
@@ -4069,8 +5583,23 @@ const engineStates = {
   video: "running",
   kara: "running"
 };
+const engineDetailState = {
+  lyrics: "",
+  music: "",
+  video: "",
+  kara: ""
+};
+const engineProgressState = {
+  music: 0,
+  video: 0,
+  kara: 0
+};
 const dockClickTimers = new Map();
-const LONGPRESS_MS = 600;
+let MIRROR_SIZE_PX = 600;
+let MIRROR_MASK_INSET_PERCENT = 12;
+let logoSubtitleText = "Studio";
+let logoSloganTemplate = "Just say <span class=\"spell\">{spell}</span>, witness the miracle!";
+let LONGPRESS_MS = 600;
 const CLICK_DELAY = 220;
 const TRAIL_INTERVAL = 70;
 
@@ -4427,6 +5956,9 @@ async function fetchMe() {
     renderWorksPanel();
     renderApiBillingPanel();
     renderCreationConsole();
+    await hydrateBehaviorDefaultsFromServer(true);
+    await hydratePanelDefaultsFromServer(true);
+    await renderAdvancedPanelSettings();
     await handleStripeCheckoutReturn();
     await loadCreationPanelDefaults(true);
     fetchBillingStatus();
@@ -4651,7 +6183,54 @@ function setForyouBackgroundImage(uri) {
 
 function setForyouStatusVisible(visible) {
   if (!foryouStatusGrid) return;
-  foryouStatusGrid.hidden = !visible;
+  clearTimeout(foryouStatusHideTimer);
+  foryouStatusHideTimer = null;
+  if (visible) {
+    foryouStatusGrid.hidden = false;
+    foryouPanel?.classList.add("foryou-generating", "foryou-status-visible");
+    foryouPanel?.classList.remove("foryou-status-fading");
+    return;
+  }
+  foryouPanel?.classList.remove("foryou-generating", "foryou-status-visible");
+  foryouPanel?.classList.add("foryou-status-fading");
+  foryouStatusHideTimer = setTimeout(() => {
+    if (foryouStatusGrid) foryouStatusGrid.hidden = true;
+    foryouPanel?.classList.remove("foryou-status-fading");
+    foryouStatusHideTimer = null;
+  }, 1800);
+}
+
+function revealEnginePanel(engine) {
+  if (enginePanelRevealState[engine]) return;
+  const panel =
+    engine === "lyrics"
+      ? lyricsPanel
+      : engine === "music"
+        ? musicPanel
+        : engine === "video"
+          ? videoPanel
+          : watchPanel;
+  if (!panel) return;
+  enginePanelRevealState[engine] = true;
+  if (engine === "kara") {
+    activateWatchTab("mv");
+  }
+  openPanel(panel);
+}
+
+function pinLyricsViewportToLiveEdge() {
+  if (!lyricsEl) return;
+  requestAnimationFrame(() => {
+    lyricsEl.scrollTop = lyricsEl.scrollHeight;
+  });
+}
+
+function clearForyouStructure() {
+  if (foryouStructure) foryouStructure.innerHTML = "";
+  currentForyouHierarchy = [];
+  currentForyouLeafKey = "";
+  foryouStructureNodeMap = new Map();
+  if (foryouSelection) foryouSelection.hidden = true;
 }
 
 function syncForyouActionButtons() {
@@ -4668,7 +6247,7 @@ foryouThumbVideo?.addEventListener("error", () => {
   restoreForyouThumbFallback();
 });
 
-function armAutoEnjoy() {
+function armAutoEnjoy(delayMs = 10000) {
   cancelAutoEnjoy();
   autoEnjoyArmed = true;
   autoEnjoyTimer = setTimeout(async () => {
@@ -4681,7 +6260,7 @@ function armAutoEnjoy() {
     if (!ok) {
       await playDemoInWatchPanel();
     }
-  }, 10000);
+  }, Math.max(0, Number(delayMs ?? FORYOU_AUTO_ENJOY_DELAY_MS)));
 }
 
 function syncForyouThumbFallback(mode) {
@@ -4783,6 +6362,7 @@ function renderSectionBeatsText(sectionBeats = []) {
 
 function normalizeSongSeed(seed) {
   const data = seed?.data || seed || {};
+  const rawWorkType = String(data?.work_type || "").trim();
   return {
     title: String(data?.title || "").trim(),
     lyrics: String(data?.lyrics || "").trim(),
@@ -4794,9 +6374,12 @@ function normalizeSongSeed(seed) {
       : [],
     sectionPrompts: Array.isArray(data?.section_prompts) ? data.section_prompts : [],
     sectionBeats: Array.isArray(data?.section_beats) ? data.section_beats : [],
+    structureTree: Array.isArray(data?.structure_tree) ? data.structure_tree : [],
+    structurePlan: normalizeStructurePlanClient(data?.structure_plan),
     styleTags: Array.isArray(data?.style_tags)
       ? data.style_tags.map((x) => String(x || "").trim()).filter(Boolean)
       : [],
+    workType: inferStructuredWorkType(String(data?.title || "").trim(), rawWorkType || creationState.workType),
     creativeSummary: data?.creative_summary && typeof data.creative_summary === "object"
       ? {
           family: String(data.creative_summary.family || "").trim(),
@@ -4809,6 +6392,154 @@ function normalizeSongSeed(seed) {
         }
       : null
   };
+}
+
+function buildSongSeedHierarchy(seed = state.songSeed) {
+  if (!seed || typeof seed !== "object") return [];
+  if (Array.isArray(seed.structureTree) && seed.structureTree.length) {
+    return buildHierarchyFromStructureTree(
+      seed.structureTree,
+      String(seed.lyrics || "").trim(),
+      String(seed.title || state.title || "CSS MV").trim(),
+      seed.workType || creationState.workType || "single"
+    );
+  }
+  const title = String(seed.title || state.title || "CSS MV").trim() || "CSS MV";
+  const workType = inferStructuredWorkType(title, seed.workType || creationState.workType || "single");
+  const lyrics = String(seed.lyrics || "").trim();
+  const preview = lyrics.split("\n").filter(Boolean).slice(0, 4).join(" / ");
+  if (workType === "single") return [];
+  if (workType === "triptych") {
+    const parts = buildStructuredSegments(lyrics.split("\n"), 3, title).map((segment, index) => ({
+      title: String(segment?.title || `${title} · ${loginCopy("Part", "单曲")} ${index + 1}`).trim(),
+      work_type: "single",
+      structure_role: "single",
+      sequence_index: index + 1,
+      lyrics_text: (Array.isArray(segment?.lines) ? segment.lines : []).join("\n"),
+      lyrics_preview: (Array.isArray(segment?.lines) ? segment.lines : []).join("\n").slice(0, 500),
+      style: (Array.isArray(segment?.lines) ? segment.lines : []).slice(0, 3).join(" / "),
+      children: []
+    }));
+    return [
+      {
+        title,
+        work_type: "triptych",
+        structure_role: "triptych",
+        style: preview,
+        children: parts
+      }
+    ];
+  }
+  const prompts = Array.isArray(seed.sectionPrompts) ? seed.sectionPrompts : [];
+  const sceneSegments = buildStructuredSegments(lyrics.split("\n"), Math.max(prompts.length, 1), title);
+  const scenes = sceneSegments.map((segment, index) => {
+    const prompt = prompts[index] || {};
+    const lines = Array.isArray(segment?.lines) ? segment.lines : [];
+    return {
+      title: String(prompt?.title || segment?.title || `${loginCopy("Scene", "Scene")} ${index + 1}`).trim(),
+      work_type: "single",
+      structure_role: "scene",
+      sequence_index: index + 1,
+      lyrics_text: lines.join("\n"),
+      lyrics_preview: lines.join("\n").slice(0, 500),
+      style: String(prompt?.prompt || "").trim(),
+      children: []
+    };
+  });
+  const actSize = Math.max(1, Math.ceil(scenes.length / 3));
+  const acts = [];
+  for (let index = 0; index < scenes.length; index += actSize) {
+    const actNumber = acts.length + 1;
+    acts.push({
+      title: `${title} · ${formatActLabel(actNumber)}`,
+      work_type: "opera",
+      structure_role: "act",
+      sequence_index: actNumber,
+      style: loginCopy("Act structure ready", "幕结构已就位"),
+      children: scenes.slice(index, index + actSize)
+    });
+  }
+  return [
+    {
+      title,
+      work_type: "opera",
+      structure_role: "opera",
+      style: preview,
+      children: acts
+    }
+  ];
+}
+
+function renderForyouStructure(seed = state.songSeed) {
+  if (!foryouStructure) return;
+  const hierarchy = buildSongSeedHierarchy(seed);
+  currentForyouHierarchy = hierarchy;
+  if (!hierarchy.length) {
+    clearForyouStructure();
+    return;
+  }
+  const normalizedType = normalizeWorkTypeClient(seed?.workType || creationState.workType || "single");
+  const root = hierarchy[0] || null;
+  const displayNodes =
+    root && ["triptych", "opera"].includes(normalizedType) && Array.isArray(root.children) && root.children.length
+      ? root.children
+      : hierarchy;
+  foryouStructureNodeMap = new Map();
+  const annotateNodes = (nodes, trail = []) =>
+    (Array.isArray(nodes) ? nodes : []).map((node, index) => {
+      const title = String(node?.title || "").trim() || `node_${index + 1}`;
+      const role = String(node?.structure_role || node?.work_type || "single").trim().toLowerCase();
+      const key = [...trail, `${role}:${title}:${Number(node?.sequence_index || index + 1)}`].join(">");
+      const children = annotateNodes(node?.children || [], [...trail, `${role}:${title}`]);
+      const annotated = { ...node, foryou_key: key, children };
+      foryouStructureNodeMap.set(key, annotated);
+      return annotated;
+    });
+  const annotatedNodes = annotateNodes(displayNodes);
+  foryouStructure.innerHTML = renderHierarchyTree(annotatedNodes, "foryou");
+  currentForyouLeafKey = "";
+  if (foryouSelection) foryouSelection.hidden = true;
+  foryouStructure.querySelectorAll("[data-foryou-summary]").forEach((summary) => {
+    summary.addEventListener("click", (event) => {
+      const hasChildren = summary.getAttribute("data-has-children") === "1";
+      if (hasChildren) return;
+      const key = String(summary.getAttribute("data-node-key") || "").trim();
+      const node = foryouStructureNodeMap.get(key);
+      const lyricText = String(node?.lyrics_text || node?.lyrics_preview || "").trim();
+      if (!node || !lyricText) return;
+      event.preventDefault();
+      event.stopPropagation();
+      currentForyouLeafKey = key;
+      if (foryouSelectionKicker) {
+        const role = String(node?.structure_role || node?.work_type || "single").trim().toLowerCase();
+        foryouSelectionKicker.textContent =
+          role === "scene"
+            ? loginCopy("Scene Lyrics", "场次歌词")
+            : role === "part"
+              ? loginCopy("Triptych Single", "三部曲单曲")
+              : loginCopy("Single Lyrics", "单曲歌词");
+      }
+      if (foryouSelectionTitle) {
+        foryouSelectionTitle.textContent = String(node?.title || "").trim() || loginCopy("Untitled", "未命名");
+      }
+      if (foryouSelectionLyrics) {
+        foryouSelectionLyrics.textContent = lyricText;
+      }
+      if (foryouSelection) {
+        foryouSelection.hidden = false;
+      }
+      cancelAutoEnjoy();
+      foryouStructure.querySelectorAll("[data-foryou-summary]").forEach((item) => {
+        item.classList.toggle(
+          "is-selected",
+          String(item.getAttribute("data-node-key") || "").trim() === currentForyouLeafKey
+        );
+      });
+      if (watchLyricsEditor) {
+        watchLyricsEditor.value = lyricText;
+      }
+    });
+  });
 }
 
 function buildSeedPreviewSummary(seed = state.songSeed) {
@@ -5375,9 +7106,13 @@ function synthesizePreviewAudioDataUrl(seed = state.songSeed) {
 function renderSongSeedPreview(seed = state.songSeed) {
   const summary = buildSeedPreviewSummary(seed);
   renderCreationUniverseCard(seed);
+  const compactSummary =
+    summary.compact ||
+    String(seed?.creativeSummary?.compact || "").trim() ||
+    String(foryouStyle?.textContent || "").trim();
   if (foryouSeedCopy) {
-    foryouSeedCopy.textContent = summary.compact || "";
-    foryouSeedCopy.style.display = summary.compact ? "block" : "none";
+    foryouSeedCopy.textContent = compactSummary;
+    foryouSeedCopy.style.display = compactSummary ? "block" : "none";
   }
   if (watchSeedCopy) {
     watchSeedCopy.textContent = summary.watch || "";
@@ -5398,6 +7133,7 @@ function renderSongSeedPreview(seed = state.songSeed) {
   syncWatchMusicState();
   syncWatchEditorsFromSettings();
   renderWatchMetaPanels();
+  renderForyouStructure(seed);
   if (
     seed?.title &&
     !hasEffectivePreviewVideo() &&
@@ -5863,19 +7599,16 @@ function renderForyouMarketplace() {
       const title = escapeHtml(String(work?.title || "").trim() || loginCopy("Untitled", "未命名"));
       const style = escapeHtml(String(work?.style || "").trim() || loginCopy("Style not set", "未设置风格"));
       const workType = normalizeWorkTypeClient(work?.work_type);
-      const creator = escapeHtml(String(work?.owner_name || work?.owner_email || "Creator"));
-      const creatorShort = escapeHtml(String(work?.owner_name || work?.owner_email || "卖家").trim().slice(0, 12));
-      const previousOwnerLabel = escapeHtml(String(work?.previous_owner_label || work?.owner_name || work?.owner_email || "卖家").trim().slice(0, 18));
-      const ownerChainLabel = workOwnerChainLabel(work?.owner_chain);
       const preview = escapeHtml(String(work?.lyrics_preview || "").trim() || title);
       const createdAt = work?.created_at ? new Date(work.created_at).toLocaleString() : "";
       const coverImage = String(work?.cover_image || work?.thumbnail_url || work?.preview_image_url || "").trim();
-      const hierarchyMarkup = renderHierarchyTree(work.children || [], "market");
       const listenPrice = formatUsdFromCents(Number(work?.current_listen_price_cents || 0), "$0.00");
       const buyoutValue = Number(work?.current_buyout_price_cents || 0);
       const buyoutEnabled = Boolean(work?.buyout_enabled) && buyoutValue > 0;
       const buyoutPrice = buyoutEnabled ? formatUsdFromCents(buyoutValue, "$0.00") : loginCopy("Unavailable", "不可用");
       const viewerOrders = Array.isArray(work?.viewer_orders) ? work.viewer_orders : [];
+      const isOwnedByViewer =
+        Boolean(authState.user?.id) && String(work?.owner_user_id || "").trim() === String(authState.user?.id || "").trim();
       const previewBadge = `<span class="preview-chip">${loginCopy("Preview", "预览")}</span>`;
       const paidBuyout = viewerOrders.find((entry) => String(entry?.order_kind || "") === "buyout" && String(entry?.status || "") === "paid");
       const paidListen = viewerOrders.find((entry) => String(entry?.order_kind || "") === "listen" && String(entry?.status || "") === "paid");
@@ -5886,61 +7619,31 @@ function renderForyouMarketplace() {
         (entry) => String(entry?.order_kind || "") === "buyout" && ["pending", "processing"].includes(String(entry?.status || ""))
       );
       const pendingOrder = pendingBuyout || pendingListen;
-      const listenDisabled = Boolean(paidBuyout || paidListen || pendingListen || pendingBuyout);
-      const buyoutDisabled = Boolean(paidBuyout || pendingBuyout);
-      const listenLabel = paidBuyout
-        ? loginCopy("Owned buyout", "已买断")
-        : paidListen
-        ? loginCopy("Owned listen", "已购聆听")
-        : pendingListen || pendingBuyout
-        ? loginCopy("Pending", "处理中")
-        : loginCopy("Listen", "聆听");
-      const buyoutLabel = paidBuyout
-        ? loginCopy("Owned", "已买断")
-        : pendingBuyout
-        ? loginCopy("Pending", "处理中")
-        : loginCopy("Buyout", "买断");
-      const buyoutActionCopy = buyoutEnabled
-        ? `${loginCopy("Buyout from", "买断自")} ${previousOwnerLabel}`
-        : loginCopy("Unavailable", "不可用");
-      const buyoutChipCopy = `${loginCopy("Buyout", "买断")} · ${escapeHtml(buyoutPrice)}`;
+      const listenDisabled = Boolean(isOwnedByViewer || paidBuyout || paidListen || pendingListen || pendingBuyout);
+      const buyoutDisabled = Boolean(isOwnedByViewer || paidBuyout || pendingBuyout);
       return `
-        <article class="work-card market-card" data-market-work-id="${escapeHtml(workId)}" data-market-expand>
-          <div class="work-cover" data-market-cover-key="${escapeHtml(workId)}" data-market-toggle>
+        <article class="work-card market-card foryou-shelf-card" data-market-work-id="${escapeHtml(workId)}">
+          <div class="work-cover" data-market-cover-key="${escapeHtml(workId)}">
             ${coverImage ? `<img src="${escapeHtml(coverImage)}" alt="${title}" />` : `<div class="work-cover-fallback">${title.slice(0, 2).toUpperCase()}</div>`}
           </div>
           <div class="work-info">
-            <div class="work-title" data-market-toggle>${title}</div>
-            <div class="work-tags">${creator} · ${style}</div>
-            ${ownerChainLabel ? `<div class="work-owner-chain">${escapeHtml(ownerChainLabel)}</div>` : ""}
+            <div class="work-title">${title}</div>
+            <div class="work-tags" title="${style}">${style}</div>
             <div class="work-pricing">
-              ${previewBadge}
               <span class="price-chip ghost-chip">${loginCopy("Type", "类型")} · ${escapeHtml(workTypeLabel(workType))}</span>
               <span class="price-chip">${loginCopy("Listen", "聆听")} · ${escapeHtml(listenPrice)}</span>
-              <span class="price-chip">${buyoutChipCopy}</span>
+              <span class="price-chip">${loginCopy("Buyout", "买断")} · ${escapeHtml(buyoutPrice)}</span>
               ${createdAt ? `<span class="price-chip ghost-chip">${escapeHtml(createdAt)}</span>` : ""}
             </div>
-            <div class="work-extra">${preview}</div>
-            ${hierarchyMarkup}
           </div>
           <div class="work-actions">
-            <button class="mini-btn market-preview-btn" type="button" data-market-action="preview">▶ ${loginCopy("Preview", "预览")}</button>
-            <button class="mini-btn ghost ${paidListen || paidBuyout ? "is-owned" : ""} ${pendingOrder ? "is-pending" : ""}" type="button" data-market-action="listen" ${listenDisabled ? "disabled" : ""}>${listenLabel}</button>
-            <button class="mini-btn market-buyout-btn ${paidBuyout ? "is-owned" : ""} ${pendingBuyout ? "is-pending" : ""}" type="button" data-market-action="buyout" title="${escapeHtml(buyoutActionCopy)}" ${(buyoutEnabled && !buyoutDisabled) ? "" : "disabled"}>${buyoutLabel}</button>
+            <button class="mini-btn ghost" type="button" data-market-action="preview">${loginCopy("Enjoy", "欣赏")}</button>
           </div>
         </article>
       `;
     })
     .join("");
   void hydrateMarketCardThumbnails(list, works);
-  list.querySelectorAll("[data-market-expand]").forEach((card) => {
-    card.addEventListener("click", (event) => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      if (!target.closest("[data-market-toggle]")) return;
-      card.classList.toggle("is-expanded");
-    });
-  });
   list.querySelectorAll("[data-market-action='preview']").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -6179,6 +7882,9 @@ function applySongSeedToSettings(seed) {
   const references = data.references;
   const sectionPrompts = data.sectionPrompts;
   const sectionBeats = data.sectionBeats;
+  const normalizedWorkType = normalizeWorkTypeClient(data.workType || creationState.workType || "single");
+  const explicitLanguage = String(creationLanguage?.value || creationState.language || "").trim().toLowerCase();
+  const inferredLanguage = explicitLanguage || inferLanguageFromTitleText(title) || "zh";
 
   if (title) setSongSeedTitleValue(title, { userEdited: false });
   if (lyricsInput && lyrics) lyricsInput.value = lyrics;
@@ -6192,6 +7898,10 @@ function applySongSeedToSettings(seed) {
   }
   if (videoOutlineInput) videoOutlineInput.value = videoOutlineText;
   if (sectionPromptsInput) sectionPromptsInput.value = renderSectionPromptsText(sectionPrompts);
+  creationState.workType = normalizedWorkType;
+  creationState.language = inferredLanguage;
+  if (creationWorkType) creationWorkType.value = normalizedWorkType;
+  if (creationLanguage) creationLanguage.value = inferredLanguage;
   state.songSeed = data;
   if (lyrics) {
     const lines = lyrics.split("\n");
@@ -6351,6 +8061,7 @@ function enterLyricSpellcast() {
     220,
   );
   logoPanel.classList.add("lyric-spellcast");
+  applyMirrorAnimationMode(getStoredMirrorAnimationMode());
 }
 
 function exitLyricSpellcast(force = false) {
@@ -6359,6 +8070,8 @@ function exitLyricSpellcast(force = false) {
   clearInterval(lyricSpellcastColorTimer);
   lyricSpellcastColorTimer = null;
   logoPanel.classList.remove("lyric-spellcast");
+  MIRROR_SPELLCAST_CLASSNAMES.forEach((className) => logoPanel.classList.remove(className));
+  logoPanel.dataset.mirrorAnimationResolved = "";
   [logoPanel].filter(Boolean).forEach((panel) => {
     panel.style.removeProperty("--lyric-spellcast-primary");
     panel.style.removeProperty("--lyric-spellcast-secondary");
@@ -6385,6 +8098,7 @@ function typewriter(el, text, speed = 24, callback) {
       return;
     }
     el.textContent += text.charAt(i);
+    pinLyricsViewportToLiveEdge();
     i += 1;
     if (lyricsProgress) {
       const pct = text.length ? Math.min(100, (i / text.length) * 100) : 0;
@@ -6394,10 +8108,22 @@ function typewriter(el, text, speed = 24, callback) {
       typingTimer = setTimeout(step, speed);
     } else if (callback) {
       if (lyricsProgress) setProgress(lyricsProgress, 100);
+      typingState.completed = true;
+      setEngineDetail("lyrics", "stage: done");
       exitLyricSpellcast(true);
+      maybeCompactForyouAfterLyrics({ armAuto: false });
+      if (lyricsPanel) focusPanel(lyricsPanel);
+      layoutShowcasePanels();
+      maybeFinalizeForyouPresentation();
       callback();
     } else {
+      typingState.completed = true;
+      setEngineDetail("lyrics", "stage: done");
       exitLyricSpellcast(true);
+      maybeCompactForyouAfterLyrics({ armAuto: false });
+      if (lyricsPanel) focusPanel(lyricsPanel);
+      layoutShowcasePanels();
+      maybeFinalizeForyouPresentation();
     }
   };
 
@@ -6406,6 +8132,461 @@ function typewriter(el, text, speed = 24, callback) {
 
 function setProgress(el, value) {
   el.style.width = `${value}%`;
+}
+
+function clampPercent(value) {
+  return Math.max(0, Math.min(100, Number(value || 0)));
+}
+
+function pipelineRunStatePath(runId) {
+  const safeRunId = String(runId || "").trim();
+  if (!safeRunId) return "";
+  return `/srv/cssos/shared/runs/${safeRunId}/run.json`;
+}
+
+function pipelineStageState(status) {
+  const raw = String(status || "").trim().toUpperCase();
+  if (!raw) return "pending";
+  if (raw.includes("FAIL") || raw.includes("ERROR") || raw.includes("CANCEL") || raw.includes("TIMEOUT")) {
+    return "canceled";
+  }
+  if (raw.includes("SUCCESS") || raw.includes("SUCCEEDED") || raw.includes("DONE") || raw === "OK") {
+    return "done";
+  }
+  if (raw.includes("RUN") || raw.includes("WORK") || raw.includes("PROGRESS")) {
+    return "running";
+  }
+  return "pending";
+}
+
+function blendProgress(current, target) {
+  const from = clampPercent(current);
+  const to = clampPercent(target);
+  if (to <= from) return to;
+  return Math.min(to, from + Math.max(4, (to - from) * 0.45));
+}
+
+function computeWeightedStageProgress(stages, weights) {
+  const normalizedStages = Array.isArray(stages) ? stages : [];
+  const safeWeights = Array.isArray(weights) && weights.length === normalizedStages.length
+    ? weights
+    : normalizedStages.map(() => 1);
+  const totalWeight = safeWeights.reduce((sum, weight) => sum + Math.max(1, Number(weight || 0)), 0) || 1;
+  let progress = 0;
+  let hasRunning = false;
+  let hasCanceled = false;
+  normalizedStages.forEach((stage, index) => {
+    const state = pipelineStageState(stage?.status);
+    const weight = Math.max(1, Number(safeWeights[index] || 0));
+    let stagePct = 0;
+    if (state === "done") {
+      stagePct = 100;
+    } else if (state === "running") {
+      stagePct = 62;
+      hasRunning = true;
+    } else if (state === "canceled") {
+      stagePct = 0;
+      hasCanceled = true;
+    }
+    progress += (stagePct * weight) / totalWeight;
+  });
+  const state = hasCanceled ? "canceled" : hasRunning ? "running" : progress >= 100 ? "done" : "running";
+  return { progress: clampPercent(progress), state };
+}
+
+function prettifyPipelineStageName(name) {
+  const raw = String(name || "").trim();
+  if (!raw) return "";
+  return raw
+    .replace(/\./g, " / ")
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function describePipelineStage(engine, name) {
+  const raw = String(name || "").trim();
+  if (!raw) return "";
+  const normalized = raw.toLowerCase();
+  const musicMap = [
+    [/^music_plan$/, loginCopy("Arrangement planning", "编曲规划")],
+    [/^music_compose$/, loginCopy("Composing themes", "主题写作")],
+    [/^music$/, loginCopy("Building core arrangement", "搭建主编曲")],
+    [/^vocals_align$/, loginCopy("Aligning vocals", "对齐人声")],
+    [/^vocals$/, loginCopy("Rendering vocals", "渲染人声")],
+    [/^mix$/, loginCopy("Mixing stems", "混音总线")],
+    [/^master$/, loginCopy("Mastering output", "母带输出")]
+  ];
+  const videoMap = [
+    [/^video_plan$/, loginCopy("Planning storyboard", "分镜规划")],
+    [/^video_assemble$/, loginCopy("Assembling scenes", "拼装场景")],
+    [/^render_mv$/, loginCopy("Rendering final MV", "输出最终 MV")],
+    [/^render_master$/, loginCopy("Rendering master video", "输出母版视频")],
+    [/^render$/, loginCopy("Rendering sequence", "渲染序列")],
+    [/^video_shot_\d+$/, loginCopy("Rendering shot", "渲染镜头")],
+    [/^shot\./, loginCopy("Rendering shot", "渲染镜头")],
+    [/^video_shot\./, loginCopy("Rendering shot", "渲染镜头")]
+  ];
+  const karaMap = [
+    [/^subtitles$/, loginCopy("Generating subtitles", "生成字幕")],
+    [/^lyrics_timing$/, loginCopy("Aligning lyric timing", "对齐歌词时间轴")],
+    [/^localize$/, loginCopy("Localizing packs", "本地化语言包")],
+    [/^publish$/, loginCopy("Packaging release", "打包发布")],
+    [/^render_karaoke_mv\./, loginCopy("Rendering karaoke MV", "渲染卡拉 OK MV")]
+  ];
+  const map = engine === "music" ? musicMap : engine === "video" ? videoMap : karaMap;
+  const hit = map.find(([pattern]) => pattern.test(normalized));
+  if (hit) return hit[1];
+  return prettifyPipelineStageName(raw);
+}
+
+function resolveCurrentPipelineStage(stages) {
+  const list = Array.isArray(stages) ? stages : [];
+  const running = list.find((item) => pipelineStageState(item?.status) === "running");
+  if (running) return String(running.name || "").trim();
+  const pending = list.find((item) => pipelineStageState(item?.status) === "pending");
+  if (pending) return String(pending.name || "").trim();
+  const done = [...list].reverse().find((item) => pipelineStageState(item?.status) === "done");
+  return done ? String(done.name || "").trim() : "";
+}
+
+function joinDetailParts(parts) {
+  return (Array.isArray(parts) ? parts : [])
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function countStagesByState(stages, wantedState) {
+  return (Array.isArray(stages) ? stages : []).filter(
+    (item) => pipelineStageState(item?.status) === wantedState
+  ).length;
+}
+
+function compactStructureContainerTitle(rootTitle, containerTitle) {
+  const root = String(rootTitle || "").trim();
+  const container = String(containerTitle || "").trim();
+  if (!container) return "";
+  if (root && container.startsWith(`${root} · `)) {
+    return container.slice(root.length + 3).trim();
+  }
+  return container;
+}
+
+function buildSceneWindowLabel(sceneStart, sceneEnd) {
+  const start = Number(sceneStart) || 0;
+  const end = Number(sceneEnd) || 0;
+  if (!start) return "";
+  return end > start ? `Scene ${start}-${end}` : `Scene ${start}`;
+}
+
+function buildStructureHeadline(statusNode) {
+  const rootTitle = String(statusNode?.root_title || "").trim();
+  const containerTitle = compactStructureContainerTitle(
+    statusNode?.root_title,
+    statusNode?.current_container_title
+  );
+  const sceneWindow = buildSceneWindowLabel(
+    statusNode?.current_scene_start,
+    statusNode?.current_scene_end
+  );
+  const path = Array.isArray(statusNode?.current_structure_path)
+    ? statusNode.current_structure_path.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  const leafTitle = String(statusNode?.current_label || "").trim() || path[path.length - 1] || "";
+  const parts = [];
+  if (rootTitle) parts.push(rootTitle);
+  if (containerTitle) parts.push(containerTitle);
+  if (sceneWindow) {
+    parts.push(sceneWindow);
+  } else if (leafTitle && leafTitle !== containerTitle && leafTitle !== rootTitle) {
+    parts.push(leafTitle);
+  }
+  return joinDetailParts(parts);
+}
+
+function buildMusicArtifactDetail(statusPayload) {
+  const music = statusPayload?.music || {};
+  const parts = [];
+  const structureHeadline = buildStructureHeadline(music);
+  if (structureHeadline) parts.push(structureHeadline);
+  if (Number.isFinite(Number(music.tracks_count)) && Number(music.tracks_count) > 0) {
+    parts.push(`tracks ${Number(music.tracks_count)}`);
+  }
+  if (Number.isFinite(Number(music.cues_count)) && Number(music.cues_count) > 0) {
+    parts.push(`cues ${Number(music.cues_count)}`);
+  }
+  const plannedTotalActs = Number(music.planned_total_acts) || 0;
+  const plannedScenesPerAct = Number(music.planned_scenes_per_act) || 0;
+  const currentActNumber = Number(music.current_act_number) || 0;
+  const currentSceneStart = Number(music.current_scene_start) || 0;
+  const currentSceneEnd = Number(music.current_scene_end) || 0;
+  const plannedTotalParts = Number(music.planned_total_parts) || 0;
+  const currentPartNumber = Number(music.current_part_number) || 0;
+  if (plannedTotalActs > 0 && currentActNumber > 0) {
+    parts.push(`act ${currentActNumber}/${plannedTotalActs}`);
+  } else if (plannedTotalParts > 0 && currentPartNumber > 0) {
+    parts.push(`part ${currentPartNumber}/${plannedTotalParts}`);
+  }
+  if (plannedScenesPerAct > 0 && currentSceneStart > 0) {
+    parts.push(
+      currentSceneEnd > currentSceneStart
+        ? `scene window ${currentSceneStart}-${currentSceneEnd}/${plannedScenesPerAct}`
+        : `scene ${currentSceneStart}/${plannedScenesPerAct}`
+    );
+  }
+  return joinDetailParts(parts);
+}
+
+function buildVideoArtifactDetail(statusPayload, shotStages) {
+  const video = statusPayload?.video || {};
+  const parts = [];
+  const structureHeadline = buildStructureHeadline(video);
+  if (structureHeadline) parts.push(structureHeadline);
+  if (Number.isFinite(Number(video.scenes_count)) && Number(video.scenes_count) > 0) {
+    parts.push(`scenes ${Number(video.scenes_count)}`);
+  }
+  if (Number.isFinite(Number(video.segments_count)) && Number(video.segments_count) > 0) {
+    parts.push(`segments ${Number(video.segments_count)}`);
+  }
+  const totalShots = Number(video.shots_count) || (Array.isArray(shotStages) ? shotStages.length : 0);
+  const completedShots = Number(video.completed_shots) || countStagesByState(shotStages, "done");
+  if (totalShots > 0) {
+    parts.push(`shots ${completedShots}/${totalShots}`);
+  }
+  const plannedTotalActs = Number(video.planned_total_acts) || 0;
+  const plannedScenesPerAct = Number(video.planned_scenes_per_act) || 0;
+  const currentActNumber = Number(video.current_act_number) || 0;
+  const currentSceneStart = Number(video.current_scene_start) || 0;
+  const currentSceneEnd = Number(video.current_scene_end) || 0;
+  const plannedTotalParts = Number(video.planned_total_parts) || 0;
+  const currentPartNumber = Number(video.current_part_number) || 0;
+  if (plannedTotalActs > 0 && currentActNumber > 0) {
+    parts.push(`act ${currentActNumber}/${plannedTotalActs}`);
+  } else if (plannedTotalParts > 0 && currentPartNumber > 0) {
+    parts.push(`part ${currentPartNumber}/${plannedTotalParts}`);
+  }
+  if (plannedScenesPerAct > 0 && currentSceneStart > 0) {
+    parts.push(
+      currentSceneEnd > currentSceneStart
+        ? `scene window ${currentSceneStart}-${currentSceneEnd}/${plannedScenesPerAct}`
+        : `scene ${currentSceneStart}/${plannedScenesPerAct}`
+    );
+  }
+  return joinDetailParts(parts);
+}
+
+function buildKaraArtifactDetail(statusPayload) {
+  const kara = statusPayload?.kara || {};
+  const parts = [];
+  const structureHeadline = buildStructureHeadline(kara);
+  if (structureHeadline) parts.push(structureHeadline);
+  if (Number.isFinite(Number(kara.subtitle_cues_count)) && Number(kara.subtitle_cues_count) > 0) {
+    parts.push(`subtitle cues ${Number(kara.subtitle_cues_count)}`);
+  }
+  const plannedTotalActs = Number(kara.planned_total_acts) || 0;
+  const plannedScenesPerAct = Number(kara.planned_scenes_per_act) || 0;
+  const currentActNumber = Number(kara.current_act_number) || 0;
+  const currentSceneStart = Number(kara.current_scene_start) || 0;
+  const currentSceneEnd = Number(kara.current_scene_end) || 0;
+  const plannedTotalParts = Number(kara.planned_total_parts) || 0;
+  const currentPartNumber = Number(kara.current_part_number) || 0;
+  if (plannedTotalActs > 0 && currentActNumber > 0) {
+    parts.push(`act ${currentActNumber}/${plannedTotalActs}`);
+  } else if (plannedTotalParts > 0 && currentPartNumber > 0) {
+    parts.push(`part ${currentPartNumber}/${plannedTotalParts}`);
+  }
+  if (plannedScenesPerAct > 0 && currentSceneStart > 0) {
+    parts.push(
+      currentSceneEnd > currentSceneStart
+        ? `scene window ${currentSceneStart}-${currentSceneEnd}/${plannedScenesPerAct}`
+        : `scene ${currentSceneStart}/${plannedScenesPerAct}`
+    );
+  }
+  return joinDetailParts(parts);
+}
+
+function collectPipelineStages(statusMap, patterns) {
+  const entries = [];
+  const seen = new Set();
+  const tests = Array.isArray(patterns) ? patterns : [];
+  for (const [name, status] of statusMap.entries()) {
+    if (seen.has(name)) continue;
+    if (tests.some((pattern) => (pattern instanceof RegExp ? pattern.test(name) : String(name) === String(pattern)))) {
+      seen.add(name);
+      entries.push({ name, status });
+    }
+  }
+  return entries.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+}
+
+function derivePipelineProgress(statusPayload) {
+  const statusMap = new Map(
+    (Array.isArray(statusPayload?.stages) ? statusPayload.stages : []).map((entry) => [
+      String(entry?.name || "").trim(),
+      String(entry?.status || "").trim()
+    ])
+  );
+  const stage = (name) => ({ name, status: statusMap.get(name) || "PENDING" });
+  const shotStages = collectPipelineStages(statusMap, [/^video_shot_\d+$/i, /^shot\./i, /^video_shot\./i]);
+  const musicStages = collectPipelineStages(statusMap, [
+    "music",
+    "music_plan",
+    "music_compose",
+    "vocals",
+    "vocals_align",
+    "mix",
+    "master"
+  ]);
+  const music = computeWeightedStageProgress(
+    musicStages.length ? musicStages : [stage("music"), stage("vocals"), stage("mix")],
+    musicStages.length ? [15, 25, 20, 15, 10, 10, 5].slice(0, musicStages.length) : [34, 33, 33]
+  );
+  const videoStages = [
+    ...collectPipelineStages(statusMap, ["video_plan"]),
+    ...shotStages,
+    ...collectPipelineStages(statusMap, ["video_assemble"]),
+    ...collectPipelineStages(statusMap, ["render_mv", "render", "render_master", /^render_mv\./i])
+  ];
+  const activeVideoStages = videoStages.filter((item) => String(item?.status || "").trim());
+  const shotWeight = shotStages.length ? 40 / shotStages.length : 0;
+  const videoWeights = activeVideoStages.map((item) => {
+    if (item.name === "video_plan") return 20;
+    if (item.name === "video_assemble") return 20;
+    if (item.name === "render" || item.name === "render_master" || item.name === "render_mv" || /^render_mv\./i.test(item.name)) return 20;
+    return shotWeight || 40;
+  });
+  const video = computeWeightedStageProgress(activeVideoStages, videoWeights);
+  const karaCandidates = collectPipelineStages(statusMap, [
+    "subtitles",
+    /^subtitles\./i,
+    "lyrics_timing",
+    /^karaoke_ass\./i,
+    /^lyrics_lrc\./i,
+    "localize",
+    "render_lang_pack",
+    "publish",
+    /^render_karaoke_mv\./i
+  ]).filter((item) => String(item?.status || "").trim() && item.status !== "PENDING");
+  const kara = computeWeightedStageProgress(
+    karaCandidates.length ? karaCandidates : [stage("subtitles")],
+    karaCandidates.length ? [20, 15, 15, 15, 10, 10, 5, 10].slice(0, karaCandidates.length) : [100]
+  );
+  return {
+    music: {
+      ...music,
+      stageKey: resolveCurrentPipelineStage(musicStages),
+      currentStage: describePipelineStage("music", resolveCurrentPipelineStage(musicStages)),
+      artifactDetail: buildMusicArtifactDetail(statusPayload)
+    },
+    video: {
+      ...video,
+      stageKey: resolveCurrentPipelineStage(activeVideoStages),
+      currentStage: describePipelineStage("video", resolveCurrentPipelineStage(activeVideoStages)),
+      artifactDetail: buildVideoArtifactDetail(statusPayload, shotStages)
+    },
+    kara: {
+      ...kara,
+      stageKey: resolveCurrentPipelineStage(karaCandidates.length ? karaCandidates : [stage("subtitles")]),
+      currentStage: describePipelineStage(
+        "kara",
+        resolveCurrentPipelineStage(karaCandidates.length ? karaCandidates : [stage("subtitles")])
+      ),
+      artifactDetail: buildKaraArtifactDetail(statusPayload)
+    }
+  };
+}
+
+function stopPipelineProgressPolling() {
+  activePipelineRunId = "";
+  if (pipelineStatusTimer) {
+    clearInterval(pipelineStatusTimer);
+    pipelineStatusTimer = null;
+  }
+}
+
+async function pollPipelineProgressOnce(runId) {
+  const statePath = pipelineRunStatePath(runId);
+  if (!statePath) return;
+  const res = await fetch(`/api/pipeline/status?path=${encodeURIComponent(statePath)}`);
+  const payload = await res.json().catch(() => null);
+  if (!res.ok || !payload) return;
+  const derived = derivePipelineProgress(payload);
+  engineProgressState.music = blendProgress(engineProgressState.music, derived.music.progress);
+  engineProgressState.video = blendProgress(engineProgressState.video, derived.video.progress);
+  engineProgressState.kara = blendProgress(engineProgressState.kara, derived.kara.progress);
+  if (!karaCompletionAt && derived.kara.progress >= 100) {
+    karaCompletionAt = Date.now();
+    window.dispatchEvent(
+      new CustomEvent("cssos:kara_ready", {
+        detail: {
+          run_id: runId,
+          stage: derived.kara.currentStage,
+          detail: derived.kara.artifactDetail
+        }
+      })
+    );
+  }
+  setProgress(musicProgress, engineProgressState.music);
+  setProgress(videoProgress, engineProgressState.video);
+  setProgress(karaProgress, engineProgressState.kara);
+  if (engineProgressState.music > 0) revealEnginePanel("music");
+  if (engineProgressState.video > 0) revealEnginePanel("video");
+  if (engineProgressState.kara > 0) revealEnginePanel("kara");
+  syncSceneProgress(engineProgressState.video);
+  setEngineState("music", derived.music.state === "done" ? "running" : derived.music.state);
+  setEngineState("video", derived.video.state === "done" ? "running" : derived.video.state);
+  setEngineState("kara", derived.kara.state === "done" ? "running" : derived.kara.state);
+  setEngineDetail(
+    "music",
+    joinDetailParts([
+      derived.music.currentStage ? `stage: ${derived.music.currentStage}` : "",
+      derived.music.artifactDetail || ""
+    ])
+  );
+  renderMusicEngineSnapshot(payload, {
+    ...derived.music,
+    progress: engineProgressState.music
+  });
+  setEngineDetail(
+    "video",
+    joinDetailParts([
+      derived.video.currentStage ? `stage: ${derived.video.currentStage}` : "",
+      derived.video.artifactDetail || ""
+    ])
+  );
+  renderVideoEngineSnapshot(payload, {
+    ...derived.video,
+    progress: engineProgressState.video
+  });
+  setEngineDetail(
+    "kara",
+    joinDetailParts([
+      derived.kara.currentStage ? `stage: ${derived.kara.currentStage}` : "",
+      derived.kara.artifactDetail || ""
+    ])
+  );
+  renderKaraEngineSnapshot(payload, {
+    ...derived.kara,
+    progress: engineProgressState.kara
+  });
+  if (derived.music.progress >= 100) setProgress(musicProgress, 100);
+  if (derived.video.progress >= 100) setProgress(videoProgress, 100);
+  if (derived.kara.progress >= 100) setProgress(karaProgress, 100);
+  maybeFinalizeForyouPresentation();
+}
+
+function startPipelineProgressPolling(runId) {
+  const safeRunId = String(runId || "").trim();
+  if (!safeRunId) return;
+  activePipelineRunId = safeRunId;
+  stopPipelineProgressPolling();
+  activePipelineRunId = safeRunId;
+  void pollPipelineProgressOnce(safeRunId);
+  pipelineStatusTimer = setInterval(() => {
+    if (!activePipelineRunId) return;
+    void pollPipelineProgressOnce(activePipelineRunId);
+  }, 1200);
 }
 
 function resetVideoPreview() {
@@ -6966,14 +9147,41 @@ function pollVideoJob(jobId) {
 }
 
 function resetTypingState() {
-  typingState = { paused: false, canceled: false };
+  typingState = { paused: false, canceled: false, completed: false };
+  foryouCompletionCommitted = false;
+  karaCompletionAt = 0;
+  clearTimeout(foryouCompletionHoldTimer);
+  foryouCompletionHoldTimer = null;
+  stopPipelineProgressPolling();
+  enginePanelRevealState.lyrics = false;
+  enginePanelRevealState.music = false;
+  enginePanelRevealState.video = false;
+  enginePanelRevealState.kara = false;
+  engineProgressState.music = 0;
+  engineProgressState.video = 0;
+  engineProgressState.kara = 0;
+  if (musicProgress) setProgress(musicProgress, 0);
+  if (videoProgress) setProgress(videoProgress, 0);
+  if (karaProgress) setProgress(karaProgress, 0);
   if (lyricsEl) {
     lyricsEl.classList.remove("paused", "canceled");
+    lyricsEl.textContent = "";
+    lyricsEl.scrollTop = 0;
   }
   enterLyricSpellcast();
   setForyouStatusVisible(true);
   setEngineState("lyrics", "running");
+  setEngineState("music", "pending");
+  setEngineState("video", "pending");
+  setEngineState("kara", "pending");
+  setEngineDetail("lyrics", "stage: typing");
+  setEngineDetail("music", "waiting for audio engine");
+  setEngineDetail("video", "waiting for video engine");
+  setEngineDetail("kara", "waiting for karaoke sync");
   if (lyricsProgress) setProgress(lyricsProgress, 0);
+  revealEnginePanel("lyrics");
+  syncWatchEngineGrid();
+  renderWatchKaraokeOverlay(0);
 }
 
 function cycleLyricsState() {
@@ -6982,6 +9190,7 @@ function cycleLyricsState() {
     typingState.paused = true;
     lyricsEl.classList.add("paused");
     setEngineState("lyrics", "paused");
+    setEngineDetail("lyrics", "stage: paused");
     showToast("Lyrics paused");
     return;
   }
@@ -6992,12 +9201,28 @@ function cycleLyricsState() {
   setForyouStatusVisible(false);
   exitLyricSpellcast(true);
   setEngineState("lyrics", "canceled");
+  setEngineDetail("lyrics", "stage: canceled");
   showToast("Lyrics canceled");
 }
 
 function initLyricsControls() {
   if (!lyricsEl) return;
   lyricsEl.addEventListener("click", cycleLyricsState);
+}
+
+function setEngineDetail(engine, detail) {
+  engineDetailState[engine] = String(detail || "").trim();
+  const target =
+    engine === "lyrics"
+      ? lyricsProgressDetail
+      : engine === "music"
+        ? musicProgressDetail
+        : engine === "video"
+          ? videoProgressDetail
+          : karaProgressDetail;
+  if (!target) return;
+  target.textContent = engineDetailState[engine];
+  syncWatchEngineGrid();
 }
 
 function setEngineState(engine, state) {
@@ -7043,6 +9268,7 @@ function setEngineState(engine, state) {
       setSceneState(entry.row, entry.statusEl, "canceled");
     });
   }
+  syncWatchEngineGrid();
 }
 
 function cycleEngineState(engine) {
@@ -7075,15 +9301,13 @@ function initEngineControls() {
 
 function resetEngineStates() {
   setEngineState("lyrics", "running");
-  setEngineState("music", "running");
-  setEngineState("video", "running");
-  setEngineState("kara", "running");
+  setEngineState("music", "pending");
+  setEngineState("video", "pending");
+  setEngineState("kara", "pending");
+  setForyouStatusVisible(true);
 }
 
 function animateProgress() {
-  let music = 0;
-  let video = 0;
-  let kara = 0;
   clearInterval(progressTimer);
   progressTimer = setInterval(() => {
     if (engineStates.lyrics === "running" && lyricsProgress) {
@@ -7091,24 +9315,14 @@ function animateProgress() {
       const pct = lyricsTargetLength ? Math.min(100, (current / lyricsTargetLength) * 100) : 0;
       setProgress(lyricsProgress, pct);
     }
-    if (engineStates.music === "running") {
-      music = Math.min(100, music + 6 + Math.random() * 6);
+    if (!activePipelineRunId) {
+      setProgress(musicProgress, engineProgressState.music);
+      setProgress(videoProgress, engineProgressState.video);
+      setProgress(karaProgress, engineProgressState.kara);
+      syncSceneProgress(engineProgressState.video);
     }
-    if (engineStates.video === "running") {
-      video = Math.min(100, video + 4 + Math.random() * 5);
-    }
-    if (engineStates.kara === "running") {
-      kara = Math.min(100, kara + 5 + Math.random() * 6);
-    }
-    setProgress(musicProgress, music);
-    setProgress(videoProgress, video);
-    setProgress(karaProgress, kara);
-    syncSceneProgress(video);
-    if (music >= 100 && video >= 100 && kara >= 100) {
-      clearInterval(progressTimer);
-      watchSubtitle.textContent = "KaraOKe MV · Ready";
-      finishCreationSession();
-    }
+    syncWatchEngineGrid();
+    maybeFinalizeForyouPresentation();
   }, 420);
 }
 
@@ -7167,6 +9381,8 @@ function openPanel(panel) {
   panel.dataset.minimized = "false";
   if (panel === watchPanel) {
     primeWatchPanelLayout();
+  } else if (!panel.dataset.positioned) {
+    placePanelFromTopLeft(panel);
   }
   focusPanel(panel);
   if (panel === foryouPanel) {
@@ -27606,6 +29822,30 @@ function setPanelPosition(panel, left, top) {
   panel.style.transform = "none";
 }
 
+function placePanelFromTopLeft(panel) {
+  if (!panel || panel.id === "logo-panel") return;
+  if (panel.dataset.userMoved === "true" || panel.dataset.maximized === "true") return;
+  const openPanels = panels.filter(
+    (item) =>
+      item &&
+      item !== panel &&
+      item.id !== "logo-panel" &&
+      !item.classList.contains("hidden")
+  );
+  const baseLeft = 0;
+  const baseTop = 0;
+  const offsetX = 56;
+  const offsetY = 40;
+  const dragReveal = 140;
+  const step = openPanels.length;
+  const width = panel.getBoundingClientRect().width || Number.parseInt(panel.dataset.panelWidth || "420", 10) || 420;
+  const height = panel.getBoundingClientRect().height || Number.parseInt(panel.dataset.panelHeight || "320", 10) || 320;
+  const left = Math.min(baseLeft + step * offsetX, Math.max(baseLeft, window.innerWidth - width - dragReveal));
+  const top = Math.min(baseTop + step * offsetY, Math.max(baseTop, window.innerHeight - Math.min(height, 220) - 24));
+  setPanelPosition(panel, left, top);
+  panel.dataset.positioned = "true";
+}
+
 function layoutShowcasePanels() {
   const order = [
     cssmvPanel,
@@ -27795,7 +30035,7 @@ function applyBackgroundPalette() {
 }
 
 function formatSlogan(spell) {
-  return t("logo.slogan", { spell }, "en");
+  return String(logoSloganTemplate || t("logo.slogan", { spell }, "en")).split("{spell}").join(spell);
 }
 
 function formatApplyLabel(spell) {
@@ -27832,6 +30072,7 @@ function applySpell(spell, options = {}) {
   state.spell = next;
 
   if (mirrorTitle) mirrorTitle.textContent = next;
+  if (mirrorSubtitle) mirrorSubtitle.textContent = logoSubtitleText;
   if (mirrorSlogan) mirrorSlogan.innerHTML = formatSlogan(next);
   if (applySettings) applySettings.textContent = formatApplyLabel(next);
   if (toast) toast.textContent = formatToast(next);
@@ -28028,12 +30269,26 @@ function renderTags(container, tags) {
   });
 }
 
-function setForyouCompact(enabled) {
+function setForyouCompact(enabled, options = {}) {
+  const armAuto = options?.armAuto === true;
   if (!foryouPanel) return;
   if (enabled) {
     foryouPanel.classList.add("foryou-panel-compact");
     foryouPanel.classList.remove("foryou-lyrics-expanded");
-    armAutoEnjoy();
+    if (
+      !String(foryouThumbImage?.src || "").trim() &&
+      !String(foryouThumbVideo?.src || "").trim() &&
+      state.title &&
+      Array.isArray(state.lines) &&
+      state.lines.length
+    ) {
+      syncForyouThumbFromLyrics(state.title, state.lines);
+    }
+    if (armAuto) {
+      armAutoEnjoy();
+    } else {
+      cancelAutoEnjoy();
+    }
   } else {
     foryouPanel.classList.remove("foryou-panel-compact");
     foryouPanel.classList.remove("foryou-lyrics-expanded");
@@ -28041,11 +30296,61 @@ function setForyouCompact(enabled) {
   }
 }
 
+function maybeCompactForyouAfterLyrics(options = {}) {
+  const behavior = readPanelBehaviorSettingsLocal();
+  if (behavior.foryou.compact_after_lyrics === false) return;
+  setForyouCompact(true, options);
+}
+
 function toggleForyouLyricsExpanded() {
   if (!foryouPanel || !state.lines?.length) return;
   if (!foryouPanel.classList.contains("foryou-panel-compact")) return;
-  foryouPanel.classList.toggle("foryou-lyrics-expanded");
+  const nextExpanded = !foryouPanel.classList.contains("foryou-lyrics-expanded");
+  if (nextExpanded && foryouSelectionTitle) {
+    foryouSelectionTitle.textContent = String(state.title || "CSS MV").trim() || loginCopy("Untitled", "未命名");
+  }
+  if (nextExpanded && foryouSelectionKicker) {
+    foryouSelectionKicker.textContent = loginCopy("Single Lyrics", "单曲歌词");
+  }
+  if (nextExpanded && foryouSelectionLyrics) {
+    foryouSelectionLyrics.textContent = Array.isArray(state.lines) ? state.lines.join("\n") : "";
+  }
+  if (foryouSelection) {
+    foryouSelection.hidden = !nextExpanded;
+  }
+  foryouPanel.classList.toggle("foryou-lyrics-expanded", nextExpanded);
   cancelAutoEnjoy();
+}
+
+function maybeFinalizeForyouPresentation() {
+  if (foryouCompletionCommitted) return;
+  if (
+    !(
+      typingState.completed &&
+      engineProgressState.music >= 100 &&
+      engineProgressState.video >= 100 &&
+      engineProgressState.kara >= 100 &&
+      karaCompletionAt > 0
+    )
+  ) {
+    return;
+  }
+  foryouCompletionCommitted = true;
+  stopPipelineProgressPolling();
+  renderKaraEngineSnapshot(null, {
+    currentStage: loginCopy("Karaoke locked", "卡拉 OK 已锁定"),
+    artifactDetail: loginCopy("Ready for watch", "可以进入欣赏")
+  });
+  finishCreationSession();
+  clearTimeout(foryouCompletionHoldTimer);
+  const delayMs = Math.max(0, FORYOU_POST_COMPLETE_HOLD_MS - (Date.now() - karaCompletionAt));
+  foryouCompletionHoldTimer = setTimeout(() => {
+    clearInterval(progressTimer);
+    setForyouStatusVisible(false);
+    armAutoEnjoy(0);
+    layoutShowcasePanels();
+    foryouCompletionHoldTimer = null;
+  }, delayMs);
 }
 
 function cycleSceneStatus(statusEl) {
@@ -28150,27 +30455,322 @@ function renderLyricFlow(scenes) {
   });
 }
 
-function renderMixGrid() {
+function buildMusicEngineLayers(statusPayload, progress = 0) {
+  const music = statusPayload?.music || {};
+  const normalizedProgress = clampPercent(progress);
+  const primaryInstrument =
+    creationState.selections.instrument ||
+    creationState.instrumentation ||
+    state.songSeed?.instrumentation ||
+    loginCopy("Strings", "弦乐");
+  const stageLabel = String(music.current_label || "").trim() || String(music.current_container_title || "").trim();
+  const trackCount = Number(music.tracks_count) || 0;
+  const cuesCount = Number(music.cues_count) || 0;
+  return [
+    {
+      label: loginCopy("Lead Vocal", "主唱"),
+      level: Math.min(100, 20 + normalizedProgress * 0.82),
+      detail: voiceStyle?.textContent || state.voice || loginCopy("Voice shaping", "声线塑形")
+    },
+    {
+      label: loginCopy("Harmony", "和声"),
+      level: Math.min(100, 12 + normalizedProgress * 0.68),
+      detail: trackCount > 1 ? `${trackCount} ${loginCopy("layers", "层")}` : loginCopy("Stacking voices", "叠加声部")
+    },
+    {
+      label: primaryInstrument,
+      level: Math.min(100, 16 + normalizedProgress * 0.74),
+      detail: stageLabel || loginCopy("Theme motif", "主题动机")
+    },
+    {
+      label: loginCopy("Percussion", "打击乐"),
+      level: Math.min(100, 8 + normalizedProgress * 0.58),
+      detail: `${Math.max(1, Math.round((Number(creationState.percussionActivity || 0.45) * 10)))} ${loginCopy("pulse", "脉冲")}`
+    },
+    {
+      label: loginCopy("Atmosphere", "氛围"),
+      level: Math.min(100, 14 + normalizedProgress * 0.66),
+      detail: cuesCount > 0 ? `${cuesCount} ${loginCopy("cues", "提示点")}` : loginCopy("Room bloom", "空间铺陈")
+    }
+  ];
+}
+
+function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
+  if (!musicRuntimeBoard) return;
+  clearChildren(musicRuntimeBoard);
+  const cards = [
+    {
+      label: loginCopy("Current Stage", "当前阶段"),
+      value: musicSnapshot.currentStage || loginCopy("Queued", "排队中")
+    },
+    {
+      label: loginCopy("Structure", "结构"),
+      value: musicSnapshot.artifactDetail || loginCopy("Waiting for audio engine", "等待音频引擎")
+    },
+    {
+      label: loginCopy("Render Load", "渲染负载"),
+      value: `${Math.round(clampPercent(musicSnapshot.progress || 0))}% · ${
+        Number(statusPayload?.music?.tracks_count) || 0
+      } ${loginCopy("tracks", "轨道")}`
+    }
+  ];
+  cards.forEach((cardInfo) => {
+    const card = document.createElement("div");
+    card.className = "music-runtime-card";
+    const label = document.createElement("div");
+    label.className = "music-runtime-label";
+    label.textContent = cardInfo.label;
+    const value = document.createElement("div");
+    value.className = "music-runtime-value";
+    value.textContent = cardInfo.value;
+    card.appendChild(label);
+    card.appendChild(value);
+    musicRuntimeBoard.appendChild(card);
+  });
+}
+
+function renderMusicWaveform(progress = 0, stageLabel = "") {
+  if (!waveformEl) return;
+  clearChildren(waveformEl);
+  const normalizedProgress = clampPercent(progress);
+  const bucketCount = Math.max(12, Number(MUSIC_WAVEFORM_BAR_COUNT || 24));
+  const activeBucket = Math.max(0, Math.min(bucketCount - 1, Math.floor((normalizedProgress / 100) * bucketCount)));
+  const stageSeed = Array.from(String(stageLabel || "")).reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  for (let index = 0; index < bucketCount; index += 1) {
+    const bar = document.createElement("span");
+    const oscillation = Math.sin((index + 1 + stageSeed * 0.01) * 0.72);
+    const progressLift = normalizedProgress * 0.34;
+    const height = Math.max(22, Math.min(92, 38 + oscillation * 24 + progressLift));
+    bar.style.setProperty("--i", String(index + 1));
+    bar.style.setProperty("--h", `${height}%`);
+    if (index <= activeBucket) bar.classList.add("is-active");
+    waveformEl.appendChild(bar);
+  }
+}
+
+function renderMusicTrackList(statusPayload, musicSnapshot = {}) {
+  if (!musicTrackList) return;
+  clearChildren(musicTrackList);
+  const behavior = readPanelBehaviorSettingsLocal();
+  const layers = buildMusicEngineLayers(statusPayload, musicSnapshot.progress || 0).slice(0, behavior.music.layer_cards);
+  layers.forEach((layer) => {
+    const row = document.createElement("div");
+    row.className = "track-row";
+
+    const label = document.createElement("div");
+    label.className = "track-label";
+    label.textContent = layer.label;
+
+    const bar = document.createElement("div");
+    bar.className = "track-bar";
+    const fill = document.createElement("span");
+    fill.style.width = `${Math.round(clampPercent(layer.level))}%`;
+    bar.appendChild(fill);
+
+    const value = document.createElement("div");
+    value.className = "track-value";
+    value.textContent = `${Math.round(clampPercent(layer.level))}%`;
+
+    row.appendChild(label);
+    row.appendChild(bar);
+    row.appendChild(value);
+    musicTrackList.appendChild(row);
+  });
+}
+
+function renderMixGrid(statusPayload = null, musicSnapshot = {}) {
   if (!mixGrid) return;
   clearChildren(mixGrid);
-  pickRandom(mixBank, 5).forEach((layer) => {
+  const behavior = readPanelBehaviorSettingsLocal();
+  buildMusicEngineLayers(statusPayload, musicSnapshot.progress || 0).slice(0, behavior.music.layer_cards).forEach((layer) => {
     const card = document.createElement("div");
     card.className = "mix-card";
 
     const title = document.createElement("div");
     title.className = "mix-title";
-    title.textContent = layer;
+    title.textContent = layer.label;
+
+    const detail = document.createElement("div");
+    detail.className = "mix-detail";
+    detail.textContent = layer.detail;
 
     const level = document.createElement("div");
     level.className = "mix-level";
     const fill = document.createElement("span");
-    fill.style.width = `${55 + Math.random() * 40}%`;
+    fill.style.width = `${Math.round(clampPercent(layer.level))}%`;
     level.appendChild(fill);
 
     card.appendChild(title);
+    card.appendChild(detail);
     card.appendChild(level);
     mixGrid.appendChild(card);
   });
+}
+
+function renderMusicEngineSnapshot(statusPayload = null, musicSnapshot = {}) {
+  renderMusicRuntimeBoard(statusPayload, musicSnapshot);
+  renderMusicWaveform(musicSnapshot.progress || 0, musicSnapshot.currentStage || "");
+  renderMusicTrackList(statusPayload, musicSnapshot);
+  renderMixGrid(statusPayload, musicSnapshot);
+}
+
+function buildVideoRuntimeCards(statusPayload, videoSnapshot = {}) {
+  const video = statusPayload?.video || {};
+  const shotsCount = Number(video.shots_count) || 0;
+  const completedShots = Number(video.completed_shots) || 0;
+  const segmentsCount = Number(video.segments_count) || 0;
+  return [
+    {
+      label: loginCopy("Current Stage", "当前阶段"),
+      value: videoSnapshot.currentStage || loginCopy("Queued", "排队中")
+    },
+    {
+      label: loginCopy("Structure", "结构"),
+      value: videoSnapshot.artifactDetail || loginCopy("Waiting for video engine", "等待视频引擎")
+    },
+    {
+      label: loginCopy("Shot Load", "镜头负载"),
+      value: `${completedShots}/${Math.max(shotsCount, completedShots)} ${loginCopy("shots", "镜头")} · ${segmentsCount} ${loginCopy("segments", "片段")}`
+    }
+  ];
+}
+
+function renderVideoRuntimeBoard(statusPayload, videoSnapshot = {}) {
+  if (!videoRuntimeBoard) return;
+  clearChildren(videoRuntimeBoard);
+  buildVideoRuntimeCards(statusPayload, videoSnapshot).forEach((cardInfo) => {
+    const card = document.createElement("div");
+    card.className = "video-runtime-card";
+    const label = document.createElement("div");
+    label.className = "video-runtime-label";
+    label.textContent = cardInfo.label;
+    const value = document.createElement("div");
+    value.className = "video-runtime-value";
+    value.textContent = cardInfo.value;
+    card.appendChild(label);
+    card.appendChild(value);
+    videoRuntimeBoard.appendChild(card);
+  });
+}
+
+function extractShotIndexFromStage(stageKey) {
+  const raw = String(stageKey || "").trim();
+  const match = raw.match(/(?:video_shot_|shot\.|video_shot\.)(\d+)/i);
+  if (!match) return 0;
+  return Math.max(0, Number(match[1]) || 0);
+}
+
+function renderVideoStoryboardSnapshot(videoSnapshot = {}) {
+  if (!storyboard) return;
+  const frames = Array.from(storyboard.querySelectorAll(".story-frame"));
+  const progress = clampPercent(videoSnapshot.progress || 0);
+  const completedCount = Math.floor((progress / 100) * frames.length);
+  const activeIndex = extractShotIndexFromStage(videoSnapshot.stageKey) || completedCount + 1;
+  frames.forEach((frame, index) => {
+    frame.classList.remove("is-complete", "is-active");
+    if (index < completedCount) {
+      frame.classList.add("is-complete");
+    } else if (index + 1 === activeIndex && progress > 0 && progress < 100) {
+      frame.classList.add("is-active");
+    }
+  });
+}
+
+function renderVideoCameraSnapshot(statusPayload = null, videoSnapshot = {}) {
+  if (!cameraList) return;
+  const video = statusPayload?.video || {};
+  const behavior = readPanelBehaviorSettingsLocal();
+  const plannedScenes = Number(video.planned_scenes_per_act) || Number(video.scenes_count) || 0;
+  const currentSceneStart = Number(video.current_scene_start) || 0;
+  const currentSceneEnd = Number(video.current_scene_end) || currentSceneStart || 0;
+  if (!plannedScenes && !videoSnapshot.currentStage) return;
+  clearChildren(cameraList);
+  const sceneCount = Math.max(1, Math.min(behavior.video.camera_slots, plannedScenes || behavior.video.camera_slots));
+  for (let index = 0; index < sceneCount; index += 1) {
+    const sceneNumber = index + 1;
+    const item = document.createElement("div");
+    item.className = "camera-item";
+    item.textContent = `${loginCopy("Scene", "场")} ${String(sceneNumber).padStart(2, "0")}`;
+    const detail = document.createElement("span");
+    if (currentSceneStart && sceneNumber >= currentSceneStart && sceneNumber <= Math.max(currentSceneStart, currentSceneEnd)) {
+      detail.textContent = `${loginCopy("Active window", "当前窗口")} · ${videoSnapshot.currentStage || loginCopy("Rendering shot", "渲染镜头")}`;
+    } else if (sceneNumber < currentSceneStart) {
+      detail.textContent = loginCopy("Storyboard locked", "分镜已锁定");
+    } else {
+      detail.textContent = loginCopy("Queued for render", "等待渲染");
+    }
+    item.appendChild(detail);
+    cameraList.appendChild(item);
+  }
+}
+
+function renderVideoScriptSnapshot(statusPayload = null, videoSnapshot = {}) {
+  if (!videoScript) return;
+  const video = statusPayload?.video || {};
+  const totalScenes = Number(video.scenes_count) || Number(video.planned_scenes_per_act) || 0;
+  const currentScene = Number(video.current_scene_start) || 0;
+  videoScript.textContent = joinDetailParts([
+    videoSnapshot.currentStage || loginCopy("Storyboard ready", "分镜就绪"),
+    totalScenes > 0 ? `${loginCopy("scenes", "场次")} ${currentScene || 1}/${totalScenes}` : "",
+    videoSnapshot.artifactDetail || ""
+  ]) || loginCopy("Auto script loaded", "脚本已载入");
+}
+
+function renderVideoEngineSnapshot(statusPayload = null, videoSnapshot = {}) {
+  renderVideoRuntimeBoard(statusPayload, videoSnapshot);
+  renderVideoStoryboardSnapshot(videoSnapshot);
+  renderVideoCameraSnapshot(statusPayload, videoSnapshot);
+  renderVideoScriptSnapshot(statusPayload, videoSnapshot);
+}
+
+function buildKaraRuntimeCards(statusPayload, karaSnapshot = {}) {
+  const kara = statusPayload?.kara || {};
+  const subtitleCount = Number(kara.subtitle_cues_count) || 0;
+  const plannedActs = Number(kara.planned_total_acts) || 0;
+  return [
+    {
+      label: loginCopy("Current Stage", "当前阶段"),
+      value: karaSnapshot.currentStage || loginCopy("Queued", "排队中")
+    },
+    {
+      label: loginCopy("Structure", "结构"),
+      value: karaSnapshot.artifactDetail || loginCopy("Waiting for karaoke sync", "等待卡拉 OK 同步")
+    },
+    {
+      label: loginCopy("Subtitle Load", "字幕负载"),
+      value: `${subtitleCount} ${loginCopy("cues", "提示点")} · ${Math.max(1, plannedActs || 1)} ${loginCopy("acts", "幕")}`
+    }
+  ];
+}
+
+function renderKaraRuntimeBoard(statusPayload, karaSnapshot = {}) {
+  if (!karaRuntimeBoard) return;
+  clearChildren(karaRuntimeBoard);
+  buildKaraRuntimeCards(statusPayload, karaSnapshot).forEach((cardInfo) => {
+    const card = document.createElement("div");
+    card.className = "kara-runtime-card";
+    const label = document.createElement("div");
+    label.className = "kara-runtime-label";
+    label.textContent = cardInfo.label;
+    const value = document.createElement("div");
+    value.className = "kara-runtime-value";
+    value.textContent = cardInfo.value;
+    card.appendChild(label);
+    card.appendChild(value);
+    karaRuntimeBoard.appendChild(card);
+  });
+}
+
+function renderKaraEngineSnapshot(statusPayload = null, karaSnapshot = {}) {
+  renderKaraRuntimeBoard(statusPayload, karaSnapshot);
+  renderWatchKaraokeOverlay(karaSnapshot.progress || engineProgressState.kara || 0);
+  if (watchSubtitle) {
+    watchSubtitle.textContent =
+      joinDetailParts([
+        karaSnapshot.currentStage || loginCopy("KaraOKe MV · Syncing", "卡拉 OK MV · 同步中"),
+        karaSnapshot.artifactDetail || ""
+      ]) || loginCopy("KaraOKe MV · Syncing", "卡拉 OK MV · 同步中");
+  }
 }
 
 function buildShots(count) {
@@ -28185,7 +30785,7 @@ function buildShots(count) {
 function renderStoryboard(shots) {
   if (!storyboard) return;
   clearChildren(storyboard);
-  shots.slice(0, 8).forEach((shot) => {
+  shots.slice(0, VIDEO_STORYBOARD_FRAME_COUNT).forEach((shot) => {
     const frame = document.createElement("div");
     frame.className = "story-frame";
     frame.textContent = `Shot ${String(shot.id).padStart(2, "0")} · ${shot.move}`;
@@ -31435,10 +34035,27 @@ function updateEnginePanels(title, lines) {
   renderCameraBoard(resolvedScenes);
   renderLyricFlow(resolvedScenes);
   renderTags(musicTags, styleTags);
-  renderMixGrid();
+  renderMusicEngineSnapshot(null, {
+    progress: engineProgressState.music || 0,
+    currentStage: "",
+    stageKey: "",
+    artifactDetail: ""
+  });
   renderTags(videoTags, videoTagSet);
   renderStoryboard(shots);
   renderCameraList(shots);
+  renderVideoEngineSnapshot(null, {
+    progress: engineProgressState.video || 0,
+    currentStage: "",
+    stageKey: "",
+    artifactDetail: ""
+  });
+  renderKaraEngineSnapshot(null, {
+    progress: engineProgressState.kara || 0,
+    currentStage: "",
+    stageKey: "",
+    artifactDetail: ""
+  });
   renderTags(foryouTags, styleTags);
   renderDeliveryGovernancePulse();
   renderSongSeedPreview(state.songSeed);
@@ -31527,22 +34144,21 @@ async function startCreation(customTitle, customLyrics) {
     watchTriggered = false;
     resetTypingState();
     resetEngineStates();
-    setForyouCompact(false);
+    maybeCompactForyouAfterLyrics({ armAuto: false });
     syncForyouThumbFromLyrics(title, lines);
     cssmvPanel.classList.add("hidden");
     watchPanel.classList.add("hidden");
     updateDockVisibility();
-    typewriter(lyricsEl, lyricText, 18, () => {
-      setForyouCompact(true);
-      layoutShowcasePanels();
-    });
+    typewriter(lyricsEl, lyricText, LYRICS_TYPEWRITER_SPEED);
     animateProgress();
     updateEnginePanels(title, lines);
     requestVideoPreview(title, lines);
     state.baseLines = baseLines;
     state.lines = lines;
     void createMyWorkRecord(title, lines);
+    void runPipeline(getMicJobId(), title, lyricText);
     openPanel(foryouPanel);
+    revealEnginePanel("lyrics");
     layoutShowcasePanels();
     shouldReleaseLock = false;
     return true;
@@ -31740,7 +34356,7 @@ async function startMicRecording() {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     micChunks = [];
     micDiscardOnStop = false;
-    micRecorder = new MediaRecorder(micStream);
+    micRecorder = createMediaRecorder(micStream);
     micRecorder.ondataavailable = (event) => {
       if (event.data && event.data.size > 0) micChunks.push(event.data);
     };
@@ -31774,10 +34390,16 @@ function stopMicRecording(discard = false) {
 
 async function submitMicTranscription(blob) {
   const jobId = getMicJobId();
+  const micBehavior = readPanelBehaviorSettingsLocal().mic || { longpress_ms: LONGPRESS_MS, max_hold_sec: Math.round(HOLD_MAX_MS / 1000) };
   try {
     const res = await fetch("/api/mic/transcribe", {
       method: "POST",
-      headers: { "content-type": blob.type || "application/octet-stream" },
+      headers: {
+        "content-type": blob.type || "application/octet-stream",
+        "x-cssos-wake-spell": String(state.spell || DEFAULT_SPELL),
+        "x-cssos-longpress-ms": String(micBehavior.longpress_ms || LONGPRESS_MS),
+        "x-cssos-capture-max-sec": String(micBehavior.max_hold_sec || Math.round(HOLD_MAX_MS / 1000))
+      },
       body: blob
     });
     const payload = await res.json().catch(() => null);
@@ -31801,6 +34423,10 @@ async function runLyricsGenerate(mode, options = {}) {
   const jobId = getMicJobId();
   const title = getSongSeedRequestTitle();
   const apply = options?.apply !== false;
+  const titleLanguage = inferLanguageFromTitleText(title);
+  const explicitLanguage = String(creationLanguage?.value || creationState.language || "").trim().toLowerCase();
+  const preferredLanguage = explicitLanguage || titleLanguage || document.documentElement.lang || "zh";
+  const constraints = await buildSongSeedGenerationConstraints();
   const payload = {
     job_id: jobId,
     mode,
@@ -31808,9 +34434,9 @@ async function runLyricsGenerate(mode, options = {}) {
     title,
     style: styleInput?.value?.trim() || state.style || "",
     voice: voiceInput?.value?.trim() || state.voice || "",
-    language: creationState.language || document.documentElement.lang || "zh",
+    language: preferredLanguage,
     variation_nonce: `${Date.now()}_${songSeedVariationCounter}_${mode}`,
-    constraints: buildSongSeedGenerationConstraints()
+    constraints
   };
   const res = await fetch("/api/cssmv/song-seed", {
     method: "POST",
@@ -31831,6 +34457,10 @@ async function runPipeline(jobId, title, lyrics) {
     body: JSON.stringify({ job_id: jobId, title, lyrics })
   });
   const json = await res.json().catch(() => null);
+  const runId = String(json?.run_id || json?.data?.run_id || "").trim();
+  if (runId) {
+    startPipelineProgressPolling(runId);
+  }
   return json;
 }
 
@@ -31855,21 +34485,20 @@ async function startCreationWithLyrics(title, lyricsText) {
     watchTriggered = false;
     resetTypingState();
     resetEngineStates();
-    setForyouCompact(false);
+    maybeCompactForyouAfterLyrics({ armAuto: false });
     syncForyouThumbFromLyrics(title, lines);
     cssmvPanel.classList.add("hidden");
     watchPanel.classList.add("hidden");
     updateDockVisibility();
-    typewriter(lyricsEl, lyricText, 18, () => {
-      setForyouCompact(true);
-      layoutShowcasePanels();
-    });
+    typewriter(lyricsEl, lyricText, LYRICS_TYPEWRITER_SPEED);
     animateProgress();
     updateEnginePanels(title, lines);
     state.baseLines = lines;
     state.lines = lines;
     state.title = title;
+    void runPipeline(getMicJobId(), title, lyricText);
     openPanel(foryouPanel);
+    revealEnginePanel("lyrics");
     layoutShowcasePanels();
     shouldReleaseLock = false;
     return true;
@@ -31888,6 +34517,11 @@ async function runMicFlow() {
     await playDemoMV();
     return;
   }
+  if (isSongSeedRateLimited(lyricPayload)) {
+    safeShowToast(getSongSeedRateLimitMessage(lyricPayload));
+    await playDemoMV();
+    return;
+  }
   if (!lyricPayload || !lyricPayload.ok || lyricPayload.no_data) {
     await playDemoMV();
     return;
@@ -31899,13 +34533,6 @@ async function runMicFlow() {
     return;
   }
   await startCreationWithLyrics(title, lyricsText);
-  const pipeline = await runPipeline(lyricPayload.job_id || getMicJobId(), title, lyricsText);
-  if (pipeline && pipeline.ok && pipeline.mv_url) {
-    const ok = await showEnjoyOverlaySafe(pipeline.mv_url, "");
-    if (!ok) await playDemoMV();
-  } else {
-    await playDemoMV();
-  }
 }
 
 function cycleSelect(selectEl) {
@@ -31979,13 +34606,14 @@ function cycleLanguageQuick() {
 }
 
 const PASSKEY_BASE = "";
-const HOLD_MAX_MS = Number(window.CSS_HOLD_MAX_MS || 30000);
+let HOLD_MAX_MS = Number(window.CSS_HOLD_MAX_MS || 30000);
 
 let hold = {
   active: false,
   startedAt: 0,
   raf: 0,
   timeout: 0,
+  startTimer: 0,
   pointerId: null
 };
 
@@ -32149,8 +34777,10 @@ function forceResetHoldRing() {
   hold.active = false;
   if (hold.raf) cancelAnimationFrame(hold.raf);
   if (hold.timeout) clearTimeout(hold.timeout);
+  if (hold.startTimer) clearTimeout(hold.startTimer);
   hold.raf = 0;
   hold.timeout = 0;
+  hold.startTimer = 0;
   hold.pointerId = null;
   document.body.classList.remove("holding-mic");
   document.body.classList.remove("longpress-guard");
@@ -32170,7 +34800,6 @@ function micHoldStart(origin) {
   hold.startedAt = performance.now();
   setRingProgress01(0);
   showRing(true);
-  window.dispatchEvent(new CustomEvent("cssos:mic_hold_start", { detail: { origin } }));
 
   const tick = () => {
     if (!hold.active) return;
@@ -32180,6 +34809,11 @@ function micHoldStart(origin) {
     hold.raf = requestAnimationFrame(tick);
   };
   hold.raf = requestAnimationFrame(tick);
+
+  hold.startTimer = window.setTimeout(() => {
+    if (!hold.active) return;
+    window.dispatchEvent(new CustomEvent("cssos:mic_hold_start", { detail: { origin } }));
+  }, LONGPRESS_MS);
 
   hold.timeout = window.setTimeout(() => {
     if (!hold.active) return;
@@ -32230,11 +34864,33 @@ let rec = {
   started: false
 };
 
+function pickRecorderMimeType() {
+  if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") {
+    return "";
+  }
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+    "audio/mp4;codecs=mp4a.40.2",
+    "audio/aac"
+  ];
+  return candidates.find((mime) => MediaRecorder.isTypeSupported(mime)) || "";
+}
+
+function createMediaRecorder(stream) {
+  if (typeof MediaRecorder === "undefined") {
+    throw new Error("MediaRecorder unavailable");
+  }
+  const mimeType = pickRecorderMimeType();
+  return mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+}
+
 async function startRecording() {
   if (rec.started) return;
   rec.chunks = [];
   rec.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  const mr = new MediaRecorder(rec.stream, { mimeType: "audio/webm" });
+  const mr = createMediaRecorder(rec.stream);
   rec.mr = mr;
   rec.started = true;
 
@@ -32313,8 +34969,15 @@ function b64FromArrayBuffer(ab) {
 async function createRun({ title, uiLang, tier, voice }) {
   const baseUrl = apiBase();
   const generationLang = creationState.language || uiLang || "zh";
+  const micBehavior = readPanelBehaviorSettingsLocal().mic || { longpress_ms: LONGPRESS_MS, max_hold_sec: Math.round(HOLD_MAX_MS / 1000) };
+  const structurePlan = normalizeStructurePlanClient(state.songSeed?.structurePlan);
+  const structureTree = Array.isArray(state.songSeed?.structureTree)
+    ? state.songSeed.structureTree
+    : [];
   const creativePayload = {
     work_type: normalizeWorkTypeClient(creationState.workType),
+    ...(structurePlan ? { structure_plan: structurePlan } : {}),
+    ...(structureTree.length ? { structure_tree: structureTree } : {}),
     genre: creationState.selections.genre || "",
     mood: creationState.selections.mood || "",
     instrument: creationState.selections.instrument || "",
@@ -32345,6 +35008,11 @@ async function createRun({ title, uiLang, tier, voice }) {
     tier: tier || "dev",
     commands: {
       voice: voice || { bytes: 0, mime: "audio/webm", mode: "single" },
+      voice_capture: {
+        wake_spell: String(state.spell || DEFAULT_SPELL),
+        longpress_ms: Number(micBehavior.longpress_ms || LONGPRESS_MS),
+        capture_max_sec: Number(micBehavior.max_hold_sec || Math.round(HOLD_MAX_MS / 1000))
+      },
       lyrics: {
         detected_lang: generationLang,
         primary_lang: generationLang
@@ -32368,28 +35036,42 @@ async function createRun({ title, uiLang, tier, voice }) {
 }
 
 async function deriveTitleFromVoice(blob) {
+  const micBehavior = readPanelBehaviorSettingsLocal().mic || { longpress_ms: LONGPRESS_MS, max_hold_sec: Math.round(HOLD_MAX_MS / 1000) };
   const buf = await blob.arrayBuffer();
   if (buf.byteLength < 1600) return { transcript: "", title: "", wakeDetected: false };
   try {
     const res = await fetch("/api/mic/transcribe", {
       method: "POST",
-      headers: { "content-type": blob.type || "application/octet-stream" },
+      headers: {
+        "content-type": blob.type || "application/octet-stream",
+        "x-cssos-wake-spell": String(state.spell || DEFAULT_SPELL),
+        "x-cssos-longpress-ms": String(micBehavior.longpress_ms || LONGPRESS_MS),
+        "x-cssos-capture-max-sec": String(micBehavior.max_hold_sec || Math.round(HOLD_MAX_MS / 1000))
+      },
       body: blob
     });
     const payload = await res.json().catch(() => null);
     const transcript = String(payload?.transcript || "").trim();
-    return parseVoiceIntent(transcript);
+    return parseVoiceIntent(transcript, {
+      wakeSpell: String(state.spell || DEFAULT_SPELL)
+    });
   } catch {
     return { transcript: "", title: "", wakeDetected: false };
   }
 }
 
-function parseVoiceIntent(transcript) {
+function escapeRegexLiteral(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function parseVoiceIntent(transcript, options = {}) {
   const raw = String(transcript || "").trim();
   const lower = raw.toLowerCase();
-  const wakeDetected = /\bcss\b/i.test(lower) || raw.includes("ＣＳＳ");
+  const wakeSpell = String(options?.wakeSpell || state.spell || DEFAULT_SPELL).trim() || DEFAULT_SPELL;
+  const wakePattern = new RegExp(`\\b${escapeRegexLiteral(wakeSpell.toLowerCase())}\\b`, "i");
+  const wakeDetected = wakePattern.test(lower) || raw.includes("ＣＳＳ");
   let cleaned = raw
-    .replace(/\bcss\b/gi, " ")
+    .replace(new RegExp(`\\b${escapeRegexLiteral(wakeSpell)}\\b`, "gi"), " ")
     .replace(/[，,。.!！？]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -32512,10 +35194,7 @@ async function submitVoiceOrFallbackTitle(blobOrNull) {
 const dockActionMap = {
   mic: {
     click: handleMicClick,
-    dblclick: () => {
-      showToast(t("mic.settings_open"));
-      openCreationConsole();
-    },
+    dblclick: () => startCreation(titleInput?.value?.trim(), lyricsInput?.value?.trim()),
     longpress: handleMicLongPress
   },
   foryou: {
@@ -32731,6 +35410,113 @@ function attachDockReorder() {
   reorderItems();
 }
 
+let dockDockPreviewEl = null;
+
+function ensureDockPreviewEl() {
+  if (dockDockPreviewEl) return dockDockPreviewEl;
+  dockDockPreviewEl = document.createElement("div");
+  dockDockPreviewEl.className = "dock-dock-preview";
+  document.body.appendChild(dockDockPreviewEl);
+  return dockDockPreviewEl;
+}
+
+function hideDockPreview() {
+  if (!dockDockPreviewEl) return;
+  dockDockPreviewEl.classList.remove("is-visible");
+  delete dockDockPreviewEl.dataset.position;
+}
+
+function dockPreviewRect(position) {
+  if (position === "left") return { left: 8, top: 24, width: 96, height: window.innerHeight - 48 };
+  if (position === "right") return { left: window.innerWidth - 104, top: 24, width: 96, height: window.innerHeight - 48 };
+  if (position === "top") return { left: Math.max(24, window.innerWidth / 2 - 320), top: 8, width: 640, height: 92 };
+  return { left: Math.max(24, window.innerWidth / 2 - 320), top: window.innerHeight - 100, width: 640, height: 92 };
+}
+
+function resolveDockPositionFromPointer(clientX, clientY) {
+  const edge = 108;
+  const distances = [
+    { position: "left", value: clientX },
+    { position: "right", value: window.innerWidth - clientX },
+    { position: "top", value: clientY },
+    { position: "bottom", value: window.innerHeight - clientY }
+  ].sort((a, b) => a.value - b.value);
+  const nearest = distances[0];
+  return nearest && nearest.value <= edge ? nearest.position : "";
+}
+
+function updateDockDragFollow(clientX, clientY) {
+  if (!(dock instanceof HTMLElement)) return;
+  const dx = (clientX - window.innerWidth / 2) * 0.03;
+  const dy = (clientY - window.innerHeight / 2) * 0.03;
+  dock.style.translate = `${Math.max(-18, Math.min(18, dx))}px ${Math.max(-18, Math.min(18, dy))}px`;
+}
+
+function resetDockDragFollow() {
+  if (!(dock instanceof HTMLElement)) return;
+  dock.style.translate = "0 0";
+}
+
+function showDockPreview(position) {
+  const preview = ensureDockPreviewEl();
+  const rect = dockPreviewRect(position);
+  preview.style.left = `${rect.left}px`;
+  preview.style.top = `${rect.top}px`;
+  preview.style.width = `${rect.width}px`;
+  preview.style.height = `${rect.height}px`;
+  preview.dataset.position = position;
+  preview.classList.add("is-visible");
+}
+
+function attachDockDocking() {
+  if (!(dock instanceof HTMLElement)) return;
+  let dragging = false;
+  let nextPosition = DOCK_POSITION;
+  dock.addEventListener("pointerdown", (event) => {
+    if (!DOCK_DOCKING_ENABLED) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest(".dock-item")) return;
+    dragging = true;
+    nextPosition = DOCK_POSITION;
+    showDockPreview(nextPosition);
+    dock.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+  });
+  dock.addEventListener("pointermove", (event) => {
+    if (!dragging || !DOCK_DOCKING_ENABLED) return;
+    const resolved = resolveDockPositionFromPointer(event.clientX, event.clientY);
+    updateDockDragFollow(event.clientX, event.clientY);
+    if (!resolved) {
+      hideDockPreview();
+      nextPosition = DOCK_POSITION;
+      dock.classList.remove("is-snapping");
+      return;
+    }
+    nextPosition = resolved;
+    showDockPreview(nextPosition);
+    dock.classList.add("is-snapping");
+  });
+  const finish = (event) => {
+    if (!dragging) return;
+    dragging = false;
+    hideDockPreview();
+    resetDockDragFollow();
+    dock.releasePointerCapture?.(event.pointerId);
+    dock.classList.add("is-snapping");
+    setTimeout(() => dock.classList.remove("is-snapping"), 520);
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      dock: { ...current.dock, dock_position: nextPosition }
+    }));
+  };
+  dock.addEventListener("pointerup", finish);
+  dock.addEventListener("pointercancel", (event) => {
+    resetDockDragFollow();
+    finish(event);
+  });
+}
+
 function attachDockEvents() {
   document.querySelectorAll(".dock-item").forEach((item) => {
     if (item.dataset.hold === "mic") {
@@ -32933,7 +35719,14 @@ function attachPanelFocus() {
 function attachLogoPanelActions() {
   if (!logoPanel) return;
   const mirror = logoPanel.querySelector(".mirror");
-  const handleDblClick = (event) => {
+  if (!mirror) return;
+  const cancelMirrorDefault = (event) => {
+    event.preventDefault();
+  };
+  ["selectstart", "contextmenu", "dragstart"].forEach((eventName) => {
+    mirror.addEventListener(eventName, cancelMirrorDefault);
+  });
+  mirror.addEventListener("dblclick", (event) => {
     if (event.target.closest(".panel-settings")) return;
     if (
       event.target.closest("button") ||
@@ -32944,13 +35737,8 @@ function attachLogoPanelActions() {
       return;
     }
     event.preventDefault();
-    togglePanelSettings(logoPanel);
-  };
-
-  logoPanel.addEventListener("dblclick", handleDblClick);
-  if (mirror) {
-    mirror.addEventListener("dblclick", handleDblClick);
-  }
+    startCreation(titleInput?.value?.trim(), lyricsInput?.value?.trim());
+  });
 }
 
 function minimizeToDock(panel) {
@@ -33012,6 +35800,10 @@ function togglePanelCollapse(panel) {
 }
 
 function togglePanelSettings(panel) {
+  const willOpen = !panel.classList.contains("show-settings");
+  if (willOpen && typeof panel.__refreshSettings === "function") {
+    panel.__refreshSettings();
+  }
   panel.classList.toggle("show-settings");
   focusPanel(panel);
 }
@@ -33040,6 +35832,10 @@ function buildPanelSettings(panel) {
   const titleEl = panel.querySelector(".panel-title");
   const isLogoPanel = panel.id === "logo-panel";
   const isForyouPanel = panel.id === "foryou-panel";
+  const isWatchPanel = panel.id === "watch-panel";
+  const isLyricsPanel = panel.id === "lyrics-panel";
+  const isMusicPanel = panel.id === "music-panel";
+  const isVideoPanel = panel.id === "video-panel";
   const rect = panel.getBoundingClientRect();
   const computed = window.getComputedStyle(panel);
   const blurMatch =
@@ -33093,6 +35889,93 @@ function buildPanelSettings(panel) {
           <option value="video">${t("settings.foryou.previewMode.video")}</option>
         </select>
       </label>
+      <label>
+        ${loginCopy("Hold after completion (ms)", "完成后驻留毫秒")}
+        <input type="number" min="0" max="30000" step="1000" data-setting="foryou-hold-ms" />
+      </label>
+      <label class="advanced-panel-check">
+        <input type="checkbox" data-setting="foryou-compact-after-lyrics" />
+        <span>${loginCopy("Collapse after lyrics finish", "歌词完成后自动收起")}</span>
+      </label>
+      <label>
+        ${loginCopy("Auto watch delay (ms)", "自动进入欣赏延迟")}
+        <input type="number" min="0" max="30000" step="1000" data-setting="foryou-auto-watch-ms" />
+      </label>
+    `
+        : ""
+    }
+    ${
+      isWatchPanel
+        ? `
+      <label>
+        ${loginCopy("Default tab", "默认标签")}
+        <select data-setting="watch-default-tab">
+          <option value="mv">MV</option>
+          <option value="music">Music</option>
+          <option value="lyrics">Lyrics</option>
+        </select>
+      </label>
+      <label>
+        ${loginCopy("Preview limit (sec)", "预览时长秒数")}
+        <input type="number" min="0" max="180" step="5" data-setting="watch-preview-limit-sec" />
+      </label>
+      <label>
+        ${loginCopy("Subtitle scale", "字幕缩放")}
+        <input type="range" min="0.8" max="1.4" step="0.05" data-setting="watch-subtitle-scale" />
+      </label>
+      <label>
+        ${loginCopy("Engine detail", "引擎详情密度")}
+        <select data-setting="watch-engine-detail">
+          <option value="compact">${loginCopy("Compact", "简洁")}</option>
+          <option value="full">${loginCopy("Full", "完整")}</option>
+        </select>
+      </label>
+    `
+        : ""
+    }
+    ${
+      isLyricsPanel
+        ? `
+      <label>
+        ${loginCopy("Typewriter speed", "打字机速度")}
+        <input type="number" min="8" max="60" step="1" data-setting="lyrics-type-speed" />
+      </label>
+      <label>
+        ${loginCopy("Lyrics scale", "歌词缩放")}
+        <input type="range" min="0.85" max="1.4" step="0.05" data-setting="lyrics-font-scale" />
+      </label>
+      <label class="advanced-panel-check">
+        <input type="checkbox" data-setting="lyrics-auto-collapse" />
+        <span>${loginCopy("Auto collapse after done", "完成后自动折叠")}</span>
+      </label>
+    `
+        : ""
+    }
+    ${
+      isMusicPanel
+        ? `
+      <label>
+        ${loginCopy("Waveform bars", "波形条数量")}
+        <input type="number" min="12" max="48" step="1" data-setting="music-waveform-bars" />
+      </label>
+      <label>
+        ${loginCopy("Layer cards", "层级卡片数量")}
+        <input type="number" min="3" max="8" step="1" data-setting="music-layer-cards" />
+      </label>
+    `
+        : ""
+    }
+    ${
+      isVideoPanel
+        ? `
+      <label>
+        ${loginCopy("Storyboard frames", "分镜格数量")}
+        <input type="number" min="4" max="16" step="1" data-setting="video-storyboard-frames" />
+      </label>
+      <label>
+        ${loginCopy("Camera slots", "镜头窗口数量")}
+        <input type="number" min="2" max="8" step="1" data-setting="video-camera-slots" />
+      </label>
     `
         : ""
     }
@@ -33123,6 +36006,50 @@ function buildPanelSettings(panel) {
         ? `
       <div class="panel-settings-title">${t("settings.panel.mirrorMedia")}</div>
       <label>
+        ${t("settings.panel.mirrorStrategy")}
+        <select data-setting="mirror-animation-strategy">
+          <option value="random">${t("settings.panel.mirrorStrategy.random")}</option>
+          <option value="fixed">${t("settings.panel.mirrorStrategy.fixed")}</option>
+          <option value="per_type">${t("settings.panel.mirrorStrategy.perType")}</option>
+        </select>
+      </label>
+      <label data-setting-block="mirror-fixed-mode">
+        ${t("settings.panel.mirrorFixedMode")}
+        <select data-setting="mirror-animation-mode">
+          <option value="halo">${t("settings.panel.mirrorAnimation.halo")}</option>
+          <option value="breath">${t("settings.panel.mirrorAnimation.breath")}</option>
+          <option value="prism">${t("settings.panel.mirrorAnimation.prism")}</option>
+          <option value="oracle">${t("settings.panel.mirrorAnimation.oracle")}</option>
+        </select>
+      </label>
+      <label data-setting-block="mirror-single-mode">
+        ${t("settings.panel.mirrorSingleMode")}
+        <select data-setting="mirror-animation-single">
+          <option value="halo">${t("settings.panel.mirrorAnimation.halo")}</option>
+          <option value="breath">${t("settings.panel.mirrorAnimation.breath")}</option>
+          <option value="prism">${t("settings.panel.mirrorAnimation.prism")}</option>
+          <option value="oracle">${t("settings.panel.mirrorAnimation.oracle")}</option>
+        </select>
+      </label>
+      <label data-setting-block="mirror-triptych-mode">
+        ${t("settings.panel.mirrorTriptychMode")}
+        <select data-setting="mirror-animation-triptych">
+          <option value="halo">${t("settings.panel.mirrorAnimation.halo")}</option>
+          <option value="breath">${t("settings.panel.mirrorAnimation.breath")}</option>
+          <option value="prism">${t("settings.panel.mirrorAnimation.prism")}</option>
+          <option value="oracle">${t("settings.panel.mirrorAnimation.oracle")}</option>
+        </select>
+      </label>
+      <label data-setting-block="mirror-opera-mode">
+        ${t("settings.panel.mirrorOperaMode")}
+        <select data-setting="mirror-animation-opera">
+          <option value="halo">${t("settings.panel.mirrorAnimation.halo")}</option>
+          <option value="breath">${t("settings.panel.mirrorAnimation.breath")}</option>
+          <option value="prism">${t("settings.panel.mirrorAnimation.prism")}</option>
+          <option value="oracle">${t("settings.panel.mirrorAnimation.oracle")}</option>
+        </select>
+      </label>
+      <label>
         ${t("settings.panel.mirrorImage1")}
         <input type="file" accept="image/*" data-setting="mirror-image-1" />
       </label>
@@ -33138,6 +36065,7 @@ function buildPanelSettings(panel) {
         : ""
     }
     <div class="actions">
+      ${getUserRole() === "admin" ? `<button type="button" class="cta ghost" data-setting="set-default">${t("settings.panel.setDefault")}</button>` : ""}
       <button type="button" class="cta ghost" data-setting="reset">${t("settings.panel.reset")}</button>
     </div>
   `;
@@ -33161,11 +36089,35 @@ function buildPanelSettings(panel) {
   const widthInput = settings.querySelector('[data-setting="width"]');
   const heightInput = settings.querySelector('[data-setting="height"]');
   const resetButton = settings.querySelector('[data-setting="reset"]');
+  const setDefaultButton = settings.querySelector('[data-setting="set-default"]');
   const mirrorImgInput1 = settings.querySelector('[data-setting="mirror-image-1"]');
   const mirrorImgInput2 = settings.querySelector('[data-setting="mirror-image-2"]');
   const mirrorVideoInput = settings.querySelector('[data-setting="mirror-video"]');
+  const mirrorStrategyInput = settings.querySelector('[data-setting="mirror-animation-strategy"]');
+  const mirrorAnimationInput = settings.querySelector('[data-setting="mirror-animation-mode"]');
+  const mirrorSingleInput = settings.querySelector('[data-setting="mirror-animation-single"]');
+  const mirrorTriptychInput = settings.querySelector('[data-setting="mirror-animation-triptych"]');
+  const mirrorOperaInput = settings.querySelector('[data-setting="mirror-animation-opera"]');
   const spellInput = settings.querySelector('[data-setting="spell"]');
   const previewModeInput = settings.querySelector('[data-setting="preview-mode"]');
+  const foryouHoldInput = settings.querySelector('[data-setting="foryou-hold-ms"]');
+  const foryouCompactInput = settings.querySelector('[data-setting="foryou-compact-after-lyrics"]');
+  const foryouAutoWatchInput = settings.querySelector('[data-setting="foryou-auto-watch-ms"]');
+  const watchDefaultTabInput = settings.querySelector('[data-setting="watch-default-tab"]');
+  const watchPreviewLimitInput = settings.querySelector('[data-setting="watch-preview-limit-sec"]');
+  const watchSubtitleScaleInput = settings.querySelector('[data-setting="watch-subtitle-scale"]');
+  const watchEngineDetailInput = settings.querySelector('[data-setting="watch-engine-detail"]');
+  const lyricsTypeSpeedInput = settings.querySelector('[data-setting="lyrics-type-speed"]');
+  const lyricsFontScaleInput = settings.querySelector('[data-setting="lyrics-font-scale"]');
+  const lyricsAutoCollapseInput = settings.querySelector('[data-setting="lyrics-auto-collapse"]');
+  const musicWaveformBarsInput = settings.querySelector('[data-setting="music-waveform-bars"]');
+  const musicLayerCardsInput = settings.querySelector('[data-setting="music-layer-cards"]');
+  const videoStoryboardFramesInput = settings.querySelector('[data-setting="video-storyboard-frames"]');
+  const videoCameraSlotsInput = settings.querySelector('[data-setting="video-camera-slots"]');
+  const mirrorFixedBlock = settings.querySelector('[data-setting-block="mirror-fixed-mode"]');
+  const mirrorSingleBlock = settings.querySelector('[data-setting-block="mirror-single-mode"]');
+  const mirrorTriptychBlock = settings.querySelector('[data-setting-block="mirror-triptych-mode"]');
+  const mirrorOperaBlock = settings.querySelector('[data-setting-block="mirror-opera-mode"]');
   let mirrorA = null;
   let mirrorB = null;
   let mirrorVideo = null;
@@ -33202,7 +36154,6 @@ function buildPanelSettings(panel) {
       }
     });
   }
-
   const applyOpacity = () => {
     panel.dataset.panelOpacity = opacityInput.value;
     panel.style.backgroundColor = `rgba(0, 0, 0, ${opacityInput.value})`;
@@ -33226,14 +36177,230 @@ function buildPanelSettings(panel) {
     panel.dataset.panelAccent = accentInput.value;
     panel.style.setProperty("--panel-accent", accentInput.value);
   };
+  const buildPanelDefaultSnapshot = () => ({
+    title: titleEl ? titleEl.textContent.trim() : "",
+    accent: panel.dataset.panelAccent,
+    opacity: opacityInput.value,
+    blur: blurInput.value,
+    width: widthInput.value,
+    height: heightInput.value,
+    previewMode: panel.dataset.previewMode || FORYOU_PREVIEW_MODES.AUTO,
+    foryouHoldMs: foryouHoldInput?.value || "",
+    foryouCompactAfterLyrics: !!foryouCompactInput?.checked,
+    foryouAutoWatchMs: foryouAutoWatchInput?.value || "",
+    watchDefaultTab: watchDefaultTabInput?.value || "",
+    watchPreviewLimitSec: watchPreviewLimitInput?.value || "",
+    watchSubtitleScale: watchSubtitleScaleInput?.value || "",
+    watchEngineDetail: watchEngineDetailInput?.value || "",
+    lyricsTypeSpeed: lyricsTypeSpeedInput?.value || "",
+    lyricsFontScale: lyricsFontScaleInput?.value || "",
+    lyricsAutoCollapse: !!lyricsAutoCollapseInput?.checked,
+    musicWaveformBars: musicWaveformBarsInput?.value || "",
+    musicLayerCards: musicLayerCardsInput?.value || "",
+    videoStoryboardFrames: videoStoryboardFramesInput?.value || "",
+    videoCameraSlots: videoCameraSlotsInput?.value || "",
+    mirrorAnimationMode: isLogoPanel ? getStoredMirrorAnimationMode() : "",
+    mirrorAnimationStrategy: isLogoPanel ? getStoredMirrorAnimationStrategy() : "",
+    mirrorAnimationPerType: isLogoPanel ? getStoredMirrorAnimationPerType() : null
+  });
+  const applyStoredPanelDefaultSnapshot = (snapshot) => {
+    if (!snapshot || typeof snapshot !== "object") return;
+    if (titleEl && snapshot.title) {
+      titleEl.textContent = snapshot.title;
+      titleInput.value = snapshot.title;
+    }
+    if (snapshot.accent) {
+      accentInput.value = snapshot.accent;
+      applyAccent();
+    }
+    if (snapshot.opacity != null) {
+      opacityInput.value = String(snapshot.opacity);
+      applyOpacity();
+    }
+    if (snapshot.blur != null) {
+      blurInput.value = String(snapshot.blur);
+      applyBlur();
+    }
+    if (snapshot.width != null) widthInput.value = String(snapshot.width);
+    if (snapshot.height != null) heightInput.value = String(snapshot.height);
+    applySize();
+    if (previewModeInput && snapshot.previewMode) {
+      panel.dataset.previewMode = snapshot.previewMode;
+      previewModeInput.value = snapshot.previewMode;
+      localStorage.setItem(FORYOU_PREVIEW_MODE_KEY, panel.dataset.previewMode);
+    }
+    if (foryouHoldInput && snapshot.foryouHoldMs) foryouHoldInput.value = String(snapshot.foryouHoldMs);
+    if (foryouCompactInput) foryouCompactInput.checked = snapshot.foryouCompactAfterLyrics !== false;
+    if (foryouAutoWatchInput && snapshot.foryouAutoWatchMs) foryouAutoWatchInput.value = String(snapshot.foryouAutoWatchMs);
+    if (watchDefaultTabInput && snapshot.watchDefaultTab) watchDefaultTabInput.value = String(snapshot.watchDefaultTab);
+    if (watchPreviewLimitInput && snapshot.watchPreviewLimitSec) watchPreviewLimitInput.value = String(snapshot.watchPreviewLimitSec);
+    if (watchSubtitleScaleInput && snapshot.watchSubtitleScale) watchSubtitleScaleInput.value = String(snapshot.watchSubtitleScale);
+    if (watchEngineDetailInput && snapshot.watchEngineDetail) watchEngineDetailInput.value = String(snapshot.watchEngineDetail);
+    if (lyricsTypeSpeedInput && snapshot.lyricsTypeSpeed) lyricsTypeSpeedInput.value = String(snapshot.lyricsTypeSpeed);
+    if (lyricsFontScaleInput && snapshot.lyricsFontScale) lyricsFontScaleInput.value = String(snapshot.lyricsFontScale);
+    if (lyricsAutoCollapseInput) lyricsAutoCollapseInput.checked = snapshot.lyricsAutoCollapse !== false;
+    if (musicWaveformBarsInput && snapshot.musicWaveformBars) musicWaveformBarsInput.value = String(snapshot.musicWaveformBars);
+    if (musicLayerCardsInput && snapshot.musicLayerCards) musicLayerCardsInput.value = String(snapshot.musicLayerCards);
+    if (videoStoryboardFramesInput && snapshot.videoStoryboardFrames) videoStoryboardFramesInput.value = String(snapshot.videoStoryboardFrames);
+    if (videoCameraSlotsInput && snapshot.videoCameraSlots) videoCameraSlotsInput.value = String(snapshot.videoCameraSlots);
+  };
+  const refreshBehaviorInputs = () => {
+    const behaviorSettings = readPanelBehaviorSettingsLocal();
+    if (foryouHoldInput) foryouHoldInput.value = String(behaviorSettings.foryou.hold_ms);
+    if (foryouCompactInput) foryouCompactInput.checked = behaviorSettings.foryou.compact_after_lyrics !== false;
+    if (foryouAutoWatchInput) foryouAutoWatchInput.value = String(behaviorSettings.foryou.auto_watch_ms);
+    if (watchDefaultTabInput) watchDefaultTabInput.value = behaviorSettings.watch.default_tab;
+    if (watchPreviewLimitInput) watchPreviewLimitInput.value = String(behaviorSettings.watch.preview_limit_sec);
+    if (watchSubtitleScaleInput) watchSubtitleScaleInput.value = String(behaviorSettings.watch.subtitle_scale);
+    if (watchEngineDetailInput) watchEngineDetailInput.value = behaviorSettings.watch.engine_detail;
+    if (lyricsTypeSpeedInput) lyricsTypeSpeedInput.value = String(behaviorSettings.lyrics.typewriter_speed);
+    if (lyricsFontScaleInput) lyricsFontScaleInput.value = String(behaviorSettings.lyrics.font_scale);
+    if (lyricsAutoCollapseInput) lyricsAutoCollapseInput.checked = behaviorSettings.lyrics.auto_collapse !== false;
+    if (musicWaveformBarsInput) musicWaveformBarsInput.value = String(behaviorSettings.music.waveform_bars);
+    if (musicLayerCardsInput) musicLayerCardsInput.value = String(behaviorSettings.music.layer_cards);
+    if (videoStoryboardFramesInput) videoStoryboardFramesInput.value = String(behaviorSettings.video.storyboard_frames);
+    if (videoCameraSlotsInput) videoCameraSlotsInput.value = String(behaviorSettings.video.camera_slots);
+  };
+  const syncMirrorSettingsVisibility = () => {
+    const strategy = mirrorStrategyInput?.value || getStoredMirrorAnimationStrategy();
+    if (mirrorFixedBlock) mirrorFixedBlock.hidden = strategy !== MIRROR_ANIMATION_STRATEGIES.FIXED;
+    const perTypeHidden = strategy !== MIRROR_ANIMATION_STRATEGIES.PER_TYPE;
+    if (mirrorSingleBlock) mirrorSingleBlock.hidden = perTypeHidden;
+    if (mirrorTriptychBlock) mirrorTriptychBlock.hidden = perTypeHidden;
+    if (mirrorOperaBlock) mirrorOperaBlock.hidden = perTypeHidden;
+  };
 
   accentInput.addEventListener("input", applyAccent);
   opacityInput.addEventListener("input", applyOpacity);
   blurInput.addEventListener("input", applyBlur);
   widthInput.addEventListener("change", applySize);
   heightInput.addEventListener("change", applySize);
+  foryouHoldInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      foryou: { ...current.foryou, hold_ms: Number(foryouHoldInput.value || current.foryou.hold_ms) }
+    }));
+  });
+  foryouCompactInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      foryou: { ...current.foryou, compact_after_lyrics: !!foryouCompactInput.checked }
+    }));
+  });
+  foryouAutoWatchInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      foryou: { ...current.foryou, auto_watch_ms: Number(foryouAutoWatchInput.value || current.foryou.auto_watch_ms) }
+    }));
+  });
+  watchDefaultTabInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      watch: { ...current.watch, default_tab: watchDefaultTabInput.value || current.watch.default_tab }
+    }));
+  });
+  watchPreviewLimitInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      watch: { ...current.watch, preview_limit_sec: Number(watchPreviewLimitInput.value || current.watch.preview_limit_sec) }
+    }));
+  });
+  watchSubtitleScaleInput?.addEventListener("input", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      watch: { ...current.watch, subtitle_scale: Number(watchSubtitleScaleInput.value || current.watch.subtitle_scale) }
+    }));
+  });
+  watchEngineDetailInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      watch: { ...current.watch, engine_detail: watchEngineDetailInput.value || current.watch.engine_detail }
+    }));
+  });
+  lyricsTypeSpeedInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      lyrics: { ...current.lyrics, typewriter_speed: Number(lyricsTypeSpeedInput.value || current.lyrics.typewriter_speed) }
+    }));
+  });
+  lyricsFontScaleInput?.addEventListener("input", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      lyrics: { ...current.lyrics, font_scale: Number(lyricsFontScaleInput.value || current.lyrics.font_scale) }
+    }));
+  });
+  lyricsAutoCollapseInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      lyrics: { ...current.lyrics, auto_collapse: !!lyricsAutoCollapseInput.checked }
+    }));
+  });
+  musicWaveformBarsInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      music: { ...current.music, waveform_bars: Number(musicWaveformBarsInput.value || current.music.waveform_bars) }
+    }));
+  });
+  musicLayerCardsInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      music: { ...current.music, layer_cards: Number(musicLayerCardsInput.value || current.music.layer_cards) }
+    }));
+  });
+  videoStoryboardFramesInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      video: { ...current.video, storyboard_frames: Number(videoStoryboardFramesInput.value || current.video.storyboard_frames) }
+    }));
+  });
+  videoCameraSlotsInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      video: { ...current.video, camera_slots: Number(videoCameraSlotsInput.value || current.video.camera_slots) }
+    }));
+  });
 
   if (isLogoPanel) {
+    const mirrorPerType = getStoredMirrorAnimationPerType();
+    if (mirrorStrategyInput) {
+      mirrorStrategyInput.value = getStoredMirrorAnimationStrategy();
+      mirrorStrategyInput.addEventListener("change", () => {
+        const next = setStoredMirrorAnimationStrategy(mirrorStrategyInput.value);
+        mirrorStrategyInput.value = next;
+        syncMirrorSettingsVisibility();
+        applyMirrorAnimationMode(getStoredMirrorAnimationMode());
+      });
+    }
+    if (mirrorAnimationInput) {
+      mirrorAnimationInput.value = getStoredMirrorAnimationMode();
+      mirrorAnimationInput.addEventListener("change", () => {
+        const next = setStoredMirrorAnimationMode(mirrorAnimationInput.value || MIRROR_ANIMATION_MODES.HALO);
+        mirrorAnimationInput.value = next;
+        applyMirrorAnimationMode(next);
+      });
+    }
+    if (mirrorSingleInput) {
+      mirrorSingleInput.value = mirrorPerType.single;
+      mirrorSingleInput.addEventListener("change", () => {
+        setStoredMirrorAnimationPerType({ ...getStoredMirrorAnimationPerType(), single: mirrorSingleInput.value });
+        applyMirrorAnimationMode(getStoredMirrorAnimationMode());
+      });
+    }
+    if (mirrorTriptychInput) {
+      mirrorTriptychInput.value = mirrorPerType.triptych;
+      mirrorTriptychInput.addEventListener("change", () => {
+        setStoredMirrorAnimationPerType({ ...getStoredMirrorAnimationPerType(), triptych: mirrorTriptychInput.value });
+        applyMirrorAnimationMode(getStoredMirrorAnimationMode());
+      });
+    }
+    if (mirrorOperaInput) {
+      mirrorOperaInput.value = mirrorPerType.opera;
+      mirrorOperaInput.addEventListener("change", () => {
+        setStoredMirrorAnimationPerType({ ...getStoredMirrorAnimationPerType(), opera: mirrorOperaInput.value });
+        applyMirrorAnimationMode(getStoredMirrorAnimationMode());
+      });
+    }
+    syncMirrorSettingsVisibility();
     mirrorA = panel.querySelector(".mirror-img.mirror-a");
     mirrorB = panel.querySelector(".mirror-img.mirror-b");
     mirrorVideo = panel.querySelector(".mirror-video");
@@ -33247,30 +36414,76 @@ function buildPanelSettings(panel) {
     };
 
     if (mirrorImgInput1 && mirrorA) {
-      mirrorImgInput1.addEventListener("change", () => {
+      mirrorImgInput1.addEventListener("change", async () => {
         const file = mirrorImgInput1.files?.[0];
         if (!file) return;
-        mirrorA.src = URL.createObjectURL(file);
+        const previewUrl = URL.createObjectURL(file);
+        mirrorA.src = previewUrl;
         useImages();
+        const uploadedUrl = authState.user && getUserRole() === "admin"
+          ? await uploadLogoMediaFile(file, "image_1", mirrorImgInput1)
+          : "";
+        if (uploadedUrl) {
+          mirrorA.src = uploadedUrl;
+          const next = updatePanelBehaviorSettings((current) => ({
+            ...current,
+            logo: {
+              ...current.logo,
+              media: { ...current.logo.media, image_1: uploadedUrl }
+            }
+          }));
+          await savePanelDefaults("behavior", next, mirrorImgInput1);
+        }
       });
     }
 
     if (mirrorImgInput2 && mirrorB) {
-      mirrorImgInput2.addEventListener("change", () => {
+      mirrorImgInput2.addEventListener("change", async () => {
         const file = mirrorImgInput2.files?.[0];
         if (!file) return;
-        mirrorB.src = URL.createObjectURL(file);
+        const previewUrl = URL.createObjectURL(file);
+        mirrorB.src = previewUrl;
         useImages();
+        const uploadedUrl = authState.user && getUserRole() === "admin"
+          ? await uploadLogoMediaFile(file, "image_2", mirrorImgInput2)
+          : "";
+        if (uploadedUrl) {
+          mirrorB.src = uploadedUrl;
+          const next = updatePanelBehaviorSettings((current) => ({
+            ...current,
+            logo: {
+              ...current.logo,
+              media: { ...current.logo.media, image_2: uploadedUrl }
+            }
+          }));
+          await savePanelDefaults("behavior", next, mirrorImgInput2);
+        }
       });
     }
 
     if (mirrorVideoInput && mirrorVideo) {
-      mirrorVideoInput.addEventListener("change", () => {
+      mirrorVideoInput.addEventListener("change", async () => {
         const file = mirrorVideoInput.files?.[0];
         if (!file) return;
-        mirrorVideo.src = URL.createObjectURL(file);
+        const previewUrl = URL.createObjectURL(file);
+        mirrorVideo.src = previewUrl;
         mirrorVideo.play().catch(() => {});
         panel.classList.add("mirror-video-active");
+        const uploadedUrl = authState.user && getUserRole() === "admin"
+          ? await uploadLogoMediaFile(file, "video", mirrorVideoInput)
+          : "";
+        if (uploadedUrl) {
+          mirrorVideo.src = uploadedUrl;
+          mirrorVideo.play().catch(() => {});
+          const next = updatePanelBehaviorSettings((current) => ({
+            ...current,
+            logo: {
+              ...current.logo,
+              media: { ...current.logo.media, video: uploadedUrl }
+            }
+          }));
+          await savePanelDefaults("behavior", next, mirrorVideoInput);
+        }
       });
     }
 
@@ -33280,6 +36493,43 @@ function buildPanelSettings(panel) {
         applySpell(spellInput.value, { force: true, refreshPanels: true });
       });
     }
+  }
+
+  const storedPanelDefaults = getStoredPanelDefaultSnapshot(panel.id);
+  if (storedPanelDefaults) {
+    applyStoredPanelDefaultSnapshot(storedPanelDefaults);
+  }
+  refreshBehaviorInputs();
+  panel.__refreshSettings = () => {
+    refreshBehaviorInputs();
+    if (titleEl) titleInput.value = titleEl.textContent.trim();
+    if (previewModeInput) previewModeInput.value = panel.dataset.previewMode || getForyouPreviewMode();
+    opacityInput.value = panel.dataset.panelOpacity || opacityInput.value;
+    blurInput.value = panel.dataset.panelBlur || blurInput.value;
+    widthInput.value = panel.dataset.panelWidth || widthInput.value;
+    heightInput.value = panel.dataset.panelHeight || heightInput.value;
+    accentInput.value = panel.dataset.panelAccent && panel.dataset.panelAccent.startsWith("#") ? panel.dataset.panelAccent : accentInput.value;
+  };
+  panel.__applyDefaultSnapshot = (snapshot) => {
+    applyStoredPanelDefaultSnapshot(snapshot);
+    refreshBehaviorInputs();
+  };
+
+  if (setDefaultButton) {
+    setDefaultButton.addEventListener("click", async () => {
+      if (getUserRole() !== "admin") return;
+      const snapshot = buildPanelDefaultSnapshot();
+      savePanelDefaultSnapshot(panel.id, snapshot);
+      const defaultKey = panelDefaultsApiKey(panel);
+      if (defaultKey) {
+        await savePanelDefaults(defaultKey, snapshot, setDefaultButton);
+      }
+      const saved = await savePanelDefaults("behavior", readPanelBehaviorSettingsLocal(), setDefaultButton);
+      if (saved) {
+        applyPanelBehaviorSettings(saved);
+        showToast(loginCopy("Panel defaults saved.", "面板默认值已保存。"));
+      }
+    });
   }
 
   resetButton.addEventListener("click", () => {
@@ -33300,8 +36550,60 @@ function buildPanelSettings(panel) {
       previewModeInput.value = panel.dataset.previewMode;
       localStorage.setItem(FORYOU_PREVIEW_MODE_KEY, panel.dataset.previewMode);
     }
+    if (foryouHoldInput || foryouCompactInput || foryouAutoWatchInput || watchDefaultTabInput || watchPreviewLimitInput || watchSubtitleScaleInput || watchEngineDetailInput || lyricsTypeSpeedInput || lyricsFontScaleInput || lyricsAutoCollapseInput || musicWaveformBarsInput || musicLayerCardsInput || videoStoryboardFramesInput || videoCameraSlotsInput) {
+      updatePanelBehaviorSettings((current) => ({
+        ...current,
+        foryou: {
+          ...current.foryou,
+          compact_after_lyrics: defaults.foryouCompactAfterLyrics !== false,
+          hold_ms: Number(defaults.foryouHoldMs || current.foryou.hold_ms),
+          auto_watch_ms: Number(defaults.foryouAutoWatchMs || current.foryou.auto_watch_ms)
+        },
+        watch: {
+          ...current.watch,
+          default_tab: String(defaults.watchDefaultTab || current.watch.default_tab),
+          preview_limit_sec: Number(defaults.watchPreviewLimitSec || current.watch.preview_limit_sec),
+          subtitle_scale: Number(defaults.watchSubtitleScale || current.watch.subtitle_scale),
+          engine_detail: String(defaults.watchEngineDetail || current.watch.engine_detail)
+        },
+        lyrics: {
+          ...current.lyrics,
+          typewriter_speed: Number(defaults.lyricsTypeSpeed || current.lyrics.typewriter_speed),
+          font_scale: Number(defaults.lyricsFontScale || current.lyrics.font_scale),
+          auto_collapse: defaults.lyricsAutoCollapse !== false
+        },
+        music: {
+          ...current.music,
+          waveform_bars: Number(defaults.musicWaveformBars || current.music.waveform_bars),
+          layer_cards: Number(defaults.musicLayerCards || current.music.layer_cards)
+        },
+        video: {
+          ...current.video,
+          storyboard_frames: Number(defaults.videoStoryboardFrames || current.video.storyboard_frames),
+          camera_slots: Number(defaults.videoCameraSlots || current.video.camera_slots)
+        }
+      }));
+    }
 
     if (isLogoPanel) {
+      if (mirrorStrategyInput) {
+        const nextStrategy = defaults.mirrorAnimationStrategy || MIRROR_ANIMATION_STRATEGIES.PER_TYPE;
+        mirrorStrategyInput.value = nextStrategy;
+        setStoredMirrorAnimationStrategy(nextStrategy);
+      }
+      if (mirrorAnimationInput) {
+        const nextMode = defaults.mirrorAnimationMode || MIRROR_ANIMATION_MODES.HALO;
+        mirrorAnimationInput.value = nextMode;
+        setStoredMirrorAnimationMode(nextMode);
+      }
+      if (defaults.mirrorAnimationPerType) {
+        const nextPerType = setStoredMirrorAnimationPerType(defaults.mirrorAnimationPerType);
+        if (mirrorSingleInput) mirrorSingleInput.value = nextPerType.single;
+        if (mirrorTriptychInput) mirrorTriptychInput.value = nextPerType.triptych;
+        if (mirrorOperaInput) mirrorOperaInput.value = nextPerType.opera;
+      }
+      syncMirrorSettingsVisibility();
+      applyMirrorAnimationMode(getStoredMirrorAnimationMode());
       if (mirrorA) mirrorA.src = "assets/mirror-1.webp";
       if (mirrorB) mirrorB.src = "assets/mirror-2.webp";
       panel.classList.remove("mirror-video-active");
@@ -33322,13 +36624,7 @@ function buildPanelSettings(panel) {
   });
 
   panelSettingsDefaults.set(panel, {
-    title: titleEl ? titleEl.textContent.trim() : "",
-    accent: panel.dataset.panelAccent,
-    opacity: opacityInput.value,
-    blur: blurInput.value,
-    width: widthInput.value,
-    height: heightInput.value,
-    previewMode: panel.dataset.previewMode || FORYOU_PREVIEW_MODES.AUTO
+    ...buildPanelDefaultSnapshot()
   });
 }
 
@@ -33362,6 +36658,15 @@ activateWatchTab(watchActiveTab);
 foryouTitle?.addEventListener("click", () => {
   toggleForyouLyricsExpanded();
 });
+foryouThumbImage?.addEventListener("click", () => {
+  toggleForyouLyricsExpanded();
+});
+foryouThumbVideo?.addEventListener("click", () => {
+  toggleForyouLyricsExpanded();
+});
+foryouThumbFallback?.addEventListener("click", () => {
+  toggleForyouLyricsExpanded();
+});
 
 watchLyricsEditor?.addEventListener("input", () => {
   if (lyricsInput) lyricsInput.value = watchLyricsEditor.value;
@@ -33377,6 +36682,13 @@ watchScriptEditor?.addEventListener("input", () => {
 
 if (randomPaletteButton) {
   randomPaletteButton.addEventListener("click", randomizePalette);
+}
+if (advancedPanelSettingsToggle && advancedPanelSettings) {
+  advancedPanelSettings.hidden = true;
+  advancedPanelSettingsToggle.addEventListener("click", () => {
+    advancedPanelSettings.hidden = !advancedPanelSettings.hidden;
+    advancedPanelSettingsToggle.classList.toggle("is-active", !advancedPanelSettings.hidden);
+  });
 }
 palettePresetButtons.forEach((button) => {
   button.addEventListener("click", () => {
@@ -33494,6 +36806,7 @@ safeInit("applyBackgroundPalette", () => applyBackgroundPalette());
 safeInit("restoreDockOrder", () => restoreDockOrder());
 safeInit("attachDockEvents", () => attachDockEvents());
 safeInit("attachDockReorder", () => attachDockReorder());
+safeInit("attachDockDocking", () => attachDockDocking());
 safeInit("attachGlobalActionDispatcher", () => attachGlobalActionDispatcher());
 safeInit("bindHoldTargets", () => bindHoldTargets());
 safeInit("attachPanelDrag", () => attachPanelDrag());
@@ -33503,7 +36816,15 @@ safeInit("attachPanelFocus", () => attachPanelFocus());
 safeInit("attachPanelActions", () => attachPanelActions());
 safeInit("attachLogoPanelActions", () => attachLogoPanelActions());
 safeInit("initPanelSettings", () => initPanelSettings());
+safeInit("initMirrorAnimationMode", () => {
+  const strategy = setStoredMirrorAnimationStrategy(getStoredMirrorAnimationStrategy());
+  const mode = setStoredMirrorAnimationMode(getStoredMirrorAnimationMode());
+  setStoredMirrorAnimationPerType(getStoredMirrorAnimationPerType());
+  if (logoPanel) logoPanel.dataset.mirrorAnimationStrategy = strategy;
+  applyMirrorAnimationMode(mode);
+});
 safeInit("initCreationConsole", () => initCreationConsole());
+safeInit("renderAdvancedPanelSettings", () => renderAdvancedPanelSettings());
 safeInit("initEngineControls", () => initEngineControls());
 safeInit("initLyricsControls", () => initLyricsControls());
 safeInit("initLanguagePanel", () => initLanguagePanel());
@@ -33537,6 +36858,7 @@ if (loginLogout) {
     renderLoginPlatforms();
     renderWorksPanel();
     renderApiBillingPanel();
+    await renderAdvancedPanelSettings();
     fetchBillingStatus();
   });
 }

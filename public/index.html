@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
     <title>CSS Studio</title>
-    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="style.css?v=20260325-live-unfreeze-2" />
   </head>
   <body>
     <div class="bg">
@@ -38,12 +38,12 @@
     <main class="stage">
       <section class="panel logo-panel flow" id="logo-panel">
         <div class="panel-body logo-body">
-          <div class="mirror-stage">
-            <div class="mirror" id="mirror" data-drag-handle="true" data-action="mic" data-hold="mic">
+          <div class="mirror-stage" data-drag-handle="true">
+            <div class="mirror" id="mirror">
               <img class="mirror-img mirror-a" src="assets/mirror-1.webp" alt="CSS magic mirror" />
               <img class="mirror-img mirror-b" src="assets/mirror-2.webp" alt="CSS magic mirror" />
               <video class="mirror-video" autoplay muted loop playsinline></video>
-              <div class="mirror-text" data-action="mic">
+              <div class="mirror-text">
                 <div class="mirror-title">CSS</div>
                 <div class="mirror-subtitle" data-i18n="logo.subtitle">Studio</div>
               </div>
@@ -55,6 +55,14 @@
               </div>
             </div>
             <div class="mirror-slogan" id="mirror-slogan" data-i18n-html="logo.slogan">Just say <span class="spell">CSS</span>, witness the miracle!</div>
+            <div class="mic-capture-status" id="mic-capture-status" aria-live="polite" hidden>
+              <div class="mic-capture-kicker" id="mic-capture-kicker">Mic status</div>
+              <div class="mic-capture-title" id="mic-capture-title">Ready</div>
+              <div class="mic-capture-meta" id="mic-capture-meta">Tap the mirror to reuse lyric magic. Hold to record and confirm here.</div>
+              <div class="mic-capture-debug" id="mic-capture-transcript-segments" hidden></div>
+              <div class="mic-capture-debug" id="mic-capture-title-candidates" hidden></div>
+              <audio id="mic-capture-audio" class="mic-capture-audio" controls preload="metadata" hidden></audio>
+            </div>
           </div>
         </div>
       </section>
@@ -71,28 +79,6 @@
           </div>
         </div>
         <div class="panel-body">
-          <div class="status-grid" id="foryou-status-grid" hidden>
-            <div class="status-card">
-              <div class="status-title" data-i18n="status.lyricsEngine">Lyrics Engine</div>
-              <div class="status-bar"><span id="lyrics-progress"></span></div>
-              <div class="status-detail" id="lyrics-progress-detail"></div>
-            </div>
-            <div class="status-card">
-              <div class="status-title" data-i18n="status.audioEngine">Audio Engine</div>
-              <div class="status-bar"><span id="music-progress"></span></div>
-              <div class="status-detail" id="music-progress-detail"></div>
-            </div>
-            <div class="status-card">
-              <div class="status-title" data-i18n="status.videoEngine">Video Engine</div>
-              <div class="status-bar"><span id="video-progress"></span></div>
-              <div class="status-detail" id="video-progress-detail"></div>
-            </div>
-            <div class="status-card">
-              <div class="status-title" data-i18n="status.karaokeSync">Karaoke Sync</div>
-              <div class="status-bar"><span id="kara-progress"></span></div>
-              <div class="status-detail" id="kara-progress-detail"></div>
-            </div>
-          </div>
           <div class="foryou-compact">
             <div class="works-list foryou-works-list">
               <div class="work-card foryou-card">
@@ -145,6 +131,11 @@
             <button class="watch-tab" id="watch-tab-ownership" type="button" data-watch-tab="ownership" data-i18n="watch.tab.ownership">Ownership</button>
           </div>
           <div class="watch-pane active" id="watch-pane-mv" data-watch-pane="mv">
+            <div class="engine-progress-shell" id="kara-progress-shell" data-engine-progress="kara" hidden>
+              <div class="engine-progress-title" data-i18n="status.karaokeSync">Karaoke Sync</div>
+              <div class="engine-progress-bar"><span id="kara-progress"></span></div>
+              <div class="engine-progress-detail" id="kara-progress-detail"></div>
+            </div>
             <div class="watch-frame">
               <div class="watch-screen">
                 <video id="watch-video" class="watch-video" autoplay muted loop playsinline></video>
@@ -157,6 +148,7 @@
                 <div class="watch-subtitle" id="watch-subtitle" data-i18n="status.composing">
                   CSS is composing...
                 </div>
+                <div class="watch-commerce-actions" id="watch-commerce-actions" hidden></div>
               </div>
             </div>
             <div class="watch-engine-grid" id="watch-engine-grid"></div>
@@ -179,6 +171,12 @@
               </div>
               <div class="watch-seed-copy" id="watch-seed-copy"></div>
               <audio id="watch-audio-preview" class="watch-audio-preview" controls preload="none"></audio>
+              <div class="watch-audio-debug" id="watch-audio-debug" hidden>
+                <div class="watch-audio-debug-line" id="watch-audio-debug-source"></div>
+                <div class="watch-audio-debug-line" id="watch-audio-debug-path"></div>
+                <div class="watch-audio-debug-line" id="watch-audio-debug-state"></div>
+              </div>
+              <div class="watch-mic-capture-card" id="watch-mic-capture-card"></div>
             </div>
           </div>
           <div class="watch-pane" id="watch-pane-lyrics" data-watch-pane="lyrics">
@@ -787,6 +785,11 @@
           </div>
         </div>
         <div class="panel-body">
+          <div class="engine-progress-shell" id="lyrics-progress-shell" data-engine-progress="lyrics" hidden>
+            <div class="engine-progress-title" data-i18n="status.lyricsEngine">Lyrics Engine</div>
+            <div class="engine-progress-bar"><span id="lyrics-progress"></span></div>
+            <div class="engine-progress-detail" id="lyrics-progress-detail"></div>
+          </div>
           <div class="panel-label" data-i18n="label.sceneMap">Scene Map · Flowing Typewriter</div>
           <div class="engine-grid" id="lyrics-grid"></div>
           <pre class="lyrics engine-lyrics" id="lyrics"></pre>
@@ -807,6 +810,11 @@
           </div>
         </div>
         <div class="panel-body">
+          <div class="engine-progress-shell" id="music-progress-shell" data-engine-progress="music" hidden>
+            <div class="engine-progress-title" data-i18n="status.audioEngine">Audio Engine</div>
+            <div class="engine-progress-bar"><span id="music-progress"></span></div>
+            <div class="engine-progress-detail" id="music-progress-detail"></div>
+          </div>
           <div class="panel-label" data-i18n="label.waveform">Waveform · Style Render</div>
           <div class="engine-meta">
             <div><span data-i18n="label.style">Style</span> <span id="music-style">Chinese GuFeng</span></div>
@@ -871,6 +879,11 @@
           </div>
         </div>
         <div class="panel-body">
+          <div class="engine-progress-shell" id="video-progress-shell" data-engine-progress="video" hidden>
+            <div class="engine-progress-title" data-i18n="status.videoEngine">Video Engine</div>
+            <div class="engine-progress-bar"><span id="video-progress"></span></div>
+            <div class="engine-progress-detail" id="video-progress-detail"></div>
+          </div>
           <div class="panel-label" data-i18n="label.storyboard">Storyboard · Camera Flow</div>
           <div class="tag-row" id="video-tags"></div>
           <div class="video-runtime-board" id="video-runtime-board"></div>
@@ -925,14 +938,25 @@
                 🪄
               </button>
             </span>
-            <textarea
-              id="lyrics-input"
-              rows="6"
-              placeholder="Drop your own verses or a full opera..."
-              data-i18n-placeholder="settings.lyricsPlaceholder"
-            ></textarea>
-            <div id="lyrics-debug-status" class="field-debug-status" aria-live="polite" data-i18n="settings.lyricsDebugIdle" hidden>
-              Click the wand to view lyric generation status.
+            <div class="seed-script-tabs lyrics-input-tabs scroll-peek" data-scroll-peek>
+              <button class="cta ghost tiny active" type="button" data-lyrics-input-tab="editor">Custom Lyrics</button>
+              <button class="cta ghost tiny" type="button" data-lyrics-input-tab="uploads">Music Source Uploads</button>
+            </div>
+            <div class="seed-script-panes lyrics-input-panes">
+              <div class="seed-script-pane active" id="lyrics-input-pane-editor">
+                <textarea
+                  id="lyrics-input"
+                  rows="6"
+                  placeholder="Drop your own verses or a full opera..."
+                  data-i18n-placeholder="settings.lyricsPlaceholder"
+                ></textarea>
+                <div id="lyrics-debug-status" class="field-debug-status" aria-live="polite" data-i18n="settings.lyricsDebugIdle" hidden>
+                  Click the wand to view lyric generation status.
+                </div>
+              </div>
+              <div class="seed-script-pane lyrics-input-upload-pane" id="lyrics-input-pane-uploads">
+                <div id="lyrics-music-upload-tab-root"></div>
+              </div>
             </div>
           </label>
           <div class="row row-single">
@@ -1574,7 +1598,7 @@
     </main>
 
     <footer class="dock" id="dock">
-      <div class="dock-item" data-action="mic" data-actions="click,dblclick,longpress">
+      <div class="dock-item" data-action="mic" data-actions="click,dblclick,longpress" data-hold="mic">
         <div class="dock-icon dock-icon-media dock-mic-icon">
           <img class="dock-mic-img dock-mic-a" src="assets/dock-mic-1.png" alt="" aria-hidden="true" />
           <img class="dock-mic-img dock-mic-b" src="assets/dock-mic-2.png" alt="" aria-hidden="true" />
@@ -1658,6 +1682,37 @@
     <script src="/i18n/dict.js"></script>
     <script src="/i18n/platforms.js"></script>
     <script src="/i18n/index.js"></script>
-    <script src="app.js"></script>
+    <script src="app.js?v=20260327-thumb-cover-fix-1"></script>
+    <script src="app.watch-audio.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.voice-seed.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.creation-flow.js?v=20260327-thumb-cover-fix-1"></script>
+    <script src="app.creation-bridges.js?v=20260327-creation-bridges-split-1"></script>
+    <script src="app.song-seed-ui.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.work-sync.js?v=20260327-thumb-cover-fix-1"></script>
+    <script src="app.watch-ui.js?v=20260327-thumb-cover-fix-1"></script>
+    <script src="app.watch-lyrics-bridges.js?v=20260327-watch-lyrics-bridges-split-1"></script>
+    <script src="app.watch-surface-bridges.js?v=20260327-watch-surface-bridges-split-1"></script>
+    <script src="app.about-panel.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.market-commerce.js?v=20260327-thumb-cover-fix-1"></script>
+    <script src="app.profile-panel.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.language-panel.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.login-panel.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.works-center.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.api-billing.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.music-input-panel.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.artifact-downloads.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.delivery-dashboard-bindings.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.panel-search.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.panel-settings.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.panel-layout.js?v=20260326-panel-layout-split-1"></script>
+    <script src="app.dock-settings.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.delivery-ops-bridges.js?v=20260326-delivery-ops-bridges-split-1"></script>
+    <script src="app.delivery-ops-panel.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.delivery-reports-panel.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.delivery-export-helpers.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.delivery-report-ui.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.delivery-digest-ui.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.delivery-report-bridges.js?v=20260326-delivery-bridges-split-1"></script>
+    <script src="app.boot.js?v=20260325-live-unfreeze-2"></script>
   </body>
 </html>

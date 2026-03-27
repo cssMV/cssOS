@@ -56,10 +56,15 @@ const watchRevenueGrid = document.getElementById("watch-revenue-grid");
 const watchRevenueActivity = document.getElementById("watch-revenue-activity");
 const watchOwnershipCopy = document.getElementById("watch-ownership-copy");
 const watchOwnershipList = document.getElementById("watch-ownership-list");
+const watchCommerceActions = document.getElementById("watch-commerce-actions");
 const musicProgress = document.getElementById("music-progress");
 const videoProgress = document.getElementById("video-progress");
 const karaProgress = document.getElementById("kara-progress");
 const lyricsProgress = document.getElementById("lyrics-progress");
+const lyricsProgressShell = document.getElementById("lyrics-progress-shell");
+const musicProgressShell = document.getElementById("music-progress-shell");
+const videoProgressShell = document.getElementById("video-progress-shell");
+const karaProgressShell = document.getElementById("kara-progress-shell");
 const musicProgressDetail = document.getElementById("music-progress-detail");
 const videoProgressDetail = document.getElementById("video-progress-detail");
 const karaProgressDetail = document.getElementById("kara-progress-detail");
@@ -67,10 +72,16 @@ const lyricsProgressDetail = document.getElementById("lyrics-progress-detail");
 const mirrorTitle = document.querySelector(".mirror-title");
 const mirrorSubtitle = document.querySelector(".mirror-subtitle");
 const mirrorSlogan = document.querySelector(".mirror-slogan");
+const micCaptureStatus = document.getElementById("mic-capture-status");
+const micCaptureKicker = document.getElementById("mic-capture-kicker");
+const micCaptureTitle = document.getElementById("mic-capture-title");
+const micCaptureMeta = document.getElementById("mic-capture-meta");
+const micCaptureTranscriptSegments = document.getElementById("mic-capture-transcript-segments");
+const micCaptureTitleCandidates = document.getElementById("mic-capture-title-candidates");
+const micCaptureAudio = document.getElementById("mic-capture-audio");
 const foryouTitle = document.getElementById("foryou-title");
 const foryouStyle = document.getElementById("foryou-style");
 const foryouTags = document.getElementById("foryou-tags");
-const foryouStatusGrid = document.getElementById("foryou-status-grid");
 const foryouThumbVideo = document.getElementById("foryou-thumb-video");
 const foryouThumbImage = document.getElementById("foryou-thumb-image");
 const foryouThumbFallback = document.getElementById("foryou-thumb-fallback");
@@ -194,6 +205,10 @@ const seedTabButtons = document.querySelectorAll("[data-seed-tab]");
 const seedPaneMusic = document.getElementById("seed-pane-music");
 const seedPaneOutline = document.getElementById("seed-pane-outline");
 const seedPaneScenes = document.getElementById("seed-pane-scenes");
+const lyricsInputTabButtons = document.querySelectorAll("[data-lyrics-input-tab]");
+const lyricsInputPaneEditor = document.getElementById("lyrics-input-pane-editor");
+const lyricsInputPaneUploads = document.getElementById("lyrics-input-pane-uploads");
+const lyricsMusicUploadTabRoot = document.getElementById("lyrics-music-upload-tab-root");
 const creationTabs = document.getElementById("creation-tabs");
 const creationChips = document.getElementById("creation-chips");
 const creationTempo = document.getElementById("creation-tempo");
@@ -244,6 +259,7 @@ const loginList = document.getElementById("login-list");
 const loginStatus = document.getElementById("login-status");
 const loginUser = document.getElementById("login-user");
 const loginLogout = document.getElementById("login-logout");
+const panelPullSearchState = new WeakMap();
 const versionToggle = document.getElementById("version-toggle");
 const versionMenu = document.getElementById("version-menu");
 const versionList = document.getElementById("version-list");
@@ -253,6 +269,13 @@ const versionHighlights = document.getElementById("version-highlights");
 const versionTechSummary = document.getElementById("version-tech-summary");
 const versionActions = versionMenu ? versionMenu.querySelector(".version-actions") : null;
 const profileGrid = profilePanel ? profilePanel.querySelector(".profile-grid") : null;
+
+function bindCriticalStageInteractionsImmediately() {
+  if (document.body?.dataset?.criticalStageInteractionsBound === "true") return;
+  document.body.dataset.criticalStageInteractionsBound = "true";
+}
+
+function setDockDebugStatus() {}
 
 if (watchVideo) {
   watchVideo.controls = true;
@@ -266,6 +289,7 @@ const LANG_STORAGE_KEY = "CSSOS_LANG";
 const LANG_AUTODETECT_KEY = "CSSOS_LANG_AUTO";
 const LANG_DETECTED_KEY = "CSSOS_LANG_DETECTED";
 const DOCK_ORDER_KEY = "cssos.dockOrder";
+const DOCK_DEFAULT_ORDER = ["mic", "settings", "foryou", "works", "lyrics", "music", "video", "watch", "cssmv"];
 const FORYOU_PREVIEW_MODES = {
   AUTO: "auto",
   IMAGE: "image",
@@ -723,6 +747,24 @@ Object.assign(I18N.zh, {
   "about.contact.website": "网站",
   "about.contact.email": "邮箱",
   "about.contact.social": "社交",
+  "about.ui.tabs.v1_original": "原版",
+  "about.ui.tabs.v2_investor": "投资人",
+  "about.ui.tabs.v3_technical": "技术",
+  "about.ui.tabs.v4_manifesto": "宣言",
+  "about.ui.cta.primary": "说出“CSS”开始",
+  "about.ui.cta.secondary": "点击镜子或麦克风",
+  "about.sections.v1_original.title": "cssOS · cssMV — 原始愿景（v1）",
+  "about.sections.v1_original.body":
+    "CSS Studio 正在打造 cssOS 系统中的媒体引擎 cssMV。我们的目标是以 Rust 为核心实现这套引擎，并在音频模型与视频模型之上做深度扩展，把歌词、音乐、视频到卡拉 OK 式 MV 播放串成同一条完整创作链路。用户只需要说出“CSS”，或轻点魔镜/麦克风，就可以从一个意图直接进入完整作品体验。",
+  "about.sections.v2_investor.title": "cssOS · cssMV — 投资人介绍",
+  "about.sections.v2_investor.body":
+    "cssMV 是构建在 cssOS 之上的 AI 原生媒体引擎，用来完成歌词 → 音乐 → 视频 → 卡拉 OK MV 播放的端到端生成。它以 Rust 实现，强调性能、稳定性与可扩展编排能力，把先进的音频与视频生成技术打包成一个面向消费者的完整产品体验。我们的核心价值在于把多模态生成真正产品化：一句“CSS”或一次点击，就能把创作意图转成完整 MV，从而把创作门槛降到接近零，并以一致质量支撑规模化内容生产。",
+  "about.sections.v3_technical.title": "cssOS · cssMV — 技术总览",
+  "about.sections.v3_technical.body":
+    "cssMV 是 cssOS 中基于 Rust 的媒体引擎，作为多模态生成之上的模块化编排层存在。它把语义意图、歌词对齐、音乐结构、视觉分镜与定时字幕渲染收进同一条统一管线，同时保留缓存、流式生成、模型适配器与可替换组件，让端到端生成在保持可控和可演进的前提下持续升级。",
+  "about.sections.v4_manifesto.title": "cssOS · cssMV — 创作宣言",
+  "about.sections.v4_manifesto.body":
+    "我们相信创作应该尽可能轻盈。cssMV 让一个词、一句话、一次“CSS”唤醒，直接通往可唱、可看、可分享的完整作品。没有复杂工具，没有高门槛，只有意图直达艺术。我们不是把一堆功能拼在一起，而是在打造一种让歌词、音乐与流动画面融为一体的新介质。它属于每一个人，也属于想象力本身。",
   "whitepaper.title": "白皮书",
   "whitepaper.section.audio.title": "音频引擎",
   "whitepaper.section.audio.body": "声线、音乐和歌词时序作为同一条面向交付的生产管线协同运行。",
@@ -1201,74 +1243,6 @@ function safeT(key, localeOverride) {
   return interpolate(template, {});
 }
 
-function renderAboutSubSection() {
-  const aboutContent = document.querySelector('.about-tab-content[data-tab="about"]');
-  if (!aboutContent) return;
-
-  const defaultKey = safeT("about.ui.defaultSectionKey", "en");
-  if (ABOUT_VARIANTS.includes(defaultKey)) {
-    aboutVariant = defaultKey;
-  }
-
-  const buildTabs = () =>
-    ABOUT_VARIANTS.map((v) => {
-      const active = v === aboutVariant;
-      const label = safeT(`about.ui.tabs.${v}`);
-      return `
-        <button
-          type="button"
-          data-variant="${v}"
-          style="
-            padding: 8px 12px;
-            border-radius: 999px;
-            cursor: pointer;
-            border: 1px solid rgba(255,255,255,0.14);
-            background: ${active ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.25)"};
-            color: white;
-            opacity: ${active ? "1" : "0.85"};
-          "
-        >${label}</button>
-      `;
-    }).join("");
-
-  const titleKey = `about.sections.${aboutVariant}.title`;
-  const bodyKey = `about.sections.${aboutVariant}.body`;
-
-  const leftTitle = safeT(titleKey, "en");
-  const leftBody = safeT(bodyKey, "en");
-  const rightTitle = safeT(titleKey, currentLocale);
-  const rightBody = safeT(bodyKey, currentLocale);
-
-  aboutContent.innerHTML = `
-    <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;">${buildTabs()}</div>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
-      <div style="padding:12px; border-radius:12px; border:1px solid rgba(255,255,255,0.12);">
-        <div style="opacity:0.7; font-size:12px; margin-bottom:8px;">English (en)</div>
-        <h3 style="margin:0 0 8px 0;">${leftTitle}</h3>
-        <p style="margin:0; line-height:1.6; opacity:0.92;">${leftBody}</p>
-      </div>
-      <div style="padding:12px; border-radius:12px; border:1px solid rgba(255,255,255,0.12);">
-        <div style="opacity:0.7; font-size:12px; margin-bottom:8px;">${currentLocale} (i18n)</div>
-        <h3 style="margin:0 0 8px 0;">${rightTitle}</h3>
-        <p style="margin:0; line-height:1.6; opacity:0.92;">${rightBody}</p>
-      </div>
-    </div>
-    <div style="display:flex; gap:10px; margin-top:12px; flex-wrap:wrap;">
-      <button class="cta tiny">${safeT("about.ui.cta.primary")}</button>
-      <button class="cta ghost tiny">${safeT("about.ui.cta.secondary")}</button>
-    </div>
-  `;
-
-  aboutContent.querySelectorAll("button[data-variant]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const v = btn.dataset.variant;
-      if (!v) return;
-      aboutVariant = v;
-      renderAboutSubSection();
-    });
-  });
-}
-
 function applyI18n() {
   document.querySelectorAll("[data-i18n]").forEach((el) => {
     const key = el.dataset.i18n;
@@ -1313,387 +1287,66 @@ function applyI18n() {
     if (!item.hasAttribute("tabindex")) item.tabIndex = 0;
   });
 
-  renderAboutSubSection();
-}
-
-function getPlatformLabel(platformId) {
-  const locale = PLATFORM_LABELS[currentLocale] ? currentLocale : DEFAULT_LOCALE;
-  return getPlatformLabelFromMap(locale, platformId);
-}
-
-function isSocialEnabled(platformId) {
-  if (!SOCIAL_KEYS) return false;
-  const direct = SOCIAL_KEYS[platformId];
-  if (direct) return true;
-  const upper = platformId.toUpperCase();
-  if (SOCIAL_KEYS[upper]) return true;
-  const snake = platformId.replace(/-/g, "_").toUpperCase();
-  return Boolean(SOCIAL_KEYS[snake]);
+  globalThis.renderAboutSubSectionModule?.();
 }
 
 function loginCopy(en, zh) {
   return currentLocale === "zh" ? zh : en;
 }
 
-function logoSlugFor(platformId) {
-  const map = {
-    apple: "apple",
-    behance: "behance",
-    discord: "discord",
-    dribbble: "dribbble",
-    facebook: "facebook",
-    github: "github",
-    gitlab: "gitlab",
-    google: "google",
-    instagram: "instagram",
-    kakaotalk: "kakaotalk",
-    line: "line",
-    linkedin: "linkedin",
-    medium: "medium",
-    pinterest: "pinterest",
-    reddit: "reddit",
-    slack: "slack",
-    stackoverflow: "stackoverflow",
-    telegram: "telegram",
-    tiktok: "tiktok",
-    twitch: "twitch",
-    wechat: "wechat",
-    weibo: "sinaweibo",
-    whatsapp: "whatsapp",
-    x: "x"
-  };
-  return map[platformId] || platformId;
-}
-
-function logoColorFor(platformId) {
-  const map = {
-    apple: "ffffff",
-    github: "ffffff",
-    x: "ffffff",
-    tiktok: "ffffff",
-    google: "4285f4",
-    facebook: "1877f2",
-    wechat: "07c160"
-  };
-  return map[platformId] || "";
-}
-
-function providerLogoHtml(platformId, fallbackText) {
-  if (platformId === "bsky") {
-    return '<span class="login-logo-glyph bsky">🦋</span>';
+function emergencyUnfreezeUi(options = {}) {
+  const preserveHoldState = !!options?.preserveHoldState;
+  document.body.classList.remove("longpress-guard");
+  if (!preserveHoldState) {
+    document.body.classList.remove("holding-mic");
   }
-  if (platformId === "linkedin") {
-    return '<span class="login-logo-glyph brand-text">in</span>';
-  }
-  if (platformId === "slack") {
-    return '<span class="login-logo-glyph brand-text">sl</span>';
-  }
-  const slug = logoSlugFor(platformId);
-  const color = logoColorFor(platformId);
-  const src = `https://cdn.simpleicons.org/${slug}${color ? `/${color}` : ""}`;
-  return `<img src="${src}" alt="${platformId}" class="login-logo" loading="lazy" referrerpolicy="no-referrer" /><span class="login-logo-fallback">${fallbackText}</span>`;
+  dismissUiBlockingLayers();
 }
 
-function providerLogoOnly(platformId) {
-  if (!platformId) return '<span class="login-logo-glyph">?</span>';
-  if (platformId === "bsky") return '<span class="login-logo-glyph bsky">🦋</span>';
-  if (platformId === "linkedin") return '<span class="login-logo-glyph brand-text">in</span>';
-  if (platformId === "slack") return '<span class="login-logo-glyph brand-text">sl</span>';
-  const slug = logoSlugFor(platformId);
-  const color = logoColorFor(platformId);
-  const src = `https://cdn.simpleicons.org/${slug}${color ? `/${color}` : ""}`;
-  return `<img src="${src}" alt="${platformId}" class="login-source-logo" loading="lazy" referrerpolicy="no-referrer" />`;
+function callWatchUiModule(name, ...args) {
+  const fn = globalThis[name];
+  if (typeof fn !== "function") return undefined;
+  return fn(...args);
 }
 
-function renderLoginPlatforms() {
-  if (!loginList) return;
-  loginList.innerHTML = "";
-  const enabledMap = new Map(
-    authProviders.map((provider) => [
-      provider.id,
-      {
-        enabled: provider.enabled,
-        url: provider.url,
-        icon: provider.icon,
-        logo: provider.logo_url
-      }
-    ])
-  );
-  const linkedProviders = new Set(authState.linkedProviders || []);
-  const list = socialPlatforms.map((platform) => {
-    const record = enabledMap.get(platform.id);
-    const logo = record?.logo;
-    const isLinked = linkedProviders.has(platform.id);
-    const iconHtml = logo
-      ? `<img src="${logo}" alt="${platform.id}" class="login-logo" />`
-      : providerLogoHtml(platform.id, record?.icon || platform.icon);
-    const actionLabel = authState.user
-      ? isLinked
-        ? loginCopy("Linked", "已绑定")
-        : loginCopy("Switch account", "切换账号")
-      : record?.enabled
-        ? loginCopy("Sign in", "登录")
-        : loginCopy("Unavailable", "未开放");
-    return {
-      id: platform.id,
-      icon: iconHtml,
-      enabled: record?.enabled ?? isSocialEnabled(platform.id),
-      url: record?.url || (record?.enabled ? `/auth/${platform.id}` : ""),
-      linked: isLinked,
-      actionLabel
-    };
-  });
-
-  const summary = document.createElement("div");
-  summary.className = "login-summary";
-  if (authState.user) {
-    const sourceProvider = authState.loginProvider || "";
-    const sourceLabel = sourceProvider ? getPlatformLabel(sourceProvider) : loginCopy("Unknown", "未知");
-    const linkedList = Array.from(linkedProviders).filter((providerId) => providerId !== "passkey");
-    const linkedText = linkedList.length
-      ? linkedList.map((providerId) => getPlatformLabel(providerId)).join(" · ")
-      : loginCopy("No social provider linked yet", "还没有绑定社交账号");
-    const label = authState.user.name || authState.user.email || authState.user.id || "";
-    summary.innerHTML = `
-      <div class="login-source-card">
-        <div class="login-source-badge">${providerLogoOnly(sourceProvider)}</div>
-        <div class="login-me-meta">
-          <div class="login-me-title">${loginCopy("Current source platform", "当前来源平台")}</div>
-          <div class="login-me-source-name">${sourceLabel}</div>
-          <div class="login-me-user">${label}</div>
-          <div class="login-me-linked">${loginCopy("Connected:", "已连接：")} ${linkedText}</div>
-          <div class="login-switch-hint">${loginCopy("Tip: click an unlinked platform below to switch account.", "提示：点击下方未登录平台即可切换账号。")}</div>
-        </div>
-      </div>
-    `;
-  } else {
-    const githubDiag = authState.authDiagnostics;
-    const githubHint = githubDiag
-      ? githubDiag.enabled
-        ? t("login.githubDiagReady").replace(
-            "{callback}",
-            githubDiag.callback_url || "https://cssstudio.app/auth/github/callback"
-          )
-        : t("login.githubDiagMissing").replace(
-            "{missing}",
-            Array.isArray(githubDiag.missing_env) && githubDiag.missing_env.length
-              ? githubDiag.missing_env.join(", ")
-              : "unknown"
-          )
-      : "";
-    summary.innerHTML = `
-      <div class="login-hint">
-        ${loginCopy("Choose a social account to continue. After sign-in, this panel will show your connected providers.", "选择一个社交账号登录。登录后，这里会显示你已绑定的平台和账号状态。")}
-        ${githubHint ? `<div class="login-diagnostic-hint">${escapeHtml(githubHint)}</div>` : ""}
-      </div>
-    `;
-  }
-  loginList.appendChild(summary);
-
-  const orderedList = authState.user
-    ? [...list].sort((a, b) => Number(a.linked) - Number(b.linked))
-    : list;
-
-  orderedList.forEach((platform) => {
-    const enabled = Boolean(platform.enabled);
-    const card = document.createElement(enabled && !platform.linked ? "a" : "div");
-    const stateClass = platform.linked ? "linked" : enabled ? "enabled" : "disabled";
-    card.className = `login-card ${stateClass}`;
-    if (enabled && platform.url) {
-      card.href = platform.url;
-    }
-    card.innerHTML = `
-      <div class="login-icon">${platform.icon}</div>
-      <div class="login-title-wrap">
-        <div class="login-title">${getPlatformLabel(platform.id)}</div>
-        <div class="login-action-tag">${platform.actionLabel}</div>
-      </div>
-      ${platform.linked && authState.user ? `<button class="cta ghost tiny login-unlink-btn" type="button" data-provider="${platform.id}">${loginCopy("Unlink", "解绑")}</button>` : ""}
-    `;
-    loginList.appendChild(card);
-  });
-
-  // Bluesky login (handle + app password) if enabled
-  const bsky = enabledMap.get("bsky");
-  if (bsky && bsky.enabled) {
-    const form = document.createElement("div");
-    form.className = "login-bluesky";
-    form.innerHTML = `
-      <div class="login-title">Bluesky</div>
-      <div class="login-row">
-        <input type="text" id="bsky-handle" placeholder="handle (e.g. name.bsky.social)" />
-      </div>
-      <div class="login-row">
-        <input type="password" id="bsky-app-password" placeholder="app password" />
-      </div>
-      <button class="cta tiny" id="bsky-login-btn" type="button">Login</button>
-    `;
-    loginList.appendChild(form);
-
-    const btn = form.querySelector("#bsky-login-btn");
-    btn?.addEventListener("click", async () => {
-      const handle = form.querySelector("#bsky-handle")?.value?.trim();
-      const appPassword = form.querySelector("#bsky-app-password")?.value?.trim();
-      if (!handle || !appPassword) {
-        showToast(t("login.statusGuest"));
-        return;
-      }
-      try {
-        const res = await fetch("/auth/bluesky", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ handle, app_password: appPassword })
-        });
-        if (res.ok) {
-          await fetchMe();
-        }
-      } catch (err) {
-        // ignore
-      }
-    });
-  }
+function readWatchUiModule(name, fallback, ...args) {
+  const value = callWatchUiModule(name, ...args);
+  return value === undefined ? fallback : value;
 }
 
-function normalizeVersionList(payload) {
-  if (!payload) return [];
-  if (Array.isArray(payload)) {
-    return payload.map((item) => (typeof item === "string" ? { id: item } : item));
-  }
-  if (Array.isArray(payload.versions)) {
-    return payload.versions.map((item) => (typeof item === "string" ? { id: item } : item));
-  }
-  return [];
+function callCreationFlowModule(name, ...args) {
+  const fn = globalThis[name];
+  if (typeof fn !== "function") return undefined;
+  return fn(...args);
 }
 
-function extractVersionDateParts(entry) {
-  const raw = String(entry?.createdAt || entry?.date || entry?.id || "").trim();
-  const match = raw.match(/(\d{4})-?(\d{2})-?(\d{2})/);
-  if (!match) return null;
-  return { year: match[1], month: match[2], day: match[3] };
+function readCreationFlowModule(name, fallback, ...args) {
+  const value = callCreationFlowModule(name, ...args);
+  return value === undefined ? fallback : value;
 }
 
-function formatVersionBadge(entry) {
-  const parts = extractVersionDateParts(entry);
-  if (!parts) return String(entry?.id || "").replace(/_/g, "");
-  return `${parts.month}${parts.day}${parts.year}`;
+function openWatchPreviewFlow(options = {}) {
+  return readWatchUiModule("openWatchPreviewFlowModule", Promise.resolve(false), options);
 }
 
-function formatVersionDateLabel(entry) {
-  const parts = extractVersionDateParts(entry);
-  if (!parts) return String(entry?.createdAt || entry?.date || entry?.id || "").trim();
-  return `${parts.month}/${parts.day}/${parts.year}`;
+function openWatchMusicPlaybackSurface(options = {}) {
+  return readWatchUiModule("openWatchMusicPlaybackSurfaceModule", false, options);
 }
 
-function getVersionReleaseNotes(entry) {
-  const id = String(entry?.id || entry?.version || "").trim();
-  return VERSION_RELEASE_NOTES[id] || {
-    headline: "最新版本已上线",
-    copy: "这里会告诉你这次更新修了什么，而不是只显示工程编号。",
-    highlights: ["版本信息更清楚", "技术编号收进详情", "刷新即可使用新版本"]
-  };
+function renderSongSeedPreview(seed = state.songSeed) {
+  callWatchUiModule("renderSongSeedPreviewModule", seed);
 }
 
-function renderVersionHero(entry, currentId) {
-  if (!versionHero || !versionHighlights) return;
-  const notes = getVersionReleaseNotes(entry);
-  versionHero.innerHTML = `
-    <div class="version-badge">${escapeHtml(formatVersionBadge(entry))}</div>
-    <div class="version-headline">${escapeHtml(notes.headline)}</div>
-    <div class="version-copy">${escapeHtml(notes.copy)}</div>
-  `;
-  versionHighlights.innerHTML = "";
-  notes.highlights.forEach((line) => {
-    const item = document.createElement("div");
-    item.className = "version-highlight";
-    item.textContent = line;
-    versionHighlights.appendChild(item);
-  });
-  if (versionCurrentLabel) {
-    versionCurrentLabel.textContent = `${formatVersionDateLabel(entry)} · ${currentId}`;
-  }
-  if (versionTechSummary) {
-    versionTechSummary.textContent = `Technical details · ${currentId}`;
-  }
+function syncWatchEditorsFromSettings() {
+  callWatchUiModule("syncWatchEditorsFromSettingsModule");
 }
 
-async function loadVersions() {
-  if (!versionToggle || !versionMenu || !versionList) return;
-  try {
-    const [currentRes, listRes] = await Promise.all([
-      fetch("/version.json", { cache: "no-store" }).catch(() => null),
-      fetch("/versions.json", { cache: "no-store" }).catch(() => null)
-    ]);
-    const currentData = currentRes && currentRes.ok ? await currentRes.json() : null;
-    const listData = listRes && listRes.ok ? await listRes.json() : null;
-    const current =
-      listData?.current || currentData?.version || currentData?.id || "current";
-    const versions = normalizeVersionList(listData);
-    if (!versions.length) {
-      versionToggle.classList.add("is-hidden");
-      return;
-    }
-    const activeEntry =
-      versions.find((entry) => String(entry?.id || entry?.version || entry?.name || "").trim() === current) ||
-      versions[0];
-    renderVersionHero(activeEntry, current);
-    versionList.innerHTML = "";
-    versions.forEach((entry) => {
-      const id = entry.id || entry.version || entry.name;
-      if (!id) return;
-      const safePath = entry.path || `/v/${encodeURIComponent(id)}`;
-      const label = entry.label || formatVersionBadge(entry) || id;
-      const item = document.createElement("a");
-      item.href = safePath;
-      item.className = `version-item ${id === current ? "active" : ""}`;
-      item.innerHTML = `
-        <strong>${escapeHtml(label)}</strong>
-        <span>${escapeHtml(formatVersionDateLabel(entry))}</span>
-      `;
-      item.addEventListener("click", (event) => {
-        event.preventDefault();
-        window.location.assign(safePath);
-      });
-      versionList.appendChild(item);
-    });
-  } catch (err) {
-    versionToggle.classList.add("is-hidden");
-  }
+function initWatchVideoPlaybackControls() {
+  callWatchUiModule("initWatchVideoPlaybackControlsModule");
 }
 
-function initVersionSwitcher() {
-  if (!versionToggle || !versionMenu) return;
-  versionToggle.addEventListener("click", (event) => {
-    event.stopPropagation();
-    versionMenu.classList.toggle("is-hidden");
-  });
-  document.addEventListener("click", () => {
-    versionMenu.classList.add("is-hidden");
-  });
-  loadVersions();
-}
-
-function initAboutTabs() {
-  if (!aboutTabs.length || !aboutTabContents.length) return;
-  aboutTabs.forEach((tab) => {
-    tab.addEventListener("click", () => {
-      const key = tab.dataset.tab;
-      if (!key) return;
-      aboutTabs.forEach((btn) => btn.classList.remove("active"));
-      aboutTabContents.forEach((panel) => panel.classList.remove("active"));
-      tab.classList.add("active");
-      const content = document.querySelector(`.about-tab-content[data-tab="${key}"]`);
-      if (content) content.classList.add("active");
-      if (key === "about") {
-        renderAboutSubSection();
-      }
-    });
-  });
-  renderAboutSubSection();
-}
-
-function initApiBillingUI() {
-  renderApiBillingPanel();
+function initWatchMusicControls() {
+  callWatchUiModule("initWatchMusicControlsModule");
 }
 
 function setSelectValueSafe(selectEl, value) {
@@ -1760,9 +1413,6 @@ function normalizeWorkTypeClient(value) {
 }
 
 function inferStructuredWorkType(title, fallback = "single") {
-  const text = String(title || "").trim();
-  if (text.includes("三部曲")) return "triptych";
-  if (text.includes("歌剧")) return "opera";
   return normalizeWorkTypeClient(fallback);
 }
 
@@ -1898,22 +1548,31 @@ function renderHierarchyTree(nodes, context = "market") {
           const workId = escapeHtml(String(node?.id || "").trim());
           const isOwnedByViewer =
             Boolean(authState.user?.id) && String(node?.owner_user_id || "").trim() === String(authState.user?.id || "").trim();
+          const canTransact = !!authState.user && !isOwnedByViewer;
           const listenCents = Number(node?.current_listen_price_cents || 0);
           const buyoutCents = Number(node?.current_buyout_price_cents || 0);
           const buyoutEnabled = Boolean(node?.buyout_enabled) && buyoutCents > 0;
+          const tipsEnabled = canReceiveTips(node);
+          const orderState = resolveViewerOrderState(node?.viewer_orders);
+          const listenDisabled = Boolean(
+            isOwnedByViewer || orderState.paidBuyout || orderState.paidListen || orderState.pendingListen || orderState.pendingBuyout
+          );
+          const buyoutDisabled = Boolean(isOwnedByViewer || orderState.paidBuyout || orderState.pendingBuyout);
+          const tipDisabled = Boolean(!tipsEnabled || orderState.pendingTip);
           const actions =
             context === "market" && workId
               ? `
                 <div class="work-hierarchy-actions">
                   <button class="mini-btn ghost tiny" type="button" data-market-action="preview" data-market-child-id="${workId}">${loginCopy("Preview", "预览")}</button>
-                  ${isOwnedByViewer ? "" : `<button class="mini-btn ghost tiny" type="button" data-market-action="listen" data-market-child-id="${workId}" ${listenCents > 0 ? "" : "disabled"}>${loginCopy("Listen", "聆听")}</button>`}
-                  ${isOwnedByViewer ? "" : `<button class="mini-btn market-buyout-btn tiny" type="button" data-market-action="buyout" data-market-child-id="${workId}" ${buyoutEnabled ? "" : "disabled"}>${loginCopy("Buyout", "买断")}</button>`}
+                  ${canTransact ? `<button class="mini-btn ghost tiny" type="button" data-market-action="listen" data-market-child-id="${workId}" ${(listenCents > 0 && !listenDisabled) ? "" : "disabled"}>${marketActionCopy("listen", orderState)}</button>` : ""}
+                  ${canTransact ? `<button class="mini-btn market-buyout-btn tiny" type="button" data-market-action="buyout" data-market-child-id="${workId}" ${(!buyoutEnabled || buyoutDisabled) ? "disabled" : ""}>${marketActionCopy("buyout", orderState)}</button>` : ""}
+                  ${canTransact ? `<span class="market-inline-action"><button class="mini-btn ghost tiny" type="button" data-market-action="tip" data-market-child-id="${workId}" ${tipDisabled ? "disabled" : ""}>${marketActionCopy("tip", orderState)}</button><input class="inline-chip-input market-tip-input" type="number" min="1" step="1" inputmode="decimal" placeholder="${escapeHtml(loginCopy("Tip $", "打赏金额"))}" data-market-tip-input="${workId}" hidden /></span>` : ""}
                 </div>
               `
               : context === "works" && workId
               ? `
                 <div class="work-hierarchy-actions">
-                  <button class="mini-btn ghost tiny" type="button" data-work-action="watch" data-work-child-id="${workId}">${loginCopy("Enjoy", "欣赏")}</button>
+                  <button class="mini-btn ghost tiny" type="button" data-work-action="watch" data-work-child-id="${workId}" ${hasPanelPermission("works.watch") ? "" : "disabled"}>${loginCopy("Enjoy", "欣赏")}</button>
                 </div>
               `
               : "";
@@ -2084,7 +1743,23 @@ async function saveCreationPanelDefaults(trigger) {
 function creationSummaryText() {
   const s = creationState.selections;
   const styleSummary = String(styleInput?.value || "").trim();
+  const preset = getMembershipPreset();
+  const membershipSummary = [
+    `${loginCopy("Tier", "会员")}: ${describeMembershipTier(preset.tier)}`,
+    preset.monthlyGenerationLimit === null
+      ? loginCopy("Monthly Limit: Unlimited", "月额度：无限制")
+      : loginCopy(`Monthly Limit: ${preset.monthlyGenerationLimit}`, `月额度：${preset.monthlyGenerationLimit}次`),
+    `${loginCopy("Max Video", "最长视频")}: ${preset.maxDurationSec}s / ${preset.maxResolution}`,
+    `${loginCopy("Watermark", "水印")}: ${
+      preset.watermark === "none"
+        ? loginCopy("Off", "无")
+        : preset.watermark === "custom_or_none"
+          ? loginCopy("Custom or off", "可自定义或关闭")
+          : loginCopy("Default", "默认")
+    }`
+  ];
   const parts = [
+    ...membershipSummary,
     styleSummary && `${t("settings.musicStyle")}: ${styleSummary}`,
     s.genre && `${creationTabLabel("genre")}: ${creationChipLabel("genre", s.genre)}`,
     s.mood && `${creationTabLabel("mood")}: ${creationChipLabel("mood", s.mood)}`,
@@ -2109,33 +1784,6 @@ function creationSummaryText() {
   return parts.join(" | ");
 }
 
-function renderCreationUniverseCard(seed = state.songSeed) {
-  if (!creationUniverseCard) return;
-  const summary = seed?.creativeSummary || null;
-  if (!summary) {
-    creationUniverseCard.classList.add("is-empty");
-    creationUniverseCard.innerHTML = `
-      <div class="creation-universe-eyebrow">${escapeHtml(loginCopy("Current Universe", "当前宇宙"))}</div>
-      <div class="creation-universe-body">${escapeHtml(loginCopy("When lyric magic lands, the current civilization, perspective, emotion, and structure will stay pinned here.", "歌词魔法生成后，这次的文明、视角、情绪和结构会固定显示在这里。"))}</div>
-    `;
-    return;
-  }
-  creationUniverseCard.classList.remove("is-empty");
-  const chips = [
-    summary.family ? loginCopy(`Family · ${summary.family}`, `风格 · ${summary.family}`) : "",
-    summary.emotion ? loginCopy(`Mood · ${summary.emotion}`, `情绪 · ${summary.emotion}`) : "",
-    summary.structure ? loginCopy(`Form · ${summary.structure}`, `结构 · ${summary.structure}`) : ""
-  ].filter(Boolean);
-  creationUniverseCard.innerHTML = `
-    <div class="creation-universe-eyebrow">${escapeHtml(loginCopy("Current Universe", "当前宇宙"))}</div>
-    <div class="creation-universe-headline">${escapeHtml(summary.civilization || summary.family || "")}</div>
-    <div class="creation-universe-meta">
-      ${chips.map((chip) => `<span class="creation-universe-chip">${escapeHtml(chip)}</span>`).join("")}
-    </div>
-    <div class="creation-universe-body">${escapeHtml([summary.perspective, summary.languageStyle].filter(Boolean).join(" · "))}</div>
-  `;
-}
-
 const creationReferenceAtlas = {
   zh: {
     region: loginCopy("Chinese-speaking worlds", "华语世界"),
@@ -2154,333 +1802,858 @@ const creationReferenceAtlas = {
   }
 };
 
-function renderCreationReferenceLibrary() {
-  if (!creationReferenceLibrary) return;
-  const lang = String(creationState.language || "zh").trim().toLowerCase();
-  const atlas = creationReferenceAtlas[lang] || creationReferenceAtlas.zh;
-  creationReferenceLibrary.innerHTML = `
-    <div class="creation-reference-region">${escapeHtml(atlas.region || "")}</div>
-    <div class="creation-reference-group">
-      <div class="creation-reference-title">${escapeHtml(loginCopy("Reference Artists", "参考音乐人"))}</div>
-      <div class="creation-reference-note">${escapeHtml(atlas.artists.join(", "))}</div>
-    </div>
-    <div class="creation-reference-group">
-      <div class="creation-reference-title">${escapeHtml(loginCopy("Reference Ensembles", "参考乐团/编制"))}</div>
-      <div class="creation-reference-note">${escapeHtml(atlas.ensembles.join(", "))}</div>
-    </div>
-  `;
+function buildPermissionCellForTier(row, tier) {
+  const normalizedTier = normalizeAccessTier(tier);
+  const access = typeof row.access === "function" ? row.access(normalizedTier) : row.access?.[normalizedTier];
+  if (access === true) return loginCopy("Yes", "可用");
+  if (access === false || access == null) return loginCopy("No", "不可用");
+  return String(access);
 }
 
-function creationTabLabel(tabKey) {
-  const map = {
-    genre: "creation.tab.genre",
-    mood: "creation.tab.mood",
-    instrument: "creation.tab.instrument",
-    ambience: "creation.tab.ambience",
-    vocalGender: "creation.tab.vocalGender"
-  };
-  return t(map[tabKey] || "") || tabKey;
-}
+const ACTION_PERMISSION_MATRIX_TIERS = ["guest", "free", "starter", "pro", "studio", "enterprise", "vip", "admin"];
+const DELIVERY_ADMIN_ONLY_ACTION_ATTRS = [
+  "data-delivery-rewrite-bundle-commit",
+  "data-delivery-rewrite-bundle-save",
+  "data-delivery-rewrite-bundle-promote",
+  "data-delivery-rewrite-sandbox-apply",
+  "data-delivery-rewrite-sandbox-clear",
+  "data-delivery-arrangement-revision-rollback",
+  "data-delivery-arrangement-revision-merge-forward",
+  "data-delivery-arrangement-release-candidate",
+  "data-delivery-arrangement-lock",
+  "data-delivery-arrangement-publish",
+  "data-delivery-publish-step-approve",
+  "data-delivery-publish-step-finalize",
+  "data-delivery-publish-step-remind",
+  "data-delivery-publish-actor-suggest",
+  "data-delivery-publish-route-shortcut",
+  "data-delivery-publish-runbook-automation",
+  "data-delivery-publish-confirm-arm",
+  "data-delivery-publish-confirm-disarm",
+  "data-delivery-post-publish-rollback",
+  "data-delivery-compliance-escalate",
+  "data-delivery-compliance-ticket",
+  "data-delivery-compliance-backfill",
+  "data-delivery-compliance-rotate-secret",
+  "data-delivery-compliance-update-registry",
+  "data-delivery-compliance-reopen",
+  "data-delivery-compliance-save-directory",
+  "data-delivery-compliance-save-preset",
+  "data-delivery-compliance-audit-log",
+  "data-delivery-compliance-save-role-policy",
+  "data-delivery-compliance-approve",
+  "data-delivery-compliance-save-routing",
+  "data-delivery-compliance-save-signers",
+  "data-delivery-compliance-finalize-quorum",
+  "data-delivery-probe-dispatch-done",
+  "data-delivery-probe-dispatch-history-export",
+  "data-delivery-probe-incident-export",
+  "data-delivery-probe-handoff-ack",
+  "data-delivery-probe-receipt-copy",
+  "data-delivery-probe-followup-copy",
+  "data-delivery-watch-case-route-priority",
+  "data-delivery-watch-case-route",
+  "data-delivery-watch-case-close-summary",
+  "data-delivery-watch-owner-inbox-digest",
+  "data-delivery-watch-case-export-bundle",
+  "data-delivery-watch-case-status"
+];
+const DELIVERY_STANDARD_SCOPE_RULES = [
+  { scope: "delivery.watch.case", panel: "ops", action: loginCopy("Delivery watch case actions", "交付 watch case 动作"), match: (name) => name.startsWith("data-delivery-watch-case-") },
+  { scope: "delivery.watch.archive", panel: "ops", action: loginCopy("Delivery watch archive actions", "交付 watch archive 动作"), match: (name) => name.includes("data-delivery-watch-archive-") },
+  { scope: "delivery.watch.compare", panel: "ops", action: loginCopy("Delivery watch compare actions", "交付 watch compare 动作"), match: (name) => name.includes("data-delivery-watch-compare-") },
+  { scope: "delivery.watch.saved_view", panel: "ops", action: loginCopy("Delivery watch saved view actions", "交付 watch saved view 动作"), match: (name) => name.includes("data-delivery-watch-saved-view-") },
+  { scope: "delivery.watch.standard", panel: "ops", action: loginCopy("Delivery watch actions", "交付 watch 动作"), match: (name) => name.startsWith("data-delivery-watch-") },
+  { scope: "delivery.compliance.refresh", panel: "ops", action: loginCopy("Delivery compliance refresh actions", "交付 compliance refresh 动作"), match: (name) => name === "data-delivery-compliance-refresh" },
+  { scope: "delivery.compliance.open", panel: "ops", action: loginCopy("Delivery compliance open actions", "交付 compliance open 动作"), match: (name) => name === "data-delivery-compliance-open" },
+  { scope: "delivery.compliance.registry", panel: "ops", action: loginCopy("Delivery compliance registry actions", "交付 compliance registry 动作"), match: (name) => ["data-delivery-compliance-update-registry", "data-delivery-compliance-save-directory", "data-delivery-compliance-save-preset", "data-delivery-compliance-save-role-policy", "data-delivery-compliance-save-routing", "data-delivery-compliance-save-signers", "data-delivery-compliance-backfill"].includes(name) },
+  { scope: "delivery.compliance.approval", panel: "ops", action: loginCopy("Delivery compliance approval actions", "交付 compliance approval 动作"), match: (name) => ["data-delivery-compliance-approve", "data-delivery-compliance-escalate", "data-delivery-compliance-ticket", "data-delivery-compliance-audit-log"].includes(name) },
+  { scope: "delivery.compliance.signer", panel: "ops", action: loginCopy("Delivery compliance signer actions", "交付 compliance signer 动作"), match: (name) => ["data-delivery-compliance-rotate-secret", "data-delivery-compliance-reopen"].includes(name) },
+  { scope: "delivery.compliance.quorum", panel: "ops", action: loginCopy("Delivery compliance quorum actions", "交付 compliance quorum 动作"), match: (name) => name === "data-delivery-compliance-finalize-quorum" },
+  { scope: "delivery.compliance.standard", panel: "ops", action: loginCopy("Delivery compliance actions", "交付 compliance 动作"), match: (name) => name.startsWith("data-delivery-compliance-") },
+  { scope: "delivery.rewrite.bundle", panel: "reports", action: loginCopy("Delivery rewrite bundle actions", "交付 rewrite bundle 动作"), match: (name) => name.includes("data-delivery-rewrite-bundle-") },
+  { scope: "delivery.rewrite.sandbox", panel: "reports", action: loginCopy("Delivery rewrite sandbox actions", "交付 rewrite sandbox 动作"), match: (name) => name.includes("data-delivery-rewrite-sandbox-") },
+  { scope: "delivery.rewrite.diff", panel: "reports", action: loginCopy("Delivery rewrite diff actions", "交付 rewrite diff 动作"), match: (name) => name === "data-delivery-rewrite-diff-focus" },
+  { scope: "delivery.rewrite.playback", panel: "reports", action: loginCopy("Delivery rewrite playback actions", "交付 rewrite playback 动作"), match: (name) => ["data-delivery-rewrite-phrase-play", "data-delivery-rewrite-lane", "data-delivery-rewrite-payload-mode", "data-delivery-rewrite-assist"].includes(name) },
+  { scope: "delivery.rewrite.standard", panel: "reports", action: loginCopy("Delivery rewrite actions", "交付 rewrite 动作"), match: (name) => name.startsWith("data-delivery-rewrite-") },
+  { scope: "delivery.probe.dispatch", panel: "ops", action: loginCopy("Delivery probe dispatch actions", "交付 probe dispatch 动作"), match: (name) => name.includes("data-delivery-probe-dispatch-") },
+  { scope: "delivery.probe.export", panel: "ops", action: loginCopy("Delivery probe export actions", "交付 probe export 动作"), match: (name) => ["data-delivery-probe-incident-export", "data-delivery-probe-receipt-copy", "data-delivery-probe-followup-copy"].includes(name) },
+  { scope: "delivery.probe.handoff", panel: "ops", action: loginCopy("Delivery probe handoff actions", "交付 probe handoff 动作"), match: (name) => name === "data-delivery-probe-handoff-ack" },
+  { scope: "delivery.probe.compare", panel: "ops", action: loginCopy("Delivery probe compare actions", "交付 probe compare 动作"), match: (name) => name === "data-delivery-probe-compare-select" },
+  { scope: "delivery.probe.standard", panel: "ops", action: loginCopy("Delivery probe actions", "交付 probe 动作"), match: (name) => name.startsWith("data-delivery-probe-") },
+  { scope: "delivery.publish.simulate", panel: "reports", action: loginCopy("Delivery publish simulate actions", "交付 publish simulate 动作"), match: (name) => name === "data-delivery-publish-simulate" },
+  { scope: "delivery.publish.route", panel: "reports", action: loginCopy("Delivery publish route actions", "交付 publish route 动作"), match: (name) => ["data-delivery-publish-route-shortcut", "data-delivery-publish-actor-suggest", "data-delivery-publish-runbook-automation"].includes(name) },
+  { scope: "delivery.publish.confirm", panel: "reports", action: loginCopy("Delivery publish confirm actions", "交付 publish confirm 动作"), match: (name) => ["data-delivery-publish-confirm-arm", "data-delivery-publish-confirm-disarm", "data-delivery-publish-ack-note"].includes(name) },
+  { scope: "delivery.publish.finalize", panel: "reports", action: loginCopy("Delivery publish finalize actions", "交付 publish finalize 动作"), match: (name) => ["data-delivery-publish-step-approve", "data-delivery-publish-step-finalize", "data-delivery-publish-step-remind"].includes(name) },
+  { scope: "delivery.publish.standard", panel: "reports", action: loginCopy("Delivery publish actions", "交付 publish 动作"), match: (name) => name.startsWith("data-delivery-publish-") },
+  { scope: "delivery.post_publish.standard", panel: "reports", action: loginCopy("Delivery post-publish actions", "交付发布后动作"), match: (name) => name.startsWith("data-delivery-post-publish-") },
+  { scope: "delivery.arrangement.standard", panel: "reports", action: loginCopy("Delivery arrangement actions", "交付 arrangement 动作"), match: (name) => name.startsWith("data-delivery-arrangement-") },
+  { scope: "delivery.mixer.standard", panel: "reports", action: loginCopy("Delivery mixer actions", "交付 mixer 动作"), match: (name) => name.startsWith("data-delivery-mixer-") },
+  { scope: "delivery.ops.standard", panel: "ops", action: loginCopy("Delivery ops actions", "交付 ops 动作"), match: (name) => name.startsWith("data-delivery-ops-") }
+];
 
-function creationChipLabel(tabKey, value) {
-  const key = `creation.option.${tabKey}.${String(value || "")
-    .replace(/&/g, "and")
-    .replace(/\s+/g, "_")
-    .replace(/[^\w]/g, "")
-    .toLowerCase()}`;
-  const translated = t(key);
-  return translated || value;
-}
-
-function syncScrollPeek(container) {
-  if (!(container instanceof HTMLElement)) return;
-  const maxScroll = Math.max(0, container.scrollWidth - container.clientWidth);
-  container.classList.toggle("is-scrollable", maxScroll > 6);
-  container.classList.toggle("is-at-end", maxScroll <= 6 || container.scrollLeft >= maxScroll - 6);
-}
-
-function renderCreationConsole() {
-  if (!creationTabs || !creationChips) return;
-  const tabDefs = [
-    { key: "genre" },
-    { key: "mood" },
-    { key: "instrument" },
-    { key: "ambience" },
-    { key: "vocalGender" }
-  ];
-  creationTabs.innerHTML = tabDefs
-    .map((tab) => `<button type="button" class="creation-tab ${creationState.activeTab === tab.key ? "active" : ""}" data-creation-tab="${tab.key}">${escapeHtml(creationTabLabel(tab.key))}</button>`)
-    .join("");
-
-  const items = creationOptionCatalog[creationState.activeTab] || [];
-  const selected = creationState.selections[creationState.activeTab] || "";
-  creationChips.innerHTML = items
-    .map((item) => `<button type="button" class="creation-chip ${selected === item ? "active" : ""}" data-creation-chip="${escapeHtml(item)}">${escapeHtml(creationChipLabel(creationState.activeTab, item))}</button>`)
-    .join("");
-
-  if (creationTempo) creationTempo.value = String(creationState.tempo);
-  if (creationKey) creationKey.value = creationState.key;
-  if (creationDuration) creationDuration.value = String(creationState.duration);
-  if (creationLanguage) creationLanguage.value = creationState.language;
-  if (creationWorkType) creationWorkType.value = normalizeWorkTypeClient(creationState.workType);
-  if (creationInstrumentation && document.activeElement !== creationInstrumentation) creationInstrumentation.value = creationState.instrumentation;
-  if (creationVocalStyle && document.activeElement !== creationVocalStyle) creationVocalStyle.value = creationState.vocalStyle;
-  if (creationEnsembleStyle && document.activeElement !== creationEnsembleStyle) creationEnsembleStyle.value = creationState.ensembleStyle;
-  if (creationLicensedStylePack && document.activeElement !== creationLicensedStylePack) creationLicensedStylePack.value = creationState.licensedStylePack;
-  if (creationExternalAudioAdapter && document.activeElement !== creationExternalAudioAdapter) creationExternalAudioAdapter.value = creationState.externalAudioAdapter;
-  if (creationArrangementDensity && document.activeElement !== creationArrangementDensity) creationArrangementDensity.value = String(creationState.arrangementDensity);
-  if (creationDynamicsCurve && document.activeElement !== creationDynamicsCurve) creationDynamicsCurve.value = creationState.dynamicsCurve;
-  if (creationSectionForm && document.activeElement !== creationSectionForm) creationSectionForm.value = creationState.sectionForm;
-  if (creationArticulationBias && document.activeElement !== creationArticulationBias) creationArticulationBias.value = creationState.articulationBias;
-  if (creationVoicingRegister && document.activeElement !== creationVoicingRegister) creationVoicingRegister.value = creationState.voicingRegister;
-  if (creationPercussionActivity && document.activeElement !== creationPercussionActivity) creationPercussionActivity.value = String(creationState.percussionActivity);
-  if (creationExpressionCcBias && document.activeElement !== creationExpressionCcBias) creationExpressionCcBias.value = creationState.expressionCcBias;
-  if (creationHumanization && document.activeElement !== creationHumanization) creationHumanization.value = String(creationState.humanization);
-  if (creationInspirationNotes && creationInspirationNotes.value !== creationState.inspirationNotes) creationInspirationNotes.value = creationState.inspirationNotes;
-  const pricingDefaults = workTypePricingDefaults(creationState.workType);
-  if (creationDefaultListen && document.activeElement !== creationDefaultListen) {
-    creationDefaultListen.value = (pricingDefaults.listenCents / 100).toFixed(2);
+function deliveryPermissionScopeFromAttr(attrName = "") {
+  const normalized = String(attrName || "").trim().toLowerCase();
+  if (!normalized.startsWith("data-delivery-")) return "";
+  if (DELIVERY_ADMIN_ONLY_ACTION_ATTRS.includes(normalized)) {
+    return `delivery.action.${normalized.replace(/^data-delivery-/, "").replaceAll("-", ".")}`;
   }
-  if (creationDefaultBuyout && document.activeElement !== creationDefaultBuyout) {
-    creationDefaultBuyout.value = (pricingDefaults.buyoutCents / 100).toFixed(2);
-  }
-  if (creationDefaultsRow) creationDefaultsRow.hidden = getUserRole() !== "admin";
-  if (creationSetDefaults) creationSetDefaults.hidden = getUserRole() !== "admin";
-  if (creationPrompt && creationPrompt.value !== creationState.prompt) creationPrompt.value = creationState.prompt;
-  if (creationPromptCount) creationPromptCount.textContent = `${creationState.prompt.length}/500`;
-  if (creationSummary) creationSummary.textContent = creationSummaryText();
-  renderCreationUniverseCard(state.songSeed);
-  renderCreationReferenceLibrary();
-  if (creationStyleCount) creationStyleCount.textContent = `${String(styleInput?.value || creationSummaryText()).length}/2000`;
-  syncScrollPeek(creationTabs);
-  syncScrollPeek(creationChips);
+  const matched = DELIVERY_STANDARD_SCOPE_RULES.find((entry) => entry.match(normalized));
+  if (matched) return matched.scope;
+  return "delivery.action.standard";
 }
 
-function initCreationConsole() {
-  if (!creationTabs || !creationChips) return;
-  renderCreationConsole();
-  syncCreationStateToLegacyInputs();
+function deliveryPermissionPanelFromAttr(attrName = "") {
+  const normalized = String(attrName || "").trim().toLowerCase();
+  const matched = DELIVERY_STANDARD_SCOPE_RULES.find((entry) => entry.match(normalized));
+  if (matched) return matched.panel;
+  if (normalized.includes("-probe-") || normalized.includes("-watch-") || normalized.includes("-compliance-")) {
+    return "ops";
+  }
+  return "reports";
+}
 
-  creationTabs.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) return;
-    const key = target.dataset.creationTab;
-    if (!key) return;
-    creationState.activeTab = key;
-    renderCreationConsole();
-  });
-  creationTabs.addEventListener("scroll", () => syncScrollPeek(creationTabs), { passive: true });
-  creationChips.addEventListener("scroll", () => syncScrollPeek(creationChips), { passive: true });
+function deliveryPermissionActionLabel(attrName = "") {
+  const normalized = String(attrName || "").trim().toLowerCase().replace(/^data-delivery-/, "");
+  const label = normalized
+    .split("-")
+    .map((part) => part.replaceAll("_", " "))
+    .join(" / ");
+  const english = label.replace(/\b\w/g, (char) => char.toUpperCase()) || "Delivery action";
+  const chinese = `交付动作：${label || "标准动作"}`;
+  return loginCopy(english, chinese);
+}
 
-  creationChips.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) return;
-    const chip = target.dataset.creationChip;
-    if (!chip) return;
-    const key = creationState.activeTab;
-    markCreationFieldTouched(key);
-    creationState.selections[key] = creationState.selections[key] === chip ? "" : chip;
-    syncCreationStateToLegacyInputs();
-    renderCreationConsole();
-  });
+function permissionBooleanLabel(allowed) {
+  return allowed ? loginCopy("Yes", "可用") : false;
+}
 
-  creationTempo?.addEventListener("input", () => {
-    markCreationFieldTouched("tempo");
-    creationState.tempo = Math.max(40, Math.min(220, Number(creationTempo.value || 88)));
-    renderCreationConsole();
-  });
-  creationKey?.addEventListener("change", () => {
-    markCreationFieldTouched("key");
-    creationState.key = creationKey.value || "C";
-    renderCreationConsole();
-  });
-  creationDuration?.addEventListener("input", () => {
-    markCreationFieldTouched("duration");
-    creationState.duration = Math.max(30, Math.min(600, Number(creationDuration.value || 180)));
-    renderCreationConsole();
-  });
-  creationLanguage?.addEventListener("change", () => {
-    markCreationFieldTouched("language");
-    creationState.language = creationLanguage.value || "zh";
-    renderCreationConsole();
-  });
-  creationWorkType?.addEventListener("change", () => {
-    markCreationFieldTouched("workType");
-    creationState.workType = normalizeWorkTypeClient(creationWorkType.value || "single");
-    renderCreationConsole();
-  });
-  creationInstrumentation?.addEventListener("input", () => {
-    markCreationFieldTouched("instrumentation");
-    creationState.instrumentation = String(creationInstrumentation.value || "").slice(0, 400);
-    syncCreationStateToLegacyInputs();
-    renderCreationConsole();
-  });
-  creationVocalStyle?.addEventListener("input", () => {
-    markCreationFieldTouched("vocalStyle");
-    creationState.vocalStyle = String(creationVocalStyle.value || "").slice(0, 240);
-    renderCreationConsole();
-  });
-  creationEnsembleStyle?.addEventListener("input", () => {
-    markCreationFieldTouched("ensembleStyle");
-    creationState.ensembleStyle = String(creationEnsembleStyle.value || "").slice(0, 240);
-    syncCreationStateToLegacyInputs();
-    renderCreationConsole();
-  });
-  creationLicensedStylePack?.addEventListener("input", () => {
-    markCreationFieldTouched("licensedStylePack");
-    creationState.licensedStylePack = String(creationLicensedStylePack.value || "").slice(0, 240);
-    renderCreationConsole();
-  });
-  creationExternalAudioAdapter?.addEventListener("input", () => {
-    markCreationFieldTouched("externalAudioAdapter");
-    creationState.externalAudioAdapter = String(creationExternalAudioAdapter.value || "").slice(0, 240);
-    renderCreationConsole();
-  });
-  creationArrangementDensity?.addEventListener("input", () => {
-    creationState.arrangementDensity = Math.max(0.2, Math.min(1, Number(creationArrangementDensity.value || 0.6)));
-    renderCreationConsole();
-  });
-  creationDynamicsCurve?.addEventListener("input", () => {
-    creationState.dynamicsCurve = String(creationDynamicsCurve.value || "").slice(0, 240);
-    renderCreationConsole();
-  });
-  creationSectionForm?.addEventListener("input", () => {
-    creationState.sectionForm = String(creationSectionForm.value || "").slice(0, 240);
-    renderCreationConsole();
-  });
-  creationArticulationBias?.addEventListener("input", () => {
-    creationState.articulationBias = String(creationArticulationBias.value || "").slice(0, 240);
-    renderCreationConsole();
-  });
-  creationVoicingRegister?.addEventListener("input", () => {
-    creationState.voicingRegister = String(creationVoicingRegister.value || "").slice(0, 240);
-    renderCreationConsole();
-  });
-  creationPercussionActivity?.addEventListener("input", () => {
-    creationState.percussionActivity = Math.max(0, Math.min(1, Number(creationPercussionActivity.value || 0.45)));
-    renderCreationConsole();
-  });
-  creationExpressionCcBias?.addEventListener("input", () => {
-    creationState.expressionCcBias = String(creationExpressionCcBias.value || "").slice(0, 240);
-    renderCreationConsole();
-  });
-  creationHumanization?.addEventListener("input", () => {
-    creationState.humanization = Math.max(0, Math.min(1, Number(creationHumanization.value || 0.35)));
-    renderCreationConsole();
-  });
-  creationInspirationNotes?.addEventListener("input", () => {
-    markCreationFieldTouched("inspirationNotes");
-    creationState.inspirationNotes = String(creationInspirationNotes.value || "").slice(0, 1000);
-    renderCreationConsole();
-  });
-  creationDefaultListen?.addEventListener("input", () => {
-    // keep value user-editable until save
-  });
-  creationDefaultBuyout?.addEventListener("input", () => {
-    // keep value user-editable until save
-  });
-  creationPrompt?.addEventListener("input", () => {
-    markCreationFieldTouched("prompt");
-    creationState.prompt = String(creationPrompt.value || "").slice(0, 500);
-    renderCreationConsole();
-  });
-  titleInput?.addEventListener("input", () => {
-    titleInput.dataset.userEdited = "1";
-    state.title = String(titleInput.value || "").trim() || state.title;
-    updateEnginePanels(titleInput?.value?.trim() || state.title, (lyricsInput?.value || "").split("\n"));
-  });
-  styleInput?.addEventListener("input", () => {
-    markCreationFieldTouched("styleText");
-    renderCreationConsole();
-    updateEnginePanels(titleInput?.value?.trim() || state.title, (lyricsInput?.value || "").split("\n"));
-  });
-  creationClear?.addEventListener("click", () => {
-    const defaults = panelDefaultsState.creation || {
-      creative: {
-        genre: "Chinese GuFeng",
-        mood: "",
-        instrument: "",
-        instrumentation: "",
-        ambience: "",
-        vocal_gender: "Feminine",
-        vocal_style: "",
-        ensemble_style: "",
-        arrangement_density: 0.6,
-        dynamics_curve: "",
-        section_form: "",
-        articulation_bias: "",
-        voicing_register: "",
-        percussion_activity: 0.45,
-        expression_cc_bias: "",
-        humanization: 0.35,
-        inspiration_notes: "",
-        licensed_style_pack: "",
-        external_audio_adapter: "",
-        tempo_bpm: 88,
-        musical_key: "C",
-        duration_s: 180,
-        language: "zh",
-        prompt: "",
-        work_type: "single"
-      }
-    };
-    applyCreationDefaults(defaults);
-    if (titleInput) {
-      titleInput.value = "";
-      titleInput.dataset.userEdited = "0";
+function isBasicPlusTier(tier) {
+  return normalizeAccessTier(tier) !== "guest";
+}
+
+function isProPlusTier(tier) {
+  return ["pro", "studio", "enterprise", "vip", "admin"].includes(normalizeAccessTier(tier));
+}
+
+function isEnterprisePlusTier(tier) {
+  return ["enterprise", "vip", "admin"].includes(normalizeAccessTier(tier));
+}
+
+function deliveryScopeAllowedForTier(scope, tier, ctx) {
+  const normalizedScope = String(scope || "").trim().toLowerCase();
+  if (normalizedScope === "delivery.action.standard") return !!ctx?.loggedIn;
+  if (normalizedScope === "delivery.watch.compare" || normalizedScope === "delivery.rewrite.playback" || normalizedScope === "delivery.probe.compare") {
+    return isBasicPlusTier(tier);
+  }
+  if (
+    normalizedScope === "delivery.rewrite.bundle" ||
+    normalizedScope === "delivery.rewrite.sandbox" ||
+    normalizedScope === "delivery.rewrite.diff" ||
+    normalizedScope === "delivery.compliance.registry" ||
+    normalizedScope === "delivery.publish.route" ||
+    normalizedScope === "delivery.probe.dispatch" ||
+    normalizedScope === "delivery.probe.export" ||
+    normalizedScope === "delivery.probe.handoff"
+  ) {
+    return isProPlusTier(tier);
+  }
+  if (
+    normalizedScope === "delivery.compliance.approval" ||
+    normalizedScope === "delivery.compliance.signer" ||
+    normalizedScope === "delivery.compliance.quorum" ||
+    normalizedScope === "delivery.publish.finalize" ||
+    normalizedScope === "delivery.publish.confirm"
+  ) {
+    return isEnterprisePlusTier(tier);
+  }
+  if (normalizedScope.startsWith("delivery.action.")) {
+    return normalizeAccessTier(tier) === "admin";
+  }
+  return !!ctx?.loggedIn;
+}
+
+function deliveryScopeDescribeForTier(scope, tier) {
+  const normalizedScope = String(scope || "").trim().toLowerCase();
+  if (normalizedScope === "delivery.watch.compare" || normalizedScope === "delivery.rewrite.playback" || normalizedScope === "delivery.probe.compare") {
+    return normalizeAccessTier(tier) === "guest" ? false : loginCopy("Basic+", "Basic 及以上");
+  }
+  if (
+    normalizedScope === "delivery.rewrite.bundle" ||
+    normalizedScope === "delivery.rewrite.sandbox" ||
+    normalizedScope === "delivery.rewrite.diff" ||
+    normalizedScope === "delivery.compliance.registry" ||
+    normalizedScope === "delivery.publish.route" ||
+    normalizedScope === "delivery.probe.dispatch" ||
+    normalizedScope === "delivery.probe.export" ||
+    normalizedScope === "delivery.probe.handoff"
+  ) {
+    return isProPlusTier(tier) ? loginCopy("Pro+", "Pro 及以上") : false;
+  }
+  if (
+    normalizedScope === "delivery.compliance.approval" ||
+    normalizedScope === "delivery.compliance.signer" ||
+    normalizedScope === "delivery.compliance.quorum" ||
+    normalizedScope === "delivery.publish.finalize" ||
+    normalizedScope === "delivery.publish.confirm"
+  ) {
+    return isEnterprisePlusTier(tier) ? loginCopy("Enterprise+", "Enterprise 及以上") : false;
+  }
+  if (normalizedScope.startsWith("delivery.action.")) {
+    return normalizeAccessTier(tier) === "admin" ? loginCopy("Admin", "管理员") : false;
+  }
+  return normalizeAccessTier(tier) === "guest" ? false : loginCopy("Basic+", "Basic 及以上");
+}
+
+function buildActionPermissionRegistry(settings = readPanelBehaviorSettingsLocal()) {
+  const current = sanitizePanelBehaviorSettings(settings);
+  const starterLimit = Number(current.membership.starter_monthly_limit || 30);
+  const proLimit = Number(current.membership.pro_monthly_limit || 100);
+  const studioLimit = Number(current.membership.studio_monthly_limit || 300);
+  const enterpriseLimit = Number(current.membership.enterprise_monthly_limit || 0);
+  const enterpriseQuotaLabel =
+    enterpriseLimit > 0 ? loginCopy(`${enterpriseLimit}/month`, `${enterpriseLimit} 次/月`) : loginCopy("Unlimited", "无限");
+  const registry = [
+    {
+      scope: "login.open",
+      panel: "login",
+      action: loginCopy("Open login panel", "打开登录面板"),
+      allowed: () => true,
+      describe: () => loginCopy("Open", "可打开")
+    },
+    {
+      scope: "login.provider.switch",
+      panel: "login",
+      action: loginCopy("Switch linked provider", "切换已绑定平台"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "login.provider.unlink",
+      panel: "login",
+      action: loginCopy("Unlink provider", "解绑平台"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "login.logout",
+      panel: "login",
+      action: loginCopy("Logout", "退出登录"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "profile.open",
+      panel: "profile",
+      action: loginCopy("Open profile panel", "打开资料面板"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "profile.passkey.login",
+      panel: "profile",
+      action: loginCopy("Passkey login", "Passkey 登录"),
+      allowed: () => true,
+      describe: () => loginCopy("Yes", "可用")
+    },
+    {
+      scope: "profile.passkey.enable",
+      panel: "profile",
+      action: loginCopy("Enable passkey", "启用 Passkey"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "profile.avatar.edit",
+      panel: "profile",
+      action: loginCopy("Change avatar", "修改头像"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "profile.nav.works",
+      panel: "profile",
+      action: loginCopy("Jump to works center", "跳转作品中心"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "profile.nav.api",
+      panel: "profile",
+      action: loginCopy("Jump to API panel", "跳转 API 面板"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "works.open",
+      panel: "works",
+      action: loginCopy("Open works center", "打开作品中心"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => (tier === "guest" ? loginCopy("Prompt login", "提示登录") : loginCopy("Yes", "可用"))
+    },
+    {
+      scope: "works.own.view",
+      panel: "works",
+      action: loginCopy("View/download own works", "查看/下载自己的作品"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "works.watch",
+      panel: "works",
+      action: loginCopy("Open own work in watch panel", "在欣赏面板打开自己的作品"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "works.thumbnail.regen",
+      panel: "works",
+      action: loginCopy("Paid thumbnail value-pack", "付费缩略图增值包装"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => (tier === "guest" ? loginCopy("Prompt login", "提示登录") : loginCopy("Login + paid boost", "登录后按次付费"))
+    },
+    {
+      scope: "works.preview_video.regen",
+      panel: "works",
+      action: loginCopy("Paid preview video value-pack", "付费缩略视频增值包装"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => (tier === "guest" ? loginCopy("Prompt login", "提示登录") : loginCopy("Login + paid boost", "登录后按次付费"))
+    },
+    {
+      scope: "works.type.edit",
+      panel: "works",
+      action: loginCopy("Edit work type", "编辑作品类型"),
+      allowed: (tier) => isPaidMemberTier(tier),
+      describe: (tier) => permissionBooleanLabel(isPaidMemberTier(tier))
+    },
+    {
+      scope: "works.price.edit",
+      panel: "works",
+      action: loginCopy("Edit listen / buyout price", "编辑聆听 / 买断价格"),
+      allowed: (tier) => isPaidMemberTier(tier),
+      describe: (tier) => permissionBooleanLabel(isPaidMemberTier(tier))
+    },
+    {
+      scope: "works.visibility.edit",
+      panel: "works",
+      action: loginCopy("Edit listing visibility", "编辑上架可见性"),
+      allowed: (tier) => isPaidMemberTier(tier),
+      describe: (tier) => permissionBooleanLabel(isPaidMemberTier(tier))
+    },
+    {
+      scope: "works.sell",
+      panel: "works",
+      action: loginCopy("Publish / sell works", "上架 / 销售作品"),
+      allowed: (tier) => isPaidMemberTier(tier),
+      describe: (tier) => permissionBooleanLabel(isPaidMemberTier(tier))
+    },
+    {
+      scope: "works.payout",
+      panel: "works",
+      action: loginCopy("Set up payout", "设置收款"),
+      allowed: (tier) => isPaidMemberTier(tier),
+      describe: (tier) => permissionBooleanLabel(isPaidMemberTier(tier))
+    },
+    {
+      scope: "seller.view",
+      panel: "seller",
+      action: loginCopy("Open seller dashboard", "打开卖家面板"),
+      allowed: (tier) => isPaidMemberTier(tier),
+      describe: (tier) => (tier === "guest" ? loginCopy("Prompt login", "提示登录") : permissionBooleanLabel(isPaidMemberTier(tier)))
+    },
+    {
+      scope: "seller.payout",
+      panel: "seller",
+      action: loginCopy("Seller payout tools", "卖家收款工具"),
+      allowed: (tier) => isPaidMemberTier(tier),
+      describe: (tier) => permissionBooleanLabel(isPaidMemberTier(tier))
+    },
+    {
+      scope: "seller.operate",
+      panel: "seller",
+      action: loginCopy("Operate seller controls", "执行高级卖家操作"),
+      allowed: (tier) => isVipOrAdminTier(tier),
+      describe: (tier) => permissionBooleanLabel(isVipOrAdminTier(tier))
+    },
+    {
+      scope: "api.docs.view",
+      panel: "api",
+      action: loginCopy("Browse API docs", "浏览 API 文档"),
+      allowed: () => true,
+      describe: () => loginCopy("Yes", "可用")
+    },
+    {
+      scope: "api.billing.view",
+      panel: "api",
+      action: loginCopy("View API billing", "查看 API 账单"),
+      allowed: () => true,
+      describe: (tier) => (tier === "guest" ? loginCopy("Docs only", "仅文档") : loginCopy("Yes", "可用"))
+    },
+    {
+      scope: "api.billing.manage",
+      panel: "api",
+      action: loginCopy("Manage balance / auto-recharge", "管理余额 / 自动充值"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "api.enterprise.route",
+      panel: "api",
+      action: loginCopy("Enterprise API route", "企业 API 实际路由"),
+      allowed: (tier) => canUseEnterpriseApiClient(tier),
+      describe: (tier) => (canUseEnterpriseApiClient(tier) ? loginCopy("Enabled when admin opens it", "管理员开启后可用") : false)
+    },
+    {
+      scope: "reports.open",
+      panel: "reports",
+      action: loginCopy("Open reports panel", "打开报表面板"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "reports.export.use",
+      panel: "reports",
+      action: loginCopy("Use report export UI", "使用报表导出界面"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => (tier === "guest" ? false : loginCopy("View only", "只读查看"))
+    },
+    {
+      scope: "reports.export.source.select",
+      panel: "reports",
+      action: loginCopy("Select export source", "选择导出来源"),
+      allowed: (tier) => isVipOrAdminTier(tier),
+      describe: (tier) => permissionBooleanLabel(isVipOrAdminTier(tier))
+    },
+    {
+      scope: "reports.export.format.select",
+      panel: "reports",
+      action: loginCopy("Select export format", "选择导出格式"),
+      allowed: (tier) => isVipOrAdminTier(tier),
+      describe: (tier) => permissionBooleanLabel(isVipOrAdminTier(tier))
+    },
+    {
+      scope: "reports.export.generate",
+      panel: "reports",
+      action: loginCopy("Generate new export", "生成新的导出"),
+      allowed: (tier) => isVipOrAdminTier(tier),
+      describe: (tier) => permissionBooleanLabel(isVipOrAdminTier(tier))
+    },
+    {
+      scope: "reports.export.result.copy",
+      panel: "reports",
+      action: loginCopy("Copy export result", "复制导出结果"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "reports.export.result.download",
+      panel: "reports",
+      action: loginCopy("Download export result", "下载导出结果"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "reports.export.preview.toggle",
+      panel: "reports",
+      action: loginCopy("Expand / collapse export preview", "展开 / 折叠导出预览"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "reports.history.filter",
+      panel: "reports",
+      action: loginCopy("Filter history", "筛选导出历史"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "reports.history.search",
+      panel: "reports",
+      action: loginCopy("Search history", "搜索导出历史"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "reports.history.select",
+      panel: "reports",
+      action: loginCopy("Select history rows", "选择历史记录"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "reports.history.bulk.download",
+      panel: "reports",
+      action: loginCopy("Download selected history bundle", "下载所选历史合集"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "reports.history.bulk.delete",
+      panel: "reports",
+      action: loginCopy("Delete selected history rows", "删除所选历史记录"),
+      allowed: (tier) => isVipOrAdminTier(tier),
+      describe: (tier) => permissionBooleanLabel(isVipOrAdminTier(tier))
+    },
+    {
+      scope: "reports.history.sort",
+      panel: "reports",
+      action: loginCopy("Sort history", "排序历史记录"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "reports.history.clear_selection",
+      panel: "reports",
+      action: loginCopy("Clear history selection", "清空历史选择"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "reports.history.clear",
+      panel: "reports",
+      action: loginCopy("Clear export history", "清空导出历史"),
+      allowed: (tier) => isVipOrAdminTier(tier),
+      describe: (tier) => permissionBooleanLabel(isVipOrAdminTier(tier))
+    },
+    {
+      scope: "reports.history.pin",
+      panel: "reports",
+      action: loginCopy("Pin / unpin history", "固定 / 取消固定历史"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "reports.history.restore",
+      panel: "reports",
+      action: loginCopy("Restore history item to result", "把历史记录载入结果区"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "reports.history.copy",
+      panel: "reports",
+      action: loginCopy("Copy history item", "复制历史记录"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "reports.history.download",
+      panel: "reports",
+      action: loginCopy("Download history item", "下载历史记录"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => permissionBooleanLabel(tier !== "guest")
+    },
+    {
+      scope: "reports.history.delete",
+      panel: "reports",
+      action: loginCopy("Delete single history item", "删除单条历史记录"),
+      allowed: (tier) => isVipOrAdminTier(tier),
+      describe: (tier) => permissionBooleanLabel(isVipOrAdminTier(tier))
+    },
+    {
+      scope: "creation.start",
+      panel: "creation",
+      action: loginCopy("Start generation", "开始生成"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => ({
+        guest: loginCopy("Prompt login", "提示登录"),
+        free: loginCopy("3/month", "3 次/月"),
+        starter: loginCopy(`${starterLimit}/month`, `${starterLimit} 次/月`),
+        pro: loginCopy(`${proLimit}/month`, `${proLimit} 次/月`),
+        studio: loginCopy(`${studioLimit}/month`, `${studioLimit} 次/月`),
+        enterprise: enterpriseQuotaLabel,
+        vip: loginCopy("Unlimited", "无限"),
+        admin: loginCopy("Unlimited", "无限")
+      })[tier]
+    },
+    {
+      scope: "creation.advanced",
+      panel: "creation",
+      action: loginCopy("Advanced creation settings", "高级创作设置"),
+      allowed: (tier) => ["pro", "studio", "enterprise", "vip", "admin"].includes(tier),
+      describe: (tier) => permissionBooleanLabel(["pro", "studio", "enterprise", "vip", "admin"].includes(tier))
+    },
+    {
+      scope: "creation.structured",
+      panel: "creation",
+      action: loginCopy("Structured works / triptych / opera", "结构化作品 / 三部曲 / 歌剧"),
+      allowed: (tier) => ["pro", "studio", "enterprise", "vip", "admin"].includes(tier),
+      describe: (tier) => permissionBooleanLabel(["pro", "studio", "enterprise", "vip", "admin"].includes(tier))
+    },
+    {
+      scope: "creation.extras",
+      panel: "creation",
+      action: loginCopy("Extra languages / voice lanes", "额外语言 / 多声线"),
+      allowed: (tier) => !["guest", "free"].includes(tier),
+      describe: (tier) => ({
+        guest: false,
+        free: loginCopy("Upgrade first", "先升级会员"),
+        starter: loginCopy("Boost", "临时加购"),
+        pro: loginCopy("Boost", "临时加购"),
+        studio: loginCopy("Included + boost", "部分内含 + 可加购"),
+        enterprise: loginCopy("Included + boost", "部分内含 + 可加购"),
+        vip: loginCopy("Unlimited", "无限"),
+        admin: loginCopy("Unlimited", "无限")
+      })[tier]
+    },
+    {
+      scope: "creation.cinema",
+      panel: "creation",
+      action: loginCopy("Cinema-grade generation", "电影级生成"),
+      allowed: (tier) => tier === "admin",
+      describe: (tier) => ({
+        guest: false,
+        free: false,
+        starter: false,
+        pro: loginCopy("Booking only", "仅预约"),
+        studio: loginCopy("Booking only", "仅预约"),
+        enterprise: loginCopy("Contract / booking", "合同 / 预约"),
+        vip: loginCopy("Private arrangement", "专门安排"),
+        admin: loginCopy("Yes", "可用")
+      })[tier]
+    },
+    {
+      scope: "cssmv.open",
+      panel: "cssmv",
+      action: loginCopy("Open CSSMV panel / digest / timeline", "打开 CSSMV 面板 / 摘要 / 时间线"),
+      allowed: (tier, ctx) => ctx.loggedIn,
+      describe: (tier) => (tier === "guest" ? loginCopy("Prompt login", "提示登录") : loginCopy("Yes", "可用"))
+    },
+    {
+      scope: "cssmv.workspace.sync",
+      panel: "cssmv",
+      action: loginCopy("Studio workspace/project sync", "Studio 工作区 / 项目同步"),
+      allowed: (tier) => canUseStudioWorkspaceClient(tier),
+      describe: (tier) => permissionBooleanLabel(canUseStudioWorkspaceClient(tier))
+    },
+    {
+      scope: "cssmv.action.retry",
+      panel: "cssmv",
+      action: loginCopy("Delivery action: retry", "CSSMV 动作：重试"),
+      allowed: (tier) => ["pro", "studio", "enterprise", "vip", "admin"].includes(tier),
+      describe: (tier) => permissionBooleanLabel(["pro", "studio", "enterprise", "vip", "admin"].includes(tier))
+    },
+    {
+      scope: "cssmv.action.force_refresh_signals",
+      panel: "cssmv",
+      action: loginCopy("Delivery action: force refresh signals", "CSSMV 动作：强制刷新信号"),
+      allowed: (tier) => ["studio", "enterprise", "vip", "admin"].includes(tier),
+      describe: (tier) => permissionBooleanLabel(["studio", "enterprise", "vip", "admin"].includes(tier))
+    },
+    {
+      scope: "cssmv.action.capture_snapshot",
+      panel: "cssmv",
+      action: loginCopy("Delivery action: capture snapshot", "CSSMV 动作：捕获快照"),
+      allowed: (tier) => ["studio", "enterprise", "vip", "admin"].includes(tier),
+      describe: (tier) => permissionBooleanLabel(["studio", "enterprise", "vip", "admin"].includes(tier))
+    },
+    {
+      scope: "cssmv.action.escalate_ops",
+      panel: "cssmv",
+      action: loginCopy("Delivery action: escalate ops", "CSSMV 动作：升级到运维"),
+      allowed: (tier) => ["enterprise", "vip", "admin"].includes(tier),
+      describe: (tier) => permissionBooleanLabel(["enterprise", "vip", "admin"].includes(tier))
+    },
+    {
+      scope: "cssmv.action.require_manual_intervention",
+      panel: "cssmv",
+      action: loginCopy("Delivery action: require manual intervention", "CSSMV 动作：要求人工介入"),
+      allowed: (tier) => ["vip", "admin"].includes(tier),
+      describe: (tier) => permissionBooleanLabel(["vip", "admin"].includes(tier))
     }
-    if (lyricsInput) lyricsInput.value = "";
-    if (lyricsSourceInput) lyricsSourceInput.value = "";
-    if (styleInput) styleInput.value = "";
-    if (musicStructureInput) musicStructureInput.value = "";
-    if (videoOutlineInput) videoOutlineInput.value = "";
-    if (sectionPromptsInput) sectionPromptsInput.value = "";
-    state.songSeed = null;
-    renderSongSeedPreview(null);
-    renderCreationConsole();
-    showToast(t("action.clearAll"));
+  ];
+  DELIVERY_STANDARD_SCOPE_RULES.forEach((entry) => {
+    registry.push({
+      scope: entry.scope,
+      panel: entry.panel,
+      action: entry.action,
+      allowed: (tier, ctx) => deliveryScopeAllowedForTier(entry.scope, tier, ctx),
+      describe: (tier) => deliveryScopeDescribeForTier(entry.scope, tier)
+    });
   });
-  bindSeedRefreshButton(styleRegenerate, "style");
-  bindSeedRefreshButton(musicStructureRegenerate, "structure");
-  bindSeedRefreshButton(videoOutlineRegenerate, "outline");
-  bindSeedRefreshButton(sectionPromptsRegenerate, "scenes");
-  creationSetDefaults?.addEventListener("click", () => {
-    void saveCreationPanelDefaults(creationSetDefaults);
+  registry.push({
+    scope: "delivery.action.standard",
+    panel: "reports",
+    action: loginCopy("Delivery standard actions", "交付标准动作"),
+    allowed: (tier, ctx) => ctx.loggedIn,
+    describe: (tier) => permissionBooleanLabel(tier !== "guest")
+  });
+  DELIVERY_ADMIN_ONLY_ACTION_ATTRS.forEach((attrName) => {
+    registry.push({
+      scope: deliveryPermissionScopeFromAttr(attrName),
+      panel: deliveryPermissionPanelFromAttr(attrName),
+      action: deliveryPermissionActionLabel(attrName),
+      allowed: (tier) => tier === "admin",
+      describe: (tier) => permissionBooleanLabel(tier === "admin")
+    });
+  });
+  return registry;
+}
+
+function getActionPermissionRule(scope, settings = readPanelBehaviorSettingsLocal()) {
+  const normalized = String(scope || "").trim().toLowerCase();
+  if (!normalized) return null;
+  return buildActionPermissionRegistry(settings).find((rule) => rule.scope === normalized) || null;
+}
+
+function describeActionPermission(scope, tier, settings = readPanelBehaviorSettingsLocal()) {
+  const rule = getActionPermissionRule(scope, settings);
+  if (!rule) return false;
+  const normalizedTier = normalizeAccessTier(tier);
+  const value = typeof rule.describe === "function" ? rule.describe(normalizedTier, settings) : rule.describe;
+  if (value !== undefined) return value;
+  return permissionBooleanLabel(Boolean(rule.allowed?.(normalizedTier, { loggedIn: normalizedTier !== "guest", admin: normalizedTier === "admin", settings })));
+}
+
+function permissionRequirementLabel(scope, settings = readPanelBehaviorSettingsLocal()) {
+  const rule = getActionPermissionRule(scope, settings);
+  if (!rule) return "";
+  const tiers = [
+    { key: "guest", label: loginCopy("Public", "公开") },
+    { key: "free", label: loginCopy("Basic+", "Basic+") },
+    { key: "starter", label: loginCopy("Starter+", "Starter+") },
+    { key: "pro", label: loginCopy("Pro+", "Pro+") },
+    { key: "studio", label: loginCopy("Studio+", "Studio+") },
+    { key: "enterprise", label: loginCopy("Enterprise+", "Enterprise+") },
+    { key: "vip", label: loginCopy("VIP+", "VIP+") },
+    { key: "admin", label: loginCopy("Admin", "管理员") }
+  ];
+  const firstAllowed = tiers.find((entry) =>
+    Boolean(
+      rule.allowed?.(entry.key, {
+        loggedIn: entry.key !== "guest",
+        admin: entry.key === "admin",
+        settings
+      })
+    )
+  );
+  if (!firstAllowed) return loginCopy("Blocked", "禁用");
+  if (firstAllowed.key === "guest") return loginCopy("Public", "公开");
+  if (firstAllowed.key === "free") return loginCopy("Basic+", "Basic+");
+  if (firstAllowed.key === "admin") return loginCopy("Admin", "管理员");
+  return firstAllowed.label;
+}
+
+function buildActionPermissionMatrixRows(settings = readPanelBehaviorSettingsLocal()) {
+  return buildActionPermissionRegistry(settings)
+    .filter((rule) => rule.matrix !== false && rule.panel && rule.action)
+    .map((rule) => ({
+      panel: rule.panel,
+      scope: rule.scope,
+      action: rule.action,
+      requirement: permissionRequirementLabel(rule.scope, settings),
+      access: (tier) => describeActionPermission(rule.scope, tier, settings)
+    }));
+}
+
+function filterActionPermissionMatrixRows(rows, filter = permissionOverviewFilter) {
+  const normalized = String(filter || "all").trim().toLowerCase();
+  const items = Array.isArray(rows) ? rows : [];
+  const domainFiltered =
+    normalized === "delivery"
+      ? items.filter((row) => String(row.scope || "").startsWith("delivery."))
+      : items;
+  const requirementFiltered = domainFiltered.filter((row) => {
+    const requirement = String(row.requirement || "").toLowerCase();
+    const scope = String(row.scope || "").toLowerCase();
+    if (permissionOverviewRequirementFilter === "basic") return requirement.includes("basic");
+    if (permissionOverviewRequirementFilter === "pro") return requirement.includes("pro");
+    if (permissionOverviewRequirementFilter === "enterprise") return requirement.includes("enterprise");
+    if (permissionOverviewRequirementFilter === "vip") return requirement.includes("vip");
+    if (permissionOverviewRequirementFilter === "admin") return requirement === "admin" || requirement === "管理员";
+    return true;
+  });
+  return requirementFiltered.filter((row) => {
+    const scope = String(row.scope || "").toLowerCase();
+    if (permissionOverviewDomainFilter === "watch") return scope.startsWith("delivery.watch.");
+    if (permissionOverviewDomainFilter === "rewrite") return scope.startsWith("delivery.rewrite.");
+    if (permissionOverviewDomainFilter === "compliance") return scope.startsWith("delivery.compliance.");
+    if (permissionOverviewDomainFilter === "probe") return scope.startsWith("delivery.probe.");
+    if (permissionOverviewDomainFilter === "publish") return scope.startsWith("delivery.publish.") || scope.startsWith("delivery.post_publish.");
+    return true;
   });
 }
 
 function buildAdvancedPanelSettingsMarkup(settings) {
   const current = sanitizePanelBehaviorSettings(settings);
   const admin = getUserRole() === "admin";
-  const modeOptions = (selected) =>
-    Object.values(MIRROR_ANIMATION_MODES)
-      .map((mode) => `<option value="${escapeHtml(mode)}" ${selected === mode ? "selected" : ""}>${escapeHtml(t(`settings.panel.mirrorAnimation.${mode}`))}</option>`)
-      .join("");
+  const boostInfo = creatorBoostState.payload?.entitlements || {
+    language: { available: 0 },
+    voice: { available: 0 },
+    thumbnail: { available: 0 },
+    preview_video: { available: 0 }
+  };
+  const membershipRows = [
+    {
+      tier: loginCopy("Guest", "游客"),
+      queue: formatQueueLaneLabel("guest_preview"),
+      quota: loginCopy("0 / month", "0 次 / 月"),
+      generation: loginCopy("Browse a few panels only", "只能浏览少量面板"),
+      selling: loginCopy("No", "不可以"),
+      boosts: loginCopy("No", "不可以")
+    },
+    {
+      tier: loginCopy("Basic / Free", "免费会员"),
+      queue: formatQueueLaneLabel("free_standard"),
+      quota: loginCopy("3 / month", "3 次 / 月"),
+      generation: loginCopy("Basic creation, watermark", "基础生成，有水印"),
+      selling: loginCopy("Own works only", "仅浏览下载自己的作品"),
+      boosts: loginCopy("Upgrade first", "先升级会员")
+    },
+    {
+      tier: loginCopy("Starter", "入门创作会员"),
+      queue: formatQueueLaneLabel("starter_paid"),
+      quota: `${Number(current.membership.starter_monthly_limit || 30)} / ${loginCopy("month", "月")}`,
+      generation: loginCopy("720p, up to 6 min, single work", "720p，最多 6 分钟，单曲"),
+      selling: loginCopy("Can sell and trade works", "可以上架买卖"),
+      boosts: loginCopy("Temporary language/voice boost", "可临时加购语言/声线")
+    },
+    {
+      tier: "Pro",
+      queue: formatQueueLaneLabel("pro_pipeline"),
+      quota: `${Number(current.membership.pro_monthly_limit || 100)} / ${loginCopy("month", "月")}`,
+      generation: loginCopy("1080p, up to 8 min, triptych/opera", "1080p，最多 8 分钟，可三部曲/歌剧"),
+      selling: loginCopy("Full creator commerce", "完整创作者交易"),
+      boosts: loginCopy("Temporary language/voice boost", "可临时加购语言/声线")
+    },
+    {
+      tier: "Studio",
+      queue: formatQueueLaneLabel("studio_pipeline"),
+      quota: `${Number(current.membership.studio_monthly_limit || 300)} / ${loginCopy("month", "月")}`,
+      generation: loginCopy("Team workspace, multi-project", "团队空间，多项目"),
+      selling: loginCopy("Full creator commerce", "完整创作者交易"),
+      boosts: loginCopy(`Includes ${Number(current.creator_boost.studio_includes_extra_languages || 0)} lang / ${Number(current.creator_boost.studio_includes_extra_voices || 0)} voice`, `内含 ${Number(current.creator_boost.studio_includes_extra_languages || 0)} 个语言 / ${Number(current.creator_boost.studio_includes_extra_voices || 0)} 条声线`)
+    },
+    {
+      tier: "Enterprise",
+      queue: formatQueueLaneLabel("enterprise_dedicated"),
+      quota: Number(current.membership.enterprise_monthly_limit || 0) > 0 ? `${Number(current.membership.enterprise_monthly_limit)} / ${loginCopy("month", "月")}` : loginCopy("Unlimited", "无限制"),
+      generation: loginCopy("Enterprise API, isolated route limits", "企业 API，独立路由限额"),
+      selling: loginCopy("Contract / enterprise workflow", "合同 / 企业工作流"),
+      boosts: loginCopy(`Includes ${Number(current.creator_boost.enterprise_includes_extra_languages || 0)} lang / ${Number(current.creator_boost.enterprise_includes_extra_voices || 0)} voice`, `内含 ${Number(current.creator_boost.enterprise_includes_extra_languages || 0)} 个语言 / ${Number(current.creator_boost.enterprise_includes_extra_voices || 0)} 条声线`)
+    },
+    {
+      tier: "VIP",
+      queue: formatQueueLaneLabel("vip_private"),
+      quota: loginCopy("Unlimited", "无限制"),
+      generation: loginCopy("Private queue, no daily/monthly cap", "私享队列，无日/月限制"),
+      selling: loginCopy("Almost all panel actions except special defaults", "除特殊“设为默认”外几乎全开"),
+      boosts: loginCopy("No language/voice cap", "不受语言/声线限制")
+    }
+  ];
+  const actionMatrixRows = admin ? buildActionPermissionMatrixRows(current) : [];
+  const filteredActionMatrixRows = admin ? filterActionPermissionMatrixRows(actionMatrixRows, permissionOverviewFilter) : [];
   return `
     <div class="panel-label">${escapeHtml(loginCopy("Panel Parameter Center", "面板参数中心"))}</div>
     <div class="advanced-panel-grid">
       <section class="advanced-panel-card" data-advanced-panel="logo">
         <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Logo Mirror", "Logo 魔镜"))}</div>
-        <label><span>${escapeHtml(loginCopy("Spell", "咒语"))}</span><input type="text" data-advanced-setting="logo-spell" value="${escapeHtml(current.logo.spell)}" /></label>
-        <label><span>${escapeHtml(loginCopy("Subtitle", "副标题"))}</span><input type="text" data-advanced-setting="logo-subtitle" value="${escapeHtml(current.logo.subtitle)}" /></label>
-        <label><span>${escapeHtml(loginCopy("Slogan template", "口号模板"))}</span><input type="text" data-advanced-setting="logo-slogan-template" value="${escapeHtml(current.logo.slogan_template)}" /></label>
-        <label><span>${escapeHtml(loginCopy("Mirror size (px)", "魔镜尺寸（px）"))}</span><input type="range" min="420" max="880" step="10" data-advanced-setting="logo-size" value="${escapeHtml(String(current.logo.mirror_size_px))}" /></label>
-        <label><span>${escapeHtml(loginCopy("Halo inset (%)", "遮罩圈内缩（%）"))}</span><input type="range" min="0" max="28" step="1" data-advanced-setting="logo-mask-inset" value="${escapeHtml(String(current.logo.mask_inset_percent))}" /></label>
+        <div class="advanced-panel-note">${escapeHtml(loginCopy("Logo parameters are moving back to the logo panel itself. This area now acts as a hosted entrance plus media handoff, so the mirror still follows the panel constitution.", "Logo 参数正在回归 Logo 自己的设置区。这里现在主要承担托管入口和素材接力，让魔镜也继续遵循面板宪法。"))}</div>
         <label><span>${escapeHtml(loginCopy("Mirror image A", "魔镜图片 A"))}</span><input type="file" accept="image/*" data-advanced-setting="logo-image-1" /></label>
         <label><span>${escapeHtml(loginCopy("Mirror image B", "魔镜图片 B"))}</span><input type="file" accept="image/*" data-advanced-setting="logo-image-2" /></label>
         <label><span>${escapeHtml(loginCopy("Mirror video", "魔镜视频"))}</span><input type="file" accept="video/*" data-advanced-setting="logo-video" /></label>
         <div class="advanced-panel-note">${escapeHtml(loginCopy(`Current media: ${current.logo.media.image_1.split("/").pop() || "A"} / ${current.logo.media.image_2.split("/").pop() || "B"}${current.logo.media.video ? ` / ${current.logo.media.video.split("/").pop() || "video"}` : ""}`, `当前素材：${current.logo.media.image_1.split("/").pop() || "A"} / ${current.logo.media.image_2.split("/").pop() || "B"}${current.logo.media.video ? ` / ${current.logo.media.video.split("/").pop() || "video"}` : ""}`))}</div>
-        <label><span>${escapeHtml(t("settings.panel.mirrorStrategy"))}</span>
-          <select data-advanced-setting="logo-strategy">
-            <option value="random" ${current.logo.mirror_strategy === "random" ? "selected" : ""}>${escapeHtml(t("settings.panel.mirrorStrategy.random"))}</option>
-            <option value="fixed" ${current.logo.mirror_strategy === "fixed" ? "selected" : ""}>${escapeHtml(t("settings.panel.mirrorStrategy.fixed"))}</option>
-            <option value="per_type" ${current.logo.mirror_strategy === "per_type" ? "selected" : ""}>${escapeHtml(t("settings.panel.mirrorStrategy.perType"))}</option>
-          </select>
-        </label>
-        <label><span>${escapeHtml(t("settings.panel.mirrorFixedMode"))}</span><select data-advanced-setting="logo-fixed">${modeOptions(current.logo.fixed_mode)}</select></label>
-        <label><span>${escapeHtml(t("settings.panel.mirrorSingleMode"))}</span><select data-advanced-setting="logo-single">${modeOptions(current.logo.per_type.single)}</select></label>
-        <label><span>${escapeHtml(t("settings.panel.mirrorTriptychMode"))}</span><select data-advanced-setting="logo-triptych">${modeOptions(current.logo.per_type.triptych)}</select></label>
-        <label><span>${escapeHtml(t("settings.panel.mirrorOperaMode"))}</span><select data-advanced-setting="logo-opera">${modeOptions(current.logo.per_type.opera)}</select></label>
+        <button class="cta ghost tiny" type="button" data-advanced-open-panel="logo-panel">${escapeHtml(loginCopy("Open logo settings", "打开 Logo 设置"))}</button>
         ${admin ? `<button class="cta ghost tiny" type="button" data-advanced-save="logo">${escapeHtml(t("settings.panel.setDefault"))}</button>` : ""}
       </section>
       <section class="advanced-panel-card" data-advanced-panel="dock">
@@ -2501,22 +2674,216 @@ function buildAdvancedPanelSettingsMarkup(settings) {
       </section>
       <section class="advanced-panel-card" data-advanced-panel="mic">
         <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Mic Topic Panel", "话筒话题面板"))}</div>
-        <label><span>${escapeHtml(loginCopy("Long press threshold (ms)", "长按阈值（毫秒）"))}</span><input type="range" min="250" max="3000" step="50" data-advanced-setting="mic-longpress-ms" value="${escapeHtml(String(current.mic.longpress_ms))}" /></label>
-        <label><span>${escapeHtml(loginCopy("Voice capture length", "语音截取长度"))}</span>
-          <select data-advanced-setting="mic-max-hold-sec">
-            ${[3, 5, 10, 15, 30].map((sec) => `<option value="${sec}" ${current.mic.max_hold_sec === sec ? "selected" : ""}>${escapeHtml(loginCopy(`${sec} sec`, `${sec} 秒`))}</option>`).join("")}
-          </select>
-        </label>
+        <div class="advanced-panel-note">${escapeHtml(loginCopy("Mic timing parameters are moving onto the logo panel itself, because the mirror is where click, double-click, and long-press all happen. This hosted card now keeps the debug window and an entrance only.", "话筒的时序参数正在回到 Logo 自己的设置里，因为点击、双击、长按都发生在魔镜上。这里现在主要保留调试窗和入口。"))}</div>
+        <button class="cta ghost tiny" type="button" data-advanced-open-panel="logo-panel">${escapeHtml(loginCopy("Open logo voice settings", "打开 Logo 语音设置"))}</button>
         <div class="advanced-panel-note">${escapeHtml(loginCopy("If voice title capture fails, the system falls back to direct generation just like the lyrics wand.", "如果语音标题截取失败，系统会像歌词魔法棒一样直接回退到完整生成链路。"))}</div>
         ${admin ? `<button class="cta ghost tiny" type="button" data-advanced-save="mic">${escapeHtml(t("settings.panel.setDefault"))}</button>` : ""}
       </section>
       <section class="advanced-panel-card" data-advanced-panel="global">
         <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Global Visuals", "全局视觉"))}</div>
         <div class="advanced-panel-note">${escapeHtml(loginCopy("Global palette and ambient background controls stay here. Panel-specific playback and engine tuning now live inside each panel's own settings.", "全局配色与环境背景控制保留在这里。各面板自己的播放与引擎参数，已经回到各自的设置区。"))}</div>
+        <label><span>${escapeHtml(loginCopy("Background style", "背景风格"))}</span>
+          <select data-advanced-setting="background-mode">
+            <option value="aurora" ${current.background.mode === "aurora" ? "selected" : ""}>${escapeHtml(loginCopy("Aurora", "极光"))}</option>
+            <option value="ribbon" ${current.background.mode === "ribbon" ? "selected" : ""}>${escapeHtml(loginCopy("Stripe ribbon", "Stripe 丝带"))}</option>
+            <option value="watercolor" ${current.background.mode === "watercolor" ? "selected" : ""}>${escapeHtml(loginCopy("Watercolor", "水彩渐变"))}</option>
+            <option value="ink" ${current.background.mode === "ink" ? "selected" : ""}>${escapeHtml(loginCopy("Ink mist", "墨雾"))}</option>
+          </select>
+        </label>
+        <label><span>${escapeHtml(loginCopy("Background intensity", "背景强度"))}</span><input type="range" min="0" max="1" step="0.01" data-advanced-setting="background-intensity" value="${escapeHtml(String(current.background.intensity))}" /></label>
+        <label><span>${escapeHtml(loginCopy("Background motion", "背景动势"))}</span><input type="range" min="0" max="1" step="0.01" data-advanced-setting="background-motion" value="${escapeHtml(String(current.background.motion))}" /></label>
+        <div class="advanced-panel-note">${escapeHtml(loginCopy("These modes share one slow timing curve, so the page can stay animated without flicker.", "这些模式共用一条低频时间曲线，所以页面可以保持动态而不闪烁。"))}</div>
         ${admin ? `<button class="cta ghost tiny" type="button" data-advanced-save="global">${escapeHtml(t("settings.panel.setDefault"))}</button>` : ""}
       </section>
+      <section class="advanced-panel-card" data-advanced-panel="membership">
+        <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Membership & Boost", "会员与 Creator Boost"))}</div>
+        <div class="advanced-panel-note">${escapeHtml(loginCopy("Creation quotas, Studio / Enterprise defaults, and temporary paid add-ons all live here. Inputs apply immediately after you change them, so every field is clamped to safe min/max ranges.", "创作额度、Studio / Enterprise 默认权益，以及临时付费加购规则，都在这里。所有输入修改后立即生效，因此每个字段都会被限制在安全的上下限范围内。"))}</div>
+        <div class="membership-matrix" role="table" aria-label="${escapeHtml(loginCopy("Membership matrix", "会员权限表"))}">
+          <div class="membership-matrix-header" role="row">
+            <span>${escapeHtml(loginCopy("Tier", "等级"))}</span>
+            <span>${escapeHtml(loginCopy("Queue", "队列"))}</span>
+            <span>${escapeHtml(loginCopy("Quota", "额度"))}</span>
+            <span>${escapeHtml(loginCopy("Generation", "生成能力"))}</span>
+            <span>${escapeHtml(loginCopy("Commerce", "交易能力"))}</span>
+            <span>${escapeHtml(loginCopy("Boost", "加购 / 特权"))}</span>
+          </div>
+          ${membershipRows
+            .map(
+              (row) => `
+                <div class="membership-matrix-row" role="row">
+                  <span>${escapeHtml(row.tier)}</span>
+                  <span>${escapeHtml(row.queue)}</span>
+                  <span>${escapeHtml(row.quota)}</span>
+                  <span>${escapeHtml(row.generation)}</span>
+                  <span>${escapeHtml(row.selling)}</span>
+                  <span>${escapeHtml(row.boosts)}</span>
+                </div>
+              `
+            )
+            .join("")}
+        </div>
+        <label><span>${escapeHtml(loginCopy("Starter monthly limit", "Starter 月额度"))}</span><input type="number" min="1" max="1000" step="1" data-advanced-setting="membership-starter-limit" value="${escapeHtml(String(current.membership.starter_monthly_limit))}" ${admin ? "" : "disabled"} /></label>
+        <label><span>${escapeHtml(loginCopy("Pro monthly limit", "Pro 月额度"))}</span><input type="number" min="1" max="5000" step="1" data-advanced-setting="membership-pro-limit" value="${escapeHtml(String(current.membership.pro_monthly_limit))}" ${admin ? "" : "disabled"} /></label>
+        <label><span>${escapeHtml(loginCopy("Studio monthly limit", "Studio 月额度"))}</span><input type="number" min="1" max="10000" step="1" data-advanced-setting="membership-studio-limit" value="${escapeHtml(String(current.membership.studio_monthly_limit))}" ${admin ? "" : "disabled"} /></label>
+        <label><span>${escapeHtml(loginCopy("Enterprise monthly limit (0 = unlimited)", "Enterprise 月额度（0=无限）"))}</span><input type="number" min="0" max="100000" step="1" data-advanced-setting="membership-enterprise-limit" value="${escapeHtml(String(current.membership.enterprise_monthly_limit))}" ${admin ? "" : "disabled"} /></label>
+        <label class="advanced-panel-check"><input type="checkbox" data-advanced-setting="membership-vip-admin-only" ${current.membership.vip_admin_only ? "checked" : ""} ${admin ? "" : "disabled"} /><span>${escapeHtml(loginCopy("VIP remains admin-assigned only", "VIP 仍然只能由管理员手动设定"))}</span></label>
+        <label><span>${escapeHtml(loginCopy("Extra language price (USD cents)", "额外语言价格（美分）"))}</span><input type="number" min="100" max="100000" step="100" data-advanced-setting="boost-language-unit-cents" value="${escapeHtml(String(current.creator_boost.language_unit_cents))}" ${admin ? "" : "disabled"} /></label>
+        <label><span>${escapeHtml(loginCopy("Extra voice lane price (USD cents)", "额外声线价格（美分）"))}</span><input type="number" min="100" max="100000" step="100" data-advanced-setting="boost-voice-unit-cents" value="${escapeHtml(String(current.creator_boost.voice_unit_cents))}" ${admin ? "" : "disabled"} /></label>
+        <label><span>${escapeHtml(loginCopy("Thumbnail value-pack price (USD cents)", "缩略图增值包装价格（美分）"))}</span><input type="number" min="25" max="100000" step="1" data-advanced-setting="boost-thumbnail-unit-cents" value="${escapeHtml(String(current.creator_boost.thumbnail_unit_cents))}" ${admin ? "" : "disabled"} /></label>
+        <label><span>${escapeHtml(loginCopy("Preview video value-pack price (USD cents)", "缩略视频增值包装价格（美分）"))}</span><input type="number" min="25" max="100000" step="1" data-advanced-setting="boost-preview-video-unit-cents" value="${escapeHtml(String(current.creator_boost.preview_video_unit_cents))}" ${admin ? "" : "disabled"} /></label>
+        <label class="advanced-panel-check"><input type="checkbox" data-advanced-setting="boost-admin-only-purchase-override" ${current.creator_boost.admin_only_purchase_override ? "checked" : ""} ${admin ? "" : "disabled"} /><span>${escapeHtml(loginCopy("Temporarily make boost purchases admin-only", "临时把加购购买限制为管理员专用"))}</span></label>
+        <label><span>${escapeHtml(loginCopy("Studio included extra languages", "Studio 赠送额外语言"))}</span><input type="number" min="0" max="10" step="1" data-advanced-setting="boost-studio-language-included" value="${escapeHtml(String(current.creator_boost.studio_includes_extra_languages))}" ${admin ? "" : "disabled"} /></label>
+        <label><span>${escapeHtml(loginCopy("Studio included extra voices", "Studio 赠送额外声线"))}</span><input type="number" min="0" max="10" step="1" data-advanced-setting="boost-studio-voice-included" value="${escapeHtml(String(current.creator_boost.studio_includes_extra_voices))}" ${admin ? "" : "disabled"} /></label>
+        <label><span>${escapeHtml(loginCopy("Enterprise included extra languages", "Enterprise 赠送额外语言"))}</span><input type="number" min="0" max="20" step="1" data-advanced-setting="boost-enterprise-language-included" value="${escapeHtml(String(current.creator_boost.enterprise_includes_extra_languages))}" ${admin ? "" : "disabled"} /></label>
+        <label><span>${escapeHtml(loginCopy("Enterprise included extra voices", "Enterprise 赠送额外声线"))}</span><input type="number" min="0" max="20" step="1" data-advanced-setting="boost-enterprise-voice-included" value="${escapeHtml(String(current.creator_boost.enterprise_includes_extra_voices))}" ${admin ? "" : "disabled"} /></label>
+        <label class="advanced-panel-check"><input type="checkbox" data-advanced-setting="studio-team-collaboration-enabled" ${current.studio_enterprise.team_collaboration_enabled ? "checked" : ""} ${admin ? "" : "disabled"} /><span>${escapeHtml(loginCopy("Enable Studio/Enterprise team collaboration", "启用 Studio / Enterprise 团队协作"))}</span></label>
+        <label><span>${escapeHtml(loginCopy("Max team members", "团队人数上限"))}</span><input type="number" min="1" max="500" step="1" data-advanced-setting="studio-max-team-members" value="${escapeHtml(String(current.studio_enterprise.max_team_members))}" ${admin ? "" : "disabled"} /></label>
+        <label class="advanced-panel-check"><input type="checkbox" data-advanced-setting="studio-multi-project-enabled" ${current.studio_enterprise.multi_project_enabled ? "checked" : ""} ${admin ? "" : "disabled"} /><span>${escapeHtml(loginCopy("Enable multi-project workspaces", "启用多项目工作区"))}</span></label>
+        <label><span>${escapeHtml(loginCopy("Max projects", "项目数量上限"))}</span><input type="number" min="1" max="1000" step="1" data-advanced-setting="studio-max-projects" value="${escapeHtml(String(current.studio_enterprise.max_projects))}" ${admin ? "" : "disabled"} /></label>
+        <label class="advanced-panel-check"><input type="checkbox" data-advanced-setting="enterprise-api-enabled" ${current.studio_enterprise.enterprise_api_enabled ? "checked" : ""} ${admin ? "" : "disabled"} /><span>${escapeHtml(loginCopy("Enable enterprise API access", "启用企业 API 访问"))}</span></label>
+        <label><span>${escapeHtml(loginCopy("Enterprise API RPM", "企业 API 每分钟限额"))}</span><input type="number" min="1" max="100000" step="1" data-advanced-setting="enterprise-api-rpm" value="${escapeHtml(String(current.studio_enterprise.enterprise_api_rate_limit_per_minute))}" ${admin ? "" : "disabled"} /></label>
+        <div class="advanced-panel-note">${escapeHtml(loginCopy(`Available boosts: language ${Number(boostInfo?.language?.available || 0)}, voice ${Number(boostInfo?.voice?.available || 0)}, thumbnail ${Number(boostInfo?.thumbnail?.available || 0)}, preview video ${Number(boostInfo?.preview_video?.available || 0)}.`, `当前可用加购余额：语言 ${Number(boostInfo?.language?.available || 0)}，声线 ${Number(boostInfo?.voice?.available || 0)}，缩略图 ${Number(boostInfo?.thumbnail?.available || 0)}，缩略视频 ${Number(boostInfo?.preview_video?.available || 0)}。`))}</div>
+        <div class="advanced-panel-actions">
+          <button class="cta ghost tiny" type="button" data-creator-boost-checkout="language" ${(current.creator_boost.admin_only_purchase_override && !admin) ? "disabled" : ""}>${escapeHtml(loginCopy("Buy 1 extra language", "购买 1 个额外语言"))}</button>
+          <button class="cta ghost tiny" type="button" data-creator-boost-checkout="voice" ${(current.creator_boost.admin_only_purchase_override && !admin) ? "disabled" : ""}>${escapeHtml(loginCopy("Buy 1 extra voice lane", "购买 1 条额外声线"))}</button>
+          <button class="cta ghost tiny" type="button" data-creator-boost-checkout="thumbnail" ${(current.creator_boost.admin_only_purchase_override && !admin) ? "disabled" : ""}>${escapeHtml(loginCopy("Buy 1 thumbnail value-pack", "购买 1 次缩略图增值包装"))}</button>
+          <button class="cta ghost tiny" type="button" data-creator-boost-checkout="preview_video" ${(current.creator_boost.admin_only_purchase_override && !admin) ? "disabled" : ""}>${escapeHtml(loginCopy("Buy 1 preview video value-pack", "购买 1 次缩略视频增值包装"))}</button>
+        </div>
+        ${admin ? `
+          <div class="advanced-panel-note">${escapeHtml(loginCopy("Admin-only member controls: VIP is assigned manually here and is never publicly self-serve.", "管理员专用会员控制：VIP 只能在这里手动指定，不能公开让用户自己申请或升级。"))}</div>
+          <label><span>${escapeHtml(loginCopy("Target user email", "目标用户邮箱"))}</span><input type="email" data-advanced-setting="admin-target-email" placeholder="member@example.com" /></label>
+          <label><span>${escapeHtml(loginCopy("Assign membership tier", "设定会员档位"))}</span>
+            <select data-advanced-setting="admin-target-tier">
+              <option value="free">${escapeHtml(loginCopy("Basic / Free", "免费会员"))}</option>
+              <option value="starter">${escapeHtml(loginCopy("Starter", "入门创作会员"))}</option>
+              <option value="pro">${escapeHtml(loginCopy("Pro", "高级会员"))}</option>
+              <option value="studio">${escapeHtml(loginCopy("Studio", "工作室会员"))}</option>
+              <option value="enterprise">${escapeHtml(loginCopy("Enterprise", "企业会员"))}</option>
+              <option value="vip">VIP</option>
+            </select>
+          </label>
+          <div class="advanced-panel-actions">
+            <button class="cta ghost tiny" type="button" data-admin-membership-assign>${escapeHtml(loginCopy("Apply membership", "应用会员设定"))}</button>
+          </div>
+          <label><span>${escapeHtml(loginCopy("Manual entitlement kind", "手工发放权益类型"))}</span>
+            <select data-advanced-setting="admin-entitlement-kind">
+              <option value="language">${escapeHtml(loginCopy("Extra language", "额外语言"))}</option>
+              <option value="voice">${escapeHtml(loginCopy("Extra voice lane", "额外声线"))}</option>
+              <option value="thumbnail">${escapeHtml(loginCopy("Thumbnail regeneration", "缩略图重生"))}</option>
+              <option value="preview_video">${escapeHtml(loginCopy("Preview video regeneration", "缩略视频重生"))}</option>
+            </select>
+          </label>
+          <label><span>${escapeHtml(loginCopy("Manual entitlement quantity", "手工发放数量"))}</span><input type="number" min="1" max="200" step="1" value="1" data-advanced-setting="admin-entitlement-quantity" /></label>
+          <label><span>${escapeHtml(loginCopy("Manual grant note", "手工发放备注"))}</span><input type="text" maxlength="240" data-advanced-setting="admin-entitlement-note" placeholder="${escapeHtml(loginCopy("VIP courtesy / contract / migration", "VIP 礼包 / 合同 / 迁移"))}" /></label>
+          <div class="advanced-panel-actions">
+            <button class="cta ghost tiny" type="button" data-admin-entitlement-grant>${escapeHtml(loginCopy("Grant entitlement", "发放权益"))}</button>
+          </div>
+        ` : ""}
+        ${admin ? `<button class="cta ghost tiny" type="button" data-advanced-save="membership">${escapeHtml(t("settings.panel.setDefault"))}</button>` : ""}
+      </section>
+      ${
+        admin
+          ? `
+            <section class="advanced-panel-card" data-advanced-panel="permission-overview">
+              <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Action Permission Overview", "动作级权限总览"))}</div>
+              <div class="advanced-panel-note">${escapeHtml(loginCopy("Admin read-only overview for concrete actions and buttons across works, seller, api, reports, login, profile, creation, and cssmv.", "管理员只读总览：把 works、seller、api、reports、login、profile、creation、cssmv 的具体动作与按钮逐项列出来。"))}</div>
+              <div class="permission-overview-summary">
+                <span>${escapeHtml(loginCopy(`Showing ${filteredActionMatrixRows.length} actions`, `当前命中 ${filteredActionMatrixRows.length} 条动作`))}</span>
+                <button class="report-export-action is-muted" type="button" data-permission-filter-reset>${escapeHtml(loginCopy("Clear all filters", "清空全部筛选"))}</button>
+              </div>
+              <div class="permission-overview-filters" role="group" aria-label="${escapeHtml(loginCopy("Permission overview filters", "权限总览筛选"))}">
+                <button class="report-export-source ${permissionOverviewFilter === "all" ? "is-active" : ""}" type="button" data-permission-filter="all">${escapeHtml(loginCopy("All", "全部"))}</button>
+                <button class="report-export-source ${permissionOverviewFilter === "delivery" ? "is-active" : ""}" type="button" data-permission-filter="delivery">delivery</button>
+              </div>
+              <div class="permission-overview-filters" role="group" aria-label="${escapeHtml(loginCopy("Permission requirement filters", "权限门槛筛选"))}">
+                <button class="report-export-source ${permissionOverviewRequirementFilter === "all" ? "is-active" : ""}" type="button" data-permission-requirement-filter="all">${escapeHtml(loginCopy("All Thresholds", "全部门槛"))}</button>
+                <button class="report-export-source ${permissionOverviewRequirementFilter === "basic" ? "is-active" : ""}" type="button" data-permission-requirement-filter="basic">Basic+</button>
+                <button class="report-export-source ${permissionOverviewRequirementFilter === "pro" ? "is-active" : ""}" type="button" data-permission-requirement-filter="pro">Pro+</button>
+                <button class="report-export-source ${permissionOverviewRequirementFilter === "enterprise" ? "is-active" : ""}" type="button" data-permission-requirement-filter="enterprise">Enterprise+</button>
+                <button class="report-export-source ${permissionOverviewRequirementFilter === "vip" ? "is-active" : ""}" type="button" data-permission-requirement-filter="vip">VIP+</button>
+                <button class="report-export-source ${permissionOverviewRequirementFilter === "admin" ? "is-active" : ""}" type="button" data-permission-requirement-filter="admin">Admin</button>
+              </div>
+              <div class="permission-overview-filters" role="group" aria-label="${escapeHtml(loginCopy("Delivery domain filters", "交付子域筛选"))}">
+                <button class="report-export-source ${permissionOverviewDomainFilter === "all" ? "is-active" : ""}" type="button" data-permission-domain-filter="all">${escapeHtml(loginCopy("All Domains", "全部子域"))}</button>
+                <button class="report-export-source ${permissionOverviewDomainFilter === "watch" ? "is-active" : ""}" type="button" data-permission-domain-filter="watch">watch</button>
+                <button class="report-export-source ${permissionOverviewDomainFilter === "rewrite" ? "is-active" : ""}" type="button" data-permission-domain-filter="rewrite">rewrite</button>
+                <button class="report-export-source ${permissionOverviewDomainFilter === "compliance" ? "is-active" : ""}" type="button" data-permission-domain-filter="compliance">compliance</button>
+                <button class="report-export-source ${permissionOverviewDomainFilter === "probe" ? "is-active" : ""}" type="button" data-permission-domain-filter="probe">probe</button>
+                <button class="report-export-source ${permissionOverviewDomainFilter === "publish" ? "is-active" : ""}" type="button" data-permission-domain-filter="publish">publish</button>
+              </div>
+              <div class="permission-overview-table" role="table" aria-label="${escapeHtml(loginCopy("Action permission matrix", "动作级权限矩阵"))}">
+                <div class="permission-overview-header" role="row">
+                  <span>${escapeHtml(loginCopy("Panel", "面板"))}</span>
+                  <span>${escapeHtml(loginCopy("Action", "动作"))}</span>
+                  <span>${escapeHtml(loginCopy("Threshold", "门槛"))}</span>
+                  <span>${escapeHtml(loginCopy("Guest", "游客"))}</span>
+                  <span>${escapeHtml(loginCopy("Free", "免费"))}</span>
+                  <span>${escapeHtml(loginCopy("Starter", "Starter"))}</span>
+                  <span>Pro</span>
+                  <span>Studio</span>
+                  <span>Enterprise</span>
+                  <span>VIP</span>
+                  <span>${escapeHtml(loginCopy("Admin", "管理员"))}</span>
+                </div>
+                ${filteredActionMatrixRows
+                  .map(
+                    (row) => `
+                      <div class="permission-overview-row" role="row">
+                        <span>${escapeHtml(String(row.panel || ""))}</span>
+                        <span>${escapeHtml(String(row.action || ""))}</span>
+                        <span class="permission-threshold-chip">${escapeHtml(String(row.requirement || ""))}</span>
+                        <span>${escapeHtml(buildPermissionCellForTier(row, "guest"))}</span>
+                        <span>${escapeHtml(buildPermissionCellForTier(row, "free"))}</span>
+                        <span>${escapeHtml(buildPermissionCellForTier(row, "starter"))}</span>
+                        <span>${escapeHtml(buildPermissionCellForTier(row, "pro"))}</span>
+                        <span>${escapeHtml(buildPermissionCellForTier(row, "studio"))}</span>
+                        <span>${escapeHtml(buildPermissionCellForTier(row, "enterprise"))}</span>
+                        <span>${escapeHtml(buildPermissionCellForTier(row, "vip"))}</span>
+                        <span>${escapeHtml(buildPermissionCellForTier(row, "admin"))}</span>
+                      </div>
+                    `
+                  )
+                  .join("")}
+              </div>
+            </section>
+          `
+          : ""
+      }
     </div>
   `;
+}
+
+function buildDeferredAdvancedMembershipMarkup() {
+  return `
+    <section class="advanced-panel-card" data-advanced-panel="membership">
+      <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Membership & Boost", "会员与 Creator Boost"))}</div>
+      <div class="advanced-panel-note">${escapeHtml(loginCopy("Heavy membership controls are loading in the next frame so the page can respond first.", "会员与加购控制会在下一帧补齐，先让页面恢复响应。"))}</div>
+    </section>
+  `;
+}
+
+function buildDeferredAdvancedPermissionMarkup() {
+  return `
+    <section class="advanced-panel-card" data-advanced-panel="permission-overview">
+      <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Action Permission Overview", "动作级权限总览"))}</div>
+      <div class="advanced-panel-note">${escapeHtml(loginCopy("Permission matrix is loading after the base controls.", "权限矩阵会在基础控件之后再补齐。"))}</div>
+    </section>
+  `;
+}
+
+function stripAdvancedHeavyMarkup(markup, admin) {
+  let nextMarkup = String(markup || "");
+  nextMarkup = nextMarkup.replace(
+    /<section class="advanced-panel-card" data-advanced-panel="membership">[\s\S]*?<\/section>/,
+    buildDeferredAdvancedMembershipMarkup()
+  );
+  if (admin) {
+    nextMarkup = nextMarkup.replace(
+      /<section class="advanced-panel-card" data-advanced-panel="permission-overview">[\s\S]*?<\/section>/,
+      buildDeferredAdvancedPermissionMarkup()
+    );
+  }
+  return nextMarkup;
 }
 
 function collectAdvancedPanelSettingsFromDom() {
@@ -2526,17 +2893,17 @@ function collectAdvancedPanelSettingsFromDom() {
     ...current,
     logo: {
       ...current.logo,
-      spell: pick('[data-advanced-setting="logo-spell"]')?.value || DEFAULT_SPELL,
-      subtitle: pick('[data-advanced-setting="logo-subtitle"]')?.value || "Studio",
-      slogan_template: pick('[data-advanced-setting="logo-slogan-template"]')?.value || "Just say <span class=\"spell\">{spell}</span>, witness the miracle!",
-      mirror_size_px: Number(pick('[data-advanced-setting="logo-size"]')?.value || 600),
-      mask_inset_percent: Number(pick('[data-advanced-setting="logo-mask-inset"]')?.value || 12),
-      mirror_strategy: pick('[data-advanced-setting="logo-strategy"]')?.value || MIRROR_ANIMATION_STRATEGIES.PER_TYPE,
-      fixed_mode: pick('[data-advanced-setting="logo-fixed"]')?.value || MIRROR_ANIMATION_MODES.HALO,
+      spell: pick('[data-advanced-setting="logo-spell"]')?.value || current.logo.spell || DEFAULT_SPELL,
+      subtitle: pick('[data-advanced-setting="logo-subtitle"]')?.value || current.logo.subtitle || "Studio",
+      slogan_template: pick('[data-advanced-setting="logo-slogan-template"]')?.value || current.logo.slogan_template || "Just say <span class=\"spell\">{spell}</span>, witness the miracle!",
+      mirror_size_px: Number(pick('[data-advanced-setting="logo-size"]')?.value || current.logo.mirror_size_px || 600),
+      mask_inset_percent: Number(pick('[data-advanced-setting="logo-mask-inset"]')?.value || current.logo.mask_inset_percent || 12),
+      mirror_strategy: pick('[data-advanced-setting="logo-strategy"]')?.value || current.logo.mirror_strategy || MIRROR_ANIMATION_STRATEGIES.PER_TYPE,
+      fixed_mode: pick('[data-advanced-setting="logo-fixed"]')?.value || current.logo.fixed_mode || MIRROR_ANIMATION_MODES.HALO,
       per_type: {
-        single: pick('[data-advanced-setting="logo-single"]')?.value || MIRROR_ANIMATION_MODES.HALO,
-        triptych: pick('[data-advanced-setting="logo-triptych"]')?.value || MIRROR_ANIMATION_MODES.BREATH,
-        opera: pick('[data-advanced-setting="logo-opera"]')?.value || MIRROR_ANIMATION_MODES.PRISM
+        single: pick('[data-advanced-setting="logo-single"]')?.value || current.logo.per_type?.single || MIRROR_ANIMATION_MODES.HALO,
+        triptych: pick('[data-advanced-setting="logo-triptych"]')?.value || current.logo.per_type?.triptych || MIRROR_ANIMATION_MODES.BREATH,
+        opera: pick('[data-advanced-setting="logo-opera"]')?.value || current.logo.per_type?.opera || MIRROR_ANIMATION_MODES.PRISM
       }
     },
     mic: {
@@ -2550,33 +2917,130 @@ function collectAdvancedPanelSettingsFromDom() {
       show_labels: !!pick('[data-advanced-setting="dock-labels"]')?.checked,
       docking_enabled: !!pick('[data-advanced-setting="dock-docking"]')?.checked,
       dock_position: pick('[data-advanced-setting="dock-position"]')?.value || "bottom"
+    },
+    background: {
+      ...current.background,
+      mode: pick('[data-advanced-setting="background-mode"]')?.value || current.background.mode || "aurora",
+      intensity: Number(pick('[data-advanced-setting="background-intensity"]')?.value || current.background.intensity || 0.48),
+      motion: Number(pick('[data-advanced-setting="background-motion"]')?.value || current.background.motion || 0.24)
+    },
+    membership: {
+      ...current.membership,
+      starter_monthly_limit: Number(pick('[data-advanced-setting="membership-starter-limit"]')?.value || current.membership.starter_monthly_limit),
+      pro_monthly_limit: Number(pick('[data-advanced-setting="membership-pro-limit"]')?.value || current.membership.pro_monthly_limit),
+      studio_monthly_limit: Number(pick('[data-advanced-setting="membership-studio-limit"]')?.value || current.membership.studio_monthly_limit),
+      enterprise_monthly_limit: Number(pick('[data-advanced-setting="membership-enterprise-limit"]')?.value || current.membership.enterprise_monthly_limit),
+      vip_admin_only: !!pick('[data-advanced-setting="membership-vip-admin-only"]')?.checked
+    },
+    creator_boost: {
+      ...current.creator_boost,
+      enabled_kinds: ["language", "voice", "thumbnail", "preview_video"],
+      language_unit_cents: Number(pick('[data-advanced-setting="boost-language-unit-cents"]')?.value || current.creator_boost.language_unit_cents),
+      voice_unit_cents: Number(pick('[data-advanced-setting="boost-voice-unit-cents"]')?.value || current.creator_boost.voice_unit_cents),
+      thumbnail_unit_cents: Number(pick('[data-advanced-setting="boost-thumbnail-unit-cents"]')?.value || current.creator_boost.thumbnail_unit_cents),
+      preview_video_unit_cents: Number(pick('[data-advanced-setting="boost-preview-video-unit-cents"]')?.value || current.creator_boost.preview_video_unit_cents),
+      admin_only_purchase_override: !!pick('[data-advanced-setting="boost-admin-only-purchase-override"]')?.checked,
+      studio_includes_extra_languages: Number(pick('[data-advanced-setting="boost-studio-language-included"]')?.value || current.creator_boost.studio_includes_extra_languages),
+      enterprise_includes_extra_languages: Number(pick('[data-advanced-setting="boost-enterprise-language-included"]')?.value || current.creator_boost.enterprise_includes_extra_languages),
+      studio_includes_extra_voices: Number(pick('[data-advanced-setting="boost-studio-voice-included"]')?.value || current.creator_boost.studio_includes_extra_voices),
+      enterprise_includes_extra_voices: Number(pick('[data-advanced-setting="boost-enterprise-voice-included"]')?.value || current.creator_boost.enterprise_includes_extra_voices)
+    },
+    billing_actions: {
+      ...current.billing_actions
+    },
+    studio_enterprise: {
+      ...current.studio_enterprise,
+      team_collaboration_enabled: !!pick('[data-advanced-setting="studio-team-collaboration-enabled"]')?.checked,
+      max_team_members: Number(pick('[data-advanced-setting="studio-max-team-members"]')?.value || current.studio_enterprise.max_team_members),
+      multi_project_enabled: !!pick('[data-advanced-setting="studio-multi-project-enabled"]')?.checked,
+      max_projects: Number(pick('[data-advanced-setting="studio-max-projects"]')?.value || current.studio_enterprise.max_projects),
+      enterprise_api_enabled: !!pick('[data-advanced-setting="enterprise-api-enabled"]')?.checked,
+      enterprise_api_rate_limit_per_minute: Number(pick('[data-advanced-setting="enterprise-api-rpm"]')?.value || current.studio_enterprise.enterprise_api_rate_limit_per_minute)
     }
   });
 }
 
-async function renderAdvancedPanelSettings() {
+let advancedPanelSettingsHeavyFrame = 0;
+
+async function renderAdvancedPanelSettings(options = {}) {
   if (!advancedPanelSettings) return;
+  if (advancedPanelSettings.hidden && !options.force) {
+    advancedPanelSettings.dataset.needsRender = "true";
+    return;
+  }
+  const deferHeavy = !!options.deferHeavy;
+  if (authState.user && !deferHeavy) {
+    await loadCreatorBoostState().catch(() => null);
+  }
   const local = readPanelBehaviorSettingsLocal();
-  const remote = await loadPanelDefaults("behavior", local);
+  const remote = deferHeavy ? local : await loadPanelDefaults("behavior", local);
   const merged = sanitizePanelBehaviorSettings(remote || local);
-  applyPanelBehaviorSettings(merged);
+  if (!deferHeavy) {
+    applyPanelBehaviorSettings(merged);
+  }
   const wasHidden = advancedPanelSettings.hidden;
-  advancedPanelSettings.innerHTML = buildAdvancedPanelSettingsMarkup(merged);
+  const markup = buildAdvancedPanelSettingsMarkup(merged);
+  advancedPanelSettings.innerHTML = deferHeavy ? stripAdvancedHeavyMarkup(markup, getUserRole() === "admin") : markup;
   advancedPanelSettings.hidden = wasHidden;
+  advancedPanelSettings.dataset.needsRender = "false";
   advancedPanelSettings.querySelectorAll("input, select").forEach((control) => {
     if (control instanceof HTMLInputElement && control.type === "file") return;
     control.addEventListener("input", () => {
       const next = collectAdvancedPanelSettingsFromDom();
       applyPanelBehaviorSettings(next);
-      if (watchTabButtons.length) activateWatchTab(watchActiveTab);
-      renderSongSeedPreview(state.songSeed);
+      callWatchUiModule("refreshWatchPresentationFromSettingsModule", state.songSeed);
+      if (String(control.getAttribute("data-advanced-setting") || "").startsWith("mic-")) {
+        void renderAdvancedPanelSettings();
+      }
     });
     control.addEventListener("change", () => {
       const next = collectAdvancedPanelSettingsFromDom();
       applyPanelBehaviorSettings(next);
-      if (watchTabButtons.length) activateWatchTab(watchActiveTab);
-      renderSongSeedPreview(state.songSeed);
+      callWatchUiModule("refreshWatchPresentationFromSettingsModule", state.songSeed);
+      if (String(control.getAttribute("data-advanced-setting") || "").startsWith("mic-")) {
+        void renderAdvancedPanelSettings();
+      }
     });
+  });
+  advancedPanelSettings.querySelectorAll("[data-creator-boost-checkout]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const boostKind = String(button.getAttribute("data-creator-boost-checkout") || "").trim().toLowerCase();
+      try {
+        await createCreatorBoostCheckout(boostKind, 1, button);
+      } catch (err) {
+        safeShowToast(loginCopy("Creator Boost checkout could not be started right now.", "当前无法发起 Creator Boost 结算。"));
+      }
+    });
+  });
+  advancedPanelSettings.querySelector("[data-admin-membership-assign]")?.addEventListener("click", (event) => {
+    void applyAdminMembershipAssignment(event.currentTarget);
+  });
+  advancedPanelSettings.querySelector("[data-admin-entitlement-grant]")?.addEventListener("click", (event) => {
+    void grantAdminEntitlement(event.currentTarget);
+  });
+  advancedPanelSettings.querySelectorAll("[data-permission-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      permissionOverviewFilter = String(button.getAttribute("data-permission-filter") || "all").trim().toLowerCase() || "all";
+      void renderAdvancedPanelSettings();
+    });
+  });
+  advancedPanelSettings.querySelectorAll("[data-permission-requirement-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      permissionOverviewRequirementFilter = String(button.getAttribute("data-permission-requirement-filter") || "all").trim().toLowerCase() || "all";
+      void renderAdvancedPanelSettings();
+    });
+  });
+  advancedPanelSettings.querySelectorAll("[data-permission-domain-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      permissionOverviewDomainFilter = String(button.getAttribute("data-permission-domain-filter") || "all").trim().toLowerCase() || "all";
+      void renderAdvancedPanelSettings();
+    });
+  });
+  advancedPanelSettings.querySelector("[data-permission-filter-reset]")?.addEventListener("click", () => {
+    permissionOverviewFilter = "all";
+    permissionOverviewRequirementFilter = "all";
+    permissionOverviewDomainFilter = "all";
+    void renderAdvancedPanelSettings();
   });
   const advancedLogoImage1 = advancedPanelSettings.querySelector('[data-advanced-setting="logo-image-1"]');
   const advancedLogoImage2 = advancedPanelSettings.querySelector('[data-advanced-setting="logo-image-2"]');
@@ -2647,6 +3111,28 @@ async function renderAdvancedPanelSettings() {
     dock?.classList.add("is-snapping");
     setTimeout(() => dock?.classList.remove("is-snapping"), 520);
   });
+  advancedPanelSettings.querySelectorAll("[data-advanced-open-panel]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const panelId = String(button.getAttribute("data-advanced-open-panel") || "").trim();
+      const panel = panelId ? document.getElementById(panelId) : null;
+      if (!panel) return;
+      openPanel(panel);
+      if (!panel.classList.contains("show-settings")) {
+        togglePanelSettings(panel);
+      } else {
+        focusPanel(panel);
+      }
+    });
+  });
+  if (deferHeavy) {
+    if (advancedPanelSettingsHeavyFrame) {
+      cancelAnimationFrame(advancedPanelSettingsHeavyFrame);
+    }
+    advancedPanelSettingsHeavyFrame = requestAnimationFrame(() => {
+      advancedPanelSettingsHeavyFrame = 0;
+      void renderAdvancedPanelSettings({ force: true });
+    });
+  }
 }
 
 function randomizeCreationForLyricsRefresh(title) {
@@ -2766,192 +3252,108 @@ function randomizeCreationForLyricsRefresh(title) {
 }
 
 function shouldRetryAutoSongSeedTitle(title) {
-  return !shouldPreserveSongSeedTitleForRefresh() && hasRecentAutoSongSeedTitle(title);
+  return readCreationFlowModule("shouldRetryAutoSongSeedTitleModule", false, title);
 }
 
 function formatCreationLanguageBadge(lang) {
-  const value = String(lang || "").trim().toLowerCase();
-  if (value === "ja") return "JP";
-  if (value === "en") return "EN";
-  if (value === "zh") return loginCopy("CN", "中文");
-  return value.toUpperCase() || "--";
+  return readCreationFlowModule("formatCreationLanguageBadgeModule", "--", lang);
 }
 
 function describeCreationRandomization() {
-  return [
-    formatCreationLanguageBadge(creationState.language),
-    `${creationState.tempo} BPM`,
-    `${creationState.key} major`,
-    `${creationState.duration}s`
-  ].join(" · ");
+  return readCreationFlowModule("describeCreationRandomizationModule", "");
 }
 
 function openCreationConsole() {
-  openPanel(settingsPanel);
-  creationState.activeTab = "genre";
-  renderCreationConsole();
-  const box = document.getElementById("creation-console");
-  box?.scrollIntoView({ behavior: "smooth", block: "center" });
+  callCreationFlowModule("openCreationConsoleModule");
+}
+
+function readSongSeedUiModule(name, fallback, ...args) {
+  const fn = globalThis[name];
+  return typeof fn === "function" ? fn(...args) : fallback;
+}
+
+function callSongSeedUiModule(name, ...args) {
+  readSongSeedUiModule(name, undefined, ...args);
 }
 
 function setButtonBusy(button, busy) {
-  if (!(button instanceof HTMLButtonElement)) return;
-  button.disabled = !!busy;
-  button.classList.toggle("is-busy", !!busy);
+  callSongSeedUiModule("setButtonBusyModule", button, busy);
 }
 
 function setLyricsDebugStatus(message, state = "idle") {
-  if (!lyricsDebugStatus) return;
-  lyricsDebugStatus.textContent = String(message || "").trim();
-  lyricsDebugStatus.dataset.state = state;
-  lyricsDebugStatus.hidden = !message || state === "idle" || state === "success";
+  callSongSeedUiModule("setLyricsDebugStatusModule", message, state);
 }
 
 function getSongSeedErrorCode(payload) {
-  const data = getApiData(payload);
-  return String(data?.openai_error_code || payload?.openai_error_code || "").trim();
+  return readSongSeedUiModule("getSongSeedErrorCodeModule", "", payload);
 }
 
 function getSongSeedErrorType(payload) {
-  const data = getApiData(payload);
-  return String(data?.openai_error_type || payload?.openai_error_type || "").trim();
+  return readSongSeedUiModule("getSongSeedErrorTypeModule", "", payload);
 }
 
 function getSongSeedErrorMessage(payload) {
-  const data = getApiData(payload);
-  return String(data?.openai_error_message || payload?.openai_error_message || "").trim();
+  return readSongSeedUiModule("getSongSeedErrorMessageModule", "", payload);
 }
 
 function getSongSeedErrorStatus(payload) {
-  const data = getApiData(payload);
-  const value = Number(data?.openai_error_status ?? payload?.openai_error_status);
-  return Number.isFinite(value) ? value : 0;
+  return readSongSeedUiModule("getSongSeedErrorStatusModule", 0, payload);
 }
 
 function getSongSeedOpenAiModel(payload) {
-  const data = getApiData(payload);
-  return String(data?.openai_model || data?.model || payload?.openai_model || payload?.model || "").trim();
+  return readSongSeedUiModule("getSongSeedOpenAiModelModule", "", payload);
 }
 
 function getSongSeedOpenAiEnvSource(payload) {
-  const data = getApiData(payload);
-  return String(data?.openai_env_source || payload?.openai_env_source || "").trim();
+  return readSongSeedUiModule("getSongSeedOpenAiEnvSourceModule", "", payload);
 }
 
 function getSongSeedOpenAiKeyFingerprint(payload) {
-  const data = getApiData(payload);
-  return String(data?.openai_key_fingerprint || payload?.openai_key_fingerprint || "").trim();
+  return readSongSeedUiModule("getSongSeedOpenAiKeyFingerprintModule", "", payload);
 }
 
 function isSongSeedQuotaExceeded(payload) {
-  const code = getSongSeedErrorCode(payload);
-  const type = getSongSeedErrorType(payload);
-  return (
-    code === "insufficient_quota" ||
-    code === "billing_hard_limit_reached" ||
-    type === "insufficient_quota"
-  );
+  return readSongSeedUiModule("isSongSeedQuotaExceededModule", false, payload);
 }
 
 function isSongSeedRateLimited(payload) {
-  const status = getSongSeedErrorStatus(payload);
-  const code = getSongSeedErrorCode(payload);
-  const type = getSongSeedErrorType(payload);
-  return status === 429 && !isSongSeedQuotaExceeded(payload) && (code === "rate_limit_exceeded" || type === "rate_limit_exceeded" || !code);
+  return readSongSeedUiModule("isSongSeedRateLimitedModule", false, payload);
 }
 
 function formatSongSeedUpstreamDebug(payload) {
-  const status = getSongSeedErrorStatus(payload);
-  const type = getSongSeedErrorType(payload);
-  const code = getSongSeedErrorCode(payload);
-  const model = getSongSeedOpenAiModel(payload);
-  const envSource = getSongSeedOpenAiEnvSource(payload);
-  const keyFingerprint = getSongSeedOpenAiKeyFingerprint(payload);
-  return [
-    status ? `status=${status}` : "",
-    type ? `type=${type}` : "",
-    code ? `code=${code}` : "",
-    model ? `model=${model}` : "",
-    envSource ? `env=${envSource}` : "",
-    keyFingerprint ? `key=${keyFingerprint}` : ""
-  ].filter(Boolean).join(" · ");
+  return readSongSeedUiModule("formatSongSeedUpstreamDebugModule", "", payload);
 }
 
 function getSongSeedQuotaExceededMessage(payload) {
-  const detail = getSongSeedErrorMessage(payload);
-  const debug = formatSongSeedUpstreamDebug(payload);
-  return loginCopy(
-    `OpenAI upstream rejected lyric generation as quota-related${debug ? ` · ${debug}` : ""}${detail ? ` · ${detail}` : ""}.`,
-    `OpenAI 上游将这次歌词生成判定为 quota 类错误${debug ? ` · ${debug}` : ""}${detail ? ` · ${detail}` : ""}。`
-  );
+  return readSongSeedUiModule("getSongSeedQuotaExceededMessageModule", "", payload);
 }
 
 function getSongSeedRateLimitMessage(payload) {
-  const detail = getSongSeedErrorMessage(payload);
-  const debug = formatSongSeedUpstreamDebug(payload);
-  return loginCopy(
-    `OpenAI upstream rate-limited lyric generation${debug ? ` · ${debug}` : ""}${detail ? ` · ${detail}` : ""}.`,
-    `OpenAI 上游对这次歌词生成触发了限流${debug ? ` · ${debug}` : ""}${detail ? ` · ${detail}` : ""}。`
-  );
+  return readSongSeedUiModule("getSongSeedRateLimitMessageModule", "", payload);
 }
 
 function runNonCriticalUiStep(task) {
-  try {
-    task?.();
-    return true;
-  } catch (_error) {
-    return false;
-  }
+  return readSongSeedUiModule("runNonCriticalUiStepModule", false, task);
 }
 
 function safeShowToast(message) {
-  return runNonCriticalUiStep(() => showToast(message));
+  return readSongSeedUiModule("safeShowToastModule", false, message);
 }
 
 function summarizeError(err) {
-  if (!err) return "unknown";
-  if (typeof err === "string") return err.slice(0, 120);
-  const name = String(err?.name || "").trim();
-  const message = String(err?.message || "").trim();
-  return [name, message].filter(Boolean).join(": ").slice(0, 160) || "unknown";
+  return readSongSeedUiModule("summarizeErrorModule", "unknown", err);
 }
 
 function getSeedRefreshToast(target) {
-  if (target === "lyrics") {
-    return loginCopy("Casting lyric magic...", "歌词魔法施展中...");
-  }
-  if (target === "style") {
-    return loginCopy("Music style magic in progress...", "音乐风格魔法施展中...");
-  }
-  if (target === "structure") {
-    return loginCopy("Music structure magic in progress...", "音乐结构魔法施展中...");
-  }
-  if (target === "outline") {
-    return loginCopy("Video outline magic in progress...", "视频提纲魔法施展中...");
-  }
-  if (target === "scenes") {
-    return loginCopy("Scene prompt magic in progress...", "分镜脚本魔法施展中...");
-  }
-  return loginCopy("Magic in progress...", "魔法施展中...");
+  return readSongSeedUiModule(
+    "getSeedRefreshToastModule",
+    loginCopy("Magic in progress...", "魔法施展中..."),
+    target
+  );
 }
 
 function bindSeedRefreshButton(button, target, options = {}) {
-  if (!(button instanceof HTMLButtonElement)) return;
-  if (button.dataset.seedRefreshBound === "1") return;
-  button.dataset.seedRefreshBound = "1";
-  const shouldPrime = options?.prime === true;
-  if (shouldPrime) {
-    button.addEventListener("pointerdown", (event) => {
-      if (window.CSSOS_primeLyricsRegenerate) {
-        window.CSSOS_primeLyricsRegenerate(event);
-      }
-    });
-  }
-  button.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    void regenerateSeedFields(target);
-  });
+  callSongSeedUiModule("bindSeedRefreshButtonModule", button, target, options);
 }
 
 window.CSSOS_primeLyricsRegenerate = function primeLyricsRegenerate(event) {
@@ -2983,42 +3385,30 @@ function refreshLyricsPresentation(title, lines) {
   if (watchLyricsEditor) {
     watchLyricsEditor.value = safeLines.join("\n");
   }
-  setForyouStatusVisible(false);
+  setEngineProgressVisible("lyrics", false, { immediate: true });
   setForyouCompact(false);
   layoutShowcasePanels();
 }
 
 function getSongSeedTitleContext() {
-  const expandedTitleText =
-    typeof foryouExpandedTitle !== "undefined" && foryouExpandedTitle
-      ? foryouExpandedTitle.textContent?.trim?.() || ""
-      : "";
-  const compactTitleText =
-    typeof foryouCompactTitle !== "undefined" && foryouCompactTitle
-      ? foryouCompactTitle.textContent?.trim?.() || ""
-      : "";
-  const candidates = [
-    titleInput?.value?.trim?.() || "",
-    state.songSeed?.title || "",
-    state.title || "",
-    expandedTitleText,
-    compactTitleText
-  ];
-  return candidates.find((value) => String(value || "").trim()) || "";
+  return readSongSeedUiModule("getSongSeedTitleContextModule", "");
 }
 
 function setSongSeedTitleValue(value, options = {}) {
-  const text = String(value || "").trim();
-  if (titleInput) {
-    titleInput.value = text;
-    titleInput.dataset.userEdited = options.userEdited ? "1" : "0";
-  }
-  state.title = text;
-  return text;
+  return readSongSeedUiModule("setSongSeedTitleValueModule", "", value, options);
 }
 
 function shouldPreserveSongSeedTitleForRefresh() {
-  return titleInput?.dataset?.userEdited === "1";
+  return readSongSeedUiModule("shouldPreserveSongSeedTitleForRefreshModule", false);
+}
+
+function getSongSeedTitleUserEditedFlag(payload = null) {
+  return Boolean(
+    payload?.isSongSeedTitleUserEdited ??
+      state.songSeed?.draft?.isSongSeedTitleUserEdited ??
+      shouldPreserveSongSeedTitleForRefresh() ??
+      false
+  );
 }
 
 function getSongSeedRequestTitle() {
@@ -3029,19 +3419,26 @@ function getSongSeedRequestTitle() {
 }
 
 function buildFallbackSongSeedTitle() {
-  const genre = String(creationState.selections?.genre || styleInput?.value || "").trim();
-  const lang = String(creationState.language || document.documentElement.lang || "zh").toLowerCase();
-  if (lang.startsWith("zh")) {
-    const leads = ["河灯", "旧埠", "霓虹", "失重", "暗场", "火线", "潮声", "晚灶"];
-    const tails = ["回响", "夜航", "慢信", "余温", "偏光", "返照", "共振", "潮生"];
-    return `${leads[Math.floor(Math.random() * leads.length)]}${tails[Math.floor(Math.random() * tails.length)]}`;
-  }
-  if (lang.startsWith("ja")) {
-    const leads = ["月影", "宵風", "海鳴", "灯守", "星詠", "薄明", "夜航", "雨声"];
-    const tails = ["の祈り", "の残響", "の歌", "の約束", "の灯", "の航路", "の記憶", "の羽音"];
-    return `${leads[Math.floor(Math.random() * leads.length)]}${tails[Math.floor(Math.random() * tails.length)]}`;
-  }
-  return genre ? `${genre} improvisation` : "improvisation theme";
+  return readSongSeedUiModule("buildFallbackSongSeedTitleModule", "improvisation theme");
+}
+
+function isDemoTemplateTitle(title) {
+  const value = String(title || "").trim();
+  if (!value) return false;
+  return [
+    "Moon of Chang'e",
+    "嫦娥奔月",
+    "潮声共振",
+    "暗场余温",
+    "流光之城",
+    "CSS MV",
+    "Untitled",
+    "New Song",
+    "Opera Night",
+    "Midnight",
+    "Starlight",
+    "Echo"
+  ].includes(value);
 }
 
 async function buildSongSeedGenerationConstraints() {
@@ -3112,296 +3509,24 @@ async function buildSongSeedGenerationConstraints() {
 }
 
 function ensureSongSeedTitleContext() {
-  const existing = getSongSeedTitleContext();
-  if (existing) return existing;
-  const fallback = buildFallbackSongSeedTitle();
-  return setSongSeedTitleValue(fallback, { userEdited: false });
+  return readSongSeedUiModule("ensureSongSeedTitleContextModule", "");
 }
 
 function safeBuildLyricsSeedVisualSignature(seed) {
-  try {
-    return buildLyricsSeedVisualSignature(seed);
-  } catch (_error) {
-    return "";
-  }
+  return readSongSeedUiModule("safeBuildLyricsSeedVisualSignatureModule", "", seed);
 }
 
 async function regenerateSeedFields(target) {
-  const triggerMap = {
-    lyrics: lyricsRegenerate,
-    style: styleRegenerate,
-    structure: musicStructureRegenerate,
-    outline: videoOutlineRegenerate,
-    scenes: sectionPromptsRegenerate
-  };
-  const trigger = triggerMap[target] || lyricsRegenerate;
-  let lyricStage = "init";
-  try {
-    if (target === "lyrics") {
-      setLyricsDebugStatus(
-        loginCopy(
-          "Button triggered. Checking lyric title context...",
-          "按钮已触发，正在检查歌词标题上下文..."
-        ),
-        "pending"
-      );
-      lyricRegenerateRequestActive = true;
-    }
-    lyricStage = "title-context";
-    const title =
-      target === "lyrics" && !shouldPreserveSongSeedTitleForRefresh()
-        ? ""
-        : ensureSongSeedTitleContext();
-    if (target === "lyrics") {
-      setLyricsDebugStatus(
-        loginCopy(
-          "Button triggered. Requesting random lyrics from the server...",
-          "按钮已触发，正在向服务器请求随机歌词..."
-        ),
-        "pending"
-      );
-    }
-    lyricStage = "button-busy";
-    setButtonBusy(trigger, true);
-    const previousLyricsValue = String(lyricsInput?.value || "");
-    const previousTitleValue = String(titleInput?.value || "");
-    lyricStage = "signature";
-    const previousSignature = safeBuildLyricsSeedVisualSignature({
-      title,
-      lyrics: lyricsInput?.value || compactLyricLines(state.lines || []).join("\n")
-    });
-    if (target === "lyrics") {
-      lyricStage = "ui-warmup";
-      const lyricUiOk = runNonCriticalUiStep(() => {
-        enterLyricSpellcast();
-        randomizeCreationForLyricsRefresh(title);
-      });
-      if (!lyricUiOk) {
-        setLyricsDebugStatus(
-          loginCopy(
-            "Lyric UI warmup failed. Continuing with a direct lyric request...",
-            "歌词界面预热失败，已继续直接请求随机歌词..."
-          ),
-          "pending"
-        );
-      }
-    }
-    lyricStage = "toast";
-    safeShowToast(getSeedRefreshToast(target));
-    let payload = null;
-    let raw = null;
-    let normalized = null;
-    let nextSignature = "";
-    const maxAttempts = target === "lyrics" ? 5 : 1;
-    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      lyricStage = `request-${attempt}`;
-      payload = await runLyricsGenerate(target === "style" ? "style_refresh" : "music_video", { apply: false });
-      if (isSongSeedQuotaExceeded(payload)) {
-        const quotaMessage = getSongSeedQuotaExceededMessage(payload);
-        setLyricsDebugStatus(quotaMessage, "error");
-        safeShowToast(quotaMessage);
-        return;
-      }
-      if (isSongSeedRateLimited(payload)) {
-        const rateLimitMessage = getSongSeedRateLimitMessage(payload);
-        setLyricsDebugStatus(rateLimitMessage, "error");
-        safeShowToast(rateLimitMessage);
-        return;
-      }
-      lyricStage = `response-${attempt}`;
-      raw = getApiData(payload);
-      if (!payload?.ok || payload?.empty || !raw) break;
-      lyricStage = `normalize-${attempt}`;
-      normalized = normalizeSongSeed(raw);
-      nextSignature = safeBuildLyricsSeedVisualSignature(normalized);
-      const repeatedAutoTitle = target === "lyrics" && shouldRetryAutoSongSeedTitle(normalized?.title);
-      if (
-        target !== "lyrics" ||
-        ( !repeatedAutoTitle &&
-          (!previousSignature || !nextSignature || nextSignature !== previousSignature))
-      ) {
-        break;
-      }
-      if (attempt < maxAttempts) {
-        lyricStage = `retry-toast-${attempt}`;
-        safeShowToast(
-          loginCopy(
-            repeatedAutoTitle
-              ? `Retrying lyric title ${attempt + 1}/${maxAttempts} to avoid a recent duplicate...`
-              : `Retrying lyric variation ${attempt + 1}/${maxAttempts}...`,
-            repeatedAutoTitle
-              ? `标题刚刚重复，正在重试第 ${attempt + 1}/${maxAttempts} 次...`
-              : `歌词随机撞脸，正在重试第 ${attempt + 1}/${maxAttempts} 次...`
-          )
-        );
-      }
-    }
-    if (!payload?.ok || payload?.empty || !raw) {
-      if (target === "lyrics") {
-        setLyricsDebugStatus(
-          loginCopy(
-            "Button triggered, but the lyric API did not return usable data.",
-            "按钮已触发，但随机歌词接口没有返回可用结果。"
-          ),
-        "error"
-        );
-      }
-      safeShowToast(t("toast.seedRefreshFailed"));
-      return;
-    }
-    if (target === "lyrics") {
-      setLyricsDebugStatus(
-        loginCopy(
-          "API responded. Applying generated lyrics into the editor...",
-          "接口已经返回，正在把歌词回填进编辑框..."
-        ),
-        "pending"
-      );
-    }
-    lyricStage = "apply";
-    if (!normalized) normalized = normalizeSongSeed(raw);
-    if (target === "style") {
-      if (styleInput && normalized.musicStyle) styleInput.value = normalized.musicStyle;
-      state.songSeed = { ...(state.songSeed || {}), ...normalized };
-      updateEnginePanels(titleInput?.value?.trim() || state.title, (lyricsInput?.value || "").split("\n"));
-      renderSongSeedPreview(state.songSeed);
-      safeShowToast(t("toast.musicStyleRegenerated"));
-      return;
-    }
-    if (target === "structure") {
-      if (musicStructureInput) {
-        musicStructureInput.value = [normalized.musicStructure, renderSectionBeatsText(normalized.sectionBeats)]
-          .filter(Boolean)
-          .join("\n\n");
-      }
-      state.songSeed = { ...(state.songSeed || {}), ...normalized };
-      renderSongSeedPreview(state.songSeed);
-      safeShowToast(loginCopy("Music structure updated.", "音乐结构已更新。"));
-      return;
-    }
-    if (target === "outline") {
-      if (videoOutlineInput) videoOutlineInput.value = normalized.videoOutline;
-      state.songSeed = { ...(state.songSeed || {}), ...normalized };
-      renderSongSeedPreview(state.songSeed);
-      safeShowToast(loginCopy("Video outline updated.", "总视频提纲已更新。"));
-      return;
-    }
-    if (target === "scenes") {
-      if (sectionPromptsInput) sectionPromptsInput.value = renderSectionPromptsText(normalized.sectionPrompts);
-      state.songSeed = { ...(state.songSeed || {}), ...normalized };
-      renderSongSeedPreview(state.songSeed);
-      safeShowToast(loginCopy("Section prompts updated.", "分节视频脚本已更新。"));
-      return;
-    }
-    applySongSeedToSettings(raw);
-    if (target === "lyrics") {
-      const currentLyricsValue = String(lyricsInput?.value || "");
-      const currentTitleValue = String(titleInput?.value || "");
-      const applied =
-        currentLyricsValue.trim().length > 0 &&
-        (currentLyricsValue !== previousLyricsValue || currentTitleValue !== previousTitleValue);
-      setLyricsDebugStatus(
-        applied
-          ? loginCopy(
-              "API responded and the lyrics were filled into the editor successfully.",
-              "接口已返回，歌词也已经成功回填到编辑框。"
-            )
-          : loginCopy(
-              "API responded, but the lyrics were not filled into the editor.",
-              "接口已经返回，但歌词没有成功回填到编辑框。"
-            ),
-        applied ? "success" : "error"
-      );
-      if (!shouldPreserveSongSeedTitleForRefresh()) {
-        recordRecentAutoSongSeedTitle(currentTitleValue);
-      }
-      return;
-    }
-    safeShowToast(t("toast.lyricsRegenerated"));
-  } catch (err) {
-    if (target === "lyrics") {
-      setLyricsDebugStatus(
-        loginCopy(
-          `Request failed at ${lyricStage}. ${summarizeError(err)}`,
-          `请求在 ${lyricStage} 阶段失败：${summarizeError(err)}`
-        ),
-        "error"
-      );
-    }
-    safeShowToast(t("toast.seedRefreshFailed"));
-  } finally {
-    if (target === "lyrics") {
-      lyricRegenerateRequestActive = false;
-    }
-    if (target === "lyrics") exitLyricSpellcast(true);
-    setButtonBusy(trigger, false);
-  }
+  return readSongSeedUiModule("regenerateSeedFieldsModule", Promise.resolve(), target);
 }
 
 function getApiData(payload) {
-  if (!payload || typeof payload !== "object") return {};
-  return payload.data && typeof payload.data === "object" ? payload.data : payload;
+  return readSongSeedUiModule("getApiDataModule", {}, payload);
 }
 
 function getCurrentWorksOwnerKey() {
   const email = String(authState.user?.email || "").trim().toLowerCase();
   return email || "guest";
-}
-
-function readLocalWorks() {
-  try {
-    const raw = localStorage.getItem(LOCAL_WORKS_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (_err) {
-    return [];
-  }
-}
-
-function writeLocalWorks(works) {
-  try {
-    localStorage.setItem(LOCAL_WORKS_KEY, JSON.stringify(Array.isArray(works) ? works : []));
-  } catch (_err) {
-    // ignore storage quota
-  }
-}
-
-function listLocalWorksForCurrentUser() {
-  const ownerKey = getCurrentWorksOwnerKey();
-  return filterDisplayWorkRoots(buildWorkHierarchy(readLocalWorks().filter((item) => String(item?.ownerKey || "") === ownerKey)));
-}
-
-function upsertLocalWorkRecord(work) {
-  const ownerKey = getCurrentWorksOwnerKey();
-  const works = readLocalWorks();
-  const workId = String(work?.local_id || work?.work_id || `local_${Date.now()}`);
-  const next = {
-    local_id: workId,
-    work_id: work?.work_id ? String(work.work_id) : undefined,
-    ownerKey,
-    title: String(work?.title || "").trim() || "CSS MV",
-    style: String(work?.style || "").trim(),
-    work_type: normalizeWorkTypeClient(work?.work_type),
-    structure_role: String(work?.structure_role || work?.work_type || "single").trim(),
-    structure_plan: work?.structure_plan && typeof work.structure_plan === "object" ? work.structure_plan : null,
-    cover_image: String(work?.cover_image || "").trim(),
-    status: String(work?.status || "draft"),
-    created_at: work?.created_at || new Date().toISOString(),
-    lyrics_preview: String(work?.lyrics_preview || "").trim().slice(0, 500),
-    children: Array.isArray(work?.children) ? work.children : []
-  };
-  const index = works.findIndex(
-    (item) =>
-      String(item?.ownerKey || "") === ownerKey &&
-      String(item?.local_id || item?.work_id || "") === workId
-  );
-  if (index >= 0) {
-    works[index] = { ...works[index], ...next };
-  } else {
-    works.unshift(next);
-  }
-  writeLocalWorks(works.slice(0, 40));
-  return next;
 }
 
 function updateLocalWorkCoverImage(workId, coverImage) {
@@ -3441,326 +3566,146 @@ function sortWorksNewestFirst(works) {
   });
 }
 
-async function refreshWorkSurfaces() {
-  if (authState.user) {
-    await loadWatchCommerce(true).catch(() => null);
+function sortWorkCollection(works, mode = "newest") {
+  const list = [...(Array.isArray(works) ? works : [])];
+  if (mode === "oldest") {
+    return list.sort((a, b) => {
+      const timeDelta = workCreatedTimestamp(a) - workCreatedTimestamp(b);
+      if (timeDelta !== 0) return timeDelta;
+      return String(a?.title || "").localeCompare(String(b?.title || ""));
+    });
   }
-  renderWorksPanel();
-  await loadPublicMarketWorks(true).catch(() => []);
-  renderForyouMarketplace();
+  if (mode === "title") {
+    return list.sort((a, b) => String(a?.title || "").localeCompare(String(b?.title || "")));
+  }
+  if (mode === "type") {
+    return list.sort((a, b) =>
+      workTypeLabel(normalizeWorkTypeClient(a?.work_type)).localeCompare(
+        workTypeLabel(normalizeWorkTypeClient(b?.work_type))
+      )
+    );
+  }
+  if (mode === "listen_low" || mode === "listen_high") {
+    return list.sort((a, b) => {
+      const aValue = Number(a?.current_listen_price_cents || a?.listen_price_cents || 0);
+      const bValue = Number(b?.current_listen_price_cents || b?.listen_price_cents || 0);
+      return mode === "listen_low" ? aValue - bValue : bValue - aValue;
+    });
+  }
+  return sortWorksNewestFirst(list);
 }
 
-function currentWorkCoverImage(title, lines = []) {
-  const existing = String(foryouThumbImage?.src || "").trim();
-  if (existing) return existing;
-  return buildForyouThumbSvg(title, `${state.style || ""} · ${state.voice || ""}`.replace(/^ · | · $/g, ""), lines);
+function filterWorkCollection(works, mode = "all") {
+  return [...(Array.isArray(works) ? works : [])].filter((work) => {
+    const workType = normalizeWorkTypeClient(work?.work_type);
+    const visibility = String(work?.visibility || work?.status || "public").toLowerCase();
+    const ownerUserId = String(work?.owner_user_id || "").trim();
+    const mine = Boolean(authState.user?.id) && ownerUserId === String(authState.user?.id || "").trim();
+    if (mode === "single" || mode === "triptych" || mode === "opera") return workType === mode;
+    if (mode === "live") return visibility !== "private" && visibility !== "hidden";
+    if (mode === "hidden") return visibility === "private" || visibility === "hidden";
+    if (mode === "owned") return mine;
+    if (mode === "public") return !mine;
+    return true;
+  });
 }
 
-function renderApiBillingPanel() {
-  const apiBody = apiPanel ? apiPanel.querySelector(".api-body") : null;
-  if (!apiBody || !apiCreditBalance) return;
-
-  const guestNoticeClass = "api-guest-notice";
-  let guestNotice = apiBody.querySelector(`.${guestNoticeClass}`);
-  if (!authState.user) {
-    if (!guestNotice) {
-      guestNotice = document.createElement("div");
-      guestNotice.className = guestNoticeClass;
-      apiBody.prepend(guestNotice);
-    }
-    guestNotice.innerHTML = `
-      <strong>${loginCopy("Sign in to access billing controls.", "登录后可使用账单与支付控制。")}</strong>
-      <div>${loginCopy("You can still browse API docs as a guest.", "游客模式可查看 API 文档。")}</div>
-    `;
-  } else if (guestNotice) {
-    guestNotice.remove();
-  }
-
-  const balanceCents = Number(billingState.balance_cents || 0);
-  apiCreditBalance.textContent = `$${(balanceCents / 100).toFixed(2)}`;
-  if (apiAddFundsBtn) apiAddFundsBtn.disabled = !authState.user;
-  if (apiAutoRecharge) apiAutoRecharge.disabled = !authState.user;
-  if (apiMonthlyLimit) apiMonthlyLimit.disabled = !authState.user;
-  if (apiPaymentMethod) apiPaymentMethod.disabled = !authState.user;
-  if (apiMonthlyLimit && authState.user && Number.isFinite(Number(billingState.monthly_limit_cents))) {
-    apiMonthlyLimit.value = (Number(billingState.monthly_limit_cents) / 100).toFixed(0);
-  }
+function isLoggedInUser() {
+  return !!authState.user;
 }
 
-function renderWorksPanel() {
-  const worksBody = worksPanel ? worksPanel.querySelector(".works-body") : null;
-  if (!worksBody) return;
-  const guest = !authState.user;
-  worksBody.classList.toggle("is-guest", guest);
-  if (guest) {
-    worksBody.innerHTML = `
-      <div class="panel-label">${loginCopy("Creator Works Center", "创作者作品中心")}</div>
-      <div class="works-empty-card">
-        <div class="works-empty-title">${loginCopy("Sign in to view your works", "登录后查看你的作品")}</div>
-        <div class="works-empty-text">${loginCopy("Publishing, pricing, comment moderation, and monetization are available after login.", "发布、定价、评论管理和变现功能需要登录后使用。")}</div>
-        <button class="cta tiny" type="button" data-open-login>${loginCopy("Go to Login", "去登录")}</button>
-      </div>
-    `;
-    const btn = worksBody.querySelector("[data-open-login]");
-    btn?.addEventListener("click", () => openPanel(loginPanel));
-    return;
-  }
-
-  const displayName = authState.user?.name || authState.user?.email || "User";
-  const avatarUrl = readProfileAvatarOverride() || authState.user?.avatar || "";
-  worksBody.innerHTML = `
-    <div class="panel-label">${loginCopy("Creator Works Center", "创作者作品中心")}</div>
-    <div class="works-hero">
-      <div class="works-avatar">${avatarUrl ? `<img class="profile-avatar-image" src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(displayName)}" />` : displayName.slice(0, 2).toUpperCase()}</div>
-      <div class="works-meta">
-        <div class="works-name">${displayName}</div>
-        <div class="works-role">${loginCopy("Logged in creator", "已登录创作者")}</div>
-      </div>
-    </div>
-    <div class="works-section">
-      <div class="section-title">${loginCopy("Your works", "你的作品")}</div>
-      <div class="works-list" id="works-list-dynamic">
-        <div class="works-note">${loginCopy("Loading works...", "正在加载作品...")}</div>
-      </div>
-    </div>
-  `;
-  void loadMyWorks();
+function isAdminUser() {
+  return getUserRole() === "admin";
 }
 
-async function loadMyWorks() {
-  const list = document.getElementById("works-list-dynamic");
-  if (!list || !authState.user) return;
-  const renderWorksList = (works) => {
-    const sortedWorks = sortWorksNewestFirst(filterDisplayWorkRoots(buildWorkHierarchy(works)));
-    if (!sortedWorks.length) {
-      list.innerHTML = `<div class="works-note">${loginCopy("No works yet. Create one to see it here.", "还没有作品，先创作一个吧。")}</div>`;
-      return;
-    }
-    list.innerHTML = sortedWorks
-      .map((work) => {
-        const workId = String(work?.work_id || work?.id || work?.local_id || "").trim();
-        const title = String(work.title || "").trim() || loginCopy("Untitled", "未命名");
-        const style = String(work.style || "").trim();
-        const workType = normalizeWorkTypeClient(work?.work_type);
-        const status = String(work.status || "draft");
-        const visibility = String(work.visibility || (status === "hidden" ? "private" : "public")).toLowerCase();
-        const createdAt = work.created_at ? new Date(work.created_at).toLocaleString() : "";
-        const lyricsPreview = String(work.lyrics_preview || "").trim();
-        const coverImage = String(work.cover_image || work.thumbnail_url || work.preview_image_url || "").trim();
-        const hierarchyMarkup = renderHierarchyTree(work.children || [], "works");
-        const commerce = getWorkCommerceDetails(workId);
-        const defaults = workTypePricingDefaults(workType);
-        const listenPriceCents = commerce.listenCents > 0 ? commerce.listenCents : defaults.listenCents;
-        const buyoutPriceCents = commerce.buyoutCents > 0 ? commerce.buyoutCents : defaults.buyoutCents;
-        const listenPrice = listenPriceCents > 0 ? formatUsdFromCents(listenPriceCents, "$0.00") : loginCopy("Not set", "未设置");
-        const buyoutPrice = buyoutPriceCents > 0 ? formatUsdFromCents(buyoutPriceCents, "$0.00") : loginCopy("Not set", "未设置");
-        return `
-          <article class="work-card" data-work-expand data-work-id="${escapeHtml(workId)}">
-            <div class="work-cover" data-work-cover data-work-cover-key="${escapeHtml(workId)}" data-work-toggle>
-              ${coverImage ? `<img src="${escapeHtml(coverImage)}" alt="${escapeHtml(title)}" />` : `<div class="work-cover-fallback">${title.slice(0, 2).toUpperCase()}</div>`}
-            </div>
-            <div class="work-info">
-              <div class="work-title" data-work-toggle>${title}</div>
-              <div class="work-tags" title="${(style || loginCopy("Style not set", "未设置风格")).replace(/"/g, "&quot;")}">${style || loginCopy("Style not set", "未设置风格")}</div>
-              <div class="work-pricing">
-                <span class="price-chip ghost-chip">${loginCopy("Type", "类型")} · ${escapeHtml(workTypeLabel(workType))}</span>
-                <span class="inline-chip-editor" data-inline-editor="listen">
-                  <button class="price-chip editable-chip" type="button" data-inline-trigger="listen">${loginCopy("Listen", "聆听")} · ${listenPrice}</button>
-                  <input class="inline-chip-input" type="number" min="0.99" step="0.01" value="${escapeHtml((listenPriceCents / 100).toFixed(2))}" data-work-price="listen" hidden />
-                </span>
-                <span class="inline-chip-editor" data-inline-editor="buyout">
-                  <button class="price-chip editable-chip" type="button" data-inline-trigger="buyout">${loginCopy("Buyout", "买断")} · ${buyoutPrice}</button>
-                  <input class="inline-chip-input" type="number" min="0" step="0.01" value="${escapeHtml((buyoutPriceCents / 100).toFixed(2))}" data-work-price="buyout" hidden />
-                </span>
-                <span class="inline-chip-editor" data-inline-editor="visibility">
-                  <button class="price-chip ghost-chip editable-chip" type="button" data-inline-trigger="visibility">${loginCopy("Status", "状态")} · ${escapeHtml(visibility === "private" ? loginCopy("Hidden", "下架") : loginCopy("Live", "上架"))}</button>
-                  <select class="inline-chip-select" data-work-visibility hidden>
-                    <option value="public" ${visibility === "public" ? "selected" : ""}>${loginCopy("Live", "上架")}</option>
-                    <option value="private" ${visibility === "private" ? "selected" : ""}>${loginCopy("Hidden", "下架")}</option>
-                  </select>
-                </span>
-                ${createdAt ? `<span class="price-chip ghost-chip">${createdAt}</span>` : ""}
-              </div>
-            </div>
-            <div class="work-actions">
-              <button class="mini-btn ghost" type="button" data-work-action="watch">${loginCopy("Enjoy", "欣赏")}</button>
-            </div>
-            <div class="work-details">
-              <div class="work-extra">${lyricsPreview || title}</div>
-              ${hierarchyMarkup}
-              <div class="work-pricing-editor">
-                <label class="work-price-field work-type-field">
-                  <span>${loginCopy("Work Type", "作品类型")}</span>
-                  <select data-work-type>
-                    <option value="single" ${workType === "single" ? "selected" : ""}>${loginCopy("Single", "单曲")}</option>
-                    <option value="triptych" ${workType === "triptych" ? "selected" : ""}>${loginCopy("Triptych", "三部曲")}</option>
-                    <option value="opera" ${workType === "opera" ? "selected" : ""}>${loginCopy("Opera", "歌剧")}</option>
-                  </select>
-                </label>
-              </div>
-            </div>
-          </article>
-        `;
-      })
-      .join("");
-    void hydrateWorkCardThumbnails(list, sortedWorks);
-    bindInlineChipEditors(list);
-    list.querySelectorAll("[data-work-expand]").forEach((card) => {
-      card.addEventListener("click", (event) => {
-        const target = event.target;
-        if (!(target instanceof Element)) return;
-        if (!target.closest("[data-work-toggle]")) return;
-        card.classList.toggle("is-expanded");
-      });
-    });
-    list.querySelectorAll("[data-work-action='watch']").forEach((button) => {
-      button.addEventListener("click", async (event) => {
-        event.stopPropagation();
-        const childWorkId = button.getAttribute("data-work-child-id") || "";
-        if (childWorkId) {
-          list.querySelectorAll("[data-work-id]").forEach((card) => {
-            if (card instanceof HTMLElement) card.dataset.activeChildWorkId = childWorkId;
-          });
-        }
-        clearWatchPreviewLimit();
-        activateWatchTab("mv");
-        openPanel(watchPanel);
-        const usedCurrent = await ensureCurrentWatchPreviewPlayback();
-        if (!usedCurrent) {
-          await playDemoInWatchPanel();
-        }
-      });
-    });
-    list.querySelectorAll("[data-work-type]").forEach((select) => {
-      select.addEventListener("change", (event) => {
-        event.stopPropagation();
-        const target = event.currentTarget;
-        if (!(target instanceof HTMLSelectElement)) return;
-        const defaults = workTypePricingDefaults(target.value);
-        const card = target.closest("[data-work-id]");
-        const listenInput = card?.querySelector('[data-work-price="listen"]');
-        const buyoutInput = card?.querySelector('[data-work-price="buyout"]');
-        const visibilityInput = card?.querySelector("[data-work-visibility]");
-        if (listenInput instanceof HTMLInputElement) listenInput.value = (defaults.listenCents / 100).toFixed(2);
-        if (buyoutInput instanceof HTMLInputElement) buyoutInput.value = (defaults.buyoutCents / 100).toFixed(2);
-        void saveWorkPricing(card?.getAttribute("data-work-id") || "", listenInput, buyoutInput, target, visibilityInput);
-      });
-    });
-    list.querySelectorAll('[data-work-price="listen"], [data-work-price="buyout"]').forEach((input) => {
-      input.addEventListener("blur", (event) => {
-        event.stopPropagation();
-        const target = event.currentTarget;
-        if (!(target instanceof HTMLInputElement)) return;
-        const card = target.closest("[data-work-id]");
-        const workId = card?.getAttribute("data-work-id") || "";
-        if (!workId) return;
-        const listenInput = card?.querySelector('[data-work-price="listen"]');
-        const buyoutInput = card?.querySelector('[data-work-price="buyout"]');
-        const workTypeInput = card?.querySelector("[data-work-type]");
-        const visibilityInput = card?.querySelector("[data-work-visibility]");
-        void saveWorkPricing(workId, listenInput, buyoutInput, workTypeInput, visibilityInput);
-      });
-      input.addEventListener("keydown", (event) => {
-        if (event.key !== "Enter") return;
-        event.preventDefault();
-        event.stopPropagation();
-        event.currentTarget?.blur?.();
-      });
-    });
-    list.querySelectorAll("[data-work-visibility]").forEach((select) => {
-      select.addEventListener("change", (event) => {
-        event.stopPropagation();
-        const target = event.currentTarget;
-        if (!(target instanceof HTMLSelectElement)) return;
-        const card = target.closest("[data-work-id]");
-        const workId = card?.getAttribute("data-work-id") || "";
-        if (!workId) return;
-        const listenInput = card?.querySelector('[data-work-price="listen"]');
-        const buyoutInput = card?.querySelector('[data-work-price="buyout"]');
-        const workTypeInput = card?.querySelector("[data-work-type]");
-        void saveWorkPricing(workId, listenInput, buyoutInput, workTypeInput, target);
-      });
-    });
-  };
-
-  const localWorks = listLocalWorksForCurrentUser();
-  try {
-    if (!watchCommerceState.loaded && !watchCommerceState.loading) {
-      await loadWatchCommerce(true);
-    }
-    const res = await fetch("/api/works/mine?limit=24", { credentials: "include" });
-    const payload = await res.json().catch(() => null);
-    if (!res.ok || payload?.ok === false) {
-      if (localWorks.length) {
-        renderWorksList(localWorks);
-      } else {
-        list.innerHTML = `<div class="works-note">${loginCopy("Failed to load works.", "加载作品失败。")}</div>`;
-      }
-      return;
-    }
-    const data = payload?.data || payload || {};
-    const remoteWorks = Array.isArray(data.works) ? data.works : [];
-    const merged = remoteWorks.map((item) => ({ ...item }));
-    localWorks.forEach((localWork) => {
-      const existingIndex = merged.findIndex(
-        (item) =>
-          String(item?.work_id || item?.id || "") === String(localWork?.work_id || localWork?.local_id || "") ||
-          (String(item?.title || "").trim() === String(localWork?.title || "").trim() &&
-            String(item?.created_at || "") === String(localWork?.created_at || ""))
-      );
-      if (existingIndex >= 0) {
-        merged[existingIndex] = { ...localWork, ...merged[existingIndex], cover_image: merged[existingIndex]?.cover_image || localWork?.cover_image || "" };
-      } else {
-        merged.unshift(localWork);
-      }
-    });
-    renderWorksList(merged);
-  } catch {
-    if (localWorks.length) {
-      renderWorksList(localWorks);
-    } else {
-      list.innerHTML = `<div class="works-note">${loginCopy("Failed to load works.", "加载作品失败。")}</div>`;
-    }
-  }
+function canBypassPreviewLimit(user = authState.user, work = currentWatchPreviewWork) {
+  const normalizedTier = normalizeAccessTier(user?.membership_tier || getAccessTier());
+  const viewerId = String(user?.id || "").trim();
+  const viewerEmail = String(user?.email || "").trim().toLowerCase();
+  const authorId = String(
+    work?.authorId ||
+      work?.author_id ||
+      work?.owner_user_id ||
+      work?.user_id ||
+      ""
+  ).trim();
+  const authorEmail = String(work?.owner_email || work?.author_email || "").trim().toLowerCase();
+  return Boolean(
+    user?.isAdmin ||
+      isAdminUser() ||
+      user?.isVIP ||
+      normalizedTier === "vip" ||
+      normalizedTier === "admin" ||
+      (viewerId && authorId && viewerId === authorId) ||
+      (viewerEmail && authorEmail && viewerEmail === authorEmail)
+  );
 }
 
-async function hydrateWorkCardThumbnails(container, works) {
-  if (!(container instanceof Element) || !Array.isArray(works)) return;
-  for (const work of works) {
-    const workId = String(work?.work_id || work?.id || work?.local_id || "").trim();
-    if (!workId) continue;
-    const cover = container.querySelector(`[data-work-cover-key="${CSS.escape(workId)}"]`);
-    if (!(cover instanceof HTMLElement)) continue;
-    if (cover.querySelector("img")) continue;
-    const title = String(work?.title || "").trim() || "CSS MV";
-    const subtitle = String(work?.style || "").trim() || loginCopy("Creator work", "创作者作品");
-    const lines = String(work?.lyrics_preview || "").split("\n").filter(Boolean);
-    const image = await requestThumbnailDataUrl(title, subtitle, lines);
-    if (!image) continue;
-    cover.innerHTML = `<img src="${escapeHtml(image)}" alt="${escapeHtml(title)}" />`;
-    updateLocalWorkCoverImage(workId, image);
+function hasPanelPermission(scope) {
+  const normalized = String(scope || "").trim().toLowerCase();
+  if (!normalized || normalized === "public") return true;
+  if (normalized === "admin") return isAdminUser();
+  const serverSnapshot = authState.permissionSnapshot;
+  if (serverSnapshot && typeof serverSnapshot === "object" && normalized in serverSnapshot) {
+    return Boolean(serverSnapshot[normalized]);
   }
+  const rule = getActionPermissionRule(normalized);
+  if (!rule) return false;
+  return Boolean(
+    rule.allowed?.(getAccessTier(), {
+      loggedIn: isLoggedInUser(),
+      admin: isAdminUser(),
+      settings: readPanelBehaviorSettingsLocal()
+    })
+  );
 }
 
-async function hydrateMarketCardThumbnails(container, works) {
-  if (!(container instanceof Element) || !Array.isArray(works)) return;
-  for (const work of works) {
-    const workId = String(work?.id || work?.work_id || "").trim();
-    if (!workId) continue;
-    const cover = container.querySelector(`[data-market-cover-key="${CSS.escape(workId)}"]`);
-    if (!(cover instanceof HTMLElement)) continue;
-    if (cover.querySelector("img")) continue;
-    const title = String(work?.title || "").trim() || "CSS MV";
-    const subtitle = String(work?.style || "").trim() || loginCopy("Marketplace work", "市场作品");
-    const lines = String(work?.lyrics_preview || "").split("\n").filter(Boolean);
-    const image = await requestThumbnailDataUrl(title, subtitle, lines);
-    if (!image) continue;
-    cover.innerHTML = `<img src="${escapeHtml(image)}" alt="${escapeHtml(title)}" />`;
-  }
+function canUseStudioWorkspaceClient(tier = getAccessTier()) {
+  return ["studio", "enterprise", "vip", "admin"].includes(normalizeAccessTier(tier));
+}
+
+function canUseEnterpriseApiClient(tier = getAccessTier()) {
+  return ["enterprise", "vip", "admin"].includes(normalizeAccessTier(tier));
+}
+
+function formatQueueLaneLabel(queueLane) {
+  const lane = String(queueLane || "").trim().toLowerCase();
+  if (lane === "admin_override") return loginCopy("Admin override queue", "管理员覆盖队列");
+  if (lane === "vip_private") return loginCopy("VIP private queue", "VIP 私享队列");
+  if (lane === "enterprise_dedicated") return loginCopy("Enterprise dedicated queue", "企业专属队列");
+  if (lane === "studio_pipeline") return loginCopy("Studio production queue", "Studio 生产队列");
+  if (lane === "pro_pipeline") return loginCopy("Pro production queue", "Pro 生产队列");
+  if (lane === "starter_paid") return loginCopy("Starter paid queue", "入门付费队列");
+  if (lane === "free_standard") return loginCopy("Free standard queue", "免费标准队列");
+  return loginCopy("Guest preview queue", "游客预览队列");
+}
+
+function billableActionLabel(actionKey = "") {
+  return readWatchUiModule("billableActionLabelModule", String(actionKey || "").trim(), actionKey);
+}
+
+function resolveUsageActionKey(entry = {}) {
+  return readWatchUiModule("resolveUsageActionKeyModule", "", entry);
+}
+
+function renderUsageHistoryMarkup(entries = [], emptyCopy, limit = 8) {
+  return readWatchUiModule("renderUsageHistoryMarkupModule", "", entries, emptyCopy, limit);
+}
+
+function renderLedgerHistoryMarkup(entries = [], emptyCopy, limit = 8) {
+  return readWatchUiModule("renderLedgerHistoryMarkupModule", "", entries, emptyCopy, limit);
+}
+
+function getWorkMatchedUsageEvents(work = {}, entries = []) {
+  return readWatchUiModule("getWorkMatchedUsageEventsModule", [], work, entries);
+}
+
+function renderWorkCostBillMarkup(work = {}, entries = []) {
+  return readWatchUiModule("renderWorkCostBillMarkupModule", "", work, entries);
 }
 
 const OPERA_SCENES_PER_BATCH = 3;
-const OPERA_SCENES_PER_ACT = 6;
+const OPERA_SCENES_PER_ACT = 3;
 
 function normalizeStructurePlanClient(value) {
   if (!value || typeof value !== "object") return null;
@@ -3858,7 +3803,7 @@ function buildTriptychStructurePlan(existingRoot, seed = state.songSeed, rootTit
       : null;
   const planFromRoot = normalizeStructurePlanClient(existingRoot?.structure_plan);
   const totalParts = Math.max(1, planFromRoot?.totalParts || planFromSeed?.totalParts || 3);
-  const partsPerBatch = Math.max(1, planFromRoot?.partsPerBatch || planFromSeed?.partsPerBatch || 1);
+  const partsPerBatch = Math.max(1, planFromRoot?.partsPerBatch || planFromSeed?.partsPerBatch || totalParts);
   const parts = Array.isArray(existingRoot?.children)
     ? existingRoot.children
         .filter((child) => String(child?.structure_role || "").trim().toLowerCase() === "part")
@@ -3913,102 +3858,31 @@ function stripOperaActSuffix(title) {
 }
 
 function formatActLabel(actNumber) {
-  return `第${actNumber}幕`;
+  return readSongSeedUiModule("formatActLabelModule", `第${actNumber}幕`, actNumber);
 }
 
 function buildStructuredSegments(lines, count, baseTitle) {
-  const targetCount = Math.max(1, Number(count || 1));
-  const grouped = groupScenes(Array.isArray(lines) ? lines : []).filter((scene) => Array.isArray(scene?.lines) && scene.lines.length);
-  if (grouped.length >= targetCount) {
-    return grouped.slice(0, targetCount).map((scene, index) => ({
-      title: String(scene?.title || `${baseTitle} ${index + 1}`).trim(),
-      lines: scene.lines.map((line) => String(line || "").trim()).filter(Boolean)
-    }));
-  }
-  const safeLines = (Array.isArray(lines) ? lines : []).map((line) => String(line || "").trim()).filter(Boolean);
-  const buckets = Array.from({ length: targetCount }, () => []);
-  safeLines.forEach((line, index) => {
-    buckets[index % targetCount].push(line);
-  });
-  return buckets.map((bucket, index) => ({
-    title: `${baseTitle} ${index + 1}`,
-    lines: bucket.length ? bucket : safeLines.slice(0, Math.min(4, safeLines.length))
-  }));
+  return readSongSeedUiModule("buildStructuredSegmentsModule", [], lines, count, baseTitle);
 }
 
 function storedWorkTypeForStructuredRole(role, fallbackWorkType = "single") {
-  const normalizedRole = String(role || "").trim().toLowerCase();
-  const normalizedType = normalizeWorkTypeClient(fallbackWorkType);
-  if (normalizedRole === "opera" || normalizedRole === "act") return "opera";
-  if (normalizedRole === "triptych") return "triptych";
-  if (normalizedRole === "scene" || normalizedRole === "single" || normalizedRole === "part") return "single";
-  return normalizedType;
+  return readSongSeedUiModule(
+    "storedWorkTypeForStructuredRoleModule",
+    normalizeWorkTypeClient(fallbackWorkType),
+    role,
+    fallbackWorkType
+  );
 }
 
 function buildHierarchyFromStructureTree(tree, lyricsText, fallbackTitle, fallbackWorkType) {
-  const nodes = Array.isArray(tree) ? tree : [];
-  if (!nodes.length) return [];
-  const lyricLines = String(lyricsText || "")
-    .split("\n")
-    .map((line) => String(line || "").trim())
-    .filter(Boolean);
-  const leaves = [];
-  const collectLeaves = (items) => {
-    items.forEach((node) => {
-      const children = Array.isArray(node?.children) ? node.children : [];
-      if (!children.length) {
-        leaves.push(node);
-        return;
-      }
-      collectLeaves(children);
-    });
-  };
-  collectLeaves(nodes);
-  const segments = buildStructuredSegments(
-    lyricLines,
-    Math.max(leaves.length, 1),
-    String(fallbackTitle || "CSS MV").trim() || "CSS MV"
+  return readSongSeedUiModule(
+    "buildHierarchyFromStructureTreeModule",
+    [],
+    tree,
+    lyricsText,
+    fallbackTitle,
+    fallbackWorkType
   );
-  let leafIndex = 0;
-  const mapNode = (node) => {
-    const children = Array.isArray(node?.children) ? node.children : [];
-    const role = String(node?.role || "scene").trim().toLowerCase();
-    const title = String(node?.title || "").trim() || String(fallbackTitle || "CSS MV").trim() || "CSS MV";
-    const sequenceIndex = Number(node?.sequenceIndex || 0);
-    if (!children.length) {
-      const segment = segments[leafIndex] || segments[segments.length - 1] || { lines: lyricLines };
-      const segmentLines = Array.isArray(segment?.lines) ? segment.lines : lyricLines;
-      leafIndex += 1;
-      return {
-        title,
-        work_type: storedWorkTypeForStructuredRole(role, node?.workType || fallbackWorkType || "single"),
-        structure_role: role,
-        sequence_index: sequenceIndex || leafIndex,
-        lyrics_text: segmentLines.join("\n"),
-        lyrics_preview: segmentLines.join("\n").slice(0, 500),
-        cover_image: buildForyouThumbSvg(title, "", segmentLines),
-        style: "",
-        children: []
-      };
-    }
-    const mappedChildren = children.map((child) => mapNode(child));
-    const aggregatePreview = mappedChildren
-      .map((child) => String(child?.lyrics_preview || "").trim())
-      .filter(Boolean)
-      .join("\n")
-      .slice(0, 500);
-    return {
-      title,
-      work_type: storedWorkTypeForStructuredRole(role, node?.workType || fallbackWorkType || "single"),
-      structure_role: role,
-      sequence_index: sequenceIndex || 0,
-      lyrics_preview: aggregatePreview,
-      cover_image: buildForyouThumbSvg(title, "", aggregatePreview.split("\n").filter(Boolean)),
-      style: "",
-      children: mappedChildren
-    };
-  };
-  return nodes.map((node) => mapNode(node));
 }
 
 function buildLocalStructuredChildren(title, lines, style, workType) {
@@ -4063,6 +3937,7 @@ function buildLocalStructuredChildren(title, lines, style, workType) {
         work_type: "opera",
         structure_role: "act",
         sequence_index: 1,
+        lyrics_text: scenes.slice(0, split).map((item) => item.lyrics_text || item.lyrics_preview).join("\n").trim(),
         lyrics_preview: scenes.slice(0, split).map((item) => item.lyrics_preview).join("\n").slice(0, 500),
         cover_image: buildForyouThumbSvg(`${title} · ${formatActLabel(1)}`, "", scenes.slice(0, split).map((item) => item.lyrics_preview).join("\n").split("\n").filter(Boolean)),
         children: scenes.slice(0, split)
@@ -4074,6 +3949,7 @@ function buildLocalStructuredChildren(title, lines, style, workType) {
         work_type: "opera",
         structure_role: "act",
         sequence_index: 2,
+        lyrics_text: scenes.slice(split).map((item) => item.lyrics_text || item.lyrics_preview).join("\n").trim(),
         lyrics_preview: scenes.slice(split).map((item) => item.lyrics_preview).join("\n").slice(0, 500),
         cover_image: buildForyouThumbSvg(`${title} · ${formatActLabel(2)}`, "", scenes.slice(split).map((item) => item.lyrics_preview).join("\n").split("\n").filter(Boolean)),
         children: scenes.slice(split)
@@ -4130,6 +4006,7 @@ async function updateWorkStructurePlan(workId, structurePlan) {
 async function createStructuredWorkNodes(nodes, style, pricingDefaults, parentWorkId = null, rootWorkId = null) {
   const list = Array.isArray(nodes) ? nodes : [];
   const created = [];
+  const economics = estimateCreationEconomics();
   for (const node of list) {
     const record = await createWorkNodeRecord({
       title: String(node?.title || "").trim(),
@@ -4142,7 +4019,15 @@ async function createStructuredWorkNodes(nodes, style, pricingDefaults, parentWo
       structure_plan: node?.structure_plan || null,
       listen_price_cents: pricingDefaults.listenCents,
       buyout_price_cents: pricingDefaults.buyoutCents,
-      lyrics_preview: String(node?.lyrics_preview || "").trim().slice(0, 500)
+      lyrics_preview: String(node?.lyrics_preview || "").trim().slice(0, 500),
+      source_run_id: micState.jobId || "",
+      compute_units_estimate: economics.computeUnits,
+      compute_cost_cents_estimate: economics.computeCostCents,
+      suggested_listen_price_cents: economics.suggestedListenPriceCents,
+      suggested_buyout_price_cents: economics.suggestedBuyoutPriceCents,
+      cover_image: String(node?.cover_image || "").trim(),
+      preview_image_url: "",
+      preview_video_url: ""
     });
     const createdNode = {
       ...node,
@@ -4389,13 +4274,16 @@ async function createOperaWorkRecord(title, lines, style, pricingDefaults) {
   return root;
 }
 
-async function createMyWorkRecord(title, lines) {
+async function createMyWorkRecord(title, lines, options = {}) {
   const workType = normalizeWorkTypeClient(
     creationState.workType || state.songSeed?.workType || "single"
   );
   const pricingDefaults = workTypePricingDefaults(workType);
+  const economics = estimateCreationEconomics();
   const style = styleInput ? styleInput.value : "";
+  const assetSnapshot = collectCurrentWorkAssetSnapshot();
   const localRecord = upsertLocalWorkRecord({
+    local_id: options.localWorkId || undefined,
     title: String(title || "").trim(),
     style,
     work_type: workType,
@@ -4407,10 +4295,23 @@ async function createMyWorkRecord(title, lines) {
           ? buildTriptychStructurePlan(null, state.songSeed, String(title || "").trim())
           : null,
     cover_image: currentWorkCoverImage(title, lines),
+    preview_image_url: assetSnapshot.preview_image_url || "",
+    preview_video_url: assetSnapshot.preview_video_url || "",
     status: "generating",
     created_at: new Date().toISOString(),
+    lyrics_text: Array.isArray(lines) ? lines.join("\n") : "",
     lyrics_preview: Array.isArray(lines) ? lines.join("\n").slice(0, 500) : "",
-    children: buildLocalStructuredChildren(String(title || "").trim(), lines, style, workType)
+    compute_units_estimate: economics.computeUnits,
+    compute_cost_cents_estimate: economics.computeCostCents,
+    suggested_listen_price_cents: economics.suggestedListenPriceCents,
+    suggested_buyout_price_cents: economics.suggestedBuyoutPriceCents,
+    children: buildLocalStructuredChildren(String(title || "").trim(), lines, style, workType),
+    source: String(options.source || "").trim(),
+    raw_voice_id: options.rawVoiceId ? String(options.rawVoiceId).trim() : "",
+    raw_transcript: String(options.rawTranscript || "").trim(),
+    show_voice_source_badge: options.source === "voice",
+    is_song_seed_title_user_edited: Boolean(options.isSongSeedTitleUserEdited),
+    source_run_id: String(options.runId || "").trim()
   });
   void refreshWorkSurfaces();
   if (!authState.user) return localRecord;
@@ -4426,17 +4327,31 @@ async function createMyWorkRecord(title, lines) {
         style,
         work_type: workType,
         structure_role: workType,
+        lyrics_text: Array.isArray(lines) ? lines.join("\n") : "",
         listen_price_cents: pricingDefaults.listenCents,
         buyout_price_cents: pricingDefaults.buyoutCents,
-        lyrics_preview: Array.isArray(lines) ? lines.join("\n").slice(0, 500) : ""
+        lyrics_preview: Array.isArray(lines) ? lines.join("\n").slice(0, 500) : "",
+        source_run_id: micState.jobId || "",
+        compute_units_estimate: economics.computeUnits,
+        compute_cost_cents_estimate: economics.computeCostCents,
+        suggested_listen_price_cents: economics.suggestedListenPriceCents,
+        suggested_buyout_price_cents: economics.suggestedBuyoutPriceCents,
+        cover_image: assetSnapshot.cover_image || currentWorkCoverImage(title, lines),
+        preview_image_url: assetSnapshot.preview_image_url || "",
+        preview_video_url: assetSnapshot.preview_video_url || ""
       });
     }
     if (created?.id) {
+      currentPersistedRootWorkId = created.id;
       upsertLocalWorkRecord({
         ...localRecord,
         work_id: created.id,
-        work_type: created?.work_type || workType
+        work_type: created?.work_type || workType,
+        cover_image: created?.cover_image || localRecord.cover_image,
+        preview_image_url: created?.preview_image_url || localRecord.preview_image_url,
+        preview_video_url: created?.preview_video_url || localRecord.preview_video_url
       });
+      schedulePersistCurrentWorkAssets(created.id);
     }
     void refreshWorkSurfaces();
   } catch {
@@ -4451,50 +4366,6 @@ function centsFromPriceInput(value) {
   const amount = Number.parseFloat(normalized);
   if (!Number.isFinite(amount) || amount < 0) return 0;
   return Math.round(amount * 100);
-}
-
-async function saveWorkPricing(workId, listenInput, buyoutInput, workTypeInput, visibilityInput) {
-  if (!workId || !(listenInput instanceof HTMLInputElement) || !(buyoutInput instanceof HTMLInputElement)) return;
-  const listenPriceCents = centsFromPriceInput(listenInput.value);
-  const buyoutPriceCents = centsFromPriceInput(buyoutInput.value);
-  const workType = workTypeInput instanceof HTMLSelectElement ? normalizeWorkTypeClient(workTypeInput.value) : null;
-  const visibility = visibilityInput instanceof HTMLSelectElement
-    ? (visibilityInput.value === "private" ? "private" : "public")
-    : "public";
-  if (listenPriceCents <= 0) {
-    showToast(loginCopy("Listen price must be greater than $0.00.", "试听价格必须大于 $0.00。"));
-    listenInput.focus();
-    return;
-  }
-  try {
-    listenInput.dataset.saving = "true";
-    buyoutInput.dataset.saving = "true";
-    if (visibilityInput instanceof HTMLSelectElement) visibilityInput.dataset.saving = "true";
-    const res = await fetch(`/api/works/${encodeURIComponent(workId)}/pricing`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({
-        listen_price_cents: listenPriceCents,
-        buyout_price_cents: buyoutPriceCents,
-        buyout_enabled: buyoutPriceCents > 0,
-        work_type: workType,
-        visibility
-      })
-    });
-    const payload = await res.json().catch(() => null);
-    if (!res.ok || payload?.ok === false) {
-      throw new Error(payload?.code || `pricing_save_failed:${res.status}`);
-    }
-    await refreshWorkSurfaces();
-    showToast(loginCopy("Pricing updated.", "定价已更新。"));
-  } catch (_err) {
-    showToast(loginCopy("Failed to save pricing.", "保存定价失败。"));
-  } finally {
-    delete listenInput.dataset.saving;
-    delete buyoutInput.dataset.saving;
-    if (visibilityInput instanceof HTMLSelectElement) delete visibilityInput.dataset.saving;
-  }
 }
 
 function openInlineChipEditor(editor) {
@@ -4566,233 +4437,15 @@ function updateComposingText() {
 }
 
 function currentLyricsProgressPercent() {
-  const current = lyricsEl?.textContent?.length || 0;
-  return lyricsTargetLength ? Math.min(100, (current / lyricsTargetLength) * 100) : 0;
+  return readWatchUiModule("currentLyricsProgressPercentModule", 0);
 }
 
 function syncWatchEngineGrid() {
-  if (!watchEngineGrid) return;
-  clearChildren(watchEngineGrid);
-  const behavior = readPanelBehaviorSettingsLocal();
-  const compactDetail = behavior.watch.engine_detail === "compact";
-  const cards = [
-    {
-      engine: "lyrics",
-      title: loginCopy("Lyrics Engine", "歌词引擎"),
-      progress: currentLyricsProgressPercent(),
-      detail: engineDetailState.lyrics || loginCopy("Waiting", "等待中")
-    },
-    {
-      engine: "music",
-      title: loginCopy("Audio Engine", "音频引擎"),
-      progress: engineProgressState.music,
-      detail: engineDetailState.music || loginCopy("Waiting", "等待中")
-    },
-    {
-      engine: "video",
-      title: loginCopy("Video Engine", "视频引擎"),
-      progress: engineProgressState.video,
-      detail: engineDetailState.video || loginCopy("Waiting", "等待中")
-    },
-    {
-      engine: "kara",
-      title: loginCopy("Karaoke Sync", "卡拉 OK 同步"),
-      progress: engineProgressState.kara,
-      detail: engineDetailState.kara || loginCopy("Waiting", "等待中")
-    }
-  ];
-  cards.forEach((cardInfo) => {
-    const card = document.createElement("div");
-    card.className = "watch-engine-card";
-    const title = document.createElement("div");
-    title.className = "watch-engine-title";
-    title.textContent = cardInfo.title;
-    const progress = document.createElement("div");
-    progress.className = "watch-engine-progress";
-    const fill = document.createElement("span");
-    fill.style.width = `${Math.round(clampPercent(cardInfo.progress || 0))}%`;
-    progress.appendChild(fill);
-    const detail = document.createElement("div");
-    detail.className = "watch-engine-detail";
-    detail.textContent = cardInfo.detail;
-    if (compactDetail) detail.hidden = true;
-    card.appendChild(title);
-    card.appendChild(progress);
-    card.appendChild(detail);
-    watchEngineGrid.appendChild(card);
-  });
+  callWatchUiModule("syncWatchEngineGridModule");
 }
 
 function renderWatchKaraokeOverlay(progress = 0) {
-  if (!watchKaraokeLine) return;
-  const lines = compactLyricLines(state.lines || []).filter(Boolean);
-  if (!lines.length) {
-    watchKaraokeLine.innerHTML = "";
-    return;
-  }
-  const normalizedProgress = clampPercent(progress);
-  const currentIndex = Math.min(lines.length - 1, Math.floor((normalizedProgress / 100) * lines.length));
-  const prev = lines[Math.max(0, currentIndex - 1)] || "";
-  const current = lines[currentIndex] || lines[0] || "";
-  const next = lines[Math.min(lines.length - 1, currentIndex + 1)] || "";
-  watchKaraokeLine.innerHTML = `
-    ${prev && prev !== current ? `<div class="watch-karaoke-prev">${escapeHtml(prev)}</div>` : ""}
-    <div class="watch-karaoke-current ${normalizedProgress > 0 ? "is-active" : ""}">${escapeHtml(current)}</div>
-    ${next && next !== current ? `<div class="watch-karaoke-next">${escapeHtml(next)}</div>` : ""}
-  `;
-}
-
-function renderLanguageButtons(container) {
-  if (!container) return;
-  container.innerHTML = "";
-  LANGS.forEach((lang) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "lang-card";
-    button.dataset.lang = lang.code;
-    const label = t(lang.nameKey);
-    button.innerHTML = `
-      <span class="lang-flag">${lang.flag}</span>
-      <span class="lang-name">${label}</span>
-    `;
-    if (!lang.enabled) button.classList.add("lang-pending");
-    button.addEventListener("click", () => setLocale(lang.code));
-    container.appendChild(button);
-  });
-}
-
-function renderProfilePanel() {
-  if (!profileGrid) return;
-  let summary = profileGrid.querySelector(".profile-account");
-  if (!summary) {
-    summary = document.createElement("div");
-    summary.className = "profile-account";
-    profileGrid.insertBefore(summary, profileGrid.firstChild);
-  }
-
-  if (authState.user) {
-    const displayName = authState.user.name || authState.user.email || authState.user.id || "User";
-    const providerId = authState.loginProvider || "";
-    const providerLabel = providerId ? getPlatformLabel(providerId) : loginCopy("Unknown", "未知");
-    const linkedList = Array.from(new Set(authState.linkedProviders || [])).filter((id) => id !== "passkey");
-    const linkedText = linkedList.length
-      ? linkedList.map((id) => getPlatformLabel(id)).join(" · ")
-      : t("profile.noLinkedProviders");
-    const commerce = watchCommerceState.payload || null;
-    const latestWork = commerce?.ownership?.works?.[0] || null;
-    const latestLedger = Array.isArray(commerce?.ledger_entries) ? commerce.ledger_entries[0] : null;
-    const avatarUrl = readProfileAvatarOverride() || authState.user.avatar || "";
-    summary.innerHTML = `
-      <div class="profile-account-shell">
-        <div class="profile-avatar-wrap">
-          ${avatarUrl ? `<img class="profile-avatar-image" src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(displayName)}" />` : `<div class="profile-avatar-fallback">${escapeHtml(displayName.slice(0, 2).toUpperCase())}</div>`}
-          <label class="cta tiny profile-avatar-cta">
-            ${t("profile.changeAvatar")}
-            <input id="profile-avatar-input" type="file" accept="image/*" hidden />
-          </label>
-        </div>
-        <div class="profile-account-main">
-          <div class="profile-account-title">${t("profile.accountTitle")}</div>
-          <div class="profile-account-name">${escapeHtml(displayName)}</div>
-          <div class="profile-account-meta">${t("profile.signedInAs")} ${escapeHtml(providerLabel)}</div>
-          <div class="profile-account-meta">${t("profile.connectedProviders")} ${escapeHtml(linkedText)}</div>
-          <div class="profile-account-meta">${t("profile.accountRole")} ${escapeHtml(String(authState.role || DEFAULT_ROLE))}</div>
-          <div class="profile-account-latest">
-            <div class="profile-mini-card">
-              <div class="profile-mini-label">${t("profile.latestWork")}</div>
-              <div class="profile-mini-value">${escapeHtml(String(latestWork?.title || t("profile.latestNone")))}</div>
-              <button class="mini-btn ghost" type="button" data-profile-nav="works">${t("profile.moreWorks")}</button>
-            </div>
-            <div class="profile-mini-card">
-              <div class="profile-mini-label">${t("profile.latestRevenue")}</div>
-              <div class="profile-mini-value">${escapeHtml(latestLedger ? `${formatUsdFromCents(latestLedger?.amount_cents, "$0.00")} · ${String(latestLedger?.note || latestLedger?.kind || "entry")}` : t("profile.latestNone"))}</div>
-              <button class="mini-btn ghost" type="button" data-profile-nav="api">${t("profile.moreRevenue")}</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-    summary.querySelectorAll("[data-profile-nav]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const target = button.getAttribute("data-profile-nav");
-        if (target === "works") openPanel(worksPanel);
-        if (target === "api") openPanel(apiPanel);
-      });
-    });
-    const avatarInput = summary.querySelector("#profile-avatar-input");
-    avatarInput?.addEventListener("change", () => {
-      const file = avatarInput.files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        writeProfileAvatarOverride(String(reader.result || ""));
-        renderProfilePanel();
-      };
-      reader.readAsDataURL(file);
-    });
-    const passkeyEnableBtn = document.getElementById("passkey-enable");
-    const passkeyLoginBtn = document.getElementById("passkey-login");
-    const passkeyReady = authState.linkedProviders.includes("passkey");
-    if (passkeyEnableBtn) {
-      passkeyEnableBtn.textContent = passkeyReady ? t("profile.passkeyLogin") : t("profile.passkeyEnable");
-      passkeyEnableBtn.setAttribute("data-action", passkeyReady ? "passkey.login" : "passkey.enable");
-    }
-    if (passkeyLoginBtn) passkeyLoginBtn.style.display = "none";
-    if (!watchCommerceState.loaded && !watchCommerceState.loading) {
-      void loadWatchCommerce().then(() => renderProfilePanel());
-    }
-  } else {
-    summary.innerHTML = `
-      <div class="profile-account-title">${t("profile.accountTitle")}</div>
-      <div class="profile-account-meta">${t("profile.guestHint")}</div>
-    `;
-    const passkeyLoginBtn = document.getElementById("passkey-login");
-    const passkeyEnableBtn = document.getElementById("passkey-enable");
-    if (passkeyEnableBtn) {
-      passkeyEnableBtn.textContent = t("profile.passkeyEnable");
-      passkeyEnableBtn.setAttribute("data-action", "passkey.enable");
-    }
-    if (passkeyLoginBtn) passkeyLoginBtn.style.display = "";
-  }
-}
-
-function renderVersionActions() {
-  if (!versionActions) return;
-  if (authState.user) {
-    const displayName = authState.user.name || authState.user.email || authState.user.id || "User";
-    versionActions.innerHTML = `
-      <div class="version-session">
-        <div class="version-session-label">${t("versions.loggedInAs")}</div>
-        <div class="version-session-value">${escapeHtml(displayName)}</div>
-      </div>
-      <button class="cta tiny" type="button" data-action="profile.open">${t("versions.openProfile")}</button>
-    `;
-    return;
-  }
-  versionActions.innerHTML = `
-    <button class="cta tiny" type="button" data-action="passkey.login" data-i18n="action.passkeyLogin">
-      ${t("action.passkeyLogin")}
-    </button>
-  `;
-}
-
-function updateLanguageSelection() {
-  document.querySelectorAll(".lang-card").forEach((card) => {
-    card.classList.toggle("active", card.dataset.lang === currentLocale);
-  });
-}
-
-function updateLanguageStatus(textKey) {
-  if (!languageStatus) return;
-  languageStatus.textContent = t(textKey);
-}
-
-function updateLanguageCurrent() {
-  if (!languageCurrent) return;
-  const current = LANGS.find((lang) => lang.code === currentLocale);
-  if (current) {
-    languageCurrent.textContent = `${current.flag} ${t(current.nameKey)} · ${current.code}`;
-  }
+  callWatchUiModule("renderWatchKaraokeOverlayModule", progress);
 }
 
 function setLocale(locale) {
@@ -4803,7 +4456,7 @@ function setLocale(locale) {
   localStorage.setItem(LOCALE_KEY, locale);
   document.documentElement.lang = locale;
   clearTimeout(languageTimer);
-  updateLanguageStatus("language.generating");
+  globalThis.updateLanguageStatusModule?.("language.generating");
   const delay = locale === DEFAULT_LOCALE ? 0 : 420;
   languageTimer = setTimeout(async () => {
     if (window.CSSOS_I18N?.ensureGeneratedLocale) {
@@ -4811,155 +4464,18 @@ function setLocale(locale) {
     }
     applyI18n();
     updateComposingText();
-    renderLoginPlatforms();
+    globalThis.renderLoginPlatforms?.();
     updateLoginUI();
-    renderProfilePanel();
-    renderVersionActions();
-    loadVersions();
-    updateLanguageStatus("language.ready");
-    updateLanguageSelection();
-    updateLanguageCurrent();
-    updateLanguagePendingBanner();
-    updateLanguageSettingsLabels();
+    refreshProfilePanelsAndVersionSurface();
+    globalThis.updateLanguageStatusModule?.("language.ready");
+    globalThis.updateLanguageSelectionModule?.();
+    globalThis.updateLanguageCurrentModule?.();
+    globalThis.updateLanguagePendingBannerModule?.();
+    globalThis.updateLanguageSettingsLabelsModule?.();
     syncForyouActionButtons();
   }, delay);
 }
 
-function updateLanguagePendingBanner() {
-  if (!languagePanel) return;
-  const banner = languagePanel.querySelector(".language-banner");
-  if (!banner) return;
-  const lang = LANGS.find((item) => item.code === currentLocale);
-  if (!lang || lang.enabled) {
-    banner.textContent = "";
-    banner.classList.add("is-hidden");
-    return;
-  }
-  banner.textContent = t("lang.pending_banner");
-  banner.classList.remove("is-hidden");
-}
-
-function toggleLanguagePanelMode(mode) {
-  if (!languagePanel) return;
-  languagePanelMode = mode || (languagePanelMode === "content" ? "settings" : "content");
-  languagePanel.dataset.mode = languagePanelMode;
-  updateLanguageSettingsLabels();
-}
-
-function updateLanguageSettingsLabels() {
-  if (!languagePanel) return;
-  const settings = languagePanel.querySelector(".language-settings");
-  if (!settings) return;
-  const currentEl = settings.querySelector('[data-setting="current"]');
-  const detectedEl = settings.querySelector('[data-setting="detected"]');
-  if (currentEl) currentEl.textContent = `${t("lang.current")}: ${currentLocale}`;
-  if (detectedEl) detectedEl.textContent = `${t("lang.detected")}: ${detectedCountry || "-"}`;
-}
-
-function buildLanguageSettings() {
-  if (!languagePanel) return;
-  const body = languagePanel.querySelector(".language-body");
-  if (!body || body.querySelector(".language-settings")) return;
-
-  const banner = document.createElement("div");
-  banner.className = "language-banner is-hidden";
-  body.insertBefore(banner, body.firstChild);
-
-  const settings = document.createElement("div");
-  settings.className = "language-settings";
-  settings.innerHTML = `
-    <div class="language-settings-row">
-      <label>
-        <span>${t("lang.autodetect")}</span>
-        <input type="checkbox" data-setting="autodetect" />
-      </label>
-    </div>
-    <div class="language-settings-row" data-setting="current"></div>
-    <div class="language-settings-row" data-setting="detected"></div>
-    <div class="language-settings-row">
-      <button type="button" class="cta ghost" data-setting="reset-lang">${t("lang.reset")}</button>
-    </div>
-  `;
-  body.appendChild(settings);
-
-  const autoToggle = settings.querySelector('[data-setting="autodetect"]');
-  const resetBtn = settings.querySelector('[data-setting="reset-lang"]');
-  if (autoToggle) {
-    autoToggle.checked = localStorage.getItem(LANG_AUTODETECT_KEY) !== "off";
-    autoToggle.addEventListener("change", () => {
-      localStorage.setItem(LANG_AUTODETECT_KEY, autoToggle.checked ? "on" : "off");
-    });
-  }
-  if (resetBtn) {
-    resetBtn.addEventListener("click", () => {
-      setLocale(DEFAULT_LOCALE);
-      updateLanguagePendingBanner();
-    });
-  }
-  updateLanguageSettingsLabels();
-}
-
-function mapCountryToLang(code) {
-  const cc = String(code || "").toUpperCase();
-  if (cc === "CN" || cc === "HK" || cc === "TW") return "zh";
-  if (cc === "JP") return "ja";
-  if (cc === "KR") return "ko";
-  if (cc === "ES") return "es";
-  if (cc === "FR") return "fr";
-  if (cc === "DE") return "de";
-  if (cc === "PT" || cc === "BR") return "pt";
-  if (cc === "RU") return "ru";
-  if (cc === "SA" || cc === "AE" || cc === "EG") return "ar";
-  return "en";
-}
-
-function initLanguageAutoDetect() {
-  const stored = localStorage.getItem(LANG_STORAGE_KEY);
-  const autoDetect = localStorage.getItem(LANG_AUTODETECT_KEY) !== "off";
-  if (stored || !autoDetect) return;
-  fetch("https://ipapi.co/json/")
-    .then((res) => (res.ok ? res.json() : null))
-    .then((data) => {
-      if (!data || localStorage.getItem(LANG_STORAGE_KEY)) return;
-      const country = data.country || data.country_code;
-      if (country) {
-        detectedCountry = country;
-        localStorage.setItem(LANG_DETECTED_KEY, country);
-      }
-      const lang = mapCountryToLang(country);
-      if (lang) setLocale(lang);
-    })
-    .catch(() => {});
-}
-
-function initLanguagePanel() {
-  renderLanguageButtons(languageList);
-  if (languageListMore) languageListMore.classList.add("is-hidden");
-  updateLanguageSelection();
-  updateLanguageCurrent();
-  if (languageMoreButton && languageListMore) {
-    languageMoreButton.style.display = "none";
-  }
-  if (currentLocale && I18N[currentLocale]) {
-    document.documentElement.lang = currentLocale;
-    Promise.resolve(window.CSSOS_I18N?.ensureGeneratedLocale?.(currentLocale))
-      .catch(() => null)
-      .finally(() => {
-        applyI18n();
-        updateComposingText();
-        renderLoginPlatforms();
-        renderProfilePanel();
-        renderVersionActions();
-      });
-  } else {
-    setLocale(DEFAULT_LOCALE);
-  }
-  updateLanguageStatus("language.ready");
-  buildLanguageSettings();
-  updateLanguagePendingBanner();
-  if (languagePanel) languagePanel.dataset.mode = "content";
-  initLanguageAutoDetect();
-}
 const DEFAULT_SPELL = "CSS";
 
 const LOCAL_FALLBACK_MP4 =
@@ -4987,11 +4503,17 @@ const MIRROR_SPELLCAST_CLASSNAMES = [
   "lyric-spellcast--oracle"
 ];
 const PANEL_SETTINGS_DEFAULTS_KEY = "cssos.panelSettingsDefaults";
+const PANEL_LAYOUT_STATE_KEY = "cssos.panelLayoutState";
 
 let inactivityTimer;
 let autoEnjoyTimer;
 let autoEnjoyArmed = false;
-let foryouStatusHideTimer = null;
+const engineProgressHideTimers = {
+  lyrics: null,
+  music: null,
+  video: null,
+  kara: null
+};
 let foryouCompletionHoldTimer = null;
 const MARKET_WATCH_PREVIEW_LIMIT_SEC = 30;
 const PANEL_BEHAVIOR_SETTINGS_KEY = "cssos.panelBehaviorSettings";
@@ -5007,17 +4529,6 @@ let DOCK_POSITION = "bottom";
 const MIN_EFFECTIVE_PREVIEW_DURATION_SEC = 5;
 const MIN_EFFECTIVE_PREVIEW_FRAME_LUMA = 22;
 let lastRequestedVideoDurationSec = 0;
-let currentPreviewVideoDurationSec = 0;
-let currentPreviewVideoIsLocalFallback = false;
-let currentPreviewVideoSourceKind = "none";
-let currentPreviewVideoHasUsableFrame = false;
-let currentPreviewFrameDataUrl = "";
-let currentPreviewFrameSequence = [];
-let currentPreviewMotionClipUrl = "";
-let currentForyouThumbFallbackDataUrl = "";
-const watchFrameCache = new Map();
-const watchFrameSequenceCache = new Map();
-let watchFrameLoopTimer = null;
 let typingTimer;
 let progressTimer;
 let pipelineStatusTimer = null;
@@ -5026,6 +4537,7 @@ let topZ = 10;
 let lyricSpellcastDepth = 0;
 let lyricSpellcastColorTimer = null;
 let lastTrailTime = 0;
+let micForcedMirrorAnimationMode = "";
 
 function getStoredMirrorAnimationMode() {
   try {
@@ -5119,6 +4631,9 @@ function getDefaultMirrorAnimationModeForWorkType(workType) {
 }
 
 function resolveMirrorAnimationMode() {
+  if (micForcedMirrorAnimationMode && Object.values(MIRROR_ANIMATION_MODES).includes(micForcedMirrorAnimationMode)) {
+    return micForcedMirrorAnimationMode;
+  }
   const strategy = getStoredMirrorAnimationStrategy();
   if (strategy === MIRROR_ANIMATION_STRATEGIES.RANDOM) {
     const variants = Object.values(MIRROR_ANIMATION_MODES);
@@ -5182,6 +4697,96 @@ function savePanelDefaultSnapshot(panelId, snapshot) {
   writePanelDefaultStore(store);
 }
 
+function readLogoRingPresets() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LOGO_RING_PRESETS_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.filter((item) => item && typeof item === "object") : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLogoRingPresets(items) {
+  try {
+    localStorage.setItem(LOGO_RING_PRESETS_KEY, JSON.stringify(Array.isArray(items) ? items.slice(0, 8) : []));
+  } catch {
+    // ignore
+  }
+}
+
+function readPanelLayoutStore() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PANEL_LAYOUT_STATE_KEY) || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writePanelLayoutStore(store) {
+  try {
+    localStorage.setItem(PANEL_LAYOUT_STATE_KEY, JSON.stringify(store || {}));
+  } catch {
+    // ignore
+  }
+}
+
+function getStoredPanelLayout(panelId) {
+  const store = readPanelLayoutStore();
+  const snapshot = store?.[panelId];
+  return snapshot && typeof snapshot === "object" ? snapshot : null;
+}
+
+function saveStoredPanelLayout(panelId, snapshot) {
+  if (!panelId || !snapshot || typeof snapshot !== "object") return;
+  const store = readPanelLayoutStore();
+  store[panelId] = snapshot;
+  writePanelLayoutStore(store);
+}
+
+function clearStoredPanelLayout(panelId) {
+  if (!panelId) return;
+  const store = readPanelLayoutStore();
+  if (!(panelId in store)) return;
+  delete store[panelId];
+  writePanelLayoutStore(store);
+}
+
+function persistPanelLayout(panel) {
+  if (!panel || !panel.id || panel.id === "logo-panel") return;
+  const rect = panel.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  saveStoredPanelLayout(panel.id, {
+    width: Math.round(rect.width),
+    height: Math.round(rect.height),
+    left: Math.round(rect.left),
+    top: Math.round(rect.top)
+  });
+}
+
+function applyStoredPanelLayout(panel, layout = null) {
+  if (!panel || panel.id === "logo-panel") return false;
+  const snapshot = layout || getStoredPanelLayout(panel.id);
+  if (!snapshot || typeof snapshot !== "object") return false;
+  const clamped = clampPanelSizeValue(panel, snapshot.width || panel.dataset.panelWidth || 0, snapshot.height || panel.dataset.panelHeight || 0);
+  const width = clamped.width;
+  const height = clamped.height;
+  const left = Number(snapshot.left || 0);
+  const top = Number(snapshot.top || 0);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || !Number.isFinite(left) || !Number.isFinite(top)) {
+    return false;
+  }
+  panel.dataset.panelWidth = String(width);
+  panel.dataset.panelHeight = String(height);
+  panel.style.width = `${width}px`;
+  panel.style.height = `${height}px`;
+  setPanelPosition(panel, left, top);
+  panel.dataset.userMoved = "true";
+  panel.dataset.positioned = "true";
+  panel.classList.remove("showcase-panel");
+  return true;
+}
+
 function panelDefaultsApiKey(panelOrId) {
   const id = typeof panelOrId === "string" ? panelOrId : panelOrId?.id;
   const normalized = String(id || "").trim().toLowerCase();
@@ -5192,7 +4797,17 @@ function panelDefaultsApiKey(panelOrId) {
     "watch-panel": "watch",
     "lyrics-panel": "lyrics",
     "music-panel": "music",
-    "video-panel": "video"
+    "video-panel": "video",
+    "about-panel": "about",
+    "api-panel": "api",
+    "delivery-reports-panel": "delivery_reports",
+    "delivery-ops-panel": "delivery_ops",
+    "cssmv-panel": "cssmv",
+    "language-panel": "language",
+    "login-panel": "login",
+    "profile-panel": "profile",
+    "works-panel": "works",
+    "seller-panel": "seller"
   };
   return map[normalized] || "";
 }
@@ -5204,7 +4819,17 @@ function panelElementByDefaultKey(panelKey) {
     watch: watchPanel,
     lyrics: lyricsPanel,
     music: musicPanel,
-    video: videoPanel
+    video: videoPanel,
+    about: aboutPanel,
+    api: apiPanel,
+    delivery_reports: deliveryReportsPanel,
+    delivery_ops: deliveryOpsPanel,
+    cssmv: cssmvPanel,
+    language: languagePanel,
+    login: loginPanel,
+    profile: profilePanel,
+    works: worksPanel,
+    seller: sellerPanel
   };
   return map[String(panelKey || "").trim().toLowerCase()] || null;
 }
@@ -5217,6 +4842,11 @@ function defaultPanelBehaviorSettings() {
       slogan_template: "Just say <span class=\"spell\">{spell}</span>, witness the miracle!",
       mirror_size_px: 600,
       mask_inset_percent: 12,
+      spellcast_ring_scale: 1,
+      spellcast_glow_scale: 0.18,
+      spellcast_layer: "behind",
+      hold_ring_scale: 1,
+      hold_ring_layer: "behind",
       media: {
         image_1: "assets/mirror-1.webp",
         image_2: "assets/mirror-2.webp",
@@ -5236,21 +4866,116 @@ function defaultPanelBehaviorSettings() {
       docking_enabled: true,
       dock_position: "bottom"
     },
+    background: {
+      mode: "aurora",
+      intensity: 0.48,
+      motion: 0.24
+    },
     mic: {
       longpress_ms: 600,
-      max_hold_sec: 30
+      max_hold_sec: 30,
+      logo_surface_mode: "showcase",
+      dock_surface_mode: "showcase",
+      settings_surface_mode: "showcase"
+    },
+    cssmv: {
+      default_section: "digest",
+      auto_refresh: true
+    },
+    language: {
+      default_mode: "content",
+      show_more: false
+    },
+    login: {
+      panel_density: "full",
+      preferred_provider: "google",
+      show_logout: true,
+      session_days: 90
+    },
+    profile: {
+      panel_density: "full",
+      note: "",
+      default_nav: "works"
+    },
+    works: {
+      focus_section: "works",
+      auto_load: true,
+      search_enabled: true,
+      search_limit: 12,
+      default_sort: "newest",
+      default_filter: "all"
+    },
+    seller: {
+      focus_lane: "orders",
+      auto_refresh: true,
+      order_filter: "all",
+      ledger_limit: 12
+    },
+    about: {
+      default_tab: "whitepaper",
+      density: "relaxed"
+    },
+    api: {
+      billing_mode: "full",
+      payment_method: "card",
+      auto_recharge: true
+    },
+    membership: {
+      starter_monthly_limit: 30,
+      pro_monthly_limit: 100,
+      studio_monthly_limit: 300,
+      enterprise_monthly_limit: 0,
+      vip_admin_only: true
+    },
+    creator_boost: {
+      enabled_kinds: ["language", "voice", "thumbnail", "preview_video"],
+      language_unit_cents: 300,
+      voice_unit_cents: 500,
+      thumbnail_unit_cents: 79,
+      preview_video_unit_cents: 249,
+      admin_only_purchase_override: false,
+      studio_includes_extra_languages: 2,
+      enterprise_includes_extra_languages: 4,
+      studio_includes_extra_voices: 2,
+      enterprise_includes_extra_voices: 4
+    },
+    billing_actions: {
+      lyrics_generate_cents: 20,
+      music_generate_cents: 40,
+      video_generate_cents: 60,
+      enterprise_route_cents: 5,
+      cinema_booking_cents: 0,
+      included_membership_covers_core: true
+    },
+    studio_enterprise: {
+      team_collaboration_enabled: false,
+      max_team_members: 5,
+      multi_project_enabled: true,
+      max_projects: 12,
+      enterprise_api_enabled: false,
+      enterprise_api_rate_limit_per_minute: 600
+    },
+    commerce: {
+      payout_hold_days: 14,
+      payout_sweep_ms: 60 * 60 * 1000,
+      min_tip_cents: 100
     },
     foryou: {
       preview_mode: FORYOU_PREVIEW_MODES.AUTO,
       compact_after_lyrics: true,
       hold_ms: 10000,
-      auto_watch_ms: 10000
+      auto_watch_ms: 10000,
+      search_enabled: true,
+      market_limit: 12,
+      default_sort: "newest",
+      default_filter: "all"
     },
     watch: {
       default_tab: "mv",
       preview_limit_sec: 30,
       subtitle_scale: 1,
-      engine_detail: "full"
+      engine_detail: "full",
+      flash_ring_scale: 0.94
     },
     lyrics: {
       typewriter_speed: 18,
@@ -5264,6 +4989,18 @@ function defaultPanelBehaviorSettings() {
     video: {
       storyboard_frames: 8,
       camera_slots: 4
+    },
+    delivery_reports: {
+      default_kind: "briefing_pack",
+      preview_expanded: false,
+      focus_section: "overview",
+      density: "full"
+    },
+    delivery_ops: {
+      recovery_limit: 8,
+      focus_lane: "overview",
+      alert_density: "full",
+      auto_refresh: true
     }
   };
 }
@@ -5278,6 +5015,15 @@ function sanitizePanelBehaviorSettings(value = {}) {
       slogan_template: String(source?.logo?.slogan_template || base.logo.slogan_template).slice(0, 240) || base.logo.slogan_template,
       mirror_size_px: Math.max(420, Math.min(880, Number(source?.logo?.mirror_size_px ?? base.logo.mirror_size_px) || 600)),
       mask_inset_percent: Math.max(0, Math.min(28, Number(source?.logo?.mask_inset_percent ?? base.logo.mask_inset_percent) || 12)),
+      spellcast_ring_scale: Math.max(0.82, Math.min(1.12, Number(source?.logo?.spellcast_ring_scale ?? base.logo.spellcast_ring_scale) || 1)),
+      spellcast_glow_scale: Math.max(0, Math.min(1, Number(source?.logo?.spellcast_glow_scale ?? base.logo.spellcast_glow_scale) || 0.18)),
+      spellcast_layer: ["behind", "front"].includes(String(source?.logo?.spellcast_layer || ""))
+        ? String(source.logo.spellcast_layer)
+        : base.logo.spellcast_layer,
+      hold_ring_scale: Math.max(0.82, Math.min(1.12, Number(source?.logo?.hold_ring_scale ?? base.logo.hold_ring_scale) || 1)),
+      hold_ring_layer: ["behind", "front"].includes(String(source?.logo?.hold_ring_layer || ""))
+        ? String(source.logo.hold_ring_layer)
+        : base.logo.hold_ring_layer,
       media: {
         image_1: String(source?.logo?.media?.image_1 || base.logo.media.image_1 || "assets/mirror-1.webp").slice(0, 512),
         image_2: String(source?.logo?.media?.image_2 || base.logo.media.image_2 || "assets/mirror-2.webp").slice(0, 512),
@@ -5309,11 +5055,146 @@ function sanitizePanelBehaviorSettings(value = {}) {
         ? String(source.dock.dock_position)
         : base.dock.dock_position
     },
+    background: {
+      mode: ["aurora", "ribbon", "watercolor", "ink"].includes(String(source?.background?.mode || ""))
+        ? String(source.background.mode)
+        : base.background.mode,
+      intensity: Math.max(0, Math.min(1, Number(source?.background?.intensity ?? base.background.intensity) || base.background.intensity)),
+      motion: Math.max(0, Math.min(1, Number(source?.background?.motion ?? base.background.motion) || base.background.motion))
+    },
     mic: {
       longpress_ms: Math.max(250, Math.min(3000, Number(source?.mic?.longpress_ms ?? base.mic.longpress_ms) || 600)),
       max_hold_sec: [3, 5, 10, 15, 30].includes(Number(source?.mic?.max_hold_sec))
         ? Number(source.mic.max_hold_sec)
-        : base.mic.max_hold_sec
+        : base.mic.max_hold_sec,
+      logo_surface_mode: ["showcase", "mv_only"].includes(String(source?.mic?.logo_surface_mode || ""))
+        ? String(source.mic.logo_surface_mode)
+        : base.mic.logo_surface_mode,
+      dock_surface_mode: ["showcase", "mv_only"].includes(String(source?.mic?.dock_surface_mode || ""))
+        ? String(source.mic.dock_surface_mode)
+        : base.mic.dock_surface_mode,
+      settings_surface_mode: ["showcase", "mv_only"].includes(String(source?.mic?.settings_surface_mode || ""))
+        ? String(source.mic.settings_surface_mode)
+        : base.mic.settings_surface_mode
+    },
+    cssmv: {
+      default_section: ["digest", "governance", "timeline"].includes(String(source?.cssmv?.default_section || ""))
+        ? String(source.cssmv.default_section)
+        : base.cssmv.default_section,
+      auto_refresh: source?.cssmv?.auto_refresh !== false
+    },
+    language: {
+      default_mode: ["content", "settings"].includes(String(source?.language?.default_mode || ""))
+        ? String(source.language.default_mode)
+        : base.language.default_mode,
+      show_more: !!source?.language?.show_more
+    },
+    login: {
+      panel_density: ["compact", "full"].includes(String(source?.login?.panel_density || ""))
+        ? String(source.login.panel_density)
+        : base.login.panel_density,
+      preferred_provider: ["google", "github", "x", "bsky", "passkey"].includes(String(source?.login?.preferred_provider || ""))
+        ? String(source.login.preferred_provider)
+        : base.login.preferred_provider,
+      show_logout: source?.login?.show_logout !== false,
+      session_days: [30, 90, 180, 365].includes(Number(source?.login?.session_days))
+        ? Number(source.login.session_days)
+        : base.login.session_days
+    },
+    profile: {
+      panel_density: ["compact", "full"].includes(String(source?.profile?.panel_density || ""))
+        ? String(source.profile.panel_density)
+        : base.profile.panel_density,
+      note: String(source?.profile?.note || "").slice(0, 120),
+      default_nav: ["works", "api"].includes(String(source?.profile?.default_nav || ""))
+        ? String(source.profile.default_nav)
+        : base.profile.default_nav
+    },
+    works: {
+      focus_section: ["works", "comments", "monetization"].includes(String(source?.works?.focus_section || ""))
+        ? String(source.works.focus_section)
+        : base.works.focus_section,
+      auto_load: source?.works?.auto_load !== false,
+      search_enabled: source?.works?.search_enabled !== false,
+      search_limit: Math.max(4, Math.min(48, Number(source?.works?.search_limit ?? base.works.search_limit) || 12)),
+      default_sort: ["newest", "oldest", "title", "type"].includes(String(source?.works?.default_sort || ""))
+        ? String(source.works.default_sort)
+        : base.works.default_sort,
+      default_filter: ["all", "single", "triptych", "opera", "live", "hidden"].includes(String(source?.works?.default_filter || ""))
+        ? String(source.works.default_filter)
+        : base.works.default_filter
+    },
+    seller: {
+      focus_lane: ["orders", "income"].includes(String(source?.seller?.focus_lane || ""))
+        ? String(source.seller.focus_lane)
+        : base.seller.focus_lane,
+      auto_refresh: source?.seller?.auto_refresh !== false,
+      order_filter: ["all", "paid", "pending"].includes(String(source?.seller?.order_filter || ""))
+        ? String(source.seller.order_filter)
+        : base.seller.order_filter,
+      ledger_limit: Math.max(4, Math.min(40, Number(source?.seller?.ledger_limit ?? base.seller.ledger_limit) || 12))
+    },
+    about: {
+      default_tab: ["whitepaper", "about", "contact"].includes(String(source?.about?.default_tab || ""))
+        ? String(source.about.default_tab)
+        : base.about.default_tab,
+      density: ["compact", "relaxed"].includes(String(source?.about?.density || ""))
+        ? String(source.about.density)
+        : base.about.density
+    },
+    api: {
+      billing_mode: ["compact", "full"].includes(String(source?.api?.billing_mode || ""))
+        ? String(source.api.billing_mode)
+        : base.api.billing_mode,
+      payment_method: ["card", "bank"].includes(String(source?.api?.payment_method || ""))
+        ? String(source.api.payment_method)
+        : base.api.payment_method,
+      auto_recharge: source?.api?.auto_recharge !== false
+    },
+    membership: {
+      starter_monthly_limit: Math.max(1, Math.min(1000, Number(source?.membership?.starter_monthly_limit ?? base.membership.starter_monthly_limit) || 30)),
+      pro_monthly_limit: Math.max(1, Math.min(5000, Number(source?.membership?.pro_monthly_limit ?? base.membership.pro_monthly_limit) || 100)),
+      studio_monthly_limit: Math.max(1, Math.min(10000, Number(source?.membership?.studio_monthly_limit ?? base.membership.studio_monthly_limit) || 300)),
+      enterprise_monthly_limit: Math.max(0, Math.min(100000, Number(source?.membership?.enterprise_monthly_limit ?? base.membership.enterprise_monthly_limit) || 0)),
+      vip_admin_only: source?.membership?.vip_admin_only !== false
+    },
+    creator_boost: {
+      enabled_kinds: Array.isArray(source?.creator_boost?.enabled_kinds)
+        ? source.creator_boost.enabled_kinds.filter((item) => ["language", "voice", "thumbnail", "preview_video"].includes(String(item || "")))
+        : base.creator_boost.enabled_kinds.slice(),
+      language_unit_cents: Math.max(100, Math.min(100000, Number(source?.creator_boost?.language_unit_cents ?? base.creator_boost.language_unit_cents) || 300)),
+      voice_unit_cents: Math.max(100, Math.min(100000, Number(source?.creator_boost?.voice_unit_cents ?? base.creator_boost.voice_unit_cents) || 500)),
+      thumbnail_unit_cents: Math.max(25, Math.min(100000, Number(source?.creator_boost?.thumbnail_unit_cents ?? base.creator_boost.thumbnail_unit_cents) || 79)),
+      preview_video_unit_cents: Math.max(25, Math.min(100000, Number(source?.creator_boost?.preview_video_unit_cents ?? base.creator_boost.preview_video_unit_cents) || 249)),
+      admin_only_purchase_override: !!source?.creator_boost?.admin_only_purchase_override,
+      studio_includes_extra_languages: Math.max(0, Math.min(10, Number(source?.creator_boost?.studio_includes_extra_languages ?? base.creator_boost.studio_includes_extra_languages) || 2)),
+      enterprise_includes_extra_languages: Math.max(0, Math.min(20, Number(source?.creator_boost?.enterprise_includes_extra_languages ?? base.creator_boost.enterprise_includes_extra_languages) || 4)),
+      studio_includes_extra_voices: Math.max(0, Math.min(10, Number(source?.creator_boost?.studio_includes_extra_voices ?? base.creator_boost.studio_includes_extra_voices) || 2)),
+      enterprise_includes_extra_voices: Math.max(0, Math.min(20, Number(source?.creator_boost?.enterprise_includes_extra_voices ?? base.creator_boost.enterprise_includes_extra_voices) || 4))
+    },
+    billing_actions: {
+      lyrics_generate_cents: Math.max(0, Math.min(100000, Number(source?.billing_actions?.lyrics_generate_cents ?? base.billing_actions.lyrics_generate_cents) || 20)),
+      music_generate_cents: Math.max(0, Math.min(100000, Number(source?.billing_actions?.music_generate_cents ?? base.billing_actions.music_generate_cents) || 40)),
+      video_generate_cents: Math.max(0, Math.min(100000, Number(source?.billing_actions?.video_generate_cents ?? base.billing_actions.video_generate_cents) || 60)),
+      enterprise_route_cents: Math.max(0, Math.min(100000, Number(source?.billing_actions?.enterprise_route_cents ?? base.billing_actions.enterprise_route_cents) || 5)),
+      cinema_booking_cents: Math.max(0, Math.min(100000, Number(source?.billing_actions?.cinema_booking_cents ?? base.billing_actions.cinema_booking_cents) || 0)),
+      included_membership_covers_core: source?.billing_actions?.included_membership_covers_core !== false
+    },
+    studio_enterprise: {
+      team_collaboration_enabled: !!source?.studio_enterprise?.team_collaboration_enabled,
+      max_team_members: Math.max(1, Math.min(500, Number(source?.studio_enterprise?.max_team_members ?? base.studio_enterprise.max_team_members) || 5)),
+      multi_project_enabled: source?.studio_enterprise?.multi_project_enabled !== false,
+      max_projects: Math.max(1, Math.min(1000, Number(source?.studio_enterprise?.max_projects ?? base.studio_enterprise.max_projects) || 12)),
+      enterprise_api_enabled: !!source?.studio_enterprise?.enterprise_api_enabled,
+      enterprise_api_rate_limit_per_minute: Math.max(1, Math.min(100000, Number(source?.studio_enterprise?.enterprise_api_rate_limit_per_minute ?? base.studio_enterprise.enterprise_api_rate_limit_per_minute) || 600))
+    },
+    commerce: {
+      payout_hold_days: Math.max(0, Math.min(90, Number(source?.commerce?.payout_hold_days ?? base.commerce.payout_hold_days) || 14)),
+      payout_sweep_ms: Math.max(
+        60_000,
+        Math.min(24 * 60 * 60 * 1000, Number(source?.commerce?.payout_sweep_ms ?? base.commerce.payout_sweep_ms) || 60 * 60 * 1000)
+      ),
+      min_tip_cents: Math.max(100, Math.min(100_000, Number(source?.commerce?.min_tip_cents ?? base.commerce.min_tip_cents) || 100))
     },
     foryou: {
       preview_mode: Object.values(FORYOU_PREVIEW_MODES).includes(source?.foryou?.preview_mode)
@@ -5321,7 +5202,15 @@ function sanitizePanelBehaviorSettings(value = {}) {
         : base.foryou.preview_mode,
       compact_after_lyrics: source?.foryou?.compact_after_lyrics !== false,
       hold_ms: Math.max(0, Math.min(30000, Number(source?.foryou?.hold_ms ?? base.foryou.hold_ms) || 10000)),
-      auto_watch_ms: Math.max(0, Math.min(30000, Number(source?.foryou?.auto_watch_ms ?? base.foryou.auto_watch_ms) || 10000))
+      auto_watch_ms: Math.max(0, Math.min(30000, Number(source?.foryou?.auto_watch_ms ?? base.foryou.auto_watch_ms) || 10000)),
+      search_enabled: source?.foryou?.search_enabled !== false,
+      market_limit: Math.max(4, Math.min(48, Number(source?.foryou?.market_limit ?? base.foryou.market_limit) || 12)),
+      default_sort: ["newest", "oldest", "title", "listen_low", "listen_high"].includes(String(source?.foryou?.default_sort || ""))
+        ? String(source.foryou.default_sort)
+        : base.foryou.default_sort,
+      default_filter: ["all", "single", "triptych", "opera", "owned", "public"].includes(String(source?.foryou?.default_filter || ""))
+        ? String(source.foryou.default_filter)
+        : base.foryou.default_filter
     },
     watch: {
       default_tab: ["mv", "music", "lyrics", "script", "comments", "revenue", "ownership"].includes(String(source?.watch?.default_tab || ""))
@@ -5329,7 +5218,8 @@ function sanitizePanelBehaviorSettings(value = {}) {
         : base.watch.default_tab,
       preview_limit_sec: Math.max(0, Math.min(180, Number(source?.watch?.preview_limit_sec ?? base.watch.preview_limit_sec) || 30)),
       subtitle_scale: Math.max(0.8, Math.min(1.4, Number(source?.watch?.subtitle_scale ?? base.watch.subtitle_scale) || 1)),
-      engine_detail: ["compact", "full"].includes(String(source?.watch?.engine_detail || "")) ? String(source.watch.engine_detail) : base.watch.engine_detail
+      engine_detail: ["compact", "full"].includes(String(source?.watch?.engine_detail || "")) ? String(source.watch.engine_detail) : base.watch.engine_detail,
+      flash_ring_scale: Math.max(0.84, Math.min(1.08, Number(source?.watch?.flash_ring_scale ?? base.watch.flash_ring_scale) || 0.94))
     },
     lyrics: {
       typewriter_speed: Math.max(8, Math.min(60, Number(source?.lyrics?.typewriter_speed ?? base.lyrics.typewriter_speed) || 18)),
@@ -5343,6 +5233,28 @@ function sanitizePanelBehaviorSettings(value = {}) {
     video: {
       storyboard_frames: Math.max(4, Math.min(16, Number(source?.video?.storyboard_frames ?? base.video.storyboard_frames) || 8)),
       camera_slots: Math.max(2, Math.min(8, Number(source?.video?.camera_slots ?? base.video.camera_slots) || 4))
+    },
+    delivery_reports: {
+      default_kind: DELIVERY_REPORT_KINDS.includes(String(source?.delivery_reports?.default_kind || ""))
+        ? String(source.delivery_reports.default_kind)
+        : base.delivery_reports.default_kind,
+      preview_expanded: !!source?.delivery_reports?.preview_expanded,
+      focus_section: ["overview", "dashboard", "export", "history"].includes(String(source?.delivery_reports?.focus_section || ""))
+        ? String(source.delivery_reports.focus_section)
+        : base.delivery_reports.focus_section,
+      density: ["compact", "full"].includes(String(source?.delivery_reports?.density || ""))
+        ? String(source.delivery_reports.density)
+        : base.delivery_reports.density
+    },
+    delivery_ops: {
+      recovery_limit: Math.max(4, Math.min(20, Number(source?.delivery_ops?.recovery_limit ?? base.delivery_ops.recovery_limit) || 8)),
+      focus_lane: ["overview", "subscriptions", "logs", "recovery", "actions"].includes(String(source?.delivery_ops?.focus_lane || ""))
+        ? String(source.delivery_ops.focus_lane)
+        : base.delivery_ops.focus_lane,
+      alert_density: ["compact", "full"].includes(String(source?.delivery_ops?.alert_density || ""))
+        ? String(source.delivery_ops.alert_density)
+        : base.delivery_ops.alert_density,
+      auto_refresh: source?.delivery_ops?.auto_refresh !== false
     }
   };
 }
@@ -5365,7 +5277,7 @@ function writePanelBehaviorSettingsLocal(settings) {
 
 function updatePanelBehaviorSettings(mutator) {
   const current = readPanelBehaviorSettingsLocal();
-  const draft = sanitizePanelBehaviorSettings(typeof mutator === "function" ? mutator(current) : current);
+  const draft = sanitizePanelBehaviorSettings(mutator(current));
   applyPanelBehaviorSettings(draft);
   void renderAdvancedPanelSettings();
   return draft;
@@ -5388,6 +5300,54 @@ function applyPanelBehaviorSettings(settings) {
   DOCK_LABEL_VISIBLE = next.dock.show_labels;
   DOCK_DOCKING_ENABLED = next.dock.docking_enabled;
   DOCK_POSITION = next.dock.dock_position;
+  document.body.dataset.backgroundMode = next.background.mode;
+  document.documentElement.style.setProperty("--bg-intensity", String(next.background.intensity));
+  document.documentElement.style.setProperty("--bg-motion-scale", String(next.background.motion));
+  if (cssmvPanel) {
+    cssmvPanel.dataset.defaultSection = next.cssmv.default_section;
+    cssmvPanel.dataset.autoRefresh = next.cssmv.auto_refresh ? "true" : "false";
+  }
+  if (languagePanel) {
+    languagePanel.dataset.defaultMode = next.language.default_mode;
+    languagePanel.dataset.showMore = next.language.show_more ? "true" : "false";
+    globalThis.toggleLanguagePanelMode?.(next.language.default_mode);
+    const moreHidden = !next.language.show_more;
+    languageListMore?.classList.toggle("is-hidden", moreHidden);
+  }
+  if (loginPanel) loginPanel.dataset.panelDensity = next.login.panel_density;
+  if (loginPanel) {
+    loginPanel.dataset.preferredProvider = next.login.preferred_provider;
+    loginPanel.dataset.showLogout = next.login.show_logout ? "true" : "false";
+    loginPanel.dataset.sessionDays = String(next.login.session_days);
+  }
+  if (profilePanel) {
+    profilePanel.dataset.panelDensity = next.profile.panel_density;
+    profilePanel.dataset.defaultNav = next.profile.default_nav;
+  }
+  if (worksPanel) {
+    worksPanel.dataset.focusSection = next.works.focus_section;
+    worksPanel.dataset.autoLoad = next.works.auto_load ? "true" : "false";
+    worksPanel.dataset.searchEnabled = next.works.search_enabled ? "true" : "false";
+    worksPanel.dataset.searchLimit = String(next.works.search_limit);
+    worksPanel.dataset.defaultSort = next.works.default_sort;
+    worksPanel.dataset.defaultFilter = next.works.default_filter;
+  }
+  if (sellerPanel) {
+    sellerPanel.dataset.focusLane = next.seller.focus_lane;
+    sellerPanel.dataset.autoRefresh = next.seller.auto_refresh ? "true" : "false";
+    sellerPanel.dataset.orderFilter = next.seller.order_filter;
+    sellerPanel.dataset.ledgerLimit = String(next.seller.ledger_limit);
+  }
+  if (aboutPanel) {
+    aboutPanel.dataset.defaultTab = next.about.default_tab;
+    aboutPanel.dataset.contentDensity = next.about.density;
+    globalThis.activateAboutTabModule?.(next.about.default_tab);
+  }
+  if (apiPanel) {
+    apiPanel.dataset.billingMode = next.api.billing_mode;
+    if (apiPaymentMethod) setSelectValueSafe(apiPaymentMethod, next.api.payment_method);
+    if (apiAutoRecharge) apiAutoRecharge.checked = !!next.api.auto_recharge;
+  }
   setStoredMirrorAnimationStrategy(next.logo.mirror_strategy);
   setStoredMirrorAnimationMode(next.logo.fixed_mode);
   setStoredMirrorAnimationPerType(next.logo.per_type);
@@ -5400,14 +5360,20 @@ function applyPanelBehaviorSettings(settings) {
     logoPanel.style.setProperty("--mirror-size", `${MIRROR_SIZE_PX}px`);
     logoPanel.style.setProperty("--mirror-mask-inset", `${MIRROR_MASK_INSET_PERCENT}%`);
     logoPanel.style.setProperty("--hold-ring-inset", `${Math.max(48, Math.round(MIRROR_SIZE_PX * 0.14))}px`);
+    logoPanel.style.setProperty("--spellcast-ring-scale", String(next.logo.spellcast_ring_scale));
+    logoPanel.style.setProperty("--spellcast-glow-scale", String(next.logo.spellcast_glow_scale));
+    logoPanel.style.setProperty("--spellcast-ring-z", next.logo.spellcast_layer === "front" ? "3" : "0");
+    logoPanel.style.setProperty("--hold-ring-scale", String(next.logo.hold_ring_scale));
+    logoPanel.style.setProperty("--hold-ring-z", next.logo.hold_ring_layer === "front" ? "3" : "0");
     const mirrorA = logoPanel.querySelector(".mirror-img.mirror-a");
     const mirrorB = logoPanel.querySelector(".mirror-img.mirror-b");
     const mirrorVideo = logoPanel.querySelector(".mirror-video");
-    if (mirrorA && next.logo.media.image_1) mirrorA.src = next.logo.media.image_1;
-    if (mirrorB && next.logo.media.image_2) mirrorB.src = next.logo.media.image_2;
+    if (mirrorA && next.logo.media.image_1) mirrorA.src = resolvePublicAssetUrl(next.logo.media.image_1);
+    if (mirrorB && next.logo.media.image_2) mirrorB.src = resolvePublicAssetUrl(next.logo.media.image_2);
     if (mirrorVideo instanceof HTMLVideoElement) {
       if (next.logo.media.video) {
-        if (mirrorVideo.src !== next.logo.media.video) mirrorVideo.src = next.logo.media.video;
+        const resolvedVideoUrl = resolvePublicAssetUrl(next.logo.media.video);
+        if (mirrorVideo.src !== resolvedVideoUrl) mirrorVideo.src = resolvedVideoUrl;
         mirrorVideo.play().catch(() => {});
         logoPanel.classList.add("mirror-video-active");
       } else {
@@ -5421,6 +5387,10 @@ function applyPanelBehaviorSettings(settings) {
   if (foryouPanel) {
     foryouPanel.dataset.previewMode = next.foryou.preview_mode;
     foryouPanel.dataset.compactAfterLyrics = next.foryou.compact_after_lyrics ? "true" : "false";
+    foryouPanel.dataset.searchEnabled = next.foryou.search_enabled ? "true" : "false";
+    foryouPanel.dataset.marketLimit = String(next.foryou.market_limit);
+    foryouPanel.dataset.defaultSort = next.foryou.default_sort;
+    foryouPanel.dataset.defaultFilter = next.foryou.default_filter;
     localStorage.setItem(FORYOU_PREVIEW_MODE_KEY, next.foryou.preview_mode);
   }
   watchActiveTab = next.watch.default_tab;
@@ -5428,6 +5398,7 @@ function applyPanelBehaviorSettings(settings) {
   watchPreviewLimitSec = next.watch.preview_limit_sec;
   if (watchPanel) {
     watchPanel.style.setProperty("--watch-karaoke-scale", String(next.watch.subtitle_scale));
+    watchPanel.style.setProperty("--watch-flash-ring-scale", String(next.watch.flash_ring_scale));
     watchPanel.dataset.engineDetail = next.watch.engine_detail;
   }
   if (lyricsPanel) {
@@ -5436,6 +5407,23 @@ function applyPanelBehaviorSettings(settings) {
   }
   if (musicPanel) musicPanel.dataset.layerCards = String(next.music.layer_cards);
   if (videoPanel) videoPanel.dataset.cameraSlots = String(next.video.camera_slots);
+  if (deliveryReportsPanel) {
+    deliveryReportsPanel.dataset.focusSection = next.delivery_reports.focus_section;
+    deliveryReportsPanel.dataset.reportDensity = next.delivery_reports.density;
+    deliveryReportState.kind = next.delivery_reports.default_kind;
+    deliveryExportState.previewExpanded = !!next.delivery_reports.preview_expanded;
+    renderDeliveryReportTabs();
+    if (deliveryReportState.response) {
+      renderReportHeader(deliveryReportState.response);
+      renderDeliveryReportBody(deliveryReportState.response);
+    }
+  }
+  deliveryOpsState.recoveryLimit = next.delivery_ops.recovery_limit;
+  if (deliveryOpsPanel) {
+    deliveryOpsPanel.dataset.focusLane = next.delivery_ops.focus_lane;
+    deliveryOpsPanel.dataset.alertDensity = next.delivery_ops.alert_density;
+    deliveryOpsPanel.dataset.autoRefresh = next.delivery_ops.auto_refresh ? "true" : "false";
+  }
   if (dock) {
     dock.style.setProperty("--dock-scale", String(DOCK_SCALE));
     dock.classList.toggle("dock-labels-hidden", !DOCK_LABEL_VISIBLE);
@@ -5449,6 +5437,7 @@ function applyPanelBehaviorSettings(settings) {
 async function loadPanelDefaults(panelKey, fallback) {
   try {
     const res = await fetch(`/api/panel-defaults/${encodeURIComponent(panelKey)}`, { credentials: "include" });
+    if (res.status === 404) return fallback;
     const payload = await res.json().catch(() => null);
     const data = getApiData(payload);
     return data?.defaults || fallback;
@@ -5467,6 +5456,9 @@ async function savePanelDefaults(panelKey, defaults, trigger = null) {
       credentials: "include",
       body: JSON.stringify({ defaults })
     });
+    if (res.status === 404) {
+      return defaults;
+    }
     const payload = await res.json().catch(() => null);
     const data = getApiData(payload);
     if (!res.ok || payload?.ok === false) {
@@ -5502,7 +5494,7 @@ async function hydrateBehaviorDefaultsFromServer(force = false) {
 
 async function hydratePanelDefaultsFromServer(force = false) {
   if (!authState.user && !force) return;
-  const targets = ["logo", "foryou", "watch", "lyrics", "music", "video"];
+  const targets = ["logo", "foryou", "watch", "lyrics", "music", "video", "about", "api", "delivery_reports", "delivery_ops", "cssmv", "language", "login", "profile", "works", "seller"];
   for (const panelKey of targets) {
     const panel = panelElementByDefaultKey(panelKey);
     if (!panel) continue;
@@ -5510,9 +5502,7 @@ async function hydratePanelDefaultsFromServer(force = false) {
     const remote = await loadPanelDefaults(panelKey, local);
     const snapshot = remote && typeof remote === "object" ? remote : local;
     savePanelDefaultSnapshot(panel.id, snapshot);
-    if (typeof panel.__applyDefaultSnapshot === "function") {
-      panel.__applyDefaultSnapshot(snapshot);
-    }
+    panel.__applyDefaultSnapshot?.(snapshot);
   }
 }
 
@@ -5551,19 +5541,14 @@ let typingState = { paused: false, canceled: false, completed: false };
 let sceneRows = [];
 let videoJobId = null;
 let videoJobPoll = null;
-let watchVideoUrl = null;
 let ambientTrailTime = 0;
 let ambientTrailPoint = null;
 let lyricsTargetLength = 0;
-let playbackRetry = 0;
-let playbackTimer = null;
-let manualPlayHinted = false;
+let zeroThresholdAutoplayRequested = false;
 let creationLock = false;
 let lastCreationSignature = "";
 let lastCreationStartedAt = 0;
-let watchPreviewLimitSec = 0;
-let watchPreviewLimitReason = "";
-let watchPreviewLimitNoticeShown = false;
+let currentPersistedRootWorkId = "";
 let foryouCompletionCommitted = false;
 let karaCompletionAt = 0;
 let currentForyouHierarchy = [];
@@ -5738,9 +5723,9 @@ const starPalette = [
 ];
 
 const state = {
-  title: lyricBank[0].title,
-  baseLines: lyricBank[0].lines,
-  lines: lyricBank[0].lines,
+  title: "",
+  baseLines: [],
+  lines: [],
   spell: DEFAULT_SPELL,
   style: styleInput ? styleInput.value : "Chinese GuFeng",
   voice: voiceInput ? voiceInput.value : "Feminine",
@@ -5750,15 +5735,11 @@ let songSeedVariationCounter = 0;
 const recentAutoSongSeedTitles = [];
 
 function hasRecentAutoSongSeedTitle(title) {
-  const value = String(title || "").trim();
-  return !!value && recentAutoSongSeedTitles.includes(value);
+  return readSongSeedUiModule("hasRecentAutoSongSeedTitleModule", false, title);
 }
 
 function recordRecentAutoSongSeedTitle(title) {
-  const value = String(title || "").trim();
-  if (!value) return;
-  const next = [value, ...recentAutoSongSeedTitles.filter((item) => item !== value)].slice(0, 16);
-  recentAutoSongSeedTitles.splice(0, recentAutoSongSeedTitles.length, ...next);
+  callSongSeedUiModule("recordRecentAutoSongSeedTitleModule", title);
 }
 
 const creationOptionCatalog = {
@@ -5825,7 +5806,10 @@ const authState = {
   tier: DEFAULT_ROLE,
   linkedProviders: [],
   loginProvider: null,
-  authDiagnostics: null
+  authDiagnostics: null,
+  sessionDays: 90,
+  sessionExpiresAt: null,
+  permissionSnapshot: null
 };
 
 const LOCAL_WORKS_KEY = "cssos.myworks.local";
@@ -5833,7 +5817,15 @@ const WATCH_ACTIVE_TAB_KEY = "cssos.watch.activeTab";
 const PROFILE_AVATAR_OVERRIDE_KEY = "cssos.profile.avatarOverride";
 
 let authProviders = [];
-let watchActiveTab = localStorage.getItem(WATCH_ACTIVE_TAB_KEY) || "mv";
+const LOGIN_REQUIRED_PANEL_IDS = new Set([
+  "delivery-reports-panel",
+  "delivery-ops-panel",
+  "profile-panel",
+  "works-panel",
+  "seller-panel",
+  "cssmv-panel"
+]);
+const GUEST_VISIBLE_DOCK_ACTIONS = new Set(["mic", "foryou", "watch", "about", "api", "login", "language"]);
 
 const getUserRole = () =>
   (
@@ -5864,249 +5856,34 @@ const watchCommerceState = {
   payload: null
 };
 
+const creatorBoostState = {
+  loading: false,
+  loaded: false,
+  error: null,
+  payload: null
+};
+let permissionOverviewFilter = "all";
+let permissionOverviewRequirementFilter = "all";
+let permissionOverviewDomainFilter = "all";
+
 const publicMarketState = {
   loading: false,
   loaded: false,
   error: null,
-  works: []
+  works: [],
+  marketState: null
 };
 
 const DAILY_LIMITS = {
-  guest: 1,
-  user: 10,
+  guest: 0,
+  free: 3,
   starter: 30,
-  pro: Infinity,
+  pro: 100,
+  studio: 300,
+  enterprise: Infinity,
+  vip: Infinity,
   admin: Infinity
 };
-
-function getDailyLimit(role) {
-  return DAILY_LIMITS[role] ?? DAILY_LIMITS.guest;
-}
-
-function getUsageKey() {
-  const id = authState.user?.id || "guest";
-  return `cssos.usage.${id}`;
-}
-
-function getProfileAvatarOverrideKey() {
-  const id = String(authState.user?.email || authState.user?.id || "guest").trim().toLowerCase();
-  return `${PROFILE_AVATAR_OVERRIDE_KEY}.${id}`;
-}
-
-function readProfileAvatarOverride() {
-  if (!authState.user) return "";
-  try {
-    return String(localStorage.getItem(getProfileAvatarOverrideKey()) || "");
-  } catch (_err) {
-    return "";
-  }
-}
-
-function writeProfileAvatarOverride(value) {
-  if (!authState.user) return;
-  try {
-    if (value) {
-      localStorage.setItem(getProfileAvatarOverrideKey(), value);
-    } else {
-      localStorage.removeItem(getProfileAvatarOverrideKey());
-    }
-  } catch (_err) {
-    // ignore
-  }
-}
-
-async function fetchMe() {
-  try {
-    const res = await fetch("/api/me", { credentials: "include" });
-    if (!res.ok) return;
-    const data = await res.json();
-    const meData = data?.data || data || {};
-    authState.user = meData.user || null;
-    authState.loginProvider = meData.auth_provider || null;
-    authState.role = meData.role || DEFAULT_ROLE;
-    authState.tier = meData.tier || authState.role || DEFAULT_ROLE;
-    if (authState.user?.email) {
-      const normalizedEmail = String(authState.user.email).trim().toLowerCase();
-      if (SYSTEM_ADMIN_EMAILS.has(normalizedEmail)) {
-        authState.role = "admin";
-        authState.tier = "admin";
-      }
-    }
-    if (authState.user) {
-      const profileRes = await fetch("/api/profile", { credentials: "include" });
-      if (profileRes.ok) {
-        const profileData = await profileRes.json();
-        const linkedData = profileData?.data || profileData || {};
-        authState.linkedProviders = Array.isArray(linkedData?.linked_auth?.providers)
-          ? linkedData.linked_auth.providers
-          : [];
-      }
-    } else {
-      authState.linkedProviders = [];
-      authState.loginProvider = null;
-    }
-    watchCommerceState.loaded = false;
-    watchCommerceState.loading = false;
-    watchCommerceState.payload = null;
-    watchCommerceState.error = null;
-    updateLoginUI();
-    renderProfilePanel();
-    renderVersionActions();
-    renderLoginPlatforms();
-    renderWorksPanel();
-    renderApiBillingPanel();
-    renderCreationConsole();
-    await hydrateBehaviorDefaultsFromServer(true);
-    await hydratePanelDefaultsFromServer(true);
-    await renderAdvancedPanelSettings();
-    await handleStripeCheckoutReturn();
-    await loadCreationPanelDefaults(true);
-    fetchBillingStatus();
-  } catch (err) {
-    // ignore
-  }
-}
-
-function updateLoginUI() {
-  if (loginStatus) {
-    loginStatus.textContent = authState.user ? t("login.statusSigned") : t("login.statusGuest");
-  }
-  if (loginUser) {
-    if (authState.user) {
-      const label = authState.user.name || authState.user.email || authState.user.id;
-      loginUser.textContent = label || "";
-    } else {
-      loginUser.textContent = "";
-    }
-  }
-  if (loginLogout) {
-    loginLogout.style.display = authState.user ? "inline-flex" : "none";
-  }
-  renderProfilePanel();
-  renderVersionActions();
-}
-
-async function fetchAuthProviders() {
-  try {
-    const res = await fetch("/api/auth/providers", { credentials: "include" });
-    if (!res.ok) return;
-    const data = await res.json();
-    authProviders = Array.isArray(data?.data?.providers)
-      ? data.data.providers
-      : Array.isArray(data?.providers)
-        ? data.providers
-        : [];
-    const diagRes = await fetch("/api/auth/diagnostics?provider=github", { credentials: "include" });
-    if (diagRes.ok) {
-      const diagData = await diagRes.json();
-      authState.authDiagnostics = diagData?.data?.diagnostic || null;
-    }
-    renderLoginPlatforms();
-  } catch (err) {
-    // ignore
-  }
-}
-
-async function unlinkProvider(providerId) {
-  if (!providerId || !authState.user) return;
-  try {
-    const res = await fetch("/api/profile/unlink", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ provider: providerId })
-    });
-    const data = await res.json().catch(() => null);
-    if (!res.ok || data?.ok === false) {
-      const code = data?.code || "";
-      if (code === "CANNOT_UNLINK_LAST_METHOD") {
-        showToast(loginCopy("Keep at least one login method.", "请至少保留一种登录方式。"));
-      } else {
-        showToast(loginCopy("Unlink failed.", "解绑失败。"));
-      }
-      return;
-    }
-    if (authState.loginProvider === providerId) {
-      authState.loginProvider = authState.linkedProviders.find((id) => id !== providerId) || null;
-    }
-    await fetchMe();
-    showToast(loginCopy("Provider unlinked.", "已解绑该平台。"));
-  } catch (_err) {
-    showToast(loginCopy("Unlink failed.", "解绑失败。"));
-  }
-}
-
-function consumeLocalUsage() {
-  if (getUserRole() === "admin") {
-    return true;
-  }
-  const today = new Date().toISOString().slice(0, 10);
-  const raw = localStorage.getItem(getUsageKey());
-  const data = raw ? JSON.parse(raw) : { date: today, count: 0 };
-  if (data.date !== today) {
-    data.date = today;
-    data.count = 0;
-  }
-  const limit = getDailyLimit(getUserRole());
-  if (limit !== Infinity && data.count >= limit) {
-    showToast(t("billing.limitReached") || "Daily limit reached");
-    return false;
-  }
-  data.count += 1;
-  localStorage.setItem(getUsageKey(), JSON.stringify(data));
-  return true;
-}
-
-async function consumeGeneration() {
-  if (getUserRole() === "admin") {
-    billingState.tier = "admin";
-    billingState.remaining = null;
-    billingState.limit = null;
-    return true;
-  }
-  try {
-    const res = await fetch("/api/billing/usage", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({})
-    });
-    if (res.ok) {
-      const raw = await res.json();
-      const data = getApiData(raw);
-      billingState.tier = data.tier || billingState.tier;
-      billingState.remaining = data.remaining;
-      billingState.limit = data.limit;
-      if (data.allowed === false) {
-        showToast(t("billing.limitReached") || "Daily limit reached");
-        return false;
-      }
-      return true;
-    }
-  } catch (err) {
-    // fallback to local counters
-  }
-  return consumeLocalUsage();
-}
-
-async function fetchBillingStatus() {
-  try {
-    const res = await fetch("/api/billing/status", { credentials: "include" });
-    if (res.ok) {
-      const raw = await res.json();
-      const data = getApiData(raw);
-      billingState.tier = data.tier || billingState.tier;
-      billingState.remaining = data.remaining;
-      billingState.limit = data.limit;
-      billingState.balance_cents = data.balance_cents ?? billingState.balance_cents ?? 0;
-      billingState.monthly_limit_cents = data.monthly_limit_cents ?? billingState.monthly_limit_cents ?? 0;
-      billingState.auto_recharge = data.auto_recharge ?? billingState.auto_recharge ?? null;
-      renderApiBillingPanel();
-    }
-  } catch (err) {
-    // ignore
-  }
-}
 
 const panels = [
   logoPanel,
@@ -6148,6 +5925,44 @@ const dockByPanel = {
 };
 const MIN_PANEL_WIDTH = 320;
 const MIN_PANEL_HEIGHT = 240;
+const MAX_PANEL_WIDTH = 1400;
+const MAX_PANEL_HEIGHT = 1000;
+
+function getPanelSizeConstraints(panelOrId) {
+  const id = typeof panelOrId === "string" ? panelOrId : panelOrId?.id;
+  const normalized = String(id || "").trim().toLowerCase();
+  if (normalized === "logo-panel") {
+    return {
+      minWidth: 480,
+      minHeight: 360,
+      maxWidth: 1200,
+      maxHeight: 820
+    };
+  }
+  if (normalized === "watch-panel") {
+    return {
+      minWidth: 420,
+      minHeight: 280,
+      maxWidth: 1600,
+      maxHeight: 1000
+    };
+  }
+  return {
+    minWidth: MIN_PANEL_WIDTH,
+    minHeight: MIN_PANEL_HEIGHT,
+    maxWidth: MAX_PANEL_WIDTH,
+    maxHeight: MAX_PANEL_HEIGHT
+  };
+}
+
+function clampPanelSizeValue(panelOrId, width, height) {
+  const limits = getPanelSizeConstraints(panelOrId);
+  return {
+    width: Math.max(limits.minWidth, Math.min(limits.maxWidth, Number(width) || limits.minWidth)),
+    height: Math.max(limits.minHeight, Math.min(limits.maxHeight, Number(height) || limits.minHeight)),
+    limits
+  };
+}
 
 function showDock() {
   dock.classList.remove("hidden");
@@ -6165,78 +5980,43 @@ function resetInactivityTimer() {
 }
 
 function cancelAutoEnjoy() {
-  autoEnjoyArmed = false;
-  if (autoEnjoyTimer) {
-    clearTimeout(autoEnjoyTimer);
-    autoEnjoyTimer = null;
-  }
+  callWatchUiModule("cancelAutoEnjoyModule");
 }
 
 function setForyouBackgroundImage(uri) {
-  if (!foryouPanel) return;
-  if (!uri) {
-    foryouPanel.classList.remove("has-preview-background");
-    return;
-  }
-  foryouPanel.classList.add("has-preview-background");
+  callWatchUiModule("setForyouBackgroundImageModule", uri);
 }
 
-function setForyouStatusVisible(visible) {
-  if (!foryouStatusGrid) return;
-  clearTimeout(foryouStatusHideTimer);
-  foryouStatusHideTimer = null;
-  if (visible) {
-    foryouStatusGrid.hidden = false;
-    foryouPanel?.classList.add("foryou-generating", "foryou-status-visible");
-    foryouPanel?.classList.remove("foryou-status-fading");
-    return;
-  }
-  foryouPanel?.classList.remove("foryou-generating", "foryou-status-visible");
-  foryouPanel?.classList.add("foryou-status-fading");
-  foryouStatusHideTimer = setTimeout(() => {
-    if (foryouStatusGrid) foryouStatusGrid.hidden = true;
-    foryouPanel?.classList.remove("foryou-status-fading");
-    foryouStatusHideTimer = null;
-  }, 1800);
+function getEngineProgressShell(engine) {
+  return readWatchUiModule("getEngineProgressShellModule", null, engine);
+}
+
+function getEngineProgressBar(engine) {
+  return readWatchUiModule("getEngineProgressBarModule", null, engine);
+}
+
+function getEngineProgressTitle(engine) {
+  return readWatchUiModule("getEngineProgressTitleModule", null, engine);
+}
+
+function setEngineProgressVisible(engine, visible, options = {}) {
+  callWatchUiModule("setEngineProgressVisibleModule", engine, visible, options);
 }
 
 function revealEnginePanel(engine) {
-  if (enginePanelRevealState[engine]) return;
-  const panel =
-    engine === "lyrics"
-      ? lyricsPanel
-      : engine === "music"
-        ? musicPanel
-        : engine === "video"
-          ? videoPanel
-          : watchPanel;
-  if (!panel) return;
-  enginePanelRevealState[engine] = true;
-  if (engine === "kara") {
-    activateWatchTab("mv");
-  }
-  openPanel(panel);
+  callWatchUiModule("revealEnginePanelModule", engine);
 }
 
 function pinLyricsViewportToLiveEdge() {
-  if (!lyricsEl) return;
-  requestAnimationFrame(() => {
-    lyricsEl.scrollTop = lyricsEl.scrollHeight;
-  });
+  callWatchUiModule("pinLyricsViewportToLiveEdgeModule");
 }
 
 function clearForyouStructure() {
-  if (foryouStructure) foryouStructure.innerHTML = "";
-  currentForyouHierarchy = [];
-  currentForyouLeafKey = "";
-  foryouStructureNodeMap = new Map();
-  if (foryouSelection) foryouSelection.hidden = true;
+  callWatchUiModule("clearForyouStructureModule");
 }
 
 function syncForyouActionButtons() {
-  if (watchButton) {
-    watchButton.textContent = loginCopy("Enjoy", "欣赏");
-  }
+  callWatchUiModule("syncForyouActionButtonsModule");
 }
 
 foryouThumbImage?.addEventListener("error", () => {
@@ -6248,1001 +6028,67 @@ foryouThumbVideo?.addEventListener("error", () => {
 });
 
 function armAutoEnjoy(delayMs = 10000) {
-  cancelAutoEnjoy();
-  autoEnjoyArmed = true;
-  autoEnjoyTimer = setTimeout(async () => {
-    if (!autoEnjoyArmed) return;
-    autoEnjoyArmed = false;
-    autoEnjoyTimer = null;
-    const usedCurrent = await ensureCurrentWatchPreviewPlayback();
-    if (usedCurrent) return;
-    const ok = await playLatestVideoFromRegistry();
-    if (!ok) {
-      await playDemoInWatchPanel();
-    }
-  }, Math.max(0, Number(delayMs ?? FORYOU_AUTO_ENJOY_DELAY_MS)));
+  callWatchUiModule("armAutoEnjoyModule", delayMs);
 }
 
 function syncForyouThumbFallback(mode) {
-  if (foryouThumbFallback) {
-    foryouThumbFallback.style.display = mode === "fallback" ? "grid" : "none";
-  }
-  if (foryouThumbVideo) {
-    foryouThumbVideo.style.display = mode === "video" ? "block" : "none";
-  }
-  if (foryouThumbImage) {
-    foryouThumbImage.style.display = mode === "image" ? "block" : "none";
-  }
+  callWatchUiModule("syncForyouThumbFallbackModule", mode);
 }
 
 function getForyouPreviewMode() {
-  const raw = String(
-    foryouPanel?.dataset?.previewMode ||
-      localStorage.getItem(FORYOU_PREVIEW_MODE_KEY) ||
-      FORYOU_PREVIEW_MODES.AUTO
-  ).trim().toLowerCase();
-  if (Object.values(FORYOU_PREVIEW_MODES).includes(raw)) return raw;
-  return FORYOU_PREVIEW_MODES.AUTO;
+  return readWatchUiModule("getForyouPreviewModeModule", FORYOU_PREVIEW_MODES.AUTO);
 }
 
 function buildForyouThumbSvg(title, subtitle, lines = []) {
-  const safeTitle = String(title || "CSS MV").replace(/</g, "&lt;");
-  const safeSubtitle = String(subtitle || "").replace(/</g, "&lt;");
-  const safeLine = String(lines.find((line) => String(line || "").trim()) || "")
-    .replace(/</g, "&lt;")
-    .slice(0, 56);
-  return (
-    "data:image/svg+xml;utf8," +
-    encodeURIComponent(
-      `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="720" viewBox="0 0 720 720">
-  <defs>
-    <radialGradient id="foryouG" cx="50%" cy="38%" r="72%">
-      <stop offset="0%" stop-color="#12ffd2" stop-opacity="0.95"/>
-      <stop offset="52%" stop-color="#0f6d5e" stop-opacity="0.68"/>
-      <stop offset="100%" stop-color="#020302" stop-opacity="0.98"/>
-    </radialGradient>
-  </defs>
-  <rect width="720" height="720" rx="80" fill="#020302"/>
-  <circle cx="360" cy="296" r="214" fill="url(#foryouG)"/>
-  <text x="50%" y="44%" text-anchor="middle" font-family="Syne, sans-serif" font-size="68" fill="#f4fffb" letter-spacing="6">${safeTitle}</text>
-  <text x="50%" y="55%" text-anchor="middle" font-family="Space Grotesk, sans-serif" font-size="22" fill="#9fead1" letter-spacing="4">${safeSubtitle}</text>
-  <text x="50%" y="66%" text-anchor="middle" font-family="Space Grotesk, sans-serif" font-size="20" fill="#dffef4" opacity="0.9">${safeLine}</text>
-</svg>`
-    )
-  );
+  return readWatchUiModule("buildForyouThumbSvgModule", "", title, subtitle, lines);
 }
 
 function syncForyouThumbFromLyrics(title, lines = []) {
-  const subtitle = `${state.style || ""} · ${state.voice || ""}`.replace(/^ · | · $/g, "");
-  const fallback = buildForyouThumbSvg(title, subtitle, lines);
-  currentForyouThumbFallbackDataUrl = fallback;
-  setForyouThumbImage(fallback);
-  syncWatchPlaceholderFromCurrentState();
-  void requestForyouThumbnail(title, subtitle, lines);
-  return true;
+  return readWatchUiModule("syncForyouThumbFromLyricsModule", false, title, lines);
 }
 
 function renderSectionPromptsText(sectionPrompts = []) {
-  if (!Array.isArray(sectionPrompts) || !sectionPrompts.length) return "";
-  return sectionPrompts
-    .map((item) => {
-      const section = String(item?.section || "").trim();
-      const title = String(item?.title || "").trim();
-      const prompt = String(item?.prompt || "").trim();
-      return [section || "[Section]", title ? `Title: ${title}` : "", prompt]
-        .filter(Boolean)
-        .join("\n");
-    })
-    .join("\n\n");
+  return readSongSeedUiModule("renderSectionPromptsTextModule", "", sectionPrompts);
 }
 
 function renderSectionBeatsText(sectionBeats = []) {
-  if (!Array.isArray(sectionBeats) || !sectionBeats.length) return "";
-  return sectionBeats
-    .map((item) => {
-      const section = String(item?.section || "").trim();
-      const title = String(item?.title || "").trim();
-      const bars = Number.parseInt(String(item?.bars || "0"), 10) || 0;
-      const energy = String(item?.energy || "").trim();
-      const focus = String(item?.focus || "").trim();
-      const visualRole = String(item?.visual_role || "").trim();
-      return [
-        section || "[Section]",
-        title ? `Title: ${title}` : "",
-        bars ? `Bars: ${bars}` : "",
-        energy ? `Energy: ${energy}` : "",
-        focus ? `Focus: ${focus}` : "",
-        visualRole ? `Visual Role: ${visualRole}` : ""
-      ]
-        .filter(Boolean)
-        .join("\n");
-    })
-    .join("\n\n");
+  return readSongSeedUiModule("renderSectionBeatsTextModule", "", sectionBeats);
 }
 
 function normalizeSongSeed(seed) {
-  const data = seed?.data || seed || {};
-  const rawWorkType = String(data?.work_type || "").trim();
-  return {
-    title: String(data?.title || "").trim(),
-    lyrics: String(data?.lyrics || "").trim(),
-    musicStyle: String(data?.music_style || "").trim(),
-    musicStructure: String(data?.music_structure || "").trim(),
-    videoOutline: String(data?.video_outline || "").trim(),
-    references: Array.isArray(data?.references)
-      ? data.references.map((x) => String(x || "").trim()).filter(Boolean)
-      : [],
-    sectionPrompts: Array.isArray(data?.section_prompts) ? data.section_prompts : [],
-    sectionBeats: Array.isArray(data?.section_beats) ? data.section_beats : [],
-    structureTree: Array.isArray(data?.structure_tree) ? data.structure_tree : [],
-    structurePlan: normalizeStructurePlanClient(data?.structure_plan),
-    styleTags: Array.isArray(data?.style_tags)
-      ? data.style_tags.map((x) => String(x || "").trim()).filter(Boolean)
-      : [],
-    workType: inferStructuredWorkType(String(data?.title || "").trim(), rawWorkType || creationState.workType),
-    creativeSummary: data?.creative_summary && typeof data.creative_summary === "object"
-      ? {
-          family: String(data.creative_summary.family || "").trim(),
-          civilization: String(data.creative_summary.civilization || "").trim(),
-          perspective: String(data.creative_summary.perspective || "").trim(),
-          emotion: String(data.creative_summary.emotion || "").trim(),
-          structure: String(data.creative_summary.structure || "").trim(),
-          languageStyle: String(data.creative_summary.language_style || "").trim(),
-          compact: String(data.creative_summary.compact || "").trim()
-        }
-      : null
-  };
+  return readSongSeedUiModule("normalizeSongSeedModule", {}, seed);
 }
 
 function buildSongSeedHierarchy(seed = state.songSeed) {
-  if (!seed || typeof seed !== "object") return [];
-  if (Array.isArray(seed.structureTree) && seed.structureTree.length) {
-    return buildHierarchyFromStructureTree(
-      seed.structureTree,
-      String(seed.lyrics || "").trim(),
-      String(seed.title || state.title || "CSS MV").trim(),
-      seed.workType || creationState.workType || "single"
-    );
-  }
-  const title = String(seed.title || state.title || "CSS MV").trim() || "CSS MV";
-  const workType = inferStructuredWorkType(title, seed.workType || creationState.workType || "single");
-  const lyrics = String(seed.lyrics || "").trim();
-  const preview = lyrics.split("\n").filter(Boolean).slice(0, 4).join(" / ");
-  if (workType === "single") return [];
-  if (workType === "triptych") {
-    const parts = buildStructuredSegments(lyrics.split("\n"), 3, title).map((segment, index) => ({
-      title: String(segment?.title || `${title} · ${loginCopy("Part", "单曲")} ${index + 1}`).trim(),
-      work_type: "single",
-      structure_role: "single",
-      sequence_index: index + 1,
-      lyrics_text: (Array.isArray(segment?.lines) ? segment.lines : []).join("\n"),
-      lyrics_preview: (Array.isArray(segment?.lines) ? segment.lines : []).join("\n").slice(0, 500),
-      style: (Array.isArray(segment?.lines) ? segment.lines : []).slice(0, 3).join(" / "),
-      children: []
-    }));
-    return [
-      {
-        title,
-        work_type: "triptych",
-        structure_role: "triptych",
-        style: preview,
-        children: parts
-      }
-    ];
-  }
-  const prompts = Array.isArray(seed.sectionPrompts) ? seed.sectionPrompts : [];
-  const sceneSegments = buildStructuredSegments(lyrics.split("\n"), Math.max(prompts.length, 1), title);
-  const scenes = sceneSegments.map((segment, index) => {
-    const prompt = prompts[index] || {};
-    const lines = Array.isArray(segment?.lines) ? segment.lines : [];
-    return {
-      title: String(prompt?.title || segment?.title || `${loginCopy("Scene", "Scene")} ${index + 1}`).trim(),
-      work_type: "single",
-      structure_role: "scene",
-      sequence_index: index + 1,
-      lyrics_text: lines.join("\n"),
-      lyrics_preview: lines.join("\n").slice(0, 500),
-      style: String(prompt?.prompt || "").trim(),
-      children: []
-    };
-  });
-  const actSize = Math.max(1, Math.ceil(scenes.length / 3));
-  const acts = [];
-  for (let index = 0; index < scenes.length; index += actSize) {
-    const actNumber = acts.length + 1;
-    acts.push({
-      title: `${title} · ${formatActLabel(actNumber)}`,
-      work_type: "opera",
-      structure_role: "act",
-      sequence_index: actNumber,
-      style: loginCopy("Act structure ready", "幕结构已就位"),
-      children: scenes.slice(index, index + actSize)
-    });
-  }
-  return [
-    {
-      title,
-      work_type: "opera",
-      structure_role: "opera",
-      style: preview,
-      children: acts
-    }
-  ];
+  return readSongSeedUiModule("buildSongSeedHierarchyModule", [], seed);
 }
 
 function renderForyouStructure(seed = state.songSeed) {
-  if (!foryouStructure) return;
-  const hierarchy = buildSongSeedHierarchy(seed);
-  currentForyouHierarchy = hierarchy;
-  if (!hierarchy.length) {
-    clearForyouStructure();
-    return;
-  }
-  const normalizedType = normalizeWorkTypeClient(seed?.workType || creationState.workType || "single");
-  const root = hierarchy[0] || null;
-  const displayNodes =
-    root && ["triptych", "opera"].includes(normalizedType) && Array.isArray(root.children) && root.children.length
-      ? root.children
-      : hierarchy;
-  foryouStructureNodeMap = new Map();
-  const annotateNodes = (nodes, trail = []) =>
-    (Array.isArray(nodes) ? nodes : []).map((node, index) => {
-      const title = String(node?.title || "").trim() || `node_${index + 1}`;
-      const role = String(node?.structure_role || node?.work_type || "single").trim().toLowerCase();
-      const key = [...trail, `${role}:${title}:${Number(node?.sequence_index || index + 1)}`].join(">");
-      const children = annotateNodes(node?.children || [], [...trail, `${role}:${title}`]);
-      const annotated = { ...node, foryou_key: key, children };
-      foryouStructureNodeMap.set(key, annotated);
-      return annotated;
-    });
-  const annotatedNodes = annotateNodes(displayNodes);
-  foryouStructure.innerHTML = renderHierarchyTree(annotatedNodes, "foryou");
-  currentForyouLeafKey = "";
-  if (foryouSelection) foryouSelection.hidden = true;
-  foryouStructure.querySelectorAll("[data-foryou-summary]").forEach((summary) => {
-    summary.addEventListener("click", (event) => {
-      const hasChildren = summary.getAttribute("data-has-children") === "1";
-      if (hasChildren) return;
-      const key = String(summary.getAttribute("data-node-key") || "").trim();
-      const node = foryouStructureNodeMap.get(key);
-      const lyricText = String(node?.lyrics_text || node?.lyrics_preview || "").trim();
-      if (!node || !lyricText) return;
-      event.preventDefault();
-      event.stopPropagation();
-      currentForyouLeafKey = key;
-      if (foryouSelectionKicker) {
-        const role = String(node?.structure_role || node?.work_type || "single").trim().toLowerCase();
-        foryouSelectionKicker.textContent =
-          role === "scene"
-            ? loginCopy("Scene Lyrics", "场次歌词")
-            : role === "part"
-              ? loginCopy("Triptych Single", "三部曲单曲")
-              : loginCopy("Single Lyrics", "单曲歌词");
-      }
-      if (foryouSelectionTitle) {
-        foryouSelectionTitle.textContent = String(node?.title || "").trim() || loginCopy("Untitled", "未命名");
-      }
-      if (foryouSelectionLyrics) {
-        foryouSelectionLyrics.textContent = lyricText;
-      }
-      if (foryouSelection) {
-        foryouSelection.hidden = false;
-      }
-      cancelAutoEnjoy();
-      foryouStructure.querySelectorAll("[data-foryou-summary]").forEach((item) => {
-        item.classList.toggle(
-          "is-selected",
-          String(item.getAttribute("data-node-key") || "").trim() === currentForyouLeafKey
-        );
-      });
-      if (watchLyricsEditor) {
-        watchLyricsEditor.value = lyricText;
-      }
-    });
-  });
+  callSongSeedUiModule("renderForyouStructureModule", seed);
 }
 
 function buildSeedPreviewSummary(seed = state.songSeed) {
-  if (!seed) return { compact: "", watch: "" };
-  const creativeCompact = String(seed?.creativeSummary?.compact || "").trim();
-  const beatLead = Array.isArray(seed.sectionBeats)
-    ? seed.sectionBeats
-        .slice(0, 3)
-        .map((item) => {
-          const section = String(item?.section || "").trim();
-          const bars = Number.parseInt(String(item?.bars || "0"), 10) || 0;
-          const focus = String(item?.focus || "").trim();
-          return [section, bars ? `${bars} bars` : "", focus].filter(Boolean).join(" · ");
-        })
-        .filter(Boolean)
-    : [];
-  const compact = [creativeCompact, seed.musicStructure, beatLead[0]].filter(Boolean).join(" · ");
-  const watch = [
-    creativeCompact ? `World: ${creativeCompact}` : "",
-    seed.videoOutline,
-    ...beatLead
-  ]
-    .filter(Boolean)
-    .join("\n");
-  return { compact, watch };
+  return readSongSeedUiModule("buildSeedPreviewSummaryModule", { compact: "", watch: "" }, seed);
 }
 
 function describeSongSeedUniverse(seed = state.songSeed) {
-  const summary = seed?.creativeSummary || null;
-  if (!summary) return "";
-  return [summary.civilization, summary.perspective, summary.emotion, summary.structure]
-    .filter(Boolean)
-    .join(" · ");
-}
-
-function compactLyricLines(lines = []) {
-  return (Array.isArray(lines) ? lines : [])
-    .map((line) => String(line || "").trim())
-    .filter((line) => line && !/^title\s*·/i.test(line) && !/^\[[^\]]+\]$/.test(line));
+  return readSongSeedUiModule("describeSongSeedUniverseModule", "", seed);
 }
 
 function buildLyricsSeedVisualSignature(seed) {
-  const normalized = normalizeSongSeed(seed);
-  const title = String(normalized?.title || "").trim();
-  const lines = compactLyricLines(String(normalized?.lyrics || "").split("\n")).slice(0, 3);
-  return [title, ...lines].filter(Boolean).join(" || ");
+  return readSongSeedUiModule("buildLyricsSeedVisualSignatureModule", "", seed);
 }
 
 function recordLyricsSeedSnapshot(seed = state.songSeed, title = state.title, lines = state.lines) {
-  if (!seed) return;
-  const compactLines = compactLyricLines(lines).slice(0, 8);
-  const entry = {
-    at: new Date().toISOString(),
-    title: String(title || seed?.title || "").trim(),
-    seedTag: String(seed?.seedTag || "").trim(),
-    family: String(seed?.creativeSummary?.family || "").trim(),
-    civilization: String(seed?.creativeSummary?.civilization || "").trim(),
-    perspective: String(seed?.creativeSummary?.perspective || "").trim(),
-    emotion: String(seed?.creativeSummary?.emotion || "").trim(),
-    firstLine: String(compactLines[0] || "").trim(),
-    secondLine: String(compactLines[1] || "").trim(),
-    lineSignature: compactLines.slice(0, 2).join(" | ")
-  };
-  const history = Array.isArray(deliveryDashboardState.lyricsSeedHistory)
-    ? deliveryDashboardState.lyricsSeedHistory
-    : [];
-  const previous = history[history.length - 1];
-  if (
-    previous &&
-    previous.seedTag === entry.seedTag &&
-    previous.title === entry.title &&
-    previous.lineSignature === entry.lineSignature
-  ) {
-    return;
-  }
-  deliveryDashboardState.lyricsSeedHistory = [...history, entry].slice(-12);
+  callSongSeedUiModule("recordLyricsSeedSnapshotModule", seed, title, lines);
 }
 
 function resolveSectionProfile(section) {
-  const key = String(section || "").toLowerCase();
-  if (key.includes("chorus 4")) {
-    return {
-      scale: [0, 7, 12, 16, 19, 24],
-      motif: [0, 4, 5, 4, 2, 4, 5, 4, 2, 0],
-      leadBoost: 1.24,
-      hook: [0, 7, 12, 7, 5, 4, 2, 0],
-      cadence: [12, 7, 5, 4],
-      anchor: [0, 7, 12, 7, 0, 7, 12, 5]
-    };
-  }
-  if (key.includes("chorus 3") || key.includes("chorus 2") || key.includes("chorus")) {
-    return {
-      scale: [0, 4, 7, 11, 12, 16, 19],
-      motif: [0, 2, 4, 2, 0, 2, 5, 4, 2, 0],
-      leadBoost: 1.14,
-      hook: [0, 4, 7, 4, 2, 4, 7, 4],
-      cadence: [7, 4, 2, 0],
-      anchor: [0, 4, 7, 4, 0, 4, 7, 2]
-    };
-  }
-  if (key.includes("bridge")) {
-    return {
-      scale: [0, 2, 7, 9, 12, 14, 19],
-      motif: [0, 3, 5, 6, 5, 3, 1, 0],
-      leadBoost: 0.96,
-      hook: [0, 3, 6, 5],
-      cadence: [6, 5, 3, 0],
-      anchor: [0, 3, 5, 6, 5, 3]
-    };
-  }
-  if (key.includes("outro")) {
-    return {
-      scale: [0, 3, 7, 10, 12, 15, 19],
-      motif: [0, 1, 2, 3, 2, 1, 0],
-      leadBoost: 0.9,
-      hook: [0, 2, 3, 2],
-      cadence: [3, 2, 1, 0],
-      anchor: [0, 2, 3, 2, 1, 0]
-    };
-  }
-  if (key.includes("intro")) {
-    return {
-      scale: [0, 3, 7, 10, 12, 15, 19],
-      motif: [0, 2, 3, 2, 0, 1],
-      leadBoost: 0.82,
-      hook: [0, 1, 2, 1],
-      cadence: [2, 1, 0, 0],
-      anchor: [0, 1, 2, 1, 0, 0]
-    };
-  }
-  return {
-    scale: [0, 3, 7, 10, 12, 15, 19],
-    motif: [0, 1, 3, 1, 4, 3, 1, 0],
-    leadBoost: 1,
-    hook: [0, 3, 1, 0],
-    cadence: [3, 1, 0, 0],
-    anchor: [0, 1, 3, 1, 4, 3, 1, 0]
-  };
+  return readSongSeedUiModule("resolveSectionProfileModule", {}, section);
 }
 
 function buildLeadDegrees(sectionProfile, noteCount, scale) {
-  const safeCount = Math.max(4, noteCount || 8);
-  const degrees = [];
-  const isChorusLike =
-    Array.isArray(sectionProfile.anchor) &&
-    sectionProfile.anchor.length >= 4 &&
-    Array.isArray(sectionProfile.cadence) &&
-    sectionProfile.cadence.length >= 3;
-
-  if (isChorusLike && safeCount >= 8) {
-    const anchor = sectionProfile.anchor;
-    const cadence = sectionProfile.cadence;
-    const verseWindow = Math.max(0, safeCount - cadence.length);
-    for (let i = 0; i < verseWindow; i += 1) {
-      if (i < Math.min(anchor.length, 8)) {
-        degrees.push(anchor[i % anchor.length] || 0);
-      } else {
-        const motif = sectionProfile.motif[i % sectionProfile.motif.length] || 0;
-        degrees.push(scale[motif % scale.length] || 0);
-      }
-    }
-    cadence.forEach((degree) => {
-      degrees.push(degree || 0);
-    });
-    return degrees.slice(0, safeCount);
-  }
-
-  for (let i = 0; i < safeCount; i += 1) {
-    const motif = sectionProfile.motif[i % sectionProfile.motif.length] || 0;
-    degrees.push(scale[motif % scale.length] || 0);
-  }
-  return degrees;
-}
-
-function getWatchFrameCacheKey() {
-  return [
-    String(state.title || "").trim().toLowerCase(),
-    String(state.style || "").trim().toLowerCase(),
-    String(state.voice || "").trim().toLowerCase(),
-    String(currentPreviewVideoSourceKind || "unknown").trim().toLowerCase()
-  ].join("::");
-}
-
-function getCachedWatchFrame() {
-  const key = getWatchFrameCacheKey();
-  if (!key) return "";
-  const memory = watchFrameCache.get(key);
-  if (memory) return memory;
-  try {
-    const stored = localStorage.getItem(`cssos.watch.frame.${key}`);
-    if (stored) {
-      watchFrameCache.set(key, stored);
-      return stored;
-    }
-  } catch (_err) {
-    // ignore storage
-  }
-  return "";
-}
-
-function cacheWatchFrame(dataUrl) {
-  const key = getWatchFrameCacheKey();
-  if (!key || !dataUrl) return;
-  currentPreviewFrameDataUrl = dataUrl;
-  watchFrameCache.set(key, dataUrl);
-  try {
-    localStorage.setItem(`cssos.watch.frame.${key}`, dataUrl);
-  } catch (_err) {
-    // ignore storage quota
-  }
-}
-
-function clearWatchFrameLoop() {
-  if (watchFrameLoopTimer) {
-    clearInterval(watchFrameLoopTimer);
-    watchFrameLoopTimer = null;
-  }
-}
-
-function getCachedWatchFrameSequence() {
-  const key = getWatchFrameCacheKey();
-  if (!key) return [];
-  return watchFrameSequenceCache.get(key) || [];
-}
-
-function cacheWatchFrameSequence(frames) {
-  const key = getWatchFrameCacheKey();
-  if (!key || !Array.isArray(frames) || !frames.length) return;
-  currentPreviewFrameSequence = frames.slice();
-  watchFrameSequenceCache.set(key, currentPreviewFrameSequence);
-}
-
-function startWatchFrameLoop(frames) {
-  if (!watchSvg || !Array.isArray(frames) || !frames.length) return false;
-  clearWatchFrameLoop();
-  let index = 0;
-  watchSvg.src = frames[0];
-  watchFrameLoopTimer = setInterval(() => {
-    if (!watchSvg || !watchSvg.style || watchSvg.style.display === "none") return;
-    index = (index + 1) % frames.length;
-    watchSvg.src = frames[index];
-  }, 420);
-  return true;
-}
-
-function captureVideoFirstFrame(video) {
-  if (!video?.videoWidth || !video?.videoHeight) return "";
-  try {
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.min(640, video.videoWidth);
-    canvas.height = Math.max(1, Math.round(canvas.width * (video.videoHeight / video.videoWidth)));
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return "";
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const sample = ctx.getImageData(0, 0, Math.min(canvas.width, 64), Math.min(canvas.height, 36)).data;
-    let lumaSum = 0;
-    let brightPixels = 0;
-    const pixelCount = Math.max(1, sample.length / 4);
-    for (let i = 0; i < sample.length; i += 4) {
-      const r = sample[i] || 0;
-      const g = sample[i + 1] || 0;
-      const b = sample[i + 2] || 0;
-      const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-      lumaSum += luma;
-      if (luma > 36) brightPixels += 1;
-    }
-    const meanLuma = lumaSum / pixelCount;
-    const brightRatio = brightPixels / pixelCount;
-    if (meanLuma < MIN_EFFECTIVE_PREVIEW_FRAME_LUMA || brightRatio < 0.01) {
-      return "";
-    }
-    return canvas.toDataURL("image/webp", 0.82);
-  } catch (_err) {
-    return "";
-  }
-}
-
-async function extractPreviewFramesFromSource(src, frameCount = 4) {
-  if (!src) return [];
-  return new Promise((resolve) => {
-    const tempVideo = document.createElement("video");
-    tempVideo.muted = true;
-    tempVideo.playsInline = true;
-    tempVideo.preload = "auto";
-    tempVideo.crossOrigin = "anonymous";
-    tempVideo.src = src;
-    const cleanup = () => {
-      tempVideo.pause?.();
-      tempVideo.removeAttribute("src");
-      tempVideo.load?.();
-    };
-    tempVideo.addEventListener(
-      "loadedmetadata",
-      async () => {
-        const duration = Number.isFinite(tempVideo.duration) ? tempVideo.duration : 0;
-        if (!(duration > MIN_EFFECTIVE_PREVIEW_DURATION_SEC)) {
-          cleanup();
-          resolve([]);
-          return;
-        }
-        const targets = Array.from({ length: frameCount }, (_, index) => {
-          const ratio = (index + 1) / (frameCount + 1);
-          return Math.max(0.15, Math.min(duration - 0.15, duration * ratio));
-        });
-        const frames = [];
-        for (const target of targets) {
-          try {
-            await new Promise((done) => {
-              const onSeeked = () => {
-                tempVideo.removeEventListener("seeked", onSeeked);
-                done();
-              };
-              tempVideo.addEventListener("seeked", onSeeked, { once: true });
-              tempVideo.currentTime = target;
-            });
-            const frame = captureVideoFirstFrame(tempVideo);
-            if (frame) frames.push(frame);
-          } catch (_err) {
-            // ignore single-frame failure
-          }
-        }
-        cleanup();
-        resolve(frames);
-      },
-      { once: true }
-    );
-    tempVideo.addEventListener(
-      "error",
-      () => {
-        cleanup();
-        resolve([]);
-      },
-      { once: true }
-    );
-  });
-}
-
-async function buildMotionClipFromFrames(frames, options = {}) {
-  if (!Array.isArray(frames) || frames.length < 2) return "";
-  if (typeof MediaRecorder === "undefined") return "";
-  const width = options.width || 640;
-  const height = options.height || 360;
-  const durationSec = Math.max(3.2, Number(options.durationSec || 4.2));
-  const fps = Math.max(4, Number(options.fps || 6));
-  const frameIntervalMs = Math.max(120, Math.round(1000 / fps));
-  const totalFrames = Math.max(frames.length, Math.round(durationSec * fps));
-  const beatSections = Array.isArray(options.beatSections) ? options.beatSections : [];
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return "";
-
-  const images = await Promise.all(
-    frames.map(
-      (src) =>
-        new Promise((resolve) => {
-          const img = new Image();
-          img.onload = () => resolve(img);
-          img.onerror = () => resolve(null);
-          img.src = src;
-        })
-    )
-  );
-  const usable = images.filter(Boolean);
-  if (usable.length < 2) return "";
-
-  const shotDurations = (() => {
-    if (!beatSections.length) {
-      return usable.map(() => durationSec / usable.length);
-    }
-    const sections = beatSections
-      .slice(0, usable.length)
-      .map((item) => Math.max(0.6, Math.min(2.2, (Number(item?.bars || 4) || 4) * 0.16)));
-    const rawTotal = sections.reduce((sum, value) => sum + value, 0) || durationSec;
-    return sections.map((value) => (value / rawTotal) * durationSec);
-  })();
-
-  return new Promise((resolve) => {
-    const stream = canvas.captureStream(fps);
-    const recorder = new MediaRecorder(stream, { mimeType: "video/webm;codecs=vp9" });
-    const chunks = [];
-    let frameIndex = 0;
-    let stopped = false;
-    let elapsedSec = 0;
-    const shotPlan = usable.map((img, index) => ({
-      img,
-      durationSec: shotDurations[index % shotDurations.length] || durationSec / usable.length,
-      zoomFrom: 1 + (index % 2 === 0 ? 0.02 : 0.06),
-      zoomTo: 1 + (index % 2 === 0 ? 0.08 : 0.03),
-      panX: (index % 3 === 0 ? -1 : index % 3 === 1 ? 1 : 0) * 18,
-      panY: (index % 2 === 0 ? 1 : -1) * 10
-    }));
-    const totalPlanSec = shotPlan.reduce((sum, shot) => sum + shot.durationSec, 0) || durationSec;
-    const draw = () => {
-      const timeSec = Math.min(durationSec, frameIndex / fps);
-      let cursor = 0;
-      let activeShot = shotPlan[shotPlan.length - 1];
-      for (const shot of shotPlan) {
-        cursor += shot.durationSec;
-        if (timeSec <= cursor) {
-          activeShot = shot;
-          break;
-        }
-      }
-      const shotStart = Math.max(0, cursor - activeShot.durationSec);
-      const shotProgress = activeShot.durationSec > 0 ? Math.min(1, Math.max(0, (timeSec - shotStart) / activeShot.durationSec)) : 0;
-      const zoom = activeShot.zoomFrom + (activeShot.zoomTo - activeShot.zoomFrom) * shotProgress;
-      const drawWidth = width * zoom;
-      const drawHeight = height * zoom;
-      const offsetX = (width - drawWidth) / 2 + activeShot.panX * shotProgress;
-      const offsetY = (height - drawHeight) / 2 + activeShot.panY * shotProgress;
-      ctx.clearRect(0, 0, width, height);
-      ctx.filter = `brightness(${1.02 + 0.04 * Math.sin((timeSec / totalPlanSec) * Math.PI * 2)}) saturate(1.08)`;
-      ctx.drawImage(activeShot.img, offsetX, offsetY, drawWidth, drawHeight);
-      ctx.filter = "none";
-      ctx.fillStyle = "rgba(0,0,0,0.08)";
-      ctx.fillRect(0, 0, width, height);
-      frameIndex += 1;
-      if (frameIndex >= totalFrames && !stopped) {
-        stopped = true;
-        clearInterval(timer);
-        recorder.stop();
-      }
-    };
-    recorder.ondataavailable = (event) => {
-      if (event.data && event.data.size > 0) chunks.push(event.data);
-    };
-    recorder.onerror = () => {
-      clearInterval(timer);
-      resolve("");
-    };
-    recorder.onstop = () => {
-      try {
-        const blob = new Blob(chunks, { type: "video/webm" });
-        resolve(URL.createObjectURL(blob));
-      } catch (_err) {
-        resolve("");
-      }
-    };
-    draw();
-    recorder.start();
-    const timer = setInterval(draw, frameIntervalMs);
-  });
-}
-
-function synthesizePreviewAudioDataUrl(seed = state.songSeed) {
-  const sectionBeats = Array.isArray(seed?.sectionBeats) ? seed.sectionBeats : [];
-  const sampleRate = 22050;
-  const fallbackDurationSec = 8;
-  const totalDurationSec = Math.max(
-    fallbackDurationSec,
-    Math.min(
-      24,
-      sectionBeats.reduce((sum, item) => {
-        const bars = Number.parseInt(String(item?.bars || "0"), 10) || 8;
-        return sum + Math.max(0.6, Math.min(2.8, bars * 0.16));
-      }, 0)
-    )
-  );
-  const totalSamples = Math.max(1, Math.floor(totalDurationSec * sampleRate));
-  const samples = new Int16Array(totalSamples);
-  const normalized = sectionBeats.length
-    ? sectionBeats
-    : [{ bars: 8, energy: "medium", section: "Intro" }];
-  let runningSec = 0;
-  normalized.forEach((item, index) => {
-    const bars = Number.parseInt(String(item?.bars || "0"), 10) || 8;
-    const durationSec = Math.max(0.6, Math.min(2.8, bars * 0.16));
-    const energy = String(item?.energy || "").toLowerCase();
-    const baseFreq =
-      energy.includes("peak-plus") ? 659.25 :
-      energy.includes("peak") ? 587.33 :
-      energy.includes("high") ? 523.25 :
-      energy.includes("medium-high") ? 440 :
-      energy.includes("medium") ? 392 :
-      energy.includes("low") ? 329.63 : 349.23;
-    const sectionProfile = resolveSectionProfile(item?.section || `section_${index + 1}`);
-    const scale =
-      energy.includes("peak") || energy.includes("high")
-        ? [0, 4, 7, 11, 12, 16, 19]
-        : sectionProfile.scale;
-    const noteCount = Math.max(4, Math.min(12, bars));
-    const noteDurationSec = durationSec / noteCount;
-    const leadDegrees = buildLeadDegrees(sectionProfile, noteCount, scale);
-    for (let noteIndex = 0; noteIndex < noteCount; noteIndex += 1) {
-      const hookWindow = noteIndex >= Math.max(0, noteCount - 4);
-      const degree = leadDegrees[noteIndex % leadDegrees.length] || 0;
-      const freq = baseFreq * Math.pow(2, degree / 12);
-      const startSec = runningSec + noteIndex * noteDurationSec;
-      const startSample = Math.max(0, Math.floor(startSec * sampleRate));
-      const sampleCount = Math.min(
-        totalSamples - startSample,
-        Math.max(
-          1,
-          Math.floor(noteDurationSec * sampleRate * (hookWindow ? 0.98 : noteIndex % 3 === 2 ? 0.92 : 0.78))
-        )
-      );
-      const attack = Math.max(1, Math.floor(sampleCount * 0.08));
-      const release = Math.max(1, Math.floor(sampleCount * 0.18));
-      const accent = hookWindow ? 1.12 : noteIndex % Math.max(2, Math.round(noteCount / 4)) === 0 ? 1 : 0.72;
-      for (let i = 0; i < sampleCount; i += 1) {
-        const t = i / sampleRate;
-        const env =
-          i < attack
-            ? i / attack
-            : i > sampleCount - release
-              ? Math.max(0, (sampleCount - i) / release)
-              : 1;
-        const pad = Math.sin(2 * Math.PI * freq * t) * 0.31;
-        const lead = Math.sin(2 * Math.PI * freq * 2 * t) * 0.12 * sectionProfile.leadBoost;
-        const shimmer = Math.sin(2 * Math.PI * freq * 0.5 * t) * 0.09;
-        const bass = Math.sin(2 * Math.PI * (freq / 2) * t) * 0.17;
-        const pulse = ((Math.sin(2 * Math.PI * 2 * t) + 1) * 0.5) * 0.08;
-        const sample = Math.max(-1, Math.min(1, (pad + lead + bass + pulse) * env * accent));
-        const hookLift = hookWindow ? shimmer * 0.9 : shimmer * 0.45;
-        const harmonic = Math.max(-1, Math.min(1, sample + hookLift));
-        const mixed = Math.max(-1, Math.min(1, (samples[startSample + i] || 0) / 32767 + harmonic * 0.72));
-        samples[startSample + i] = Math.round(mixed * 32767);
-      }
-    }
-    const beatStart = Math.max(0, Math.floor((runningSec + durationSec) * sampleRate) - Math.floor(0.08 * sampleRate));
-    for (let i = 0; i < Math.floor(0.08 * sampleRate) && beatStart + i < totalSamples; i += 1) {
-      const env = 1 - i / Math.floor(0.08 * sampleRate);
-      const thump = Math.sin(2 * Math.PI * 80 * (i / sampleRate)) * 0.28 * env;
-      const mixed = Math.max(-1, Math.min(1, (samples[beatStart + i] || 0) / 32767 + thump));
-      samples[beatStart + i] = Math.round(mixed * 32767);
-    }
-    runningSec += durationSec;
-  });
-
-  const dataSize = samples.length * 2;
-  const buffer = new ArrayBuffer(44 + dataSize);
-  const view = new DataView(buffer);
-  const writeAscii = (offset, text) => {
-    for (let i = 0; i < text.length; i += 1) view.setUint8(offset + i, text.charCodeAt(i));
-  };
-  writeAscii(0, "RIFF");
-  view.setUint32(4, 36 + dataSize, true);
-  writeAscii(8, "WAVE");
-  writeAscii(12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true);
-  view.setUint16(32, 2, true);
-  view.setUint16(34, 16, true);
-  writeAscii(36, "data");
-  view.setUint32(40, dataSize, true);
-  let offset = 44;
-  for (let i = 0; i < samples.length; i += 1) {
-    view.setInt16(offset, samples[i] || 0, true);
-    offset += 2;
-  }
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  bytes.forEach((byte) => {
-    binary += String.fromCharCode(byte);
-  });
-  return `data:audio/wav;base64,${btoa(binary)}`;
-}
-
-function renderSongSeedPreview(seed = state.songSeed) {
-  const summary = buildSeedPreviewSummary(seed);
-  renderCreationUniverseCard(seed);
-  const compactSummary =
-    summary.compact ||
-    String(seed?.creativeSummary?.compact || "").trim() ||
-    String(foryouStyle?.textContent || "").trim();
-  if (foryouSeedCopy) {
-    foryouSeedCopy.textContent = compactSummary;
-    foryouSeedCopy.style.display = compactSummary ? "block" : "none";
-  }
-  if (watchSeedCopy) {
-    watchSeedCopy.textContent = summary.watch || "";
-    watchSeedCopy.style.display = summary.watch ? "block" : "none";
-  }
-  if (watchAudioPreview) {
-    if (seed) {
-      watchAudioPreview.src = synthesizePreviewAudioDataUrl(seed);
-      watchAudioPreview.style.display = "block";
-    } else {
-      watchAudioPreview.pause?.();
-      watchAudioPreview.removeAttribute("src");
-      watchAudioPreview.load?.();
-      watchAudioPreview.style.display = "none";
-    }
-  }
-  syncWatchMusicArtwork();
-  syncWatchMusicState();
-  syncWatchEditorsFromSettings();
-  renderWatchMetaPanels();
-  renderForyouStructure(seed);
-  if (
-    seed?.title &&
-    !hasEffectivePreviewVideo() &&
-    !String(foryouThumbImage?.src || "").trim() &&
-    !String(currentForyouThumbFallbackDataUrl || "").trim()
-  ) {
-    syncForyouThumbFromLyrics(seed.title, compactLyricLines(String(seed.lyrics || "").split("\n")));
-  }
-}
-
-function getCurrentWatchArtwork() {
-  return (
-    (foryouThumbImage?.src && String(foryouThumbImage.src).trim()) ||
-    getCachedWatchFrame() ||
-    currentPreviewFrameDataUrl ||
-    (watchSvg?.src && String(watchSvg.src).trim()) ||
-    ""
-  );
-}
-
-function syncWatchMusicArtwork() {
-  if (!watchMusicStage) return;
-  const artwork = getCurrentWatchArtwork();
-  const safe = artwork ? `url("${String(artwork).replace(/"/g, '\\"')}")` : "none";
-  watchMusicStage.style.setProperty("--watch-music-art-image", safe);
-}
-
-function stopWatchMusicVisualizer() {
-  if (watchMusicAnalyserFrame) {
-    cancelAnimationFrame(watchMusicAnalyserFrame);
-    watchMusicAnalyserFrame = 0;
-  }
-  if (watchMusicStage) {
-    watchMusicStage.style.setProperty("--watch-aura-scale", "1");
-    watchMusicStage.style.setProperty("--watch-aura-opacity", "0.86");
-    watchMusicStage.style.setProperty("--watch-ring-glow", "0.22");
-    watchMusicStage.style.setProperty("--watch-progress-glow", "0.4");
-    watchMusicStage.style.setProperty("--watch-disc-lift", "0px");
-    watchMusicStage.style.setProperty("--watch-music-shadow-live", "var(--watch-music-shadow)");
-    watchMusicStage.style.setProperty("--watch-music-secondary-shadow-live", "var(--watch-music-secondary-shadow)");
-  }
-}
-
-function tickWatchMusicVisualizer() {
-  if (!watchMusicAnalyser || !watchMusicStage || !watchAudioPreview || watchAudioPreview.paused) {
-    stopWatchMusicVisualizer();
-    return;
-  }
-  if (!watchMusicAnalyserData) {
-    watchMusicAnalyserData = new Uint8Array(watchMusicAnalyser.frequencyBinCount);
-  }
-  watchMusicAnalyser.getByteFrequencyData(watchMusicAnalyserData);
-  const sum = watchMusicAnalyserData.reduce((acc, value) => acc + value, 0);
-  const avg = watchMusicAnalyserData.length ? sum / watchMusicAnalyserData.length : 0;
-  const energy = Math.max(0, Math.min(1, avg / 160));
-  watchMusicStage.style.setProperty("--watch-aura-scale", `${(1 + energy * 0.11).toFixed(3)}`);
-  watchMusicStage.style.setProperty("--watch-aura-opacity", `${(0.78 + energy * 0.36).toFixed(3)}`);
-  watchMusicStage.style.setProperty("--watch-ring-glow", `${(0.22 + energy * 0.4).toFixed(3)}`);
-  watchMusicStage.style.setProperty("--watch-progress-glow", `${(0.42 + energy * 0.5).toFixed(3)}`);
-  watchMusicStage.style.setProperty("--watch-disc-lift", `${(energy * 2.8).toFixed(2)}px`);
-  watchMusicStage.style.setProperty("--watch-music-shadow-live", `rgba(var(--watch-music-accent-1-rgb), ${(0.18 + energy * 0.26).toFixed(3)})`);
-  watchMusicStage.style.setProperty("--watch-music-secondary-shadow-live", `rgba(var(--watch-music-accent-2-rgb), ${(0.12 + energy * 0.24).toFixed(3)})`);
-  watchMusicAnalyserFrame = requestAnimationFrame(tickWatchMusicVisualizer);
-}
-
-async function ensureWatchMusicVisualizer() {
-  if (!watchAudioPreview || typeof window === "undefined") return;
-  const AudioCtx = window.AudioContext || window.webkitAudioContext;
-  if (!AudioCtx) return;
-  if (!watchMusicAudioContext) {
-    watchMusicAudioContext = new AudioCtx();
-  }
-  if (watchMusicAudioContext.state === "suspended") {
-    await watchMusicAudioContext.resume().catch(() => {});
-  }
-  if (!watchMusicSourceNode) {
-    watchMusicSourceNode = watchMusicAudioContext.createMediaElementSource(watchAudioPreview);
-    watchMusicAnalyser = watchMusicAudioContext.createAnalyser();
-    watchMusicAnalyser.fftSize = 128;
-    watchMusicSourceNode.connect(watchMusicAnalyser);
-    watchMusicAnalyser.connect(watchMusicAudioContext.destination);
-  }
-  if (!watchMusicAnalyserFrame) {
-    tickWatchMusicVisualizer();
-  }
-}
-
-function syncWatchMusicState() {
-  if (!watchMusicStage || !watchMusicPlayIcon) return;
-  const playing = !!(watchAudioPreview && !watchAudioPreview.paused && !watchAudioPreview.ended);
-  watchMusicStage.classList.toggle("is-playing", playing);
-  watchMusicPlayIcon.textContent = playing ? "❚❚" : "▶";
-  if (watchMusicRing && watchAudioPreview) {
-    const duration = Number.isFinite(watchAudioPreview.duration) ? watchAudioPreview.duration : 0;
-    const current = Number.isFinite(watchAudioPreview.currentTime) ? watchAudioPreview.currentTime : 0;
-    const progress = duration > 0 ? Math.max(0, Math.min(1, current / duration)) : 0;
-    watchMusicRing.style.setProperty("--watch-progress", `${Math.round(progress * 360)}deg`);
-  }
-  if (playing) {
-    void ensureWatchMusicVisualizer();
-  } else {
-    stopWatchMusicVisualizer();
-  }
-}
-
-function syncWatchEditorsFromSettings() {
-  if (watchLyricsEditor && lyricsInput) watchLyricsEditor.value = lyricsInput.value || "";
-  if (watchOutlineEditor && videoOutlineInput) watchOutlineEditor.value = videoOutlineInput.value || "";
-  if (watchScriptEditor && sectionPromptsInput) watchScriptEditor.value = sectionPromptsInput.value || "";
+  return readSongSeedUiModule("buildLeadDegreesModule", [], sectionProfile, noteCount, scale);
 }
 
 function formatUsdFromCents(cents, fallback = "—") {
@@ -7258,17 +6104,11 @@ function formatDateTime(value) {
 }
 
 function getWorkCommerceDetails(workId) {
-  const commerce = watchCommerceState.payload || null;
-  const market = commerce?.market || null;
-  const profiles = Array.isArray(market?.profiles) ? market.profiles : [];
-  const profile = profiles.find((entry) => String(entry?.work_id || "") === String(workId || ""));
-  const listenCents = Number(profile?.current_listen_price_cents || 0);
-  const buyoutCents = Number(profile?.current_buyout_price_cents || 0);
-  return {
-    listenCents,
-    buyoutCents,
-    buyoutEnabled: Boolean(profile?.buyout_enabled) && buyoutCents > 0
-  };
+  return readWatchUiModule("getWorkCommerceDetailsModule", {
+    listenCents: 0,
+    buyoutCents: 0,
+    buyoutEnabled: false
+  }, workId);
 }
 
 async function startStripeCheckoutForWork(workId, orderKind, trigger, options = {}) {
@@ -7276,6 +6116,13 @@ async function startStripeCheckoutForWork(workId, orderKind, trigger, options = 
     showToast(loginCopy("Please sign in first.", "请先登录。"));
     openPanel(loginPanel);
     return;
+  }
+  if (String(orderKind || "").trim() === "tip") {
+    const amountCents = Number(options?.tipAmountCents || 0);
+    if (!Number.isFinite(amountCents) || amountCents < 100) {
+      showToast(loginCopy("Tips start at $1.00.", "打赏金额至少为 1 美元。"));
+      return;
+    }
   }
   const lockKey = `${String(workId || "").trim()}:${String(orderKind || "").trim()}`;
   if (checkoutLocks.has(lockKey)) return;
@@ -7287,7 +6134,11 @@ async function startStripeCheckoutForWork(workId, orderKind, trigger, options = 
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ work_id: workId, order_kind: orderKind })
+      body: JSON.stringify({
+        work_id: workId,
+        order_kind: orderKind,
+        tip_amount_cents: Number(options?.tipAmountCents || 0) > 0 ? Number(options.tipAmountCents) : undefined
+      })
     });
     const payload = await res.json().catch(() => null);
     const data = getApiData(payload);
@@ -7336,6 +6187,10 @@ async function startStripeCheckoutForWork(workId, orderKind, trigger, options = 
       showToast(loginCopy("Buyout is not enabled for this work.", "这件作品未开启买断。"));
       return;
     }
+    if (message.includes("tips_not_enabled")) {
+      showToast(loginCopy("Tips are not enabled for this work.", "这件作品暂未开启打赏。"));
+      return;
+    }
     showToast(loginCopy("Checkout failed. Please try again.", "创建支付失败，请重试。"));
   } finally {
     checkoutLocks.delete(lockKey);
@@ -7346,110 +6201,27 @@ async function startStripeCheckoutForWork(workId, orderKind, trigger, options = 
   }
 }
 
-async function handleStripeCheckoutReturn() {
-  if (typeof window === "undefined") return;
-  const url = new URL(window.location.href);
-  const mode = String(url.searchParams.get("stripe_checkout") || "").trim();
-  const orderId = String(url.searchParams.get("order_id") || "").trim();
-  if (!mode) return;
-  if (mode === "cancel" && orderId && authState.user) {
-    try {
-      await fetch("/api/stripe/checkout/cancel", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ order_id: orderId })
-      });
-      await loadPublicMarketWorks(true).catch(() => []);
-      renderForyouMarketplace();
-      showToast(loginCopy("Checkout canceled.", "支付已取消。"));
-    } catch {
-      // ignore
-    }
-  }
-  if (mode === "success") {
-    void loadPublicMarketWorks(true).then(() => renderForyouMarketplace());
-  }
-  url.searchParams.delete("stripe_checkout");
-  url.searchParams.delete("order_id");
-  window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+function canReceiveTips(work = {}) {
+  return readWatchUiModule("canReceiveTipsModule", false, work);
 }
 
-function renderSellerPanel() {
-  if (!sellerMetrics || !sellerOrdersList || !sellerLedgerList) return;
-  const commerce = watchCommerceState.payload || null;
-  const market = commerce?.market || {};
-  const orders = Array.isArray(market.orders) ? market.orders : [];
-  const ledgerEntries = Array.isArray(commerce?.ledger_entries) ? commerce.ledger_entries : [];
-  const gross = orders.reduce((sum, row) => sum + Number(row?.gross_amount_cents || 0), 0);
-  const net = orders
-    .filter((row) => String(row?.status || "") === "paid")
-    .reduce((sum, row) => sum + Number(row?.seller_net_cents || 0), 0);
-  const pendingSettle = orders
-    .filter((row) => ["pending", "processing"].includes(String(row?.status || "")))
-    .reduce((sum, row) => sum + Number(row?.seller_net_cents || 0), 0);
-  sellerMetrics.innerHTML = `
-    <div class="stat-card"><div class="stat-label">总销售额</div><div class="stat-value">${formatUsdFromCents(gross, "$0.00")}</div></div>
-    <div class="stat-card"><div class="stat-label">已确认收入</div><div class="stat-value">${formatUsdFromCents(net, "$0.00")}</div></div>
-    <div class="stat-card"><div class="stat-label">待处理</div><div class="stat-value">${formatUsdFromCents(pendingSettle, "$0.00")}</div></div>
-  `;
-  sellerOrdersList.innerHTML = orders.length
-    ? orders.map((row) => `
-        <div class="seller-item">
-          <div class="seller-item-title">${escapeHtml(String(row?.order_kind || "order"))} · ${formatUsdFromCents(Number(row?.gross_amount_cents || 0), "$0.00")}</div>
-          <div class="seller-item-meta">${escapeHtml(String(row?.status || ""))} · ${escapeHtml(formatDateTime(row?.created_at))}</div>
-        </div>
-      `).join("")
-    : `<div class="works-note">${loginCopy("No seller orders yet.", "还没有卖家订单。")}</div>`;
-  sellerLedgerList.innerHTML = ledgerEntries.length
-    ? ledgerEntries.map((row) => `
-        <div class="seller-item">
-          <div class="seller-item-title">${formatUsdFromCents(Number(row?.amount_cents || 0), "$0.00")}</div>
-          <div class="seller-item-meta">${escapeHtml(String(row?.kind || row?.note || "entry"))} · ${escapeHtml(formatDateTime(row?.created_at))}</div>
-        </div>
-      `).join("")
-    : `<div class="works-note">${loginCopy("No income entries yet.", "还没有收入记录。")}</div>`;
-}
-
-async function loadPublicMarketWorks(force = false) {
-  if (publicMarketState.loading) return publicMarketState.works;
-  if (!force && publicMarketState.loaded) return publicMarketState.works;
-  publicMarketState.loading = true;
-  publicMarketState.error = null;
-  try {
-    const res = await fetch("/api/works/market?limit=24", { credentials: "include" });
-    const payload = await res.json().catch(() => null);
-    const data = getApiData(payload);
-    if (!res.ok || payload?.ok === false) {
-      throw new Error(`market_load_failed:${res.status}`);
-    }
-    publicMarketState.works = Array.isArray(data?.works) ? data.works : [];
-    publicMarketState.loaded = true;
-    return publicMarketState.works;
-  } catch (err) {
-    publicMarketState.error = err;
-    publicMarketState.works = [];
-    publicMarketState.loaded = false;
-    return [];
-  } finally {
-    publicMarketState.loading = false;
-  }
-}
-
-function clearWatchPreviewLimit() {
-  watchPreviewLimitSec = 0;
-  watchPreviewLimitReason = "";
-  watchPreviewLimitNoticeShown = false;
-}
-
-function setWatchPreviewLimit(seconds, reason = "") {
-  watchPreviewLimitSec = Math.max(0, Number(seconds || 0));
-  watchPreviewLimitReason = String(reason || "").trim();
-  watchPreviewLimitNoticeShown = false;
+function resolveViewerOrderState(viewerOrders = []) {
+  return readWatchUiModule("resolveViewerOrderStateModule", {
+    paidListen: false,
+    paidBuyout: false,
+    paidTip: false,
+    pendingListen: false,
+    pendingBuyout: false,
+    pendingTip: false
+  }, viewerOrders);
 }
 
 function enforceWatchPreviewLimit() {
   if (!(watchPreviewLimitSec > 0)) return false;
+  if (currentWatchAudioSourceKind === "demo-audio") return false;
+  if (canBypassPreviewLimit(authState.user, currentWatchPreviewWork)) {
+    return false;
+  }
   const audioTime =
     watchAudioPreview && !watchAudioPreview.paused && !watchAudioPreview.ended
       ? Number(watchAudioPreview.currentTime || 0)
@@ -7481,394 +6253,32 @@ function enforceWatchPreviewLimit() {
   return true;
 }
 
-function buildMarketPreviewSeed(work = {}) {
-  const title = String(work?.title || "").trim() || loginCopy("Untitled", "未命名");
-  const lyrics = String(work?.lyrics_preview || "").trim();
-  const musicStyle = String(work?.style || "").trim() || loginCopy("Creator preview", "创作者预览");
-  const baseLines = lyrics
-    .split("\n")
-    .map((line) => String(line || "").trim())
-    .filter(Boolean);
-  const sectionTitles = baseLines.length
-    ? baseLines.slice(0, 4)
-    : [loginCopy("Verse preview", "主歌预览"), loginCopy("Hook preview", "副歌预览")];
-  const sectionBeats = sectionTitles.map((line, index) => ({
-    section: index === 0 ? "Intro" : index === 1 ? "Verse" : index === 2 ? "Chorus" : `Section ${index + 1}`,
-    title: line.slice(0, 48),
-    bars: index === 2 ? 8 : 6,
-    energy: index === 2 ? "high" : index === 0 ? "medium-low" : "medium",
-    focus: line.slice(0, 36),
-    visual_role: index === 2 ? "hook moment" : "character setup"
-  }));
-  return {
-    title,
-    lyrics,
-    musicStyle,
-    musicStructure: sectionBeats.map((item) => item.section).join(" · "),
-    videoOutline: loginCopy(
-      `30-second buyer preview for ${title} by ${String(work?.owner_name || work?.owner_email || "creator").trim() || "creator"}.`,
-      `${title} 的 30 秒买家预览，来自 ${String(work?.owner_name || work?.owner_email || "创作者").trim() || "创作者"}。`
-    ),
-    references: [],
-    sectionPrompts: sectionBeats.map((item, index) => ({
-      section: item.section,
-      prompt: loginCopy(
-        `Shot ${index + 1}: ${item.focus}. Keep it teaser-length and purchase-oriented.`,
-        `镜头 ${index + 1}：${item.focus}。保持预告片长度，并突出购买意图。`
-      )
-    })),
-    sectionBeats,
-    styleTags: [musicStyle]
-  };
-}
-
-async function openMarketWorkPreview(work = {}) {
-  const seed = buildMarketPreviewSeed(work);
-  openPanel(watchPanel);
-  activateWatchTab("mv");
-  clearWatchPreviewLimit();
-  renderSongSeedPreview(seed);
-  if (watchLyricsEditor) watchLyricsEditor.value = seed.lyrics || "";
-  if (watchOutlineEditor) watchOutlineEditor.value = seed.videoOutline || "";
-  if (watchScriptEditor) {
-    watchScriptEditor.value = Array.isArray(seed.sectionPrompts)
-      ? seed.sectionPrompts.map((item) => `${item.section}\n${item.prompt}`).join("\n\n")
-      : "";
-  }
-  if (watchCommentsCopy) {
-    watchCommentsCopy.textContent = loginCopy(
-      "Buyer preview only. Playback stops at 30 seconds until the full release is unlocked.",
-      "这是买家预览版。播放会在 30 秒时自动停止，完整版本需解锁后观看。"
-    );
-  }
-  const creator = String(work?.owner_name || work?.owner_email || "Creator").trim() || "Creator";
-  if (watchOwnershipCopy) {
-    watchOwnershipCopy.textContent = loginCopy(
-      `Previewing ${seed.title} by ${creator}. Purchase listen or buyout to unlock the commerce flow.`,
-      `正在预览 ${creator} 的《${seed.title}》。购买试听或买断后可继续完整交易流程。`
-    );
-  }
-  const subtitle = loginCopy("Buyer preview · 30s max", "买家预览 · 最长 30 秒");
-  const artworkSubtitle = `${creator} · ${seed.musicStyle || loginCopy("Preview", "预览")}`;
-  setSvgPreview(buildLocalVideoPreviewSvg(seed.title, artworkSubtitle));
-  if (watchSubtitle) watchSubtitle.textContent = subtitle;
-  setWatchPreviewLimit(
-    MARKET_WATCH_PREVIEW_LIMIT_SEC,
-    loginCopy("Preview ended at 30 seconds.", "预览已在 30 秒处停止。")
-  );
-  const usedCurrent = await ensureCurrentWatchPreviewPlayback();
-  if (!usedCurrent) {
-    await playDemoInWatchPanel();
-  }
-  if (watchSubtitle && watchSubtitle.textContent && !watchSubtitle.textContent.includes("30")) {
-    watchSubtitle.textContent = subtitle;
-  }
-}
-
-function renderForyouMarketplace() {
-  if (!foryouPanel) return;
-  const body = foryouPanel.querySelector(".panel-body");
-  if (!body) return;
-  let section = document.getElementById("foryou-market-section");
-  if (!section) {
-    section = document.createElement("div");
-    section.id = "foryou-market-section";
-    section.className = "works-section";
-    section.innerHTML = `
-      <div class="section-title">${loginCopy("Marketplace", "市场")}</div>
-      <div class="works-list" id="foryou-market-list">
-        <div class="works-note">${loginCopy("Loading marketplace...", "正在加载市场...")}</div>
-      </div>
-    `;
-    body.appendChild(section);
-  }
-  const list = document.getElementById("foryou-market-list");
-  if (!list) return;
-  if (publicMarketState.loading && !publicMarketState.loaded) {
-    list.innerHTML = `<div class="works-note">${loginCopy("Loading marketplace...", "正在加载市场...")}</div>`;
+async function applyAdminMembershipAssignment(trigger = null) {
+  const emailInput = advancedPanelSettings?.querySelector('[data-advanced-setting="admin-target-email"]');
+  const tierInput = advancedPanelSettings?.querySelector('[data-advanced-setting="admin-target-tier"]');
+  const email = String(emailInput?.value || "").trim();
+  const tier = String(tierInput?.value || "").trim().toLowerCase();
+  if (!email || !tier) {
+    safeShowToast(loginCopy("Enter the target email and membership tier first.", "请先填写目标邮箱和会员档位。"));
     return;
   }
-  const works = Array.isArray(publicMarketState.works) ? publicMarketState.works : [];
-  if (!works.length) {
-    list.innerHTML = `<div class="works-note">${loginCopy("No public works available yet.", "还没有公开作品可购买。")}</div>`;
-    return;
-  }
-  list.innerHTML = works
-    .map((work) => {
-      const workId = String(work?.id || work?.work_id || "").trim();
-      const title = escapeHtml(String(work?.title || "").trim() || loginCopy("Untitled", "未命名"));
-      const style = escapeHtml(String(work?.style || "").trim() || loginCopy("Style not set", "未设置风格"));
-      const workType = normalizeWorkTypeClient(work?.work_type);
-      const preview = escapeHtml(String(work?.lyrics_preview || "").trim() || title);
-      const createdAt = work?.created_at ? new Date(work.created_at).toLocaleString() : "";
-      const coverImage = String(work?.cover_image || work?.thumbnail_url || work?.preview_image_url || "").trim();
-      const listenPrice = formatUsdFromCents(Number(work?.current_listen_price_cents || 0), "$0.00");
-      const buyoutValue = Number(work?.current_buyout_price_cents || 0);
-      const buyoutEnabled = Boolean(work?.buyout_enabled) && buyoutValue > 0;
-      const buyoutPrice = buyoutEnabled ? formatUsdFromCents(buyoutValue, "$0.00") : loginCopy("Unavailable", "不可用");
-      const viewerOrders = Array.isArray(work?.viewer_orders) ? work.viewer_orders : [];
-      const isOwnedByViewer =
-        Boolean(authState.user?.id) && String(work?.owner_user_id || "").trim() === String(authState.user?.id || "").trim();
-      const previewBadge = `<span class="preview-chip">${loginCopy("Preview", "预览")}</span>`;
-      const paidBuyout = viewerOrders.find((entry) => String(entry?.order_kind || "") === "buyout" && String(entry?.status || "") === "paid");
-      const paidListen = viewerOrders.find((entry) => String(entry?.order_kind || "") === "listen" && String(entry?.status || "") === "paid");
-      const pendingListen = viewerOrders.find(
-        (entry) => String(entry?.order_kind || "") === "listen" && ["pending", "processing"].includes(String(entry?.status || ""))
-      );
-      const pendingBuyout = viewerOrders.find(
-        (entry) => String(entry?.order_kind || "") === "buyout" && ["pending", "processing"].includes(String(entry?.status || ""))
-      );
-      const pendingOrder = pendingBuyout || pendingListen;
-      const listenDisabled = Boolean(isOwnedByViewer || paidBuyout || paidListen || pendingListen || pendingBuyout);
-      const buyoutDisabled = Boolean(isOwnedByViewer || paidBuyout || pendingBuyout);
-      return `
-        <article class="work-card market-card foryou-shelf-card" data-market-work-id="${escapeHtml(workId)}">
-          <div class="work-cover" data-market-cover-key="${escapeHtml(workId)}">
-            ${coverImage ? `<img src="${escapeHtml(coverImage)}" alt="${title}" />` : `<div class="work-cover-fallback">${title.slice(0, 2).toUpperCase()}</div>`}
-          </div>
-          <div class="work-info">
-            <div class="work-title">${title}</div>
-            <div class="work-tags" title="${style}">${style}</div>
-            <div class="work-pricing">
-              <span class="price-chip ghost-chip">${loginCopy("Type", "类型")} · ${escapeHtml(workTypeLabel(workType))}</span>
-              <span class="price-chip">${loginCopy("Listen", "聆听")} · ${escapeHtml(listenPrice)}</span>
-              <span class="price-chip">${loginCopy("Buyout", "买断")} · ${escapeHtml(buyoutPrice)}</span>
-              ${createdAt ? `<span class="price-chip ghost-chip">${escapeHtml(createdAt)}</span>` : ""}
-            </div>
-          </div>
-          <div class="work-actions">
-            <button class="mini-btn ghost" type="button" data-market-action="preview">${loginCopy("Enjoy", "欣赏")}</button>
-          </div>
-        </article>
-      `;
-    })
-    .join("");
-  void hydrateMarketCardThumbnails(list, works);
-  list.querySelectorAll("[data-market-action='preview']").forEach((button) => {
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      const card = button.closest("[data-market-work-id]");
-      const workId = button.getAttribute("data-market-child-id") || card?.getAttribute("data-market-work-id") || "";
-      if (!workId) return;
-      const work = works.find((entry) => String(entry?.id || entry?.work_id || "").trim() === workId)
-        || flattenHierarchyWorks(works).find((entry) => String(entry?.id || entry?.work_id || "").trim() === workId);
-      if (!work) return;
-      void openMarketWorkPreview(work);
-    });
-  });
-  list.querySelectorAll("[data-market-action='listen']").forEach((button) => {
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      const card = button.closest("[data-market-work-id]");
-      const workId = button.getAttribute("data-market-child-id") || card?.getAttribute("data-market-work-id") || "";
-      if (!workId) return;
-      void startStripeCheckoutForWork(workId, "listen", button);
-    });
-  });
-  list.querySelectorAll("[data-market-action='buyout']").forEach((button) => {
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      const card = button.closest("[data-market-work-id]");
-      const workId = button.getAttribute("data-market-child-id") || card?.getAttribute("data-market-work-id") || "";
-      if (!workId) return;
-      void startStripeCheckoutForWork(workId, "buyout", button);
-    });
-  });
-}
-
-async function loadWatchCommerce(force = false) {
-  if (!authState.user) {
-    watchCommerceState.loaded = true;
-    watchCommerceState.loading = false;
-    watchCommerceState.payload = null;
-    return null;
-  }
-  if (watchCommerceState.loading) return null;
-  if (!force && watchCommerceState.loaded && watchCommerceState.payload) {
-    return watchCommerceState.payload;
-  }
-  watchCommerceState.loading = true;
-  watchCommerceState.error = null;
+  setButtonBusy(trigger, true);
   try {
-    const res = await fetch("/api/cssmv/commerce", { credentials: "include" });
-    const raw = await res.json().catch(() => null);
-    if (!res.ok || raw?.ok === false) {
-      throw new Error(`watch commerce failed: ${res.status}`);
+    const res = await fetch("/api/admin/membership/set", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ email, tier })
+    });
+    const payload = await res.json().catch(() => null);
+    if (!res.ok || payload?.ok === false) {
+      throw new Error(payload?.message || `admin_membership_set_failed:${res.status}`);
     }
-    const data = getApiData(raw);
-    watchCommerceState.payload = data;
-    watchCommerceState.loaded = true;
-    return data;
-  } catch (err) {
-    watchCommerceState.error = err;
-    watchCommerceState.payload = null;
-    watchCommerceState.loaded = false;
-    return null;
+    safeShowToast(loginCopy("Membership updated. VIP remains admin-only and is not publicly self-serve.", "会员档位已更新。VIP 仍然只能由管理员手动指定，不会对用户公开申请。"));
+  } catch (_err) {
+    safeShowToast(loginCopy("Failed to update membership.", "会员档位更新失败。"));
   } finally {
-    watchCommerceState.loading = false;
-  }
-}
-
-function renderWatchMetaPanels() {
-  if (watchCommentsCopy) {
-    watchCommentsCopy.textContent = t("watch.comments.empty");
-  }
-  const commerce = watchCommerceState.payload || null;
-  const account = commerce?.account || null;
-  const ownership = commerce?.ownership || null;
-  const market = commerce?.market || null;
-  const ledgerEntries = Array.isArray(commerce?.ledger_entries) ? commerce.ledger_entries : [];
-  const works = Array.isArray(ownership?.works) ? ownership.works : [];
-  const orders = Array.isArray(market?.orders) ? market.orders : [];
-  const tipsList = Array.isArray(market?.tips) ? market.tips : [];
-  const transfers = Array.isArray(market?.ownership_transfers) ? market.ownership_transfers : [];
-  const profiles = Array.isArray(market?.profiles) ? market.profiles : [];
-
-  if (watchOwnershipCopy) {
-    const owner = commerce?.profile?.email || authState.user?.email || t("watch.ownership.guest");
-    const source = state.title || "CSS MV";
-    const worksCount = Number(ownership?.works_count || works.length || 0);
-    const latestTransfer = transfers[0] || null;
-    const latestTransferAmount = latestTransfer ? formatUsdFromCents(latestTransfer.transfer_amount_cents, "$0.00") : "—";
-    watchOwnershipCopy.textContent =
-      `${t("watch.ownership.current")}: ${owner}\n` +
-      `${t("watch.ownership.source")}: ${source}\n` +
-      `${t("watch.ownership.worksCount")}: ${worksCount}\n` +
-      `${t("watch.revenue.buyouts")}: ${transfers.length} · ${latestTransferAmount}`;
-  }
-  if (watchOwnershipList) {
-    if (!authState.user) {
-      watchOwnershipList.innerHTML = `<div class="watch-activity-empty">${t("watch.ownership.none")}</div>`;
-    } else if (!works.length) {
-      watchOwnershipList.innerHTML = `<div class="watch-activity-empty">${t("watch.ownership.none")}</div>`;
-    } else {
-      const ownershipItems = [
-        ...transfers.map((transfer) => ({
-          title: `${t("watch.ownership.buyout")} · ${formatUsdFromCents(transfer?.transfer_amount_cents, "$0.00")}`,
-          meta: `${escapeHtml(String(transfer?.transfer_kind || t("watch.ownership.buyout")))} · ${escapeHtml(formatDateTime(transfer?.effective_at || transfer?.created_at))}`
-        })),
-        ...works.map((work) => ({
-          title: String(work?.title || "").trim() || "CSS MV",
-          meta: `${escapeHtml(String(work?.status || "draft"))} · ${escapeHtml(formatDateTime(work?.updated_at || work?.created_at))}`
-        }))
-      ].slice(0, 8);
-      watchOwnershipList.innerHTML = ownershipItems
-        .map((item) => `
-          <div class="watch-activity-item">
-            <div class="watch-activity-title">${escapeHtml(item.title)}</div>
-            <div class="watch-activity-meta">${item.meta}</div>
-          </div>
-        `)
-        .join("");
-    }
-  }
-  if (watchRevenueGrid) {
-    const subscription = commerce?.profile?.role || authState.role || billingState.tier || DEFAULT_ROLE;
-    const balance = account?.balance_cents ?? billingState.balance_cents;
-    const monthSpent = account?.month_spent_cents ?? 0;
-    const monthLimit = account?.monthly_limit_cents ?? billingState.monthly_limit_cents;
-    const listeners = orders.filter((entry) => String(entry?.order_kind || "") === "listen" && String(entry?.status || "") === "paid").length || works.length;
-    const tips = tipsList.reduce((sum, entry) => sum + Math.max(0, Number(entry?.amount_cents || 0)), 0);
-    const buyouts = transfers.length;
-    const earningsFromOrders = orders.reduce((sum, entry) => sum + Math.max(0, Number(entry?.seller_net_cents || 0)), 0);
-    const earnings = Math.max(
-      earningsFromOrders + tips,
-      ledgerEntries.filter((entry) => Number(entry?.amount_cents) > 0).reduce((sum, entry) => sum + Number(entry?.amount_cents || 0), 0)
-    );
-    watchRevenueGrid.innerHTML = `
-      <div class="watch-metric">
-        <div class="watch-metric-label">${t("works.subscription")}</div>
-        <div class="watch-metric-value">${escapeHtml(String(subscription || DEFAULT_ROLE))}</div>
-      </div>
-      <div class="watch-metric">
-        <div class="watch-metric-label">${t("watch.revenue.balance")}</div>
-        <div class="watch-metric-value">${escapeHtml(formatUsdFromCents(balance, t("watch.revenue.unlimited")))}</div>
-      </div>
-      <div class="watch-metric">
-        <div class="watch-metric-label">${t("watch.revenue.monthSpent")}</div>
-        <div class="watch-metric-value">${escapeHtml(formatUsdFromCents(monthSpent, "$0.00"))}</div>
-      </div>
-      <div class="watch-metric">
-        <div class="watch-metric-label">${t("watch.revenue.monthlyLimit")}</div>
-        <div class="watch-metric-value">${escapeHtml(formatUsdFromCents(monthLimit, t("watch.revenue.unlimited")))}</div>
-      </div>
-      <div class="watch-metric">
-        <div class="watch-metric-label">${t("watch.revenue.listeners")}</div>
-        <div class="watch-metric-value">${listeners}</div>
-      </div>
-      <div class="watch-metric">
-        <div class="watch-metric-label">${t("watch.revenue.tips")}</div>
-        <div class="watch-metric-value">${escapeHtml(formatUsdFromCents(tips, "$0.00"))}</div>
-      </div>
-      <div class="watch-metric">
-        <div class="watch-metric-label">${t("watch.revenue.buyouts")}</div>
-        <div class="watch-metric-value">${buyouts}</div>
-      </div>
-      <div class="watch-metric">
-        <div class="watch-metric-label">${t("watch.revenue.earnings")}</div>
-        <div class="watch-metric-value">${escapeHtml(formatUsdFromCents(earnings, "$0.00"))}</div>
-      </div>
-    `;
-  }
-  if (watchRevenueActivity) {
-    if (!authState.user) {
-      watchRevenueActivity.innerHTML = `<div class="watch-activity-empty">${t("watch.revenue.noActivity")}</div>`;
-    } else if (!ledgerEntries.length && !orders.length && !tipsList.length) {
-      watchRevenueActivity.innerHTML = `<div class="watch-activity-empty">${t("watch.revenue.noActivity")}</div>`;
-    } else {
-      const activityRows = [
-        ...orders.map((entry) => ({
-          title: `${t("watch.revenue.order")} · ${String(entry?.order_kind || t("watch.revenue.listeners")).trim()}`,
-          amount: Number(entry?.seller_net_cents || entry?.gross_amount_cents || 0),
-          at: entry?.updated_at || entry?.created_at
-        })),
-        ...tipsList.map((entry) => ({
-          title: `${t("watch.revenue.tipEntry")}${entry?.message ? ` · ${String(entry.message)}` : ""}`,
-          amount: Number(entry?.amount_cents || 0),
-          at: entry?.created_at
-        })),
-        ...ledgerEntries.map((entry) => ({
-          title: String(entry?.note || entry?.kind || "entry"),
-          amount: Number(entry?.amount_cents || 0),
-          at: entry?.created_at
-        }))
-      ]
-        .sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")))
-        .slice(0, 12);
-      watchRevenueActivity.innerHTML = activityRows
-        .map((entry) => {
-          const amount = Number(entry?.amount || 0);
-          const sign = amount > 0 ? "+" : "";
-          return `
-            <div class="watch-activity-item">
-              <div class="watch-activity-title">${escapeHtml(String(entry?.title || "entry"))}</div>
-              <div class="watch-activity-meta">${escapeHtml(`${sign}${formatUsdFromCents(amount, "$0.00")} · ${formatDateTime(entry?.at)}`)}</div>
-            </div>
-          `;
-        })
-        .join("");
-    }
-  }
-  if (authState.user && !watchCommerceState.loaded && !watchCommerceState.loading) {
-    void loadWatchCommerce().then(() => renderWatchMetaPanels());
-  }
-}
-
-function activateWatchTab(tab) {
-  const active = ["mv", "music", "lyrics", "script", "comments", "revenue", "ownership"].includes(tab) ? tab : "mv";
-  watchActiveTab = active;
-  localStorage.setItem(WATCH_ACTIVE_TAB_KEY, active);
-  watchTabButtons.forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.watchTab === active);
-  });
-  watchPanes.forEach((pane) => {
-    pane.classList.toggle("active", pane.dataset.watchPane === active);
-  });
-  if (active === "music" && watchAudioPreview) {
-    watchAudioPreview.style.display = "block";
-  }
-  if (active === "comments" || active === "revenue" || active === "ownership") {
-    renderWatchMetaPanels();
+    setButtonBusy(trigger, false);
   }
 }
 
@@ -7883,12 +6293,22 @@ function applySongSeedToSettings(seed) {
   const sectionPrompts = data.sectionPrompts;
   const sectionBeats = data.sectionBeats;
   const normalizedWorkType = normalizeWorkTypeClient(data.workType || creationState.workType || "single");
+  const preserveTitle =
+    !!(
+      readSongSeedUiModule(
+        "shouldPreserveSongSeedTitleForRefreshModule",
+        titleInput?.dataset?.userEdited === "1",
+      ) && String(titleInput?.value || "").trim()
+    );
+  const preserveLanguage = hasCreationFieldTouched("language") && String(creationState.language || "").trim();
+  const preserveWorkType = hasCreationFieldTouched("workType") && String(creationState.workType || "").trim();
+  const preserveStyle = hasCreationFieldTouched("styleText") && String(styleInput?.value || "").trim();
   const explicitLanguage = String(creationLanguage?.value || creationState.language || "").trim().toLowerCase();
   const inferredLanguage = explicitLanguage || inferLanguageFromTitleText(title) || "zh";
 
-  if (title) setSongSeedTitleValue(title, { userEdited: false });
+  if (title && !preserveTitle) setSongSeedTitleValue(title, { userEdited: false });
   if (lyricsInput && lyrics) lyricsInput.value = lyrics;
-  if (styleInput && musicStyleText) styleInput.value = musicStyleText;
+  if (styleInput && musicStyleText && !preserveStyle) styleInput.value = musicStyleText;
   if (lyricsSourceInput) lyricsSourceInput.value = references.join("\n");
   if (musicStructureInput) {
     const rendered = [musicStructureText, renderSectionBeatsText(sectionBeats)]
@@ -7898,10 +6318,10 @@ function applySongSeedToSettings(seed) {
   }
   if (videoOutlineInput) videoOutlineInput.value = videoOutlineText;
   if (sectionPromptsInput) sectionPromptsInput.value = renderSectionPromptsText(sectionPrompts);
-  creationState.workType = normalizedWorkType;
-  creationState.language = inferredLanguage;
-  if (creationWorkType) creationWorkType.value = normalizedWorkType;
-  if (creationLanguage) creationLanguage.value = inferredLanguage;
+  if (!preserveWorkType) creationState.workType = normalizedWorkType;
+  if (!preserveLanguage) creationState.language = inferredLanguage;
+  if (creationWorkType && !preserveWorkType) creationWorkType.value = normalizeWorkTypeClient(creationState.workType);
+  if (creationLanguage && !preserveLanguage) creationLanguage.value = String(creationState.language || inferredLanguage || "zh");
   state.songSeed = data;
   if (lyrics) {
     const lines = lyrics.split("\n");
@@ -7925,13 +6345,22 @@ function activateSeedTab(tab) {
   seedPaneScenes?.classList.toggle("active", active === "scenes");
 }
 
+function activateLyricsInputTab(tab) {
+  const active = tab === "uploads" ? "uploads" : "editor";
+  lyricsInputTabButtons.forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.lyricsInputTab === active);
+  });
+  lyricsInputPaneEditor?.classList.toggle("active", active === "editor");
+  lyricsInputPaneUploads?.classList.toggle("active", active === "uploads");
+}
+
 async function requestForyouThumbnail(title, subtitle, lines = []) {
   try {
     const image = await requestThumbnailDataUrl(title, subtitle, lines);
     if (!image) return false;
     if (getForyouPreviewMode() !== FORYOU_PREVIEW_MODES.VIDEO) {
       setForyouThumbImage(image);
-      if (!shouldUseEffectivePreviewVideo()) syncWatchPlaceholderFromCurrentState();
+      syncWatchPlaceholderAfterForyouThumbModule();
     }
     return true;
   } catch (_err) {
@@ -7983,40 +6412,22 @@ function hasEffectivePreviewVideo() {
   if (!watchVideo?.src || watchVideo.style.display === "none") return false;
   if (currentPreviewVideoIsLocalFallback) return false;
   const duration =
-    Number.isFinite(currentPreviewVideoDurationSec) && currentPreviewVideoDurationSec > 0
-      ? currentPreviewVideoDurationSec
+    Number.isFinite(globalThis.currentPreviewVideoDurationSec) && globalThis.currentPreviewVideoDurationSec > 0
+      ? globalThis.currentPreviewVideoDurationSec
       : lastRequestedVideoDurationSec;
   return duration > MIN_EFFECTIVE_PREVIEW_DURATION_SEC;
 }
 
 function setForyouThumbImage(uri) {
-  if (!foryouThumbImage || !uri) return false;
-  foryouThumbImage.src = uri;
-  setForyouBackgroundImage(uri);
-  syncForyouThumbFallback("image");
-  return true;
+  return readWatchUiModule("setForyouThumbImageModule", false, uri);
 }
 
 function restoreForyouThumbFallback() {
-  if (!currentForyouThumbFallbackDataUrl) {
-    syncForyouThumbFallback("fallback");
-    return false;
-  }
-  setForyouThumbImage(currentForyouThumbFallbackDataUrl);
-  return true;
+  return readWatchUiModule("restoreForyouThumbFallbackModule", false);
 }
 
 function resetForyouThumb() {
-  if (foryouThumbVideo) {
-    foryouThumbVideo.pause?.();
-    foryouThumbVideo.removeAttribute("src");
-    foryouThumbVideo.load?.();
-  }
-  if (foryouThumbImage) {
-    foryouThumbImage.removeAttribute("src");
-  }
-  setForyouBackgroundImage("");
-  syncForyouThumbFallback("fallback");
+  callWatchUiModule("resetForyouThumbModule");
 }
 
 function showToast(message) {
@@ -8084,7 +6495,7 @@ function typewriter(el, text, speed = 24, callback) {
   clearTimeout(typingTimer);
   el.textContent = "";
   let i = 0;
-  setForyouStatusVisible(true);
+  setEngineProgressVisible("lyrics", true, { immediate: true });
   if (lyricsProgress) setProgress(lyricsProgress, 0);
 
   const step = () => {
@@ -8110,19 +6521,21 @@ function typewriter(el, text, speed = 24, callback) {
       if (lyricsProgress) setProgress(lyricsProgress, 100);
       typingState.completed = true;
       setEngineDetail("lyrics", "stage: done");
+      setEngineProgressVisible("lyrics", false);
       exitLyricSpellcast(true);
       maybeCompactForyouAfterLyrics({ armAuto: false });
-      if (lyricsPanel) focusPanel(lyricsPanel);
       layoutShowcasePanels();
+      if (watchPanel && !watchPanel.classList.contains("hidden")) focusPanel(watchPanel);
       maybeFinalizeForyouPresentation();
       callback();
     } else {
       typingState.completed = true;
       setEngineDetail("lyrics", "stage: done");
+      setEngineProgressVisible("lyrics", false);
       exitLyricSpellcast(true);
       maybeCompactForyouAfterLyrics({ armAuto: false });
-      if (lyricsPanel) focusPanel(lyricsPanel);
       layoutShowcasePanels();
+      if (watchPanel && !watchPanel.classList.contains("hidden")) focusPanel(watchPanel);
       maybeFinalizeForyouPresentation();
     }
   };
@@ -8131,7 +6544,7 @@ function typewriter(el, text, speed = 24, callback) {
 }
 
 function setProgress(el, value) {
-  el.style.width = `${value}%`;
+  callWatchUiModule("setProgressModule", el, value);
 }
 
 function clampPercent(value) {
@@ -8420,12 +6833,29 @@ function collectPipelineStages(statusMap, patterns) {
   return entries.sort((a, b) => String(a.name).localeCompare(String(b.name)));
 }
 
+function normalizePipelineStageEntries(statusPayload) {
+  if (Array.isArray(statusPayload?.stages)) {
+    return statusPayload.stages
+      .map((entry) => ({
+        name: String(entry?.name || "").trim(),
+        status: String(entry?.status || "").trim()
+      }))
+      .filter((entry) => entry.name);
+  }
+  if (statusPayload?.stages && typeof statusPayload.stages === "object") {
+    return Object.entries(statusPayload.stages)
+      .map(([name, entry]) => ({
+        name: String(name || "").trim(),
+        status: String(entry?.status || "").trim()
+      }))
+      .filter((entry) => entry.name);
+  }
+  return [];
+}
+
 function derivePipelineProgress(statusPayload) {
   const statusMap = new Map(
-    (Array.isArray(statusPayload?.stages) ? statusPayload.stages : []).map((entry) => [
-      String(entry?.name || "").trim(),
-      String(entry?.status || "").trim()
-    ])
+    normalizePipelineStageEntries(statusPayload).map((entry) => [entry.name, entry.status])
   );
   const stage = (name) => ({ name, status: statusMap.get(name) || "PENDING" });
   const shotStages = collectPipelineStages(statusMap, [/^video_shot_\d+$/i, /^shot\./i, /^video_shot\./i]);
@@ -8503,15 +6933,34 @@ function stopPipelineProgressPolling() {
     clearInterval(pipelineStatusTimer);
     pipelineStatusTimer = null;
   }
+  updateWatchAudioDebug();
+}
+
+function stopPendingFinalAudioPolling() {
+  pendingFinalAudioRunId = "";
+  if (pendingFinalAudioTimer) {
+    clearInterval(pendingFinalAudioTimer);
+    pendingFinalAudioTimer = null;
+  }
 }
 
 async function pollPipelineProgressOnce(runId) {
   const statePath = pipelineRunStatePath(runId);
   if (!statePath) return;
-  const res = await fetch(`/api/pipeline/status?path=${encodeURIComponent(statePath)}`);
-  const payload = await res.json().catch(() => null);
-  if (!res.ok || !payload) return;
+  let payload = null;
+  let res = null;
+  try {
+    res = await fetch(`/api/pipeline/status?path=${encodeURIComponent(statePath)}`);
+    payload = await res.json().catch(() => null);
+  } catch (_err) {
+    payload = null;
+  }
+  if (!res?.ok || !payload) {
+    void maybeAttachFinalAudioArtifact(runId, { artifacts: [] }, { progress: 100 });
+    return;
+  }
   const derived = derivePipelineProgress(payload);
+  void maybeAttachFinalAudioArtifact(runId, payload, derived.music);
   engineProgressState.music = blendProgress(engineProgressState.music, derived.music.progress);
   engineProgressState.video = blendProgress(engineProgressState.video, derived.video.progress);
   engineProgressState.kara = blendProgress(engineProgressState.kara, derived.kara.progress);
@@ -8530,9 +6979,18 @@ async function pollPipelineProgressOnce(runId) {
   setProgress(musicProgress, engineProgressState.music);
   setProgress(videoProgress, engineProgressState.video);
   setProgress(karaProgress, engineProgressState.kara);
-  if (engineProgressState.music > 0) revealEnginePanel("music");
-  if (engineProgressState.video > 0) revealEnginePanel("video");
-  if (engineProgressState.kara > 0) revealEnginePanel("kara");
+  if (engineProgressState.music > 0) {
+    setEngineProgressVisible("music", true, { immediate: true });
+    revealEnginePanel("music");
+  }
+  if (engineProgressState.video > 0) {
+    setEngineProgressVisible("video", true, { immediate: true });
+    revealEnginePanel("video");
+  }
+  if (engineProgressState.kara > 0) {
+    setEngineProgressVisible("kara", true, { immediate: true });
+    revealEnginePanel("kara");
+  }
   syncSceneProgress(engineProgressState.video);
   setEngineState("music", derived.music.state === "done" ? "running" : derived.music.state);
   setEngineState("video", derived.video.state === "done" ? "running" : derived.video.state);
@@ -8570,9 +7028,18 @@ async function pollPipelineProgressOnce(runId) {
     ...derived.kara,
     progress: engineProgressState.kara
   });
-  if (derived.music.progress >= 100) setProgress(musicProgress, 100);
-  if (derived.video.progress >= 100) setProgress(videoProgress, 100);
-  if (derived.kara.progress >= 100) setProgress(karaProgress, 100);
+  if (derived.music.progress >= 100) {
+    setProgress(musicProgress, 100);
+    setEngineProgressVisible("music", false);
+  }
+  if (derived.video.progress >= 100) {
+    setProgress(videoProgress, 100);
+    setEngineProgressVisible("video", false);
+  }
+  if (derived.kara.progress >= 100) {
+    setProgress(karaProgress, 100);
+    setEngineProgressVisible("kara", false);
+  }
   maybeFinalizeForyouPresentation();
 }
 
@@ -8582,6 +7049,10 @@ function startPipelineProgressPolling(runId) {
   activePipelineRunId = safeRunId;
   stopPipelineProgressPolling();
   activePipelineRunId = safeRunId;
+  if (!currentWatchAudioRunId) {
+    currentWatchAudioRunId = safeRunId;
+  }
+  updateWatchAudioDebug();
   void pollPipelineProgressOnce(safeRunId);
   pipelineStatusTimer = setInterval(() => {
     if (!activePipelineRunId) return;
@@ -8589,487 +7060,1096 @@ function startPipelineProgressPolling(runId) {
   }, 1200);
 }
 
-function resetVideoPreview() {
-  if (!watchVideo) return;
-  resetForyouThumb();
-  clearWatchFrameLoop();
-  currentPreviewVideoDurationSec = 0;
-  currentPreviewVideoIsLocalFallback = false;
-  currentPreviewVideoSourceKind = "none";
-  currentPreviewVideoHasUsableFrame = false;
-  currentPreviewFrameDataUrl = "";
-  currentPreviewFrameSequence = [];
-  if (currentPreviewMotionClipUrl) {
-    URL.revokeObjectURL(currentPreviewMotionClipUrl);
-    currentPreviewMotionClipUrl = "";
-  }
-  watchVideo.pause?.();
-  watchVideo.removeAttribute("src");
-  watchVideo.load?.();
-  if (watchVideoUrl) {
-    URL.revokeObjectURL(watchVideoUrl);
-    watchVideoUrl = null;
-  }
-  if (watchSvg) {
-    watchSvg.removeAttribute("src");
-    watchSvg.style.display = "none";
-  }
-  watchVideo.style.display = "";
-}
-
-function showWatchFramePlaceholder(uri) {
-  if (!watchSvg || !uri) return false;
-  watchSvg.src = uri;
-  watchSvg.style.display = "block";
-  watchSvg.classList.add("glow");
-  if (watchVideo) watchVideo.style.display = "none";
-  return true;
-}
-
-function syncWatchPlaceholderFromCurrentState() {
-  const cachedSequence = currentPreviewFrameSequence.length
-    ? currentPreviewFrameSequence
-    : getCachedWatchFrameSequence();
-  if (cachedSequence.length) {
-    showWatchFramePlaceholder(cachedSequence[0]);
-    startWatchFrameLoop(cachedSequence);
-    return true;
-  }
-  const cachedFrame = currentPreviewFrameDataUrl || getCachedWatchFrame();
-  if (cachedFrame) {
-    clearWatchFrameLoop();
-    return showWatchFramePlaceholder(cachedFrame);
-  }
-  const imageSrc = foryouThumbImage?.src || "";
-  if (imageSrc) {
-    clearWatchFrameLoop();
-    setForyouBackgroundImage(imageSrc);
-    return showWatchFramePlaceholder(imageSrc);
-  }
-  clearWatchFrameLoop();
-  return showWatchFramePlaceholder(
-    buildLocalVideoPreviewSvg(state.title, `${state.style} ${state.voice} cinematic mv`)
-  );
-}
-
-function shouldUseEffectivePreviewVideo() {
-  return (
-    !currentPreviewVideoIsLocalFallback &&
-    currentPreviewVideoHasUsableFrame &&
-    hasEffectivePreviewVideo()
-  );
-}
-
-function setVideoFromArtifact(uri, options = {}) {
-  if (!watchVideo || !uri) return false;
-  const isLocalFallback = uri === LOCAL_FALLBACK_MP4;
-  const sourceKind = options.sourceKind || (isLocalFallback ? "local-fallback" : "artifact");
-  currentPreviewVideoIsLocalFallback = isLocalFallback;
-  currentPreviewVideoDurationSec = 0;
-  currentPreviewVideoSourceKind = sourceKind;
-  currentPreviewVideoHasUsableFrame = false;
-  syncWatchPlaceholderFromCurrentState();
-  if (!uri.startsWith("data:")) {
-    watchVideo.src = uri;
-    watchVideo.muted = false;
-    watchVideo.playsInline = true;
-    watchVideo.load?.();
-    return true;
-  }
-  const [meta, data] = uri.split(",");
-  if (!data) return false;
-  const mimeMatch = meta.match(/data:([^;]+);base64/);
-  const mime = mimeMatch ? mimeMatch[1] : "video/mp4";
-  try {
-    const binary = atob(data);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i += 1) {
-      bytes[i] = binary.charCodeAt(i);
+function startPendingFinalAudioPolling(runId) {
+  const safeRunId = String(runId || "").trim();
+  if (!safeRunId) return;
+  stopPendingFinalAudioPolling();
+  pendingFinalAudioRunId = safeRunId;
+  updateWatchAudioDebug();
+  const tick = () => {
+    if (!pendingFinalAudioRunId) return;
+    void maybeAttachFinalAudioArtifact(safeRunId, { artifacts: [] }, { progress: 100 }).then((attached) => {
+      if (attached) {
+        stopPendingFinalAudioPolling();
+      }
+    });
+  };
+  tick();
+  pendingFinalAudioTimer = setInterval(tick, 2500);
+  setTimeout(() => {
+    if (pendingFinalAudioRunId === safeRunId) {
+      stopPendingFinalAudioPolling();
     }
-    const blob = new Blob([bytes], { type: mime });
-    watchVideoUrl = URL.createObjectURL(blob);
-    watchVideo.src = watchVideoUrl;
-    watchVideo.muted = false;
-    watchVideo.playsInline = true;
-    watchVideo.load?.();
-    return true;
-  } catch (err) {
-    return false;
-  }
+  }, 1000 * 60 * 5);
 }
 
-function setSvgPreview(uri) {
-  if (!watchSvg || !uri) return false;
-  showWatchFramePlaceholder(uri);
-  if (getForyouPreviewMode() !== FORYOU_PREVIEW_MODES.VIDEO) {
-    setForyouThumbImage(uri);
-  }
-  return true;
+function formatReplyHarmonyClock(value) {
+  const seconds = Math.max(0, Number(value) || 0);
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  const fraction = Math.floor((seconds - Math.floor(seconds)) * 10);
+  return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}.${fraction}`;
 }
 
-function clearPlaybackRetry() {
-  if (playbackTimer) {
-    clearTimeout(playbackTimer);
-    playbackTimer = null;
-  }
-  playbackRetry = 0;
+function extractReplyHarmonyWindowsFromMusicPlan(musicPlan) {
+  const direct = Array.isArray(musicPlan?.replyHarmonyWindows) ? musicPlan.replyHarmonyWindows : [];
+  if (direct.length) return direct;
+  const cues = Array.isArray(musicPlan?.cues) ? musicPlan.cues : [];
+  const merged = [];
+  cues.forEach((cue) => {
+    const windows = Array.isArray(cue?.replyHarmonyWindows) ? cue.replyHarmonyWindows : [];
+    windows.forEach((windowEntry) => merged.push(windowEntry));
+  });
+  return merged;
 }
 
-function promptManualPlay(message) {
-  manualPlayHinted = true;
-  if (watchSubtitle) watchSubtitle.textContent = message;
-  showToast(message);
+function replyHarmonyWindowStrength(windowEntry) {
+  return clampPercent((Number(windowEntry?.strength) || 0) * 100);
 }
 
-function revealWatchVideoLayer() {
-  if (!watchVideo?.src) return false;
-  if (watchSvg) watchSvg.style.display = "none";
-  clearWatchFrameLoop();
-  watchVideo.style.display = "";
-  return true;
+function currentWatchAudioTimeSec() {
+  if (!watchAudioPreview) return 0;
+  const current = Number(watchAudioPreview.currentTime);
+  return Number.isFinite(current) && current >= 0 ? current : 0;
 }
 
-function playWatchAudioPreviewFromStart() {
-  if (!watchAudioPreview || watchAudioPreview.style.display === "none" || !watchAudioPreview.src) {
-    return false;
-  }
+function currentWatchAudioDurationSec() {
+  if (!watchAudioPreview) return 0;
+  const duration = Number(watchAudioPreview.duration);
+  return Number.isFinite(duration) && duration > 0 ? duration : 0;
+}
+
+function buildReplyHarmonyWindowKey(windowEntry) {
+  return [
+    String(windowEntry?.section || "").trim(),
+    String(windowEntry?.token || "").trim(),
+    Number(windowEntry?.startSec || 0).toFixed(3),
+    Number(windowEntry?.durationSec || 0).toFixed(3)
+  ].join("|");
+}
+
+function persistWatchReplyLockState() {
   try {
-    watchAudioPreview.currentTime = 0;
-  } catch (_err) {
-    // ignore seek errors
-  }
-  const playPromise = watchAudioPreview.play?.();
-  if (!playPromise || typeof playPromise.then !== "function") return true;
-  playPromise.catch(() => {});
-  syncWatchMusicState();
-  enforceWatchPreviewLimit();
-  return true;
-}
-
-function hasCurrentWatchPreview() {
-  return !!(
-    (watchVideo?.src && String(watchVideo.src).trim()) ||
-    (watchSvg?.src && String(watchSvg.src).trim()) ||
-    (currentPreviewMotionClipUrl && String(currentPreviewMotionClipUrl).trim())
-  );
-}
-
-function attemptVideoPlayback(options = {}) {
-  if (!watchVideo || !watchVideo.src) return;
-  const maxRetries = options.maxRetries ?? 5;
-  const interval = options.interval ?? 900;
-  const allowFallback = options.allowFallback ?? false;
-  clearPlaybackRetry();
-
-  const tryPlay = () => {
-    if (!watchVideo || !watchVideo.src) return;
-    const playPromise = watchVideo.play?.();
-    if (!playPromise || typeof playPromise.then !== "function") return;
-    playPromise
-      .then(() => {
-        clearPlaybackRetry();
-        manualPlayHinted = false;
+    if (!watchReplyLockedWindow?.key) {
+      localStorage.removeItem(WATCH_REPLY_LOCK_KEY);
+      syncWatchReplyLockHash("");
+      return;
+    }
+    const runId = String(currentWatchAudioRunId || pendingFinalAudioRunId || activePipelineRunId || "").trim();
+    localStorage.setItem(
+      WATCH_REPLY_LOCK_KEY,
+      JSON.stringify({
+        runId,
+        key: watchReplyLockedWindow.key,
+        token: String(watchReplyLockedWindow.token || "").trim(),
+        loop: watchReplyLoopWindow?.key === watchReplyLockedWindow.key
       })
-      .catch(() => {
-        playbackRetry += 1;
-        if (playbackRetry <= maxRetries) {
-          showToast(`Auto retry ${playbackRetry}/${maxRetries}`);
-          playbackTimer = setTimeout(tryPlay, interval);
-          return;
-        }
-        if (allowFallback) {
-      useLocalVideoFallback(state.title, `${state.style} ${state.voice} cinematic mv`);
-        }
-        promptManualPlay("Autoplay blocked · Tap to play");
-      });
-  };
-
-  tryPlay();
-}
-
-function pauseWatchVideo() {
-  if (!watchVideo) return;
-  watchVideo.pause?.();
-}
-
-function resumeWatchVideo() {
-  if (!watchVideo || !watchVideo.src) return;
-  watchVideo.play?.().catch(() => {});
-}
-
-function startWatchPlaybackFromUserGesture() {
-  if (!watchVideo?.src) return false;
-  revealWatchVideoLayer();
-  if (currentPreviewVideoSourceKind === "frame-motion") {
-    watchVideo.muted = true;
-    playWatchAudioPreviewFromStart();
-  } else {
-    watchVideo.muted = false;
+    );
+    syncWatchReplyLockHash(watchReplyLockedWindow.key, runId, watchReplyLoopWindow?.key === watchReplyLockedWindow.key);
+  } catch (_err) {
+    // ignore persistence issues
   }
-  const playPromise = watchVideo.play?.();
-  if (!playPromise || typeof playPromise.then !== "function") return true;
-  playPromise
-    .then(() => {
-      manualPlayHinted = false;
-      if (watchSubtitle?.textContent?.includes("Tap to play")) {
-        watchSubtitle.textContent = "KaraOKe MV · Preview";
+}
+
+function readPersistedWatchReplyLockState() {
+  try {
+    const raw = localStorage.getItem(WATCH_REPLY_LOCK_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return {
+      runId: String(parsed.runId || "").trim(),
+      key: String(parsed.key || "").trim(),
+      token: String(parsed.token || "").trim(),
+      loop: !!parsed.loop
+    };
+  } catch (_err) {
+    return null;
+  }
+}
+
+function readWatchReplyLockHashState() {
+  try {
+    const hash = String(window.location.hash || "").replace(/^#/, "");
+    const params = new URLSearchParams(hash);
+    const key = String(params.get("replyLock") || "").trim();
+    if (!key) return null;
+    return {
+      runId: String(params.get("replyRun") || "").trim(),
+      key,
+      token: "",
+      loop: String(params.get("replyLoop") || "").trim() === "1"
+    };
+  } catch (_err) {
+    return null;
+  }
+}
+
+function syncWatchReplyLockHash(key = "", runId = "", loop = false) {
+  try {
+    const url = new URL(window.location.href);
+    const hash = String(url.hash || "").replace(/^#/, "");
+    const params = new URLSearchParams(hash);
+    if (key) {
+      params.set("replyLock", key);
+      if (runId) params.set("replyRun", runId);
+      if (loop) params.set("replyLoop", "1");
+      else params.delete("replyLoop");
+    } else {
+      params.delete("replyLock");
+      params.delete("replyRun");
+      params.delete("replyLoop");
+    }
+    const nextHash = params.toString();
+    url.hash = nextHash ? `#${nextHash}` : "";
+    window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+  } catch (_err) {
+    // ignore hash sync issues
+  }
+}
+
+async function copyWatchReplyLockLink() {
+  if (!watchReplyLockedWindow?.key) return false;
+  try {
+    await navigator.clipboard.writeText(window.location.href);
+    showToast(loginCopy("Locked Watch link copied.", "已复制锁定 Watch 链接。"));
+    return true;
+  } catch (_err) {
+    showToast(loginCopy("Copy failed on this device.", "当前设备复制失败。"));
+    return false;
+  }
+}
+
+async function copyWatchReplyRegenerationPayload(payload) {
+  if (!payload) return false;
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+    showToast(loginCopy("Sidecar JSON copied.", "Sidecar JSON 已复制。"));
+    return true;
+  } catch (_err) {
+    showToast(loginCopy("Copy failed on this device.", "当前设备复制失败。"));
+    return false;
+  }
+}
+
+function persistWatchReplyRegenerationDraft(windowEntry = null) {
+  try {
+    if (!windowEntry) {
+      localStorage.removeItem(WATCH_REPLY_REGEN_DRAFT_KEY);
+      return null;
+    }
+    const draft = {
+      kind: "reply_harmony_window_regeneration",
+      runId: String(currentWatchAudioRunId || pendingFinalAudioRunId || activePipelineRunId || "").trim(),
+      windowKey: buildReplyHarmonyWindowKey(windowEntry),
+      token: String(windowEntry?.token || "").trim(),
+      section: String(windowEntry?.section || "").trim(),
+      phraseOrder: Math.max(0, Number(windowEntry?.phraseOrder || 0)),
+      role: String(windowEntry?.role || "").trim(),
+      cadence: String(windowEntry?.cadence || "").trim(),
+      startSec: Math.max(0, Number(windowEntry?.startSec || 0)),
+      durationSec: Math.max(0.2, Number(windowEntry?.durationSec || 0)),
+      loopPreferred: watchReplyLoopWindow?.key === buildReplyHarmonyWindowKey(windowEntry),
+      controls: {
+        bassDuckBias: 0,
+        stringsSettle: 0,
+        densityBias: 0
+      },
+      importedControls: {
+        bassDuckBias: 0,
+        stringsSettle: 0,
+        densityBias: 0
+      },
+      sourceArtifacts: ["./build/music.plan.json", "./build/vocals.plan.json"],
+      requestedAt: new Date().toISOString(),
+      status: "draft"
+    };
+    localStorage.setItem(WATCH_REPLY_REGEN_DRAFT_KEY, JSON.stringify(draft));
+    return draft;
+  } catch (_err) {
+    return null;
+  }
+}
+
+function readWatchReplyRegenerationDraft() {
+  try {
+    const raw = localStorage.getItem(WATCH_REPLY_REGEN_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch (_err) {
+    return null;
+  }
+}
+
+function readWatchReplyRegenerationHistory() {
+  try {
+    const raw = localStorage.getItem(WATCH_REPLY_REGEN_HISTORY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((entry) => entry && typeof entry === "object") : [];
+  } catch (_err) {
+    return [];
+  }
+}
+
+function writeWatchReplyRegenerationHistory(entries) {
+  try {
+    localStorage.setItem(WATCH_REPLY_REGEN_HISTORY_KEY, JSON.stringify(Array.isArray(entries) ? entries.slice(0, 8) : []));
+  } catch (_err) {
+    // ignore persistence issues
+  }
+}
+
+function pushWatchReplyRegenerationHistoryEntry(action, draft) {
+  const normalized = normalizeWatchReplyRegenerationDraft(draft);
+  if (!normalized) return;
+  const nextEntry = {
+    action: String(action || "updated").trim() || "updated",
+    windowKey: String(normalized.windowKey || "").trim(),
+    token: String(normalized.token || "").trim(),
+    section: String(normalized.section || "").trim(),
+    phraseOrder: Math.max(0, Number(normalized.phraseOrder || 0)),
+    timestamp: new Date().toISOString(),
+    draft: normalized
+  };
+  const current = readWatchReplyRegenerationHistory().filter((entry) => String(entry?.windowKey || "").trim() !== nextEntry.windowKey || String(entry?.action || "").trim() !== nextEntry.action);
+  writeWatchReplyRegenerationHistory([nextEntry, ...current]);
+}
+
+function updateWatchReplyRegenerationDraftControls(patch = {}) {
+  const current = readWatchReplyRegenerationDraft();
+  if (!current) return null;
+  const next = {
+    ...current,
+    controls: {
+      bassDuckBias: Math.max(-1, Math.min(1, Number(current?.controls?.bassDuckBias || 0))),
+      stringsSettle: Math.max(-1, Math.min(1, Number(current?.controls?.stringsSettle || 0))),
+      densityBias: Math.max(-1, Math.min(1, Number(current?.controls?.densityBias || 0))),
+      ...patch
+    }
+  };
+  localStorage.setItem(WATCH_REPLY_REGEN_DRAFT_KEY, JSON.stringify(next));
+  renderMusicEngineSnapshot(latestWatchMusicStatusPayload, latestWatchMusicSnapshot);
+  return next;
+}
+
+function resetWatchReplyRegenerationDraftControls() {
+  const current = readWatchReplyRegenerationDraft();
+  if (!current) return null;
+  const baseline = {
+    bassDuckBias: Math.max(-1, Math.min(1, Number(current?.importedControls?.bassDuckBias ?? current?.controls?.bassDuckBias ?? 0))),
+    stringsSettle: Math.max(-1, Math.min(1, Number(current?.importedControls?.stringsSettle ?? current?.controls?.stringsSettle ?? 0))),
+    densityBias: Math.max(-1, Math.min(1, Number(current?.importedControls?.densityBias ?? current?.controls?.densityBias ?? 0)))
+  };
+  const next = {
+    ...current,
+    controls: { ...baseline },
+    importedControls: { ...baseline }
+  };
+  localStorage.setItem(WATCH_REPLY_REGEN_DRAFT_KEY, JSON.stringify(next));
+  renderMusicEngineSnapshot(latestWatchMusicStatusPayload, latestWatchMusicSnapshot);
+  updateWatchAudioDebug();
+  showToast(loginCopy("Draft controls reset to imported values.", "草案参数已恢复到导入原值。"));
+  return next;
+}
+
+function formatReplyDraftDelta(value) {
+  const numeric = Number(value || 0);
+  if (Math.abs(numeric) < 0.005) return "0.00";
+  return `${numeric > 0 ? "+" : ""}${numeric.toFixed(2)}`;
+}
+
+function watchReplyDraftHasUnsavedControlChanges(draft) {
+  if (!draft || typeof draft !== "object") return false;
+  const fields = ["bassDuckBias", "stringsSettle", "densityBias"];
+  return fields.some((field) => {
+    const currentValue = Number(draft?.controls?.[field] || 0);
+    const importedValue = Number(draft?.importedControls?.[field] ?? 0);
+    return Math.abs(currentValue - importedValue) >= 0.005;
+  });
+}
+
+function clearWatchReplyRegenerationDraft() {
+  try {
+    localStorage.removeItem(WATCH_REPLY_REGEN_DRAFT_KEY);
+    renderMusicEngineSnapshot(latestWatchMusicStatusPayload, latestWatchMusicSnapshot);
+    updateWatchAudioDebug();
+    showToast(loginCopy("Regeneration draft cleared.", "局部重生成草案已清空。"));
+    return true;
+  } catch (_err) {
+    showToast(loginCopy("Unable to clear the draft right now.", "暂时无法清空局部重生成草案。"));
+    return false;
+  }
+}
+
+function buildWatchReplyRegenerationPayload(draft) {
+  if (!draft || typeof draft !== "object") return null;
+  return {
+    kind: "reply_harmony_window_regeneration",
+    runId: String(draft.runId || "").trim(),
+    target: {
+      windowKey: String(draft.windowKey || "").trim(),
+      token: String(draft.token || "").trim(),
+      section: String(draft.section || "").trim(),
+      phraseOrder: Math.max(0, Number(draft.phraseOrder || 0)),
+      role: String(draft.role || "").trim(),
+      cadence: String(draft.cadence || "").trim(),
+      startSec: Math.max(0, Number(draft.startSec || 0)),
+      durationSec: Math.max(0.2, Number(draft.durationSec || 0))
+    },
+    controls: {
+      bassDuckBias: Math.max(-1, Math.min(1, Number(draft?.controls?.bassDuckBias || 0))),
+      stringsSettle: Math.max(-1, Math.min(1, Number(draft?.controls?.stringsSettle || 0))),
+      densityBias: Math.max(-1, Math.min(1, Number(draft?.controls?.densityBias || 0)))
+    },
+    loopPreferred: !!draft.loopPreferred,
+    sourceArtifacts: Array.isArray(draft.sourceArtifacts) ? draft.sourceArtifacts : [],
+    status: String(draft.status || "draft"),
+    requestedAt: String(draft.requestedAt || "")
+  };
+}
+
+function normalizeWatchReplyRegenerationDraft(rawDraft) {
+  if (!rawDraft || typeof rawDraft !== "object") return null;
+  const payloadLike = rawDraft?.target && typeof rawDraft.target === "object" ? rawDraft : null;
+  const source = payloadLike
+    ? {
+        kind: rawDraft.kind,
+        runId: rawDraft.runId,
+        windowKey: rawDraft?.target?.windowKey,
+        token: rawDraft?.target?.token,
+        section: rawDraft?.target?.section,
+        phraseOrder: rawDraft?.target?.phraseOrder,
+        role: rawDraft?.target?.role,
+        cadence: rawDraft?.target?.cadence,
+        startSec: rawDraft?.target?.startSec,
+        durationSec: rawDraft?.target?.durationSec,
+        controls: rawDraft.controls,
+        loopPreferred: rawDraft.loopPreferred,
+        sourceArtifacts: rawDraft.sourceArtifacts,
+        status: rawDraft.status,
+        requestedAt: rawDraft.requestedAt
       }
-    })
-    .catch(() => {
-      promptManualPlay("Autoplay blocked · Tap to play");
-    });
+    : rawDraft;
+  if (String(source.kind || "").trim() !== "reply_harmony_window_regeneration") return null;
+  const normalized = {
+    kind: "reply_harmony_window_regeneration",
+    runId: String(source.runId || currentWatchAudioRunId || pendingFinalAudioRunId || activePipelineRunId || "").trim(),
+    windowKey: String(source.windowKey || "").trim(),
+    token: String(source.token || "").trim(),
+    section: String(source.section || "").trim(),
+    phraseOrder: Math.max(0, Number(source.phraseOrder || 0)),
+    role: String(source.role || "").trim(),
+    cadence: String(source.cadence || "").trim(),
+    startSec: Math.max(0, Number(source.startSec || 0)),
+    durationSec: Math.max(0.2, Number(source.durationSec || 0)),
+    loopPreferred: !!source.loopPreferred,
+    controls: {
+      bassDuckBias: Math.max(-1, Math.min(1, Number(source?.controls?.bassDuckBias || 0))),
+      stringsSettle: Math.max(-1, Math.min(1, Number(source?.controls?.stringsSettle || 0))),
+      densityBias: Math.max(-1, Math.min(1, Number(source?.controls?.densityBias || 0)))
+    },
+    importedControls: {
+      bassDuckBias: Math.max(-1, Math.min(1, Number(source?.importedControls?.bassDuckBias ?? source?.controls?.bassDuckBias ?? 0))),
+      stringsSettle: Math.max(-1, Math.min(1, Number(source?.importedControls?.stringsSettle ?? source?.controls?.stringsSettle ?? 0))),
+      densityBias: Math.max(-1, Math.min(1, Number(source?.importedControls?.densityBias ?? source?.controls?.densityBias ?? 0)))
+    },
+    sourceArtifacts: Array.isArray(source.sourceArtifacts) ? source.sourceArtifacts : ["./build/music.plan.json", "./build/vocals.plan.json"],
+    requestedAt: String(source.requestedAt || new Date().toISOString()),
+    status: String(source.status || "draft")
+  };
+  if (!normalized.windowKey && normalized.section) {
+    const tokenKey = normalized.token || "window";
+    normalized.windowKey = `${normalized.section}::${normalized.phraseOrder}::${tokenKey}::${Number(normalized.startSec).toFixed(3)}`;
+  }
+  if (!normalized.windowKey) return null;
+  return normalized;
+}
+
+function importWatchReplyRegenerationDraft(rawDraft) {
+  const normalized = normalizeWatchReplyRegenerationDraft(rawDraft);
+  if (!normalized) {
+    showToast(loginCopy("That draft file is not a valid reply-window sidecar.", "这个草案文件不是有效的 reply-window sidecar。"));
+    return null;
+  }
+  try {
+    localStorage.setItem(WATCH_REPLY_REGEN_DRAFT_KEY, JSON.stringify(normalized));
+    pushWatchReplyRegenerationHistoryEntry("imported", normalized);
+    renderMusicEngineSnapshot(latestWatchMusicStatusPayload, latestWatchMusicSnapshot);
+    updateWatchAudioDebug();
+    showToast(
+      loginCopy(
+        `Draft loaded for ${normalized.token || "this window"}.`,
+        `已载入 ${normalized.token || "当前窗口"} 的草案。`
+      )
+    );
+    return normalized;
+  } catch (_err) {
+    showToast(loginCopy("Unable to load that draft right now.", "暂时无法载入这个草案。"));
+    return null;
+  }
+}
+
+function findReplyHarmonyWindowForDraft(draft) {
+  const normalized = normalizeWatchReplyRegenerationDraft(draft);
+  if (!normalized) return null;
+  const currentRunId = String(currentWatchAudioRunId || pendingFinalAudioRunId || activePipelineRunId || "").trim();
+  const cachedMusicPlan =
+    watchMusicPlanCache.runId === currentRunId && watchMusicPlanCache.data && typeof watchMusicPlanCache.data === "object"
+      ? watchMusicPlanCache.data
+      : null;
+  const windows = extractReplyHarmonyWindowsFromMusicPlan(cachedMusicPlan);
+  if (!windows.length) return null;
+  const direct = windows.find((windowEntry) => buildReplyHarmonyWindowKey(windowEntry) === normalized.windowKey);
+  if (direct) return direct;
+  const byTarget = windows.find((windowEntry) => {
+    const sameSection = String(windowEntry?.section || "").trim() === normalized.section;
+    const samePhrase = Math.max(0, Number(windowEntry?.phraseOrder || 0)) === normalized.phraseOrder;
+    const sameToken = String(windowEntry?.token || "").trim() === normalized.token;
+    const sameStart = Math.abs(Number(windowEntry?.startSec || 0) - normalized.startSec) <= 0.18;
+    return sameSection && samePhrase && sameToken && sameStart;
+  });
+  if (byTarget) return byTarget;
+  return windows.find((windowEntry) => {
+    const sameSection = String(windowEntry?.section || "").trim() === normalized.section;
+    const samePhrase = Math.max(0, Number(windowEntry?.phraseOrder || 0)) === normalized.phraseOrder;
+    const sameStart = Math.abs(Number(windowEntry?.startSec || 0) - normalized.startSec) <= 0.28;
+    return sameSection && samePhrase && sameStart;
+  }) || null;
+}
+
+function applyImportedDraftToLockedWindow(draft) {
+  const normalized = normalizeWatchReplyRegenerationDraft(draft);
+  if (!normalized) {
+    showToast(loginCopy("That draft cannot be aligned to a Watch window.", "这个草案暂时无法对齐到 Watch 窗口。"));
+    return false;
+  }
+  const matchedWindow = findReplyHarmonyWindowForDraft(normalized);
+  if (!matchedWindow) {
+    showToast(loginCopy("No matching reply window was found in the current plan.", "当前计划里没有找到对应的回应窗口。"));
+    return false;
+  }
+  setWatchReplyLockedWindow(matchedWindow);
+  if (normalized.loopPreferred) {
+    const loopKey = buildReplyHarmonyWindowKey(matchedWindow);
+    if (watchReplyLoopWindow?.key !== loopKey) {
+      toggleWatchReplyWindowLoop(matchedWindow);
+    } else {
+      jumpWatchAudioToReplyHarmonyWindow(matchedWindow);
+    }
+  } else {
+    jumpWatchAudioToReplyHarmonyWindow(matchedWindow);
+  }
+  showToast(
+    loginCopy(
+      `Aligned draft to ${String(matchedWindow?.token || "this window").trim() || "this window"}.`,
+      `已将草案对齐到 ${String(matchedWindow?.token || "当前窗口").trim() || "当前窗口"}。`
+    )
+  );
   return true;
 }
 
-function initVideoPlaybackControls() {
-  if (!watchVideo) return;
-  const clickTarget = document.querySelector(".watch-screen");
-  const indicator = watchOverlayPlay?.querySelector(".watch-overlay-play-icon") || null;
-  const syncIndicator = () => {
-    if (!indicator) return;
-    if (watchVideo.paused) {
-      indicator.textContent = "▶";
-      indicator.style.opacity = "0.85";
-      clickTarget?.classList.add("is-paused");
-    } else {
-      indicator.textContent = "❚❚";
-      indicator.style.opacity = "0.35";
-      clickTarget?.classList.remove("is-paused");
+function promptWatchReplyRegenerationDraftImport() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".json,application/json";
+  input.style.display = "none";
+  input.addEventListener("change", async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      importWatchReplyRegenerationDraft(parsed);
+    } catch (_err) {
+      showToast(loginCopy("That draft file could not be read.", "这个草案文件无法读取。"));
+    } finally {
+      input.remove();
     }
-  };
-  watchVideo.addEventListener("play", syncIndicator);
-  watchVideo.addEventListener("pause", syncIndicator);
-  watchVideo.addEventListener("timeupdate", () => {
-    enforceWatchPreviewLimit();
-  });
-  syncIndicator();
+  }, { once: true });
+  document.body.appendChild(input);
+  input.click();
+}
 
-  watchVideo.addEventListener("loadeddata", () => {
-    if (currentPreviewVideoSourceKind === "frame-motion") {
-      currentPreviewVideoHasUsableFrame = true;
-      clearWatchFrameLoop();
-      return;
-    }
-    const capturedFrame = captureVideoFirstFrame(watchVideo);
-    currentPreviewVideoHasUsableFrame = !!capturedFrame;
-    if (capturedFrame) {
-      cacheWatchFrame(capturedFrame);
-    }
-    void extractPreviewFramesFromSource(watchVideo.currentSrc || watchVideo.src, 4).then((frames) => {
-      if (frames.length) {
-        cacheWatchFrameSequence(frames);
-        void buildMotionClipFromFrames(frames, {
-          durationSec: 6.2,
-          fps: 8,
-          beatSections: state.songSeed?.sectionBeats || []
-        }).then((clipUrl) => {
-          if (!clipUrl || shouldUseEffectivePreviewVideo()) return;
-          if (currentPreviewMotionClipUrl) {
-            URL.revokeObjectURL(currentPreviewMotionClipUrl);
-          }
-          currentPreviewMotionClipUrl = clipUrl;
-          if (watchVideo && !shouldUseEffectivePreviewVideo()) {
-            clearWatchFrameLoop();
-            watchVideo.pause?.();
-            currentPreviewVideoSourceKind = "frame-motion";
-            watchVideo.src = clipUrl;
-            watchVideo.muted = true;
-            watchVideo.loop = true;
-            watchVideo.playsInline = true;
-            watchVideo.load?.();
-            attemptVideoPlayback({ maxRetries: 1, allowFallback: false });
-          }
-        });
-        if (!shouldUseEffectivePreviewVideo()) {
-          syncWatchPlaceholderFromCurrentState();
-        }
-      }
-    });
-    if (shouldUseEffectivePreviewVideo()) {
-      clearWatchFrameLoop();
-      watchVideo.style.display = "";
-      if (watchSvg) watchSvg.style.display = "none";
-    } else {
-      syncWatchPlaceholderFromCurrentState();
-    }
-  });
-  watchVideo.addEventListener("canplay", () => {
-    attemptVideoPlayback({ maxRetries: 2 });
-    currentPreviewVideoDurationSec = Number.isFinite(watchVideo.duration) ? watchVideo.duration : 0;
-    if (
-      getForyouPreviewMode() !== FORYOU_PREVIEW_MODES.IMAGE &&
-      shouldUseEffectivePreviewVideo()
-    ) {
-      clearWatchFrameLoop();
-      watchVideo.style.display = "";
-      if (watchSvg) watchSvg.style.display = "none";
-      setForyouThumbVideo(watchVideo.currentSrc || watchVideo.src);
-    } else {
-      syncWatchPlaceholderFromCurrentState();
-    }
-    if (watchPanel && !watchPanel.classList.contains("hidden")) {
-      ensureWatchCentered();
-    }
-  });
-  watchVideo.addEventListener("loadedmetadata", () => {
-    currentPreviewVideoDurationSec = Number.isFinite(watchVideo.duration) ? watchVideo.duration : 0;
-    if (
-      currentPreviewVideoSourceKind !== "demo" &&
-      currentPreviewVideoDurationSec > 0 &&
-      currentPreviewVideoDurationSec <= MIN_EFFECTIVE_PREVIEW_DURATION_SEC
-    ) {
-      useLocalVideoFallback(state.title, `${state.style} ${state.voice} cinematic mv`);
-      showToast("Preview too short · keeping thumbnail");
-      return;
-    }
-    syncWatchPlaceholderFromCurrentState();
-  });
-  watchVideo.addEventListener("error", () => {
-    useLocalVideoFallback(state.title, `${state.style} ${state.voice} cinematic mv`);
-    attemptVideoPlayback({ maxRetries: 2 });
-  });
-  if (clickTarget) {
-    clickTarget.addEventListener("click", () => {
-      if (!watchVideo?.src) return;
-      startWatchPlaybackFromUserGesture();
-      if (manualPlayHinted) {
-        showToast("Playback resumed");
-      }
-    });
+function reloadWatchReplyDraftFromHistoryEntry(entry) {
+  const normalized = normalizeWatchReplyRegenerationDraft(entry?.draft || null);
+  if (!normalized) {
+    showToast(loginCopy("That history entry can no longer be restored.", "这条历史记录暂时无法恢复。"));
+    return null;
   }
-}
-
-function initWatchMusicControls() {
-  if (!watchAudioPreview) return;
-  const sync = () => syncWatchMusicState();
-  ["play", "pause", "ended", "loadedmetadata", "timeupdate", "canplay"].forEach((eventName) => {
-    watchAudioPreview.addEventListener(eventName, sync);
-  });
-  watchAudioPreview.addEventListener("timeupdate", () => {
-    enforceWatchPreviewLimit();
-  });
-  watchMusicPlay?.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (!watchAudioPreview.src) return;
-    if (watchAudioPreview.paused || watchAudioPreview.ended) {
-      void ensureWatchMusicVisualizer();
-      const playPromise = watchAudioPreview.play?.();
-      if (playPromise && typeof playPromise.then === "function") {
-        playPromise.catch(() => {});
-      }
-    } else {
-      watchAudioPreview.pause?.();
-    }
-    syncWatchMusicState();
-  });
-  watchAudioPreview.addEventListener("emptied", stopWatchMusicVisualizer);
-  syncWatchMusicArtwork();
-  syncWatchMusicState();
-}
-
-async function playLatestVideoFromRegistry() {
   try {
-    const res = await fetch(
-      "/api/registry/v1/jobs/latest?capability_id=video.gan.v1&status=succeeded"
+    localStorage.setItem(WATCH_REPLY_REGEN_DRAFT_KEY, JSON.stringify(normalized));
+    renderMusicEngineSnapshot(latestWatchMusicStatusPayload, latestWatchMusicSnapshot);
+    updateWatchAudioDebug();
+    showToast(
+      loginCopy(
+        `Reloaded ${normalized.token || "draft"} from history.`,
+        `已从历史记录重新载入 ${normalized.token || "草案"}。`
+      )
     );
-    if (!res.ok) return false;
-    const payload = await res.json();
-    const job = payload?.job || payload;
-    if (!job) return false;
-    const artifacts = job.artifacts || [];
-    const videoArtifact = artifacts.find((item) => item.name === "video_preview.mp4");
-    const svgArtifact = artifacts.find((item) => item.name === "video_preview.svg");
-    if (videoArtifact && setVideoFromArtifact(videoArtifact.uri, { sourceKind: "registry" })) {
-      watchSubtitle.textContent = "KaraOKe MV · Preview";
-      attemptVideoPlayback({ allowFallback: true });
-      return true;
-    }
-    if (svgArtifact) {
-      setSvgPreview(svgArtifact.uri);
-      watchSubtitle.textContent = "KaraOKe MV · Preview";
-      return true;
-    }
-    return false;
-  } catch (err) {
-    return false;
+    return normalized;
+  } catch (_err) {
+    showToast(loginCopy("Unable to reload that history entry right now.", "暂时无法重新载入这条历史记录。"));
+    return null;
   }
 }
 
-async function ensureCurrentWatchPreviewPlayback() {
-  ensureWatchCentered();
-  if (hasCurrentWatchPreview()) {
-    startWatchPlaybackFromUserGesture();
-    return true;
-  }
-  if (videoJobId) {
-    startWatchPlaybackFromUserGesture();
-    return true;
-  }
-  return false;
-}
-
-async function playDemoInWatchPanel() {
-  const url = await pickFirstWorkingUrl(DEMO_MV_FILES);
-  if (url && setVideoFromArtifact(url, { sourceKind: "demo" })) {
-    watchSubtitle.textContent = "KaraOKe MV · Demo";
-    attemptVideoPlayback({ allowFallback: true });
-    return true;
-  }
-  return false;
-}
-
-function useLocalVideoFallback(title, subtitle) {
-  setSvgPreview(buildLocalVideoPreviewSvg(title, subtitle));
-  currentPreviewVideoIsLocalFallback = true;
-  currentPreviewVideoDurationSec = 0;
-  currentPreviewVideoSourceKind = "local-fallback";
-  watchSubtitle.textContent = "KaraOKe MV · Internal Debug Artifact";
-}
-
-async function requestVideoPreview(title, lines) {
-  if (!watchVideo) return;
-  if (videoJobPoll) {
-    clearInterval(videoJobPoll);
-    videoJobPoll = null;
-  }
-  videoJobId = null;
-  resetVideoPreview();
-  const prompt = `${state.style} ${state.voice} cinematic mv`;
-  const payload = {
-    capability_id: "video.gan.v1",
-    inputs: [],
-    params: {
-      v: 1,
-      title,
-      prompt,
-      duration_sec: 6,
-      lyrics: { lines }
-    }
-  };
-  lastRequestedVideoDurationSec = Number(payload?.params?.duration_sec || 0);
+async function copyWatchReplyRegenerationCurlStub(payload) {
+  if (!payload) return false;
+  const body = JSON.stringify(payload, null, 2);
+  const command = [
+    "curl -X POST \\",
+    "  \"$CSSOS_BASE_URL/cssapi/v1/music/reply-window-regenerate\" \\",
+    "  -H \"Content-Type: application/json\" \\",
+    "  -H \"Authorization: Bearer $CSSOS_TOKEN\" \\",
+    `  --data-binary @- <<'JSON'\n${body}\nJSON`
+  ].join("\n");
   try {
-    const res = await fetch("/api/registry/v1/jobs", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload)
+    await navigator.clipboard.writeText(command);
+    showToast(loginCopy("Curl stub copied.", "Curl 占位命令已复制。"));
+    return true;
+  } catch (_err) {
+    showToast(loginCopy("Copy failed on this device.", "当前设备复制失败。"));
+    return false;
+  }
+}
+
+async function copyWatchReplyRegenerationNodeFetchStub(payload) {
+  if (!payload) return false;
+  const body = JSON.stringify(payload, null, 2);
+  const command = [
+    "const payload = " + body.split("\n").join("\n"),
+    "",
+    "const response = await fetch(`${process.env.CSSOS_BASE_URL}/cssapi/v1/music/reply-window-regenerate`, {",
+    "  method: 'POST',",
+    "  headers: {",
+    "    'Content-Type': 'application/json',",
+    "    Authorization: `Bearer ${process.env.CSSOS_TOKEN}`",
+    "  },",
+    "  body: JSON.stringify(payload)",
+    "});",
+    "",
+    "if (!response.ok) {",
+    "  throw new Error(`reply-window-regenerate failed: ${response.status} ${await response.text()}`);",
+    "}",
+    "",
+    "const result = await response.json();",
+    "console.log(result);"
+  ].join("\n");
+  try {
+    await navigator.clipboard.writeText(command);
+    showToast(loginCopy("Node fetch stub copied.", "Node fetch 占位代码已复制。"));
+    return true;
+  } catch (_err) {
+    showToast(loginCopy("Copy failed on this device.", "当前设备复制失败。"));
+    return false;
+  }
+}
+
+async function copyWatchReplyRegenerationRustReqwestStub(payload) {
+  if (!payload) return false;
+  const body = JSON.stringify(payload, null, 2);
+  const command = [
+    "let payload = serde_json::json!(" + body.split("\n").join("\n") + ");",
+    "",
+    "let client = reqwest::Client::new();",
+    "let response = client",
+    "    .post(format!(\"{}/cssapi/v1/music/reply-window-regenerate\", std::env::var(\"CSSOS_BASE_URL\")?))",
+    "    .bearer_auth(std::env::var(\"CSSOS_TOKEN\")?)",
+    "    .json(&payload)",
+    "    .send()",
+    "    .await?;",
+    "",
+    "if !response.status().is_success() {",
+    "    let status = response.status();",
+    "    let body = response.text().await.unwrap_or_default();",
+    "    anyhow::bail!(\"reply-window-regenerate failed: {} {}\", status, body);",
+    "}",
+    "",
+    "let result: serde_json::Value = response.json().await?;",
+    "println!(\"{}\", serde_json::to_string_pretty(&result)?);"
+  ].join("\n");
+  try {
+    await navigator.clipboard.writeText(command);
+    showToast(loginCopy("Rust reqwest stub copied.", "Rust reqwest 占位代码已复制。"));
+    return true;
+  } catch (_err) {
+    showToast(loginCopy("Copy failed on this device.", "当前设备复制失败。"));
+    return false;
+  }
+}
+
+function exportWatchReplyRegenerationDraftFile(payload) {
+  if (!payload) return false;
+  try {
+    const tokenSlug = String(payload?.target?.token || "window")
+      .trim()
+      .replace(/[^a-zA-Z0-9_-]+/g, "_")
+      .slice(0, 32) || "window";
+    const startSlug = String(Number(payload?.target?.startSec || 0).toFixed(2)).replace(".", "_");
+    const runSlug = String(payload?.runId || "draft").trim().slice(0, 24) || "draft";
+    const filename = `reply_regen_${runSlug}_${tokenSlug}_${startSlug}.json`;
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    showToast(loginCopy("Draft JSON exported.", "草案 JSON 已导出。"));
+    return true;
+  } catch (_err) {
+    showToast(loginCopy("Export failed on this device.", "当前设备导出失败。"));
+    return false;
+  }
+}
+
+function saveWatchReplyRegenerationDraftAsNewFile(draft) {
+  const normalized = normalizeWatchReplyRegenerationDraft(draft);
+  if (!normalized) {
+    showToast(loginCopy("There is no valid draft to save yet.", "当前还没有可另存的有效草案。"));
+    return false;
+  }
+  try {
+    const tokenSlug = String(normalized.token || "window")
+      .trim()
+      .replace(/[^a-zA-Z0-9_-]+/g, "_")
+      .slice(0, 32) || "window";
+    const startSlug = String(Number(normalized.startSec || 0).toFixed(2)).replace(".", "_");
+    const runSlug = String(normalized.runId || "draft").trim().slice(0, 24) || "draft";
+    const variantDraft = {
+      ...normalized,
+      status: "draft_variant",
+      savedAsNew: true,
+      exportedAt: new Date().toISOString()
+    };
+    const filename = `reply_regen_variant_${runSlug}_${tokenSlug}_${startSlug}.json`;
+    const blob = new Blob([JSON.stringify(variantDraft, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    pushWatchReplyRegenerationHistoryEntry("saved", variantDraft);
+    showToast(loginCopy("Saved as a new draft file.", "已另存为新的草案文件。"));
+    return true;
+  } catch (_err) {
+    showToast(loginCopy("Unable to save a new draft file right now.", "暂时无法另存新的草案文件。"));
+    return false;
+  }
+}
+
+function createWatchReplyRegenerationDraft(windowEntry = null) {
+  const draft = persistWatchReplyRegenerationDraft(windowEntry);
+  if (!draft) {
+    showToast(loginCopy("Unable to prepare a regeneration draft right now.", "暂时无法生成局部重生成草案。"));
+    return null;
+  }
+  showToast(
+    loginCopy(
+      `Regeneration draft prepared for ${draft.token || "this window"}.`,
+      `已为 ${draft.token || "当前窗口"} 准备局部重生成草案。`
+    )
+  );
+  updateWatchAudioDebug();
+  return draft;
+}
+
+function isReplyHarmonyWindowActive(windowEntry, currentTimeSec) {
+  const startSec = Number(windowEntry?.startSec || 0);
+  const durationSec = Math.max(0, Number(windowEntry?.durationSec || 0));
+  const endSec = startSec + durationSec;
+  if (!Number.isFinite(startSec) || !Number.isFinite(endSec)) return false;
+  return currentTimeSec >= startSec && currentTimeSec <= endSec;
+}
+
+function buildReplyHarmonyStructureSegments(windows, durationSec) {
+  if (!Array.isArray(windows) || !windows.length || !(durationSec > 0)) return [];
+  const grouped = new Map();
+  windows.forEach((windowEntry) => {
+    const section = String(windowEntry?.section || "").trim() || loginCopy("Section", "段落");
+    const phraseOrder = Math.max(0, Number(windowEntry?.phraseOrder || 0));
+    const role = String(windowEntry?.role || "").trim().toLowerCase();
+    const cadence = String(windowEntry?.cadence || "").trim().toLowerCase();
+    const isTail = role === "resolve" || role === "release" || cadence === "resolved" || cadence === "authentic" || cadence === "plagal";
+    const key = `${section}|${phraseOrder}|${isTail ? "tail" : "phrase"}`;
+    const startSec = Math.max(0, Number(windowEntry?.startSec || 0));
+    const endSec = startSec + Math.max(0.12, Number(windowEntry?.durationSec || 0));
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.startSec = Math.min(existing.startSec, startSec);
+      existing.endSec = Math.max(existing.endSec, endSec);
+      existing.strength = Math.max(existing.strength, Number(windowEntry?.strength) || 0);
+      return;
+    }
+    grouped.set(key, {
+      key,
+      label: isTail
+        ? `${section} · ${loginCopy("Tail", "尾句")}`
+        : `${section}${phraseOrder > 0 ? ` · P${phraseOrder}` : ""}`,
+      startSec,
+      endSec,
+      strength: Number(windowEntry?.strength) || 0,
+      isTail
+    });
+  });
+  return [...grouped.values()]
+    .sort((left, right) => left.startSec - right.startSec)
+    .slice(0, 6)
+    .map((segment) => ({
+      ...segment,
+      leftPct: Math.min(100, (segment.startSec / durationSec) * 100),
+      widthPct: Math.max(6, Math.min(100, ((segment.endSec - segment.startSec) / durationSec) * 100))
+    }));
+}
+
+function isReplyHarmonyStructureSegmentActive(segmentEntry, currentTimeSec) {
+  const startSec = Number(segmentEntry?.startSec || 0);
+  const endSec = Number(segmentEntry?.endSec || 0);
+  if (!Number.isFinite(startSec) || !Number.isFinite(endSec)) return false;
+  return currentTimeSec >= startSec && currentTimeSec <= endSec;
+}
+
+function activeReplyHarmonyWindowAtCurrentTime() {
+  const currentRunId = String(currentWatchAudioRunId || pendingFinalAudioRunId || activePipelineRunId || "").trim();
+  if (!currentRunId) return null;
+  const cachedMusicPlan =
+    watchMusicPlanCache.runId === currentRunId && watchMusicPlanCache.data && typeof watchMusicPlanCache.data === "object"
+      ? watchMusicPlanCache.data
+      : null;
+  const windows = extractReplyHarmonyWindowsFromMusicPlan(cachedMusicPlan);
+  if (!windows.length) return null;
+  const currentTimeSec = currentWatchAudioTimeSec();
+  return windows.find((windowEntry) => isReplyHarmonyWindowActive(windowEntry, currentTimeSec)) || null;
+}
+
+function syncWatchReplyHarmonyTokenOverlay() {
+  const lockedToken = String(watchReplyLockedWindow?.token || "").trim();
+  const overrideToken = lockedToken || String(watchReplyTokenOverride?.token || "").trim();
+  const activeWindow = overrideToken ? null : activeReplyHarmonyWindowAtCurrentTime();
+  const token = overrideToken || String(activeWindow?.token || "").trim();
+  latestWatchReplyActiveToken = token;
+  if (watchSubtitle) {
+    const suffixPattern = /\s·\s(?:Focus|触发词):\s.*$/;
+    const baseSubtitle = String(watchSubtitle.textContent || "").replace(suffixPattern, "").trim();
+    watchSubtitle.textContent = token
+      ? `${baseSubtitle || "KaraOKe MV · Preview"} · ${loginCopy("Focus", "触发词")}: ${token}`
+      : (baseSubtitle || watchSubtitle.textContent || "");
+  }
+  if (watchKaraokeLine) {
+    watchKaraokeLine.textContent = token ? `${loginCopy("Focus Token", "当前触发词")} · ${token}` : "";
+  }
+  updateWatchAudioDebug();
+}
+
+function setWatchReplyTokenOverride(windowEntry = null) {
+  if (watchReplyLockedWindow && !windowEntry) {
+    syncWatchReplyHarmonyTokenOverlay();
+    return;
+  }
+  const token = String(windowEntry?.token || "").trim();
+  watchReplyTokenOverride = token ? { token } : null;
+  syncWatchReplyHarmonyTokenOverlay();
+}
+
+function setWatchReplyLockedWindow(windowEntry = null) {
+  const token = String(windowEntry?.token || "").trim();
+  watchReplyLockedWindow = token ? { token, key: buildReplyHarmonyWindowKey(windowEntry) } : null;
+  if (watchReplyLockedWindow) {
+    watchReplyTokenOverride = null;
+  } else {
+    watchReplyLoopWindow = null;
+  }
+  persistWatchReplyLockState();
+  syncWatchReplyHarmonyTokenOverlay();
+  renderMusicEngineSnapshot(latestWatchMusicStatusPayload, latestWatchMusicSnapshot);
+}
+
+function maybeRestoreWatchReplyLockedWindow() {
+  const persisted = readWatchReplyLockHashState() || readPersistedWatchReplyLockState();
+  if (!persisted?.key) return false;
+  const currentRunId = String(currentWatchAudioRunId || pendingFinalAudioRunId || activePipelineRunId || "").trim();
+  if (persisted.runId && currentRunId && persisted.runId !== currentRunId) return false;
+  const cachedMusicPlan =
+    watchMusicPlanCache.runId === currentRunId && watchMusicPlanCache.data && typeof watchMusicPlanCache.data === "object"
+      ? watchMusicPlanCache.data
+      : null;
+  const windows = extractReplyHarmonyWindowsFromMusicPlan(cachedMusicPlan);
+  const matched = windows.find((windowEntry) => buildReplyHarmonyWindowKey(windowEntry) === persisted.key);
+  if (!matched) return false;
+  watchReplyLockedWindow = { key: persisted.key, token: String(matched?.token || persisted.token || "").trim() };
+  watchReplyLoopWindow = persisted.loop
+    ? {
+        key: persisted.key,
+        startSec: Math.max(0, Number(matched?.startSec || 0)),
+        endSec: Math.max(0.2, Number(matched?.startSec || 0) + Math.max(0.2, Number(matched?.durationSec || 0)))
+      }
+    : null;
+  syncWatchReplyHarmonyTokenOverlay();
+  return true;
+}
+
+function jumpWatchAudioToReplyHarmonyWindow(windowEntry) {
+  if (!watchAudioPreview || !windowEntry) return;
+  const targetSec = Math.max(0, Number(windowEntry?.startSec || 0));
+  if (!Number.isFinite(targetSec)) return;
+  try {
+    watchAudioPreview.currentTime = targetSec;
+  } catch (_err) {
+    return;
+  }
+  maybeRefreshReplyHarmonyHighlight();
+}
+
+function toggleWatchReplyWindowLoop(windowEntry = null) {
+  const key = String(windowEntry ? buildReplyHarmonyWindowKey(windowEntry) : "").trim();
+  if (!key) {
+    watchReplyLoopWindow = null;
+    persistWatchReplyLockState();
+    renderMusicEngineSnapshot(latestWatchMusicStatusPayload, latestWatchMusicSnapshot);
+    return;
+  }
+  if (watchReplyLoopWindow?.key === key) {
+    watchReplyLoopWindow = null;
+    persistWatchReplyLockState();
+    renderMusicEngineSnapshot(latestWatchMusicStatusPayload, latestWatchMusicSnapshot);
+    return;
+  }
+  const startSec = Math.max(0, Number(windowEntry?.startSec || 0));
+  const endSec = startSec + Math.max(0.2, Number(windowEntry?.durationSec || 0));
+  watchReplyLoopWindow = { key, startSec, endSec };
+  persistWatchReplyLockState();
+  jumpWatchAudioToReplyHarmonyWindow(windowEntry);
+  renderMusicEngineSnapshot(latestWatchMusicStatusPayload, latestWatchMusicSnapshot);
+}
+
+function enforceWatchReplyWindowLoop() {
+  if (!watchAudioPreview || !watchReplyLoopWindow) return;
+  const current = currentWatchAudioTimeSec();
+  if (current < watchReplyLoopWindow.endSec) return;
+  try {
+    watchAudioPreview.currentTime = watchReplyLoopWindow.startSec;
+  } catch (_err) {
+    watchReplyLoopWindow = null;
+  }
+}
+
+function bindReplyHarmonyInteractiveFocus(target, windowEntry) {
+  if (!(target instanceof HTMLElement) || !windowEntry) return;
+  target.addEventListener("mouseenter", () => setWatchReplyTokenOverride(windowEntry));
+  target.addEventListener("mouseleave", () => setWatchReplyTokenOverride(null));
+  target.addEventListener("focus", () => setWatchReplyTokenOverride(windowEntry));
+  target.addEventListener("blur", () => setWatchReplyTokenOverride(null));
+  target.addEventListener("click", () => {
+    setWatchReplyLockedWindow(windowEntry);
+    jumpWatchAudioToReplyHarmonyWindow(windowEntry);
+  });
+  target.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    setWatchReplyLockedWindow(windowEntry);
+    jumpWatchAudioToReplyHarmonyWindow(windowEntry);
+  });
+}
+
+function maybeRefreshReplyHarmonyHighlight() {
+  const currentRunId = String(currentWatchAudioRunId || pendingFinalAudioRunId || activePipelineRunId || "").trim();
+  if (!currentRunId) return;
+  const cachedMusicPlan =
+    watchMusicPlanCache.runId === currentRunId && watchMusicPlanCache.data && typeof watchMusicPlanCache.data === "object"
+      ? watchMusicPlanCache.data
+      : null;
+  const windows = extractReplyHarmonyWindowsFromMusicPlan(cachedMusicPlan);
+  if (!windows.length) return;
+  const currentTimeSec = currentWatchAudioTimeSec();
+  const activeWindow = windows.find((windowEntry) => isReplyHarmonyWindowActive(windowEntry, currentTimeSec));
+  const nextKey = activeWindow ? buildReplyHarmonyWindowKey(activeWindow) : "";
+  syncWatchReplyHarmonyTokenOverlay();
+  if (nextKey === latestWatchReplyHighlightKey) return;
+  latestWatchReplyHighlightKey = nextKey;
+  renderMusicEngineSnapshot(latestWatchMusicStatusPayload, latestWatchMusicSnapshot);
+}
+
+async function maybeHydrateWatchMusicPlan(runId) {
+  const safeRunId = String(runId || "").trim();
+  if (!safeRunId) return null;
+  if (watchMusicPlanCache.runId !== safeRunId) {
+    watchMusicPlanCache.runId = safeRunId;
+    watchMusicPlanCache.data = null;
+    watchMusicPlanCache.pending = false;
+    watchMusicPlanCache.error = "";
+  }
+  if (watchMusicPlanCache.data || watchMusicPlanCache.pending || watchMusicPlanCache.error) {
+    return watchMusicPlanCache.data;
+  }
+  const url = musicPlanArtifactUrl(safeRunId);
+  if (!url) return null;
+  watchMusicPlanCache.pending = true;
+  try {
+    const res = await fetch(url, {
+      headers: { accept: "application/json" }
     });
     if (!res.ok) {
-      useLocalVideoFallback(title, prompt);
-      showToast(`Video offline · Local preview (${res.status})`);
-      return;
+      throw new Error(`music.plan ${res.status}`);
     }
-    const payload = await res.json();
-    const jobId = payload?.job?.id || payload?.id;
-    if (!jobId) {
-      useLocalVideoFallback(title, prompt);
-      return;
+    const payload = await res.json().catch(() => null);
+    if (!payload || typeof payload !== "object") {
+      throw new Error("music.plan invalid");
     }
-    videoJobId = jobId;
-    pollVideoJob(videoJobId);
-  } catch (err) {
-    useLocalVideoFallback(title, prompt);
-    showToast("Video offline · Local preview");
+    watchMusicPlanCache.data = payload;
+    watchMusicPlanCache.error = "";
+    maybeRestoreWatchReplyLockedWindow();
+    if (watchMusicPlanCache.runId === safeRunId) {
+      renderMusicEngineSnapshot(latestWatchMusicStatusPayload, latestWatchMusicSnapshot);
+    }
+    return payload;
+  } catch (_err) {
+    watchMusicPlanCache.error = "unavailable";
+    return null;
+  } finally {
+    watchMusicPlanCache.pending = false;
+  }
+}
+
+function statusPayloadHasAudioCandidate(statusPayload, artifactPath) {
+  const safePath = String(artifactPath || "").trim();
+  if (!safePath) return false;
+  const artifacts = Array.isArray(statusPayload?.artifacts) ? statusPayload.artifacts : [];
+  return artifacts.some((entry) => {
+    const entryPath = String(entry?.path || "").trim();
+    const mime = String(entry?.mime || "").trim().toLowerCase();
+    return entryPath === safePath && (!mime || mime.includes("audio"));
+  });
+}
+
+function collectAudioArtifactCandidates(statusPayload) {
+  const ranked = [];
+  const pushCandidate = (path, rank) => {
+    const safePath = String(path || "").trim();
+    if (!safePath || ranked.some((entry) => entry.path === safePath)) return;
+    ranked.push({ path: safePath, rank });
+  };
+  const artifacts = Array.isArray(statusPayload?.artifacts) ? statusPayload.artifacts : [];
+  artifacts.forEach((entry) => {
+    const path = String(entry?.path || "").trim();
+    const mime = String(entry?.mime || "").trim().toLowerCase();
+    if (!path || (mime && !mime.includes("audio"))) return;
+    const lower = path.toLowerCase();
+    if (lower.endsWith("master.wav")) pushCandidate(path, 100);
+    else if (lower.endsWith("mix.wav")) pushCandidate(path, 90);
+    else if (lower.endsWith("vocals.wav")) pushCandidate(path, 80);
+    else if (lower.endsWith("music.wav")) pushCandidate(path, 70);
+    else pushCandidate(path, 10);
+  });
+  [
+    ["./build/master.wav", 100],
+    ["./build/mix.wav", 90],
+    ["./build/vocals.wav", 80],
+    ["./build/music.wav", 70],
+    ["./build/vocals/vocal_master.wav", 60]
+  ].forEach(([path, rank]) => pushCandidate(path, rank));
+  return ranked.sort((a, b) => b.rank - a.rank);
+}
+
+async function probeFinalAudioArtifact(runId, artifactPath) {
+  const url = finalAudioArtifactUrl(runId, artifactPath);
+  if (!url) return "";
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: { Range: "bytes=0-1" }
+    });
+    if (res.status === 200 || res.status === 206) return url;
+  } catch (_err) {
+    return "";
+  }
+  return "";
+}
+
+async function maybeAttachFinalAudioArtifact(runId, statusPayload, derivedMusic = {}) {
+  const safeRunId = String(runId || "").trim();
+  if (!safeRunId || !watchAudioPreview) return false;
+  const candidates = collectAudioArtifactCandidates(statusPayload);
+  const readyEnough =
+    Number(derivedMusic?.progress || 0) >= 62 ||
+    pipelineStageState(statusPayload?.stages?.mix?.status) === "done" ||
+    pipelineStageState(statusPayload?.stages?.vocals?.status) === "done" ||
+    pipelineStageState(statusPayload?.stages?.music?.status) === "done";
+  if (!readyEnough && !candidates.length) return false;
+  for (const candidate of candidates) {
+    const cacheKey = `${safeRunId}:${candidate.path}`;
+    if (attemptedFinalAudioArtifacts.get(cacheKey) === "missing") continue;
+    const directUrl = finalAudioArtifactUrl(safeRunId, candidate.path);
+    const url = statusPayloadHasAudioCandidate(statusPayload, candidate.path)
+      ? directUrl
+      : await probeFinalAudioArtifact(safeRunId, candidate.path);
+    if (!url) {
+      attemptedFinalAudioArtifacts.set(cacheKey, "missing");
+      continue;
+    }
+    if (
+      currentWatchAudioSourceKind === "final-artifact" &&
+      currentWatchAudioRunId === safeRunId &&
+      currentWatchAudioArtifactPath === candidate.path &&
+      watchAudioPreview.src === url
+    ) {
+      return true;
+    }
+    const preservePlayback = !!(!watchAudioPreview.paused && !watchAudioPreview.ended);
+    watchAudioPreview.autoplay = true;
+    watchAudioPreview.playsInline = true;
+    watchAudioPreview.loop = false;
+    watchAudioPreview.muted = true;
+    watchAudioPreview.volume = 1;
+    watchAudioPreview.src = url;
+    watchAudioPreview.style.display = "block";
+    watchAudioPreview.load?.();
+    currentWatchAudioSourceKind = "final-artifact";
+    currentWatchAudioRunId = safeRunId;
+    currentWatchAudioArtifactPath = candidate.path;
+    rememberWatchFinalAudio(safeRunId, candidate.path, url);
+    updateWatchAudioDebug();
+    syncWatchAudioPresentation();
+    if (preservePlayback || watchAudioAutoplayArmed) {
+      openWatchMusicPlaybackSurface({ autoplay: true });
+    } else {
+      openWatchMusicPlaybackSurface();
+    }
+    return true;
+  }
+  return false;
+}
+
+async function attemptImmediateFinalAudioAttach(runId = "") {
+  const safeRunId = String(runId || currentWatchAudioRunId || pendingFinalAudioRunId || activePipelineRunId || "").trim();
+  if (!safeRunId) {
+    updateWatchAudioDebug();
+    return false;
+  }
+  const statePath = pipelineRunStatePath(safeRunId);
+  if (!statePath) {
+    updateWatchAudioDebug();
+    return false;
+  }
+  try {
+    const res = await fetch(`/api/pipeline/status?path=${encodeURIComponent(statePath)}`);
+    const payload = await res.json().catch(() => null);
+    if (!res.ok || !payload) {
+      updateWatchAudioDebug();
+      return false;
+    }
+    const derived = derivePipelineProgress(payload);
+    return await maybeAttachFinalAudioArtifact(safeRunId, payload, derived.music);
+  } catch (_err) {
+    updateWatchAudioDebug();
+    return false;
   }
 }
 
@@ -9100,230 +8180,40 @@ function buildLocalVideoPreviewSvg(title, subtitle) {
   );
 }
 
-function pollVideoJob(jobId) {
-  if (!jobId) return;
-  let busy = false;
-  videoJobPoll = setInterval(async () => {
-    if (busy) return;
-    busy = true;
-    try {
-      const res = await fetch(`/api/registry/v1/jobs/${jobId}`);
-      if (!res.ok) {
-        busy = false;
-        return;
-      }
-      const payload = await res.json();
-      const job = payload?.job || payload;
-      if (job.status === "succeeded") {
-        const artifacts = job.artifacts || [];
-        const videoArtifact = artifacts.find((item) => item.name === "video_preview.mp4");
-        const svgArtifact = artifacts.find((item) => item.name === "video_preview.svg");
-        if (videoArtifact && watchVideo) {
-          if (setVideoFromArtifact(videoArtifact.uri, { sourceKind: "job-artifact" })) {
-            attemptVideoPlayback({ allowFallback: true });
-          } else {
-            useLocalVideoFallback(state.title, `${state.style} ${state.voice} cinematic mv`);
-          }
-          watchSubtitle.textContent = "KaraOKe MV · Preview";
-        } else if (svgArtifact) {
-          setSvgPreview(svgArtifact.uri);
-          watchSubtitle.textContent = "KaraOKe MV · Preview";
-        } else {
-          watchSubtitle.textContent = "KaraOKe MV · Ready";
-        }
-        clearInterval(videoJobPoll);
-        videoJobPoll = null;
-      } else if (job.status === "failed") {
-        watchSubtitle.textContent = "KaraOKe MV · Failed";
-        clearInterval(videoJobPoll);
-        videoJobPoll = null;
-      }
-    } catch (err) {
-      // keep polling
-    } finally {
-      busy = false;
-    }
-  }, 1200);
-}
-
 function resetTypingState() {
-  typingState = { paused: false, canceled: false, completed: false };
-  foryouCompletionCommitted = false;
-  karaCompletionAt = 0;
-  clearTimeout(foryouCompletionHoldTimer);
-  foryouCompletionHoldTimer = null;
-  stopPipelineProgressPolling();
-  enginePanelRevealState.lyrics = false;
-  enginePanelRevealState.music = false;
-  enginePanelRevealState.video = false;
-  enginePanelRevealState.kara = false;
-  engineProgressState.music = 0;
-  engineProgressState.video = 0;
-  engineProgressState.kara = 0;
-  if (musicProgress) setProgress(musicProgress, 0);
-  if (videoProgress) setProgress(videoProgress, 0);
-  if (karaProgress) setProgress(karaProgress, 0);
-  if (lyricsEl) {
-    lyricsEl.classList.remove("paused", "canceled");
-    lyricsEl.textContent = "";
-    lyricsEl.scrollTop = 0;
-  }
-  enterLyricSpellcast();
-  setForyouStatusVisible(true);
-  setEngineState("lyrics", "running");
-  setEngineState("music", "pending");
-  setEngineState("video", "pending");
-  setEngineState("kara", "pending");
-  setEngineDetail("lyrics", "stage: typing");
-  setEngineDetail("music", "waiting for audio engine");
-  setEngineDetail("video", "waiting for video engine");
-  setEngineDetail("kara", "waiting for karaoke sync");
-  if (lyricsProgress) setProgress(lyricsProgress, 0);
-  revealEnginePanel("lyrics");
-  syncWatchEngineGrid();
-  renderWatchKaraokeOverlay(0);
+  callWatchUiModule("resetTypingStateModule");
 }
 
 function cycleLyricsState() {
-  if (!lyricsEl || typingState.canceled) return;
-  if (!typingState.paused) {
-    typingState.paused = true;
-    lyricsEl.classList.add("paused");
-    setEngineState("lyrics", "paused");
-    setEngineDetail("lyrics", "stage: paused");
-    showToast("Lyrics paused");
-    return;
-  }
-  typingState.canceled = true;
-  lyricsEl.classList.remove("paused");
-  lyricsEl.classList.add("canceled");
-  clearTimeout(typingTimer);
-  setForyouStatusVisible(false);
-  exitLyricSpellcast(true);
-  setEngineState("lyrics", "canceled");
-  setEngineDetail("lyrics", "stage: canceled");
-  showToast("Lyrics canceled");
+  callWatchUiModule("cycleLyricsStateModule");
 }
 
 function initLyricsControls() {
-  if (!lyricsEl) return;
-  lyricsEl.addEventListener("click", cycleLyricsState);
+  callWatchUiModule("initLyricsControlsModule");
 }
 
 function setEngineDetail(engine, detail) {
-  engineDetailState[engine] = String(detail || "").trim();
-  const target =
-    engine === "lyrics"
-      ? lyricsProgressDetail
-      : engine === "music"
-        ? musicProgressDetail
-        : engine === "video"
-          ? videoProgressDetail
-          : karaProgressDetail;
-  if (!target) return;
-  target.textContent = engineDetailState[engine];
-  syncWatchEngineGrid();
+  callWatchUiModule("setEngineDetailModule", engine, detail);
 }
 
 function setEngineState(engine, state) {
-  engineStates[engine] = state;
-  const cards = document.querySelectorAll(".status-card");
-  const indexMap = { lyrics: 0, music: 1, video: 2, kara: 3 };
-  const card = cards[indexMap[engine]];
-  if (!card) return;
-  const titleEl = card.querySelector(".status-title");
-  if (!card.dataset.baseTitle && titleEl) {
-    card.dataset.baseTitle = titleEl.textContent;
-  }
-  card.classList.remove("paused", "canceled", "running");
-  if (state === "paused") {
-    card.classList.add("paused");
-  }
-  if (state === "running") {
-    card.classList.add("running");
-  }
-  if (state === "canceled") {
-    card.classList.add("canceled");
-    const progressEl =
-      engine === "lyrics"
-        ? lyricsProgress
-        : engine === "music"
-          ? musicProgress
-          : engine === "video"
-            ? videoProgress
-            : karaProgress;
-    if (progressEl) setProgress(progressEl, 0);
-  }
-  if (titleEl) {
-    const base = card.dataset.baseTitle || titleEl.textContent;
-    const suffix =
-      state === "paused" ? " · Paused" : state === "canceled" ? " · Canceled" : "";
-    titleEl.textContent = `${base}${suffix}`;
-  }
-  if (engine === "video" && state === "canceled") {
-    pruneSceneRows();
-    sceneRows.forEach((entry) => {
-      const current = entry?.statusEl?.dataset?.state || "queued";
-      if (["done", "delete", "canceled"].includes(current)) return;
-      setSceneState(entry.row, entry.statusEl, "canceled");
-    });
-  }
-  syncWatchEngineGrid();
+  callWatchUiModule("setEngineStateModule", engine, state);
 }
 
 function cycleEngineState(engine) {
-  if (engine === "lyrics") {
-    cycleLyricsState();
-    return;
-  }
-  const state = engineStates[engine];
-  if (state === "running") {
-    setEngineState(engine, "paused");
-    showToast(`${engine} paused`);
-    return;
-  }
-  if (state === "paused") {
-    setEngineState(engine, "canceled");
-    showToast(`${engine} canceled`);
-  }
+  callWatchUiModule("cycleEngineStateModule", engine);
 }
 
 function initEngineControls() {
-  const cards = document.querySelectorAll(".status-card");
-  const engines = ["lyrics", "music", "video", "kara"];
-  cards.forEach((card, index) => {
-    const engine = engines[index];
-    if (!engine) return;
-    card.dataset.engine = engine;
-    card.addEventListener("click", () => cycleEngineState(engine));
-  });
+  callWatchUiModule("initEngineControlsModule");
 }
 
 function resetEngineStates() {
-  setEngineState("lyrics", "running");
-  setEngineState("music", "pending");
-  setEngineState("video", "pending");
-  setEngineState("kara", "pending");
-  setForyouStatusVisible(true);
+  callWatchUiModule("resetEngineStatesModule");
 }
 
 function animateProgress() {
-  clearInterval(progressTimer);
-  progressTimer = setInterval(() => {
-    if (engineStates.lyrics === "running" && lyricsProgress) {
-      const current = lyricsEl?.textContent?.length || 0;
-      const pct = lyricsTargetLength ? Math.min(100, (current / lyricsTargetLength) * 100) : 0;
-      setProgress(lyricsProgress, pct);
-    }
-    if (!activePipelineRunId) {
-      setProgress(musicProgress, engineProgressState.music);
-      setProgress(videoProgress, engineProgressState.video);
-      setProgress(karaProgress, engineProgressState.kara);
-      syncSceneProgress(engineProgressState.video);
-    }
-    syncWatchEngineGrid();
-    maybeFinalizeForyouPresentation();
-  }, 420);
+  callWatchUiModule("animateProgressModule");
 }
 
 function focusPanel(panel) {
@@ -9339,68 +8229,132 @@ function focusPanel(panel) {
   setTimeout(() => panel.classList.remove("panel-active"), 600);
 }
 
-function setWatchCenterStage(active) {
-  if (!watchPanel) return;
-  if (active) {
-    watchPanel.classList.add("center-stage");
-    if (logoPanel) logoPanel.classList.add("dimmed");
-    return;
-  }
-  watchPanel.classList.remove("center-stage");
-  if (logoPanel) logoPanel.classList.remove("dimmed");
-}
-
-function ensureWatchCentered() {
-  if (!watchPanel) return;
-  openPanel(watchPanel);
-  if (!watchPanel.dataset.positioned) {
-    watchPanel.style.left = "50%";
-    watchPanel.style.top = "50%";
-    watchPanel.style.transform = "translate(-50%, -50%)";
-    watchPanel.dataset.positioned = "true";
-  }
-  if (logoPanel) logoPanel.classList.add("dimmed");
-}
-
-function primeWatchPanelLayout() {
-  if (!watchPanel) return;
-  if (watchPanel.dataset.userMoved === "true" || watchPanel.dataset.maximized === "true") return;
-  const insetX = 10;
-  const insetY = 10;
-  watchPanel.style.left = `${insetX}px`;
-  watchPanel.style.top = `${insetY}px`;
-  watchPanel.style.transform = "none";
-  watchPanel.style.width = `${Math.max(MIN_PANEL_WIDTH, window.innerWidth - insetX * 2)}px`;
-  watchPanel.style.height = `${Math.max(MIN_PANEL_HEIGHT, window.innerHeight - insetY * 2)}px`;
-}
-
-function openPanel(panel) {
+function openPanel(panel, options = {}) {
+  const shouldFocus = options.focus !== false;
+  const shouldLayout = options.layout !== false;
   if (!panel) return;
   if (!guardPanelAccess(panel.id)) return;
-  panel.classList.remove("hidden");
-  panel.dataset.minimized = "false";
+  const restoredLayout = applyStoredPanelLayout(panel);
   if (panel === watchPanel) {
-    primeWatchPanelLayout();
-  } else if (!panel.dataset.positioned) {
+    callWatchUiModule("openWatchPanelShellModule", restoredLayout);
+  } else if (!restoredLayout && !panel.dataset.positioned) {
+    panel.classList.remove("hidden");
+    panel.dataset.minimized = "false";
     placePanelFromTopLeft(panel);
+  } else {
+    panel.classList.remove("hidden");
+    panel.dataset.minimized = "false";
   }
-  focusPanel(panel);
+  if (shouldFocus) {
+    focusPanel(panel);
+  }
   if (panel === foryouPanel) {
+    const body = panel.querySelector(".panel-body");
+    if (body instanceof HTMLElement) body.scrollTop = 0;
+    panel.classList.remove("search-revealed");
+    setForyouCompact(true, { armAuto: false });
     renderForyouMarketplace();
     void loadPublicMarketWorks(true).then(() => renderForyouMarketplace());
   }
-  if (panel.id === "cssmv-panel") {
-    void loadDeliveryDigestBundle();
+  if (panel === cssmvPanel) {
+    const behavior = readPanelBehaviorSettingsLocal();
+    if (behavior.cssmv.auto_refresh !== false) {
+      void globalThis.loadDeliveryDigestBundleModule?.();
+    }
+    window.setTimeout(() => {
+      const map = {
+        digest: "#mv-digest-pulse",
+        governance: "#mv-governance-pulse",
+        timeline: "#mv-timeline-list"
+      };
+      globalThis.scrollPanelSectionIntoViewModule?.(panel, map[behavior.cssmv.default_section] || "#mv-digest-pulse");
+    }, 40);
+  }
+  if (panel === languagePanel) {
+    const behavior = readPanelBehaviorSettingsLocal();
+    globalThis.toggleLanguagePanelMode?.(behavior.language.default_mode);
+    languageListMore?.classList.toggle("is-hidden", !behavior.language.show_more);
+  }
+  if (panel === loginPanel) {
+    loginPanel.dataset.panelDensity = readPanelBehaviorSettingsLocal().login.panel_density;
+  }
+  if (panel === profilePanel) {
+    profilePanel.dataset.panelDensity = readPanelBehaviorSettingsLocal().profile.panel_density;
+    refreshProfilePanelsAndVersionSurface();
+  }
+  if (panel === worksPanel) {
+    const body = panel.querySelector(".panel-body");
+    if (body instanceof HTMLElement) body.scrollTop = 0;
+    panel.classList.remove("search-revealed");
+    const behavior = readPanelBehaviorSettingsLocal();
+    worksPanel.dataset.focusSection = behavior.works.focus_section;
+    if (behavior.works.auto_load !== false) globalThis.renderWorksPanelModule?.();
+    window.setTimeout(() => {
+      const map = {
+        works: ".works-section",
+        comments: ".works-grid .works-section:first-child",
+        monetization: ".works-grid .works-section:last-child"
+      };
+      globalThis.scrollPanelSectionIntoViewModule?.(panel, map[behavior.works.focus_section] || ".works-section");
+    }, 40);
+  }
+  if (panel === sellerPanel) {
+    const behavior = readPanelBehaviorSettingsLocal();
+    sellerPanel.dataset.focusLane = behavior.seller.focus_lane;
+    if (behavior.seller.auto_refresh !== false) {
+      void loadWatchCommerce(true).then(() => renderSellerPanel());
+    }
+    window.setTimeout(() => {
+      const map = {
+        orders: "#seller-orders-list",
+        income: "#seller-ledger-list"
+      };
+      globalThis.scrollPanelSectionIntoViewModule?.(panel, map[behavior.seller.focus_lane] || "#seller-orders-list");
+    }, 40);
+  }
+  if (panel === aboutPanel) {
+    globalThis.activateAboutTabModule?.(readPanelBehaviorSettingsLocal().about.default_tab);
   }
   if (panel.id === "delivery-reports-panel") {
+    const behavior = readPanelBehaviorSettingsLocal();
+    deliveryReportState.kind = behavior.delivery_reports.default_kind;
+    deliveryExportState.previewExpanded = !!behavior.delivery_reports.preview_expanded;
     void loadDeliveryReport(deliveryReportState.kind);
     if (deliveryDashboardState.runId) {
       void loadMusicDeliveryDashboard(deliveryDashboardState.runId);
     }
     ensureMusicDeliveryDashboardPolling();
+    window.setTimeout(() => {
+      const sectionMap = {
+        overview: ".report-body",
+        dashboard: ".report-export-shell",
+        export: ".report-export-shell:nth-of-type(2)",
+        history: "#delivery-export-history"
+      };
+      globalThis.scrollPanelSectionIntoViewModule?.(panel, sectionMap[behavior.delivery_reports.focus_section] || ".report-body");
+    }, 40);
+  }
+  if (panel.id === "delivery-ops-panel") {
+    const behavior = readPanelBehaviorSettingsLocal();
+    deliveryOpsState.recoveryLimit = behavior.delivery_ops.recovery_limit;
+    if (behavior.delivery_ops.auto_refresh !== false) {
+      void loadDeliveryOps(true);
+    }
+    window.setTimeout(() => {
+      const laneMap = {
+        overview: "#delivery-ops-console-overview",
+        subscriptions: "#delivery-ops-subscriptions",
+        logs: "#delivery-ops-logs",
+        recovery: "#delivery-ops-recovery-summary",
+        actions: "#delivery-ops-console-actions"
+      };
+      globalThis.scrollPanelSectionIntoViewModule?.(panel, laneMap[behavior.delivery_ops.focus_lane] || "#delivery-ops-console-overview");
+    }, 40);
   }
   updateDockVisibility();
-  layoutShowcasePanels();
+  if (shouldLayout) {
+    layoutShowcasePanels();
+  }
 }
 
 function currentUiLang() {
@@ -17549,45 +16503,11 @@ function extractRunId(value) {
   ).trim();
 }
 
-function musicDeliveryPreviewKey(item) {
-  return `${String(item?.category || "")}:${String(item?.relative_path || "")}`;
-}
-
-function musicDeliveryMixerKey(items) {
-  return Array.isArray(items)
-    ? items
-        .map((item) => String(item?.relative_path || ""))
-        .sort()
-        .join("|")
-    : "";
-}
-
-function musicDeliveryArrangementKey(item) {
-  return item ? String(item.relative_path || item.download_url || "") : "";
-}
-
-function findMusicDeliveryArrangementItem(items, pattern) {
-  return (Array.isArray(items) ? items : []).find((item) =>
-    String(item?.relative_path || "").includes(pattern)
-  ) || null;
-}
-
 function latestAppliedRewritePromotion() {
   const promotions = Array.isArray(deliveryDashboardState.response?.rewrite_promotions)
     ? deliveryDashboardState.response.rewrite_promotions
     : [];
   return promotions.find((entry) => entry?.apply_back_result?.status === "applied_back") || null;
-}
-
-function revisionFilesMatchArrangement(cueItem, phraseItem, promotion) {
-  const revisions = Array.isArray(promotion?.apply_back_result?.revision_files)
-    ? promotion.apply_back_result.revision_files
-    : [];
-  const cueRevision = String(revisions[0] || "").split("/").pop() || "";
-  const phraseRevision = String(revisions[1] || "").split("/").pop() || "";
-  const cuePath = String(cueItem?.relative_path || "");
-  const phrasePath = String(phraseItem?.relative_path || "");
-  return (!!cueRevision && cuePath.includes(cueRevision)) || (!!phraseRevision && phrasePath.includes(phraseRevision));
 }
 
 function stopMusicDeliveryMixerPlayback() {
@@ -17673,22 +16593,6 @@ function resetMusicDeliveryMixerState() {
   deliveryDashboardState.publishAcknowledgmentNote = "";
   deliveryDashboardState.publishRunbookStatus = "";
   deliveryDashboardState.publishSimulationSummary = "";
-}
-
-function stemMixerDisplayName(item, index) {
-  const raw = String(item?.label || item?.relative_path || `stem-${index + 1}`);
-  return raw.replace(/\.(wav|wave)$/i, "");
-}
-
-function stemMixerRole(item, index) {
-  const path = String(item?.relative_path || item?.label || `stem-${index + 1}`).toLowerCase();
-  if (path.includes("vocal") || path.includes("lead")) return "lead";
-  if (path.includes("string")) return "strings";
-  if (path.includes("brass")) return "brass";
-  if (path.includes("bass")) return "bass";
-  if (path.includes("perc") || path.includes("drum")) return "perc";
-  if (path.includes("choir") || path.includes("backing")) return "choir";
-  return "stem";
 }
 
 const DELIVERY_ROLE_ORDER = ["lead", "strings", "brass", "perc", "choir", "bass", "stem"];
@@ -17913,7 +16817,7 @@ function applyMusicDeliveryArticulationFocus(articulation, sectionId = deliveryD
 }
 
 async function loadMusicDeliveryArrangement(cueItem, phraseItem = null) {
-  if (!cueItem?.download_url) return;
+  if (!cueItem) return;
   const nextKey = musicDeliveryArrangementKey(cueItem);
   const nextPhraseKey = musicDeliveryArrangementKey(phraseItem);
   if (
@@ -17927,23 +16831,12 @@ async function loadMusicDeliveryArrangement(cueItem, phraseItem = null) {
   deliveryDashboardState.arrangementError = "";
   renderMusicDeliveryDashboard();
   try {
-    const response = await fetch(cueItem.download_url, {
-      method: "GET",
-      cache: "no-store"
-    });
-    if (!response.ok) {
-      throw new Error(`arrangement request failed: ${response.status}`);
-    }
-    const payload = await response.json();
+    const payload = await fetchDeliveryArtifact(cueItem, "json");
     let phrasePayload = null;
-    if (phraseItem?.download_url) {
-      const phraseRes = await fetch(phraseItem.download_url, {
-        method: "GET",
-        cache: "no-store"
-      });
-      if (phraseRes.ok) {
-        phrasePayload = await phraseRes.json();
-      }
+    if (phraseItem) {
+      try {
+        phrasePayload = await fetchDeliveryArtifact(phraseItem, "json");
+      } catch {}
     }
     const rawSections = Array.isArray(payload?.cue_segments)
       ? payload.cue_segments
@@ -18042,14 +16935,7 @@ async function loadMusicDeliveryMixer(items) {
     const buffers = [];
     for (let index = 0; index < stems.length; index += 1) {
       const item = stems[index];
-      const response = await fetch(item.download_url, {
-        method: "GET",
-        cache: "no-store"
-      });
-      if (!response.ok) {
-        throw new Error(`mixer request failed: ${response.status}`);
-      }
-      const arrayBuffer = await response.arrayBuffer();
+      const arrayBuffer = await fetchDeliveryArtifact(item, "arrayBuffer");
       const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
       const key = musicDeliveryPreviewKey(item);
       const channel = audioBuffer.getChannelData(0);
@@ -19150,7 +18036,7 @@ async function buildZipPreview(item, response) {
 }
 
 async function previewMusicDeliveryArtifact(item) {
-  if (!item?.download_url) return;
+  if (!item) return;
   const nextKey = musicDeliveryPreviewKey(item);
   if (deliveryDashboardState.previewKey === nextKey && deliveryDashboardState.previewData && !deliveryDashboardState.previewLoading) {
     return;
@@ -19162,7 +18048,11 @@ async function previewMusicDeliveryArtifact(item) {
   deliveryDashboardState.previewData = null;
   renderMusicDeliveryDashboard();
   try {
-    const response = await fetch(item.download_url, {
+    const accessUrl = resolveDeliveryArtifactAccessUrl(item);
+    if (!accessUrl) {
+      throw new Error("preview request failed: missing access url");
+    }
+    const response = await fetch(accessUrl, {
       method: "GET",
       cache: "no-store"
     });
@@ -19170,13 +18060,14 @@ async function previewMusicDeliveryArtifact(item) {
       throw new Error(`preview request failed: ${response.status}`);
     }
     const mime = String(item?.mime || "");
-    if (mime.includes("audio/wav") || String(item?.relative_path || "").toLowerCase().endsWith(".wav")) {
+    const artifactLocator = globalThis.deliveryArtifactLocator?.(item) || "";
+    if (mime.includes("audio/wav") || artifactLocator.endsWith(".wav")) {
       deliveryDashboardState.previewData = await buildWavPreview(item, response);
-    } else if (mime.includes("application/json") || String(item?.relative_path || "").toLowerCase().endsWith(".json")) {
+    } else if (mime.includes("application/json") || artifactLocator.endsWith(".json")) {
       deliveryDashboardState.previewData = await buildTextPreview(item, response);
-    } else if (mime.includes("text/plain") || String(item?.relative_path || "").toLowerCase().endsWith(".txt")) {
+    } else if (mime.includes("text/plain") || artifactLocator.endsWith(".txt")) {
       deliveryDashboardState.previewData = await buildTextPreview(item, response);
-    } else if (mime.includes("application/zip") || String(item?.relative_path || "").toLowerCase().endsWith(".zip")) {
+    } else if (mime.includes("application/zip") || artifactLocator.endsWith(".zip")) {
       deliveryDashboardState.previewData = await buildZipPreview(item, response);
     } else {
       throw new Error("Preview is not supported for this file type yet");
@@ -19190,1538 +18081,19 @@ async function previewMusicDeliveryArtifact(item) {
 }
 
 function bindMusicDeliveryPreviewButtons() {
-  if (!deliveryDashboardBody) return;
-  deliveryDashboardBody.querySelectorAll("[data-delivery-preview]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const raw = button.getAttribute("data-delivery-preview");
-      if (!raw) return;
-      try {
-        const item = JSON.parse(raw);
-        void previewMusicDeliveryArtifact(item);
-      } catch (error) {
-        console.warn("Invalid delivery preview payload", error);
-      }
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-probe-incident-export]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const payload = buildWatchArchiveIncidentExportBundle(
-        deliveryDashboardState.probeSummary,
-        deliveryDashboardState.probeHistory
-      );
-      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const fileName = `zh_probe_incident_bundle_${stamp}.json`;
-      downloadJsonArtifact(payload, fileName);
-      deliveryDashboardState.probeExportReceipts = [
-        ...(Array.isArray(deliveryDashboardState.probeExportReceipts)
-          ? deliveryDashboardState.probeExportReceipts
-          : []),
-        {
-          at: new Date().toISOString(),
-          fileName
-        }
-      ];
-      renderMusicDeliveryDashboard();
-    });
-  });
-  const probeNotesInput = deliveryDashboardBody.querySelector("[data-delivery-probe-operator-notes]");
-  if (probeNotesInput) {
-    probeNotesInput.addEventListener("input", () => {
-      deliveryDashboardState.probeOperatorNotes = String(probeNotesInput.value || "");
-    });
-  }
-  deliveryDashboardBody.querySelectorAll("[data-delivery-probe-handoff-ack]").forEach((button) => {
-    button.addEventListener("click", () => {
-      deliveryDashboardState.probeHandoffAcknowledgments = [
-        ...(Array.isArray(deliveryDashboardState.probeHandoffAcknowledgments)
-          ? deliveryDashboardState.probeHandoffAcknowledgments
-          : []),
-        {
-          at: new Date().toISOString(),
-          note: String(deliveryDashboardState.probeOperatorNotes || "").trim()
-        }
-      ];
-      renderMusicDeliveryDashboard();
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-probe-dispatch-done]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const at = new Date().toISOString();
-      deliveryDashboardState.probeDispatchDoneAt = at;
-      deliveryDashboardState.probeDispatchHistory = [
-        ...(Array.isArray(deliveryDashboardState.probeDispatchHistory)
-          ? deliveryDashboardState.probeDispatchHistory
-          : []),
-        { at }
-      ];
-      showToast(dashboardCopy("Dispatch marked done", "已标记发出完成"));
-      renderMusicDeliveryDashboard();
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-probe-dispatch-history-export]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const payload = {
-        exported_at: new Date().toISOString(),
-        dispatch_history: Array.isArray(deliveryDashboardState.probeDispatchHistory)
-          ? deliveryDashboardState.probeDispatchHistory
-          : []
-      };
-      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const fileName = `zh_probe_dispatch_history_${stamp}.json`;
-      downloadJsonArtifact(payload, fileName);
-      deliveryDashboardState.probeDispatchHistoryExportAt = payload.exported_at;
-      showToast(dashboardCopy("Dispatch history exported", "发出历史已导出"));
-      renderMusicDeliveryDashboard();
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-probe-receipt-copy]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const latestReceipt = Array.isArray(deliveryDashboardState.probeExportReceipts)
-        ? deliveryDashboardState.probeExportReceipts.slice(-1)[0]
-        : null;
-      const body = latestReceipt
-        ? `${latestReceipt.at} · ${latestReceipt.fileName}`
-        : dashboardCopy("No export receipt is available yet.", "当前还没有导出回执。");
-      try {
-        if (navigator.clipboard?.writeText) {
-          await navigator.clipboard.writeText(body);
-        } else {
-          const fallback = document.createElement("textarea");
-          fallback.value = body;
-          document.body.appendChild(fallback);
-          fallback.select();
-          document.execCommand("copy");
-          fallback.remove();
-        }
-        const at = new Date().toISOString();
-        deliveryDashboardState.probeReceiptCopiedAt = at;
-        deliveryDashboardState.probeReceiptCopyHistory = [
-          ...(Array.isArray(deliveryDashboardState.probeReceiptCopyHistory)
-            ? deliveryDashboardState.probeReceiptCopyHistory
-            : []),
-          {
-            at,
-            fileName: String(latestReceipt?.fileName || "")
-          }
-        ];
-        showToast(dashboardCopy("Receipt copied", "回执已复制"));
-        renderMusicDeliveryDashboard();
-      } catch {
-        showToast(dashboardCopy("Receipt copy failed", "回执复制失败"));
-      }
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-probe-followup-copy]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const body = String(button.getAttribute("data-delivery-probe-followup-copy") || "");
-      if (!body) return;
-      try {
-        if (navigator.clipboard?.writeText) {
-          await navigator.clipboard.writeText(body);
-        } else {
-          const fallback = document.createElement("textarea");
-          fallback.value = body;
-          document.body.appendChild(fallback);
-          fallback.select();
-          document.execCommand("copy");
-          fallback.remove();
-        }
-        const at = new Date().toISOString();
-        deliveryDashboardState.probeFollowUpCopiedAt = at;
-        deliveryDashboardState.probeFollowUpCopyHistory = [
-          ...(Array.isArray(deliveryDashboardState.probeFollowUpCopyHistory)
-            ? deliveryDashboardState.probeFollowUpCopyHistory
-            : []),
-          {
-            at,
-            note: body
-          }
-        ];
-        showToast(dashboardCopy("Follow-up copied", "跟进备注已复制"));
-        renderMusicDeliveryDashboard();
-      } catch {
-        showToast(dashboardCopy("Follow-up copy failed", "跟进备注复制失败"));
-      }
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-probe-compare-select]").forEach((select) => {
-    select.addEventListener("change", () => {
-      const slot = String(select.getAttribute("data-delivery-probe-compare-select") || "");
-      if (slot === "A") {
-        deliveryDashboardState.probeTimelineCompareA = String(select.value || "");
-      } else if (slot === "B") {
-        deliveryDashboardState.probeTimelineCompareB = String(select.value || "");
-      }
-      renderMusicDeliveryDashboard();
-    });
-  });
+  globalThis.bindMusicDeliveryPreviewButtonsModule?.();
 }
 
 function bindMusicDeliveryMixerButtons(stemItems, arrangementItem, phraseItem) {
-  if (!deliveryDashboardBody) return;
-  const stems = Array.isArray(stemItems) ? stemItems : [];
-  const arrangement = arrangementItem || null;
-  const phrase = phraseItem || null;
-  const loadButton = deliveryDashboardBody.querySelector("[data-delivery-mixer-load]");
-  if (loadButton) {
-    loadButton.addEventListener("click", () => {
-      void loadMusicDeliveryMixer(stems);
-    });
-  }
-  const timelineButton = deliveryDashboardBody.querySelector("[data-delivery-arrangement-load]");
-  if (timelineButton) {
-    timelineButton.addEventListener("click", () => {
-      if (arrangement) {
-        void loadMusicDeliveryArrangement(arrangement, phrase);
-      }
-    });
-  }
-  const playButton = deliveryDashboardBody.querySelector("[data-delivery-mixer-play]");
-  if (playButton) {
-    playButton.addEventListener("click", () => {
-      void startMusicDeliveryMixerPlayback();
-    });
-  }
-  const stopButton = deliveryDashboardBody.querySelector("[data-delivery-mixer-stop]");
-  if (stopButton) {
-    stopButton.addEventListener("click", () => {
-      stopMusicDeliveryMixerPlayback();
-      renderMusicDeliveryDashboard();
-    });
-  }
-  deliveryDashboardBody.querySelectorAll("[data-delivery-mixer-mute]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const key = button.getAttribute("data-delivery-mixer-mute");
-      if (!key) return;
-      setMusicDeliveryMixerTrackToggle(key, "muted");
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-mixer-solo]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const key = button.getAttribute("data-delivery-mixer-solo");
-      if (!key) return;
-      setMusicDeliveryMixerTrackToggle(key, "solo");
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-mixer-gain]").forEach((input) => {
-    input.addEventListener("input", () => {
-      const key = input.getAttribute("data-delivery-mixer-gain");
-      if (!key) return;
-      setMusicDeliveryMixerTrackGain(key, input.value);
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-section-pick]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const sectionId = button.getAttribute("data-delivery-section-pick");
-      if (!sectionId) return;
-      setMusicDeliverySelectedSection(sectionId);
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-section-play]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const sectionId = button.getAttribute("data-delivery-section-play");
-      if (!sectionId) return;
-      void playMusicDeliverySection(sectionId, false);
-    });
-  });
-  const loopToggle = deliveryDashboardBody.querySelector("[data-delivery-loop-toggle]");
-  if (loopToggle) {
-    loopToggle.addEventListener("change", () => {
-      setMusicDeliveryLoopSection(loopToggle.checked);
-    });
-  }
-  const loopPlay = deliveryDashboardBody.querySelector("[data-delivery-loop-play]");
-  if (loopPlay) {
-    loopPlay.addEventListener("click", () => {
-      const sectionId = deliveryDashboardState.selectedSection || currentMusicDeliverySections()[0]?.id || "";
-      if (!sectionId) return;
-      void playMusicDeliverySection(sectionId, true);
-    });
-  }
-  deliveryDashboardBody.querySelectorAll("[data-delivery-compare-select]").forEach((select) => {
-    select.addEventListener("change", () => {
-      const slot = select.getAttribute("data-delivery-compare-select");
-      if (!slot) return;
-      setMusicDeliveryCompareSlot(slot, select.value);
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-compare-play]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const slot = button.getAttribute("data-delivery-compare-play");
-      if (!slot) return;
-      const sectionId =
-        slot === "A" ? deliveryDashboardState.compareA : deliveryDashboardState.compareB;
-      if (!sectionId) return;
-      void playMusicDeliverySection(sectionId, false);
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-role-focus]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const role = button.getAttribute("data-delivery-role-focus");
-      if (!role) return;
-      applyMusicDeliveryRoleFocus(role);
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-role-audition]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const role = button.getAttribute("data-delivery-role-audition");
-      if (!role) return;
-      void playMusicDeliveryRoleFocus(role);
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-phrase-audition]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const phraseId = button.getAttribute("data-delivery-phrase-audition");
-      if (!phraseId) return;
-      void playMusicDeliveryPhrase(phraseId);
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-phrase-compare-select]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const phraseId = button.getAttribute("data-delivery-phrase-compare-select");
-      const slot = button.getAttribute("data-delivery-phrase-compare-slot");
-      if (!phraseId || !slot) return;
-      setMusicDeliveryPhraseCompareSlot(slot, phraseId);
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-phrase-compare-play]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const phraseId = button.getAttribute("data-delivery-phrase-compare-play");
-      if (!phraseId) return;
-      void playMusicDeliveryPhrase(phraseId);
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-chord-audition]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const chordSlot = button.getAttribute("data-delivery-chord-audition");
-      if (!chordSlot) return;
-      void playMusicDeliveryChordSlot(chordSlot);
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-articulation-audition]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const articulation = button.getAttribute("data-delivery-articulation-audition");
-      if (!articulation) return;
-      void playMusicDeliveryArticulation(articulation);
-    });
-  });
-  const clearRoleFocusButton = deliveryDashboardBody.querySelector("[data-delivery-role-clear]");
-  if (clearRoleFocusButton) {
-    clearRoleFocusButton.addEventListener("click", () => {
-      clearMusicDeliveryRoleFocus();
-    });
-  }
-  deliveryDashboardBody.querySelectorAll("[data-delivery-rewrite-assist]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const mode = String(button.getAttribute("data-delivery-rewrite-assist") || "");
-      deliveryDashboardState.rewriteAssistMode =
-        deliveryDashboardState.rewriteAssistMode === mode ? "" : mode;
-      renderMusicDeliveryDashboard();
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-rewrite-payload-mode]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const mode = String(button.getAttribute("data-delivery-rewrite-payload-mode") || "provider");
-      deliveryDashboardState.rewritePayloadMode = mode || "provider";
-      renderMusicDeliveryDashboard();
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-rewrite-phrase-play]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const phraseId = String(button.getAttribute("data-delivery-rewrite-phrase-play") || "");
-      if (!phraseId) return;
-      void playMusicDeliveryPhrase(phraseId);
-    });
-  });
-  const sandboxApply = deliveryDashboardBody.querySelector("[data-delivery-rewrite-sandbox-apply]");
-  if (sandboxApply) {
-    sandboxApply.addEventListener("click", () => {
-      const mode = String(sandboxApply.getAttribute("data-delivery-rewrite-sandbox-apply") || "mutation");
-      const selectedSection =
-        findMusicDeliverySection(deliveryDashboardState.selectedSection) || currentMusicDeliverySections()[0] || null;
-      const sectionPhrases = currentMusicDeliverySectionPhrases(selectedSection?.id);
-      const comparePhraseA =
-        findMusicDeliveryPhrase(deliveryDashboardState.phraseCompareA, selectedSection?.id) ||
-        sectionPhrases[0] ||
-        null;
-      const comparePhraseB =
-        findMusicDeliveryPhrase(deliveryDashboardState.phraseCompareB, selectedSection?.id) ||
-        sectionPhrases[1] ||
-        sectionPhrases[0] ||
-        null;
-      const drafts =
-        mode === "reharmonize"
-          ? reharmonizationDraftForPair(comparePhraseA, comparePhraseB, selectedSection)
-          : mode === "counter"
-            ? counterMelodyDraftForPair(comparePhraseA, comparePhraseB)
-            : phraseMutationPresetsForPair(comparePhraseA, comparePhraseB);
-      applyMusicDeliveryRewriteSandbox({
-        arrangementData: deliveryDashboardState.arrangementData,
-        mode,
-        providerPayload: buildProviderReadyRewritePayload({
-          mode,
-          drafts,
-          comparePhraseA,
-          comparePhraseB,
-          selectedSection
-        }),
-        cuePatchPlan: buildCueSheetPatchPlan({
-          mode,
-          drafts,
-          comparePhraseA,
-          comparePhraseB,
-          selectedSection
-        }),
-        selectedSection
-      });
-    });
-  }
-  const sandboxClear = deliveryDashboardBody.querySelector("[data-delivery-rewrite-sandbox-clear]");
-  if (sandboxClear) {
-    sandboxClear.addEventListener("click", () => {
-      clearMusicDeliveryRewriteSandbox();
-    });
-  }
-  const sandboxPreview = deliveryDashboardBody.querySelector("[data-delivery-rewrite-sandbox-preview]");
-  if (sandboxPreview) {
-    sandboxPreview.addEventListener("click", () => {
-      const sectionId =
-        String(sandboxPreview.getAttribute("data-delivery-rewrite-sandbox-preview") || "") ||
-        deliveryDashboardState.selectedSection;
-      if (!sectionId) return;
-      void playMusicDeliverySection(sectionId, false);
-    });
-  }
-  deliveryDashboardBody.querySelectorAll("[data-delivery-rewrite-lane]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const lane = String(button.getAttribute("data-delivery-rewrite-lane") || "original");
-      deliveryDashboardState.rewriteMixLane = lane;
-      if (lane === "original") {
-        deliveryDashboardState.rewriteSandboxActive = false;
-      } else if (deliveryDashboardState.rewriteSandboxData) {
-        deliveryDashboardState.rewriteSandboxActive = true;
-      }
-      renderMusicDeliveryDashboard();
-    });
-  });
-  const bundleCommit = deliveryDashboardBody.querySelector("[data-delivery-rewrite-bundle-commit]");
-  if (bundleCommit) {
-    bundleCommit.addEventListener("click", () => {
-      const raw = bundleCommit.getAttribute("data-delivery-rewrite-bundle-commit");
-      if (!raw) return;
-      try {
-        deliveryDashboardState.rewritePatchBundle = JSON.parse(raw);
-        renderMusicDeliveryDashboard();
-      } catch (error) {
-        console.warn("Invalid rewrite bundle payload", error);
-      }
-    });
-  }
-  const bundleSave = deliveryDashboardBody.querySelector("[data-delivery-rewrite-bundle-save]");
-  if (bundleSave) {
-    bundleSave.addEventListener("click", () => {
-      const raw = bundleSave.getAttribute("data-delivery-rewrite-bundle-save");
-      if (!raw) return;
-      try {
-        void saveMusicDeliveryRewriteBundle(JSON.parse(raw));
-      } catch (error) {
-        deliveryDashboardState.rewritePatchBundleError = String(error);
-        renderMusicDeliveryDashboard();
-      }
-    });
-  }
-  const bundleVersionInput = deliveryDashboardBody.querySelector("[data-delivery-rewrite-bundle-version]");
-  if (bundleVersionInput) {
-    bundleVersionInput.addEventListener("input", () => {
-      deliveryDashboardState.rewritePatchBundleVersionName = String(bundleVersionInput.value || "");
-    });
-  }
-  deliveryDashboardBody.querySelectorAll("[data-delivery-rewrite-bundle-restore]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const raw = button.getAttribute("data-delivery-rewrite-bundle-restore");
-      if (!raw) return;
-      try {
-        restoreMusicDeliveryRewriteBundle(JSON.parse(raw));
-      } catch (error) {
-        deliveryDashboardState.rewritePatchBundleError = String(error);
-        renderMusicDeliveryDashboard();
-      }
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-rewrite-bundle-promote]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const bundleId = String(button.getAttribute("data-delivery-rewrite-bundle-promote") || "");
-      if (!bundleId) return;
-      void promoteMusicDeliveryRewriteBundle(bundleId);
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-rewrite-diff-focus]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const key = String(button.getAttribute("data-delivery-rewrite-diff-focus") || "");
-      deliveryDashboardState.rewriteBundleDiffFocus =
-        deliveryDashboardState.rewriteBundleDiffFocus === key ? "" : key;
-      renderMusicDeliveryDashboard();
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-arrangement-revision-focus]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const revisionId = String(button.getAttribute("data-delivery-arrangement-revision-focus") || "");
-      deliveryDashboardState.arrangementRevisionFocus =
-        deliveryDashboardState.arrangementRevisionFocus === revisionId ? "" : revisionId;
-      const focused = Array.isArray(deliveryDashboardState.response?.arrangement_revisions)
-        ? deliveryDashboardState.response.arrangement_revisions.find((entry) => entry.revision_id === revisionId)
-        : null;
-      if (focused && !String(deliveryDashboardState.arrangementReleaseCandidateName || "").trim()) {
-        deliveryDashboardState.arrangementReleaseCandidateName = String(focused.version_name || "");
-      }
-      renderMusicDeliveryDashboard();
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-arrangement-candidate-name]").forEach((input) => {
-    input.addEventListener("input", () => {
-      deliveryDashboardState.arrangementReleaseCandidateName = String(input.value || "");
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-arrangement-revision-rollback]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const revisionId = String(button.getAttribute("data-delivery-arrangement-revision-rollback") || "");
-      if (!revisionId) return;
-      void runMusicArrangementRevisionAction("rollback", revisionId);
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-arrangement-revision-merge-forward]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const revisionId = String(button.getAttribute("data-delivery-arrangement-revision-merge-forward") || "");
-      if (!revisionId) return;
-      void runMusicArrangementRevisionAction("merge-forward", revisionId);
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-arrangement-release-candidate]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const revisionId = String(button.getAttribute("data-delivery-arrangement-release-candidate") || "");
-      if (!revisionId) return;
-      void runMusicArrangementReleaseAction(
-        "release-candidate",
-        revisionId,
-        deliveryDashboardState.arrangementReleaseCandidateName
-      );
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-arrangement-lock]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const revisionId = String(button.getAttribute("data-delivery-arrangement-lock") || "");
-      if (!revisionId) return;
-      void runMusicArrangementReleaseAction("lock", revisionId, deliveryDashboardState.arrangementReleaseCandidateName);
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-arrangement-publish]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const revisionId = String(button.getAttribute("data-delivery-arrangement-publish") || "");
-      if (!revisionId) return;
-      void runMusicArrangementReleaseAction(
-        "publish",
-        revisionId,
-        deliveryDashboardState.arrangementReleaseCandidateName
-      );
-    });
-  });
-  const publishAckNoteInput = deliveryDashboardBody.querySelector("[data-delivery-publish-ack-note]");
-  if (publishAckNoteInput) {
-    publishAckNoteInput.addEventListener("input", () => {
-      deliveryDashboardState.publishAcknowledgmentNote = String(publishAckNoteInput.value || "");
-    });
-  }
-  deliveryDashboardBody.querySelectorAll("[data-delivery-publish-confirm-arm]").forEach((button) => {
-    button.addEventListener("click", () => {
-      deliveryDashboardState.publishConfirmationArmed = true;
-      if (!String(deliveryDashboardState.publishAcknowledgmentNote || "").trim()) {
-        deliveryDashboardState.publishAcknowledgmentNote = dashboardCopy(
-          "Risk reviewed by operator before publish.",
-          "运营已在发布前确认当前风险。"
-        );
-      }
-      renderMusicDeliveryDashboard();
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-publish-confirm-disarm]").forEach((button) => {
-    button.addEventListener("click", () => {
-      deliveryDashboardState.publishConfirmationArmed = false;
-      renderMusicDeliveryDashboard();
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-post-publish-watch-start]").forEach((button) => {
-    button.addEventListener("click", () => {
-      deliveryDashboardState.postPublishWatchStatus = dashboardCopy(
-        "Live watch session is active. Keep this dashboard open and review anomaly checkpoints as the compliance feed updates.",
-        "实时观察会话已开启。请保持此面板打开，并随着合规数据刷新持续检查异常检查点。"
-      );
-      deliveryDashboardState.postPublishFollowupPrompt = timedFollowupPrompt;
-      appendWatchJournalEntry("watch_start", deliveryDashboardState.postPublishWatchStatus);
-      renderMusicDeliveryDashboard();
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-post-publish-followup]").forEach((button) => {
-    button.addEventListener("click", () => {
-      deliveryDashboardState.postPublishFollowupPrompt = timedFollowupPrompt;
-      appendWatchJournalEntry("follow_up", timedFollowupPrompt);
-      renderMusicDeliveryDashboard();
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-post-publish-rollback]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const revisionId = String(button.getAttribute("data-delivery-post-publish-rollback") || "");
-      if (!revisionId) return;
-      deliveryDashboardState.postPublishWatchStatus = dashboardCopy(
-        `Rollback recommendation accepted. Preparing rollback for ${revisionId}.`,
-        `已接受回滚建议，准备回滚到 ${revisionId}。`
-      );
-      appendRollbackDecisionAudit(
-        "rollback",
-        revisionId,
-        dashboardCopy(
-          "Rollback accepted from the post-publish recommendation lane.",
-          "已在发布后建议面板中接受回滚建议。"
-        )
-      );
-      renderMusicDeliveryDashboard();
-      void runMusicArrangementRevisionAction("rollback", revisionId);
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-post-publish-rollback-keep]").forEach((button) => {
-    button.addEventListener("click", () => {
-      appendRollbackDecisionAudit(
-        "keep_current",
-        arrangementPublishedRevision?.revision_id || "",
-        dashboardCopy(
-          "Operator reviewed the current watch session and decided to keep the published revision live.",
-          "运营已审阅当前观察会话，并决定继续维持当前已发布版本。"
-        )
-      );
-      deliveryDashboardState.postPublishWatchStatus = dashboardCopy(
-        "Watch session recorded a keep-current decision. Continue monitoring the current publish.",
-        "观察会话已记录“维持当前发布”的决策。请继续盯住当前发布。"
-      );
-      renderMusicDeliveryDashboard();
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-post-publish-export-watch-report]").forEach((button) => {
-    button.addEventListener("click", () => {
-      downloadJsonArtifact(
-        watchReport,
-        `watch_report_${String(deliveryDashboardState.runId || "run")}.json`
-      );
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-post-publish-export-handoff]").forEach((button) => {
-    button.addEventListener("click", () => {
-      downloadJsonArtifact(
-        watchHandoffSummary,
-        `watch_handoff_summary_${String(deliveryDashboardState.runId || "run")}.json`
-      );
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-post-publish-export-replay]").forEach((button) => {
-    button.addEventListener("click", () => {
-      downloadJsonArtifact(
-        incidentReplayBundle,
-        `incident_replay_bundle_${String(deliveryDashboardState.runId || "run")}.json`
-      );
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-watch-case-export-bundle]").forEach((button) => {
-    button.addEventListener("click", () => {
-      deliveryDashboardState.watchArchiveCaseArtifacts = [
-        {
-          id: `case_bundle_${Date.now()}`,
-          kind: "case_export_bundle",
-          payload: watchArchiveCaseExportBundle,
-          saved_at: new Date().toISOString()
-        },
-        ...(Array.isArray(deliveryDashboardState.watchArchiveCaseArtifacts)
-          ? deliveryDashboardState.watchArchiveCaseArtifacts
-          : [])
-      ].slice(0, 20);
-      downloadJsonArtifact(
-        watchArchiveCaseExportBundle,
-        `watch_archive_case_bundle_${String(deliveryDashboardState.runId || "run")}.json`
-      );
-      renderMusicDeliveryDashboard();
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-watch-owner-inbox-digest]").forEach((button) => {
-    button.addEventListener("click", () => {
-      deliveryDashboardState.watchArchiveInboxHistory = [
-        {
-          id: `owner_inbox_${Date.now()}`,
-          payload: watchArchiveOwnerInboxDigest,
-          saved_at: new Date().toISOString()
-        },
-        ...(Array.isArray(deliveryDashboardState.watchArchiveInboxHistory)
-          ? deliveryDashboardState.watchArchiveInboxHistory
-          : [])
-      ].slice(0, 20);
-      downloadJsonArtifact(
-        watchArchiveOwnerInboxDigest,
-        `watch_archive_owner_inbox_digest_${String(deliveryDashboardState.runId || "run")}.json`
-      );
-      renderMusicDeliveryDashboard();
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-watch-meeting-outcome-log]").forEach((button) => {
-    button.addEventListener("click", () => {
-      deliveryDashboardState.watchArchiveMeetingOutcomeLedger = buildWatchArchiveMeetingOutcomeLedger(
-        watchArchiveBoardReadyBriefing,
-        watchArchiveDecisionMeetingNotesDraft,
-        watchArchiveActionOwnerCommitments,
-        deliveryDashboardState.watchArchiveMeetingOutcomeLedger
-      );
-      renderMusicDeliveryDashboard();
-    });
-  });
-  const watchSnapshotNameInput = deliveryDashboardBody.querySelector("[data-delivery-watch-snapshot-name]");
-  if (watchSnapshotNameInput) {
-    watchSnapshotNameInput.addEventListener("input", () => {
-      deliveryDashboardState.watchSnapshotName = String(watchSnapshotNameInput.value || "");
-    });
-  }
-  const watchSnapshotSavedViewNameInput = deliveryDashboardBody.querySelector(
-    "[data-delivery-watch-saved-view-name]"
-  );
-  if (watchSnapshotSavedViewNameInput) {
-    watchSnapshotSavedViewNameInput.addEventListener("input", () => {
-      deliveryDashboardState.watchSnapshotSavedViewName = String(
-        watchSnapshotSavedViewNameInput.value || ""
-      );
-    });
-  }
-  const watchArchiveAssigneeInput = deliveryDashboardBody.querySelector(
-    "[data-delivery-watch-archive-assignee]"
-  );
-  if (watchArchiveAssigneeInput) {
-    watchArchiveAssigneeInput.addEventListener("input", () => {
-      deliveryDashboardState.watchArchiveAssignee = String(
-        watchArchiveAssigneeInput.value || ""
-      );
-    });
-  }
-  const watchSnapshotSearchInput = deliveryDashboardBody.querySelector("[data-delivery-watch-search]");
-  if (watchSnapshotSearchInput) {
-    watchSnapshotSearchInput.addEventListener("input", () => {
-      deliveryDashboardState.watchSnapshotSearch = String(watchSnapshotSearchInput.value || "");
-      renderMusicDeliveryDashboard();
-    });
-  }
-  const watchSnapshotTagInput = deliveryDashboardBody.querySelector("[data-delivery-watch-tag-input]");
-  if (watchSnapshotTagInput) {
-    watchSnapshotTagInput.addEventListener("input", () => {
-      deliveryDashboardState.watchSnapshotTagInput = String(watchSnapshotTagInput.value || "");
-    });
-  }
-  const watchSnapshotClassFilterInput = deliveryDashboardBody.querySelector(
-    "[data-delivery-watch-class-filter]"
-  );
-  if (watchSnapshotClassFilterInput) {
-    watchSnapshotClassFilterInput.addEventListener("input", () => {
-      deliveryDashboardState.watchSnapshotIncidentClassFilter = String(
-        watchSnapshotClassFilterInput.value || ""
-      );
-      renderMusicDeliveryDashboard();
-    });
-  }
-  const crossRunWatchInput = deliveryDashboardBody.querySelector("[data-delivery-watch-cross-run-id]");
-  if (crossRunWatchInput) {
-    crossRunWatchInput.addEventListener("input", () => {
-      deliveryDashboardState.crossRunIncidentRunId = String(crossRunWatchInput.value || "");
-    });
-  }
-  const watchImportInput = deliveryDashboardBody.querySelector("[data-delivery-watch-import]");
-  if (watchImportInput) {
-    watchImportInput.addEventListener("change", async () => {
-      const file = watchImportInput.files?.[0];
-      if (!file) return;
-      try {
-        const text = await file.text();
-        const payload = JSON.parse(text);
-        const snapshot = {
-          id: `imported_${Date.now()}`,
-          kind: payload?.schema || "imported_watch_snapshot",
-          version_name: payload?.version_name || file.name,
-          payload,
-          saved_at: new Date().toISOString(),
-          source_run_id: payload?.run_id || ""
-        };
-        deliveryDashboardState.importedWatchSnapshots = [
-          snapshot,
-          ...(Array.isArray(deliveryDashboardState.importedWatchSnapshots)
-            ? deliveryDashboardState.importedWatchSnapshots
-            : [])
-        ].slice(0, 20);
-        renderMusicDeliveryDashboard();
-      } catch (error) {
-        deliveryDashboardState.arrangementRevisionActionError = String(error);
-        renderMusicDeliveryDashboard();
-      }
-    });
-  }
-  deliveryDashboardBody.querySelectorAll("[data-delivery-watch-save-report]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const saved = await persistMusicWatchSnapshot(
-        "watch_report",
-        watchReport,
-        deliveryDashboardState.watchSnapshotName
-      );
-      if (saved?.entry?.snapshot_id) {
-        deliveryDashboardState.watchSnapshotName = "";
-      }
-      renderMusicDeliveryDashboard();
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-watch-save-replay]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const saved = await persistMusicWatchSnapshot(
-        "incident_replay_bundle",
-        incidentReplayBundle,
-        deliveryDashboardState.watchSnapshotName
-      );
-      if (saved?.entry?.snapshot_id) {
-        deliveryDashboardState.watchSnapshotName = "";
-      }
-      renderMusicDeliveryDashboard();
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-watch-load-cross-run]").forEach((button) => {
-    button.addEventListener("click", () => {
-      void loadCrossRunWatchSnapshots(deliveryDashboardState.crossRunIncidentRunId);
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-watch-compare-a]").forEach((button) => {
-    button.addEventListener("click", () => {
-      deliveryDashboardState.watchSnapshotCompareA = String(
-        button.getAttribute("data-delivery-watch-compare-a") || ""
-      );
-      renderMusicDeliveryDashboard();
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-watch-compare-b]").forEach((button) => {
-    button.addEventListener("click", () => {
-      deliveryDashboardState.watchSnapshotCompareB = String(
-        button.getAttribute("data-delivery-watch-compare-b") || ""
-      );
-      renderMusicDeliveryDashboard();
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-watch-tag-apply]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const snapshotId = String(button.getAttribute("data-delivery-watch-tag-apply") || "");
-      if (!snapshotId) return;
-      const current =
-        deliveryDashboardState.watchSnapshotTagOverrides &&
-        typeof deliveryDashboardState.watchSnapshotTagOverrides === "object"
-          ? deliveryDashboardState.watchSnapshotTagOverrides
-          : {};
-      deliveryDashboardState.watchSnapshotTagOverrides = {
-        ...current,
-        [snapshotId]: String(deliveryDashboardState.watchSnapshotTagInput || "")
-      };
-      renderMusicDeliveryDashboard();
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-watch-class-filter-set]").forEach((button) => {
-    button.addEventListener("click", () => {
-      deliveryDashboardState.watchSnapshotIncidentClassFilter = String(
-        button.getAttribute("data-delivery-watch-class-filter-set") || ""
-      );
-      renderMusicDeliveryDashboard();
-    });
-  });
-  deliveryDashboardBody
-    .querySelectorAll("[data-delivery-watch-archive-action]")
-    .forEach((button) => {
-      button.addEventListener("click", () => {
-        const raw = button.getAttribute("data-delivery-watch-archive-action") || "";
-        try {
-          const action = JSON.parse(raw);
-          if (action?.type === "set_class_filter") {
-            deliveryDashboardState.watchSnapshotIncidentClassFilter = String(
-              action.incident_class || ""
-            );
-          } else if (action?.type === "compare_latest_two") {
-            const latest = Array.isArray(filteredWatchSnapshotHistory)
-              ? filteredWatchSnapshotHistory.slice(0, 2)
-              : [];
-            deliveryDashboardState.watchSnapshotCompareA = String(latest[0]?.id || "");
-            deliveryDashboardState.watchSnapshotCompareB = String(latest[1]?.id || "");
-          }
-          renderMusicDeliveryDashboard();
-        } catch {}
-      });
-    });
-  deliveryDashboardBody
-    .querySelectorAll("[data-delivery-watch-decision-memo-save]")
-    .forEach((button) => {
-      button.addEventListener("click", () => {
-        deliveryDashboardState.watchArchiveDecisionMemos = [
-          {
-            id: `watch_memo_${Date.now()}`,
-            memo: watchIncidentDecisionMemo,
-            assignee: deliveryDashboardState.watchArchiveAssignee || "",
-            saved_at: new Date().toISOString()
-          },
-          ...(Array.isArray(deliveryDashboardState.watchArchiveDecisionMemos)
-            ? deliveryDashboardState.watchArchiveDecisionMemos
-            : [])
-        ].slice(0, 20);
-        renderMusicDeliveryDashboard();
-      });
-    });
-  deliveryDashboardBody
-    .querySelectorAll("[data-delivery-watch-case-open]")
-    .forEach((button) => {
-      button.addEventListener("click", () => {
-        const nextCase = buildWatchArchiveCaseFromMemo(
-          watchIncidentDecisionMemo,
-          watchAssigneeHandoff,
-          deliveryDashboardState.watchArchiveCases
-        );
-        deliveryDashboardState.watchArchiveCases = [
-          nextCase,
-          ...(Array.isArray(deliveryDashboardState.watchArchiveCases)
-            ? deliveryDashboardState.watchArchiveCases
-            : [])
-        ].slice(0, 30);
-        renderMusicDeliveryDashboard();
-      });
-    });
-  deliveryDashboardBody
-    .querySelectorAll("[data-delivery-watch-case-status]")
-    .forEach((button) => {
-      button.addEventListener("click", () => {
-        const caseId = String(button.getAttribute("data-delivery-watch-case-status") || "");
-        const nextStatus = String(button.getAttribute("data-delivery-watch-case-next-status") || "");
-        if (!caseId || !nextStatus) return;
-        deliveryDashboardState.watchArchiveCases = (Array.isArray(deliveryDashboardState.watchArchiveCases)
-          ? deliveryDashboardState.watchArchiveCases
-          : []
-        ).map((entry) =>
-          entry?.id === caseId
-            ? {
-                ...entry,
-                status: nextStatus,
-                history: [
-                  {
-                    at: new Date().toISOString(),
-                    action: `status_${nextStatus}`,
-                    note: dashboardCopy(
-                      `Case moved to ${nextStatus}`,
-                      `案件已切换到 ${nextStatus}`
-                    )
-                  },
-                  ...(Array.isArray(entry.history) ? entry.history : [])
-                ]
-              }
-            : entry
-        );
-        renderMusicDeliveryDashboard();
-      });
-    });
-  deliveryDashboardBody
-    .querySelectorAll("[data-delivery-watch-case-route-priority]")
-    .forEach((button) => {
-      button.addEventListener("click", () => {
-        const caseId = String(button.getAttribute("data-delivery-watch-case-route-priority") || "");
-        if (!caseId) return;
-        deliveryDashboardState.watchArchiveCases = (Array.isArray(deliveryDashboardState.watchArchiveCases)
-          ? deliveryDashboardState.watchArchiveCases
-          : []
-        ).map((entry) =>
-          entry?.id === caseId
-            ? {
-                ...entry,
-                status: "in_progress",
-                history: [
-                  {
-                    at: new Date().toISOString(),
-                    action: "priority_routed",
-                    note: dashboardCopy(
-                      "Case was pulled into the active priority queue.",
-                      "案件已被拉入当前优先处理队列。"
-                    )
-                  },
-                  ...(Array.isArray(entry.history) ? entry.history : [])
-                ]
-              }
-            : entry
-        );
-        renderMusicDeliveryDashboard();
-      });
-    });
-  deliveryDashboardBody
-    .querySelectorAll("[data-delivery-watch-case-route]")
-    .forEach((button) => {
-      button.addEventListener("click", () => {
-        const caseId = String(button.getAttribute("data-delivery-watch-case-route") || "");
-        const toOwner = String(button.getAttribute("data-delivery-watch-case-route-owner") || "");
-        if (!caseId || !toOwner) return;
-        deliveryDashboardState.watchArchiveCases = (Array.isArray(deliveryDashboardState.watchArchiveCases)
-          ? deliveryDashboardState.watchArchiveCases
-          : []
-        ).map((entry) =>
-          entry?.id === caseId
-            ? {
-                ...entry,
-                assignee: toOwner,
-                history: [
-                  {
-                    at: new Date().toISOString(),
-                    action: "case_routed",
-                    note: dashboardCopy(
-                      `Case routed to ${toOwner}.`,
-                      `案件已路由到 ${toOwner}。`
-                    )
-                  },
-                  ...(Array.isArray(entry.history) ? entry.history : [])
-                ]
-              }
-            : entry
-        );
-        renderMusicDeliveryDashboard();
-      });
-    });
-  deliveryDashboardBody
-    .querySelectorAll("[data-delivery-watch-case-close-summary]")
-    .forEach((button) => {
-      button.addEventListener("click", () => {
-        const caseId = String(button.getAttribute("data-delivery-watch-case-close-summary") || "");
-        if (!caseId) return;
-        deliveryDashboardState.watchArchiveCases = (Array.isArray(deliveryDashboardState.watchArchiveCases)
-          ? deliveryDashboardState.watchArchiveCases
-          : []
-        ).map((entry) =>
-          entry?.id === caseId
-            ? {
-                ...entry,
-                status: "closed",
-                history: [
-                  {
-                    at: new Date().toISOString(),
-                    action: "case_closed_with_summary",
-                    note: buildWatchArchiveCloseSummary(entry, watchArchiveBestKnownResolutionCards)
-                  },
-                  ...(Array.isArray(entry.history) ? entry.history : [])
-                ]
-              }
-            : entry
-        );
-        renderMusicDeliveryDashboard();
-      });
-    });
-  deliveryDashboardBody
-    .querySelectorAll("[data-delivery-watch-outcome-log]")
-    .forEach((button) => {
-      button.addEventListener("click", () => {
-        const decision = String(button.getAttribute("data-delivery-watch-outcome-log") || "");
-        if (!decision) return;
-        deliveryDashboardState.watchArchiveOutcomeTracking = [
-          {
-            id: `watch_outcome_${Date.now()}`,
-            decision,
-            assignee: deliveryDashboardState.watchArchiveAssignee || "",
-            note: watchIncidentDecisionMemo.headline || "",
-            at: new Date().toISOString()
-          },
-          ...(Array.isArray(deliveryDashboardState.watchArchiveOutcomeTracking)
-            ? deliveryDashboardState.watchArchiveOutcomeTracking
-            : [])
-        ].slice(0, 30);
-        renderMusicDeliveryDashboard();
-      });
-    });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-watch-saved-view-save]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const view = {
-        id: `archive_view_${Date.now()}`,
-        name:
-          String(deliveryDashboardState.watchSnapshotSavedViewName || "").trim() ||
-          dashboardCopy("Current archive view", "当前档案视图"),
-        search: String(deliveryDashboardState.watchSnapshotSearch || ""),
-        incident_class_filter: String(deliveryDashboardState.watchSnapshotIncidentClassFilter || ""),
-        saved_at: new Date().toISOString(),
-        match_count: filteredWatchSnapshotHistory.length
-      };
-      deliveryDashboardState.watchSnapshotSavedViews = [
-        view,
-        ...(Array.isArray(deliveryDashboardState.watchSnapshotSavedViews)
-          ? deliveryDashboardState.watchSnapshotSavedViews
-          : [])
-      ].slice(0, 12);
-      deliveryDashboardState.watchSnapshotSavedViewName = "";
-      renderMusicDeliveryDashboard();
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-watch-saved-view-apply]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const raw = button.getAttribute("data-delivery-watch-saved-view-apply") || "";
-      try {
-        const view = JSON.parse(raw);
-        deliveryDashboardState.watchSnapshotSearch = String(view?.search || "");
-        deliveryDashboardState.watchSnapshotIncidentClassFilter = String(
-          view?.incident_class_filter || ""
-        );
-        renderMusicDeliveryDashboard();
-      } catch {}
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-publish-step-approve]").forEach((button) => {
-    button.addEventListener("click", () => {
-      void runMusicComplianceAction("approve_compliance_action", {
-        candidateId: publishCandidateId || undefined,
-        approvalDecision: String(deliveryDashboardState.complianceApprovalDecision || "").trim() || "approved",
-        note:
-          String(deliveryDashboardState.complianceApprovalNote || "").trim() ||
-          "Approval recorded from publish-time enforcement lane"
-      });
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-publish-step-finalize]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const requiredSigners = String(deliveryDashboardState.complianceRequiredSigners || "").trim()
-        ? String(deliveryDashboardState.complianceRequiredSigners || "")
-            .split(",")
-            .map((value) => String(value || "").trim())
-            .filter(Boolean)
-        : Array.isArray(approvalToPublishTrace?.required_signers)
-          ? approvalToPublishTrace.required_signers
-          : [];
-      void runMusicComplianceAction("finalize_release_quorum", {
-        candidateId: publishCandidateId || undefined,
-        quorumName: String(deliveryDashboardState.complianceQuorumName || "").trim() || "final-release-gate",
-        requiredSigners: requiredSigners.length ? requiredSigners : undefined,
-        note: "Release quorum checked from publish-time enforcement lane"
-      });
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-publish-step-remind]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const missingRoles = String(button.getAttribute("data-delivery-publish-step-remind") || "")
-        .split(",")
-        .map((value) => String(value || "").trim())
-        .filter(Boolean);
-      if (!missingRoles.length) return;
-      void runMusicComplianceAction("notify", {
-        targetTeam: "release-ops/approvals",
-        note: `Signer reminder requested for missing roles: ${missingRoles.join(", ")}`
-      });
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-publish-actor-suggest]").forEach((button) => {
-    button.addEventListener("click", () => {
-      try {
-        const actor = JSON.parse(String(button.getAttribute("data-delivery-publish-actor-suggest") || "{}"));
-        deliveryDashboardState.complianceActorId = String(actor?.actor_id || "");
-        deliveryDashboardState.complianceActorName = String(actor?.actor_name || "");
-        deliveryDashboardState.complianceActorRole = String(actor?.actor_role || "");
-        renderMusicDeliveryDashboard();
-      } catch (_error) {}
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-publish-route-shortcut]").forEach((button) => {
-    button.addEventListener("click", () => {
-      try {
-        const route = JSON.parse(String(button.getAttribute("data-delivery-publish-route-shortcut") || "{}"));
-        if (route?.actor) {
-          deliveryDashboardState.complianceActorId = String(route.actor.actor_id || "");
-          deliveryDashboardState.complianceActorName = String(route.actor.actor_name || "");
-          deliveryDashboardState.complianceActorRole = String(route.actor.actor_role || "");
-        } else if (route?.requiredRole) {
-          deliveryDashboardState.complianceActorRole = String(route.requiredRole || "");
-        }
-        if (route?.requiredRole) {
-          deliveryDashboardState.complianceApprovalDecision = "approved";
-        }
-        renderMusicDeliveryDashboard();
-      } catch (_error) {}
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-publish-runbook-automation]").forEach((button) => {
-    button.addEventListener("click", () => {
-      void runPublishRunbookAutomation({
-        publishCandidateId,
-        currentActor,
-        suggestedActor,
-        missingSignerRoles,
-        readinessChecklist,
-        approvalToPublishTrace
-      });
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-publish-simulate]").forEach((button) => {
-    button.addEventListener("click", () => {
-      try {
-        const simulation = JSON.parse(String(button.getAttribute("data-delivery-publish-simulate") || "{}"));
-        deliveryDashboardState.publishSimulationSummary = simulation?.ready
-          ? dashboardCopy(
-              "Dry-run refreshed: publish is clear if you still want to proceed.",
-              "模拟已刷新：如果你现在继续，发布门禁会放行。"
-            )
-          : dashboardCopy(
-              `Dry-run refreshed: pending items are ${(Array.isArray(simulation?.pending_items) ? simulation.pending_items.join(", ") : "still blocked")}.`,
-              `模拟已刷新：当前待补齐项为 ${Array.isArray(simulation?.pending_items) ? simulation.pending_items.join("、") : "仍被拦截"}。`
-            );
-        renderMusicDeliveryDashboard();
-      } catch (_error) {}
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-compliance-refresh]").forEach((button) => {
-    button.addEventListener("click", () => {
-      if (!deliveryDashboardState.runId) return;
-      void loadMusicDeliveryDashboard(deliveryDashboardState.runId, true);
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-compliance-open]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const path = String(button.getAttribute("data-delivery-compliance-open") || "");
-      if (!path || !deliveryDashboardState.runId) return;
-      window.open(
-        `${apiBase()}/cssapi/v1/runs/${encodeURIComponent(
-          deliveryDashboardState.runId
-        )}/music-delivery-artifact?path=${encodeURIComponent(path)}`,
-        "_blank",
-        "noopener"
-      );
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-compliance-escalate]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const team = String(button.getAttribute("data-delivery-compliance-escalate") || "release-ops/oncall");
-      void runMusicComplianceAction("notify", {
-        targetTeam: team,
-        note: `Escalation requested for ${team}`
-      });
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-compliance-ticket]").forEach((button) => {
-    button.addEventListener("click", () => {
-      void runMusicComplianceAction("incident_ticket", {
-        note: "Opened from compliance dashboard"
-      });
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-compliance-backfill]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const path = String(button.getAttribute("data-delivery-compliance-backfill") || "");
-      void runMusicComplianceAction("ack_backfill", {
-        targetPath: path,
-        note: "Ack backfill requested from compliance dashboard"
-      });
-    });
-  });
-  const activeKidInput = deliveryDashboardBody.querySelector("[data-delivery-compliance-active-kid]");
-  if (activeKidInput) {
-    activeKidInput.addEventListener("input", () => {
-      deliveryDashboardState.complianceActiveKid = String(activeKidInput.value || "");
-    });
-  }
-  const keysetInput = deliveryDashboardBody.querySelector("[data-delivery-compliance-keyset]");
-  if (keysetInput) {
-    keysetInput.addEventListener("input", () => {
-      deliveryDashboardState.complianceKeyset = String(keysetInput.value || "");
-    });
-  }
-  const vendorInput = deliveryDashboardBody.querySelector("[data-delivery-compliance-vendor]");
-  if (vendorInput) {
-    vendorInput.addEventListener("input", () => {
-      deliveryDashboardState.complianceVendor = String(vendorInput.value || "");
-    });
-  }
-  const requiredFieldsInput = deliveryDashboardBody.querySelector("[data-delivery-compliance-required-fields]");
-  if (requiredFieldsInput) {
-    requiredFieldsInput.addEventListener("input", () => {
-      deliveryDashboardState.complianceRequiredFields = String(requiredFieldsInput.value || "");
-    });
-  }
-  const optionalFieldsInput = deliveryDashboardBody.querySelector("[data-delivery-compliance-optional-fields]");
-  if (optionalFieldsInput) {
-    optionalFieldsInput.addEventListener("input", () => {
-      deliveryDashboardState.complianceOptionalFields = String(optionalFieldsInput.value || "");
-    });
-  }
-  const fieldDefaultsInput = deliveryDashboardBody.querySelector("[data-delivery-compliance-field-defaults]");
-  if (fieldDefaultsInput) {
-    fieldDefaultsInput.addEventListener("input", () => {
-      deliveryDashboardState.complianceFieldDefaults = String(fieldDefaultsInput.value || "");
-    });
-  }
-  const reopenReasonInput = deliveryDashboardBody.querySelector("[data-delivery-compliance-reopen-reason]");
-  if (reopenReasonInput) {
-    reopenReasonInput.addEventListener("input", () => {
-      deliveryDashboardState.complianceReopenReason = String(reopenReasonInput.value || "");
-    });
-  }
-  const presetNameInput = deliveryDashboardBody.querySelector("[data-delivery-compliance-preset-name]");
-  if (presetNameInput) {
-    presetNameInput.addEventListener("input", () => {
-      deliveryDashboardState.compliancePresetName = String(presetNameInput.value || "");
-    });
-  }
-  const permissionRotateInput = deliveryDashboardBody.querySelector("[data-delivery-compliance-permission-rotate]");
-  if (permissionRotateInput) {
-    permissionRotateInput.addEventListener("input", () => {
-      deliveryDashboardState.compliancePermissionRotate = String(permissionRotateInput.value || "");
-    });
-  }
-  const permissionRegistryInput = deliveryDashboardBody.querySelector("[data-delivery-compliance-permission-registry]");
-  if (permissionRegistryInput) {
-    permissionRegistryInput.addEventListener("input", () => {
-      deliveryDashboardState.compliancePermissionRegistry = String(permissionRegistryInput.value || "");
-    });
-  }
-  const permissionReopenInput = deliveryDashboardBody.querySelector("[data-delivery-compliance-permission-reopen]");
-  if (permissionReopenInput) {
-    permissionReopenInput.addEventListener("input", () => {
-      deliveryDashboardState.compliancePermissionReopen = String(permissionReopenInput.value || "");
-    });
-  }
-  const actorIdInput = deliveryDashboardBody.querySelector("[data-delivery-compliance-actor-id]");
-  if (actorIdInput) {
-    actorIdInput.addEventListener("input", () => {
-      deliveryDashboardState.complianceActorId = String(actorIdInput.value || "");
-    });
-  }
-  const actorNameInput = deliveryDashboardBody.querySelector("[data-delivery-compliance-actor-name]");
-  if (actorNameInput) {
-    actorNameInput.addEventListener("input", () => {
-      deliveryDashboardState.complianceActorName = String(actorNameInput.value || "");
-    });
-  }
-  const actorRoleInput = deliveryDashboardBody.querySelector("[data-delivery-compliance-actor-role]");
-  if (actorRoleInput) {
-    actorRoleInput.addEventListener("input", () => {
-      deliveryDashboardState.complianceActorRole = String(actorRoleInput.value || "");
-    });
-  }
-  const actorDirectoryInput = deliveryDashboardBody.querySelector("[data-delivery-compliance-actor-directory]");
-  if (actorDirectoryInput) {
-    actorDirectoryInput.addEventListener("input", () => {
-      deliveryDashboardState.complianceActorDirectory = String(actorDirectoryInput.value || "");
-    });
-  }
-  const rolePolicyNameInput = deliveryDashboardBody.querySelector("[data-delivery-compliance-role-policy-name]");
-  if (rolePolicyNameInput) {
-    rolePolicyNameInput.addEventListener("input", () => {
-      deliveryDashboardState.complianceRolePolicyName = String(rolePolicyNameInput.value || "");
-    });
-  }
-  const approvalDecisionInput = deliveryDashboardBody.querySelector("[data-delivery-compliance-approval-decision]");
-  if (approvalDecisionInput) {
-    approvalDecisionInput.addEventListener("input", () => {
-      deliveryDashboardState.complianceApprovalDecision = String(approvalDecisionInput.value || "");
-    });
-  }
-  const approvalNoteInput = deliveryDashboardBody.querySelector("[data-delivery-compliance-approval-note]");
-  if (approvalNoteInput) {
-    approvalNoteInput.addEventListener("input", () => {
-      deliveryDashboardState.complianceApprovalNote = String(approvalNoteInput.value || "");
-    });
-  }
-  const approverRoutingInput = deliveryDashboardBody.querySelector("[data-delivery-compliance-approver-routing]");
-  if (approverRoutingInput) {
-    approverRoutingInput.addEventListener("input", () => {
-      deliveryDashboardState.complianceApproverRouting = String(approverRoutingInput.value || "");
-    });
-  }
-  const requiredSignersInput = deliveryDashboardBody.querySelector("[data-delivery-compliance-required-signers]");
-  if (requiredSignersInput) {
-    requiredSignersInput.addEventListener("input", () => {
-      deliveryDashboardState.complianceRequiredSigners = String(requiredSignersInput.value || "");
-    });
-  }
-  const quorumNameInput = deliveryDashboardBody.querySelector("[data-delivery-compliance-quorum-name]");
-  if (quorumNameInput) {
-    quorumNameInput.addEventListener("input", () => {
-      deliveryDashboardState.complianceQuorumName = String(quorumNameInput.value || "");
-    });
-  }
-  deliveryDashboardBody.querySelectorAll("[data-delivery-compliance-rotate-secret]").forEach((button) => {
-    button.addEventListener("click", () => {
-      void runMusicComplianceAction("rotate_secret", {
-        activeKid: String(deliveryDashboardState.complianceActiveKid || "").trim(),
-        secretKeyset: String(deliveryDashboardState.complianceKeyset || "").trim(),
-        note: "Secret rotation updated from compliance dashboard"
-      });
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-compliance-update-registry]").forEach((button) => {
-    button.addEventListener("click", () => {
-      let fieldDefaults = {};
-      const rawDefaults = String(deliveryDashboardState.complianceFieldDefaults || "").trim();
-      if (rawDefaults) {
-        try {
-          fieldDefaults = JSON.parse(rawDefaults);
-        } catch (_error) {
-          deliveryDashboardState.error = "compliance field defaults must be valid JSON";
-          renderMusicDeliveryDashboard();
-          return;
-        }
-      }
-      void runMusicComplianceAction("update_ticket_registry", {
-        vendor: String(deliveryDashboardState.complianceVendor || "").trim() || "local",
-        requiredFields: String(deliveryDashboardState.complianceRequiredFields || "")
-          .split(",")
-          .map((value) => String(value || "").trim())
-          .filter(Boolean),
-        optionalFields: String(deliveryDashboardState.complianceOptionalFields || "")
-          .split(",")
-          .map((value) => String(value || "").trim())
-          .filter(Boolean),
-        fieldDefaults,
-        note: "Vendor field registry updated from compliance dashboard"
-      });
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-compliance-reopen]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const path = String(button.getAttribute("data-delivery-compliance-reopen") || "");
-      void runMusicComplianceAction("reopen_compliance", {
-        targetPath: path || undefined,
-        reopenReason: String(deliveryDashboardState.complianceReopenReason || "").trim() || "manual_reopen",
-        note: "Manual reopen requested from compliance dashboard"
-      });
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-compliance-save-preset]").forEach((button) => {
-    button.addEventListener("click", () => {
-      let fieldDefaults = {};
-      const rawDefaults = String(deliveryDashboardState.complianceFieldDefaults || "").trim();
-      if (rawDefaults) {
-        try {
-          fieldDefaults = JSON.parse(rawDefaults);
-        } catch (_error) {
-          deliveryDashboardState.error = "compliance preset field defaults must be valid JSON";
-          renderMusicDeliveryDashboard();
-          return;
-        }
-      }
-      void runMusicComplianceAction("save_compliance_preset", {
-        presetName: String(deliveryDashboardState.compliancePresetName || "").trim() || "default-ops",
-        activeKid: String(deliveryDashboardState.complianceActiveKid || "").trim() || undefined,
-        secretKeyset: String(deliveryDashboardState.complianceKeyset || "").trim() || undefined,
-        vendor: String(deliveryDashboardState.complianceVendor || "").trim() || "local",
-        requiredFields: String(deliveryDashboardState.complianceRequiredFields || "")
-          .split(",")
-          .map((value) => String(value || "").trim())
-          .filter(Boolean),
-        optionalFields: String(deliveryDashboardState.complianceOptionalFields || "")
-          .split(",")
-          .map((value) => String(value || "").trim())
-          .filter(Boolean),
-        fieldDefaults,
-        reopenReason: String(deliveryDashboardState.complianceReopenReason || "").trim() || undefined,
-        scopedPermissions: {
-          rotate_secret: String(deliveryDashboardState.compliancePermissionRotate || "").trim() || "admin",
-          update_ticket_registry: String(deliveryDashboardState.compliancePermissionRegistry || "").trim() || "editor",
-          reopen_compliance: String(deliveryDashboardState.compliancePermissionReopen || "").trim() || "operator"
-        },
-        note: "Compliance preset saved from dashboard"
-      });
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-compliance-save-directory]").forEach((button) => {
-    button.addEventListener("click", () => {
-      let actorDirectory = [];
-      const rawDirectory = String(deliveryDashboardState.complianceActorDirectory || "").trim();
-      if (rawDirectory) {
-        try {
-          actorDirectory = JSON.parse(rawDirectory);
-        } catch (_error) {
-          deliveryDashboardState.error = "actor directory must be valid JSON";
-          renderMusicDeliveryDashboard();
-          return;
-        }
-      }
-      void runMusicComplianceAction("save_actor_directory", {
-        actorDirectory,
-        note: "Actor directory saved from compliance dashboard"
-      });
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-compliance-save-role-policy]").forEach((button) => {
-    button.addEventListener("click", () => {
-      void runMusicComplianceAction("save_role_policy_preset", {
-        rolePolicyName: String(deliveryDashboardState.complianceRolePolicyName || "").trim() || "default-ops",
-        scopedPermissions: {
-          rotate_secret: String(deliveryDashboardState.compliancePermissionRotate || "").trim() || "admin",
-          update_ticket_registry: String(deliveryDashboardState.compliancePermissionRegistry || "").trim() || "editor",
-          reopen_compliance: String(deliveryDashboardState.compliancePermissionReopen || "").trim() || "operator"
-        },
-        note: "Role policy preset saved from compliance dashboard"
-      });
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-compliance-approve]").forEach((button) => {
-    button.addEventListener("click", () => {
-      void runMusicComplianceAction("approve_compliance_action", {
-        approvalDecision: String(deliveryDashboardState.complianceApprovalDecision || "").trim() || "approved",
-        note: String(deliveryDashboardState.complianceApprovalNote || "").trim() || "Approval recorded from compliance dashboard"
-      });
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-compliance-save-routing]").forEach((button) => {
-    button.addEventListener("click", () => {
-      let approverRouting = [];
-      const rawRouting = String(deliveryDashboardState.complianceApproverRouting || "").trim();
-      if (rawRouting) {
-        try {
-          approverRouting = JSON.parse(rawRouting);
-        } catch (_error) {
-          deliveryDashboardState.error = "approver routing must be valid JSON";
-          renderMusicDeliveryDashboard();
-          return;
-        }
-      }
-      void runMusicComplianceAction("save_approver_routing", {
-        approverRouting,
-        note: "Approver routing saved from compliance dashboard"
-      });
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-compliance-save-signers]").forEach((button) => {
-    button.addEventListener("click", () => {
-      void runMusicComplianceAction("save_required_signers", {
-        requiredSigners: String(deliveryDashboardState.complianceRequiredSigners || "")
-          .split(",")
-          .map((value) => String(value || "").trim())
-          .filter(Boolean),
-        note: "Required signers saved from compliance dashboard"
-      });
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-compliance-finalize-quorum]").forEach((button) => {
-    button.addEventListener("click", () => {
-      void runMusicComplianceAction("finalize_release_quorum", {
-        quorumName: String(deliveryDashboardState.complianceQuorumName || "").trim() || "final-release-gate",
-        requiredSigners: String(deliveryDashboardState.complianceRequiredSigners || "")
-          .split(",")
-          .map((value) => String(value || "").trim())
-          .filter(Boolean),
-        note: "Release quorum checked from compliance dashboard"
-      });
-    });
-  });
-  deliveryDashboardBody.querySelectorAll("[data-delivery-compliance-audit-log]").forEach((button) => {
-    button.addEventListener("click", () => {
-      void runMusicComplianceAction("audit_compliance_action", {
-        note: "Compliance audit log requested from dashboard"
-      });
-    });
-  });
+  globalThis.bindMusicDeliveryMixerButtonsModule?.(stemItems, arrangementItem, phraseItem);
 }
-
 function terminalMusicDeliveryState(state) {
   const value = String(state || "").toLowerCase();
   return ["published", "archived", "failed", "cancelled"].includes(value);
 }
 
 function renderMusicDeliveryDashboard() {
+  try {
   if (deliveryDashboardRunId) {
     deliveryDashboardRunId.value = deliveryDashboardState.runId || "";
   }
@@ -20987,28 +18359,8 @@ function renderMusicDeliveryDashboard() {
 
   const browserHtml = browserGroups.length
     ? browserGroups
-        .map(
-          (group) => `
-            <div class="report-section-title">${escapeHtml(group.category)}</div>
-            <div class="report-list">
-              ${group.items
-                .map(
-                  (item) => `
-                    <div class="report-list-item">
-                      <div class="report-preview-title">${escapeHtml(item.label || item.relative_path || "artifact")}</div>
-                      <div class="report-card-copy">${escapeHtml(item.relative_path || "")}</div>
-                      <div class="report-card-copy">${escapeHtml(`${item.mime || "application/octet-stream"} · ${formatFileBytes(item.bytes || 0)}`)}</div>
-                      <div class="report-export-actions">
-                        <button class="report-export-action is-muted" type="button" data-delivery-preview='${escapeHtml(JSON.stringify(item))}'>Preview</button>
-                        <a class="report-export-action" href="${escapeHtml(item.download_url || "#")}" target="_blank" rel="noreferrer">Open</a>
-                      </div>
-                    </div>
-                  `
-                )
-                .join("")}
-            </div>
-          `
-        )
+        .map((group) => globalThis.buildDeliveryBrowserGroupMarkup?.(group.category, group.items, runId) || "")
+        .filter(Boolean)
         .join("")
     : `<div class="report-empty">${escapeHtml(
         dashboardCopy("No package artifacts are available yet.", "当前还没有可浏览的交付资产。")
@@ -21494,6 +18846,7 @@ function renderMusicDeliveryDashboard() {
     comparePhraseB,
     selectedSection
   });
+  const cuePatchPlan = cueSheetPatchPlan || {};
   const rewritePayloadMode = String(deliveryDashboardState.rewritePayloadMode || "provider");
   const rewriteAssistHtml = sectionPhrases.length
     ? `
@@ -21613,6 +18966,8 @@ function renderMusicDeliveryDashboard() {
     : [];
   const arrangementLockedRevision = response?.arrangement_locked_revision || null;
   const arrangementPublishedRevision = response?.arrangement_published_revision || null;
+  let releaseRiskBanner = { level: "unknown", summary: "" };
+  let postPublishWatchlist = [];
   const liveWatchSession = buildLiveWatchSession(
     arrangementPublishedRevision,
     releaseRiskBanner,
@@ -23026,7 +20381,7 @@ function renderMusicDeliveryDashboard() {
     missingSignerRoles,
     approvalToPublishTrace
   );
-  const releaseRiskBanner = buildReleaseRiskBanner(
+  releaseRiskBanner = buildReleaseRiskBanner(
     readinessChecklist,
     complianceFlags,
     complianceClock,
@@ -23038,7 +20393,7 @@ function renderMusicDeliveryDashboard() {
     !!focusedRevision &&
     !deliveryDashboardState.arrangementRevisionActionSaving &&
     (!requiresPublishAcknowledgment || deliveryDashboardState.publishConfirmationArmed);
-  const postPublishWatchlist = buildPostPublishWatchlist(
+  postPublishWatchlist = buildPostPublishWatchlist(
     complianceFlags,
     complianceClock,
     releaseRiskBanner
@@ -23072,7 +20427,11 @@ function renderMusicDeliveryDashboard() {
                 <button class="report-export-action ${deliveryDashboardState.rewritePromotionSaving ? "is-muted" : ""}" type="button" data-delivery-rewrite-bundle-promote="${escapeHtml(entry.bundle_id || "")}" ${
                   deliveryDashboardState.rewritePromotionSaving ? "disabled" : ""
                 }>Promote To Provider Job</button>
-                <a class="report-export-action is-muted" href="${escapeHtml(entry.download_url || "#")}" target="_blank" rel="noopener">Open JSON</a>
+                ${buildDeliveryArtifactOpenControl(
+                  deliveryDashboardState.runId || "",
+                  buildRewriteBundleHistoryArtifactItem(entry),
+                  "Open JSON"
+                )}
               </div>
             </div>
           `
@@ -23194,32 +20553,39 @@ function renderMusicDeliveryDashboard() {
                           <div class="report-export-actions" style="flex-wrap:wrap;">
                             ${
                               entry.execution_queue_path
-                                ? `<a class="report-export-action is-muted" href="${escapeHtml(
-                                    `${apiBase()}/cssapi/v1/runs/${encodeURIComponent(
-                                      deliveryDashboardState.runId || ""
-                                    )}/music-delivery-artifact?path=${encodeURIComponent(entry.execution_queue_path)}`
-                                  )}" target="_blank" rel="noopener">Open Queue</a>`
+                                ? buildRunArtifactOpenControl(
+                                    deliveryDashboardState.runId || "",
+                                    entry.execution_queue_path,
+                                    "Open Queue",
+                                    { assetKey: entry.execution_queue_asset_key || "" }
+                                  )
                                 : ""
                             }
                             ${
                               entry.job_status_path
-                                ? `<a class="report-export-action is-muted" href="${escapeHtml(
-                                    `${apiBase()}/cssapi/v1/runs/${encodeURIComponent(
-                                      deliveryDashboardState.runId || ""
-                                    )}/music-delivery-artifact?path=${encodeURIComponent(entry.job_status_path)}`
-                                  )}" target="_blank" rel="noopener">Open Job Status</a>`
+                                ? buildRunArtifactOpenControl(
+                                    deliveryDashboardState.runId || "",
+                                    entry.job_status_path,
+                                    "Open Job Status",
+                                    { assetKey: entry.job_status_asset_key || "" }
+                                  )
                                 : ""
                             }
                             ${
                               entry.apply_back_result_path
-                                ? `<a class="report-export-action is-muted" href="${escapeHtml(
-                                    `${apiBase()}/cssapi/v1/runs/${encodeURIComponent(
-                                      deliveryDashboardState.runId || ""
-                                    )}/music-delivery-artifact?path=${encodeURIComponent(entry.apply_back_result_path)}`
-                                  )}" target="_blank" rel="noopener">Open Apply-Back</a>`
+                                ? buildRunArtifactOpenControl(
+                                    deliveryDashboardState.runId || "",
+                                    entry.apply_back_result_path,
+                                    "Open Apply-Back",
+                                    { assetKey: entry.apply_back_result_asset_key || "" }
+                                  )
                                 : ""
                             }
-                            <a class="report-export-action is-muted" href="${escapeHtml(entry.download_url || "#")}" target="_blank" rel="noopener">Open Promotion JSON</a>
+                            ${buildDeliveryArtifactOpenControl(
+                              deliveryDashboardState.runId || "",
+                              buildRewritePromotionArtifactItem(entry),
+                              "Open Promotion JSON"
+                            )}
                           </div>
                         </div>`
                     )
@@ -27601,141 +24967,10 @@ function renderMusicDeliveryDashboard() {
                       : dashboardCopy("No revision has been published yet.", "当前还没有正式发布的 revision。")
                   )}</div>
                   ${
-                    arrangementPublishedRevision?.release_manifest_relative_path ||
-                    arrangementPublishedRevision?.immutable_handoff_relative_path ||
-                    arrangementPublishedRevision?.release_approval_relative_path ||
-                    arrangementPublishedRevision?.release_signoff_relative_path ||
-                    arrangementPublishedRevision?.delivery_certificate_relative_path ||
-                    arrangementPublishedRevision?.release_audit_trail_relative_path ||
-                    arrangementPublishedRevision?.notarized_receipt_relative_path ||
-                    arrangementPublishedRevision?.downstream_compliance_feed_relative_path ||
-                    arrangementPublishedRevision?.compliance_ack_relative_path ||
-                    arrangementPublishedRevision?.regulator_receipt_relative_path ||
-                    arrangementPublishedRevision?.audit_timeline_relative_path
-                      ? `<div class="report-export-actions" style="flex-wrap:wrap;">
-                          ${
-                            arrangementPublishedRevision?.release_manifest_relative_path
-                              ? `<a class="report-export-action is-muted" href="${escapeHtml(
-                                  `${apiBase()}/cssapi/v1/runs/${encodeURIComponent(
-                                    deliveryDashboardState.runId || ""
-                                  )}/music-delivery-artifact?path=${encodeURIComponent(
-                                    arrangementPublishedRevision.release_manifest_relative_path
-                                  )}`
-                                )}" target="_blank" rel="noopener">Open Release Manifest</a>`
-                              : ""
-                          }
-                          ${
-                            arrangementPublishedRevision?.immutable_handoff_relative_path
-                              ? `<a class="report-export-action is-muted" href="${escapeHtml(
-                                  `${apiBase()}/cssapi/v1/runs/${encodeURIComponent(
-                                    deliveryDashboardState.runId || ""
-                                  )}/music-delivery-artifact?path=${encodeURIComponent(
-                                    arrangementPublishedRevision.immutable_handoff_relative_path
-                                  )}`
-                                )}" target="_blank" rel="noopener">Open Immutable Handoff</a>`
-                              : ""
-                          }
-                          ${
-                            arrangementPublishedRevision?.release_approval_relative_path
-                              ? `<a class="report-export-action is-muted" href="${escapeHtml(
-                                  `${apiBase()}/cssapi/v1/runs/${encodeURIComponent(
-                                    deliveryDashboardState.runId || ""
-                                  )}/music-delivery-artifact?path=${encodeURIComponent(
-                                    arrangementPublishedRevision.release_approval_relative_path
-                                  )}`
-                                )}" target="_blank" rel="noopener">Open Release Approval</a>`
-                              : ""
-                          }
-                          ${
-                            arrangementPublishedRevision?.release_signoff_relative_path
-                              ? `<a class="report-export-action is-muted" href="${escapeHtml(
-                                  `${apiBase()}/cssapi/v1/runs/${encodeURIComponent(
-                                    deliveryDashboardState.runId || ""
-                                  )}/music-delivery-artifact?path=${encodeURIComponent(
-                                    arrangementPublishedRevision.release_signoff_relative_path
-                                  )}`
-                                )}" target="_blank" rel="noopener">Open Sign-Off</a>`
-                              : ""
-                          }
-                          ${
-                            arrangementPublishedRevision?.delivery_certificate_relative_path
-                              ? `<a class="report-export-action is-muted" href="${escapeHtml(
-                                  `${apiBase()}/cssapi/v1/runs/${encodeURIComponent(
-                                    deliveryDashboardState.runId || ""
-                                  )}/music-delivery-artifact?path=${encodeURIComponent(
-                                    arrangementPublishedRevision.delivery_certificate_relative_path
-                                  )}`
-                                )}" target="_blank" rel="noopener">Open Delivery Certificate</a>`
-                              : ""
-                          }
-                          ${
-                            arrangementPublishedRevision?.release_audit_trail_relative_path
-                              ? `<a class="report-export-action is-muted" href="${escapeHtml(
-                                  `${apiBase()}/cssapi/v1/runs/${encodeURIComponent(
-                                    deliveryDashboardState.runId || ""
-                                  )}/music-delivery-artifact?path=${encodeURIComponent(
-                                    arrangementPublishedRevision.release_audit_trail_relative_path
-                                  )}`
-                                )}" target="_blank" rel="noopener">Open Audit Trail</a>`
-                              : ""
-                          }
-                          ${
-                            arrangementPublishedRevision?.notarized_receipt_relative_path
-                              ? `<a class="report-export-action is-muted" href="${escapeHtml(
-                                  `${apiBase()}/cssapi/v1/runs/${encodeURIComponent(
-                                    deliveryDashboardState.runId || ""
-                                  )}/music-delivery-artifact?path=${encodeURIComponent(
-                                    arrangementPublishedRevision.notarized_receipt_relative_path
-                                  )}`
-                                )}" target="_blank" rel="noopener">Open Notarized Receipt</a>`
-                              : ""
-                          }
-                          ${
-                            arrangementPublishedRevision?.downstream_compliance_feed_relative_path
-                              ? `<a class="report-export-action is-muted" href="${escapeHtml(
-                                  `${apiBase()}/cssapi/v1/runs/${encodeURIComponent(
-                                    deliveryDashboardState.runId || ""
-                                  )}/music-delivery-artifact?path=${encodeURIComponent(
-                                  arrangementPublishedRevision.downstream_compliance_feed_relative_path
-                                  )}`
-                                )}" target="_blank" rel="noopener">Open Compliance Feed</a>`
-                              : ""
-                          }
-                          ${
-                            arrangementPublishedRevision?.compliance_ack_relative_path
-                              ? `<a class="report-export-action is-muted" href="${escapeHtml(
-                                  `${apiBase()}/cssapi/v1/runs/${encodeURIComponent(
-                                    deliveryDashboardState.runId || ""
-                                  )}/music-delivery-artifact?path=${encodeURIComponent(
-                                    arrangementPublishedRevision.compliance_ack_relative_path
-                                  )}`
-                                )}" target="_blank" rel="noopener">Open Compliance Ack</a>`
-                              : ""
-                          }
-                          ${
-                            arrangementPublishedRevision?.regulator_receipt_relative_path
-                              ? `<a class="report-export-action is-muted" href="${escapeHtml(
-                                  `${apiBase()}/cssapi/v1/runs/${encodeURIComponent(
-                                    deliveryDashboardState.runId || ""
-                                  )}/music-delivery-artifact?path=${encodeURIComponent(
-                                    arrangementPublishedRevision.regulator_receipt_relative_path
-                                  )}`
-                                )}" target="_blank" rel="noopener">Open Regulator Receipt</a>`
-                              : ""
-                          }
-                          ${
-                            arrangementPublishedRevision?.audit_timeline_relative_path
-                              ? `<a class="report-export-action is-muted" href="${escapeHtml(
-                                  `${apiBase()}/cssapi/v1/runs/${encodeURIComponent(
-                                    deliveryDashboardState.runId || ""
-                                  )}/music-delivery-artifact?path=${encodeURIComponent(
-                                    arrangementPublishedRevision.audit_timeline_relative_path
-                                  )}`
-                                )}" target="_blank" rel="noopener">Open Audit Timeline</a>`
-                              : ""
-                          }
-                        </div>`
-                      : ""
+                    globalThis.buildPublishedRevisionArtifactActions?.(
+                      deliveryDashboardState.runId || "",
+                      arrangementPublishedRevision
+                    ) || ""
                   }
                   ${
                     complianceLane || complianceFlags.length || complianceClock
@@ -27861,9 +25096,11 @@ function renderMusicDeliveryDashboard() {
                                         .join("")}
                                       <button class="report-export-action is-muted" type="button" data-delivery-compliance-ticket>Open Incident Ticket</button>
                                       <button class="report-export-action is-muted" type="button" data-delivery-compliance-backfill="${escapeHtml(
-                                        String(arrangementPublishedRevision?.compliance_ack_relative_path || "")
+                                        resolveComplianceAckArtifactPath(arrangementPublishedRevision)
                                       )}" ${
-                                        arrangementPublishedRevision?.compliance_ack_relative_path ? "" : "disabled"
+                                        resolveComplianceAckArtifactPath(arrangementPublishedRevision)
+                                          ? ""
+                                          : "disabled"
                                       }>Ack Backfill</button>
                                     </div>
                                   </div>`
@@ -27991,7 +25228,7 @@ function renderMusicDeliveryDashboard() {
                                   )}" data-delivery-compliance-reopen-reason />
                                   <div class="report-export-actions">
                                     <button class="report-export-action" type="button" data-delivery-compliance-reopen="${escapeHtml(
-                                      String(arrangementPublishedRevision?.compliance_ack_relative_path || "")
+                                      resolveComplianceAckArtifactPath(arrangementPublishedRevision)
                                     )}">Reopen Compliance</button>
                                   </div>
                                 </div>
@@ -29223,58 +26460,17 @@ function renderMusicDeliveryDashboard() {
   } else if (deliveryDashboardState.previewError) {
     previewHtml = `<div class="report-empty">${escapeHtml(deliveryDashboardState.previewError)}</div>`;
   } else if (preview?.kind === "wav") {
-    const waveform = Array.isArray(preview.waveform) ? preview.waveform : [];
-    previewHtml = `
-      <div class="report-card-copy">${escapeHtml(preview.item?.relative_path || "")}</div>
-      <div class="report-card-copy">${escapeHtml(
-        `${formatFileBytes(preview.item?.bytes || 0)} · ${Number(preview.duration || 0).toFixed(1)}s`
-      )}</div>
-      <audio controls preload="metadata" src="${escapeHtml(deliveryDashboardState.previewUrl || "")}" style="width:100%; margin-top:8px;"></audio>
-      <div style="display:flex;align-items:end;gap:2px;height:72px;margin-top:10px;">
-        ${waveform.length
-          ? waveform
-              .map(
-                (value) =>
-                  `<div style="flex:1;min-width:2px;border-radius:999px;background:linear-gradient(180deg, rgba(255,255,255,0.92), rgba(120,180,255,0.48));height:${Math.max(6, Math.round(Number(value || 0) * 72))}px;"></div>`
-              )
-              .join("")
-          : `<div class="report-empty">${escapeHtml(
-              dashboardCopy("Waveform preview is unavailable for this file.", "这个文件暂时无法生成波形预览。")
-            )}</div>`}
-      </div>
-    `;
+    previewHtml =
+      globalThis.buildDeliveryPreviewWavMarkup?.(preview, deliveryDashboardState.previewUrl || "") ||
+      `<div class="report-card-copy">${escapeHtml(deliveryArtifactDisplayPath(preview.item))}</div>`;
   } else if (preview?.kind === "json" || preview?.kind === "text") {
-    previewHtml = `
-      <div class="report-card-copy">${escapeHtml(preview.item?.relative_path || "")}</div>
-      <pre class="report-preview-code">${escapeHtml(preview.pretty || preview.text || "")}</pre>
-    `;
+    previewHtml =
+      globalThis.buildDeliveryPreviewTextMarkup?.(preview) ||
+      `<pre class="report-preview-code">${escapeHtml(preview.pretty || preview.text || "")}</pre>`;
   } else if (preview?.kind === "zip") {
-    const entries = Array.isArray(preview.entries) ? preview.entries : [];
-    previewHtml = `
-      <div class="report-card-copy">${escapeHtml(preview.item?.relative_path || "")}</div>
-      <div class="report-card-copy">${escapeHtml(`${entries.length} entries · ${formatFileBytes(preview.item?.bytes || 0)}`)}</div>
-      <div class="report-list">
-        ${
-          entries.length
-            ? entries
-                .slice(0, 80)
-                .map(
-                  (entry) => `
-                    <div class="report-list-item">
-                      <div class="report-preview-title">${escapeHtml(entry.name || "entry")}</div>
-                      <div class="report-card-copy">${escapeHtml(
-                        `${formatFileBytes(entry.uncompressedSize || 0)} uncompressed · ${formatFileBytes(entry.compressedSize || 0)} compressed`
-                      )}</div>
-                    </div>
-                  `
-                )
-                .join("")
-            : `<div class="report-empty">${escapeHtml(
-                dashboardCopy("No ZIP entries were found.", "没有读取到 ZIP 条目。")
-              )}</div>`
-        }
-      </div>
-    `;
+    previewHtml =
+      globalThis.buildDeliveryPreviewZipMarkup?.(preview) ||
+      `<div class="report-card-copy">${escapeHtml(deliveryArtifactDisplayPath(preview.item))}</div>`;
   }
 
   const lyricsFallbackDiversityAudit = buildLyricsFallbackDiversityAudit(
@@ -29449,6 +26645,24 @@ function renderMusicDeliveryDashboard() {
     const compareBSelect = deliveryDashboardBody.querySelector('[data-delivery-compare-select="B"]');
     if (compareBSelect && compareB) compareBSelect.value = compareB.id;
   }
+  syncDeliveryDashboardActionPermissions();
+  } catch (error) {
+    console.error("[delivery-dashboard] render failed", error);
+    if (deliveryDashboardSummary instanceof HTMLElement) {
+      deliveryDashboardSummary.textContent = dashboardCopy(
+        "Music delivery dashboard hit a recoverable render issue.",
+        "音乐交付面板遇到了一个可恢复的渲染问题。"
+      );
+    }
+    if (deliveryDashboardBody instanceof HTMLElement) {
+      deliveryDashboardBody.innerHTML = `<div class="report-empty">${escapeHtml(
+        dashboardCopy(
+          "The dashboard UI is recovering. Refresh once if sections look incomplete.",
+          "面板正在恢复，如果内容不完整可以再刷新一次。"
+        )
+      )}</div>`;
+    }
+  }
 }
 
 async function loadMusicDeliveryDashboard(runId = deliveryDashboardState.runId, force = false) {
@@ -29596,32 +26810,6 @@ function ensureMusicDeliveryDashboardPolling() {
   }, 5000);
 }
 
-function guardPanelAccess(panelId) {
-  if (!panelId) return true;
-  if (panelId === "works-panel") {
-    renderWorksPanel();
-    return true;
-  }
-  if (panelId === "api-panel") {
-    renderApiBillingPanel();
-    return true;
-  }
-  return true;
-}
-
-function updateDockVisibility() {
-  Object.entries(dockByPanel).forEach(([panelId, action]) => {
-    const panel = document.getElementById(panelId);
-    const dockItem = document.querySelector(`.dock-item[data-action=\"${action}\"]`);
-    if (!panel || !dockItem) return;
-    if (panel.classList.contains("hidden")) {
-      dockItem.classList.remove("is-hidden");
-    } else {
-      dockItem.classList.add("is-hidden");
-    }
-  });
-}
-
 function initPanelStack() {
   panels.forEach((panel, index) => {
     if (!panel) return;
@@ -29639,50 +26827,6 @@ function pickRandom(list, count) {
     picked.push(pool.splice(index, 1)[0]);
   }
   return picked;
-}
-
-function storePanelState(panel) {
-  panel.dataset.restore = JSON.stringify({
-    left: panel.style.left || "",
-    top: panel.style.top || "",
-    width: panel.style.width || "",
-    height: panel.style.height || "",
-    transform: panel.style.transform || ""
-  });
-}
-
-function restorePanel(panel) {
-  const restore = panel.dataset.restore ? JSON.parse(panel.dataset.restore) : {};
-  panel.style.left = restore.left || "";
-  panel.style.top = restore.top || "";
-  panel.style.width = restore.width || "";
-  panel.style.height = restore.height || "";
-  panel.style.transform = restore.transform || "";
-  panel.classList.remove("maximized");
-  panel.dataset.maximized = "false";
-}
-
-function togglePanelMaximize(panel) {
-  if (!panel) return;
-  const isMaximized = panel.dataset.maximized === "true";
-  if (isMaximized) {
-    restorePanel(panel);
-  } else {
-    storePanelState(panel);
-    panel.style.left = "50%";
-    panel.style.top = "50%";
-    panel.style.transform = "translate(-50%, -50%)";
-    panel.style.width = "min(92vw, 1200px)";
-    panel.style.height = "min(82vh, 760px)";
-    panel.classList.add("maximized");
-    panel.dataset.maximized = "true";
-  }
-  focusPanel(panel);
-}
-
-function openAndMaximize(panel) {
-  openPanel(panel);
-  togglePanelMaximize(panel);
 }
 
 function spawnDragTrail(event) {
@@ -29820,6 +26964,7 @@ function setPanelPosition(panel, left, top) {
   panel.style.left = `${clampedLeft}px`;
   panel.style.top = `${clampedTop}px`;
   panel.style.transform = "none";
+  panel.dataset.positioned = "true";
 }
 
 function placePanelFromTopLeft(panel) {
@@ -29844,95 +26989,6 @@ function placePanelFromTopLeft(panel) {
   const top = Math.min(baseTop + step * offsetY, Math.max(baseTop, window.innerHeight - Math.min(height, 220) - 24));
   setPanelPosition(panel, left, top);
   panel.dataset.positioned = "true";
-}
-
-function layoutShowcasePanels() {
-  const order = [
-    cssmvPanel,
-    watchPanel,
-    lyricsPanel,
-    musicPanel,
-    videoPanel,
-    settingsPanel
-  ].filter(Boolean);
-  const visible = order.filter(
-    (panel) =>
-      !panel.classList.contains("hidden") &&
-      panel.dataset.userMoved !== "true" &&
-      panel.id !== "logo-panel"
-  );
-  if (!visible.length) return;
-
-  const spacing = 26;
-  const paddingX = 32;
-  const paddingY = 88;
-  const minWidth = 340;
-  const maxWidth = 520;
-  const availableWidth = Math.max(0, window.innerWidth - paddingX * 2);
-  const columns = Math.max(
-    1,
-    Math.min(3, Math.floor((availableWidth + spacing) / (minWidth + spacing)))
-  );
-  const panelWidth = Math.max(
-    minWidth,
-    Math.min(maxWidth, Math.floor((availableWidth - spacing * (columns - 1)) / columns))
-  );
-
-  visible.forEach((panel) => {
-    panel.classList.add("showcase-panel");
-    panel.style.width = `${panelWidth}px`;
-    if (!panel.classList.contains("panel-collapsed") && panel.dataset.maximized !== "true") {
-      panel.style.height = "";
-    }
-  });
-
-  const rowHeights = [];
-  visible.forEach((panel, index) => {
-    const row = Math.floor(index / columns);
-    const rect = panel.getBoundingClientRect();
-    rowHeights[row] = Math.max(rowHeights[row] || 0, rect.height);
-  });
-
-  const rowOffsets = [];
-  let offset = paddingY;
-  rowHeights.forEach((height, row) => {
-    rowOffsets[row] = offset;
-    offset += height + spacing;
-  });
-
-  const maxHeight = window.innerHeight - paddingY;
-  let overflowIndex = visible.length;
-  for (let row = 0; row < rowHeights.length; row += 1) {
-    if (rowOffsets[row] + rowHeights[row] > maxHeight) {
-      overflowIndex = row * columns;
-      break;
-    }
-  }
-
-  visible.forEach((panel, index) => {
-    if (index >= overflowIndex) return;
-    const row = Math.floor(index / columns);
-    const col = index % columns;
-    const left = paddingX + col * (panelWidth + spacing);
-    const top = rowOffsets[row] ?? paddingY;
-    setPanelPosition(panel, left, top);
-  });
-
-  if (overflowIndex < visible.length) {
-    const lastVisibleIndex = Math.max(0, overflowIndex - 1);
-    const anchor = visible[lastVisibleIndex];
-    const anchorRect = anchor ? anchor.getBoundingClientRect() : null;
-    const baseLeft = anchorRect ? anchorRect.left : paddingX;
-    const baseTop = anchorRect ? Math.min(anchorRect.top + 24, window.innerHeight - 260) : paddingY;
-    const barHeight = anchor?.querySelector(".panel-bar")?.offsetHeight || 56;
-    const offsetStep = barHeight + 8;
-    visible.slice(overflowIndex).forEach((panel, idx) => {
-      const offset = offsetStep * (idx + 1);
-      const left = Math.min(baseLeft + offset, window.innerWidth - panelWidth - paddingX);
-      const top = Math.min(baseTop + offset, window.innerHeight - 200);
-      setPanelPosition(panel, left, top);
-    });
-  }
 }
 
 function clampPanelInViewport(panel) {
@@ -30061,7 +27117,37 @@ function replaceSpellInLines(lines, from, to) {
 }
 
 function buildLyricsText(title, lines) {
-  return `Title · ${title}\n\n${lines.join("\n")}`;
+  const workType = normalizeWorkTypeClient(creationState.workType || state.songSeed?.work_type || "single");
+  const formatted = [];
+  let previousWasSpacer = false;
+  for (const rawLine of Array.isArray(lines) ? lines : []) {
+    const line = String(rawLine || "").trimEnd();
+    if (!line.trim()) {
+      if (!previousWasSpacer && formatted.length) {
+        formatted.push("");
+        previousWasSpacer = true;
+      }
+      continue;
+    }
+    const isSectionHeading = /^\[[^\]]+\]$/.test(line.trim());
+    const isActHeading = /^(act|scene|part|序章|终章|第.+幕|第.+场|第.+部)/i.test(line.trim());
+    if ((isSectionHeading || isActHeading) && formatted.length && !previousWasSpacer) {
+      formatted.push("");
+    }
+    if ((workType === "triptych" || workType === "opera") && isActHeading && !String(line).startsWith("####")) {
+      formatted.push(`#### ${line.replace(/^#+\s*/, "")}`.trim());
+    } else {
+      formatted.push(line);
+    }
+    if (isSectionHeading && !previousWasSpacer) {
+      formatted.push("");
+      previousWasSpacer = true;
+      continue;
+    }
+    previousWasSpacer = false;
+  }
+  const body = formatted.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return `Title · ${title}\n\n${body}`;
 }
 
 function applySpell(spell, options = {}) {
@@ -30270,87 +27356,19 @@ function renderTags(container, tags) {
 }
 
 function setForyouCompact(enabled, options = {}) {
-  const armAuto = options?.armAuto === true;
-  if (!foryouPanel) return;
-  if (enabled) {
-    foryouPanel.classList.add("foryou-panel-compact");
-    foryouPanel.classList.remove("foryou-lyrics-expanded");
-    if (
-      !String(foryouThumbImage?.src || "").trim() &&
-      !String(foryouThumbVideo?.src || "").trim() &&
-      state.title &&
-      Array.isArray(state.lines) &&
-      state.lines.length
-    ) {
-      syncForyouThumbFromLyrics(state.title, state.lines);
-    }
-    if (armAuto) {
-      armAutoEnjoy();
-    } else {
-      cancelAutoEnjoy();
-    }
-  } else {
-    foryouPanel.classList.remove("foryou-panel-compact");
-    foryouPanel.classList.remove("foryou-lyrics-expanded");
-    cancelAutoEnjoy();
-  }
+  callWatchUiModule("setForyouCompactModule", enabled, options);
 }
 
 function maybeCompactForyouAfterLyrics(options = {}) {
-  const behavior = readPanelBehaviorSettingsLocal();
-  if (behavior.foryou.compact_after_lyrics === false) return;
-  setForyouCompact(true, options);
+  callWatchUiModule("maybeCompactForyouAfterLyricsModule", options);
 }
 
 function toggleForyouLyricsExpanded() {
-  if (!foryouPanel || !state.lines?.length) return;
-  if (!foryouPanel.classList.contains("foryou-panel-compact")) return;
-  const nextExpanded = !foryouPanel.classList.contains("foryou-lyrics-expanded");
-  if (nextExpanded && foryouSelectionTitle) {
-    foryouSelectionTitle.textContent = String(state.title || "CSS MV").trim() || loginCopy("Untitled", "未命名");
-  }
-  if (nextExpanded && foryouSelectionKicker) {
-    foryouSelectionKicker.textContent = loginCopy("Single Lyrics", "单曲歌词");
-  }
-  if (nextExpanded && foryouSelectionLyrics) {
-    foryouSelectionLyrics.textContent = Array.isArray(state.lines) ? state.lines.join("\n") : "";
-  }
-  if (foryouSelection) {
-    foryouSelection.hidden = !nextExpanded;
-  }
-  foryouPanel.classList.toggle("foryou-lyrics-expanded", nextExpanded);
-  cancelAutoEnjoy();
+  callWatchUiModule("toggleForyouLyricsExpandedModule");
 }
 
 function maybeFinalizeForyouPresentation() {
-  if (foryouCompletionCommitted) return;
-  if (
-    !(
-      typingState.completed &&
-      engineProgressState.music >= 100 &&
-      engineProgressState.video >= 100 &&
-      engineProgressState.kara >= 100 &&
-      karaCompletionAt > 0
-    )
-  ) {
-    return;
-  }
-  foryouCompletionCommitted = true;
-  stopPipelineProgressPolling();
-  renderKaraEngineSnapshot(null, {
-    currentStage: loginCopy("Karaoke locked", "卡拉 OK 已锁定"),
-    artifactDetail: loginCopy("Ready for watch", "可以进入欣赏")
-  });
-  finishCreationSession();
-  clearTimeout(foryouCompletionHoldTimer);
-  const delayMs = Math.max(0, FORYOU_POST_COMPLETE_HOLD_MS - (Date.now() - karaCompletionAt));
-  foryouCompletionHoldTimer = setTimeout(() => {
-    clearInterval(progressTimer);
-    setForyouStatusVisible(false);
-    armAutoEnjoy(0);
-    layoutShowcasePanels();
-    foryouCompletionHoldTimer = null;
-  }, delayMs);
+  callWatchUiModule("maybeFinalizeForyouPresentationModule");
 }
 
 function cycleSceneStatus(statusEl) {
@@ -30498,6 +27516,13 @@ function buildMusicEngineLayers(statusPayload, progress = 0) {
 function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
   if (!musicRuntimeBoard) return;
   clearChildren(musicRuntimeBoard);
+  const pendingStructureSummary = [
+    workTypeLabel(creationState.workType),
+    String(creationState.selections?.genre || "").trim(),
+    String(voiceInput?.value || creationState.selections?.vocalGender || "").trim()
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const cards = [
     {
       label: loginCopy("Current Stage", "当前阶段"),
@@ -30505,7 +27530,7 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
     },
     {
       label: loginCopy("Structure", "结构"),
-      value: musicSnapshot.artifactDetail || loginCopy("Waiting for audio engine", "等待音频引擎")
+      value: musicSnapshot.artifactDetail || pendingStructureSummary || loginCopy("Waiting for audio engine", "等待音频引擎")
     },
     {
       label: loginCopy("Render Load", "渲染负载"),
@@ -30527,6 +27552,457 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
     card.appendChild(value);
     musicRuntimeBoard.appendChild(card);
   });
+
+  const replyHarmonyWindows = Array.isArray(musicSnapshot.replyHarmonyWindows) ? musicSnapshot.replyHarmonyWindows : [];
+  const hasReplyHarmonyData = replyHarmonyWindows.length > 0;
+  const strongestWindows = [...replyHarmonyWindows]
+    .sort((left, right) => replyHarmonyWindowStrength(right) - replyHarmonyWindowStrength(left))
+    .slice(0, 4);
+  const replyPanel = document.createElement("div");
+  replyPanel.className = "music-runtime-visualizer";
+
+  const replyHeader = document.createElement("div");
+  replyHeader.className = "music-runtime-visualizer-header";
+  const replyTitle = document.createElement("div");
+  replyTitle.className = "music-runtime-visualizer-title";
+  replyTitle.textContent = loginCopy("Reply Harmony Windows", "回应和声窗口");
+  const replyMetaWrap = document.createElement("div");
+  replyMetaWrap.className = "music-runtime-visualizer-meta-wrap";
+  const replyMeta = document.createElement("div");
+  replyMeta.className = "music-runtime-visualizer-meta";
+  if (hasReplyHarmonyData) {
+    replyMeta.textContent = `${replyHarmonyWindows.length} ${loginCopy("windows", "窗口")}`;
+  } else if (musicSnapshot.replyHarmonyPending) {
+    replyMeta.textContent = loginCopy("Loading plan", "正在读取计划");
+  } else if (musicSnapshot.replyHarmonyState === "empty") {
+    replyMeta.textContent = loginCopy("No keyword windows yet", "还没有关键词窗口");
+  } else {
+    replyMeta.textContent = loginCopy("Waiting for music plan", "等待 music plan");
+  }
+  replyMetaWrap.appendChild(replyMeta);
+  if (watchReplyLockedWindow?.token) {
+    const lockedWindowEntry = strongestWindows.find(
+      (windowEntry) => buildReplyHarmonyWindowKey(windowEntry) === watchReplyLockedWindow?.key
+    ) || null;
+    if (lockedWindowEntry) {
+      const loopButton = document.createElement("button");
+      loopButton.type = "button";
+      loopButton.className = "reply-harmony-unlock";
+      if (watchReplyLoopWindow?.key === watchReplyLockedWindow?.key) {
+        loopButton.classList.add("is-active");
+      }
+      loopButton.textContent =
+        watchReplyLoopWindow?.key === watchReplyLockedWindow?.key
+          ? loginCopy("Stop Loop", "停止循环")
+          : loginCopy("Loop This Window", "循环这个窗口");
+      loopButton.addEventListener("click", () => {
+        toggleWatchReplyWindowLoop(lockedWindowEntry);
+      });
+      replyMetaWrap.appendChild(loopButton);
+    }
+    const copyLink = document.createElement("button");
+    copyLink.type = "button";
+    copyLink.className = "reply-harmony-unlock";
+    copyLink.textContent = loginCopy("Copy Locked Link", "复制锁定链接");
+    copyLink.addEventListener("click", () => {
+      void copyWatchReplyLockLink();
+    });
+    replyMetaWrap.appendChild(copyLink);
+    const loadDraft = document.createElement("button");
+    loadDraft.type = "button";
+    loadDraft.className = "reply-harmony-unlock";
+    loadDraft.textContent = loginCopy("Load Draft File", "载入草案文件");
+    loadDraft.addEventListener("click", () => {
+      promptWatchReplyRegenerationDraftImport();
+    });
+    replyMetaWrap.appendChild(loadDraft);
+    if (lockedWindowEntry) {
+      const regenerate = document.createElement("button");
+      regenerate.type = "button";
+      regenerate.className = "reply-harmony-unlock";
+      regenerate.textContent = loginCopy("Regenerate This Window", "重生成这个窗口");
+      regenerate.addEventListener("click", () => {
+        createWatchReplyRegenerationDraft(lockedWindowEntry);
+      });
+      replyMetaWrap.appendChild(regenerate);
+    }
+    const unlock = document.createElement("button");
+    unlock.type = "button";
+    unlock.className = "reply-harmony-unlock";
+    unlock.textContent = loginCopy("Follow Playback", "恢复跟随");
+    unlock.addEventListener("click", () => {
+      setWatchReplyLockedWindow(null);
+      maybeRefreshReplyHarmonyHighlight();
+    });
+    replyMetaWrap.appendChild(unlock);
+  }
+  replyHeader.appendChild(replyTitle);
+  replyHeader.appendChild(replyMetaWrap);
+  replyPanel.appendChild(replyHeader);
+
+  const regenerationDraft = readWatchReplyRegenerationDraft();
+  if (regenerationDraft?.windowKey) {
+    const inspector = document.createElement("div");
+    inspector.className = "reply-harmony-inspector";
+
+    const inspectorHeader = document.createElement("div");
+    inspectorHeader.className = "reply-harmony-inspector-header";
+    const inspectorTitle = document.createElement("div");
+    inspectorTitle.className = "reply-harmony-inspector-title";
+    inspectorTitle.textContent = loginCopy("Regeneration Draft", "重生成草案");
+    const inspectorDirty = document.createElement("div");
+    inspectorDirty.className = "reply-harmony-inspector-dirty";
+    const hasUnsavedChanges = watchReplyDraftHasUnsavedControlChanges(regenerationDraft);
+    inspectorDirty.classList.add(hasUnsavedChanges ? "is-dirty" : "is-clean");
+    inspectorDirty.textContent = hasUnsavedChanges
+      ? loginCopy("Unsaved Changes", "未保存改动")
+      : loginCopy("Synced With Import", "已与导入值同步");
+    const inspectorMeta = document.createElement("div");
+    inspectorMeta.className = "reply-harmony-inspector-meta";
+    inspectorMeta.textContent = [
+      String(regenerationDraft.section || "").trim(),
+      regenerationDraft.phraseOrder ? `P${regenerationDraft.phraseOrder}` : "",
+      String(regenerationDraft.token || "").trim()
+    ].filter(Boolean).join(" · ");
+    inspectorHeader.appendChild(inspectorTitle);
+    inspectorHeader.appendChild(inspectorDirty);
+    inspectorHeader.appendChild(inspectorMeta);
+    const inspectorApply = document.createElement("button");
+    inspectorApply.type = "button";
+    inspectorApply.className = "reply-harmony-unlock";
+    inspectorApply.textContent = loginCopy("Apply To Locked Window", "对齐到锁定窗口");
+    inspectorApply.addEventListener("click", () => {
+      applyImportedDraftToLockedWindow(regenerationDraft);
+    });
+    inspectorHeader.appendChild(inspectorApply);
+    const inspectorReset = document.createElement("button");
+    inspectorReset.type = "button";
+    inspectorReset.className = "reply-harmony-unlock";
+    inspectorReset.textContent = loginCopy("Reset Controls", "重置参数");
+    inspectorReset.addEventListener("click", () => {
+      resetWatchReplyRegenerationDraftControls();
+    });
+    inspectorHeader.appendChild(inspectorReset);
+    const inspectorClear = document.createElement("button");
+    inspectorClear.type = "button";
+    inspectorClear.className = "reply-harmony-unlock reply-harmony-clear";
+    inspectorClear.textContent = loginCopy("Clear Draft", "清空草案");
+    inspectorClear.addEventListener("click", () => {
+      clearWatchReplyRegenerationDraft();
+    });
+    inspectorHeader.appendChild(inspectorClear);
+    inspector.appendChild(inspectorHeader);
+
+    const inspectorSummary = document.createElement("div");
+    inspectorSummary.className = "reply-harmony-inspector-summary";
+    inspectorSummary.textContent = [
+      `${loginCopy("Role", "角色")}: ${String(regenerationDraft.role || "").trim() || "-"}`,
+      `${loginCopy("Cadence", "终止")}: ${String(regenerationDraft.cadence || "").trim() || "-"}`,
+      `${loginCopy("Window", "窗口")}: ${formatReplyHarmonyClock(regenerationDraft.startSec)} - ${formatReplyHarmonyClock(
+        Number(regenerationDraft.startSec || 0) + Number(regenerationDraft.durationSec || 0)
+      )}`
+    ].join(" · ");
+    inspector.appendChild(inspectorSummary);
+
+    const controls = document.createElement("div");
+    controls.className = "reply-harmony-inspector-controls";
+    const controlRows = [
+      ["bassDuckBias", loginCopy("Bass Duck Bias", "低频让位偏置"), Number(regenerationDraft?.controls?.bassDuckBias || 0)],
+      ["stringsSettle", loginCopy("Strings Settle", "弦群收束"), Number(regenerationDraft?.controls?.stringsSettle || 0)],
+      ["densityBias", loginCopy("Density", "密度"), Number(regenerationDraft?.controls?.densityBias || 0)]
+    ];
+    controlRows.forEach(([field, labelText, rawValue]) => {
+      const label = document.createElement("label");
+      label.className = "reply-harmony-inspector-control";
+      const title = document.createElement("span");
+      title.className = "reply-harmony-inspector-control-label";
+      title.textContent = `${labelText} · ${Number(rawValue).toFixed(2)}`;
+      const input = document.createElement("input");
+      input.type = "range";
+      input.min = "-1";
+      input.max = "1";
+      input.step = "0.05";
+      input.value = String(rawValue);
+      input.addEventListener("input", () => {
+        updateWatchReplyRegenerationDraftControls({ [field]: Number(input.value) });
+      });
+      label.appendChild(title);
+      label.appendChild(input);
+      controls.appendChild(label);
+    });
+    inspector.appendChild(controls);
+
+    const diffGrid = document.createElement("div");
+    diffGrid.className = "reply-harmony-inspector-diff";
+    const diffTitle = document.createElement("div");
+    diffTitle.className = "reply-harmony-inspector-diff-title";
+    diffTitle.textContent = loginCopy("Diff From Imported Draft", "相对导入草案的差值");
+    diffGrid.appendChild(diffTitle);
+    controlRows.forEach(([field, labelText]) => {
+      const currentValue = Number(regenerationDraft?.controls?.[field] || 0);
+      const importedValue = Number(regenerationDraft?.importedControls?.[field] ?? 0);
+      const deltaValue = currentValue - importedValue;
+      const item = document.createElement("div");
+      item.className = "reply-harmony-inspector-diff-item";
+      if (Math.abs(deltaValue) >= 0.005) {
+        item.classList.add(deltaValue > 0 ? "is-positive" : "is-negative");
+      }
+      const label = document.createElement("span");
+      label.className = "reply-harmony-inspector-diff-label";
+      label.textContent = String(labelText);
+      const values = document.createElement("span");
+      values.className = "reply-harmony-inspector-diff-values";
+      values.textContent = `${Number(currentValue).toFixed(2)} / ${Number(importedValue).toFixed(2)} / ${formatReplyDraftDelta(deltaValue)}`;
+      item.appendChild(label);
+      item.appendChild(values);
+      diffGrid.appendChild(item);
+    });
+    inspector.appendChild(diffGrid);
+
+    const inspectorFoot = document.createElement("div");
+    inspectorFoot.className = "reply-harmony-inspector-foot";
+    inspectorFoot.textContent = loginCopy(
+      "This is a local draft sidecar for future per-window regeneration wiring.",
+      "这是供后续局部重生成接线使用的本地草案 sidecar。"
+    );
+    inspector.appendChild(inspectorFoot);
+
+    const historyEntries = readWatchReplyRegenerationHistory();
+    if (historyEntries.length) {
+      const history = document.createElement("div");
+      history.className = "reply-harmony-inspector-history";
+      const historyTitle = document.createElement("div");
+      historyTitle.className = "reply-harmony-inspector-history-title";
+      historyTitle.textContent = loginCopy("Draft History", "草案历史");
+      history.appendChild(historyTitle);
+      historyEntries.slice(0, 5).forEach((entry) => {
+        const item = document.createElement("div");
+        item.className = "reply-harmony-inspector-history-item";
+        const label = document.createElement("span");
+        label.className = "reply-harmony-inspector-history-label";
+        label.textContent = [
+          String(entry?.action || "").trim() || loginCopy("updated", "更新"),
+          String(entry?.section || "").trim(),
+          entry?.phraseOrder ? `P${Math.max(0, Number(entry.phraseOrder || 0))}` : "",
+          String(entry?.token || "").trim()
+        ].filter(Boolean).join(" · ");
+        const meta = document.createElement("span");
+        meta.className = "reply-harmony-inspector-history-meta";
+        meta.textContent = String(entry?.timestamp || "").trim().replace("T", " ").slice(0, 16) || "-";
+        const reload = document.createElement("button");
+        reload.type = "button";
+        reload.className = "reply-harmony-history-reload";
+        reload.textContent = loginCopy("Reload", "载回");
+        reload.addEventListener("click", () => {
+          reloadWatchReplyDraftFromHistoryEntry(entry);
+        });
+        item.appendChild(label);
+        item.appendChild(meta);
+        item.appendChild(reload);
+        history.appendChild(item);
+      });
+      inspector.appendChild(history);
+    }
+
+    const payload = buildWatchReplyRegenerationPayload(regenerationDraft);
+    if (payload) {
+      const preview = document.createElement("div");
+      preview.className = "reply-harmony-inspector-json";
+      const previewHeader = document.createElement("div");
+      previewHeader.className = "reply-harmony-inspector-json-header";
+      const previewTitle = document.createElement("div");
+      previewTitle.className = "reply-harmony-inspector-json-title";
+      previewTitle.textContent = loginCopy("Sidecar JSON Preview", "Sidecar JSON 预览");
+      const previewCopy = document.createElement("button");
+      previewCopy.type = "button";
+      previewCopy.className = "reply-harmony-unlock";
+      previewCopy.textContent = loginCopy("Copy Sidecar JSON", "复制 Sidecar JSON");
+      previewCopy.addEventListener("click", () => {
+        void copyWatchReplyRegenerationPayload(payload);
+      });
+      const previewCurl = document.createElement("button");
+      previewCurl.type = "button";
+      previewCurl.className = "reply-harmony-unlock";
+      previewCurl.textContent = loginCopy("Copy Curl Stub", "复制 Curl 占位命令");
+      previewCurl.addEventListener("click", () => {
+        void copyWatchReplyRegenerationCurlStub(payload);
+      });
+      const previewFetch = document.createElement("button");
+      previewFetch.type = "button";
+      previewFetch.className = "reply-harmony-unlock";
+      previewFetch.textContent = loginCopy("Copy Node Fetch Stub", "复制 Node Fetch 占位代码");
+      previewFetch.addEventListener("click", () => {
+        void copyWatchReplyRegenerationNodeFetchStub(payload);
+      });
+      const previewReqwest = document.createElement("button");
+      previewReqwest.type = "button";
+      previewReqwest.className = "reply-harmony-unlock";
+      previewReqwest.textContent = loginCopy("Copy Rust Reqwest Stub", "复制 Rust Reqwest 占位代码");
+      previewReqwest.addEventListener("click", () => {
+        void copyWatchReplyRegenerationRustReqwestStub(payload);
+      });
+      const previewExport = document.createElement("button");
+      previewExport.type = "button";
+      previewExport.className = "reply-harmony-unlock";
+      previewExport.textContent = loginCopy("Export Draft File", "导出草案文件");
+      previewExport.addEventListener("click", () => {
+        exportWatchReplyRegenerationDraftFile(payload);
+      });
+      const previewSaveAs = document.createElement("button");
+      previewSaveAs.type = "button";
+      previewSaveAs.className = "reply-harmony-unlock";
+      previewSaveAs.textContent = loginCopy("Save As New Draft File", "另存为新草案文件");
+      previewSaveAs.addEventListener("click", () => {
+        saveWatchReplyRegenerationDraftAsNewFile(regenerationDraft);
+      });
+      previewHeader.appendChild(previewTitle);
+      previewHeader.appendChild(previewCopy);
+      previewHeader.appendChild(previewCurl);
+      previewHeader.appendChild(previewFetch);
+      previewHeader.appendChild(previewReqwest);
+      previewHeader.appendChild(previewExport);
+      previewHeader.appendChild(previewSaveAs);
+      const previewBody = document.createElement("pre");
+      previewBody.className = "reply-harmony-inspector-json-body";
+      previewBody.textContent = JSON.stringify(payload, null, 2);
+      preview.appendChild(previewHeader);
+      preview.appendChild(previewBody);
+      inspector.appendChild(preview);
+    }
+    replyPanel.appendChild(inspector);
+  }
+
+  if (!hasReplyHarmonyData) {
+    const empty = document.createElement("div");
+    empty.className = "music-runtime-visualizer-empty";
+    empty.textContent =
+      musicSnapshot.replyHarmonyPending
+        ? loginCopy("Watch is syncing phrase-level ducking windows from music.plan.json.", "Watch 正在同步 music.plan.json 里的句级让位窗口。")
+        : loginCopy("Keyword-triggered harmony ducking windows will appear here once the plan is ready.", "关键词触发的和声让位窗口会在计划就绪后显示在这里。");
+    replyPanel.appendChild(empty);
+    musicRuntimeBoard.appendChild(replyPanel);
+    return;
+  }
+
+  const currentTimeSec = Number(musicSnapshot.replyHarmonyCurrentTimeSec || 0);
+  const durationSec = Number(musicSnapshot.replyHarmonyDurationSec || 0);
+  if (durationSec > 0) {
+    const timeline = document.createElement("div");
+    timeline.className = "reply-harmony-timeline";
+    const structureSegments = buildReplyHarmonyStructureSegments(replyHarmonyWindows, durationSec);
+    if (structureSegments.length) {
+      const structure = document.createElement("div");
+      structure.className = "reply-harmony-structure";
+      structureSegments.forEach((segmentEntry) => {
+        const chip = document.createElement("span");
+        chip.className = "reply-harmony-structure-chip";
+        if (segmentEntry.isTail) chip.classList.add("is-tail");
+        if (isReplyHarmonyStructureSegmentActive(segmentEntry, currentTimeSec)) chip.classList.add("is-active");
+        chip.style.left = `${segmentEntry.leftPct}%`;
+        chip.style.width = `${segmentEntry.widthPct}%`;
+        chip.textContent = segmentEntry.label;
+        structure.appendChild(chip);
+      });
+      timeline.appendChild(structure);
+    }
+    const lane = document.createElement("div");
+    lane.className = "reply-harmony-timeline-lane";
+    strongestWindows.forEach((windowEntry) => {
+      const startSec = Math.max(0, Number(windowEntry?.startSec || 0));
+      const windowDurationSec = Math.max(0.12, Number(windowEntry?.durationSec || 0));
+      const segment = document.createElement("span");
+      const isActive = isReplyHarmonyWindowActive(windowEntry, currentTimeSec);
+      segment.className = "reply-harmony-timeline-window";
+      if (isActive) segment.classList.add("is-active");
+      if (watchReplyLockedWindow?.key === buildReplyHarmonyWindowKey(windowEntry)) segment.classList.add("is-locked");
+      segment.style.left = `${Math.min(100, (startSec / durationSec) * 100)}%`;
+      segment.style.width = `${Math.max(1.4, Math.min(100, (windowDurationSec / durationSec) * 100))}%`;
+      segment.title = `${String(windowEntry?.token || "").trim() || loginCopy("Keyword", "关键词")} · ${formatReplyHarmonyClock(startSec)}`;
+      segment.tabIndex = 0;
+      bindReplyHarmonyInteractiveFocus(segment, windowEntry);
+      lane.appendChild(segment);
+    });
+    const playhead = document.createElement("span");
+    playhead.className = "reply-harmony-timeline-playhead";
+    playhead.style.left = `${Math.min(100, (currentTimeSec / durationSec) * 100)}%`;
+    lane.appendChild(playhead);
+    const meta = document.createElement("div");
+    meta.className = "reply-harmony-timeline-meta";
+    meta.textContent = `${formatReplyHarmonyClock(currentTimeSec)} / ${formatReplyHarmonyClock(durationSec)}`;
+    timeline.appendChild(lane);
+    timeline.appendChild(meta);
+    replyPanel.appendChild(timeline);
+  }
+  const list = document.createElement("div");
+  list.className = "reply-harmony-window-list";
+  strongestWindows.forEach((windowEntry) => {
+    const item = document.createElement("div");
+    item.className = "reply-harmony-window";
+    item.tabIndex = 0;
+    bindReplyHarmonyInteractiveFocus(item, windowEntry);
+    const isActive = isReplyHarmonyWindowActive(windowEntry, currentTimeSec);
+    if (isActive) item.classList.add("is-active");
+    if (watchReplyLockedWindow?.key === buildReplyHarmonyWindowKey(windowEntry)) item.classList.add("is-locked");
+
+    const top = document.createElement("div");
+    top.className = "reply-harmony-window-top";
+    const token = document.createElement("div");
+    token.className = "reply-harmony-window-token";
+    token.textContent = String(windowEntry?.token || "").trim() || loginCopy("Keyword", "关键词");
+    const timing = document.createElement("div");
+    timing.className = "reply-harmony-window-timing";
+    timing.textContent = `${formatReplyHarmonyClock(windowEntry?.startSec)} - ${formatReplyHarmonyClock(
+      Number(windowEntry?.startSec || 0) + Number(windowEntry?.durationSec || 0)
+    )}`;
+    top.appendChild(token);
+    top.appendChild(timing);
+
+    const sub = document.createElement("div");
+    sub.className = "reply-harmony-window-sub";
+    sub.textContent = [
+      String(windowEntry?.section || "").trim(),
+      String(windowEntry?.role || "").trim(),
+      String(windowEntry?.cadence || "").trim()
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
+    const playback = document.createElement("div");
+    playback.className = "reply-harmony-window-playback";
+    playback.textContent = isActive
+      ? loginCopy("Active now", "当前生效")
+      : loginCopy("Queued window", "待命窗口");
+
+    const meters = document.createElement("div");
+    meters.className = "reply-harmony-window-meters";
+    [
+      [loginCopy("Bass", "低频"), Number(windowEntry?.bassDuck) || 0],
+      [loginCopy("Pad", "和声"), Number(windowEntry?.padDuck) || 0],
+      [loginCopy("Strings", "弦群"), Number(windowEntry?.stringsDuck) || 0]
+    ].forEach(([labelText, rawValue]) => {
+      const meter = document.createElement("div");
+      meter.className = "reply-harmony-meter";
+      const label = document.createElement("span");
+      label.className = "reply-harmony-meter-label";
+      label.textContent = String(labelText);
+      const bar = document.createElement("span");
+      bar.className = "reply-harmony-meter-bar";
+      const fill = document.createElement("span");
+      fill.style.width = `${clampPercent(rawValue * 100)}%`;
+      bar.appendChild(fill);
+      meter.appendChild(label);
+      meter.appendChild(bar);
+      meters.appendChild(meter);
+    });
+
+    item.appendChild(top);
+    item.appendChild(sub);
+    item.appendChild(playback);
+    item.appendChild(meters);
+    list.appendChild(item);
+  });
+  replyPanel.appendChild(list);
+  musicRuntimeBoard.appendChild(replyPanel);
 }
 
 function renderMusicWaveform(progress = 0, stageLabel = "") {
@@ -30608,10 +28084,28 @@ function renderMixGrid(statusPayload = null, musicSnapshot = {}) {
 }
 
 function renderMusicEngineSnapshot(statusPayload = null, musicSnapshot = {}) {
-  renderMusicRuntimeBoard(statusPayload, musicSnapshot);
-  renderMusicWaveform(musicSnapshot.progress || 0, musicSnapshot.currentStage || "");
-  renderMusicTrackList(statusPayload, musicSnapshot);
-  renderMixGrid(statusPayload, musicSnapshot);
+  latestWatchMusicStatusPayload = statusPayload;
+  latestWatchMusicSnapshot = { ...musicSnapshot };
+  const currentRunId = String(currentWatchAudioRunId || pendingFinalAudioRunId || activePipelineRunId || "").trim();
+  const cachedMusicPlan =
+    watchMusicPlanCache.runId === currentRunId && watchMusicPlanCache.data && typeof watchMusicPlanCache.data === "object"
+      ? watchMusicPlanCache.data
+      : null;
+  const enrichedSnapshot = {
+    ...musicSnapshot,
+    replyHarmonyWindows: extractReplyHarmonyWindowsFromMusicPlan(cachedMusicPlan),
+    replyHarmonyPending: !!currentRunId && watchMusicPlanCache.runId === currentRunId && watchMusicPlanCache.pending,
+    replyHarmonyState: cachedMusicPlan ? "ready" : (watchMusicPlanCache.error ? "empty" : "pending"),
+    replyHarmonyCurrentTimeSec: currentWatchAudioTimeSec(),
+    replyHarmonyDurationSec: currentWatchAudioDurationSec()
+  };
+  renderMusicRuntimeBoard(statusPayload, enrichedSnapshot);
+  renderMusicWaveform(enrichedSnapshot.progress || 0, enrichedSnapshot.currentStage || "");
+  renderMusicTrackList(statusPayload, enrichedSnapshot);
+  renderMixGrid(statusPayload, enrichedSnapshot);
+  if (currentRunId) {
+    void maybeHydrateWatchMusicPlan(currentRunId);
+  }
 }
 
 function buildVideoRuntimeCards(statusPayload, videoSnapshot = {}) {
@@ -30619,6 +28113,13 @@ function buildVideoRuntimeCards(statusPayload, videoSnapshot = {}) {
   const shotsCount = Number(video.shots_count) || 0;
   const completedShots = Number(video.completed_shots) || 0;
   const segmentsCount = Number(video.segments_count) || 0;
+  const pendingStructureSummary = [
+    workTypeLabel(creationState.workType),
+    String(creationState.language || "").trim(),
+    String(creationState.sectionForm || "").trim()
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return [
     {
       label: loginCopy("Current Stage", "当前阶段"),
@@ -30626,7 +28127,7 @@ function buildVideoRuntimeCards(statusPayload, videoSnapshot = {}) {
     },
     {
       label: loginCopy("Structure", "结构"),
-      value: videoSnapshot.artifactDetail || loginCopy("Waiting for video engine", "等待视频引擎")
+      value: videoSnapshot.artifactDetail || pendingStructureSummary || loginCopy("Waiting for video engine", "等待视频引擎")
     },
     {
       label: loginCopy("Shot Load", "镜头负载"),
@@ -30823,609 +28324,6 @@ function renderPulseList(container, lines, fallback) {
   });
 }
 
-function renderDigestMetrics(metrics) {
-  if (!mvDigestMetrics) return;
-
-  const entries = [
-    ["cssmv.digest.metrics.escalated", metrics?.escalated_count],
-    ["cssmv.digest.metrics.manualIntervention", metrics?.manual_intervention_count],
-    ["cssmv.digest.metrics.retry", metrics?.retry_count],
-    ["cssmv.digest.metrics.resolutionChange", metrics?.resolution_change_count]
-  ];
-
-  mvDigestMetrics.innerHTML = entries
-    .map(([labelKey, value]) => {
-      const waiting = value === undefined || value === null;
-      return `
-        <div class="mv-digest-metric ${waiting ? "is-waiting" : ""}">
-          <span>${escapeHtml(t(labelKey))}</span>
-          <strong>${escapeHtml(waiting ? "--" : String(value))}</strong>
-        </div>
-      `;
-    })
-    .join("");
-}
-
-function severityLabel(value) {
-  const raw = String(value || "").toLowerCase();
-  if (raw === "critical") return "critical";
-  if (raw === "warning") return "warning";
-  return "info";
-}
-
-function renderDigestPreview(items) {
-  if (!mvDigestPreview) return;
-  const list = Array.isArray(items) ? items : [];
-  if (!list.length) {
-    mvDigestPreview.innerHTML = `<div class="mv-digest-preview-empty">${escapeHtml(t("cssmv.digest.emptyPreview"))}</div>`;
-    return;
-  }
-
-  mvDigestPreview.innerHTML = list
-    .slice(0, 4)
-    .map((item) => {
-      const title =
-        item?.summary?.title ||
-        item?.status?.summary ||
-        `${String(item?.target || "delivery")} · ${String(item?.mode || "unknown")}`;
-      const meta = [
-        item?.updated_at ? `${t("cssmv.digest.previewUpdated")} ${item.updated_at}` : "",
-        item?.trust_level ? `trust=${item.trust_level}` : "",
-        item?.risk_level ? `risk=${item.risk_level}` : ""
-      ]
-        .filter(Boolean)
-        .join(" · ");
-      const body = item?.summary?.summary || item?.status?.headline || "";
-
-      return `
-        <div class="mv-digest-preview-item">
-          <div class="mv-digest-preview-title">${escapeHtml(title)}</div>
-          <div class="mv-digest-preview-meta">${escapeHtml(meta)}</div>
-          <div class="mv-digest-preview-body">${escapeHtml(body)}</div>
-        </div>
-      `;
-    })
-    .join("");
-}
-
-function renderDigestInboxCounts(dashboard, digest) {
-  if (!mvDigestInboxCounts) return;
-
-  const counts = Array.isArray(digest?.inbox_counts) ? digest.inbox_counts : [];
-  const previews = Array.isArray(dashboard?.inbox_previews) ? dashboard.inbox_previews : [];
-  const previewMap = new Map(previews.map((item) => [String(item.key || ""), item]));
-
-  if (!counts.length) {
-    mvDigestInboxCounts.innerHTML = `
-      <button class="mv-digest-queue is-waiting" type="button" disabled>
-        <span>${escapeHtml(t("cssmv.digest.waitingQueue"))}</span>
-      </button>
-    `;
-    renderDigestPreview([]);
-    return;
-  }
-
-  if (!activeDigestQueueKey || !previewMap.has(activeDigestQueueKey)) {
-    activeDigestQueueKey = String(counts[0]?.key || "");
-  }
-
-  mvDigestInboxCounts.innerHTML = counts
-    .map((item) => {
-      const key = String(item.key || "");
-      const active = key === activeDigestQueueKey;
-      return `
-        <button class="mv-digest-queue ${active ? "is-active" : ""}" type="button" data-queue-key="${escapeHtml(key)}">
-          <span class="mv-digest-queue-title">${escapeHtml(item.title)}</span>
-          <span class="mv-digest-queue-count">${escapeHtml(String(item.count))}</span>
-        </button>
-      `;
-    })
-    .join("");
-
-  mvDigestInboxCounts.querySelectorAll("[data-queue-key]").forEach((button) => {
-    button.addEventListener("click", () => {
-      activeDigestQueueKey = button.getAttribute("data-queue-key") || "";
-      renderDigestInboxCounts(dashboard, digest);
-    });
-  });
-
-  renderDigestPreview(previewMap.get(activeDigestQueueKey)?.items || []);
-}
-
-function renderDigestAlerts(alerts, digest) {
-  if (!mvDigestAlerts) return;
-
-  const items = Array.isArray(alerts?.alerts) ? alerts.alerts : [];
-  if (!items.length) {
-    mvDigestAlerts.innerHTML = `
-      <div class="mv-digest-alert is-waiting">
-        <span class="mv-digest-alert-copy">${escapeHtml(t("cssmv.digest.waitingAlerts"))}</span>
-      </div>
-    `;
-    return;
-  }
-
-  const digestTitles = new Set(Array.isArray(digest?.alert_titles) ? digest.alert_titles : []);
-  mvDigestAlerts.innerHTML = items
-    .map((item) => {
-      const severity = severityLabel(item?.severity);
-      const copy = digestTitles.has(item?.title)
-        ? `${item.title} · ${item.summary}`
-        : item.title || item.summary || "";
-      return `
-        <div class="mv-digest-alert">
-          <span class="mv-digest-alert-badge ${severity}">${escapeHtml(severity)}</span>
-          <span class="mv-digest-alert-copy">${escapeHtml(copy)}</span>
-        </div>
-      `;
-    })
-    .join("");
-}
-
-function renderDeliveryDigestSummary(bundle) {
-  const digest = bundle?.digest || bundle?.report?.digest || null;
-  const dashboard = bundle?.dashboard || bundle?.report?.dashboard || null;
-  const alerts = bundle?.alerts || bundle?.report?.alerts || null;
-
-  if (mvDigestStatus) {
-    mvDigestStatus.classList.remove("mv-digest-status-error");
-    mvDigestStatus.textContent = digest?.title ? t("cssmv.digest.readyStatus") : t("cssmv.digest.waitingStatus");
-  }
-  if (mvDigestTitle) {
-    mvDigestTitle.textContent = digest?.title || t("cssmv.digest.waitingTitle");
-  }
-  if (mvDigestSummary) {
-    mvDigestSummary.textContent = digest?.summary || t("cssmv.digest.waitingSummary");
-  }
-
-  renderDigestMetrics(digest?.daily_metrics);
-  renderDigestInboxCounts(dashboard, digest);
-  renderDigestAlerts(alerts, digest);
-
-  renderPulseList(
-    mvDigestHighlights,
-    Array.isArray(digest?.highlights) ? digest.highlights : [],
-    t("cssmv.digest.waitingHighlights")
-  );
-}
-
-function renderDeliveryDigestError(message) {
-  if (mvDigestStatus) {
-    mvDigestStatus.textContent = t("cssmv.digest.errorStatus");
-    mvDigestStatus.classList.add("mv-digest-status-error");
-  }
-  if (mvDigestSummary) {
-    mvDigestSummary.textContent = message || t("cssmv.digest.waitingSummary");
-  }
-  renderDigestPreview([]);
-}
-
-async function loadDeliveryDigestBundle(force = false) {
-  if (!force && deliveryDigestBundleRequest) return deliveryDigestBundleRequest;
-  if (!force && deliveryDigestBundleLoadedAt && Date.now() - deliveryDigestBundleLoadedAt < 60000) {
-    return window.CSSMV_DELIVERY_REPORT_BUNDLE || null;
-  }
-
-  deliveryDigestBundleRequest = fetch("/cssapi/v1/case/delivery/report", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      days: 14,
-      preview_limit: 5,
-      include_dashboard: true,
-      include_ops_health: true,
-      include_alerts: true,
-      include_digest: true,
-      include_kpi: false,
-      include_analytics: false,
-      include_trends: false,
-      include_briefing: false
-    })
-  })
-    .then(async (res) => {
-      if (!res.ok) {
-        throw new Error(`delivery digest request failed: ${res.status}`);
-      }
-      const payload = await res.json();
-      const report = payload?.report || null;
-      window.CSSMV_DELIVERY_REPORT_BUNDLE = report;
-      deliveryDigestBundleLoadedAt = Date.now();
-      renderDeliveryDigestSummary(report);
-      return report;
-    })
-    .catch((error) => {
-      renderDeliveryDigestError(String(error));
-      return null;
-    })
-    .finally(() => {
-      deliveryDigestBundleRequest = null;
-    });
-
-  return deliveryDigestBundleRequest;
-}
-
-function formatReportKindLabel(kind) {
-  return String(kind || "")
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (ch) => ch.toUpperCase());
-}
-
-function reportSeverityClass(severity) {
-  const value = String(severity || "").toLowerCase();
-  return value === "critical" ? "critical" : "warning";
-}
-
-function exportTargetFromReportKind(kind) {
-  switch (kind) {
-    case "dashboard":
-      return "dashboard";
-    case "ops_health":
-      return "ops_health";
-    case "kpi":
-      return "kpi";
-    case "analytics":
-      return "analytics";
-    case "trends":
-      return "trends";
-    case "alerts":
-      return "alerts";
-    case "digest":
-      return "digest";
-    case "briefing_pack":
-      return "briefing";
-    default:
-      return "dashboard";
-  }
-}
-
-function exportFileExtension(format) {
-  switch (format) {
-    case "json_package":
-      return "json";
-    case "csv":
-      return "csv";
-    case "briefing_text":
-      return "txt";
-    case "pdf":
-      return "pdf";
-    case "docx":
-      return "docx";
-    default:
-      return "txt";
-  }
-}
-
-function currentExportFileName() {
-  const day = new Date().toISOString().slice(0, 10);
-  const target =
-    deliveryExportState.source === "report_bundle"
-      ? "report_bundle"
-      : exportTargetFromReportKind(deliveryReportState.kind);
-  return `delivery_${target}_${day}.${exportFileExtension(deliveryExportState.format)}`;
-}
-
-function previewExportBodyLines(result) {
-  const body = String(result?.body || "");
-  return body.split("\n").slice(0, 6).filter(Boolean);
-}
-
-function currentExportResultBody() {
-  return String(deliveryExportState.result?.body || "");
-}
-
-async function copyDeliveryExportBody() {
-  const body = currentExportResultBody();
-  if (!body) return;
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(body);
-      showToast(t("reports.export.copyDone"));
-      return;
-    }
-  } catch {}
-  const fallback = document.createElement("textarea");
-  fallback.value = body;
-  document.body.appendChild(fallback);
-  fallback.select();
-  document.execCommand("copy");
-  fallback.remove();
-  showToast(t("reports.export.copyDone"));
-}
-
-function downloadDeliveryExportBody() {
-  if (!deliveryExportState.result?.body) return;
-  const blob = new Blob([deliveryExportState.result.body], {
-    type: deliveryExportState.result.content_type || "text/plain"
-  });
-  triggerDownloadBlob(blob, deliveryExportState.result.file_name || currentExportFileName());
-}
-
-function triggerDownloadBlob(blob, fileName) {
-  const href = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = href;
-  anchor.download = fileName || "delivery_export.txt";
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  setTimeout(() => URL.revokeObjectURL(href), 1000);
-}
-
-function downloadHistoryExportBody(itemId) {
-  const item = deliveryExportHistoryState.items.find((entry) => entry.id === itemId);
-  if (!item?.body) return;
-  const blob = new Blob([item.body], { type: item.content_type || "text/plain" });
-  triggerDownloadBlob(blob, item.file_name || "delivery_export.txt");
-}
-
-async function copyHistoryExportBody(itemId) {
-  const item = deliveryExportHistoryState.items.find((entry) => entry.id === itemId);
-  if (!item?.body) return;
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(item.body);
-      showToast(t("reports.export.copyDone"));
-      return;
-    }
-  } catch {}
-  const fallback = document.createElement("textarea");
-  fallback.value = item.body;
-  document.body.appendChild(fallback);
-  fallback.select();
-  document.execCommand("copy");
-  fallback.remove();
-  showToast(t("reports.export.copyDone"));
-}
-
-function restoreHistoryExportResult(itemId) {
-  const item = deliveryExportHistoryState.items.find((entry) => entry.id === itemId);
-  if (!item) return;
-  deliveryExportState.result = {
-    file_name: item.file_name,
-    content_type: item.content_type,
-    body: item.body,
-    format: item.format,
-    report_kind: item.report_kind
-  };
-  deliveryExportState.previewExpanded = false;
-  renderDeliveryExportPanel();
-}
-
-function summarizeBundle(bundle) {
-  if (!bundle) return [];
-  const sections = [
-    bundle.dashboard ? `dashboard: ${bundle.dashboard.metrics?.length || 0} metrics` : null,
-    bundle.ops_health ? `ops health: ${bundle.ops_health.reasons?.length || 0} reasons` : null,
-    bundle.kpi ? `kpi: ${bundle.kpi.metrics?.length || 0} metrics` : null,
-    bundle.analytics ? `analytics: ${bundle.analytics.insights?.length || 0} insights` : null,
-    bundle.trends ? `trends: ${bundle.trends.series?.length || 0} series` : null,
-    bundle.alerts ? `alerts: ${bundle.alerts.alerts?.length || 0} alerts` : null,
-    bundle.digest ? `digest: ${bundle.digest.highlights?.length || 0} highlights` : null,
-    bundle.briefing ? `briefing: ${bundle.briefing.highlights?.length || 0} highlights` : null
-  ].filter(Boolean);
-  return sections;
-}
-
-function historyItemTimestamp(item) {
-  const value = Date.parse(item?.created_at || "");
-  return Number.isFinite(value) ? value : 0;
-}
-
-function latestDeliveryExportHistoryItemId() {
-  const items = Array.isArray(deliveryExportHistoryState.items) ? deliveryExportHistoryState.items : [];
-  if (!items.length) return "";
-  return items.reduce((latest, item) => {
-    if (!latest) return item;
-    return historyItemTimestamp(item) > historyItemTimestamp(latest) ? item : latest;
-  }, null)?.id || "";
-}
-
-function loadDeliveryExportHistory() {
-  try {
-    const raw = localStorage.getItem(DELIVERY_EXPORT_HISTORY_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    deliveryExportHistoryState.items = Array.isArray(parsed)
-      ? parsed.map((item) => ({ pinned: false, ...item }))
-      : [];
-  } catch {
-    deliveryExportHistoryState.items = [];
-  }
-}
-
-function persistDeliveryExportHistory() {
-  try {
-    localStorage.setItem(
-      DELIVERY_EXPORT_HISTORY_KEY,
-      JSON.stringify(deliveryExportHistoryState.items.slice(0, 12))
-    );
-  } catch {}
-}
-
-function pushDeliveryExportHistoryItem(result) {
-  if (!result?.body) return;
-  const item = {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    file_name: result.file_name || currentExportFileName(),
-    content_type: result.content_type || "text/plain",
-    body: result.body,
-    format: result.format || deliveryExportState.format,
-    source: deliveryExportState.source,
-    report_kind: result.report_kind || deliveryReportState.kind,
-    created_at: new Date().toISOString(),
-    pinned: false
-  };
-  deliveryExportHistoryState.items = [
-    item,
-    ...deliveryExportHistoryState.items.filter((entry) => entry.file_name !== item.file_name || entry.created_at !== item.created_at)
-  ]
-    .sort((a, b) => historyItemTimestamp(b) - historyItemTimestamp(a))
-    .slice(0, 12);
-  persistDeliveryExportHistory();
-}
-
-function historyBodyLines(item) {
-  return String(item?.body || "")
-    .split("\n")
-    .slice(0, 3)
-    .filter(Boolean)
-    .join(" ");
-}
-
-function exportBodyStats(body) {
-  const text = String(body || "");
-  return {
-    bytes: new TextEncoder().encode(text).length,
-    lines: text ? text.split("\n").length : 0
-  };
-}
-
-function deliveryReportKindLabel(kind) {
-  const key = String(kind || "unknown");
-  switch (key) {
-    case "dashboard":
-      return "Dashboard";
-    case "ops_health":
-      return "Ops Health";
-    case "kpi":
-      return "KPI";
-    case "analytics":
-      return "Analytics";
-    case "trends":
-      return "Trends";
-    case "alerts":
-      return "Alerts";
-    case "digest":
-      return "Digest";
-    case "briefing_pack":
-      return "Briefing Pack";
-    default:
-      return key;
-  }
-}
-
-function latestDeliveryExportHistoryItem() {
-  const itemId = latestDeliveryExportHistoryItemId();
-  if (!itemId) return null;
-  return deliveryExportHistoryState.items.find((item) => item.id === itemId) || null;
-}
-
-function filteredDeliveryExportHistoryItems() {
-  const items = Array.isArray(deliveryExportHistoryState.items) ? deliveryExportHistoryState.items : [];
-  return items.filter((item) => {
-    if (deliveryExportHistoryState.filter === "pinned" && !item?.pinned) return false;
-    if (deliveryExportHistoryState.filter === "report_item" && item?.source !== "report_item") {
-      return false;
-    }
-    if (deliveryExportHistoryState.filter === "report_bundle" && item?.source !== "report_bundle") {
-      return false;
-    }
-    if (deliveryExportHistoryState.format !== "all" && item?.format !== deliveryExportHistoryState.format) {
-      return false;
-    }
-    if (deliveryExportHistoryState.reportKind !== "all" && item?.report_kind !== deliveryExportHistoryState.reportKind) {
-      return false;
-    }
-    const query = String(deliveryExportHistoryState.search || "").trim().toLowerCase();
-    if (!query) return true;
-    const haystack = [
-      item?.file_name,
-      item?.content_type,
-      item?.report_kind,
-      item?.format,
-      item?.body
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-    return haystack.includes(query);
-  }).sort((a, b) => {
-    const pinnedDelta = Number(Boolean(b?.pinned)) - Number(Boolean(a?.pinned));
-    if (pinnedDelta !== 0) return pinnedDelta;
-    const timeDelta = historyItemTimestamp(b) - historyItemTimestamp(a);
-    return deliveryExportHistoryState.sort === "oldest" ? -timeDelta : timeDelta;
-  });
-}
-
-function toggleHistorySelection(itemId) {
-  const selected = new Set(deliveryExportHistoryState.selectedIds || []);
-  if (selected.has(itemId)) {
-    selected.delete(itemId);
-  } else {
-    selected.add(itemId);
-  }
-  deliveryExportHistoryState.selectedIds = Array.from(selected);
-  renderDeliveryExportPanel();
-}
-
-function selectAllFilteredHistoryItems() {
-  deliveryExportHistoryState.selectedIds = filteredDeliveryExportHistoryItems().map((item) => item.id);
-  renderDeliveryExportPanel();
-}
-
-function clearHistorySelection() {
-  deliveryExportHistoryState.selectedIds = [];
-  renderDeliveryExportPanel();
-  showToast(t("reports.export.historySelectionCleared"));
-}
-
-function clearDeliveryExportHistory() {
-  deliveryExportHistoryState.items = deliveryExportHistoryState.items.filter((item) => item?.pinned);
-  deliveryExportHistoryState.selectedIds = [];
-  persistDeliveryExportHistory();
-  renderDeliveryExportPanel();
-  showToast(t("reports.export.historyCleared"));
-}
-
-function toggleDeliveryExportHistoryPin(itemId) {
-  deliveryExportHistoryState.items = deliveryExportHistoryState.items
-    .map((item) => (item.id === itemId ? { ...item, pinned: !item.pinned } : item));
-  persistDeliveryExportHistory();
-  renderDeliveryExportPanel();
-}
-
-function deleteDeliveryExportHistoryItem(itemId) {
-  deliveryExportHistoryState.items = deliveryExportHistoryState.items.filter((item) => item.id !== itemId);
-  deliveryExportHistoryState.selectedIds = deliveryExportHistoryState.selectedIds.filter((id) => id !== itemId);
-  persistDeliveryExportHistory();
-  renderDeliveryExportPanel();
-  showToast(t("reports.export.historyDeleted"));
-}
-
-function deleteSelectedDeliveryExportHistoryItems() {
-  const selected = new Set(deliveryExportHistoryState.selectedIds || []);
-  if (!selected.size) return;
-  deliveryExportHistoryState.items = deliveryExportHistoryState.items.filter(
-    (item) => item?.pinned || !selected.has(item.id)
-  );
-  deliveryExportHistoryState.selectedIds = [];
-  persistDeliveryExportHistory();
-  renderDeliveryExportPanel();
-  showToast(t("reports.export.historyDeleted"));
-}
-
-function downloadSelectedDeliveryExportHistoryItems() {
-  const selected = new Set(deliveryExportHistoryState.selectedIds || []);
-  if (!selected.size) return;
-  const items = filteredDeliveryExportHistoryItems().filter((item) => selected.has(item.id));
-  if (!items.length) return;
-  const body = items
-    .map((item, index) => {
-      const header = [
-        `# ${index + 1}. ${item.file_name || "delivery_export.txt"}`,
-        `source: ${item.source || "report_item"}`,
-        `report_kind: ${item.report_kind || "unknown"}`,
-        `format: ${item.format || "unknown"}`,
-        `created_at: ${item.created_at || ""}`
-      ].join("\n");
-      return `${header}\n\n${item.body || ""}`;
-    })
-    .join("\n\n==============================\n\n");
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const blob = new Blob([body], { type: "text/plain" });
-  triggerDownloadBlob(blob, `delivery_export_bundle_${stamp}.txt`);
-  showToast(t("reports.export.historyBundleDownloaded"));
-}
-
 async function loadDeliveryBundlePreview(force = false) {
   if (!force && deliveryBundlePreviewRequest) return deliveryBundlePreviewRequest;
   if (
@@ -31472,1398 +28370,10 @@ async function loadDeliveryBundlePreview(force = false) {
   return deliveryBundlePreviewRequest;
 }
 
-function focusDeliveryQueue(queueKey) {
-  activeDigestQueueKey = String(queueKey || "");
-  openPanel(cssmvPanel);
-  return loadDeliveryDigestBundle().then((bundle) => {
-    renderDeliveryDigestSummary(bundle);
-    return bundle;
-  });
-}
-
-function attachReportQueueJumpHandlers() {
-  if (!deliveryReportBody) return;
-  deliveryReportBody.querySelectorAll("[data-report-queue-key]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const queueKey = button.getAttribute("data-report-queue-key") || "";
-      if (!queueKey) return;
-      void focusDeliveryQueue(queueKey);
-    });
-  });
-}
-
-function renderDeliveryReportTabs() {
-  if (!deliveryReportTabs) return;
-  deliveryReportTabs.innerHTML = DELIVERY_REPORT_KINDS.map((kind) => {
-    const active = kind === deliveryReportState.kind;
-    return `
-      <button class="report-tab ${active ? "is-active" : ""}" type="button" data-report-kind="${escapeHtml(kind)}">
-        ${escapeHtml(formatReportKindLabel(kind))}
-      </button>
-    `;
-  }).join("");
-
-  deliveryReportTabs.querySelectorAll("[data-report-kind]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const kind = button.getAttribute("data-report-kind") || "briefing_pack";
-      if (kind === deliveryReportState.kind && deliveryReportState.response) return;
-      void loadDeliveryReport(kind, kind === deliveryReportState.kind);
-    });
-  });
-}
-
-function renderReportHeader(response) {
-  const meta = response?.meta || null;
-  if (deliveryReportTitle) {
-    deliveryReportTitle.textContent = meta?.title || t("reports.loading");
-  }
-  if (deliveryReportSummary) {
-    if (deliveryReportState.loading && !response) {
-      deliveryReportSummary.textContent = t("reports.loading");
-    } else {
-      const payload = response?.data?.payload || null;
-      deliveryReportSummary.textContent =
-        payload?.summary || payload?.title || response?.meta?.title || t("reports.waiting");
-    }
-  }
-  if (deliveryReportMeta) {
-    const bits = [];
-    if (meta?.kind) bits.push(`${t("reports.kind")}: ${formatReportKindLabel(meta.kind)}`);
-    if (meta?.generated_at) bits.push(`${t("reports.generatedAt")}: ${meta.generated_at}`);
-    if (deliveryReportState.deliveryMeta?.mode) {
-      bits.push(
-        `${t("reports.deliveryMode")}: ${escapeHtml(
-          deliveryReportState.deliveryMeta.mode === "export"
-            ? t("reports.deliveryModeExport")
-            : t("reports.deliveryModeReport")
-        )}`
-      );
-    }
-    deliveryReportMeta.textContent = bits.join(" · ") || `kind=${deliveryReportState.kind}`;
-  }
-}
-
-function renderMetricGrid(metrics) {
-  const entries = Object.entries(metrics || {});
-  if (!entries.length) {
-    return `<div class="report-empty">${escapeHtml(t("reports.empty"))}</div>`;
-  }
-
-  return `
-    <div class="report-grid">
-      ${entries
-        .map(([key, value]) => `
-          <article class="report-card">
-            <div class="report-card-title">${escapeHtml(formatReportKindLabel(key))}</div>
-            <div class="report-card-value">${escapeHtml(String(value ?? "--"))}</div>
-          </article>
-        `)
-        .join("")}
-    </div>
-  `;
-}
-
-function renderStringList(items, emptyLabel = t("reports.empty")) {
-  const list = Array.isArray(items) ? items.filter(Boolean) : [];
-  if (!list.length) {
-    return `<div class="report-empty">${escapeHtml(emptyLabel)}</div>`;
-  }
-
-  return `
-    <ul class="report-list">
-      ${list
-        .map((item) => `<li class="report-list-item">${escapeHtml(String(item))}</li>`)
-        .join("")}
-    </ul>
-  `;
-}
-
-function renderDashboardReport(dashboard) {
-  const metrics = Array.isArray(dashboard?.metrics) ? dashboard.metrics : [];
-  const previews = Array.isArray(dashboard?.inbox_previews) ? dashboard.inbox_previews : [];
-  return `
-    <div class="report-grid">
-      ${metrics
-        .map((metric) => `
-          <article class="report-card">
-            <div class="report-card-title">${escapeHtml(metric.title || metric.key || "Metric")}</div>
-            <div class="report-card-value">${escapeHtml(String(metric.count ?? 0))}</div>
-            <div class="report-card-copy">${escapeHtml(dashboard?.summary || "")}</div>
-          </article>
-        `)
-        .join("")}
-    </div>
-    <div class="report-section-title">${escapeHtml(t("reports.dashboard.preview"))}</div>
-    <div class="report-grid">
-      ${previews
-        .map((preview) => `
-          <article class="report-card">
-            <div class="report-card-title">${escapeHtml(preview.title || preview.key || "Queue")}</div>
-            <div class="report-card-copy">${escapeHtml(String((preview.items || []).length))} items</div>
-            <button class="report-link-button" type="button" data-report-queue-key="${escapeHtml(preview.key || "")}">
-              ${escapeHtml(t("reports.queue.open"))}
-            </button>
-          </article>
-        `)
-        .join("") || `<div class="report-empty">${escapeHtml(t("reports.empty"))}</div>`}
-    </div>
-  `;
-}
-
-function renderKpiReport(kpi) {
-  const metrics = Array.isArray(kpi?.metrics) ? kpi.metrics : [];
-  if (!metrics.length) return `<div class="report-empty">${escapeHtml(t("reports.empty"))}</div>`;
-  return `
-    <div class="report-grid">
-      ${metrics
-        .map((metric) => `
-          <article class="report-card">
-            <div class="report-card-title">${escapeHtml(metric.label || metric.key || "KPI")}</div>
-            <div class="report-card-value">${escapeHtml(`${Math.round(Number(metric.ratio || 0) * 100)}%`)}</div>
-            <div class="report-card-copy">${escapeHtml(`${metric.numerator || 0} / ${metric.denominator || 0}`)}</div>
-          </article>
-        `)
-        .join("")}
-    </div>
-  `;
-}
-
-function renderAnalyticsReport(analytics) {
-  const insights = Array.isArray(analytics?.insights) ? analytics.insights : [];
-  if (!insights.length) return `<div class="report-empty">${escapeHtml(t("reports.empty"))}</div>`;
-  return `
-    <ul class="report-list">
-      ${insights
-        .map((insight) => `
-          <li class="report-list-item">
-            <div class="report-preview-title">${escapeHtml(insight.title || insight.key || "Insight")}</div>
-            <div class="report-card-copy">${escapeHtml(insight.summary || "")}</div>
-          </li>
-        `)
-        .join("")}
-    </ul>
-  `;
-}
-
-function renderTrendsReport(trends) {
-  const series = Array.isArray(trends?.series) ? trends.series : [];
-  if (!series.length) return `<div class="report-empty">${escapeHtml(t("reports.empty"))}</div>`;
-
-  return `
-    <div class="report-chart-list">
-      ${series
-        .map((item) => {
-          const points = Array.isArray(item.points) ? item.points : [];
-          const max = Math.max(1, ...points.map((point) => Number(point?.value || 0)));
-          const latest = points[points.length - 1] || null;
-          const width = latest ? Math.max(6, Math.round((Number(latest.value || 0) / max) * 100)) : 0;
-          return `
-            <article class="report-chart-row">
-              <div class="report-preview-title">${escapeHtml(item.title || item.key || "Trend")}</div>
-              <div class="report-chart-row-meta">${escapeHtml(latest?.day || "--")} · ${escapeHtml(String(latest?.value ?? 0))}</div>
-              <div class="report-chart-bar">
-                <div class="report-chart-fill" style="width:${width}%"></div>
-              </div>
-            </article>
-          `;
-        })
-        .join("")}
-    </div>
-  `;
-}
-
-function renderAlertsReport(alerts) {
-  const items = Array.isArray(alerts?.alerts) ? alerts.alerts : [];
-  if (!items.length) {
-    return `<div class="report-empty">${escapeHtml(alerts?.summary || t("reports.alerts.none"))}</div>`;
-  }
-
-  return `
-    <ul class="report-list">
-      ${items
-        .map((alert) => `
-          <li class="report-list-item report-alert-row">
-            <span class="report-badge ${reportSeverityClass(alert.severity)}">${escapeHtml(String(alert.severity || "warning"))}</span>
-            <div>
-              <div class="report-preview-title">${escapeHtml(alert.title || alert.key || "Alert")}</div>
-              <div class="report-card-copy">${escapeHtml(alert.summary || "")}</div>
-            </div>
-          </li>
-        `)
-        .join("")}
-    </ul>
-  `;
-}
-
-function formatOpsHealthStatus(status) {
-  const key = String(status || "").toLowerCase();
-  if (key === "healthy") return t("reports.opsHealth.statusHealthy");
-  if (key === "degraded") return t("reports.opsHealth.statusDegraded");
-  if (key === "blocked") return t("reports.opsHealth.statusBlocked");
-  return t("reports.opsHealth.statusUnknown");
-}
-
-function opsHealthBadgeClass(status) {
-  const key = String(status || "").toLowerCase();
-  if (key === "healthy") return "success";
-  if (key === "degraded") return "warning";
-  if (key === "blocked") return "critical";
-  return "warning";
-}
-
-function renderOpsHealthOverviewList(report) {
-  const items = [
-    `${t("reports.opsHealth.api")}: ${report?.api_status || "--"}`,
-    `${t("reports.opsHealth.checkedAt")}: ${report?.checked_at || "--"}`,
-    `${t("reports.opsHealth.subscriptions")}: ${String(report?.subscription_count ?? 0)}`,
-    `${t("reports.opsHealth.activeSubscriptions")}: ${String(report?.active_subscription_count ?? 0)}`,
-    `${t("reports.opsHealth.queues")}: ${String(report?.queue_count ?? 0)}`,
-    `${t("reports.opsHealth.alerts")}: ${String(report?.alert_count ?? 0)}`,
-    `${t("reports.opsHealth.pendingRecovery")}: ${String(report?.pending_recovery_count ?? 0)}`,
-    `${t("reports.opsHealth.stillFailing")}: ${String(report?.still_failing_count ?? 0)}`
-  ];
-  return renderStringList(items, t("reports.empty"));
-}
-
-function formatOpsProbeStatus(status) {
-  const key = String(status || "").toLowerCase();
-  if (key === "pass") return t("reports.opsHealth.probePass");
-  if (key === "warn") return t("reports.opsHealth.probeWarn");
-  if (key === "fail") return t("reports.opsHealth.probeFail");
-  return key || t("reports.empty");
-}
-
-function renderOpsProbeList(report) {
-  const probes = Array.isArray(report?.probe_checks) ? report.probe_checks : [];
-  return renderStringList(
-    probes.map((probe) => `${probe?.label || probe?.key || "Probe"} [${formatOpsProbeStatus(probe?.status)}]: ${probe?.summary || ""}`),
-    t("reports.empty")
-  );
-}
-
-function countOpsProbeStatuses(report) {
-  const probes = Array.isArray(report?.probe_checks) ? report.probe_checks : [];
-  return probes.reduce(
-    (acc, probe) => {
-      const key = String(probe?.status || "").toLowerCase();
-      if (key === "pass") acc.pass += 1;
-      else if (key === "warn") acc.warn += 1;
-      else if (key === "fail") acc.fail += 1;
-      return acc;
-    },
-    { pass: 0, warn: 0, fail: 0 }
-  );
-}
-
-function renderDigestProbeSummaryCard(digest) {
-  const report = digest?.ops_health || null;
-  const counts = countOpsProbeStatuses(report);
-  const summaryLines = [
-    `${t("reports.opsHealth.probePass")}: ${counts.pass}`,
-    `${t("reports.opsHealth.probeWarn")}: ${counts.warn}`,
-    `${t("reports.opsHealth.probeFail")}: ${counts.fail}`
-  ];
-  return `
-    <article class="report-card">
-      <div class="report-section-title">${escapeHtml(t("reports.digest.probeSummary"))}</div>
-      <div class="report-list-item report-alert-row">
-        <span class="report-badge ${escapeHtml(opsHealthBadgeClass(report?.status))}">${escapeHtml(
-          formatOpsHealthStatus(report?.status)
-        )}</span>
-        <div>
-          <div class="report-preview-title">${escapeHtml(report?.title || t("reports.opsHealth.title"))}</div>
-          <div class="report-card-copy">${escapeHtml(report?.summary || "")}</div>
-        </div>
-      </div>
-      ${renderStringList(summaryLines, t("reports.empty"))}
-    </article>
-  `;
-}
-
-function renderOpsHealthCard(report) {
-  if (!report) {
-    return `
-      <article class="report-card">
-        <div class="report-section-title">${escapeHtml(t("reports.opsHealth.title"))}</div>
-        <div class="report-empty">${escapeHtml(t("reports.empty"))}</div>
-      </article>
-    `;
-  }
-
-  return `
-    <article class="report-card">
-      <div class="report-section-title">${escapeHtml(t("reports.opsHealth.title"))}</div>
-      <div class="report-list-item report-alert-row">
-        <span class="report-badge ${escapeHtml(opsHealthBadgeClass(report?.status))}">${escapeHtml(
-          formatOpsHealthStatus(report?.status)
-        )}</span>
-        <div>
-          <div class="report-preview-title">${escapeHtml(report?.title || t("reports.opsHealth.title"))}</div>
-          <div class="report-card-copy">${escapeHtml(report?.summary || "")}</div>
-        </div>
-      </div>
-      ${renderOpsHealthOverviewList(report)}
-    </article>
-  `;
-}
-
-function renderOpsHealthStandaloneReport(report) {
-  if (!report) {
-    return `
-      <article class="report-card">
-        <div class="report-section-title">${escapeHtml(t("reports.opsHealth.title"))}</div>
-        <div class="report-empty">${escapeHtml(t("reports.empty"))}</div>
-      </article>
-    `;
-  }
-
-  return `
-    <article class="report-card">
-      <div class="report-section-title">${escapeHtml(t("reports.opsHealth.title"))}</div>
-      <div class="report-list-item report-alert-row">
-        <span class="report-badge ${escapeHtml(opsHealthBadgeClass(report?.status))}">${escapeHtml(
-          formatOpsHealthStatus(report?.status)
-        )}</span>
-        <div>
-          <div class="report-preview-title">${escapeHtml(report?.title || t("reports.opsHealth.title"))}</div>
-          <div class="report-card-copy">${escapeHtml(report?.summary || "")}</div>
-        </div>
-      </div>
-      <div class="report-grid">
-        <article class="report-card">
-          <div class="report-section-title">${escapeHtml(t("reports.opsHealth.overview"))}</div>
-          ${renderOpsHealthOverviewList(report)}
-        </article>
-        <article class="report-card">
-          <div class="report-section-title">${escapeHtml(t("reports.opsHealth.reasons"))}</div>
-          ${renderStringList(
-            Array.isArray(report?.reasons)
-              ? report.reasons.map((item) => `${item?.label || t("reports.opsHealth.reason")}: ${item?.summary || ""}`)
-              : [],
-            t("reports.empty")
-          )}
-        </article>
-        <article class="report-card">
-          <div class="report-section-title">${escapeHtml(t("reports.opsHealth.probeChecks"))}</div>
-          ${renderOpsProbeList(report)}
-        </article>
-      </div>
-      <article class="report-card">
-        <div class="report-section-title">${escapeHtml(t("reports.opsHealth.actions"))}</div>
-        ${renderStringList(report?.suggested_actions, t("reports.empty"))}
-      </article>
-    </article>
-  `;
-}
-
-function renderDigestReport(digest) {
-  return `
-    ${renderDigestProbeSummaryCard(digest)}
-    ${renderMetricGrid(digest?.daily_metrics)}
-    <div class="report-grid">
-      ${renderOpsHealthCard(digest?.ops_health)}
-      <article class="report-card">
-        <div class="report-section-title">${escapeHtml(t("reports.digest.queues"))}</div>
-        ${
-          Array.isArray(digest?.inbox_counts) && digest.inbox_counts.length
-            ? `
-              <ul class="report-list">
-                ${digest.inbox_counts
-                  .map((item) => `
-                    <li class="report-list-item">
-                      <div class="report-preview-title">${escapeHtml(item.title || item.key || "Queue")}</div>
-                      <div class="report-card-copy">${escapeHtml(String(item.count ?? 0))}</div>
-                      <button class="report-link-button" type="button" data-report-queue-key="${escapeHtml(item.key || "")}">
-                        ${escapeHtml(t("reports.queue.open"))}
-                      </button>
-                    </li>
-                  `)
-                  .join("")}
-              </ul>
-            `
-            : `<div class="report-empty">${escapeHtml(t("reports.empty"))}</div>`
-        }
-      </article>
-      <article class="report-card">
-        <div class="report-section-title">${escapeHtml(t("reports.digest.alerts"))}</div>
-        ${renderStringList(digest?.alert_titles, t("reports.alerts.none"))}
-      </article>
-    </div>
-    <article class="report-card">
-      <div class="report-section-title">${escapeHtml(t("reports.digest.highlights"))}</div>
-      ${renderStringList(digest?.highlights, t("reports.empty"))}
-    </article>
-  `;
-}
-
-function renderBriefingReport(briefing) {
-  return `
-    <article class="report-card">
-      <div class="report-section-title">${escapeHtml(t("reports.briefing.highlights"))}</div>
-      ${renderStringList(briefing?.highlights, t("reports.empty"))}
-    </article>
-    ${renderOpsHealthStandaloneReport(briefing?.ops_health?.report || null)}
-    <div class="report-grid">
-      <article class="report-card">
-        <div class="report-section-title">${escapeHtml(t("reports.briefing.kpi"))}</div>
-        ${renderStringList(
-          Array.isArray(briefing?.kpi?.metrics)
-            ? briefing.kpi.metrics.map((metric) => `${metric.label}: ${Math.round(Number(metric.ratio || 0) * 100)}%`)
-            : [],
-          t("reports.empty")
-        )}
-      </article>
-      <article class="report-card">
-        <div class="report-section-title">${escapeHtml(t("reports.briefing.analytics"))}</div>
-        ${renderStringList(
-          Array.isArray(briefing?.analytics?.insights)
-            ? briefing.analytics.insights.map((insight) => insight.title || insight.summary || insight.key)
-            : [],
-          t("reports.empty")
-        )}
-      </article>
-    </div>
-  `;
-}
-
-function renderDeliveryExportPanel() {
-  if (deliveryExportTarget) {
-    const targetLabel =
-      deliveryExportState.source === "report_bundle"
-        ? t("reports.export.sourceBundle")
-        : formatReportKindLabel(deliveryReportState.kind);
-    const modeLabel = t("reports.deliveryModeExport");
-    deliveryExportTarget.textContent = `${t("reports.export.target")}: ${targetLabel} · ${t(
-      "reports.deliveryMode"
-    )}: ${modeLabel}`;
-  }
-
-  if (deliveryExportStatus) {
-    deliveryExportStatus.classList.toggle("is-error", Boolean(deliveryExportState.result?.error));
-    if (deliveryExportState.running) {
-      deliveryExportStatus.textContent = t("reports.export.running");
-    } else if (deliveryExportState.result?.error) {
-      deliveryExportStatus.textContent = t("reports.export.failed");
-    } else if (deliveryExportState.result) {
-      deliveryExportStatus.textContent = t("reports.export.complete");
-    } else {
-      deliveryExportStatus.textContent = t("reports.export.ready");
-    }
-  }
-
-  if (deliveryExportSources) {
-    const sources = [
-      { key: "report_item", label: t("reports.export.sourceItem") },
-      { key: "report_bundle", label: t("reports.export.sourceBundle") }
-    ];
-    deliveryExportSources.innerHTML = sources
-      .map((item) => `
-        <button
-          class="report-export-source ${deliveryExportState.source === item.key ? "is-active" : ""}"
-          type="button"
-          data-export-source="${escapeHtml(item.key)}"
-        >
-          ${escapeHtml(item.label)}
-        </button>
-      `)
-      .join("");
-
-    deliveryExportSources.querySelectorAll("[data-export-source]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const nextSource = button.getAttribute("data-export-source") || "report_item";
-        deliveryExportState.source = nextSource;
-        if (nextSource === "report_bundle") {
-          deliveryExportState.format = "json_package";
-          void loadDeliveryBundlePreview();
-        }
-        deliveryExportState.result = null;
-        deliveryExportState.previewExpanded = false;
-        renderDeliveryExportPanel();
-      });
-    });
-  }
-
-  if (deliveryExportFormats) {
-    deliveryExportFormats.innerHTML = DELIVERY_EXPORT_FORMATS.map((item) => {
-      const enabled =
-        deliveryExportState.source === "report_bundle"
-          ? item.key === "json_package"
-          : item.enabled;
-      const active = item.key === deliveryExportState.format;
-      return `
-        <button
-          class="report-export-button ${active ? "is-active" : ""}"
-          type="button"
-          data-export-format="${escapeHtml(item.key)}"
-          ${enabled ? "" : "disabled"}
-        >
-          ${escapeHtml(enabled ? item.label : `${item.label} · ${t("reports.export.comingSoon")}`)}
-        </button>
-      `;
-    }).join("");
-
-    deliveryExportFormats.querySelectorAll("[data-export-format]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const nextFormat = button.getAttribute("data-export-format") || "json_package";
-        deliveryExportState.format = nextFormat;
-        deliveryExportState.result = null;
-        deliveryExportState.previewExpanded = false;
-        renderDeliveryExportPanel();
-        void runDeliveryExport(true);
-      });
-    });
-  }
-
-  if (deliveryExportPreview) {
-    const bundleSummary =
-      deliveryExportState.source === "report_bundle"
-        ? summarizeBundle(deliveryBundlePreviewState.bundle)
-        : [];
-    deliveryExportPreview.innerHTML = `
-      <div class="report-list-item">
-        <div class="report-preview-title">${escapeHtml(t("reports.export.fileName"))}</div>
-        <div class="report-card-copy">${escapeHtml(currentExportFileName())}</div>
-      </div>
-      <div class="report-list-item">
-        <div class="report-preview-title">${escapeHtml(t("reports.export.source"))}</div>
-        <div class="report-card-copy">${escapeHtml(
-          deliveryExportState.source === "report_bundle"
-            ? t("reports.export.sourceBundle")
-            : t("reports.export.sourceItem")
-        )}</div>
-      </div>
-      <div class="report-list-item">
-        <div class="report-preview-title">${escapeHtml(t("reports.export.format"))}</div>
-        <div class="report-card-copy">${escapeHtml(formatReportKindLabel(deliveryExportState.format))}</div>
-      </div>
-      <div class="report-list-item">
-        <div class="report-preview-title">${escapeHtml(t("reports.export.target"))}</div>
-        <div class="report-card-copy">${escapeHtml(
-          deliveryExportState.source === "report_bundle"
-            ? "bundle"
-            : exportTargetFromReportKind(deliveryReportState.kind)
-        )}</div>
-      </div>
-      ${
-        deliveryExportState.source === "report_bundle"
-          ? `
-            <div class="report-list-item">
-              <div class="report-preview-title">${escapeHtml(t("reports.export.bundleSummary"))}</div>
-              <div class="report-card-copy">${escapeHtml(
-                bundleSummary.length ? bundleSummary.join(" · ") : t("reports.loading")
-              )}</div>
-            </div>
-            <div class="report-list-item">
-              <div class="report-preview-title">${escapeHtml(t("reports.export.bundleSections"))}</div>
-              <div class="report-card-copy">${escapeHtml(
-                bundleSummary.length ? String(bundleSummary.length) : "--"
-              )}</div>
-            </div>
-          `
-          : ""
-      }
-    `;
-  }
-
-  if (deliveryExportActions) {
-    const canAct = Boolean(deliveryExportState.result?.body);
-    deliveryExportActions.innerHTML = `
-      <button class="report-export-action" type="button" data-export-action="copy" ${canAct ? "" : "disabled"}>
-        ${escapeHtml(t("reports.export.copy"))}
-      </button>
-      <button class="report-export-action" type="button" data-export-action="download" ${canAct ? "" : "disabled"}>
-        ${escapeHtml(t("reports.export.download"))}
-      </button>
-    `;
-    deliveryExportActions.querySelectorAll("[data-export-action]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const action = button.getAttribute("data-export-action");
-        if (action === "copy") {
-          void copyDeliveryExportBody();
-        }
-        if (action === "download") {
-          downloadDeliveryExportBody();
-        }
-      });
-    });
-  }
-
-  if (deliveryExportPreviewActions) {
-    const expandable = ["json_package", "csv"].includes(String(deliveryExportState.result?.format || ""));
-    deliveryExportPreviewActions.innerHTML = expandable
-      ? `
-        <button class="report-export-action is-muted" type="button" data-preview-action="toggle">
-          ${escapeHtml(
-            deliveryExportState.previewExpanded
-              ? t("reports.export.previewCollapse")
-              : t("reports.export.previewExpand")
-          )}
-        </button>
-      `
-      : "";
-    deliveryExportPreviewActions.querySelectorAll("[data-preview-action]").forEach((button) => {
-      button.addEventListener("click", () => {
-        deliveryExportState.previewExpanded = !deliveryExportState.previewExpanded;
-        renderDeliveryExportPanel();
-      });
-    });
-  }
-
-  if (deliveryExportResult) {
-    if (deliveryExportState.running) {
-      deliveryExportResult.innerHTML = `<div class="report-empty">${escapeHtml(t("reports.export.running"))}</div>`;
-      return;
-    }
-
-    if (deliveryExportState.result?.error) {
-      deliveryExportResult.innerHTML = `
-        <div class="report-list-item">
-          <div class="report-preview-title">${escapeHtml(t("reports.export.failed"))}</div>
-          <div class="report-card-copy">${escapeHtml(deliveryExportState.result.error)}</div>
-        </div>
-      `;
-      return;
-    }
-
-    if (!deliveryExportState.result) {
-      deliveryExportResult.innerHTML = `<div class="report-empty">${escapeHtml(t("reports.export.waitingResult"))}</div>`;
-      return;
-    }
-
-    const body = String(deliveryExportState.result.body || "");
-    const lines = previewExportBodyLines(deliveryExportState.result);
-    const stats = exportBodyStats(deliveryExportState.result.body);
-    const previewBody = deliveryExportState.previewExpanded ? body : lines.join("\n");
-    deliveryExportResult.innerHTML = `
-      <div class="report-result-stats">
-        <div class="report-stat-chip">
-          <div class="report-preview-title">${escapeHtml(t("reports.export.resultBytes"))}</div>
-          <div class="report-card-copy">${escapeHtml(String(stats.bytes))}</div>
-        </div>
-        <div class="report-stat-chip">
-          <div class="report-preview-title">${escapeHtml(t("reports.export.resultLines"))}</div>
-          <div class="report-card-copy">${escapeHtml(String(stats.lines))}</div>
-        </div>
-      </div>
-      <div class="report-list-item">
-        <div class="report-preview-title">${escapeHtml(t("reports.export.contentType"))}</div>
-        <div class="report-card-copy">${escapeHtml(deliveryExportState.result.content_type || "")}</div>
-      </div>
-      <div class="report-list-item">
-        <div class="report-preview-title">${escapeHtml(t("reports.export.fileName"))}</div>
-        <div class="report-card-copy">${escapeHtml(deliveryExportState.result.file_name || currentExportFileName())}</div>
-      </div>
-      <div class="report-list-item">
-        <div class="report-preview-title">${escapeHtml(t("reports.export.preview"))}</div>
-        <pre class="report-preview-code">${escapeHtml(previewBody || body.slice(0, 240))}</pre>
-      </div>
-    `;
-  }
-
-  if (deliveryExportHistory) {
-    const items = filteredDeliveryExportHistoryItems();
-
-    if (deliveryExportHistoryToolbar) {
-      deliveryExportHistoryToolbar.innerHTML = `
-        <button class="report-export-action is-muted" type="button" data-history-toolbar="select_all">
-          ${escapeHtml(t("reports.export.historySelectAll"))}
-        </button>
-        <button class="report-export-action is-muted" type="button" data-history-toolbar="download_selected">
-          ${escapeHtml(t("reports.export.historyDownloadSelected"))}
-        </button>
-        <button class="report-export-action is-muted" type="button" data-history-toolbar="delete_selected">
-          ${escapeHtml(t("reports.export.historyDeleteSelected"))}
-        </button>
-        <button class="report-export-action is-muted" type="button" data-history-toolbar="sort">
-          ${escapeHtml(
-            t(
-              deliveryExportHistoryState.sort === "oldest"
-                ? "reports.export.historySortNewest"
-                : "reports.export.historySortOldest"
-            )
-          )}
-        </button>
-        <button class="report-export-action is-muted" type="button" data-history-toolbar="clear_selection">
-          ${escapeHtml(t("reports.export.historySelectionCleared"))}
-        </button>
-        <button class="report-export-action is-muted" type="button" data-history-toolbar="clear">
-          ${escapeHtml(t("reports.export.historyClear"))}
-        </button>
-      `;
-      deliveryExportHistoryToolbar.querySelectorAll("[data-history-toolbar]").forEach((button) => {
-        button.addEventListener("click", () => {
-          const action = button.getAttribute("data-history-toolbar") || "";
-          if (action === "select_all") selectAllFilteredHistoryItems();
-          if (action === "download_selected") downloadSelectedDeliveryExportHistoryItems();
-          if (action === "delete_selected") deleteSelectedDeliveryExportHistoryItems();
-          if (action === "sort") {
-            deliveryExportHistoryState.sort =
-              deliveryExportHistoryState.sort === "oldest" ? "newest" : "oldest";
-            renderDeliveryExportPanel();
-          }
-          if (action === "clear_selection") clearHistorySelection();
-          if (action === "clear") clearDeliveryExportHistory();
-        });
-      });
-    }
-
-    if (deliveryExportHistoryFilters) {
-      const sourceFilters = [
-        { key: "all", label: t("reports.export.historyAll") },
-        { key: "report_item", label: t("reports.export.sourceItem") },
-        { key: "report_bundle", label: t("reports.export.sourceBundle") },
-        { key: "pinned", label: t("reports.export.historyPinned") }
-      ];
-      const formatFilters = [
-        { key: "all", label: t("reports.export.historyFormatAll") },
-        ...DELIVERY_EXPORT_FORMATS.filter((item) => item.enabled).map((item) => ({
-          key: item.key,
-          label: item.label
-        }))
-      ];
-      const reportKindFilters = [
-        { key: "all", label: t("reports.export.historyReportAll") },
-        ...DELIVERY_REPORT_KINDS.map((item) => ({
-          key: item,
-          label: deliveryReportKindLabel(item)
-        }))
-      ];
-      deliveryExportHistoryFilters.innerHTML =
-        sourceFilters
-        .map((item) => `
-          <button
-            class="report-export-source ${deliveryExportHistoryState.filter === item.key ? "is-active" : ""}"
-            type="button"
-            data-history-filter="${escapeHtml(item.key)}"
-          >
-            ${escapeHtml(item.label)}
-          </button>
-        `)
-        .join("") +
-        formatFilters
-          .map((item) => `
-            <button
-              class="report-export-source ${deliveryExportHistoryState.format === item.key ? "is-active" : ""}"
-              type="button"
-              data-history-format="${escapeHtml(item.key)}"
-            >
-              ${escapeHtml(item.label)}
-            </button>
-          `)
-          .join("") +
-        reportKindFilters
-          .map((item) => `
-            <button
-              class="report-export-source ${deliveryExportHistoryState.reportKind === item.key ? "is-active" : ""}"
-              type="button"
-              data-history-report-kind="${escapeHtml(item.key)}"
-            >
-              ${escapeHtml(item.label)}
-            </button>
-          `)
-          .join("");
-      deliveryExportHistoryFilters.querySelectorAll("[data-history-filter]").forEach((button) => {
-        button.addEventListener("click", () => {
-          deliveryExportHistoryState.filter = button.getAttribute("data-history-filter") || "all";
-          renderDeliveryExportPanel();
-        });
-      });
-      deliveryExportHistoryFilters.querySelectorAll("[data-history-format]").forEach((button) => {
-        button.addEventListener("click", () => {
-          deliveryExportHistoryState.format = button.getAttribute("data-history-format") || "all";
-          renderDeliveryExportPanel();
-        });
-      });
-      deliveryExportHistoryFilters.querySelectorAll("[data-history-report-kind]").forEach((button) => {
-        button.addEventListener("click", () => {
-          deliveryExportHistoryState.reportKind =
-            button.getAttribute("data-history-report-kind") || "all";
-          renderDeliveryExportPanel();
-        });
-      });
-    }
-
-    if (deliveryExportHistorySearch) {
-      deliveryExportHistorySearch.placeholder = t("reports.export.historySearch");
-      if (deliveryExportHistorySearch.value !== deliveryExportHistoryState.search) {
-        deliveryExportHistorySearch.value = deliveryExportHistoryState.search;
-      }
-      if (!deliveryExportHistorySearch.dataset.bound) {
-        deliveryExportHistorySearch.addEventListener("input", () => {
-          deliveryExportHistoryState.search = deliveryExportHistorySearch.value || "";
-          renderDeliveryExportPanel();
-        });
-        deliveryExportHistorySearch.dataset.bound = "true";
-      }
-    }
-
-    if (!items.length) {
-      deliveryExportHistory.innerHTML = `<div class="report-empty">${escapeHtml(t("reports.export.historyEmpty"))}</div>`;
-    } else {
-      const latestItemId = latestDeliveryExportHistoryItemId();
-      const latestItem = latestDeliveryExportHistoryItem();
-      const latestStats = exportBodyStats(latestItem?.body || "");
-      deliveryExportHistory.innerHTML = items
-        .map((item, index) => `
-          ${index === 0 && latestItem ? `
-            <div class="report-list-item report-history-summary-card">
-              <div class="report-preview-title">${escapeHtml(t("reports.export.latestCard"))}</div>
-              <div class="report-history-meta">
-                ${escapeHtml(t("reports.export.fileName"))}: ${escapeHtml(latestItem.file_name || "delivery_export.txt")} ·
-                ${escapeHtml(t("reports.export.latestReportKind"))}: ${escapeHtml(deliveryReportKindLabel(latestItem.report_kind))} ·
-                ${escapeHtml(t("reports.export.historySource"))}: ${escapeHtml(
-                  latestItem.source === "report_bundle" ? t("reports.export.sourceBundle") : t("reports.export.sourceItem")
-                )} ·
-                ${escapeHtml(t("reports.export.historyTime"))}: ${escapeHtml(latestItem.created_at || "")}
-              </div>
-              <div class="report-result-stats">
-                <div class="report-stat-chip">
-                  <div class="report-preview-title">${escapeHtml(t("reports.export.resultBytes"))}</div>
-                  <div class="report-card-copy">${escapeHtml(String(latestStats.bytes))}</div>
-                </div>
-                <div class="report-stat-chip">
-                  <div class="report-preview-title">${escapeHtml(t("reports.export.resultLines"))}</div>
-                  <div class="report-card-copy">${escapeHtml(String(latestStats.lines))}</div>
-                </div>
-              </div>
-            </div>
-          ` : ""}
-          <div class="report-list-item report-history-item ${item.id === latestItemId ? "is-latest" : ""}">
-            <div class="report-history-head">
-              <input
-                class="report-history-select"
-                type="checkbox"
-                data-history-select="${escapeHtml(item.id)}"
-                ${deliveryExportHistoryState.selectedIds.includes(item.id) ? "checked" : ""}
-              />
-              <div>
-                <div class="report-preview-title">
-                  ${escapeHtml(item.file_name || "delivery_export.txt")}
-                  ${item.id === latestItemId ? `<span class="report-history-badge">${escapeHtml(t("reports.export.historyLatest"))}</span>` : ""}
-                </div>
-                <div class="report-history-meta">
-                  ${escapeHtml(t("reports.export.historySource"))}: ${escapeHtml(
-                    item.source === "report_bundle" ? t("reports.export.sourceBundle") : t("reports.export.sourceItem")
-                  )} ·
-                  ${escapeHtml(t("reports.export.latestReportKind"))}: ${escapeHtml(deliveryReportKindLabel(item.report_kind))} ·
-                  ${escapeHtml(t("reports.export.historyTime"))}: ${escapeHtml(item.created_at || "")}
-                </div>
-              </div>
-            </div>
-            <div class="report-card-copy">${escapeHtml(historyBodyLines(item))}</div>
-            <div class="report-history-actions">
-              <button class="report-export-action ${item.pinned ? "is-pinned" : "is-muted"}" type="button" data-history-action="pin" data-history-id="${escapeHtml(item.id)}">
-                ${escapeHtml(item.pinned ? t("reports.export.historyUnpin") : t("reports.export.historyPin"))}
-              </button>
-              <button class="report-export-action" type="button" data-history-action="restore" data-history-id="${escapeHtml(item.id)}">
-                ${escapeHtml(t("reports.export.historyRestore"))}
-              </button>
-              <button class="report-export-action" type="button" data-history-action="copy" data-history-id="${escapeHtml(item.id)}">
-                ${escapeHtml(t("reports.export.copy"))}
-              </button>
-              <button class="report-export-action" type="button" data-history-action="download" data-history-id="${escapeHtml(item.id)}">
-                ${escapeHtml(t("reports.export.download"))}
-              </button>
-              <button class="report-export-action is-muted" type="button" data-history-action="delete" data-history-id="${escapeHtml(item.id)}">
-                ${escapeHtml(t("reports.export.historyDelete"))}
-              </button>
-            </div>
-          </div>
-        `)
-        .join("");
-
-      deliveryExportHistory.querySelectorAll("[data-history-select]").forEach((checkbox) => {
-        checkbox.addEventListener("change", () => {
-          const itemId = checkbox.getAttribute("data-history-select") || "";
-          if (!itemId) return;
-          toggleHistorySelection(itemId);
-        });
-      });
-      deliveryExportHistory.querySelectorAll("[data-history-action]").forEach((button) => {
-        button.addEventListener("click", () => {
-          const action = button.getAttribute("data-history-action") || "";
-          const itemId = button.getAttribute("data-history-id") || "";
-          if (!itemId) return;
-          if (action === "pin") toggleDeliveryExportHistoryPin(itemId);
-          if (action === "restore") restoreHistoryExportResult(itemId);
-          if (action === "copy") void copyHistoryExportBody(itemId);
-          if (action === "download") downloadHistoryExportBody(itemId);
-          if (action === "delete") deleteDeliveryExportHistoryItem(itemId);
-        });
-      });
-    }
-  }
-}
-
-function renderDeliveryReportBody(response) {
-  if (!deliveryReportBody) return;
-  if (deliveryReportState.loading && !response) {
-    deliveryReportBody.innerHTML = `<div class="report-empty">${escapeHtml(t("reports.loading"))}</div>`;
-    return;
-  }
-  const data = response?.data || null;
-  const payloadKind = String(data?.payload_kind || "");
-  const payload = data?.payload || null;
-
-  if (!payloadKind || !payload) {
-    deliveryReportBody.innerHTML = `<div class="report-empty">${escapeHtml(t("reports.empty"))}</div>`;
-    return;
-  }
-
-  switch (payloadKind) {
-    case "dashboard":
-      deliveryReportBody.innerHTML = renderDashboardReport(payload);
-      break;
-    case "ops_health":
-      deliveryReportBody.innerHTML = renderOpsHealthStandaloneReport(payload);
-      break;
-    case "kpi":
-      deliveryReportBody.innerHTML = renderKpiReport(payload);
-      break;
-    case "analytics":
-      deliveryReportBody.innerHTML = renderAnalyticsReport(payload);
-      break;
-    case "trends":
-      deliveryReportBody.innerHTML = renderTrendsReport(payload);
-      break;
-    case "alerts":
-      deliveryReportBody.innerHTML = renderAlertsReport(payload);
-      break;
-    case "digest":
-      deliveryReportBody.innerHTML = renderDigestReport(payload);
-      break;
-    case "briefing_pack":
-      deliveryReportBody.innerHTML = renderBriefingReport(payload);
-      break;
-    default:
-      deliveryReportBody.innerHTML = `<div class="report-empty">${escapeHtml(t("reports.empty"))}</div>`;
-  }
-  attachReportQueueJumpHandlers();
-}
-
-function renderDeliveryReportsPanel() {
-  renderDeliveryReportTabs();
-  renderReportHeader(deliveryReportState.response);
-  renderDeliveryReportBody(deliveryReportState.response);
-  renderMusicDeliveryDashboard();
-  renderDeliveryExportPanel();
-}
-
-function deliverySubscriptionStatusLabel(status) {
-  return status === "paused" ? t("deliveryOps.statusPaused") : t("deliveryOps.statusActive");
-}
-
-function deliverySubscriptionFrequencyLabel(frequency) {
-  return t(`deliveryOps.frequency.${frequency || "daily"}`);
-}
-
-function deliveryExecutionStateLabel(status) {
-  switch (status) {
-    case "succeeded":
-    case "success":
-      return t("deliveryOps.statusSuccess");
-    case "failed":
-      return t("deliveryOps.statusFailed");
-    default:
-      return t("deliveryOps.statusUnknown");
-  }
-}
-
-function deliveryExecutionBadgeClass(status) {
-  switch (status) {
-    case "succeeded":
-    case "success":
-      return "success";
-    case "failed":
-      return "critical";
-    default:
-      return "warning";
-  }
-}
-
-function deliveryRecoveryPriorityLabel(priority) {
-  switch (String(priority || "").toLowerCase()) {
-    case "high":
-      return t("deliveryOps.priorityHigh");
-    case "medium":
-      return t("deliveryOps.priorityMedium");
-    default:
-      return t("deliveryOps.priorityLow");
-  }
-}
-
-function deliveryRecoveryBadgeClass(priority) {
-  switch (String(priority || "").toLowerCase()) {
-    case "high":
-      return "critical";
-    case "medium":
-      return "warning";
-    default:
-      return "success";
-  }
-}
-
-function recoveryRetryAction(item) {
-  if (item?.latest_failed_delivery_log_id) {
-    return {
-      request: {
-        lookup: {
-          lookup_kind: "by_delivery_log",
-          delivery_log_id: item.latest_failed_delivery_log_id
-        }
-      },
-      subscriptionId: item?.subscription_id || null
-    };
-  }
-  if (item?.subscription_id) {
-    return {
-      request: {
-        lookup: {
-          lookup_kind: "by_subscription",
-          subscription_id: item.subscription_id
-        }
-      },
-      subscriptionId: item.subscription_id
-    };
-  }
-  return null;
-}
-
-function renderDeliveryRecoveryItem(item) {
-  const retryAction = recoveryRetryAction(item);
-  const reportValue = item?.report_type || item?.report_kind || "unknown";
-  return `
-    <div class="delivery-ops-item">
-      <div class="delivery-ops-item-head">
-        <div class="delivery-ops-item-title">${escapeHtml(reportValue)}</div>
-        <div class="delivery-ops-item-meta">
-          <span class="report-badge ${deliveryRecoveryBadgeClass(item?.priority)}">${escapeHtml(deliveryRecoveryPriorityLabel(item?.priority))}</span>
-        </div>
-      </div>
-      <div class="delivery-ops-item-body">${escapeHtml(item?.subscription_id || "ad-hoc")}</div>
-      <div class="delivery-ops-item-body">${escapeHtml(item?.summary || "")}</div>
-      <div class="delivery-ops-item-body">${escapeHtml(item?.latest_failed_delivery_log_id || item?.latest_success_delivery_log_id || "")}</div>
-      ${
-        retryAction
-          ? `<div class="delivery-ops-item-actions"><button class="cta ghost tiny" type="button" data-recovery-retry='${escapeHtml(JSON.stringify(retryAction))}'>${escapeHtml(t("deliveryOps.retryNow"))}</button></div>`
-          : ""
-      }
-    </div>
-  `;
-}
-
-function bindDeliveryRecoveryRetryButtons(container) {
-  if (!container) return;
-  container.querySelectorAll("[data-recovery-retry]").forEach((button) => {
-    button.onclick = () => {
-      const raw = button.getAttribute("data-recovery-retry");
-      if (!raw) return;
-      try {
-        const payload = JSON.parse(raw);
-        if (payload?.request) {
-          void runDeliveryRetry(payload.request, payload.subscriptionId || null);
-        }
-      } catch (error) {
-        console.warn("Invalid recovery retry payload", error);
-      }
-    };
-  });
-}
-
-function renderDeliveryRecoveryPanel() {
-  const recovery = deliveryOpsState.recovery;
-  if (deliveryOpsRecoverySummary) {
-    if (!recovery?.summary) {
-      deliveryOpsRecoverySummary.innerHTML = `<div class="report-empty">${escapeHtml(t("deliveryOps.emptyRecovery"))}</div>`;
-    } else {
-      const summary = recovery.summary;
-      deliveryOpsRecoverySummary.innerHTML = `
-        <div class="report-result-stats">
-          <div class="report-stat-chip">
-            <div class="report-preview-title">${escapeHtml(t("deliveryOps.summaryPending"))}</div>
-            <div class="report-card-copy">${escapeHtml(String(summary.pending_recovery_count ?? 0))}</div>
-          </div>
-          <div class="report-stat-chip">
-            <div class="report-preview-title">${escapeHtml(t("deliveryOps.summaryRecovered"))}</div>
-            <div class="report-card-copy">${escapeHtml(String(summary.recovered_count ?? 0))}</div>
-          </div>
-          <div class="report-stat-chip">
-            <div class="report-preview-title">${escapeHtml(t("deliveryOps.summaryStillFailing"))}</div>
-            <div class="report-card-copy">${escapeHtml(String(summary.still_failing_count ?? 0))}</div>
-          </div>
-          <div class="report-stat-chip">
-            <div class="report-preview-title">${escapeHtml(t("deliveryOps.summaryHighPriority"))}</div>
-            <div class="report-card-copy">${escapeHtml(String(summary.high_priority_count ?? 0))}</div>
-          </div>
-        </div>
-      `;
-    }
-  }
-
-  const priorityItems = Array.isArray(recovery?.priority_queue) ? recovery.priority_queue : [];
-  if (deliveryOpsRecoveryPriority) {
-    deliveryOpsRecoveryPriority.innerHTML = priorityItems.length
-      ? priorityItems.map(renderDeliveryRecoveryItem).join("")
-      : `<div class="report-empty">${escapeHtml(t("deliveryOps.emptyRecovery"))}</div>`;
-    bindDeliveryRecoveryRetryButtons(deliveryOpsRecoveryPriority);
-  }
-
-  const pendingItems = Array.isArray(recovery?.pending_recovery) ? recovery.pending_recovery : [];
-  if (deliveryOpsRecoveryPending) {
-    deliveryOpsRecoveryPending.innerHTML = pendingItems.length
-      ? pendingItems.map(renderDeliveryRecoveryItem).join("")
-      : `<div class="report-empty">${escapeHtml(t("deliveryOps.emptyRecovery"))}</div>`;
-    bindDeliveryRecoveryRetryButtons(deliveryOpsRecoveryPending);
-  }
-
-  const recoveredItems = Array.isArray(recovery?.recovered) ? recovery.recovered : [];
-  if (deliveryOpsRecoveryRecovered) {
-    deliveryOpsRecoveryRecovered.innerHTML = recoveredItems.length
-      ? recoveredItems.map(renderDeliveryRecoveryItem).join("")
-      : `<div class="report-empty">${escapeHtml(t("deliveryOps.emptyRecovery"))}</div>`;
-    bindDeliveryRecoveryRetryButtons(deliveryOpsRecoveryRecovered);
-  }
-
-  const stillFailingItems = Array.isArray(recovery?.still_failing) ? recovery.still_failing : [];
-  if (deliveryOpsRecoveryFailing) {
-    deliveryOpsRecoveryFailing.innerHTML = stillFailingItems.length
-      ? stillFailingItems.map(renderDeliveryRecoveryItem).join("")
-      : `<div class="report-empty">${escapeHtml(t("deliveryOps.emptyRecovery"))}</div>`;
-    bindDeliveryRecoveryRetryButtons(deliveryOpsRecoveryFailing);
-  }
-}
-
-function renderDeliveryOpsConsolePanel() {
-  const consolePayload = deliveryOpsState.console;
-  const dashboard = consolePayload?.dashboard || null;
-  const alerts = consolePayload?.alerts || null;
-  const recovery = deliveryOpsState.recovery || consolePayload?.recovery || null;
-  const healthSnapshot = buildDeliveryOpsHealthSnapshot(consolePayload, alerts, recovery);
-
-  if (deliveryOpsConsoleOverview) {
-    if (!consolePayload || !dashboard || !recovery) {
-      deliveryOpsConsoleOverview.innerHTML = `
-        <article class="report-card">
-          <div class="report-section-title">${escapeHtml(t("deliveryOps.overview"))}</div>
-          <div class="report-empty">${escapeHtml(t("deliveryOps.emptyConsole"))}</div>
-        </article>
-      `;
-    } else {
-      deliveryOpsConsoleOverview.innerHTML = `
-        <article class="report-card">
-          <div class="report-section-title">${escapeHtml(t("deliveryOps.healthTitle"))}</div>
-          <div class="delivery-ops-status-card">
-            <div class="delivery-ops-status-row">
-              <div class="delivery-ops-status-title">${escapeHtml(healthSnapshot.title)}</div>
-              <span class="report-badge ${escapeHtml(healthSnapshot.badgeClass)}">${escapeHtml(healthSnapshot.badgeLabel)}</span>
-            </div>
-            <div class="delivery-ops-status-summary">${escapeHtml(healthSnapshot.summary)}</div>
-            <div class="delivery-ops-status-grid">
-              <div class="delivery-ops-status-cell">
-                <div class="delivery-ops-status-label">${escapeHtml(t("deliveryOps.healthApi"))}</div>
-                <div class="delivery-ops-status-value">${escapeHtml(healthSnapshot.apiStatus)}</div>
-              </div>
-              <div class="delivery-ops-status-cell">
-                <div class="delivery-ops-status-label">${escapeHtml(t("deliveryOps.overviewAlerts"))}</div>
-                <div class="delivery-ops-status-value">${escapeHtml(String(healthSnapshot.alertCount))}</div>
-              </div>
-              <div class="delivery-ops-status-cell">
-                <div class="delivery-ops-status-label">${escapeHtml(t("deliveryOps.overviewPending"))}</div>
-                <div class="delivery-ops-status-value">${escapeHtml(String(healthSnapshot.pendingCount))}</div>
-              </div>
-              <div class="delivery-ops-status-cell">
-                <div class="delivery-ops-status-label">${escapeHtml(t("deliveryOps.healthRecentFailures"))}</div>
-                <div class="delivery-ops-status-value">${escapeHtml(String(healthSnapshot.failedCount))}</div>
-              </div>
-              <div class="delivery-ops-status-cell">
-                <div class="delivery-ops-status-label">${escapeHtml(t("deliveryOps.healthLastCheck"))}</div>
-                <div class="delivery-ops-status-value">${escapeHtml(healthSnapshot.lastChecked)}</div>
-              </div>
-            </div>
-          </div>
-        </article>
-        <article class="report-card">
-          <div class="report-section-title">${escapeHtml(t("deliveryOps.overview"))}</div>
-          <div class="report-result-stats">
-            <div class="report-stat-chip">
-              <div class="report-preview-title">${escapeHtml(t("deliveryOps.overviewQueues"))}</div>
-              <div class="report-card-copy">${escapeHtml(String((dashboard.metrics || []).length))}</div>
-            </div>
-            <div class="report-stat-chip">
-              <div class="report-preview-title">${escapeHtml(t("deliveryOps.overviewAlerts"))}</div>
-              <div class="report-card-copy">${escapeHtml(String((alerts?.alerts || []).length))}</div>
-            </div>
-            <div class="report-stat-chip">
-              <div class="report-preview-title">${escapeHtml(t("deliveryOps.overviewPending"))}</div>
-              <div class="report-card-copy">${escapeHtml(String(recovery?.summary?.pending_recovery_count ?? 0))}</div>
-            </div>
-            <div class="report-stat-chip">
-              <div class="report-preview-title">${escapeHtml(t("deliveryOps.overviewStillFailing"))}</div>
-              <div class="report-card-copy">${escapeHtml(String(recovery?.summary?.still_failing_count ?? 0))}</div>
-            </div>
-          </div>
-        </article>
-      `;
-    }
-  }
-
-  if (deliveryOpsAlerts) {
-    const items = Array.isArray(alerts?.alerts) ? alerts.alerts : [];
-    deliveryOpsAlerts.innerHTML = items.length
-      ? items
-          .map(
-            (alert) => `
-              <div class="delivery-ops-item">
-                <div class="delivery-ops-item-head">
-                  <div class="delivery-ops-item-title">${escapeHtml(alert?.title || alert?.key || "alert")}</div>
-                  <div class="delivery-ops-item-meta">
-                    <span class="report-badge ${reportSeverityClass(alert?.severity)}">${escapeHtml(String(alert?.severity || "warning"))}</span>
-                  </div>
-                </div>
-                <div class="delivery-ops-item-body">${escapeHtml(alert?.summary || "")}</div>
-              </div>
-            `
-          )
-          .join("")
-      : `<div class="report-empty">${escapeHtml(t("deliveryOps.emptyAlerts"))}</div>`;
-  }
-
-  if (deliveryOpsConsoleActions) {
-    const items = Array.isArray(consolePayload?.actions) ? consolePayload.actions : [];
-    deliveryOpsConsoleActions.innerHTML = items.length
-      ? items
-          .map(
-            (item) => `
-              <div class="delivery-ops-item">
-                <div class="delivery-ops-item-head">
-                  <div class="delivery-ops-item-title">${escapeHtml(item?.title || item?.action_key || "action")}</div>
-                </div>
-                <div class="delivery-ops-item-body">${escapeHtml(item?.description || "")}</div>
-              </div>
-            `
-          )
-          .join("")
-      : `<div class="report-empty">${escapeHtml(t("deliveryOps.emptyActions"))}</div>`;
-  }
-
-  if (deliveryOpsConsoleStatuses) {
-    const items = Array.isArray(consolePayload?.recent_status_items)
-      ? consolePayload.recent_status_items
-      : [];
-    deliveryOpsConsoleStatuses.innerHTML = items.length
-      ? items
-          .map(
-            (item) => `
-              <div class="delivery-ops-item">
-                <div class="delivery-ops-item-head">
-                  <div class="delivery-ops-item-title">${escapeHtml(item?.subscription_id || "status")}</div>
-                  <div class="delivery-ops-item-meta">${escapeHtml(item?.updated_at || "")}</div>
-                </div>
-                <div class="delivery-ops-item-body">${escapeHtml(item?.summary || "")}</div>
-              </div>
-            `
-          )
-          .join("")
-      : `<div class="report-empty">${escapeHtml(t("deliveryOps.emptyStatuses"))}</div>`;
-  }
-}
-
-function renderDeliveryExecutionStatusPanel() {
-  if (!deliveryOpsExecutionStatus) return;
-
-  if (deliveryOpsState.executionStatusLoading) {
-    deliveryOpsExecutionStatus.innerHTML = `<div class="report-empty">${escapeHtml(t("deliveryOps.running"))}</div>`;
-    return;
-  }
-
-  const status = deliveryOpsState.executionStatus;
-  if (!status) {
-    deliveryOpsExecutionStatus.innerHTML = `<div class="report-empty">${escapeHtml(t("deliveryOps.emptyExecutionStatus"))}</div>`;
-    return;
-  }
-
-  const statusValue = status.execution_state || status.status || "unknown";
-  const subscriptionValue =
-    status.subscription_id ||
-    deliveryOpsState.selectedSubscriptionId ||
-    "n/a";
-  const resultSummary = status.result_summary || status.last_result_message || "n/a";
-  const updatedAt = status.updated_at || "n/a";
-  const formatValue = status.export_format || "n/a";
-  const reportValue = status.report_type || "n/a";
-  const modeValue = status.mode || "n/a";
-
-  deliveryOpsExecutionStatus.innerHTML = `
-    <div class="delivery-ops-status-card">
-      <div class="delivery-ops-status-row">
-        <div class="delivery-ops-status-title">${escapeHtml(deliveryExecutionStateLabel(statusValue))}</div>
-        <span class="report-badge ${escapeHtml(deliveryExecutionBadgeClass(statusValue))}">${escapeHtml(deliveryExecutionStateLabel(statusValue))}</span>
-      </div>
-      <div class="delivery-ops-status-summary">${escapeHtml(status.summary || resultSummary)}</div>
-      <div class="delivery-ops-status-grid">
-        <div class="delivery-ops-status-cell">
-          <div class="delivery-ops-status-label">${escapeHtml(t("deliveryOps.statusSubscription"))}</div>
-          <div class="delivery-ops-status-value">${escapeHtml(subscriptionValue)}</div>
-        </div>
-        <div class="delivery-ops-status-cell">
-          <div class="delivery-ops-status-label">${escapeHtml(t("deliveryOps.statusMode"))}</div>
-          <div class="delivery-ops-status-value">${escapeHtml(modeValue)}</div>
-        </div>
-        <div class="delivery-ops-status-cell">
-          <div class="delivery-ops-status-label">${escapeHtml(t("deliveryOps.statusReport"))}</div>
-          <div class="delivery-ops-status-value">${escapeHtml(reportValue)}</div>
-        </div>
-        <div class="delivery-ops-status-cell">
-          <div class="delivery-ops-status-label">${escapeHtml(t("deliveryOps.statusFormat"))}</div>
-          <div class="delivery-ops-status-value">${escapeHtml(formatValue)}</div>
-        </div>
-        <div class="delivery-ops-status-cell">
-          <div class="delivery-ops-status-label">${escapeHtml(t("deliveryOps.statusUpdated"))}</div>
-          <div class="delivery-ops-status-value">${escapeHtml(updatedAt)}</div>
-        </div>
-        <div class="delivery-ops-status-cell">
-          <div class="delivery-ops-status-label">${escapeHtml(t("deliveryOps.statusResult"))}</div>
-          <div class="delivery-ops-status-value">${escapeHtml(resultSummary)}</div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function renderDeliveryRetryResultPanel() {
-  if (!deliveryOpsRetryResult) return;
-  const retry = deliveryOpsState.retryResult;
-  if (!retry) {
-    deliveryOpsRetryResult.innerHTML = `<div class="report-empty">${escapeHtml(t("deliveryOps.emptyRetryResult"))}</div>`;
-    return;
-  }
-
-  deliveryOpsRetryResult.innerHTML = `
-    <div class="delivery-ops-status-card">
-      <div class="delivery-ops-status-row">
-        <span class="report-badge ${escapeHtml(retry?.succeeded ? "success" : retry?.retried ? "warning" : "critical")}">${escapeHtml(retry?.succeeded ? t("deliveryOps.statusSuccess") : retry?.retried ? t("deliveryOps.statusFailed") : t("deliveryOps.statusUnknown"))}</span>
-      </div>
-      <div class="delivery-ops-status-summary">${escapeHtml(retry?.result_summary || retry?.message || "n/a")}</div>
-      <div class="delivery-ops-status-grid">
-        <div class="delivery-ops-status-cell">
-          <div class="delivery-ops-status-label">${escapeHtml(t("deliveryOps.retryOriginal"))}</div>
-          <div class="delivery-ops-status-value">${escapeHtml(retry?.original_delivery_log_id || "n/a")}</div>
-        </div>
-        <div class="delivery-ops-status-cell">
-          <div class="delivery-ops-status-label">${escapeHtml(t("deliveryOps.retryNew"))}</div>
-          <div class="delivery-ops-status-value">${escapeHtml(retry?.new_delivery_log_id || "n/a")}</div>
-        </div>
-        <div class="delivery-ops-status-cell">
-          <div class="delivery-ops-status-label">${escapeHtml(t("deliveryOps.retryMessage"))}</div>
-          <div class="delivery-ops-status-value">${escapeHtml(retry?.message || "n/a")}</div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
 function renderDeliveryOpsPanel() {
   if (!deliveryOpsPanel) return;
+  const canRefreshOps = isLoggedInUser();
+  const canRetryOps = isAdminUser();
 
   if (deliveryOpsMeta) {
     deliveryOpsMeta.textContent = deliveryOpsState.loading
@@ -32894,18 +28404,20 @@ function renderDeliveryOpsPanel() {
 
   if (deliveryOpsActions) {
     deliveryOpsActions.innerHTML = `
-      <button class="cta ghost tiny" type="button" data-delivery-ops-retry-latest>${t("deliveryOps.retryLatest")}</button>
-      <button class="cta tiny" type="button" data-delivery-ops-refresh>${t("deliveryOps.load")}</button>
+      <button class="cta ghost tiny" type="button" data-delivery-ops-retry-latest ${canRetryOps ? "" : "hidden"}>${t("deliveryOps.retryLatest")}</button>
+      <button class="cta tiny" type="button" data-delivery-ops-refresh ${canRefreshOps ? "" : "hidden"}>${t("deliveryOps.load")}</button>
     `;
     const retryLatestButton = deliveryOpsActions.querySelector("[data-delivery-ops-retry-latest]");
     const refreshButton = deliveryOpsActions.querySelector("[data-delivery-ops-refresh]");
     if (retryLatestButton) {
       retryLatestButton.onclick = () => {
+        if (!canRetryOps) return;
         void runDeliveryRetry({ lookup: { lookup_kind: "latest_failed" } });
       };
     }
     if (refreshButton) {
       refreshButton.onclick = () => {
+        if (!canRefreshOps) return;
         void loadDeliveryOps(true);
       };
     }
@@ -32984,7 +28496,7 @@ function renderDeliveryOpsPanel() {
             </div>
             <div class="delivery-ops-item-body">${escapeHtml(log?.created_at || "")}</div>
             <div class="delivery-ops-item-body">${escapeHtml(log?.result_message || log?.message || "")}</div>
-            ${log?.succeeded ? "" : `<div class="delivery-ops-item-actions"><button class="cta ghost tiny" type="button" data-retry-log="${escapeHtml(log?.delivery_log_id || "")}" data-retry-log-subscription="${escapeHtml(log?.subscription_id || "")}">${t("deliveryOps.retryLog")}</button></div>`}
+            ${log?.succeeded || !canRetryOps ? "" : `<div class="delivery-ops-item-actions"><button class="cta ghost tiny" type="button" data-retry-log="${escapeHtml(log?.delivery_log_id || "")}" data-retry-log-subscription="${escapeHtml(log?.subscription_id || "")}">${t("deliveryOps.retryLog")}</button></div>`}
           </div>
         `)
         .join("");
@@ -33314,7 +28826,7 @@ async function loadDeliveryReport(kind = deliveryReportState.kind, force = false
     deliveryReportLoadedAt &&
     Date.now() - deliveryReportLoadedAt < 60000
   ) {
-    renderDeliveryReportsPanel();
+    globalThis.renderDeliveryReportsPanelModule?.();
     return deliveryReportState.response;
   }
 
@@ -33323,7 +28835,7 @@ async function loadDeliveryReport(kind = deliveryReportState.kind, force = false
   if (!deliveryReportState.response || deliveryReportState.response?.meta?.kind !== kind) {
     deliveryReportState.response = null;
   }
-  renderDeliveryReportsPanel();
+  globalThis.renderDeliveryReportsPanelModule?.();
 
   deliveryReportPendingKind = kind;
   deliveryReportRequest = fetch(`${apiBase()}/cssapi/v1/case/delivery-v2`, {
@@ -33374,13 +28886,17 @@ async function loadDeliveryReport(kind = deliveryReportState.kind, force = false
       deliveryReportState.loading = false;
       deliveryReportRequest = null;
       deliveryReportPendingKind = "";
-      renderDeliveryReportsPanel();
+      globalThis.renderDeliveryReportsPanelModule?.();
     });
 
   return deliveryReportRequest;
 }
 
 async function runDeliveryExport(force = false) {
+  if (!isAdminUser()) {
+    showToast(loginCopy("Only admins can generate new exports.", "只有管理员可以生成新的导出。"));
+    return null;
+  }
   if (!force && deliveryExportRequest) return deliveryExportRequest;
 
   deliveryExportState.running = true;
@@ -33816,6 +29332,12 @@ function actionKindLabel(kind) {
   return t(map[String(kind || "").toLowerCase()] || "cssmv.actions.waiting");
 }
 
+function cssmvActionScope(kind) {
+  const normalized = String(kind || "").trim().toLowerCase();
+  if (!normalized) return "";
+  return `cssmv.action.${normalized}`;
+}
+
 function renderAvailableActions(payload) {
   if (!mvActionsList) return;
   const actions = extractAvailableActions(payload);
@@ -33826,10 +29348,34 @@ function renderAvailableActions(payload) {
 
   mvActionsList.innerHTML = actions
     .map((action) => {
+      const scope = cssmvActionScope(action?.kind);
       const enabled = action?.enabled !== false;
-      return `<span class="mv-action-chip ${enabled ? "" : "is-disabled"}">${actionKindLabel(action?.kind)}</span>`;
+      const permitted = hasPanelPermission(scope);
+      const reason = !permitted ? permissionPrompt(scope) : enabled ? "" : t("cssmv.actions.waiting");
+      return `
+        <button
+          class="mv-action-chip ${enabled && permitted ? "" : "is-disabled"}"
+          type="button"
+          data-cssmv-action="${escapeHtml(String(action?.kind || ""))}"
+          title="${escapeHtml(reason)}"
+          ${(enabled && permitted) ? "" : "disabled"}
+        >
+          ${actionKindLabel(action?.kind)}
+        </button>
+      `;
     })
     .join("");
+  mvActionsList.querySelectorAll("[data-cssmv-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const kind = button.getAttribute("data-cssmv-action") || "";
+      const scope = cssmvActionScope(kind);
+      if (!hasPanelPermission(scope)) {
+        showToast(permissionPrompt(scope));
+        return;
+      }
+      showToast(loginCopy(`CSSMV action "${actionKindLabel(kind)}" will route through the live backend when this control is connected.`, `CSSMV 动作“${actionKindLabel(kind)}”在该控制接入后会直连到实时后端执行。`));
+    });
+  });
 }
 
 function renderRecentActionLogs(payload) {
@@ -33997,7 +29543,7 @@ window.CSSOS_setDeliveryInspectorPayload = function setDeliveryInspectorPayload(
 renderDeliveryGovernancePulse();
 renderDeliveryDigestSummary(window.CSSMV_DELIVERY_REPORT_BUNDLE || null);
 loadDeliveryExportHistory();
-renderDeliveryReportsPanel();
+globalThis.renderDeliveryReportsPanelModule?.();
 
 function updateEnginePanels(title, lines) {
   const style = styleInput ? styleInput.value : state.style;
@@ -34097,328 +29643,28 @@ function finishCreationSession() {
   markCreationFinished();
 }
 
-async function startCreation(customTitle, customLyrics) {
-  const signature = buildCreationSignature(customTitle, customLyrics, "music_video");
-  if (shouldSkipDuplicateCreation(signature)) {
-    return false;
-  }
-  markCreationStarted(signature);
-  let shouldReleaseLock = true;
-  try {
-    const allowed = await consumeGeneration();
-    if (!allowed) return false;
-    let title = String(customTitle || "").trim();
-    let baseLines = customLyrics?.trim() ? customLyrics.trim().split("\n") : [];
-    let usedSongSeed = false;
-    if (!baseLines.length) {
-      const seed = await runLyricsGenerate("music_video");
-      if (isSongSeedQuotaExceeded(seed)) {
-        safeShowToast(getSongSeedQuotaExceededMessage(seed));
-        return false;
-      }
-      if (seed?.ok && !seed?.empty && seed?.data?.lyrics) {
-        usedSongSeed = true;
-        title = String(title || seed.data.title || "").trim();
-        baseLines = String(seed.data.lyrics || "")
-          .split("\n")
-          .map((line) => line.trimEnd())
-          .filter(Boolean);
-      }
-    }
-    if (!baseLines.length) {
-      const selection = lyricBank[Math.floor(Math.random() * lyricBank.length)];
-      title = title || selection.title;
-      baseLines = selection.lines.slice();
-    }
-    if (!usedSongSeed) {
-      state.songSeed = null;
-      renderSongSeedPreview(null);
-    }
-    title = title || state.title || "CSS MV";
-    const lines = replaceSpellInLines(baseLines, DEFAULT_SPELL, state.spell);
-    const lyricText = buildLyricsText(title, lines);
-    lyricsTargetLength = lyricText.length;
-
-    watchSubtitle.textContent = "KaraOKe MV · Rendering";
-    cssmvTriggered = false;
-    watchTriggered = false;
-    resetTypingState();
-    resetEngineStates();
-    maybeCompactForyouAfterLyrics({ armAuto: false });
-    syncForyouThumbFromLyrics(title, lines);
-    cssmvPanel.classList.add("hidden");
-    watchPanel.classList.add("hidden");
-    updateDockVisibility();
-    typewriter(lyricsEl, lyricText, LYRICS_TYPEWRITER_SPEED);
-    animateProgress();
-    updateEnginePanels(title, lines);
-    requestVideoPreview(title, lines);
-    state.baseLines = baseLines;
-    state.lines = lines;
-    void createMyWorkRecord(title, lines);
-    void runPipeline(getMicJobId(), title, lyricText);
-    openPanel(foryouPanel);
-    revealEnginePanel("lyrics");
-    layoutShowcasePanels();
-    shouldReleaseLock = false;
-    return true;
-  } finally {
-    if (shouldReleaseLock) {
-      markCreationFinished();
-    }
-  }
-}
-
-function handleMicClick() {
-  runMicFlow();
-}
-
-function handleMicLongPress() {
-  // handled via pointerdown/up for recording
-}
-
-const micState = {
-  jobId: null,
-  transcript: "",
-  lang: "en"
-};
-
-let micRecorder = null;
-let micChunks = [];
-let micStream = null;
-let micRecording = false;
-let micDiscardOnStop = false;
-
-const getMicJobId = () => {
-  if (!micState.jobId) {
-    micState.jobId = typeof crypto !== "undefined" && crypto.randomUUID
-      ? crypto.randomUUID()
-      : `job_${Date.now()}`;
-  }
-  return micState.jobId;
-};
-
-const closeEnjoyOverlay = () => {
-  const overlay = document.getElementById("mv-overlay");
-  if (!overlay) return;
-  const video = overlay.querySelector("video");
-  if (video) {
-    video.pause?.();
-    video.removeAttribute("src");
-    video.load?.();
-  }
-  overlay.classList.remove("show");
-};
-
-const showEnjoyOverlay = (url, labelText = "") => {
-  let overlay = document.getElementById("mv-overlay");
-  if (!overlay) {
-    overlay = document.createElement("div");
-    overlay.id = "mv-overlay";
-    overlay.className = "mv-overlay";
-    overlay.innerHTML = `
-      <div class="mv-overlay-inner">
-        <div class="mv-overlay-label" style="position:absolute;top:10px;left:14px;color:rgba(255,255,255,0.85);font-size:12px;letter-spacing:0.18em;text-transform:uppercase;display:none;">demo</div>
-        <button type="button" class="mv-overlay-close">${t("overlay.close")}</button>
-        <video class="mv-overlay-video" autoplay loop playsinline controls></video>
-      </div>
-    `;
-    document.body.appendChild(overlay);
-    const closeBtn = overlay.querySelector(".mv-overlay-close");
-    closeBtn?.addEventListener("click", closeEnjoyOverlay);
-  }
-  const label = overlay.querySelector(".mv-overlay-label");
-  if (label) {
-    if (labelText) {
-      label.textContent = labelText;
-      label.style.display = "block";
-    } else {
-      label.style.display = "none";
-    }
-  }
-  const video = overlay.querySelector("video");
-  if (video) {
-    video.src = url;
-    video.muted = false;
-    video.playsInline = true;
-    video.load?.();
-    video.play?.().catch(() => {});
-  }
-  overlay.classList.add("show");
-};
-
-const DEMO_BASES = ["/examples/", "/assets/examples/"];
-const DEMO_MANIFESTS = ["/examples/manifest.json", "/assets/examples/manifest.json"];
-const DEMO_MV_FILES = [
-  "19700121_0706_69982ff105c48191a0e4f69bdf19f49e.mp4",
-  "M6N0t1rbV74_002_720p.mp4",
-  "The.Curse.mp4",
-  "The.Register.of.Souls.mp4",
-  "YTDown.com_YouTube_Media_M6N0t1rbV74_002_720p.mp4",
-  "YTDown.com_YouTube_Media_dKWwe0hbKvc_002_720p.mp4",
-  "YTDown.com_YouTube_Media_pKnnjgJTwhU_002_720p.mp4",
-  "YTDown.com_YouTube_Media_y1EBKVq5N9Q_002_720p.mp4",
-  "YTDown.com_YouTube_Real-Frontier-17_Media_mFGFzCP_fYM_002_720p.mp4",
-  "mirror-video.MP4"
-];
-const DEMO_AUDIO_FILES = [
-  "Nvwa.and.the.Sundering.of.Chaos.wav",
-  "The.Mount.Hermon.Oath.wav",
-  "The.Cleaving.of.Chaos.混沌之破.wav"
-];
-
-let demoMvCache = null;
-const getDemoMvFiles = async () => {
-  if (demoMvCache && Array.isArray(demoMvCache) && demoMvCache.length) return demoMvCache;
-  for (const url of DEMO_MANIFESTS) {
-    try {
-      const res = await fetch(url, { cache: "no-store" });
-      if (!res.ok) continue;
-      const data = await res.json();
-      const list = Array.isArray(data)
-        ? data
-        : Array.isArray(data.files)
-        ? data.files
-        : [];
-      const mp4s = list
-        .map((f) => String(f || "").trim())
-        .filter((f) => f.toLowerCase().endsWith(".mp4"));
-      if (mp4s.length) {
-        demoMvCache = mp4s;
-        return demoMvCache;
-      }
-    } catch (_err) {
-      // ignore manifest errors
-    }
-  }
-  demoMvCache = DEMO_MV_FILES.slice();
-  return demoMvCache;
-};
-
-const pickFirstWorkingUrl = async (files) => {
-  const shuffled = files.slice().sort(() => Math.random() - 0.5);
-  for (const base of DEMO_BASES) {
-    for (const file of shuffled) {
-      const url = `${base}${file}`;
-      try {
-        let res = await fetch(url, { method: "HEAD" });
-        if (!res.ok) {
-          res = await fetch(url, { method: "GET", headers: { Range: "bytes=0-1" } });
-        }
-        if (res.status === 200 || res.status === 206) return url;
-      } catch (_err) {
-        // ignore
-      }
-    }
-  }
-  return "";
-};
-
-const isMediaReachable = async (url) => {
-  if (!url) return false;
-  try {
-    let res = await fetch(url, { method: "HEAD" });
-    if (!res.ok) {
-      res = await fetch(url, { method: "GET", headers: { Range: "bytes=0-1" } });
-    }
-    return res.status === 200 || res.status === 206;
-  } catch (_err) {
-    return false;
-  }
-};
-
-const showEnjoyOverlaySafe = async (url, labelText = "") => {
-  const ok = await isMediaReachable(url);
-  if (!ok) return false;
-  showEnjoyOverlay(url, labelText);
-  return true;
-};
-
-const playDemoMV = async () => {
-  showToast(t("mic.no_data_demo"));
-  const files = await getDemoMvFiles();
-  const url = await pickFirstWorkingUrl(files);
-  if (url) {
-    showEnjoyOverlay(url, t("mic.demo_label"));
-    return;
-  }
-  showToast(t("mic.no_demo_found"));
-};
-
-const playDemoMedia = () => {
-  useLocalVideoFallback(state.title, `${state.style} ${state.voice} cinematic mv`);
-  showToast(t("mic.generation_failed_playing_demo"));
-};
-
-async function startMicRecording() {
-  if (micRecording) return;
-  try {
-    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    micChunks = [];
-    micDiscardOnStop = false;
-    micRecorder = createMediaRecorder(micStream);
-    micRecorder.ondataavailable = (event) => {
-      if (event.data && event.data.size > 0) micChunks.push(event.data);
-    };
-    micRecorder.onstop = async () => {
-      const blob = new Blob(micChunks, { type: micRecorder.mimeType || "audio/webm" });
-      micChunks = [];
-      if (!micDiscardOnStop) {
-        await submitMicTranscription(blob);
-      }
-      micDiscardOnStop = false;
-    };
-    micRecorder.start();
-    micRecording = true;
-    showToast(t("mic.recording"));
-  } catch (err) {
-    micRecording = false;
-    showToast(t("mic.no_data_notice"));
-  }
-}
-
-function stopMicRecording(discard = false) {
-  if (!micRecorder || !micRecording) return;
-  micDiscardOnStop = !!discard;
-  micRecording = false;
-  micRecorder.stop();
-  if (micStream) {
-    micStream.getTracks().forEach((track) => track.stop());
-    micStream = null;
-  }
-}
-
-async function submitMicTranscription(blob) {
-  const jobId = getMicJobId();
-  const micBehavior = readPanelBehaviorSettingsLocal().mic || { longpress_ms: LONGPRESS_MS, max_hold_sec: Math.round(HOLD_MAX_MS / 1000) };
-  try {
-    const res = await fetch("/api/mic/transcribe", {
-      method: "POST",
-      headers: {
-        "content-type": blob.type || "application/octet-stream",
-        "x-cssos-wake-spell": String(state.spell || DEFAULT_SPELL),
-        "x-cssos-longpress-ms": String(micBehavior.longpress_ms || LONGPRESS_MS),
-        "x-cssos-capture-max-sec": String(micBehavior.max_hold_sec || Math.round(HOLD_MAX_MS / 1000))
-      },
-      body: blob
-    });
-    const payload = await res.json().catch(() => null);
-    if (payload?.ok) {
-      micState.transcript = payload.transcript || "";
-      micState.lang = payload.lang || "en";
-      micState.jobId = payload.job_id || jobId;
-      return;
-    }
-    micState.transcript = "";
-    micState.jobId = payload?.job_id || jobId;
-    showToast(t("mic.no_data_notice"));
-  } catch (err) {
-    micState.transcript = "";
-    showToast(t("mic.no_data_notice"));
-  }
-}
-
 async function runLyricsGenerate(mode, options = {}) {
+  if (authState.user && !creatorBoostState.loaded) {
+    await loadCreatorBoostState().catch(() => null);
+  }
+  const capability = enforceCreationCapability({
+    mode,
+    durationSec: Number(creationState.duration || 180),
+    workType: creationState.workType
+  });
+  if (!capability.ok) {
+    return { ok: false, blocked: capability.reason, tier: capability.tier };
+  }
+  const billingAllowed = await consumeBillableAction("lyrics_generate", {
+    meta: {
+      mode,
+      work_type: normalizeWorkTypeClient(creationState.workType || "single"),
+      duration_sec: Number(creationState.duration || 180)
+    }
+  });
+  if (!billingAllowed) {
+    return { ok: false, blocked: "billing_gate", tier: capability.tier };
+  }
   songSeedVariationCounter += 1;
   const jobId = getMicJobId();
   const title = getSongSeedRequestTitle();
@@ -34427,6 +29673,7 @@ async function runLyricsGenerate(mode, options = {}) {
   const explicitLanguage = String(creationLanguage?.value || creationState.language || "").trim().toLowerCase();
   const preferredLanguage = explicitLanguage || titleLanguage || document.documentElement.lang || "zh";
   const constraints = await buildSongSeedGenerationConstraints();
+  const queuePriority = getMembershipPreset().queuePriority;
   const payload = {
     job_id: jobId,
     mode,
@@ -34436,7 +29683,9 @@ async function runLyricsGenerate(mode, options = {}) {
     voice: voiceInput?.value?.trim() || state.voice || "",
     language: preferredLanguage,
     variation_nonce: `${Date.now()}_${songSeedVariationCounter}_${mode}`,
-    constraints
+    constraints,
+    queue_priority: queuePriority,
+    queue_lane: queuePriority
   };
   const res = await fetch("/api/cssmv/song-seed", {
     method: "POST",
@@ -34448,91 +29697,6 @@ async function runLyricsGenerate(mode, options = {}) {
     applySongSeedToSettings(json.data || json);
   }
   return json;
-}
-
-async function runPipeline(jobId, title, lyrics) {
-  const res = await fetch("/api/pipeline/run", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ job_id: jobId, title, lyrics })
-  });
-  const json = await res.json().catch(() => null);
-  const runId = String(json?.run_id || json?.data?.run_id || "").trim();
-  if (runId) {
-    startPipelineProgressPolling(runId);
-  }
-  return json;
-}
-
-async function startCreationWithLyrics(title, lyricsText) {
-  const signature = buildCreationSignature(title, lyricsText, "music_video");
-  if (shouldSkipDuplicateCreation(signature)) {
-    return false;
-  }
-  markCreationStarted(signature);
-  let shouldReleaseLock = true;
-  try {
-    const allowed = await consumeGeneration();
-    if (!allowed) return false;
-    if (!state.songSeed) renderSongSeedPreview(null);
-    const lines = lyricsText.trim().split("\n");
-    void createMyWorkRecord(title, lines);
-    const lyricText = buildLyricsText(title, lines);
-    lyricsTargetLength = lyricText.length;
-
-    watchSubtitle.textContent = "KaraOKe MV · Rendering";
-    cssmvTriggered = false;
-    watchTriggered = false;
-    resetTypingState();
-    resetEngineStates();
-    maybeCompactForyouAfterLyrics({ armAuto: false });
-    syncForyouThumbFromLyrics(title, lines);
-    cssmvPanel.classList.add("hidden");
-    watchPanel.classList.add("hidden");
-    updateDockVisibility();
-    typewriter(lyricsEl, lyricText, LYRICS_TYPEWRITER_SPEED);
-    animateProgress();
-    updateEnginePanels(title, lines);
-    state.baseLines = lines;
-    state.lines = lines;
-    state.title = title;
-    void runPipeline(getMicJobId(), title, lyricText);
-    openPanel(foryouPanel);
-    revealEnginePanel("lyrics");
-    layoutShowcasePanels();
-    shouldReleaseLock = false;
-    return true;
-  } finally {
-    if (shouldReleaseLock) {
-      markCreationFinished();
-    }
-  }
-}
-
-async function runMicFlow() {
-  const mode = micState.transcript ? "mic" : "random";
-  const lyricPayload = await runLyricsGenerate(mode);
-  if (isSongSeedQuotaExceeded(lyricPayload)) {
-    safeShowToast(getSongSeedQuotaExceededMessage(lyricPayload));
-    await playDemoMV();
-    return;
-  }
-  if (isSongSeedRateLimited(lyricPayload)) {
-    safeShowToast(getSongSeedRateLimitMessage(lyricPayload));
-    await playDemoMV();
-    return;
-  }
-  if (!lyricPayload || !lyricPayload.ok || lyricPayload.no_data) {
-    await playDemoMV();
-    return;
-  }
-  const title = lyricPayload.title || state.title;
-  const lyricsText = lyricPayload.lyrics || "";
-  if (!lyricsText) {
-    await playDemoMV();
-    return;
-  }
-  await startCreationWithLyrics(title, lyricsText);
 }
 
 function cycleSelect(selectEl) {
@@ -34558,9 +29722,8 @@ function cycleDatalistInput(inputEl) {
 }
 
 function refreshEngines() {
-  const selection = lyricBank[Math.floor(Math.random() * lyricBank.length)];
-  updateEnginePanels(selection.title, selection.lines);
-  showToast("Engines refreshed · 流流流");
+  updateEnginePanels(state.title, state.lines);
+  showToast(loginCopy("Engines refreshed", "引擎已刷新"));
 }
 
 function cycleMusicStyle() {
@@ -34594,7 +29757,7 @@ function resetSettings() {
 }
 
 function getLocalGuessLang() {
-  if (detectedCountry) return mapCountryToLang(detectedCountry);
+  if (detectedCountry) return globalThis.mapCountryToLangModule?.(detectedCountry) || "en";
   const raw = navigator.language || "en";
   return raw.toLowerCase().startsWith("zh") ? "zh" : raw.toLowerCase().slice(0, 2) || "en";
 }
@@ -34607,14 +29770,15 @@ function cycleLanguageQuick() {
 
 const PASSKEY_BASE = "";
 let HOLD_MAX_MS = Number(window.CSS_HOLD_MAX_MS || 30000);
-
-let hold = {
+globalThis.__cssosMicHold = globalThis.__cssosMicHold || {
   active: false,
   startedAt: 0,
   raf: 0,
   timeout: 0,
   startTimer: 0,
-  pointerId: null
+  pointerId: null,
+  lastCommittedAt: 0,
+  suppressClickUntil: 0
 };
 
 function setHintKey(key) {
@@ -34744,8 +29908,8 @@ async function passkeyLogin() {
   setHintKey("passkey.enabled");
 }
 
-function triggerMic() {
-  window.dispatchEvent(new CustomEvent("cssos:mic"));
+function triggerMic(origin = "logo") {
+  window.dispatchEvent(new CustomEvent("cssos:mic", { detail: { origin } }));
 }
 
 function ringEl() {
@@ -34773,176 +29937,6 @@ function showRing(on) {
   else r.classList.remove("is-on");
 }
 
-function forceResetHoldRing() {
-  hold.active = false;
-  if (hold.raf) cancelAnimationFrame(hold.raf);
-  if (hold.timeout) clearTimeout(hold.timeout);
-  if (hold.startTimer) clearTimeout(hold.startTimer);
-  hold.raf = 0;
-  hold.timeout = 0;
-  hold.startTimer = 0;
-  hold.pointerId = null;
-  document.body.classList.remove("holding-mic");
-  document.body.classList.remove("longpress-guard");
-  showRing(false);
-  setRingProgress01(0);
-}
-
-function setLongpressGuard(on) {
-  document.body.classList.toggle("longpress-guard", !!on);
-}
-
-function micHoldStart(origin) {
-  if (hold.active) return;
-  hold.active = true;
-  document.body.classList.add("holding-mic");
-  setLongpressGuard(true);
-  hold.startedAt = performance.now();
-  setRingProgress01(0);
-  showRing(true);
-
-  const tick = () => {
-    if (!hold.active) return;
-    const now = performance.now();
-    const p = (now - hold.startedAt) / HOLD_MAX_MS;
-    setRingProgress01(p);
-    hold.raf = requestAnimationFrame(tick);
-  };
-  hold.raf = requestAnimationFrame(tick);
-
-  hold.startTimer = window.setTimeout(() => {
-    if (!hold.active) return;
-    window.dispatchEvent(new CustomEvent("cssos:mic_hold_start", { detail: { origin } }));
-  }, LONGPRESS_MS);
-
-  hold.timeout = window.setTimeout(() => {
-    if (!hold.active) return;
-    micHoldCommit({ reason: "timeout" });
-  }, HOLD_MAX_MS);
-}
-
-function micHoldCommit(meta) {
-  if (!hold.active) return;
-  const elapsed = performance.now() - hold.startedAt;
-  forceResetHoldRing();
-  window.dispatchEvent(
-    new CustomEvent("cssos:mic_hold_commit", {
-      detail: { elapsed_ms: Math.round(elapsed), ...meta }
-    })
-  );
-}
-
-function bindHoldTargets() {
-  const targets = Array.from(document.querySelectorAll("[data-hold='mic']"));
-  for (const el of targets) {
-    el.addEventListener("pointerdown", (e) => {
-      if (e.button !== undefined && e.button !== 0) return;
-      e.preventDefault();
-      try {
-        el.setPointerCapture(e.pointerId);
-      } catch {}
-      hold.pointerId = e.pointerId;
-      micHoldStart(el.id || el.getAttribute("data-action") || "mic");
-    });
-
-    const commit = (e, reason) => {
-      if (!hold.active) return;
-      if (hold.pointerId !== null && e.pointerId !== hold.pointerId) return;
-      micHoldCommit({ reason });
-    };
-
-    el.addEventListener("pointerup", (e) => commit(e, "release"));
-    el.addEventListener("pointercancel", (e) => commit(e, "release"));
-    el.addEventListener("lostpointercapture", (e) => commit(e, "release"));
-  }
-}
-
-let rec = {
-  stream: null,
-  mr: null,
-  chunks: [],
-  started: false
-};
-
-function pickRecorderMimeType() {
-  if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") {
-    return "";
-  }
-  const candidates = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/mp4",
-    "audio/mp4;codecs=mp4a.40.2",
-    "audio/aac"
-  ];
-  return candidates.find((mime) => MediaRecorder.isTypeSupported(mime)) || "";
-}
-
-function createMediaRecorder(stream) {
-  if (typeof MediaRecorder === "undefined") {
-    throw new Error("MediaRecorder unavailable");
-  }
-  const mimeType = pickRecorderMimeType();
-  return mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-}
-
-async function startRecording() {
-  if (rec.started) return;
-  rec.chunks = [];
-  rec.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  const mr = createMediaRecorder(rec.stream);
-  rec.mr = mr;
-  rec.started = true;
-
-  mr.ondataavailable = (ev) => {
-    if (ev.data && ev.data.size > 0) rec.chunks.push(ev.data);
-  };
-
-  mr.start(250);
-}
-
-async function stopRecordingGetBlob() {
-  if (!rec.started || !rec.mr) return null;
-
-  const mr = rec.mr;
-  const stream = rec.stream;
-
-  const blob = await new Promise((resolve) => {
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      try {
-        mr.ondataavailable = null;
-      } catch {}
-      resolve(new Blob(rec.chunks, { type: mr.mimeType || "audio/webm" }));
-    };
-    mr.onstop = finish;
-    try {
-      mr.stop();
-    } catch {
-      finish();
-    }
-    setTimeout(finish, 1200);
-  });
-
-  rec.started = false;
-  rec.mr = null;
-  rec.stream = null;
-  rec.chunks = [];
-
-  if (stream) {
-    for (const tr of stream.getTracks()) {
-      try {
-        tr.stop();
-      } catch {}
-    }
-  }
-
-  if (!blob || blob.size === 0) return null;
-  return blob;
-}
-
 function randomTitle() {
   const xs = ["Untitled", "New Song", "Opera Night", "Midnight", "Starlight", "Echo"];
   return xs[Math.floor(Math.random() * xs.length)];
@@ -34956,6 +29950,16 @@ function apiBase() {
   return String(v).replace(/\/+$/, "");
 }
 
+function resolvePublicAssetUrl(path) {
+  const normalizedPath = String(path || "").replace(/^\/+/, "");
+  if (!normalizedPath) return "";
+  try {
+    return new URL(normalizedPath, window.location.href).toString();
+  } catch (_error) {
+    return `./${normalizedPath}`;
+  }
+}
+
 function b64FromArrayBuffer(ab) {
   const bytes = new Uint8Array(ab);
   let s = "";
@@ -34966,10 +29970,18 @@ function b64FromArrayBuffer(ab) {
   return btoa(s);
 }
 
-async function createRun({ title, uiLang, tier, voice }) {
+async function createRun({ title, uiLang, tier, voice, lyricsText = "", jobId = "" }) {
   const baseUrl = apiBase();
   const generationLang = creationState.language || uiLang || "zh";
+  const preset = getMembershipPreset(tier);
+  const selectionCounts = getCreationSelectionCounts();
   const micBehavior = readPanelBehaviorSettingsLocal().mic || { longpress_ms: LONGPRESS_MS, max_hold_sec: Math.round(HOLD_MAX_MS / 1000) };
+  const normalizedLyricsText = String(lyricsText || "").trim();
+  const lyricLines = normalizedLyricsText
+    .split("\n")
+    .map((line) => String(line || "").trim())
+    .filter(Boolean)
+    .slice(0, 120);
   const structurePlan = normalizeStructurePlanClient(state.songSeed?.structurePlan);
   const structureTree = Array.isArray(state.songSeed?.structureTree)
     ? state.songSeed.structureTree
@@ -35000,14 +30012,17 @@ async function createRun({ title, uiLang, tier, voice }) {
     tempo_bpm: Number(creationState.tempo || 88),
     musical_key: creationState.key || "C",
     duration_s: Number(creationState.duration || 180),
-    prompt: String(creationState.prompt || "").slice(0, 500)
+    prompt: String(normalizedLyricsText || creationState.prompt || "").slice(0, 2400)
   };
   const body = {
     cssl: title,
     ui_lang: generationLang,
     tier: tier || "dev",
     commands: {
-      voice: voice || { bytes: 0, mime: "audio/webm", mode: "single" },
+      voice: {
+        ...(voice || { bytes: 0, mime: "audio/webm", mode: "single" }),
+        job_id: String(jobId || voice?.job_id || "").trim()
+      },
       voice_capture: {
         wake_spell: String(state.spell || DEFAULT_SPELL),
         longpress_ms: Number(micBehavior.longpress_ms || LONGPRESS_MS),
@@ -35015,10 +30030,28 @@ async function createRun({ title, uiLang, tier, voice }) {
       },
       lyrics: {
         detected_lang: generationLang,
-        primary_lang: generationLang
+        primary_lang: generationLang,
+        text: normalizedLyricsText,
+        lines: lyricLines
       },
       video: {
         duration_s: Number(creationState.duration || 180)
+      },
+      capability: {
+        membership_tier: normalizeAccessTier(tier),
+        monthly_generation_limit: preset.monthlyGenerationLimit,
+        max_duration_sec: preset.maxDurationSec,
+        max_resolution: preset.maxResolution,
+        watermark: preset.watermark,
+        included_languages: preset.maxIncludedLanguages,
+        included_voice_lanes: preset.maxIncludedVoiceLanes,
+        selected_languages: selectionCounts.languageCount,
+        selected_voice_lanes: selectionCounts.voiceLaneCount
+      },
+      queue: {
+        lane: preset.queuePriority,
+        priority: preset.queuePriority,
+        membership_tier: normalizeAccessTier(tier)
       },
       creative: creativePayload
     }
@@ -35028,219 +30061,89 @@ async function createRun({ title, uiLang, tier, voice }) {
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify(body)
   });
+  const text = await res.text().catch(() => "");
+  let parsed = null;
+  try {
+    parsed = text ? JSON.parse(text) : null;
+  } catch (_err) {
+    parsed = null;
+  }
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
+    currentWatchAudioRunError = `http_${res.status}`;
+    updateWatchAudioDebug();
     throw new Error(`http=${res.status} ${text}`);
   }
-  return await res.json();
+  const statusUrl = String(parsed?.status_url || parsed?.data?.status_url || "").trim();
+  const inferredRunId =
+    String(parsed?.run_id || parsed?.data?.run_id || "").trim() ||
+    (statusUrl.match(/\/cssapi\/v1\/runs\/([^/]+)\/status/i)?.[1] || "").trim() ||
+    (text.match(/"run_id"\s*:\s*"([^"]+)"/i)?.[1] || "").trim();
+  if (inferredRunId) {
+    currentWatchAudioRunId = inferredRunId;
+    currentWatchAudioRunError = "";
+    updateWatchAudioDebug();
+    return {
+      ...(parsed && typeof parsed === "object" ? parsed : {}),
+      run_id: inferredRunId,
+      status_url: statusUrl || `/cssapi/v1/runs/${encodeURIComponent(inferredRunId)}/status`
+    };
+  }
+  currentWatchAudioRunError = `http_${res.status}_no_run_id`;
+  updateWatchAudioDebug();
+  return parsed && typeof parsed === "object" ? parsed : {};
 }
 
-async function deriveTitleFromVoice(blob) {
-  const micBehavior = readPanelBehaviorSettingsLocal().mic || { longpress_ms: LONGPRESS_MS, max_hold_sec: Math.round(HOLD_MAX_MS / 1000) };
-  const buf = await blob.arrayBuffer();
-  if (buf.byteLength < 1600) return { transcript: "", title: "", wakeDetected: false };
-  try {
-    const res = await fetch("/api/mic/transcribe", {
-      method: "POST",
-      headers: {
-        "content-type": blob.type || "application/octet-stream",
-        "x-cssos-wake-spell": String(state.spell || DEFAULT_SPELL),
-        "x-cssos-longpress-ms": String(micBehavior.longpress_ms || LONGPRESS_MS),
-        "x-cssos-capture-max-sec": String(micBehavior.max_hold_sec || Math.round(HOLD_MAX_MS / 1000))
-      },
-      body: blob
-    });
-    const payload = await res.json().catch(() => null);
-    const transcript = String(payload?.transcript || "").trim();
-    return parseVoiceIntent(transcript, {
-      wakeSpell: String(state.spell || DEFAULT_SPELL)
-    });
-  } catch {
-    return { transcript: "", title: "", wakeDetected: false };
-  }
-}
-
-function escapeRegexLiteral(value) {
-  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function parseVoiceIntent(transcript, options = {}) {
-  const raw = String(transcript || "").trim();
-  const lower = raw.toLowerCase();
-  const wakeSpell = String(options?.wakeSpell || state.spell || DEFAULT_SPELL).trim() || DEFAULT_SPELL;
-  const wakePattern = new RegExp(`\\b${escapeRegexLiteral(wakeSpell.toLowerCase())}\\b`, "i");
-  const wakeDetected = wakePattern.test(lower) || raw.includes("ＣＳＳ");
-  let cleaned = raw
-    .replace(new RegExp(`\\b${escapeRegexLiteral(wakeSpell)}\\b`, "gi"), " ")
-    .replace(/[，,。.!！？]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  const patterns = [
-    /创作(?:一首)?(.+?)(?:歌曲|歌)\s*[《\"]?([^》\"]+)[》\"]?/,
-    /(?:歌曲|歌)\s*[《\"]?([^》\"]+)[》\"]?/,
-    /创作\s*[《\"]?([^》\"]+)[》\"]?/
-  ];
-  let title = "";
-  for (const p of patterns) {
-    const m = cleaned.match(p);
-    if (!m) continue;
-    title = (m[2] || m[1] || "").trim();
-    if (title) break;
-  }
-  if (!title && cleaned.length > 1) {
-    const stripped = cleaned
-      .replace(/^(创作|写|生成|请|帮我|给我|一首|歌曲|歌)\s*/g, "")
-      .replace(/\s*(创作|歌曲|歌)$/g, "")
-      .trim();
-    if (stripped && stripped.length <= 40) title = stripped;
-  }
-
-  const infer = {
-    genre: "",
-    mood: "",
-    instrument: "",
-    ambience: ""
-  };
-  if (/古风|国风|中国风/.test(raw)) infer.genre = "Chinese GuFeng";
-  if (/摇滚/.test(raw)) infer.genre = "Rock";
-  if (/爵士/.test(raw)) infer.genre = "Jazz";
-  if (/说唱|嘻哈/.test(raw)) infer.genre = "Hip Hop";
-
-  if (/悲|伤感|忧郁/.test(raw)) infer.mood = "Sad";
-  if (/欢快|开心|喜悦/.test(raw)) infer.mood = "Joyous";
-  if (/浪漫|深情/.test(raw)) infer.mood = "Romantic";
-
-  if (/古筝|琵琶/.test(raw)) infer.instrument = "Piano";
-  if (/吉他/.test(raw)) infer.instrument = "Guitar";
-  if (/小提琴/.test(raw)) infer.instrument = "Violin";
-  if (/鼓/.test(raw)) infer.instrument = "Drums";
-
-  if (/雨|雨夜/.test(raw)) infer.ambience = "Rain";
-  if (/海浪|海边/.test(raw)) infer.ambience = "Waves";
-  if (/森林|林间/.test(raw)) infer.ambience = "Forest";
-  if (/篝火/.test(raw)) infer.ambience = "Campfire";
-
-  return { transcript: raw, title, wakeDetected, infer };
-}
-
-function applyVoiceIntentToCreationState(intent) {
-  if (!intent || typeof intent !== "object") return;
-  if (intent.infer?.genre) creationState.selections.genre = intent.infer.genre;
-  if (intent.infer?.mood) creationState.selections.mood = intent.infer.mood;
-  if (intent.infer?.instrument) creationState.selections.instrument = intent.infer.instrument;
-  if (intent.infer?.ambience) creationState.selections.ambience = intent.infer.ambience;
-  if (intent.transcript) creationState.prompt = String(intent.transcript).slice(0, 500);
-  if (titleInput && intent.title) titleInput.value = intent.title;
-  syncCreationStateToLegacyInputs();
-  renderCreationConsole();
-}
-
-async function submitVoiceOrFallbackTitle(blobOrNull) {
-  let title = "";
-  let voice = { bytes: 0, mime: "audio/webm", mode: "single" };
-
-  if (blobOrNull && blobOrNull.size > 0) {
-    const intent = await deriveTitleFromVoice(blobOrNull).catch(() => ({ transcript: "", title: "", wakeDetected: false }));
-    if (intent?.transcript) {
-      micState.transcript = intent.transcript;
-      applyVoiceIntentToCreationState(intent);
-      if (intent.wakeDetected) {
-        showToast(loginCopy("Wake spell recognized.", "已识别唤醒咒语。"));
-      }
-    }
-    if (intent?.title && intent.title.trim()) {
-      title = intent.title.trim();
-    }
-    const ab = await blobOrNull.arrayBuffer().catch(() => null);
-    if (ab && ab.byteLength > 0) {
-      voice = {
-        bytes: blobOrNull.size,
-        mime: blobOrNull.type || "audio/webm",
-        b64: b64FromArrayBuffer(ab),
-        mode: "single"
-      };
-    }
-  }
-
-  if (!title) {
-    const seed = await runLyricsGenerate("music_video").catch(() => null);
-    if (isSongSeedQuotaExceeded(seed)) {
-      safeShowToast(getSongSeedQuotaExceededMessage(seed));
-    }
-    if (seed?.ok && !seed?.empty && seed?.data?.title) {
-      title = String(seed.data.title || "").trim();
-      if (titleInput && title) titleInput.value = title;
-    }
-  }
-  const finalTitle = title || state.title || "CSS MV";
-
-  const uiLang = (window.CSS_UI_LANG || document.documentElement.lang || "zh").toString();
-  const tier = (window.CSS_TIER || "dev").toString();
-  try {
-    const r = await createRun({ title: finalTitle, uiLang, tier, voice });
-    window.dispatchEvent(new CustomEvent("cssos:run_created", { detail: r }));
-    window.dispatchEvent(new CustomEvent("cssos:title_ready", { detail: { title: finalTitle, source: voice.bytes > 0 ? "voice" : "random" } }));
-    window.dispatchEvent(new CustomEvent("cssos:lyrics_start", { detail: { run_id: r.run_id, title: finalTitle, mode: "single" } }));
-    // Enter visible creation flow immediately after trigger, even when backend run is accepted.
-    startCreation(finalTitle, "");
-  } catch (_err) {
-    // Fallback to local generation path so user always enters creation flow.
-    startCreation(finalTitle, "");
-    showToast(loginCopy("Voice backend unavailable. Switched to local creation.", "语音后端暂不可用，已切换到本地创作。"));
-  }
-}
-
-const dockActionMap = {
+function buildBuiltinDockActionMap() {
+  return {
   mic: {
-    click: handleMicClick,
-    dblclick: () => startCreation(titleInput?.value?.trim(), lyricsInput?.value?.trim()),
-    longpress: handleMicLongPress
+    click: () => invokeMicClickAction("dock"),
+    dblclick: () => openCreationAdvancedSettingsPanel(),
+    longpress: () => triggerMic("dock")
   },
   foryou: {
     click: () => openPanel(foryouPanel),
     dblclick: () => startCreation(),
-    longpress: () => openPanel(lyricsPanel)
+    longpress: () => openPanelSettings(foryouPanel)
   },
   cssmv: {
     click: () => openPanel(cssmvPanel),
     dblclick: () => ensureWatchCentered(),
-    longpress: () => openPanel(videoPanel)
+    longpress: () => openPanelSettings(cssmvPanel)
   },
   lyrics: {
     click: () => openPanel(lyricsPanel),
     dblclick: refreshEngines,
-    longpress: () => openPanel(settingsPanel)
+    longpress: () => openPanelSettings(lyricsPanel)
   },
   music: {
     click: () => openPanel(musicPanel),
     dblclick: cycleMusicStyle,
-    longpress: cycleVoice
+    longpress: () => openPanelSettings(musicPanel)
   },
   video: {
     click: () => openPanel(videoPanel),
     dblclick: shuffleStoryboard,
-    longpress: () => ensureWatchCentered()
+    longpress: () => openPanelSettings(videoPanel)
   },
   watch: {
     click: () => ensureWatchCentered(),
     dblclick: () => ensureWatchCentered(),
-    longpress: () => openPanel(cssmvPanel)
+    longpress: () => openPanelSettings(watchPanel)
   },
   about: {
     click: () => openPanel(aboutPanel),
     dblclick: () => openAndMaximize(aboutPanel),
-    longpress: () => openPanel(settingsPanel)
+    longpress: () => openPanelSettings(aboutPanel)
   },
   api: {
     click: () => openPanel(apiPanel),
     dblclick: () => openAndMaximize(apiPanel),
-    longpress: () => openPanel(settingsPanel)
+    longpress: () => openPanelSettings(apiPanel)
   },
   reports: {
     click: () => openPanel(deliveryReportsPanel),
     dblclick: () => openAndMaximize(deliveryReportsPanel),
-    longpress: () => void loadDeliveryReport("briefing_pack", true)
+    longpress: () => openPanelSettings(deliveryReportsPanel)
   },
   "delivery-ops": {
     click: () => {
@@ -35251,17 +30154,17 @@ const dockActionMap = {
       openAndMaximize(deliveryOpsPanel);
       void loadDeliveryOps(true);
     },
-    longpress: () => void loadDeliveryOps(true)
+    longpress: () => openPanelSettings(deliveryOpsPanel)
   },
   login: {
     click: () => openPanel(loginPanel),
     dblclick: () => openAndMaximize(loginPanel),
-    longpress: () => openPanel(worksPanel)
+    longpress: () => openPanelSettings(loginPanel)
   },
   works: {
     click: () => openPanel(worksPanel),
     dblclick: () => openAndMaximize(worksPanel),
-    longpress: () => openPanel(loginPanel)
+    longpress: () => openPanelSettings(worksPanel)
   },
   seller: {
     click: () => {
@@ -35272,12 +30175,12 @@ const dockActionMap = {
       openAndMaximize(sellerPanel);
       void loadWatchCommerce(true).then(() => renderSellerPanel());
     },
-    longpress: () => void loadWatchCommerce(true).then(() => renderSellerPanel())
+    longpress: () => openPanelSettings(sellerPanel)
   },
   settings: {
     click: () => openPanel(settingsPanel),
-    dblclick: () => startCreation(titleInput.value.trim(), lyricsInput.value.trim()),
-    longpress: resetSettings
+    dblclick: () => globalThis.toggleDockSettingsPopoverModule?.(),
+    longpress: () => globalThis.toggleDockSettingsPopoverModule?.()
   },
   passkey: {
     click: () => {
@@ -35288,7 +30191,7 @@ const dockActionMap = {
       openPanel(profilePanel);
       void passkeyEnable();
     },
-    longpress: () => openPanel(profilePanel)
+    longpress: () => openPanelSettings(profilePanel)
   },
   profile: {
     click: () => openPanel(profilePanel),
@@ -35298,21 +30201,128 @@ const dockActionMap = {
   language: {
     click: () => {
       openPanel(languagePanel);
-      toggleLanguagePanelMode("content");
+      globalThis.toggleLanguagePanelMode?.("content");
     },
     dblclick: () => {
       openPanel(languagePanel);
-      toggleLanguagePanelMode();
+      globalThis.toggleLanguagePanelMode?.();
     },
-    longpress: cycleLanguageQuick
+    longpress: () => openPanelSettings(languagePanel)
   }
-};
+  };
+}
+
+function getDockActionMap() {
+  const builtin = buildBuiltinDockActionMap();
+  const externalSource =
+    globalThis.__cssosDockActionMap && typeof globalThis.__cssosDockActionMap === "object"
+      ? globalThis.__cssosDockActionMap
+      : {};
+  const external = Object.entries(externalSource).reduce((acc, [key, value]) => {
+    if (!value || typeof value !== "object") return acc;
+    if (
+      typeof value.click !== "function" &&
+      typeof value.dblclick !== "function" &&
+      typeof value.longpress !== "function"
+    ) {
+      return acc;
+    }
+    acc[key] = value;
+    return acc;
+  }, {});
+  const merged = { ...builtin, ...external };
+  globalThis.__cssosDockActionMap = merged;
+  globalThis.dockActionMap = merged;
+  return merged;
+}
+
+var dockActionMap = getDockActionMap();
 
 function handleDockAction(action, type) {
-  const mapping = dockActionMap[action];
-  if (!mapping) return;
+  const normalizedAction = String(action || "").trim().toLowerCase();
+  const actionMap = getDockActionMap();
+  const mapping = actionMap[normalizedAction];
+  const runBuiltinDockFallback = () => {
+    switch (normalizedAction) {
+      case "profile":
+        if (type === "dblclick") return openAndMaximize(profilePanel);
+        if (type === "longpress") return openPanel(loginPanel);
+        openPanel(profilePanel);
+        return true;
+      case "settings":
+        if (type === "dblclick" || type === "longpress") {
+          globalThis.toggleDockSettingsPopoverModule?.();
+          return true;
+        }
+        openPanel(settingsPanel);
+        return true;
+      case "language":
+        openPanel(languagePanel);
+        if (type === "dblclick") globalThis.toggleLanguagePanelMode?.();
+        else globalThis.toggleLanguagePanelMode?.("content");
+        return true;
+      case "watch":
+        ensureWatchCentered();
+        return true;
+      case "works":
+        if (type === "dblclick") openAndMaximize(worksPanel);
+        else openPanel(worksPanel);
+        return true;
+      case "mic": {
+        if (type === "dblclick" || type === "longpress") {
+          triggerMic();
+          return true;
+        }
+        invokeMicClickAction();
+        return true;
+      }
+      default:
+        return false;
+    }
+  };
+  if (!mapping) {
+    const fallbackRan = runBuiltinDockFallback();
+    if (fallbackRan !== false) {
+      setDockDebugStatus("Dock action", `Builtin fallback: ${normalizedAction || "unknown"}`, "Dock action map was missing, but builtin fallback handled the action.");
+      return;
+    }
+    setDockDebugStatus("Dock action", `No mapping: ${normalizedAction || "unknown"}`, "Dock action map did not contain the requested action.");
+    return;
+  }
   const handler = mapping[type];
-  if (handler) handler();
+  if (!handler) {
+    const fallbackRan = runBuiltinDockFallback();
+    if (fallbackRan !== false) {
+      setDockDebugStatus("Dock action", `Builtin fallback: ${normalizedAction || "unknown"}`, "Dock action handler was missing, but builtin fallback handled the action.");
+      return;
+    }
+    setDockDebugStatus("Dock action", `No handler: ${normalizedAction}/${type}`, "Dock action exists, but the requested event type has no handler.");
+    return;
+  }
+  setDockDebugStatus("Dock action", `Invoking ${normalizedAction}/${type}`, "Dock action handler is running.");
+  try {
+    handler();
+    setDockDebugStatus("Dock action", `Invoked ${normalizedAction}/${type}`, "Handler ran without throwing.");
+  } catch (error) {
+    setDockDebugStatus("Dock action", `Error in ${normalizedAction}/${type}`, summarizeError(error));
+    throw error;
+  }
+}
+
+function handleDockActionDirect(action, type = "click") {
+  const normalizedAction = String(action || "").trim().toLowerCase();
+  switch (normalizedAction) {
+    case "profile":
+    case "settings":
+    case "language":
+    case "watch":
+    case "works":
+    case "mic":
+      handleDockAction(normalizedAction, type);
+      return true;
+    default:
+      return false;
+  }
 }
 
 function handleGlobalAction(action) {
@@ -35336,7 +30346,7 @@ function handleGlobalAction(action) {
     return;
   }
   if (action === "mic") {
-    triggerMic();
+    invokeMicClickAction("logo");
   }
 }
 
@@ -35364,28 +30374,36 @@ function restoreDockOrder() {
   } catch {
     stored = [];
   }
-  if (!Array.isArray(stored) || !stored.length) return;
   const current = new Map(getDockItems().map((item) => [item.getAttribute("data-action") || "", item]));
-  stored.forEach((action) => {
-    const item = current.get(String(action || ""));
+  const normalizedStored = Array.isArray(stored)
+    ? stored.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  const orderedActions = normalizedStored.length
+    ? [...new Set([...normalizedStored, ...DOCK_DEFAULT_ORDER, ...Array.from(current.keys())])]
+    : [...new Set([...DOCK_DEFAULT_ORDER, ...Array.from(current.keys())])];
+  orderedActions.forEach((action) => {
+    const item = current.get(action);
     if (item) dock.appendChild(item);
   });
-  getDockItems().forEach((item) => {
-    if (item.parentElement === dock) return;
-    dock.appendChild(item);
-  });
+  if (!normalizedStored.length) saveDockOrder();
 }
 
 function attachDockReorder() {
   if (!(dock instanceof Element)) return;
+  if (dock.dataset.reorderBound === "true") return;
+  dock.dataset.reorderBound = "true";
   const reorderItems = () => getDockItems().forEach((item) => {
     item.draggable = true;
+    item.style.webkitUserDrag = "element";
     item.addEventListener("dragstart", (event) => {
       dockDraggingAction = item.getAttribute("data-action") || "";
       dockSuppressUntil = Date.now() + 250;
       item.classList.add("is-dragging");
       event.dataTransfer?.setData("text/plain", dockDraggingAction);
       if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+    });
+    item.addEventListener("dragenter", (event) => {
+      event.preventDefault();
     });
     item.addEventListener("dragover", (event) => {
       event.preventDefault();
@@ -35411,6 +30429,62 @@ function attachDockReorder() {
 }
 
 let dockDockPreviewEl = null;
+var dockSettingsPopover = globalThis.__cssosDockSettingsPopover || null;
+
+function watchArchiveChecklistState(passed) {
+  return passed ? dashboardCopy("ready", "就绪") : dashboardCopy("hold", "暂缓");
+}
+
+function getVoiceSeedModuleFn(name) {
+  const direct = globalThis[`__cssos${name}`];
+  if (typeof direct === "function") return direct;
+  const legacy = globalThis[name];
+  if (typeof legacy === "function" && legacy !== bindHoldTargets && legacy !== renderMicCaptureStatus && legacy !== forceResetHoldRing && legacy !== setLongpressGuard && legacy !== buildMicDebugBoardMarkup) {
+    return legacy;
+  }
+  return null;
+}
+
+function invokeMicClickAction(origin = "logo") {
+  showCreationSurface(origin);
+  return triggerMic(origin);
+}
+
+function bindHoldTargets() {
+  const fn = getVoiceSeedModuleFn("BindHoldTargets");
+  if (fn) return fn();
+}
+
+function renderMicCaptureStatus() {
+  const fn = getVoiceSeedModuleFn("RenderMicCaptureStatus");
+  if (fn) return fn();
+}
+
+function forceResetHoldRing() {
+  const fn = getVoiceSeedModuleFn("ForceResetHoldRing");
+  if (fn) return fn();
+}
+
+function setLongpressGuard(on) {
+  const fn = getVoiceSeedModuleFn("SetLongpressGuard");
+  if (fn) return fn(on);
+  document.body.classList.toggle("longpress-guard", !!on);
+}
+
+function buildMicDebugBoardMarkup(micSettings) {
+  const fn = getVoiceSeedModuleFn("BuildMicDebugBoardMarkup");
+  if (fn) return fn(micSettings);
+  return "";
+}
+
+globalThis.bindHoldTargets = globalThis.bindHoldTargets || bindHoldTargets;
+globalThis.renderMicCaptureStatus = globalThis.renderMicCaptureStatus || renderMicCaptureStatus;
+globalThis.forceResetHoldRing = globalThis.forceResetHoldRing || forceResetHoldRing;
+globalThis.setLongpressGuard = globalThis.setLongpressGuard || setLongpressGuard;
+globalThis.buildMicDebugBoardMarkup =
+  globalThis.buildMicDebugBoardMarkup || buildMicDebugBoardMarkup;
+
+bindCriticalStageInteractionsImmediately();
 
 function ensureDockPreviewEl() {
   if (dockDockPreviewEl) return dockDockPreviewEl;
@@ -35447,9 +30521,7 @@ function resolveDockPositionFromPointer(clientX, clientY) {
 
 function updateDockDragFollow(clientX, clientY) {
   if (!(dock instanceof HTMLElement)) return;
-  const dx = (clientX - window.innerWidth / 2) * 0.03;
-  const dy = (clientY - window.innerHeight / 2) * 0.03;
-  dock.style.translate = `${Math.max(-18, Math.min(18, dx))}px ${Math.max(-18, Math.min(18, dy))}px`;
+  dock.style.translate = "0 0";
 }
 
 function resetDockDragFollow() {
@@ -35518,47 +30590,41 @@ function attachDockDocking() {
 }
 
 function attachDockEvents() {
-  document.querySelectorAll(".dock-item").forEach((item) => {
-    if (item.dataset.hold === "mic") {
-      item.tabIndex = 0;
-      return;
-    }
+  if (!(dock instanceof HTMLElement)) return;
+  if (dock.dataset.eventsBound === "true") return;
+  dock.dataset.eventsBound = "true";
+  document.addEventListener("pointerdown", (event) => {
+    if (!dockSettingsPopover || dockSettingsPopover.hidden) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest(".dock-settings-popover")) return;
+    if (target.closest('.dock-item[data-action="settings"]')) return;
+    globalThis.hideDockSettingsPopoverModule?.();
+  });
+  window.addEventListener("resize", () => {
+    globalThis.positionDockSettingsPopoverModule?.();
+  });
+  dock.querySelectorAll(".dock-item").forEach((item) => {
     const action = item.dataset.action;
     item.tabIndex = 0;
     let suppressClick = false;
-    let longPressId;
+    let longPressId = 0;
+    let lastPointerUpAt = 0;
+    let pointerDownAt = 0;
 
     const triggerAction = (type) => {
       handleDockAction(action, type);
-      item.classList.add("active");
-      setTimeout(() => item.classList.remove("active"), 600);
     };
-
-    item.addEventListener("click", () => {
-      if (Date.now() < dockSuppressUntil || item.classList.contains("is-dragging")) return;
-      if (suppressClick) {
-        suppressClick = false;
-        return;
-      }
-      clearTimeout(dockClickTimers.get(action));
-      const timer = setTimeout(() => triggerAction("click"), CLICK_DELAY);
-      dockClickTimers.set(action, timer);
-    });
-
-    item.addEventListener("dblclick", () => {
-      if (Date.now() < dockSuppressUntil || item.classList.contains("is-dragging")) return;
-      if (suppressClick) {
-        suppressClick = false;
-        return;
-      }
-      clearTimeout(dockClickTimers.get(action));
-      triggerAction("dblclick");
-    });
 
     item.addEventListener("pointerdown", () => {
       if (Date.now() < dockSuppressUntil) return;
       suppressClick = false;
+      pointerDownAt = Date.now();
       clearTimeout(longPressId);
+      if (action === "mic") {
+        setLongpressGuard(false);
+        return;
+      }
       setLongpressGuard(true);
       longPressId = setTimeout(() => {
         suppressClick = true;
@@ -35569,16 +30635,56 @@ function attachDockEvents() {
     item.addEventListener("pointerup", () => {
       clearTimeout(longPressId);
       setLongpressGuard(false);
+      if (Date.now() < dockSuppressUntil || item.classList.contains("is-dragging")) return;
+      const heldLongEnough = action === "mic" && pointerDownAt && Date.now() - pointerDownAt >= LONGPRESS_MS;
+      pointerDownAt = 0;
+      if (suppressClick) {
+        suppressClick = false;
+        lastPointerUpAt = 0;
+        clearTimeout(dockClickTimers.get(action));
+        return;
+      }
+      if (heldLongEnough) {
+        lastPointerUpAt = 0;
+        clearTimeout(dockClickTimers.get(action));
+        return;
+      }
+      const now = Date.now();
+      clearTimeout(dockClickTimers.get(action));
+      if (lastPointerUpAt && now - lastPointerUpAt <= CLICK_DELAY) {
+        lastPointerUpAt = 0;
+        triggerAction("dblclick");
+        return;
+      }
+      lastPointerUpAt = now;
+      const timer = setTimeout(() => {
+        if (lastPointerUpAt !== now) return;
+        lastPointerUpAt = 0;
+        triggerAction("click");
+      }, CLICK_DELAY);
+      dockClickTimers.set(action, timer);
     });
 
     item.addEventListener("pointerleave", () => {
       clearTimeout(longPressId);
       setLongpressGuard(false);
+      pointerDownAt = 0;
     });
 
     item.addEventListener("pointercancel", () => {
       clearTimeout(longPressId);
       setLongpressGuard(false);
+      pointerDownAt = 0;
+    });
+
+    item.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+
+    item.addEventListener("dblclick", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
     });
   });
 }
@@ -35599,16 +30705,33 @@ function attachGlobalActionDispatcher() {
 function attachPanelDrag() {
   document.querySelectorAll(".panel").forEach((panel) => {
     const handle =
-      panel.querySelector(".panel-bar") || panel.querySelector("[data-drag-handle]");
+      (panel === logoPanel ? panel.querySelector("[data-drag-handle]") : null) ||
+      panel.querySelector(".panel-bar") ||
+      panel.querySelector("[data-drag-handle]");
     if (!handle) return;
     let offsetX = 0;
     let offsetY = 0;
     let dragging = false;
+    let pending = false;
+    let pendingPointerId = null;
+    let startX = 0;
+    let startY = 0;
 
     handle.addEventListener("pointerdown", (event) => {
       if (event.target.closest(".panel-actions")) return;
       if (event.target.closest("button")) return;
+      if (event.target.closest("[data-hold='mic']")) return;
       if (panel.classList.contains("panel-locked")) return;
+      if (panel === logoPanel) {
+        pending = true;
+        pendingPointerId = event.pointerId;
+        startX = event.clientX;
+        startY = event.clientY;
+        panel.dataset.logoGestureDragging = "false";
+        forceResetHoldRing();
+        setLongpressGuard(false);
+        return;
+      }
       panel.dataset.userMoved = "true";
       panel.classList.remove("showcase-panel");
       if (panel.dataset.maximized === "true") {
@@ -35625,6 +30748,26 @@ function attachPanelDrag() {
     });
 
     handle.addEventListener("pointermove", (event) => {
+      if (panel === logoPanel && pending && !dragging) {
+        if (pendingPointerId !== event.pointerId) return;
+        const distance = Math.hypot(event.clientX - startX, event.clientY - startY);
+        if (distance < 10) return;
+        pending = false;
+        panel.dataset.userMoved = "true";
+        panel.classList.remove("showcase-panel");
+        if (panel.dataset.maximized === "true") {
+          restorePanel(panel);
+        }
+        dragging = true;
+        panel.dataset.logoGestureDragging = "true";
+        panel.classList.add("dragging");
+        focusPanel(panel);
+        const rect = panel.getBoundingClientRect();
+        offsetX = startX - rect.left;
+        offsetY = startY - rect.top;
+        handle.setPointerCapture(event.pointerId);
+        event.preventDefault();
+      }
       if (!dragging) return;
       spawnDragTrail(event);
       const proposedLeft = event.clientX - offsetX;
@@ -35633,9 +30776,19 @@ function attachPanelDrag() {
     });
 
     const stopDrag = (event) => {
+      if (panel === logoPanel && !dragging) {
+        pending = false;
+        pendingPointerId = null;
+        panel.dataset.logoGestureDragging = "false";
+        return;
+      }
       dragging = false;
+      pending = false;
+      pendingPointerId = null;
+      panel.dataset.logoGestureDragging = "false";
       panel.classList.remove("dragging");
-      handle.releasePointerCapture(event.pointerId);
+      handle.releasePointerCapture?.(event.pointerId);
+      persistPanelLayout(panel);
     };
 
     handle.addEventListener("pointerup", stopDrag);
@@ -35683,14 +30836,15 @@ function attachResize() {
     handle.addEventListener("pointermove", (event) => {
       if (!resizing) return;
       const rect = panel.getBoundingClientRect();
-      const maxWidth = Math.max(MIN_PANEL_WIDTH, window.innerWidth - rect.left);
-      const maxHeight = Math.max(MIN_PANEL_HEIGHT, window.innerHeight - rect.top);
+      const sizeLimits = getPanelSizeConstraints(panel);
+      const maxWidth = Math.max(sizeLimits.minWidth, Math.min(sizeLimits.maxWidth, window.innerWidth - rect.left));
+      const maxHeight = Math.max(sizeLimits.minHeight, Math.min(sizeLimits.maxHeight, window.innerHeight - rect.top));
       const width = Math.min(
-        Math.max(MIN_PANEL_WIDTH, event.clientX - rect.left),
+        Math.max(sizeLimits.minWidth, event.clientX - rect.left),
         maxWidth
       );
       const height = Math.min(
-        Math.max(MIN_PANEL_HEIGHT, event.clientY - rect.top),
+        Math.max(sizeLimits.minHeight, event.clientY - rect.top),
         maxHeight
       );
       panel.style.width = `${width}px`;
@@ -35701,6 +30855,7 @@ function attachResize() {
       resizing = false;
       panel.classList.remove("dragging");
       handle.releasePointerCapture(event.pointerId);
+      persistPanelLayout(panel);
     };
 
     handle.addEventListener("pointerup", stopResize);
@@ -35717,27 +30872,116 @@ function attachPanelFocus() {
 }
 
 function attachLogoPanelActions() {
-  if (!logoPanel) return;
-  const mirror = logoPanel.querySelector(".mirror");
-  if (!mirror) return;
+  if (!logoPanel || logoPanel.dataset.logoActionsBound === "true") return;
+  const surface = logoPanel.querySelector(".mirror-stage");
+  if (!(surface instanceof HTMLElement)) return;
+  logoPanel.dataset.logoActionsBound = "true";
   const cancelMirrorDefault = (event) => {
     event.preventDefault();
   };
   ["selectstart", "contextmenu", "dragstart"].forEach((eventName) => {
-    mirror.addEventListener(eventName, cancelMirrorDefault);
+    surface.addEventListener(eventName, cancelMirrorDefault);
   });
-  mirror.addEventListener("dblclick", (event) => {
+
+  const gesture = {
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    startedAt: 0,
+    moved: false,
+    holdTriggered: false,
+    holdTimer: 0
+  };
+
+  const resetGesture = () => {
+    if (gesture.holdTimer) clearTimeout(gesture.holdTimer);
+    gesture.pointerId = null;
+    gesture.startX = 0;
+    gesture.startY = 0;
+    gesture.startedAt = 0;
+    gesture.moved = false;
+    gesture.holdTriggered = false;
+    gesture.holdTimer = 0;
+  };
+
+  surface.addEventListener("pointerdown", (event) => {
+    if (event.button !== undefined && event.button !== 0) return;
     if (event.target.closest(".panel-settings")) return;
-    if (
-      event.target.closest("button") ||
-      event.target.closest("input") ||
-      event.target.closest("select") ||
-      event.target.closest("textarea")
-    ) {
+    gesture.pointerId = event.pointerId;
+    gesture.startX = event.clientX;
+    gesture.startY = event.clientY;
+    gesture.startedAt = performance.now();
+    gesture.moved = false;
+    gesture.holdTriggered = false;
+    gesture.holdTimer = window.setTimeout(() => {
+      if (gesture.moved) return;
+      gesture.holdTriggered = true;
+      window.dispatchEvent(new CustomEvent("cssos:mic_hold_start", { detail: { origin: "logo" } }));
+    }, LONGPRESS_MS);
+  });
+
+  surface.addEventListener("pointermove", (event) => {
+    if (gesture.pointerId !== event.pointerId || gesture.moved) return;
+    if (Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) < 10) return;
+    gesture.moved = true;
+    if (gesture.holdTimer) clearTimeout(gesture.holdTimer);
+    if (gesture.holdTriggered) {
+      forceResetHoldRing();
+      setLongpressGuard(false);
+    }
+  });
+
+  const finishGesture = (event, reason) => {
+    if (gesture.pointerId !== event.pointerId) return;
+    if (gesture.holdTimer) clearTimeout(gesture.holdTimer);
+    const dragWon =
+      gesture.moved ||
+      logoPanel?.dataset?.logoGestureDragging === "true" ||
+      logoPanel?.classList?.contains("dragging");
+    if (gesture.holdTriggered && !dragWon) {
+      event.preventDefault();
+      event.stopPropagation();
+      window.dispatchEvent(
+        new CustomEvent("cssos:mic_hold_commit", {
+          detail: {
+            elapsed_ms: Math.round(performance.now() - gesture.startedAt),
+            origin: "logo",
+            reason
+          }
+        })
+      );
+    }
+    resetGesture();
+  };
+
+  surface.addEventListener("pointerup", (event) => finishGesture(event, "release"));
+  surface.addEventListener("pointercancel", (event) => finishGesture(event, "cancel"));
+
+  surface.addEventListener("click", (event) => {
+    if (gesture.moved || logoPanel?.dataset?.logoGestureDragging === "true") return;
+    if (Date.now() < Number(globalThis.__cssosMicHold?.suppressClickUntil || 0)) {
+      event.preventDefault();
+      event.stopPropagation();
       return;
     }
     event.preventDefault();
-    startCreation(titleInput?.value?.trim(), lyricsInput?.value?.trim());
+    event.stopPropagation();
+    invokeMicClickAction("logo");
+  });
+
+  surface.addEventListener("dblclick", (event) => {
+    if (gesture.moved || logoPanel?.dataset?.logoGestureDragging === "true") return;
+    event.preventDefault();
+    event.stopPropagation();
+    openCreationAdvancedSettingsPanel();
+  });
+}
+
+function normalizeStaticMediaAssets() {
+  document.querySelectorAll('img.mirror-img[src], img.dock-mic-img[src]').forEach((img) => {
+    const rawSrc = String(img.getAttribute("src") || "").trim();
+    if (!rawSrc || /^(?:[a-z]+:|\/\/|data:)/i.test(rawSrc)) return;
+    img.src = resolvePublicAssetUrl(rawSrc);
   });
 }
 
@@ -35745,20 +30989,13 @@ function minimizeToDock(panel) {
   panel.classList.add("hidden");
   panel.dataset.minimized = "true";
   if (panel === watchPanel) {
-    setWatchCenterStage(false);
-    pauseWatchVideo();
-    if (watchVideo) {
-      watchVideo.removeAttribute("src");
-      watchVideo.load?.();
-    }
+    minimizeWatchPanelShellModule();
   }
   updateDockVisibility();
   const action = dockByPanel[panel.id];
   if (!action) return;
   const dockItem = document.querySelector(`.dock-item[data-action=\"${action}\"]`);
   if (!dockItem) return;
-  dockItem.classList.add("active");
-  setTimeout(() => dockItem.classList.remove("active"), 600);
 }
 
 function togglePanelLock(panel) {
@@ -35783,7 +31020,7 @@ function togglePanelCollapse(panel) {
       panel.classList.add("maximized");
     }
     panel.dataset.collapseHeight = "";
-    if (panel === watchPanel) resumeWatchVideo();
+    if (panel === watchPanel) syncWatchPanelCollapseShellModule(true);
     return;
   }
   panel.dataset.collapseHeight = panel.style.height || "";
@@ -35796,69 +31033,33 @@ function togglePanelCollapse(panel) {
   }
   panel.classList.add("panel-collapsed");
   panel.style.height = `${bar.offsetHeight}px`;
-  if (panel === watchPanel) pauseWatchVideo();
-}
-
-function togglePanelSettings(panel) {
-  const willOpen = !panel.classList.contains("show-settings");
-  if (willOpen && typeof panel.__refreshSettings === "function") {
-    panel.__refreshSettings();
-  }
-  panel.classList.toggle("show-settings");
-  focusPanel(panel);
-}
-
-function attachPanelActions() {
-  document.querySelectorAll(".panel").forEach((panel) => {
-    panel.querySelectorAll(".panel-actions .icon-btn").forEach((button) => {
-      const action =
-        button.dataset.action || button.getAttribute("aria-label") || "";
-      button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        if (action === "settings") togglePanelSettings(panel);
-        if (action === "minimize") togglePanelCollapse(panel);
-        if (action === "lock") togglePanelLock(panel);
-        if (action === "close") minimizeToDock(panel);
-        if (action === "profile.open") openPanel(profilePanel);
-        if (action === "profile.close") minimizeToDock(profilePanel);
-      });
-    });
-  });
+  if (panel === watchPanel) syncWatchPanelCollapseShellModule(false);
 }
 
 function buildPanelSettings(panel) {
   if (panel.querySelector(".panel-settings")) return;
-
-  const titleEl = panel.querySelector(".panel-title");
-  const isLogoPanel = panel.id === "logo-panel";
-  const isForyouPanel = panel.id === "foryou-panel";
-  const isWatchPanel = panel.id === "watch-panel";
-  const isLyricsPanel = panel.id === "lyrics-panel";
-  const isMusicPanel = panel.id === "music-panel";
-  const isVideoPanel = panel.id === "video-panel";
-  const rect = panel.getBoundingClientRect();
-  const computed = window.getComputedStyle(panel);
-  const blurMatch =
-    (typeof computed.backdropFilter === "string"
-      ? computed.backdropFilter.match(/blur\\((\\d+(?:\\.\\d+)?)px\\)/)
-      : null) ||
-    (typeof computed.webkitBackdropFilter === "string"
-      ? computed.webkitBackdropFilter.match(/blur\\((\\d+(?:\\.\\d+)?)px\\)/)
-      : null);
-  const blur = blurMatch ? parseFloat(blurMatch[1]) : 18;
-  const width = Math.round(rect.width);
-  const height = Math.round(rect.height);
-  const opacity = parseFloat(panel.dataset.panelOpacity || "0");
-  const accent = panel.style.getPropertyValue("--panel-accent") || "";
-
-  panel.dataset.panelBlur = panel.dataset.panelBlur || `${blur}`;
-  panel.dataset.panelWidth = panel.dataset.panelWidth || `${width}`;
-  panel.dataset.panelHeight = panel.dataset.panelHeight || `${height}`;
-  panel.dataset.panelOpacity = panel.dataset.panelOpacity || `${opacity}`;
-  panel.dataset.panelAccent = panel.dataset.panelAccent || accent;
-  if (isForyouPanel) {
-    panel.dataset.previewMode = panel.dataset.previewMode || getForyouPreviewMode();
-  }
+  const context = buildPanelSettingsContext(panel);
+  const {
+    titleEl,
+    isLogoPanel,
+    isForyouPanel,
+    isWatchPanel,
+    isLyricsPanel,
+    isMusicPanel,
+    isVideoPanel,
+    isAboutPanel,
+    isApiPanel,
+    isDeliveryReportsPanel,
+    isDeliveryOpsPanel,
+    isCssmvPanel,
+    isLanguagePanel,
+    isLoginPanel,
+    isProfilePanel,
+    isWorksPanel,
+    isSellerPanel,
+    sizeLimits
+  } = context;
+  primePanelSettingsDataset(panel, context);
 
   const settings = document.createElement("div");
   settings.className = "panel-settings";
@@ -35874,6 +31075,325 @@ function buildPanelSettings(panel) {
       <label>
         ${t("settings.panel.incantation")}
         <input type="text" data-setting="spell" />
+      </label>
+      <label>
+        ${loginCopy("Subtitle", "副标题")}
+        <input type="text" data-setting="logo-subtitle" />
+      </label>
+      <label>
+        ${loginCopy("Slogan template", "口号模板")}
+        <input type="text" data-setting="logo-slogan-template" />
+      </label>
+      <label>
+        ${loginCopy("Mirror size (px)", "魔镜尺寸（px）")}
+        <input type="range" min="420" max="880" step="10" data-setting="logo-size" />
+      </label>
+      <label>
+        ${loginCopy("Halo inset (%)", "遮罩圈内缩（%）")}
+        <input type="range" min="0" max="28" step="1" data-setting="logo-mask-inset" />
+      </label>
+      <label>
+        ${loginCopy("Flash ring size", "闪动圈大小")}
+        <input type="range" min="0.82" max="1.12" step="0.01" data-setting="logo-spellcast-ring-scale" />
+        <span class="panel-setting-readout" data-setting-readout="logo-spellcast-ring-scale"></span>
+      </label>
+      <label>
+        ${loginCopy("Flash glow strength", "闪动光晕强度")}
+        <input type="range" min="0" max="1" step="0.02" data-setting="logo-spellcast-glow-scale" />
+        <span class="panel-setting-readout" data-setting-readout="logo-spellcast-glow-scale"></span>
+      </label>
+      <label>
+        ${loginCopy("Flash ring layer", "闪动圈层级")}
+        <select data-setting="logo-spellcast-layer">
+          <option value="behind">${loginCopy("Behind mirror", "在魔镜后面")}</option>
+          <option value="front">${loginCopy("In front of mirror", "在魔镜前面")}</option>
+        </select>
+      </label>
+      <label>
+        ${loginCopy("Green ring size", "绿色闭环大小")}
+        <input type="range" min="0.82" max="1.12" step="0.01" data-setting="logo-hold-ring-scale" />
+        <span class="panel-setting-readout" data-setting-readout="logo-hold-ring-scale"></span>
+      </label>
+      <label>
+        ${loginCopy("Green ring layer", "绿色闭环层级")}
+        <select data-setting="logo-hold-ring-layer">
+          <option value="behind">${loginCopy("Behind mirror", "在魔镜后面")}</option>
+          <option value="front">${loginCopy("In front of mirror", "在魔镜前面")}</option>
+        </select>
+      </label>
+      <div class="panel-settings-inline-actions">
+        <button type="button" class="cta ghost tiny" data-setting="logo-align-gray-ring">${loginCopy("Align To Gray Ring", "一键贴灰圈")}</button>
+        <button type="button" class="cta ghost tiny" data-setting="logo-align-gray-ring-minimal">${loginCopy("Align + Minimal Glow", "贴灰圈 + 最小光晕")}</button>
+        <button type="button" class="cta ghost tiny" data-setting="logo-save-ring-preset">${loginCopy("Save As Logo Preset", "保存为 Logo 预设")}</button>
+      </div>
+      <label>
+        ${loginCopy("Saved logo presets", "已保存的 Logo 预设")}
+        <select data-setting="logo-ring-preset-select"></select>
+      </label>
+      <div class="panel-settings-inline-actions">
+        <button type="button" class="cta ghost tiny" data-setting="logo-load-ring-preset">${loginCopy("Load Logo Preset", "载入 Logo 预设")}</button>
+        <button type="button" class="cta ghost tiny" data-setting="logo-delete-ring-preset">${loginCopy("Delete Preset", "删除预设")}</button>
+      </div>
+      <div class="panel-settings-title">${loginCopy("Voice Trigger", "语音触发")}</div>
+      <label>
+        ${loginCopy("Long press threshold (ms)", "长按阈值（毫秒）")}
+        <input type="range" min="250" max="3000" step="50" data-setting="mic-longpress-ms" />
+      </label>
+      <label>
+        ${loginCopy("Voice capture length", "语音截取长度")}
+        <select data-setting="mic-max-hold-sec">
+          ${[3, 5, 10, 15, 30].map((sec) => `<option value="${sec}">${loginCopy(`${sec} sec`, `${sec} 秒`)}</option>`).join("")}
+        </select>
+      </label>
+      <label>
+        ${loginCopy("Logo surface mode", "Logo 展示模式")}
+        <select data-setting="mic-logo-surface-mode">
+          <option value="showcase">${loginCopy("Showcase panels", "展示多面板")}</option>
+          <option value="mv_only">${loginCopy("Direct MV", "直达 MV")}</option>
+        </select>
+      </label>
+      <label>
+        ${loginCopy("Dock mic surface mode", "Dock 话筒展示模式")}
+        <select data-setting="mic-dock-surface-mode">
+          <option value="showcase">${loginCopy("Showcase panels", "展示多面板")}</option>
+          <option value="mv_only">${loginCopy("Direct MV", "直达 MV")}</option>
+        </select>
+      </label>
+      <label>
+        ${loginCopy("Settings submit surface mode", "设置提交展示模式")}
+        <select data-setting="mic-settings-surface-mode">
+          <option value="showcase">${loginCopy("Showcase panels", "展示多面板")}</option>
+          <option value="mv_only">${loginCopy("Direct MV", "直达 MV")}</option>
+        </select>
+      </label>
+      ${buildMicDebugBoardMarkup()}
+    `
+        : ""
+    }
+    ${
+      isCssmvPanel
+        ? `
+      <label>
+        ${loginCopy("Default focus", "默认聚焦")}
+        <select data-setting="cssmv-default-section">
+          <option value="digest">${loginCopy("Digest", "摘要")}</option>
+          <option value="governance">${loginCopy("Governance", "治理")}</option>
+          <option value="timeline">${loginCopy("Timeline", "时间线")}</option>
+        </select>
+      </label>
+      <label class="advanced-panel-check">
+        <input type="checkbox" data-setting="cssmv-auto-refresh" />
+        <span>${loginCopy("Refresh digest on open", "打开时刷新摘要")}</span>
+      </label>
+    `
+        : ""
+    }
+    ${
+      isLanguagePanel
+        ? `
+      <label>
+        ${loginCopy("Default mode", "默认模式")}
+        <select data-setting="language-default-mode">
+          <option value="content">${loginCopy("Content", "内容")}</option>
+          <option value="settings">${loginCopy("Settings", "设置")}</option>
+        </select>
+      </label>
+      <label class="advanced-panel-check">
+        <input type="checkbox" data-setting="language-show-more" />
+        <span>${loginCopy("Expand more languages by default", "默认展开更多语言")}</span>
+      </label>
+    `
+        : ""
+    }
+    ${
+      isLoginPanel
+        ? `
+      <label>
+        ${loginCopy("Login panel density", "登录面板密度")}
+        <select data-setting="login-panel-density">
+          <option value="full">${loginCopy("Full", "完整")}</option>
+          <option value="compact">${loginCopy("Compact", "紧凑")}</option>
+        </select>
+      </label>
+      <label>
+        ${loginCopy("Preferred provider", "偏好登录方式")}
+        <select data-setting="login-preferred-provider">
+          <option value="google">Google</option>
+          <option value="github">GitHub</option>
+          <option value="x">X</option>
+          <option value="bsky">Bluesky</option>
+          <option value="passkey">Passkey</option>
+        </select>
+      </label>
+      <label class="advanced-panel-check">
+        <input type="checkbox" data-setting="login-show-logout" />
+        <span>${loginCopy("Show logout button", "显示退出按钮")}</span>
+      </label>
+      <label>
+        ${loginCopy("Remember session window", "会话保留时长")}
+        <select data-setting="login-session-days">
+          <option value="30">${loginCopy("30 days", "30 天")}</option>
+          <option value="90">${loginCopy("90 days", "90 天")}</option>
+          <option value="180">${loginCopy("180 days", "180 天")}</option>
+          <option value="365">${loginCopy("365 days", "365 天")}</option>
+        </select>
+      </label>
+    `
+        : ""
+    }
+    ${
+      isProfilePanel
+        ? `
+      <label>
+        ${loginCopy("Profile density", "个人资料密度")}
+        <select data-setting="profile-panel-density">
+          <option value="full">${loginCopy("Full", "完整")}</option>
+          <option value="compact">${loginCopy("Compact", "紧凑")}</option>
+        </select>
+      </label>
+      <label>
+        ${loginCopy("Profile note", "个人备注")}
+        <input type="text" data-setting="profile-note" maxlength="120" />
+      </label>
+      <label>
+        ${loginCopy("Default jump button", "默认跳转按钮")}
+        <select data-setting="profile-default-nav">
+          <option value="works">${loginCopy("Works", "作品")}</option>
+          <option value="api">API</option>
+        </select>
+      </label>
+    `
+        : ""
+    }
+    ${
+      isWorksPanel
+        ? `
+      <label>
+        ${loginCopy("Default focus", "默认聚焦")}
+        <select data-setting="works-focus-section">
+          <option value="works">${loginCopy("Works", "作品")}</option>
+          <option value="comments">${loginCopy("Comments", "评论")}</option>
+          <option value="monetization">${loginCopy("Monetization", "变现")}</option>
+        </select>
+      </label>
+      <label class="advanced-panel-check">
+        <input type="checkbox" data-setting="works-auto-load" />
+        <span>${loginCopy("Refresh works on open", "打开时刷新作品")}</span>
+      </label>
+      <label class="advanced-panel-check">
+        <input type="checkbox" data-setting="works-search-enabled" />
+        <span>${loginCopy("Enable pull-down search", "启用下拉搜索")}</span>
+      </label>
+      <label>
+        ${loginCopy("Search result limit", "搜索结果条数")}
+        <input type="number" min="4" max="48" step="1" data-setting="works-search-limit" />
+      </label>
+      <label>
+        ${loginCopy("Default filter", "默认过滤")}
+        <select data-setting="works-default-filter">
+          <option value="all">${loginCopy("All", "全部")}</option>
+          <option value="single">${loginCopy("Single", "单曲")}</option>
+          <option value="triptych">${loginCopy("Triptych", "三部曲")}</option>
+          <option value="opera">${loginCopy("Opera", "歌剧")}</option>
+          <option value="live">${loginCopy("Live", "上架")}</option>
+          <option value="hidden">${loginCopy("Hidden", "下架")}</option>
+        </select>
+      </label>
+      <label>
+        ${loginCopy("Default sort", "默认排序")}
+        <select data-setting="works-default-sort">
+          <option value="newest">${loginCopy("Newest", "最新")}</option>
+          <option value="oldest">${loginCopy("Oldest", "最早")}</option>
+          <option value="title">${loginCopy("Title", "标题")}</option>
+          <option value="type">${loginCopy("Type", "类型")}</option>
+        </select>
+      </label>
+    `
+        : ""
+    }
+    ${
+      isSellerPanel
+        ? `
+      <label>
+        ${loginCopy("Default lane", "默认车道")}
+        <select data-setting="seller-focus-lane">
+          <option value="orders">${loginCopy("Orders", "订单")}</option>
+          <option value="income">${loginCopy("Income", "收入")}</option>
+        </select>
+      </label>
+      <label class="advanced-panel-check">
+        <input type="checkbox" data-setting="seller-auto-refresh" />
+        <span>${loginCopy("Refresh seller data on open", "打开时刷新经营数据")}</span>
+      </label>
+      <label>
+        ${loginCopy("Order filter", "订单过滤")}
+        <select data-setting="seller-order-filter">
+          <option value="all">${loginCopy("All", "全部")}</option>
+          <option value="paid">${loginCopy("Paid", "已支付")}</option>
+          <option value="pending">${loginCopy("Pending", "待处理")}</option>
+        </select>
+      </label>
+      <label>
+        ${loginCopy("Ledger item limit", "收入条目上限")}
+        <input type="number" min="4" max="40" step="1" data-setting="seller-ledger-limit" />
+      </label>
+    `
+        : ""
+    }
+    ${
+      isAboutPanel
+        ? `
+      <label>
+        ${loginCopy("Default tab", "默认标签")}
+        <select data-setting="about-default-tab">
+          <option value="whitepaper">${loginCopy("Whitepaper", "白皮书")}</option>
+          <option value="about">${loginCopy("About", "关于")}</option>
+          <option value="contact">${loginCopy("Contact", "联系")}</option>
+        </select>
+      </label>
+      <label>
+        ${loginCopy("Section density", "内容密度")}
+        <select data-setting="about-density">
+          <option value="relaxed">${loginCopy("Relaxed", "舒展")}</option>
+          <option value="compact">${loginCopy("Compact", "紧凑")}</option>
+        </select>
+      </label>
+    `
+        : ""
+    }
+    ${
+      isApiPanel
+        ? `
+      <label>
+        ${loginCopy("Billing view", "计费视图")}
+        <select data-setting="api-billing-mode">
+          <option value="full">${loginCopy("Full", "完整")}</option>
+          <option value="compact">${loginCopy("Compact", "紧凑")}</option>
+        </select>
+      </label>
+      <label>
+        ${loginCopy("Default payment method", "默认付款方式")}
+        <select data-setting="api-payment-method-default">
+          <option value="card">${loginCopy("Card", "银行卡")}</option>
+          <option value="bank">${loginCopy("Bank transfer", "银行转账")}</option>
+        </select>
+      </label>
+      <label class="advanced-panel-check">
+        <input type="checkbox" data-setting="api-auto-recharge-default" />
+        <span>${loginCopy("Enable auto recharge by default", "默认启用自动充值")}</span>
+      </label>
+      <div class="panel-settings-title">${loginCopy("Commerce policy", "交易策略")}</div>
+      <label>
+        ${loginCopy("Payout hold days", "分发冻结天数")}
+        <input type="number" min="0" max="90" step="1" data-setting="commerce-payout-hold-days" />
+      </label>
+      <label>
+        ${loginCopy("Payout sweep every (minutes)", "分发扫描频率（分钟）")}
+        <input type="number" min="1" max="1440" step="1" data-setting="commerce-payout-sweep-minutes" />
+      </label>
+      <label>
+        ${loginCopy("Minimum tip (USD)", "最小打赏金额（美元）")}
+        <input type="number" min="1" max="1000" step="1" data-setting="commerce-min-tip-usd" />
       </label>
     `
         : ""
@@ -35900,6 +31420,35 @@ function buildPanelSettings(panel) {
       <label>
         ${loginCopy("Auto watch delay (ms)", "自动进入欣赏延迟")}
         <input type="number" min="0" max="30000" step="1000" data-setting="foryou-auto-watch-ms" />
+      </label>
+      <label class="advanced-panel-check">
+        <input type="checkbox" data-setting="foryou-search-enabled" />
+        <span>${loginCopy("Enable pull-down search", "启用下拉搜索")}</span>
+      </label>
+      <label>
+        ${loginCopy("Marketplace result limit", "市场结果条数")}
+        <input type="number" min="4" max="48" step="1" data-setting="foryou-market-limit" />
+      </label>
+      <label>
+        ${loginCopy("Marketplace filter", "市场默认过滤")}
+        <select data-setting="foryou-default-filter">
+          <option value="all">${loginCopy("All", "全部")}</option>
+          <option value="single">${loginCopy("Single", "单曲")}</option>
+          <option value="triptych">${loginCopy("Triptych", "三部曲")}</option>
+          <option value="opera">${loginCopy("Opera", "歌剧")}</option>
+          <option value="owned">${loginCopy("Mine", "我的")}</option>
+          <option value="public">${loginCopy("Others", "别人的")}</option>
+        </select>
+      </label>
+      <label>
+        ${loginCopy("Marketplace sort", "市场默认排序")}
+        <select data-setting="foryou-default-sort">
+          <option value="newest">${loginCopy("Newest", "最新")}</option>
+          <option value="oldest">${loginCopy("Oldest", "最早")}</option>
+          <option value="title">${loginCopy("Title", "标题")}</option>
+          <option value="listen_low">${loginCopy("Low price", "价格低")}</option>
+          <option value="listen_high">${loginCopy("High price", "价格高")}</option>
+        </select>
       </label>
     `
         : ""
@@ -35929,6 +31478,10 @@ function buildPanelSettings(panel) {
           <option value="compact">${loginCopy("Compact", "简洁")}</option>
           <option value="full">${loginCopy("Full", "完整")}</option>
         </select>
+      </label>
+      <label>
+        ${loginCopy("Flash ring size", "闪动圈大小")}
+        <input type="range" min="0.84" max="1.08" step="0.01" data-setting="watch-flash-ring-scale" />
       </label>
     `
         : ""
@@ -35979,6 +31532,69 @@ function buildPanelSettings(panel) {
     `
         : ""
     }
+    ${
+      isDeliveryReportsPanel
+        ? `
+      <label>
+        ${loginCopy("Default report", "默认报表")}
+        <select data-setting="reports-default-kind">
+          ${DELIVERY_REPORT_KINDS.map((kind) => `<option value="${kind}">${escapeHtml(formatReportKindLabel(kind))}</option>`).join("")}
+        </select>
+      </label>
+      <label>
+        ${loginCopy("Focus section", "聚焦区块")}
+        <select data-setting="reports-focus-section">
+          <option value="overview">${loginCopy("Overview", "总览")}</option>
+          <option value="dashboard">${loginCopy("Dashboard", "仪表盘")}</option>
+          <option value="export">${loginCopy("Export", "导出")}</option>
+          <option value="history">${loginCopy("History", "历史")}</option>
+        </select>
+      </label>
+      <label>
+        ${loginCopy("Report density", "报表密度")}
+        <select data-setting="reports-density">
+          <option value="full">${loginCopy("Full", "完整")}</option>
+          <option value="compact">${loginCopy("Compact", "紧凑")}</option>
+        </select>
+      </label>
+      <label class="advanced-panel-check">
+        <input type="checkbox" data-setting="reports-preview-expanded" />
+        <span>${loginCopy("Expand export preview by default", "默认展开导出预览")}</span>
+      </label>
+    `
+        : ""
+    }
+    ${
+      isDeliveryOpsPanel
+        ? `
+      <label>
+        ${loginCopy("Recovery limit", "恢复条目上限")}
+        <input type="number" min="4" max="20" step="1" data-setting="ops-recovery-limit" />
+      </label>
+      <label>
+        ${loginCopy("Focus lane", "聚焦车道")}
+        <select data-setting="ops-focus-lane">
+          <option value="overview">${loginCopy("Overview", "总览")}</option>
+          <option value="subscriptions">${loginCopy("Subscriptions", "订阅")}</option>
+          <option value="logs">${loginCopy("Logs", "日志")}</option>
+          <option value="recovery">${loginCopy("Recovery", "恢复")}</option>
+          <option value="actions">${loginCopy("Actions", "动作")}</option>
+        </select>
+      </label>
+      <label>
+        ${loginCopy("Alert density", "预警密度")}
+        <select data-setting="ops-alert-density">
+          <option value="full">${loginCopy("Full", "完整")}</option>
+          <option value="compact">${loginCopy("Compact", "紧凑")}</option>
+        </select>
+      </label>
+      <label class="advanced-panel-check">
+        <input type="checkbox" data-setting="ops-auto-refresh" />
+        <span>${loginCopy("Refresh automatically on open", "打开时自动刷新")}</span>
+      </label>
+    `
+        : ""
+    }
     <label>
       ${t("settings.panel.accentColor")}
       <input type="color" data-setting="accent" />
@@ -35994,13 +31610,14 @@ function buildPanelSettings(panel) {
     <div class="row">
       <label>
         ${t("settings.panel.width")}
-        <input type="number" min="320" max="1400" step="10" data-setting="width" />
+        <input type="number" min="${sizeLimits.minWidth}" max="${sizeLimits.maxWidth}" step="10" data-setting="width" />
       </label>
       <label>
         ${t("settings.panel.height")}
-        <input type="number" min="240" max="1000" step="10" data-setting="height" />
+        <input type="number" min="${sizeLimits.minHeight}" max="${sizeLimits.maxHeight}" step="10" data-setting="height" />
       </label>
     </div>
+    <div class="advanced-panel-note">${escapeHtml(loginCopy(`Panel size limits: width ${sizeLimits.minWidth}-${sizeLimits.maxWidth}px, height ${sizeLimits.minHeight}-${sizeLimits.maxHeight}px. Input changes apply immediately.`, `面板尺寸限制：宽 ${sizeLimits.minWidth}-${sizeLimits.maxWidth}px，高 ${sizeLimits.minHeight}-${sizeLimits.maxHeight}px。输入后立即生效。`))}</div>
     ${
       isLogoPanel
         ? `
@@ -36071,6 +31688,7 @@ function buildPanelSettings(panel) {
   `;
 
   panel.appendChild(settings);
+  syncPanelSettingVisibility(panel, settings);
 
   const titleInput = settings.querySelector('[data-setting="title"]');
   const titleBlock = settings.querySelector('[data-setting-block="title"]');
@@ -36099,14 +31717,71 @@ function buildPanelSettings(panel) {
   const mirrorTriptychInput = settings.querySelector('[data-setting="mirror-animation-triptych"]');
   const mirrorOperaInput = settings.querySelector('[data-setting="mirror-animation-opera"]');
   const spellInput = settings.querySelector('[data-setting="spell"]');
+  const logoSubtitleInput = settings.querySelector('[data-setting="logo-subtitle"]');
+  const logoSloganInput = settings.querySelector('[data-setting="logo-slogan-template"]');
+  const logoSizeInput = settings.querySelector('[data-setting="logo-size"]');
+  const logoMaskInsetInput = settings.querySelector('[data-setting="logo-mask-inset"]');
+  const logoSpellcastRingScaleInput = settings.querySelector('[data-setting="logo-spellcast-ring-scale"]');
+  const logoSpellcastGlowScaleInput = settings.querySelector('[data-setting="logo-spellcast-glow-scale"]');
+  const logoSpellcastLayerInput = settings.querySelector('[data-setting="logo-spellcast-layer"]');
+  const logoHoldRingScaleInput = settings.querySelector('[data-setting="logo-hold-ring-scale"]');
+  const logoHoldRingLayerInput = settings.querySelector('[data-setting="logo-hold-ring-layer"]');
+  const logoSpellcastRingScaleReadout = settings.querySelector('[data-setting-readout="logo-spellcast-ring-scale"]');
+  const logoSpellcastGlowScaleReadout = settings.querySelector('[data-setting-readout="logo-spellcast-glow-scale"]');
+  const logoHoldRingScaleReadout = settings.querySelector('[data-setting-readout="logo-hold-ring-scale"]');
+  const logoAlignGrayRingButton = settings.querySelector('[data-setting="logo-align-gray-ring"]');
+  const logoAlignGrayRingMinimalButton = settings.querySelector('[data-setting="logo-align-gray-ring-minimal"]');
+  const logoSaveRingPresetButton = settings.querySelector('[data-setting="logo-save-ring-preset"]');
+  const logoLoadRingPresetButton = settings.querySelector('[data-setting="logo-load-ring-preset"]');
+  const logoDeleteRingPresetButton = settings.querySelector('[data-setting="logo-delete-ring-preset"]');
+  const logoRingPresetSelect = settings.querySelector('[data-setting="logo-ring-preset-select"]');
+  const micLongpressInput = settings.querySelector('[data-setting="mic-longpress-ms"]');
+  const micMaxHoldInput = settings.querySelector('[data-setting="mic-max-hold-sec"]');
+  const micLogoSurfaceModeInput = settings.querySelector('[data-setting="mic-logo-surface-mode"]');
+  const micDockSurfaceModeInput = settings.querySelector('[data-setting="mic-dock-surface-mode"]');
+  const micSettingsSurfaceModeInput = settings.querySelector('[data-setting="mic-settings-surface-mode"]');
+  const cssmvDefaultSectionInput = settings.querySelector('[data-setting="cssmv-default-section"]');
+  const cssmvAutoRefreshInput = settings.querySelector('[data-setting="cssmv-auto-refresh"]');
+  const languageDefaultModeInput = settings.querySelector('[data-setting="language-default-mode"]');
+  const languageShowMoreInput = settings.querySelector('[data-setting="language-show-more"]');
+  const loginPanelDensityInput = settings.querySelector('[data-setting="login-panel-density"]');
+  const loginPreferredProviderInput = settings.querySelector('[data-setting="login-preferred-provider"]');
+  const loginShowLogoutInput = settings.querySelector('[data-setting="login-show-logout"]');
+  const loginSessionDaysInput = settings.querySelector('[data-setting="login-session-days"]');
+  const profilePanelDensityInput = settings.querySelector('[data-setting="profile-panel-density"]');
+  const profileNoteInput = settings.querySelector('[data-setting="profile-note"]');
+  const profileDefaultNavInput = settings.querySelector('[data-setting="profile-default-nav"]');
+  const worksFocusSectionInput = settings.querySelector('[data-setting="works-focus-section"]');
+  const worksAutoLoadInput = settings.querySelector('[data-setting="works-auto-load"]');
+  const worksSearchEnabledInput = settings.querySelector('[data-setting="works-search-enabled"]');
+  const worksSearchLimitInput = settings.querySelector('[data-setting="works-search-limit"]');
+  const worksDefaultFilterInput = settings.querySelector('[data-setting="works-default-filter"]');
+  const worksDefaultSortInput = settings.querySelector('[data-setting="works-default-sort"]');
+  const sellerFocusLaneInput = settings.querySelector('[data-setting="seller-focus-lane"]');
+  const sellerAutoRefreshInput = settings.querySelector('[data-setting="seller-auto-refresh"]');
+  const sellerOrderFilterInput = settings.querySelector('[data-setting="seller-order-filter"]');
+  const sellerLedgerLimitInput = settings.querySelector('[data-setting="seller-ledger-limit"]');
+  const aboutDefaultTabInput = settings.querySelector('[data-setting="about-default-tab"]');
+  const aboutDensityInput = settings.querySelector('[data-setting="about-density"]');
+  const apiBillingModeInput = settings.querySelector('[data-setting="api-billing-mode"]');
+  const apiPaymentMethodDefaultInput = settings.querySelector('[data-setting="api-payment-method-default"]');
+  const apiAutoRechargeDefaultInput = settings.querySelector('[data-setting="api-auto-recharge-default"]');
+  const commercePayoutHoldDaysInput = settings.querySelector('[data-setting="commerce-payout-hold-days"]');
+  const commercePayoutSweepMinutesInput = settings.querySelector('[data-setting="commerce-payout-sweep-minutes"]');
+  const commerceMinTipUsdInput = settings.querySelector('[data-setting="commerce-min-tip-usd"]');
   const previewModeInput = settings.querySelector('[data-setting="preview-mode"]');
   const foryouHoldInput = settings.querySelector('[data-setting="foryou-hold-ms"]');
   const foryouCompactInput = settings.querySelector('[data-setting="foryou-compact-after-lyrics"]');
   const foryouAutoWatchInput = settings.querySelector('[data-setting="foryou-auto-watch-ms"]');
+  const foryouSearchEnabledInput = settings.querySelector('[data-setting="foryou-search-enabled"]');
+  const foryouMarketLimitInput = settings.querySelector('[data-setting="foryou-market-limit"]');
+  const foryouDefaultFilterInput = settings.querySelector('[data-setting="foryou-default-filter"]');
+  const foryouDefaultSortInput = settings.querySelector('[data-setting="foryou-default-sort"]');
   const watchDefaultTabInput = settings.querySelector('[data-setting="watch-default-tab"]');
   const watchPreviewLimitInput = settings.querySelector('[data-setting="watch-preview-limit-sec"]');
   const watchSubtitleScaleInput = settings.querySelector('[data-setting="watch-subtitle-scale"]');
   const watchEngineDetailInput = settings.querySelector('[data-setting="watch-engine-detail"]');
+  const watchFlashRingScaleInput = settings.querySelector('[data-setting="watch-flash-ring-scale"]');
   const lyricsTypeSpeedInput = settings.querySelector('[data-setting="lyrics-type-speed"]');
   const lyricsFontScaleInput = settings.querySelector('[data-setting="lyrics-font-scale"]');
   const lyricsAutoCollapseInput = settings.querySelector('[data-setting="lyrics-auto-collapse"]');
@@ -36114,6 +31789,14 @@ function buildPanelSettings(panel) {
   const musicLayerCardsInput = settings.querySelector('[data-setting="music-layer-cards"]');
   const videoStoryboardFramesInput = settings.querySelector('[data-setting="video-storyboard-frames"]');
   const videoCameraSlotsInput = settings.querySelector('[data-setting="video-camera-slots"]');
+  const reportsDefaultKindInput = settings.querySelector('[data-setting="reports-default-kind"]');
+  const reportsFocusSectionInput = settings.querySelector('[data-setting="reports-focus-section"]');
+  const reportsDensityInput = settings.querySelector('[data-setting="reports-density"]');
+  const reportsPreviewExpandedInput = settings.querySelector('[data-setting="reports-preview-expanded"]');
+  const opsRecoveryLimitInput = settings.querySelector('[data-setting="ops-recovery-limit"]');
+  const opsFocusLaneInput = settings.querySelector('[data-setting="ops-focus-lane"]');
+  const opsAlertDensityInput = settings.querySelector('[data-setting="ops-alert-density"]');
+  const opsAutoRefreshInput = settings.querySelector('[data-setting="ops-auto-refresh"]');
   const mirrorFixedBlock = settings.querySelector('[data-setting-block="mirror-fixed-mode"]');
   const mirrorSingleBlock = settings.querySelector('[data-setting-block="mirror-single-mode"]');
   const mirrorTriptychBlock = settings.querySelector('[data-setting-block="mirror-triptych-mode"]');
@@ -36154,127 +31837,359 @@ function buildPanelSettings(panel) {
       }
     });
   }
-  const applyOpacity = () => {
-    panel.dataset.panelOpacity = opacityInput.value;
-    panel.style.backgroundColor = `rgba(0, 0, 0, ${opacityInput.value})`;
-  };
-
-  const applyBlur = () => {
-    panel.dataset.panelBlur = blurInput.value;
-    panel.style.backdropFilter = `blur(${blurInput.value}px)`;
-    panel.style.webkitBackdropFilter = `blur(${blurInput.value}px)`;
-  };
-
-  const applySize = () => {
-    panel.dataset.panelWidth = widthInput.value;
-    panel.dataset.panelHeight = heightInput.value;
-    panel.style.width = `${widthInput.value}px`;
-    panel.style.height = `${heightInput.value}px`;
-    clampPanelInViewport(panel);
-  };
-
-  const applyAccent = () => {
-    panel.dataset.panelAccent = accentInput.value;
-    panel.style.setProperty("--panel-accent", accentInput.value);
-  };
-  const buildPanelDefaultSnapshot = () => ({
-    title: titleEl ? titleEl.textContent.trim() : "",
-    accent: panel.dataset.panelAccent,
-    opacity: opacityInput.value,
-    blur: blurInput.value,
-    width: widthInput.value,
-    height: heightInput.value,
-    previewMode: panel.dataset.previewMode || FORYOU_PREVIEW_MODES.AUTO,
-    foryouHoldMs: foryouHoldInput?.value || "",
-    foryouCompactAfterLyrics: !!foryouCompactInput?.checked,
-    foryouAutoWatchMs: foryouAutoWatchInput?.value || "",
-    watchDefaultTab: watchDefaultTabInput?.value || "",
-    watchPreviewLimitSec: watchPreviewLimitInput?.value || "",
-    watchSubtitleScale: watchSubtitleScaleInput?.value || "",
-    watchEngineDetail: watchEngineDetailInput?.value || "",
-    lyricsTypeSpeed: lyricsTypeSpeedInput?.value || "",
-    lyricsFontScale: lyricsFontScaleInput?.value || "",
-    lyricsAutoCollapse: !!lyricsAutoCollapseInput?.checked,
-    musicWaveformBars: musicWaveformBarsInput?.value || "",
-    musicLayerCards: musicLayerCardsInput?.value || "",
-    videoStoryboardFrames: videoStoryboardFramesInput?.value || "",
-    videoCameraSlots: videoCameraSlotsInput?.value || "",
-    mirrorAnimationMode: isLogoPanel ? getStoredMirrorAnimationMode() : "",
-    mirrorAnimationStrategy: isLogoPanel ? getStoredMirrorAnimationStrategy() : "",
-    mirrorAnimationPerType: isLogoPanel ? getStoredMirrorAnimationPerType() : null
+  const { applyAccent, applyOpacity, applyBlur, applySize } = buildPanelAppearanceHelpers({
+    panel,
+    accentInput,
+    opacityInput,
+    blurInput,
+    widthInput,
+    heightInput
   });
-  const applyStoredPanelDefaultSnapshot = (snapshot) => {
-    if (!snapshot || typeof snapshot !== "object") return;
-    if (titleEl && snapshot.title) {
-      titleEl.textContent = snapshot.title;
-      titleInput.value = snapshot.title;
-    }
-    if (snapshot.accent) {
-      accentInput.value = snapshot.accent;
-      applyAccent();
-    }
-    if (snapshot.opacity != null) {
-      opacityInput.value = String(snapshot.opacity);
-      applyOpacity();
-    }
-    if (snapshot.blur != null) {
-      blurInput.value = String(snapshot.blur);
-      applyBlur();
-    }
-    if (snapshot.width != null) widthInput.value = String(snapshot.width);
-    if (snapshot.height != null) heightInput.value = String(snapshot.height);
-    applySize();
-    if (previewModeInput && snapshot.previewMode) {
-      panel.dataset.previewMode = snapshot.previewMode;
-      previewModeInput.value = snapshot.previewMode;
-      localStorage.setItem(FORYOU_PREVIEW_MODE_KEY, panel.dataset.previewMode);
-    }
-    if (foryouHoldInput && snapshot.foryouHoldMs) foryouHoldInput.value = String(snapshot.foryouHoldMs);
-    if (foryouCompactInput) foryouCompactInput.checked = snapshot.foryouCompactAfterLyrics !== false;
-    if (foryouAutoWatchInput && snapshot.foryouAutoWatchMs) foryouAutoWatchInput.value = String(snapshot.foryouAutoWatchMs);
-    if (watchDefaultTabInput && snapshot.watchDefaultTab) watchDefaultTabInput.value = String(snapshot.watchDefaultTab);
-    if (watchPreviewLimitInput && snapshot.watchPreviewLimitSec) watchPreviewLimitInput.value = String(snapshot.watchPreviewLimitSec);
-    if (watchSubtitleScaleInput && snapshot.watchSubtitleScale) watchSubtitleScaleInput.value = String(snapshot.watchSubtitleScale);
-    if (watchEngineDetailInput && snapshot.watchEngineDetail) watchEngineDetailInput.value = String(snapshot.watchEngineDetail);
-    if (lyricsTypeSpeedInput && snapshot.lyricsTypeSpeed) lyricsTypeSpeedInput.value = String(snapshot.lyricsTypeSpeed);
-    if (lyricsFontScaleInput && snapshot.lyricsFontScale) lyricsFontScaleInput.value = String(snapshot.lyricsFontScale);
-    if (lyricsAutoCollapseInput) lyricsAutoCollapseInput.checked = snapshot.lyricsAutoCollapse !== false;
-    if (musicWaveformBarsInput && snapshot.musicWaveformBars) musicWaveformBarsInput.value = String(snapshot.musicWaveformBars);
-    if (musicLayerCardsInput && snapshot.musicLayerCards) musicLayerCardsInput.value = String(snapshot.musicLayerCards);
-    if (videoStoryboardFramesInput && snapshot.videoStoryboardFrames) videoStoryboardFramesInput.value = String(snapshot.videoStoryboardFrames);
-    if (videoCameraSlotsInput && snapshot.videoCameraSlots) videoCameraSlotsInput.value = String(snapshot.videoCameraSlots);
+  const {
+    refreshLogoRingReadouts,
+    buildLogoRingPresetPayload,
+    refreshLogoRingPresetActionState,
+    renderLogoRingPresetOptions
+  } = buildLogoRingPresetHelpers({
+    logoSpellcastRingScaleInput,
+    logoSpellcastGlowScaleInput,
+    logoSpellcastLayerInput,
+    logoHoldRingScaleInput,
+    logoHoldRingLayerInput,
+    logoSpellcastRingScaleReadout,
+    logoSpellcastGlowScaleReadout,
+    logoHoldRingScaleReadout,
+    logoRingPresetSelect,
+    logoLoadRingPresetButton,
+    logoDeleteRingPresetButton
+  });
+  const applyLogoRingPreset = (preset) => {
+    if (!preset || typeof preset !== "object") return;
+    if (logoSpellcastRingScaleInput) logoSpellcastRingScaleInput.value = String(preset.spellcast_ring_scale ?? 1);
+    if (logoSpellcastGlowScaleInput) logoSpellcastGlowScaleInput.value = String(preset.spellcast_glow_scale ?? 0.18);
+    if (logoSpellcastLayerInput) logoSpellcastLayerInput.value = String(preset.spellcast_layer || "behind");
+    if (logoHoldRingScaleInput) logoHoldRingScaleInput.value = String(preset.hold_ring_scale ?? 1);
+    if (logoHoldRingLayerInput) logoHoldRingLayerInput.value = String(preset.hold_ring_layer || "behind");
+    refreshLogoRingReadouts();
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      logo: {
+        ...current.logo,
+        spellcast_ring_scale: Number(preset.spellcast_ring_scale ?? current.logo.spellcast_ring_scale),
+        spellcast_glow_scale: Number(preset.spellcast_glow_scale ?? current.logo.spellcast_glow_scale),
+        spellcast_layer: String(preset.spellcast_layer || current.logo.spellcast_layer),
+        hold_ring_scale: Number(preset.hold_ring_scale ?? current.logo.hold_ring_scale),
+        hold_ring_layer: String(preset.hold_ring_layer || current.logo.hold_ring_layer)
+      }
+    }));
   };
-  const refreshBehaviorInputs = () => {
-    const behaviorSettings = readPanelBehaviorSettingsLocal();
-    if (foryouHoldInput) foryouHoldInput.value = String(behaviorSettings.foryou.hold_ms);
-    if (foryouCompactInput) foryouCompactInput.checked = behaviorSettings.foryou.compact_after_lyrics !== false;
-    if (foryouAutoWatchInput) foryouAutoWatchInput.value = String(behaviorSettings.foryou.auto_watch_ms);
-    if (watchDefaultTabInput) watchDefaultTabInput.value = behaviorSettings.watch.default_tab;
-    if (watchPreviewLimitInput) watchPreviewLimitInput.value = String(behaviorSettings.watch.preview_limit_sec);
-    if (watchSubtitleScaleInput) watchSubtitleScaleInput.value = String(behaviorSettings.watch.subtitle_scale);
-    if (watchEngineDetailInput) watchEngineDetailInput.value = behaviorSettings.watch.engine_detail;
-    if (lyricsTypeSpeedInput) lyricsTypeSpeedInput.value = String(behaviorSettings.lyrics.typewriter_speed);
-    if (lyricsFontScaleInput) lyricsFontScaleInput.value = String(behaviorSettings.lyrics.font_scale);
-    if (lyricsAutoCollapseInput) lyricsAutoCollapseInput.checked = behaviorSettings.lyrics.auto_collapse !== false;
-    if (musicWaveformBarsInput) musicWaveformBarsInput.value = String(behaviorSettings.music.waveform_bars);
-    if (musicLayerCardsInput) musicLayerCardsInput.value = String(behaviorSettings.music.layer_cards);
-    if (videoStoryboardFramesInput) videoStoryboardFramesInput.value = String(behaviorSettings.video.storyboard_frames);
-    if (videoCameraSlotsInput) videoCameraSlotsInput.value = String(behaviorSettings.video.camera_slots);
+  const {
+    buildPanelDefaultSnapshot,
+    applyStoredPanelDefaultSnapshot,
+    refreshBehaviorInputs
+  } = buildPanelStateSyncHelpers({
+    panel,
+    titleEl,
+    titleInput,
+    isLogoPanel,
+    accentInput,
+    opacityInput,
+    blurInput,
+    widthInput,
+    heightInput,
+    previewModeInput,
+    logoSpellcastRingScaleInput,
+    logoSpellcastGlowScaleInput,
+    logoSpellcastLayerInput,
+    logoHoldRingScaleInput,
+    logoHoldRingLayerInput,
+    cssmvDefaultSectionInput,
+    cssmvAutoRefreshInput,
+    languageDefaultModeInput,
+    languageShowMoreInput,
+    loginPanelDensityInput,
+    loginPreferredProviderInput,
+    loginShowLogoutInput,
+    loginSessionDaysInput,
+    profilePanelDensityInput,
+    profileNoteInput,
+    profileDefaultNavInput,
+    worksFocusSectionInput,
+    worksAutoLoadInput,
+    worksSearchEnabledInput,
+    worksSearchLimitInput,
+    worksDefaultFilterInput,
+    worksDefaultSortInput,
+    sellerFocusLaneInput,
+    sellerAutoRefreshInput,
+    sellerOrderFilterInput,
+    sellerLedgerLimitInput,
+    aboutDefaultTabInput,
+    aboutDensityInput,
+    apiBillingModeInput,
+    apiPaymentMethodDefaultInput,
+    apiAutoRechargeDefaultInput,
+    commercePayoutHoldDaysInput,
+    commercePayoutSweepMinutesInput,
+    commerceMinTipUsdInput,
+    foryouHoldInput,
+    foryouCompactInput,
+    foryouAutoWatchInput,
+    foryouSearchEnabledInput,
+    foryouMarketLimitInput,
+    foryouDefaultFilterInput,
+    foryouDefaultSortInput,
+    watchDefaultTabInput,
+    watchPreviewLimitInput,
+    watchSubtitleScaleInput,
+    watchEngineDetailInput,
+    watchFlashRingScaleInput,
+    lyricsTypeSpeedInput,
+    lyricsFontScaleInput,
+    lyricsAutoCollapseInput,
+    musicWaveformBarsInput,
+    musicLayerCardsInput,
+    videoStoryboardFramesInput,
+    videoCameraSlotsInput,
+    reportsDefaultKindInput,
+    reportsFocusSectionInput,
+    reportsDensityInput,
+    reportsPreviewExpandedInput,
+    opsRecoveryLimitInput,
+    opsFocusLaneInput,
+    opsAlertDensityInput,
+    opsAutoRefreshInput,
+    spellInput,
+    logoSubtitleInput,
+    logoSloganInput,
+    logoSizeInput,
+    logoMaskInsetInput,
+    micLongpressInput,
+    micMaxHoldInput,
+    micLogoSurfaceModeInput,
+    micDockSurfaceModeInput,
+    micSettingsSurfaceModeInput,
+    applyAccent,
+    applyOpacity,
+    applyBlur,
+    applySize,
+    refreshLogoRingReadouts,
+    renderLogoRingPresetOptions
+  });
+  const initialResetSnapshot = {
+    ...buildPanelDefaultSnapshot()
   };
-  const syncMirrorSettingsVisibility = () => {
-    const strategy = mirrorStrategyInput?.value || getStoredMirrorAnimationStrategy();
-    if (mirrorFixedBlock) mirrorFixedBlock.hidden = strategy !== MIRROR_ANIMATION_STRATEGIES.FIXED;
-    const perTypeHidden = strategy !== MIRROR_ANIMATION_STRATEGIES.PER_TYPE;
-    if (mirrorSingleBlock) mirrorSingleBlock.hidden = perTypeHidden;
-    if (mirrorTriptychBlock) mirrorTriptychBlock.hidden = perTypeHidden;
-    if (mirrorOperaBlock) mirrorOperaBlock.hidden = perTypeHidden;
-  };
+  let syncMirrorSettingsVisibility = () => {};
 
-  accentInput.addEventListener("input", applyAccent);
-  opacityInput.addEventListener("input", applyOpacity);
-  blurInput.addEventListener("input", applyBlur);
-  widthInput.addEventListener("change", applySize);
-  heightInput.addEventListener("change", applySize);
+  bindPanelAppearanceControls({
+    accentInput,
+    opacityInput,
+    blurInput,
+    widthInput,
+    heightInput,
+    applyAccent,
+    applyOpacity,
+    applyBlur,
+    applySize
+  });
+  cssmvDefaultSectionInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      cssmv: { ...current.cssmv, default_section: cssmvDefaultSectionInput.value || current.cssmv.default_section }
+    }));
+  });
+  cssmvAutoRefreshInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      cssmv: { ...current.cssmv, auto_refresh: !!cssmvAutoRefreshInput.checked }
+    }));
+  });
+  languageDefaultModeInput?.addEventListener("change", () => {
+    const nextMode = languageDefaultModeInput.value || "content";
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      language: { ...current.language, default_mode: nextMode }
+    }));
+    globalThis.toggleLanguagePanelMode?.(nextMode);
+  });
+  languageShowMoreInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      language: { ...current.language, show_more: !!languageShowMoreInput.checked }
+    }));
+    languageListMore?.classList.toggle("is-hidden", !languageShowMoreInput.checked);
+  });
+  loginPanelDensityInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      login: { ...current.login, panel_density: loginPanelDensityInput.value || current.login.panel_density }
+    }));
+  });
+  loginPreferredProviderInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      login: { ...current.login, preferred_provider: loginPreferredProviderInput.value || current.login.preferred_provider }
+    }));
+  });
+  loginShowLogoutInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      login: { ...current.login, show_logout: !!loginShowLogoutInput.checked }
+    }));
+  });
+  loginSessionDaysInput?.addEventListener("change", () => {
+    const nextDays = Number(loginSessionDaysInput.value || 90);
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      login: { ...current.login, session_days: nextDays || current.login.session_days }
+    }));
+    if (authState.user) void updateSessionPolicy(nextDays);
+  });
+  profilePanelDensityInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      profile: { ...current.profile, panel_density: profilePanelDensityInput.value || current.profile.panel_density }
+    }));
+  });
+  profileNoteInput?.addEventListener("input", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      profile: { ...current.profile, note: String(profileNoteInput.value || "").slice(0, 120) }
+    }));
+  });
+  profileDefaultNavInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      profile: { ...current.profile, default_nav: profileDefaultNavInput.value || current.profile.default_nav }
+    }));
+  });
+  worksFocusSectionInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      works: { ...current.works, focus_section: worksFocusSectionInput.value || current.works.focus_section }
+    }));
+    worksPanel.dataset.focusSection = worksFocusSectionInput.value || "works";
+  });
+  worksAutoLoadInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      works: { ...current.works, auto_load: !!worksAutoLoadInput.checked }
+    }));
+  });
+  worksSearchEnabledInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      works: { ...current.works, search_enabled: !!worksSearchEnabledInput.checked }
+    }));
+    globalThis.renderWorksPanelModule?.();
+  });
+  worksSearchLimitInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      works: { ...current.works, search_limit: Number(worksSearchLimitInput.value || current.works.search_limit) }
+    }));
+    void globalThis.loadMyWorksModule?.();
+  });
+  worksDefaultFilterInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      works: { ...current.works, default_filter: worksDefaultFilterInput.value || current.works.default_filter }
+    }));
+    void globalThis.loadMyWorksModule?.();
+  });
+  worksDefaultSortInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      works: { ...current.works, default_sort: worksDefaultSortInput.value || current.works.default_sort }
+    }));
+    void globalThis.loadMyWorksModule?.();
+  });
+  sellerFocusLaneInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      seller: { ...current.seller, focus_lane: sellerFocusLaneInput.value || current.seller.focus_lane }
+    }));
+    sellerPanel.dataset.focusLane = sellerFocusLaneInput.value || "orders";
+  });
+  sellerAutoRefreshInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      seller: { ...current.seller, auto_refresh: !!sellerAutoRefreshInput.checked }
+    }));
+  });
+  sellerOrderFilterInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      seller: { ...current.seller, order_filter: sellerOrderFilterInput.value || current.seller.order_filter }
+    }));
+    renderSellerPanel();
+  });
+  sellerLedgerLimitInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      seller: { ...current.seller, ledger_limit: Number(sellerLedgerLimitInput.value || current.seller.ledger_limit) }
+    }));
+    renderSellerPanel();
+  });
+  aboutDefaultTabInput?.addEventListener("change", () => {
+    const nextTab = aboutDefaultTabInput.value || "whitepaper";
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      about: { ...current.about, default_tab: nextTab }
+    }));
+    globalThis.activateAboutTabModule?.(nextTab);
+  });
+  aboutDensityInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      about: { ...current.about, density: aboutDensityInput.value || current.about.density }
+    }));
+  });
+  apiBillingModeInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      api: { ...current.api, billing_mode: apiBillingModeInput.value || current.api.billing_mode }
+    }));
+  });
+  apiPaymentMethodDefaultInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      api: { ...current.api, payment_method: apiPaymentMethodDefaultInput.value || current.api.payment_method }
+    }));
+  });
+  apiAutoRechargeDefaultInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      api: { ...current.api, auto_recharge: !!apiAutoRechargeDefaultInput.checked }
+    }));
+  });
+  commercePayoutHoldDaysInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      commerce: {
+        ...current.commerce,
+        payout_hold_days: Number(commercePayoutHoldDaysInput.value || current.commerce.payout_hold_days)
+      }
+    }));
+  });
+  commercePayoutSweepMinutesInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      commerce: {
+        ...current.commerce,
+        payout_sweep_ms: Number(commercePayoutSweepMinutesInput.value || Math.round(current.commerce.payout_sweep_ms / 60000)) * 60000
+      }
+    }));
+  });
+  commerceMinTipUsdInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      commerce: {
+        ...current.commerce,
+        min_tip_cents: Number(commerceMinTipUsdInput.value || Math.round(current.commerce.min_tip_cents / 100)) * 100
+      }
+    }));
+  });
   foryouHoldInput?.addEventListener("change", () => {
     updatePanelBehaviorSettings((current) => ({
       ...current,
@@ -36292,6 +32207,34 @@ function buildPanelSettings(panel) {
       ...current,
       foryou: { ...current.foryou, auto_watch_ms: Number(foryouAutoWatchInput.value || current.foryou.auto_watch_ms) }
     }));
+  });
+  foryouSearchEnabledInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      foryou: { ...current.foryou, search_enabled: !!foryouSearchEnabledInput.checked }
+    }));
+    renderForyouMarketplace();
+  });
+  foryouMarketLimitInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      foryou: { ...current.foryou, market_limit: Number(foryouMarketLimitInput.value || current.foryou.market_limit) }
+    }));
+    renderForyouMarketplace();
+  });
+  foryouDefaultFilterInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      foryou: { ...current.foryou, default_filter: foryouDefaultFilterInput.value || current.foryou.default_filter }
+    }));
+    renderForyouMarketplace();
+  });
+  foryouDefaultSortInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      foryou: { ...current.foryou, default_sort: foryouDefaultSortInput.value || current.foryou.default_sort }
+    }));
+    renderForyouMarketplace();
   });
   watchDefaultTabInput?.addEventListener("change", () => {
     updatePanelBehaviorSettings((current) => ({
@@ -36315,6 +32258,12 @@ function buildPanelSettings(panel) {
     updatePanelBehaviorSettings((current) => ({
       ...current,
       watch: { ...current.watch, engine_detail: watchEngineDetailInput.value || current.watch.engine_detail }
+    }));
+  });
+  watchFlashRingScaleInput?.addEventListener("input", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      watch: { ...current.watch, flash_ring_scale: Number(watchFlashRingScaleInput.value || current.watch.flash_ring_scale) }
     }));
   });
   lyricsTypeSpeedInput?.addEventListener("change", () => {
@@ -36359,149 +32308,124 @@ function buildPanelSettings(panel) {
       video: { ...current.video, camera_slots: Number(videoCameraSlotsInput.value || current.video.camera_slots) }
     }));
   });
+  reportsDefaultKindInput?.addEventListener("change", () => {
+    const nextKind = reportsDefaultKindInput.value || deliveryReportState.kind;
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      delivery_reports: { ...current.delivery_reports, default_kind: nextKind }
+    }));
+    deliveryReportState.kind = nextKind;
+    renderDeliveryReportTabs();
+    void loadDeliveryReport(nextKind, true);
+  });
+  reportsFocusSectionInput?.addEventListener("change", () => {
+    const nextSection = reportsFocusSectionInput.value || "overview";
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      delivery_reports: { ...current.delivery_reports, focus_section: nextSection }
+    }));
+    deliveryReportsPanel.dataset.focusSection = nextSection;
+  });
+  reportsDensityInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      delivery_reports: { ...current.delivery_reports, density: reportsDensityInput.value || current.delivery_reports.density }
+    }));
+  });
+  reportsPreviewExpandedInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      delivery_reports: { ...current.delivery_reports, preview_expanded: !!reportsPreviewExpandedInput.checked }
+    }));
+    deliveryExportState.previewExpanded = !!reportsPreviewExpandedInput.checked;
+    if (deliveryReportState.response) renderDeliveryReportBody(deliveryReportState.response);
+  });
+  opsRecoveryLimitInput?.addEventListener("change", () => {
+    const nextLimit = Number(opsRecoveryLimitInput.value || deliveryOpsState.recoveryLimit || 8);
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      delivery_ops: { ...current.delivery_ops, recovery_limit: nextLimit }
+    }));
+    deliveryOpsState.recoveryLimit = nextLimit;
+  });
+  opsFocusLaneInput?.addEventListener("change", () => {
+    const nextLane = opsFocusLaneInput.value || "overview";
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      delivery_ops: { ...current.delivery_ops, focus_lane: nextLane }
+    }));
+    deliveryOpsPanel.dataset.focusLane = nextLane;
+  });
+  opsAlertDensityInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      delivery_ops: { ...current.delivery_ops, alert_density: opsAlertDensityInput.value || current.delivery_ops.alert_density }
+    }));
+  });
+  opsAutoRefreshInput?.addEventListener("change", () => {
+    updatePanelBehaviorSettings((current) => ({
+      ...current,
+      delivery_ops: { ...current.delivery_ops, auto_refresh: !!opsAutoRefreshInput.checked }
+    }));
+  });
 
   if (isLogoPanel) {
-    const mirrorPerType = getStoredMirrorAnimationPerType();
-    if (mirrorStrategyInput) {
-      mirrorStrategyInput.value = getStoredMirrorAnimationStrategy();
-      mirrorStrategyInput.addEventListener("change", () => {
-        const next = setStoredMirrorAnimationStrategy(mirrorStrategyInput.value);
-        mirrorStrategyInput.value = next;
-        syncMirrorSettingsVisibility();
-        applyMirrorAnimationMode(getStoredMirrorAnimationMode());
-      });
-    }
-    if (mirrorAnimationInput) {
-      mirrorAnimationInput.value = getStoredMirrorAnimationMode();
-      mirrorAnimationInput.addEventListener("change", () => {
-        const next = setStoredMirrorAnimationMode(mirrorAnimationInput.value || MIRROR_ANIMATION_MODES.HALO);
-        mirrorAnimationInput.value = next;
-        applyMirrorAnimationMode(next);
-      });
-    }
-    if (mirrorSingleInput) {
-      mirrorSingleInput.value = mirrorPerType.single;
-      mirrorSingleInput.addEventListener("change", () => {
-        setStoredMirrorAnimationPerType({ ...getStoredMirrorAnimationPerType(), single: mirrorSingleInput.value });
-        applyMirrorAnimationMode(getStoredMirrorAnimationMode());
-      });
-    }
-    if (mirrorTriptychInput) {
-      mirrorTriptychInput.value = mirrorPerType.triptych;
-      mirrorTriptychInput.addEventListener("change", () => {
-        setStoredMirrorAnimationPerType({ ...getStoredMirrorAnimationPerType(), triptych: mirrorTriptychInput.value });
-        applyMirrorAnimationMode(getStoredMirrorAnimationMode());
-      });
-    }
-    if (mirrorOperaInput) {
-      mirrorOperaInput.value = mirrorPerType.opera;
-      mirrorOperaInput.addEventListener("change", () => {
-        setStoredMirrorAnimationPerType({ ...getStoredMirrorAnimationPerType(), opera: mirrorOperaInput.value });
-        applyMirrorAnimationMode(getStoredMirrorAnimationMode());
-      });
-    }
-    syncMirrorSettingsVisibility();
-    mirrorA = panel.querySelector(".mirror-img.mirror-a");
-    mirrorB = panel.querySelector(".mirror-img.mirror-b");
-    mirrorVideo = panel.querySelector(".mirror-video");
-    const useImages = () => {
-      panel.classList.remove("mirror-video-active");
-      if (mirrorVideo) {
-        mirrorVideo.pause();
-        mirrorVideo.removeAttribute("src");
-        mirrorVideo.load();
-      }
-    };
-
-    if (mirrorImgInput1 && mirrorA) {
-      mirrorImgInput1.addEventListener("change", async () => {
-        const file = mirrorImgInput1.files?.[0];
-        if (!file) return;
-        const previewUrl = URL.createObjectURL(file);
-        mirrorA.src = previewUrl;
-        useImages();
-        const uploadedUrl = authState.user && getUserRole() === "admin"
-          ? await uploadLogoMediaFile(file, "image_1", mirrorImgInput1)
-          : "";
-        if (uploadedUrl) {
-          mirrorA.src = uploadedUrl;
-          const next = updatePanelBehaviorSettings((current) => ({
-            ...current,
-            logo: {
-              ...current.logo,
-              media: { ...current.logo.media, image_1: uploadedUrl }
-            }
-          }));
-          await savePanelDefaults("behavior", next, mirrorImgInput1);
-        }
-      });
-    }
-
-    if (mirrorImgInput2 && mirrorB) {
-      mirrorImgInput2.addEventListener("change", async () => {
-        const file = mirrorImgInput2.files?.[0];
-        if (!file) return;
-        const previewUrl = URL.createObjectURL(file);
-        mirrorB.src = previewUrl;
-        useImages();
-        const uploadedUrl = authState.user && getUserRole() === "admin"
-          ? await uploadLogoMediaFile(file, "image_2", mirrorImgInput2)
-          : "";
-        if (uploadedUrl) {
-          mirrorB.src = uploadedUrl;
-          const next = updatePanelBehaviorSettings((current) => ({
-            ...current,
-            logo: {
-              ...current.logo,
-              media: { ...current.logo.media, image_2: uploadedUrl }
-            }
-          }));
-          await savePanelDefaults("behavior", next, mirrorImgInput2);
-        }
-      });
-    }
-
-    if (mirrorVideoInput && mirrorVideo) {
-      mirrorVideoInput.addEventListener("change", async () => {
-        const file = mirrorVideoInput.files?.[0];
-        if (!file) return;
-        const previewUrl = URL.createObjectURL(file);
-        mirrorVideo.src = previewUrl;
-        mirrorVideo.play().catch(() => {});
-        panel.classList.add("mirror-video-active");
-        const uploadedUrl = authState.user && getUserRole() === "admin"
-          ? await uploadLogoMediaFile(file, "video", mirrorVideoInput)
-          : "";
-        if (uploadedUrl) {
-          mirrorVideo.src = uploadedUrl;
-          mirrorVideo.play().catch(() => {});
-          const next = updatePanelBehaviorSettings((current) => ({
-            ...current,
-            logo: {
-              ...current.logo,
-              media: { ...current.logo.media, video: uploadedUrl }
-            }
-          }));
-          await savePanelDefaults("behavior", next, mirrorVideoInput);
-        }
-      });
-    }
-
-    if (spellInput) {
-      spellInput.value = state.spell;
-      spellInput.addEventListener("input", () => {
-        applySpell(spellInput.value, { force: true, refreshPanels: true });
-      });
-    }
+    const logoBindings = bindLogoPanelSettingsControls({
+      panel,
+      state,
+      mirrorImgInput1,
+      mirrorImgInput2,
+      mirrorVideoInput,
+      mirrorStrategyInput,
+      mirrorAnimationInput,
+      mirrorSingleInput,
+      mirrorTriptychInput,
+      mirrorOperaInput,
+      mirrorFixedBlock,
+      mirrorSingleBlock,
+      mirrorTriptychBlock,
+      mirrorOperaBlock,
+      spellInput,
+      logoSubtitleInput,
+      logoSloganInput,
+      logoSizeInput,
+      logoMaskInsetInput,
+      logoSpellcastRingScaleInput,
+      logoSpellcastGlowScaleInput,
+      logoSpellcastLayerInput,
+      logoHoldRingScaleInput,
+      logoHoldRingLayerInput,
+      logoAlignGrayRingButton,
+      logoAlignGrayRingMinimalButton,
+      logoSaveRingPresetButton,
+      logoLoadRingPresetButton,
+      logoDeleteRingPresetButton,
+      logoRingPresetSelect,
+      micLongpressInput,
+      micMaxHoldInput,
+      refreshLogoRingReadouts,
+      buildLogoRingPresetPayload,
+      refreshLogoRingPresetActionState,
+      renderLogoRingPresetOptions,
+      applyLogoRingPreset
+    });
+    syncMirrorSettingsVisibility = logoBindings.syncMirrorSettingsVisibility;
+    mirrorA = logoBindings.mirrorA;
+    mirrorB = logoBindings.mirrorB;
+    mirrorVideo = logoBindings.mirrorVideo;
   }
 
   const storedPanelDefaults = getStoredPanelDefaultSnapshot(panel.id);
   if (storedPanelDefaults) {
     applyStoredPanelDefaultSnapshot(storedPanelDefaults);
   }
+  panelSettingsDefaults.set(panel, initialResetSnapshot);
+  applyStoredPanelLayout(panel);
   refreshBehaviorInputs();
+  refreshLogoRingPresetActionState();
   panel.__refreshSettings = () => {
     refreshBehaviorInputs();
+    syncPanelSettingVisibility(panel, settings);
     if (titleEl) titleInput.value = titleEl.textContent.trim();
     if (previewModeInput) previewModeInput.value = panel.dataset.previewMode || getForyouPreviewMode();
     opacityInput.value = panel.dataset.panelOpacity || opacityInput.value;
@@ -36509,453 +32433,55 @@ function buildPanelSettings(panel) {
     widthInput.value = panel.dataset.panelWidth || widthInput.value;
     heightInput.value = panel.dataset.panelHeight || heightInput.value;
     accentInput.value = panel.dataset.panelAccent && panel.dataset.panelAccent.startsWith("#") ? panel.dataset.panelAccent : accentInput.value;
+    if (isLogoPanel) {
+      settings.querySelectorAll("[data-mic-debug-board]").forEach((node) => node.remove());
+      const debugMarkup = buildMicDebugBoardMarkup(readPanelBehaviorSettingsLocal().mic);
+      micMaxHoldInput?.closest("label")?.insertAdjacentHTML("afterend", debugMarkup);
+    }
   };
   panel.__applyDefaultSnapshot = (snapshot) => {
     applyStoredPanelDefaultSnapshot(snapshot);
+    applyStoredPanelLayout(panel);
     refreshBehaviorInputs();
+    syncPanelSettingVisibility(panel, settings);
   };
 
-  if (setDefaultButton) {
-    setDefaultButton.addEventListener("click", async () => {
-      if (getUserRole() !== "admin") return;
-      const snapshot = buildPanelDefaultSnapshot();
-      savePanelDefaultSnapshot(panel.id, snapshot);
-      const defaultKey = panelDefaultsApiKey(panel);
-      if (defaultKey) {
-        await savePanelDefaults(defaultKey, snapshot, setDefaultButton);
-      }
-      const saved = await savePanelDefaults("behavior", readPanelBehaviorSettingsLocal(), setDefaultButton);
-      if (saved) {
-        applyPanelBehaviorSettings(saved);
-        showToast(loginCopy("Panel defaults saved.", "面板默认值已保存。"));
-      }
-    });
-  }
-
-  resetButton.addEventListener("click", () => {
-    const defaults = panelSettingsDefaults.get(panel);
-    if (!defaults) return;
-    if (titleEl && defaults.title) titleEl.textContent = defaults.title;
-    accentInput.value = defaults.accent || "#00f5a0";
-    opacityInput.value = defaults.opacity;
-    blurInput.value = defaults.blur;
-    widthInput.value = defaults.width;
-    heightInput.value = defaults.height;
-    applyAccent();
-    applyOpacity();
-    applyBlur();
-    applySize();
-    if (previewModeInput) {
-      panel.dataset.previewMode = defaults.previewMode || FORYOU_PREVIEW_MODES.AUTO;
-      previewModeInput.value = panel.dataset.previewMode;
-      localStorage.setItem(FORYOU_PREVIEW_MODE_KEY, panel.dataset.previewMode);
-    }
-    if (foryouHoldInput || foryouCompactInput || foryouAutoWatchInput || watchDefaultTabInput || watchPreviewLimitInput || watchSubtitleScaleInput || watchEngineDetailInput || lyricsTypeSpeedInput || lyricsFontScaleInput || lyricsAutoCollapseInput || musicWaveformBarsInput || musicLayerCardsInput || videoStoryboardFramesInput || videoCameraSlotsInput) {
-      updatePanelBehaviorSettings((current) => ({
-        ...current,
-        foryou: {
-          ...current.foryou,
-          compact_after_lyrics: defaults.foryouCompactAfterLyrics !== false,
-          hold_ms: Number(defaults.foryouHoldMs || current.foryou.hold_ms),
-          auto_watch_ms: Number(defaults.foryouAutoWatchMs || current.foryou.auto_watch_ms)
-        },
-        watch: {
-          ...current.watch,
-          default_tab: String(defaults.watchDefaultTab || current.watch.default_tab),
-          preview_limit_sec: Number(defaults.watchPreviewLimitSec || current.watch.preview_limit_sec),
-          subtitle_scale: Number(defaults.watchSubtitleScale || current.watch.subtitle_scale),
-          engine_detail: String(defaults.watchEngineDetail || current.watch.engine_detail)
-        },
-        lyrics: {
-          ...current.lyrics,
-          typewriter_speed: Number(defaults.lyricsTypeSpeed || current.lyrics.typewriter_speed),
-          font_scale: Number(defaults.lyricsFontScale || current.lyrics.font_scale),
-          auto_collapse: defaults.lyricsAutoCollapse !== false
-        },
-        music: {
-          ...current.music,
-          waveform_bars: Number(defaults.musicWaveformBars || current.music.waveform_bars),
-          layer_cards: Number(defaults.musicLayerCards || current.music.layer_cards)
-        },
-        video: {
-          ...current.video,
-          storyboard_frames: Number(defaults.videoStoryboardFrames || current.video.storyboard_frames),
-          camera_slots: Number(defaults.videoCameraSlots || current.video.camera_slots)
-        }
-      }));
-    }
-
-    if (isLogoPanel) {
-      if (mirrorStrategyInput) {
-        const nextStrategy = defaults.mirrorAnimationStrategy || MIRROR_ANIMATION_STRATEGIES.PER_TYPE;
-        mirrorStrategyInput.value = nextStrategy;
-        setStoredMirrorAnimationStrategy(nextStrategy);
-      }
-      if (mirrorAnimationInput) {
-        const nextMode = defaults.mirrorAnimationMode || MIRROR_ANIMATION_MODES.HALO;
-        mirrorAnimationInput.value = nextMode;
-        setStoredMirrorAnimationMode(nextMode);
-      }
-      if (defaults.mirrorAnimationPerType) {
-        const nextPerType = setStoredMirrorAnimationPerType(defaults.mirrorAnimationPerType);
-        if (mirrorSingleInput) mirrorSingleInput.value = nextPerType.single;
-        if (mirrorTriptychInput) mirrorTriptychInput.value = nextPerType.triptych;
-        if (mirrorOperaInput) mirrorOperaInput.value = nextPerType.opera;
-      }
-      syncMirrorSettingsVisibility();
-      applyMirrorAnimationMode(getStoredMirrorAnimationMode());
-      if (mirrorA) mirrorA.src = "assets/mirror-1.webp";
-      if (mirrorB) mirrorB.src = "assets/mirror-2.webp";
-      panel.classList.remove("mirror-video-active");
-      if (mirrorVideo) {
-        mirrorVideo.pause();
-        mirrorVideo.removeAttribute("src");
-        mirrorVideo.load();
-      }
-      if (mirrorImgInput1) mirrorImgInput1.value = "";
-      if (mirrorImgInput2) mirrorImgInput2.value = "";
-      if (mirrorVideoInput) mirrorVideoInput.value = "";
-      if (spellInput) spellInput.value = DEFAULT_SPELL;
-      applySpell(DEFAULT_SPELL, { force: true, refreshPanels: true });
-    }
-    if (isForyouPanel) {
-      syncForyouThumbFromLyrics(state.title, state.lines);
-    }
+  bindPanelDefaultSaveButton({
+    panel,
+    setDefaultButton,
+    buildPanelDefaultSnapshot
   });
 
-  panelSettingsDefaults.set(panel, {
-    ...buildPanelDefaultSnapshot()
+  bindPanelResetButton({
+    panel,
+    resetButton,
+    titleEl,
+    accentInput,
+    opacityInput,
+    blurInput,
+    widthInput,
+    heightInput,
+    previewModeInput,
+    applyAccent,
+    applyOpacity,
+    applyBlur,
+    applySize,
+    hasBehaviorInputs: !!(cssmvDefaultSectionInput || cssmvAutoRefreshInput || languageDefaultModeInput || languageShowMoreInput || loginPanelDensityInput || loginPreferredProviderInput || loginShowLogoutInput || loginSessionDaysInput || profilePanelDensityInput || profileNoteInput || profileDefaultNavInput || worksFocusSectionInput || worksAutoLoadInput || worksSearchEnabledInput || worksSearchLimitInput || worksDefaultFilterInput || worksDefaultSortInput || sellerFocusLaneInput || sellerAutoRefreshInput || sellerOrderFilterInput || sellerLedgerLimitInput || aboutDefaultTabInput || aboutDensityInput || apiBillingModeInput || apiPaymentMethodDefaultInput || apiAutoRechargeDefaultInput || commercePayoutHoldDaysInput || commercePayoutSweepMinutesInput || commerceMinTipUsdInput || foryouHoldInput || foryouCompactInput || foryouAutoWatchInput || foryouSearchEnabledInput || foryouMarketLimitInput || foryouDefaultFilterInput || foryouDefaultSortInput || watchDefaultTabInput || watchPreviewLimitInput || watchSubtitleScaleInput || watchEngineDetailInput || lyricsTypeSpeedInput || lyricsFontScaleInput || lyricsAutoCollapseInput || musicWaveformBarsInput || musicLayerCardsInput || videoStoryboardFramesInput || videoCameraSlotsInput || reportsDefaultKindInput || reportsFocusSectionInput || reportsDensityInput || reportsPreviewExpandedInput || opsRecoveryLimitInput || opsFocusLaneInput || opsAlertDensityInput || opsAutoRefreshInput),
+    isLogoPanel,
+    mirrorStrategyInput,
+    mirrorAnimationInput,
+    mirrorSingleInput,
+    mirrorTriptychInput,
+    mirrorOperaInput,
+    mirrorImgInput1,
+    mirrorImgInput2,
+    mirrorVideoInput,
+    mirrorA,
+    mirrorB,
+    mirrorVideo,
+    spellInput,
+    syncMirrorSettingsVisibility,
+    isForyouPanel,
+    state
   });
 }
-
-function initPanelSettings() {
-  document.querySelectorAll(".panel").forEach((panel) => {
-    buildPanelSettings(panel);
-  });
-}
-
-if (applySettings) {
-  applySettings.addEventListener("click", () => {
-    const customLyrics = lyricsInput.value.trim();
-    const customTitle = titleInput.value.trim();
-    startCreation(customTitle, customLyrics);
-    openPanel(foryouPanel);
-  });
-}
-
-seedTabButtons.forEach((btn) => {
-  btn.addEventListener("click", () => activateSeedTab(btn.dataset.seedTab));
-});
-activateSeedTab("outline");
-const seedTabsScroller = document.querySelector(".seed-script-tabs");
-seedTabsScroller?.addEventListener("scroll", () => syncScrollPeek(seedTabsScroller), { passive: true });
-syncScrollPeek(seedTabsScroller);
-watchTabButtons.forEach((btn) => {
-  btn.addEventListener("click", () => activateWatchTab(btn.dataset.watchTab));
-});
-activateWatchTab(watchActiveTab);
-
-foryouTitle?.addEventListener("click", () => {
-  toggleForyouLyricsExpanded();
-});
-foryouThumbImage?.addEventListener("click", () => {
-  toggleForyouLyricsExpanded();
-});
-foryouThumbVideo?.addEventListener("click", () => {
-  toggleForyouLyricsExpanded();
-});
-foryouThumbFallback?.addEventListener("click", () => {
-  toggleForyouLyricsExpanded();
-});
-
-watchLyricsEditor?.addEventListener("input", () => {
-  if (lyricsInput) lyricsInput.value = watchLyricsEditor.value;
-});
-
-watchOutlineEditor?.addEventListener("input", () => {
-  if (videoOutlineInput) videoOutlineInput.value = watchOutlineEditor.value;
-});
-
-watchScriptEditor?.addEventListener("input", () => {
-  if (sectionPromptsInput) sectionPromptsInput.value = watchScriptEditor.value;
-});
-
-if (randomPaletteButton) {
-  randomPaletteButton.addEventListener("click", randomizePalette);
-}
-if (advancedPanelSettingsToggle && advancedPanelSettings) {
-  advancedPanelSettings.hidden = true;
-  advancedPanelSettingsToggle.addEventListener("click", () => {
-    advancedPanelSettings.hidden = !advancedPanelSettings.hidden;
-    advancedPanelSettingsToggle.classList.toggle("is-active", !advancedPanelSettings.hidden);
-  });
-}
-palettePresetButtons.forEach((button) => {
-  button.addEventListener("click", () => {
-    const preset = button.getAttribute("data-palette-preset");
-    if (!preset) return;
-    applyPalettePreset(preset);
-  });
-});
-const paletteScroller = document.querySelector(".palette-presets");
-paletteScroller?.addEventListener("scroll", () => syncScrollPeek(paletteScroller), { passive: true });
-syncScrollPeek(paletteScroller);
-const paletteColorScroller = document.getElementById("palette-color-tabs");
-paletteColorScroller?.addEventListener("scroll", () => syncScrollPeek(paletteColorScroller), { passive: true });
-syncScrollPeek(paletteColorScroller);
-
-if (enterWatchButton) {
-  enterWatchButton.addEventListener("click", async () => {
-    clearWatchPreviewLimit();
-    const usedCurrent = await ensureCurrentWatchPreviewPlayback();
-    if (!usedCurrent) {
-      const ok = await playLatestVideoFromRegistry();
-      if (!ok) {
-        const demoOk = await playDemoInWatchPanel();
-        if (!demoOk) {
-          showToast("No video ready yet");
-        }
-      }
-    }
-  });
-}
-
-if (listenButton) {
-  listenButton.addEventListener("click", () => {
-    clearWatchPreviewLimit();
-    activateWatchTab("music");
-    openPanel(watchPanel);
-    playWatchAudioPreviewFromStart();
-  });
-}
-
-if (watchButton) {
-  watchButton.addEventListener("click", async () => {
-    clearWatchPreviewLimit();
-    activateWatchTab("mv");
-    const usedCurrent = await ensureCurrentWatchPreviewPlayback();
-    if (!usedCurrent) {
-      const ok = await playLatestVideoFromRegistry();
-      if (!ok) {
-        await playDemoInWatchPanel();
-      }
-    }
-  });
-}
-
-if (watchOverlayPlay) {
-  watchOverlayPlay.addEventListener("click", async (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    clearWatchPreviewLimit();
-    activateWatchTab("mv");
-    const usedCurrent = await ensureCurrentWatchPreviewPlayback();
-    if (!usedCurrent) {
-      const ok = await playLatestVideoFromRegistry();
-      if (!ok) {
-        await playDemoInWatchPanel();
-      }
-    }
-  });
-}
-
-initVideoPlaybackControls();
-initWatchMusicControls();
-
-if (styleInput) {
-  styleInput.addEventListener("change", () => updateEnginePanels(state.title, state.lines));
-}
-
-if (voiceInput) {
-voiceInput.addEventListener("change", () => {
-  markCreationFieldTouched("vocalGender");
-  updateEnginePanels(state.title, state.lines);
-});
-}
-
-lyricsInput?.addEventListener("input", () => syncWatchEditorsFromSettings());
-videoOutlineInput?.addEventListener("input", () => syncWatchEditorsFromSettings());
-sectionPromptsInput?.addEventListener("input", () => syncWatchEditorsFromSettings());
-watchLyricsEditor?.addEventListener("input", () => updateEnginePanels(titleInput?.value?.trim() || state.title, watchLyricsEditor.value.split("\n")));
-watchOutlineEditor?.addEventListener("input", () => updateEnginePanels(titleInput?.value?.trim() || state.title, state.lines));
-watchScriptEditor?.addEventListener("input", () => updateEnginePanels(titleInput?.value?.trim() || state.title, state.lines));
-
-bgColorInputs.forEach((input) => {
-  if (!input) return;
-  input.addEventListener("input", applyBackgroundPalette);
-});
-
-["mousemove", "keydown", "touchstart"].forEach((eventName) => {
-  window.addEventListener(eventName, resetInactivityTimer, { passive: true });
-});
-
-const safeInit = (name, fn) => {
-  try {
-    fn();
-  } catch (err) {
-    console.error(`[init] ${name} failed`, err);
-  }
-};
-
-safeInit("resetInactivityTimer", () => resetInactivityTimer());
-safeInit("initPanelStack", () => initPanelStack());
-safeInit("updateDockVisibility", () => updateDockVisibility());
-safeInit("applySpell", () => applySpell(state.spell, { force: true, refreshPanels: false }));
-safeInit("updateEnginePanels", () => updateEnginePanels(state.title, state.lines));
-safeInit("applyBackgroundPalette", () => applyBackgroundPalette());
-safeInit("restoreDockOrder", () => restoreDockOrder());
-safeInit("attachDockEvents", () => attachDockEvents());
-safeInit("attachDockReorder", () => attachDockReorder());
-safeInit("attachDockDocking", () => attachDockDocking());
-safeInit("attachGlobalActionDispatcher", () => attachGlobalActionDispatcher());
-safeInit("bindHoldTargets", () => bindHoldTargets());
-safeInit("attachPanelDrag", () => attachPanelDrag());
-safeInit("attachPanelBarActions", () => attachPanelBarActions());
-safeInit("attachResize", () => attachResize());
-safeInit("attachPanelFocus", () => attachPanelFocus());
-safeInit("attachPanelActions", () => attachPanelActions());
-safeInit("attachLogoPanelActions", () => attachLogoPanelActions());
-safeInit("initPanelSettings", () => initPanelSettings());
-safeInit("initMirrorAnimationMode", () => {
-  const strategy = setStoredMirrorAnimationStrategy(getStoredMirrorAnimationStrategy());
-  const mode = setStoredMirrorAnimationMode(getStoredMirrorAnimationMode());
-  setStoredMirrorAnimationPerType(getStoredMirrorAnimationPerType());
-  if (logoPanel) logoPanel.dataset.mirrorAnimationStrategy = strategy;
-  applyMirrorAnimationMode(mode);
-});
-safeInit("initCreationConsole", () => initCreationConsole());
-safeInit("renderAdvancedPanelSettings", () => renderAdvancedPanelSettings());
-safeInit("initEngineControls", () => initEngineControls());
-safeInit("initLyricsControls", () => initLyricsControls());
-safeInit("initLanguagePanel", () => initLanguagePanel());
-safeInit("initAboutTabs", () => initAboutTabs());
-safeInit("initApiBillingUI", () => initApiBillingUI());
-safeInit("fetchMe", () => fetchMe());
-safeInit("handleStripeCheckoutReturn", () => handleStripeCheckoutReturn());
-safeInit("loadCreationPanelDefaults", () => loadCreationPanelDefaults());
-safeInit("fetchAuthProviders", () => fetchAuthProviders());
-safeInit("fetchBillingStatus", () => fetchBillingStatus());
-safeInit("initVersionSwitcher", () => initVersionSwitcher());
-safeInit("restoreMusicDeliveryDashboardRunId", () => restoreMusicDeliveryDashboardRunId());
-safeInit("renderMusicDeliveryDashboard", () => renderMusicDeliveryDashboard());
-if (loginLogout) {
-  loginLogout.addEventListener("click", async () => {
-    try {
-      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
-    } catch (err) {
-      // ignore
-    }
-    authState.user = null;
-    authState.role = DEFAULT_ROLE;
-    authState.tier = DEFAULT_ROLE;
-    authState.linkedProviders = [];
-    watchCommerceState.loaded = false;
-    watchCommerceState.loading = false;
-    watchCommerceState.payload = null;
-    watchCommerceState.error = null;
-    authState.loginProvider = null;
-    updateLoginUI();
-    renderLoginPlatforms();
-    renderWorksPanel();
-    renderApiBillingPanel();
-    await renderAdvancedPanelSettings();
-    fetchBillingStatus();
-  });
-}
-if (loginList) {
-  loginList.addEventListener("click", async (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) return;
-    const btn = target.closest(".login-unlink-btn");
-    if (!(btn instanceof HTMLButtonElement)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const provider = btn.dataset.provider || "";
-    btn.disabled = true;
-    await unlinkProvider(provider);
-    btn.disabled = false;
-  });
-}
-attachAmbientTrail();
-if (deliveryDashboardRefresh) {
-  deliveryDashboardRefresh.addEventListener("click", () => {
-    const runId = deliveryDashboardRunId?.value || deliveryDashboardState.runId;
-    void loadMusicDeliveryDashboard(runId, true);
-  });
-}
-if (deliveryDashboardRunId) {
-  deliveryDashboardRunId.addEventListener("change", () => {
-    const runId = deliveryDashboardRunId.value || "";
-    deliveryDashboardState.runId = String(runId).trim();
-    persistMusicDeliveryDashboardRunId(deliveryDashboardState.runId);
-    void loadMusicDeliveryDashboard(deliveryDashboardState.runId, true);
-  });
-}
-window.addEventListener("cssos:run_created", (event) => {
-  const runId = extractRunId(event?.detail);
-  if (!runId) return;
-  deliveryDashboardState.runId = runId;
-  persistMusicDeliveryDashboardRunId(runId);
-  renderMusicDeliveryDashboard();
-  void loadMusicDeliveryDashboard(runId, true);
-});
-window.addEventListener("cssos:mic", () => {
-  handleMicClick();
-});
-window.addEventListener("cssos:mic_hold_start", async () => {
-  try {
-    await startRecording();
-  } catch (e) {
-    const raw = String(e || "");
-    const msg =
-      /NotAllowedError|Permission denied/i.test(raw)
-        ? t("mic.permissionDenied")
-        : /Requested device not found|NotFoundError/i.test(raw)
-          ? t("mic.noDevice")
-        : `${window.t ? window.t("mic.submit_failed") : "Submit failed"}: ${raw}`;
-    showToast(msg);
-  }
-});
-window.addEventListener("cssos:mic_hold_commit", async (event) => {
-  try {
-    const elapsedMs = Number(event?.detail?.elapsed_ms || 0);
-    if (elapsedMs > 0 && elapsedMs < LONGPRESS_MS) {
-      await stopRecordingGetBlob().catch(() => null);
-      handleMicClick();
-      return;
-    }
-    const blob = await stopRecordingGetBlob().catch(() => null);
-    await submitVoiceOrFallbackTitle(blob);
-  } catch (e) {
-    const raw = String(e || "");
-    const msg =
-      /NotAllowedError|Permission denied/i.test(raw)
-        ? t("mic.permissionDenied")
-        : /Requested device not found|NotFoundError/i.test(raw)
-          ? t("mic.noDevice")
-        : `${window.t ? window.t("mic.submit_failed") : "Submit failed"}: ${raw}`;
-    showToast(msg);
-  } finally {
-    // Always clear ring UI after long-press flow, even on edge-case errors.
-    forceResetHoldRing();
-  }
-});
-
-window.addEventListener("visibilitychange", () => {
-  if (document.hidden) {
-    forceResetHoldRing();
-    setLongpressGuard(false);
-    if (deliveryDashboardPollTimer) {
-      clearInterval(deliveryDashboardPollTimer);
-      deliveryDashboardPollTimer = 0;
-    }
-  } else {
-    ensureMusicDeliveryDashboardPolling();
-  }
-});
-window.addEventListener("blur", () => setLongpressGuard(false));
-
-window.addEventListener("resize", () => {
-  panels.forEach((panel) => clampPanelInViewport(panel));
-  layoutShowcasePanels();
-});

@@ -17,6 +17,7 @@ import {
 } from "./cssmv/schemas/structure-tree";
 
 const ENV_CONFIG_PATHS = [
+  "/srv/cssos.env",
   "/etc/cssos.env",
   "/private/etc/cssos.env",
   path.resolve(process.cwd(), ".env.local"),
@@ -70,6 +71,14 @@ function getOpenAiRuntimeConfig() {
   };
 }
 
+function getOpenAiTranscribeModel() {
+  return (
+    loadEnvValueFromPaths("OPENAI_TRANSCRIBE_MODEL")?.value ||
+    loadEnvValueFromPaths("OPENAI_AUDIO_TRANSCRIBE_MODEL")?.value ||
+    String(process.env.OPENAI_TRANSCRIBE_MODEL || process.env.OPENAI_AUDIO_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe").trim()
+  );
+}
+
 function getOpenAiDiagnosticsPayload() {
   const runtimeConfig = getOpenAiRuntimeConfig();
   const envCandidates = ENV_CONFIG_PATHS.map((envPath) => ({
@@ -80,6 +89,7 @@ function getOpenAiDiagnosticsPayload() {
     provider: "openai",
     env_source: runtimeConfig.envSource,
     model: runtimeConfig.model,
+    transcribe_model: getOpenAiTranscribeModel(),
     key_fingerprint: runtimeConfig.keyFingerprint,
     has_api_key: Boolean(runtimeConfig.apiKey),
     key_prefix: runtimeConfig.apiKey ? runtimeConfig.apiKey.slice(0, 12) : "",
@@ -158,7 +168,15 @@ const IS_PROD = process.env.NODE_ENV === "production";
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
 const SHARED_DIR = IS_PROD ? "/srv/cssos/shared" : path.join(__dirname, "..", "..", "shared");
 const SHARED_VERSIONS_FILE = path.join(SHARED_DIR, "versions.json");
+const SHARED_RUNS_DIR = path.join(SHARED_DIR, "runs");
 const PANEL_MEDIA_DIR = path.join(PUBLIC_DIR, "uploads", "panel-media");
+const MUSIC_SOURCE_UPLOAD_DIR = path.join(SHARED_DIR, "music-sources");
+const MUSIC_SOURCE_PARSER_TASK_DIR = path.join(SHARED_DIR, "music-source-parser-tasks");
+const MUSIC_SOURCE_PARSER_PROTOCOL_VERSION = "music-source-parser.v1";
+const MUSIC_SOURCE_PARSER_RESULT_SCHEMA = "css.music_source_parser_result.v1";
+const MUSIC_SOURCE_PARSER_WORKER_TICK_MS = 1200;
+const ASSET_BUCKET_NAME = process.env.CSSOS_ASSET_BUCKET || "cssstudio-gpu-cssos-assets-prod";
+const EXAMPLE_ASSET_PREFIX = "examples/";
 
 const DATABASE_URL = getDatabaseUrl();
 if (process.env.NODE_ENV === "production" && !DATABASE_URL) {
@@ -197,11 +215,14 @@ const sessionConfig: session.SessionOptions = {
         ? process.env.COOKIE_SECURE !== "false"
         : IS_PROD,
     path: process.env.COOKIE_PATH || "/",
-    maxAge: 1000 * 60 * 60 * 24 * Number(process.env.SESSION_TTL_DAYS || 30)
+    maxAge: 1000 * 60 * 60 * 24 * Number(process.env.SESSION_TTL_DAYS || 90)
   }
 };
 
-if (DATABASE_URL) {
+const SESSION_STORE_MODE = String(process.env.CSS_SESSION_STORE || "").trim().toLowerCase();
+const useDatabaseSessionStore = Boolean(DATABASE_URL) && SESSION_STORE_MODE !== "memory";
+
+if (useDatabaseSessionStore) {
   const PgSession = connectPgSimple(session);
   sessionConfig.store = new PgSession({
     pool: getPool(),
@@ -247,6 +268,73 @@ app.use(
 
 function noStore(res: express.Response) {
   res.setHeader("Cache-Control", "no-store");
+}
+
+async function getGceAccessToken() {
+  const response = await fetch(
+    "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+    {
+      headers: { "Metadata-Flavor": "Google" }
+    }
+  );
+  if (!response.ok) {
+    throw new Error(`gce_token_failed:${response.status}`);
+  }
+  const payload = await response.json().catch(() => null);
+  const token = String(payload?.access_token || "").trim();
+  if (!token) {
+    throw new Error("gce_token_missing");
+  }
+  return token;
+}
+
+async function listBucketObjects(prefix: string) {
+  const token = await getGceAccessToken();
+  const response = await fetch(
+    `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(ASSET_BUCKET_NAME)}/o?prefix=${encodeURIComponent(prefix)}`,
+    {
+      headers: { authorization: `Bearer ${token}` }
+    }
+  );
+  if (!response.ok) {
+    throw new Error(`gcs_list_failed:${response.status}`);
+  }
+  const payload = await response.json().catch(() => null);
+  return Array.isArray(payload?.items) ? payload.items : [];
+}
+
+async function fetchBucketObject(objectName: string) {
+  const token = await getGceAccessToken();
+  return fetch(
+    `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(ASSET_BUCKET_NAME)}/o/${encodeURIComponent(
+      objectName
+    )}?alt=media`,
+    {
+      headers: { authorization: `Bearer ${token}` }
+    }
+  );
+}
+
+function inferExampleAssetMime(name: string) {
+  const lower = String(name || "").trim().toLowerCase();
+  if (lower.endsWith(".mp4")) return "video/mp4";
+  if (lower.endsWith(".webm")) return "video/webm";
+  if (lower.endsWith(".mov")) return "video/quicktime";
+  if (lower.endsWith(".wav")) return "audio/wav";
+  if (lower.endsWith(".mp3")) return "audio/mpeg";
+  if (lower.endsWith(".m4a")) return "audio/mp4";
+  if (lower.endsWith(".aac")) return "audio/aac";
+  if (lower.endsWith(".flac")) return "audio/flac";
+  if (lower.endsWith(".ogg")) return "audio/ogg";
+  if (lower.endsWith(".json")) return "application/json; charset=utf-8";
+  return "application/octet-stream";
+}
+
+function sanitizeExampleAssetName(value: string) {
+  const normalized = String(value || "").trim().replace(/^\/+/, "");
+  if (!normalized || normalized.includes("..")) return "";
+  if (normalized.includes("\\")) return "";
+  return normalized;
 }
 
 async function getSessionUser(req: express.Request) {
@@ -296,20 +384,432 @@ function computePlatformFeeCents(amountCents: number) {
   return Math.max(0, Math.round(amountCents * (stripePlatformFeeBps() / 10000)));
 }
 
-function stripePayoutHoldDays() {
+function stripePayoutHoldDaysEnv() {
   const parsed = Number.parseInt(String(process.env.STRIPE_PAYOUT_HOLD_DAYS || "14"), 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 14;
 }
 
-function stripePayoutSweepMs() {
+function stripePayoutSweepMsEnv() {
   const parsed = Number.parseInt(String(process.env.STRIPE_PAYOUT_SWEEP_MS || String(60 * 60 * 1000)), 10);
   return Number.isFinite(parsed) && parsed >= 60_000 ? parsed : 60 * 60 * 1000;
 }
 
-function payoutAvailableAtForOrder(order: { created_at?: string | Date | null; updated_at?: string | Date | null }) {
+const behaviorTemplateCache = {
+  value: null as any,
+  expiresAt: 0
+};
+
+async function loadBehaviorTemplateServer() {
+  const now = Date.now();
+  if (behaviorTemplateCache.value && behaviorTemplateCache.expiresAt > now) {
+    return behaviorTemplateCache.value;
+  }
+  let nextValue = sanitizeBehaviorPanelTemplate({});
+  if (DATABASE_URL) {
+    try {
+      const row = await withClient((client) =>
+        client.query<{ value: any }>(
+          `SELECT value
+           FROM panel_default_templates
+           WHERE panel_key = 'behavior'
+           LIMIT 1`
+        )
+      );
+      nextValue = sanitizeBehaviorPanelTemplate(row.rows[0]?.value || {});
+    } catch {
+      nextValue = sanitizeBehaviorPanelTemplate({});
+    }
+  }
+  behaviorTemplateCache.value = nextValue;
+  behaviorTemplateCache.expiresAt = now + 30_000;
+  return nextValue;
+}
+
+async function getCommercePolicySettings() {
+  const behavior = await loadBehaviorTemplateServer();
+  const commerce = behavior?.commerce || {};
+  return {
+    payoutHoldDays: Math.max(0, Math.min(90, Number(commerce.payout_hold_days ?? stripePayoutHoldDaysEnv()) || stripePayoutHoldDaysEnv())),
+    payoutSweepMs: Math.max(60_000, Math.min(24 * 60 * 60 * 1000, Number(commerce.payout_sweep_ms ?? stripePayoutSweepMsEnv()) || stripePayoutSweepMsEnv())),
+    minTipCents: Math.max(100, Math.min(100_000, Number(commerce.min_tip_cents ?? 100) || 100))
+  };
+}
+
+async function getCreatorCommercePolicySettings() {
+  const behavior = await loadBehaviorTemplateServer();
+  const creatorBoost = behavior?.creator_boost || {};
+  const membership = behavior?.membership || {};
+  return {
+    starterMonthlyLimit: Math.max(1, Math.min(1000, Number(membership.starter_monthly_limit ?? 30) || 30)),
+    proMonthlyLimit: Math.max(1, Math.min(5000, Number(membership.pro_monthly_limit ?? 100) || 100)),
+    studioMonthlyLimit: Math.max(1, Math.min(10000, Number(membership.studio_monthly_limit ?? 300) || 300)),
+    enterpriseMonthlyLimit: Number(membership.enterprise_monthly_limit ?? 0) > 0
+      ? Math.max(1, Math.min(100000, Number(membership.enterprise_monthly_limit) || 0))
+      : null,
+    vipUnlimited: creatorBoost.vip_unlimited !== false,
+    languageBoostUnitCents: Math.max(100, Math.min(100000, Number(creatorBoost.language_unit_cents ?? 300) || 300)),
+    voiceBoostUnitCents: Math.max(100, Math.min(100000, Number(creatorBoost.voice_unit_cents ?? 500) || 500)),
+    thumbnailBoostUnitCents: Math.max(25, Math.min(100000, Number(creatorBoost.thumbnail_unit_cents ?? 79) || 79)),
+    previewVideoBoostUnitCents: Math.max(25, Math.min(100000, Number(creatorBoost.preview_video_unit_cents ?? 249) || 249)),
+    adminOnlyPurchaseOverride: !!creatorBoost.admin_only_purchase_override,
+    enabledKinds: Array.isArray(creatorBoost.enabled_kinds)
+      ? creatorBoost.enabled_kinds.filter((item: unknown) =>
+          ["language", "voice", "thumbnail", "preview_video"].includes(String(item || ""))
+        )
+      : ["language", "voice", "thumbnail", "preview_video"]
+  };
+}
+
+type BillableActionKey =
+  | "lyrics_generate"
+  | "music_generate"
+  | "video_generate"
+  | "thumbnail_regenerate"
+  | "preview_video_regenerate"
+  | "multi_language"
+  | "multi_voice"
+  | "cinema_booking"
+  | "enterprise_route";
+
+function normalizeBillableActionKey(value: unknown): BillableActionKey | null {
+  const raw = String(value || "").trim().toLowerCase();
+  if (
+    [
+      "lyrics_generate",
+      "music_generate",
+      "video_generate",
+      "thumbnail_regenerate",
+      "preview_video_regenerate",
+      "multi_language",
+      "multi_voice",
+      "cinema_booking",
+      "enterprise_route"
+    ].includes(raw)
+  ) {
+    return raw as BillableActionKey;
+  }
+  return null;
+}
+
+async function getBillingActionPolicySettings() {
+  const behavior = await loadBehaviorTemplateServer();
+  const billing = behavior?.billing_actions || {};
+  const creator = await getCreatorCommercePolicySettings();
+  return {
+    lyricsGenerateCents: Math.max(0, Math.min(100000, Number(billing.lyrics_generate_cents ?? 20) || 20)),
+    musicGenerateCents: Math.max(0, Math.min(100000, Number(billing.music_generate_cents ?? 40) || 40)),
+    videoGenerateCents: Math.max(0, Math.min(100000, Number(billing.video_generate_cents ?? 60) || 60)),
+    thumbnailRegenerateCents: creator.thumbnailBoostUnitCents,
+    previewVideoRegenerateCents: creator.previewVideoBoostUnitCents,
+    multiLanguageCents: creator.languageBoostUnitCents,
+    multiVoiceCents: creator.voiceBoostUnitCents,
+    enterpriseRouteCents: Math.max(0, Math.min(100000, Number(billing.enterprise_route_cents ?? 5) || 5)),
+    cinemaBookingCents: Math.max(0, Math.min(100000, Number(billing.cinema_booking_cents ?? 0) || 0)),
+    includedMembershipCoversCore: billing.included_membership_covers_core !== false
+  };
+}
+
+function billableActionCostCents(actionKey: BillableActionKey, settings: Awaited<ReturnType<typeof getBillingActionPolicySettings>>) {
+  if (actionKey === "lyrics_generate") return settings.lyricsGenerateCents;
+  if (actionKey === "music_generate") return settings.musicGenerateCents;
+  if (actionKey === "video_generate") return settings.videoGenerateCents;
+  if (actionKey === "thumbnail_regenerate") return settings.thumbnailRegenerateCents;
+  if (actionKey === "preview_video_regenerate") return settings.previewVideoRegenerateCents;
+  if (actionKey === "multi_language") return settings.multiLanguageCents;
+  if (actionKey === "multi_voice") return settings.multiVoiceCents;
+  if (actionKey === "enterprise_route") return settings.enterpriseRouteCents;
+  return settings.cinemaBookingCents;
+}
+
+async function getStudioEnterprisePolicySettings() {
+  const behavior = await loadBehaviorTemplateServer();
+  const settings = behavior?.studio_enterprise || {};
+  return {
+    teamCollaborationEnabled: !!settings.team_collaboration_enabled,
+    maxTeamMembers: Math.max(1, Math.min(500, Number(settings.max_team_members ?? 5) || 5)),
+    multiProjectEnabled: settings.multi_project_enabled !== false,
+    maxProjects: Math.max(1, Math.min(1000, Number(settings.max_projects ?? 12) || 12)),
+    enterpriseApiEnabled: !!settings.enterprise_api_enabled,
+    enterpriseApiRateLimitPerMinute: Math.max(
+      1,
+      Math.min(100000, Number(settings.enterprise_api_rate_limit_per_minute ?? 600) || 600)
+    )
+  };
+}
+
+function queueLaneForTier(tier: MembershipTier) {
+  if (tier === "admin") return "admin_override";
+  if (tier === "vip") return "vip_private";
+  if (tier === "enterprise") return "enterprise_dedicated";
+  if (tier === "studio") return "studio_pipeline";
+  if (tier === "pro") return "pro_pipeline";
+  if (tier === "starter") return "starter_paid";
+  if (tier === "free") return "free_standard";
+  return "guest_preview";
+}
+
+function canUseStudioWorkspaceTier(tier: MembershipTier) {
+  return ["studio", "enterprise", "vip", "admin"].includes(tier);
+}
+
+function canUseEnterpriseApiTier(tier: MembershipTier) {
+  return ["enterprise", "vip", "admin"].includes(tier);
+}
+
+const DELIVERY_ADMIN_ONLY_ACTION_ATTRS = [
+  "data-delivery-rewrite-bundle-commit",
+  "data-delivery-rewrite-bundle-save",
+  "data-delivery-rewrite-bundle-promote",
+  "data-delivery-rewrite-sandbox-apply",
+  "data-delivery-rewrite-sandbox-clear",
+  "data-delivery-arrangement-revision-rollback",
+  "data-delivery-arrangement-revision-merge-forward",
+  "data-delivery-arrangement-release-candidate",
+  "data-delivery-arrangement-lock",
+  "data-delivery-arrangement-publish",
+  "data-delivery-publish-step-approve",
+  "data-delivery-publish-step-finalize",
+  "data-delivery-publish-step-remind",
+  "data-delivery-publish-actor-suggest",
+  "data-delivery-publish-route-shortcut",
+  "data-delivery-publish-runbook-automation",
+  "data-delivery-publish-confirm-arm",
+  "data-delivery-publish-confirm-disarm",
+  "data-delivery-post-publish-rollback",
+  "data-delivery-compliance-escalate",
+  "data-delivery-compliance-ticket",
+  "data-delivery-compliance-backfill",
+  "data-delivery-compliance-rotate-secret",
+  "data-delivery-compliance-update-registry",
+  "data-delivery-compliance-reopen",
+  "data-delivery-compliance-save-directory",
+  "data-delivery-compliance-save-preset",
+  "data-delivery-compliance-audit-log",
+  "data-delivery-compliance-save-role-policy",
+  "data-delivery-compliance-approve",
+  "data-delivery-compliance-save-routing",
+  "data-delivery-compliance-save-signers",
+  "data-delivery-compliance-finalize-quorum",
+  "data-delivery-probe-dispatch-done",
+  "data-delivery-probe-dispatch-history-export",
+  "data-delivery-probe-incident-export",
+  "data-delivery-probe-handoff-ack",
+  "data-delivery-probe-receipt-copy",
+  "data-delivery-probe-followup-copy",
+  "data-delivery-watch-case-route-priority",
+  "data-delivery-watch-case-route",
+  "data-delivery-watch-case-close-summary",
+  "data-delivery-watch-owner-inbox-digest",
+  "data-delivery-watch-case-export-bundle",
+  "data-delivery-watch-case-status"
+];
+const DELIVERY_STANDARD_SCOPE_RULES = [
+  { scope: "delivery.watch.case", match: (name: string) => name.startsWith("data-delivery-watch-case-") },
+  { scope: "delivery.watch.archive", match: (name: string) => name.includes("data-delivery-watch-archive-") },
+  { scope: "delivery.watch.compare", match: (name: string) => name.includes("data-delivery-watch-compare-") },
+  { scope: "delivery.watch.saved_view", match: (name: string) => name.includes("data-delivery-watch-saved-view-") },
+  { scope: "delivery.watch.standard", match: (name: string) => name.startsWith("data-delivery-watch-") },
+  { scope: "delivery.compliance.refresh", match: (name: string) => name === "data-delivery-compliance-refresh" },
+  { scope: "delivery.compliance.open", match: (name: string) => name === "data-delivery-compliance-open" },
+  { scope: "delivery.compliance.registry", match: (name: string) => ["data-delivery-compliance-update-registry", "data-delivery-compliance-save-directory", "data-delivery-compliance-save-preset", "data-delivery-compliance-save-role-policy", "data-delivery-compliance-save-routing", "data-delivery-compliance-save-signers", "data-delivery-compliance-backfill"].includes(name) },
+  { scope: "delivery.compliance.approval", match: (name: string) => ["data-delivery-compliance-approve", "data-delivery-compliance-escalate", "data-delivery-compliance-ticket", "data-delivery-compliance-audit-log"].includes(name) },
+  { scope: "delivery.compliance.signer", match: (name: string) => ["data-delivery-compliance-rotate-secret", "data-delivery-compliance-reopen"].includes(name) },
+  { scope: "delivery.compliance.quorum", match: (name: string) => name === "data-delivery-compliance-finalize-quorum" },
+  { scope: "delivery.compliance.standard", match: (name: string) => name.startsWith("data-delivery-compliance-") },
+  { scope: "delivery.rewrite.bundle", match: (name: string) => name.includes("data-delivery-rewrite-bundle-") },
+  { scope: "delivery.rewrite.sandbox", match: (name: string) => name.includes("data-delivery-rewrite-sandbox-") },
+  { scope: "delivery.rewrite.diff", match: (name: string) => name === "data-delivery-rewrite-diff-focus" },
+  { scope: "delivery.rewrite.playback", match: (name: string) => ["data-delivery-rewrite-phrase-play", "data-delivery-rewrite-lane", "data-delivery-rewrite-payload-mode", "data-delivery-rewrite-assist"].includes(name) },
+  { scope: "delivery.rewrite.standard", match: (name: string) => name.startsWith("data-delivery-rewrite-") },
+  { scope: "delivery.probe.dispatch", match: (name: string) => name.includes("data-delivery-probe-dispatch-") },
+  { scope: "delivery.probe.export", match: (name: string) => ["data-delivery-probe-incident-export", "data-delivery-probe-receipt-copy", "data-delivery-probe-followup-copy"].includes(name) },
+  { scope: "delivery.probe.handoff", match: (name: string) => name === "data-delivery-probe-handoff-ack" },
+  { scope: "delivery.probe.compare", match: (name: string) => name === "data-delivery-probe-compare-select" },
+  { scope: "delivery.probe.standard", match: (name: string) => name.startsWith("data-delivery-probe-") },
+  { scope: "delivery.publish.simulate", match: (name: string) => name === "data-delivery-publish-simulate" },
+  { scope: "delivery.publish.route", match: (name: string) => ["data-delivery-publish-route-shortcut", "data-delivery-publish-actor-suggest", "data-delivery-publish-runbook-automation"].includes(name) },
+  { scope: "delivery.publish.confirm", match: (name: string) => ["data-delivery-publish-confirm-arm", "data-delivery-publish-confirm-disarm", "data-delivery-publish-ack-note"].includes(name) },
+  { scope: "delivery.publish.finalize", match: (name: string) => ["data-delivery-publish-step-approve", "data-delivery-publish-step-finalize", "data-delivery-publish-step-remind"].includes(name) },
+  { scope: "delivery.publish.standard", match: (name: string) => name.startsWith("data-delivery-publish-") },
+  { scope: "delivery.post_publish.standard", match: (name: string) => name.startsWith("data-delivery-post-publish-") },
+  { scope: "delivery.arrangement.standard", match: (name: string) => name.startsWith("data-delivery-arrangement-") },
+  { scope: "delivery.mixer.standard", match: (name: string) => name.startsWith("data-delivery-mixer-") },
+  { scope: "delivery.ops.standard", match: (name: string) => name.startsWith("data-delivery-ops-") }
+];
+
+function deliveryPermissionScopeFromAttr(attrName: string) {
+  const normalized = String(attrName || "").trim().toLowerCase();
+  if (!normalized.startsWith("data-delivery-")) return "";
+  if (DELIVERY_ADMIN_ONLY_ACTION_ATTRS.includes(normalized)) {
+    return `delivery.action.${normalized.replace(/^data-delivery-/, "").replace(/-/g, ".")}`;
+  }
+  const matched = DELIVERY_STANDARD_SCOPE_RULES.find((entry) => entry.match(normalized));
+  if (matched) return matched.scope;
+  return "delivery.action.standard";
+}
+
+function isProPlusTier(tier: MembershipTier) {
+  return ["pro", "studio", "enterprise", "vip", "admin"].includes(tier);
+}
+
+function isEnterprisePlusTier(tier: MembershipTier) {
+  return ["enterprise", "vip", "admin"].includes(tier);
+}
+
+function deliveryScopeAllowedForTier(scope: string, tier: MembershipTier, loggedIn: boolean) {
+  const normalizedScope = String(scope || "").trim().toLowerCase();
+  if (normalizedScope === "delivery.action.standard") return loggedIn;
+  if (normalizedScope === "delivery.watch.compare" || normalizedScope === "delivery.rewrite.playback" || normalizedScope === "delivery.probe.compare") {
+    return loggedIn;
+  }
+  if (
+    normalizedScope === "delivery.rewrite.bundle" ||
+    normalizedScope === "delivery.rewrite.sandbox" ||
+    normalizedScope === "delivery.rewrite.diff" ||
+    normalizedScope === "delivery.compliance.registry" ||
+    normalizedScope === "delivery.publish.route" ||
+    normalizedScope === "delivery.probe.dispatch" ||
+    normalizedScope === "delivery.probe.export" ||
+    normalizedScope === "delivery.probe.handoff"
+  ) {
+    return isProPlusTier(tier);
+  }
+  if (
+    normalizedScope === "delivery.compliance.approval" ||
+    normalizedScope === "delivery.compliance.signer" ||
+    normalizedScope === "delivery.compliance.quorum" ||
+    normalizedScope === "delivery.publish.finalize" ||
+    normalizedScope === "delivery.publish.confirm"
+  ) {
+    return isEnterprisePlusTier(tier);
+  }
+  if (normalizedScope.startsWith("delivery.action.")) {
+    return tier === "admin";
+  }
+  return loggedIn;
+}
+
+function buildPermissionSnapshot(tier: MembershipTier, role: string) {
+  const normalizedTier = normalizeMembershipTier(tier);
+  const loggedIn = normalizedTier !== "guest";
+  const isAdmin = role === "admin" || normalizedTier === "admin";
+  const isPaid = ["starter", "pro", "studio", "enterprise", "vip", "admin"].includes(normalizedTier);
+  const isVipOrAdmin = ["vip", "admin"].includes(normalizedTier);
+  const canUseStudio = canUseStudioWorkspaceTier(normalizedTier);
+  const canUseEnterprise = canUseEnterpriseApiTier(normalizedTier);
+  const isProPlus = ["pro", "studio", "enterprise", "vip", "admin"].includes(normalizedTier);
+  const isStudioPlus = ["studio", "enterprise", "vip", "admin"].includes(normalizedTier);
+  const scopes: Record<string, boolean> = {
+    "login.open": true,
+    "login.provider.switch": loggedIn,
+    "login.provider.unlink": loggedIn,
+    "login.logout": loggedIn,
+    "profile.open": loggedIn,
+    "profile.passkey.login": true,
+    "profile.passkey.enable": loggedIn,
+    "profile.avatar.edit": loggedIn,
+    "profile.nav.works": loggedIn,
+    "profile.nav.api": loggedIn,
+    "works.open": loggedIn,
+    "works.own.view": loggedIn,
+    "works.watch": loggedIn,
+    "works.thumbnail.regen": loggedIn,
+    "works.preview_video.regen": loggedIn,
+    "works.type.edit": isPaid,
+    "works.price.edit": isPaid,
+    "works.visibility.edit": isPaid,
+    "works.sell": isPaid,
+    "works.payout": isPaid,
+    "seller.view": isPaid,
+    "seller.payout": isPaid,
+    "seller.operate": isVipOrAdmin,
+    "api.docs.view": true,
+    "api.billing.view": true,
+    "api.billing.manage": loggedIn,
+    "api.enterprise.route": canUseEnterprise,
+    "reports.open": loggedIn,
+    "reports.export.use": loggedIn,
+    "reports.export.source.select": isVipOrAdmin,
+    "reports.export.format.select": isVipOrAdmin,
+    "reports.export.generate": isVipOrAdmin,
+    "reports.export.result.copy": loggedIn,
+    "reports.export.result.download": loggedIn,
+    "reports.export.preview.toggle": loggedIn,
+    "reports.history.filter": loggedIn,
+    "reports.history.search": loggedIn,
+    "reports.history.select": loggedIn,
+    "reports.history.bulk.download": loggedIn,
+    "reports.history.bulk.delete": isVipOrAdmin,
+    "reports.history.sort": loggedIn,
+    "reports.history.clear_selection": loggedIn,
+    "reports.history.clear": isVipOrAdmin,
+    "reports.history.pin": loggedIn,
+    "reports.history.restore": loggedIn,
+    "reports.history.copy": loggedIn,
+    "reports.history.download": loggedIn,
+    "reports.history.delete": isVipOrAdmin,
+    "creation.start": loggedIn,
+    "creation.advanced": isProPlus,
+    "creation.structured": isProPlus,
+    "creation.extras": !["guest", "free"].includes(normalizedTier),
+    "creation.cinema": isAdmin,
+    "cssmv.open": loggedIn,
+    "cssmv.workspace.sync": canUseStudio,
+    "cssmv.action.retry": isProPlus,
+    "cssmv.action.force_refresh_signals": isStudioPlus,
+    "cssmv.action.capture_snapshot": isStudioPlus,
+    "cssmv.action.escalate_ops": canUseEnterprise,
+    "cssmv.action.require_manual_intervention": isVipOrAdmin,
+    "delivery.watch.standard": loggedIn,
+    "delivery.watch.case": loggedIn,
+    "delivery.watch.archive": loggedIn,
+    "delivery.watch.compare": loggedIn,
+    "delivery.watch.saved_view": loggedIn,
+    "delivery.compliance.refresh": loggedIn,
+    "delivery.compliance.open": loggedIn,
+    "delivery.compliance.registry": loggedIn,
+    "delivery.compliance.approval": loggedIn,
+    "delivery.compliance.signer": loggedIn,
+    "delivery.compliance.quorum": loggedIn,
+    "delivery.compliance.standard": loggedIn,
+    "delivery.rewrite.bundle": loggedIn,
+    "delivery.rewrite.sandbox": loggedIn,
+    "delivery.rewrite.diff": loggedIn,
+    "delivery.rewrite.playback": loggedIn,
+    "delivery.rewrite.standard": loggedIn,
+    "delivery.probe.dispatch": loggedIn,
+    "delivery.probe.export": loggedIn,
+    "delivery.probe.handoff": loggedIn,
+    "delivery.probe.compare": loggedIn,
+    "delivery.probe.standard": loggedIn,
+    "delivery.publish.standard": loggedIn,
+    "delivery.publish.simulate": loggedIn,
+    "delivery.publish.route": loggedIn,
+    "delivery.publish.confirm": loggedIn,
+    "delivery.publish.finalize": loggedIn,
+    "delivery.post_publish.standard": loggedIn,
+    "delivery.arrangement.standard": loggedIn,
+    "delivery.mixer.standard": loggedIn,
+    "delivery.ops.standard": loggedIn,
+    "delivery.action.standard": loggedIn
+  };
+  Object.keys(scopes)
+    .filter((scope) => scope.startsWith("delivery."))
+    .forEach((scope) => {
+      scopes[scope] = deliveryScopeAllowedForTier(scope, normalizedTier, loggedIn);
+    });
+  DELIVERY_ADMIN_ONLY_ACTION_ATTRS.forEach((attrName) => {
+    const scope = deliveryPermissionScopeFromAttr(attrName);
+    if (scope) scopes[scope] = isAdmin;
+  });
+  return scopes;
+}
+
+async function payoutAvailableAtForOrder(order: { created_at?: string | Date | null; updated_at?: string | Date | null }) {
   const base = order.created_at || order.updated_at || new Date();
   const at = new Date(base);
-  at.setUTCDate(at.getUTCDate() + stripePayoutHoldDays());
+  const commerce = await getCommercePolicySettings();
+  at.setUTCDate(at.getUTCDate() + commerce.payoutHoldDays);
   return at;
 }
 
@@ -459,6 +959,19 @@ function mergeCreationPanelTemplate(value: any) {
   };
 }
 
+function estimateWorkComputeUnits(args: { workType?: unknown; durationSec?: unknown; languageCount?: unknown; voiceLaneCount?: unknown }) {
+  const workType = normalizeWorkType(args.workType);
+  const durationSec = Math.max(30, Math.min(1800, Number(args.durationSec || 180) || 180));
+  const languageCount = Math.max(1, Math.min(12, Number(args.languageCount || 1) || 1));
+  const voiceLaneCount = Math.max(1, Math.min(12, Number(args.voiceLaneCount || 1) || 1));
+  const typeMultiplier = workType === "opera" ? 3.2 : workType === "triptych" ? 2.1 : 1;
+  return Math.max(1, Math.round((durationSec / 30) * typeMultiplier * (1 + (languageCount - 1) * 0.35 + (voiceLaneCount - 1) * 0.45)));
+}
+
+function estimateWorkComputeCostCents(units: number) {
+  return Math.max(1, Math.round(Number(units || 0) * 2));
+}
+
 function normalizePanelDefaultsKey(value: unknown) {
   const key = String(value || "").trim().toLowerCase();
   return [
@@ -470,7 +983,17 @@ function normalizePanelDefaultsKey(value: unknown) {
     "watch",
     "lyrics",
     "music",
-    "video"
+    "video",
+    "about",
+    "api",
+    "delivery_reports",
+    "delivery_ops",
+    "cssmv",
+    "language",
+    "login",
+    "profile",
+    "works",
+    "seller"
   ].includes(key)
     ? key
     : "";
@@ -488,6 +1011,7 @@ function sanitizeBehaviorPanelTemplate(value: any) {
   const previewValues = new Set(["auto", "image", "video"]);
   const watchTabs = new Set(["mv", "music", "lyrics", "script", "comments", "revenue", "ownership"]);
   const dockPositions = new Set(["left", "right", "top", "bottom"]);
+  const reportKinds = new Set(["dashboard", "ops_health", "kpi", "analytics", "trends", "alerts", "digest", "briefing_pack"]);
   const safeMode = (input: any, fallback: string) => (modeValues.has(String(input || "")) ? String(input) : fallback);
   return {
     logo: {
@@ -523,11 +1047,140 @@ function sanitizeBehaviorPanelTemplate(value: any) {
         ? Number(source.mic.max_hold_sec)
         : 30
     },
+    cssmv: {
+      default_section: ["digest", "governance", "timeline"].includes(String(source?.cssmv?.default_section || ""))
+        ? String(source.cssmv.default_section)
+        : "digest",
+      auto_refresh: source?.cssmv?.auto_refresh !== false
+    },
+    language: {
+      default_mode: ["content", "settings"].includes(String(source?.language?.default_mode || ""))
+        ? String(source.language.default_mode)
+        : "content",
+      show_more: !!source?.language?.show_more
+    },
+    login: {
+      panel_density: ["compact", "full"].includes(String(source?.login?.panel_density || ""))
+        ? String(source.login.panel_density)
+        : "full",
+      preferred_provider: ["google", "github", "x", "bsky", "passkey"].includes(String(source?.login?.preferred_provider || ""))
+        ? String(source.login.preferred_provider)
+        : "google",
+      show_logout: source?.login?.show_logout !== false,
+      session_days: [30, 90, 180, 365].includes(Number(source?.login?.session_days))
+        ? Number(source.login.session_days)
+        : 90
+    },
+    profile: {
+      panel_density: ["compact", "full"].includes(String(source?.profile?.panel_density || ""))
+        ? String(source.profile.panel_density)
+        : "full",
+      note: String(source?.profile?.note || "").slice(0, 120),
+      default_nav: ["works", "api"].includes(String(source?.profile?.default_nav || ""))
+        ? String(source.profile.default_nav)
+        : "works"
+    },
+    works: {
+      focus_section: ["works", "comments", "monetization"].includes(String(source?.works?.focus_section || ""))
+        ? String(source.works.focus_section)
+        : "works",
+      auto_load: source?.works?.auto_load !== false,
+      search_enabled: source?.works?.search_enabled !== false,
+      search_limit: Math.max(4, Math.min(48, Number(source?.works?.search_limit ?? 12) || 12)),
+      default_sort: ["newest", "oldest", "title", "type"].includes(String(source?.works?.default_sort || ""))
+        ? String(source.works.default_sort)
+        : "newest",
+      default_filter: ["all", "single", "triptych", "opera", "live", "hidden"].includes(String(source?.works?.default_filter || ""))
+        ? String(source.works.default_filter)
+        : "all"
+    },
+    seller: {
+      focus_lane: ["orders", "income"].includes(String(source?.seller?.focus_lane || ""))
+        ? String(source.seller.focus_lane)
+        : "orders",
+      auto_refresh: source?.seller?.auto_refresh !== false,
+      order_filter: ["all", "paid", "pending"].includes(String(source?.seller?.order_filter || ""))
+        ? String(source.seller.order_filter)
+        : "all",
+      ledger_limit: Math.max(4, Math.min(40, Number(source?.seller?.ledger_limit ?? 12) || 12))
+    },
+    about: {
+      default_tab: ["whitepaper", "about", "contact"].includes(String(source?.about?.default_tab || ""))
+        ? String(source.about.default_tab)
+        : "whitepaper",
+      density: ["compact", "relaxed"].includes(String(source?.about?.density || ""))
+        ? String(source.about.density)
+        : "relaxed"
+    },
+    api: {
+      billing_mode: ["compact", "full"].includes(String(source?.api?.billing_mode || ""))
+        ? String(source.api.billing_mode)
+        : "full",
+      payment_method: ["card", "bank"].includes(String(source?.api?.payment_method || ""))
+        ? String(source.api.payment_method)
+        : "card",
+      auto_recharge: source?.api?.auto_recharge !== false
+    },
+    membership: {
+      starter_monthly_limit: Math.max(1, Math.min(1000, Number(source?.membership?.starter_monthly_limit ?? 30) || 30)),
+      pro_monthly_limit: Math.max(1, Math.min(5000, Number(source?.membership?.pro_monthly_limit ?? 100) || 100)),
+      studio_monthly_limit: Math.max(1, Math.min(10000, Number(source?.membership?.studio_monthly_limit ?? 300) || 300)),
+      enterprise_monthly_limit: Math.max(0, Math.min(100000, Number(source?.membership?.enterprise_monthly_limit ?? 0) || 0)),
+      vip_admin_only: source?.membership?.vip_admin_only !== false
+    },
+    creator_boost: {
+      enabled_kinds: Array.isArray(source?.creator_boost?.enabled_kinds)
+        ? source.creator_boost.enabled_kinds.filter((item: unknown) =>
+            ["language", "voice", "thumbnail", "preview_video"].includes(String(item || ""))
+          )
+        : ["language", "voice", "thumbnail", "preview_video"],
+      language_unit_cents: Math.max(100, Math.min(100000, Number(source?.creator_boost?.language_unit_cents ?? 300) || 300)),
+      voice_unit_cents: Math.max(100, Math.min(100000, Number(source?.creator_boost?.voice_unit_cents ?? 500) || 500)),
+      thumbnail_unit_cents: Math.max(25, Math.min(100000, Number(source?.creator_boost?.thumbnail_unit_cents ?? 79) || 79)),
+      preview_video_unit_cents: Math.max(25, Math.min(100000, Number(source?.creator_boost?.preview_video_unit_cents ?? 249) || 249)),
+      admin_only_purchase_override: !!source?.creator_boost?.admin_only_purchase_override,
+      studio_includes_extra_languages: Math.max(0, Math.min(10, Number(source?.creator_boost?.studio_includes_extra_languages ?? 2) || 2)),
+      enterprise_includes_extra_languages: Math.max(0, Math.min(20, Number(source?.creator_boost?.enterprise_includes_extra_languages ?? 4) || 4)),
+      studio_includes_extra_voices: Math.max(0, Math.min(10, Number(source?.creator_boost?.studio_includes_extra_voices ?? 2) || 2)),
+      enterprise_includes_extra_voices: Math.max(0, Math.min(20, Number(source?.creator_boost?.enterprise_includes_extra_voices ?? 4) || 4))
+    },
+    billing_actions: {
+      lyrics_generate_cents: Math.max(0, Math.min(100000, Number(source?.billing_actions?.lyrics_generate_cents ?? 20) || 20)),
+      music_generate_cents: Math.max(0, Math.min(100000, Number(source?.billing_actions?.music_generate_cents ?? 40) || 40)),
+      video_generate_cents: Math.max(0, Math.min(100000, Number(source?.billing_actions?.video_generate_cents ?? 60) || 60)),
+      enterprise_route_cents: Math.max(0, Math.min(100000, Number(source?.billing_actions?.enterprise_route_cents ?? 5) || 5)),
+      cinema_booking_cents: Math.max(0, Math.min(100000, Number(source?.billing_actions?.cinema_booking_cents ?? 0) || 0)),
+      included_membership_covers_core: source?.billing_actions?.included_membership_covers_core !== false
+    },
+    studio_enterprise: {
+      team_collaboration_enabled: !!source?.studio_enterprise?.team_collaboration_enabled,
+      max_team_members: Math.max(1, Math.min(500, Number(source?.studio_enterprise?.max_team_members ?? 5) || 5)),
+      multi_project_enabled: source?.studio_enterprise?.multi_project_enabled !== false,
+      max_projects: Math.max(1, Math.min(1000, Number(source?.studio_enterprise?.max_projects ?? 12) || 12)),
+      enterprise_api_enabled: !!source?.studio_enterprise?.enterprise_api_enabled,
+      enterprise_api_rate_limit_per_minute: Math.max(1, Math.min(100000, Number(source?.studio_enterprise?.enterprise_api_rate_limit_per_minute ?? 600) || 600))
+    },
+    commerce: {
+      payout_hold_days: Math.max(0, Math.min(90, Number(source?.commerce?.payout_hold_days ?? stripePayoutHoldDaysEnv()) || stripePayoutHoldDaysEnv())),
+      payout_sweep_ms: Math.max(
+        60_000,
+        Math.min(24 * 60 * 60 * 1000, Number(source?.commerce?.payout_sweep_ms ?? stripePayoutSweepMsEnv()) || stripePayoutSweepMsEnv())
+      ),
+      min_tip_cents: Math.max(100, Math.min(100_000, Number(source?.commerce?.min_tip_cents ?? 100) || 100))
+    },
     foryou: {
       preview_mode: previewValues.has(String(source?.foryou?.preview_mode || "")) ? String(source.foryou.preview_mode) : "auto",
       compact_after_lyrics: source?.foryou?.compact_after_lyrics !== false,
       hold_ms: Math.max(0, Math.min(30000, Number(source?.foryou?.hold_ms ?? 10000) || 10000)),
-      auto_watch_ms: Math.max(0, Math.min(30000, Number(source?.foryou?.auto_watch_ms ?? 10000) || 10000))
+      auto_watch_ms: Math.max(0, Math.min(30000, Number(source?.foryou?.auto_watch_ms ?? 10000) || 10000)),
+      search_enabled: source?.foryou?.search_enabled !== false,
+      market_limit: Math.max(4, Math.min(48, Number(source?.foryou?.market_limit ?? 12) || 12)),
+      default_sort: ["newest", "oldest", "title", "listen_low", "listen_high"].includes(String(source?.foryou?.default_sort || ""))
+        ? String(source.foryou.default_sort)
+        : "newest",
+      default_filter: ["all", "single", "triptych", "opera", "owned", "public"].includes(String(source?.foryou?.default_filter || ""))
+        ? String(source.foryou.default_filter)
+        : "all"
     },
     watch: {
       default_tab: watchTabs.has(String(source?.watch?.default_tab || "")) ? String(source.watch.default_tab) : "mv",
@@ -547,6 +1200,28 @@ function sanitizeBehaviorPanelTemplate(value: any) {
     video: {
       storyboard_frames: Math.max(4, Math.min(16, Number(source?.video?.storyboard_frames ?? 8) || 8)),
       camera_slots: Math.max(2, Math.min(8, Number(source?.video?.camera_slots ?? 4) || 4))
+    },
+    delivery_reports: {
+      default_kind: reportKinds.has(String(source?.delivery_reports?.default_kind || ""))
+        ? String(source.delivery_reports.default_kind)
+        : "briefing_pack",
+      preview_expanded: !!source?.delivery_reports?.preview_expanded,
+      focus_section: ["overview", "dashboard", "export", "history"].includes(String(source?.delivery_reports?.focus_section || ""))
+        ? String(source.delivery_reports.focus_section)
+        : "overview",
+      density: ["compact", "full"].includes(String(source?.delivery_reports?.density || ""))
+        ? String(source.delivery_reports.density)
+        : "full"
+    },
+    delivery_ops: {
+      recovery_limit: Math.max(4, Math.min(20, Number(source?.delivery_ops?.recovery_limit ?? 8) || 8)),
+      focus_lane: ["overview", "subscriptions", "logs", "recovery", "actions"].includes(String(source?.delivery_ops?.focus_lane || ""))
+        ? String(source.delivery_ops.focus_lane)
+        : "overview",
+      alert_density: ["compact", "full"].includes(String(source?.delivery_ops?.alert_density || ""))
+        ? String(source.delivery_ops.alert_density)
+        : "full",
+      auto_refresh: source?.delivery_ops?.auto_refresh !== false
     }
   };
 }
@@ -579,6 +1254,15 @@ function extensionForMime(mime: string, fallback = ".bin") {
     "video/quicktime": ".mov"
   };
   return map[String(mime || "").toLowerCase()] || fallback;
+}
+
+function slugify(value: string) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "workspace";
 }
 
 function inferWorkPricingPreset(args: { title?: string | null | undefined; style?: string | null | undefined; workType?: unknown }) {
@@ -616,6 +1300,354 @@ function roleForEmail(email: string | null | undefined) {
   return "user";
 }
 
+type MembershipTier = "guest" | "free" | "starter" | "pro" | "studio" | "enterprise" | "vip" | "admin";
+
+function normalizeMembershipTier(value: unknown): MembershipTier {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "free") return "free";
+  if (raw === "starter") return "starter";
+  if (raw === "pro") return "pro";
+  if (raw === "studio") return "studio";
+  if (raw === "enterprise") return "enterprise";
+  if (raw === "vip") return "vip";
+  if (raw === "admin") return "admin";
+  return "guest";
+}
+
+function membershipPolicyForTier(tier: MembershipTier) {
+  if (tier === "admin") {
+    return {
+      tier,
+      monthlyGenerationLimit: null as number | null,
+      canSellWorks: true,
+      canUseSellerPanel: true,
+      canManageReports: true
+    };
+  }
+  if (tier === "vip") {
+    return {
+      tier,
+      monthlyGenerationLimit: null as number | null,
+      canSellWorks: true,
+      canUseSellerPanel: true,
+      canManageReports: true
+    };
+  }
+  if (tier === "pro") {
+    return {
+      tier,
+      monthlyGenerationLimit: 100,
+      canSellWorks: true,
+      canUseSellerPanel: true,
+      canManageReports: false
+    };
+  }
+  if (tier === "studio") {
+    return {
+      tier,
+      monthlyGenerationLimit: 300,
+      canSellWorks: true,
+      canUseSellerPanel: true,
+      canManageReports: true
+    };
+  }
+  if (tier === "enterprise") {
+    return {
+      tier,
+      monthlyGenerationLimit: null as number | null,
+      canSellWorks: true,
+      canUseSellerPanel: true,
+      canManageReports: true
+    };
+  }
+  if (tier === "starter") {
+    return {
+      tier,
+      monthlyGenerationLimit: 30,
+      canSellWorks: true,
+      canUseSellerPanel: true,
+      canManageReports: false
+    };
+  }
+  if (tier === "free") {
+    return {
+      tier,
+      monthlyGenerationLimit: 3,
+      canSellWorks: false,
+      canUseSellerPanel: false,
+      canManageReports: false
+    };
+  }
+  return {
+    tier: "guest" as MembershipTier,
+    monthlyGenerationLimit: 0,
+    canSellWorks: false,
+    canUseSellerPanel: false,
+    canManageReports: false
+  };
+}
+
+async function resolveUserAccessProfile(user: { id: string; email?: string | null } | null) {
+  if (!user?.id) {
+    return {
+      role: "guest",
+      tier: "guest" as MembershipTier,
+      policy: membershipPolicyForTier("guest"),
+      billingAccount: null
+    };
+  }
+  const role = roleForEmail(user.email);
+  if (role === "admin") {
+    return {
+      role,
+      tier: "admin" as MembershipTier,
+      policy: membershipPolicyForTier("admin"),
+      billingAccount: null
+    };
+  }
+  const { account } = await ensureBillingAccount(user.id);
+  const tier = normalizeMembershipTier(account?.membership_tier || "free");
+  const creatorPolicy = await getCreatorCommercePolicySettings().catch(() => null);
+  const basePolicy = membershipPolicyForTier(tier);
+  const policy = creatorPolicy
+    ? {
+        ...basePolicy,
+        monthlyGenerationLimit:
+          tier === "starter"
+            ? creatorPolicy.starterMonthlyLimit
+            : tier === "pro"
+              ? creatorPolicy.proMonthlyLimit
+              : tier === "studio"
+                ? creatorPolicy.studioMonthlyLimit
+                : tier === "enterprise"
+                  ? creatorPolicy.enterpriseMonthlyLimit
+                  : basePolicy.monthlyGenerationLimit
+      }
+    : basePolicy;
+  return {
+    role,
+    tier,
+    policy,
+    billingAccount: account
+  };
+}
+
+async function ensureStudioWorkspaceForUser(args: {
+  userId: string;
+  email?: string | null;
+  displayName?: string | null;
+  tier: MembershipTier;
+}) {
+  const policy = await getStudioEnterprisePolicySettings();
+  if (!canUseStudioWorkspaceTier(args.tier)) {
+    return null;
+  }
+  const workspaceName =
+    String(args.displayName || args.email || "CSS Studio Workspace").trim() || "CSS Studio Workspace";
+  const queueLane = queueLaneForTier(args.tier);
+  const result = await withClient(async (client) => {
+    const existing = await client.query(
+      `SELECT id, owner_user_id, name, slug, tier_snapshot, queue_lane, is_enterprise, meta, created_at, updated_at
+       FROM studio_workspaces
+       WHERE owner_user_id = $1
+       LIMIT 1`,
+      [args.userId]
+    );
+    let row = existing.rows[0];
+    if (!row) {
+      const inserted = await client.query(
+        `INSERT INTO studio_workspaces (
+           owner_user_id, name, slug, tier_snapshot, queue_lane, is_enterprise, meta
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+         RETURNING id, owner_user_id, name, slug, tier_snapshot, queue_lane, is_enterprise, meta, created_at, updated_at`,
+        [
+          args.userId,
+          workspaceName,
+          slugify(`${workspaceName}-${args.userId.slice(0, 8)}`),
+          args.tier,
+          queueLane,
+          args.tier === "enterprise",
+          JSON.stringify({ auto_created: true })
+        ]
+      );
+      row = inserted.rows[0];
+    } else {
+      const updated = await client.query(
+        `UPDATE studio_workspaces
+         SET tier_snapshot = $2,
+             queue_lane = $3,
+             is_enterprise = $4,
+             updated_at = now()
+         WHERE id = $1
+         RETURNING id, owner_user_id, name, slug, tier_snapshot, queue_lane, is_enterprise, meta, created_at, updated_at`,
+        [row.id, args.tier, queueLane, args.tier === "enterprise"]
+      );
+      row = updated.rows[0];
+    }
+    await client.query(
+      `INSERT INTO studio_workspace_members (
+         workspace_id, user_id, role, meta
+       ) VALUES ($1, $2, 'owner', $3::jsonb)
+       ON CONFLICT (workspace_id, user_id)
+       DO UPDATE SET role = 'owner', updated_at = now()`,
+      [row.id, args.userId, JSON.stringify({ auto_created: true })]
+    );
+    const membersRes = await client.query(
+      `SELECT m.id, m.user_id, m.role, m.created_at, u.display_name, u.email, u.avatar_url
+       FROM studio_workspace_members m
+       LEFT JOIN users u ON u.id = m.user_id
+       WHERE m.workspace_id = $1
+       ORDER BY CASE WHEN m.role = 'owner' THEN 0 ELSE 1 END, m.created_at ASC`,
+      [row.id]
+    );
+    const projectsRes = await client.query(
+      `SELECT id, title, status, queue_lane, meta, created_at, updated_at
+       FROM studio_projects
+       WHERE workspace_id = $1
+       ORDER BY updated_at DESC, created_at DESC
+       LIMIT 24`,
+      [row.id]
+    );
+    return {
+      workspace: row,
+      members: membersRes.rows,
+      projects: projectsRes.rows,
+      policy
+    };
+  });
+  return {
+    ...result,
+    canCollaborate: policy.teamCollaborationEnabled,
+    canCreateProjects: policy.multiProjectEnabled
+  };
+}
+
+async function listEnterpriseApiUsageSnapshot(args: { userId: string; rpm: number }) {
+  const currentMinuteRes = await withClient((client) =>
+    client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM usage_events
+       WHERE user_id = $1
+         AND route LIKE '/api/enterprise/%'
+         AND created_at >= now() - interval '1 minute'`,
+      [args.userId]
+    )
+  );
+  const recentRes = await withClient((client) =>
+    client.query(
+      `SELECT id, route, units, cost_cents, created_at, meta
+       FROM usage_events
+       WHERE user_id = $1
+         AND route LIKE '/api/enterprise/%'
+       ORDER BY created_at DESC
+       LIMIT 12`,
+      [args.userId]
+    )
+  );
+  const usedThisMinute = Number(currentMinuteRes.rows[0]?.count || 0);
+  return {
+    rpm_limit: args.rpm,
+    used_this_minute: usedThisMinute,
+    remaining_this_minute: Math.max(0, args.rpm - usedThisMinute),
+    recent_routes: recentRes.rows
+  };
+}
+
+async function listCinemaBookingRequests(userId: string, limit = 12) {
+  const safeLimit = Math.max(1, Math.min(50, Number(limit || 12) || 12));
+  const result = await withClient((client) =>
+    client.query(
+      `SELECT id, status, project_title, requested_mode, requested_duration_sec, contact_email, contact_handle,
+              budget_cents, brief, needs_contract, meta, created_at, updated_at
+       FROM cinema_booking_requests
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT $2`,
+      [userId, safeLimit]
+    )
+  );
+  return result.rows;
+}
+
+async function enforceEnterpriseApiRoute(args: {
+  userId: string;
+  email?: string | null;
+  tier: MembershipTier;
+  route: string;
+}) {
+  const settings = await getStudioEnterprisePolicySettings();
+  if (!settings.enterpriseApiEnabled || !canUseEnterpriseApiTier(args.tier)) {
+    return {
+      ok: false as const,
+      code: "ENTERPRISE_API_DISABLED",
+      settings,
+      usage: null
+    };
+  }
+  const usage = await listEnterpriseApiUsageSnapshot({
+    userId: args.userId,
+    rpm: settings.enterpriseApiRateLimitPerMinute
+  });
+  if (usage.used_this_minute >= settings.enterpriseApiRateLimitPerMinute) {
+    await withClient((client) =>
+      client.query(
+        "INSERT INTO usage_events (user_id, route, units, cost_cents, meta) VALUES ($1,$2,$3,$4,$5)",
+        [
+          args.userId,
+          args.route,
+          1,
+          0,
+          JSON.stringify({
+            blocked: "enterprise_rate_limit",
+            tier: args.tier,
+            rpm_limit: settings.enterpriseApiRateLimitPerMinute
+          })
+        ]
+      )
+    );
+    return {
+      ok: false as const,
+      code: "ENTERPRISE_API_RATE_LIMITED",
+      settings,
+      usage
+    };
+  }
+  const access = await resolveUserAccessProfile({
+    id: args.userId,
+    ...(args.email !== undefined ? { email: args.email } : {})
+  });
+  const billing = await consumeBillableAction({
+    userId: args.userId,
+    access,
+    actionKey: "enterprise_route",
+    route: args.route,
+    coveredBy: "enterprise",
+    meta: {
+      enterprise_api: true,
+      tier: args.tier,
+      queue_lane: queueLaneForTier(args.tier),
+      caller_email: normalizeEmail(args.email)
+    }
+  });
+  if (!billing.allowed) {
+    return {
+      ok: false as const,
+      code: "ENTERPRISE_API_BILLING_BLOCKED",
+      settings,
+      usage
+    };
+  }
+  return {
+    ok: true as const,
+    code: "OK",
+    settings,
+    usage: await listEnterpriseApiUsageSnapshot({
+      userId: args.userId,
+      rpm: settings.enterpriseApiRateLimitPerMinute
+    })
+  };
+}
+
 function buildCssmvThumbnailPrompt(
   title: string,
   subtitle: string,
@@ -626,15 +1658,19 @@ function buildCssmvThumbnailPrompt(
   const lyricExcerpt = (Array.isArray(lyrics) ? lyrics : [])
     .map((line) => String(line || "").trim())
     .filter(Boolean)
-    .slice(0, 3)
-    .join(" / ");
+    .slice(0, 8);
+  const lyricImagery = lyricExcerpt.slice(0, 4).join(" / ");
+  const lyricMood = lyricExcerpt.slice(4).join(" / ");
   return [
-    "Create a square music video thumbnail for a futuristic karaoke-style creative studio.",
+    "Create a square, album-grade cover image for an original music-video work.",
     `Title: ${safeTitle}.`,
-    safeSubtitle ? `Mood and style: ${safeSubtitle}.` : "",
-    lyricExcerpt ? `Lyric inspiration: ${lyricExcerpt}.` : "",
-    "Use cinematic lighting, a bold central composition, and elegant typography-friendly negative space.",
-    "Do not add watermarks or logos."
+    safeSubtitle ? `Musical style and atmosphere: ${safeSubtitle}.` : "",
+    lyricImagery ? `Primary lyrical imagery: ${lyricImagery}.` : "",
+    lyricMood ? `Secondary lyrical mood and emotional texture: ${lyricMood}.` : "",
+    "Base the visual direction on the title and lyric imagery, not on generic karaoke UI art.",
+    "Favor poetic symbolism, cinematic depth, distinct composition, strong atmosphere, refined color storytelling, and memorable visual identity.",
+    "Avoid bland gradients, empty placeholder circles, default mockup aesthetics, and repetitive template looks.",
+    "Do not render any words, title text, subtitles, logos, watermarks, interface chrome, or typography in the image."
   ]
     .filter(Boolean)
     .join(" ");
@@ -2066,6 +3102,582 @@ function buildCssmvSongSeedFallbackWithMeta(
   return fallback;
 }
 
+const MUSIC_SOURCE_KINDS = new Set(["audio", "midi", "musicxml", "scoreImage"]);
+
+function normalizeMusicSourceKind(value: any) {
+  const kind = String(value || "").trim();
+  return MUSIC_SOURCE_KINDS.has(kind) ? kind : "";
+}
+
+function musicSourceSizeLimit(kind: string) {
+  switch (kind) {
+    case "audio":
+      return 40 * 1024 * 1024;
+    case "scoreImage":
+      return 12 * 1024 * 1024;
+    default:
+      return 4 * 1024 * 1024;
+  }
+}
+
+function validateMusicSourceMime(kind: string, mime: string) {
+  if (!mime) return false;
+  const normalized = String(mime).toLowerCase();
+  switch (kind) {
+    case "audio":
+      return normalized.startsWith("audio/");
+    case "midi":
+      return normalized.includes("midi") || normalized === "application/octet-stream";
+    case "musicxml":
+      return (
+        normalized.includes("musicxml") ||
+        normalized === "application/xml" ||
+        normalized === "text/xml" ||
+        normalized === "text/plain"
+      );
+    case "scoreImage":
+      return normalized.startsWith("image/");
+    default:
+      return false;
+  }
+}
+
+function musicSourceDraftEntryForSession(kind: string, filename: string, absolutePath: string, mime: string, size: number) {
+  return {
+    kind,
+    file_name: filename,
+    mime,
+    size,
+    uploaded_at: new Date().toISOString(),
+    stored_name: path.basename(absolutePath),
+    absolute_path: absolutePath
+  };
+}
+
+function summarizeMusicSourceEntry(entry: any) {
+  if (!entry || typeof entry !== "object") return null;
+  const kind = normalizeMusicSourceKind(entry.kind);
+  const fileName = String(entry.file_name || "").trim();
+  const mime = String(entry.mime || "").trim();
+  const size = Number(entry.size || 0);
+  let parseMode = "reference";
+  let extractionFocus = "style / arrangement";
+  if (kind === "midi") {
+    parseMode = "symbolic_notes";
+    extractionFocus = "melody / rhythm / harmony";
+  } else if (kind === "musicxml") {
+    parseMode = "structured_score";
+    extractionFocus = "melody / harmony / form / markings";
+  } else if (kind === "scoreImage") {
+    parseMode = "ocr_score";
+    extractionFocus = "notation / motif / melodic contour";
+  }
+  const analysisShell = {
+    parser_family:
+      kind === "audio"
+        ? "audio_reference"
+        : kind === "midi"
+          ? "midi_symbolic"
+          : kind === "musicxml"
+            ? "musicxml_score"
+            : "score_ocr",
+    planner_targets:
+      kind === "audio"
+        ? ["style", "tempo", "arrangement", "melodic_profile"]
+        : kind === "midi"
+          ? ["melody", "rhythm", "harmony", "phrase_map"]
+          : kind === "musicxml"
+            ? ["melody", "harmony", "form", "expression_map"]
+            : ["ocr_notation", "motif", "melodic_contour"],
+    next_stage:
+      kind === "audio"
+        ? "reference_audio_analysis"
+        : kind === "midi"
+          ? "symbolic_melody_ingest"
+          : kind === "musicxml"
+            ? "score_structure_ingest"
+            : "score_image_ocr_ingest"
+  };
+  return {
+    parse_mode: parseMode,
+    extraction_focus: extractionFocus,
+    file_ext: path.extname(fileName).toLowerCase(),
+    mime,
+    size_bucket:
+      size >= 20 * 1024 * 1024
+        ? "large"
+        : size >= 4 * 1024 * 1024
+          ? "medium"
+          : "small",
+    analysis_shell: analysisShell
+  };
+}
+
+function buildMusicSourceParserJobDraft(draft: Record<string, any>) {
+  const entries = Object.values(draft || {})
+    .filter((entry) => entry && typeof entry === "object")
+    .map((entry: any) => {
+      const metadata = summarizeMusicSourceEntry(entry);
+      if (!metadata) return null;
+      return {
+        kind: normalizeMusicSourceKind(entry.kind),
+        file_name: String(entry.file_name || "").trim(),
+        mime: String(entry.mime || "").trim(),
+        size: Number(entry.size || 0),
+        uploaded_at: entry.uploaded_at || null,
+        parser_family: String(metadata.analysis_shell?.parser_family || "").trim(),
+        next_stage: String(metadata.analysis_shell?.next_stage || "").trim(),
+        planner_targets: Array.isArray(metadata.analysis_shell?.planner_targets)
+          ? metadata.analysis_shell.planner_targets.map((value: unknown) => String(value || "").trim()).filter(Boolean)
+          : [],
+        parse_mode: String(metadata.parse_mode || "").trim(),
+        extraction_focus: String(metadata.extraction_focus || "").trim(),
+        asset_ref: {
+          storage_backend: "session-upload",
+          absolute_path: String(entry.absolute_path || "").trim(),
+          file_ext: String(metadata.file_ext || "").trim()
+        }
+      };
+    })
+    .filter(Boolean) as Array<Record<string, any>>;
+  if (!entries.length) return null;
+  const parserFamilies = Array.from(new Set(entries.map((entry) => String(entry.parser_family || "").trim()).filter(Boolean)));
+  const nextStages = Array.from(new Set(entries.map((entry) => String(entry.next_stage || "").trim()).filter(Boolean)));
+  const plannerTargets = Array.from(
+    new Set(entries.flatMap((entry) => (Array.isArray(entry.planner_targets) ? entry.planner_targets : [])))
+  );
+  const createdAt = entries
+    .map((entry) => String(entry.uploaded_at || "").trim())
+    .filter(Boolean)
+    .sort()[0] || new Date().toISOString();
+  return {
+    draft_id: `music-parse-${Date.now().toString(36)}`,
+    status: "draft",
+    created_at: createdAt,
+    source_count: entries.length,
+    parser_family:
+      parserFamilies.length === 1 ? parserFamilies[0] : "multi_source_bundle",
+    next_stage:
+      nextStages.length === 1 ? nextStages[0] : "multi_source_parse_router",
+    planner_targets: plannerTargets,
+    sources: entries
+  };
+}
+
+function buildMusicSourceParserTaskDraft(draft: Record<string, any>) {
+  const parserJobDraft = buildMusicSourceParserJobDraft(draft);
+  if (!parserJobDraft) return null;
+  return {
+    task_id: `parser-task-${Date.now().toString(36)}`,
+    status: "draft",
+    created_at: parserJobDraft.created_at,
+    task_kind: "music_source_parse",
+    parser_family: parserJobDraft.parser_family,
+    next_stage: parserJobDraft.next_stage,
+    planner_targets: Array.isArray(parserJobDraft.planner_targets) ? parserJobDraft.planner_targets : [],
+    source_count: Number(parserJobDraft.source_count || 0),
+    queue_lane: "parser_preflight",
+    sources: parserJobDraft.sources
+  };
+}
+
+function musicSourceParserQueueLane(tier: MembershipTier) {
+  if (tier === "admin") return "parser_admin_override";
+  if (tier === "vip") return "parser_vip_priority";
+  if (tier === "enterprise") return "parser_enterprise_priority";
+  if (tier === "studio") return "parser_studio_priority";
+  if (tier === "pro") return "parser_pro_priority";
+  if (tier === "starter") return "parser_paid_standard";
+  return "parser_preflight";
+}
+
+function buildQueuedMusicSourceParserTask(
+  draft: Record<string, any>,
+  access: Awaited<ReturnType<typeof resolveUserAccessProfile>>,
+  sessionId: string
+) {
+  const parserTaskDraft = buildMusicSourceParserTaskDraft(draft);
+  if (!parserTaskDraft) return null;
+  const taskId = `parser-task-${Date.now().toString(36)}-${crypto.randomBytes(3).toString("hex")}`;
+  const queueLane = musicSourceParserQueueLane(access.tier);
+  return {
+    ...parserTaskDraft,
+    task_id: taskId,
+    status: "queued",
+    protocol_version: MUSIC_SOURCE_PARSER_PROTOCOL_VERSION,
+    queue_lane: queueLane,
+    queued_at: new Date().toISOString(),
+    session_id: sessionId,
+    storage_backend: "shared-parser-task-json",
+    status_history: [
+      {
+        status: "queued",
+        at: new Date().toISOString(),
+        stage: "queue_accept"
+      }
+    ],
+    planner_targets: Array.isArray(parserTaskDraft.planner_targets) ? parserTaskDraft.planner_targets : [],
+    sources: Array.isArray(parserTaskDraft.sources)
+      ? parserTaskDraft.sources.map((source: any, index: number) => ({
+          ...source,
+          source_index: index,
+          asset_key: `music-sources/${sessionId}/${String(source?.kind || "source").trim()}`
+        }))
+      : []
+  };
+}
+
+function persistQueuedMusicSourceParserTask(task: Record<string, any>) {
+  const sessionId = String(task?.session_id || "").trim() || "anonymous";
+  const taskId = String(task?.task_id || "").trim();
+  if (!taskId) {
+    throw new Error("music_source_parser_task_missing_id");
+  }
+  const taskDir = path.join(MUSIC_SOURCE_PARSER_TASK_DIR, sessionId);
+  fs.mkdirSync(taskDir, { recursive: true });
+  const taskPath = path.join(taskDir, `${taskId}.json`);
+  fs.writeFileSync(taskPath, JSON.stringify(task, null, 2));
+  return taskPath;
+}
+
+function readQueuedMusicSourceParserTask(taskPath: string | null | undefined) {
+  const safePath = String(taskPath || "").trim();
+  if (!safePath) return null;
+  try {
+    const raw = fs.readFileSync(safePath, "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeQueuedMusicSourceParserTask(task: Record<string, any>) {
+  const taskPath = String(task?.task_path || "").trim();
+  if (!taskPath) {
+    throw new Error("music_source_parser_task_missing_path");
+  }
+  fs.mkdirSync(path.dirname(taskPath), { recursive: true });
+  fs.writeFileSync(taskPath, JSON.stringify(task, null, 2));
+  return task;
+}
+
+function summarizeQueuedMusicSourceParserTask(task: Record<string, any>) {
+  const sources = Array.isArray(task?.sources) ? task.sources : [];
+  const parserFamily = String(task?.parser_family || "reference").trim() || "reference";
+  const plannerTargets = Array.isArray(task?.planner_targets)
+    ? task.planner_targets.map((value: unknown) => String(value || "").trim()).filter(Boolean)
+    : [];
+  const sourceKinds = sources
+    .map((entry: any) => String(entry?.kind || "").trim())
+    .filter(Boolean);
+  return {
+    parser_family: parserFamily,
+    planner_targets: plannerTargets,
+    source_kinds: sourceKinds,
+    source_count: sources.length,
+    source_labels: sources
+      .map((entry: any) => String(entry?.file_name || entry?.kind || "").trim())
+      .filter(Boolean)
+      .slice(0, 4)
+  };
+}
+
+function appendMusicSourceParserTaskStatus(
+  task: Record<string, any>,
+  status: string,
+  stage: string,
+  extra: Record<string, any> = {}
+) {
+  return {
+    ...task,
+    ...extra,
+    status,
+    status_history: [
+      ...(Array.isArray(task?.status_history) ? task.status_history : []),
+      {
+        status,
+        at: new Date().toISOString(),
+        stage
+      }
+    ]
+  };
+}
+
+function buildQueuedMusicSourceParserResult(task: Record<string, any>) {
+  const summary = summarizeQueuedMusicSourceParserTask(task);
+  const sources = Array.isArray(task?.sources) ? task.sources : [];
+  const resultId = `parser-result-${String(task?.task_id || "task").trim()}`;
+  const sourceKinds = summary.source_kinds;
+  const resultFamily =
+    sourceKinds.includes("midi") && sourceKinds.includes("audio")
+      ? "hybrid_symbolic_reference_extract"
+      : sourceKinds.includes("musicxml") && sourceKinds.includes("scoreImage")
+        ? "score_reconstruction_extract"
+        : summary.parser_family === "midi_symbolic"
+          ? "symbolic_melody_extract"
+          : summary.parser_family === "musicxml_score"
+            ? "structured_score_extract"
+            : summary.parser_family === "score_ocr"
+              ? "score_image_extract"
+              : summary.parser_family === "audio_reference"
+                ? "reference_audio_extract"
+                : "multi_source_extract";
+  const familyPayload =
+    resultFamily === "hybrid_symbolic_reference_extract"
+      ? {
+          parser_lane: "hybrid_symbolic_reference",
+          source_alignment: "symbolic_plus_audio_reference",
+          extract_focus: "melody_rhythm_alignment"
+        }
+      : resultFamily === "score_reconstruction_extract"
+        ? {
+            parser_lane: "score_reconstruction",
+            source_alignment: "musicxml_plus_score_image",
+            extract_focus: "notation_recovery"
+          }
+        : resultFamily === "symbolic_melody_extract"
+          ? {
+              parser_lane: "symbolic_melody",
+              source_alignment: "symbolic_primary",
+              extract_focus: "melody_grid"
+            }
+          : resultFamily === "structured_score_extract"
+            ? {
+                parser_lane: "structured_score",
+                source_alignment: "notation_primary",
+                extract_focus: "score_phrase_map"
+              }
+            : resultFamily === "score_image_extract"
+              ? {
+                  parser_lane: "score_image_ocr",
+                  source_alignment: "image_primary",
+                  extract_focus: "ocr_staff_map"
+                }
+              : resultFamily === "reference_audio_extract"
+                ? {
+                    parser_lane: "audio_reference",
+                    source_alignment: "audio_primary",
+                    extract_focus: "reference_contour"
+                  }
+                : {
+                    parser_lane: "multi_source",
+                    source_alignment: "mixed",
+                    extract_focus: "planner_bootstrap"
+                  };
+  const analysisBlocks =
+    resultFamily === "hybrid_symbolic_reference_extract"
+      ? {
+          melodic_profile: "symbolic-audio-aligned",
+          rhythmic_profile: "grid-reference-aligned",
+          harmony_profile: "symbolic-shell-plus-reference"
+        }
+      : resultFamily === "score_reconstruction_extract"
+        ? {
+            melodic_profile: "ocr-plus-notation-rebuild",
+            rhythmic_profile: "score-measure-reconstruction",
+            harmony_profile: "notation-harmonic-map"
+          }
+        : {
+            melodic_profile:
+              sourceKinds.includes("midi") || sourceKinds.includes("musicxml")
+                ? "symbolic-ready"
+                : sourceKinds.includes("scoreImage")
+                  ? "ocr-pending"
+                  : "audio-reference",
+            rhythmic_profile:
+              sourceKinds.includes("midi")
+                ? "grid-derived"
+                : sourceKinds.includes("musicxml")
+                  ? "notation-derived"
+                  : "reference-estimate",
+            harmony_profile:
+              sourceKinds.includes("musicxml")
+                ? "score-harmonic-map"
+                : sourceKinds.includes("midi")
+                  ? "symbolic-chord-shell"
+                  : "style-reference"
+          };
+  const plannerHints =
+    resultFamily === "hybrid_symbolic_reference_extract"
+      ? {
+          melody_seed_mode: "symbolic_reference_blend",
+          arrangement_seed_mode: "reference_arrangement",
+          parser_confidence: "high"
+        }
+      : resultFamily === "score_reconstruction_extract"
+        ? {
+            melody_seed_mode: "score_reconstruction_seed",
+            arrangement_seed_mode: "symbolic_arrangement",
+            parser_confidence: "medium_high"
+          }
+        : {
+            melody_seed_mode: sourceKinds.includes("midi")
+              ? "symbolic_seed"
+              : sourceKinds.includes("musicxml")
+                ? "score_seed"
+                : sourceKinds.includes("scoreImage")
+                  ? "ocr_seed"
+                  : "reference_seed",
+            arrangement_seed_mode: sourceKinds.includes("audio")
+              ? "reference_arrangement"
+              : "symbolic_arrangement",
+            parser_confidence:
+              sourceKinds.includes("musicxml") || sourceKinds.includes("midi")
+                ? "high"
+                : sourceKinds.includes("scoreImage")
+                  ? "medium"
+                  : "medium"
+          };
+  const extractedOutline =
+    resultFamily === "hybrid_symbolic_reference_extract"
+      ? {
+          motif_candidates: Math.max(2, summary.source_count),
+          rhythm_shell: "symbolic_reference_fusion",
+          next_worker: "hybrid_music_source_parser_worker"
+        }
+      : resultFamily === "score_reconstruction_extract"
+        ? {
+            motif_candidates: Math.max(1, summary.source_count),
+            rhythm_shell: "score_reconstruction_shell",
+            next_worker: "score_reconstruction_worker"
+          }
+        : {
+            motif_candidates: Math.max(1, summary.source_count),
+            rhythm_shell: sourceKinds.includes("midi")
+              ? "midi_grid_reference"
+              : sourceKinds.includes("musicxml")
+                ? "score_phrase_reference"
+                : sourceKinds.includes("scoreImage")
+                  ? "ocr_score_reference"
+                  : "audio_reference_shell",
+            next_worker: "music_source_parser_worker"
+          };
+  return {
+    result_id: resultId,
+    result_family: resultFamily,
+    schema: MUSIC_SOURCE_PARSER_RESULT_SCHEMA,
+    schema_version: 1,
+    worker_protocol: "shared-parser-task-worker.v1",
+    produced_at: new Date().toISOString(),
+    task_id: String(task?.task_id || "").trim(),
+    parser_family: summary.parser_family,
+    planner_targets: summary.planner_targets,
+    source_kinds: summary.source_kinds,
+    source_count: summary.source_count,
+    source_assets: sources.map((source: any) => ({
+      kind: String(source?.kind || "").trim(),
+      file_name: String(source?.file_name || "").trim(),
+      asset_key: String(source?.asset_key || "").trim(),
+      parser_family: String(source?.parser_family || "").trim()
+    })),
+    analysis_shell: {
+      parser_family: summary.parser_family,
+      planner_targets: summary.planner_targets,
+      next_stage: familyPayload.parser_lane
+    },
+    family_payload: familyPayload,
+    analysis_blocks: analysisBlocks,
+    planner_hints: plannerHints,
+    extracted_outline: extractedOutline,
+    summary_line: `Prepared ${summary.source_count} source(s) for ${resultFamily}.`
+  };
+}
+
+function listQueuedMusicSourceParserTaskFiles() {
+  if (!fs.existsSync(MUSIC_SOURCE_PARSER_TASK_DIR)) return [] as string[];
+  const files: string[] = [];
+  for (const sessionId of fs.readdirSync(MUSIC_SOURCE_PARSER_TASK_DIR)) {
+    const sessionDir = path.join(MUSIC_SOURCE_PARSER_TASK_DIR, sessionId);
+    if (!fs.statSync(sessionDir, { throwIfNoEntry: false })?.isDirectory()) continue;
+    for (const entry of fs.readdirSync(sessionDir)) {
+      if (entry.endsWith(".json")) {
+        files.push(path.join(sessionDir, entry));
+      }
+    }
+  }
+  files.sort((left, right) => {
+    try {
+      return fs.statSync(left).mtimeMs - fs.statSync(right).mtimeMs;
+    } catch {
+      return 0;
+    }
+  });
+  return files;
+}
+
+function claimNextQueuedMusicSourceParserTask() {
+  for (const taskPath of listQueuedMusicSourceParserTaskFiles()) {
+    const current = readQueuedMusicSourceParserTask(taskPath);
+    if (!current || String(current.status || "").trim() !== "queued") continue;
+    const claimed = appendMusicSourceParserTaskStatus(
+      {
+        ...current,
+        task_path: taskPath
+      },
+      "processing",
+      "metadata_extract",
+      {
+        processing_started_at: new Date().toISOString(),
+        worker_protocol: "shared-parser-task-worker.v1"
+      }
+    );
+    writeQueuedMusicSourceParserTask(claimed);
+    return claimed;
+  }
+  return null;
+}
+
+function completeQueuedMusicSourceParserTask(taskPath: string) {
+  const current = readQueuedMusicSourceParserTask(taskPath);
+  if (!current || String(current.status || "").trim() !== "processing") return null;
+  const completed = appendMusicSourceParserTaskStatus(
+    {
+      ...current,
+      task_path: taskPath,
+      parser_result: buildQueuedMusicSourceParserResult(current)
+    },
+    "completed",
+    "parser_result_ready",
+    {
+      completed_at: new Date().toISOString()
+    }
+  );
+  writeQueuedMusicSourceParserTask(completed);
+  return completed;
+}
+
+let musicSourceParserWorkerTimer: NodeJS.Timeout | null = null;
+let musicSourceParserWorkerBusy = false;
+
+function scheduleMusicSourceParserWorker(delayMs = 0) {
+  if (musicSourceParserWorkerTimer) return;
+  musicSourceParserWorkerTimer = setTimeout(() => {
+    musicSourceParserWorkerTimer = null;
+    pumpMusicSourceParserWorker();
+  }, Math.max(0, delayMs));
+}
+
+function pumpMusicSourceParserWorker() {
+  if (musicSourceParserWorkerBusy) return;
+  const claimed: Record<string, any> | null = claimNextQueuedMusicSourceParserTask();
+  if (!claimed) return;
+  musicSourceParserWorkerBusy = true;
+  setTimeout(() => {
+    try {
+      completeQueuedMusicSourceParserTask(String(claimed.task_path || "").trim());
+    } finally {
+      musicSourceParserWorkerBusy = false;
+      scheduleMusicSourceParserWorker(0);
+    }
+  }, MUSIC_SOURCE_PARSER_WORKER_TICK_MS);
+}
+
+function resolveStoredMusicSourceParserTask(rawTask: Record<string, any> | null | undefined) {
+  if (!rawTask || typeof rawTask !== "object") return null;
+  return readQueuedMusicSourceParserTask(String(rawTask.task_path || "").trim()) || rawTask;
+}
+
 function normalizeCssmvOpenAiSongSeed(
   input: CssmvSongSeedInput,
   parsed: CssmvOpenAiSongSeedRaw,
@@ -2229,7 +3841,7 @@ async function requestOpenAiCssmvSongSeed(
   input: CssmvSongSeedInput,
   apiKey: string,
   model: string,
-  controller: AbortController,
+  timeoutMs: number,
   onFailure: (failure: CssmvOpenAiFailure) => void
 ) {
   const messages = [
@@ -2308,7 +3920,9 @@ async function requestOpenAiCssmvSongSeed(
       }
     }
   };
-  const requestPayload = async (responseFormat?: Record<string, unknown>) => {
+  const requestPayload = async (responseFormat?: Record<string, unknown>, attempt = 1) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs + (attempt - 1) * 15000);
     try {
       const upstream = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
@@ -2324,6 +3938,7 @@ async function requestOpenAiCssmvSongSeed(
         signal: controller.signal
       });
       const payload = await upstream.json().catch(() => null);
+      clearTimeout(timeout);
       if (!upstream.ok) {
         const errorBody =
           payload && typeof payload === "object"
@@ -2340,10 +3955,22 @@ async function requestOpenAiCssmvSongSeed(
           status: failure.status,
           code: failure.code,
           type: failure.type,
+          attempt,
           model,
           hasTitle: Boolean(String(input.title || "").trim()),
           language: String(input.language || "").trim() || "zh"
         });
+        if (
+          attempt < 3 &&
+          (failure.status === 408 ||
+            failure.status === 429 ||
+            failure.code === "request_timeout" ||
+            failure.code === "rate_limit_exceeded" ||
+            failure.type === "timeout")
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, 900 * attempt));
+          return requestPayload(responseFormat, attempt + 1);
+        }
         return null;
       }
       const content = String(payload?.choices?.[0]?.message?.content || "").trim();
@@ -2360,6 +3987,7 @@ async function requestOpenAiCssmvSongSeed(
         }
       }
     } catch (error) {
+      clearTimeout(timeout);
       const failure = {
         status: controller.signal.aborted ? 408 : 0,
         code: controller.signal.aborted ? "request_timeout" : "request_failed",
@@ -2372,10 +4000,20 @@ async function requestOpenAiCssmvSongSeed(
         status: failure.status,
         code: failure.code,
         type: failure.type,
+        attempt,
         model,
         hasTitle: Boolean(String(input.title || "").trim()),
         language: String(input.language || "").trim() || "zh"
       });
+      if (
+        attempt < 3 &&
+        (failure.status === 408 ||
+          failure.code === "request_timeout" ||
+          failure.code === "request_failed")
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 900 * attempt));
+        return requestPayload(responseFormat, attempt + 1);
+      }
       return null;
     }
   };
@@ -2398,10 +4036,8 @@ async function generateCssmvSongSeed(input: CssmvSongSeedInput) {
   const model = runtimeConfig.model;
   const timeoutMs = Math.max(
     5000,
-    Number.parseInt(String(process.env.OPENAI_TEXT_TIMEOUT_MS || "30000"), 10) || 30000
+    Number.parseInt(String(process.env.OPENAI_TEXT_TIMEOUT_MS || "45000"), 10) || 45000
   );
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   let openAiFailure: {
     status?: number;
     code?: string;
@@ -2413,7 +4049,7 @@ async function generateCssmvSongSeed(input: CssmvSongSeedInput) {
       input,
       apiKey,
       model,
-      controller,
+      timeoutMs,
       (failure) => {
         openAiFailure = failure;
       }
@@ -2468,8 +4104,6 @@ async function generateCssmvSongSeed(input: CssmvSongSeedInput) {
     if (failure?.type) meta.openaiErrorType = failure.type;
     if (typeof failure?.status === "number") meta.openaiErrorStatus = failure.status;
     return buildCssmvSongSeedFallbackWithMeta(input, meta);
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
@@ -2489,7 +4123,7 @@ app.post("/api/cssmv/thumbnail", async (req, res) => {
     const size = ["1024x1024", "1024x1536", "1536x1024", "auto"].includes(requestedSize)
       ? requestedSize
       : "1024x1024";
-    const requestedQuality = String(req.body?.quality || process.env.OPENAI_IMAGE_QUALITY || "low").trim();
+    const requestedQuality = String(req.body?.quality || process.env.OPENAI_IMAGE_QUALITY || "medium").trim();
     const quality = ["low", "medium", "high", "auto"].includes(requestedQuality)
       ? requestedQuality
       : "low";
@@ -2508,7 +4142,7 @@ app.post("/api/cssmv/thumbnail", async (req, res) => {
         ? requestedCompression
         : 60;
     const requestedBackground = String(
-      req.body?.background || process.env.OPENAI_IMAGE_BACKGROUND || "transparent"
+      req.body?.background || process.env.OPENAI_IMAGE_BACKGROUND || "opaque"
     ).trim();
     const background = ["transparent", "opaque", "auto"].includes(requestedBackground)
       ? requestedBackground
@@ -2594,9 +4228,122 @@ app.post("/api/cssmv/thumbnail", async (req, res) => {
   }
 });
 
+app.post(
+  "/api/mic/transcribe",
+  express.raw({ type: () => true, limit: "20mb" }),
+  async (req, res) => {
+    noStore(res);
+    const runtimeConfig = getOpenAiRuntimeConfig();
+    const model = getOpenAiTranscribeModel();
+    const contentType = String(req.headers["content-type"] || "audio/webm").trim() || "audio/webm";
+    const wakeSpell = String(req.headers["x-cssos-wake-spell"] || "").trim();
+    const audioBuffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from([]);
+    if (!audioBuffer.length) {
+      return res.json(okEmpty({ transcript: "", lang: "zh", model }, "No audio body supplied"));
+    }
+    if (!runtimeConfig.apiKey) {
+      return res.json(
+        okEmpty(
+          {
+            transcript: "",
+            lang: "zh",
+            model,
+            env_source: runtimeConfig.envSource,
+            error_code: "missing_api_key"
+          },
+          "OpenAI API key is not configured"
+        )
+      );
+    }
+    try {
+      const form = new FormData();
+      const extension =
+        contentType.includes("mp4") || contentType.includes("m4a")
+          ? "m4a"
+          : contentType.includes("mpeg") || contentType.includes("mp3")
+            ? "mp3"
+            : contentType.includes("wav")
+              ? "wav"
+              : "webm";
+      form.set(
+        "file",
+        new Blob([new Uint8Array(audioBuffer)], { type: contentType }),
+        `mic-capture.${extension}`
+      );
+      form.set("model", model);
+      form.set("language", "zh");
+      form.set(
+        "prompt",
+        [
+          "Transcribe the speaker's Chinese words faithfully.",
+          "Preserve proper nouns, song titles, and Chinese named entities exactly when possible.",
+          wakeSpell ? `Wake spell may be present: ${wakeSpell}.` : "",
+          "Do not summarize. Return the raw utterance."
+        ]
+          .filter(Boolean)
+          .join(" ")
+      );
+      form.set("response_format", "json");
+      const upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${runtimeConfig.apiKey}`
+        },
+        body: form
+      });
+      const payload = await upstream.json().catch(() => null);
+      const transcript = String(payload?.text || payload?.transcript || "").trim();
+      if (!upstream.ok) {
+        const errorBody =
+          payload && typeof payload === "object"
+            ? (payload.error as Record<string, unknown> | undefined)
+            : undefined;
+        return res.status(upstream.status).json(
+          okEmpty(
+            {
+              transcript: "",
+              lang: "zh",
+              model,
+              env_source: runtimeConfig.envSource,
+              error_code: String(errorBody?.code || errorBody?.type || "transcribe_failed"),
+              error_message: String(errorBody?.message || "OpenAI transcription failed")
+            },
+            "Transcription failed"
+          )
+        );
+      }
+      return res.json(
+        okData({
+          transcript,
+          lang: "zh",
+          model,
+          env_source: runtimeConfig.envSource
+        })
+      );
+    } catch (error) {
+      return res.status(500).json(
+        okEmpty(
+          {
+            transcript: "",
+            lang: "zh",
+            model,
+            env_source: runtimeConfig.envSource,
+            error_code: "transcribe_exception",
+            error_message: error instanceof Error ? error.message : "Unknown transcription error"
+          },
+          "Transcription failed"
+        )
+      );
+    }
+  }
+);
+
 app.post("/api/cssmv/song-seed", async (req, res) => {
   noStore(res);
   try {
+    const user = await getSessionUser(req);
+    const access = await resolveUserAccessProfile(user);
+    const queueLane = queueLaneForTier(access.tier);
     const mode = String(req.body?.mode || "music_video").trim();
     const transcript = String(req.body?.transcript || "").trim();
     const title = String(req.body?.title || "").trim();
@@ -2646,7 +4393,9 @@ app.post("/api/cssmv/song-seed", async (req, res) => {
         openai_error_code: seedMeta.openai_error_code,
         openai_error_message: seedMeta.openai_error_message,
         openai_error_status: seedMeta.openai_error_status,
-        fallback_reason: seedMeta.fallback_reason
+        fallback_reason: seedMeta.fallback_reason,
+        queue_lane: queueLane,
+        membership_tier: access.tier
       })
     );
   } catch {
@@ -2734,6 +4483,166 @@ function appBaseUrl(req: express.Request) {
   const host = ((req.headers["x-forwarded-host"] as string) || req.headers.host || `localhost:${PORT}`).toString();
   return `${proto}://${host}`.replace(/\/+$/, "");
 }
+
+function resolvePipelineStatusPath(inputPath: string) {
+  const requested = String(inputPath || "").trim();
+  if (!requested) return null;
+  const candidate = requested.endsWith(".json") ? requested : path.join(requested, "run.json");
+  const resolved = path.resolve(candidate);
+  const allowedRoots = Array.from(
+    new Set([
+      path.resolve(SHARED_RUNS_DIR),
+      path.resolve("/srv/cssos/shared/runs"),
+      path.resolve(path.join(__dirname, "..", "..", "shared", "runs"))
+    ])
+  );
+  const isAllowed = allowedRoots.some((root) => resolved === root || resolved.startsWith(`${root}${path.sep}`));
+  if (!isAllowed) return null;
+  if (!resolved.endsWith(`${path.sep}run.json`) && path.basename(resolved) !== "run.json") return null;
+  return resolved;
+}
+
+function guessPipelineArtifactKind(p: string) {
+  const lower = String(p || "").trim().toLowerCase();
+  if (lower.endsWith(".wav")) return "audio";
+  if (lower.endsWith(".mp4")) return "video";
+  if (lower.endsWith(".ass") || lower.endsWith(".srt") || lower.endsWith(".lrc")) return "subtitles";
+  if (lower.endsWith(".json")) return "json";
+  return "file";
+}
+
+function guessPipelineArtifactMime(p: string) {
+  const lower = String(p || "").trim().toLowerCase();
+  if (lower.endsWith(".wav")) return "audio/wav";
+  if (lower.endsWith(".mp4")) return "video/mp4";
+  if (lower.endsWith(".ass")) return "text/x-ssa";
+  if (lower.endsWith(".srt")) return "application/x-subrip";
+  if (lower.endsWith(".lrc")) return "text/plain";
+  if (lower.endsWith(".json")) return "application/json";
+  return "application/octet-stream";
+}
+
+function buildRunArtifactAssetKey(runId: string, artifactPath: string) {
+  const safeRunId = String(runId || "").trim();
+  const safePath = String(artifactPath || "")
+    .trim()
+    .replace(/^[./\\]+/, "")
+    .replace(/\\/g, "/");
+  if (!safeRunId || !safePath) return "";
+  return `runs/${safeRunId}/${safePath}`;
+}
+
+function downgradeLosslessArtifactTarget(pathValue: string, assetKeyValue: string) {
+  const path = String(pathValue || "").trim();
+  const assetKey = String(assetKeyValue || "").trim();
+  const nextPath = /\.wav$/i.test(path)
+    ? path.replace(/\.wav$/i, ".mp3")
+    : /\.flac$/i.test(path)
+      ? path.replace(/\.flac$/i, ".mp3")
+      : path;
+  const nextAssetKey = /\.wav$/i.test(assetKey)
+    ? assetKey.replace(/\.wav$/i, ".mp3")
+    : /\.flac$/i.test(assetKey)
+      ? assetKey.replace(/\.flac$/i, ".mp3")
+      : assetKey;
+  return {
+    path: nextPath,
+    asset_key: nextAssetKey
+  };
+}
+
+function buildCompactPipelineStatus(payload: any) {
+  const stagesSource =
+    payload?.stages && typeof payload.stages === "object" && !Array.isArray(payload.stages)
+      ? payload.stages
+      : {};
+  const compactStages = Object.fromEntries(
+    Object.entries(stagesSource).map(([name, rec]: [string, any]) => [
+      name,
+      {
+        status: String(rec?.status || "").trim(),
+        started_at: rec?.started_at || null,
+        ended_at: rec?.ended_at || null,
+        duration_seconds: Number(rec?.duration_seconds || 0),
+        retries: Number(rec?.retries || 0),
+        timeout_seconds: Number(rec?.timeout_seconds || 0),
+        error: rec?.error ? String(rec.error).slice(0, 400) : "",
+        error_code: rec?.error_code ? String(rec.error_code) : "",
+        outputs: Array.isArray(rec?.outputs)
+          ? rec.outputs.map((entry: unknown) => String(entry || "").trim()).filter(Boolean)
+          : []
+      }
+    ])
+  );
+  const safeRunId = String(payload?.run_id || "").trim();
+  const artifactMap = new Map<
+    string,
+    { kind: string; path: string; stage: string; mime: string; asset_key: string; storage_backend: string }
+  >();
+  const sourceArtifacts = Array.isArray(payload?.artifacts) ? payload.artifacts : [];
+  sourceArtifacts.forEach((entry: any) => {
+    const artifactPath = String(entry?.path || "").trim();
+    if (!artifactPath || artifactMap.has(artifactPath)) return;
+    artifactMap.set(artifactPath, {
+      kind: String(entry?.kind || guessPipelineArtifactKind(artifactPath)).trim(),
+      path: artifactPath,
+      stage: String(entry?.stage || "").trim(),
+      mime: String(entry?.mime || guessPipelineArtifactMime(artifactPath)).trim(),
+      asset_key: String(entry?.asset_key || buildRunArtifactAssetKey(safeRunId, artifactPath)).trim(),
+      storage_backend: String(entry?.storage_backend || "local-run").trim()
+    });
+  });
+  Object.entries(compactStages).forEach(([stageName, rec]: [string, any]) => {
+    const outputs = Array.isArray(rec?.outputs) ? rec.outputs : [];
+    outputs.forEach((artifactPath: string) => {
+      const safePath = String(artifactPath || "").trim();
+      if (!safePath || artifactMap.has(safePath)) return;
+      artifactMap.set(safePath, {
+        kind: guessPipelineArtifactKind(safePath),
+        path: safePath,
+        stage: stageName,
+        mime: guessPipelineArtifactMime(safePath),
+        asset_key: buildRunArtifactAssetKey(safeRunId, safePath),
+        storage_backend: "local-run"
+      });
+    });
+  });
+  return {
+    schema: String(payload?.schema || "css.pipeline.status.compact.v1"),
+    run_id: String(payload?.run_id || "").trim(),
+    status: String(payload?.status || "").trim(),
+    created_at: payload?.created_at || null,
+    updated_at: payload?.updated_at || null,
+    heartbeat_at: payload?.heartbeat_at || null,
+    ui_lang: String(payload?.ui_lang || "").trim(),
+    tier: String(payload?.tier || "").trim(),
+    total_duration_seconds: Number(payload?.total_duration_seconds || 0),
+    video_shots_total: Number(payload?.video_shots_total || 0),
+    stages: compactStages,
+    artifacts: Array.from(artifactMap.values())
+  };
+}
+
+app.get("/api/pipeline/status", (req, res) => {
+  noStore(res);
+  try {
+    const safePath = resolvePipelineStatusPath(String(req.query.path || ""));
+    if (!safePath) {
+      return res.status(400).json({ ok: false, code: "PIPELINE_STATUS_PATH_INVALID" });
+    }
+    if (!fs.existsSync(safePath)) {
+      return res.status(404).json({ ok: false, code: "PIPELINE_STATUS_NOT_FOUND" });
+    }
+    const payload = JSON.parse(fs.readFileSync(safePath, "utf8"));
+    return res.json(buildCompactPipelineStatus(payload));
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      code: "PIPELINE_STATUS_READ_FAILED",
+      message: error instanceof Error ? error.message : "pipeline status read failed"
+    });
+  }
+});
 
 function auditAuthLogin(req: express.Request, provider: string, userId: string, mode: string) {
   const ipRaw =
@@ -2960,6 +4869,248 @@ async function ensureBillingAccount(userId: string) {
     );
     return { account: insert.rows[0], created: true };
   });
+}
+
+type CreatorBoostKind = "language" | "voice" | "thumbnail" | "preview_video";
+
+function normalizeCreatorBoostKind(value: unknown): CreatorBoostKind | "" {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "language") return "language";
+  if (raw === "voice") return "voice";
+  if (raw === "thumbnail") return "thumbnail";
+  if (raw === "preview_video") return "preview_video";
+  return "";
+}
+
+async function listActiveEntitlements(userId: string) {
+  if (!DATABASE_URL) return [];
+  const res = await withClient((client) =>
+    client.query(
+      `SELECT id, entitlement_key, quantity, consumed_quantity, source, source_order_id, expires_at, meta, created_at, updated_at
+       FROM account_entitlements
+       WHERE user_id = $1
+         AND quantity > consumed_quantity
+         AND (expires_at IS NULL OR expires_at > now())
+       ORDER BY created_at DESC`,
+      [userId]
+    )
+  );
+  return res.rows;
+}
+
+function summarizeBoostEntitlements(rows: any[]) {
+  const summary = {
+    language: { purchased: 0, available: 0, consumed: 0 },
+    voice: { purchased: 0, available: 0, consumed: 0 },
+    thumbnail: { purchased: 0, available: 0, consumed: 0 },
+    preview_video: { purchased: 0, available: 0, consumed: 0 }
+  };
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const key = String(row?.entitlement_key || "").trim().toLowerCase();
+    if (!["boost.language", "boost.voice", "boost.thumbnail", "boost.preview_video"].includes(key)) continue;
+    const bucket =
+      key.endsWith("language")
+        ? summary.language
+        : key.endsWith("voice")
+          ? summary.voice
+          : key.endsWith("thumbnail")
+            ? summary.thumbnail
+            : summary.preview_video;
+    const quantity = Math.max(0, Number(row?.quantity || 0));
+    const consumed = Math.max(0, Number(row?.consumed_quantity || 0));
+    bucket.purchased += quantity;
+    bucket.consumed += consumed;
+    bucket.available += Math.max(0, quantity - consumed);
+  }
+  return summary;
+}
+
+async function createCreatorBoostOrder(args: {
+  userId: string;
+  boostKind: CreatorBoostKind;
+  quantity: number;
+  unitAmountCents: number;
+  currency: string;
+  meta?: Record<string, unknown>;
+}) {
+  const res = await withClient((client) =>
+    client.query<{ id: string }>(
+      `INSERT INTO creator_boost_orders (
+         user_id, boost_kind, quantity, unit_amount_cents, gross_amount_cents, currency, status, meta
+       ) VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7::jsonb)
+       RETURNING id`,
+      [
+        args.userId,
+        args.boostKind,
+        Math.max(1, Math.min(20, Number(args.quantity || 1))),
+        Math.max(0, Number(args.unitAmountCents || 0)),
+        Math.max(0, Number(args.quantity || 1)) * Math.max(0, Number(args.unitAmountCents || 0)),
+        String(args.currency || "USD").toUpperCase(),
+        JSON.stringify(args.meta || {})
+      ]
+    )
+  );
+  return res.rows[0]?.id || null;
+}
+
+async function findCreatorBoostOrder(args: {
+  orderId?: string | null;
+  checkoutSessionId?: string | null;
+  paymentIntentId?: string | null;
+}) {
+  if (!args.orderId && !args.checkoutSessionId && !args.paymentIntentId) return null;
+  const res = await withClient((client) =>
+    client.query(
+      `SELECT *
+       FROM creator_boost_orders
+       WHERE ($1::uuid IS NOT NULL AND id = $1::uuid)
+          OR ($2::text IS NOT NULL AND stripe_checkout_session_id = $2)
+          OR ($3::text IS NOT NULL AND stripe_payment_intent_id = $3)
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [args.orderId || null, args.checkoutSessionId || null, args.paymentIntentId || null]
+    )
+  );
+  return res.rows[0] || null;
+}
+
+async function updateCreatorBoostOrderStripeRefs(args: {
+  orderId: string;
+  checkoutSessionId?: string | null;
+  paymentIntentId?: string | null;
+  chargeId?: string | null;
+  status?: string | null;
+  metaPatch?: Record<string, unknown>;
+}) {
+  const existing = await withClient((client) =>
+    client.query<{ meta: any }>("SELECT meta FROM creator_boost_orders WHERE id = $1 LIMIT 1", [args.orderId])
+  );
+  const mergedMeta = {
+    ...(existing.rows[0]?.meta && typeof existing.rows[0].meta === "object" ? existing.rows[0].meta : {}),
+    ...(args.metaPatch || {})
+  };
+  await withClient((client) =>
+    client.query(
+      `UPDATE creator_boost_orders
+       SET stripe_checkout_session_id = COALESCE($2, stripe_checkout_session_id),
+           stripe_payment_intent_id = COALESCE($3, stripe_payment_intent_id),
+           stripe_charge_id = COALESCE($4, stripe_charge_id),
+           status = COALESCE($5, status),
+           paid_at = CASE WHEN COALESCE($5, status) = 'paid' THEN COALESCE(paid_at, now()) ELSE paid_at END,
+           canceled_at = CASE WHEN COALESCE($5, status) = 'canceled' THEN COALESCE(canceled_at, now()) ELSE canceled_at END,
+           meta = $6::jsonb,
+           updated_at = now()
+       WHERE id = $1`,
+      [args.orderId, args.checkoutSessionId || null, args.paymentIntentId || null, args.chargeId || null, args.status || null, JSON.stringify(mergedMeta)]
+    )
+  );
+}
+
+async function grantCreatorBoostEntitlement(args: {
+  userId: string;
+  boostKind: CreatorBoostKind;
+  quantity: number;
+  orderId?: string | null;
+  meta?: Record<string, unknown>;
+}) {
+  await withClient(async (client) => {
+    if (args.orderId) {
+      const existing = await client.query(
+        `SELECT id
+         FROM account_entitlements
+         WHERE user_id = $1
+           AND entitlement_key = $2
+           AND source_order_id = $3::uuid
+         LIMIT 1`,
+        [args.userId, `boost.${args.boostKind}`, args.orderId]
+      );
+      if (existing.rows[0]?.id) return;
+    }
+    await client.query(
+      `INSERT INTO account_entitlements (
+         user_id, entitlement_key, quantity, consumed_quantity, source, source_order_id, meta
+       ) VALUES ($1, $2, $3, 0, $4, $5::uuid, $6::jsonb)`,
+      [
+        args.userId,
+        `boost.${args.boostKind}`,
+        Math.max(1, Math.min(20, Number(args.quantity || 1))),
+        args.orderId ? "creator_boost_order" : "system",
+        args.orderId || null,
+        JSON.stringify(args.meta || {})
+      ]
+    );
+  });
+}
+
+async function consumeCreatorBoostEntitlement(args: {
+  userId: string;
+  boostKind: CreatorBoostKind;
+  quantity: number;
+  reason?: string;
+  meta?: Record<string, unknown>;
+}) {
+  const remainingToConsume = Math.max(1, Math.min(20, Number(args.quantity || 1)));
+  let left = remainingToConsume;
+  await withClient(async (client) => {
+    const rows = await client.query(
+      `SELECT id, quantity, consumed_quantity
+       FROM account_entitlements
+       WHERE user_id = $1
+         AND entitlement_key = $2
+         AND quantity > consumed_quantity
+         AND (expires_at IS NULL OR expires_at > now())
+       ORDER BY created_at ASC
+       FOR UPDATE`,
+      [args.userId, `boost.${args.boostKind}`]
+    );
+    for (const row of rows.rows) {
+      if (left <= 0) break;
+      const available = Math.max(0, Number(row.quantity || 0) - Number(row.consumed_quantity || 0));
+      if (!available) continue;
+      const consumeNow = Math.min(left, available);
+      await client.query(
+        `UPDATE account_entitlements
+         SET consumed_quantity = consumed_quantity + $2,
+             meta = COALESCE(meta, '{}'::jsonb) || jsonb_build_object('last_consumed_reason', $3, 'last_consumed_at', now()::text, 'last_consumed_meta', $4::jsonb),
+             updated_at = now()
+         WHERE id = $1`,
+        [row.id, consumeNow, args.reason || "creation_run", JSON.stringify(args.meta || {})]
+      );
+      left -= consumeNow;
+    }
+  });
+  const consumed = remainingToConsume - left;
+  if (consumed > 0) {
+    const actionKey: BillableActionKey =
+      args.boostKind === "language"
+        ? "multi_language"
+        : args.boostKind === "voice"
+          ? "multi_voice"
+          : args.boostKind === "thumbnail"
+            ? "thumbnail_regenerate"
+            : "preview_video_regenerate";
+    const pricing = await getBillingActionPolicySettings();
+    const estimatedCostCents = billableActionCostCents(actionKey, pricing) * consumed;
+    await withClient((client) =>
+      client.query(
+        "INSERT INTO usage_events (user_id, route, units, cost_cents, meta) VALUES ($1,$2,$3,$4,$5)",
+        [
+          args.userId,
+          `/api/creator-boost/${args.boostKind}/consume`,
+          consumed,
+          0,
+          JSON.stringify({
+            action_key: actionKey,
+            covered_by: "boost",
+            estimated_cost_cents: estimatedCostCents,
+            reason: args.reason || "creation_run",
+            ...(args.meta || {})
+          })
+        ]
+      )
+    );
+  }
+  return { ok: left === 0, consumed, remainingShortfall: left };
 }
 
 let stripeClientCache: Stripe | null = null;
@@ -3200,9 +5351,9 @@ async function ensureStripeConnectedAccount(args: { userId: string; email: strin
   });
 }
 
-type CommerceProductKind = "listen" | "buyout";
+type CommerceProductKind = "listen" | "buyout" | "tip";
 
-async function resolveCommerceProduct(args: { workId: string; orderKind: CommerceProductKind }) {
+async function resolveCommerceProduct(args: { workId: string; orderKind: CommerceProductKind; tipAmountCents?: number | null }) {
   type ProductRow = {
     product_id: string | null;
     owner_user_id: string;
@@ -3213,6 +5364,7 @@ async function resolveCommerceProduct(args: { workId: string; orderKind: Commerc
     current_listen_price_cents: number;
     current_buyout_price_cents: number | null;
     buyout_enabled: boolean;
+    tips_enabled: boolean;
     rights_scope: string;
   };
 
@@ -3228,6 +5380,7 @@ async function resolveCommerceProduct(args: { workId: string; orderKind: Commerc
          COALESCE(mp.current_listen_price_cents, 0) AS current_listen_price_cents,
          mp.current_buyout_price_cents,
          COALESCE(mp.buyout_enabled, false) AS buyout_enabled,
+         COALESCE(mp.tips_enabled, true) AS tips_enabled,
          COALESCE(mp.rights_scope, 'personal_use') AS rights_scope
        FROM user_works w
        LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
@@ -3246,7 +5399,9 @@ async function resolveCommerceProduct(args: { workId: string; orderKind: Commerc
 
   const preset = pricingPresetForWorkType(normalizeWorkType(row.work_type));
   const rawAmount =
-    args.orderKind === "buyout"
+    args.orderKind === "tip"
+      ? Math.round(Math.max(100, Number(args.tipAmountCents || 0)))
+      : args.orderKind === "buyout"
       ? Number(row.amount_cents || row.current_buyout_price_cents || preset.buyoutCents || defaultBuyoutPriceCents())
       : Number(row.amount_cents || row.current_listen_price_cents || preset.listenCents || defaultListenPriceCents());
   if (!Number.isFinite(rawAmount) || rawAmount <= 0) {
@@ -3254,6 +5409,9 @@ async function resolveCommerceProduct(args: { workId: string; orderKind: Commerc
   }
   if (args.orderKind === "buyout" && !(row.buyout_enabled || rawAmount > 0)) {
     throw new Error("buyout_not_enabled");
+  }
+  if (args.orderKind === "tip" && !row.tips_enabled) {
+    throw new Error("tips_not_enabled");
   }
 
   let productId = row.product_id;
@@ -3271,7 +5429,11 @@ async function resolveCommerceProduct(args: { workId: string; orderKind: Commerc
           args.orderKind,
           String(row.currency || "USD").toUpperCase(),
           rawAmount,
-          JSON.stringify({ seeded_by: "checkout_create", rights_scope: row.rights_scope })
+          JSON.stringify({
+            seeded_by: "checkout_create",
+            rights_scope: row.rights_scope,
+            ...(args.orderKind === "tip" ? { tips_enabled: row.tips_enabled } : {})
+          })
         ]
       )
     );
@@ -3324,6 +5486,40 @@ async function createPendingWorkOrder(args: {
     )
   );
   return result.rows[0]?.id || null;
+}
+
+async function insertWorkTipIfMissing(args: {
+  workId: string;
+  tipperUserId: string;
+  ownerUserId: string;
+  currency: string;
+  amountCents: number;
+  orderId: string;
+  message?: string | null;
+}) {
+  return withClient(async (client) => {
+    const existing = await client.query<{ id: string }>(
+      `SELECT id FROM work_tips WHERE meta->>'order_id' = $1 LIMIT 1`,
+      [args.orderId]
+    );
+    if (existing.rows[0]?.id) return existing.rows[0].id;
+    const inserted = await client.query<{ id: string }>(
+      `INSERT INTO work_tips (
+         work_id, tipper_user_id, owner_user_id, currency, amount_cents, message, meta
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+       RETURNING id`,
+      [
+        args.workId,
+        args.tipperUserId,
+        args.ownerUserId,
+        args.currency,
+        args.amountCents,
+        args.message || null,
+        JSON.stringify({ source: "stripe_webhook", order_id: args.orderId })
+      ]
+    );
+    return inserted.rows[0]?.id || null;
+  });
 }
 
 function appendQueryToUrl(raw: string, params: Record<string, string | null | undefined>) {
@@ -3661,7 +5857,8 @@ async function insertOwnershipTransferIfMissing(args: {
 async function ensureDeferredSellerPayout(order: any) {
   if (Number(order.seller_net_cents || 0) <= 0) return { transferId: null, status: "no_payout_due" };
   const connected = await findStripeConnectedAccountByUserId(String(order.seller_user_id || ""));
-  const availableAt = payoutAvailableAtForOrder(order);
+  const commerce = await getCommercePolicySettings();
+  const availableAt = await payoutAvailableAtForOrder(order);
   await insertPayoutReconciliationIfMissing({
     ownerUserId: String(order.seller_user_id || ""),
     stripeConnectedAccountRowId: connected?.id || null,
@@ -3673,7 +5870,7 @@ async function ensureDeferredSellerPayout(order: any) {
     orderId: String(order.id || ""),
     availableAt,
     meta: {
-      hold_days: stripePayoutHoldDays(),
+      hold_days: commerce.payoutHoldDays,
       release_after: availableAt.toISOString()
     }
   });
@@ -3686,7 +5883,7 @@ async function createSellerTransferIfPossible(order: any, chargeId: string | nul
   const stripe = getStripeClient();
   if (!stripe) return { transferId: null, status: "stripe_not_configured" };
   const connected = await findStripeConnectedAccountByUserId(String(order.seller_user_id || ""));
-  const availableAt = payoutAvailableAtForOrder(order);
+  const availableAt = await payoutAvailableAtForOrder(order);
   if (!connected?.stripe_account_id) {
     await updatePayoutReconciliationForOrder({
       orderId: String(order.id || ""),
@@ -3805,6 +6002,20 @@ async function processStripeWebhookEvent(event: Stripe.Event) {
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
+    const creatorBoostOrderId = String(session.metadata?.creator_boost_order_id || "").trim() || null;
+    if (creatorBoostOrderId) {
+      await updateCreatorBoostOrderStripeRefs({
+        orderId: creatorBoostOrderId,
+        checkoutSessionId: session.id,
+        paymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null,
+        status: "processing",
+        metaPatch: {
+          checkout_session_status: session.status,
+          payment_status: session.payment_status
+        }
+      });
+      return;
+    }
     const orderId = String(session.metadata?.order_id || "").trim() || null;
     const paymentIntentId =
       typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null;
@@ -3829,6 +6040,18 @@ async function processStripeWebhookEvent(event: Stripe.Event) {
 
   if (event.type === "checkout.session.expired") {
     const session = event.data.object as Stripe.Checkout.Session;
+    const creatorBoostOrderId = String(session.metadata?.creator_boost_order_id || "").trim() || null;
+    if (creatorBoostOrderId) {
+      await updateCreatorBoostOrderStripeRefs({
+        orderId: creatorBoostOrderId,
+        checkoutSessionId: session.id,
+        status: "canceled",
+        metaPatch: {
+          canceled_reason: "stripe_checkout_session_expired"
+        }
+      });
+      return;
+    }
     const orderId = String(session.metadata?.order_id || "").trim() || null;
     await cancelPendingWorkOrder({
       orderId,
@@ -3840,6 +6063,18 @@ async function processStripeWebhookEvent(event: Stripe.Event) {
 
   if (event.type === "payment_intent.payment_failed") {
     const intent = event.data.object as Stripe.PaymentIntent;
+    const creatorBoostOrderId = String(intent.metadata?.creator_boost_order_id || "").trim() || null;
+    if (creatorBoostOrderId) {
+      await updateCreatorBoostOrderStripeRefs({
+        orderId: creatorBoostOrderId,
+        paymentIntentId: intent.id,
+        status: "failed",
+        metaPatch: {
+          payment_error: intent.last_payment_error?.message || null
+        }
+      });
+      return;
+    }
     const orderId = String(intent.metadata?.order_id || "").trim() || null;
     const order = await findOrderForStripeEvent({
       orderId,
@@ -3859,6 +6094,35 @@ async function processStripeWebhookEvent(event: Stripe.Event) {
 
   if (event.type === "payment_intent.succeeded") {
     const intent = event.data.object as Stripe.PaymentIntent;
+    const creatorBoostOrderId = String(intent.metadata?.creator_boost_order_id || "").trim() || null;
+    if (creatorBoostOrderId) {
+      const boostOrder = await findCreatorBoostOrder({
+        orderId: creatorBoostOrderId,
+        paymentIntentId: intent.id
+      });
+      if (!boostOrder) return;
+      const chargeId = typeof intent.latest_charge === "string" ? intent.latest_charge : intent.latest_charge?.id || null;
+      await updateCreatorBoostOrderStripeRefs({
+        orderId: String(boostOrder.id),
+        paymentIntentId: intent.id,
+        chargeId,
+        status: "paid",
+        metaPatch: {
+          stripe_payment_status: intent.status
+        }
+      });
+      await grantCreatorBoostEntitlement({
+        userId: String(boostOrder.user_id || ""),
+        boostKind: normalizeCreatorBoostKind(boostOrder.boost_kind) || "language",
+        quantity: Math.max(1, Number(boostOrder.quantity || 1)),
+        orderId: String(boostOrder.id || ""),
+        meta: {
+          source: "stripe_webhook",
+          payment_intent_id: intent.id
+        }
+      });
+      return;
+    }
     const orderId = String(intent.metadata?.order_id || "").trim() || null;
     const order = await findOrderForStripeEvent({
       orderId,
@@ -3878,6 +6142,17 @@ async function processStripeWebhookEvent(event: Stripe.Event) {
         payout_available_at: payout.availableAt?.toISOString?.() || null
       }
     });
+    if (String(order.order_kind || "") === "tip") {
+      await insertWorkTipIfMissing({
+        workId: String(order.work_id || ""),
+        tipperUserId: String(order.buyer_user_id || ""),
+        ownerUserId: String(order.seller_user_id || ""),
+        currency: String(order.currency || "USD"),
+        amountCents: Number(order.gross_amount_cents || 0),
+        orderId: String(order.id || ""),
+        message: String(order?.meta?.tip_message || "").trim() || null
+      });
+    }
     if (String(order.order_kind || "") === "buyout") {
       await insertOwnershipTransferIfMissing({
         workId: String(order.work_id || ""),
@@ -3900,6 +6175,183 @@ async function resetMonthIfNeeded(userId: string) {
        WHERE user_id = $1 AND month_key <> $2`,
       [userId, monthKey]
     );
+  });
+}
+
+async function consumeBillableAction(args: {
+  userId: string;
+  access: Awaited<ReturnType<typeof resolveUserAccessProfile>>;
+  actionKey: BillableActionKey;
+  units?: number;
+  route?: string;
+  countAgainstMonthlyLimit?: boolean;
+  coveredBy?: "membership" | "boost" | "enterprise" | "booking" | "admin";
+  meta?: Record<string, unknown>;
+}) {
+  const units = Math.max(1, Math.min(100000, Number(args.units || 1) || 1));
+  const route = String(args.route || `/api/billing/actions/${args.actionKey}`).trim();
+  const countAgainstMonthlyLimit = args.countAgainstMonthlyLimit === true;
+  const coveredBy = args.coveredBy || "membership";
+  const policy = await getBillingActionPolicySettings();
+  const estimatedCostCents = Math.max(0, billableActionCostCents(args.actionKey, policy) * units);
+  if (args.access.tier === "admin" || args.access.tier === "vip") {
+    await withClient((client) =>
+      client.query(
+        "INSERT INTO usage_events (user_id, route, units, cost_cents, meta) VALUES ($1,$2,$3,$4,$5)",
+        [
+          args.userId,
+          route,
+          units,
+          0,
+          JSON.stringify({
+            action_key: args.actionKey,
+            covered_by: "admin",
+            estimated_cost_cents: estimatedCostCents,
+            tier: args.access.tier,
+            ...(args.meta || {})
+          })
+        ]
+      )
+    );
+    return { ok: true as const, allowed: true, cost_cents: 0, estimated_cost_cents: estimatedCostCents, limit: null, remaining: null };
+  }
+
+  await resetMonthIfNeeded(args.userId);
+  const account = args.access.billingAccount || (await ensureBillingAccount(args.userId)).account;
+  const monthlyGenerationLimit = countAgainstMonthlyLimit ? Number(args.access.policy.monthlyGenerationLimit || 0) : 0;
+  const coreCovered = policy.includedMembershipCoversCore && coveredBy === "membership";
+  return withClient(async (client) => {
+    await client.query("BEGIN");
+    const accountRes = await client.query("SELECT * FROM billing_accounts WHERE user_id = $1 FOR UPDATE", [args.userId]);
+    const lockedAccount = accountRes.rows[0] || account;
+
+    if (monthlyGenerationLimit > 0) {
+      const usageCountRes = await client.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+         FROM usage_events
+         WHERE user_id = $1
+           AND route = $2
+           AND COALESCE(meta->>'blocked', '') = ''
+           AND created_at >= date_trunc('month', now())`,
+        [args.userId, route]
+      );
+      const usedCount = Number(usageCountRes.rows[0]?.count || 0);
+      if (usedCount >= monthlyGenerationLimit) {
+        await client.query(
+          "INSERT INTO usage_events (user_id, route, units, cost_cents, meta) VALUES ($1,$2,$3,$4,$5)",
+          [
+            args.userId,
+            route,
+            units,
+            0,
+            JSON.stringify({
+              action_key: args.actionKey,
+              blocked: "membership_limit",
+              covered_by: coveredBy,
+              estimated_cost_cents: estimatedCostCents,
+              tier: args.access.tier,
+              ...(args.meta || {})
+            })
+          ]
+        );
+        await client.query("COMMIT");
+        return {
+          ok: true as const,
+          allowed: false,
+          cost_cents: 0,
+          estimated_cost_cents: estimatedCostCents,
+          limit: monthlyGenerationLimit,
+          remaining: 0
+        };
+      }
+    }
+
+    let usageCostCents = coreCovered || coveredBy === "boost" || coveredBy === "booking" ? 0 : estimatedCostCents;
+    let nextBalance = Number(lockedAccount?.balance_cents || 0);
+    const monthSpent = Number(lockedAccount?.month_spent_cents || 0);
+    const monthLimit = Number(lockedAccount?.monthly_limit_cents || 0);
+
+    if (coveredBy === "enterprise" && usageCostCents > 0) {
+      if (monthLimit > 0 && monthSpent + usageCostCents > monthLimit) {
+        await client.query(
+          "INSERT INTO usage_events (user_id, route, units, cost_cents, meta) VALUES ($1,$2,$3,$4,$5)",
+          [
+            args.userId,
+            route,
+            units,
+            usageCostCents,
+            JSON.stringify({
+              action_key: args.actionKey,
+              blocked: "monthly_limit",
+              covered_by: coveredBy,
+              estimated_cost_cents: estimatedCostCents,
+              ...(args.meta || {})
+            })
+          ]
+        );
+        await client.query("COMMIT");
+        return { ok: true as const, allowed: false, cost_cents: usageCostCents, estimated_cost_cents: estimatedCostCents, limit: monthLimit, remaining: 0 };
+      }
+      if (nextBalance < usageCostCents) {
+        await client.query(
+          "INSERT INTO usage_events (user_id, route, units, cost_cents, meta) VALUES ($1,$2,$3,$4,$5)",
+          [
+            args.userId,
+            route,
+            units,
+            usageCostCents,
+            JSON.stringify({
+              action_key: args.actionKey,
+              blocked: "insufficient_balance",
+              covered_by: coveredBy,
+              estimated_cost_cents: estimatedCostCents,
+              ...(args.meta || {})
+            })
+          ]
+        );
+        await client.query("COMMIT");
+        return { ok: true as const, allowed: false, cost_cents: usageCostCents, estimated_cost_cents: estimatedCostCents, limit: monthLimit || null, remaining: 0 };
+      }
+      nextBalance -= usageCostCents;
+    }
+
+    const usageRes = await client.query<{ id: string }>(
+      "INSERT INTO usage_events (user_id, route, units, cost_cents, meta) VALUES ($1,$2,$3,$4,$5) RETURNING id",
+      [
+        args.userId,
+        route,
+        units,
+        usageCostCents,
+        JSON.stringify({
+          action_key: args.actionKey,
+          covered_by: coveredBy,
+          estimated_cost_cents: estimatedCostCents,
+          tier: args.access.tier,
+          ...(args.meta || {})
+        })
+      ]
+    );
+    const relatedUsageEventId = String(usageRes.rows[0]?.id || "").trim() || null;
+
+    if (coveredBy === "enterprise" && usageCostCents > 0 && relatedUsageEventId) {
+      await client.query(
+        "INSERT INTO ledger_entries (user_id, kind, amount_cents, balance_after_cents, related_usage_event_id, note) VALUES ($1,$2,$3,$4,$5,$6)",
+        [args.userId, "debit", -usageCostCents, nextBalance, relatedUsageEventId, `${args.actionKey}`]
+      );
+      await client.query(
+        "UPDATE billing_accounts SET balance_cents = $2, month_spent_cents = $3, updated_at = now() WHERE user_id = $1",
+        [args.userId, nextBalance, monthSpent + usageCostCents]
+      );
+    }
+    await client.query("COMMIT");
+    return {
+      ok: true as const,
+      allowed: true,
+      cost_cents: usageCostCents,
+      estimated_cost_cents: estimatedCostCents,
+      limit: monthlyGenerationLimit || monthLimit || null,
+      remaining: monthlyGenerationLimit > 0 ? Math.max(0, monthlyGenerationLimit - 1) : null
+    };
   });
 }
 
@@ -4005,6 +6457,8 @@ app.get("/api/me", async (req, res) => {
         okEmpty({ authenticated: false, user: null, auth_provider: null }, "No data yet")
       );
     }
+    const access = await resolveUserAccessProfile(user);
+    const permissionSnapshot = buildPermissionSnapshot(access.tier, access.role);
     return res.json(
       okData({
         authenticated: true,
@@ -4015,12 +6469,59 @@ app.get("/api/me", async (req, res) => {
           avatar: user.avatar_url
         },
         auth_provider: (req.session as any)?.auth_provider || null,
-        role: roleForEmail(user.email),
-        tier: roleForEmail(user.email)
+        session_days: Math.max(
+          1,
+          Math.round(Number((req.session as any)?.cookie?.maxAge || sessionConfig.cookie?.maxAge || 0) / (1000 * 60 * 60 * 24))
+        ),
+        session_expires_at: (req.session as any)?.cookie?.expires || null,
+        role: access.role,
+        tier: access.tier,
+        queue_lane: queueLaneForTier(access.tier),
+        permission_snapshot: permissionSnapshot
       })
     );
   } catch (_err) {
     return res.json(okEmpty({ authenticated: false, user: null, auth_provider: null }, "No data yet"));
+  }
+});
+
+app.post("/api/profile/switch-provider", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json(okEmpty({ switched: false }, "Not signed in"));
+    }
+    const provider = String(req.body?.provider || "").trim().toLowerCase();
+    if (!provider) {
+      return res.status(400).json(okEmpty({ switched: false, code: "PROVIDER_REQUIRED" }, "Missing provider"));
+    }
+    const linked = await listLinkedProviders(user.id);
+    if (!linked.providers.includes(provider)) {
+      return res.status(404).json(okEmpty({ switched: false, code: "PROVIDER_NOT_LINKED" }, "Provider not linked"));
+    }
+    (req.session as any).auth_provider = provider;
+    return res.json(okData({ switched: true, provider, linked_auth: { providers: linked.providers } }));
+  } catch {
+    return res.status(500).json(okEmpty({ switched: false, code: "SWITCH_FAILED" }, "Switch failed"));
+  }
+});
+
+app.post("/api/profile/session-policy", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json(okEmpty({ updated: false }, "Not signed in"));
+    }
+    const days = Number(req.body?.days || 0);
+    if (![30, 90, 180, 365].includes(days)) {
+      return res.status(400).json(okEmpty({ updated: false, code: "INVALID_SESSION_DAYS" }, "Invalid session days"));
+    }
+    (req.session as any).cookie.maxAge = 1000 * 60 * 60 * 24 * days;
+    return res.json(okData({ updated: true, session_days: days, session_expires_at: (req.session as any).cookie.expires || null }));
+  } catch {
+    return res.status(500).json(okEmpty({ updated: false, code: "SESSION_POLICY_FAILED" }, "Session policy failed"));
   }
 });
 
@@ -4031,7 +6532,9 @@ app.get("/api/profile", async (req, res) => {
     if (!user) {
       return res.status(401).json(okEmpty({ authenticated: false }, "No data yet"));
     }
+    const access = await resolveUserAccessProfile(user);
     const linked = await listLinkedProviders(user.id);
+    const permissionSnapshot = buildPermissionSnapshot(access.tier, access.role);
     return res.json(
       okData({
         authenticated: true,
@@ -4040,13 +6543,15 @@ app.get("/api/profile", async (req, res) => {
           name: user.display_name,
           email: user.email,
           avatar: user.avatar_url,
-          role: roleForEmail(user.email),
-          tier: roleForEmail(user.email)
+          role: access.role,
+          tier: access.tier,
+          queue_lane: queueLaneForTier(access.tier)
         },
         linked_auth: {
           providers: linked.providers,
           passkey_count: linked.passkeyCount
-        }
+        },
+        permission_snapshot: permissionSnapshot
       })
     );
   } catch {
@@ -4182,6 +6687,349 @@ app.post("/api/panel-media/logo", async (req, res) => {
   }
 });
 
+app.get("/api/music-sources/draft", async (req, res) => {
+  noStore(res);
+  const draft = ((req.session as any)?.music_source_draft || {}) as Record<string, any>;
+  const parserJobDraft =
+    ((req.session as any)?.music_source_parser_draft as Record<string, any> | null) ||
+    buildMusicSourceParserJobDraft(draft);
+  const parserTaskDraft =
+    ((req.session as any)?.music_source_parser_task_draft as Record<string, any> | null) ||
+    buildMusicSourceParserTaskDraft(draft);
+  const parserTask = resolveStoredMusicSourceParserTask(
+    ((req.session as any)?.music_source_parser_task as Record<string, any> | null) || null
+  );
+  const entries = Object.fromEntries(
+    Object.entries(draft).map(([kind, entry]) => [
+      kind,
+      entry && typeof entry === "object"
+        ? {
+            kind: entry.kind || kind,
+            file_name: entry.file_name || "",
+            mime: entry.mime || "",
+            size: Number(entry.size || 0),
+            uploaded_at: entry.uploaded_at || null,
+            metadata_summary: summarizeMusicSourceEntry(entry)
+          }
+        : null
+    ])
+  );
+  return res.json(
+    okData({
+      draft: entries,
+      parser_job_draft: parserJobDraft,
+      parser_task_draft: parserTaskDraft,
+      parser_task: parserTask
+    })
+  );
+});
+
+app.get("/api/music-sources/parser-tasks/current", async (req, res) => {
+  noStore(res);
+  try {
+    const parserTask = resolveStoredMusicSourceParserTask(
+      ((req.session as any)?.music_source_parser_task as Record<string, any> | null) || null
+    );
+    if (parserTask && String(parserTask.status || "").trim() === "queued") {
+      scheduleMusicSourceParserWorker(0);
+    }
+    (req.session as any).music_source_parser_task = parserTask;
+    return req.session.save((err) => {
+      if (err) {
+        return res.status(500).json({ ok: false, code: "MUSIC_SOURCE_PARSER_TASK_STATUS_FAILED" });
+      }
+      return res.json(okData({ parser_task: parserTask }));
+    });
+  } catch {
+    return res.status(500).json({ ok: false, code: "MUSIC_SOURCE_PARSER_TASK_STATUS_FAILED" });
+  }
+});
+
+app.post("/api/music-sources/upload", async (req, res) => {
+  noStore(res);
+  try {
+    const kind = normalizeMusicSourceKind(req.body?.kind);
+    if (!kind) {
+      return res.status(400).json({ ok: false, code: "INVALID_MUSIC_SOURCE_KIND" });
+    }
+    const decoded = decodeDataUrlToFile(String(req.body?.data_url || ""));
+    if (!decoded || !decoded.buffer?.length) {
+      return res.status(400).json({ ok: false, code: "INVALID_MUSIC_SOURCE_DATA" });
+    }
+    if (!validateMusicSourceMime(kind, decoded.mime)) {
+      return res.status(400).json({ ok: false, code: "INVALID_MUSIC_SOURCE_MIME" });
+    }
+    if (decoded.buffer.length > musicSourceSizeLimit(kind)) {
+      return res.status(413).json({ ok: false, code: "MUSIC_SOURCE_TOO_LARGE" });
+    }
+    const safeExt = extensionForMime(decoded.mime, ".bin");
+    const safeName = String(req.body?.file_name || `${kind}${safeExt}`).trim() || `${kind}${safeExt}`;
+    const draftDir = path.join(MUSIC_SOURCE_UPLOAD_DIR, req.sessionID);
+    fs.mkdirSync(draftDir, { recursive: true });
+    const filename = `${kind}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}${safeExt}`;
+    const absolutePath = path.join(draftDir, filename);
+    fs.writeFileSync(absolutePath, decoded.buffer);
+    const nextEntry = musicSourceDraftEntryForSession(
+      kind,
+      safeName,
+      absolutePath,
+      decoded.mime,
+      decoded.buffer.length
+    );
+    const nextDraft = {
+      ...(((req.session as any)?.music_source_draft || {}) as Record<string, any>),
+      [kind]: nextEntry
+    };
+    const parserJobDraft = buildMusicSourceParserJobDraft(nextDraft);
+    const parserTaskDraft = buildMusicSourceParserTaskDraft(nextDraft);
+    (req.session as any).music_source_draft = nextDraft;
+    (req.session as any).music_source_parser_draft = parserJobDraft;
+    (req.session as any).music_source_parser_task_draft = parserTaskDraft;
+    (req.session as any).music_source_parser_task = null;
+    return req.session.save((err) => {
+      if (err) {
+        return res.status(500).json({ ok: false, code: "MUSIC_SOURCE_DRAFT_SAVE_FAILED" });
+      }
+      return res.json(
+        okData({
+          kind,
+          entry: {
+            kind: nextEntry.kind,
+            file_name: nextEntry.file_name,
+            mime: nextEntry.mime,
+            size: nextEntry.size,
+            uploaded_at: nextEntry.uploaded_at,
+            metadata_summary: summarizeMusicSourceEntry(nextEntry)
+          },
+          parser_job_draft: parserJobDraft,
+          parser_task_draft: parserTaskDraft,
+          parser_task: null
+        })
+      );
+    });
+  } catch {
+    return res.status(500).json({ ok: false, code: "MUSIC_SOURCE_UPLOAD_FAILED" });
+  }
+});
+
+app.delete("/api/music-sources/draft/:kind", async (req, res) => {
+  noStore(res);
+  try {
+    const kind = normalizeMusicSourceKind(req.params.kind);
+    if (!kind) {
+      return res.status(400).json({ ok: false, code: "INVALID_MUSIC_SOURCE_KIND" });
+    }
+    const draft = { ...(((req.session as any)?.music_source_draft || {}) as Record<string, any>) };
+    const current = draft[kind];
+    if (current?.absolute_path) {
+      fs.rmSync(String(current.absolute_path), { force: true });
+    }
+    draft[kind] = null;
+    const parserJobDraft = buildMusicSourceParserJobDraft(draft);
+    const parserTaskDraft = buildMusicSourceParserTaskDraft(draft);
+    (req.session as any).music_source_draft = draft;
+    (req.session as any).music_source_parser_draft = parserJobDraft;
+    (req.session as any).music_source_parser_task_draft = parserTaskDraft;
+    (req.session as any).music_source_parser_task = null;
+    return req.session.save((err) => {
+      if (err) {
+        return res.status(500).json({ ok: false, code: "MUSIC_SOURCE_DRAFT_SAVE_FAILED" });
+      }
+      return res.json(
+        okData({
+          cleared: true,
+          kind,
+          parser_job_draft: parserJobDraft,
+          parser_task_draft: parserTaskDraft,
+          parser_task: null
+        })
+      );
+    });
+  } catch {
+    return res.status(500).json({ ok: false, code: "MUSIC_SOURCE_DRAFT_CLEAR_FAILED" });
+  }
+});
+
+app.post("/api/music-sources/parser-draft", async (req, res) => {
+  noStore(res);
+  try {
+    const draft = ((req.session as any)?.music_source_draft || {}) as Record<string, any>;
+    const parserJobDraft = buildMusicSourceParserJobDraft(draft);
+    (req.session as any).music_source_parser_draft = parserJobDraft;
+    return req.session.save((err) => {
+      if (err) {
+        return res.status(500).json({ ok: false, code: "MUSIC_SOURCE_DRAFT_SAVE_FAILED" });
+      }
+      return res.json(okData({ parser_job_draft: parserJobDraft, parser_task: (req.session as any)?.music_source_parser_task || null }));
+    });
+  } catch {
+    return res.status(500).json({ ok: false, code: "MUSIC_SOURCE_PARSER_DRAFT_FAILED" });
+  }
+});
+
+app.post("/api/music-sources/parser-task-draft", async (req, res) => {
+  noStore(res);
+  try {
+    const draft = ((req.session as any)?.music_source_draft || {}) as Record<string, any>;
+    const parserTaskDraft = buildMusicSourceParserTaskDraft(draft);
+    (req.session as any).music_source_parser_task_draft = parserTaskDraft;
+    return req.session.save((err) => {
+      if (err) {
+        return res.status(500).json({ ok: false, code: "MUSIC_SOURCE_DRAFT_SAVE_FAILED" });
+      }
+      return res.json(okData({ parser_task_draft: parserTaskDraft, parser_task: (req.session as any)?.music_source_parser_task || null }));
+    });
+  } catch {
+    return res.status(500).json({ ok: false, code: "MUSIC_SOURCE_PARSER_TASK_DRAFT_FAILED" });
+  }
+});
+
+app.post("/api/music-sources/parser-tasks", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    const access = await resolveUserAccessProfile(user);
+    const draft = ((req.session as any)?.music_source_draft || {}) as Record<string, any>;
+    const parserTask = buildQueuedMusicSourceParserTask(draft, access, req.sessionID);
+    if (!parserTask) {
+      return res.status(400).json({ ok: false, code: "MUSIC_SOURCE_PARSER_TASK_EMPTY" });
+    }
+    const persistedPath = persistQueuedMusicSourceParserTask(parserTask);
+    (req.session as any).music_source_parser_task = {
+      ...parserTask,
+      task_path: persistedPath
+    };
+    return req.session.save((err) => {
+      if (err) {
+        return res.status(500).json({ ok: false, code: "MUSIC_SOURCE_PARSER_TASK_QUEUE_FAILED" });
+      }
+      scheduleMusicSourceParserWorker(0);
+      return res.json(
+        okData({
+          parser_task: (req.session as any).music_source_parser_task
+        })
+      );
+    });
+  } catch {
+    return res.status(500).json({ ok: false, code: "MUSIC_SOURCE_PARSER_TASK_QUEUE_FAILED" });
+  }
+});
+
+app.get("/api/example-assets/manifest", async (_req, res) => {
+  noStore(res);
+  try {
+    const requestedKind = String(_req.query?.kind || "all").trim().toLowerCase();
+    const items = await listBucketObjects(EXAMPLE_ASSET_PREFIX);
+    const files = items
+      .map((entry: any) => sanitizeExampleAssetName(String(entry?.name || "").replace(/^examples\//, "")))
+      .filter((name: string) => Boolean(name))
+      .filter((name: string) => !path.basename(name).startsWith("._"))
+      .filter((name: string) => {
+        if (requestedKind === "audio") return /\.(wav|mp3|m4a|aac|flac|ogg)$/i.test(name);
+        if (requestedKind === "mv" || requestedKind === "video") return /\.(mp4|webm|mov)$/i.test(name);
+        return true;
+      })
+      .sort((left: string, right: string) => left.localeCompare(right));
+    return res.json(
+      okData({
+        storage_backend: "gcs",
+        files,
+        items: files.map((name: string) => ({
+          name,
+          kind: /\.(mp4|webm|mov)$/i.test(name) ? "video" : "audio",
+          mime: inferExampleAssetMime(name),
+          asset_key: `${EXAMPLE_ASSET_PREFIX}${name}`,
+          url: `/api/example-assets/blob?name=${encodeURIComponent(name)}`
+        }))
+      })
+    );
+  } catch {
+    return res.status(502).json({ ok: false, code: "EXAMPLE_ASSET_MANIFEST_FAILED" });
+  }
+});
+
+app.get("/api/example-assets/blob", async (req, res) => {
+  noStore(res);
+  try {
+    const name = sanitizeExampleAssetName(String(req.query?.name || ""));
+    if (!name) {
+      return res.status(400).json({ ok: false, code: "EXAMPLE_ASSET_NAME_REQUIRED" });
+    }
+    const objectName = `${EXAMPLE_ASSET_PREFIX}${name}`;
+    const upstream = await fetchBucketObject(objectName);
+    if (!upstream.ok) {
+      return res.status(upstream.status || 502).json({ ok: false, code: "EXAMPLE_ASSET_FETCH_FAILED" });
+    }
+    res.setHeader("Content-Type", upstream.headers.get("content-type") || inferExampleAssetMime(name));
+    res.setHeader("Cache-Control", "private, max-age=300");
+    const buffer = Buffer.from(await upstream.arrayBuffer());
+    return res.end(buffer);
+  } catch {
+    return res.status(502).json({ ok: false, code: "EXAMPLE_ASSET_FETCH_FAILED" });
+  }
+});
+
+app.post("/api/music-artifacts/ticket", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    const access = await resolveUserAccessProfile(user);
+    const runId = String(req.body?.run_id || "").trim();
+    let artifactPath = String(req.body?.path || "").trim();
+    let assetKey = String(req.body?.asset_key || "").trim();
+    const fileName = String(req.body?.file_name || "").trim();
+    if (!runId || (!artifactPath && !assetKey)) {
+      return res.status(400).json({ ok: false, code: "ARTIFACT_TARGET_REQUIRED" });
+    }
+    const isLossless =
+      /\.wav$/i.test(artifactPath) ||
+      /\.flac$/i.test(artifactPath) ||
+      /\.wav$/i.test(assetKey) ||
+      /\.flac$/i.test(assetKey);
+    let downgraded = false;
+    if (isLossless && !isProPlusTier(access.tier)) {
+      const downgradedTarget = downgradeLosslessArtifactTarget(artifactPath, assetKey);
+      artifactPath = downgradedTarget.path;
+      assetKey = downgradedTarget.asset_key;
+      downgraded = true;
+      if (!artifactPath && !assetKey) {
+        return res.status(403).json({ ok: false, code: "LOSSLESS_PRO_REQUIRED" });
+      }
+    }
+    const base = appBaseUrl(req);
+    const rustRes = await fetch(
+      `${base}/cssapi/v1/runs/${encodeURIComponent(runId)}/music-delivery-artifact-download-ticket`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+          cookie: String(req.headers.cookie || "")
+        },
+        body: JSON.stringify({
+          path: artifactPath || undefined,
+          asset_key: assetKey || undefined,
+          file_name: fileName || undefined
+        })
+      }
+    );
+    const payload = await rustRes.json().catch(() => null);
+    if (!rustRes.ok || !payload) {
+      return res.status(rustRes.status || 502).json(payload || { ok: false, code: "ARTIFACT_TICKET_FAILED" });
+    }
+    const data = (payload as any)?.data || payload;
+    return res.json(
+      okData({
+        ...(data && typeof data === "object" ? data : {}),
+        downgraded_from_lossless: downgraded,
+        enforced_tier: access.tier
+      })
+    );
+  } catch {
+    return res.status(500).json({ ok: false, code: "ARTIFACT_TICKET_PROXY_FAILED" });
+  }
+});
+
 app.patch("/api/panel-defaults/:panelKey", async (req, res) => {
   noStore(res);
   try {
@@ -4212,6 +7060,10 @@ app.patch("/api/panel-defaults/:panelKey", async (req, res) => {
           [panelKey, JSON.stringify(defaults), user.id]
         )
       );
+    }
+    if (panelKey === "behavior") {
+      behaviorTemplateCache.value = defaults;
+      behaviorTemplateCache.expiresAt = Date.now() + 30_000;
     }
     return res.json(okData({ defaults, saved: true }));
   } catch {
@@ -4287,6 +7139,9 @@ type WorkTreeRow = {
   buyout_enabled?: boolean | null;
   tips_enabled?: boolean | null;
   rights_scope?: string | null;
+  cover_image?: string | null;
+  preview_image_url?: string | null;
+  preview_video_url?: string | null;
 };
 
 function workStructureRoleLabel(role: unknown, fallbackType: unknown) {
@@ -4309,6 +7164,9 @@ function normalizeWorkTreeRow<T extends WorkTreeRow>(row: T) {
     buyout_enabled: row.buyout_enabled !== false,
     structure_role: workStructureRoleLabel(row.structure_role, row.work_type),
     sequence_index: Number(row.sequence_index || 0),
+    cover_image: String(row.cover_image || "").trim() || null,
+    preview_image_url: String(row.preview_image_url || "").trim() || null,
+    preview_video_url: String(row.preview_video_url || "").trim() || null,
     structure_plan:
       row.structure_plan && typeof row.structure_plan === "object"
         ? row.structure_plan
@@ -4476,9 +7334,24 @@ app.get("/api/works/mine", async (req, res) => {
       client.query<Row>(
         `SELECT w.id, w.title, w.style, w.work_type, w.lyrics_preview, w.status, w.created_at, w.updated_at,
                 w.parent_work_id, w.root_work_id, w.structure_role, w.sequence_index, w.structure_plan,
-                mp.visibility
+                w.source_run_id, w.compute_units_estimate, w.compute_cost_cents_estimate, w.suggested_listen_price_cents, w.suggested_buyout_price_cents,
+                w.cover_image, w.preview_image_url, w.preview_video_url,
+                mp.visibility,
+                COALESCE(listen_product.amount_cents, mp.current_listen_price_cents) AS current_listen_price_cents,
+                COALESCE(buyout_product.amount_cents, mp.current_buyout_price_cents) AS current_buyout_price_cents,
+                COALESCE(mp.buyout_enabled, buyout_product.active, false) AS buyout_enabled,
+                mp.tips_enabled,
+                mp.rights_scope
          FROM user_works w
          LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
+         LEFT JOIN work_access_products listen_product
+           ON listen_product.work_id = w.id
+          AND listen_product.product_kind = 'listen'
+          AND listen_product.active = true
+         LEFT JOIN work_access_products buyout_product
+           ON buyout_product.work_id = w.id
+          AND buyout_product.product_kind = 'buyout'
+          AND buyout_product.active = true
          WHERE user_id = $1
            AND w.parent_work_id IS NULL
          ORDER BY w.created_at DESC
@@ -4493,9 +7366,24 @@ app.get("/api/works/mine", async (req, res) => {
         client.query<Row>(
           `SELECT w.id, w.title, w.style, w.work_type, w.lyrics_preview, w.status, w.created_at, w.updated_at,
                   w.parent_work_id, w.root_work_id, w.structure_role, w.sequence_index, w.structure_plan,
-                  mp.visibility
+                  w.source_run_id, w.compute_units_estimate, w.compute_cost_cents_estimate, w.suggested_listen_price_cents, w.suggested_buyout_price_cents,
+                  w.cover_image, w.preview_image_url, w.preview_video_url,
+                  mp.visibility,
+                  COALESCE(listen_product.amount_cents, mp.current_listen_price_cents) AS current_listen_price_cents,
+                  COALESCE(buyout_product.amount_cents, mp.current_buyout_price_cents) AS current_buyout_price_cents,
+                  COALESCE(mp.buyout_enabled, buyout_product.active, false) AS buyout_enabled,
+                  mp.tips_enabled,
+                  mp.rights_scope
            FROM user_works w
            LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
+           LEFT JOIN work_access_products listen_product
+             ON listen_product.work_id = w.id
+            AND listen_product.product_kind = 'listen'
+            AND listen_product.active = true
+           LEFT JOIN work_access_products buyout_product
+             ON buyout_product.work_id = w.id
+            AND buyout_product.product_kind = 'buyout'
+            AND buyout_product.active = true
            WHERE w.root_work_id = ANY($1::uuid[])
              AND w.parent_work_id IS NOT NULL
            ORDER BY w.sequence_index ASC, w.created_at ASC`,
@@ -4522,7 +7410,7 @@ app.get("/api/works/market", async (req, res) => {
     type Row = WorkTreeRow;
     const q: QueryResult<Row> = await withClient((client) =>
       client.query<Row>(
-        `SELECT
+          `SELECT
            w.id,
            w.user_id AS owner_user_id,
            w.title,
@@ -4537,19 +7425,35 @@ app.get("/api/works/market", async (req, res) => {
            w.structure_role,
            w.sequence_index,
            w.structure_plan,
+           w.source_run_id,
+           w.compute_units_estimate,
+           w.compute_cost_cents_estimate,
+           w.suggested_listen_price_cents,
+           w.suggested_buyout_price_cents,
+           w.cover_image,
+           w.preview_image_url,
+           w.preview_video_url,
            u.display_name AS owner_name,
            u.email AS owner_email,
-           mp.current_listen_price_cents,
-           mp.current_buyout_price_cents,
-           mp.buyout_enabled,
+           COALESCE(listen_product.amount_cents, mp.current_listen_price_cents) AS current_listen_price_cents,
+           COALESCE(buyout_product.amount_cents, mp.current_buyout_price_cents) AS current_buyout_price_cents,
+           COALESCE(mp.buyout_enabled, buyout_product.active, false) AS buyout_enabled,
            mp.tips_enabled,
            mp.visibility,
            mp.rights_scope
          FROM user_works w
          JOIN users u ON u.id = w.user_id
          LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
+         LEFT JOIN work_access_products listen_product
+           ON listen_product.work_id = w.id
+          AND listen_product.product_kind = 'listen'
+          AND listen_product.active = true
+         LEFT JOIN work_access_products buyout_product
+           ON buyout_product.work_id = w.id
+          AND buyout_product.product_kind = 'buyout'
+          AND buyout_product.active = true
          WHERE COALESCE(mp.visibility, 'public') <> 'private'
-           AND COALESCE(mp.current_listen_price_cents, $2) > 0
+           AND COALESCE(listen_product.amount_cents, mp.current_listen_price_cents, $2) > 0
            AND w.parent_work_id IS NULL
          ORDER BY w.updated_at DESC, w.created_at DESC
          LIMIT $1`,
@@ -4576,17 +7480,33 @@ app.get("/api/works/market", async (req, res) => {
              w.structure_role,
              w.sequence_index,
              w.structure_plan,
+             w.source_run_id,
+             w.compute_units_estimate,
+             w.compute_cost_cents_estimate,
+             w.suggested_listen_price_cents,
+             w.suggested_buyout_price_cents,
+             w.cover_image,
+             w.preview_image_url,
+             w.preview_video_url,
              u.display_name AS owner_name,
              u.email AS owner_email,
-             mp.current_listen_price_cents,
-             mp.current_buyout_price_cents,
-             mp.buyout_enabled,
+             COALESCE(listen_product.amount_cents, mp.current_listen_price_cents) AS current_listen_price_cents,
+             COALESCE(buyout_product.amount_cents, mp.current_buyout_price_cents) AS current_buyout_price_cents,
+             COALESCE(mp.buyout_enabled, buyout_product.active, false) AS buyout_enabled,
              mp.tips_enabled,
              mp.visibility,
              mp.rights_scope
            FROM user_works w
            JOIN users u ON u.id = w.user_id
            LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
+           LEFT JOIN work_access_products listen_product
+             ON listen_product.work_id = w.id
+            AND listen_product.product_kind = 'listen'
+            AND listen_product.active = true
+           LEFT JOIN work_access_products buyout_product
+             ON buyout_product.work_id = w.id
+            AND buyout_product.product_kind = 'buyout'
+            AND buyout_product.active = true
            WHERE w.root_work_id = ANY($1::uuid[])
              AND w.parent_work_id IS NOT NULL
            ORDER BY w.sequence_index ASC, w.created_at ASC`,
@@ -4645,6 +7565,49 @@ app.get("/api/works/market", async (req, res) => {
       return acc;
     }, new Map<string, Array<{ work_id: string; to_user_id: string | null; to_label: string | null; effective_at: string }>>());
     const tree = buildWorkTree([...q.rows, ...childRows]);
+    let marketState: Record<string, unknown> | null = null;
+    if (!tree.length) {
+      type CountRow = {
+        users_total: string | number;
+        works_total: string | number;
+        published_total: string | number;
+      };
+      const counts = await withClient((client) =>
+        client.query<CountRow>(
+          `SELECT
+             (SELECT COUNT(*) FROM users) AS users_total,
+             (SELECT COUNT(*) FROM user_works) AS works_total,
+             (
+               SELECT COUNT(*)
+               FROM user_works w
+               LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
+               LEFT JOIN work_access_products listen_product
+                 ON listen_product.work_id = w.id
+                AND listen_product.product_kind = 'listen'
+                AND listen_product.active = true
+               WHERE COALESCE(mp.visibility, 'public') <> 'private'
+                 AND COALESCE(listen_product.amount_cents, mp.current_listen_price_cents, $1) > 0
+                 AND w.parent_work_id IS NULL
+             ) AS published_total`,
+          [defaultListenPriceCents()]
+        )
+      );
+      const row = counts.rows[0];
+      const usersTotal = Number(row?.users_total || 0);
+      const worksTotal = Number(row?.works_total || 0);
+      const publishedTotal = Number(row?.published_total || 0);
+      marketState = {
+        users_total: usersTotal,
+        works_total: worksTotal,
+        published_total: publishedTotal,
+        reason:
+          usersTotal <= 0 && worksTotal <= 0
+            ? "empty_database"
+            : worksTotal > 0 && publishedTotal <= 0
+              ? "no_published_works"
+              : "no_visible_market_results"
+      };
+    }
     return res.json(
       okData({
         works: tree.map((row) => {
@@ -4658,7 +7621,8 @@ app.get("/api/works/market", async (req, res) => {
             owner_chain: ownerChain,
             previous_owner_label: previousOwner
           };
-        })
+        }),
+        market_state: marketState
       })
     );
   } catch {
@@ -4688,13 +7652,23 @@ app.post("/api/works", async (req, res) => {
     const buyoutPriceCents = Number.parseInt(String(req.body?.buyout_price_cents || "0"), 10);
     const lyricsRaw = req.body?.lyrics_preview ? String(req.body.lyrics_preview) : "";
     const lyricsPreview = lyricsRaw.slice(0, 500) || null;
+    const sourceRunId = String(req.body?.source_run_id || "").trim() || null;
+    const computeUnitsEstimate = Math.max(0, Number.parseInt(String(req.body?.compute_units_estimate || "0"), 10) || 0);
+    const computeCostCentsEstimate = Math.max(0, Number.parseInt(String(req.body?.compute_cost_cents_estimate || "0"), 10) || 0);
+    const suggestedListenPriceCents = Math.max(0, Number.parseInt(String(req.body?.suggested_listen_price_cents || listenPriceCents || "0"), 10) || 0);
+    const suggestedBuyoutPriceCents = Math.max(0, Number.parseInt(String(req.body?.suggested_buyout_price_cents || buyoutPriceCents || "0"), 10) || 0);
+    const coverImage = String(req.body?.cover_image || "").trim() || null;
+    const previewImageUrl = String(req.body?.preview_image_url || "").trim() || null;
+    const previewVideoUrl = String(req.body?.preview_video_url || "").trim() || null;
     type Row = { id: string };
     const inserted: QueryResult<Row> = await withClient((client) =>
       client.query<Row>(
         `INSERT INTO user_works (
-           user_id, title, style, work_type, lyrics_preview, status, parent_work_id, root_work_id, structure_role, sequence_index, structure_plan
+           user_id, title, style, work_type, lyrics_preview, status, parent_work_id, root_work_id, structure_role, sequence_index, structure_plan,
+           source_run_id, compute_units_estimate, compute_cost_cents_estimate, suggested_listen_price_cents, suggested_buyout_price_cents,
+           cover_image, preview_image_url, preview_video_url
          )
-         VALUES ($1, $2, $3, $4, $5, 'draft', $6::uuid, $7::uuid, $8, $9, $10::jsonb)
+         VALUES ($1, $2, $3, $4, $5, 'draft', $6::uuid, $7::uuid, $8, $9, $10::jsonb, $11, $12, $13, $14, $15, $16, $17, $18)
          RETURNING id`,
         [
           user.id,
@@ -4706,7 +7680,15 @@ app.post("/api/works", async (req, res) => {
           requestedRootWorkId,
           structureRole,
           sequenceIndex,
-          structurePlan ? JSON.stringify(structurePlan) : null
+          structurePlan ? JSON.stringify(structurePlan) : null,
+          sourceRunId,
+          computeUnitsEstimate,
+          computeCostCentsEstimate,
+          suggestedListenPriceCents,
+          suggestedBuyoutPriceCents,
+          coverImage,
+          previewImageUrl,
+          previewVideoUrl
         ]
       )
     );
@@ -4735,11 +7717,61 @@ app.post("/api/works", async (req, res) => {
         root_work_id: requestedRootWorkId || workId,
         structure_role: structureRole,
         sequence_index: sequenceIndex,
-        structure_plan: structurePlan
+        structure_plan: structurePlan,
+        source_run_id: sourceRunId,
+        compute_units_estimate: computeUnitsEstimate,
+        compute_cost_cents_estimate: computeCostCentsEstimate,
+        suggested_listen_price_cents: suggestedListenPriceCents,
+        suggested_buyout_price_cents: suggestedBuyoutPriceCents,
+        cover_image: coverImage,
+        preview_image_url: previewImageUrl,
+        preview_video_url: previewVideoUrl
       })
     );
   } catch {
     return res.status(500).json({ ok: false, code: "WORK_CREATE_FAILED" });
+  }
+});
+
+app.patch("/api/works/:id/assets", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const workId = String(req.params.id || "").trim();
+    if (!workId) {
+      return res.status(400).json({ ok: false, code: "WORK_REQUIRED" });
+    }
+    const ownerCheck = await withClient((client) =>
+      client.query<{ id: string }>(`SELECT id FROM user_works WHERE id = $1 AND user_id = $2 LIMIT 1`, [workId, user.id])
+    );
+    if (!ownerCheck.rows[0]?.id) {
+      return res.status(404).json({ ok: false, code: "WORK_NOT_FOUND" });
+    }
+    const coverImage = String(req.body?.cover_image || "").trim() || null;
+    const previewImageUrl = String(req.body?.preview_image_url || "").trim() || null;
+    const previewVideoUrl = String(req.body?.preview_video_url || "").trim() || null;
+    await withClient((client) =>
+      client.query(
+        `UPDATE user_works
+         SET cover_image = COALESCE($2, cover_image),
+             preview_image_url = COALESCE($3, preview_image_url),
+             preview_video_url = COALESCE($4, preview_video_url),
+             updated_at = now()
+         WHERE id = $1`,
+        [workId, coverImage, previewImageUrl, previewVideoUrl]
+      )
+    );
+    return res.json(okData({
+      work_id: workId,
+      cover_image: coverImage,
+      preview_image_url: previewImageUrl,
+      preview_video_url: previewVideoUrl
+    }));
+  } catch {
+    return res.status(500).json({ ok: false, code: "WORK_ASSETS_UPDATE_FAILED" });
   }
 });
 
@@ -4994,6 +8026,14 @@ app.post("/api/auth/apple/callback", (req, res) => {
   res.redirect(307, "/auth/apple/callback");
 });
 
+function oauthCallbackUrl(req: express.Request, providerId: string) {
+  const normalized = String(providerId || "").trim().toLowerCase();
+  const envKey = `${envUpper(normalized)}_REDIRECT_URI`;
+  const envValue = String(process.env[envKey] || "").trim();
+  if (envValue) return envValue;
+  return `${appBaseUrl(req)}/api/auth/${normalized}/callback`;
+}
+
 app.get("/auth/google", async (req, res) => {
   noStore(res);
   try {
@@ -5003,7 +8043,7 @@ app.get("/auth/google", async (req, res) => {
     const state = randomHex(16);
     const nonce = randomHex(16);
     setOAuthState(req, "google", { state, nonce, createdAt: Date.now() });
-    const redirectUri = `${appBaseUrl(req)}/auth/google/callback`;
+    const redirectUri = oauthCallbackUrl(req, "google");
     const q = new URLSearchParams({
       client_id: clientId,
       redirect_uri: redirectUri,
@@ -5032,7 +8072,7 @@ app.get("/auth/google/callback", async (req, res) => {
 
     const clientId = process.env.GOOGLE_CLIENT_ID || "";
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
-    const redirectUri = `${appBaseUrl(req)}/auth/google/callback`;
+    const redirectUri = oauthCallbackUrl(req, "google");
     const tk = await oauthExchangeTokenForm(
       "https://oauth2.googleapis.com/token",
       new URLSearchParams({
@@ -5161,7 +8201,7 @@ app.get("/auth/x", async (req, res) => {
     const verifier = b64url(crypto.randomBytes(32));
     const challenge = codeChallengeS256(verifier);
     setOAuthState(req, "x", { state, codeVerifier: verifier, createdAt: Date.now() });
-    const redirectUri = `${appBaseUrl(req)}/auth/x/callback`;
+    const redirectUri = oauthCallbackUrl(req, "x");
     const q = new URLSearchParams({
       response_type: "code",
       client_id: clientId,
@@ -5190,7 +8230,7 @@ app.get("/auth/x/callback", async (req, res) => {
 
     const clientId = process.env.X_CLIENT_ID || "";
     const clientSecret = process.env.X_CLIENT_SECRET || "";
-    const redirectUri = `${appBaseUrl(req)}/auth/x/callback`;
+    const redirectUri = oauthCallbackUrl(req, "x");
     let tk = await oauthExchangeTokenForm(
       "https://api.x.com/2/oauth2/token",
       new URLSearchParams({
@@ -5229,7 +8269,7 @@ app.get("/auth/x/callback", async (req, res) => {
     const me = await fetchJson("https://api.x.com/2/users/me?user.fields=id,name,username", {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
-    const sub = String(me.json?.data?.id || "");
+    const sub = String(me.json?.data?.id || me.json?.id || me.json?.sub || me.json?.data?.sub || "").trim();
     if (!sub) {
       auditAuthFailure("x", "oauth", "SUB_MISSING");
       return res.status(400).send("auth_failed");
@@ -5258,7 +8298,7 @@ app.get("/auth/facebook", async (req, res) => {
     if (!clientId || !clientSecret) return res.status(503).send("facebook_not_configured");
     const state = randomHex(16);
     setOAuthState(req, "facebook", { state, createdAt: Date.now() });
-    const redirectUri = `${appBaseUrl(req)}/auth/facebook/callback`;
+    const redirectUri = oauthCallbackUrl(req, "facebook");
     const q = new URLSearchParams({
       client_id: clientId,
       redirect_uri: redirectUri,
@@ -5285,7 +8325,7 @@ app.get("/auth/facebook/callback", async (req, res) => {
 
     const clientId = process.env.FACEBOOK_CLIENT_ID || "";
     const clientSecret = process.env.FACEBOOK_CLIENT_SECRET || "";
-    const redirectUri = `${appBaseUrl(req)}/auth/facebook/callback`;
+    const redirectUri = oauthCallbackUrl(req, "facebook");
     const tk = await fetchJson(
       `https://graph.facebook.com/v19.0/oauth/access_token?${new URLSearchParams({
         client_id: clientId,
@@ -5335,13 +8375,15 @@ app.get("/auth/wechat", async (req, res) => {
     if (!appid || !secret) return res.status(503).send("wechat_not_configured");
     const state = randomHex(8);
     setOAuthState(req, "wechat", { state, createdAt: Date.now() });
-    const redirectUri = `${appBaseUrl(req)}/auth/wechat/callback`;
+    const redirectUri = oauthCallbackUrl(req, "wechat");
     const url = `https://open.weixin.qq.com/connect/qrconnect?appid=${encodeURIComponent(appid)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=snsapi_login&state=${encodeURIComponent(state)}#wechat_redirect`;
     return res.redirect(302, url);
   } catch {
     return res.status(500).send("wechat_auth_start_failed");
   }
 });
+
+app.get("/auth/weixin", (_req, res) => res.redirect(302, "/auth/wechat"));
 
 app.get("/auth/wechat/callback", async (req, res) => {
   noStore(res);
@@ -5391,6 +8433,11 @@ app.get("/auth/wechat/callback", async (req, res) => {
     console.error("wechat_callback_failed", err);
     return res.status(400).send("auth_failed");
   }
+});
+
+app.get("/auth/weixin/callback", (req, res) => {
+  const q = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+  res.redirect(302, `/auth/wechat/callback${q}`);
 });
 
 app.get("/auth/bsky", async (req, res) => {
@@ -5506,7 +8553,28 @@ app.get("/api/auth/google", (_req, res) => res.redirect(302, "/auth/google"));
 app.get("/api/auth/x", (_req, res) => res.redirect(302, "/auth/x"));
 app.get("/api/auth/facebook", (_req, res) => res.redirect(302, "/auth/facebook"));
 app.get("/api/auth/wechat", (_req, res) => res.redirect(302, "/auth/wechat"));
+app.get("/api/auth/weixin", (_req, res) => res.redirect(302, "/auth/wechat"));
 app.get("/api/auth/bsky", (_req, res) => res.redirect(302, "/auth/bsky"));
+app.get("/api/auth/google/callback", (req, res) => {
+  const q = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+  res.redirect(302, `/auth/google/callback${q}`);
+});
+app.get("/api/auth/x/callback", (req, res) => {
+  const q = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+  res.redirect(302, `/auth/x/callback${q}`);
+});
+app.get("/api/auth/facebook/callback", (req, res) => {
+  const q = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+  res.redirect(302, `/auth/facebook/callback${q}`);
+});
+app.get("/api/auth/wechat/callback", (req, res) => {
+  const q = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+  res.redirect(302, `/auth/wechat/callback${q}`);
+});
+app.get("/api/auth/weixin/callback", (req, res) => {
+  const q = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+  res.redirect(302, `/auth/wechat/callback${q}`);
+});
 
 const genericProviders = [
   "tiktok",
@@ -5734,12 +8802,12 @@ app.get("/api/billing/status", async (req, res) => {
     if (!user) {
       return res.json(okEmpty({ authenticated: false }, "No data yet"));
     }
-    const role = roleForEmail(user.email);
-    if (role === "admin") {
+    const access = await resolveUserAccessProfile(user);
+    if (access.tier === "admin" || access.tier === "vip") {
       return res.json(
         okData({
           authenticated: true,
-          tier: role,
+          tier: access.tier,
           currency: "USD",
           balance_cents: null,
           monthly_limit_cents: null,
@@ -5751,10 +8819,11 @@ app.get("/api/billing/status", async (req, res) => {
       );
     }
     await resetMonthIfNeeded(user.id);
-    const { account, created } = await ensureBillingAccount(user.id);
+    const created = !access.billingAccount;
+    const account = access.billingAccount || (await ensureBillingAccount(user.id)).account;
     const data = {
       authenticated: true,
-      tier: role,
+      tier: access.tier,
       currency: account.currency,
       balance_cents: Number(account.balance_cents),
       monthly_limit_cents: Number(account.monthly_limit_cents),
@@ -5825,13 +8894,14 @@ app.get("/api/cssmv/commerce", async (req, res) => {
   try {
     const user = await getSessionUser(req);
     if (!user) {
-      return res.json(okEmpty({ authenticated: false }, "No data yet"));
+      return res.json(okEmpty({ authenticated: false, permission_snapshot: buildPermissionSnapshot("guest", "guest") }, "No data yet"));
     }
-    const role = roleForEmail(user.email);
+    const access = await resolveUserAccessProfile(user);
+    const permissionSnapshot = buildPermissionSnapshot(access.tier, access.role);
     let accountData: Record<string, unknown>;
-    if (role === "admin") {
+    if (access.tier === "admin" || access.tier === "vip") {
       accountData = {
-        tier: role,
+        tier: access.tier,
         currency: "USD",
         balance_cents: null,
         monthly_limit_cents: null,
@@ -5840,9 +8910,9 @@ app.get("/api/cssmv/commerce", async (req, res) => {
       };
     } else {
       await resetMonthIfNeeded(user.id);
-      const { account } = await ensureBillingAccount(user.id);
+      const account = access.billingAccount || (await ensureBillingAccount(user.id)).account;
       accountData = {
-        tier: role,
+        tier: access.tier,
         currency: account.currency,
         balance_cents: Number(account.balance_cents),
         monthly_limit_cents: Number(account.monthly_limit_cents),
@@ -5855,16 +8925,16 @@ app.get("/api/cssmv/commerce", async (req, res) => {
       };
     }
 
-    const [ledgerRes, usageRes, worksRes, orderRes, tipRes, transferRes, marketRes] = await Promise.all([
+    const [ledgerRes, usageRes, worksRes, orderRes, tipRes, transferRes, marketRes, entitlementsRes, boostOrdersRes, creatorCommerce, billableActions, studioWorkspace, studioEnterprise, cinemaBookings] = await Promise.all([
       withClient((client) =>
         client.query(
-          "SELECT * FROM ledger_entries WHERE user_id = $1 ORDER BY created_at DESC LIMIT 8",
+          "SELECT * FROM ledger_entries WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20",
           [user.id]
         )
       ),
       withClient((client) =>
         client.query(
-          "SELECT * FROM usage_events WHERE user_id = $1 ORDER BY created_at DESC LIMIT 8",
+          "SELECT * FROM usage_events WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20",
           [user.id]
         )
       ),
@@ -5917,11 +8987,50 @@ app.get("/api/cssmv/commerce", async (req, res) => {
            FROM work_market_profiles
            WHERE owner_user_id = $1
            ORDER BY updated_at DESC
+          LIMIT 12`,
+          [user.id]
+        )
+      ),
+      withClient((client) =>
+        client.query(
+          `SELECT id, entitlement_key, quantity, consumed_quantity, source, source_order_id, expires_at, meta, created_at, updated_at
+           FROM account_entitlements
+           WHERE user_id = $1
+           ORDER BY created_at DESC
+           LIMIT 24`,
+          [user.id]
+        )
+      ),
+      withClient((client) =>
+        client.query(
+          `SELECT id, boost_kind, quantity, unit_amount_cents, gross_amount_cents, currency, status,
+                  stripe_checkout_session_id, stripe_payment_intent_id, paid_at, canceled_at, meta, created_at, updated_at
+           FROM creator_boost_orders
+           WHERE user_id = $1
+           ORDER BY created_at DESC
            LIMIT 12`,
           [user.id]
         )
-      )
+      ),
+      getCreatorCommercePolicySettings(),
+      getBillingActionPolicySettings(),
+      ensureStudioWorkspaceForUser({
+        userId: user.id,
+        email: user.email,
+        displayName: user.display_name,
+        tier: access.tier
+      }),
+      getStudioEnterprisePolicySettings(),
+      listCinemaBookingRequests(user.id, 12)
     ]);
+    const boostEntitlements = summarizeBoostEntitlements(entitlementsRes.rows);
+    const enterpriseApiUsage =
+      canUseEnterpriseApiTier(access.tier) && studioEnterprise.enterpriseApiEnabled
+        ? await listEnterpriseApiUsageSnapshot({
+            userId: user.id,
+            rpm: studioEnterprise.enterpriseApiRateLimitPerMinute
+          }).catch(() => null)
+        : null;
 
     return res.json(
       okData({
@@ -5931,11 +9040,38 @@ app.get("/api/cssmv/commerce", async (req, res) => {
           email: user.email,
           name: user.display_name,
           avatar: user.avatar_url,
-          role
+          role: access.role,
+          tier: access.tier,
+          membership_policy: access.policy,
+          queue_lane: queueLaneForTier(access.tier)
         },
         account: accountData,
         ledger_entries: ledgerRes.rows,
         usage_events: usageRes.rows,
+        entitlements: entitlementsRes.rows,
+        creator_boost: {
+          config: creatorCommerce,
+          entitlements: boostEntitlements,
+          orders: boostOrdersRes.rows
+        },
+        cinema_bookings: cinemaBookings,
+        billable_actions: billableActions,
+        studio: {
+          settings: studioEnterprise,
+          workspace: studioWorkspace?.workspace || null,
+          members: studioWorkspace?.members || [],
+          projects: studioWorkspace?.projects || [],
+          can_collaborate: !!studioWorkspace?.canCollaborate,
+          can_create_projects: !!studioWorkspace?.canCreateProjects
+        },
+        enterprise_api: canUseEnterpriseApiTier(access.tier)
+          ? {
+              enabled: studioEnterprise.enterpriseApiEnabled,
+              queue_lane: queueLaneForTier(access.tier),
+              usage: enterpriseApiUsage
+            }
+          : null,
+        permission_snapshot: permissionSnapshot,
         market: {
           profiles: marketRes.rows,
           orders: orderRes.rows,
@@ -5949,7 +9085,485 @@ app.get("/api/cssmv/commerce", async (req, res) => {
       })
     );
   } catch (_err) {
-    return res.json(okEmpty({ authenticated: false }, "No data yet"));
+    return res.json(okEmpty({ authenticated: false, permission_snapshot: buildPermissionSnapshot("guest", "guest") }, "No data yet"));
+  }
+});
+
+app.get("/api/cssmv/boosts", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      const config = await getCreatorCommercePolicySettings();
+      return res.json(okData({ authenticated: false, config, entitlements: summarizeBoostEntitlements([]), orders: [] }));
+    }
+    const [config, entitlements, orders] = await Promise.all([
+      getCreatorCommercePolicySettings(),
+      listActiveEntitlements(user.id),
+      withClient((client) =>
+        client.query(
+          `SELECT id, boost_kind, quantity, unit_amount_cents, gross_amount_cents, currency, status, paid_at, canceled_at, meta, created_at, updated_at
+           FROM creator_boost_orders
+           WHERE user_id = $1
+           ORDER BY created_at DESC
+           LIMIT 12`,
+          [user.id]
+        )
+      )
+    ]);
+    return res.json(okData({
+      authenticated: true,
+      config,
+      entitlements: summarizeBoostEntitlements(entitlements),
+      entitlement_rows: entitlements,
+      orders: orders.rows
+    }));
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "CREATOR_BOOSTS_LOAD_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/cssmv/boosts/consume", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const boostKind = normalizeCreatorBoostKind(req.body?.boost_kind);
+    const quantity = Math.max(1, Math.min(20, Number(req.body?.quantity || 1)));
+    if (!boostKind) {
+      return res.status(400).json({ ok: false, code: "BOOST_KIND_INVALID" });
+    }
+    const result = await consumeCreatorBoostEntitlement({
+      userId: user.id,
+      boostKind,
+      quantity,
+      reason: String(req.body?.reason || "creation_run"),
+      meta: req.body?.meta && typeof req.body.meta === "object" ? req.body.meta : {}
+    });
+    if (!result.ok) {
+      return res.status(409).json({ ok: false, code: "BOOST_ENTITLEMENT_INSUFFICIENT", data: result });
+    }
+    return res.json(okData(result));
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "CREATOR_BOOSTS_CONSUME_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/cssmv/boosts/checkout/create", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const stripe = getStripeClient();
+    if (!stripe) {
+      return res.status(503).json({ ok: false, code: "STRIPE_NOT_CONFIGURED" });
+    }
+    const boostKind = normalizeCreatorBoostKind(req.body?.boost_kind);
+    const quantity = Math.max(1, Math.min(20, Number(req.body?.quantity || 1)));
+    if (!boostKind) {
+      return res.status(400).json({ ok: false, code: "BOOST_KIND_INVALID" });
+    }
+    const policy = await getCreatorCommercePolicySettings();
+    if (!policy.enabledKinds.includes(boostKind)) {
+      return res.status(403).json({ ok: false, code: "BOOST_KIND_DISABLED" });
+    }
+    if (policy.adminOnlyPurchaseOverride && roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "BOOST_PURCHASE_ADMIN_ONLY" });
+    }
+    const unitAmountCents =
+      boostKind === "language"
+        ? policy.languageBoostUnitCents
+        : boostKind === "voice"
+          ? policy.voiceBoostUnitCents
+          : boostKind === "thumbnail"
+            ? policy.thumbnailBoostUnitCents
+            : policy.previewVideoBoostUnitCents;
+    const customer = await ensureStripeCustomer({
+      userId: user.id,
+      email: normalizeEmail(user.email),
+      name: user.display_name
+    });
+    const orderId = await createCreatorBoostOrder({
+      userId: user.id,
+      boostKind,
+      quantity,
+      unitAmountCents,
+      currency: "USD",
+      meta: {
+        requested_from: String(req.body?.requested_from || "advanced_settings"),
+        creation_snapshot: req.body?.creation_snapshot && typeof req.body.creation_snapshot === "object" ? req.body.creation_snapshot : {}
+      }
+    });
+    if (!orderId) {
+      return res.status(500).json({ ok: false, code: "BOOST_ORDER_CREATE_FAILED" });
+    }
+    const successUrl = String(req.body?.success_url || process.env.STRIPE_CHECKOUT_SUCCESS_URL || `${appBaseUrl(req)}/`).trim();
+    const cancelUrl = String(req.body?.cancel_url || process.env.STRIPE_CHECKOUT_CANCEL_URL || `${appBaseUrl(req)}/`).trim();
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      customer: String(customer?.stripe_customer_id || ""),
+      success_url: appendQueryToUrl(successUrl, { stripe_checkout: "success", creator_boost_order_id: orderId }),
+      cancel_url: appendQueryToUrl(cancelUrl, { stripe_checkout: "cancel", creator_boost_order_id: orderId }),
+      client_reference_id: orderId,
+      payment_intent_data: {
+        metadata: {
+          creator_boost_order_id: orderId,
+          boost_kind: boostKind,
+          buyer_user_id: user.id
+        }
+      },
+      metadata: {
+        creator_boost_order_id: orderId,
+        boost_kind: boostKind,
+        buyer_user_id: user.id
+      },
+      line_items: [
+        {
+          quantity,
+          price_data: {
+            currency: "usd",
+            unit_amount: unitAmountCents,
+            product_data: {
+              name:
+                boostKind === "language"
+                  ? "Creator Boost: Extra Language"
+                  : boostKind === "voice"
+                    ? "Creator Boost: Extra Voice Lane"
+                    : boostKind === "thumbnail"
+                      ? "Creator Boost: Thumbnail Regeneration"
+                      : "Creator Boost: Preview Video Regeneration",
+              metadata: { creator_boost_order_id: orderId, boost_kind: boostKind }
+            }
+          }
+        }
+      ]
+    });
+    await updateCreatorBoostOrderStripeRefs({
+      orderId,
+      checkoutSessionId: session.id,
+      paymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : null,
+      metaPatch: { checkout_url_created: true }
+    });
+    return res.json(okData({
+      order_id: orderId,
+      checkout_session_id: session.id,
+      checkout_url: session.url,
+      boost_kind: boostKind,
+      quantity,
+      unit_amount_cents: unitAmountCents
+    }));
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "CREATOR_BOOST_CHECKOUT_CREATE_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/admin/membership/set", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user || roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const targetEmail = normalizeEmail(String(req.body?.email || ""));
+    const targetTier = normalizeMembershipTier(req.body?.tier);
+    if (!targetEmail) {
+      return res.status(400).json({ ok: false, code: "TARGET_EMAIL_REQUIRED" });
+    }
+    if (targetTier === "guest") {
+      return res.status(400).json({ ok: false, code: "TARGET_TIER_INVALID" });
+    }
+    const found = await withClient((client) =>
+      client.query<{ id: string; email: string | null }>("SELECT id, email FROM users WHERE lower(email) = lower($1) LIMIT 1", [targetEmail])
+    );
+    const targetUserId = String(found.rows[0]?.id || "").trim();
+    if (!targetUserId) {
+      return res.status(404).json({ ok: false, code: "TARGET_USER_NOT_FOUND" });
+    }
+    await ensureBillingAccount(targetUserId);
+    await withClient((client) =>
+      client.query(
+        `UPDATE billing_accounts
+         SET membership_tier = $2,
+             membership_source = 'admin_manual',
+             membership_updated_at = now(),
+             updated_at = now()
+         WHERE user_id = $1`,
+        [targetUserId, targetTier]
+      )
+    );
+    return res.json(okData({ user_id: targetUserId, email: targetEmail, tier: targetTier, updated: true }));
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "ADMIN_MEMBERSHIP_SET_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/admin/entitlements/grant", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user || roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const targetEmail = normalizeEmail(String(req.body?.email || ""));
+    const boostKind = normalizeCreatorBoostKind(req.body?.boost_kind);
+    const quantity = Math.max(1, Math.min(200, Number(req.body?.quantity || 1)));
+    if (!targetEmail) {
+      return res.status(400).json({ ok: false, code: "TARGET_EMAIL_REQUIRED" });
+    }
+    if (!boostKind) {
+      return res.status(400).json({ ok: false, code: "BOOST_KIND_INVALID" });
+    }
+    const found = await withClient((client) =>
+      client.query<{ id: string }>("SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1", [targetEmail])
+    );
+    const targetUserId = String(found.rows[0]?.id || "").trim();
+    if (!targetUserId) {
+      return res.status(404).json({ ok: false, code: "TARGET_USER_NOT_FOUND" });
+    }
+    await withClient((client) =>
+      client.query(
+        `INSERT INTO account_entitlements (
+           user_id, entitlement_key, quantity, consumed_quantity, source, created_by_user_id, meta
+         ) VALUES ($1, $2, $3, 0, 'admin_grant', $4, $5::jsonb)`,
+        [
+          targetUserId,
+          `boost.${boostKind}`,
+          quantity,
+          user.id,
+          JSON.stringify({ granted_by_email: normalizeEmail(user.email), note: String(req.body?.note || "").slice(0, 240) })
+        ]
+      )
+    );
+    return res.json(okData({ user_id: targetUserId, email: targetEmail, boost_kind: boostKind, quantity, granted: true }));
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "ADMIN_ENTITLEMENT_GRANT_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/studio/workspace", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const access = await resolveUserAccessProfile(user);
+    if (!canUseStudioWorkspaceTier(access.tier)) {
+      return res.status(403).json({ ok: false, code: "STUDIO_WORKSPACE_FORBIDDEN" });
+    }
+    const workspace = await ensureStudioWorkspaceForUser({
+      userId: user.id,
+      email: user.email,
+      displayName: user.display_name,
+      tier: access.tier
+    });
+    return res.json(okData({
+      workspace: workspace?.workspace || null,
+      members: workspace?.members || [],
+      projects: workspace?.projects || [],
+      policy: workspace?.policy || await getStudioEnterprisePolicySettings(),
+      queue_lane: queueLaneForTier(access.tier)
+    }));
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "STUDIO_WORKSPACE_LOAD_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/studio/workspace/members", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const access = await resolveUserAccessProfile(user);
+    const settings = await getStudioEnterprisePolicySettings();
+    if (!canUseStudioWorkspaceTier(access.tier) || !settings.teamCollaborationEnabled) {
+      return res.status(403).json({ ok: false, code: "TEAM_COLLABORATION_DISABLED" });
+    }
+    const workspaceBundle = await ensureStudioWorkspaceForUser({
+      userId: user.id,
+      email: user.email,
+      displayName: user.display_name,
+      tier: access.tier
+    });
+    const workspaceId = String(workspaceBundle?.workspace?.id || "").trim();
+    if (!workspaceId) {
+      return res.status(500).json({ ok: false, code: "WORKSPACE_UNAVAILABLE" });
+    }
+    if ((workspaceBundle?.members?.length || 0) >= settings.maxTeamMembers) {
+      return res.status(409).json({ ok: false, code: "TEAM_MEMBER_LIMIT_REACHED", data: { max_team_members: settings.maxTeamMembers } });
+    }
+    const email = normalizeEmail(String(req.body?.email || ""));
+    const role = ["member", "manager"].includes(String(req.body?.role || "").trim().toLowerCase())
+      ? String(req.body?.role || "").trim().toLowerCase()
+      : "member";
+    if (!email) {
+      return res.status(400).json({ ok: false, code: "TARGET_EMAIL_REQUIRED" });
+    }
+    const found = await withClient((client) =>
+      client.query<{ id: string; email: string | null; display_name: string | null }>(
+        "SELECT id, email, display_name FROM users WHERE lower(email) = lower($1) LIMIT 1",
+        [email]
+      )
+    );
+    const targetUser = found.rows[0];
+    if (!targetUser?.id) {
+      return res.status(404).json({ ok: false, code: "TARGET_USER_NOT_FOUND" });
+    }
+    await withClient((client) =>
+      client.query(
+        `INSERT INTO studio_workspace_members (
+           workspace_id, user_id, role, invited_by_user_id, meta
+         ) VALUES ($1, $2, $3, $4, $5::jsonb)
+         ON CONFLICT (workspace_id, user_id)
+         DO UPDATE SET role = EXCLUDED.role, invited_by_user_id = EXCLUDED.invited_by_user_id, updated_at = now()`,
+        [
+          workspaceId,
+          targetUser.id,
+          role,
+          user.id,
+          JSON.stringify({ invited_by_email: normalizeEmail(user.email), invited_at: new Date().toISOString() })
+        ]
+      )
+    );
+    const refreshed = await ensureStudioWorkspaceForUser({
+      userId: user.id,
+      email: user.email,
+      displayName: user.display_name,
+      tier: access.tier
+    });
+    return res.json(okData({
+      invited: true,
+      workspace: refreshed?.workspace || null,
+      members: refreshed?.members || []
+    }));
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "STUDIO_MEMBER_ADD_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/studio/projects", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const access = await resolveUserAccessProfile(user);
+    if (!canUseStudioWorkspaceTier(access.tier)) {
+      return res.status(403).json({ ok: false, code: "STUDIO_PROJECTS_FORBIDDEN" });
+    }
+    const workspace = await ensureStudioWorkspaceForUser({
+      userId: user.id,
+      email: user.email,
+      displayName: user.display_name,
+      tier: access.tier
+    });
+    return res.json(okData({
+      workspace: workspace?.workspace || null,
+      projects: workspace?.projects || [],
+      queue_lane: queueLaneForTier(access.tier)
+    }));
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "STUDIO_PROJECTS_LOAD_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/studio/projects", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const access = await resolveUserAccessProfile(user);
+    const settings = await getStudioEnterprisePolicySettings();
+    if (!canUseStudioWorkspaceTier(access.tier) || !settings.multiProjectEnabled) {
+      return res.status(403).json({ ok: false, code: "MULTI_PROJECT_DISABLED" });
+    }
+    const title = String(req.body?.title || "").trim().slice(0, 120);
+    if (!title) {
+      return res.status(400).json({ ok: false, code: "PROJECT_TITLE_REQUIRED" });
+    }
+    const workspaceBundle = await ensureStudioWorkspaceForUser({
+      userId: user.id,
+      email: user.email,
+      displayName: user.display_name,
+      tier: access.tier
+    });
+    const workspaceId = String(workspaceBundle?.workspace?.id || "").trim();
+    if (!workspaceId) {
+      return res.status(500).json({ ok: false, code: "WORKSPACE_UNAVAILABLE" });
+    }
+    if ((workspaceBundle?.projects?.length || 0) >= settings.maxProjects) {
+      return res.status(409).json({ ok: false, code: "PROJECT_LIMIT_REACHED", data: { max_projects: settings.maxProjects } });
+    }
+    const inserted = await withClient((client) =>
+      client.query(
+        `INSERT INTO studio_projects (
+           workspace_id, owner_user_id, title, status, queue_lane, meta
+         ) VALUES ($1, $2, $3, 'active', $4, $5::jsonb)
+         RETURNING id, workspace_id, owner_user_id, title, status, queue_lane, meta, created_at, updated_at`,
+        [
+          workspaceId,
+          user.id,
+          title,
+          queueLaneForTier(access.tier),
+          JSON.stringify({
+            created_via: String(req.body?.created_via || "profile_panel"),
+            tier: access.tier
+          })
+        ]
+      )
+    );
+    return res.json(okData({
+      created: true,
+      project: inserted.rows[0],
+      queue_lane: queueLaneForTier(access.tier)
+    }));
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "STUDIO_PROJECT_CREATE_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/enterprise/api-status", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const access = await resolveUserAccessProfile(user);
+    const enforced = await enforceEnterpriseApiRoute({
+      userId: user.id,
+      email: user.email,
+      tier: access.tier,
+      route: "/api/enterprise/api-status"
+    });
+    if (!enforced.ok) {
+      return res.status(enforced.code === "ENTERPRISE_API_RATE_LIMITED" ? 429 : 403).json({
+        ok: false,
+        code: enforced.code,
+        data: {
+          queue_lane: queueLaneForTier(access.tier),
+          usage: enforced.usage,
+          settings: enforced.settings
+        }
+      });
+    }
+    return res.json(okData({
+      enabled: enforced.settings.enterpriseApiEnabled,
+      queue_lane: queueLaneForTier(access.tier),
+      usage: enforced.usage,
+      rate_limit_per_minute: enforced.settings.enterpriseApiRateLimitPerMinute
+    }));
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "ENTERPRISE_API_STATUS_FAILED", message: String(err) });
   }
 });
 
@@ -5993,13 +9607,18 @@ app.post("/api/stripe/checkout/create", async (req, res) => {
     }
     const workId = String(req.body?.work_id || "").trim();
     const orderKind = String(req.body?.order_kind || "listen").trim().toLowerCase() as CommerceProductKind;
+    const tipAmountCents = Math.round(Number(req.body?.tip_amount_cents || 0));
     if (!workId) {
       return res.status(400).json({ ok: false, code: "WORK_ID_REQUIRED" });
     }
-    if (orderKind !== "listen" && orderKind !== "buyout") {
+    if (orderKind !== "listen" && orderKind !== "buyout" && orderKind !== "tip") {
       return res.status(400).json({ ok: false, code: "ORDER_KIND_INVALID" });
     }
-    const product = await resolveCommerceProduct({ workId, orderKind });
+    const commercePolicy = await getCommercePolicySettings();
+    if (orderKind === "tip" && (!Number.isFinite(tipAmountCents) || tipAmountCents < commercePolicy.minTipCents)) {
+      return res.status(400).json({ ok: false, code: "TIP_AMOUNT_INVALID" });
+    }
+    const product = await resolveCommerceProduct({ workId, orderKind, tipAmountCents });
     if (product.ownerUserId === user.id) {
       return res.status(400).json({ ok: false, code: "SELF_PURCHASE_NOT_ALLOWED" });
     }
@@ -6017,35 +9636,37 @@ app.post("/api/stripe/checkout/create", async (req, res) => {
         order_id: paidBuyout.id
       });
     }
-    const existingSameKind = existingOrders.find(
-      (row) => String(row.order_kind || "") === orderKind
-    );
-    if (existingSameKind && ["pending", "processing"].includes(String(existingSameKind.status || ""))) {
-      return res.status(409).json({
-        ok: false,
-        code: "ORDER_ALREADY_PENDING",
-        order_id: existingSameKind.id
-      });
-    }
-    if (existingSameKind && String(existingSameKind.status || "") === "paid") {
-      return res.status(409).json({
-        ok: false,
-        code: "ORDER_ALREADY_PAID",
-        order_id: existingSameKind.id
-      });
-    }
-    if (
-      orderKind === "listen" &&
-      existingOrders.some(
-        (row) =>
-          String(row.order_kind || "") === "buyout" &&
-          ["pending", "processing"].includes(String(row.status || ""))
-      )
-    ) {
-      return res.status(409).json({
-        ok: false,
-        code: "ORDER_BUYOUT_PENDING"
-      });
+    if (orderKind !== "tip") {
+      const existingSameKind = existingOrders.find(
+        (row) => String(row.order_kind || "") === orderKind
+      );
+      if (existingSameKind && ["pending", "processing"].includes(String(existingSameKind.status || ""))) {
+        return res.status(409).json({
+          ok: false,
+          code: "ORDER_ALREADY_PENDING",
+          order_id: existingSameKind.id
+        });
+      }
+      if (existingSameKind && String(existingSameKind.status || "") === "paid") {
+        return res.status(409).json({
+          ok: false,
+          code: "ORDER_ALREADY_PAID",
+          order_id: existingSameKind.id
+        });
+      }
+      if (
+        orderKind === "listen" &&
+        existingOrders.some(
+          (row) =>
+            String(row.order_kind || "") === "buyout" &&
+            ["pending", "processing"].includes(String(row.status || ""))
+        )
+      ) {
+        return res.status(409).json({
+          ok: false,
+          code: "ORDER_BUYOUT_PENDING"
+        });
+      }
     }
     const customer = await ensureStripeCustomer({
       userId: user.id,
@@ -6069,7 +9690,8 @@ app.post("/api/stripe/checkout/create", async (req, res) => {
       requestId,
       meta: {
         rights_scope: product.rightsScope,
-        title: product.title
+        title: product.title,
+        ...(orderKind === "tip" ? { tip_amount_cents: grossAmountCents } : {})
       }
     });
     if (!orderId) {
@@ -6291,94 +9913,144 @@ app.post("/api/stripe/webhook", async (req, res) => {
 
 app.post("/api/billing/usage", async (req, res) => {
   noStore(res);
-  const unitPrice = Number(process.env.BILLING_UNIT_PRICE_CENTS || 1);
   try {
     const user = await getSessionUser(req);
     if (!user) {
       return res.json(okEmpty({ allowed: false, authenticated: false }, "No data yet"));
     }
-    const role = roleForEmail(user.email);
-    if (role === "admin") {
-      return res.json(
-        okData({
-          tier: role,
-          allowed: true,
-          remaining: null,
-          limit: null
-        })
-      );
-    }
-    await resetMonthIfNeeded(user.id);
-
-    const result = await withClient(async (client) => {
-      await client.query("BEGIN");
-      const accountRes = await client.query(
-        "SELECT * FROM billing_accounts WHERE user_id = $1 FOR UPDATE",
-        [user.id]
-      );
-      let account = accountRes.rows[0];
-      if (!account) {
-        const inserted = await client.query(
-          "INSERT INTO billing_accounts (user_id) VALUES ($1) RETURNING *",
-          [user.id]
-        );
-        account = inserted.rows[0];
-      }
-
-      const monthLimit = Number(account.monthly_limit_cents) || 0;
-      const monthSpent = Number(account.month_spent_cents) || 0;
-      const balance = Number(account.balance_cents) || 0;
-      const cost = unitPrice;
-
-      if (monthLimit > 0 && monthSpent + cost > monthLimit) {
-        await client.query(
-          "INSERT INTO usage_events (user_id, route, units, cost_cents, meta) VALUES ($1,$2,$3,$4,$5)",
-          [user.id, "/api/billing/usage", 1, cost, JSON.stringify({ blocked: "monthly_limit" })]
-        );
-        await client.query("COMMIT");
-        return { allowed: false, remaining: 0, limit: monthLimit };
-      }
-
-      let nextBalance = balance;
-      if (account.auto_recharge_enabled && balance < account.auto_recharge_threshold_cents) {
-        nextBalance += Number(account.auto_recharge_amount_cents || 0);
-        await client.query(
-          "INSERT INTO ledger_entries (user_id, kind, amount_cents, balance_after_cents, note) VALUES ($1,$2,$3,$4,$5)",
-          [user.id, "credit", account.auto_recharge_amount_cents, nextBalance, "auto_recharge_simulated"]
-        );
-      }
-
-      if (nextBalance < cost) {
-        await client.query(
-          "INSERT INTO usage_events (user_id, route, units, cost_cents, meta) VALUES ($1,$2,$3,$4,$5)",
-          [user.id, "/api/billing/usage", 1, cost, JSON.stringify({ blocked: "insufficient_balance" })]
-        );
-        await client.query("COMMIT");
-        return { allowed: false, remaining: 0, limit: monthLimit || null };
-      }
-
-      nextBalance -= cost;
-      const usageRes = await client.query(
-        "INSERT INTO usage_events (user_id, route, units, cost_cents) VALUES ($1,$2,$3,$4) RETURNING id",
-        [user.id, "/api/billing/usage", 1, cost]
-      );
-      await client.query(
-        "INSERT INTO ledger_entries (user_id, kind, amount_cents, balance_after_cents, related_usage_event_id) VALUES ($1,$2,$3,$4,$5)",
-        [user.id, "debit", -cost, nextBalance, usageRes.rows[0].id]
-      );
-
-      await client.query(
-        "UPDATE billing_accounts SET balance_cents = $2, month_spent_cents = $3, updated_at = now() WHERE user_id = $1",
-        [user.id, nextBalance, monthSpent + cost]
-      );
-      await client.query("COMMIT");
-
-      return { allowed: true, remaining: null, limit: monthLimit || null };
+    const access = await resolveUserAccessProfile(user);
+    const result = await consumeBillableAction({
+      userId: user.id,
+      access,
+      actionKey: "video_generate",
+      route: "/api/billing/usage",
+      countAgainstMonthlyLimit: true,
+      coveredBy: "membership",
+      meta: { legacy_route: true }
     });
-
-    return res.json(okData({ tier: role, ...result }));
+    return res.json(okData({ tier: access.tier, ...result }));
   } catch (_err) {
     return res.json(okEmpty({ allowed: false }, "No data yet"));
+  }
+});
+
+app.post("/api/billing/actions/consume", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const access = await resolveUserAccessProfile(user);
+    const actionKey = normalizeBillableActionKey(req.body?.action_key);
+    if (!actionKey) {
+      return res.status(400).json({ ok: false, code: "ACTION_REQUIRED" });
+    }
+    const result = await consumeBillableAction({
+      userId: user.id,
+      access,
+      actionKey,
+      units: Number(req.body?.units || 1),
+      route: `/api/billing/actions/${actionKey}`,
+      countAgainstMonthlyLimit: actionKey === "video_generate",
+      coveredBy:
+        actionKey === "enterprise_route"
+          ? "enterprise"
+          : actionKey === "cinema_booking"
+            ? "booking"
+            : "membership",
+      meta: req.body?.meta && typeof req.body.meta === "object" ? req.body.meta : {}
+    });
+    return res.json(okData({ tier: access.tier, action_key: actionKey, ...result }));
+  } catch (_err) {
+    return res.status(500).json({ ok: false, code: "BILLING_ACTION_CONSUME_FAILED" });
+  }
+});
+
+app.get("/api/cinema/bookings", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const rows = await listCinemaBookingRequests(user.id, Number(req.query.limit || 12));
+    return res.json(okData({ authenticated: true, bookings: rows }));
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "CINEMA_BOOKING_LIST_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/cinema/bookings", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const access = await resolveUserAccessProfile(user);
+    const projectTitle = String(req.body?.project_title || "").trim().slice(0, 160);
+    const requestedMode = String(req.body?.requested_mode || "cinema").trim().slice(0, 48) || "cinema";
+    const requestedDurationSec = Math.max(0, Math.min(86400, Number(req.body?.requested_duration_sec || 0) || 0));
+    const contactEmail = normalizeEmail(String(req.body?.contact_email || user.email || ""));
+    const contactHandle = String(req.body?.contact_handle || "").trim().slice(0, 160);
+    const budgetCents = Math.max(0, Math.min(100000000000, Math.round(Number(req.body?.budget_cents || 0) || 0)));
+    const brief = String(req.body?.brief || "").trim().slice(0, 4000);
+    const needsContract = req.body?.needs_contract !== false;
+    if (!projectTitle || !brief) {
+      return res.status(400).json({ ok: false, code: "CINEMA_BOOKING_FIELDS_REQUIRED" });
+    }
+    const billing = await consumeBillableAction({
+      userId: user.id,
+      access,
+      actionKey: "cinema_booking",
+      units: 1,
+      route: "/api/cinema/bookings",
+      countAgainstMonthlyLimit: false,
+      coveredBy: "booking",
+      meta: {
+        project_title: projectTitle,
+        requested_mode: requestedMode,
+        requested_duration_sec: requestedDurationSec,
+        budget_cents: budgetCents
+      }
+    });
+    const insertRes = await withClient((client) =>
+      client.query(
+        `INSERT INTO cinema_booking_requests (
+           user_id, status, project_title, requested_mode, requested_duration_sec, contact_email,
+           contact_handle, budget_cents, brief, needs_contract, meta
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         RETURNING id, status, project_title, requested_mode, requested_duration_sec, contact_email,
+                   contact_handle, budget_cents, brief, needs_contract, meta, created_at, updated_at`,
+        [
+          user.id,
+          "submitted",
+          projectTitle,
+          requestedMode,
+          requestedDurationSec,
+          contactEmail,
+          contactHandle,
+          budgetCents,
+          brief,
+          needsContract,
+          JSON.stringify({
+            tier: access.tier,
+            requested_by: user.id,
+            billable_action_allowed: billing.allowed !== false
+          })
+        ]
+      )
+    );
+    return res.json(
+      okData({
+        authenticated: true,
+        booking: insertRes.rows[0],
+        billing
+      })
+    );
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "CINEMA_BOOKING_CREATE_FAILED", message: String(err) });
   }
 });
 
@@ -6393,14 +10065,29 @@ app.get("/", (_req, res) => {
 
 async function start() {
   if (DATABASE_URL) {
-    await runMigrations();
-    await ensureAuthIdentityTable();
-    await processMatureSellerPayouts();
-    setInterval(() => {
-      processMatureSellerPayouts().catch((err) => {
-        console.error("Payout sweep failed", err);
-      });
-    }, stripePayoutSweepMs());
+    try {
+      await runMigrations();
+      await ensureAuthIdentityTable();
+      await processMatureSellerPayouts();
+      const runPayoutSweepLoop = async () => {
+        try {
+          await processMatureSellerPayouts();
+        } catch (err) {
+          console.error("Payout sweep failed", err);
+        } finally {
+          const commerce = await getCommercePolicySettings().catch(() => ({
+            payoutSweepMs: stripePayoutSweepMsEnv()
+          }));
+          setTimeout(runPayoutSweepLoop, Number(commerce?.payoutSweepMs || stripePayoutSweepMsEnv()));
+        }
+      };
+      const commerce = await getCommercePolicySettings().catch(() => ({
+        payoutSweepMs: stripePayoutSweepMsEnv()
+      }));
+      setTimeout(runPayoutSweepLoop, Number(commerce?.payoutSweepMs || stripePayoutSweepMsEnv()));
+    } catch (err) {
+      console.error("Startup DB bootstrap failed; continuing in degraded mode", err);
+    }
   }
   app.listen(PORT, () => {
     console.log(`cssOS API running on http://localhost:${PORT}`);

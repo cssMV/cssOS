@@ -2,7 +2,20 @@ import fs from "node:fs";
 import path from "node:path";
 import { CssMVEngine } from "./core/cssmv-engine";
 import type { ProjectSpec } from "./core/project-spec";
-import type { ArtifactManifest, ArtifactManifestEntry } from "./schemas/output-package";
+import type {
+  ArtifactManifest,
+  ArtifactManifestEntry,
+  RenderExecutionManifest,
+  RenderExecutionNode
+} from "./schemas/output-package";
+import type { CssMVRunArtifacts } from "./core/cssmv-engine";
+import type { RenderedSegment } from "./schemas/rendered-media";
+import type { LegalResourceBinding } from "./music/render/types";
+import {
+  createAudioRenderer,
+  createMixChainRenderer,
+  createVocalRenderer
+} from "./music/render";
 
 function loadProjectSpec(): ProjectSpec {
   const examplePath =
@@ -24,247 +37,6 @@ function writeText(targetPath: string, payload: string) {
   fs.writeFileSync(targetPath, payload, "utf8");
 }
 
-function clampSample(value: number) {
-  return Math.max(-1, Math.min(1, value));
-}
-
-function frequencyForEnergy(energy: string) {
-  const key = String(energy || "").toLowerCase();
-  if (key.includes("peak-plus")) return 659.25;
-  if (key.includes("peak")) return 587.33;
-  if (key.includes("high")) return 523.25;
-  if (key.includes("medium-high")) return 440;
-  if (key.includes("medium")) return 392;
-  if (key.includes("low")) return 329.63;
-  return 349.23;
-}
-
-function resolveSectionProfile(section: string) {
-  const key = String(section || "").toLowerCase();
-  if (key.includes("chorus 4")) {
-    return {
-      scale: [0, 7, 12, 16, 19, 24],
-      motif: [0, 4, 5, 4, 2, 4, 5, 4, 2, 0],
-      leadBoost: 1.24,
-      hook: [0, 7, 12, 7, 5, 4, 2, 0],
-      cadence: [12, 7, 5, 4],
-      anchor: [0, 7, 12, 7, 0, 7, 12, 5]
-    };
-  }
-  if (key.includes("chorus 3") || key.includes("chorus 2") || key.includes("chorus")) {
-    return {
-      scale: [0, 4, 7, 11, 12, 16, 19],
-      motif: [0, 2, 4, 2, 0, 2, 5, 4, 2, 0],
-      leadBoost: 1.14,
-      hook: [0, 4, 7, 4, 2, 4, 7, 4],
-      cadence: [7, 4, 2, 0],
-      anchor: [0, 4, 7, 4, 0, 4, 7, 2]
-    };
-  }
-  if (key.includes("bridge")) {
-    return {
-      scale: [0, 2, 7, 9, 12, 14, 19],
-      motif: [0, 3, 5, 6, 5, 3, 1, 0],
-      leadBoost: 0.96,
-      hook: [0, 3, 6, 5],
-      cadence: [6, 5, 3, 0],
-      anchor: [0, 3, 5, 6, 5, 3]
-    };
-  }
-  if (key.includes("outro")) {
-    return {
-      scale: [0, 3, 7, 10, 12, 15, 19],
-      motif: [0, 1, 2, 3, 2, 1, 0],
-      leadBoost: 0.9,
-      hook: [0, 2, 3, 2],
-      cadence: [3, 2, 1, 0],
-      anchor: [0, 2, 3, 2, 1, 0]
-    };
-  }
-  if (key.includes("intro")) {
-    return {
-      scale: [0, 3, 7, 10, 12, 15, 19],
-      motif: [0, 2, 3, 2, 0, 1],
-      leadBoost: 0.82,
-      hook: [0, 1, 2, 1],
-      cadence: [2, 1, 0, 0],
-      anchor: [0, 1, 2, 1, 0, 0]
-    };
-  }
-  return {
-    scale: [0, 3, 7, 10, 12, 15, 19],
-    motif: [0, 1, 3, 1, 4, 3, 1, 0],
-    leadBoost: 1,
-    hook: [0, 3, 1, 0],
-    cadence: [3, 1, 0, 0],
-    anchor: [0, 1, 3, 1, 4, 3, 1, 0]
-  };
-}
-
-function buildLeadDegrees(
-  sectionProfile: ReturnType<typeof resolveSectionProfile>,
-  noteCount: number,
-  scale: number[]
-) {
-  const safeCount = Math.max(4, noteCount || 8);
-  const degrees: number[] = [];
-  const isChorusLike =
-    Array.isArray(sectionProfile.anchor) &&
-    sectionProfile.anchor.length >= 4 &&
-    Array.isArray(sectionProfile.cadence) &&
-    sectionProfile.cadence.length >= 3;
-
-  if (isChorusLike && safeCount >= 8) {
-    const anchor = sectionProfile.anchor;
-    const cadence = sectionProfile.cadence;
-    const phraseWindow = Math.max(0, safeCount - cadence.length);
-    for (let i = 0; i < phraseWindow; i += 1) {
-      if (i < Math.min(anchor.length, 8)) {
-        degrees.push(anchor[i % anchor.length] || 0);
-      } else {
-        const motif = sectionProfile.motif[i % sectionProfile.motif.length] || 0;
-        degrees.push(scale[motif % scale.length] || 0);
-      }
-    }
-    cadence.forEach((degree) => {
-      degrees.push(degree || 0);
-    });
-    return degrees.slice(0, safeCount);
-  }
-
-  for (let i = 0; i < safeCount; i += 1) {
-    const motif = sectionProfile.motif[i % sectionProfile.motif.length] || 0;
-    degrees.push(scale[motif % scale.length] || 0);
-  }
-  return degrees;
-}
-
-function buildMelodicPhrase(
-  baseFreq: number,
-  startSec: number,
-  durationSec: number,
-  bars: number,
-  energy: string,
-  section: string
-) {
-  const normalizedBars = Math.max(4, Math.min(16, bars || 8));
-  const energyKey = String(energy || "").toLowerCase();
-  const sectionProfile = resolveSectionProfile(section);
-  const energyScale =
-    energyKey.includes("peak") || energyKey.includes("high")
-      ? [0, 4, 7, 11, 12, 16, 19]
-      : sectionProfile.scale;
-  const notes = Math.max(4, Math.min(12, normalizedBars));
-  const noteDurationSec = durationSec / notes;
-  const leadDegrees = buildLeadDegrees(sectionProfile, notes, energyScale);
-  const phrase = [];
-  for (let i = 0; i < notes; i += 1) {
-    const hookWindow = i >= Math.max(0, notes - 4);
-    const degree = leadDegrees[i % leadDegrees.length] || 0;
-    const freq = baseFreq * Math.pow(2, degree / 12);
-    phrase.push({
-      freq,
-      overtone: freq * (energyKey.includes("peak") ? 2 : 1.5) * sectionProfile.leadBoost,
-      startSec: startSec + i * noteDurationSec,
-      durationSec: noteDurationSec * (hookWindow ? 0.98 : i % 3 === 2 ? 0.92 : 0.78),
-      accent: hookWindow ? 1.12 : i % Math.max(2, Math.round(notes / 4)) === 0 ? 1 : 0.72
-    });
-  }
-  return phrase;
-}
-
-function writeStubWav(
-  targetPath: string,
-  cues: Array<{ durationSec: number; energy?: string; section?: string }>
-) {
-  const sampleRate = 22050;
-  const fallbackDurationSec = 8;
-  const totalDurationSec = Math.max(
-    fallbackDurationSec,
-    Math.min(
-      24,
-      cues.reduce((sum, cue) => sum + Math.max(0.4, Math.min(3, cue.durationSec || 0)), 0)
-    )
-  );
-  const totalSamples = Math.max(1, Math.floor(totalDurationSec * sampleRate));
-  const samples = new Int16Array(totalSamples);
-  const normalizedCues = cues.length
-    ? cues
-    : [{ durationSec: fallbackDurationSec, energy: "medium" }];
-  let runningSec = 0;
-  normalizedCues.forEach((cue, index) => {
-    const durationSec = Math.max(0.6, Math.min(3.2, cue.durationSec || 1.25));
-    const bars = Math.max(4, Math.round(durationSec / 0.38));
-    const freq = frequencyForEnergy(cue.energy || "medium");
-    const section = cue.section || `section_${index + 1}`;
-    const phrase = buildMelodicPhrase(
-      freq,
-      runningSec,
-      durationSec,
-      bars,
-      cue.energy || "medium",
-      section
-    );
-    phrase.forEach((note) => {
-      const startSample = Math.max(0, Math.floor(note.startSec * sampleRate));
-      const sampleCount = Math.min(
-        totalSamples - startSample,
-        Math.max(1, Math.floor(note.durationSec * sampleRate))
-      );
-      const attack = Math.max(1, Math.floor(sampleCount * 0.08));
-      const release = Math.max(1, Math.floor(sampleCount * 0.18));
-      for (let i = 0; i < sampleCount; i += 1) {
-        const t = i / sampleRate;
-        const env =
-          i < attack
-            ? i / attack
-            : i > sampleCount - release
-              ? Math.max(0, (sampleCount - i) / release)
-              : 1;
-        const pad = Math.sin(2 * Math.PI * note.freq * t) * 0.31;
-        const lead = Math.sin(2 * Math.PI * note.overtone * t) * 0.12;
-        const shimmer = Math.sin(2 * Math.PI * note.freq * 0.5 * t) * 0.09;
-        const bass = Math.sin(2 * Math.PI * (note.freq / 2) * t) * 0.17;
-        const pulse = ((Math.sin(2 * Math.PI * 2 * t) + 1) * 0.5) * 0.08;
-        const value = clampSample((pad + lead + bass + pulse) * env * note.accent);
-        const hookLift = note.accent > 1 ? shimmer * 0.9 : shimmer * 0.45;
-        const harmonic = clampSample(value + hookLift);
-        const mixed = clampSample((samples[startSample + i] || 0) / 32767 + harmonic * 0.72);
-        samples[startSample + i] = Math.round(mixed * 32767);
-      }
-    });
-    runningSec += durationSec;
-    const beatStart = Math.max(0, Math.floor(runningSec * sampleRate) - Math.floor(0.08 * sampleRate));
-    for (let i = 0; i < Math.floor(0.08 * sampleRate) && beatStart + i < totalSamples; i += 1) {
-      const env = 1 - i / Math.floor(0.08 * sampleRate);
-      const thump = Math.sin(2 * Math.PI * 80 * (i / sampleRate)) * 0.28 * env;
-      const mixed = clampSample((samples[beatStart + i] || 0) / 32767 + thump);
-      samples[beatStart + i] = Math.round(mixed * 32767);
-    }
-    void index;
-  });
-
-  const dataSize = samples.length * 2;
-  const buffer = Buffer.alloc(44 + dataSize);
-  buffer.write("RIFF", 0);
-  buffer.writeUInt32LE(36 + dataSize, 4);
-  buffer.write("WAVE", 8);
-  buffer.write("fmt ", 12);
-  buffer.writeUInt32LE(16, 16);
-  buffer.writeUInt16LE(1, 20);
-  buffer.writeUInt16LE(1, 22);
-  buffer.writeUInt32LE(sampleRate, 24);
-  buffer.writeUInt32LE(sampleRate * 2, 28);
-  buffer.writeUInt16LE(2, 32);
-  buffer.writeUInt16LE(16, 34);
-  buffer.write("data", 36);
-  buffer.writeUInt32LE(dataSize, 40);
-  for (let i = 0; i < samples.length; i += 1) {
-    buffer.writeInt16LE(samples[i] || 0, 44 + i * 2);
-  }
-  fs.writeFileSync(targetPath, buffer);
-}
-
 function artifactDirFor(projectId: string): string {
   return path.resolve(process.cwd(), "artifacts", "cssmv", projectId);
 }
@@ -283,8 +55,13 @@ function buildArtifactManifest(
     { key: "rendered_media", fileName: "rendered.media.json", kind: "rendered_media" },
     { key: "output_package", fileName: "output.package.json", kind: "output_package" },
     { key: "audio_preview", fileName: "audio.preview.wav", kind: "audio_preview" },
+    { key: "audio_mix", fileName: "mix.wav", kind: "audio_mix" },
+    { key: "segment_timeline", fileName: "segment.timeline.json", kind: "segment_timeline" },
     { key: "preview_storyboard", fileName: "preview.storyboard.txt", kind: "preview_storyboard" },
-    { key: "preview_script", fileName: "preview.script.txt", kind: "preview_script" }
+    { key: "preview_script", fileName: "preview.script.txt", kind: "preview_script" },
+    { key: "video_storyboard_plan", fileName: "video.storyboard.json", kind: "video_storyboard_plan" },
+    { key: "video_assemble_plan", fileName: "video.assemble.json", kind: "video_assemble_plan" },
+    { key: "render_execution_manifest", fileName: "render.execution.json", kind: "render_execution_manifest" }
   ];
 
   const entries: ArtifactManifestEntry[] = entryDefs.map(({ key, fileName, kind }) => ({
@@ -304,11 +81,193 @@ function buildArtifactManifest(
   };
 }
 
+function normalizePrompt(segment: RenderedSegment) {
+  return [segment.label, segment.subtitleText, segment.transitionToNext && `transition ${segment.transitionToNext}`]
+    .filter(Boolean)
+    .join(" | ");
+}
+
+function buildStoryboardContract(result: CssMVRunArtifacts) {
+  const segments = result.renderedMedia.segmentTimeline || [];
+  return {
+    schema: "css.video.plan.v1",
+    lang: "und",
+    title: result.projectContext.project.title || result.projectContext.project.projectId,
+    shots: segments.map((segment, index) => ({
+      id: `video_shot_${String(index).padStart(3, "0")}`,
+      prompt: normalizePrompt(segment) || `MV segment ${index + 1}`,
+      duration_s: segment.durationSec
+    })),
+    segments: segments.map((segment, index) => ({
+      scene_id: segment.sceneId,
+      shot_id: `video_shot_${String(index).padStart(3, "0")}`,
+      label: segment.label,
+      start_s: segment.startSec,
+      end_s: segment.endSec,
+      duration_s: segment.durationSec,
+      ...(segment.workType ? { work_type: segment.workType } : {}),
+      ...(segment.structureNodeId ? { structure_node_id: segment.structureNodeId } : {}),
+      ...(segment.parentStructureNodeId ? { parent_structure_node_id: segment.parentStructureNodeId } : {}),
+      ...(segment.structureRole ? { structure_role: segment.structureRole } : {}),
+      ...(segment.structurePath?.length ? { structure_path: segment.structurePath } : {}),
+      ...(segment.transitionToNext ? { transition_to_next: segment.transitionToNext } : {}),
+      ...(segment.subtitleText ? { subtitle_text: segment.subtitleText } : {}),
+      ...(segment.thumbnailPath ? { thumbnail_path: segment.thumbnailPath } : {})
+    })),
+    ...(result.outputPackage.workType ? { work_type: result.outputPackage.workType } : {}),
+    ...(result.outputPackage.structureTree?.length ? { structure_tree: result.outputPackage.structureTree } : {})
+  };
+}
+
+function buildAssembleContract(outDir: string, result: CssMVRunArtifacts) {
+  const storyboard = buildStoryboardContract(result);
+  return {
+    schema: "css.video.assemble.v1",
+    title: storyboard.title,
+    storyboard_path: path.join(outDir, "video.storyboard.json"),
+    shots_txt_path: path.join(outDir, "video.shots.txt"),
+    out_mp4: path.join(outDir, "video.mp4"),
+    shots: storyboard.shots.map((shot) => ({
+      id: shot.id,
+      path: path.join(outDir, "video", "shots", `${shot.id}.mp4`)
+    })),
+    segments: storyboard.segments
+  };
+}
+
+function toRenderExecutionNode(input: {
+  rendererId: string;
+  rendererVersion: string;
+  mode: "stub" | "symbolic" | "licensed_library" | "external_adapter";
+  resources?: LegalResourceBinding[] | undefined;
+  notes?: string[] | undefined;
+}): RenderExecutionNode {
+  return {
+    rendererId: input.rendererId,
+    rendererVersion: input.rendererVersion,
+    mode: input.mode,
+    resources: (input.resources || []).map((resource) => ({
+      kind: resource.kind,
+      id: resource.id,
+      displayName: resource.displayName,
+      ...(resource.vendor ? { vendor: resource.vendor } : {}),
+      source: resource.source,
+      licenseScope: resource.licenseScope,
+      ...(resource.licenseLabel ? { licenseLabel: resource.licenseLabel } : {}),
+      ...(resource.assetPackageId ? { assetPackageId: resource.assetPackageId } : {}),
+      ...(resource.adapterEndpointClass ? { adapterEndpointClass: resource.adapterEndpointClass } : {}),
+      ...(resource.renderHostFamily ? { renderHostFamily: resource.renderHostFamily } : {}),
+      ...(resource.queueClass ? { queueClass: resource.queueClass } : {}),
+      ...(resource.packagingPolicy ? { packagingPolicy: resource.packagingPolicy } : {}),
+      ...(resource.deliveryBundleClass ? { deliveryBundleClass: resource.deliveryBundleClass } : {}),
+      ...(resource.publicationPolicy ? { publicationPolicy: resource.publicationPolicy } : {}),
+      ...(resource.governanceClass ? { governanceClass: resource.governanceClass } : {}),
+      ...(resource.complianceEnvelope ? { complianceEnvelope: resource.complianceEnvelope } : {}),
+      ...(resource.evidencePolicy ? { evidencePolicy: resource.evidencePolicy } : {}),
+      ...(resource.provenanceSealClass ? { provenanceSealClass: resource.provenanceSealClass } : {}),
+      ...(resource.deliveryAssuranceClass ? { deliveryAssuranceClass: resource.deliveryAssuranceClass } : {}),
+      ...(resource.deliveryTargetClass ? { deliveryTargetClass: resource.deliveryTargetClass } : {}),
+      ...(resource.approvalChainClass ? { approvalChainClass: resource.approvalChainClass } : {}),
+      ...(resource.dispatchDeadlineClass ? { dispatchDeadlineClass: resource.dispatchDeadlineClass } : {})
+    })),
+    ...(input.notes?.length ? { notes: input.notes } : {})
+  };
+}
+
+function buildRenderExecutionManifest(
+  spec: ProjectSpec,
+  audioArtifacts: ReturnType<ReturnType<typeof createAudioRenderer>["render"]>,
+  vocalArtifacts: ReturnType<ReturnType<typeof createVocalRenderer>["render"]>,
+  mixChainArtifacts: ReturnType<ReturnType<typeof createMixChainRenderer>["render"]>
+): RenderExecutionManifest {
+  const resourceChain = [
+    ...(audioArtifacts.resources || []),
+    ...(vocalArtifacts.resources || []),
+    ...(mixChainArtifacts.resources || [])
+  ];
+  const primaryPolicyResource = resourceChain.find(Boolean) || null;
+  return {
+    schema: "cssmv.render.execution.v1",
+    generatedAt: new Date().toISOString(),
+    projectId: spec.projectId,
+    mode: spec.mode,
+    audio: toRenderExecutionNode({
+      rendererId: audioArtifacts.provenance.rendererId,
+      rendererVersion: audioArtifacts.provenance.rendererVersion,
+      mode: audioArtifacts.provenance.mode,
+      resources: audioArtifacts.resources,
+      notes: audioArtifacts.provenance.notes
+    }),
+    vocal: toRenderExecutionNode({
+      rendererId: vocalArtifacts.rendererId,
+      rendererVersion: vocalArtifacts.rendererVersion,
+      mode: vocalArtifacts.mode,
+      resources: vocalArtifacts.resources,
+      notes: vocalArtifacts.notes
+    }),
+    mix: toRenderExecutionNode({
+      rendererId: mixChainArtifacts.rendererId,
+      rendererVersion: mixChainArtifacts.rendererVersion,
+      mode: mixChainArtifacts.mode,
+      resources: mixChainArtifacts.resources,
+      notes: mixChainArtifacts.notes
+    }),
+    ...(audioArtifacts.stems?.length ? { stems: audioArtifacts.stems } : {}),
+    ...(audioArtifacts.stemPlan?.length ? { stemPlan: audioArtifacts.stemPlan } : {}),
+    ...(primaryPolicyResource
+      ? {
+          deliveryPolicy: {
+            ...(primaryPolicyResource.queueClass ? { queueClass: primaryPolicyResource.queueClass } : {}),
+            ...(primaryPolicyResource.dispatchWindow
+              ? { dispatchWindow: primaryPolicyResource.dispatchWindow }
+              : {}),
+            ...(primaryPolicyResource.packagingPolicy
+              ? { packagingPolicy: primaryPolicyResource.packagingPolicy }
+              : {}),
+            ...(primaryPolicyResource.deliveryBundleClass
+              ? { deliveryBundleClass: primaryPolicyResource.deliveryBundleClass }
+              : {}),
+            ...(primaryPolicyResource.publicationPolicy
+              ? { publicationPolicy: primaryPolicyResource.publicationPolicy }
+              : {}),
+            ...(primaryPolicyResource.governanceClass
+              ? { governanceClass: primaryPolicyResource.governanceClass }
+              : {}),
+            ...(primaryPolicyResource.complianceEnvelope
+              ? { complianceEnvelope: primaryPolicyResource.complianceEnvelope }
+              : {}),
+            ...(primaryPolicyResource.evidencePolicy
+              ? { evidencePolicy: primaryPolicyResource.evidencePolicy }
+              : {}),
+            ...(primaryPolicyResource.provenanceSealClass
+              ? { provenanceSealClass: primaryPolicyResource.provenanceSealClass }
+              : {}),
+            ...(primaryPolicyResource.deliveryAssuranceClass
+              ? { deliveryAssuranceClass: primaryPolicyResource.deliveryAssuranceClass }
+              : {}),
+            ...(primaryPolicyResource.deliveryTargetClass
+              ? { deliveryTargetClass: primaryPolicyResource.deliveryTargetClass }
+              : {}),
+            ...(primaryPolicyResource.approvalChainClass
+              ? { approvalChainClass: primaryPolicyResource.approvalChainClass }
+              : {}),
+            ...(primaryPolicyResource.dispatchDeadlineClass
+              ? { dispatchDeadlineClass: primaryPolicyResource.dispatchDeadlineClass }
+              : {})
+          }
+        }
+      : {})
+  };
+}
+
 function run() {
   const spec = loadProjectSpec();
   const engine = new CssMVEngine();
   const result = engine.run(spec);
   const outDir = artifactDirFor(spec.projectId);
+  const audioRenderer = createAudioRenderer(spec);
+  const vocalRenderer = createVocalRenderer(spec);
+  const mixChainRenderer = createMixChainRenderer(spec);
 
   ensureDir(outDir);
 
@@ -318,14 +277,41 @@ function run() {
   writeJson(path.join(outDir, "scene.plan.json"), result.scenePlan);
   writeJson(path.join(outDir, "music.plan.json"), result.musicPlan);
   writeJson(path.join(outDir, "rendered.media.json"), result.renderedMedia);
-  writeStubWav(
-    path.join(outDir, "audio.preview.wav"),
-    (result.musicPlan.previewSegments || []).map((segment) => ({
+  writeJson(path.join(outDir, "segment.timeline.json"), result.renderedMedia.segmentTimeline || []);
+  const audioArtifacts = audioRenderer.render({
+    project: spec,
+    musicPlan: result.musicPlan,
+    paths: {
+      previewWavPath: path.join(outDir, "audio.preview.wav"),
+      mixWavPath: path.join(outDir, "mix.wav")
+    },
+    previewCues: (result.musicPlan.previewSegments || []).map((segment) => ({
       durationSec: segment.durationSec,
       energy: segment.energy,
       section: segment.section
+    })),
+    mixCues: (result.musicPlan.previewSegments || []).map((segment) => ({
+      durationSec: segment.durationSec,
+      energy:
+        segment.hookRole === "release"
+          ? "peak"
+          : segment.hookRole === "lift"
+            ? "high"
+            : segment.energy,
+      section: segment.section
     }))
-  );
+  });
+  const vocalArtifacts = vocalRenderer.render({
+    project: spec,
+    musicPlan: result.musicPlan,
+    lyrics: spec.songSeed?.lyrics
+  });
+  const mixChainArtifacts = mixChainRenderer.render({
+    project: spec,
+    musicPlan: result.musicPlan,
+    ...(audioArtifacts.stems ? { stems: audioArtifacts.stems } : {}),
+    mixWavPath: audioArtifacts.mixWavPath
+  });
   writeText(
     path.join(outDir, "preview.storyboard.txt"),
     (result.renderedMedia.previewStoryboard || []).join("\n")
@@ -334,11 +320,33 @@ function run() {
     path.join(outDir, "preview.script.txt"),
     (result.renderedMedia.previewScript || []).join("\n")
   );
+  writeJson(path.join(outDir, "video.storyboard.json"), buildStoryboardContract(result));
+  writeJson(path.join(outDir, "video.assemble.json"), buildAssembleContract(outDir, result));
   const artifactManifest = buildArtifactManifest(spec.projectId, spec.mode, outDir);
+  const renderExecutionManifest = buildRenderExecutionManifest(
+    spec,
+    audioArtifacts,
+    vocalArtifacts,
+    mixChainArtifacts
+  );
+  writeJson(path.join(outDir, "render.execution.json"), renderExecutionManifest);
   const outputPackage = {
     ...result.outputPackage,
-    audioPreview: path.join(outDir, "audio.preview.wav"),
-    artifactManifest
+    audioPreview: audioArtifacts.previewWavPath,
+    audioMix: audioArtifacts.mixWavPath,
+    ...(audioArtifacts.stems?.length ? { stems: audioArtifacts.stems } : {}),
+    audioRenderProvenance: {
+      ...audioArtifacts.provenance,
+      voiceRenderer: vocalArtifacts.rendererId,
+      mixChain: mixChainArtifacts.rendererId,
+      notes: [
+        ...(audioArtifacts.provenance.notes || []),
+        ...(vocalArtifacts.notes || []),
+        ...(mixChainArtifacts.notes || [])
+      ]
+    },
+    artifactManifest,
+    renderExecutionManifest
   };
   writeJson(path.join(outDir, "output.package.json"), outputPackage);
   writeJson(path.join(outDir, "artifact.manifest.json"), artifactManifest);

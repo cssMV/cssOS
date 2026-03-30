@@ -24,6 +24,12 @@ is_media_file() {
   [[ "$f" =~ \.(mp4|mov|m4v|webm|wav|mp3|mkv)$ ]]
 }
 
+cleanup_bad_symlinks() {
+  local dir="$1"
+  [[ -d "$dir" ]] || return 0
+  find -P "$dir" -maxdepth 1 -xtype l -delete 2>/dev/null || true
+}
+
 ensure_link() {
   local src="$1"
   local dst="$2"
@@ -41,6 +47,9 @@ move_into_shared() {
   local from_dir="$1"
   local to_dir="$2"
   local mode="$3"
+
+  cleanup_bad_symlinks "$from_dir"
+
   while IFS= read -r -d '' f; do
     local base dst
     base="$(basename "$f")"
@@ -61,7 +70,7 @@ move_into_shared() {
     else
       mv -f "$f" "$dst"
     fi
-  done < <(find "$from_dir" -maxdepth 1 -type f -print0)
+  done < <(find -P "$from_dir" -maxdepth 1 -type f -print0 2>/dev/null)
 }
 
 sync_links_from_shared() {
@@ -69,7 +78,8 @@ sync_links_from_shared() {
   local pub_dir="$2"
   local mode="$3"
 
-  find "$pub_dir" -maxdepth 1 -xtype l -delete || true
+  cleanup_bad_symlinks "$pub_dir"
+  find -P "$pub_dir" -maxdepth 1 -xtype l -delete 2>/dev/null || true
 
   while IFS= read -r -d '' src; do
     local base
@@ -80,7 +90,7 @@ sync_links_from_shared() {
       is_media_file "$base" || continue
     fi
     ensure_link "$src" "$pub_dir/$base"
-  done < <(find "$shared_dir" -maxdepth 1 -type f -print0)
+  done < <(find -P "$shared_dir" -maxdepth 1 -type f -print0 2>/dev/null)
 }
 
 write_manifest_if_changed() {
@@ -118,7 +128,7 @@ sync_runtime_public_links() {
     base="$(basename "$src")"
     is_font_file "$base" || continue
     ensure_link "$src" "$cp/fonts/$base"
-  done < <(find "$SHARED_FONTS" -maxdepth 1 -type f -print0)
+  done < <(find -P "$SHARED_FONTS" -maxdepth 1 -type f -print0 2>/dev/null)
 }
 
 export PUB_EXAMPLES

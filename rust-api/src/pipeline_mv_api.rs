@@ -425,6 +425,15 @@ pub struct MusicResponse {
     // the user can see the savings.
     #[serde(default)]
     pub use_user_key: bool,
+    // CSSOS_PHASE2_ALIGNED_LYRICS 20260426 #148-D — Jing
+    // "音乐引擎渲染音乐的时候，是否正确并且同时输出带有时间戳的歌词时间轴
+    //  json？不然字幕无法渲染。" — Suno + ElevenLabs both expose per-line
+    // timestamps in their result payloads; we now propagate them through so
+    // /api/mv/subtitles can build SRT from real timing instead of even-divide.
+    // Always-present-in-JSON (null when engine doesn't emit alignment) so the
+    // frontend has a uniform check.
+    #[serde(default)]
+    pub aligned_lyrics: Option<Vec<crate::music_gen::AlignedLyricLine>>,
 }
 
 /// CSSOS_PHASE2_P2_87_NO_MUSICGPT_DEFAULT 20260424 — shared runtime-readiness
@@ -788,6 +797,28 @@ async fn music_inner(
     )
     .await;
 
+    // CSSOS_PHASE2_ALIGNED_LYRICS 20260426 #148-D — Jing
+    // Propagate per-line timing extracted by the music adapter through to
+    // the HTTP response so the frontend can pass it into /api/mv/subtitles.
+    // Log a one-line breadcrumb so we can confirm in production whether
+    // each engine actually emitted alignment data.
+    if let Some(ref lines) = result.aligned_lyrics {
+        tracing::info!(
+            target = "mv_pipeline_music",
+            engine = %engine,
+            version = %version,
+            line_count = lines.len(),
+            "music engine emitted aligned_lyrics — subtitles will use real timing"
+        );
+    } else {
+        tracing::info!(
+            target = "mv_pipeline_music",
+            engine = %engine,
+            version = %version,
+            "music engine returned no aligned_lyrics — subtitles will fall back to even-divide"
+        );
+    }
+
     Ok(Json(MusicResponse {
         ok: true,
         task_id: result.task_id,
@@ -800,6 +831,7 @@ async fn music_inner(
         version,
         cost_cents,
         use_user_key,
+        aligned_lyrics: result.aligned_lyrics,
     }))
 }
 
@@ -1412,6 +1444,14 @@ pub struct SubtitlesRequest {
     /// Optional gap between captions in seconds (default 0.08).
     #[serde(default)]
     pub line_gap_secs: Option<f64>,
+    /// CSSOS_PHASE2_ALIGNED_LYRICS 20260426 #148-D — Jing
+    /// Real per-line timing from the music engine (Suno's
+    /// `metadata.alignedWords` / ElevenLabs `lyrics_with_timing`). When
+    /// present and non-empty, `subtitles_inner` builds the SRT directly
+    /// from these timestamps and ignores `lyrics` + `duration_secs` for
+    /// the timing computation. Falls back to even-divide when missing.
+    #[serde(default)]
+    pub aligned_lyrics: Option<Vec<crate::music_gen::AlignedLyricLine>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1525,6 +1565,190 @@ fn build_local_srt(
     (out, lines.len())
 }
 
+// CSSOS_PHASE2_ALIGNED_LYRICS 20260426 #148-D — Jing
+// Build an SRT from real per-line timestamps emitted by the music engine.
+// This is the "we already had the data, we just weren't using it" path —
+// each caption matches the actual sung onset/offset instead of being
+// even-divided. Empty lines and section markers are still stripped.
+//
+// Guarantees:
+//   * captions are ordered by start_ms ascending
+//   * adjacent captions are forced apart by `line_gap_secs` so the
+//     renderer doesn't show two cues in the same frame
+//   * a caption shorter than `min_line_secs` is stretched (eating into
+//     the gap before the next one if needed) so very short words don't
+//     flash unreadably fast
+//
+// Returns (srt_text, line_count) so the caller can record line_count for
+// the response (matches the build_local_srt contract above).
+fn build_srt_from_aligned(
+    aligned: &[crate::music_gen::AlignedLyricLine],
+    min_line_secs: f64,
+    line_gap_secs: f64,
+) -> (String, usize) {
+    if aligned.is_empty() {
+        return (String::new(), 0);
+    }
+    // Defensive copy + sort so a malformed ordering from the engine doesn't
+    // produce garbled SRT. Strip section markers (verse/chorus headers etc.)
+    // and any pure-punctuation lines so they don't show up as captions.
+    let mut sorted: Vec<&crate::music_gen::AlignedLyricLine> = aligned
+        .iter()
+        .filter(|l| {
+            let t = l.text.trim();
+            if t.is_empty() {
+                return false;
+            }
+            // Section markers like **Verse 1**, [Chorus], (Bridge) — same
+            // strip rules build_local_srt uses. Engine-provided alignment
+            // sometimes echoes these back as lyric lines.
+            let stripped = t
+                .trim_start_matches('*')
+                .trim_end_matches('*')
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .trim_start_matches('(')
+                .trim_end_matches(')')
+                .trim();
+            !stripped.is_empty()
+                && !stripped.eq_ignore_ascii_case("verse")
+                && !stripped.eq_ignore_ascii_case("chorus")
+                && !stripped.eq_ignore_ascii_case("bridge")
+                && !stripped.eq_ignore_ascii_case("outro")
+                && !stripped.eq_ignore_ascii_case("intro")
+        })
+        .collect();
+    sorted.sort_by_key(|l| l.start_ms);
+
+    let mut out = String::new();
+    let count = sorted.len();
+    let min_line_ms = (min_line_secs * 1000.0).round() as u64;
+    let gap_ms = (line_gap_secs * 1000.0).round() as u64;
+
+    for (idx, line) in sorted.iter().enumerate() {
+        let mut start_ms = line.start_ms;
+        let mut end_ms = line.end_ms.max(start_ms);
+
+        // Enforce minimum line duration. If the next line's start is too
+        // close, eat into that gap rather than overlapping.
+        if end_ms.saturating_sub(start_ms) < min_line_ms {
+            let next_start = sorted
+                .get(idx + 1)
+                .map(|l| l.start_ms)
+                .unwrap_or(end_ms + min_line_ms);
+            let extended = start_ms + min_line_ms;
+            end_ms = extended.min(next_start.saturating_sub(gap_ms));
+            if end_ms < start_ms + 100 {
+                // Pathological short line; clamp to at least 100ms so SRT
+                // is still well-formed.
+                end_ms = start_ms + 100;
+            }
+        }
+
+        // Force a gap between consecutive captions. If we'd overlap into
+        // the next line's start, pull our end back.
+        if let Some(next) = sorted.get(idx + 1) {
+            let next_start = next.start_ms;
+            if end_ms + gap_ms > next_start {
+                end_ms = next_start.saturating_sub(gap_ms).max(start_ms + 100);
+            }
+        }
+
+        // Strip the same section markers build_local_srt strips, so the
+        // engine emitting "**Verse 1** I dreamed a dream" still renders
+        // just "I dreamed a dream".
+        let cleaned = line
+            .text
+            .trim()
+            .trim_start_matches('*')
+            .trim_end_matches('*')
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .trim()
+            .to_string();
+
+        // Push start_ms back if a previous caption already covers this
+        // window (rare with a sorted feed but cheap safety).
+        if idx > 0 {
+            if let Some(prev) = sorted.get(idx - 1) {
+                let prev_end = prev.end_ms.max(prev.start_ms);
+                if start_ms < prev_end + gap_ms {
+                    start_ms = prev_end + gap_ms;
+                    if end_ms <= start_ms {
+                        end_ms = start_ms + min_line_ms.max(100);
+                    }
+                }
+            }
+        }
+
+        out.push_str(&format!(
+            "{}\n{} --> {}\n{}\n\n",
+            idx + 1,
+            format_srt_timestamp(start_ms as f64 / 1000.0),
+            format_srt_timestamp(end_ms as f64 / 1000.0),
+            cleaned
+        ));
+    }
+    (out, count)
+}
+
+#[cfg(test)]
+mod aligned_srt_tests {
+    use super::*;
+    use crate::music_gen::AlignedLyricLine;
+
+    fn line(text: &str, start: u64, end: u64) -> AlignedLyricLine {
+        AlignedLyricLine {
+            text: text.to_string(),
+            start_ms: start,
+            end_ms: end,
+            section: None,
+        }
+    }
+
+    #[test]
+    fn renders_in_order_with_real_timing() {
+        let aligned = vec![
+            line("First line", 500, 3200),
+            line("Second line", 3500, 6000),
+        ];
+        let (srt, n) = build_srt_from_aligned(&aligned, 1.2, 0.08);
+        assert_eq!(n, 2);
+        assert!(srt.contains("00:00:00,500 --> 00:00:03,200"));
+        assert!(srt.contains("First line"));
+        assert!(srt.contains("00:00:03,500 --> 00:00:06,000"));
+        assert!(srt.contains("Second line"));
+    }
+
+    #[test]
+    fn enforces_minimum_line_duration() {
+        // Line is 200ms — much shorter than 1200ms min.
+        let aligned = vec![line("Quick word", 1000, 1200), line("Next", 5000, 7000)];
+        let (srt, _) = build_srt_from_aligned(&aligned, 1.2, 0.08);
+        // The first cue should be stretched to ~1200ms (cue 1 ends at 02,200).
+        assert!(srt.contains("00:00:01,000 --> 00:00:02,200"));
+    }
+
+    #[test]
+    fn strips_section_markers() {
+        let aligned = vec![
+            line("**Verse 1**", 0, 500),
+            line("Real line", 500, 3000),
+        ];
+        let (srt, n) = build_srt_from_aligned(&aligned, 1.2, 0.08);
+        assert_eq!(n, 1);
+        assert!(!srt.contains("Verse 1"));
+        assert!(srt.contains("Real line"));
+    }
+
+    #[test]
+    fn empty_input_returns_empty() {
+        let (srt, n) = build_srt_from_aligned(&[], 1.2, 0.08);
+        assert!(srt.is_empty());
+        assert_eq!(n, 0);
+    }
+}
+
 // CSSOS_PHASE2_PIPELINE_KEEPALIVE 20260426 #122 — Jing
 // Subtitles default to local SRT (fast), but Whisper/AssemblyAI paths
 // can run minutes. Wrap with keepalive heartbeat for safety.
@@ -1580,7 +1804,33 @@ async fn subtitles_inner(
                 .and_then(|s| s.parse::<f64>().ok())
                 .unwrap_or(0.08)
         });
-        build_local_srt(&body.lyrics, body.duration_secs, min_line, gap)
+        // CSSOS_PHASE2_ALIGNED_LYRICS 20260426 #148-D — Jing
+        // When the music engine emitted real per-line timing, build the SRT
+        // from those timestamps instead of fabricating it via even-divide.
+        // This is the whole reason every caption used to drift relative to
+        // the actual vocal performance — we had the data on every Suno /
+        // ElevenLabs run and just weren't capturing it.
+        match body
+            .aligned_lyrics
+            .as_ref()
+            .filter(|v| !v.is_empty())
+        {
+            Some(lines) => {
+                tracing::info!(
+                    target = "mv_pipeline_subtitles",
+                    line_count = lines.len(),
+                    "subtitles using REAL aligned_lyrics timings"
+                );
+                build_srt_from_aligned(lines, min_line, gap)
+            }
+            None => {
+                tracing::info!(
+                    target = "mv_pipeline_subtitles",
+                    "subtitles falling back to even-divide (no aligned_lyrics)"
+                );
+                build_local_srt(&body.lyrics, body.duration_secs, min_line, gap)
+            }
+        }
     } else {
         return Err((
             StatusCode::NOT_IMPLEMENTED,

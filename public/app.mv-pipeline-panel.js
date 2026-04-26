@@ -201,9 +201,14 @@
     title: "",               // P2-31: resolved track title (known after music stage)
     coverUrl: null,
     audioUrl: null,
+    audioUrlBackendOnly: null, // #144 — file:// audio URL split-state
     videoUrl: null,
     videoDurSecs: 0, // #132 — used by Hybrid segment planner
     subtitlesSrt: null,
+    // CSSOS_PHASE2_ALIGNED_LYRICS 20260426 #148-D — Jing
+    // Per-line timing from music engine. null = engine didn't emit alignment;
+    // subtitles falls back to even-divide (no regression).
+    alignedLyrics: null,
     mvUrl: null,
     duration: 0,
     costs: {},
@@ -1473,8 +1478,10 @@
       state.engines = {};
       state.coverUrl = null;
       state.audioUrl = null;
+      state.audioUrlBackendOnly = null;
       state.videoUrl = null;
       state.subtitlesSrt = null;
+      state.alignedLyrics = null; // #148-D — cleared per fresh run
       state.mvUrl = null;
       // #147 — fresh pipeline run starts with a clean autosave guard so the
       // new mv_id (different from any prior run) is allowed to commit.
@@ -1691,6 +1698,21 @@
       }
       state.duration = Number(music.duration_secs || 0);
       state.title = String(music.title || "").trim();   // P2-31: capture title for Watch editors
+      // CSSOS_PHASE2_ALIGNED_LYRICS 20260426 #148-D — Jing
+      // "音乐引擎渲染音乐的时候，是否正确并且同时输出带有时间戳的歌词时间轴
+      //  json？不然字幕无法渲染。" — Suno + ElevenLabs both expose per-line
+      // timing. Capture into state so the subtitles stage can pass them
+      // through to /api/mv/subtitles for real-timing SRT generation.
+      // Engines that don't emit alignment (MusicGPT, Stable Audio, ElevenLabs
+      // sync-binary path) leave this null and the backend falls back to
+      // the legacy even-divide algorithm — no regression for those flows.
+      const _aligned = Array.isArray(music.aligned_lyrics) ? music.aligned_lyrics : null;
+      state.alignedLyrics = (_aligned && _aligned.length > 0) ? _aligned : null;
+      console.info(
+        "[mv-pipeline][music] aligned_lyrics: %s (engine=%s)",
+        state.alignedLyrics ? state.alignedLyrics.length + " lines" : "none",
+        music.engine || "?"
+      );
       // P2-36: publish the authoritative title into the global creation state
       // so notifications panel + works center commit see the SAME title as
       // the Watch panel. Previously each surface resolved a title from its
@@ -1918,6 +1940,21 @@
           lyrics: state.lyrics,
           duration_secs: state.duration || SUBTITLES_DEFAULT_DURATION_SECS
         });
+        // CSSOS_PHASE2_ALIGNED_LYRICS 20260426 #148-D — Jing
+        // When the music engine emitted real per-line timing, hand it to the
+        // subtitles endpoint so the SRT matches the actual vocal performance
+        // instead of being even-divided across the duration. The backend's
+        // build_srt_from_aligned() reads `aligned_lyrics` and produces a
+        // tightly-synced SRT; missing the field falls back to the legacy
+        // build_local_srt() path with no regression.
+        if (state.alignedLyrics && state.alignedLyrics.length > 0) {
+          subtitlesBody.aligned_lyrics = state.alignedLyrics;
+          console.info(
+            "%c[mv-pipeline][subtitles] sending %d aligned_lyrics lines for tight SRT",
+            "color:#0a0;font-weight:bold",
+            state.alignedLyrics.length
+          );
+        }
         if (subtitlesBody.engine && subtitlesBody.engine !== "cssmv-local") {
           delete subtitlesBody.engine;
           delete subtitlesBody.version;

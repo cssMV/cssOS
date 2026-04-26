@@ -1001,6 +1001,14 @@ pub struct CommitResponse {
     pub ok: bool,
     pub work_id: Uuid,
     pub total_engine_cost_cents: i64,
+    /// CSSOS_PHASE2_AUTOSAVE 20260426 #147 — Jing
+    /// "Save as work不应该有这个按钮，我点了3次，作品中心/为你创作都有3个重复的作品。"
+    /// `dedup: true` means we found a pre-existing user_works row with the
+    /// same (user_id, source_run_id) and returned that work_id instead of
+    /// inserting a new one. Frontend uses this to suppress the "saved" toast
+    /// flicker on a repeat POST and to confirm the auto-save guard worked.
+    #[serde(default)]
+    pub dedup: bool,
 }
 
 // CSSOS_PHASE2_PIPELINE_KEEPALIVE 20260426 #122 — Jing
@@ -1028,7 +1036,45 @@ async fn commit_inner(
 
     // Build the cost-meta JSON we stamp on the work so the works-panel can
     // render the "第三方引擎成本" breakdown the user asked for.
-    let engine_cost_json = serde_json::to_value(&body.engine_costs_cents).unwrap_or(json!({}));
+    let _engine_cost_json = serde_json::to_value(&body.engine_costs_cents).unwrap_or(json!({}));
+
+    // CSSOS_PHASE2_AUTOSAVE 20260426 #147 — Jing
+    // "Save as work不应该有这个按钮，我点了3次，作品中心/为你创作都有3个重复的作品。"
+    // Dedup on (user_id, source_run_id) before INSERT so duplicate POSTs from
+    // the auto-save path (or any future programmatic caller) reuse the same
+    // work_id instead of producing 3× rows in user_works. The frontend already
+    // tracks `state.committedMvId` to short-circuit, but this is defense in
+    // depth — losing one round-trip here is much cheaper than fixing duped
+    // rows after the fact.
+    if let Some(run_id) = body.source_run_id.as_deref().filter(|s| !s.is_empty()) {
+        let existing: Option<(Uuid, i64)> = sqlx::query_as(
+            "SELECT id, COALESCE(compute_cost_cents_estimate, 0) \
+             FROM user_works \
+             WHERE user_id = $1 AND source_run_id = $2 \
+             ORDER BY created_at DESC \
+             LIMIT 1",
+        )
+        .bind(user_id)
+        .bind(run_id)
+        .fetch_optional(&app.pool)
+        .await
+        .map_err(sql_error)?;
+        if let Some((existing_id, existing_total)) = existing {
+            tracing::info!(
+                target = "mv_pipeline_commit",
+                user_id = %user_id,
+                source_run_id = %run_id,
+                work_id = %existing_id,
+                "commit dedup hit — returning existing work_id (no INSERT)"
+            );
+            return Ok(Json(CommitResponse {
+                ok: true,
+                work_id: existing_id,
+                total_engine_cost_cents: existing_total,
+                dedup: true,
+            }));
+        }
+    }
 
     // Create the work row. `compute_cost_cents_estimate` already exists on the
     // table (migration 012) so we can stash the engine total there without a
@@ -1077,6 +1123,7 @@ async fn commit_inner(
         ok: true,
         work_id,
         total_engine_cost_cents: total,
+        dedup: false,
     }))
 }
 

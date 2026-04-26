@@ -210,7 +210,14 @@
     engines: {}, // per-stage { engine, version, provider_model?, cost_cents, input_tokens?, output_tokens? }
     running: false,
     stageState: {},
-    progress: {}
+    progress: {},
+    // CSSOS_PHASE2_AUTOSAVE 20260426 #147 — Jing
+    // "Save as work不应该有这个按钮，我点了3次，作品中心/为你创作都有3个重复
+    //  的作品。系统必须自动做这一步，不能让用户手动添加，而是自动添加。"
+    // Track which mv_id we've already POST'd to /api/mv/commit so the auto-save
+    // wired to compose-done only fires once per finished MV. Both `runAll`
+    // re-entries on the same mvId AND any residual manual triggers are no-ops.
+    committedMvId: ""
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -503,7 +510,10 @@
       );
     }).join("");
     const runLabel = copy("Start pipeline", "开始生成");
-    const saveLabel = copy("Save as work", "保存为作品");
+    // CSSOS_PHASE2_AUTOSAVE 20260426 #147 — Jing
+    // Removed the manual "Save as work" button. The auto-save in the
+    // compose-done block now POSTs /api/mv/commit exactly once per mv_id, so
+    // the user can never click 3× and get 3 duplicates in 作品中心 / 为你创作.
     const promptLabel = copy("Prompt / theme", "Prompt / 主题");
     const styleLabel = copy("Style", "风格");
     const lyricsLabel = copy("Lyrics (optional)", "歌词（可选）");
@@ -539,7 +549,7 @@
         '</div>' +
         '<div class="mvp-actions">' +
           '<button id="mvp-run" class="cta">' + escapeHtml(runLabel) + '</button>' +
-          '<button id="mvp-save" class="cta tiny" disabled>' + escapeHtml(saveLabel) + '</button>' +
+          // #147 Save-as-work button removed — auto-save runs on compose-done.
           // CSSOS_PHASE2_MV_TIER_LABEL 20260419 — 常驻 cost label next to
           // the Generate button. Populated by refreshTierCostLabel() once
           // /api/mv/tiers resolves; starts blank so there's no flash of
@@ -675,7 +685,7 @@
 
   function wire(panel) {
     panel.querySelector("#mvp-run").addEventListener("click", runAll);
-    panel.querySelector("#mvp-save").addEventListener("click", saveAsWork);
+    // #147: #mvp-save button removed — auto-save runs from compose-done.
     wireAspectRatioControls(panel);
     // CSSOS_PHASE2_MV_TIER_LABEL 20260419 — wire the tier cost label. Click
     // or Enter/Space cycles through Lite/Hybrid/Cinematic (v0 picker; the
@@ -1002,8 +1012,7 @@
       html += '<video src="' + state.mvUrl + '" controls style="width:100%;margin-top:8px;border-radius:8px"></video>';
     }
     box.innerHTML = html;
-    const saveBtn = panel.querySelector("#mvp-save");
-    if (saveBtn) saveBtn.disabled = !state.mvUrl;
+    // #147: #mvp-save button removed — no enable/disable toggle needed.
   }
 
   function formatUsd(cents) {
@@ -1467,6 +1476,9 @@
       state.videoUrl = null;
       state.subtitlesSrt = null;
       state.mvUrl = null;
+      // #147 — fresh pipeline run starts with a clean autosave guard so the
+      // new mv_id (different from any prior run) is allowed to commit.
+      state.committedMvId = "";
     } else {
       // On resume, preserve prior outputs and per-stage cost/engine records
       // for completed stages. Only clear the slots we're about to rerun.
@@ -2238,6 +2250,40 @@
         // Non-fatal — compose still succeeded, user can click play manually.
         console.warn("[mv-pipeline] zero-click autoplay wiring failed:", _autoplayErr);
       }
+
+      // CSSOS_PHASE2_AUTOSAVE 20260426 #147 — Jing
+      // "Save as work不应该有这个按钮，我点了3次，作品中心/为你创作都有3个重复
+      //  的作品。系统必须自动做这一步，不能让用户手动添加，而是自动添加。"
+      //
+      // Auto-fire saveAsWork() exactly once per finished mv_id. The state
+      // guard inside saveAsWork() guarantees that even if compose-done re-runs
+      // (resume, retry, double-runAll) we POST /api/mv/commit at most once.
+      // Server still has source_run_id ON CONFLICT as defense in depth.
+      try {
+        const composedMvId = composed.mv_id || "";
+        if (composedMvId) {
+          // Fire-and-forget — do NOT await. This must not block the
+          // autoplay handoff. Toast surfaces success/fail, console captures
+          // the diagnostic line if anything goes wrong.
+          saveAsWork(composedMvId).then(function (res) {
+            if (res && res.work_id) {
+              console.info(
+                "%c[mv-pipeline][autosave] work_id=%s · total=%s · dedup=%s",
+                "color:#0a0;font-weight:bold",
+                res.work_id,
+                formatUsd(res.total_engine_cost_cents),
+                res.dedup === true ? "yes" : "no"
+              );
+            }
+          });
+        } else {
+          console.warn(
+            "[mv-pipeline][autosave] skipped — composed.mv_id missing (server should always emit one)"
+          );
+        }
+      } catch (_autosaveErr) {
+        console.error("[mv-pipeline][autosave] threw synchronously:", _autosaveErr);
+      }
       } // end Stage 6 (compose) resume guard
     } catch (err) {
       console.error("[mv-pipeline] failed", err);
@@ -2341,8 +2387,31 @@
     return null;
   }
 
-  async function saveAsWork() {
-    if (!state.mvUrl) return;
+  // CSSOS_PHASE2_AUTOSAVE 20260426 #147 — Jing
+  // "Save as work不应该有这个按钮，我点了3次，作品中心/为你创作都有3个重复的
+  //  作品。系统必须自动做这一步，不能让用户手动添加，而是自动添加。"
+  //
+  // Now invoked exactly once from the compose-done block with the freshly
+  // assigned mv_id. Idempotency layers:
+  //   1. State guard: if state.committedMvId === mvId, return immediately.
+  //   2. We send `source_run_id: mvId` so the server-side handler can
+  //      INSERT … ON CONFLICT (user_id, source_run_id) DO NOTHING and treat
+  //      duplicate POSTs as a no-op (defense in depth — see pipeline_mv_api.rs
+  //      commit_inner).
+  //
+  // Replaced alert() with showToast() so the success path doesn't yank
+  // focus / block the autoplay handoff. Failure still surfaces via toast +
+  // a console.error so we keep visibility without hijacking the run.
+  async function saveAsWork(mvId) {
+    if (!state.mvUrl) return null;
+    const targetMvId = mvId || "";
+    if (targetMvId && state.committedMvId === targetMvId) {
+      console.info(
+        "%c[mv-pipeline][autosave] skip — mvId %s already committed",
+        "color:#888", targetMvId
+      );
+      return null;
+    }
     try {
       // Build `engine_costs_cents` dynamically so any new stage added to
       // STAGES + COMMIT_COST_KEYS automatically flows through.
@@ -2384,19 +2453,38 @@
         preview_image_url: state.coverUrl,
         preview_video_url: state.videoUrl,
         final_mv_url: state.mvUrl,
+        // #147 — server-side dedup key. Same mv_id arriving twice should
+        // resolve to the same work_id (no new row inserted).
+        source_run_id: targetMvId || null,
         engine_costs_cents: engineCosts,
         // Extension point — see server-side /api/mv/commit handler. When the
         // route starts persisting this it will show up in the work detail UI
         // without a frontend change. Today it's additive metadata only.
         engine_meta: engineMeta
       });
+      // Mark this mv_id committed so subsequent runs (e.g. resumed from
+      // history, or compose-done firing twice) become no-ops.
+      if (targetMvId) state.committedMvId = targetMvId;
       const savedMsg = copy(
-        "Saved as work. Total engine cost: ",
-        "已保存为作品，成本合计："
+        "Saved as work · ",
+        "已保存为作品 · "
       );
-      alert(savedMsg + formatUsd(resp.total_engine_cost_cents));
+      const totalLabel = formatUsd(resp.total_engine_cost_cents);
+      const dedup = resp.dedup === true;
+      const finalMsg = savedMsg + totalLabel + (dedup ? copy(" (deduplicated)", "（已去重）") : "");
+      if (typeof globalThis.showToast === "function") {
+        globalThis.showToast(finalMsg);
+      } else {
+        console.info("%c[mv-pipeline][autosave] " + finalMsg, "color:#0a0");
+      }
+      return resp;
     } catch (err) {
-      alert(copy("Save failed: ", "保存失败：") + (err.message || String(err)));
+      const failMsg = copy("Auto-save failed: ", "自动保存失败：") + (err.message || String(err));
+      console.error("[mv-pipeline][autosave]", err);
+      if (typeof globalThis.showToast === "function") {
+        globalThis.showToast(failMsg);
+      }
+      return null;
     }
   }
 

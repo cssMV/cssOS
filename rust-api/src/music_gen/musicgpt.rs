@@ -107,6 +107,17 @@ pub struct MusicGenRequest {
     // by which the engine-selection UI controls which model actually runs.
     #[serde(default)]
     pub version: Option<String>,
+    /// CSSOS_PHASE2_TARGET_DURATION 20260426 #148-C — Jing
+    /// Caller-supplied target track duration in seconds. Each adapter
+    /// translates this onto its provider's native length parameter:
+    ///   - ElevenLabs Music: `music_length_ms` (clamped 30000..300000)
+    ///   - Stable Audio:    `duration` seconds (clamped 30..190)
+    ///   - Suno + MusicGPT: ignored (their continuation/duration story is
+    ///     opaque or paid-only; falls back to upstream defaults)
+    /// None ⇒ engine default. Phase 1 only ElevenLabs honors it
+    /// meaningfully; Phase 2 adds Suno continuation chains for >4min.
+    #[serde(default)]
+    pub target_duration_secs: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

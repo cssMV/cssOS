@@ -1664,15 +1664,69 @@
       // Stage 3 — music
       if (STAGE_ORDER.indexOf("music") >= resumeStartIdx) {
       setStage("music", "running", "");
-      const music = await postJson(
-        "/api/mv/music",
-        withEngine("music", {
-          prompt: state.prompt,
-          music_style: state.style || null,
-          lyrics: state.lyrics,
-          make_instrumental: false
-        })
-      );
+      // CSSOS_PHASE2_TARGET_DURATION 20260426 #148-C — Jing
+      // "京典模板10节歌词，输出的音乐一般在5分钟左右，现在只有30秒。"
+      //
+      // Estimate target duration from lyric structure so the music engine
+      // generates a track that actually accommodates all the lyrics. We
+      // count lyric content lines (skipping section markers like
+      // [Verse 1] / **Chorus** / blank separators) and assume ~3.5s per
+      // line at typical singing tempo (a verse line with 8-10 syllables
+      // sung at 90-110 BPM lands in 3-4 seconds).
+      //
+      // Floor: 30s (engine min). Ceiling: 300s (ElevenLabs max single
+      // call). Pure-instrumental requests use a 90s default — the user's
+      // full attention isn't on lyric coverage there.
+      let _targetSecs = null;
+      try {
+        const lyricLines = String(state.lyrics || "")
+          .split(/\r?\n/)
+          .map(function (s) { return s.trim(); })
+          .filter(function (s) {
+            if (!s) return false;
+            // Skip section markers / parentheticals / asterisk-wrapped
+            const stripped = s
+              .replace(/^[\*\[\(]+/, "")
+              .replace(/[\*\]\)]+$/, "")
+              .trim()
+              .toLowerCase();
+            if (!stripped) return false;
+            return ![
+              "verse", "verse 1", "verse 2", "verse 3", "verse 4", "verse 5",
+              "chorus", "bridge", "outro", "intro", "pre-chorus", "hook"
+            ].includes(stripped);
+          })
+          .length;
+        if (lyricLines > 0) {
+          const SECS_PER_LINE = 3.5;
+          // Add a 12s buffer for intro/outro instrumental.
+          _targetSecs = Math.round(lyricLines * SECS_PER_LINE + 12);
+          // Clamp to ElevenLabs/Stable Audio safe range.
+          _targetSecs = Math.max(30, Math.min(_targetSecs, 300));
+        } else {
+          // Instrumental or no lyrics — modest default.
+          _targetSecs = 90;
+        }
+        console.info(
+          "%c[mv-pipeline][music] target_duration=%ds (lyric_lines=%d)",
+          "color:#08f;font-weight:bold",
+          _targetSecs,
+          lyricLines
+        );
+      } catch (_durErr) {
+        console.warn("[mv-pipeline][music] duration estimate failed, falling back to engine default:", _durErr);
+        _targetSecs = null;
+      }
+      const _musicPayload = withEngine("music", {
+        prompt: state.prompt,
+        music_style: state.style || null,
+        lyrics: state.lyrics,
+        make_instrumental: false
+      });
+      if (_targetSecs && _targetSecs > 0) {
+        _musicPayload.target_duration_secs = _targetSecs;
+      }
+      const music = await postJson("/api/mv/music", _musicPayload);
       // CSSOS_PHASE2_FILE_URL_GUARD 20260426 #144 — Jing
       // "Not allowed to load local resource: file:///tmp/cssos-music/eleven-sync-..."
       // ElevenLabs sync stage delivers a backend-local file:// path. The
@@ -2248,6 +2302,63 @@
           }
         }
 
+        // CSSOS_PHASE2_ZERO_TOUCH 20260426 #149 — Jing
+        // "My pipeline 面板完成所有环节100%之后，应该自动最大化窗口开启 Watch
+        //  面板，并且自动播放媒体，不要让用户再有任何的操作。这才是零门槛
+        //  用户体验。"
+        //
+        // Previously we set the <video> src and called attemptPlayback, but
+        // never explicitly opened or maximized the Watch panel. If it was
+        // hidden (default state on first run after login) the user had to
+        // click the dock icon to even see the result. That's not zero-touch.
+        //
+        // Sequence (zero-touch):
+        //   1) Find the Watch panel; create-from-template if not yet mounted.
+        //   2) openWatchPreviewShellModule({fallbackTab:"mv"}) — makes panel
+        //      visible, primes layout, activates MV tab.
+        //   3) Maximize via openAndMaximize / togglePanelMaximize so the
+        //      media frame fills the viewport. Watch panel is hardcoded to
+        //      fullscreen mode (panel-layout.js:144) so this is full-bleed.
+        //   4) THEN setWatchVideoFromArtifact + attemptPlayback.
+        //
+        // Each step is wrapped in a try so a missing helper degrades to the
+        // pre-#149 behavior (silent inner panel, but at least the autoplay
+        // attempt still fires).
+        try {
+          const watchPanel = document.getElementById("watch-panel");
+          if (watchPanel) {
+            // Open the panel shell first — this also activates the preferred
+            // tab and primes the layout via app.watch-ui.js helpers.
+            if (typeof globalThis.openWatchPreviewShellModule === "function") {
+              globalThis.openWatchPreviewShellModule({ fallbackTab: "mv" });
+            } else {
+              // Fallback: just remove .hidden and focus
+              watchPanel.classList.remove("hidden");
+              watchPanel.dataset.minimized = "false";
+              if (typeof globalThis.focusPanel === "function") {
+                globalThis.focusPanel(watchPanel);
+              }
+            }
+            // Maximize unless the user already moved/maximized it. Watch
+            // panel is fullscreen mode — covers the whole viewport.
+            const alreadyMax = watchPanel.dataset.maximized === "true";
+            if (!alreadyMax) {
+              if (typeof globalThis.openAndMaximize === "function") {
+                globalThis.openAndMaximize(watchPanel);
+              } else if (typeof globalThis.togglePanelMaximize === "function") {
+                globalThis.togglePanelMaximize(watchPanel);
+              }
+            }
+            console.info(
+              "%c[mv-pipeline][zero-touch] Watch panel opened + maximized (was-max=%s)",
+              "color:#0c0;font-weight:bold",
+              alreadyMax ? "yes" : "no"
+            );
+          }
+        } catch (_openMaxErr) {
+          console.warn("[mv-pipeline][zero-touch] open+maximize failed:", _openMaxErr);
+        }
+
         if (mvUrlPlayable && state.mvUrl && typeof globalThis.setWatchVideoFromArtifact === "function") {
           // Push MV URL into the Watch <video> element.
           globalThis.setWatchVideoFromArtifact(state.mvUrl, { sourceKind: "mv-pipeline-final" });
@@ -2265,12 +2376,61 @@
             ));
           }
         } else if (typeof globalThis.attemptWatchVideoPlaybackModule === "function") {
+          // CSSOS_PHASE2_ZERO_TOUCH 20260426 #149 — Jing
+          // Try unmuted first (best UX). On autoplay block, retry the
+          // attempt with `muted=true` because Chromium/WebKit allow muted
+          // autoplay even without a recent user gesture. We then nudge the
+          // user via a one-time small toast that the video is muted; first
+          // click anywhere unmutes it. Net effect: visuals + subtitles fire
+          // immediately, never a blank media frame.
+          const watchVideoEl = document.getElementById("watch-video");
+          // Set up one-time unmute-on-first-input handler BEFORE we try
+          // playback. If autoplay succeeds unmuted, this is harmless.
+          if (watchVideoEl && !globalThis.__cssmvUnmuteHandlerInstalled) {
+            const unmuteOnFirstInput = function () {
+              if (watchVideoEl.muted) {
+                watchVideoEl.muted = false;
+                console.info("[mv-pipeline][zero-touch] user input → unmute");
+              }
+              window.removeEventListener("click", unmuteOnFirstInput, true);
+              window.removeEventListener("keydown", unmuteOnFirstInput, true);
+              window.removeEventListener("touchstart", unmuteOnFirstInput, true);
+              globalThis.__cssmvUnmuteHandlerInstalled = false;
+            };
+            window.addEventListener("click", unmuteOnFirstInput, true);
+            window.addEventListener("keydown", unmuteOnFirstInput, true);
+            window.addEventListener("touchstart", unmuteOnFirstInput, true);
+            globalThis.__cssmvUnmuteHandlerInstalled = true;
+          }
           // Attempt playback with retry + music-tab fallback baked in.
           globalThis.attemptWatchVideoPlaybackModule({
             maxRetries: 3,
             interval: 800,
             allowFallback: true
           });
+          // Defense in depth: 2.5s after kicking the attempt, if the
+          // <video> element still hasn't started playing AND it's not
+          // muted, force muted=true and retry once. This catches the
+          // "autoplay denied because no recent user-interaction signal"
+          // case Chrome/Safari throw silently.
+          if (watchVideoEl) {
+            setTimeout(function () {
+              try {
+                if (watchVideoEl.paused && !watchVideoEl.ended && watchVideoEl.readyState >= 2) {
+                  if (!watchVideoEl.muted) {
+                    console.info(
+                      "%c[mv-pipeline][zero-touch] still paused after 2.5s — forcing muted autoplay",
+                      "color:#f80;font-weight:bold"
+                    );
+                    watchVideoEl.muted = true;
+                    watchVideoEl.play().catch(function (e) {
+                      console.warn("[mv-pipeline][zero-touch] muted autoplay also blocked:", e);
+                    });
+                  }
+                }
+              } catch (_mutedErr) { /* non-fatal */ }
+            }, 2500);
+          }
         } else if (state.mvUrl) {
           // Fallback: direct play if the Watch module is not loaded yet.
           const v = document.getElementById("watch-video");

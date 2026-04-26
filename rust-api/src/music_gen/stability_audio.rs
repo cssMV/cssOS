@@ -319,7 +319,23 @@ impl StableAudioClient {
         // duration, output_format, model. Style/lyrics get folded into the
         // prompt (Stable Audio is prompt-only — it doesn't do vocals).
         let composed_prompt = compose_prompt(req);
-        let duration_str = self.cfg.duration_secs.to_string();
+        // CSSOS_PHASE2_TARGET_DURATION 20260426 #148-C — Jing
+        // Stable Audio 2.0 supports up to 190s per call (per their public
+        // API limits). Honor the caller's target when set, clamped 30..190.
+        let resolved_duration_secs: u64 = match req.target_duration_secs {
+            Some(secs) if secs > 0 => {
+                let clamped = secs.clamp(30, 190) as u64;
+                tracing::info!(
+                    target = "stability_audio",
+                    requested_secs = secs,
+                    clamped_secs = clamped,
+                    "honoring caller-supplied target_duration_secs"
+                );
+                clamped
+            }
+            _ => self.cfg.duration_secs,
+        };
+        let duration_str = resolved_duration_secs.to_string();
         let form = multipart::Form::new()
             .text("prompt", composed_prompt)
             .text("duration", duration_str)

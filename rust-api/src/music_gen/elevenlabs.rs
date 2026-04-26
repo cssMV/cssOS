@@ -345,9 +345,29 @@ impl ElevenMusicClient {
             "prompt".into(),
             serde_json::Value::String(composed_prompt.clone()),
         );
+        // CSSOS_PHASE2_TARGET_DURATION 20260426 #148-C — Jing
+        // "京典模板10节歌词，输出的音乐一般在5分钟左右，现在只有30秒。"
+        // When the caller provides target_duration_secs, override the env
+        // default. ElevenLabs Music supports 10s..5min at the time of
+        // writing; clamp to a conservative 30s..5min range so a buggy or
+        // out-of-spec caller can't trigger a 422.
+        let resolved_length_ms: u64 = match req.target_duration_secs {
+            Some(secs) if secs > 0 => {
+                let clamped = secs.clamp(30, 300) as u64;
+                let ms = clamped * 1000;
+                tracing::info!(
+                    target = "elevenlabs_music",
+                    requested_secs = secs,
+                    clamped_secs = clamped,
+                    "honoring caller-supplied target_duration_secs"
+                );
+                ms
+            }
+            _ => self.cfg.music_length_ms,
+        };
         body.insert(
             "music_length_ms".into(),
-            serde_json::Value::Number(serde_json::Number::from(self.cfg.music_length_ms)),
+            serde_json::Value::Number(serde_json::Number::from(resolved_length_ms)),
         );
         // CSSOS_PHASE2_ELEVEN_MODEL_OPTIONAL 20260425 #100 — Jing saw
         // ElevenLabs reject `"model_id":"eleven_music_v1"` with 422

@@ -402,6 +402,19 @@ pub struct MusicRequest {
     pub engine: Option<String>,
     #[serde(default)]
     pub version: Option<String>,
+    /// CSSOS_PHASE2_TARGET_DURATION 20260426 #148-C — Jing
+    /// "京典模板10节歌词，输出的音乐一般在5分钟左右，现在只有30秒。"
+    /// Frontend computes a target duration from the lyric structure
+    /// (intro/verse×N/chorus×M/bridge/outro × ~24s/section) and sends it
+    /// here. Adapters interpret per provider:
+    ///   - ElevenLabs Music: passed as `music_length_ms` (max ~5min/call)
+    ///   - Suno: clamped 60..240s; longer needs continuation chains (Phase 2)
+    ///   - Stable Audio: passed as `duration` (max ~190s)
+    ///   - MusicGPT: ignored (legacy fallback uses upstream default)
+    /// Range clamp at the adapter level: 30..600s. Out-of-range is silently
+    /// clipped so a buggy frontend can't trigger upstream errors.
+    #[serde(default)]
+    pub target_duration_secs: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -739,6 +752,12 @@ async fn music_inner(
             // version through so per-provider adapters can route to the
             // matching model (Suno v4 vs v5, Stable Audio 2.0 vs 2.1, etc.).
             version: Some(version.clone()),
+            // CSSOS_PHASE2_TARGET_DURATION 20260426 #148-C — Jing
+            // Caller-supplied target duration in seconds (clamped 30..600
+            // at the adapter layer). ElevenLabs / Stable Audio map this
+            // onto their native length parameters; Suno + MusicGPT ignore
+            // until their respective continuation chains land.
+            target_duration_secs: body.target_duration_secs,
         },
     )
     .await?;

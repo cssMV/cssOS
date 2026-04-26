@@ -1654,7 +1654,29 @@
           make_instrumental: false
         })
       );
-      state.audioUrl = music.audio_url;
+      // CSSOS_PHASE2_FILE_URL_GUARD 20260426 #144 — Jing
+      // "Not allowed to load local resource: file:///tmp/cssos-music/eleven-sync-..."
+      // ElevenLabs sync stage delivers a backend-local file:// path. The
+      // backend's compose pipeline handles file:// (#124), but the FRONTEND
+      // <audio> element rejects file:// URLs as a security violation. If
+      // the engine returns file://, suppress it from frontend playback —
+      // the compose step still has the file path for ffmpeg, but the user
+      // doesn't try to play raw file:// from a webpage.
+      const _rawAudioUrl = String(music.audio_url || "").trim();
+      if (_rawAudioUrl.startsWith("file://")) {
+        console.warn(
+          "[mv-pipeline] music engine returned file:// URL — frontend " +
+          "cannot play this directly. Compose stage will still consume " +
+          "it via the backend file-aware download path. URL:", _rawAudioUrl
+        );
+        // Keep the path internally for compose payload, expose empty to
+        // any frontend player that would otherwise try to fetch it.
+        state.audioUrlBackendOnly = _rawAudioUrl; // for compose() payload
+        state.audioUrl = ""; // prevents <audio>.src = file:// CORS/security trap
+      } else {
+        state.audioUrl = _rawAudioUrl;
+        state.audioUrlBackendOnly = null;
+      }
       state.duration = Number(music.duration_secs || 0);
       state.title = String(music.title || "").trim();   // P2-31: capture title for Watch editors
       // P2-36: publish the authoritative title into the global creation state
@@ -1960,7 +1982,11 @@
         });
         const _composeBase = {
           mv_id: mvId,
-          audio_url: state.audioUrl,
+          // CSSOS_PHASE2_FILE_URL_GUARD 20260426 #144 — when state.audioUrl
+          // was zeroed because the engine returned file://, prefer the
+          // backend-only path so the rust-api compose can still find it
+          // via download_to's file:// branch (#124).
+          audio_url: state.audioUrl || state.audioUrlBackendOnly || "",
           subtitles_srt: state.subtitlesSrt,
           // CSSOS_PHASE2_P2_97_COMPOSE_AR 20260424 — honor the per-run
           // aspect spec resolved at runAll() start so ffmpeg composes to

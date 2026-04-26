@@ -1840,8 +1840,14 @@ function creationSummaryText() {
     ? globalThis.getMembershipPreset
     : (typeof getMembershipPreset === "function" ? getMembershipPreset : null);
   const preset = _gmp ? _gmp() : { tier: "guest", monthlyGenerationLimit: 0, maxDurationSec: 60, maxResolution: "720p", watermark: "default", queuePriority: "standard" };
+  // CSSOS_PHASE2_DESCRIBE_MEMBERSHIP_GUARD 20260426 #143 — Jing
+  // Same load-order race as getMembershipPreset.
+  const _dmt = (typeof globalThis.describeMembershipTier === "function")
+    ? globalThis.describeMembershipTier
+    : (typeof describeMembershipTier === "function" ? describeMembershipTier : null);
+  const _safeTierLabel = _dmt ? _dmt(preset.tier) : String(preset.tier || "guest");
   const membershipSummary = [
-    `${loginCopy("Tier")}: ${describeMembershipTier(preset.tier)}`,
+    `${loginCopy("Tier")}: ${_safeTierLabel}`,
     preset.monthlyGenerationLimit === null
       ? loginCopy("Monthly Limit: Unlimited")
       : loginCopy(`Monthly Limit: ${preset.monthlyGenerationLimit}`),

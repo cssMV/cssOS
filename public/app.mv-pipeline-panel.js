@@ -2004,11 +2004,20 @@
         // The Hybrid AI video was reportedly still ignored on user end.
         // Loud diagnostic log so we can see EXACTLY what happens at compose
         // time. Paste these lines from DevTools console when reporting bugs.
+        // CSSOS_PHASE2_AUDIO_LOG_CLARITY 20260426 #146 — Jing
+        // The previous "audio=no" was misleading when audioUrlBackendOnly
+        // held a file:// path. Distinguish three states:
+        //   yes-https   → public URL goes to <audio> AND compose
+        //   yes-file    → compose-only (file://, frontend can't play raw)
+        //   no          → music stage failed entirely
+        let _audioState = "no";
+        if (state.audioUrl) _audioState = "yes-https";
+        else if (state.audioUrlBackendOnly) _audioState = "yes-file";
         console.info(
           "[mv-pipeline][compose-decision] tier=%s · cover=%s · audio=%s · video=%s · videoDur=%s · plan=%s · segments=%s",
           _liteTierId,
           state.coverUrl ? "yes" : "no",
-          state.audioUrl ? "yes" : "no",
+          _audioState,
           state.videoUrl ? state.videoUrl.slice(0, 80) + "…" : "no",
           state.videoDurSecs || 0,
           _litePlan ? _litePlan.plan : "none",

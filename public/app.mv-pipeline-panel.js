@@ -2243,6 +2243,60 @@
   // hit. Anchoring everything on this one entry collapses the divergence.
   if (globalThis) {
     globalThis.cssmvMvPipelineRunAll = runAll;
+
+    // CSSOS_PHASE2_UNIFIED_ENTRY_HELPER 20260426 #138 — Jing
+    // Convenience wrapper: opens the MV Pipeline panel (if not already
+    // open), kicks runAll, and prints a labeled diagnostic so DevTools
+    // shows the exact entry source: [entry:logo-longpress], [entry:mic],
+    // [entry:dock-watch], [entry:context-menu-mv], [entry:apply-render].
+    //
+    // BEFORE calling runAll, also short-circuit on a fresh
+    // cssmvPipelineLastResult so a second tap on the same entry doesn't
+    // re-run the pipeline (already covered by Watch panel guard #137; this
+    // mirrors the protection for entries that bypass openWatchPreviewFlow).
+    globalThis.cssmvUnifiedEntry = function unifiedEntry(opts) {
+      const o = opts && typeof opts === "object" ? opts : {};
+      const source = String(o.source || "unknown");
+      try {
+        const lastRes = globalThis.cssmvPipelineLastResult;
+        if (!o.force && lastRes && lastRes.mvUrl) {
+          const tsAt = Number(lastRes.tsAt || 0);
+          const freshMs = Number(lastRes.freshMs || 600000);
+          if (tsAt && (Date.now() - tsAt) < freshMs) {
+            console.info(
+              "%c[entry:" + source + "] adopting fresh MV Pipeline result " +
+              "(age %dms) — skipping new run",
+              "color:#08f", Date.now() - tsAt
+            );
+            // Just open Watch — its #137 guard will adopt the result.
+            if (typeof globalThis.openWatchPreviewFlowModule === "function") {
+              return globalThis.openWatchPreviewFlowModule({
+                preferredTab: o.preferredTab || "mv"
+              });
+            }
+            return Promise.resolve(true);
+          }
+        }
+      } catch (_e) { /* fall through */ }
+      console.info(
+        "%c[entry:" + source + "] → MV Pipeline runAll",
+        "color:#0c0;font-weight:bold"
+      );
+      // Open the MV Pipeline panel UI so user sees progress
+      try {
+        if (typeof globalThis.openMvPipelinePanel === "function") {
+          globalThis.openMvPipelinePanel({
+            autoStart: true,
+            seed: o.seed || null,
+            focus: o.focus === true,
+            hidden: o.hidden !== false
+          });
+          return Promise.resolve(true);
+        }
+      } catch (_panelErr) { /* fall through */ }
+      // Direct runAll if panel helper missing
+      return runAll(o.runOpts || {});
+    };
   }
 
   function findRunningStage() {

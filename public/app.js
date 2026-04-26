@@ -208,6 +208,7 @@ const seedPaneScenes = document.getElementById("seed-pane-scenes");
 const lyricsInputTabButtons = document.querySelectorAll("[data-lyrics-input-tab]");
 const lyricsInputPaneEditor = document.getElementById("lyrics-input-pane-editor");
 const lyricsInputPaneUploads = document.getElementById("lyrics-input-pane-uploads");
+const lyricsLanguageTabs = document.getElementById("lyrics-language-tabs");
 const lyricsMusicUploadTabRoot = document.getElementById("lyrics-music-upload-tab-root");
 const creationTabs = document.getElementById("creation-tabs");
 const creationChips = document.getElementById("creation-chips");
@@ -262,6 +263,8 @@ const loginLogout = document.getElementById("login-logout");
 const panelPullSearchState = new WeakMap();
 const versionToggle = document.getElementById("version-toggle");
 const versionMenu = document.getElementById("version-menu");
+const themeQuickToggle = document.getElementById("theme-quick-toggle");
+const themeQuickMenu = document.getElementById("theme-quick-menu");
 const versionList = document.getElementById("version-list");
 const versionCurrentLabel = document.getElementById("version-current");
 const versionHero = document.getElementById("version-hero");
@@ -289,7 +292,24 @@ const LANG_STORAGE_KEY = "CSSOS_LANG";
 const LANG_AUTODETECT_KEY = "CSSOS_LANG_AUTO";
 const LANG_DETECTED_KEY = "CSSOS_LANG_DETECTED";
 const DOCK_ORDER_KEY = "cssos.dockOrder";
-const DOCK_DEFAULT_ORDER = ["mic", "settings", "foryou", "works", "lyrics", "music", "video", "watch", "cssmv"];
+const DOCK_DEFAULT_ORDER = [
+  "mic",
+  "settings",
+  "foryou",
+  "works",
+  "lyrics",
+  "music",
+  "video",
+  "watch",
+  "notifications",
+  "about",
+  "api",
+  "subscription",
+  "credit",
+  "workspaces",
+  "user-admin",
+  "cssmv"
+];
 const FORYOU_PREVIEW_MODES = {
   AUTO: "auto",
   IMAGE: "image",
@@ -303,20 +323,29 @@ const workThumbCache = new Map();
 let dockSuppressUntil = 0;
 let dockDraggingAction = "";
 let lyricRegenerateRequestActive = false;
+// CSSOS_PHASE2_P2_60_I18N 20260419 — release notes now live in English (SSOT).
+// Consumers (profile-panel version hero) pipe each field through tr() so any
+// locale renders via the runtime LLM translator. Never add hardcoded non-
+// English copy here — add a new dated entry in English and the translator
+// will cover every other locale automatically.
 const VERSION_RELEASE_NOTES = {
   "20260320_184041": {
-    headline: "随机歌词生成已修复",
-    copy: "高级设置里的歌词魔法棒现在会稳定生成并回填歌词，不再只闪动不工作。",
+    headline: "Random lyric generation is fixed",
+    copy: "The lyric magic wand in Advanced Settings now reliably generates and fills in lyrics instead of just flashing.",
     highlights: [
-      "Safari 点击链路已修复",
-      "每次部署后静态资源都强制不缓存",
-      "版本面板改成用户版更新卡片"
+      "Safari tap chain restored",
+      "Static assets revalidate after every deploy",
+      "Version panel rebuilt as a user-facing release card"
     ]
   },
   "20260320_174100": {
-    headline: "歌词刷新链路已接通",
-    copy: "高级设置开始接入现有的随机歌词生成能力，并补上标题兜底。",
-    highlights: ["随机歌词可回填", "高级设置联动增强", "线上缓存策略已收紧"]
+    headline: "Lyric refresh pipeline connected",
+    copy: "Advanced Settings now taps into the existing random-lyric engine, with a title fallback when none is set.",
+    highlights: [
+      "Random lyrics can be backfilled",
+      "Advanced Settings integration strengthened",
+      "Production caching policy tightened"
+    ]
   }
 };
 
@@ -662,6 +691,13 @@ Object.assign(I18N.en, {
   "reports.opsHealth.statusHealthy": "Healthy",
   "reports.opsHealth.statusUnknown": "Unknown",
   "status.composing": "The mirror is conjuring...",
+  "watch.progress.cover": "Painting cover",
+  "watch.progress.lyrics": "Composing lyrics",
+  "watch.progress.music": "Composing music",
+  "watch.progress.video": "Rendering video",
+  "watch.progress.subtitles": "Building subtitles",
+  "watch.progress.compose": "Mixing MV",
+  "watch.progress.kara": "Rendering MV",
   "reports.opsHealth.stillFailing": "Still failing",
   "reports.opsHealth.subscriptions": "Subscriptions",
   "reports.opsHealth.title": "Ops health",
@@ -977,6 +1013,13 @@ Object.assign(I18N.zh, {
   "reports.opsHealth.statusHealthy": "正常",
   "reports.opsHealth.statusUnknown": "未知",
   "status.composing": "魔镜正在施法中。。。",
+  "watch.progress.cover": "正在绘制封面",
+  "watch.progress.lyrics": "正在创作歌词",
+  "watch.progress.music": "正在创作音乐",
+  "watch.progress.video": "正在渲染视频",
+  "watch.progress.subtitles": "正在生成字幕",
+  "watch.progress.compose": "正在合成 MV",
+  "watch.progress.kara": "正在渲染 MV",
   "reports.opsHealth.stillFailing": "仍失败",
   "reports.opsHealth.subscriptions": "订阅数",
   "reports.opsHealth.title": "运维健康",
@@ -1290,8 +1333,45 @@ function applyI18n() {
   globalThis.renderAboutSubSectionModule?.();
 }
 
-function loginCopy(en, zh) {
-  return currentLocale === "zh" ? zh : en;
+// CSSOS_PHASE2_I18N_ENGLISH_AS_SSOT 20260419
+//
+// English is the SINGLE source of truth. Every other locale — es, fr, ja,
+// ko, de, ru, zh, ... — is derived at runtime through the i18n runtime
+// (public/i18n/runtime.js, POST /api/i18n/translate). No locale is
+// privileged; every locale goes through the exact same code path.
+//
+// Canonical call: `tr("Change Plan")`. No second argument. If you need to
+// interpolate values, pass them as the second `vars` object, which the
+// i18n runtime will substitute AFTER translation so tokens are preserved:
+//   tr("Hello, {name}!", { name: userName })
+//
+// On cache miss the function returns the English source verbatim. The
+// runtime will resolve the translation asynchronously and dispatch
+// `cssos:i18n-translation-ready`; open panels listen for that event and
+// re-render so the translated copy replaces the English placeholder.
+function tr(english, vars) {
+  const source = typeof english === "string" ? english : String(english == null ? "" : english);
+  try {
+    const i18n = globalThis.CSSOS_I18N;
+    if (i18n && typeof i18n.tr === "function") {
+      const translated = i18n.tr(source, vars);
+      if (typeof translated === "string") return translated;
+    }
+  } catch (_) { /* fall through */ }
+  // Local interpolation fallback when the i18n runtime is unavailable.
+  if (vars && typeof vars === "object") {
+    return source.replace(/\{(\w+)\}/g, (_m, key) =>
+      vars[key] != null ? String(vars[key]) : `{${key}}`
+    );
+  }
+  return source;
+}
+
+// DEPRECATED — keep as a thin backward-compat shim for the ~2000 legacy
+// call sites that still pass (en, zh). The second argument is IGNORED —
+// we no longer privilege Chinese. Use `tr(english)` in new code.
+function loginCopy(en, _zhIgnoredLegacy) {
+  return tr(en);
 }
 
 function emergencyUnfreezeUi(options = {}) {
@@ -1395,14 +1475,18 @@ function seededNumber(min, max, step, seed, offset = 0) {
 }
 
 function syncCreationStateToLegacyInputs() {
-  const genre = creationState.selections.genre || "Chinese GuFeng";
+  // CSSMV_DEFAULTS_EMPTY 20260420 — Jing: do NOT pre-fill Advanced Settings
+  // with "Chinese GuFeng" / "Feminine" — those were polluting the panel and
+  // forcing every generation into a Chinese-GuFeng feminine voice regardless
+  // of UI language. Empty inputs let the LLM / UI-language driver decide.
+  const genre = creationState.selections.genre || "";
   const mood = creationState.selections.mood;
   const instrument = creationState.selections.instrument;
   const instrumentation = creationState.instrumentation || "";
   const ensembleStyle = creationState.ensembleStyle || "";
   const styleText = [genre, mood, instrument, instrumentation, ensembleStyle].filter(Boolean).join(" · ");
   setSelectValueSafe(styleInput, styleText || genre);
-  setSelectValueSafe(voiceInput, creationState.selections.vocalGender || "Feminine");
+  setSelectValueSafe(voiceInput, creationState.selections.vocalGender || "");
 }
 
 function normalizeWorkTypeClient(value) {
@@ -1430,17 +1514,17 @@ function inferLanguageFromTitleText(value) {
 
 function workTypeLabel(workType) {
   const normalized = normalizeWorkTypeClient(workType);
-  if (normalized === "triptych") return loginCopy("Triptych", "三部曲");
-  if (normalized === "opera") return loginCopy("Opera", "歌剧");
-  return loginCopy("Single", "单曲");
+  if (normalized === "triptych") return loginCopy("Triptych");
+  if (normalized === "opera") return loginCopy("Opera");
+  return loginCopy("Single");
 }
 
 function workStructureRoleLabel(role, fallbackType) {
   const raw = String(role || "").trim().toLowerCase();
-  if (raw === "act") return loginCopy("Act", "幕");
-  if (raw === "scene") return loginCopy("Scene", "场");
-  if (raw === "triptych") return loginCopy("Triptych", "三部曲");
-  if (raw === "opera") return loginCopy("Opera", "歌剧");
+  if (raw === "act") return loginCopy("Act");
+  if (raw === "scene") return loginCopy("Scene");
+  if (raw === "triptych") return loginCopy("Triptych");
+  if (raw === "opera") return loginCopy("Opera");
   return workTypeLabel(fallbackType);
 }
 
@@ -1450,7 +1534,7 @@ function workOwnerChainLabel(chain) {
     .map((entry) => String(entry?.label || "").trim())
     .filter(Boolean);
   if (!labels.length) return "";
-  return `${loginCopy("Ownership", "流转")} · ${labels.join(" → ")}`;
+  return `${loginCopy("Ownership")} · ${labels.join(" → ")}`;
 }
 
 function flattenHierarchyWorks(items) {
@@ -1535,7 +1619,7 @@ function renderHierarchyTree(nodes, context = "market") {
     <div class="work-hierarchy">
       ${items
         .map((node, index) => {
-          const title = escapeHtml(String(node?.title || "").trim() || loginCopy("Untitled", "未命名"));
+          const title = escapeHtml(String(node?.title || "").trim() || loginCopy("Untitled"));
           const role = escapeHtml(workStructureRoleLabel(node?.structure_role, node?.work_type));
           const nodeRole = String(node?.structure_role || "").trim().toLowerCase();
           const summary = escapeHtml(
@@ -1563,16 +1647,16 @@ function renderHierarchyTree(nodes, context = "market") {
             context === "market" && workId
               ? `
                 <div class="work-hierarchy-actions">
-                  <button class="mini-btn ghost tiny" type="button" data-market-action="preview" data-market-child-id="${workId}">${loginCopy("Preview", "预览")}</button>
+                  <button class="mini-btn ghost tiny" type="button" data-market-action="preview" data-market-child-id="${workId}">${loginCopy("Preview")}</button>
                   ${canTransact ? `<button class="mini-btn ghost tiny" type="button" data-market-action="listen" data-market-child-id="${workId}" ${(listenCents > 0 && !listenDisabled) ? "" : "disabled"}>${marketActionCopy("listen", orderState)}</button>` : ""}
                   ${canTransact ? `<button class="mini-btn market-buyout-btn tiny" type="button" data-market-action="buyout" data-market-child-id="${workId}" ${(!buyoutEnabled || buyoutDisabled) ? "disabled" : ""}>${marketActionCopy("buyout", orderState)}</button>` : ""}
-                  ${canTransact ? `<span class="market-inline-action"><button class="mini-btn ghost tiny" type="button" data-market-action="tip" data-market-child-id="${workId}" ${tipDisabled ? "disabled" : ""}>${marketActionCopy("tip", orderState)}</button><input class="inline-chip-input market-tip-input" type="number" min="1" step="1" inputmode="decimal" placeholder="${escapeHtml(loginCopy("Tip $", "打赏金额"))}" data-market-tip-input="${workId}" hidden /></span>` : ""}
+                  ${canTransact ? `<span class="market-inline-action"><button class="mini-btn ghost tiny" type="button" data-market-action="tip" data-market-child-id="${workId}" ${tipDisabled ? "disabled" : ""}>${marketActionCopy("tip", orderState)}</button><input class="inline-chip-input market-tip-input" type="number" min="1" step="1" inputmode="decimal" placeholder="${escapeHtml(loginCopy("Tip $"))}" data-market-tip-input="${workId}" hidden /></span>` : ""}
                 </div>
               `
               : context === "works" && workId
               ? `
                 <div class="work-hierarchy-actions">
-                  <button class="mini-btn ghost tiny" type="button" data-work-action="watch" data-work-child-id="${workId}" ${hasPanelPermission("works.watch") ? "" : "disabled"}>${loginCopy("Enjoy", "欣赏")}</button>
+                  <button class="mini-btn ghost tiny" type="button" data-work-action="watch" data-work-child-id="${workId}" ${hasPanelPermission("works.watch") ? "" : "disabled"}>${loginCopy("Enjoy")}</button>
                 </div>
               `
               : "";
@@ -1647,7 +1731,7 @@ function buildCurrentCreationDefaultsPayload() {
       tempo_bpm: Number(creationState.tempo || 88),
       musical_key: creationState.key || "C",
       duration_s: Number(creationState.duration || 180),
-      language: creationState.language || "zh",
+      language: creationState.language || globalThis.resolveUiPrimaryLanguageModule?.() || globalThis.resolveUiDefaultCreationLanguageModule?.() || "en",
       prompt: String(creationState.prompt || "").slice(0, 500),
       work_type: workType
     },
@@ -1660,12 +1744,17 @@ function applyCreationDefaults(template) {
   panelDefaultsState.creation = template;
   resetCreationTouchedFields();
   const creative = template.creative || {};
+  // CSSMV_DEFAULTS_EMPTY 20260420 — Jing: applyCreationDefaults was the OTHER
+  // entry point forcing "Chinese GuFeng" / "Feminine". When the server defaults
+  // template is absent or fields are blank, we now leave them empty so the UI
+  // language (English / Japanese / Chinese) drives random output, not a stale
+  // Chinese-GuFeng preset from day-zero config.
   creationState.selections = {
-    genre: String(creative.genre || "Chinese GuFeng"),
+    genre: String(creative.genre || ""),
     mood: String(creative.mood || ""),
     instrument: String(creative.instrument || ""),
     ambience: String(creative.ambience || ""),
-    vocalGender: String(creative.vocal_gender || "Feminine")
+    vocalGender: String(creative.vocal_gender || "")
   };
   creationState.instrumentation = String(creative.instrumentation || "");
   creationState.vocalStyle = String(creative.vocal_style || "");
@@ -1684,7 +1773,7 @@ function applyCreationDefaults(template) {
   creationState.tempo = Number(creative.tempo_bpm || 88);
   creationState.key = String(creative.musical_key || "C");
   creationState.duration = Number(creative.duration_s || 180);
-  creationState.language = String(creative.language || "zh");
+  creationState.language = String(creative.language || globalThis.resolveUiPrimaryLanguageModule?.() || globalThis.resolveUiDefaultCreationLanguageModule?.() || "en");
   creationState.workType = normalizeWorkTypeClient(creative.work_type || "single");
   creationState.prompt = String(creative.prompt || "").slice(0, 500);
   syncCreationStateToLegacyInputs();
@@ -1732,9 +1821,9 @@ async function saveCreationPanelDefaults(trigger) {
       throw new Error(payload?.code || `defaults_save_failed:${res.status}`);
     }
     applyCreationDefaults(data.defaults);
-    showToast(loginCopy("Default template saved.", "默认模板已保存。"));
+    showToast(loginCopy("Default template saved."));
   } catch (_err) {
-    showToast(loginCopy("Failed to save defaults.", "保存默认模板失败。"));
+    showToast(loginCopy("Failed to save defaults."));
   } finally {
     setButtonBusy(trigger, false);
   }
@@ -1743,19 +1832,26 @@ async function saveCreationPanelDefaults(trigger) {
 function creationSummaryText() {
   const s = creationState.selections;
   const styleSummary = String(styleInput?.value || "").trim();
-  const preset = getMembershipPreset();
+  // CSSOS_PHASE2_GET_MEMBERSHIP_PRESET_GUARD 20260426 #136 — Jing
+  // Same defensive guard as in app.creation-duration.js. Load order
+  // race with app.api-billing.js can leave getMembershipPreset
+  // undefined at the moment creationSummaryText runs.
+  const _gmp = (typeof globalThis.getMembershipPreset === "function")
+    ? globalThis.getMembershipPreset
+    : (typeof getMembershipPreset === "function" ? getMembershipPreset : null);
+  const preset = _gmp ? _gmp() : { tier: "guest", monthlyGenerationLimit: 0, maxDurationSec: 60, maxResolution: "720p", watermark: "default", queuePriority: "standard" };
   const membershipSummary = [
-    `${loginCopy("Tier", "会员")}: ${describeMembershipTier(preset.tier)}`,
+    `${loginCopy("Tier")}: ${describeMembershipTier(preset.tier)}`,
     preset.monthlyGenerationLimit === null
-      ? loginCopy("Monthly Limit: Unlimited", "月额度：无限制")
-      : loginCopy(`Monthly Limit: ${preset.monthlyGenerationLimit}`, `月额度：${preset.monthlyGenerationLimit}次`),
-    `${loginCopy("Max Video", "最长视频")}: ${preset.maxDurationSec}s / ${preset.maxResolution}`,
-    `${loginCopy("Watermark", "水印")}: ${
+      ? loginCopy("Monthly Limit: Unlimited")
+      : loginCopy(`Monthly Limit: ${preset.monthlyGenerationLimit}`),
+    `${loginCopy("Max Video")}: ${preset.maxDurationSec}s / ${preset.maxResolution}`,
+    `${loginCopy("Watermark")}: ${
       preset.watermark === "none"
-        ? loginCopy("Off", "无")
+        ? loginCopy("Off")
         : preset.watermark === "custom_or_none"
-          ? loginCopy("Custom or off", "可自定义或关闭")
-          : loginCopy("Default", "默认")
+          ? loginCopy("Custom or off")
+          : loginCopy("Default")
     }`
   ];
   const parts = [
@@ -1766,16 +1862,16 @@ function creationSummaryText() {
     s.instrument && `${creationTabLabel("instrument")}: ${creationChipLabel("instrument", s.instrument)}`,
     s.ambience && `${creationTabLabel("ambience")}: ${creationChipLabel("ambience", s.ambience)}`,
     s.vocalGender && `${creationTabLabel("vocalGender")}: ${creationChipLabel("vocalGender", s.vocalGender)}`,
-    creationState.instrumentation && `${loginCopy("Instrumentation", "编制")}: ${creationState.instrumentation}`,
-    creationState.vocalStyle && `${loginCopy("Vocal Style", "唱腔")}: ${creationState.vocalStyle}`,
-    creationState.ensembleStyle && `${loginCopy("Ensemble", "编制风格")}: ${creationState.ensembleStyle}`,
-    creationState.licensedStylePack && `${loginCopy("Licensed Pack", "授权风格包")}: ${creationState.licensedStylePack}`,
-    creationState.externalAudioAdapter && `${loginCopy("Audio Adapter", "外部音频适配器")}: ${creationState.externalAudioAdapter}`,
-    creationState.voicingRegister && `${loginCopy("Register", "音区")}: ${creationState.voicingRegister}`,
-    creationState.expressionCcBias && `${loginCopy("Expression", "表情控制")}: ${creationState.expressionCcBias}`,
-    `${loginCopy("Percussion", "打击活跃度")}: ${Math.round(Number(creationState.percussionActivity || 0) * 100)}%`,
-    `${loginCopy("Humanization", "拟真演奏")}: ${Math.round(Number(creationState.humanization || 0) * 100)}%`,
-    `${loginCopy("Work Type", "作品类型")}: ${workTypeLabel(creationState.workType)}`,
+    creationState.instrumentation && `${loginCopy("Instrumentation")}: ${creationState.instrumentation}`,
+    creationState.vocalStyle && `${loginCopy("Vocal Style")}: ${creationState.vocalStyle}`,
+    creationState.ensembleStyle && `${loginCopy("Ensemble")}: ${creationState.ensembleStyle}`,
+    creationState.licensedStylePack && `${loginCopy("Licensed Pack")}: ${creationState.licensedStylePack}`,
+    creationState.externalAudioAdapter && `${loginCopy("Audio Adapter")}: ${creationState.externalAudioAdapter}`,
+    creationState.voicingRegister && `${loginCopy("Register")}: ${creationState.voicingRegister}`,
+    creationState.expressionCcBias && `${loginCopy("Expression")}: ${creationState.expressionCcBias}`,
+    `${loginCopy("Percussion")}: ${Math.round(Number(creationState.percussionActivity || 0) * 100)}%`,
+    `${loginCopy("Humanization")}: ${Math.round(Number(creationState.humanization || 0) * 100)}%`,
+    `${loginCopy("Work Type")}: ${workTypeLabel(creationState.workType)}`,
     `${t("settings.tempoBpm")}: ${creationState.tempo} BPM`,
     `${t("settings.key")}: ${creationState.key}`,
     `${t("settings.durationSec")}: ${creationState.duration}s`,
@@ -1786,17 +1882,17 @@ function creationSummaryText() {
 
 const creationReferenceAtlas = {
   zh: {
-    region: loginCopy("Chinese-speaking worlds", "华语世界"),
+    region: loginCopy("Chinese-speaking worlds"),
     artists: ["周杰伦", "王菲", "邓丽君", "谭盾", "坂本龙一式电影感在东亚语境中的延展"],
     ensembles: ["中国爱乐乐团", "香港管弦乐团", "中国广播民族乐团", "江南丝竹 / 国风室内乐编制"]
   },
   ja: {
-    region: loginCopy("Japan", "日本"),
+    region: loginCopy("Japan"),
     artists: ["久石让", "宇多田光", "玉置浩二", "椎名林檎", "坂本龙一"],
     ensembles: ["NHK交响乐团", "东京爱乐乐团", "和太鼓团体", "城市流行乐队编制"]
   },
   en: {
-    region: loginCopy("US / UK and wider English-language worlds", "英语世界"),
+    region: loginCopy("US / UK and wider English-language worlds"),
     artists: ["The Beatles", "Aretha Franklin", "Whitney Houston", "Hans Zimmer", "Daft Punk"],
     ensembles: ["London Symphony Orchestra", "Berlin Philharmonic", "Metropole-style studio orchestra", "Gospel choir / soul band / synth-pop band"]
   }
@@ -1805,13 +1901,13 @@ const creationReferenceAtlas = {
 function buildPermissionCellForTier(row, tier) {
   const normalizedTier = normalizeAccessTier(tier);
   const access = typeof row.access === "function" ? row.access(normalizedTier) : row.access?.[normalizedTier];
-  if (access === true) return loginCopy("Yes", "可用");
-  if (access === false || access == null) return loginCopy("No", "不可用");
+  if (access === true) return loginCopy("Yes");
+  if (access === false || access == null) return loginCopy("No");
   return String(access);
 }
 
-const ACTION_PERMISSION_MATRIX_TIERS = ["guest", "free", "starter", "pro", "studio", "enterprise", "vip", "admin"];
-const DELIVERY_ADMIN_ONLY_ACTION_ATTRS = [
+const LEGACY_ACTION_PERMISSION_MATRIX_TIERS = ["guest", "free", "starter", "pro", "studio", "enterprise", "vip", "admin"];
+const LEGACY_DELIVERY_ADMIN_ONLY_ACTION_ATTRS = [
   "data-delivery-rewrite-bundle-commit",
   "data-delivery-rewrite-bundle-save",
   "data-delivery-rewrite-bundle-promote",
@@ -1858,54 +1954,54 @@ const DELIVERY_ADMIN_ONLY_ACTION_ATTRS = [
   "data-delivery-watch-case-export-bundle",
   "data-delivery-watch-case-status"
 ];
-const DELIVERY_STANDARD_SCOPE_RULES = [
-  { scope: "delivery.watch.case", panel: "ops", action: loginCopy("Delivery watch case actions", "交付 watch case 动作"), match: (name) => name.startsWith("data-delivery-watch-case-") },
-  { scope: "delivery.watch.archive", panel: "ops", action: loginCopy("Delivery watch archive actions", "交付 watch archive 动作"), match: (name) => name.includes("data-delivery-watch-archive-") },
-  { scope: "delivery.watch.compare", panel: "ops", action: loginCopy("Delivery watch compare actions", "交付 watch compare 动作"), match: (name) => name.includes("data-delivery-watch-compare-") },
-  { scope: "delivery.watch.saved_view", panel: "ops", action: loginCopy("Delivery watch saved view actions", "交付 watch saved view 动作"), match: (name) => name.includes("data-delivery-watch-saved-view-") },
-  { scope: "delivery.watch.standard", panel: "ops", action: loginCopy("Delivery watch actions", "交付 watch 动作"), match: (name) => name.startsWith("data-delivery-watch-") },
-  { scope: "delivery.compliance.refresh", panel: "ops", action: loginCopy("Delivery compliance refresh actions", "交付 compliance refresh 动作"), match: (name) => name === "data-delivery-compliance-refresh" },
-  { scope: "delivery.compliance.open", panel: "ops", action: loginCopy("Delivery compliance open actions", "交付 compliance open 动作"), match: (name) => name === "data-delivery-compliance-open" },
-  { scope: "delivery.compliance.registry", panel: "ops", action: loginCopy("Delivery compliance registry actions", "交付 compliance registry 动作"), match: (name) => ["data-delivery-compliance-update-registry", "data-delivery-compliance-save-directory", "data-delivery-compliance-save-preset", "data-delivery-compliance-save-role-policy", "data-delivery-compliance-save-routing", "data-delivery-compliance-save-signers", "data-delivery-compliance-backfill"].includes(name) },
-  { scope: "delivery.compliance.approval", panel: "ops", action: loginCopy("Delivery compliance approval actions", "交付 compliance approval 动作"), match: (name) => ["data-delivery-compliance-approve", "data-delivery-compliance-escalate", "data-delivery-compliance-ticket", "data-delivery-compliance-audit-log"].includes(name) },
-  { scope: "delivery.compliance.signer", panel: "ops", action: loginCopy("Delivery compliance signer actions", "交付 compliance signer 动作"), match: (name) => ["data-delivery-compliance-rotate-secret", "data-delivery-compliance-reopen"].includes(name) },
-  { scope: "delivery.compliance.quorum", panel: "ops", action: loginCopy("Delivery compliance quorum actions", "交付 compliance quorum 动作"), match: (name) => name === "data-delivery-compliance-finalize-quorum" },
-  { scope: "delivery.compliance.standard", panel: "ops", action: loginCopy("Delivery compliance actions", "交付 compliance 动作"), match: (name) => name.startsWith("data-delivery-compliance-") },
-  { scope: "delivery.rewrite.bundle", panel: "reports", action: loginCopy("Delivery rewrite bundle actions", "交付 rewrite bundle 动作"), match: (name) => name.includes("data-delivery-rewrite-bundle-") },
-  { scope: "delivery.rewrite.sandbox", panel: "reports", action: loginCopy("Delivery rewrite sandbox actions", "交付 rewrite sandbox 动作"), match: (name) => name.includes("data-delivery-rewrite-sandbox-") },
-  { scope: "delivery.rewrite.diff", panel: "reports", action: loginCopy("Delivery rewrite diff actions", "交付 rewrite diff 动作"), match: (name) => name === "data-delivery-rewrite-diff-focus" },
-  { scope: "delivery.rewrite.playback", panel: "reports", action: loginCopy("Delivery rewrite playback actions", "交付 rewrite playback 动作"), match: (name) => ["data-delivery-rewrite-phrase-play", "data-delivery-rewrite-lane", "data-delivery-rewrite-payload-mode", "data-delivery-rewrite-assist"].includes(name) },
-  { scope: "delivery.rewrite.standard", panel: "reports", action: loginCopy("Delivery rewrite actions", "交付 rewrite 动作"), match: (name) => name.startsWith("data-delivery-rewrite-") },
-  { scope: "delivery.probe.dispatch", panel: "ops", action: loginCopy("Delivery probe dispatch actions", "交付 probe dispatch 动作"), match: (name) => name.includes("data-delivery-probe-dispatch-") },
-  { scope: "delivery.probe.export", panel: "ops", action: loginCopy("Delivery probe export actions", "交付 probe export 动作"), match: (name) => ["data-delivery-probe-incident-export", "data-delivery-probe-receipt-copy", "data-delivery-probe-followup-copy"].includes(name) },
-  { scope: "delivery.probe.handoff", panel: "ops", action: loginCopy("Delivery probe handoff actions", "交付 probe handoff 动作"), match: (name) => name === "data-delivery-probe-handoff-ack" },
-  { scope: "delivery.probe.compare", panel: "ops", action: loginCopy("Delivery probe compare actions", "交付 probe compare 动作"), match: (name) => name === "data-delivery-probe-compare-select" },
-  { scope: "delivery.probe.standard", panel: "ops", action: loginCopy("Delivery probe actions", "交付 probe 动作"), match: (name) => name.startsWith("data-delivery-probe-") },
-  { scope: "delivery.publish.simulate", panel: "reports", action: loginCopy("Delivery publish simulate actions", "交付 publish simulate 动作"), match: (name) => name === "data-delivery-publish-simulate" },
-  { scope: "delivery.publish.route", panel: "reports", action: loginCopy("Delivery publish route actions", "交付 publish route 动作"), match: (name) => ["data-delivery-publish-route-shortcut", "data-delivery-publish-actor-suggest", "data-delivery-publish-runbook-automation"].includes(name) },
-  { scope: "delivery.publish.confirm", panel: "reports", action: loginCopy("Delivery publish confirm actions", "交付 publish confirm 动作"), match: (name) => ["data-delivery-publish-confirm-arm", "data-delivery-publish-confirm-disarm", "data-delivery-publish-ack-note"].includes(name) },
-  { scope: "delivery.publish.finalize", panel: "reports", action: loginCopy("Delivery publish finalize actions", "交付 publish finalize 动作"), match: (name) => ["data-delivery-publish-step-approve", "data-delivery-publish-step-finalize", "data-delivery-publish-step-remind"].includes(name) },
-  { scope: "delivery.publish.standard", panel: "reports", action: loginCopy("Delivery publish actions", "交付 publish 动作"), match: (name) => name.startsWith("data-delivery-publish-") },
-  { scope: "delivery.post_publish.standard", panel: "reports", action: loginCopy("Delivery post-publish actions", "交付发布后动作"), match: (name) => name.startsWith("data-delivery-post-publish-") },
-  { scope: "delivery.arrangement.standard", panel: "reports", action: loginCopy("Delivery arrangement actions", "交付 arrangement 动作"), match: (name) => name.startsWith("data-delivery-arrangement-") },
-  { scope: "delivery.mixer.standard", panel: "reports", action: loginCopy("Delivery mixer actions", "交付 mixer 动作"), match: (name) => name.startsWith("data-delivery-mixer-") },
-  { scope: "delivery.ops.standard", panel: "ops", action: loginCopy("Delivery ops actions", "交付 ops 动作"), match: (name) => name.startsWith("data-delivery-ops-") }
+const LEGACY_DELIVERY_STANDARD_SCOPE_RULES = [
+  { scope: "delivery.watch.case", panel: "ops", action: loginCopy("Delivery watch case actions"), match: (name) => name.startsWith("data-delivery-watch-case-") },
+  { scope: "delivery.watch.archive", panel: "ops", action: loginCopy("Delivery watch archive actions"), match: (name) => name.includes("data-delivery-watch-archive-") },
+  { scope: "delivery.watch.compare", panel: "ops", action: loginCopy("Delivery watch compare actions"), match: (name) => name.includes("data-delivery-watch-compare-") },
+  { scope: "delivery.watch.saved_view", panel: "ops", action: loginCopy("Delivery watch saved view actions"), match: (name) => name.includes("data-delivery-watch-saved-view-") },
+  { scope: "delivery.watch.standard", panel: "ops", action: loginCopy("Delivery watch actions"), match: (name) => name.startsWith("data-delivery-watch-") },
+  { scope: "delivery.compliance.refresh", panel: "ops", action: loginCopy("Delivery compliance refresh actions"), match: (name) => name === "data-delivery-compliance-refresh" },
+  { scope: "delivery.compliance.open", panel: "ops", action: loginCopy("Delivery compliance open actions"), match: (name) => name === "data-delivery-compliance-open" },
+  { scope: "delivery.compliance.registry", panel: "ops", action: loginCopy("Delivery compliance registry actions"), match: (name) => ["data-delivery-compliance-update-registry", "data-delivery-compliance-save-directory", "data-delivery-compliance-save-preset", "data-delivery-compliance-save-role-policy", "data-delivery-compliance-save-routing", "data-delivery-compliance-save-signers", "data-delivery-compliance-backfill"].includes(name) },
+  { scope: "delivery.compliance.approval", panel: "ops", action: loginCopy("Delivery compliance approval actions"), match: (name) => ["data-delivery-compliance-approve", "data-delivery-compliance-escalate", "data-delivery-compliance-ticket", "data-delivery-compliance-audit-log"].includes(name) },
+  { scope: "delivery.compliance.signer", panel: "ops", action: loginCopy("Delivery compliance signer actions"), match: (name) => ["data-delivery-compliance-rotate-secret", "data-delivery-compliance-reopen"].includes(name) },
+  { scope: "delivery.compliance.quorum", panel: "ops", action: loginCopy("Delivery compliance quorum actions"), match: (name) => name === "data-delivery-compliance-finalize-quorum" },
+  { scope: "delivery.compliance.standard", panel: "ops", action: loginCopy("Delivery compliance actions"), match: (name) => name.startsWith("data-delivery-compliance-") },
+  { scope: "delivery.rewrite.bundle", panel: "reports", action: loginCopy("Delivery rewrite bundle actions"), match: (name) => name.includes("data-delivery-rewrite-bundle-") },
+  { scope: "delivery.rewrite.sandbox", panel: "reports", action: loginCopy("Delivery rewrite sandbox actions"), match: (name) => name.includes("data-delivery-rewrite-sandbox-") },
+  { scope: "delivery.rewrite.diff", panel: "reports", action: loginCopy("Delivery rewrite diff actions"), match: (name) => name === "data-delivery-rewrite-diff-focus" },
+  { scope: "delivery.rewrite.playback", panel: "reports", action: loginCopy("Delivery rewrite playback actions"), match: (name) => ["data-delivery-rewrite-phrase-play", "data-delivery-rewrite-lane", "data-delivery-rewrite-payload-mode", "data-delivery-rewrite-assist"].includes(name) },
+  { scope: "delivery.rewrite.standard", panel: "reports", action: loginCopy("Delivery rewrite actions"), match: (name) => name.startsWith("data-delivery-rewrite-") },
+  { scope: "delivery.probe.dispatch", panel: "ops", action: loginCopy("Delivery probe dispatch actions"), match: (name) => name.includes("data-delivery-probe-dispatch-") },
+  { scope: "delivery.probe.export", panel: "ops", action: loginCopy("Delivery probe export actions"), match: (name) => ["data-delivery-probe-incident-export", "data-delivery-probe-receipt-copy", "data-delivery-probe-followup-copy"].includes(name) },
+  { scope: "delivery.probe.handoff", panel: "ops", action: loginCopy("Delivery probe handoff actions"), match: (name) => name === "data-delivery-probe-handoff-ack" },
+  { scope: "delivery.probe.compare", panel: "ops", action: loginCopy("Delivery probe compare actions"), match: (name) => name === "data-delivery-probe-compare-select" },
+  { scope: "delivery.probe.standard", panel: "ops", action: loginCopy("Delivery probe actions"), match: (name) => name.startsWith("data-delivery-probe-") },
+  { scope: "delivery.publish.simulate", panel: "reports", action: loginCopy("Delivery publish simulate actions"), match: (name) => name === "data-delivery-publish-simulate" },
+  { scope: "delivery.publish.route", panel: "reports", action: loginCopy("Delivery publish route actions"), match: (name) => ["data-delivery-publish-route-shortcut", "data-delivery-publish-actor-suggest", "data-delivery-publish-runbook-automation"].includes(name) },
+  { scope: "delivery.publish.confirm", panel: "reports", action: loginCopy("Delivery publish confirm actions"), match: (name) => ["data-delivery-publish-confirm-arm", "data-delivery-publish-confirm-disarm", "data-delivery-publish-ack-note"].includes(name) },
+  { scope: "delivery.publish.finalize", panel: "reports", action: loginCopy("Delivery publish finalize actions"), match: (name) => ["data-delivery-publish-step-approve", "data-delivery-publish-step-finalize", "data-delivery-publish-step-remind"].includes(name) },
+  { scope: "delivery.publish.standard", panel: "reports", action: loginCopy("Delivery publish actions"), match: (name) => name.startsWith("data-delivery-publish-") },
+  { scope: "delivery.post_publish.standard", panel: "reports", action: loginCopy("Delivery post-publish actions"), match: (name) => name.startsWith("data-delivery-post-publish-") },
+  { scope: "delivery.arrangement.standard", panel: "reports", action: loginCopy("Delivery arrangement actions"), match: (name) => name.startsWith("data-delivery-arrangement-") },
+  { scope: "delivery.mixer.standard", panel: "reports", action: loginCopy("Delivery mixer actions"), match: (name) => name.startsWith("data-delivery-mixer-") },
+  { scope: "delivery.ops.standard", panel: "ops", action: loginCopy("Delivery ops actions"), match: (name) => name.startsWith("data-delivery-ops-") }
 ];
 
 function deliveryPermissionScopeFromAttr(attrName = "") {
   const normalized = String(attrName || "").trim().toLowerCase();
   if (!normalized.startsWith("data-delivery-")) return "";
-  if (DELIVERY_ADMIN_ONLY_ACTION_ATTRS.includes(normalized)) {
+  if (LEGACY_DELIVERY_ADMIN_ONLY_ACTION_ATTRS.includes(normalized)) {
     return `delivery.action.${normalized.replace(/^data-delivery-/, "").replaceAll("-", ".")}`;
   }
-  const matched = DELIVERY_STANDARD_SCOPE_RULES.find((entry) => entry.match(normalized));
+  const matched = LEGACY_DELIVERY_STANDARD_SCOPE_RULES.find((entry) => entry.match(normalized));
   if (matched) return matched.scope;
   return "delivery.action.standard";
 }
 
 function deliveryPermissionPanelFromAttr(attrName = "") {
   const normalized = String(attrName || "").trim().toLowerCase();
-  const matched = DELIVERY_STANDARD_SCOPE_RULES.find((entry) => entry.match(normalized));
+  const matched = LEGACY_DELIVERY_STANDARD_SCOPE_RULES.find((entry) => entry.match(normalized));
   if (matched) return matched.panel;
   if (normalized.includes("-probe-") || normalized.includes("-watch-") || normalized.includes("-compliance-")) {
     return "ops";
@@ -1921,11 +2017,11 @@ function deliveryPermissionActionLabel(attrName = "") {
     .join(" / ");
   const english = label.replace(/\b\w/g, (char) => char.toUpperCase()) || "Delivery action";
   const chinese = `交付动作：${label || "标准动作"}`;
-  return loginCopy(english, chinese);
+  return loginCopy(english);
 }
 
 function permissionBooleanLabel(allowed) {
-  return allowed ? loginCopy("Yes", "可用") : false;
+  return allowed ? loginCopy("Yes") : false;
 }
 
 function isBasicPlusTier(tier) {
@@ -1976,7 +2072,7 @@ function deliveryScopeAllowedForTier(scope, tier, ctx) {
 function deliveryScopeDescribeForTier(scope, tier) {
   const normalizedScope = String(scope || "").trim().toLowerCase();
   if (normalizedScope === "delivery.watch.compare" || normalizedScope === "delivery.rewrite.playback" || normalizedScope === "delivery.probe.compare") {
-    return normalizeAccessTier(tier) === "guest" ? false : loginCopy("Basic+", "Basic 及以上");
+    return normalizeAccessTier(tier) === "guest" ? false : loginCopy("Basic+");
   }
   if (
     normalizedScope === "delivery.rewrite.bundle" ||
@@ -1988,7 +2084,7 @@ function deliveryScopeDescribeForTier(scope, tier) {
     normalizedScope === "delivery.probe.export" ||
     normalizedScope === "delivery.probe.handoff"
   ) {
-    return isProPlusTier(tier) ? loginCopy("Pro+", "Pro 及以上") : false;
+    return isProPlusTier(tier) ? loginCopy("Pro+") : false;
   }
   if (
     normalizedScope === "delivery.compliance.approval" ||
@@ -1997,12 +2093,12 @@ function deliveryScopeDescribeForTier(scope, tier) {
     normalizedScope === "delivery.publish.finalize" ||
     normalizedScope === "delivery.publish.confirm"
   ) {
-    return isEnterprisePlusTier(tier) ? loginCopy("Enterprise+", "Enterprise 及以上") : false;
+    return isEnterprisePlusTier(tier) ? loginCopy("Enterprise+") : false;
   }
   if (normalizedScope.startsWith("delivery.action.")) {
-    return normalizeAccessTier(tier) === "admin" ? loginCopy("Admin", "管理员") : false;
+    return normalizeAccessTier(tier) === "admin" ? loginCopy("Admin") : false;
   }
-  return normalizeAccessTier(tier) === "guest" ? false : loginCopy("Basic+", "Basic 及以上");
+  return normalizeAccessTier(tier) === "guest" ? false : loginCopy("Basic+");
 }
 
 function buildActionPermissionRegistry(settings = readPanelBehaviorSettingsLocal()) {
@@ -2012,457 +2108,457 @@ function buildActionPermissionRegistry(settings = readPanelBehaviorSettingsLocal
   const studioLimit = Number(current.membership.studio_monthly_limit || 300);
   const enterpriseLimit = Number(current.membership.enterprise_monthly_limit || 0);
   const enterpriseQuotaLabel =
-    enterpriseLimit > 0 ? loginCopy(`${enterpriseLimit}/month`, `${enterpriseLimit} 次/月`) : loginCopy("Unlimited", "无限");
+    enterpriseLimit > 0 ? loginCopy(`${enterpriseLimit}/month`) : loginCopy("Unlimited");
   const registry = [
     {
       scope: "login.open",
       panel: "login",
-      action: loginCopy("Open login panel", "打开登录面板"),
+      action: loginCopy("Open login panel"),
       allowed: () => true,
-      describe: () => loginCopy("Open", "可打开")
+      describe: () => loginCopy("Open")
     },
     {
       scope: "login.provider.switch",
       panel: "login",
-      action: loginCopy("Switch linked provider", "切换已绑定平台"),
+      action: loginCopy("Switch linked provider"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "login.provider.unlink",
       panel: "login",
-      action: loginCopy("Unlink provider", "解绑平台"),
+      action: loginCopy("Unlink provider"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "login.logout",
       panel: "login",
-      action: loginCopy("Logout", "退出登录"),
+      action: loginCopy("Logout"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "profile.open",
       panel: "profile",
-      action: loginCopy("Open profile panel", "打开资料面板"),
+      action: loginCopy("Open profile panel"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "profile.passkey.login",
       panel: "profile",
-      action: loginCopy("Passkey login", "Passkey 登录"),
+      action: loginCopy("Passkey login"),
       allowed: () => true,
-      describe: () => loginCopy("Yes", "可用")
+      describe: () => loginCopy("Yes")
     },
     {
       scope: "profile.passkey.enable",
       panel: "profile",
-      action: loginCopy("Enable passkey", "启用 Passkey"),
+      action: loginCopy("Enable passkey"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "profile.avatar.edit",
       panel: "profile",
-      action: loginCopy("Change avatar", "修改头像"),
+      action: loginCopy("Change avatar"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "profile.nav.works",
       panel: "profile",
-      action: loginCopy("Jump to works center", "跳转作品中心"),
+      action: loginCopy("Jump to works center"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "profile.nav.api",
       panel: "profile",
-      action: loginCopy("Jump to API panel", "跳转 API 面板"),
+      action: loginCopy("Jump to API panel"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "works.open",
       panel: "works",
-      action: loginCopy("Open works center", "打开作品中心"),
+      action: loginCopy("Open works center"),
       allowed: (tier, ctx) => ctx.loggedIn,
-      describe: (tier) => (tier === "guest" ? loginCopy("Prompt login", "提示登录") : loginCopy("Yes", "可用"))
+      describe: (tier) => (tier === "guest" ? loginCopy("Prompt login") : loginCopy("Yes"))
     },
     {
       scope: "works.own.view",
       panel: "works",
-      action: loginCopy("View/download own works", "查看/下载自己的作品"),
+      action: loginCopy("View/download own works"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "works.watch",
       panel: "works",
-      action: loginCopy("Open own work in watch panel", "在欣赏面板打开自己的作品"),
+      action: loginCopy("Open own work in watch panel"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "works.thumbnail.regen",
       panel: "works",
-      action: loginCopy("Paid thumbnail value-pack", "付费缩略图增值包装"),
+      action: loginCopy("Paid thumbnail value-pack"),
       allowed: (tier, ctx) => ctx.loggedIn,
-      describe: (tier) => (tier === "guest" ? loginCopy("Prompt login", "提示登录") : loginCopy("Login + paid boost", "登录后按次付费"))
+      describe: (tier) => (tier === "guest" ? loginCopy("Prompt login") : loginCopy("Login + paid boost"))
     },
     {
       scope: "works.preview_video.regen",
       panel: "works",
-      action: loginCopy("Paid preview video value-pack", "付费缩略视频增值包装"),
+      action: loginCopy("Paid preview video value-pack"),
       allowed: (tier, ctx) => ctx.loggedIn,
-      describe: (tier) => (tier === "guest" ? loginCopy("Prompt login", "提示登录") : loginCopy("Login + paid boost", "登录后按次付费"))
+      describe: (tier) => (tier === "guest" ? loginCopy("Prompt login") : loginCopy("Login + paid boost"))
     },
     {
       scope: "works.type.edit",
       panel: "works",
-      action: loginCopy("Edit work type", "编辑作品类型"),
+      action: loginCopy("Edit work type"),
       allowed: (tier) => isPaidMemberTier(tier),
       describe: (tier) => permissionBooleanLabel(isPaidMemberTier(tier))
     },
     {
       scope: "works.price.edit",
       panel: "works",
-      action: loginCopy("Edit listen / buyout price", "编辑聆听 / 买断价格"),
+      action: loginCopy("Edit listen / buyout price"),
       allowed: (tier) => isPaidMemberTier(tier),
       describe: (tier) => permissionBooleanLabel(isPaidMemberTier(tier))
     },
     {
       scope: "works.visibility.edit",
       panel: "works",
-      action: loginCopy("Edit listing visibility", "编辑上架可见性"),
+      action: loginCopy("Edit listing visibility"),
       allowed: (tier) => isPaidMemberTier(tier),
       describe: (tier) => permissionBooleanLabel(isPaidMemberTier(tier))
     },
     {
       scope: "works.sell",
       panel: "works",
-      action: loginCopy("Publish / sell works", "上架 / 销售作品"),
+      action: loginCopy("Publish / sell works"),
       allowed: (tier) => isPaidMemberTier(tier),
       describe: (tier) => permissionBooleanLabel(isPaidMemberTier(tier))
     },
     {
       scope: "works.payout",
       panel: "works",
-      action: loginCopy("Set up payout", "设置收款"),
+      action: loginCopy("Set up payout"),
       allowed: (tier) => isPaidMemberTier(tier),
       describe: (tier) => permissionBooleanLabel(isPaidMemberTier(tier))
     },
     {
       scope: "seller.view",
       panel: "seller",
-      action: loginCopy("Open seller dashboard", "打开卖家面板"),
+      action: loginCopy("Open seller dashboard"),
       allowed: (tier) => isPaidMemberTier(tier),
-      describe: (tier) => (tier === "guest" ? loginCopy("Prompt login", "提示登录") : permissionBooleanLabel(isPaidMemberTier(tier)))
+      describe: (tier) => (tier === "guest" ? loginCopy("Prompt login") : permissionBooleanLabel(isPaidMemberTier(tier)))
     },
     {
       scope: "seller.payout",
       panel: "seller",
-      action: loginCopy("Seller payout tools", "卖家收款工具"),
+      action: loginCopy("Seller payout tools"),
       allowed: (tier) => isPaidMemberTier(tier),
       describe: (tier) => permissionBooleanLabel(isPaidMemberTier(tier))
     },
     {
       scope: "seller.operate",
       panel: "seller",
-      action: loginCopy("Operate seller controls", "执行高级卖家操作"),
+      action: loginCopy("Operate seller controls"),
       allowed: (tier) => isVipOrAdminTier(tier),
       describe: (tier) => permissionBooleanLabel(isVipOrAdminTier(tier))
     },
     {
       scope: "api.docs.view",
       panel: "api",
-      action: loginCopy("Browse API docs", "浏览 API 文档"),
+      action: loginCopy("Browse API docs"),
       allowed: () => true,
-      describe: () => loginCopy("Yes", "可用")
+      describe: () => loginCopy("Yes")
     },
     {
       scope: "api.billing.view",
       panel: "api",
-      action: loginCopy("View API billing", "查看 API 账单"),
+      action: loginCopy("View API billing"),
       allowed: () => true,
-      describe: (tier) => (tier === "guest" ? loginCopy("Docs only", "仅文档") : loginCopy("Yes", "可用"))
+      describe: (tier) => (tier === "guest" ? loginCopy("Docs only") : loginCopy("Yes"))
     },
     {
       scope: "api.billing.manage",
       panel: "api",
-      action: loginCopy("Manage balance / auto-recharge", "管理余额 / 自动充值"),
+      action: loginCopy("Manage balance / auto-recharge"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "api.enterprise.route",
       panel: "api",
-      action: loginCopy("Enterprise API route", "企业 API 实际路由"),
+      action: loginCopy("Enterprise API route"),
       allowed: (tier) => canUseEnterpriseApiClient(tier),
-      describe: (tier) => (canUseEnterpriseApiClient(tier) ? loginCopy("Enabled when admin opens it", "管理员开启后可用") : false)
+      describe: (tier) => (canUseEnterpriseApiClient(tier) ? loginCopy("Enabled when admin opens it") : false)
     },
     {
       scope: "reports.open",
       panel: "reports",
-      action: loginCopy("Open reports panel", "打开报表面板"),
+      action: loginCopy("Open reports panel"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "reports.export.use",
       panel: "reports",
-      action: loginCopy("Use report export UI", "使用报表导出界面"),
+      action: loginCopy("Use report export UI"),
       allowed: (tier, ctx) => ctx.loggedIn,
-      describe: (tier) => (tier === "guest" ? false : loginCopy("View only", "只读查看"))
+      describe: (tier) => (tier === "guest" ? false : loginCopy("View only"))
     },
     {
       scope: "reports.export.source.select",
       panel: "reports",
-      action: loginCopy("Select export source", "选择导出来源"),
+      action: loginCopy("Select export source"),
       allowed: (tier) => isVipOrAdminTier(tier),
       describe: (tier) => permissionBooleanLabel(isVipOrAdminTier(tier))
     },
     {
       scope: "reports.export.format.select",
       panel: "reports",
-      action: loginCopy("Select export format", "选择导出格式"),
+      action: loginCopy("Select export format"),
       allowed: (tier) => isVipOrAdminTier(tier),
       describe: (tier) => permissionBooleanLabel(isVipOrAdminTier(tier))
     },
     {
       scope: "reports.export.generate",
       panel: "reports",
-      action: loginCopy("Generate new export", "生成新的导出"),
+      action: loginCopy("Generate new export"),
       allowed: (tier) => isVipOrAdminTier(tier),
       describe: (tier) => permissionBooleanLabel(isVipOrAdminTier(tier))
     },
     {
       scope: "reports.export.result.copy",
       panel: "reports",
-      action: loginCopy("Copy export result", "复制导出结果"),
+      action: loginCopy("Copy export result"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "reports.export.result.download",
       panel: "reports",
-      action: loginCopy("Download export result", "下载导出结果"),
+      action: loginCopy("Download export result"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "reports.export.preview.toggle",
       panel: "reports",
-      action: loginCopy("Expand / collapse export preview", "展开 / 折叠导出预览"),
+      action: loginCopy("Expand / collapse export preview"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "reports.history.filter",
       panel: "reports",
-      action: loginCopy("Filter history", "筛选导出历史"),
+      action: loginCopy("Filter history"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "reports.history.search",
       panel: "reports",
-      action: loginCopy("Search history", "搜索导出历史"),
+      action: loginCopy("Search history"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "reports.history.select",
       panel: "reports",
-      action: loginCopy("Select history rows", "选择历史记录"),
+      action: loginCopy("Select history rows"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "reports.history.bulk.download",
       panel: "reports",
-      action: loginCopy("Download selected history bundle", "下载所选历史合集"),
+      action: loginCopy("Download selected history bundle"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "reports.history.bulk.delete",
       panel: "reports",
-      action: loginCopy("Delete selected history rows", "删除所选历史记录"),
+      action: loginCopy("Delete selected history rows"),
       allowed: (tier) => isVipOrAdminTier(tier),
       describe: (tier) => permissionBooleanLabel(isVipOrAdminTier(tier))
     },
     {
       scope: "reports.history.sort",
       panel: "reports",
-      action: loginCopy("Sort history", "排序历史记录"),
+      action: loginCopy("Sort history"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "reports.history.clear_selection",
       panel: "reports",
-      action: loginCopy("Clear history selection", "清空历史选择"),
+      action: loginCopy("Clear history selection"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "reports.history.clear",
       panel: "reports",
-      action: loginCopy("Clear export history", "清空导出历史"),
+      action: loginCopy("Clear export history"),
       allowed: (tier) => isVipOrAdminTier(tier),
       describe: (tier) => permissionBooleanLabel(isVipOrAdminTier(tier))
     },
     {
       scope: "reports.history.pin",
       panel: "reports",
-      action: loginCopy("Pin / unpin history", "固定 / 取消固定历史"),
+      action: loginCopy("Pin / unpin history"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "reports.history.restore",
       panel: "reports",
-      action: loginCopy("Restore history item to result", "把历史记录载入结果区"),
+      action: loginCopy("Restore history item to result"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "reports.history.copy",
       panel: "reports",
-      action: loginCopy("Copy history item", "复制历史记录"),
+      action: loginCopy("Copy history item"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "reports.history.download",
       panel: "reports",
-      action: loginCopy("Download history item", "下载历史记录"),
+      action: loginCopy("Download history item"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => permissionBooleanLabel(tier !== "guest")
     },
     {
       scope: "reports.history.delete",
       panel: "reports",
-      action: loginCopy("Delete single history item", "删除单条历史记录"),
+      action: loginCopy("Delete single history item"),
       allowed: (tier) => isVipOrAdminTier(tier),
       describe: (tier) => permissionBooleanLabel(isVipOrAdminTier(tier))
     },
     {
       scope: "creation.start",
       panel: "creation",
-      action: loginCopy("Start generation", "开始生成"),
+      action: loginCopy("Start generation"),
       allowed: (tier, ctx) => ctx.loggedIn,
       describe: (tier) => ({
-        guest: loginCopy("Prompt login", "提示登录"),
-        free: loginCopy("3/month", "3 次/月"),
-        starter: loginCopy(`${starterLimit}/month`, `${starterLimit} 次/月`),
-        pro: loginCopy(`${proLimit}/month`, `${proLimit} 次/月`),
-        studio: loginCopy(`${studioLimit}/month`, `${studioLimit} 次/月`),
+        guest: loginCopy("Prompt login"),
+        free: loginCopy("3/month"),
+        starter: loginCopy(`${starterLimit}/month`),
+        pro: loginCopy(`${proLimit}/month`),
+        studio: loginCopy(`${studioLimit}/month`),
         enterprise: enterpriseQuotaLabel,
-        vip: loginCopy("Unlimited", "无限"),
-        admin: loginCopy("Unlimited", "无限")
+        vip: loginCopy("Unlimited"),
+        admin: loginCopy("Unlimited")
       })[tier]
     },
     {
       scope: "creation.advanced",
       panel: "creation",
-      action: loginCopy("Advanced creation settings", "高级创作设置"),
+      action: loginCopy("Advanced creation settings"),
       allowed: (tier) => ["pro", "studio", "enterprise", "vip", "admin"].includes(tier),
       describe: (tier) => permissionBooleanLabel(["pro", "studio", "enterprise", "vip", "admin"].includes(tier))
     },
     {
       scope: "creation.structured",
       panel: "creation",
-      action: loginCopy("Structured works / triptych / opera", "结构化作品 / 三部曲 / 歌剧"),
+      action: loginCopy("Structured works / triptych / opera"),
       allowed: (tier) => ["pro", "studio", "enterprise", "vip", "admin"].includes(tier),
       describe: (tier) => permissionBooleanLabel(["pro", "studio", "enterprise", "vip", "admin"].includes(tier))
     },
     {
       scope: "creation.extras",
       panel: "creation",
-      action: loginCopy("Extra languages / voice lanes", "额外语言 / 多声线"),
+      action: loginCopy("Extra languages / voice lanes"),
       allowed: (tier) => !["guest", "free"].includes(tier),
       describe: (tier) => ({
         guest: false,
-        free: loginCopy("Upgrade first", "先升级会员"),
-        starter: loginCopy("Boost", "临时加购"),
-        pro: loginCopy("Boost", "临时加购"),
-        studio: loginCopy("Included + boost", "部分内含 + 可加购"),
-        enterprise: loginCopy("Included + boost", "部分内含 + 可加购"),
-        vip: loginCopy("Unlimited", "无限"),
-        admin: loginCopy("Unlimited", "无限")
+        free: loginCopy("Upgrade first"),
+        starter: loginCopy("Boost"),
+        pro: loginCopy("Boost"),
+        studio: loginCopy("Included + boost"),
+        enterprise: loginCopy("Included + boost"),
+        vip: loginCopy("Unlimited"),
+        admin: loginCopy("Unlimited")
       })[tier]
     },
     {
       scope: "creation.cinema",
       panel: "creation",
-      action: loginCopy("Cinema-grade generation", "电影级生成"),
+      action: loginCopy("Cinema-grade generation"),
       allowed: (tier) => tier === "admin",
       describe: (tier) => ({
         guest: false,
         free: false,
         starter: false,
-        pro: loginCopy("Booking only", "仅预约"),
-        studio: loginCopy("Booking only", "仅预约"),
-        enterprise: loginCopy("Contract / booking", "合同 / 预约"),
-        vip: loginCopy("Private arrangement", "专门安排"),
-        admin: loginCopy("Yes", "可用")
+        pro: loginCopy("Booking only"),
+        studio: loginCopy("Booking only"),
+        enterprise: loginCopy("Contract / booking"),
+        vip: loginCopy("Private arrangement"),
+        admin: loginCopy("Yes")
       })[tier]
     },
     {
       scope: "cssmv.open",
       panel: "cssmv",
-      action: loginCopy("Open CSSMV panel / digest / timeline", "打开 CSSMV 面板 / 摘要 / 时间线"),
+      action: loginCopy("Open CSSMV panel / digest / timeline"),
       allowed: (tier, ctx) => ctx.loggedIn,
-      describe: (tier) => (tier === "guest" ? loginCopy("Prompt login", "提示登录") : loginCopy("Yes", "可用"))
+      describe: (tier) => (tier === "guest" ? loginCopy("Prompt login") : loginCopy("Yes"))
     },
     {
       scope: "cssmv.workspace.sync",
       panel: "cssmv",
-      action: loginCopy("Studio workspace/project sync", "Studio 工作区 / 项目同步"),
+      action: loginCopy("Studio workspace/project sync"),
       allowed: (tier) => canUseStudioWorkspaceClient(tier),
       describe: (tier) => permissionBooleanLabel(canUseStudioWorkspaceClient(tier))
     },
     {
       scope: "cssmv.action.retry",
       panel: "cssmv",
-      action: loginCopy("Delivery action: retry", "CSSMV 动作：重试"),
+      action: loginCopy("Delivery action: retry"),
       allowed: (tier) => ["pro", "studio", "enterprise", "vip", "admin"].includes(tier),
       describe: (tier) => permissionBooleanLabel(["pro", "studio", "enterprise", "vip", "admin"].includes(tier))
     },
     {
       scope: "cssmv.action.force_refresh_signals",
       panel: "cssmv",
-      action: loginCopy("Delivery action: force refresh signals", "CSSMV 动作：强制刷新信号"),
+      action: loginCopy("Delivery action: force refresh signals"),
       allowed: (tier) => ["studio", "enterprise", "vip", "admin"].includes(tier),
       describe: (tier) => permissionBooleanLabel(["studio", "enterprise", "vip", "admin"].includes(tier))
     },
     {
       scope: "cssmv.action.capture_snapshot",
       panel: "cssmv",
-      action: loginCopy("Delivery action: capture snapshot", "CSSMV 动作：捕获快照"),
+      action: loginCopy("Delivery action: capture snapshot"),
       allowed: (tier) => ["studio", "enterprise", "vip", "admin"].includes(tier),
       describe: (tier) => permissionBooleanLabel(["studio", "enterprise", "vip", "admin"].includes(tier))
     },
     {
       scope: "cssmv.action.escalate_ops",
       panel: "cssmv",
-      action: loginCopy("Delivery action: escalate ops", "CSSMV 动作：升级到运维"),
+      action: loginCopy("Delivery action: escalate ops"),
       allowed: (tier) => ["enterprise", "vip", "admin"].includes(tier),
       describe: (tier) => permissionBooleanLabel(["enterprise", "vip", "admin"].includes(tier))
     },
     {
       scope: "cssmv.action.require_manual_intervention",
       panel: "cssmv",
-      action: loginCopy("Delivery action: require manual intervention", "CSSMV 动作：要求人工介入"),
+      action: loginCopy("Delivery action: require manual intervention"),
       allowed: (tier) => ["vip", "admin"].includes(tier),
       describe: (tier) => permissionBooleanLabel(["vip", "admin"].includes(tier))
     }
   ];
-  DELIVERY_STANDARD_SCOPE_RULES.forEach((entry) => {
+  LEGACY_DELIVERY_STANDARD_SCOPE_RULES.forEach((entry) => {
     registry.push({
       scope: entry.scope,
       panel: entry.panel,
@@ -2474,11 +2570,11 @@ function buildActionPermissionRegistry(settings = readPanelBehaviorSettingsLocal
   registry.push({
     scope: "delivery.action.standard",
     panel: "reports",
-    action: loginCopy("Delivery standard actions", "交付标准动作"),
+    action: loginCopy("Delivery standard actions"),
     allowed: (tier, ctx) => ctx.loggedIn,
     describe: (tier) => permissionBooleanLabel(tier !== "guest")
   });
-  DELIVERY_ADMIN_ONLY_ACTION_ATTRS.forEach((attrName) => {
+  LEGACY_DELIVERY_ADMIN_ONLY_ACTION_ATTRS.forEach((attrName) => {
     registry.push({
       scope: deliveryPermissionScopeFromAttr(attrName),
       panel: deliveryPermissionPanelFromAttr(attrName),
@@ -2509,14 +2605,14 @@ function permissionRequirementLabel(scope, settings = readPanelBehaviorSettingsL
   const rule = getActionPermissionRule(scope, settings);
   if (!rule) return "";
   const tiers = [
-    { key: "guest", label: loginCopy("Public", "公开") },
-    { key: "free", label: loginCopy("Basic+", "Basic+") },
-    { key: "starter", label: loginCopy("Starter+", "Starter+") },
-    { key: "pro", label: loginCopy("Pro+", "Pro+") },
-    { key: "studio", label: loginCopy("Studio+", "Studio+") },
-    { key: "enterprise", label: loginCopy("Enterprise+", "Enterprise+") },
-    { key: "vip", label: loginCopy("VIP+", "VIP+") },
-    { key: "admin", label: loginCopy("Admin", "管理员") }
+    { key: "guest", label: loginCopy("Public") },
+    { key: "free", label: loginCopy("Basic+") },
+    { key: "starter", label: loginCopy("Starter+") },
+    { key: "pro", label: loginCopy("Pro+") },
+    { key: "studio", label: loginCopy("Studio+") },
+    { key: "enterprise", label: loginCopy("Enterprise+") },
+    { key: "vip", label: loginCopy("VIP+") },
+    { key: "admin", label: loginCopy("Admin") }
   ];
   const firstAllowed = tiers.find((entry) =>
     Boolean(
@@ -2527,10 +2623,10 @@ function permissionRequirementLabel(scope, settings = readPanelBehaviorSettingsL
       })
     )
   );
-  if (!firstAllowed) return loginCopy("Blocked", "禁用");
-  if (firstAllowed.key === "guest") return loginCopy("Public", "公开");
-  if (firstAllowed.key === "free") return loginCopy("Basic+", "Basic+");
-  if (firstAllowed.key === "admin") return loginCopy("Admin", "管理员");
+  if (!firstAllowed) return loginCopy("Blocked");
+  if (firstAllowed.key === "guest") return loginCopy("Public");
+  if (firstAllowed.key === "free") return loginCopy("Basic+");
+  if (firstAllowed.key === "admin") return loginCopy("Admin");
   return firstAllowed.label;
 }
 
@@ -2585,127 +2681,137 @@ function buildAdvancedPanelSettingsMarkup(settings) {
   };
   const membershipRows = [
     {
-      tier: loginCopy("Guest", "游客"),
+      tier: loginCopy("Guest"),
       queue: formatQueueLaneLabel("guest_preview"),
-      quota: loginCopy("0 / month", "0 次 / 月"),
-      generation: loginCopy("Browse a few panels only", "只能浏览少量面板"),
-      selling: loginCopy("No", "不可以"),
-      boosts: loginCopy("No", "不可以")
+      quota: loginCopy("0 / month"),
+      generation: loginCopy("Browse a few panels only"),
+      selling: loginCopy("No"),
+      boosts: loginCopy("No")
     },
     {
-      tier: loginCopy("Basic / Free", "免费会员"),
+      tier: loginCopy("Basic / Free"),
       queue: formatQueueLaneLabel("free_standard"),
-      quota: loginCopy("3 / month", "3 次 / 月"),
-      generation: loginCopy("Basic creation, watermark", "基础生成，有水印"),
-      selling: loginCopy("Own works only", "仅浏览下载自己的作品"),
-      boosts: loginCopy("Upgrade first", "先升级会员")
+      quota: loginCopy("3 / month"),
+      generation: loginCopy("Basic creation, watermark"),
+      selling: loginCopy("Own works only"),
+      boosts: loginCopy("Upgrade first")
     },
     {
-      tier: loginCopy("Starter", "入门创作会员"),
+      tier: loginCopy("Starter"),
       queue: formatQueueLaneLabel("starter_paid"),
-      quota: `${Number(current.membership.starter_monthly_limit || 30)} / ${loginCopy("month", "月")}`,
-      generation: loginCopy("720p, up to 6 min, single work", "720p，最多 6 分钟，单曲"),
-      selling: loginCopy("Can sell and trade works", "可以上架买卖"),
-      boosts: loginCopy("Temporary language/voice boost", "可临时加购语言/声线")
+      quota: `${Number(current.membership.starter_monthly_limit || 30)} / ${loginCopy("month")}`,
+      generation: loginCopy("720p, up to 6 min, single work"),
+      selling: loginCopy("Can sell and trade works"),
+      boosts: loginCopy("Temporary language/voice boost")
     },
     {
       tier: "Pro",
       queue: formatQueueLaneLabel("pro_pipeline"),
-      quota: `${Number(current.membership.pro_monthly_limit || 100)} / ${loginCopy("month", "月")}`,
-      generation: loginCopy("1080p, up to 8 min, triptych/opera", "1080p，最多 8 分钟，可三部曲/歌剧"),
-      selling: loginCopy("Full creator commerce", "完整创作者交易"),
-      boosts: loginCopy("Temporary language/voice boost", "可临时加购语言/声线")
+      quota: `${Number(current.membership.pro_monthly_limit || 100)} / ${loginCopy("month")}`,
+      generation: loginCopy("1080p, up to 8 min, triptych/opera"),
+      selling: loginCopy("Full creator commerce"),
+      boosts: loginCopy("Temporary language/voice boost")
     },
     {
       tier: "Studio",
       queue: formatQueueLaneLabel("studio_pipeline"),
-      quota: `${Number(current.membership.studio_monthly_limit || 300)} / ${loginCopy("month", "月")}`,
-      generation: loginCopy("Team workspace, multi-project", "团队空间，多项目"),
-      selling: loginCopy("Full creator commerce", "完整创作者交易"),
-      boosts: loginCopy(`Includes ${Number(current.creator_boost.studio_includes_extra_languages || 0)} lang / ${Number(current.creator_boost.studio_includes_extra_voices || 0)} voice`, `内含 ${Number(current.creator_boost.studio_includes_extra_languages || 0)} 个语言 / ${Number(current.creator_boost.studio_includes_extra_voices || 0)} 条声线`)
+      quota: `${Number(current.membership.studio_monthly_limit || 300)} / ${loginCopy("month")}`,
+      generation: loginCopy("Team workspace, multi-project"),
+      selling: loginCopy("Full creator commerce"),
+      boosts: loginCopy(`Includes ${Number(current.creator_boost.studio_includes_extra_languages || 0)} lang / ${Number(current.creator_boost.studio_includes_extra_voices || 0)} voice`)
     },
     {
       tier: "Enterprise",
       queue: formatQueueLaneLabel("enterprise_dedicated"),
-      quota: Number(current.membership.enterprise_monthly_limit || 0) > 0 ? `${Number(current.membership.enterprise_monthly_limit)} / ${loginCopy("month", "月")}` : loginCopy("Unlimited", "无限制"),
-      generation: loginCopy("Enterprise API, isolated route limits", "企业 API，独立路由限额"),
-      selling: loginCopy("Contract / enterprise workflow", "合同 / 企业工作流"),
-      boosts: loginCopy(`Includes ${Number(current.creator_boost.enterprise_includes_extra_languages || 0)} lang / ${Number(current.creator_boost.enterprise_includes_extra_voices || 0)} voice`, `内含 ${Number(current.creator_boost.enterprise_includes_extra_languages || 0)} 个语言 / ${Number(current.creator_boost.enterprise_includes_extra_voices || 0)} 条声线`)
+      quota: Number(current.membership.enterprise_monthly_limit || 0) > 0 ? `${Number(current.membership.enterprise_monthly_limit)} / ${loginCopy("month")}` : loginCopy("Unlimited"),
+      generation: loginCopy("Enterprise API, isolated route limits"),
+      selling: loginCopy("Contract / enterprise workflow"),
+      boosts: loginCopy(`Includes ${Number(current.creator_boost.enterprise_includes_extra_languages || 0)} lang / ${Number(current.creator_boost.enterprise_includes_extra_voices || 0)} voice`)
     },
     {
       tier: "VIP",
       queue: formatQueueLaneLabel("vip_private"),
-      quota: loginCopy("Unlimited", "无限制"),
-      generation: loginCopy("Private queue, no daily/monthly cap", "私享队列，无日/月限制"),
-      selling: loginCopy("Almost all panel actions except special defaults", "除特殊“设为默认”外几乎全开"),
-      boosts: loginCopy("No language/voice cap", "不受语言/声线限制")
+      quota: loginCopy("Unlimited"),
+      generation: loginCopy("Private queue, no daily/monthly cap"),
+      selling: loginCopy("Almost all panel actions except special defaults"),
+      boosts: loginCopy("No language/voice cap")
     }
   ];
   const actionMatrixRows = admin ? buildActionPermissionMatrixRows(current) : [];
   const filteredActionMatrixRows = admin ? filterActionPermissionMatrixRows(actionMatrixRows, permissionOverviewFilter) : [];
   return `
-    <div class="panel-label">${escapeHtml(loginCopy("Panel Parameter Center", "面板参数中心"))}</div>
+    <div class="panel-label">${escapeHtml(loginCopy("Panel Parameter Center"))}</div>
     <div class="advanced-panel-grid">
       <section class="advanced-panel-card" data-advanced-panel="logo">
-        <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Logo Mirror", "Logo 魔镜"))}</div>
-        <div class="advanced-panel-note">${escapeHtml(loginCopy("Logo parameters are moving back to the logo panel itself. This area now acts as a hosted entrance plus media handoff, so the mirror still follows the panel constitution.", "Logo 参数正在回归 Logo 自己的设置区。这里现在主要承担托管入口和素材接力，让魔镜也继续遵循面板宪法。"))}</div>
-        <label><span>${escapeHtml(loginCopy("Mirror image A", "魔镜图片 A"))}</span><input type="file" accept="image/*" data-advanced-setting="logo-image-1" /></label>
-        <label><span>${escapeHtml(loginCopy("Mirror image B", "魔镜图片 B"))}</span><input type="file" accept="image/*" data-advanced-setting="logo-image-2" /></label>
-        <label><span>${escapeHtml(loginCopy("Mirror video", "魔镜视频"))}</span><input type="file" accept="video/*" data-advanced-setting="logo-video" /></label>
-        <div class="advanced-panel-note">${escapeHtml(loginCopy(`Current media: ${current.logo.media.image_1.split("/").pop() || "A"} / ${current.logo.media.image_2.split("/").pop() || "B"}${current.logo.media.video ? ` / ${current.logo.media.video.split("/").pop() || "video"}` : ""}`, `当前素材：${current.logo.media.image_1.split("/").pop() || "A"} / ${current.logo.media.image_2.split("/").pop() || "B"}${current.logo.media.video ? ` / ${current.logo.media.video.split("/").pop() || "video"}` : ""}`))}</div>
-        <button class="cta ghost tiny" type="button" data-advanced-open-panel="logo-panel">${escapeHtml(loginCopy("Open logo settings", "打开 Logo 设置"))}</button>
+        <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Logo Mirror"))}</div>
+        <div class="advanced-panel-note">${escapeHtml(loginCopy("Logo parameters are moving back to the logo panel itself. This area now acts as a hosted entrance plus media handoff, so the mirror still follows the panel constitution."))}</div>
+        <label><span>${escapeHtml(loginCopy("Mirror image A"))}</span><input type="file" accept="image/*" data-advanced-setting="logo-image-1" /></label>
+        <label><span>${escapeHtml(loginCopy("Mirror image B"))}</span><input type="file" accept="image/*" data-advanced-setting="logo-image-2" /></label>
+        <label><span>${escapeHtml(loginCopy("Mirror video"))}</span><input type="file" accept="video/*" data-advanced-setting="logo-video" /></label>
+        <div class="advanced-panel-note">${escapeHtml(loginCopy(`Current media: ${current.logo.media.image_1.split("/").pop() || "A"} / ${current.logo.media.image_2.split("/").pop() || "B"}${current.logo.media.video ? ` / ${current.logo.media.video.split("/").pop() || "video"}` : ""}`))}</div>
+        <button class="cta ghost tiny" type="button" data-advanced-open-panel="logo-panel">${escapeHtml(loginCopy("Open logo settings"))}</button>
         ${admin ? `<button class="cta ghost tiny" type="button" data-advanced-save="logo">${escapeHtml(t("settings.panel.setDefault"))}</button>` : ""}
       </section>
       <section class="advanced-panel-card" data-advanced-panel="dock">
-        <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Dock", "Dock"))}</div>
-        <label><span>${escapeHtml(loginCopy("Scale", "缩放"))}</span><input type="range" min="0.8" max="1.35" step="0.05" data-advanced-setting="dock-scale" value="${escapeHtml(String(current.dock.scale))}" /></label>
-        <label class="advanced-panel-check"><input type="checkbox" data-advanced-setting="dock-labels" ${current.dock.show_labels ? "checked" : ""} /><span>${escapeHtml(loginCopy("Show labels", "显示标签"))}</span></label>
-        <label class="advanced-panel-check"><input type="checkbox" data-advanced-setting="dock-docking" ${current.dock.docking_enabled ? "checked" : ""} /><span>${escapeHtml(loginCopy("Allow edge docking", "允许边缘停靠"))}</span></label>
-        <label><span>${escapeHtml(loginCopy("Dock position", "Dock 停靠位"))}</span>
+        <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Dock"))}</div>
+        <label><span>${escapeHtml(loginCopy("Scale"))}</span><input type="range" min="0.8" max="1.35" step="0.05" data-advanced-setting="dock-scale" value="${escapeHtml(String(current.dock.scale))}" /></label>
+        <label class="advanced-panel-check"><input type="checkbox" data-advanced-setting="dock-labels" ${current.dock.show_labels ? "checked" : ""} /><span>${escapeHtml(loginCopy("Show labels"))}</span></label>
+        <label class="advanced-panel-check"><input type="checkbox" data-advanced-setting="dock-docking" ${current.dock.docking_enabled ? "checked" : ""} /><span>${escapeHtml(loginCopy("Allow edge docking"))}</span></label>
+        <label><span>${escapeHtml(loginCopy("Dock position"))}</span>
           <select data-advanced-setting="dock-position">
-            <option value="bottom" ${current.dock.dock_position === "bottom" ? "selected" : ""}>${escapeHtml(loginCopy("Bottom", "底部"))}</option>
-            <option value="left" ${current.dock.dock_position === "left" ? "selected" : ""}>${escapeHtml(loginCopy("Left", "左侧"))}</option>
-            <option value="right" ${current.dock.dock_position === "right" ? "selected" : ""}>${escapeHtml(loginCopy("Right", "右侧"))}</option>
-            <option value="top" ${current.dock.dock_position === "top" ? "selected" : ""}>${escapeHtml(loginCopy("Top", "顶部"))}</option>
+            <option value="bottom" ${current.dock.dock_position === "bottom" ? "selected" : ""}>${escapeHtml(loginCopy("Bottom"))}</option>
+            <option value="left" ${current.dock.dock_position === "left" ? "selected" : ""}>${escapeHtml(loginCopy("Left"))}</option>
+            <option value="right" ${current.dock.dock_position === "right" ? "selected" : ""}>${escapeHtml(loginCopy("Right"))}</option>
+            <option value="top" ${current.dock.dock_position === "top" ? "selected" : ""}>${escapeHtml(loginCopy("Top"))}</option>
           </select>
         </label>
-        <button class="cta ghost tiny" type="button" data-advanced-dock-reset>${escapeHtml(loginCopy("Reset to bottom center", "恢复到底部中央"))}</button>
+        <button class="cta ghost tiny" type="button" data-advanced-dock-reset>${escapeHtml(loginCopy("Reset to bottom center"))}</button>
         ${admin ? `<button class="cta ghost tiny" type="button" data-advanced-save="dock">${escapeHtml(t("settings.panel.setDefault"))}</button>` : ""}
       </section>
       <section class="advanced-panel-card" data-advanced-panel="mic">
-        <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Mic Topic Panel", "话筒话题面板"))}</div>
-        <div class="advanced-panel-note">${escapeHtml(loginCopy("Mic timing parameters are moving onto the logo panel itself, because the mirror is where click, double-click, and long-press all happen. This hosted card now keeps the debug window and an entrance only.", "话筒的时序参数正在回到 Logo 自己的设置里，因为点击、双击、长按都发生在魔镜上。这里现在主要保留调试窗和入口。"))}</div>
-        <button class="cta ghost tiny" type="button" data-advanced-open-panel="logo-panel">${escapeHtml(loginCopy("Open logo voice settings", "打开 Logo 语音设置"))}</button>
-        <div class="advanced-panel-note">${escapeHtml(loginCopy("If voice title capture fails, the system falls back to direct generation just like the lyrics wand.", "如果语音标题截取失败，系统会像歌词魔法棒一样直接回退到完整生成链路。"))}</div>
+        <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Mic Topic Panel"))}</div>
+        <div class="advanced-panel-note">${escapeHtml(loginCopy("Mic timing parameters are moving onto the logo panel itself, because the mirror is where click, double-click, and long-press all happen. This hosted card now keeps the debug window and an entrance only."))}</div>
+        <button class="cta ghost tiny" type="button" data-advanced-open-panel="logo-panel">${escapeHtml(loginCopy("Open logo voice settings"))}</button>
+        <div class="advanced-panel-note">${escapeHtml(loginCopy("If voice title capture fails, the system falls back to direct generation just like the lyrics wand."))}</div>
         ${admin ? `<button class="cta ghost tiny" type="button" data-advanced-save="mic">${escapeHtml(t("settings.panel.setDefault"))}</button>` : ""}
       </section>
       <section class="advanced-panel-card" data-advanced-panel="global">
-        <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Global Visuals", "全局视觉"))}</div>
-        <div class="advanced-panel-note">${escapeHtml(loginCopy("Global palette and ambient background controls stay here. Panel-specific playback and engine tuning now live inside each panel's own settings.", "全局配色与环境背景控制保留在这里。各面板自己的播放与引擎参数，已经回到各自的设置区。"))}</div>
-        <label><span>${escapeHtml(loginCopy("Background style", "背景风格"))}</span>
+        <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Global Visuals"))}</div>
+        <div class="advanced-panel-note">${escapeHtml(loginCopy("Global palette and ambient background controls stay here. Panel-specific playback and engine tuning now live inside each panel's own settings."))}</div>
+        <label><span>${escapeHtml(loginCopy("Background style"))}</span>
           <select data-advanced-setting="background-mode">
-            <option value="aurora" ${current.background.mode === "aurora" ? "selected" : ""}>${escapeHtml(loginCopy("Aurora", "极光"))}</option>
-            <option value="ribbon" ${current.background.mode === "ribbon" ? "selected" : ""}>${escapeHtml(loginCopy("Stripe ribbon", "Stripe 丝带"))}</option>
-            <option value="watercolor" ${current.background.mode === "watercolor" ? "selected" : ""}>${escapeHtml(loginCopy("Watercolor", "水彩渐变"))}</option>
-            <option value="ink" ${current.background.mode === "ink" ? "selected" : ""}>${escapeHtml(loginCopy("Ink mist", "墨雾"))}</option>
+            <option value="aurora" ${current.background.mode === "aurora" ? "selected" : ""}>${escapeHtml(loginCopy("Aurora"))}</option>
+            <option value="ribbon" ${current.background.mode === "ribbon" ? "selected" : ""}>${escapeHtml(loginCopy("Stripe ribbon"))}</option>
+            <option value="watercolor" ${current.background.mode === "watercolor" ? "selected" : ""}>${escapeHtml(loginCopy("Watercolor"))}</option>
+            <option value="ink" ${current.background.mode === "ink" ? "selected" : ""}>${escapeHtml(loginCopy("Ink mist"))}</option>
           </select>
         </label>
-        <label><span>${escapeHtml(loginCopy("Background intensity", "背景强度"))}</span><input type="range" min="0" max="1" step="0.01" data-advanced-setting="background-intensity" value="${escapeHtml(String(current.background.intensity))}" /></label>
-        <label><span>${escapeHtml(loginCopy("Background motion", "背景动势"))}</span><input type="range" min="0" max="1" step="0.01" data-advanced-setting="background-motion" value="${escapeHtml(String(current.background.motion))}" /></label>
-        <div class="advanced-panel-note">${escapeHtml(loginCopy("These modes share one slow timing curve, so the page can stay animated without flicker.", "这些模式共用一条低频时间曲线，所以页面可以保持动态而不闪烁。"))}</div>
+        <label><span>${escapeHtml(loginCopy("Background intensity"))}</span><input type="range" min="0" max="1" step="0.01" data-advanced-setting="background-intensity" value="${escapeHtml(String(current.background.intensity))}" /></label>
+        <label><span>${escapeHtml(loginCopy("Background motion"))}</span><input type="range" min="0" max="1" step="0.01" data-advanced-setting="background-motion" value="${escapeHtml(String(current.background.motion))}" /></label>
+        <div class="advanced-panel-note">${escapeHtml(loginCopy("These modes share one slow timing curve, so the page can stay animated without flicker."))}</div>
         ${admin ? `<button class="cta ghost tiny" type="button" data-advanced-save="global">${escapeHtml(t("settings.panel.setDefault"))}</button>` : ""}
       </section>
+      <section class="advanced-panel-card" data-advanced-panel="engines">
+        <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Creation Engines"))}</div>
+        <div class="advanced-panel-note">${escapeHtml(loginCopy(
+          "Pick the default engine and version per pipeline stage (cover, lyrics, music, video, subtitles, compose). Every option, price badge, and stage label is driven by the /api/mv/engines catalog — nothing is hardcoded, so new engines surface here automatically after the server registers them."
+        ))}</div>
+        <div class="mv-engines-panel" data-mv-engines-panel data-mv-engines-state="loading">
+          <div class="advanced-panel-note" data-mv-engines-placeholder>${escapeHtml(loginCopy("Loading engine catalog…"))}</div>
+        </div>
+        ${admin ? `<button class="cta ghost tiny" type="button" data-advanced-save="engines">${escapeHtml(t("settings.panel.setDefault"))}</button>` : ""}
+      </section>
       <section class="advanced-panel-card" data-advanced-panel="membership">
-        <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Membership & Boost", "会员与 Creator Boost"))}</div>
-        <div class="advanced-panel-note">${escapeHtml(loginCopy("Creation quotas, Studio / Enterprise defaults, and temporary paid add-ons all live here. Inputs apply immediately after you change them, so every field is clamped to safe min/max ranges.", "创作额度、Studio / Enterprise 默认权益，以及临时付费加购规则，都在这里。所有输入修改后立即生效，因此每个字段都会被限制在安全的上下限范围内。"))}</div>
-        <div class="membership-matrix" role="table" aria-label="${escapeHtml(loginCopy("Membership matrix", "会员权限表"))}">
+        <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Membership & Boost"))}</div>
+        <div class="advanced-panel-note">${escapeHtml(loginCopy("Creation quotas, Studio / Enterprise defaults, and temporary paid add-ons all live here. Inputs apply immediately after you change them, so every field is clamped to safe min/max ranges."))}</div>
+        <div class="membership-matrix" role="table" aria-label="${escapeHtml(loginCopy("Membership matrix"))}">
           <div class="membership-matrix-header" role="row">
-            <span>${escapeHtml(loginCopy("Tier", "等级"))}</span>
-            <span>${escapeHtml(loginCopy("Queue", "队列"))}</span>
-            <span>${escapeHtml(loginCopy("Quota", "额度"))}</span>
-            <span>${escapeHtml(loginCopy("Generation", "生成能力"))}</span>
-            <span>${escapeHtml(loginCopy("Commerce", "交易能力"))}</span>
-            <span>${escapeHtml(loginCopy("Boost", "加购 / 特权"))}</span>
+            <span>${escapeHtml(loginCopy("Tier"))}</span>
+            <span>${escapeHtml(loginCopy("Queue"))}</span>
+            <span>${escapeHtml(loginCopy("Quota"))}</span>
+            <span>${escapeHtml(loginCopy("Generation"))}</span>
+            <span>${escapeHtml(loginCopy("Commerce"))}</span>
+            <span>${escapeHtml(loginCopy("Boost"))}</span>
           </div>
           ${membershipRows
             .map(
@@ -2722,61 +2828,61 @@ function buildAdvancedPanelSettingsMarkup(settings) {
             )
             .join("")}
         </div>
-        <label><span>${escapeHtml(loginCopy("Starter monthly limit", "Starter 月额度"))}</span><input type="number" min="1" max="1000" step="1" data-advanced-setting="membership-starter-limit" value="${escapeHtml(String(current.membership.starter_monthly_limit))}" ${admin ? "" : "disabled"} /></label>
-        <label><span>${escapeHtml(loginCopy("Pro monthly limit", "Pro 月额度"))}</span><input type="number" min="1" max="5000" step="1" data-advanced-setting="membership-pro-limit" value="${escapeHtml(String(current.membership.pro_monthly_limit))}" ${admin ? "" : "disabled"} /></label>
-        <label><span>${escapeHtml(loginCopy("Studio monthly limit", "Studio 月额度"))}</span><input type="number" min="1" max="10000" step="1" data-advanced-setting="membership-studio-limit" value="${escapeHtml(String(current.membership.studio_monthly_limit))}" ${admin ? "" : "disabled"} /></label>
-        <label><span>${escapeHtml(loginCopy("Enterprise monthly limit (0 = unlimited)", "Enterprise 月额度（0=无限）"))}</span><input type="number" min="0" max="100000" step="1" data-advanced-setting="membership-enterprise-limit" value="${escapeHtml(String(current.membership.enterprise_monthly_limit))}" ${admin ? "" : "disabled"} /></label>
-        <label class="advanced-panel-check"><input type="checkbox" data-advanced-setting="membership-vip-admin-only" ${current.membership.vip_admin_only ? "checked" : ""} ${admin ? "" : "disabled"} /><span>${escapeHtml(loginCopy("VIP remains admin-assigned only", "VIP 仍然只能由管理员手动设定"))}</span></label>
-        <label><span>${escapeHtml(loginCopy("Extra language price (USD cents)", "额外语言价格（美分）"))}</span><input type="number" min="100" max="100000" step="100" data-advanced-setting="boost-language-unit-cents" value="${escapeHtml(String(current.creator_boost.language_unit_cents))}" ${admin ? "" : "disabled"} /></label>
-        <label><span>${escapeHtml(loginCopy("Extra voice lane price (USD cents)", "额外声线价格（美分）"))}</span><input type="number" min="100" max="100000" step="100" data-advanced-setting="boost-voice-unit-cents" value="${escapeHtml(String(current.creator_boost.voice_unit_cents))}" ${admin ? "" : "disabled"} /></label>
-        <label><span>${escapeHtml(loginCopy("Thumbnail value-pack price (USD cents)", "缩略图增值包装价格（美分）"))}</span><input type="number" min="25" max="100000" step="1" data-advanced-setting="boost-thumbnail-unit-cents" value="${escapeHtml(String(current.creator_boost.thumbnail_unit_cents))}" ${admin ? "" : "disabled"} /></label>
-        <label><span>${escapeHtml(loginCopy("Preview video value-pack price (USD cents)", "缩略视频增值包装价格（美分）"))}</span><input type="number" min="25" max="100000" step="1" data-advanced-setting="boost-preview-video-unit-cents" value="${escapeHtml(String(current.creator_boost.preview_video_unit_cents))}" ${admin ? "" : "disabled"} /></label>
-        <label class="advanced-panel-check"><input type="checkbox" data-advanced-setting="boost-admin-only-purchase-override" ${current.creator_boost.admin_only_purchase_override ? "checked" : ""} ${admin ? "" : "disabled"} /><span>${escapeHtml(loginCopy("Temporarily make boost purchases admin-only", "临时把加购购买限制为管理员专用"))}</span></label>
-        <label><span>${escapeHtml(loginCopy("Studio included extra languages", "Studio 赠送额外语言"))}</span><input type="number" min="0" max="10" step="1" data-advanced-setting="boost-studio-language-included" value="${escapeHtml(String(current.creator_boost.studio_includes_extra_languages))}" ${admin ? "" : "disabled"} /></label>
-        <label><span>${escapeHtml(loginCopy("Studio included extra voices", "Studio 赠送额外声线"))}</span><input type="number" min="0" max="10" step="1" data-advanced-setting="boost-studio-voice-included" value="${escapeHtml(String(current.creator_boost.studio_includes_extra_voices))}" ${admin ? "" : "disabled"} /></label>
-        <label><span>${escapeHtml(loginCopy("Enterprise included extra languages", "Enterprise 赠送额外语言"))}</span><input type="number" min="0" max="20" step="1" data-advanced-setting="boost-enterprise-language-included" value="${escapeHtml(String(current.creator_boost.enterprise_includes_extra_languages))}" ${admin ? "" : "disabled"} /></label>
-        <label><span>${escapeHtml(loginCopy("Enterprise included extra voices", "Enterprise 赠送额外声线"))}</span><input type="number" min="0" max="20" step="1" data-advanced-setting="boost-enterprise-voice-included" value="${escapeHtml(String(current.creator_boost.enterprise_includes_extra_voices))}" ${admin ? "" : "disabled"} /></label>
-        <label class="advanced-panel-check"><input type="checkbox" data-advanced-setting="studio-team-collaboration-enabled" ${current.studio_enterprise.team_collaboration_enabled ? "checked" : ""} ${admin ? "" : "disabled"} /><span>${escapeHtml(loginCopy("Enable Studio/Enterprise team collaboration", "启用 Studio / Enterprise 团队协作"))}</span></label>
-        <label><span>${escapeHtml(loginCopy("Max team members", "团队人数上限"))}</span><input type="number" min="1" max="500" step="1" data-advanced-setting="studio-max-team-members" value="${escapeHtml(String(current.studio_enterprise.max_team_members))}" ${admin ? "" : "disabled"} /></label>
-        <label class="advanced-panel-check"><input type="checkbox" data-advanced-setting="studio-multi-project-enabled" ${current.studio_enterprise.multi_project_enabled ? "checked" : ""} ${admin ? "" : "disabled"} /><span>${escapeHtml(loginCopy("Enable multi-project workspaces", "启用多项目工作区"))}</span></label>
-        <label><span>${escapeHtml(loginCopy("Max projects", "项目数量上限"))}</span><input type="number" min="1" max="1000" step="1" data-advanced-setting="studio-max-projects" value="${escapeHtml(String(current.studio_enterprise.max_projects))}" ${admin ? "" : "disabled"} /></label>
-        <label class="advanced-panel-check"><input type="checkbox" data-advanced-setting="enterprise-api-enabled" ${current.studio_enterprise.enterprise_api_enabled ? "checked" : ""} ${admin ? "" : "disabled"} /><span>${escapeHtml(loginCopy("Enable enterprise API access", "启用企业 API 访问"))}</span></label>
-        <label><span>${escapeHtml(loginCopy("Enterprise API RPM", "企业 API 每分钟限额"))}</span><input type="number" min="1" max="100000" step="1" data-advanced-setting="enterprise-api-rpm" value="${escapeHtml(String(current.studio_enterprise.enterprise_api_rate_limit_per_minute))}" ${admin ? "" : "disabled"} /></label>
-        <div class="advanced-panel-note">${escapeHtml(loginCopy(`Available boosts: language ${Number(boostInfo?.language?.available || 0)}, voice ${Number(boostInfo?.voice?.available || 0)}, thumbnail ${Number(boostInfo?.thumbnail?.available || 0)}, preview video ${Number(boostInfo?.preview_video?.available || 0)}.`, `当前可用加购余额：语言 ${Number(boostInfo?.language?.available || 0)}，声线 ${Number(boostInfo?.voice?.available || 0)}，缩略图 ${Number(boostInfo?.thumbnail?.available || 0)}，缩略视频 ${Number(boostInfo?.preview_video?.available || 0)}。`))}</div>
+        <label><span>${escapeHtml(loginCopy("Starter monthly limit"))}</span><input type="number" min="1" max="1000" step="1" data-advanced-setting="membership-starter-limit" value="${escapeHtml(String(current.membership.starter_monthly_limit))}" ${admin ? "" : "disabled"} /></label>
+        <label><span>${escapeHtml(loginCopy("Pro monthly limit"))}</span><input type="number" min="1" max="5000" step="1" data-advanced-setting="membership-pro-limit" value="${escapeHtml(String(current.membership.pro_monthly_limit))}" ${admin ? "" : "disabled"} /></label>
+        <label><span>${escapeHtml(loginCopy("Studio monthly limit"))}</span><input type="number" min="1" max="10000" step="1" data-advanced-setting="membership-studio-limit" value="${escapeHtml(String(current.membership.studio_monthly_limit))}" ${admin ? "" : "disabled"} /></label>
+        <label><span>${escapeHtml(loginCopy("Enterprise monthly limit (0 = unlimited)"))}</span><input type="number" min="0" max="100000" step="1" data-advanced-setting="membership-enterprise-limit" value="${escapeHtml(String(current.membership.enterprise_monthly_limit))}" ${admin ? "" : "disabled"} /></label>
+        <label class="advanced-panel-check"><input type="checkbox" data-advanced-setting="membership-vip-admin-only" ${current.membership.vip_admin_only ? "checked" : ""} ${admin ? "" : "disabled"} /><span>${escapeHtml(loginCopy("VIP remains admin-assigned only"))}</span></label>
+        <label><span>${escapeHtml(loginCopy("Extra language price (USD cents)"))}</span><input type="number" min="100" max="100000" step="100" data-advanced-setting="boost-language-unit-cents" value="${escapeHtml(String(current.creator_boost.language_unit_cents))}" ${admin ? "" : "disabled"} /></label>
+        <label><span>${escapeHtml(loginCopy("Extra voice lane price (USD cents)"))}</span><input type="number" min="100" max="100000" step="100" data-advanced-setting="boost-voice-unit-cents" value="${escapeHtml(String(current.creator_boost.voice_unit_cents))}" ${admin ? "" : "disabled"} /></label>
+        <label><span>${escapeHtml(loginCopy("Thumbnail value-pack price (USD cents)"))}</span><input type="number" min="25" max="100000" step="1" data-advanced-setting="boost-thumbnail-unit-cents" value="${escapeHtml(String(current.creator_boost.thumbnail_unit_cents))}" ${admin ? "" : "disabled"} /></label>
+        <label><span>${escapeHtml(loginCopy("Preview video value-pack price (USD cents)"))}</span><input type="number" min="25" max="100000" step="1" data-advanced-setting="boost-preview-video-unit-cents" value="${escapeHtml(String(current.creator_boost.preview_video_unit_cents))}" ${admin ? "" : "disabled"} /></label>
+        <label class="advanced-panel-check"><input type="checkbox" data-advanced-setting="boost-admin-only-purchase-override" ${current.creator_boost.admin_only_purchase_override ? "checked" : ""} ${admin ? "" : "disabled"} /><span>${escapeHtml(loginCopy("Temporarily make boost purchases admin-only"))}</span></label>
+        <label><span>${escapeHtml(loginCopy("Studio included extra languages"))}</span><input type="number" min="0" max="10" step="1" data-advanced-setting="boost-studio-language-included" value="${escapeHtml(String(current.creator_boost.studio_includes_extra_languages))}" ${admin ? "" : "disabled"} /></label>
+        <label><span>${escapeHtml(loginCopy("Studio included extra voices"))}</span><input type="number" min="0" max="10" step="1" data-advanced-setting="boost-studio-voice-included" value="${escapeHtml(String(current.creator_boost.studio_includes_extra_voices))}" ${admin ? "" : "disabled"} /></label>
+        <label><span>${escapeHtml(loginCopy("Enterprise included extra languages"))}</span><input type="number" min="0" max="20" step="1" data-advanced-setting="boost-enterprise-language-included" value="${escapeHtml(String(current.creator_boost.enterprise_includes_extra_languages))}" ${admin ? "" : "disabled"} /></label>
+        <label><span>${escapeHtml(loginCopy("Enterprise included extra voices"))}</span><input type="number" min="0" max="20" step="1" data-advanced-setting="boost-enterprise-voice-included" value="${escapeHtml(String(current.creator_boost.enterprise_includes_extra_voices))}" ${admin ? "" : "disabled"} /></label>
+        <label class="advanced-panel-check"><input type="checkbox" data-advanced-setting="studio-team-collaboration-enabled" ${current.studio_enterprise.team_collaboration_enabled ? "checked" : ""} ${admin ? "" : "disabled"} /><span>${escapeHtml(loginCopy("Enable Studio/Enterprise team collaboration"))}</span></label>
+        <label><span>${escapeHtml(loginCopy("Max team members"))}</span><input type="number" min="1" max="500" step="1" data-advanced-setting="studio-max-team-members" value="${escapeHtml(String(current.studio_enterprise.max_team_members))}" ${admin ? "" : "disabled"} /></label>
+        <label class="advanced-panel-check"><input type="checkbox" data-advanced-setting="studio-multi-project-enabled" ${current.studio_enterprise.multi_project_enabled ? "checked" : ""} ${admin ? "" : "disabled"} /><span>${escapeHtml(loginCopy("Enable multi-project workspaces"))}</span></label>
+        <label><span>${escapeHtml(loginCopy("Max projects"))}</span><input type="number" min="1" max="1000" step="1" data-advanced-setting="studio-max-projects" value="${escapeHtml(String(current.studio_enterprise.max_projects))}" ${admin ? "" : "disabled"} /></label>
+        <label class="advanced-panel-check"><input type="checkbox" data-advanced-setting="enterprise-api-enabled" ${current.studio_enterprise.enterprise_api_enabled ? "checked" : ""} ${admin ? "" : "disabled"} /><span>${escapeHtml(loginCopy("Enable enterprise API access"))}</span></label>
+        <label><span>${escapeHtml(loginCopy("Enterprise API RPM"))}</span><input type="number" min="1" max="100000" step="1" data-advanced-setting="enterprise-api-rpm" value="${escapeHtml(String(current.studio_enterprise.enterprise_api_rate_limit_per_minute))}" ${admin ? "" : "disabled"} /></label>
+        <div class="advanced-panel-note">${escapeHtml(loginCopy(`Available boosts: language ${Number(boostInfo?.language?.available || 0)}, voice ${Number(boostInfo?.voice?.available || 0)}, thumbnail ${Number(boostInfo?.thumbnail?.available || 0)}, preview video ${Number(boostInfo?.preview_video?.available || 0)}.`))}</div>
         <div class="advanced-panel-actions">
-          <button class="cta ghost tiny" type="button" data-creator-boost-checkout="language" ${(current.creator_boost.admin_only_purchase_override && !admin) ? "disabled" : ""}>${escapeHtml(loginCopy("Buy 1 extra language", "购买 1 个额外语言"))}</button>
-          <button class="cta ghost tiny" type="button" data-creator-boost-checkout="voice" ${(current.creator_boost.admin_only_purchase_override && !admin) ? "disabled" : ""}>${escapeHtml(loginCopy("Buy 1 extra voice lane", "购买 1 条额外声线"))}</button>
-          <button class="cta ghost tiny" type="button" data-creator-boost-checkout="thumbnail" ${(current.creator_boost.admin_only_purchase_override && !admin) ? "disabled" : ""}>${escapeHtml(loginCopy("Buy 1 thumbnail value-pack", "购买 1 次缩略图增值包装"))}</button>
-          <button class="cta ghost tiny" type="button" data-creator-boost-checkout="preview_video" ${(current.creator_boost.admin_only_purchase_override && !admin) ? "disabled" : ""}>${escapeHtml(loginCopy("Buy 1 preview video value-pack", "购买 1 次缩略视频增值包装"))}</button>
+          <button class="cta ghost tiny" type="button" data-creator-boost-checkout="language" ${(current.creator_boost.admin_only_purchase_override && !admin) ? "disabled" : ""}>${escapeHtml(loginCopy("Buy 1 extra language"))}</button>
+          <button class="cta ghost tiny" type="button" data-creator-boost-checkout="voice" ${(current.creator_boost.admin_only_purchase_override && !admin) ? "disabled" : ""}>${escapeHtml(loginCopy("Buy 1 extra voice lane"))}</button>
+          <button class="cta ghost tiny" type="button" data-creator-boost-checkout="thumbnail" ${(current.creator_boost.admin_only_purchase_override && !admin) ? "disabled" : ""}>${escapeHtml(loginCopy("Buy 1 thumbnail value-pack"))}</button>
+          <button class="cta ghost tiny" type="button" data-creator-boost-checkout="preview_video" ${(current.creator_boost.admin_only_purchase_override && !admin) ? "disabled" : ""}>${escapeHtml(loginCopy("Buy 1 preview video value-pack"))}</button>
         </div>
         ${admin ? `
-          <div class="advanced-panel-note">${escapeHtml(loginCopy("Admin-only member controls: VIP is assigned manually here and is never publicly self-serve.", "管理员专用会员控制：VIP 只能在这里手动指定，不能公开让用户自己申请或升级。"))}</div>
-          <label><span>${escapeHtml(loginCopy("Target user email", "目标用户邮箱"))}</span><input type="email" data-advanced-setting="admin-target-email" placeholder="member@example.com" /></label>
-          <label><span>${escapeHtml(loginCopy("Assign membership tier", "设定会员档位"))}</span>
+          <div class="advanced-panel-note">${escapeHtml(loginCopy("Admin-only member controls: VIP is assigned manually here and is never publicly self-serve."))}</div>
+          <label><span>${escapeHtml(loginCopy("Target user email"))}</span><input type="email" data-advanced-setting="admin-target-email" placeholder="member@example.com" /></label>
+          <label><span>${escapeHtml(loginCopy("Assign membership tier"))}</span>
             <select data-advanced-setting="admin-target-tier">
-              <option value="free">${escapeHtml(loginCopy("Basic / Free", "免费会员"))}</option>
-              <option value="starter">${escapeHtml(loginCopy("Starter", "入门创作会员"))}</option>
-              <option value="pro">${escapeHtml(loginCopy("Pro", "高级会员"))}</option>
-              <option value="studio">${escapeHtml(loginCopy("Studio", "工作室会员"))}</option>
-              <option value="enterprise">${escapeHtml(loginCopy("Enterprise", "企业会员"))}</option>
+              <option value="free">${escapeHtml(loginCopy("Basic / Free"))}</option>
+              <option value="starter">${escapeHtml(loginCopy("Starter"))}</option>
+              <option value="pro">${escapeHtml(loginCopy("Pro"))}</option>
+              <option value="studio">${escapeHtml(loginCopy("Studio"))}</option>
+              <option value="enterprise">${escapeHtml(loginCopy("Enterprise"))}</option>
               <option value="vip">VIP</option>
             </select>
           </label>
           <div class="advanced-panel-actions">
-            <button class="cta ghost tiny" type="button" data-admin-membership-assign>${escapeHtml(loginCopy("Apply membership", "应用会员设定"))}</button>
+            <button class="cta ghost tiny" type="button" data-admin-membership-assign>${escapeHtml(loginCopy("Apply membership"))}</button>
           </div>
-          <label><span>${escapeHtml(loginCopy("Manual entitlement kind", "手工发放权益类型"))}</span>
+          <label><span>${escapeHtml(loginCopy("Manual entitlement kind"))}</span>
             <select data-advanced-setting="admin-entitlement-kind">
-              <option value="language">${escapeHtml(loginCopy("Extra language", "额外语言"))}</option>
-              <option value="voice">${escapeHtml(loginCopy("Extra voice lane", "额外声线"))}</option>
-              <option value="thumbnail">${escapeHtml(loginCopy("Thumbnail regeneration", "缩略图重生"))}</option>
-              <option value="preview_video">${escapeHtml(loginCopy("Preview video regeneration", "缩略视频重生"))}</option>
+              <option value="language">${escapeHtml(loginCopy("Extra language"))}</option>
+              <option value="voice">${escapeHtml(loginCopy("Extra voice lane"))}</option>
+              <option value="thumbnail">${escapeHtml(loginCopy("Thumbnail regeneration"))}</option>
+              <option value="preview_video">${escapeHtml(loginCopy("Preview video regeneration"))}</option>
             </select>
           </label>
-          <label><span>${escapeHtml(loginCopy("Manual entitlement quantity", "手工发放数量"))}</span><input type="number" min="1" max="200" step="1" value="1" data-advanced-setting="admin-entitlement-quantity" /></label>
-          <label><span>${escapeHtml(loginCopy("Manual grant note", "手工发放备注"))}</span><input type="text" maxlength="240" data-advanced-setting="admin-entitlement-note" placeholder="${escapeHtml(loginCopy("VIP courtesy / contract / migration", "VIP 礼包 / 合同 / 迁移"))}" /></label>
+          <label><span>${escapeHtml(loginCopy("Manual entitlement quantity"))}</span><input type="number" min="1" max="200" step="1" value="1" data-advanced-setting="admin-entitlement-quantity" /></label>
+          <label><span>${escapeHtml(loginCopy("Manual grant note"))}</span><input type="text" maxlength="240" data-advanced-setting="admin-entitlement-note" placeholder="${escapeHtml(loginCopy("VIP courtesy / contract / migration"))}" /></label>
           <div class="advanced-panel-actions">
-            <button class="cta ghost tiny" type="button" data-admin-entitlement-grant>${escapeHtml(loginCopy("Grant entitlement", "发放权益"))}</button>
+            <button class="cta ghost tiny" type="button" data-admin-entitlement-grant>${escapeHtml(loginCopy("Grant entitlement"))}</button>
           </div>
         ` : ""}
         ${admin ? `<button class="cta ghost tiny" type="button" data-advanced-save="membership">${escapeHtml(t("settings.panel.setDefault"))}</button>` : ""}
@@ -2785,45 +2891,45 @@ function buildAdvancedPanelSettingsMarkup(settings) {
         admin
           ? `
             <section class="advanced-panel-card" data-advanced-panel="permission-overview">
-              <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Action Permission Overview", "动作级权限总览"))}</div>
-              <div class="advanced-panel-note">${escapeHtml(loginCopy("Admin read-only overview for concrete actions and buttons across works, seller, api, reports, login, profile, creation, and cssmv.", "管理员只读总览：把 works、seller、api、reports、login、profile、creation、cssmv 的具体动作与按钮逐项列出来。"))}</div>
+              <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Action Permission Overview"))}</div>
+              <div class="advanced-panel-note">${escapeHtml(loginCopy("Admin read-only overview for concrete actions and buttons across works, seller, api, reports, login, profile, creation, and cssmv."))}</div>
               <div class="permission-overview-summary">
-                <span>${escapeHtml(loginCopy(`Showing ${filteredActionMatrixRows.length} actions`, `当前命中 ${filteredActionMatrixRows.length} 条动作`))}</span>
-                <button class="report-export-action is-muted" type="button" data-permission-filter-reset>${escapeHtml(loginCopy("Clear all filters", "清空全部筛选"))}</button>
+                <span>${escapeHtml(loginCopy(`Showing ${filteredActionMatrixRows.length} actions`))}</span>
+                <button class="report-export-action is-muted" type="button" data-permission-filter-reset>${escapeHtml(loginCopy("Clear all filters"))}</button>
               </div>
-              <div class="permission-overview-filters" role="group" aria-label="${escapeHtml(loginCopy("Permission overview filters", "权限总览筛选"))}">
-                <button class="report-export-source ${permissionOverviewFilter === "all" ? "is-active" : ""}" type="button" data-permission-filter="all">${escapeHtml(loginCopy("All", "全部"))}</button>
+              <div class="permission-overview-filters" role="group" aria-label="${escapeHtml(loginCopy("Permission overview filters"))}">
+                <button class="report-export-source ${permissionOverviewFilter === "all" ? "is-active" : ""}" type="button" data-permission-filter="all">${escapeHtml(loginCopy("All"))}</button>
                 <button class="report-export-source ${permissionOverviewFilter === "delivery" ? "is-active" : ""}" type="button" data-permission-filter="delivery">delivery</button>
               </div>
-              <div class="permission-overview-filters" role="group" aria-label="${escapeHtml(loginCopy("Permission requirement filters", "权限门槛筛选"))}">
-                <button class="report-export-source ${permissionOverviewRequirementFilter === "all" ? "is-active" : ""}" type="button" data-permission-requirement-filter="all">${escapeHtml(loginCopy("All Thresholds", "全部门槛"))}</button>
+              <div class="permission-overview-filters" role="group" aria-label="${escapeHtml(loginCopy("Permission requirement filters"))}">
+                <button class="report-export-source ${permissionOverviewRequirementFilter === "all" ? "is-active" : ""}" type="button" data-permission-requirement-filter="all">${escapeHtml(loginCopy("All Thresholds"))}</button>
                 <button class="report-export-source ${permissionOverviewRequirementFilter === "basic" ? "is-active" : ""}" type="button" data-permission-requirement-filter="basic">Basic+</button>
                 <button class="report-export-source ${permissionOverviewRequirementFilter === "pro" ? "is-active" : ""}" type="button" data-permission-requirement-filter="pro">Pro+</button>
                 <button class="report-export-source ${permissionOverviewRequirementFilter === "enterprise" ? "is-active" : ""}" type="button" data-permission-requirement-filter="enterprise">Enterprise+</button>
                 <button class="report-export-source ${permissionOverviewRequirementFilter === "vip" ? "is-active" : ""}" type="button" data-permission-requirement-filter="vip">VIP+</button>
                 <button class="report-export-source ${permissionOverviewRequirementFilter === "admin" ? "is-active" : ""}" type="button" data-permission-requirement-filter="admin">Admin</button>
               </div>
-              <div class="permission-overview-filters" role="group" aria-label="${escapeHtml(loginCopy("Delivery domain filters", "交付子域筛选"))}">
-                <button class="report-export-source ${permissionOverviewDomainFilter === "all" ? "is-active" : ""}" type="button" data-permission-domain-filter="all">${escapeHtml(loginCopy("All Domains", "全部子域"))}</button>
+              <div class="permission-overview-filters" role="group" aria-label="${escapeHtml(loginCopy("Delivery domain filters"))}">
+                <button class="report-export-source ${permissionOverviewDomainFilter === "all" ? "is-active" : ""}" type="button" data-permission-domain-filter="all">${escapeHtml(loginCopy("All Domains"))}</button>
                 <button class="report-export-source ${permissionOverviewDomainFilter === "watch" ? "is-active" : ""}" type="button" data-permission-domain-filter="watch">watch</button>
                 <button class="report-export-source ${permissionOverviewDomainFilter === "rewrite" ? "is-active" : ""}" type="button" data-permission-domain-filter="rewrite">rewrite</button>
                 <button class="report-export-source ${permissionOverviewDomainFilter === "compliance" ? "is-active" : ""}" type="button" data-permission-domain-filter="compliance">compliance</button>
                 <button class="report-export-source ${permissionOverviewDomainFilter === "probe" ? "is-active" : ""}" type="button" data-permission-domain-filter="probe">probe</button>
                 <button class="report-export-source ${permissionOverviewDomainFilter === "publish" ? "is-active" : ""}" type="button" data-permission-domain-filter="publish">publish</button>
               </div>
-              <div class="permission-overview-table" role="table" aria-label="${escapeHtml(loginCopy("Action permission matrix", "动作级权限矩阵"))}">
+              <div class="permission-overview-table" role="table" aria-label="${escapeHtml(loginCopy("Action permission matrix"))}">
                 <div class="permission-overview-header" role="row">
-                  <span>${escapeHtml(loginCopy("Panel", "面板"))}</span>
-                  <span>${escapeHtml(loginCopy("Action", "动作"))}</span>
-                  <span>${escapeHtml(loginCopy("Threshold", "门槛"))}</span>
-                  <span>${escapeHtml(loginCopy("Guest", "游客"))}</span>
-                  <span>${escapeHtml(loginCopy("Free", "免费"))}</span>
-                  <span>${escapeHtml(loginCopy("Starter", "Starter"))}</span>
+                  <span>${escapeHtml(loginCopy("Panel"))}</span>
+                  <span>${escapeHtml(loginCopy("Action"))}</span>
+                  <span>${escapeHtml(loginCopy("Threshold"))}</span>
+                  <span>${escapeHtml(loginCopy("Guest"))}</span>
+                  <span>${escapeHtml(loginCopy("Free"))}</span>
+                  <span>${escapeHtml(loginCopy("Starter"))}</span>
                   <span>Pro</span>
                   <span>Studio</span>
                   <span>Enterprise</span>
                   <span>VIP</span>
-                  <span>${escapeHtml(loginCopy("Admin", "管理员"))}</span>
+                  <span>${escapeHtml(loginCopy("Admin"))}</span>
                 </div>
                 ${filteredActionMatrixRows
                   .map(
@@ -2856,8 +2962,8 @@ function buildAdvancedPanelSettingsMarkup(settings) {
 function buildDeferredAdvancedMembershipMarkup() {
   return `
     <section class="advanced-panel-card" data-advanced-panel="membership">
-      <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Membership & Boost", "会员与 Creator Boost"))}</div>
-      <div class="advanced-panel-note">${escapeHtml(loginCopy("Heavy membership controls are loading in the next frame so the page can respond first.", "会员与加购控制会在下一帧补齐，先让页面恢复响应。"))}</div>
+      <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Membership & Boost"))}</div>
+      <div class="advanced-panel-note">${escapeHtml(loginCopy("Heavy membership controls are loading in the next frame so the page can respond first."))}</div>
     </section>
   `;
 }
@@ -2865,8 +2971,8 @@ function buildDeferredAdvancedMembershipMarkup() {
 function buildDeferredAdvancedPermissionMarkup() {
   return `
     <section class="advanced-panel-card" data-advanced-panel="permission-overview">
-      <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Action Permission Overview", "动作级权限总览"))}</div>
-      <div class="advanced-panel-note">${escapeHtml(loginCopy("Permission matrix is loading after the base controls.", "权限矩阵会在基础控件之后再补齐。"))}</div>
+      <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Action Permission Overview"))}</div>
+      <div class="advanced-panel-note">${escapeHtml(loginCopy("Permission matrix is loading after the base controls."))}</div>
     </section>
   `;
 }
@@ -2889,8 +2995,46 @@ function stripAdvancedHeavyMarkup(markup, admin) {
 function collectAdvancedPanelSettingsFromDom() {
   const pick = (sel) => advancedPanelSettings?.querySelector(sel);
   const current = readPanelBehaviorSettingsLocal();
+  // CSSOS_PHASE2_MV_ENGINES_SELECTOR 20260418 —
+  // Walk the hydrated per-stage selectors (data-mv-engine-stage) and mirror the
+  // current selection into a dedicated mv_pipeline_engines branch so admin
+  // savePanelDefaults can persist per-stage engine defaults. This is fully
+  // data-driven — the stage and engine names come from the server catalog via
+  // cssmvEngines, so nothing is hardcoded here (一切参数化).
+  const mvPipelineEngines = {
+    ...(current.mv_pipeline_engines && typeof current.mv_pipeline_engines === "object"
+      ? current.mv_pipeline_engines
+      : {})
+  };
+  if (advancedPanelSettings) {
+    advancedPanelSettings
+      .querySelectorAll("[data-mv-engine-stage]")
+      .forEach((row) => {
+        if (!(row instanceof HTMLElement)) return;
+        const stageKey = String(row.getAttribute("data-mv-engine-stage") || "")
+          .trim()
+          .toLowerCase();
+        if (!stageKey) return;
+        const select = row.querySelector("[data-mv-engine-select]");
+        if (!(select instanceof HTMLSelectElement)) return;
+        const raw = String(select.value || "");
+        const sep = raw.indexOf("::");
+        if (sep <= 0) {
+          delete mvPipelineEngines[stageKey];
+          return;
+        }
+        const engine = raw.slice(0, sep);
+        const version = raw.slice(sep + 2);
+        if (engine && version) {
+          mvPipelineEngines[stageKey] = { engine, version };
+        } else {
+          delete mvPipelineEngines[stageKey];
+        }
+      });
+  }
   return sanitizePanelBehaviorSettings({
     ...current,
+    mv_pipeline_engines: mvPipelineEngines,
     logo: {
       ...current.logo,
       spell: pick('[data-advanced-setting="logo-spell"]')?.value || current.logo.spell || DEFAULT_SPELL,
@@ -2960,290 +3104,133 @@ function collectAdvancedPanelSettingsFromDom() {
   });
 }
 
-let advancedPanelSettingsHeavyFrame = 0;
-
 async function renderAdvancedPanelSettings(options = {}) {
+  if (typeof globalThis.renderAdvancedPanelSettingsBridge === "function") {
+    return globalThis.renderAdvancedPanelSettingsBridge(options);
+  }
   if (!advancedPanelSettings) return;
   if (advancedPanelSettings.hidden && !options.force) {
     advancedPanelSettings.dataset.needsRender = "true";
-    return;
-  }
-  const deferHeavy = !!options.deferHeavy;
-  if (authState.user && !deferHeavy) {
-    await loadCreatorBoostState().catch(() => null);
-  }
-  const local = readPanelBehaviorSettingsLocal();
-  const remote = deferHeavy ? local : await loadPanelDefaults("behavior", local);
-  const merged = sanitizePanelBehaviorSettings(remote || local);
-  if (!deferHeavy) {
-    applyPanelBehaviorSettings(merged);
-  }
-  const wasHidden = advancedPanelSettings.hidden;
-  const markup = buildAdvancedPanelSettingsMarkup(merged);
-  advancedPanelSettings.innerHTML = deferHeavy ? stripAdvancedHeavyMarkup(markup, getUserRole() === "admin") : markup;
-  advancedPanelSettings.hidden = wasHidden;
-  advancedPanelSettings.dataset.needsRender = "false";
-  advancedPanelSettings.querySelectorAll("input, select").forEach((control) => {
-    if (control instanceof HTMLInputElement && control.type === "file") return;
-    control.addEventListener("input", () => {
-      const next = collectAdvancedPanelSettingsFromDom();
-      applyPanelBehaviorSettings(next);
-      callWatchUiModule("refreshWatchPresentationFromSettingsModule", state.songSeed);
-      if (String(control.getAttribute("data-advanced-setting") || "").startsWith("mic-")) {
-        void renderAdvancedPanelSettings();
-      }
-    });
-    control.addEventListener("change", () => {
-      const next = collectAdvancedPanelSettingsFromDom();
-      applyPanelBehaviorSettings(next);
-      callWatchUiModule("refreshWatchPresentationFromSettingsModule", state.songSeed);
-      if (String(control.getAttribute("data-advanced-setting") || "").startsWith("mic-")) {
-        void renderAdvancedPanelSettings();
-      }
-    });
-  });
-  advancedPanelSettings.querySelectorAll("[data-creator-boost-checkout]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const boostKind = String(button.getAttribute("data-creator-boost-checkout") || "").trim().toLowerCase();
-      try {
-        await createCreatorBoostCheckout(boostKind, 1, button);
-      } catch (err) {
-        safeShowToast(loginCopy("Creator Boost checkout could not be started right now.", "当前无法发起 Creator Boost 结算。"));
-      }
-    });
-  });
-  advancedPanelSettings.querySelector("[data-admin-membership-assign]")?.addEventListener("click", (event) => {
-    void applyAdminMembershipAssignment(event.currentTarget);
-  });
-  advancedPanelSettings.querySelector("[data-admin-entitlement-grant]")?.addEventListener("click", (event) => {
-    void grantAdminEntitlement(event.currentTarget);
-  });
-  advancedPanelSettings.querySelectorAll("[data-permission-filter]").forEach((button) => {
-    button.addEventListener("click", () => {
-      permissionOverviewFilter = String(button.getAttribute("data-permission-filter") || "all").trim().toLowerCase() || "all";
-      void renderAdvancedPanelSettings();
-    });
-  });
-  advancedPanelSettings.querySelectorAll("[data-permission-requirement-filter]").forEach((button) => {
-    button.addEventListener("click", () => {
-      permissionOverviewRequirementFilter = String(button.getAttribute("data-permission-requirement-filter") || "all").trim().toLowerCase() || "all";
-      void renderAdvancedPanelSettings();
-    });
-  });
-  advancedPanelSettings.querySelectorAll("[data-permission-domain-filter]").forEach((button) => {
-    button.addEventListener("click", () => {
-      permissionOverviewDomainFilter = String(button.getAttribute("data-permission-domain-filter") || "all").trim().toLowerCase() || "all";
-      void renderAdvancedPanelSettings();
-    });
-  });
-  advancedPanelSettings.querySelector("[data-permission-filter-reset]")?.addEventListener("click", () => {
-    permissionOverviewFilter = "all";
-    permissionOverviewRequirementFilter = "all";
-    permissionOverviewDomainFilter = "all";
-    void renderAdvancedPanelSettings();
-  });
-  const advancedLogoImage1 = advancedPanelSettings.querySelector('[data-advanced-setting="logo-image-1"]');
-  const advancedLogoImage2 = advancedPanelSettings.querySelector('[data-advanced-setting="logo-image-2"]');
-  const advancedLogoVideo = advancedPanelSettings.querySelector('[data-advanced-setting="logo-video"]');
-  if (advancedLogoImage1 instanceof HTMLInputElement) {
-    advancedLogoImage1.addEventListener("change", async () => {
-      const file = advancedLogoImage1.files?.[0];
-      if (!file) return;
-      const uploadedUrl = authState.user && getUserRole() === "admin"
-        ? await uploadLogoMediaFile(file, "image_1", advancedLogoImage1)
-        : "";
-      if (!uploadedUrl) return;
-      const next = updatePanelBehaviorSettings((current) => ({
-        ...current,
-        logo: { ...current.logo, media: { ...current.logo.media, image_1: uploadedUrl } }
-      }));
-      await savePanelDefaults("behavior", next, advancedLogoImage1);
-      void renderAdvancedPanelSettings();
-    });
-  }
-  if (advancedLogoImage2 instanceof HTMLInputElement) {
-    advancedLogoImage2.addEventListener("change", async () => {
-      const file = advancedLogoImage2.files?.[0];
-      if (!file) return;
-      const uploadedUrl = authState.user && getUserRole() === "admin"
-        ? await uploadLogoMediaFile(file, "image_2", advancedLogoImage2)
-        : "";
-      if (!uploadedUrl) return;
-      const next = updatePanelBehaviorSettings((current) => ({
-        ...current,
-        logo: { ...current.logo, media: { ...current.logo.media, image_2: uploadedUrl } }
-      }));
-      await savePanelDefaults("behavior", next, advancedLogoImage2);
-      void renderAdvancedPanelSettings();
-    });
-  }
-  if (advancedLogoVideo instanceof HTMLInputElement) {
-    advancedLogoVideo.addEventListener("change", async () => {
-      const file = advancedLogoVideo.files?.[0];
-      if (!file) return;
-      const uploadedUrl = authState.user && getUserRole() === "admin"
-        ? await uploadLogoMediaFile(file, "video", advancedLogoVideo)
-        : "";
-      if (!uploadedUrl) return;
-      const next = updatePanelBehaviorSettings((current) => ({
-        ...current,
-        logo: { ...current.logo, media: { ...current.logo.media, video: uploadedUrl } }
-      }));
-      await savePanelDefaults("behavior", next, advancedLogoVideo);
-      void renderAdvancedPanelSettings();
-    });
-  }
-  advancedPanelSettings.querySelectorAll("[data-advanced-save]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const next = collectAdvancedPanelSettingsFromDom();
-      const saved = await savePanelDefaults("behavior", next, button);
-      if (saved) {
-        applyPanelBehaviorSettings(saved);
-        showToast(loginCopy("Panel defaults saved.", "面板默认值已保存。"));
-      }
-    });
-  });
-  advancedPanelSettings.querySelector("[data-advanced-dock-reset]")?.addEventListener("click", () => {
-    updatePanelBehaviorSettings((current) => ({
-      ...current,
-      dock: { ...current.dock, dock_position: "bottom" }
-    }));
-    dock?.classList.add("is-snapping");
-    setTimeout(() => dock?.classList.remove("is-snapping"), 520);
-  });
-  advancedPanelSettings.querySelectorAll("[data-advanced-open-panel]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const panelId = String(button.getAttribute("data-advanced-open-panel") || "").trim();
-      const panel = panelId ? document.getElementById(panelId) : null;
-      if (!panel) return;
-      openPanel(panel);
-      if (!panel.classList.contains("show-settings")) {
-        togglePanelSettings(panel);
-      } else {
-        focusPanel(panel);
-      }
-    });
-  });
-  if (deferHeavy) {
-    if (advancedPanelSettingsHeavyFrame) {
-      cancelAnimationFrame(advancedPanelSettingsHeavyFrame);
-    }
-    advancedPanelSettingsHeavyFrame = requestAnimationFrame(() => {
-      advancedPanelSettingsHeavyFrame = 0;
-      void renderAdvancedPanelSettings({ force: true });
-    });
   }
 }
 
 function randomizeCreationForLyricsRefresh(title) {
-  const seed = hashSeedString(`${title}::${Date.now()}::${songSeedVariationCounter}`);
-  const currentLanguage = String(creationState.language || document.documentElement.lang || "zh").trim().toLowerCase();
+  // P2-41 Jing 2026-04-18: civilization-coherent randomizer. Reads the civ
+  // bank from globalThis.CSSOS_CIVILIZATION_BANK (loaded via index.html).
+  // Falls back to the old hardcoded 3-branch ladder if the bank isn't
+  // loaded yet. Rationale in app.civilization-bank.js header.
+  const bank = globalThis.CSSOS_CIVILIZATION_BANK || null;
+  const nonce = bank && typeof bank.generateSeedNonce === "function"
+    ? bank.generateSeedNonce()
+    : `${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+  const seed = hashSeedString(`${title}::${Date.now()}::${nonce}::${songSeedVariationCounter}`);
+
+  // Resolve the effective locale from the advanced-panel language, the UI
+  // locale (cssos.locale), and the document <html lang>. First non-empty wins.
+  const explicitStateLang = String(creationState.language || "").trim().toLowerCase();
+  const uiLocale = (function readUiLocale() {
+    try {
+      return (typeof localStorage !== "undefined" && localStorage.getItem("cssos.locale")) || "";
+    } catch (_err) { return ""; }
+  })();
+  const docLocale = (typeof document !== "undefined" && document.documentElement?.lang) || "";
+  const userChoseLanguage = hasCreationFieldTouched("language") && !!explicitStateLang;
+  const effectiveLocale = (userChoseLanguage ? explicitStateLang : "") || uiLocale || docLocale || explicitStateLang;
+
+  // When the user explicitly set a language OR the UI has a language set,
+  // stay inside that civilization. Otherwise roam deterministically across
+  // civilizations so every re-roll lands somewhere new.
+  let civ = null;
+  if (bank && typeof bank.getCivilization === "function") {
+    if (userChoseLanguage || effectiveLocale) {
+      civ = bank.getCivilization(effectiveLocale);
+    } else if (typeof bank.pickRoamCivilization === "function") {
+      civ = bank.pickRoamCivilization(seed);
+    }
+  }
+
   const normalizedTitle = String(title || "").trim().toLowerCase();
   const styleContext = String(styleInput?.value || creationState.prompt || "").trim().toLowerCase();
   const allowChildlike =
-    normalizedTitle.includes("童") ||
-    normalizedTitle.includes("子供") ||
-    normalizedTitle.includes("children") ||
-    styleContext.includes("child") ||
-    styleContext.includes("children") ||
+    normalizedTitle.includes("童") || normalizedTitle.includes("子供") ||
+    normalizedTitle.includes("children") || normalizedTitle.includes("niño") ||
+    normalizedTitle.includes("enfant") || normalizedTitle.includes("kind") ||
+    styleContext.includes("child") || styleContext.includes("children") ||
     styleContext.includes("choir");
-  const compatibleGenres = currentLanguage.startsWith("ja")
-    ? ["Pop", "Rock", "Jazz", "R&B", "EDM", "Folk", "Classical"]
-    : currentLanguage.startsWith("zh")
-      ? ["Chinese GuFeng", "Pop", "Folk", "Classical", "R&B", "Jazz"]
-      : ["Pop", "Rock", "R&B", "Jazz", "Folk", "Country", "EDM", "Classical"];
-  const compatibleInstruments = currentLanguage.startsWith("ja")
-    ? ["Piano", "Guitar", "Violin", "Flute", "String Ensemble", "Cello", "Drums"]
-    : currentLanguage.startsWith("zh")
-      ? ["Guzheng", "Dizi", "Pipa", "Piano", "Violin", "Cello", "String Ensemble"]
-      : ["Guitar", "Piano", "Bass", "Drums", "Violin", "Saxophone", "Trumpet"];
+
+  // Civilization-driven pools with legacy fallbacks for when the bank hasn't loaded.
+  const compatibleGenres = (civ && civ.genres) || ["Pop", "Rock", "R&B", "Jazz", "Folk", "Country", "EDM", "Classical"];
+  const compatibleInstruments = (civ && civ.instruments) || ["Guitar", "Piano", "Bass", "Drums", "Violin", "Saxophone", "Trumpet"];
+  const compatibleVocalStyles = (civ && civ.vocalStyles) || ["airy close-mic", "lyric belt", "soft opera shimmer", "soul rasp", "choral unison"];
+  const compatibleEnsembles = (civ && civ.ensembles) || ["chamber ensemble", "festival percussion circle", "synth-pop band", "cinematic orchestra"];
+  const compatibleInstrumentation = (civ && civ.instrumentation) || [
+    "guzheng, dizi, low strings",
+    "grand piano, cello, brushed drums",
+    "analog bass, polysynth pad, punchy kit",
+    "chamber strings, horn layer, taiko pulse"
+  ];
+  const moodPool = bank && typeof bank.getMoodPoolForCivilization === "function"
+    ? bank.getMoodPoolForCivilization(civ)
+    : (creationOptionCatalog.mood || []);
+  const keyPool = (bank && bank.COMMON_KEYS) || ["C", "D", "E", "F", "G", "A", "B"];
+
   const compatibleVocalGenders = allowChildlike
     ? ["Feminine", "Masculine", "Duet", "Androgynous", "Polyphonic Choir", "Childlike"]
     : ["Feminine", "Masculine", "Duet", "Androgynous", "Polyphonic Choir"];
-  const compatibleVocalStyles = currentLanguage.startsWith("ja")
-    ? ["airy close-mic", "lyric belt", "soft opera shimmer", "choral unison"]
-    : ["airy close-mic", "lyric belt", "soft opera shimmer", "soul rasp", "choral unison"];
-  const compatibleEnsembles = currentLanguage.startsWith("ja")
-    ? ["chamber ensemble", "synth-pop band", "cinematic orchestra"]
-    : ["chamber ensemble", "festival percussion circle", "synth-pop band", "cinematic orchestra"];
+
   const preservedStyleText = hasCreationFieldTouched("styleText") ? String(styleInput?.value || "").trim() : "";
   const preservedVoiceValue = hasCreationFieldTouched("vocalGender") ? String(voiceInput?.value || "").trim() : "";
+
   creationState.selections = {
-    genre: hasCreationFieldTouched("genre")
-      ? creationState.selections.genre
-      : seededPick(compatibleGenres, seed, 1) || compatibleGenres[0] || "Pop",
-    mood: hasCreationFieldTouched("mood")
-      ? creationState.selections.mood
-      : seededPick(creationOptionCatalog.mood, seed, 2) || "",
-    instrument: hasCreationFieldTouched("instrument")
-      ? creationState.selections.instrument
-      : seededPick(compatibleInstruments, seed, 3) || "",
-    ambience: hasCreationFieldTouched("ambience")
-      ? creationState.selections.ambience
-      : seededPick(creationOptionCatalog.ambience, seed, 4) || "",
-    vocalGender: hasCreationFieldTouched("vocalGender")
-      ? creationState.selections.vocalGender
-      : seededPick(compatibleVocalGenders, seed, 5) || "Feminine"
+    genre: hasCreationFieldTouched("genre") ? creationState.selections.genre
+      : (seededPick(compatibleGenres, seed, 1) || compatibleGenres[0] || "Pop"),
+    mood: hasCreationFieldTouched("mood") ? creationState.selections.mood
+      : (seededPick(moodPool, seed, 2) || ""),
+    instrument: hasCreationFieldTouched("instrument") ? creationState.selections.instrument
+      : (seededPick(compatibleInstruments, seed, 3) || ""),
+    ambience: hasCreationFieldTouched("ambience") ? creationState.selections.ambience
+      : (seededPick(creationOptionCatalog.ambience, seed, 4) || ""),
+    vocalGender: hasCreationFieldTouched("vocalGender") ? creationState.selections.vocalGender
+      : (seededPick(compatibleVocalGenders, seed, 5) || "Feminine")
   };
-  creationState.tempo = hasCreationFieldTouched("tempo")
-    ? creationState.tempo
+  creationState.tempo = hasCreationFieldTouched("tempo") ? creationState.tempo
     : seededNumber(68, 168, 4, seed, 6);
-  creationState.key = hasCreationFieldTouched("key")
-    ? creationState.key
-    : seededPick(["C", "D", "E", "F", "G", "A", "B"], seed, 7) || "C";
-  creationState.duration = hasCreationFieldTouched("duration")
-    ? creationState.duration
-    : seededPick([30, 45, 60, 75, 90, 120], seed, 8) || 60;
+  creationState.key = hasCreationFieldTouched("key") ? creationState.key
+    : (seededPick(keyPool, seed, 7) || "C");
+  creationState.duration = hasCreationFieldTouched("duration") ? creationState.duration
+    : (seededPick([30, 45, 60, 75, 90, 120], seed, 8) || 60);
+
+  // Language: when the user didn't explicitly pick one, adopt the effective
+  // locale (UI / doc lang) rather than randomizing to zh/en/ja. This keeps
+  // lyrics in the language the user is actually reading the UI in.
   creationState.language = hasCreationFieldTouched("language")
     ? creationState.language
-    : seededPick(["zh", "en", "ja"], seed, 9) || "zh";
-  creationState.workType = hasCreationFieldTouched("workType")
-    ? creationState.workType
-    : "single";
-  creationState.prompt = hasCreationFieldTouched("prompt")
-    ? creationState.prompt
-    : loginCopy(
-        `Randomized from title: ${title}`,
-        `由标题随机生成：${title}`
-      );
-  creationState.instrumentation = hasCreationFieldTouched("instrumentation")
-    ? creationState.instrumentation
-    : seededPick(
-    [
-      "guzheng, dizi, low strings",
-      "grand piano, cello, brushed drums",
-      "analog bass, polysynth pad, punchy kit",
-      "chamber strings, horn layer, taiko pulse"
-    ],
-    seed,
-    11
-  ) || "";
-  creationState.vocalStyle = hasCreationFieldTouched("vocalStyle")
-    ? creationState.vocalStyle
-    : seededPick(
-    compatibleVocalStyles,
-    seed,
-    12
-  ) || "";
-  creationState.ensembleStyle = hasCreationFieldTouched("ensembleStyle")
-    ? creationState.ensembleStyle
-    : seededPick(
-    compatibleEnsembles,
-    seed,
-    13
-  ) || "";
-  creationState.licensedStylePack = hasCreationFieldTouched("licensedStylePack")
-    ? creationState.licensedStylePack
-    : "";
-  creationState.externalAudioAdapter = hasCreationFieldTouched("externalAudioAdapter")
-    ? creationState.externalAudioAdapter
-    : "";
-  creationState.inspirationNotes = hasCreationFieldTouched("inspirationNotes")
-    ? creationState.inspirationNotes
-    : loginCopy(
-        "Use broad lawful references: era, region, instrumentation, emotional pacing, and any licensed pack names.",
-        "使用合法的宽参考：时代、地域、编制、情绪推进，以及已授权音源包名称。"
-      );
+    : (effectiveLocale || "en");
+  // Tag civilization for downstream audit + LLM prompt composition.
+  if (civ && civ.code) {
+    creationState.civilization = civ.code;
+  }
+  if (civ && civ.promptFrame) {
+    creationState.culturalFrame = civ.promptFrame;
+  }
+  creationState.workType = hasCreationFieldTouched("workType") ? creationState.workType : "single";
+  creationState.prompt = hasCreationFieldTouched("prompt") ? creationState.prompt
+    : (typeof t === "function"
+      ? t("mv.random.prompt.fromTitle", { title: String(title || "") })
+      : `Randomized from title: ${title}`);
+  creationState.instrumentation = hasCreationFieldTouched("instrumentation") ? creationState.instrumentation
+    : (seededPick(compatibleInstrumentation, seed, 11) || "");
+  creationState.vocalStyle = hasCreationFieldTouched("vocalStyle") ? creationState.vocalStyle
+    : (seededPick(compatibleVocalStyles, seed, 12) || "");
+  creationState.ensembleStyle = hasCreationFieldTouched("ensembleStyle") ? creationState.ensembleStyle
+    : (seededPick(compatibleEnsembles, seed, 13) || "");
+  creationState.licensedStylePack = hasCreationFieldTouched("licensedStylePack") ? creationState.licensedStylePack : "";
+  creationState.externalAudioAdapter = hasCreationFieldTouched("externalAudioAdapter") ? creationState.externalAudioAdapter : "";
+  creationState.inspirationNotes = hasCreationFieldTouched("inspirationNotes") ? creationState.inspirationNotes
+    : (typeof t === "function"
+      ? t("mv.random.inspiration.notes")
+      : "Use broad lawful references: era, region, instrumentation, emotional pacing, and any licensed pack names.");
+
   syncCreationStateToLegacyInputs();
   if (preservedStyleText && styleInput) styleInput.value = preservedStyleText;
   if (preservedVoiceValue && voiceInput) setSelectValueSafe(voiceInput, preservedVoiceValue);
@@ -3347,7 +3334,7 @@ function summarizeError(err) {
 function getSeedRefreshToast(target) {
   return readSongSeedUiModule(
     "getSeedRefreshToastModule",
-    loginCopy("Magic in progress...", "魔法施展中..."),
+    loginCopy("Magic in progress..."),
     target
   );
 }
@@ -3364,8 +3351,7 @@ window.CSSOS_forceLyricsRegenerate = function forceLyricsRegenerate(event) {
   if (lyricRegenerateRequestActive) return false;
   setLyricsDebugStatus(
     loginCopy(
-      "Button triggered. Preparing random lyric request...",
-      "按钮已触发，正在准备随机歌词请求..."
+      "Button triggered. Preparing random lyric request..."
     ),
     "pending"
   );
@@ -3445,7 +3431,10 @@ async function buildSongSeedGenerationConstraints() {
   const workType = normalizeWorkTypeClient(creationState.workType || "single");
   const titleLanguage = inferLanguageFromTitleText(titleInput?.value || state.title || "");
   const explicitLanguage = String(creationLanguage?.value || creationState.language || "").trim().toLowerCase();
-  const preferredLanguage = explicitLanguage || titleLanguage || document.documentElement.lang || "zh";
+  // CSSMV_CIVILIZATION_CASCADE 20260424 #98 — UI locale wins over title
+  // inference when the user hasn't explicitly picked a language.
+  const uiFallbackBuild = globalThis.resolveUiPrimaryLanguageModule?.() || "en";
+  const preferredLanguage = explicitLanguage || uiFallbackBuild || titleLanguage || document.documentElement.lang || "en";
   let structurePlan = null;
   if (workType === "opera") {
     const requestedTitle = String(getSongSeedRequestTitle() || titleInput?.value || state.title || "").trim();
@@ -3471,16 +3460,16 @@ async function buildSongSeedGenerationConstraints() {
     work_type: workType,
     work_type_mandate:
       workType === "triptych"
-        ? loginCopy("Generate a triptych with one parent title and three titled singles.", "必须生成三部曲：一个总标题，加三首都有标题的单曲。")
+        ? loginCopy("Generate a triptych with one parent title and three titled singles.")
         : workType === "opera"
-        ? loginCopy("Generate an opera with one opera title, titled acts, and titled scenes.", "必须生成歌剧：一个歌剧总标题，并且每一幕、每一场都有标题。")
-        : loginCopy("Generate a single song release.", "生成单曲。"),
+        ? loginCopy("Generate an opera with one opera title, titled acts, and titled scenes.")
+        : loginCopy("Generate a single song release."),
     title_language_mandate:
       preferredLanguage === "zh"
-        ? loginCopy("Keep the lyric body naturally Chinese unless multilingual mixing was explicitly requested. If the user already provided a title, preserve that title exactly.", "歌词正文必须自然使用中文，除非用户明确要求多语混写。如果用户已经给出标题，必须原样保留该标题。")
+        ? loginCopy("Keep the lyric body naturally Chinese unless multilingual mixing was explicitly requested. If the user already provided a title, preserve that title exactly.")
         : preferredLanguage === "ja"
-          ? loginCopy("Keep the lyric body naturally Japanese unless multilingual mixing was explicitly requested. If the user already provided a title, preserve that title exactly.", "歌词正文必须自然使用日文，除非用户明确要求多语混写。如果用户已经给出标题，必须原样保留该标题。")
-          : loginCopy("Keep the lyric body naturally English unless multilingual mixing was explicitly requested. If the user already provided a title, preserve that title exactly.", "歌词正文必须自然使用英文，除非用户明确要求多语混写。如果用户已经给出标题，必须原样保留该标题。"),
+          ? loginCopy("Keep the lyric body naturally Japanese unless multilingual mixing was explicitly requested. If the user already provided a title, preserve that title exactly.")
+          : loginCopy("Keep the lyric body naturally English unless multilingual mixing was explicitly requested. If the user already provided a title, preserve that title exactly."),
     genre: creationState.selections?.genre || "",
     mood: creationState.selections?.mood || "",
     lead_instrument: creationState.selections?.instrument || "",
@@ -3501,7 +3490,11 @@ async function buildSongSeedGenerationConstraints() {
     humanization: creationState.humanization,
     tempo_bpm: creationState.tempo,
     key: creationState.key,
-    duration_sec: creationState.duration,
+    // CSSOS_CANCEL_FORCED_DEFAULTS 20260420 — duration default was
+    // removed from creationState (set to 0 = "not set"). Keep 180 as
+    // a safe per-call fallback so the backend contract doesn't break
+    // until the advanced-settings panel overhaul lands.
+    duration_sec: Number(creationState.duration || 180),
     user_prompt: creationState.prompt || "",
     inspiration_notes: creationState.inspirationNotes || "",
     ...(structurePlan ? { structure_plan: structurePlan } : {})
@@ -3670,14 +3663,14 @@ function canUseEnterpriseApiClient(tier = getAccessTier()) {
 
 function formatQueueLaneLabel(queueLane) {
   const lane = String(queueLane || "").trim().toLowerCase();
-  if (lane === "admin_override") return loginCopy("Admin override queue", "管理员覆盖队列");
-  if (lane === "vip_private") return loginCopy("VIP private queue", "VIP 私享队列");
-  if (lane === "enterprise_dedicated") return loginCopy("Enterprise dedicated queue", "企业专属队列");
-  if (lane === "studio_pipeline") return loginCopy("Studio production queue", "Studio 生产队列");
-  if (lane === "pro_pipeline") return loginCopy("Pro production queue", "Pro 生产队列");
-  if (lane === "starter_paid") return loginCopy("Starter paid queue", "入门付费队列");
-  if (lane === "free_standard") return loginCopy("Free standard queue", "免费标准队列");
-  return loginCopy("Guest preview queue", "游客预览队列");
+  if (lane === "admin_override") return loginCopy("Admin override queue");
+  if (lane === "vip_private") return loginCopy("VIP private queue");
+  if (lane === "enterprise_dedicated") return loginCopy("Enterprise dedicated queue");
+  if (lane === "studio_pipeline") return loginCopy("Studio production queue");
+  if (lane === "pro_pipeline") return loginCopy("Pro production queue");
+  if (lane === "starter_paid") return loginCopy("Starter paid queue");
+  if (lane === "free_standard") return loginCopy("Free standard queue");
+  return loginCopy("Guest preview queue");
 }
 
 function billableActionLabel(actionKey = "") {
@@ -3904,14 +3897,14 @@ function buildLocalStructuredChildren(title, lines, style, workType) {
   if (normalizedType === "triptych") {
     return buildStructuredSegments(lines, 3, title).map((segment, index) => ({
       local_id: `local_triptych_${Date.now()}_${index + 1}`,
-      title: String(segment?.title || `${title} · ${loginCopy("Part", "单曲")} ${index + 1}`).trim(),
+      title: String(segment?.title || `${title} · ${loginCopy("Part")} ${index + 1}`).trim(),
       style,
       work_type: "single",
       structure_role: "single",
       sequence_index: index + 1,
       lyrics_text: (Array.isArray(segment?.lines) ? segment.lines : []).join("\n"),
       lyrics_preview: (Array.isArray(segment?.lines) ? segment.lines : []).join("\n").slice(0, 500),
-      cover_image: buildForyouThumbSvg(String(segment?.title || `${title} · ${loginCopy("Part", "单曲")} ${index + 1}`).trim(), "", Array.isArray(segment?.lines) ? segment.lines : []),
+      cover_image: buildForyouThumbSvg(String(segment?.title || `${title} · ${loginCopy("Part")} ${index + 1}`).trim(), "", Array.isArray(segment?.lines) ? segment.lines : []),
       children: []
     }));
   }
@@ -4107,14 +4100,14 @@ async function createTriptychWorkRecord(title, lines, style, pricingDefaults) {
   root.children = Array.isArray(root?.children) ? root.children : [];
   const nextPlan = buildTriptychStructurePlan(root, state.songSeed, String(title || "").trim());
   if (nextPlan?.completed) {
-    showToast(loginCopy("This triptych is already complete.", "这组三部曲已经全部完成。"));
+    showToast(loginCopy("This triptych is already complete."));
     return root;
   }
   const targetPartNumber = Number(nextPlan?.targetPartNumber || 1);
   const partBlueprint = (Array.isArray(rootSeed.children) ? rootSeed.children : []).find(
     (item) => Number(item?.sequence_index || 0) === targetPartNumber
   ) || {
-    title: `${title} · ${loginCopy("Part", "Part")} ${targetPartNumber}`,
+    title: `${title} · ${loginCopy("Part")} ${targetPartNumber}`,
     work_type: "single",
     structure_role: "part",
     sequence_index: targetPartNumber,
@@ -4131,8 +4124,7 @@ async function createTriptychWorkRecord(title, lines, style, pricingDefaults) {
   root.children.push(createdPart);
   showToast(
     loginCopy(
-      `Triptych advanced to Part ${targetPartNumber}.`,
-      `三部曲已推进到 Part ${targetPartNumber}。`
+      `Triptych advanced to Part ${targetPartNumber}.`
     )
   );
   return root;
@@ -4181,7 +4173,7 @@ async function createOperaWorkRecord(title, lines, style, pricingDefaults) {
     structurePlan
   }, rootTitle);
   if (nextPlan?.completed) {
-    showToast(loginCopy("This opera is already complete.", "这部歌剧已经全部完成。"));
+    showToast(loginCopy("This opera is already complete."));
     return root;
   }
 
@@ -4240,7 +4232,7 @@ async function createOperaWorkRecord(title, lines, style, pricingDefaults) {
   });
 
   if (!scenesToCreate.length) {
-    showToast(loginCopy("This opera is already complete.", "这部歌剧已经全部完成。"));
+    showToast(loginCopy("This opera is already complete."));
     return root;
   }
 
@@ -4259,15 +4251,13 @@ async function createOperaWorkRecord(title, lines, style, pricingDefaults) {
   if (sceneEnd >= totalActScenes) {
     showToast(
       loginCopy(
-        `${formatActLabel(actNumber)} completed. Next creation will continue into the following act.`,
-        `${formatActLabel(actNumber)} 已完成，下一次创作将继续进入下一幕。`
+        `${formatActLabel(actNumber)} completed. Next creation will continue into the following act.`
       )
     );
   } else {
     showToast(
       loginCopy(
-        `${formatActLabel(actNumber)} added Scene ${sceneStart}-${sceneEnd}.`,
-        `${formatActLabel(actNumber)} 已新增 Scene ${sceneStart}-${sceneEnd}。`
+        `${formatActLabel(actNumber)} added Scene ${sceneStart}-${sceneEnd}.`
       )
     );
   }
@@ -4836,6 +4826,9 @@ function panelElementByDefaultKey(panelKey) {
 
 function defaultPanelBehaviorSettings() {
   return {
+    appearance: {
+      theme_mode: "system"
+    },
     logo: {
       spell: DEFAULT_SPELL,
       subtitle: "Studio",
@@ -5009,6 +5002,11 @@ function sanitizePanelBehaviorSettings(value = {}) {
   const base = defaultPanelBehaviorSettings();
   const source = value && typeof value === "object" ? value : {};
   return {
+    appearance: {
+      theme_mode: ["system", "dark", "light"].includes(String(source?.appearance?.theme_mode || ""))
+        ? String(source.appearance.theme_mode)
+        : base.appearance.theme_mode
+    },
     logo: {
       spell: String(source?.logo?.spell || base.logo.spell).slice(0, 24) || DEFAULT_SPELL,
       subtitle: String(source?.logo?.subtitle || base.logo.subtitle).slice(0, 40) || "Studio",
@@ -5260,6 +5258,12 @@ function sanitizePanelBehaviorSettings(value = {}) {
 }
 
 function readPanelBehaviorSettingsLocal() {
+  const moduleImpl =
+    globalThis.readPanelBehaviorSettingsLocal?.__moduleImpl ||
+    globalThis.__panelBehaviorCore?.readPanelBehaviorSettingsLocal;
+  if (typeof moduleImpl === "function" && moduleImpl !== readPanelBehaviorSettingsLocal) {
+    return moduleImpl();
+  }
   try {
     return sanitizePanelBehaviorSettings(JSON.parse(localStorage.getItem(PANEL_BEHAVIOR_SETTINGS_KEY) || "{}"));
   } catch {
@@ -5268,6 +5272,12 @@ function readPanelBehaviorSettingsLocal() {
 }
 
 function writePanelBehaviorSettingsLocal(settings) {
+  const moduleImpl =
+    globalThis.writePanelBehaviorSettingsLocal?.__moduleImpl ||
+    globalThis.__panelBehaviorCore?.writePanelBehaviorSettingsLocal;
+  if (typeof moduleImpl === "function" && moduleImpl !== writePanelBehaviorSettingsLocal) {
+    return moduleImpl(settings);
+  }
   try {
     localStorage.setItem(PANEL_BEHAVIOR_SETTINGS_KEY, JSON.stringify(sanitizePanelBehaviorSettings(settings)));
   } catch {
@@ -5276,6 +5286,12 @@ function writePanelBehaviorSettingsLocal(settings) {
 }
 
 function updatePanelBehaviorSettings(mutator) {
+  const moduleImpl =
+    globalThis.updatePanelBehaviorSettings?.__moduleImpl ||
+    globalThis.__panelBehaviorCore?.updatePanelBehaviorSettings;
+  if (typeof moduleImpl === "function" && moduleImpl !== updatePanelBehaviorSettings) {
+    return moduleImpl(mutator);
+  }
   const current = readPanelBehaviorSettingsLocal();
   const draft = sanitizePanelBehaviorSettings(mutator(current));
   applyPanelBehaviorSettings(draft);
@@ -5283,8 +5299,62 @@ function updatePanelBehaviorSettings(mutator) {
   return draft;
 }
 
+function resolveEffectiveThemeMode(themeMode) {
+  if (themeMode === "light" || themeMode === "dark") return themeMode;
+  return getEffectiveThemeModeFromSettings({
+    appearance: {
+      theme_mode: String(themeMode || "system")
+    }
+  });
+}
+
+function getEffectiveThemeModeFromSettings(settings = null) {
+  const moduleImpl =
+    globalThis.getEffectiveThemeModeFromSettings?.__moduleImpl ||
+    globalThis.__panelBehaviorCore?.getEffectiveThemeModeFromSettings;
+  if (typeof moduleImpl === "function" && moduleImpl !== getEffectiveThemeModeFromSettings) {
+    return moduleImpl(settings);
+  }
+  const next = settings ? sanitizePanelBehaviorSettings(settings) : readPanelBehaviorSettingsLocal();
+  return resolveEffectiveThemeMode(next?.appearance?.theme_mode || "system");
+}
+
+function applyDocumentThemeSettings(settings = null) {
+  const moduleImpl =
+    globalThis.applyDocumentThemeSettings?.__moduleImpl ||
+    globalThis.__panelBehaviorCore?.applyDocumentThemeSettings;
+  if (typeof moduleImpl === "function" && moduleImpl !== applyDocumentThemeSettings) {
+    return moduleImpl(settings);
+  }
+  const next = settings ? sanitizePanelBehaviorSettings(settings) : readPanelBehaviorSettingsLocal();
+  const effectiveTheme = resolveEffectiveThemeMode(next?.appearance?.theme_mode || "system");
+  document.documentElement.dataset.theme = effectiveTheme;
+  document.documentElement.dataset.themeMode = next?.appearance?.theme_mode || "system";
+  document.documentElement.dataset.themeIcon = effectiveTheme === "dark" ? "☾" : "☀";
+  if (document.body) {
+    document.body.dataset.themeMode = next?.appearance?.theme_mode || "system";
+    document.body.dataset.theme = effectiveTheme;
+  }
+  document.documentElement.style.colorScheme = effectiveTheme;
+  return effectiveTheme;
+}
+
+function bindSystemThemeWatcher() {
+  const moduleImpl = globalThis.__panelBehaviorCore?.bindSystemThemeWatcher;
+  if (typeof moduleImpl === "function") {
+    return moduleImpl();
+  }
+}
+
 function applyPanelBehaviorSettings(settings) {
+  const moduleImpl =
+    globalThis.applyPanelBehaviorSettings?.__moduleImpl ||
+    globalThis.__panelBehaviorCore?.applyPanelBehaviorSettings;
+  if (typeof moduleImpl === "function" && moduleImpl !== applyPanelBehaviorSettings) {
+    return moduleImpl(settings);
+  }
   const next = sanitizePanelBehaviorSettings(settings);
+  bindSystemThemeWatcher();
   FORYOU_POST_COMPLETE_HOLD_MS = next.foryou.hold_ms;
   FORYOU_AUTO_ENJOY_DELAY_MS = next.foryou.auto_watch_ms;
   LYRICS_TYPEWRITER_SPEED = next.lyrics.typewriter_speed;
@@ -5300,6 +5370,8 @@ function applyPanelBehaviorSettings(settings) {
   DOCK_LABEL_VISIBLE = next.dock.show_labels;
   DOCK_DOCKING_ENABLED = next.dock.docking_enabled;
   DOCK_POSITION = next.dock.dock_position;
+  const effectiveTheme = applyDocumentThemeSettings(next);
+  globalThis.refreshThemeQuickToggleModule?.(next, effectiveTheme);
   document.body.dataset.backgroundMode = next.background.mode;
   document.documentElement.style.setProperty("--bg-intensity", String(next.background.intensity));
   document.documentElement.style.setProperty("--bg-motion-scale", String(next.background.motion));
@@ -5435,6 +5507,12 @@ function applyPanelBehaviorSettings(settings) {
 }
 
 async function loadPanelDefaults(panelKey, fallback) {
+  const moduleImpl =
+    globalThis.loadPanelDefaults?.__moduleImpl ||
+    globalThis.__panelBehaviorCore?.loadPanelDefaults;
+  if (typeof moduleImpl === "function" && moduleImpl !== loadPanelDefaults) {
+    return moduleImpl(panelKey, fallback);
+  }
   try {
     const res = await fetch(`/api/panel-defaults/${encodeURIComponent(panelKey)}`, { credentials: "include" });
     if (res.status === 404) return fallback;
@@ -5447,6 +5525,12 @@ async function loadPanelDefaults(panelKey, fallback) {
 }
 
 async function savePanelDefaults(panelKey, defaults, trigger = null) {
+  const moduleImpl =
+    globalThis.savePanelDefaults?.__moduleImpl ||
+    globalThis.__panelBehaviorCore?.savePanelDefaults;
+  if (typeof moduleImpl === "function" && moduleImpl !== savePanelDefaults) {
+    return moduleImpl(panelKey, defaults, trigger);
+  }
   if (getUserRole() !== "admin") return null;
   try {
     setButtonBusy(trigger, true);
@@ -5466,7 +5550,7 @@ async function savePanelDefaults(panelKey, defaults, trigger = null) {
     }
     return data?.defaults || defaults;
   } catch {
-    showToast(loginCopy("Failed to save defaults.", "保存默认模板失败。"));
+    showToast(loginCopy("Failed to save defaults."));
     return null;
   } finally {
     setButtonBusy(trigger, false);
@@ -5484,6 +5568,12 @@ async function fileToDataUrl(file) {
 }
 
 async function hydrateBehaviorDefaultsFromServer(force = false) {
+  const moduleImpl =
+    globalThis.hydrateBehaviorDefaultsFromServer?.__moduleImpl ||
+    globalThis.__panelBehaviorCore?.hydrateBehaviorDefaultsFromServer;
+  if (typeof moduleImpl === "function" && moduleImpl !== hydrateBehaviorDefaultsFromServer) {
+    return moduleImpl(force);
+  }
   if (!authState.user && !force) return null;
   const local = readPanelBehaviorSettingsLocal();
   const remote = await loadPanelDefaults("behavior", local);
@@ -5493,6 +5583,12 @@ async function hydrateBehaviorDefaultsFromServer(force = false) {
 }
 
 async function hydratePanelDefaultsFromServer(force = false) {
+  const moduleImpl =
+    globalThis.hydratePanelDefaultsFromServer?.__moduleImpl ||
+    globalThis.__panelBehaviorCore?.hydratePanelDefaultsFromServer;
+  if (typeof moduleImpl === "function" && moduleImpl !== hydratePanelDefaultsFromServer) {
+    return moduleImpl(force);
+  }
   if (!authState.user && !force) return;
   const targets = ["logo", "foryou", "watch", "lyrics", "music", "video", "about", "api", "delivery_reports", "delivery_ops", "cssmv", "language", "login", "profile", "works", "seller"];
   for (const panelKey of targets) {
@@ -5528,7 +5624,7 @@ async function uploadLogoMediaFile(file, slot, trigger = null) {
     }
     return String(data.url || "");
   } catch {
-    showToast(loginCopy("Failed to upload logo media.", "保存 Logo 素材失败。"));
+    showToast(loginCopy("Failed to upload logo media."));
     return "";
   } finally {
     setButtonBusy(trigger, false);
@@ -5727,10 +5823,23 @@ const state = {
   baseLines: [],
   lines: [],
   spell: DEFAULT_SPELL,
-  style: styleInput ? styleInput.value : "Chinese GuFeng",
-  voice: voiceInput ? voiceInput.value : "Feminine",
+  // CSSOS_CANCEL_FORCED_DEFAULTS 20260420 — Jing: previously this fell
+  // back to "Chinese GuFeng" which is a specific genre and polluted
+  // every English/Japanese creation session. Now falls back to the
+  // user's current style input or an empty string — no silent genre
+  // injection. The advanced-settings panel will get a full defaults
+  // overhaul later; this just removes the override.
+  style: styleInput ? styleInput.value : "",
+  voice: voiceInput ? voiceInput.value : "",
   songSeed: null
 };
+// P2-36: Expose the global creation state on globalThis so other modules can
+// push the authoritative song title/lyrics into it (e.g. app.mv-pipeline-panel.js
+// resolves the real title from /api/mv/music and needs to sync it here so the
+// notifications panel and works center show the same title as the Watch panel).
+// Before this line, each IIFE that declared its own local `state` was shadowing
+// the lexical scope lookup, so "one song, three titles" resulted.
+globalThis.state = state;
 let songSeedVariationCounter = 0;
 const recentAutoSongSeedTitles = [];
 
@@ -5750,14 +5859,21 @@ const creationOptionCatalog = {
   vocalGender: ["Feminine", "Masculine", "Childlike", "Duet", "Androgynous", "Polyphonic Choir"]
 };
 
+// CSSOS_CANCEL_FORCED_DEFAULTS 20260420 — Jing: previously this forced
+// genre="Chinese GuFeng" and language="zh" on day-zero, overriding the
+// UI language and silently steering every English/Japanese session into
+// a Chinese guqin-style creation. Now defaults are empty / UI-derived
+// so the user's selected language actually wins. vocalGender also
+// cleared; it was never truly default-worthy, and defaulting to
+// "Feminine" is a product-voice decision, not a technical default.
 const creationState = {
   activeTab: "genre",
   selections: {
-    genre: "Chinese GuFeng",
+    genre: "",
     mood: "",
     instrument: "",
     ambience: "",
-    vocalGender: "Feminine"
+    vocalGender: ""
   },
   instrumentation: "",
   vocalStyle: "",
@@ -5775,10 +5891,24 @@ const creationState = {
   externalAudioAdapter: "",
   tempo: 88,
   key: "C",
-  duration: 180,
-  language: "zh",
+  // duration 0 = "not set"; call-sites use `Number(duration || 180)`
+  // which preserves back-compat but no longer appears as an already-
+  // selected value in the advanced-settings panel. Jing: "请取消这些
+  // 默认限制... 还有默认时长180秒".
+  duration: 0,
+  // language is resolved from the UI primary language at runtime (see
+  // app.creation-language.js). Empty string here means "follow UI";
+  // the old hardcoded "zh" was overriding English/Japanese UIs and
+  // forcing random lyrics into Chinese even when the UI wasn't.
+  language: "",
   workType: "single",
-  prompt: ""
+  prompt: "",
+  // P2-51: MV output spec — single source of truth for aspect ratio.
+  // Flows to cover gen, video gen, ffmpeg compose, and the watch preview
+  // frame (--cssos-output-ar). See public/app.aspect-ratio.js.
+  aspectRatio: "16:9",
+  customWidth: null,
+  customHeight: null
 };
 const creationTouchedFields = new Set();
 
@@ -5793,6 +5923,21 @@ function hasCreationFieldTouched(field) {
 function resetCreationTouchedFields() {
   creationTouchedFields.clear();
 }
+
+// P2-99: Expose creationState + touched-field helpers on globalThis so that
+// downstream scripts loaded after app.js (app.mv-pipeline-panel.js, the
+// aspect-ratio picker click handler, app.aspect-ratio.js resolver, the
+// advanced-settings panel) can read and mutate the same single source of
+// truth. Before this binding, `globalThis.creationState` was `undefined`,
+// so every aspect-chip click silently no-oped and the resolver always
+// returned its hardcoded fallback "1920 × 1080 · Landscape 16:9 · landscape".
+// See Jing's bug report: regardless of picker choice, output fell back to
+// 16:9. Root cause: module-scoped `const creationState` was not exported.
+globalThis.creationState = creationState;
+globalThis.creationTouchedFields = creationTouchedFields;
+globalThis.markCreationFieldTouched = markCreationFieldTouched;
+globalThis.hasCreationFieldTouched = hasCreationFieldTouched;
+globalThis.resetCreationTouchedFields = resetCreationTouchedFields;
 
 const panelDefaultsState = {
   creation: null,
@@ -5811,6 +5956,7 @@ const authState = {
   sessionExpiresAt: null,
   permissionSnapshot: null
 };
+globalThis.authState = authState;
 
 const LOCAL_WORKS_KEY = "cssos.myworks.local";
 const WATCH_ACTIVE_TAB_KEY = "cssos.watch.activeTab";
@@ -5825,7 +5971,16 @@ const LOGIN_REQUIRED_PANEL_IDS = new Set([
   "seller-panel",
   "cssmv-panel"
 ]);
-const GUEST_VISIBLE_DOCK_ACTIONS = new Set(["mic", "foryou", "watch", "about", "api", "login", "language"]);
+const GUEST_VISIBLE_DOCK_ACTIONS = new Set([
+  "mic",
+  "foryou",
+  "watch",
+  "about",
+  "api",
+  "login",
+  "language",
+  "subscription"
+]);
 
 const getUserRole = () =>
   (
@@ -5862,6 +6017,7 @@ const creatorBoostState = {
   error: null,
   payload: null
 };
+globalThis.creatorBoostState = creatorBoostState;
 let permissionOverviewFilter = "all";
 let permissionOverviewRequirementFilter = "all";
 let permissionOverviewDomainFilter = "all";
@@ -5908,6 +6064,7 @@ const panels = [
 const dockByPanel = {
   "foryou-panel": "foryou",
   "watch-panel": "watch",
+  "notifications-panel": "notifications",
   "cssmv-panel": "cssmv",
   "lyrics-panel": "lyrics",
   "music-panel": "music",
@@ -5916,6 +6073,10 @@ const dockByPanel = {
   "language-panel": "language",
   "login-panel": "login",
   "profile-panel": "profile",
+  "subscription-panel": "subscription",
+  "user-admin-panel": "user-admin",
+  "credit-panel": "credit",
+  "workspaces-panel": "workspaces",
   "works-panel": "works",
   "seller-panel": "seller",
   "about-panel": "about",
@@ -6113,14 +6274,14 @@ function getWorkCommerceDetails(workId) {
 
 async function startStripeCheckoutForWork(workId, orderKind, trigger, options = {}) {
   if (!authState.user) {
-    showToast(loginCopy("Please sign in first.", "请先登录。"));
+    showToast(loginCopy("Please sign in first."));
     openPanel(loginPanel);
     return;
   }
   if (String(orderKind || "").trim() === "tip") {
     const amountCents = Number(options?.tipAmountCents || 0);
     if (!Number.isFinite(amountCents) || amountCents < 100) {
-      showToast(loginCopy("Tips start at $1.00.", "打赏金额至少为 1 美元。"));
+      showToast(loginCopy("Tips start at $1.00."));
       return;
     }
   }
@@ -6149,21 +6310,21 @@ async function startStripeCheckoutForWork(workId, orderKind, trigger, options = 
   } catch (err) {
     const message = String(err || "");
     if (message.includes("SELF_PURCHASE_NOT_ALLOWED")) {
-      showToast(loginCopy("You can't buy your own work.", "不能购买自己的作品。"));
+      showToast(loginCopy("You can't buy your own work."));
       return;
     }
     if (message.includes("ORDER_ALREADY_PENDING") || message.includes("ORDER_BUYOUT_PENDING")) {
-      showToast(loginCopy("This order is already processing.", "这个订单正在处理中。"));
+      showToast(loginCopy("This order is already processing."));
       void loadPublicMarketWorks(true).then(() => renderForyouMarketplace());
       return;
     }
     if (message.includes("ORDER_ALREADY_PAID")) {
-      showToast(loginCopy("You already own this access.", "你已经买过这个权限了。"));
+      showToast(loginCopy("You already own this access."));
       void loadPublicMarketWorks(true).then(() => renderForyouMarketplace());
       return;
     }
     if (message.includes("ORDER_ALREADY_OWNED_BUYOUT")) {
-      showToast(loginCopy("You already own the buyout.", "你已经买断了这件作品。"));
+      showToast(loginCopy("You already own the buyout."));
       void loadPublicMarketWorks(true).then(() => renderForyouMarketplace());
       return;
     }
@@ -6180,18 +6341,18 @@ async function startStripeCheckoutForWork(workId, orderKind, trigger, options = 
         retryAfterUnlock = true;
         return;
       }
-      showToast(loginCopy("This work is not priced yet.", "这件作品还没有定价。"));
+      showToast(loginCopy("This work is not priced yet."));
       return;
     }
     if (message.includes("buyout_not_enabled")) {
-      showToast(loginCopy("Buyout is not enabled for this work.", "这件作品未开启买断。"));
+      showToast(loginCopy("Buyout is not enabled for this work."));
       return;
     }
     if (message.includes("tips_not_enabled")) {
-      showToast(loginCopy("Tips are not enabled for this work.", "这件作品暂未开启打赏。"));
+      showToast(loginCopy("Tips are not enabled for this work."));
       return;
     }
-    showToast(loginCopy("Checkout failed. Please try again.", "创建支付失败，请重试。"));
+    showToast(loginCopy("Checkout failed. Please try again."));
   } finally {
     checkoutLocks.delete(lockKey);
     setButtonBusy(trigger, false);
@@ -6246,7 +6407,7 @@ function enforceWatchPreviewLimit() {
   }
   if (!watchPreviewLimitNoticeShown) {
     watchPreviewLimitNoticeShown = true;
-    const message = watchPreviewLimitReason || loginCopy("Preview ended at 30 seconds.", "预览已在 30 秒处停止。");
+    const message = watchPreviewLimitReason || loginCopy("Preview ended at 30 seconds.");
     if (watchSubtitle) watchSubtitle.textContent = message;
     showToast(message);
   }
@@ -6259,7 +6420,7 @@ async function applyAdminMembershipAssignment(trigger = null) {
   const email = String(emailInput?.value || "").trim();
   const tier = String(tierInput?.value || "").trim().toLowerCase();
   if (!email || !tier) {
-    safeShowToast(loginCopy("Enter the target email and membership tier first.", "请先填写目标邮箱和会员档位。"));
+    safeShowToast(loginCopy("Enter the target email and membership tier first."));
     return;
   }
   setButtonBusy(trigger, true);
@@ -6274,9 +6435,9 @@ async function applyAdminMembershipAssignment(trigger = null) {
     if (!res.ok || payload?.ok === false) {
       throw new Error(payload?.message || `admin_membership_set_failed:${res.status}`);
     }
-    safeShowToast(loginCopy("Membership updated. VIP remains admin-only and is not publicly self-serve.", "会员档位已更新。VIP 仍然只能由管理员手动指定，不会对用户公开申请。"));
+    safeShowToast(loginCopy("Membership updated. VIP remains admin-only and is not publicly self-serve."));
   } catch (_err) {
-    safeShowToast(loginCopy("Failed to update membership.", "会员档位更新失败。"));
+    safeShowToast(loginCopy("Failed to update membership."));
   } finally {
     setButtonBusy(trigger, false);
   }
@@ -6304,7 +6465,8 @@ function applySongSeedToSettings(seed) {
   const preserveWorkType = hasCreationFieldTouched("workType") && String(creationState.workType || "").trim();
   const preserveStyle = hasCreationFieldTouched("styleText") && String(styleInput?.value || "").trim();
   const explicitLanguage = String(creationLanguage?.value || creationState.language || "").trim().toLowerCase();
-  const inferredLanguage = explicitLanguage || inferLanguageFromTitleText(title) || "zh";
+  const uiDefaultForLegacy = globalThis.resolveUiPrimaryLanguageModule?.() || globalThis.resolveUiDefaultCreationLanguageModule?.() || "en";
+  const inferredLanguage = explicitLanguage || inferLanguageFromTitleText(title) || uiDefaultForLegacy;
 
   if (title && !preserveTitle) setSongSeedTitleValue(title, { userEdited: false });
   if (lyricsInput && lyrics) lyricsInput.value = lyrics;
@@ -6321,7 +6483,7 @@ function applySongSeedToSettings(seed) {
   if (!preserveWorkType) creationState.workType = normalizedWorkType;
   if (!preserveLanguage) creationState.language = inferredLanguage;
   if (creationWorkType && !preserveWorkType) creationWorkType.value = normalizeWorkTypeClient(creationState.workType);
-  if (creationLanguage && !preserveLanguage) creationLanguage.value = String(creationState.language || inferredLanguage || "zh");
+  if (creationLanguage && !preserveLanguage) creationLanguage.value = String(creationState.language || inferredLanguage || uiDefaultForLegacy);
   state.songSeed = data;
   if (lyrics) {
     const lines = lyrics.split("\n");
@@ -6336,6 +6498,10 @@ function applySongSeedToSettings(seed) {
 }
 
 function activateSeedTab(tab) {
+  const moduleImpl = globalThis.activateSeedTab;
+  if (typeof moduleImpl === "function" && moduleImpl !== activateSeedTab) {
+    return moduleImpl(tab);
+  }
   const active = ["music", "outline", "scenes"].includes(tab) ? tab : "music";
   seedTabButtons.forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.seedTab === active);
@@ -6346,6 +6512,10 @@ function activateSeedTab(tab) {
 }
 
 function activateLyricsInputTab(tab) {
+  const moduleImpl = globalThis.activateLyricsInputTab;
+  if (typeof moduleImpl === "function" && moduleImpl !== activateLyricsInputTab) {
+    return moduleImpl(tab);
+  }
   const active = tab === "uploads" ? "uploads" : "editor";
   lyricsInputTabButtons.forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.lyricsInputTab === active);
@@ -6592,10 +6762,13 @@ function computeWeightedStageProgress(stages, weights) {
     const state = pipelineStageState(stage?.status);
     const weight = Math.max(1, Number(safeWeights[index] || 0));
     let stagePct = 0;
+    const reported = Number(stage?.progress);
     if (state === "done") {
       stagePct = 100;
+    } else if (Number.isFinite(reported) && reported > 0) {
+      stagePct = clampPercent(reported);
+      hasRunning = true;
     } else if (state === "running") {
-      stagePct = 62;
       hasRunning = true;
     } else if (state === "canceled") {
       stagePct = 0;
@@ -6622,30 +6795,30 @@ function describePipelineStage(engine, name) {
   if (!raw) return "";
   const normalized = raw.toLowerCase();
   const musicMap = [
-    [/^music_plan$/, loginCopy("Arrangement planning", "编曲规划")],
-    [/^music_compose$/, loginCopy("Composing themes", "主题写作")],
-    [/^music$/, loginCopy("Building core arrangement", "搭建主编曲")],
-    [/^vocals_align$/, loginCopy("Aligning vocals", "对齐人声")],
-    [/^vocals$/, loginCopy("Rendering vocals", "渲染人声")],
-    [/^mix$/, loginCopy("Mixing stems", "混音总线")],
-    [/^master$/, loginCopy("Mastering output", "母带输出")]
+    [/^music_plan$/, loginCopy("Arrangement planning")],
+    [/^music_compose$/, loginCopy("Composing themes")],
+    [/^music$/, loginCopy("Building core arrangement")],
+    [/^vocals_align$/, loginCopy("Aligning vocals")],
+    [/^vocals$/, loginCopy("Rendering vocals")],
+    [/^mix$/, loginCopy("Mixing stems")],
+    [/^master$/, loginCopy("Mastering output")]
   ];
   const videoMap = [
-    [/^video_plan$/, loginCopy("Planning storyboard", "分镜规划")],
-    [/^video_assemble$/, loginCopy("Assembling scenes", "拼装场景")],
-    [/^render_mv$/, loginCopy("Rendering final MV", "输出最终 MV")],
-    [/^render_master$/, loginCopy("Rendering master video", "输出母版视频")],
-    [/^render$/, loginCopy("Rendering sequence", "渲染序列")],
-    [/^video_shot_\d+$/, loginCopy("Rendering shot", "渲染镜头")],
-    [/^shot\./, loginCopy("Rendering shot", "渲染镜头")],
-    [/^video_shot\./, loginCopy("Rendering shot", "渲染镜头")]
+    [/^video_plan$/, loginCopy("Planning storyboard")],
+    [/^video_assemble$/, loginCopy("Assembling scenes")],
+    [/^render_mv$/, loginCopy("Rendering final MV")],
+    [/^render_master$/, loginCopy("Rendering master video")],
+    [/^render$/, loginCopy("Rendering sequence")],
+    [/^video_shot_\d+$/, loginCopy("Rendering shot")],
+    [/^shot\./, loginCopy("Rendering shot")],
+    [/^video_shot\./, loginCopy("Rendering shot")]
   ];
   const karaMap = [
-    [/^subtitles$/, loginCopy("Generating subtitles", "生成字幕")],
-    [/^lyrics_timing$/, loginCopy("Aligning lyric timing", "对齐歌词时间轴")],
-    [/^localize$/, loginCopy("Localizing packs", "本地化语言包")],
-    [/^publish$/, loginCopy("Packaging release", "打包发布")],
-    [/^render_karaoke_mv\./, loginCopy("Rendering karaoke MV", "渲染卡拉 OK MV")]
+    [/^subtitles$/, loginCopy("Generating subtitles")],
+    [/^lyrics_timing$/, loginCopy("Aligning lyric timing")],
+    [/^localize$/, loginCopy("Localizing packs")],
+    [/^publish$/, loginCopy("Packaging release")],
+    [/^render_karaoke_mv\./, loginCopy("Rendering karaoke MV")]
   ];
   const map = engine === "music" ? musicMap : engine === "video" ? videoMap : karaMap;
   const hit = map.find(([pattern]) => pattern.test(normalized));
@@ -6827,7 +7000,11 @@ function collectPipelineStages(statusMap, patterns) {
     if (seen.has(name)) continue;
     if (tests.some((pattern) => (pattern instanceof RegExp ? pattern.test(name) : String(name) === String(pattern)))) {
       seen.add(name);
-      entries.push({ name, status });
+      entries.push({
+        name,
+        status: String(status?.status || status || "").trim(),
+        progress: Number(status?.progress)
+      });
     }
   }
   return entries.sort((a, b) => String(a.name).localeCompare(String(b.name)));
@@ -6838,7 +7015,15 @@ function normalizePipelineStageEntries(statusPayload) {
     return statusPayload.stages
       .map((entry) => ({
         name: String(entry?.name || "").trim(),
-        status: String(entry?.status || "").trim()
+        status: String(entry?.status || "").trim(),
+        progress: Number(
+          entry?.progress ??
+          entry?.percent ??
+          entry?.pct ??
+          entry?.completion ??
+          entry?.percent_complete ??
+          entry?.percentComplete
+        )
       }))
       .filter((entry) => entry.name);
   }
@@ -6846,7 +7031,15 @@ function normalizePipelineStageEntries(statusPayload) {
     return Object.entries(statusPayload.stages)
       .map(([name, entry]) => ({
         name: String(name || "").trim(),
-        status: String(entry?.status || "").trim()
+        status: String(entry?.status || "").trim(),
+        progress: Number(
+          entry?.progress ??
+          entry?.percent ??
+          entry?.pct ??
+          entry?.completion ??
+          entry?.percent_complete ??
+          entry?.percentComplete
+        )
       }))
       .filter((entry) => entry.name);
   }
@@ -6855,9 +7048,16 @@ function normalizePipelineStageEntries(statusPayload) {
 
 function derivePipelineProgress(statusPayload) {
   const statusMap = new Map(
-    normalizePipelineStageEntries(statusPayload).map((entry) => [entry.name, entry.status])
+    normalizePipelineStageEntries(statusPayload).map((entry) => [entry.name, entry])
   );
-  const stage = (name) => ({ name, status: statusMap.get(name) || "PENDING" });
+  const stage = (name) => {
+    const entry = statusMap.get(name);
+    return {
+      name,
+      status: entry?.status || "PENDING",
+      progress: entry?.progress
+    };
+  };
   const shotStages = collectPipelineStages(statusMap, [/^video_shot_\d+$/i, /^shot\./i, /^video_shot\./i]);
   const musicStages = collectPipelineStages(statusMap, [
     "music",
@@ -7028,17 +7228,30 @@ async function pollPipelineProgressOnce(runId) {
     ...derived.kara,
     progress: engineProgressState.kara
   });
-  if (derived.music.progress >= 100) {
+  const allDone =
+    Number(derived.music.progress || 0) >= 100 &&
+    Number(derived.video.progress || 0) >= 100 &&
+    Number(derived.kara.progress || 0) >= 100;
+  if (allDone) {
     setProgress(musicProgress, 100);
-    setEngineProgressVisible("music", false);
-  }
-  if (derived.video.progress >= 100) {
     setProgress(videoProgress, 100);
-    setEngineProgressVisible("video", false);
-  }
-  if (derived.kara.progress >= 100) {
     setProgress(karaProgress, 100);
+    setEngineProgressVisible("music", false);
+    setEngineProgressVisible("video", false);
     setEngineProgressVisible("kara", false);
+  } else {
+    if (derived.music.progress >= 100) {
+      setProgress(musicProgress, 100);
+      setEngineProgressVisible("music", true, { immediate: true });
+    }
+    if (derived.video.progress >= 100) {
+      setProgress(videoProgress, 100);
+      setEngineProgressVisible("video", true, { immediate: true });
+    }
+    if (derived.kara.progress >= 100) {
+      setProgress(karaProgress, 100);
+      setEngineProgressVisible("kara", true, { immediate: true });
+    }
   }
   maybeFinalizeForyouPresentation();
 }
@@ -7212,10 +7425,10 @@ async function copyWatchReplyLockLink() {
   if (!watchReplyLockedWindow?.key) return false;
   try {
     await navigator.clipboard.writeText(window.location.href);
-    showToast(loginCopy("Locked Watch link copied.", "已复制锁定 Watch 链接。"));
+    showToast(loginCopy("Locked Watch link copied."));
     return true;
   } catch (_err) {
-    showToast(loginCopy("Copy failed on this device.", "当前设备复制失败。"));
+    showToast(loginCopy("Copy failed on this device."));
     return false;
   }
 }
@@ -7224,10 +7437,10 @@ async function copyWatchReplyRegenerationPayload(payload) {
   if (!payload) return false;
   try {
     await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
-    showToast(loginCopy("Sidecar JSON copied.", "Sidecar JSON 已复制。"));
+    showToast(loginCopy("Sidecar JSON copied."));
     return true;
   } catch (_err) {
-    showToast(loginCopy("Copy failed on this device.", "当前设备复制失败。"));
+    showToast(loginCopy("Copy failed on this device."));
     return false;
   }
 }
@@ -7351,7 +7564,7 @@ function resetWatchReplyRegenerationDraftControls() {
   localStorage.setItem(WATCH_REPLY_REGEN_DRAFT_KEY, JSON.stringify(next));
   renderMusicEngineSnapshot(latestWatchMusicStatusPayload, latestWatchMusicSnapshot);
   updateWatchAudioDebug();
-  showToast(loginCopy("Draft controls reset to imported values.", "草案参数已恢复到导入原值。"));
+  showToast(loginCopy("Draft controls reset to imported values."));
   return next;
 }
 
@@ -7376,10 +7589,10 @@ function clearWatchReplyRegenerationDraft() {
     localStorage.removeItem(WATCH_REPLY_REGEN_DRAFT_KEY);
     renderMusicEngineSnapshot(latestWatchMusicStatusPayload, latestWatchMusicSnapshot);
     updateWatchAudioDebug();
-    showToast(loginCopy("Regeneration draft cleared.", "局部重生成草案已清空。"));
+    showToast(loginCopy("Regeneration draft cleared."));
     return true;
   } catch (_err) {
-    showToast(loginCopy("Unable to clear the draft right now.", "暂时无法清空局部重生成草案。"));
+    showToast(loginCopy("Unable to clear the draft right now."));
     return false;
   }
 }
@@ -7471,7 +7684,7 @@ function normalizeWatchReplyRegenerationDraft(rawDraft) {
 function importWatchReplyRegenerationDraft(rawDraft) {
   const normalized = normalizeWatchReplyRegenerationDraft(rawDraft);
   if (!normalized) {
-    showToast(loginCopy("That draft file is not a valid reply-window sidecar.", "这个草案文件不是有效的 reply-window sidecar。"));
+    showToast(loginCopy("That draft file is not a valid reply-window sidecar."));
     return null;
   }
   try {
@@ -7481,13 +7694,12 @@ function importWatchReplyRegenerationDraft(rawDraft) {
     updateWatchAudioDebug();
     showToast(
       loginCopy(
-        `Draft loaded for ${normalized.token || "this window"}.`,
-        `已载入 ${normalized.token || "当前窗口"} 的草案。`
+        `Draft loaded for ${normalized.token || "this window"}.`
       )
     );
     return normalized;
   } catch (_err) {
-    showToast(loginCopy("Unable to load that draft right now.", "暂时无法载入这个草案。"));
+    showToast(loginCopy("Unable to load that draft right now."));
     return null;
   }
 }
@@ -7523,12 +7735,12 @@ function findReplyHarmonyWindowForDraft(draft) {
 function applyImportedDraftToLockedWindow(draft) {
   const normalized = normalizeWatchReplyRegenerationDraft(draft);
   if (!normalized) {
-    showToast(loginCopy("That draft cannot be aligned to a Watch window.", "这个草案暂时无法对齐到 Watch 窗口。"));
+    showToast(loginCopy("That draft cannot be aligned to a Watch window."));
     return false;
   }
   const matchedWindow = findReplyHarmonyWindowForDraft(normalized);
   if (!matchedWindow) {
-    showToast(loginCopy("No matching reply window was found in the current plan.", "当前计划里没有找到对应的回应窗口。"));
+    showToast(loginCopy("No matching reply window was found in the current plan."));
     return false;
   }
   setWatchReplyLockedWindow(matchedWindow);
@@ -7544,8 +7756,7 @@ function applyImportedDraftToLockedWindow(draft) {
   }
   showToast(
     loginCopy(
-      `Aligned draft to ${String(matchedWindow?.token || "this window").trim() || "this window"}.`,
-      `已将草案对齐到 ${String(matchedWindow?.token || "当前窗口").trim() || "当前窗口"}。`
+      `Aligned draft to ${String(matchedWindow?.token || "this window").trim() || "this window"}.`
     )
   );
   return true;
@@ -7564,7 +7775,7 @@ function promptWatchReplyRegenerationDraftImport() {
       const parsed = JSON.parse(text);
       importWatchReplyRegenerationDraft(parsed);
     } catch (_err) {
-      showToast(loginCopy("That draft file could not be read.", "这个草案文件无法读取。"));
+      showToast(loginCopy("That draft file could not be read."));
     } finally {
       input.remove();
     }
@@ -7576,7 +7787,7 @@ function promptWatchReplyRegenerationDraftImport() {
 function reloadWatchReplyDraftFromHistoryEntry(entry) {
   const normalized = normalizeWatchReplyRegenerationDraft(entry?.draft || null);
   if (!normalized) {
-    showToast(loginCopy("That history entry can no longer be restored.", "这条历史记录暂时无法恢复。"));
+    showToast(loginCopy("That history entry can no longer be restored."));
     return null;
   }
   try {
@@ -7585,13 +7796,12 @@ function reloadWatchReplyDraftFromHistoryEntry(entry) {
     updateWatchAudioDebug();
     showToast(
       loginCopy(
-        `Reloaded ${normalized.token || "draft"} from history.`,
-        `已从历史记录重新载入 ${normalized.token || "草案"}。`
+        `Reloaded ${normalized.token || "draft"} from history.`
       )
     );
     return normalized;
   } catch (_err) {
-    showToast(loginCopy("Unable to reload that history entry right now.", "暂时无法重新载入这条历史记录。"));
+    showToast(loginCopy("Unable to reload that history entry right now."));
     return null;
   }
 }
@@ -7608,10 +7818,10 @@ async function copyWatchReplyRegenerationCurlStub(payload) {
   ].join("\n");
   try {
     await navigator.clipboard.writeText(command);
-    showToast(loginCopy("Curl stub copied.", "Curl 占位命令已复制。"));
+    showToast(loginCopy("Curl stub copied."));
     return true;
   } catch (_err) {
-    showToast(loginCopy("Copy failed on this device.", "当前设备复制失败。"));
+    showToast(loginCopy("Copy failed on this device."));
     return false;
   }
 }
@@ -7640,10 +7850,10 @@ async function copyWatchReplyRegenerationNodeFetchStub(payload) {
   ].join("\n");
   try {
     await navigator.clipboard.writeText(command);
-    showToast(loginCopy("Node fetch stub copied.", "Node fetch 占位代码已复制。"));
+    showToast(loginCopy("Node fetch stub copied."));
     return true;
   } catch (_err) {
-    showToast(loginCopy("Copy failed on this device.", "当前设备复制失败。"));
+    showToast(loginCopy("Copy failed on this device."));
     return false;
   }
 }
@@ -7673,10 +7883,10 @@ async function copyWatchReplyRegenerationRustReqwestStub(payload) {
   ].join("\n");
   try {
     await navigator.clipboard.writeText(command);
-    showToast(loginCopy("Rust reqwest stub copied.", "Rust reqwest 占位代码已复制。"));
+    showToast(loginCopy("Rust reqwest stub copied."));
     return true;
   } catch (_err) {
-    showToast(loginCopy("Copy failed on this device.", "当前设备复制失败。"));
+    showToast(loginCopy("Copy failed on this device."));
     return false;
   }
 }
@@ -7700,10 +7910,10 @@ function exportWatchReplyRegenerationDraftFile(payload) {
     link.click();
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
-    showToast(loginCopy("Draft JSON exported.", "草案 JSON 已导出。"));
+    showToast(loginCopy("Draft JSON exported."));
     return true;
   } catch (_err) {
-    showToast(loginCopy("Export failed on this device.", "当前设备导出失败。"));
+    showToast(loginCopy("Export failed on this device."));
     return false;
   }
 }
@@ -7711,7 +7921,7 @@ function exportWatchReplyRegenerationDraftFile(payload) {
 function saveWatchReplyRegenerationDraftAsNewFile(draft) {
   const normalized = normalizeWatchReplyRegenerationDraft(draft);
   if (!normalized) {
-    showToast(loginCopy("There is no valid draft to save yet.", "当前还没有可另存的有效草案。"));
+    showToast(loginCopy("There is no valid draft to save yet."));
     return false;
   }
   try {
@@ -7738,10 +7948,10 @@ function saveWatchReplyRegenerationDraftAsNewFile(draft) {
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
     pushWatchReplyRegenerationHistoryEntry("saved", variantDraft);
-    showToast(loginCopy("Saved as a new draft file.", "已另存为新的草案文件。"));
+    showToast(loginCopy("Saved as a new draft file."));
     return true;
   } catch (_err) {
-    showToast(loginCopy("Unable to save a new draft file right now.", "暂时无法另存新的草案文件。"));
+    showToast(loginCopy("Unable to save a new draft file right now."));
     return false;
   }
 }
@@ -7749,13 +7959,12 @@ function saveWatchReplyRegenerationDraftAsNewFile(draft) {
 function createWatchReplyRegenerationDraft(windowEntry = null) {
   const draft = persistWatchReplyRegenerationDraft(windowEntry);
   if (!draft) {
-    showToast(loginCopy("Unable to prepare a regeneration draft right now.", "暂时无法生成局部重生成草案。"));
+    showToast(loginCopy("Unable to prepare a regeneration draft right now."));
     return null;
   }
   showToast(
     loginCopy(
-      `Regeneration draft prepared for ${draft.token || "this window"}.`,
-      `已为 ${draft.token || "当前窗口"} 准备局部重生成草案。`
+      `Regeneration draft prepared for ${draft.token || "this window"}.`
     )
   );
   updateWatchAudioDebug();
@@ -7774,7 +7983,7 @@ function buildReplyHarmonyStructureSegments(windows, durationSec) {
   if (!Array.isArray(windows) || !windows.length || !(durationSec > 0)) return [];
   const grouped = new Map();
   windows.forEach((windowEntry) => {
-    const section = String(windowEntry?.section || "").trim() || loginCopy("Section", "段落");
+    const section = String(windowEntry?.section || "").trim() || loginCopy("Section");
     const phraseOrder = Math.max(0, Number(windowEntry?.phraseOrder || 0));
     const role = String(windowEntry?.role || "").trim().toLowerCase();
     const cadence = String(windowEntry?.cadence || "").trim().toLowerCase();
@@ -7792,7 +8001,7 @@ function buildReplyHarmonyStructureSegments(windows, durationSec) {
     grouped.set(key, {
       key,
       label: isTail
-        ? `${section} · ${loginCopy("Tail", "尾句")}`
+        ? `${section} · ${loginCopy("Tail")}`
         : `${section}${phraseOrder > 0 ? ` · P${phraseOrder}` : ""}`,
       startSec,
       endSec,
@@ -7840,11 +8049,11 @@ function syncWatchReplyHarmonyTokenOverlay() {
     const suffixPattern = /\s·\s(?:Focus|触发词):\s.*$/;
     const baseSubtitle = String(watchSubtitle.textContent || "").replace(suffixPattern, "").trim();
     watchSubtitle.textContent = token
-      ? `${baseSubtitle || "KaraOKe MV · Preview"} · ${loginCopy("Focus", "触发词")}: ${token}`
+      ? `${baseSubtitle || "KaraOKe MV · Preview"} · ${loginCopy("Focus")}: ${token}`
       : (baseSubtitle || watchSubtitle.textContent || "");
   }
   if (watchKaraokeLine) {
-    watchKaraokeLine.textContent = token ? `${loginCopy("Focus Token", "当前触发词")} · ${token}` : "";
+    watchKaraokeLine.textContent = token ? `${loginCopy("Focus Token")} · ${token}` : "";
   }
   updateWatchAudioDebug();
 }
@@ -7977,6 +8186,40 @@ function maybeRefreshReplyHarmonyHighlight() {
   renderMusicEngineSnapshot(latestWatchMusicStatusPayload, latestWatchMusicSnapshot);
 }
 
+// CSSMV_CONSOLE_CLEANUP 20260423 #91 — Jing: "祖国江山一片红". Persist the
+// "music.plan.json unavailable" verdict across reloads so a run without that
+// artifact doesn't paint a fresh 404 in the console on every page load.
+// 10-min TTL so the app self-heals once the backend starts shipping it.
+const MUSIC_PLAN_SS_DISABLED = "cssos.musicPlan.unavailable.runIds";
+const MUSIC_PLAN_TTL_MS = 10 * 60 * 1000;
+
+function musicPlanEndpointDisabled(runId) {
+  try {
+    if (typeof sessionStorage === "undefined") return false;
+    const raw = sessionStorage.getItem(MUSIC_PLAN_SS_DISABLED);
+    const map = raw ? JSON.parse(raw) : null;
+    if (!map || typeof map !== "object") return false;
+    const until = map[runId] ? parseInt(map[runId], 10) : 0;
+    if (until && Date.now() < until) return true;
+    if (until) {
+      delete map[runId];
+      sessionStorage.setItem(MUSIC_PLAN_SS_DISABLED, JSON.stringify(map));
+    }
+  } catch (_err) {}
+  return false;
+}
+
+function musicPlanTripBreaker(runId) {
+  try {
+    if (typeof sessionStorage === "undefined") return;
+    const raw = sessionStorage.getItem(MUSIC_PLAN_SS_DISABLED);
+    const map = raw ? JSON.parse(raw) : {};
+    if (!map || typeof map !== "object") return;
+    map[runId] = String(Date.now() + MUSIC_PLAN_TTL_MS);
+    sessionStorage.setItem(MUSIC_PLAN_SS_DISABLED, JSON.stringify(map));
+  } catch (_err) {}
+}
+
 async function maybeHydrateWatchMusicPlan(runId) {
   const safeRunId = String(runId || "").trim();
   if (!safeRunId) return null;
@@ -7985,6 +8228,9 @@ async function maybeHydrateWatchMusicPlan(runId) {
     watchMusicPlanCache.data = null;
     watchMusicPlanCache.pending = false;
     watchMusicPlanCache.error = "";
+    if (musicPlanEndpointDisabled(safeRunId)) {
+      watchMusicPlanCache.error = "unavailable";
+    }
   }
   if (watchMusicPlanCache.data || watchMusicPlanCache.pending || watchMusicPlanCache.error) {
     return watchMusicPlanCache.data;
@@ -7997,6 +8243,9 @@ async function maybeHydrateWatchMusicPlan(runId) {
       headers: { accept: "application/json" }
     });
     if (!res.ok) {
+      if (res.status === 404 || res.status === 501 || res.status === 502 || res.status === 503) {
+        musicPlanTripBreaker(safeRunId);
+      }
       throw new Error(`music.plan ${res.status}`);
     }
     const payload = await res.json().catch(() => null);
@@ -8030,6 +8279,9 @@ function statusPayloadHasAudioCandidate(statusPayload, artifactPath) {
 }
 
 function collectAudioArtifactCandidates(statusPayload) {
+  // CSSMV_CONSOLE_CLEANUP 20260424 #94 — mp3-default. Skip .wav candidates by
+  // default so the UI never polls for files that the pipeline is not emitting.
+  // Backend now defaults to mp3; wav only if user explicitly enables Pro+ tier.
   const ranked = [];
   const pushCandidate = (path, rank) => {
     const safePath = String(path || "").trim();
@@ -8042,18 +8294,21 @@ function collectAudioArtifactCandidates(statusPayload) {
     const mime = String(entry?.mime || "").trim().toLowerCase();
     if (!path || (mime && !mime.includes("audio"))) return;
     const lower = path.toLowerCase();
-    if (lower.endsWith("master.wav")) pushCandidate(path, 100);
-    else if (lower.endsWith("mix.wav")) pushCandidate(path, 90);
-    else if (lower.endsWith("vocals.wav")) pushCandidate(path, 80);
-    else if (lower.endsWith("music.wav")) pushCandidate(path, 70);
+    // Hard-skip .wav candidates — mp3 is the default output format.
+    if (lower.endsWith(".wav")) return;
+    if (lower.endsWith("master.mp3")) pushCandidate(path, 100);
+    else if (lower.endsWith("mix.mp3")) pushCandidate(path, 90);
+    else if (lower.endsWith("vocals.mp3")) pushCandidate(path, 80);
+    else if (lower.endsWith("music.mp3")) pushCandidate(path, 70);
+    else if (lower.endsWith(".mp3")) pushCandidate(path, 20);
     else pushCandidate(path, 10);
   });
   [
-    ["./build/master.wav", 100],
-    ["./build/mix.wav", 90],
-    ["./build/vocals.wav", 80],
-    ["./build/music.wav", 70],
-    ["./build/vocals/vocal_master.wav", 60]
+    ["./build/master.mp3", 100],
+    ["./build/mix.mp3", 90],
+    ["./build/vocals.mp3", 80],
+    ["./build/music.mp3", 70],
+    ["./build/vocals/vocal_master.mp3", 60]
   ].forEach(([path, rank]) => pushCandidate(path, rank));
   return ranked.sort((a, b) => b.rank - a.rank);
 }
@@ -8361,8 +8616,16 @@ function currentUiLang() {
   return String(window.CSS_UI_LANG || document.documentElement.lang || "en").toLowerCase();
 }
 
-function dashboardCopy(en, zh) {
-  return currentUiLang().startsWith("zh") ? zh : en;
+function dashboardCopy(en, _zh) {
+  // P2-60 English-SSOT: route every dashboard-copy call site through tr().
+  // The zh arg is retained for backward-compat with legacy call sites but is
+  // never used — translation is the responsibility of the i18n runtime.
+  try {
+    if (typeof globalThis.tr === "function") {
+      return String(globalThis.tr(en));
+    }
+  } catch (_err) { /* fall through */ }
+  return currentUiLang().startsWith("zh") ? (_zh ?? en) : en;
 }
 
 function formatBlockedPublishMessage(detail, trace) {
@@ -27480,35 +27743,35 @@ function buildMusicEngineLayers(statusPayload, progress = 0) {
     creationState.selections.instrument ||
     creationState.instrumentation ||
     state.songSeed?.instrumentation ||
-    loginCopy("Strings", "弦乐");
+    loginCopy("Strings");
   const stageLabel = String(music.current_label || "").trim() || String(music.current_container_title || "").trim();
   const trackCount = Number(music.tracks_count) || 0;
   const cuesCount = Number(music.cues_count) || 0;
   return [
     {
-      label: loginCopy("Lead Vocal", "主唱"),
+      label: loginCopy("Lead Vocal"),
       level: Math.min(100, 20 + normalizedProgress * 0.82),
-      detail: voiceStyle?.textContent || state.voice || loginCopy("Voice shaping", "声线塑形")
+      detail: voiceStyle?.textContent || state.voice || loginCopy("Voice shaping")
     },
     {
-      label: loginCopy("Harmony", "和声"),
+      label: loginCopy("Harmony"),
       level: Math.min(100, 12 + normalizedProgress * 0.68),
-      detail: trackCount > 1 ? `${trackCount} ${loginCopy("layers", "层")}` : loginCopy("Stacking voices", "叠加声部")
+      detail: trackCount > 1 ? `${trackCount} ${loginCopy("layers")}` : loginCopy("Stacking voices")
     },
     {
       label: primaryInstrument,
       level: Math.min(100, 16 + normalizedProgress * 0.74),
-      detail: stageLabel || loginCopy("Theme motif", "主题动机")
+      detail: stageLabel || loginCopy("Theme motif")
     },
     {
-      label: loginCopy("Percussion", "打击乐"),
+      label: loginCopy("Percussion"),
       level: Math.min(100, 8 + normalizedProgress * 0.58),
-      detail: `${Math.max(1, Math.round((Number(creationState.percussionActivity || 0.45) * 10)))} ${loginCopy("pulse", "脉冲")}`
+      detail: `${Math.max(1, Math.round((Number(creationState.percussionActivity || 0.45) * 10)))} ${loginCopy("pulse")}`
     },
     {
-      label: loginCopy("Atmosphere", "氛围"),
+      label: loginCopy("Atmosphere"),
       level: Math.min(100, 14 + normalizedProgress * 0.66),
-      detail: cuesCount > 0 ? `${cuesCount} ${loginCopy("cues", "提示点")}` : loginCopy("Room bloom", "空间铺陈")
+      detail: cuesCount > 0 ? `${cuesCount} ${loginCopy("cues")}` : loginCopy("Room bloom")
     }
   ];
 }
@@ -27525,18 +27788,18 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
     .join(" · ");
   const cards = [
     {
-      label: loginCopy("Current Stage", "当前阶段"),
-      value: musicSnapshot.currentStage || loginCopy("Queued", "排队中")
+      label: loginCopy("Current Stage"),
+      value: musicSnapshot.currentStage || loginCopy("Queued")
     },
     {
-      label: loginCopy("Structure", "结构"),
-      value: musicSnapshot.artifactDetail || pendingStructureSummary || loginCopy("Waiting for audio engine", "等待音频引擎")
+      label: loginCopy("Structure"),
+      value: musicSnapshot.artifactDetail || pendingStructureSummary || loginCopy("Waiting for audio engine")
     },
     {
-      label: loginCopy("Render Load", "渲染负载"),
+      label: loginCopy("Render Load"),
       value: `${Math.round(clampPercent(musicSnapshot.progress || 0))}% · ${
         Number(statusPayload?.music?.tracks_count) || 0
-      } ${loginCopy("tracks", "轨道")}`
+      } ${loginCopy("tracks")}`
     }
   ];
   cards.forEach((cardInfo) => {
@@ -27565,19 +27828,19 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
   replyHeader.className = "music-runtime-visualizer-header";
   const replyTitle = document.createElement("div");
   replyTitle.className = "music-runtime-visualizer-title";
-  replyTitle.textContent = loginCopy("Reply Harmony Windows", "回应和声窗口");
+  replyTitle.textContent = loginCopy("Reply Harmony Windows");
   const replyMetaWrap = document.createElement("div");
   replyMetaWrap.className = "music-runtime-visualizer-meta-wrap";
   const replyMeta = document.createElement("div");
   replyMeta.className = "music-runtime-visualizer-meta";
   if (hasReplyHarmonyData) {
-    replyMeta.textContent = `${replyHarmonyWindows.length} ${loginCopy("windows", "窗口")}`;
+    replyMeta.textContent = `${replyHarmonyWindows.length} ${loginCopy("windows")}`;
   } else if (musicSnapshot.replyHarmonyPending) {
-    replyMeta.textContent = loginCopy("Loading plan", "正在读取计划");
+    replyMeta.textContent = loginCopy("Loading plan");
   } else if (musicSnapshot.replyHarmonyState === "empty") {
-    replyMeta.textContent = loginCopy("No keyword windows yet", "还没有关键词窗口");
+    replyMeta.textContent = loginCopy("No keyword windows yet");
   } else {
-    replyMeta.textContent = loginCopy("Waiting for music plan", "等待 music plan");
+    replyMeta.textContent = loginCopy("Waiting for music plan");
   }
   replyMetaWrap.appendChild(replyMeta);
   if (watchReplyLockedWindow?.token) {
@@ -27593,8 +27856,8 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
       }
       loopButton.textContent =
         watchReplyLoopWindow?.key === watchReplyLockedWindow?.key
-          ? loginCopy("Stop Loop", "停止循环")
-          : loginCopy("Loop This Window", "循环这个窗口");
+          ? loginCopy("Stop Loop")
+          : loginCopy("Loop This Window");
       loopButton.addEventListener("click", () => {
         toggleWatchReplyWindowLoop(lockedWindowEntry);
       });
@@ -27603,7 +27866,7 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
     const copyLink = document.createElement("button");
     copyLink.type = "button";
     copyLink.className = "reply-harmony-unlock";
-    copyLink.textContent = loginCopy("Copy Locked Link", "复制锁定链接");
+    copyLink.textContent = loginCopy("Copy Locked Link");
     copyLink.addEventListener("click", () => {
       void copyWatchReplyLockLink();
     });
@@ -27611,7 +27874,7 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
     const loadDraft = document.createElement("button");
     loadDraft.type = "button";
     loadDraft.className = "reply-harmony-unlock";
-    loadDraft.textContent = loginCopy("Load Draft File", "载入草案文件");
+    loadDraft.textContent = loginCopy("Load Draft File");
     loadDraft.addEventListener("click", () => {
       promptWatchReplyRegenerationDraftImport();
     });
@@ -27620,7 +27883,7 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
       const regenerate = document.createElement("button");
       regenerate.type = "button";
       regenerate.className = "reply-harmony-unlock";
-      regenerate.textContent = loginCopy("Regenerate This Window", "重生成这个窗口");
+      regenerate.textContent = loginCopy("Regenerate This Window");
       regenerate.addEventListener("click", () => {
         createWatchReplyRegenerationDraft(lockedWindowEntry);
       });
@@ -27629,7 +27892,7 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
     const unlock = document.createElement("button");
     unlock.type = "button";
     unlock.className = "reply-harmony-unlock";
-    unlock.textContent = loginCopy("Follow Playback", "恢复跟随");
+    unlock.textContent = loginCopy("Follow Playback");
     unlock.addEventListener("click", () => {
       setWatchReplyLockedWindow(null);
       maybeRefreshReplyHarmonyHighlight();
@@ -27649,14 +27912,14 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
     inspectorHeader.className = "reply-harmony-inspector-header";
     const inspectorTitle = document.createElement("div");
     inspectorTitle.className = "reply-harmony-inspector-title";
-    inspectorTitle.textContent = loginCopy("Regeneration Draft", "重生成草案");
+    inspectorTitle.textContent = loginCopy("Regeneration Draft");
     const inspectorDirty = document.createElement("div");
     inspectorDirty.className = "reply-harmony-inspector-dirty";
     const hasUnsavedChanges = watchReplyDraftHasUnsavedControlChanges(regenerationDraft);
     inspectorDirty.classList.add(hasUnsavedChanges ? "is-dirty" : "is-clean");
     inspectorDirty.textContent = hasUnsavedChanges
-      ? loginCopy("Unsaved Changes", "未保存改动")
-      : loginCopy("Synced With Import", "已与导入值同步");
+      ? loginCopy("Unsaved Changes")
+      : loginCopy("Synced With Import");
     const inspectorMeta = document.createElement("div");
     inspectorMeta.className = "reply-harmony-inspector-meta";
     inspectorMeta.textContent = [
@@ -27670,7 +27933,7 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
     const inspectorApply = document.createElement("button");
     inspectorApply.type = "button";
     inspectorApply.className = "reply-harmony-unlock";
-    inspectorApply.textContent = loginCopy("Apply To Locked Window", "对齐到锁定窗口");
+    inspectorApply.textContent = loginCopy("Apply To Locked Window");
     inspectorApply.addEventListener("click", () => {
       applyImportedDraftToLockedWindow(regenerationDraft);
     });
@@ -27678,7 +27941,7 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
     const inspectorReset = document.createElement("button");
     inspectorReset.type = "button";
     inspectorReset.className = "reply-harmony-unlock";
-    inspectorReset.textContent = loginCopy("Reset Controls", "重置参数");
+    inspectorReset.textContent = loginCopy("Reset Controls");
     inspectorReset.addEventListener("click", () => {
       resetWatchReplyRegenerationDraftControls();
     });
@@ -27686,7 +27949,7 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
     const inspectorClear = document.createElement("button");
     inspectorClear.type = "button";
     inspectorClear.className = "reply-harmony-unlock reply-harmony-clear";
-    inspectorClear.textContent = loginCopy("Clear Draft", "清空草案");
+    inspectorClear.textContent = loginCopy("Clear Draft");
     inspectorClear.addEventListener("click", () => {
       clearWatchReplyRegenerationDraft();
     });
@@ -27696,9 +27959,9 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
     const inspectorSummary = document.createElement("div");
     inspectorSummary.className = "reply-harmony-inspector-summary";
     inspectorSummary.textContent = [
-      `${loginCopy("Role", "角色")}: ${String(regenerationDraft.role || "").trim() || "-"}`,
-      `${loginCopy("Cadence", "终止")}: ${String(regenerationDraft.cadence || "").trim() || "-"}`,
-      `${loginCopy("Window", "窗口")}: ${formatReplyHarmonyClock(regenerationDraft.startSec)} - ${formatReplyHarmonyClock(
+      `${loginCopy("Role")}: ${String(regenerationDraft.role || "").trim() || "-"}`,
+      `${loginCopy("Cadence")}: ${String(regenerationDraft.cadence || "").trim() || "-"}`,
+      `${loginCopy("Window")}: ${formatReplyHarmonyClock(regenerationDraft.startSec)} - ${formatReplyHarmonyClock(
         Number(regenerationDraft.startSec || 0) + Number(regenerationDraft.durationSec || 0)
       )}`
     ].join(" · ");
@@ -27707,9 +27970,9 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
     const controls = document.createElement("div");
     controls.className = "reply-harmony-inspector-controls";
     const controlRows = [
-      ["bassDuckBias", loginCopy("Bass Duck Bias", "低频让位偏置"), Number(regenerationDraft?.controls?.bassDuckBias || 0)],
-      ["stringsSettle", loginCopy("Strings Settle", "弦群收束"), Number(regenerationDraft?.controls?.stringsSettle || 0)],
-      ["densityBias", loginCopy("Density", "密度"), Number(regenerationDraft?.controls?.densityBias || 0)]
+      ["bassDuckBias", loginCopy("Bass Duck Bias"), Number(regenerationDraft?.controls?.bassDuckBias || 0)],
+      ["stringsSettle", loginCopy("Strings Settle"), Number(regenerationDraft?.controls?.stringsSettle || 0)],
+      ["densityBias", loginCopy("Density"), Number(regenerationDraft?.controls?.densityBias || 0)]
     ];
     controlRows.forEach(([field, labelText, rawValue]) => {
       const label = document.createElement("label");
@@ -27736,7 +27999,7 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
     diffGrid.className = "reply-harmony-inspector-diff";
     const diffTitle = document.createElement("div");
     diffTitle.className = "reply-harmony-inspector-diff-title";
-    diffTitle.textContent = loginCopy("Diff From Imported Draft", "相对导入草案的差值");
+    diffTitle.textContent = loginCopy("Diff From Imported Draft");
     diffGrid.appendChild(diffTitle);
     controlRows.forEach(([field, labelText]) => {
       const currentValue = Number(regenerationDraft?.controls?.[field] || 0);
@@ -27762,8 +28025,7 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
     const inspectorFoot = document.createElement("div");
     inspectorFoot.className = "reply-harmony-inspector-foot";
     inspectorFoot.textContent = loginCopy(
-      "This is a local draft sidecar for future per-window regeneration wiring.",
-      "这是供后续局部重生成接线使用的本地草案 sidecar。"
+      "This is a local draft sidecar for future per-window regeneration wiring."
     );
     inspector.appendChild(inspectorFoot);
 
@@ -27773,7 +28035,7 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
       history.className = "reply-harmony-inspector-history";
       const historyTitle = document.createElement("div");
       historyTitle.className = "reply-harmony-inspector-history-title";
-      historyTitle.textContent = loginCopy("Draft History", "草案历史");
+      historyTitle.textContent = loginCopy("Draft History");
       history.appendChild(historyTitle);
       historyEntries.slice(0, 5).forEach((entry) => {
         const item = document.createElement("div");
@@ -27781,7 +28043,7 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
         const label = document.createElement("span");
         label.className = "reply-harmony-inspector-history-label";
         label.textContent = [
-          String(entry?.action || "").trim() || loginCopy("updated", "更新"),
+          String(entry?.action || "").trim() || loginCopy("updated"),
           String(entry?.section || "").trim(),
           entry?.phraseOrder ? `P${Math.max(0, Number(entry.phraseOrder || 0))}` : "",
           String(entry?.token || "").trim()
@@ -27792,7 +28054,7 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
         const reload = document.createElement("button");
         reload.type = "button";
         reload.className = "reply-harmony-history-reload";
-        reload.textContent = loginCopy("Reload", "载回");
+        reload.textContent = loginCopy("Reload");
         reload.addEventListener("click", () => {
           reloadWatchReplyDraftFromHistoryEntry(entry);
         });
@@ -27812,46 +28074,46 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
       previewHeader.className = "reply-harmony-inspector-json-header";
       const previewTitle = document.createElement("div");
       previewTitle.className = "reply-harmony-inspector-json-title";
-      previewTitle.textContent = loginCopy("Sidecar JSON Preview", "Sidecar JSON 预览");
+      previewTitle.textContent = loginCopy("Sidecar JSON Preview");
       const previewCopy = document.createElement("button");
       previewCopy.type = "button";
       previewCopy.className = "reply-harmony-unlock";
-      previewCopy.textContent = loginCopy("Copy Sidecar JSON", "复制 Sidecar JSON");
+      previewCopy.textContent = loginCopy("Copy Sidecar JSON");
       previewCopy.addEventListener("click", () => {
         void copyWatchReplyRegenerationPayload(payload);
       });
       const previewCurl = document.createElement("button");
       previewCurl.type = "button";
       previewCurl.className = "reply-harmony-unlock";
-      previewCurl.textContent = loginCopy("Copy Curl Stub", "复制 Curl 占位命令");
+      previewCurl.textContent = loginCopy("Copy Curl Stub");
       previewCurl.addEventListener("click", () => {
         void copyWatchReplyRegenerationCurlStub(payload);
       });
       const previewFetch = document.createElement("button");
       previewFetch.type = "button";
       previewFetch.className = "reply-harmony-unlock";
-      previewFetch.textContent = loginCopy("Copy Node Fetch Stub", "复制 Node Fetch 占位代码");
+      previewFetch.textContent = loginCopy("Copy Node Fetch Stub");
       previewFetch.addEventListener("click", () => {
         void copyWatchReplyRegenerationNodeFetchStub(payload);
       });
       const previewReqwest = document.createElement("button");
       previewReqwest.type = "button";
       previewReqwest.className = "reply-harmony-unlock";
-      previewReqwest.textContent = loginCopy("Copy Rust Reqwest Stub", "复制 Rust Reqwest 占位代码");
+      previewReqwest.textContent = loginCopy("Copy Rust Reqwest Stub");
       previewReqwest.addEventListener("click", () => {
         void copyWatchReplyRegenerationRustReqwestStub(payload);
       });
       const previewExport = document.createElement("button");
       previewExport.type = "button";
       previewExport.className = "reply-harmony-unlock";
-      previewExport.textContent = loginCopy("Export Draft File", "导出草案文件");
+      previewExport.textContent = loginCopy("Export Draft File");
       previewExport.addEventListener("click", () => {
         exportWatchReplyRegenerationDraftFile(payload);
       });
       const previewSaveAs = document.createElement("button");
       previewSaveAs.type = "button";
       previewSaveAs.className = "reply-harmony-unlock";
-      previewSaveAs.textContent = loginCopy("Save As New Draft File", "另存为新草案文件");
+      previewSaveAs.textContent = loginCopy("Save As New Draft File");
       previewSaveAs.addEventListener("click", () => {
         saveWatchReplyRegenerationDraftAsNewFile(regenerationDraft);
       });
@@ -27877,8 +28139,8 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
     empty.className = "music-runtime-visualizer-empty";
     empty.textContent =
       musicSnapshot.replyHarmonyPending
-        ? loginCopy("Watch is syncing phrase-level ducking windows from music.plan.json.", "Watch 正在同步 music.plan.json 里的句级让位窗口。")
-        : loginCopy("Keyword-triggered harmony ducking windows will appear here once the plan is ready.", "关键词触发的和声让位窗口会在计划就绪后显示在这里。");
+        ? loginCopy("Watch is syncing phrase-level ducking windows from music.plan.json.")
+        : loginCopy("Keyword-triggered harmony ducking windows will appear here once the plan is ready.");
     replyPanel.appendChild(empty);
     musicRuntimeBoard.appendChild(replyPanel);
     return;
@@ -27917,7 +28179,7 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
       if (watchReplyLockedWindow?.key === buildReplyHarmonyWindowKey(windowEntry)) segment.classList.add("is-locked");
       segment.style.left = `${Math.min(100, (startSec / durationSec) * 100)}%`;
       segment.style.width = `${Math.max(1.4, Math.min(100, (windowDurationSec / durationSec) * 100))}%`;
-      segment.title = `${String(windowEntry?.token || "").trim() || loginCopy("Keyword", "关键词")} · ${formatReplyHarmonyClock(startSec)}`;
+      segment.title = `${String(windowEntry?.token || "").trim() || loginCopy("Keyword")} · ${formatReplyHarmonyClock(startSec)}`;
       segment.tabIndex = 0;
       bindReplyHarmonyInteractiveFocus(segment, windowEntry);
       lane.appendChild(segment);
@@ -27948,7 +28210,7 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
     top.className = "reply-harmony-window-top";
     const token = document.createElement("div");
     token.className = "reply-harmony-window-token";
-    token.textContent = String(windowEntry?.token || "").trim() || loginCopy("Keyword", "关键词");
+    token.textContent = String(windowEntry?.token || "").trim() || loginCopy("Keyword");
     const timing = document.createElement("div");
     timing.className = "reply-harmony-window-timing";
     timing.textContent = `${formatReplyHarmonyClock(windowEntry?.startSec)} - ${formatReplyHarmonyClock(
@@ -27970,15 +28232,15 @@ function renderMusicRuntimeBoard(statusPayload, musicSnapshot = {}) {
     const playback = document.createElement("div");
     playback.className = "reply-harmony-window-playback";
     playback.textContent = isActive
-      ? loginCopy("Active now", "当前生效")
-      : loginCopy("Queued window", "待命窗口");
+      ? loginCopy("Active now")
+      : loginCopy("Queued window");
 
     const meters = document.createElement("div");
     meters.className = "reply-harmony-window-meters";
     [
-      [loginCopy("Bass", "低频"), Number(windowEntry?.bassDuck) || 0],
-      [loginCopy("Pad", "和声"), Number(windowEntry?.padDuck) || 0],
-      [loginCopy("Strings", "弦群"), Number(windowEntry?.stringsDuck) || 0]
+      [loginCopy("Bass"), Number(windowEntry?.bassDuck) || 0],
+      [loginCopy("Pad"), Number(windowEntry?.padDuck) || 0],
+      [loginCopy("Strings"), Number(windowEntry?.stringsDuck) || 0]
     ].forEach(([labelText, rawValue]) => {
       const meter = document.createElement("div");
       meter.className = "reply-harmony-meter";
@@ -28122,16 +28384,16 @@ function buildVideoRuntimeCards(statusPayload, videoSnapshot = {}) {
     .join(" · ");
   return [
     {
-      label: loginCopy("Current Stage", "当前阶段"),
-      value: videoSnapshot.currentStage || loginCopy("Queued", "排队中")
+      label: loginCopy("Current Stage"),
+      value: videoSnapshot.currentStage || loginCopy("Queued")
     },
     {
-      label: loginCopy("Structure", "结构"),
-      value: videoSnapshot.artifactDetail || pendingStructureSummary || loginCopy("Waiting for video engine", "等待视频引擎")
+      label: loginCopy("Structure"),
+      value: videoSnapshot.artifactDetail || pendingStructureSummary || loginCopy("Waiting for video engine")
     },
     {
-      label: loginCopy("Shot Load", "镜头负载"),
-      value: `${completedShots}/${Math.max(shotsCount, completedShots)} ${loginCopy("shots", "镜头")} · ${segmentsCount} ${loginCopy("segments", "片段")}`
+      label: loginCopy("Shot Load"),
+      value: `${completedShots}/${Math.max(shotsCount, completedShots)} ${loginCopy("shots")} · ${segmentsCount} ${loginCopy("segments")}`
     }
   ];
 }
@@ -28191,14 +28453,14 @@ function renderVideoCameraSnapshot(statusPayload = null, videoSnapshot = {}) {
     const sceneNumber = index + 1;
     const item = document.createElement("div");
     item.className = "camera-item";
-    item.textContent = `${loginCopy("Scene", "场")} ${String(sceneNumber).padStart(2, "0")}`;
+    item.textContent = `${loginCopy("Scene")} ${String(sceneNumber).padStart(2, "0")}`;
     const detail = document.createElement("span");
     if (currentSceneStart && sceneNumber >= currentSceneStart && sceneNumber <= Math.max(currentSceneStart, currentSceneEnd)) {
-      detail.textContent = `${loginCopy("Active window", "当前窗口")} · ${videoSnapshot.currentStage || loginCopy("Rendering shot", "渲染镜头")}`;
+      detail.textContent = `${loginCopy("Active window")} · ${videoSnapshot.currentStage || loginCopy("Rendering shot")}`;
     } else if (sceneNumber < currentSceneStart) {
-      detail.textContent = loginCopy("Storyboard locked", "分镜已锁定");
+      detail.textContent = loginCopy("Storyboard locked");
     } else {
-      detail.textContent = loginCopy("Queued for render", "等待渲染");
+      detail.textContent = loginCopy("Queued for render");
     }
     item.appendChild(detail);
     cameraList.appendChild(item);
@@ -28211,10 +28473,10 @@ function renderVideoScriptSnapshot(statusPayload = null, videoSnapshot = {}) {
   const totalScenes = Number(video.scenes_count) || Number(video.planned_scenes_per_act) || 0;
   const currentScene = Number(video.current_scene_start) || 0;
   videoScript.textContent = joinDetailParts([
-    videoSnapshot.currentStage || loginCopy("Storyboard ready", "分镜就绪"),
-    totalScenes > 0 ? `${loginCopy("scenes", "场次")} ${currentScene || 1}/${totalScenes}` : "",
+    videoSnapshot.currentStage || loginCopy("Storyboard ready"),
+    totalScenes > 0 ? `${loginCopy("scenes")} ${currentScene || 1}/${totalScenes}` : "",
     videoSnapshot.artifactDetail || ""
-  ]) || loginCopy("Auto script loaded", "脚本已载入");
+  ]) || loginCopy("Auto script loaded");
 }
 
 function renderVideoEngineSnapshot(statusPayload = null, videoSnapshot = {}) {
@@ -28230,16 +28492,16 @@ function buildKaraRuntimeCards(statusPayload, karaSnapshot = {}) {
   const plannedActs = Number(kara.planned_total_acts) || 0;
   return [
     {
-      label: loginCopy("Current Stage", "当前阶段"),
-      value: karaSnapshot.currentStage || loginCopy("Queued", "排队中")
+      label: loginCopy("Current Stage"),
+      value: karaSnapshot.currentStage || loginCopy("Queued")
     },
     {
-      label: loginCopy("Structure", "结构"),
-      value: karaSnapshot.artifactDetail || loginCopy("Waiting for karaoke sync", "等待卡拉 OK 同步")
+      label: loginCopy("Structure"),
+      value: karaSnapshot.artifactDetail || loginCopy("Waiting for karaoke sync")
     },
     {
-      label: loginCopy("Subtitle Load", "字幕负载"),
-      value: `${subtitleCount} ${loginCopy("cues", "提示点")} · ${Math.max(1, plannedActs || 1)} ${loginCopy("acts", "幕")}`
+      label: loginCopy("Subtitle Load"),
+      value: `${subtitleCount} ${loginCopy("cues")} · ${Math.max(1, plannedActs || 1)} ${loginCopy("acts")}`
     }
   ];
 }
@@ -28268,9 +28530,9 @@ function renderKaraEngineSnapshot(statusPayload = null, karaSnapshot = {}) {
   if (watchSubtitle) {
     watchSubtitle.textContent =
       joinDetailParts([
-        karaSnapshot.currentStage || loginCopy("KaraOKe MV · Syncing", "卡拉 OK MV · 同步中"),
+        karaSnapshot.currentStage || loginCopy("KaraOKe MV · Syncing"),
         karaSnapshot.artifactDetail || ""
-      ]) || loginCopy("KaraOKe MV · Syncing", "卡拉 OK MV · 同步中");
+      ]) || loginCopy("KaraOKe MV · Syncing");
   }
 }
 
@@ -28894,7 +29156,7 @@ async function loadDeliveryReport(kind = deliveryReportState.kind, force = false
 
 async function runDeliveryExport(force = false) {
   if (!isAdminUser()) {
-    showToast(loginCopy("Only admins can generate new exports.", "只有管理员可以生成新的导出。"));
+    showToast(loginCopy("Only admins can generate new exports."));
     return null;
   }
   if (!force && deliveryExportRequest) return deliveryExportRequest;
@@ -29373,7 +29635,7 @@ function renderAvailableActions(payload) {
         showToast(permissionPrompt(scope));
         return;
       }
-      showToast(loginCopy(`CSSMV action "${actionKindLabel(kind)}" will route through the live backend when this control is connected.`, `CSSMV 动作“${actionKindLabel(kind)}”在该控制接入后会直连到实时后端执行。`));
+      showToast(loginCopy(`CSSMV action "${actionKindLabel(kind)}" will route through the live backend when this control is connected.`));
     });
   });
 }
@@ -29671,9 +29933,17 @@ async function runLyricsGenerate(mode, options = {}) {
   const apply = options?.apply !== false;
   const titleLanguage = inferLanguageFromTitleText(title);
   const explicitLanguage = String(creationLanguage?.value || creationState.language || "").trim().toLowerCase();
-  const preferredLanguage = explicitLanguage || titleLanguage || document.documentElement.lang || "zh";
+  // CSSMV_CIVILIZATION_CASCADE 20260424 #98 — UI locale wins over title
+  // inference. A randomizer-produced han-heavy title must NOT override a
+  // Japanese UI locale and flip generation to Chinese.
+  const uiFallbackSeed = globalThis.resolveUiPrimaryLanguageModule?.() || "en";
+  const preferredLanguage = explicitLanguage || uiFallbackSeed || titleLanguage || document.documentElement.lang || "en";
   const constraints = await buildSongSeedGenerationConstraints();
-  const queuePriority = getMembershipPreset().queuePriority;
+  // CSSOS_PHASE2_GET_MEMBERSHIP_PRESET_GUARD 20260426 #136 — load-order safe.
+  const _gmp = (typeof globalThis.getMembershipPreset === "function")
+    ? globalThis.getMembershipPreset
+    : (typeof getMembershipPreset === "function" ? getMembershipPreset : null);
+  const queuePriority = (_gmp ? _gmp() : { queuePriority: "standard" }).queuePriority;
   const payload = {
     job_id: jobId,
     mode,
@@ -29723,7 +29993,7 @@ function cycleDatalistInput(inputEl) {
 
 function refreshEngines() {
   updateEnginePanels(state.title, state.lines);
-  showToast(loginCopy("Engines refreshed", "引擎已刷新"));
+  showToast(loginCopy("Engines refreshed"));
 }
 
 function cycleMusicStyle() {
@@ -29768,7 +30038,7 @@ function cycleLanguageQuick() {
   setLocale(next);
 }
 
-const PASSKEY_BASE = "";
+/* PASSKEY_BASE is declared once in app.runtime-shell-bridges.js. Re-declaring here caused "SyntaxError: Can't create duplicate variable: 'PASSKEY_BASE'", which aborted app.js entirely and left loginCopy and other top-level bindings undefined. The identifier resolves via the global script scope, so no re-declaration is needed. */
 let HOLD_MAX_MS = Number(window.CSS_HOLD_MAX_MS || 30000);
 globalThis.__cssosMicHold = globalThis.__cssosMicHold || {
   active: false,
@@ -29972,7 +30242,17 @@ function b64FromArrayBuffer(ab) {
 
 async function createRun({ title, uiLang, tier, voice, lyricsText = "", jobId = "" }) {
   const baseUrl = apiBase();
-  const generationLang = creationState.language || uiLang || "zh";
+  // CSSOS_UI_LANG_WINS 20260420 — Jing: fallback chain here used to end
+  // in "zh", so an empty creationState.language + missing uiLang would
+  // silently default every job to Chinese. Now: explicit creationState
+  // → provided uiLang → resolveUiPrimaryLanguageModule() → "en". The
+  // UI's true primary language is the last-mile default, not Chinese.
+  const generationLang =
+    creationState.language ||
+    uiLang ||
+    globalThis.resolveUiPrimaryLanguageModule?.() ||
+    globalThis.resolveUiDefaultCreationLanguageModule?.() ||
+    "en";
   const preset = getMembershipPreset(tier);
   const selectionCounts = getCreationSelectionCounts();
   const micBehavior = readPanelBehaviorSettingsLocal().mic || { longpress_ms: LONGPRESS_MS, max_hold_sec: Math.round(HOLD_MAX_MS / 1000) };
@@ -30130,6 +30410,14 @@ function buildBuiltinDockActionMap() {
     dblclick: () => ensureWatchCentered(),
     longpress: () => openPanelSettings(watchPanel)
   },
+  notifications: {
+    click: () => globalThis.openNotificationsPanelModule?.() || openPanel(notificationsPanel),
+    dblclick: () => {
+      globalThis.openNotificationsPanelModule?.() || openPanel(notificationsPanel);
+      openAndMaximize(notificationsPanel);
+    },
+    longpress: () => openPanelSettings(notificationsPanel)
+  },
   about: {
     click: () => openPanel(aboutPanel),
     dblclick: () => openAndMaximize(aboutPanel),
@@ -30160,6 +30448,38 @@ function buildBuiltinDockActionMap() {
     click: () => openPanel(loginPanel),
     dblclick: () => openAndMaximize(loginPanel),
     longpress: () => openPanelSettings(loginPanel)
+  },
+  subscription: {
+    click: () => globalThis.openSubscriptionPanelModule?.() || openPanel(subscriptionPanel),
+    dblclick: () => {
+      globalThis.openSubscriptionPanelModule?.() || openPanel(subscriptionPanel);
+      openAndMaximize(subscriptionPanel);
+    },
+    longpress: () => openPanelSettings(subscriptionPanel)
+  },
+  "user-admin": {
+    click: () => globalThis.openUserAdminPanelModule?.() || openPanel(userAdminPanel),
+    dblclick: () => {
+      globalThis.openUserAdminPanelModule?.() || openPanel(userAdminPanel);
+      openAndMaximize(userAdminPanel);
+    },
+    longpress: () => openPanelSettings(userAdminPanel)
+  },
+  credit: {
+    click: () => globalThis.openCreditPanelModule?.() || openPanel(creditPanel),
+    dblclick: () => {
+      globalThis.openCreditPanelModule?.() || openPanel(creditPanel);
+      openAndMaximize(creditPanel);
+    },
+    longpress: () => openPanelSettings(creditPanel)
+  },
+  workspaces: {
+    click: () => globalThis.openWorkspacesPanelModule?.() || openPanel(workspacesPanel),
+    dblclick: () => {
+      globalThis.openWorkspacesPanelModule?.() || openPanel(workspacesPanel);
+      openAndMaximize(workspacesPanel);
+    },
+    longpress: () => openPanelSettings(workspacesPanel)
   },
   works: {
     click: () => openPanel(worksPanel),
@@ -30264,6 +30584,46 @@ function handleDockAction(action, type) {
       case "watch":
         ensureWatchCentered();
         return true;
+      case "notifications":
+        if (type === "dblclick") {
+          globalThis.openNotificationsPanelModule?.() || openPanel(notificationsPanel);
+          openAndMaximize(notificationsPanel);
+          return true;
+        }
+        globalThis.openNotificationsPanelModule?.() || openPanel(notificationsPanel);
+        return true;
+      case "subscription":
+        if (type === "dblclick") {
+          globalThis.openSubscriptionPanelModule?.() || openPanel(subscriptionPanel);
+          openAndMaximize(subscriptionPanel);
+          return true;
+        }
+        globalThis.openSubscriptionPanelModule?.() || openPanel(subscriptionPanel);
+        return true;
+      case "user-admin":
+        if (type === "dblclick") {
+          globalThis.openUserAdminPanelModule?.() || openPanel(userAdminPanel);
+          openAndMaximize(userAdminPanel);
+          return true;
+        }
+        globalThis.openUserAdminPanelModule?.() || openPanel(userAdminPanel);
+        return true;
+      case "credit":
+        if (type === "dblclick") {
+          globalThis.openCreditPanelModule?.() || openPanel(creditPanel);
+          openAndMaximize(creditPanel);
+          return true;
+        }
+        globalThis.openCreditPanelModule?.() || openPanel(creditPanel);
+        return true;
+      case "workspaces":
+        if (type === "dblclick") {
+          globalThis.openWorkspacesPanelModule?.() || openPanel(workspacesPanel);
+          openAndMaximize(workspacesPanel);
+          return true;
+        }
+        globalThis.openWorkspacesPanelModule?.() || openPanel(workspacesPanel);
+        return true;
       case "works":
         if (type === "dblclick") openAndMaximize(worksPanel);
         else openPanel(worksPanel);
@@ -30316,6 +30676,11 @@ function handleDockActionDirect(action, type = "click") {
     case "settings":
     case "language":
     case "watch":
+    case "notifications":
+    case "subscription":
+    case "user-admin":
+    case "credit":
+    case "workspaces":
     case "works":
     case "mic":
       handleDockAction(normalizedAction, type);
@@ -30343,6 +30708,26 @@ function handleGlobalAction(action) {
   if (action === "passkey.login") {
     openPanel(profilePanel);
     void passkeyLogin();
+    return;
+  }
+  if (action === "notifications") {
+    globalThis.openNotificationsPanelModule?.() || openPanel(notificationsPanel);
+    return;
+  }
+  if (action === "subscription") {
+    globalThis.openSubscriptionPanelModule?.() || openPanel(subscriptionPanel);
+    return;
+  }
+  if (action === "user-admin") {
+    globalThis.openUserAdminPanelModule?.() || openPanel(userAdminPanel);
+    return;
+  }
+  if (action === "credit") {
+    globalThis.openCreditPanelModule?.() || openPanel(creditPanel);
+    return;
+  }
+  if (action === "workspaces") {
+    globalThis.openWorkspacesPanelModule?.() || openPanel(workspacesPanel);
     return;
   }
   if (action === "mic") {
@@ -30604,6 +30989,10 @@ function attachDockEvents() {
   window.addEventListener("resize", () => {
     globalThis.positionDockSettingsPopoverModule?.();
   });
+  // P2-40: horizontal/vertical finger travel above this (px) is a swipe,
+  // not a tap — suppress the click so Tesla/phone gestures don't accidentally
+  // activate a dock item.
+  const DOCK_SWIPE_THRESHOLD_PX = 14;
   dock.querySelectorAll(".dock-item").forEach((item) => {
     const action = item.dataset.action;
     item.tabIndex = 0;
@@ -30611,15 +31000,23 @@ function attachDockEvents() {
     let longPressId = 0;
     let lastPointerUpAt = 0;
     let pointerDownAt = 0;
+    let pointerStartX = 0;
+    let pointerStartY = 0;
+    let pointerMaxDist = 0;
+    let activePointerId = null;
 
     const triggerAction = (type) => {
       handleDockAction(action, type);
     };
 
-    item.addEventListener("pointerdown", () => {
+    item.addEventListener("pointerdown", (event) => {
       if (Date.now() < dockSuppressUntil) return;
       suppressClick = false;
       pointerDownAt = Date.now();
+      pointerStartX = event.clientX;
+      pointerStartY = event.clientY;
+      pointerMaxDist = 0;
+      activePointerId = event.pointerId;
       clearTimeout(longPressId);
       if (action === "mic") {
         setLongpressGuard(false);
@@ -30632,10 +31029,35 @@ function attachDockEvents() {
       }, LONGPRESS_MS);
     });
 
+    item.addEventListener("pointermove", (event) => {
+      if (activePointerId !== null && event.pointerId !== activePointerId) return;
+      const dist = Math.hypot(
+        event.clientX - pointerStartX,
+        event.clientY - pointerStartY
+      );
+      if (dist > pointerMaxDist) pointerMaxDist = dist;
+      if (dist >= DOCK_SWIPE_THRESHOLD_PX) {
+        // The user is swiping, not tapping. Cancel the long-press timer and
+        // flag this gesture so pointerup below won't fire a click.
+        if (!suppressClick) {
+          suppressClick = true;
+          clearTimeout(longPressId);
+          setLongpressGuard(false);
+        }
+      }
+    });
+
     item.addEventListener("pointerup", () => {
       clearTimeout(longPressId);
       setLongpressGuard(false);
+      activePointerId = null;
       if (Date.now() < dockSuppressUntil || item.classList.contains("is-dragging")) return;
+      // P2-40: second safety check — if the finger travelled more than the
+      // swipe threshold at any point during this pointer cycle, treat this as
+      // a swipe and skip triggering an action.
+      if (pointerMaxDist >= DOCK_SWIPE_THRESHOLD_PX) {
+        suppressClick = true;
+      }
       const heldLongEnough = action === "mic" && pointerDownAt && Date.now() - pointerDownAt >= LONGPRESS_MS;
       pointerDownAt = 0;
       if (suppressClick) {
@@ -30669,12 +31091,18 @@ function attachDockEvents() {
       clearTimeout(longPressId);
       setLongpressGuard(false);
       pointerDownAt = 0;
+      // P2-40: leaving the item with an active press almost always means a
+      // swipe/drag — suppress the click that the browser may still fire.
+      if (activePointerId !== null) suppressClick = true;
+      activePointerId = null;
     });
 
     item.addEventListener("pointercancel", () => {
       clearTimeout(longPressId);
       setLongpressGuard(false);
       pointerDownAt = 0;
+      suppressClick = true;
+      activePointerId = null;
     });
 
     item.addEventListener("click", (event) => {
@@ -30814,53 +31242,15 @@ function attachPanelBarActions() {
   });
 }
 
+/* CSSOS_PHASE2_PANEL_CONSTITUTION_V2 20260419 — this legacy one-chevron
+ * resize was superseded by the 8-way resize in app.panel-shell-actions.js.
+ * We keep the function name so that boot order (app.boot.js step
+ * "attachResize") still calls something, but we just delegate to the bridge
+ * which installs the 8 overlay handles and wires them all up. */
 function attachResize() {
-  document.querySelectorAll(".panel").forEach((panel) => {
-    const handle = panel.querySelector(".resize-handle");
-    if (!handle) return;
-    let resizing = false;
-
-    handle.addEventListener("pointerdown", (event) => {
-      if (panel.classList.contains("panel-locked")) return;
-      panel.dataset.userMoved = "true";
-      panel.classList.remove("showcase-panel");
-      resizing = true;
-      if (panel.dataset.maximized === "true") {
-        restorePanel(panel);
-      }
-      panel.classList.add("dragging");
-      focusPanel(panel);
-      handle.setPointerCapture(event.pointerId);
-    });
-
-    handle.addEventListener("pointermove", (event) => {
-      if (!resizing) return;
-      const rect = panel.getBoundingClientRect();
-      const sizeLimits = getPanelSizeConstraints(panel);
-      const maxWidth = Math.max(sizeLimits.minWidth, Math.min(sizeLimits.maxWidth, window.innerWidth - rect.left));
-      const maxHeight = Math.max(sizeLimits.minHeight, Math.min(sizeLimits.maxHeight, window.innerHeight - rect.top));
-      const width = Math.min(
-        Math.max(sizeLimits.minWidth, event.clientX - rect.left),
-        maxWidth
-      );
-      const height = Math.min(
-        Math.max(sizeLimits.minHeight, event.clientY - rect.top),
-        maxHeight
-      );
-      panel.style.width = `${width}px`;
-      panel.style.height = `${height}px`;
-    });
-
-    const stopResize = (event) => {
-      resizing = false;
-      panel.classList.remove("dragging");
-      handle.releasePointerCapture(event.pointerId);
-      persistPanelLayout(panel);
-    };
-
-    handle.addEventListener("pointerup", stopResize);
-    handle.addEventListener("pointercancel", stopResize);
-  });
+  if (typeof globalThis.attachResizeBridge === "function") {
+    globalThis.attachResizeBridge();
+  }
 }
 
 function attachPanelFocus() {
@@ -31077,93 +31467,93 @@ function buildPanelSettings(panel) {
         <input type="text" data-setting="spell" />
       </label>
       <label>
-        ${loginCopy("Subtitle", "副标题")}
+        ${loginCopy("Subtitle")}
         <input type="text" data-setting="logo-subtitle" />
       </label>
       <label>
-        ${loginCopy("Slogan template", "口号模板")}
+        ${loginCopy("Slogan template")}
         <input type="text" data-setting="logo-slogan-template" />
       </label>
       <label>
-        ${loginCopy("Mirror size (px)", "魔镜尺寸（px）")}
+        ${loginCopy("Mirror size (px)")}
         <input type="range" min="420" max="880" step="10" data-setting="logo-size" />
       </label>
       <label>
-        ${loginCopy("Halo inset (%)", "遮罩圈内缩（%）")}
+        ${loginCopy("Halo inset (%)")}
         <input type="range" min="0" max="28" step="1" data-setting="logo-mask-inset" />
       </label>
       <label>
-        ${loginCopy("Flash ring size", "闪动圈大小")}
+        ${loginCopy("Flash ring size")}
         <input type="range" min="0.82" max="1.12" step="0.01" data-setting="logo-spellcast-ring-scale" />
         <span class="panel-setting-readout" data-setting-readout="logo-spellcast-ring-scale"></span>
       </label>
       <label>
-        ${loginCopy("Flash glow strength", "闪动光晕强度")}
+        ${loginCopy("Flash glow strength")}
         <input type="range" min="0" max="1" step="0.02" data-setting="logo-spellcast-glow-scale" />
         <span class="panel-setting-readout" data-setting-readout="logo-spellcast-glow-scale"></span>
       </label>
       <label>
-        ${loginCopy("Flash ring layer", "闪动圈层级")}
+        ${loginCopy("Flash ring layer")}
         <select data-setting="logo-spellcast-layer">
-          <option value="behind">${loginCopy("Behind mirror", "在魔镜后面")}</option>
-          <option value="front">${loginCopy("In front of mirror", "在魔镜前面")}</option>
+          <option value="behind">${loginCopy("Behind mirror")}</option>
+          <option value="front">${loginCopy("In front of mirror")}</option>
         </select>
       </label>
       <label>
-        ${loginCopy("Green ring size", "绿色闭环大小")}
+        ${loginCopy("Green ring size")}
         <input type="range" min="0.82" max="1.12" step="0.01" data-setting="logo-hold-ring-scale" />
         <span class="panel-setting-readout" data-setting-readout="logo-hold-ring-scale"></span>
       </label>
       <label>
-        ${loginCopy("Green ring layer", "绿色闭环层级")}
+        ${loginCopy("Green ring layer")}
         <select data-setting="logo-hold-ring-layer">
-          <option value="behind">${loginCopy("Behind mirror", "在魔镜后面")}</option>
-          <option value="front">${loginCopy("In front of mirror", "在魔镜前面")}</option>
+          <option value="behind">${loginCopy("Behind mirror")}</option>
+          <option value="front">${loginCopy("In front of mirror")}</option>
         </select>
       </label>
       <div class="panel-settings-inline-actions">
-        <button type="button" class="cta ghost tiny" data-setting="logo-align-gray-ring">${loginCopy("Align To Gray Ring", "一键贴灰圈")}</button>
-        <button type="button" class="cta ghost tiny" data-setting="logo-align-gray-ring-minimal">${loginCopy("Align + Minimal Glow", "贴灰圈 + 最小光晕")}</button>
-        <button type="button" class="cta ghost tiny" data-setting="logo-save-ring-preset">${loginCopy("Save As Logo Preset", "保存为 Logo 预设")}</button>
+        <button type="button" class="cta ghost tiny" data-setting="logo-align-gray-ring">${loginCopy("Align To Gray Ring")}</button>
+        <button type="button" class="cta ghost tiny" data-setting="logo-align-gray-ring-minimal">${loginCopy("Align + Minimal Glow")}</button>
+        <button type="button" class="cta ghost tiny" data-setting="logo-save-ring-preset">${loginCopy("Save As Logo Preset")}</button>
       </div>
       <label>
-        ${loginCopy("Saved logo presets", "已保存的 Logo 预设")}
+        ${loginCopy("Saved logo presets")}
         <select data-setting="logo-ring-preset-select"></select>
       </label>
       <div class="panel-settings-inline-actions">
-        <button type="button" class="cta ghost tiny" data-setting="logo-load-ring-preset">${loginCopy("Load Logo Preset", "载入 Logo 预设")}</button>
-        <button type="button" class="cta ghost tiny" data-setting="logo-delete-ring-preset">${loginCopy("Delete Preset", "删除预设")}</button>
+        <button type="button" class="cta ghost tiny" data-setting="logo-load-ring-preset">${loginCopy("Load Logo Preset")}</button>
+        <button type="button" class="cta ghost tiny" data-setting="logo-delete-ring-preset">${loginCopy("Delete Preset")}</button>
       </div>
-      <div class="panel-settings-title">${loginCopy("Voice Trigger", "语音触发")}</div>
+      <div class="panel-settings-title">${loginCopy("Voice Trigger")}</div>
       <label>
-        ${loginCopy("Long press threshold (ms)", "长按阈值（毫秒）")}
+        ${loginCopy("Long press threshold (ms)")}
         <input type="range" min="250" max="3000" step="50" data-setting="mic-longpress-ms" />
       </label>
       <label>
-        ${loginCopy("Voice capture length", "语音截取长度")}
+        ${loginCopy("Voice capture length")}
         <select data-setting="mic-max-hold-sec">
-          ${[3, 5, 10, 15, 30].map((sec) => `<option value="${sec}">${loginCopy(`${sec} sec`, `${sec} 秒`)}</option>`).join("")}
+          ${[3, 5, 10, 15, 30].map((sec) => `<option value="${sec}">${loginCopy(`${sec} sec`)}</option>`).join("")}
         </select>
       </label>
       <label>
-        ${loginCopy("Logo surface mode", "Logo 展示模式")}
+        ${loginCopy("Logo surface mode")}
         <select data-setting="mic-logo-surface-mode">
-          <option value="showcase">${loginCopy("Showcase panels", "展示多面板")}</option>
-          <option value="mv_only">${loginCopy("Direct MV", "直达 MV")}</option>
+          <option value="showcase">${loginCopy("Showcase panels")}</option>
+          <option value="mv_only">${loginCopy("Direct MV")}</option>
         </select>
       </label>
       <label>
-        ${loginCopy("Dock mic surface mode", "Dock 话筒展示模式")}
+        ${loginCopy("Dock mic surface mode")}
         <select data-setting="mic-dock-surface-mode">
-          <option value="showcase">${loginCopy("Showcase panels", "展示多面板")}</option>
-          <option value="mv_only">${loginCopy("Direct MV", "直达 MV")}</option>
+          <option value="showcase">${loginCopy("Showcase panels")}</option>
+          <option value="mv_only">${loginCopy("Direct MV")}</option>
         </select>
       </label>
       <label>
-        ${loginCopy("Settings submit surface mode", "设置提交展示模式")}
+        ${loginCopy("Settings submit surface mode")}
         <select data-setting="mic-settings-surface-mode">
-          <option value="showcase">${loginCopy("Showcase panels", "展示多面板")}</option>
-          <option value="mv_only">${loginCopy("Direct MV", "直达 MV")}</option>
+          <option value="showcase">${loginCopy("Showcase panels")}</option>
+          <option value="mv_only">${loginCopy("Direct MV")}</option>
         </select>
       </label>
       ${buildMicDebugBoardMarkup()}
@@ -31174,16 +31564,16 @@ function buildPanelSettings(panel) {
       isCssmvPanel
         ? `
       <label>
-        ${loginCopy("Default focus", "默认聚焦")}
+        ${loginCopy("Default focus")}
         <select data-setting="cssmv-default-section">
-          <option value="digest">${loginCopy("Digest", "摘要")}</option>
-          <option value="governance">${loginCopy("Governance", "治理")}</option>
-          <option value="timeline">${loginCopy("Timeline", "时间线")}</option>
+          <option value="digest">${loginCopy("Digest")}</option>
+          <option value="governance">${loginCopy("Governance")}</option>
+          <option value="timeline">${loginCopy("Timeline")}</option>
         </select>
       </label>
       <label class="advanced-panel-check">
         <input type="checkbox" data-setting="cssmv-auto-refresh" />
-        <span>${loginCopy("Refresh digest on open", "打开时刷新摘要")}</span>
+        <span>${loginCopy("Refresh digest on open")}</span>
       </label>
     `
         : ""
@@ -31192,15 +31582,15 @@ function buildPanelSettings(panel) {
       isLanguagePanel
         ? `
       <label>
-        ${loginCopy("Default mode", "默认模式")}
+        ${loginCopy("Default mode")}
         <select data-setting="language-default-mode">
-          <option value="content">${loginCopy("Content", "内容")}</option>
-          <option value="settings">${loginCopy("Settings", "设置")}</option>
+          <option value="content">${loginCopy("Content")}</option>
+          <option value="settings">${loginCopy("Settings")}</option>
         </select>
       </label>
       <label class="advanced-panel-check">
         <input type="checkbox" data-setting="language-show-more" />
-        <span>${loginCopy("Expand more languages by default", "默认展开更多语言")}</span>
+        <span>${loginCopy("Expand more languages by default")}</span>
       </label>
     `
         : ""
@@ -31209,14 +31599,14 @@ function buildPanelSettings(panel) {
       isLoginPanel
         ? `
       <label>
-        ${loginCopy("Login panel density", "登录面板密度")}
+        ${loginCopy("Login panel density")}
         <select data-setting="login-panel-density">
-          <option value="full">${loginCopy("Full", "完整")}</option>
-          <option value="compact">${loginCopy("Compact", "紧凑")}</option>
+          <option value="full">${loginCopy("Full")}</option>
+          <option value="compact">${loginCopy("Compact")}</option>
         </select>
       </label>
       <label>
-        ${loginCopy("Preferred provider", "偏好登录方式")}
+        ${loginCopy("Preferred provider")}
         <select data-setting="login-preferred-provider">
           <option value="google">Google</option>
           <option value="github">GitHub</option>
@@ -31227,15 +31617,15 @@ function buildPanelSettings(panel) {
       </label>
       <label class="advanced-panel-check">
         <input type="checkbox" data-setting="login-show-logout" />
-        <span>${loginCopy("Show logout button", "显示退出按钮")}</span>
+        <span>${loginCopy("Show logout button")}</span>
       </label>
       <label>
-        ${loginCopy("Remember session window", "会话保留时长")}
+        ${loginCopy("Remember session window")}
         <select data-setting="login-session-days">
-          <option value="30">${loginCopy("30 days", "30 天")}</option>
-          <option value="90">${loginCopy("90 days", "90 天")}</option>
-          <option value="180">${loginCopy("180 days", "180 天")}</option>
-          <option value="365">${loginCopy("365 days", "365 天")}</option>
+          <option value="30">${loginCopy("30 days")}</option>
+          <option value="90">${loginCopy("90 days")}</option>
+          <option value="180">${loginCopy("180 days")}</option>
+          <option value="365">${loginCopy("365 days")}</option>
         </select>
       </label>
     `
@@ -31245,20 +31635,20 @@ function buildPanelSettings(panel) {
       isProfilePanel
         ? `
       <label>
-        ${loginCopy("Profile density", "个人资料密度")}
+        ${loginCopy("Profile density")}
         <select data-setting="profile-panel-density">
-          <option value="full">${loginCopy("Full", "完整")}</option>
-          <option value="compact">${loginCopy("Compact", "紧凑")}</option>
+          <option value="full">${loginCopy("Full")}</option>
+          <option value="compact">${loginCopy("Compact")}</option>
         </select>
       </label>
       <label>
-        ${loginCopy("Profile note", "个人备注")}
+        ${loginCopy("Profile note")}
         <input type="text" data-setting="profile-note" maxlength="120" />
       </label>
       <label>
-        ${loginCopy("Default jump button", "默认跳转按钮")}
+        ${loginCopy("Default jump button")}
         <select data-setting="profile-default-nav">
-          <option value="works">${loginCopy("Works", "作品")}</option>
+          <option value="works">${loginCopy("Works")}</option>
           <option value="api">API</option>
         </select>
       </label>
@@ -31269,43 +31659,43 @@ function buildPanelSettings(panel) {
       isWorksPanel
         ? `
       <label>
-        ${loginCopy("Default focus", "默认聚焦")}
+        ${loginCopy("Default focus")}
         <select data-setting="works-focus-section">
-          <option value="works">${loginCopy("Works", "作品")}</option>
-          <option value="comments">${loginCopy("Comments", "评论")}</option>
-          <option value="monetization">${loginCopy("Monetization", "变现")}</option>
+          <option value="works">${loginCopy("Works")}</option>
+          <option value="comments">${loginCopy("Comments")}</option>
+          <option value="monetization">${loginCopy("Monetization")}</option>
         </select>
       </label>
       <label class="advanced-panel-check">
         <input type="checkbox" data-setting="works-auto-load" />
-        <span>${loginCopy("Refresh works on open", "打开时刷新作品")}</span>
+        <span>${loginCopy("Refresh works on open")}</span>
       </label>
       <label class="advanced-panel-check">
         <input type="checkbox" data-setting="works-search-enabled" />
-        <span>${loginCopy("Enable pull-down search", "启用下拉搜索")}</span>
+        <span>${loginCopy("Enable pull-down search")}</span>
       </label>
       <label>
-        ${loginCopy("Search result limit", "搜索结果条数")}
+        ${loginCopy("Search result limit")}
         <input type="number" min="4" max="48" step="1" data-setting="works-search-limit" />
       </label>
       <label>
-        ${loginCopy("Default filter", "默认过滤")}
+        ${loginCopy("Default filter")}
         <select data-setting="works-default-filter">
-          <option value="all">${loginCopy("All", "全部")}</option>
-          <option value="single">${loginCopy("Single", "单曲")}</option>
-          <option value="triptych">${loginCopy("Triptych", "三部曲")}</option>
-          <option value="opera">${loginCopy("Opera", "歌剧")}</option>
-          <option value="live">${loginCopy("Live", "上架")}</option>
-          <option value="hidden">${loginCopy("Hidden", "下架")}</option>
+          <option value="all">${loginCopy("All")}</option>
+          <option value="single">${loginCopy("Single")}</option>
+          <option value="triptych">${loginCopy("Triptych")}</option>
+          <option value="opera">${loginCopy("Opera")}</option>
+          <option value="live">${loginCopy("Live")}</option>
+          <option value="hidden">${loginCopy("Hidden")}</option>
         </select>
       </label>
       <label>
-        ${loginCopy("Default sort", "默认排序")}
+        ${loginCopy("Default sort")}
         <select data-setting="works-default-sort">
-          <option value="newest">${loginCopy("Newest", "最新")}</option>
-          <option value="oldest">${loginCopy("Oldest", "最早")}</option>
-          <option value="title">${loginCopy("Title", "标题")}</option>
-          <option value="type">${loginCopy("Type", "类型")}</option>
+          <option value="newest">${loginCopy("Newest")}</option>
+          <option value="oldest">${loginCopy("Oldest")}</option>
+          <option value="title">${loginCopy("Title")}</option>
+          <option value="type">${loginCopy("Type")}</option>
         </select>
       </label>
     `
@@ -31315,26 +31705,26 @@ function buildPanelSettings(panel) {
       isSellerPanel
         ? `
       <label>
-        ${loginCopy("Default lane", "默认车道")}
+        ${loginCopy("Default lane")}
         <select data-setting="seller-focus-lane">
-          <option value="orders">${loginCopy("Orders", "订单")}</option>
-          <option value="income">${loginCopy("Income", "收入")}</option>
+          <option value="orders">${loginCopy("Orders")}</option>
+          <option value="income">${loginCopy("Income")}</option>
         </select>
       </label>
       <label class="advanced-panel-check">
         <input type="checkbox" data-setting="seller-auto-refresh" />
-        <span>${loginCopy("Refresh seller data on open", "打开时刷新经营数据")}</span>
+        <span>${loginCopy("Refresh seller data on open")}</span>
       </label>
       <label>
-        ${loginCopy("Order filter", "订单过滤")}
+        ${loginCopy("Order filter")}
         <select data-setting="seller-order-filter">
-          <option value="all">${loginCopy("All", "全部")}</option>
-          <option value="paid">${loginCopy("Paid", "已支付")}</option>
-          <option value="pending">${loginCopy("Pending", "待处理")}</option>
+          <option value="all">${loginCopy("All")}</option>
+          <option value="paid">${loginCopy("Paid")}</option>
+          <option value="pending">${loginCopy("Pending")}</option>
         </select>
       </label>
       <label>
-        ${loginCopy("Ledger item limit", "收入条目上限")}
+        ${loginCopy("Ledger item limit")}
         <input type="number" min="4" max="40" step="1" data-setting="seller-ledger-limit" />
       </label>
     `
@@ -31344,18 +31734,18 @@ function buildPanelSettings(panel) {
       isAboutPanel
         ? `
       <label>
-        ${loginCopy("Default tab", "默认标签")}
+        ${loginCopy("Default tab")}
         <select data-setting="about-default-tab">
-          <option value="whitepaper">${loginCopy("Whitepaper", "白皮书")}</option>
-          <option value="about">${loginCopy("About", "关于")}</option>
-          <option value="contact">${loginCopy("Contact", "联系")}</option>
+          <option value="whitepaper">${loginCopy("Whitepaper")}</option>
+          <option value="about">${loginCopy("About")}</option>
+          <option value="contact">${loginCopy("Contact")}</option>
         </select>
       </label>
       <label>
-        ${loginCopy("Section density", "内容密度")}
+        ${loginCopy("Section density")}
         <select data-setting="about-density">
-          <option value="relaxed">${loginCopy("Relaxed", "舒展")}</option>
-          <option value="compact">${loginCopy("Compact", "紧凑")}</option>
+          <option value="relaxed">${loginCopy("Relaxed")}</option>
+          <option value="compact">${loginCopy("Compact")}</option>
         </select>
       </label>
     `
@@ -31365,34 +31755,34 @@ function buildPanelSettings(panel) {
       isApiPanel
         ? `
       <label>
-        ${loginCopy("Billing view", "计费视图")}
+        ${loginCopy("Billing view")}
         <select data-setting="api-billing-mode">
-          <option value="full">${loginCopy("Full", "完整")}</option>
-          <option value="compact">${loginCopy("Compact", "紧凑")}</option>
+          <option value="full">${loginCopy("Full")}</option>
+          <option value="compact">${loginCopy("Compact")}</option>
         </select>
       </label>
       <label>
-        ${loginCopy("Default payment method", "默认付款方式")}
+        ${loginCopy("Default payment method")}
         <select data-setting="api-payment-method-default">
-          <option value="card">${loginCopy("Card", "银行卡")}</option>
-          <option value="bank">${loginCopy("Bank transfer", "银行转账")}</option>
+          <option value="card">${loginCopy("Card")}</option>
+          <option value="bank">${loginCopy("Bank transfer")}</option>
         </select>
       </label>
       <label class="advanced-panel-check">
         <input type="checkbox" data-setting="api-auto-recharge-default" />
-        <span>${loginCopy("Enable auto recharge by default", "默认启用自动充值")}</span>
+        <span>${loginCopy("Enable auto recharge by default")}</span>
       </label>
-      <div class="panel-settings-title">${loginCopy("Commerce policy", "交易策略")}</div>
+      <div class="panel-settings-title">${loginCopy("Commerce policy")}</div>
       <label>
-        ${loginCopy("Payout hold days", "分发冻结天数")}
+        ${loginCopy("Payout hold days")}
         <input type="number" min="0" max="90" step="1" data-setting="commerce-payout-hold-days" />
       </label>
       <label>
-        ${loginCopy("Payout sweep every (minutes)", "分发扫描频率（分钟）")}
+        ${loginCopy("Payout sweep every (minutes)")}
         <input type="number" min="1" max="1440" step="1" data-setting="commerce-payout-sweep-minutes" />
       </label>
       <label>
-        ${loginCopy("Minimum tip (USD)", "最小打赏金额（美元）")}
+        ${loginCopy("Minimum tip (USD)")}
         <input type="number" min="1" max="1000" step="1" data-setting="commerce-min-tip-usd" />
       </label>
     `
@@ -31410,44 +31800,44 @@ function buildPanelSettings(panel) {
         </select>
       </label>
       <label>
-        ${loginCopy("Hold after completion (ms)", "完成后驻留毫秒")}
+        ${loginCopy("Hold after completion (ms)")}
         <input type="number" min="0" max="30000" step="1000" data-setting="foryou-hold-ms" />
       </label>
       <label class="advanced-panel-check">
         <input type="checkbox" data-setting="foryou-compact-after-lyrics" />
-        <span>${loginCopy("Collapse after lyrics finish", "歌词完成后自动收起")}</span>
+        <span>${loginCopy("Collapse after lyrics finish")}</span>
       </label>
       <label>
-        ${loginCopy("Auto watch delay (ms)", "自动进入欣赏延迟")}
+        ${loginCopy("Auto watch delay (ms)")}
         <input type="number" min="0" max="30000" step="1000" data-setting="foryou-auto-watch-ms" />
       </label>
       <label class="advanced-panel-check">
         <input type="checkbox" data-setting="foryou-search-enabled" />
-        <span>${loginCopy("Enable pull-down search", "启用下拉搜索")}</span>
+        <span>${loginCopy("Enable pull-down search")}</span>
       </label>
       <label>
-        ${loginCopy("Marketplace result limit", "市场结果条数")}
+        ${loginCopy("Marketplace result limit")}
         <input type="number" min="4" max="48" step="1" data-setting="foryou-market-limit" />
       </label>
       <label>
-        ${loginCopy("Marketplace filter", "市场默认过滤")}
+        ${loginCopy("Marketplace filter")}
         <select data-setting="foryou-default-filter">
-          <option value="all">${loginCopy("All", "全部")}</option>
-          <option value="single">${loginCopy("Single", "单曲")}</option>
-          <option value="triptych">${loginCopy("Triptych", "三部曲")}</option>
-          <option value="opera">${loginCopy("Opera", "歌剧")}</option>
-          <option value="owned">${loginCopy("Mine", "我的")}</option>
-          <option value="public">${loginCopy("Others", "别人的")}</option>
+          <option value="all">${loginCopy("All")}</option>
+          <option value="single">${loginCopy("Single")}</option>
+          <option value="triptych">${loginCopy("Triptych")}</option>
+          <option value="opera">${loginCopy("Opera")}</option>
+          <option value="owned">${loginCopy("Mine")}</option>
+          <option value="public">${loginCopy("Others")}</option>
         </select>
       </label>
       <label>
-        ${loginCopy("Marketplace sort", "市场默认排序")}
+        ${loginCopy("Marketplace sort")}
         <select data-setting="foryou-default-sort">
-          <option value="newest">${loginCopy("Newest", "最新")}</option>
-          <option value="oldest">${loginCopy("Oldest", "最早")}</option>
-          <option value="title">${loginCopy("Title", "标题")}</option>
-          <option value="listen_low">${loginCopy("Low price", "价格低")}</option>
-          <option value="listen_high">${loginCopy("High price", "价格高")}</option>
+          <option value="newest">${loginCopy("Newest")}</option>
+          <option value="oldest">${loginCopy("Oldest")}</option>
+          <option value="title">${loginCopy("Title")}</option>
+          <option value="listen_low">${loginCopy("Low price")}</option>
+          <option value="listen_high">${loginCopy("High price")}</option>
         </select>
       </label>
     `
@@ -31457,7 +31847,7 @@ function buildPanelSettings(panel) {
       isWatchPanel
         ? `
       <label>
-        ${loginCopy("Default tab", "默认标签")}
+        ${loginCopy("Default tab")}
         <select data-setting="watch-default-tab">
           <option value="mv">MV</option>
           <option value="music">Music</option>
@@ -31465,22 +31855,22 @@ function buildPanelSettings(panel) {
         </select>
       </label>
       <label>
-        ${loginCopy("Preview limit (sec)", "预览时长秒数")}
+        ${loginCopy("Preview limit (sec)")}
         <input type="number" min="0" max="180" step="5" data-setting="watch-preview-limit-sec" />
       </label>
       <label>
-        ${loginCopy("Subtitle scale", "字幕缩放")}
+        ${loginCopy("Subtitle scale")}
         <input type="range" min="0.8" max="1.4" step="0.05" data-setting="watch-subtitle-scale" />
       </label>
       <label>
-        ${loginCopy("Engine detail", "引擎详情密度")}
+        ${loginCopy("Engine detail")}
         <select data-setting="watch-engine-detail">
-          <option value="compact">${loginCopy("Compact", "简洁")}</option>
-          <option value="full">${loginCopy("Full", "完整")}</option>
+          <option value="compact">${loginCopy("Compact")}</option>
+          <option value="full">${loginCopy("Full")}</option>
         </select>
       </label>
       <label>
-        ${loginCopy("Flash ring size", "闪动圈大小")}
+        ${loginCopy("Flash ring size")}
         <input type="range" min="0.84" max="1.08" step="0.01" data-setting="watch-flash-ring-scale" />
       </label>
     `
@@ -31490,16 +31880,16 @@ function buildPanelSettings(panel) {
       isLyricsPanel
         ? `
       <label>
-        ${loginCopy("Typewriter speed", "打字机速度")}
+        ${loginCopy("Typewriter speed")}
         <input type="number" min="8" max="60" step="1" data-setting="lyrics-type-speed" />
       </label>
       <label>
-        ${loginCopy("Lyrics scale", "歌词缩放")}
+        ${loginCopy("Lyrics scale")}
         <input type="range" min="0.85" max="1.4" step="0.05" data-setting="lyrics-font-scale" />
       </label>
       <label class="advanced-panel-check">
         <input type="checkbox" data-setting="lyrics-auto-collapse" />
-        <span>${loginCopy("Auto collapse after done", "完成后自动折叠")}</span>
+        <span>${loginCopy("Auto collapse after done")}</span>
       </label>
     `
         : ""
@@ -31508,11 +31898,11 @@ function buildPanelSettings(panel) {
       isMusicPanel
         ? `
       <label>
-        ${loginCopy("Waveform bars", "波形条数量")}
+        ${loginCopy("Waveform bars")}
         <input type="number" min="12" max="48" step="1" data-setting="music-waveform-bars" />
       </label>
       <label>
-        ${loginCopy("Layer cards", "层级卡片数量")}
+        ${loginCopy("Layer cards")}
         <input type="number" min="3" max="8" step="1" data-setting="music-layer-cards" />
       </label>
     `
@@ -31522,11 +31912,11 @@ function buildPanelSettings(panel) {
       isVideoPanel
         ? `
       <label>
-        ${loginCopy("Storyboard frames", "分镜格数量")}
+        ${loginCopy("Storyboard frames")}
         <input type="number" min="4" max="16" step="1" data-setting="video-storyboard-frames" />
       </label>
       <label>
-        ${loginCopy("Camera slots", "镜头窗口数量")}
+        ${loginCopy("Camera slots")}
         <input type="number" min="2" max="8" step="1" data-setting="video-camera-slots" />
       </label>
     `
@@ -31536,30 +31926,30 @@ function buildPanelSettings(panel) {
       isDeliveryReportsPanel
         ? `
       <label>
-        ${loginCopy("Default report", "默认报表")}
+        ${loginCopy("Default report")}
         <select data-setting="reports-default-kind">
           ${DELIVERY_REPORT_KINDS.map((kind) => `<option value="${kind}">${escapeHtml(formatReportKindLabel(kind))}</option>`).join("")}
         </select>
       </label>
       <label>
-        ${loginCopy("Focus section", "聚焦区块")}
+        ${loginCopy("Focus section")}
         <select data-setting="reports-focus-section">
-          <option value="overview">${loginCopy("Overview", "总览")}</option>
-          <option value="dashboard">${loginCopy("Dashboard", "仪表盘")}</option>
-          <option value="export">${loginCopy("Export", "导出")}</option>
-          <option value="history">${loginCopy("History", "历史")}</option>
+          <option value="overview">${loginCopy("Overview")}</option>
+          <option value="dashboard">${loginCopy("Dashboard")}</option>
+          <option value="export">${loginCopy("Export")}</option>
+          <option value="history">${loginCopy("History")}</option>
         </select>
       </label>
       <label>
-        ${loginCopy("Report density", "报表密度")}
+        ${loginCopy("Report density")}
         <select data-setting="reports-density">
-          <option value="full">${loginCopy("Full", "完整")}</option>
-          <option value="compact">${loginCopy("Compact", "紧凑")}</option>
+          <option value="full">${loginCopy("Full")}</option>
+          <option value="compact">${loginCopy("Compact")}</option>
         </select>
       </label>
       <label class="advanced-panel-check">
         <input type="checkbox" data-setting="reports-preview-expanded" />
-        <span>${loginCopy("Expand export preview by default", "默认展开导出预览")}</span>
+        <span>${loginCopy("Expand export preview by default")}</span>
       </label>
     `
         : ""
@@ -31568,29 +31958,29 @@ function buildPanelSettings(panel) {
       isDeliveryOpsPanel
         ? `
       <label>
-        ${loginCopy("Recovery limit", "恢复条目上限")}
+        ${loginCopy("Recovery limit")}
         <input type="number" min="4" max="20" step="1" data-setting="ops-recovery-limit" />
       </label>
       <label>
-        ${loginCopy("Focus lane", "聚焦车道")}
+        ${loginCopy("Focus lane")}
         <select data-setting="ops-focus-lane">
-          <option value="overview">${loginCopy("Overview", "总览")}</option>
-          <option value="subscriptions">${loginCopy("Subscriptions", "订阅")}</option>
-          <option value="logs">${loginCopy("Logs", "日志")}</option>
-          <option value="recovery">${loginCopy("Recovery", "恢复")}</option>
-          <option value="actions">${loginCopy("Actions", "动作")}</option>
+          <option value="overview">${loginCopy("Overview")}</option>
+          <option value="subscriptions">${loginCopy("Subscriptions")}</option>
+          <option value="logs">${loginCopy("Logs")}</option>
+          <option value="recovery">${loginCopy("Recovery")}</option>
+          <option value="actions">${loginCopy("Actions")}</option>
         </select>
       </label>
       <label>
-        ${loginCopy("Alert density", "预警密度")}
+        ${loginCopy("Alert density")}
         <select data-setting="ops-alert-density">
-          <option value="full">${loginCopy("Full", "完整")}</option>
-          <option value="compact">${loginCopy("Compact", "紧凑")}</option>
+          <option value="full">${loginCopy("Full")}</option>
+          <option value="compact">${loginCopy("Compact")}</option>
         </select>
       </label>
       <label class="advanced-panel-check">
         <input type="checkbox" data-setting="ops-auto-refresh" />
-        <span>${loginCopy("Refresh automatically on open", "打开时自动刷新")}</span>
+        <span>${loginCopy("Refresh automatically on open")}</span>
       </label>
     `
         : ""
@@ -31617,7 +32007,7 @@ function buildPanelSettings(panel) {
         <input type="number" min="${sizeLimits.minHeight}" max="${sizeLimits.maxHeight}" step="10" data-setting="height" />
       </label>
     </div>
-    <div class="advanced-panel-note">${escapeHtml(loginCopy(`Panel size limits: width ${sizeLimits.minWidth}-${sizeLimits.maxWidth}px, height ${sizeLimits.minHeight}-${sizeLimits.maxHeight}px. Input changes apply immediately.`, `面板尺寸限制：宽 ${sizeLimits.minWidth}-${sizeLimits.maxWidth}px，高 ${sizeLimits.minHeight}-${sizeLimits.maxHeight}px。输入后立即生效。`))}</div>
+    <div class="advanced-panel-note">${escapeHtml(loginCopy(`Panel size limits: width ${sizeLimits.minWidth}-${sizeLimits.maxWidth}px, height ${sizeLimits.minHeight}-${sizeLimits.maxHeight}px. Input changes apply immediately.`))}</div>
     ${
       isLogoPanel
         ? `

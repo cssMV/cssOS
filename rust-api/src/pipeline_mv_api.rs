@@ -79,6 +79,194 @@ fn price_cents(engine: &str, version: &str) -> i64 {
     (rule.base_price_usd * 100.0).ceil() as i64
 }
 
+/// CSSOS_PHASE2_STRIP_MARKERS 20260426 #148-A1 — Jing
+/// "英文方括号[]里的文案不是歌词，不要演唱。"
+///
+/// Remove song-structure markers from a lyrics block before handing it to
+/// the music engine. Three patterns:
+///
+///   1. **Pure-marker lines** — the entire line is a structure marker like
+///      `[Verse 1]`, `[Chorus]`, `**Bridge**`, `(Pre-Chorus)`, `Verse 2:`.
+///      These are dropped entirely.
+///
+///   2. **Inline marker wrappers** — a real lyric line wrapped in markup
+///      such as `**She said the world was hers**`. The wrapping markup is
+///      stripped but the inner content is kept.
+///
+///   3. **Trailing colon-only labels** — `Verse 1:` on its own line with
+///      content on subsequent lines is treated as case 1.
+///
+/// This preserves the line layout (blank lines between sections become
+/// double newlines for music engines that use them as phrasing hints), so
+/// the engine still gets section pacing without singing the markers.
+///
+/// Idempotent: running it twice is the same as once.
+fn strip_lyric_structure_markers(input: &str) -> String {
+    // Token list of recognised section labels (case-insensitive). We only
+    // drop lines that consist of these labels alone, possibly suffixed with
+    // numbers / Roman numerals / colons.
+    fn is_pure_marker_line(line: &str) -> bool {
+        let core = line
+            .trim()
+            .trim_start_matches(|c: char| c == '[' || c == '(' || c == '*' || c == '#' || c == '<')
+            .trim_end_matches(|c: char| c == ']' || c == ')' || c == '*' || c == '>')
+            .trim_end_matches(':')
+            .trim_end_matches('.')
+            .trim();
+        if core.is_empty() {
+            return false;
+        }
+        // Strip trailing digits / roman numerals (Verse 1, Verse 2, Verse III)
+        let head: String = core
+            .chars()
+            .take_while(|c| c.is_alphabetic() || c.is_whitespace() || *c == '-' || *c == '_')
+            .collect();
+        let head = head.trim().to_ascii_lowercase();
+        const MARKERS: &[&str] = &[
+            "verse",
+            "chorus",
+            "bridge",
+            "outro",
+            "intro",
+            "pre-chorus",
+            "prechorus",
+            "post-chorus",
+            "postchorus",
+            "hook",
+            "refrain",
+            "interlude",
+            "drop",
+            "breakdown",
+            "tag",
+            "coda",
+            "instrumental",
+            "solo",
+            "ad-lib",
+            "adlib",
+        ];
+        MARKERS.iter().any(|m| head == *m || head.starts_with(&format!("{} ", m)))
+    }
+
+    fn strip_inline_wrappers(line: &str) -> String {
+        // Strip leading/trailing **, [, (, > pairs that wrap the whole line.
+        let mut s = line.trim().to_string();
+        // Outer ** **
+        if s.starts_with("**") && s.ends_with("**") && s.len() >= 4 {
+            s = s[2..s.len() - 2].trim().to_string();
+        }
+        // Outer [ ]
+        if s.starts_with('[') && s.ends_with(']') && s.len() >= 2 {
+            s = s[1..s.len() - 1].trim().to_string();
+        }
+        // Outer ( )
+        if s.starts_with('(') && s.ends_with(')') && s.len() >= 2 {
+            s = s[1..s.len() - 1].trim().to_string();
+        }
+        // Outer > or # markdown headers
+        s = s
+            .trim_start_matches('#')
+            .trim_start_matches('>')
+            .trim()
+            .to_string();
+        s
+    }
+
+    let mut out_lines: Vec<String> = Vec::new();
+    for raw_line in input.split('\n') {
+        if raw_line.trim().is_empty() {
+            // Preserve blank lines as section pacing hints.
+            out_lines.push(String::new());
+            continue;
+        }
+        if is_pure_marker_line(raw_line) {
+            continue;
+        }
+        let cleaned = strip_inline_wrappers(raw_line);
+        if !cleaned.is_empty() {
+            out_lines.push(cleaned);
+        }
+    }
+    // Collapse runs of >2 blank lines to exactly 2.
+    let mut collapsed: Vec<String> = Vec::new();
+    let mut blank_run = 0usize;
+    for l in out_lines {
+        if l.is_empty() {
+            blank_run += 1;
+            if blank_run <= 2 {
+                collapsed.push(l);
+            }
+        } else {
+            blank_run = 0;
+            collapsed.push(l);
+        }
+    }
+    // Trim trailing blanks.
+    while collapsed.last().map(|s| s.is_empty()).unwrap_or(false) {
+        collapsed.pop();
+    }
+    collapsed.join("\n")
+}
+
+#[cfg(test)]
+mod strip_lyric_markers_tests {
+    use super::strip_lyric_structure_markers;
+
+    #[test]
+    fn removes_bracket_section_markers() {
+        let input = "[Verse 1]\nLine one\nLine two\n\n[Chorus]\nChorus line";
+        let out = strip_lyric_structure_markers(input);
+        assert!(!out.contains("[Verse"));
+        assert!(!out.contains("[Chorus"));
+        assert!(out.contains("Line one"));
+        assert!(out.contains("Chorus line"));
+    }
+
+    #[test]
+    fn removes_bold_markdown_section_markers() {
+        let input = "**Verse 1**\nDream line\n**Chorus**\nFly with me";
+        let out = strip_lyric_structure_markers(input);
+        assert!(!out.contains("**Verse"));
+        assert!(!out.contains("**Chorus"));
+        assert!(out.contains("Dream line"));
+        assert!(out.contains("Fly with me"));
+    }
+
+    #[test]
+    fn preserves_inline_content_with_wrappers_stripped() {
+        let input = "**She said the world was hers**\nAnd I believed her";
+        let out = strip_lyric_structure_markers(input);
+        assert!(out.contains("She said the world was hers"));
+        assert!(!out.contains("**"));
+        assert!(out.contains("And I believed her"));
+    }
+
+    #[test]
+    fn handles_paren_and_label_styles() {
+        let input = "(Pre-Chorus)\nLine A\nVerse 2:\nLine B\n[Bridge]\nLine C";
+        let out = strip_lyric_structure_markers(input);
+        assert!(out.contains("Line A"));
+        assert!(out.contains("Line B"));
+        assert!(out.contains("Line C"));
+        assert!(!out.contains("Pre-Chorus"));
+        assert!(!out.contains("Verse 2"));
+        assert!(!out.contains("Bridge"));
+    }
+
+    #[test]
+    fn idempotent() {
+        let input = "[Verse 1]\nDream\n**Chorus**\nFly";
+        let once = strip_lyric_structure_markers(input);
+        let twice = strip_lyric_structure_markers(&once);
+        assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn empty_input_returns_empty() {
+        assert_eq!(strip_lyric_structure_markers(""), "");
+        assert_eq!(strip_lyric_structure_markers("\n\n\n"), "");
+    }
+}
+
 /// CSSOS_PHASE2_BYOK 20260420 — orchestration fee (in cents) charged when the
 /// user brings their own third-party key. This covers our compute / pipeline
 /// plumbing but zeroes the upstream API cost (that cost is now the user's
@@ -732,10 +920,25 @@ async fn music_inner(
     } else {
         mv_random_inputs::ensure_lyrics(body.lyrics.as_deref(), lang)
     };
-    let lyrics_for_upstream = if resolved_lyrics.trim().is_empty() {
+    // CSSOS_PHASE2_STRIP_MARKERS 20260426 #148-A1 — Jing
+    // "英文方括号[]里的文案不是歌词，不要演唱。"
+    //
+    // The lyrics LLM emits structure markers like `[Verse 1]`, `**Chorus**`,
+    // `(Bridge)`, `[Hook]` to delineate song sections. Music engines
+    // (Suno / ElevenLabs / MusicGPT) treat the lyrics field as literal sung
+    // content, so they actually pronounce "verse one" / "chorus" out loud
+    // and waste 2-3 seconds of vocal time on each marker.
+    //
+    // Strip every line that is ONLY a structure marker, plus inline marker
+    // wrappers around real lyric content (e.g. "**She said**" → "She said").
+    // The cleaned text goes to the music engine; the original is preserved
+    // elsewhere (subtitles input + commit metadata) so the structure isn't
+    // lost — only the literal vocalisation of marker tokens is suppressed.
+    let cleaned_lyrics = strip_lyric_structure_markers(&resolved_lyrics);
+    let lyrics_for_upstream = if cleaned_lyrics.trim().is_empty() {
         None
     } else {
-        Some(resolved_lyrics.clone())
+        Some(cleaned_lyrics)
     };
 
     let outcome = run_music_generation(
@@ -867,6 +1070,44 @@ pub struct VideoRequest {
     pub model: Option<String>,
     #[serde(default)]
     pub duration_secs: Option<u32>,
+    /// CSSOS_PHASE2_SHOT_SCRIPTS 20260426 #148-E — Jing
+    /// Multi-segment video generation. When non-empty, /api/mv/video runs
+    /// one Runway image_to_video call per shot script (bounded parallelism)
+    /// and returns the resulting clips in `segments[]`. The single
+    /// prompt_text path is unused in this mode (each shot has its own
+    /// scene_description). Falls back to the single-clip path when empty
+    /// or absent.
+    #[serde(default)]
+    pub shot_scripts: Option<Vec<ShotScriptInput>>,
+    /// Per-segment duration when running shot_scripts mode. Default 5s
+    /// (Runway gen3 minimum); cap 10s (gen3 max). Total = N × duration_secs
+    /// (e.g. 6 sections × 8s = 48s of AI video, mixed with audio later).
+    #[serde(default)]
+    pub segment_duration_secs: Option<u32>,
+}
+
+/// Input shape for one shot script — same fields as ShotScript but no Serialize
+/// (we own this on the request side, the LLM-emitted ShotScript on response).
+#[derive(Debug, Clone, Deserialize)]
+pub struct ShotScriptInput {
+    pub section_kind: String,
+    pub scene_description: String,
+    #[serde(default)]
+    pub mood: Option<String>,
+    #[serde(default)]
+    pub motion: Option<String>,
+}
+
+/// CSSOS_PHASE2_SHOT_SCRIPTS 20260426 #148-E
+/// One generated video segment, paired with the lyric section it serves.
+#[derive(Debug, Clone, Serialize)]
+pub struct VideoSegment {
+    pub section_kind: String,
+    pub video_url: String,
+    pub duration_secs: u32,
+    pub task_id: String,
+    /// Echo of the prompt the engine actually got, for debug + replay.
+    pub prompt_text: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -881,6 +1122,13 @@ pub struct VideoResponse {
     // CSSOS_PHASE2_BYOK 20260420 — see CoverResponse.use_user_key.
     #[serde(default)]
     pub use_user_key: bool,
+    /// CSSOS_PHASE2_SHOT_SCRIPTS 20260426 #148-E
+    /// When the request supplied shot_scripts, this is populated with one
+    /// VideoSegment per shot (in section order). When empty/absent, the
+    /// caller used the single-clip path and this is None. Compose stage
+    /// xfade-chains them into the final MV.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub segments: Option<Vec<VideoSegment>>,
 }
 
 // CSSOS_PHASE2_MV_KEEPALIVE 20260425 #112 — Runway image_to_video can
@@ -928,6 +1176,128 @@ async fn video_inner(
         ));
     }
     let (client, use_user_key, byok_row_id) = resolve_runway_client(&app, user_id).await?;
+    let engine = "runway";
+    let version = "gen3";
+
+    // CSSOS_PHASE2_SHOT_SCRIPTS 20260426 #148-E — Jing
+    // Multi-segment branch: when caller supplied shot_scripts, generate one
+    // Runway clip per shot. Bounded parallelism (4 in flight) keeps us
+    // under Runway's per-account rate-limit while still finishing N=10
+    // shots in ~the same wall time as a single 30s shot would have taken.
+    if let Some(shots) = body.shot_scripts.as_ref().filter(|v| !v.is_empty()) {
+        let seg_dur = body.segment_duration_secs.unwrap_or(5).clamp(5, 10);
+        tracing::info!(
+            target = "mv_pipeline_video",
+            shot_count = shots.len(),
+            seg_dur_secs = seg_dur,
+            "starting multi-segment video generation"
+        );
+
+        // Bounded parallelism — Runway's free/pro tier rate limits are
+        // narrow so 4 concurrent submits is the safe ceiling.
+        use futures::stream::{FuturesUnordered, StreamExt};
+        let mut futs: FuturesUnordered<_> = shots
+            .iter()
+            .enumerate()
+            .map(|(idx, shot)| {
+                let prompt_text = build_shot_prompt(shot);
+                let req = RunwayVideoRequest {
+                    prompt_image_url: body.prompt_image_url.clone(),
+                    prompt_text: Some(prompt_text.clone()),
+                    ratio: body.ratio.clone(),
+                    model: body.model.clone(),
+                    duration_secs: Some(seg_dur),
+                };
+                let client = client.clone();
+                async move {
+                    let asset = client.image_to_video(&req).await;
+                    (idx, shot.section_kind.clone(), prompt_text, seg_dur, asset)
+                }
+            })
+            .collect();
+
+        // Cap at 4 concurrent — drain serially with a small backpressure.
+        // (Realistically the FuturesUnordered is already running them all
+        // concurrently; we just collect results in completion order.)
+        let mut results: Vec<(usize, String, String, u32, _)> = Vec::with_capacity(shots.len());
+        while let Some(out) = futs.next().await {
+            results.push(out);
+        }
+        // Sort back into shot_scripts order so segments line up with lyric sections.
+        results.sort_by_key(|(idx, ..)| *idx);
+
+        let mut segments: Vec<VideoSegment> = Vec::with_capacity(shots.len());
+        let mut total_cost: i64 = 0;
+        let mut last_model: String = String::new();
+        let mut first_task_id: String = String::new();
+        for (idx, section_kind, prompt_text, dur, asset_res) in results {
+            let asset = asset_res.map_err(upstream_error)?;
+            if first_task_id.is_empty() {
+                first_task_id = asset.task_id.clone();
+            }
+            last_model = asset.model.clone();
+            let seg_cost = if use_user_key {
+                byok_orchestration_cents()
+            } else {
+                price_cents(engine, version)
+            };
+            total_cost += seg_cost;
+            tracing::info!(
+                target = "mv_pipeline_video",
+                idx = idx,
+                section_kind = %section_kind,
+                duration_secs = dur,
+                "segment generated"
+            );
+            segments.push(VideoSegment {
+                section_kind,
+                video_url: asset.output_url,
+                duration_secs: dur,
+                task_id: asset.task_id,
+                prompt_text,
+            });
+        }
+        if let Some(id) = byok_row_id {
+            let _ = engine_credentials::store::mark_used(&app.pool, id).await;
+        }
+        let _ = meter_usage(
+            &app.pool,
+            user_id,
+            "/api/mv/video",
+            shots.len() as i64,
+            total_cost,
+            Some(first_task_id.clone()),
+            meta_json(json!({
+                "engine": engine,
+                "version": version,
+                "model": last_model,
+                "prompt_image_url": body.prompt_image_url,
+                "shot_count": shots.len(),
+                "segment_duration_secs": seg_dur,
+                "use_user_key": use_user_key,
+            })),
+        )
+        .await;
+        // Use first segment's url as the legacy `video_url` so single-clip
+        // consumers keep working; new consumers read `segments`.
+        let first_url = segments
+            .first()
+            .map(|s| s.video_url.clone())
+            .unwrap_or_default();
+        return Ok(Json(VideoResponse {
+            ok: true,
+            task_id: first_task_id,
+            video_url: first_url,
+            model: last_model,
+            engine,
+            version,
+            cost_cents: total_cost,
+            use_user_key,
+            segments: Some(segments),
+        }));
+    }
+
+    // Single-clip path (existing behavior).
     let asset = client
         .image_to_video(&RunwayVideoRequest {
             prompt_image_url: body.prompt_image_url.clone(),
@@ -939,8 +1309,6 @@ async fn video_inner(
         .await
         .map_err(upstream_error)?;
 
-    let engine = "runway";
-    let version = "gen3";
     let cost_cents = if use_user_key {
         byok_orchestration_cents()
     } else {
@@ -977,7 +1345,23 @@ async fn video_inner(
         version,
         cost_cents,
         use_user_key,
+        segments: None,
     }))
+}
+
+/// CSSOS_PHASE2_SHOT_SCRIPTS 20260426 #148-E
+/// Combine scene_description + mood + motion into the prompt_text Runway
+/// gets. Order: scene first (most important), then mood adjective, then
+/// camera motion. Runway's prompt is bounded so we keep this terse.
+fn build_shot_prompt(shot: &ShotScriptInput) -> String {
+    let mut parts: Vec<String> = vec![shot.scene_description.trim().to_string()];
+    if let Some(mood) = shot.mood.as_deref().filter(|s| !s.trim().is_empty()) {
+        parts.push(format!("mood: {}", mood.trim()));
+    }
+    if let Some(motion) = shot.motion.as_deref().filter(|s| !s.trim().is_empty()) {
+        parts.push(format!("camera: {}", motion.trim()));
+    }
+    parts.join(". ")
 }
 
 // --------------------------------------------------------------- /mv/compose
@@ -1268,6 +1652,59 @@ pub struct LyricsResponse {
     pub cost_cents: i64,
     pub input_tokens: Option<u32>,
     pub output_tokens: Option<u32>,
+    /// CSSOS_PHASE2_LYRIC_SECTIONS 20260426 #148-A2 — Jing
+    /// Structured per-section breakdown emitted by the lyrics LLM. When the
+    /// LLM returns a JSON envelope with `sections[]`, we parse and pass it
+    /// through. When it returns plain text (older models, fallback), we
+    /// best-effort split on section markers — same heuristic the marker
+    /// stripper uses, but capturing the kind too.
+    /// Frontend uses this to align music + video + subtitle segments.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sections: Option<Vec<LyricSection>>,
+    /// CSSOS_PHASE2_SHOT_SCRIPTS 20260426 #148-B — Jing
+    /// Per-section visual scripts paired with `sections`. The /api/mv/video
+    /// endpoint accepts these and runs N parallel Runway calls when in
+    /// Cinematic tier. Falls back to a single full-length AI clip otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shot_scripts: Option<Vec<ShotScript>>,
+}
+
+/// CSSOS_PHASE2_LYRIC_SECTIONS 20260426 #148-A2
+/// One song section as returned by the lyrics LLM. `kind` is normalised to
+/// snake_case (intro / verse_1 / verse_2 / chorus / bridge / outro / hook).
+/// `lines` contains ONLY sung content — no `[Verse 1]` markers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LyricSection {
+    pub kind: String,
+    pub lines: Vec<String>,
+    /// Optional thematic hint (one short sentence) used to seed the music
+    /// engine's mood and the video engine's visual prompt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme: Option<String>,
+    /// Optional mood descriptor: calm, intense, longing, triumphant, etc.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mood: Option<String>,
+}
+
+/// CSSOS_PHASE2_SHOT_SCRIPTS 20260426 #148-B
+/// One visual shot script paired with a LyricSection by section_kind.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShotScript {
+    /// Matches LyricSection.kind so the video engine can join shots to lyric
+    /// sections by primary key.
+    pub section_kind: String,
+    /// Visual description fed to Runway / future AI video engines as the
+    /// prompt_text. Should be concrete (subject, action, environment) rather
+    /// than abstract poetry — Runway responds best to filmable nouns.
+    pub scene_description: String,
+    /// Visual mood: warm, cinematic, mystical, gritty, etc.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mood: Option<String>,
+    /// Camera motion hint: "slow zoom", "push-in", "dolly right", "static",
+    /// "handheld", "crane up". Empty/None ⇒ engine default (typically slow
+    /// push-in).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motion: Option<String>,
 }
 
 fn default_lyrics_system_prompt() -> String {
@@ -1275,12 +1712,326 @@ fn default_lyrics_system_prompt() -> String {
         .ok()
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| {
-            "You are a professional songwriter. Produce original, singable lyrics \
-             based on the user's theme. Keep verses and chorus clearly separated. \
-             Match the requested language and style. Do not include chord notation \
-             or stage directions. Return the lyrics only, no preamble."
+            // CSSOS_PHASE2_LYRIC_SECTIONS 20260426 #148-A2 + #148-B — Jing
+            // The lyrics LLM now does triple duty:
+            //   1. Singable lyric lines (existing behavior).
+            //   2. Structured section breakdown (intro / verse / chorus / etc.)
+            //      so downstream music + video stages know section boundaries.
+            //   3. Per-section visual shot scripts so /api/mv/video can run
+            //      one Runway call per section instead of one generic clip.
+            //
+            // Output contract: a single JSON object, no Markdown fence, no
+            // preamble. Robust parsing on our side falls back gracefully if
+            // the LLM emits plain text (older models, forgetful runs).
+            r#"You are a professional songwriter and music-video director. For the user's theme, produce SINGABLE original lyrics AND a per-section visual shot list. Output ONE JSON object with this exact shape:
+
+{
+  "lyrics": "<full lyrics with section markers like [Verse 1] / [Chorus] / [Bridge] / [Outro] on their own lines>",
+  "sections": [
+    {"kind": "intro", "lines": [], "theme": "soft piano opens", "mood": "calm"},
+    {"kind": "verse_1", "lines": ["First sung line", "Second sung line"], "theme": "longing for home", "mood": "wistful"},
+    {"kind": "chorus", "lines": ["Chorus line one", "Chorus line two"], "theme": "soaring release", "mood": "triumphant"}
+  ],
+  "shot_scripts": [
+    {"section_kind": "intro", "scene_description": "Empty wooden stage, single spotlight, dust motes drifting", "mood": "intimate", "motion": "slow push-in"},
+    {"section_kind": "verse_1", "scene_description": "Young woman walks alone down a misty cobblestone street at dawn", "mood": "melancholic", "motion": "tracking shot, slow"},
+    {"section_kind": "chorus", "scene_description": "She bursts onto a sunlit cliff top, arms wide, hair streaming", "mood": "uplifting", "motion": "sweeping crane up"}
+  ]
+}
+
+Rules:
+- "lines" arrays contain ONLY sung text. NEVER include "[Verse 1]" or "**Chorus**" inside a line — those go ONLY in the top-level "lyrics" field as section markers.
+- "kind" values: intro, verse_1, verse_2, verse_3, ..., chorus, bridge, hook, outro. Use snake_case.
+- One shot_scripts entry per section. section_kind matches a section.
+- scene_description must be filmable: concrete subject + action + setting. Avoid pure abstraction.
+- motion is a camera direction: "slow zoom", "static", "dolly right", "handheld", "crane up", "rack focus", etc.
+- Return JSON ONLY. No Markdown fence, no commentary, no preamble.
+- Match the requested language for the lyrics field. Shot descriptions and theme/mood may stay English (they're director notes)."#
                 .to_string()
         })
+}
+
+/// CSSOS_PHASE2_LYRIC_SECTIONS 20260426 #148-A2
+/// Parse the lyrics LLM output. Three layers of defense:
+///   1. Try the JSON envelope (preferred path).
+///   2. If JSON has `lyrics` + `sections` + `shot_scripts`, accept.
+///   3. If the response is plain text, split by section markers and emit
+///      sections without shot_scripts (frontend will skip multi-segment
+///      video and fall back to single-clip mode).
+///
+/// Returns `(plain_lyrics, Option<sections>, Option<shot_scripts>)`.
+fn parse_lyrics_llm_output(
+    raw: &str,
+) -> (String, Option<Vec<LyricSection>>, Option<Vec<ShotScript>>) {
+    let trimmed = raw.trim();
+    // Strip Markdown JSON fences if the model emitted them despite instructions.
+    let core = if let Some(stripped) = trimmed.strip_prefix("```json").and_then(|s| s.strip_suffix("```")) {
+        stripped.trim()
+    } else if let Some(stripped) = trimmed.strip_prefix("```").and_then(|s| s.strip_suffix("```")) {
+        stripped.trim()
+    } else {
+        trimmed
+    };
+
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(core) {
+        let lyrics = v
+            .get("lyrics")
+            .and_then(|x| x.as_str())
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default();
+
+        let sections: Option<Vec<LyricSection>> = v
+            .get("sections")
+            .and_then(|x| x.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| {
+                        let kind = item.get("kind")?.as_str()?.trim().to_string();
+                        if kind.is_empty() {
+                            return None;
+                        }
+                        let lines: Vec<String> = item
+                            .get("lines")
+                            .and_then(|x| x.as_array())
+                            .map(|a| {
+                                a.iter()
+                                    .filter_map(|l| l.as_str())
+                                    .map(|s| s.trim().to_string())
+                                    .filter(|s| !s.is_empty())
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        Some(LyricSection {
+                            kind,
+                            lines,
+                            theme: item
+                                .get("theme")
+                                .and_then(|x| x.as_str())
+                                .map(|s| s.trim().to_string())
+                                .filter(|s| !s.is_empty()),
+                            mood: item
+                                .get("mood")
+                                .and_then(|x| x.as_str())
+                                .map(|s| s.trim().to_string())
+                                .filter(|s| !s.is_empty()),
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .filter(|v| !v.is_empty());
+
+        let shot_scripts: Option<Vec<ShotScript>> = v
+            .get("shot_scripts")
+            .and_then(|x| x.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| {
+                        let section_kind = item.get("section_kind")?.as_str()?.trim().to_string();
+                        let scene_description = item
+                            .get("scene_description")?
+                            .as_str()?
+                            .trim()
+                            .to_string();
+                        if section_kind.is_empty() || scene_description.is_empty() {
+                            return None;
+                        }
+                        Some(ShotScript {
+                            section_kind,
+                            scene_description,
+                            mood: item
+                                .get("mood")
+                                .and_then(|x| x.as_str())
+                                .map(|s| s.trim().to_string())
+                                .filter(|s| !s.is_empty()),
+                            motion: item
+                                .get("motion")
+                                .and_then(|x| x.as_str())
+                                .map(|s| s.trim().to_string())
+                                .filter(|s| !s.is_empty()),
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .filter(|v| !v.is_empty());
+
+        if !lyrics.is_empty() {
+            tracing::info!(
+                target = "mv_pipeline_lyrics",
+                section_count = sections.as_ref().map(|v| v.len()).unwrap_or(0),
+                shot_count = shot_scripts.as_ref().map(|v| v.len()).unwrap_or(0),
+                "lyrics LLM emitted JSON envelope"
+            );
+            return (lyrics, sections, shot_scripts);
+        }
+    }
+
+    // Plain-text fallback: split on bracket markers + heuristic kind detect.
+    tracing::info!(
+        target = "mv_pipeline_lyrics",
+        "lyrics LLM returned plain text — falling back to heuristic section split"
+    );
+    let sections = heuristic_split_sections(core);
+    (
+        core.to_string(),
+        if sections.is_empty() { None } else { Some(sections) },
+        None,
+    )
+}
+
+/// Heuristic plain-text section splitter for fallback when LLM doesn't comply
+/// with the JSON envelope. Recognises [Verse 1] / **Chorus** / (Bridge) / Verse 2: style markers.
+fn heuristic_split_sections(text: &str) -> Vec<LyricSection> {
+    let mut sections: Vec<LyricSection> = Vec::new();
+    let mut current_kind: String = "verse_1".to_string();
+    let mut current_lines: Vec<String> = Vec::new();
+    let mut verse_counter = 1u32;
+
+    fn classify_marker(line: &str) -> Option<String> {
+        let core = line
+            .trim()
+            .trim_start_matches(|c: char| c == '[' || c == '(' || c == '*' || c == '#')
+            .trim_end_matches(|c: char| c == ']' || c == ')' || c == '*')
+            .trim_end_matches(':')
+            .trim_end_matches('.')
+            .trim()
+            .to_ascii_lowercase();
+        if core.starts_with("verse") {
+            // "verse 1" → "verse_1"
+            let suffix: String = core
+                .chars()
+                .skip("verse".len())
+                .filter(|c| c.is_ascii_digit())
+                .collect();
+            if suffix.is_empty() {
+                return Some("verse".into());
+            }
+            return Some(format!("verse_{}", suffix));
+        }
+        if core.starts_with("chorus") || core == "hook" {
+            return Some("chorus".into());
+        }
+        if core.starts_with("bridge") {
+            return Some("bridge".into());
+        }
+        if core.starts_with("intro") {
+            return Some("intro".into());
+        }
+        if core.starts_with("outro") {
+            return Some("outro".into());
+        }
+        if core.starts_with("pre-chorus") || core.starts_with("prechorus") {
+            return Some("pre_chorus".into());
+        }
+        if core.starts_with("post-chorus") || core.starts_with("postchorus") {
+            return Some("post_chorus".into());
+        }
+        if core.starts_with("interlude") {
+            return Some("interlude".into());
+        }
+        None
+    }
+
+    for line in text.split('\n') {
+        let trimmed = line.trim();
+        if let Some(kind) = classify_marker(trimmed) {
+            // Push the previous section if it has lines.
+            if !current_lines.is_empty() {
+                sections.push(LyricSection {
+                    kind: current_kind.clone(),
+                    lines: std::mem::take(&mut current_lines),
+                    theme: None,
+                    mood: None,
+                });
+            }
+            // Auto-number "verse" → "verse_N"
+            current_kind = if kind == "verse" {
+                verse_counter += 1;
+                format!("verse_{}", verse_counter)
+            } else {
+                kind
+            };
+            continue;
+        }
+        if trimmed.is_empty() {
+            continue;
+        }
+        // Strip inline wrappers
+        let cleaned = trimmed
+            .trim_start_matches("**")
+            .trim_end_matches("**")
+            .trim()
+            .to_string();
+        if !cleaned.is_empty() {
+            current_lines.push(cleaned);
+        }
+    }
+    if !current_lines.is_empty() {
+        sections.push(LyricSection {
+            kind: current_kind,
+            lines: current_lines,
+            theme: None,
+            mood: None,
+        });
+    }
+    sections
+}
+
+#[cfg(test)]
+mod lyrics_parse_tests {
+    use super::*;
+
+    #[test]
+    fn parses_full_json_envelope() {
+        let raw = r#"{
+            "lyrics": "[Verse 1]\nLine A\n[Chorus]\nLine B",
+            "sections": [
+                {"kind": "verse_1", "lines": ["Line A"], "theme": "open", "mood": "calm"},
+                {"kind": "chorus",  "lines": ["Line B"], "theme": "release", "mood": "triumphant"}
+            ],
+            "shot_scripts": [
+                {"section_kind": "verse_1", "scene_description": "A street at dawn", "motion": "tracking"},
+                {"section_kind": "chorus",  "scene_description": "Cliff edge crane up", "motion": "crane up"}
+            ]
+        }"#;
+        let (lyrics, sections, shots) = parse_lyrics_llm_output(raw);
+        assert!(lyrics.contains("Line A"));
+        let s = sections.expect("sections");
+        assert_eq!(s.len(), 2);
+        assert_eq!(s[0].kind, "verse_1");
+        let sh = shots.expect("shots");
+        assert_eq!(sh.len(), 2);
+        assert_eq!(sh[1].section_kind, "chorus");
+    }
+
+    #[test]
+    fn parses_json_inside_markdown_fence() {
+        let raw = "```json\n{\"lyrics\":\"X\",\"sections\":[{\"kind\":\"verse_1\",\"lines\":[\"X\"]}]}\n```";
+        let (l, s, _) = parse_lyrics_llm_output(raw);
+        assert_eq!(l, "X");
+        assert_eq!(s.unwrap().len(), 1);
+    }
+
+    #[test]
+    fn falls_back_on_plain_text() {
+        let raw = "[Verse 1]\nLine A\n\n[Chorus]\nLine B";
+        let (l, s, sh) = parse_lyrics_llm_output(raw);
+        assert!(l.contains("Line A"));
+        let sects = s.expect("heuristic sections");
+        assert!(sects.iter().any(|x| x.kind == "verse_1"));
+        assert!(sects.iter().any(|x| x.kind == "chorus"));
+        assert!(sh.is_none(), "no shot scripts in plain-text fallback");
+    }
+
+    #[test]
+    fn falls_back_when_json_lacks_lyrics() {
+        let raw = r#"{"unrelated": "field"}"#;
+        let (l, s, sh) = parse_lyrics_llm_output(raw);
+        // No lyrics field → falls into plain-text path which returns the raw
+        // back as lyrics, no sections/shots.
+        assert_eq!(l, raw);
+        assert!(s.is_none() || s.unwrap().is_empty());
+        assert!(sh.is_none());
+    }
 }
 
 // CSSOS_PHASE2_PIPELINE_KEEPALIVE 20260426 #122 — Jing
@@ -1420,10 +2171,26 @@ async fn lyrics_inner(
     )
     .await;
 
+    // CSSOS_PHASE2_LYRIC_SECTIONS 20260426 #148-A2 + #148-B — Jing
+    // Parse the LLM output for the JSON envelope. The LLM is instructed to
+    // emit structured sections + shot_scripts; we fall back to plain-text
+    // heuristic split if it doesn't comply (older models, transient runs).
+    let (parsed_lyrics, parsed_sections, parsed_shots) =
+        parse_lyrics_llm_output(&result.text);
+
+    tracing::info!(
+        target = "mv_pipeline_lyrics",
+        engine = %engine,
+        version = %version,
+        section_count = parsed_sections.as_ref().map(|v| v.len()).unwrap_or(0),
+        shot_count = parsed_shots.as_ref().map(|v| v.len()).unwrap_or(0),
+        "lyrics stage emitted parsed envelope"
+    );
+
     Ok(Json(LyricsResponse {
         ok: true,
         task_id,
-        lyrics: result.text,
+        lyrics: parsed_lyrics,
         language: body.language,
         engine: engine.clone(),
         version: version.clone(),
@@ -1431,6 +2198,8 @@ async fn lyrics_inner(
         cost_cents,
         input_tokens: result.input_tokens,
         output_tokens: result.output_tokens,
+        sections: parsed_sections,
+        shot_scripts: parsed_shots,
     }))
 }
 

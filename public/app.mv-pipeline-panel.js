@@ -209,6 +209,13 @@
     // Per-line timing from music engine. null = engine didn't emit alignment;
     // subtitles falls back to even-divide (no regression).
     alignedLyrics: null,
+    // CSSOS_PHASE2_PHASE2 20260426 #148-A2/B/E
+    // Structured lyric sections + per-section shot scripts + per-section
+    // video segments. All null when LLM doesn't emit them; pipeline falls
+    // back to single-clip behavior with no regression.
+    lyricSections: null,
+    shotScripts: null,
+    videoSegments: null,
     mvUrl: null,
     duration: 0,
     costs: {},
@@ -1482,6 +1489,9 @@
       state.videoUrl = null;
       state.subtitlesSrt = null;
       state.alignedLyrics = null; // #148-D — cleared per fresh run
+      state.lyricSections = null; // #148-A2 — cleared per fresh run
+      state.shotScripts = null;   // #148-B  — cleared per fresh run
+      state.videoSegments = null; // #148-E  — cleared per fresh run
       state.mvUrl = null;
       // #147 — fresh pipeline run starts with a clean autosave guard so the
       // new mv_id (different from any prior run) is allowed to commit.
@@ -1631,6 +1641,23 @@
           })
         );
         state.lyrics = String(lyricsResp.lyrics || "").trim();
+        // CSSOS_PHASE2_LYRIC_SECTIONS 20260426 #148-A2 + #148-B — Jing
+        // Capture structured sections + shot scripts when LLM emitted them.
+        // Both fields are optional in the response — when absent (older
+        // models, transient runs) the pipeline falls back to single-clip
+        // video and even-divide subtitles, preserving prior behavior.
+        state.lyricSections = Array.isArray(lyricsResp.sections) && lyricsResp.sections.length > 0
+          ? lyricsResp.sections
+          : null;
+        state.shotScripts = Array.isArray(lyricsResp.shot_scripts) && lyricsResp.shot_scripts.length > 0
+          ? lyricsResp.shot_scripts
+          : null;
+        console.info(
+          "%c[mv-pipeline][lyrics] sections=%s shot_scripts=%s",
+          "color:#0c0;font-weight:bold",
+          state.lyricSections ? state.lyricSections.length : "none",
+          state.shotScripts ? state.shotScripts.length : "none"
+        );
         recordEngine("lyrics", lyricsResp);
         setStage(
           "lyrics",
@@ -1889,17 +1916,37 @@
       // Gen-4 Turbo is required for P2-51 ratios (720p-class) and for
       // square / 21:9 / 32:9. Gen-3 Turbo would 400 on these.
       const videoModel = "gen4_turbo";
+      // CSSOS_PHASE2_SHOT_SCRIPTS 20260426 #148-E — Jing
+      // When the lyrics LLM emitted shot_scripts (one per lyric section),
+      // request multi-segment video generation. Backend runs N parallel
+      // Runway calls and returns segments[]; compose stage xfade-chains
+      // them into the final MV. Falls back to single-clip when shots
+      // absent so older / fallback runs still work.
+      const _videoBody = {
+        prompt_image_url: state.coverUrl,
+        prompt_text: state.prompt,
+        duration_secs: clampedDuration,
+        ratio: videoRatio,
+        model: videoModel
+      };
+      if (state.shotScripts && state.shotScripts.length > 0) {
+        // Per-segment duration: 5 or 10s, default 8 (round to nearest legal).
+        const _segDur = clampedDuration; // re-use the clamp logic above
+        _videoBody.shot_scripts = state.shotScripts;
+        _videoBody.segment_duration_secs = _segDur;
+        console.info(
+          "%c[mv-pipeline][video] requesting %d-segment generation × %ds (total %ds)",
+          "color:#0ff;font-weight:bold",
+          state.shotScripts.length,
+          _segDur,
+          state.shotScripts.length * _segDur
+        );
+      }
       try {
         video = await withTimeout(
           postJson(
             "/api/mv/video",
-            withEngine("video", {
-              prompt_image_url: state.coverUrl,
-              prompt_text: state.prompt,
-              duration_secs: clampedDuration,
-              ratio: videoRatio,
-              model: videoModel
-            })
+            withEngine("video", _videoBody)
           ),
           VIDEO_TIMEOUT_MS,
           "video"
@@ -1957,6 +2004,23 @@
 
       if (!videoFailed) {
         state.videoUrl = video.video_url;
+        // CSSOS_PHASE2_SHOT_SCRIPTS 20260426 #148-E — Jing
+        // When backend ran multi-segment mode, video.segments[] contains
+        // one entry per shot script. Capture into state.videoSegments so
+        // compose stage can build a true xfade-chained timeline.
+        state.videoSegments = Array.isArray(video.segments) && video.segments.length >= 2
+          ? video.segments
+          : null;
+        if (state.videoSegments) {
+          console.info(
+            "%c[mv-pipeline][video] received %d segments, total %ds AI video",
+            "color:#0ff;font-weight:bold",
+            state.videoSegments.length,
+            state.videoSegments.reduce(function (a, s) {
+              return a + Number(s.duration_secs || 0);
+            }, 0)
+          );
+        }
         // CSSOS_PHASE2_HYBRID_MIXER 20260426 #132 — Jing
         // Remember the requested clip duration so the Hybrid segment planner
         // can splice it into the timeline at the correct length. Backends
@@ -2126,7 +2190,69 @@
           _litePlan ? _litePlan.plan : "none",
           _litePlan && _litePlan.segments ? _litePlan.segments.length : 0
         );
-        if (_litePlan && _litePlan.segments && _litePlan.segments.length >= 2) {
+        // CSSOS_PHASE2_MULTI_SEGMENT 20260426 #148-G — Jing
+        // When the video stage produced N segments (one per lyric section
+        // via shot_scripts), build a true multi-clip timeline. This is the
+        // Cinematic tier full-length MV path: each lyric section gets its
+        // own AI clip, xfade-chained, with the music engine's full-length
+        // audio + tight aligned-lyric SRT layered on top.
+        //
+        // Each AiVideo segment carries duration_secs from the Runway call's
+        // requested length (5-10s) and a default fade transition. The
+        // Cinematic case typically needs 5-12 sections × 8s = 40-96s of
+        // AI video, looped/extended to match the full track length. When
+        // total AI duration < audio duration, we fall through to the
+        // existing _litePlan path so Ken Burns slides fill the gap.
+        let _videoSegments = null;
+        try {
+          if (Array.isArray(state.videoSegments) && state.videoSegments.length >= 2) {
+            const xfadeSecs = 1.2;
+            _videoSegments = state.videoSegments.map(function (seg, idx) {
+              return {
+                kind: "ai_video",
+                source_url: seg.video_url,
+                duration_secs: Number(seg.duration_secs || 5),
+                // Skip xfade on the very first segment.
+                transition: idx === 0 ? null : "fade",
+                transition_duration_secs: idx === 0 ? null : xfadeSecs
+              };
+            });
+            const _totalAiSecs = _videoSegments.reduce(function (acc, s) {
+              return acc + Number(s.duration_secs || 0);
+            }, 0);
+            const _audioSecs = Number(state.duration || 0);
+            console.info(
+              "%c[mv-pipeline][compose-decision] CINEMATIC multi-segment: " +
+              _videoSegments.length + " AI clips × avg " +
+              (_totalAiSecs / _videoSegments.length).toFixed(1) +
+              "s = " + _totalAiSecs.toFixed(1) + "s of AI video " +
+              "(audio=" + _audioSecs.toFixed(1) + "s)",
+              "color:#0ff;font-weight:bold"
+            );
+            // If AI total < audio, append Ken Burns padding to cover the gap.
+            if (_audioSecs > 0 && _totalAiSecs + 0.5 < _audioSecs && state.coverUrl) {
+              const padSecs = _audioSecs - _totalAiSecs;
+              _videoSegments.push({
+                kind: "kenburns_image",
+                source_url: state.coverUrl,
+                duration_secs: padSecs,
+                effect: "zoom_in",
+                transition: "fade",
+                transition_duration_secs: xfadeSecs
+              });
+              console.info(
+                "[mv-pipeline][compose-decision] padded with Ken Burns cover for %ds",
+                padSecs.toFixed(1)
+              );
+            }
+          }
+        } catch (_segBuildErr) {
+          console.warn("[mv-pipeline] multi-segment compose build failed:", _segBuildErr);
+          _videoSegments = null;
+        }
+        if (_videoSegments && _videoSegments.length >= 2) {
+          _composeBase.segments = _videoSegments;
+        } else if (_litePlan && _litePlan.segments && _litePlan.segments.length >= 2) {
           _composeBase.segments = _litePlan.segments;
           // video_url intentionally omitted on the segments path — backend
           // dispatches on segments[]. The Hybrid/Cinematic plan ALREADY

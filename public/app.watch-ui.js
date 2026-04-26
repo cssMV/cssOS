@@ -5445,6 +5445,42 @@ async function openWatchPreviewFlowModule({
   allowDemoFallback = false,
   preferLatestOwned = false
 } = {}) {
+  // CSSOS_PHASE2_PIPELINE_RESULT_LOCK 20260426 #137 — Jing
+  // If MV Pipeline panel just finished a run, ALWAYS prefer playing that
+  // result over kicking off any new legacy creative-engine pipeline. The
+  // result is published as `globalThis.cssmvPipelineLastResult` with a
+  // timestamp + freshness window. This single guard collapses every
+  // "万能入口" (logo / mic / play / right-click / Apply Render / etc.)
+  // into the same "play the freshly-composed MV" behaviour.
+  try {
+    const lastRes = globalThis.cssmvPipelineLastResult;
+    if (lastRes && lastRes.mvUrl) {
+      const tsAt = Number(lastRes.tsAt || 0);
+      const freshMs = Number(lastRes.freshMs || 600000);
+      if (tsAt && (Date.now() - tsAt) < freshMs) {
+        // Adopt the result. Push the URL into <video>, switch tab, attempt
+        // playback. NO creative-engine kickoff.
+        if (clearLimit) clearWatchPreviewLimit();
+        if (preferredTab) activateWatchTab(resolvePreferredWatchOpenTab(preferredTab));
+        if (typeof setWatchVideoFromArtifact === "function") {
+          setWatchVideoFromArtifact(lastRes.mvUrl, { sourceKind: "mv-pipeline-final" });
+        }
+        if (typeof activateWatchTab === "function" && (!preferredTab || preferredTab === "mv")) {
+          activateWatchTab("mv");
+        }
+        if (typeof attemptWatchVideoPlaybackModule === "function") {
+          attemptWatchVideoPlaybackModule({ allowFallback: true });
+        }
+        console.info(
+          "[watch-ui] adopted fresh MV Pipeline result (age %dms): %s",
+          Date.now() - tsAt,
+          String(lastRes.mvUrl).slice(0, 96) + "…"
+        );
+        return true;
+      }
+    }
+  } catch (_e) { /* fall through to legacy path */ }
+
   const creationBusy = !!globalThis.isCreationBusyModule?.();
   const lyricsPending = !!globalThis.lyricsSeedRequestState?.pending;
   const seedPreparing = hasBlockingWatchSeedModule();

@@ -861,6 +861,15 @@
   function tickStageProgress(id) {
     const p = state.progress[id];
     if (!p || p.finished) return;
+    // CSSOS_PHASE2_TITLE_BAR_TICK 20260426 #140 — Jing
+    // Every progress tick, kick the Watch panel title rotator so the
+    // bar bar text updates in lockstep with the MV Pipeline panel's
+    // own progress bar instead of staying frozen.
+    try {
+      if (typeof globalThis.syncWatchProgressRotatorModule === "function") {
+        globalThis.syncWatchProgressRotatorModule();
+      }
+    } catch (_e) { /* non-fatal */ }
     const tSecs = (Date.now() - p.startedAt) / 1000;
     // CSSOS_PHASE2_PROGRESS_CURVE 20260425 #119 — Jing
     // Old curve hit 95 % asymptote and parked there for the entire
@@ -1358,6 +1367,12 @@
     const panel = document.getElementById(PANEL_ID);
     if (!panel) return;
     const options = opts || {};
+    // CSSOS_PHASE2_UNIFIED_ENTRY 20260426 #138 — Jing
+    // "万能入口"统一到 MV Pipeline 流程. Any external caller of runAll()
+    // (logo long-press, mic, play, right-click 一键MV, Apply Render, etc.)
+    // can land here once they're rewired to call
+    // `globalThis.cssmvMvPipelineRunAll(opts)`.
+    void options; // explicit no-op so the linter doesn't strip the comment
     const seed = options.seed || null;
 
     // CSSOS_PHASE2_MV_TIER_PICKER_MODAL 20260419 — low-balance prompt. Before
@@ -2050,6 +2065,44 @@
       syncWatchOutputs();
       renderSummary();
 
+      // CSSOS_PHASE2_PIPELINE_RESULT_LOCK 20260426 #137 — Jing
+      // "Watch 面板再次跑整个流程而不播放已有 mvUrl"
+      //
+      // Publish the MV Pipeline run's authoritative result globally so any
+      // Watch-panel entry point (logo, mic, play, right-click, advanced
+      // settings, openWatchPreviewFlow) can adopt it and SKIP its own legacy
+      // creative-engine kickoff. Watch-ui guards on
+      // `cssmvPipelineLastResult.tsAt` being within `freshMs` (default 10
+      // minutes) before deciding to play vs. spawn a new run.
+      try {
+        globalThis.cssmvPipelineLastResult = {
+          mvUrl: state.mvUrl,
+          audioUrl: state.audioUrl,
+          coverUrl: state.coverUrl,
+          subtitlesSrt: state.subtitlesSrt,
+          title: state.title,
+          duration: state.duration,
+          mvId: composed.mv_id || "",
+          tsAt: Date.now(),
+          freshMs: 10 * 60 * 1000,
+          source: "mv-pipeline-panel"
+        };
+        // CSSOS_PHASE2_AUDIO_OVERRIDE 20260426 #139 — Jing
+        // "音乐引擎还是fallback到之前旧的音乐"
+        // Force-push the freshly-generated audio URL into <audio> so the
+        // remembered-final-audio path can't steal back the old mp3 when
+        // Watch panel opens. Must run AFTER the lock so any race-condition
+        // adopt code reads the new URL too.
+        if (state.audioUrl) {
+          const audioEl = document.getElementById("watch-audio-preview");
+          if (audioEl && audioEl.src !== state.audioUrl) {
+            audioEl.src = state.audioUrl;
+            audioEl.preload = "auto";
+            if (typeof audioEl.load === "function") audioEl.load();
+          }
+        }
+      } catch (_e) { /* non-fatal */ }
+
       // ──────────────────────────────────────────────────────────────
       // P2-34: zero-click autoplay.
       //
@@ -2178,6 +2231,18 @@
     } finally {
       state.running = false;
     }
+  }
+
+  // CSSOS_PHASE2_UNIFIED_ENTRY 20260426 #138 — Jing
+  // Single global entry point for all "万能入口" (universal entrances).
+  // Logo long-press, mic button, play button, right-click 一键MV, Advanced
+  // Settings Apply Render, etc. should all migrate to call:
+  //   await globalThis.cssmvMvPipelineRunAll(opts);
+  // The legacy creative-engine pipelines bypass MV-tier billing, skip the
+  // segment planner, and fall back to old media — all bugs that the user
+  // hit. Anchoring everything on this one entry collapses the divergence.
+  if (globalThis) {
+    globalThis.cssmvMvPipelineRunAll = runAll;
   }
 
   function findRunningStage() {

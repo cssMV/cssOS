@@ -1,5 +1,57 @@
 const WATCH_ACTIVE_TAB_STORAGE_KEY = "cssos.watch.activeTab";
+const WATCH_COMMENTS_STORAGE_KEY = "cssos.watch.comments";
+const WATCH_MUSIC_ART_BLUR_KEY = "cssos.watch.musicArtBlur.v2";
+const WATCH_FRAME_CACHE_LIMIT = 12;
+const WATCH_FRAME_SEQUENCE_CACHE_LIMIT = 8;
+const watchScreen = globalThis.watchScreen || document.getElementById("watch-screen");
+const watchScreenBackdrop = document.getElementById("watch-screen-backdrop");
+const watchStyleShift = document.getElementById("watch-style-shift");
+const watchMusicArtBlur = document.getElementById("watch-music-art-blur");
+const watchCommentsList = document.getElementById("watch-comments-list");
+const watchCommentForm = document.getElementById("watch-comment-form");
+const watchCommentInput = document.getElementById("watch-comment-input");
+const watchCommentSubmit = document.getElementById("watch-comment-submit");
+const watchLyricsMusicStyle = document.getElementById("watch-lyrics-music-style");
+const watchLyricsWikiSource = document.getElementById("watch-lyrics-wiki-source");
+const watchFrameProgress = document.getElementById("watch-frame-progress");
+const watchFrameProgressFill = document.getElementById("watch-frame-progress-fill");
+const watchFrameProgressCopy = document.getElementById("watch-frame-progress-copy");
+
+globalThis.watchScreenBackdrop = watchScreenBackdrop;
+globalThis.watchStyleShift = watchStyleShift;
+globalThis.watchMusicArtBlur = watchMusicArtBlur;
+globalThis.watchCommentForm = watchCommentForm;
+globalThis.watchCommentInput = watchCommentInput;
+globalThis.watchCommentSubmit = watchCommentSubmit;
+globalThis.watchLyricsMusicStyle = watchLyricsMusicStyle;
+globalThis.watchLyricsWikiSource = watchLyricsWikiSource;
+globalThis.watchFrameProgress = watchFrameProgress;
+const watchPanelProgressLine = document.getElementById("watch-panel-progress-line");
+const watchPanelProgressFill = document.getElementById("watch-panel-progress-fill");
+const watchMusicFrameProgress = document.getElementById("watch-music-frame-progress");
+const watchMusicFrameProgressFill = document.getElementById("watch-music-frame-progress-fill");
+const watchMusicFrameProgressCopy = document.getElementById("watch-music-frame-progress-copy");
 let watchActiveTab = localStorage.getItem(WATCH_ACTIVE_TAB_STORAGE_KEY) || "mv";
+// Proactive mobile/Tesla autoplay fallback: these browsers block auto-video-with-sound.
+// If the user hasn't explicitly picked a tab (or only picked MV) and we're on such an environment,
+// open on Music tab so audio-first UX works without requiring a second tap.
+try {
+  const __ua = String(navigator?.userAgent || "").toLowerCase();
+  const __hint = navigator?.userAgentData?.mobile;
+  const __isMobile = (typeof __hint === "boolean" ? __hint : false)
+    || /iphone|ipod/.test(__ua)
+    || /ipad/.test(__ua)
+    || (/android/.test(__ua) && /mobile|tablet/.test(__ua))
+    || /blackberry|bb10|meego|mobile|silk|webos|opera mini|opera mobi|windows phone/.test(__ua)
+    || (/macintosh/.test(__ua) && typeof navigator?.maxTouchPoints === "number" && navigator.maxTouchPoints > 1);
+  const __isTesla = __ua.includes("tesla") || __ua.includes("qtcarbrowser");
+  if ((__isMobile || __isTesla) && (watchActiveTab === "mv" || !watchActiveTab)) {
+    watchActiveTab = "music";
+  }
+} catch (_err) {
+  // userAgent access errored — keep whatever the storage said.
+}
+globalThis.watchActiveTab = watchActiveTab;
 let currentPreviewVideoIsLocalFallback = false;
 globalThis.currentPreviewFrameDataUrl ??= "";
 globalThis.currentPreviewFrameSequence ??= [];
@@ -19,6 +71,1059 @@ globalThis.currentPreviewVideoSourceKind ??= "none";
 globalThis.currentPreviewVideoHasUsableFrame ??= false;
 globalThis.currentPreviewMotionClipUrl ??= "";
 globalThis.watchExplicitPreviewAllowedUntil ??= 0;
+let watchDetailsReveal = false;
+let watchTouchStartY = 0;
+let watchVideoRestrictionHits = 0;
+let watchCommentsState = [];
+let watchProgressStageKey = "lyrics";
+let watchProgressLastFingerprint = "";
+let watchProgressLastChangeAt = 0;
+const WATCH_PROGRESS_STALL_MS = 18000;
+// WATCH_PROGRESS_ROTATE_CADENCE 20260420 — Jing: the hint text + percent +
+// progress bar must all rotate in lock-step. Previously this was 3000ms while
+// app.watch-stage-bars.js rotates at 5000ms, so the three readouts drifted
+// out of phase (e.g. hint says "正在创作歌词" while the bar is already on
+// "封面图"). Pinned at 5000ms to match ROTATION_MS in stage-bars.
+const WATCH_PROGRESS_ROTATE_MS = 5000;
+const WATCH_ARTWORK_SLIDESHOW_MS = 15000;
+let watchAutoRecoveryKey = "";
+let watchAutoRecoveryStartedAt = 0;
+let lastWatchArtworkPreloadSrc = "";
+let lastWatchVideoPreviewRequestKey = "";
+let watchVideoPreviewRequestPending = false;
+let lastWatchFrameAccentShiftAt = 0;
+let watchFrameAccentPaletteIndex = 0;
+globalThis.currentResolvedWatchArtworkDataUrl ??= "";
+globalThis.currentWatchArtworkVariantPool ??= [];
+let watchPlaybackUiSuppressed = false;
+let watchArtworkSlideshowTimer = null;
+let watchArtworkSlideshowSignature = "";
+let watchArtworkSlideshowFrames = [];
+let lastWatchArtworkSlideshowFrame = "";
+let watchTypographyPresetKey = "cinema";
+let watchTitleFontKey = "titleA";
+let watchSubtitleFontKey = "subtitleA";
+let watchTitleStrokePresetKey = "halo";
+let watchSubtitleShadowPresetKey = "glow";
+let watchTitleLayoutSeed = 0;
+let watchStyleMenuEl = null;
+let watchStyleMenuLongpressTimer = null;
+let watchMusicLiveEnergy = 0;
+let watchMusicLivePeak = 0;
+let watchProgressRotatorTimer = 0;
+let watchProgressLastCard = null;
+const WATCH_FAVORITE_FONTS_STORAGE_KEY = "cssos.watch.favoriteFonts.v1";
+const WATCH_FONT_RANDOM_HISTORY_LIMIT = 18;
+let watchFavoriteFonts = new Set(
+  (() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem(WATCH_FAVORITE_FONTS_STORAGE_KEY) || "[]");
+      return Array.isArray(raw) ? raw.map((item) => String(item || "").trim()).filter(Boolean) : [];
+    } catch (_error) {
+      return [];
+    }
+  })()
+);
+let watchRecentRandomFonts = [];
+
+const WATCH_TYPOGRAPHY_PRESETS = ["cinema", "dream", "neon"];
+const WATCH_TITLE_FONT_RECOMMENDATIONS = {
+  title: ["CSSTitleBoldA", "CSSTitleBoldB", "CSSTitleBoldC", "Syne", "Orbitron"],
+  subtitle: ["CSSSubtitleA", "CSSSubtitleB", "CSSSubtitleC", "Space Grotesk", "PingFang SC"]
+};
+const WATCH_TITLE_FONT_OPTIONS = {
+  titleA: { label: "Theropods", family: '"CSSTitleBoldA", "Syne", "Orbitron", sans-serif' },
+  titleB: { label: "Qualy", family: '"CSSTitleBoldB", "Cormorant Garamond", serif' },
+  titleC: { label: "Abington", family: '"CSSTitleBoldC", "Alfa Slab One", sans-serif' },
+  syne: { label: "Syne", family: '"Syne", "Space Grotesk", sans-serif' },
+  orbitron: { label: "Orbitron", family: '"Orbitron", "CSSTitleBoldA", sans-serif' },
+  cormorant: { label: "Cormorant", family: '"Cormorant Garamond", "CSSTitleBoldB", serif' },
+  playfair: { label: "Playfair", family: '"Playfair Display", "CSSTitleBoldB", serif' },
+  bodoni: { label: "Bodoni", family: '"Bodoni Moda", "CSSTitleBoldB", serif' },
+  alfaslab: { label: "Alfa Slab", family: '"Alfa Slab One", "CSSTitleBoldC", sans-serif' },
+  hengshan: { label: "HengShan", family: '"HengShanMaoBiCaoShu", "PingFang SC", sans-serif' },
+  songti: { label: "Songti", family: '"Songti SC", "Source Han Serif SC", serif' },
+  pingfangTitle: { label: "PingFang", family: '"PingFang SC", "Hiragino Sans GB", sans-serif' }
+};
+const WATCH_SUBTITLE_FONT_OPTIONS = {
+  subtitleA: { label: "Acmedia", family: '"CSSSubtitleA", "PingFang SC", "Microsoft YaHei", sans-serif' },
+  subtitleB: { label: "Brevard", family: '"CSSSubtitleB", "Cormorant Garamond", serif' },
+  subtitleC: { label: "Maves", family: '"CSSSubtitleC", "Space Grotesk", sans-serif' },
+  grotesk: { label: "Space Grotesk", family: '"Space Grotesk", "CSSSubtitleC", sans-serif' },
+  pingfang: { label: "PingFang", family: '"PingFang SC", "Hiragino Sans GB", sans-serif' },
+  rubik: { label: "Rubik", family: '"Rubik", "Space Grotesk", sans-serif' },
+  microsoft: { label: "YaHei", family: '"Microsoft YaHei", "PingFang SC", sans-serif' },
+  hiragino: { label: "Hiragino", family: '"Hiragino Sans GB", "PingFang SC", sans-serif' },
+  cormorantSub: { label: "Cormorant", family: '"Cormorant Garamond", "CSSSubtitleB", serif' }
+};
+const WATCH_TITLE_STROKE_PRESETS = {
+  halo: {
+    label: "Halo",
+    stroke:
+      "0 1px 0 rgba(255,255,255,0.76), 0 -1px 0 rgba(5,9,8,0.96), 2px 0 0 rgba(5,9,8,0.9), -2px 0 0 rgba(255,255,255,0.44)"
+  },
+  frost: {
+    label: "Frost",
+    stroke:
+      "0 1px 0 rgba(243,248,255,0.72), 0 -1px 0 rgba(12,18,33,0.96), 1.5px 0 0 rgba(12,18,33,0.76), -1.5px 0 0 rgba(255,255,255,0.34)"
+  },
+  ember: {
+    label: "Ember",
+    stroke:
+      "0 1px 0 rgba(255,245,232,0.72), 0 -1px 0 rgba(26,10,4,0.96), 1.5px 0 0 rgba(80,28,8,0.72), -1.5px 0 0 rgba(255,212,176,0.28)"
+  }
+};
+const WATCH_SUBTITLE_SHADOW_PRESETS = {
+  glow: {
+    label: "Glow",
+    shadow: "0 0 16px rgba(121,230,255,0.34), 0 0 30px rgba(0,245,160,0.18)"
+  },
+  velvet: {
+    label: "Velvet",
+    shadow: "0 0 14px rgba(186,132,255,0.28), 0 0 26px rgba(95,140,255,0.18)"
+  },
+  crystal: {
+    label: "Crystal",
+    shadow: "0 0 14px rgba(255,223,160,0.22), 0 0 24px rgba(126,214,255,0.18)"
+  }
+};
+
+const WATCH_FRAME_ACCENT_PALETTES = [
+  ["rgba(0, 245, 160, 0.94)", "rgba(11, 247, 255, 0.84)", "rgba(255, 140, 82, 0.78)"],
+  ["rgba(119, 255, 214, 0.92)", "rgba(105, 177, 255, 0.84)", "rgba(255, 82, 166, 0.76)"],
+  ["rgba(255, 214, 92, 0.9)", "rgba(255, 120, 86, 0.84)", "rgba(0, 245, 160, 0.72)"],
+  ["rgba(194, 132, 255, 0.9)", "rgba(73, 220, 255, 0.84)", "rgba(255, 196, 91, 0.76)"]
+];
+
+function applyWatchFrameAccentPaletteModule(index = 0) {
+  const palette = WATCH_FRAME_ACCENT_PALETTES[((index % WATCH_FRAME_ACCENT_PALETTES.length) + WATCH_FRAME_ACCENT_PALETTES.length) % WATCH_FRAME_ACCENT_PALETTES.length];
+  if (watchScreen) {
+    watchScreen.style.setProperty("--watch-frame-accent-1", palette[0]);
+    watchScreen.style.setProperty("--watch-frame-accent-2", palette[1]);
+    watchScreen.style.setProperty("--watch-frame-accent-3", palette[2]);
+  }
+  if (watchMusicStage) {
+    watchMusicStage.style.setProperty("--watch-music-accent-1", palette[0]);
+    watchMusicStage.style.setProperty("--watch-music-accent-2", palette[1]);
+    watchMusicStage.style.setProperty("--watch-music-accent-3", palette[2]);
+    watchMusicStage.style.setProperty("--watch-music-shadow", `color-mix(in srgb, ${palette[0]} 28%, transparent)`);
+    watchMusicStage.style.setProperty("--watch-music-secondary-shadow", `color-mix(in srgb, ${palette[1]} 24%, transparent)`);
+    const rgb1 = String(palette[0]).match(/\d+(?:\.\d+)?/g)?.slice(0, 3)?.join(", ") || "0, 245, 160";
+    const rgb2 = String(palette[1]).match(/\d+(?:\.\d+)?/g)?.slice(0, 3)?.join(", ") || "11, 247, 255";
+    watchMusicStage.style.setProperty("--watch-music-accent-1-rgb", rgb1);
+    watchMusicStage.style.setProperty("--watch-music-accent-2-rgb", rgb2);
+  }
+}
+
+function pickWatchTypographyPresetModule(seed = "") {
+  const base = String(seed || state.title || "").trim();
+  let score = 0;
+  for (let index = 0; index < base.length; index += 1) {
+    score = (score + base.charCodeAt(index) * (index + 3)) % 9973;
+  }
+  return WATCH_TYPOGRAPHY_PRESETS[score % WATCH_TYPOGRAPHY_PRESETS.length] || "cinema";
+}
+
+function applyWatchTypographyPresetModule(preset = "cinema") {
+  watchTypographyPresetKey = WATCH_TYPOGRAPHY_PRESETS.includes(String(preset || "").trim().toLowerCase())
+    ? String(preset || "").trim().toLowerCase()
+    : "cinema";
+  if (watchSubtitle) {
+    watchSubtitle.classList.remove("style-cinema", "style-dream", "style-neon");
+    watchSubtitle.classList.add(`style-${watchTypographyPresetKey}`);
+  }
+  if (watchKaraokeLine) {
+    watchKaraokeLine.classList.remove("style-cinema", "style-dream", "style-neon");
+    watchKaraokeLine.classList.add(`style-${watchTypographyPresetKey}`);
+  }
+  if (watchStyleShift) {
+    watchStyleShift.title = loginCopy(
+      `Shuffle title style · title fonts ${WATCH_TITLE_FONT_RECOMMENDATIONS.title.slice(0, 3).join(" / ")} · subtitle fonts ${WATCH_TITLE_FONT_RECOMMENDATIONS.subtitle.slice(0, 3).join(" / ")}`
+    );
+  }
+  applyWatchTypographyControlsModule();
+}
+
+function applyWatchTypographyControlsModule() {
+  const titleFont =
+    WATCH_TITLE_FONT_OPTIONS[watchTitleFontKey]?.family ||
+    String(watchTitleFontKey || "").trim() ||
+    WATCH_TITLE_FONT_OPTIONS.titleA.family;
+  const subtitleFont =
+    WATCH_SUBTITLE_FONT_OPTIONS[watchSubtitleFontKey]?.family ||
+    String(watchSubtitleFontKey || "").trim() ||
+    WATCH_SUBTITLE_FONT_OPTIONS.subtitleA.family;
+  const titleStroke =
+    WATCH_TITLE_STROKE_PRESETS[watchTitleStrokePresetKey]?.stroke ||
+    WATCH_TITLE_STROKE_PRESETS.halo.stroke;
+  const subtitleShadow =
+    WATCH_SUBTITLE_SHADOW_PRESETS[watchSubtitleShadowPresetKey]?.shadow ||
+    WATCH_SUBTITLE_SHADOW_PRESETS.glow.shadow;
+  [watchScreen, watchMusicStage, watchSubtitle, watchKaraokeLine].forEach((node) => {
+    if (!(node instanceof HTMLElement)) return;
+    node.style.setProperty("--watch-title-font-family", titleFont);
+    node.style.setProperty("--watch-subtitle-font-family", subtitleFont);
+    node.style.setProperty("--watch-title-stroke-shadow", titleStroke);
+    node.style.setProperty("--watch-subtitle-extra-shadow", subtitleShadow);
+  });
+}
+
+function buildWatchSelectableFontOptionsModule() {
+  const seedList = [
+    ...Object.entries(WATCH_TITLE_FONT_OPTIONS || {}).map(([key, option]) => ({
+      key,
+      label: String(option?.label || key || "").trim(),
+      family: String(option?.family || "").trim(),
+    })),
+    ...Object.entries(WATCH_SUBTITLE_FONT_OPTIONS || {}).map(([key, option]) => ({
+      key,
+      label: String(option?.label || key || "").trim(),
+      family: String(option?.family || "").trim(),
+    })),
+  ];
+  const uploadedFamilies = (Array.isArray(globalThis.CSSOS_WATCH_FONT_MANIFEST)
+    ? globalThis.CSSOS_WATCH_FONT_MANIFEST
+    : []
+  ).map((entry) => ({
+    key: String(entry?.family || "").trim(),
+    label: String(entry?.family || "").trim(),
+    family: String(entry?.family || "").trim(),
+  }));
+  const seen = new Set();
+  return [...seedList, ...uploadedFamilies].filter((entry) => {
+    const family = String(entry?.family || "").trim();
+    if (!family || seen.has(family)) return false;
+    seen.add(family);
+    return true;
+  });
+}
+
+function persistWatchFavoriteFontsModule() {
+  try {
+    localStorage.setItem(
+      WATCH_FAVORITE_FONTS_STORAGE_KEY,
+      JSON.stringify(Array.from(watchFavoriteFonts).filter(Boolean))
+    );
+  } catch (_error) {}
+}
+
+function classifyWatchFontGroupModule(entry) {
+  const src = String(entry?.src || "").trim().toLowerCase();
+  const family = String(entry?.family || "").trim();
+  if (/[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(family)) return "cjk";
+  if (src.startsWith("fonts/") || src.startsWith("fonts_cn2/")) return "cjk";
+  return "latin";
+}
+
+function buildWatchFontCatalogModule() {
+  const manifestMap = new Map(
+    (Array.isArray(globalThis.CSSOS_WATCH_FONT_MANIFEST) ? globalThis.CSSOS_WATCH_FONT_MANIFEST : []).map((entry) => [
+      String(entry?.family || "").trim(),
+      entry || {}
+    ])
+  );
+  return buildWatchSelectableFontOptionsModule().map((entry) => {
+    const family = String(entry?.family || "").trim();
+    const manifest = manifestMap.get(family) || {};
+    return {
+      ...entry,
+      family,
+      src: String(manifest?.src || "").trim(),
+      group: classifyWatchFontGroupModule({ family, src: String(manifest?.src || "").trim() }),
+      favorite: watchFavoriteFonts.has(family),
+    };
+  });
+}
+
+function pickWatchRandomFontModule(fontEntries = [], fallback = "") {
+  const list = Array.isArray(fontEntries) ? fontEntries.filter((entry) => String(entry?.family || "").trim()) : [];
+  if (!list.length) return fallback;
+  const recent = new Set(watchRecentRandomFonts);
+  const pool = list.filter((entry) => !recent.has(String(entry.family || "").trim()));
+  const targetPool = pool.length ? pool : list;
+  const chosen = targetPool[Math.floor(Math.random() * targetPool.length)] || targetPool[0];
+  const family = String(chosen?.family || fallback || "").trim();
+  if (!family) return fallback;
+  watchRecentRandomFonts.push(family);
+  if (watchRecentRandomFonts.length > WATCH_FONT_RANDOM_HISTORY_LIMIT) {
+    watchRecentRandomFonts = watchRecentRandomFonts.slice(-WATCH_FONT_RANDOM_HISTORY_LIMIT);
+  }
+  return family;
+}
+
+function cycleWatchTypographyPresetModule() {
+  const randomPick = (items = [], fallback = "") => {
+    const list = Array.isArray(items) ? items.filter(Boolean) : [];
+    if (!list.length) return fallback;
+    return list[Math.floor(Math.random() * list.length)] || fallback;
+  };
+  const nextPreset = randomPick(WATCH_TYPOGRAPHY_PRESETS, "cinema");
+  const selectableFonts = buildWatchFontCatalogModule();
+  // Locale-aware pool: CN UI → pick from CJK fonts, EN UI → pick from Latin fonts.
+  // Title and subtitle both sample from the same locale-scoped pool so they're
+  // visually consistent. If filter result is empty (e.g. no CJK fonts available),
+  // fall back to the full catalogue so we never land on an empty pool.
+  const localeGroup = (String(globalThis.currentLocale || "").toLowerCase() === "zh") ? "cjk" : "latin";
+  const poolByLocale = selectableFonts.filter((entry) => String(entry?.group || "").toLowerCase() === localeGroup);
+  const fontPool = poolByLocale.length ? poolByLocale : selectableFonts;
+  watchTitleFontKey = pickWatchRandomFontModule(fontPool, watchTitleFontKey);
+  watchSubtitleFontKey = pickWatchRandomFontModule(fontPool, watchSubtitleFontKey);
+  watchTitleStrokePresetKey = randomPick(Object.keys(WATCH_TITLE_STROKE_PRESETS), watchTitleStrokePresetKey);
+  watchSubtitleShadowPresetKey = randomPick(Object.keys(WATCH_SUBTITLE_SHADOW_PRESETS), watchSubtitleShadowPresetKey);
+  watchTitleLayoutSeed = Math.floor(Math.random() * 1_000_000);
+  applyWatchTypographyPresetModule(nextPreset);
+  renderWatchKaraokeOverlayModule();
+  syncWatchPlaceholderFromCurrentState();
+  showToast(loginCopy(`Title and subtitle style · ${nextPreset}`));
+}
+
+function hideWatchStyleMenuModule() {
+  if (watchStyleMenuEl instanceof HTMLElement) {
+    watchStyleMenuEl.hidden = true;
+    watchStyleMenuEl.innerHTML = "";
+  }
+}
+
+function ensureWatchStyleMenuModule() {
+  if (watchStyleMenuEl instanceof HTMLElement) return watchStyleMenuEl;
+  watchStyleMenuEl = document.createElement("div");
+  watchStyleMenuEl.hidden = true;
+  watchStyleMenuEl.className = "watch-style-menu";
+  document.body.appendChild(watchStyleMenuEl);
+  ["pointerdown", "mousedown", "click", "wheel", "touchstart", "touchmove"].forEach((eventName) => {
+    watchStyleMenuEl?.addEventListener(
+      eventName,
+      (event) => {
+        event.stopPropagation();
+      },
+      eventName === "wheel" || eventName === "touchmove" ? { passive: false } : undefined
+    );
+  });
+  document.addEventListener("click", (event) => {
+    if (watchStyleMenuEl?.contains(event.target)) return;
+    hideWatchStyleMenuModule();
+  }, { passive: true });
+  window.addEventListener("blur", () => hideWatchStyleMenuModule());
+  return watchStyleMenuEl;
+}
+
+function openWatchStyleMenuModule(anchorX, anchorY, mode = "all") {
+  const menu = ensureWatchStyleMenuModule();
+  const selectableFonts = buildWatchFontCatalogModule();
+  const titleFontPreviewText = loginCopy("Watch Title");
+  const subtitleFontPreviewText = loginCopy("The subtitle breathes with the frame.");
+  const buildFontPickerMarkup = (entries = [], activeValue = "", pickerType = "title") => {
+    const groups = [
+      { key: "favorites", title: loginCopy("Favorites"), items: entries.filter((entry) => entry.favorite) },
+      { key: "cjk", title: loginCopy("Chinese / CJK"), items: entries.filter((entry) => entry.group === "cjk") },
+      { key: "latin", title: loginCopy("English / Latin"), items: entries.filter((entry) => entry.group === "latin") },
+    ].filter((group) => group.items.length);
+    return `
+      <div class="watch-font-picker" data-font-picker="${pickerType}">
+        <input class="watch-font-picker-search" type="search" placeholder="${escapeHtml(loginCopy("Search fonts"))}" aria-label="${escapeHtml(loginCopy("Search fonts"))}">
+        <div class="watch-font-picker-groups">
+          ${groups
+            .map(
+              (group) => `
+                <section class="watch-font-picker-group" data-font-group="${escapeHtml(group.key)}">
+                  <div class="watch-font-picker-group-title">${escapeHtml(group.title)}</div>
+                  <div class="watch-font-picker-list">
+                    ${group.items
+                      .map((item) => {
+                        const family = String(item.family || "").trim();
+                        const previewText = pickerType === "title" ? titleFontPreviewText : subtitleFontPreviewText;
+                        return `
+                          <button class="watch-font-picker-item${family === activeValue ? " is-active" : ""}" type="button" data-font-value="${escapeHtml(family)}" data-font-label="${escapeHtml(item.label)}">
+                            <span class="watch-font-picker-favorite${item.favorite ? " is-active" : ""}" data-font-favorite="${escapeHtml(family)}" role="button" tabindex="0" aria-label="${escapeHtml(loginCopy("Toggle favorite"))}">★</span>
+                            <span class="watch-font-picker-name">${escapeHtml(item.label)}</span>
+                            <span class="watch-font-picker-preview" style="font-family:${escapeHtml(family)};">${escapeHtml(previewText)}</span>
+                          </button>
+                        `;
+                      })
+                      .join("")}
+                  </div>
+                </section>`
+            )
+            .join("")}
+        </div>
+      </div>
+    `;
+  };
+  let committedTitleFont = watchTitleFontKey;
+  let committedSubtitleFont = watchSubtitleFontKey;
+  const previewFont = (pickerType, family, committed = false) => {
+    const safeFamily = String(family || "").trim();
+    if (!safeFamily) return;
+    if (pickerType === "title") {
+      watchTitleFontKey = safeFamily;
+      if (committed) committedTitleFont = safeFamily;
+    } else {
+      watchSubtitleFontKey = safeFamily;
+      if (committed) committedSubtitleFont = safeFamily;
+    }
+    applyWatchTypographyControlsModule();
+  };
+  const restoreCommittedPreview = () => {
+    watchTitleFontKey = committedTitleFont;
+    watchSubtitleFontKey = committedSubtitleFont;
+    applyWatchTypographyControlsModule();
+  };
+  const allGroups = [
+    {
+      title: loginCopy("Title style"),
+      items: WATCH_TYPOGRAPHY_PRESETS.map((preset) => ({
+        label: preset,
+        active: preset === watchTypographyPresetKey,
+        run: () => {
+          applyWatchTypographyPresetModule(preset);
+          renderWatchKaraokeOverlayModule();
+          syncWatchPlaceholderFromCurrentState();
+        }
+      }))
+    },
+    {
+      title: loginCopy("Title font"),
+      picker: "title",
+      items: selectableFonts.map((option) => ({
+        label: option.label,
+        value: option.family,
+        active: option.family === watchTitleFontKey,
+        run: () => {
+          watchTitleFontKey = option.family;
+          applyWatchTypographyControlsModule();
+        }
+      }))
+    },
+    {
+      title: loginCopy("Subtitle font"),
+      picker: "subtitle",
+      items: selectableFonts.map((option) => ({
+        label: option.label,
+        value: option.family,
+        active: option.family === watchSubtitleFontKey,
+        run: () => {
+          watchSubtitleFontKey = option.family;
+          applyWatchTypographyControlsModule();
+        }
+      }))
+    },
+    {
+      title: loginCopy("Title stroke"),
+      items: Object.entries(WATCH_TITLE_STROKE_PRESETS).map(([key, option]) => ({
+        label: option.label,
+        active: key === watchTitleStrokePresetKey,
+        run: () => {
+          watchTitleStrokePresetKey = key;
+          applyWatchTypographyControlsModule();
+        }
+      }))
+    },
+    {
+      title: loginCopy("Subtitle shadow"),
+      items: Object.entries(WATCH_SUBTITLE_SHADOW_PRESETS).map(([key, option]) => ({
+        label: option.label,
+        active: key === watchSubtitleShadowPresetKey,
+        run: () => {
+          watchSubtitleShadowPresetKey = key;
+          applyWatchTypographyControlsModule();
+        }
+      }))
+    }
+  ];
+  const groups = String(mode || "all").trim().toLowerCase() === "subtitle"
+    ? allGroups.filter((group) =>
+        group.title === loginCopy("Subtitle font") ||
+        group.title === loginCopy("Subtitle shadow")
+      )
+    : allGroups;
+  menu.innerHTML = groups.map((group) => `
+    <div class="watch-style-menu-group">
+      <div class="watch-style-menu-title">${escapeHtml(group.title)}</div>
+      ${group.picker
+        ? buildFontPickerMarkup(group.items, group.picker === "title" ? watchTitleFontKey : watchSubtitleFontKey, group.picker)
+        : group.select
+        ? `<select class="watch-style-menu-select">${group.items.map((item) => `<option value="${escapeHtml(String(item.value || item.label || "").trim())}"${item.active ? " selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}</select>`
+        : group.items.map((item) => `<button class="watch-style-menu-item${item.active ? " is-active" : ""}" type="button">${escapeHtml(item.label)}</button>`).join("")}
+    </div>
+  `).join("");
+  const bindFontPicker = (pickerType, onPick) => {
+    const picker = menu.querySelector(`.watch-font-picker[data-font-picker="${pickerType}"]`);
+    if (!(picker instanceof HTMLElement)) return;
+    const search = picker.querySelector(".watch-font-picker-search");
+    const items = Array.from(picker.querySelectorAll(".watch-font-picker-item"));
+    const applyFilter = () => {
+      const query = String(search?.value || "").trim().toLowerCase();
+      items.forEach((item) => {
+        const label = String(item.getAttribute("data-font-label") || "").trim().toLowerCase();
+        const family = String(item.getAttribute("data-font-value") || "").trim().toLowerCase();
+        const match = !query || label.includes(query) || family.includes(query);
+        item.toggleAttribute("hidden", !match);
+      });
+      Array.from(picker.querySelectorAll(".watch-font-picker-group")).forEach((groupEl) => {
+        const anyVisible = Array.from(groupEl.querySelectorAll(".watch-font-picker-item")).some((item) => !item.hasAttribute("hidden"));
+        groupEl.toggleAttribute("hidden", !anyVisible);
+      });
+    };
+    search?.addEventListener("input", applyFilter);
+    search?.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowDown") return;
+      const firstVisible = items.find((item) => !item.hasAttribute("hidden"));
+      if (!(firstVisible instanceof HTMLElement)) return;
+      event.preventDefault();
+      firstVisible.focus();
+    });
+    items.forEach((item) => {
+      const previewCurrentItem = () => {
+        const family = String(item.getAttribute("data-font-value") || "").trim();
+        if (!family) return;
+        previewFont(pickerType, family, false);
+      };
+      item.addEventListener("click", (event) => {
+        const favoriteToggle = event.target?.closest?.("[data-font-favorite]");
+        if (favoriteToggle) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const family = String(item.getAttribute("data-font-value") || "").trim();
+        if (!family) return;
+        onPick(family);
+        openWatchStyleMenuModule(anchorX, anchorY, mode);
+      });
+      item.addEventListener("mouseenter", previewCurrentItem);
+      item.addEventListener("focus", previewCurrentItem);
+      item.addEventListener("mouseleave", restoreCommittedPreview);
+      item.addEventListener("blur", restoreCommittedPreview);
+      item.addEventListener("keydown", (event) => {
+        const visibleItems = items.filter((candidate) => !candidate.hasAttribute("hidden"));
+        const currentIndex = visibleItems.indexOf(item);
+        if (event.key === "ArrowDown") {
+          const next = visibleItems[Math.min(visibleItems.length - 1, currentIndex + 1)] || null;
+          if (next instanceof HTMLElement) {
+            event.preventDefault();
+            next.focus();
+          }
+        } else if (event.key === "ArrowUp") {
+          if (currentIndex <= 0) {
+            if (search instanceof HTMLElement) {
+              event.preventDefault();
+              search.focus();
+            }
+            return;
+          }
+          const prev = visibleItems[Math.max(0, currentIndex - 1)] || null;
+          if (prev instanceof HTMLElement) {
+            event.preventDefault();
+            prev.focus();
+          }
+        } else if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          item.click();
+        }
+      });
+    });
+    Array.from(picker.querySelectorAll("[data-font-favorite]")).forEach((toggle) => {
+      const handleToggle = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const family = String(toggle.getAttribute("data-font-favorite") || "").trim();
+        if (!family) return;
+        if (watchFavoriteFonts.has(family)) watchFavoriteFonts.delete(family);
+        else watchFavoriteFonts.add(family);
+        persistWatchFavoriteFontsModule();
+        openWatchStyleMenuModule(anchorX, anchorY, mode);
+      };
+      toggle.addEventListener("click", handleToggle);
+      toggle.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") handleToggle(event);
+      });
+    });
+    applyFilter();
+  };
+  bindFontPicker("title", (family) => {
+    watchTitleFontKey = family;
+    applyWatchTypographyControlsModule();
+  });
+  bindFontPicker("subtitle", (family) => {
+    watchSubtitleFontKey = family;
+    applyWatchTypographyControlsModule();
+  });
+  const selectEls = Array.from(menu.querySelectorAll(".watch-style-menu-select"));
+  let selectOffset = 0;
+  let buttonOffset = 0;
+  groups.forEach((group) => {
+    if (group.select) {
+      const select = selectEls[selectOffset];
+      selectOffset += 1;
+      if (select instanceof HTMLSelectElement) {
+        select.addEventListener("change", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const value = String(event.currentTarget?.value || "").trim();
+          const item = group.items.find((entry) => String(entry.value || entry.label || "").trim() === value);
+          item?.run?.();
+        });
+      }
+      return;
+    }
+    group.items.forEach((item) => {
+      const button = menu.querySelectorAll(".watch-style-menu-item")[buttonOffset];
+      if (button instanceof HTMLButtonElement) {
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          item.run();
+          hideWatchStyleMenuModule();
+        });
+      }
+      buttonOffset += 1;
+    });
+  });
+  menu.hidden = false;
+  menu.style.left = `${Math.max(12, Math.min(window.innerWidth - 260, Number(anchorX || 0)))}px`;
+  menu.style.top = `${Math.max(12, Math.min(window.innerHeight - 220, Number(anchorY || 0)))}px`;
+  const frameHeight = Math.max(220, Math.round(Number(watchScreen?.getBoundingClientRect?.().height || 0) - 24));
+  menu.style.maxHeight = `${Math.min(frameHeight, window.innerHeight - 24)}px`;
+}
+
+function clearWatchArtworkSlideshowModule() {
+  if (watchArtworkSlideshowTimer) {
+    window.clearInterval(watchArtworkSlideshowTimer);
+    watchArtworkSlideshowTimer = null;
+  }
+  lastWatchArtworkSlideshowFrame = "";
+}
+
+function setWatchArtworkSlideshowFramesModule(frames = [], signature = "") {
+  const uniqueFrames = [...new Set(
+    (Array.isArray(frames) ? frames : [])
+      .map((item) => String(item || "").trim())
+      .filter((item) => item && !item.startsWith("data:image/svg+xml"))
+  )];
+  watchArtworkSlideshowFrames = uniqueFrames;
+  watchArtworkSlideshowSignature = String(signature || "").trim();
+  if (!watchArtworkSlideshowFrames.includes(lastWatchArtworkSlideshowFrame)) {
+    lastWatchArtworkSlideshowFrame = "";
+  }
+}
+
+function maybeRenderWatchArtworkSlideshowFrameModule() {
+  if (!watchArtworkSlideshowFrames.length) return false;
+  let candidates = watchArtworkSlideshowFrames;
+  if (watchArtworkSlideshowFrames.length > 1 && lastWatchArtworkSlideshowFrame) {
+    candidates = watchArtworkSlideshowFrames.filter((item) => item !== lastWatchArtworkSlideshowFrame);
+  }
+  const next = candidates[Math.floor(Math.random() * candidates.length)] || watchArtworkSlideshowFrames[0] || "";
+  if (!next) return false;
+  lastWatchArtworkSlideshowFrame = next;
+  const motions = ["motion-float", "motion-breathe"];
+  const motion = motions[Math.floor(Math.random() * motions.length)] || "motion-float";
+  watchSvg?.classList.remove(...motions);
+  watchScreenBackdrop?.classList.remove(...motions);
+  watchSvg?.classList.remove("is-transitioning");
+  watchScreenBackdrop?.classList.remove("is-transitioning");
+  void watchSvg?.offsetWidth;
+  watchSvg?.classList.add(motion);
+  watchScreenBackdrop?.classList.add(motion);
+  watchSvg?.classList.add("is-transitioning");
+  watchScreenBackdrop?.classList.add("is-transitioning");
+  showWatchFramePlaceholderModule(next);
+  syncWatchMusicArtworkModule();
+  return true;
+}
+
+async function primeWatchArtworkSlideshowModule(title, subtitle, lines = []) {
+  const safeTitle = String(title || state.title || watchBrandTitleModule()).trim();
+  const safeSubtitle = String(subtitle || "").trim();
+  const safeLines = Array.isArray(lines) ? lines.filter(Boolean).slice(0, 8) : [];
+  const signature = JSON.stringify([safeTitle, safeSubtitle, safeLines.slice(0, 4)]);
+  if (signature && signature === watchArtworkSlideshowSignature && watchArtworkSlideshowFrames.length) {
+    if (!watchArtworkSlideshowTimer) {
+      maybeRenderWatchArtworkSlideshowFrameModule();
+      watchArtworkSlideshowTimer = window.setInterval(() => {
+        const generationBusy = !!(
+          globalThis.lyricsSeedRequestState?.pending ||
+          globalThis.watchPipelineLaunchPending ||
+          String(activePipelineRunId || "").trim() ||
+          String(pendingFinalAudioRunId || "").trim() ||
+          String(currentWatchAudioRunId || "").trim() ||
+          globalThis.isCreationBusyModule?.()
+        );
+        if (!generationBusy || watchPlaybackUiSuppressed) {
+          clearWatchArtworkSlideshowModule();
+          return;
+        }
+        maybeRenderWatchArtworkSlideshowFrameModule();
+      }, WATCH_ARTWORK_SLIDESHOW_MS);
+    }
+    return;
+  }
+  const localFrames = [
+    String(globalThis.currentResolvedWatchArtworkDataUrl || "").trim(),
+    String(globalThis.currentPreviewFrameDataUrl || "").trim(),
+    String(foryouThumbImage?.src || "").trim(),
+    ...(Array.isArray(globalThis.currentWatchArtworkVariantPool) ? globalThis.currentWatchArtworkVariantPool : []),
+    ...(Array.isArray(globalThis.currentPreviewFrameSequence) ? globalThis.currentPreviewFrameSequence : []),
+    ...(getCachedWatchFrameSequenceModule?.() || [])
+  ].filter(Boolean);
+  setWatchArtworkSlideshowFramesModule(localFrames, signature);
+  if (watchArtworkSlideshowFrames.length < 5 && globalThis.requestThumbnailVariantPool) {
+    const pool = await globalThis.requestThumbnailVariantPool(safeTitle, safeSubtitle, safeLines, {
+      count: 5,
+    }).catch(() => []);
+    if (Array.isArray(pool) && pool.length) {
+      globalThis.currentWatchArtworkVariantPool = [...new Set(pool.map((item) => String(item || "").trim()).filter(Boolean))].slice(0, 5);
+      setWatchArtworkSlideshowFramesModule(
+        [...watchArtworkSlideshowFrames, ...globalThis.currentWatchArtworkVariantPool],
+        signature
+      );
+    }
+  }
+  if (!watchArtworkSlideshowFrames.length) return;
+  maybeRenderWatchArtworkSlideshowFrameModule();
+  if (watchArtworkSlideshowTimer || watchArtworkSlideshowSignature !== signature) {
+    clearWatchArtworkSlideshowModule();
+  }
+  watchArtworkSlideshowSignature = signature;
+  watchArtworkSlideshowTimer = window.setInterval(() => {
+    const generationBusy = !!(
+      globalThis.lyricsSeedRequestState?.pending ||
+      globalThis.watchPipelineLaunchPending ||
+      String(activePipelineRunId || "").trim() ||
+      String(pendingFinalAudioRunId || "").trim() ||
+      String(currentWatchAudioRunId || "").trim() ||
+      globalThis.isCreationBusyModule?.()
+    );
+    if (!generationBusy || watchPlaybackUiSuppressed) {
+      clearWatchArtworkSlideshowModule();
+      return;
+    }
+    maybeRenderWatchArtworkSlideshowFrameModule();
+  }, WATCH_ARTWORK_SLIDESHOW_MS);
+}
+
+function isWatchLyricsReadyModule() {
+  const directLines = compactLyricLines(Array.isArray(state.lines) ? state.lines : []).filter(Boolean);
+  if (directLines.length >= 2) return true;
+  const editorText = String(watchLyricsEditor?.value || "").trim();
+  const seedTitle = String(state.songSeed?.title || state.title || "").trim();
+  const seedLyrics = String(state.songSeed?.lyrics || "").trim();
+  const displayText = String(lyricsEl?.textContent || "").trim();
+  const editorReady =
+    globalThis.hasCanonicalLyricsBodyLinesModule?.(seedTitle, editorText, 2) ??
+    false;
+  const seedReady =
+    globalThis.hasCanonicalLyricsBodyLinesModule?.(seedTitle, seedLyrics, 2) ??
+    false;
+  const displayReady = extractDisplayLyricLinesModule(displayText).length >= 2;
+  return editorReady || seedReady || displayReady;
+}
+
+function getWatchProgressActionLabelModule(stageKey = "play") {
+  switch (String(stageKey || "").trim()) {
+    case "lyrics":
+      return t("watch.action.generateLyrics");
+    case "music":
+      return t("watch.action.generateMusic");
+    case "video":
+      return t("watch.action.generateVideo");
+    case "kara":
+      return t("watch.action.generateMv");
+    default:
+      return t("watch.action.resume");
+  }
+}
+
+function getCurrentWatchActionLabelModule() {
+  const nextNeededStage = getNextWatchGenerationGapModule();
+  if (nextNeededStage && nextNeededStage !== "play") {
+    return getWatchProgressActionLabelModule(
+      resolveWatchRecoveryStageModule(nextNeededStage)
+    );
+  }
+  const activeStage = getActiveWatchProgressCardModule()?.key || "";
+  if (activeStage) return getWatchProgressActionLabelModule(resolveWatchRecoveryStageModule(activeStage));
+  const playing = !!(
+    (watchVideo &&
+      !watchVideo.paused &&
+      !watchVideo.ended &&
+      String(watchVideo.currentSrc || watchVideo.src || "").trim()) ||
+    (watchAudioPreview &&
+      !watchAudioPreview.paused &&
+      !watchAudioPreview.ended &&
+      String(watchAudioPreview.currentSrc || watchAudioPreview.src || "").trim())
+  );
+  if (!playing && nextNeededStage && nextNeededStage !== "play") {
+    return getWatchProgressActionLabelModule(nextNeededStage);
+  }
+  return playing ? t("watch.action.pause") : t("watch.action.play");
+}
+
+function watchBrandTitleModule() {
+  const outlineTitle =
+    globalThis.extractTitleFromVideoOutlineModule?.(
+      watchOutlineEditor?.value ||
+      videoOutlineInput?.value ||
+      state.songSeed?.videoOutline ||
+      state.songSeed?.video_outline ||
+      ""
+    ) || "";
+  const explicitTitle = String(state.title || state.songSeed?.title || "").trim();
+  return explicitTitle || outlineTitle || loginCopy("CSS MV");
+}
+
+function watchSubtitleLabelModule(kind = "preview") {
+  const normalized = String(kind || "preview").trim().toLowerCase();
+  switch (normalized) {
+    case "demo":
+      return t("watch.subtitle.demo");
+    case "ready":
+      return t("watch.subtitle.ready");
+    case "failed":
+      return t("watch.subtitle.failed");
+    case "internal":
+      return t("watch.subtitle.preview");
+    case "preview":
+    default:
+      return t("watch.subtitle.preview");
+  }
+}
+
+function watchToastCopyModule(kind = "previewShort") {
+  const normalized = String(kind || "previewShort").trim().toLowerCase();
+  switch (normalized) {
+    case "autoplayBlocked":
+      return t("watch.toast.autoplayBlocked");
+    case "playbackResumed":
+      return t("watch.toast.playbackResumed");
+    case "previewShort":
+      return t("watch.toast.previewShort");
+    case "videoOffline":
+      return t("watch.toast.videoOffline");
+    case "videoPending":
+      return t("watch.toast.videoPending");
+    default:
+      return String(kind || "").trim();
+  }
+}
+
+function getWatchLyricsSeedSubtitleModule() {
+  return (
+    globalThis.summarizeWatchLyricsSeedStatusModule?.() ||
+    t("watch.subtitle.waitingLyricsSeed")
+  );
+}
+
+function syncWatchSubtitleForWaitingMediaModule() {
+  if (!watchSubtitle) return;
+  if (watchPlaybackUiSuppressed) {
+    watchSubtitle.textContent = "";
+    return;
+  }
+  const activeStage = getActiveWatchProgressCardModule()?.key || "";
+  if (globalThis.lyricsSeedRequestState?.pending) {
+    watchSubtitle.textContent = getWatchLyricsSeedSubtitleModule();
+    return;
+  }
+  const currentLyricsStatus = String(
+    globalThis.summarizeWatchLyricsSeedStatusModule?.() || ""
+  ).trim();
+  if (currentLyricsStatus && !isWatchLyricsReadyModule()) {
+    watchSubtitle.textContent = currentLyricsStatus;
+    return;
+  }
+  if (activeStage === "music") {
+    watchSubtitle.textContent = loginCopy("KaraOKe MV · Composing music now");
+    return;
+  }
+  if (activeStage === "video") {
+    watchSubtitle.textContent = loginCopy("KaraOKe MV · Rendering video now");
+    return;
+  }
+  if (activeStage === "kara") {
+    watchSubtitle.textContent = loginCopy("KaraOKe MV · Rendering subtitle MV now");
+    return;
+  }
+  watchSubtitle.textContent = hasWatchArtworkReadyModule()
+    ? loginCopy("KaraOKe MV · Writing the first line now")
+    : loginCopy("KaraOKe MV · Painting the cover now");
+}
+
+function setWatchPlaybackUiSuppressedModule(suppressed) {
+  watchPlaybackUiSuppressed = suppressed === true;
+  watchScreen?.classList.toggle("is-playback-clean", watchPlaybackUiSuppressed);
+  if (watchPlaybackUiSuppressed) {
+    clearWatchArtworkSlideshowModule();
+  }
+  if (watchSubtitle) {
+    if (watchPlaybackUiSuppressed) {
+      watchSubtitle.textContent = "";
+    } else {
+      syncWatchSubtitleForWaitingMediaModule();
+    }
+  }
+  if (watchFrameProgress) {
+    watchFrameProgress.hidden = watchPlaybackUiSuppressed ? true : watchFrameProgress.hidden;
+  }
+}
+
+function hasWatchScriptReadyModule() {
+  const seed = state.songSeed && typeof state.songSeed === "object" ? state.songSeed : {};
+  const scriptText = String(
+    watchScriptEditor?.value ||
+      videoOutlineInput?.value ||
+      seed.videoOutline ||
+      seed.video_outline ||
+      ""
+  ).trim();
+  const prompts = Array.isArray(seed.sectionPrompts)
+    ? seed.sectionPrompts
+    : Array.isArray(seed.section_prompts)
+      ? seed.section_prompts
+      : [];
+  return scriptText.length > 12 || prompts.length > 0;
+}
+
+function hasBlockingWatchSeedModule() {
+  return !!(globalThis.hasUsableSongSeedSnapshotModule?.(state.songSeed) ?? false);
+}
+
+function hasWatchArtworkReadyModule() {
+  const persistedCover = String(resolveWorkCoverImage(currentWatchPreviewWork || {}) || "").trim();
+  const currentArtwork = String(
+    globalThis.currentResolvedWatchArtworkDataUrl ||
+      globalThis.currentPreviewFrameDataUrl ||
+      foryouThumbImage?.src ||
+      watchSvg?.src ||
+      ""
+  ).trim();
+  return !!(persistedCover || currentArtwork);
+}
+
+function canAdvanceWatchGenerationStageModule(stageKey = "lyrics") {
+  const normalized = String(stageKey || "lyrics").trim().toLowerCase();
+  if (!normalized || normalized === "lyrics") {
+    return { ok: true, reason: "" };
+  }
+  const lyricsReady = isWatchLyricsReadyModule();
+  if (normalized === "music") {
+    return lyricsReady
+      ? { ok: true, reason: "" }
+      : {
+          ok: false,
+          reason: loginCopy(
+            "Recovering lyrics first before composing."
+          )
+        };
+  }
+  if (lyricsReady && hasWatchScriptReadyModule()) {
+    return { ok: true, reason: "" };
+  }
+  return {
+    ok: false,
+    reason: loginCopy(
+      "Recovering upstream stages automatically before continuing."
+    )
+  };
+}
+
+function resolveWatchRecoveryStageModule(stageKey = "lyrics") {
+  const normalized = String(stageKey || "").trim().toLowerCase() || "lyrics";
+  const lyricsReady = isWatchLyricsReadyModule();
+  const scriptReady = hasWatchScriptReadyModule();
+  const musicReady =
+    Number(engineProgressState.music || 0) >= 100 &&
+    hasPlayableCurrentWatchAudioModule();
+  const videoReady =
+    Number(engineProgressState.video || 0) >= 100 &&
+    hasPlayableCurrentWatchVideoModule();
+  if (!lyricsReady) return "lyrics";
+  if (normalized === "lyrics") return "lyrics";
+  if (normalized === "music") return "music";
+  if (!scriptReady && ["video", "kara", "play"].includes(normalized)) return "lyrics";
+  if (!musicReady && ["music", "video", "kara", "play"].includes(normalized)) return "music";
+  if (!videoReady && ["video", "kara", "play"].includes(normalized)) return "video";
+  if (normalized === "video") return "video";
+  if (Number(engineProgressState.kara || 0) < 100 && ["kara", "play"].includes(normalized)) return "kara";
+  return normalized;
+}
+
+function hasPlayableCurrentWatchAudioModule() {
+  return !!(
+    currentWatchAudioSourceKind === "final-artifact" ||
+    getRememberedWatchFinalAudio()
+  );
+}
+
+function hasPlayableCurrentWatchVideoModule() {
+  return !!(watchVideo?.src && String(watchVideo.src).trim());
+}
+
+function hasCurrentRunInFlightModule() {
+  return !!String(
+    currentWatchAudioRunId ||
+      pendingFinalAudioRunId ||
+      activePipelineRunId ||
+      currentWatchPreviewWork?.source_run_id ||
+      ""
+  ).trim();
+}
+
+function findActiveBackgroundRunIdForCurrentWorkModule() {
+  const targetTitle = String(state.title || currentWatchPreviewWork?.title || "").trim();
+  const items =
+    (typeof globalThis.readNotificationsModule === "function"
+      ? globalThis.readNotificationsModule()
+      : []) || [];
+  if (!targetTitle || !Array.isArray(items)) return "";
+  const activeMatch = items.find((item) => {
+    if (String(item?.stage || "").trim() !== "active") return false;
+    const runId = String(item?.runId || "").trim();
+    const workTitle = String(item?.workTitle || "").trim();
+    return !!runId && workTitle === targetTitle;
+  });
+  return String(activeMatch?.runId || "").trim();
+}
+
+function getCurrentInFlightWatchRunIdModule() {
+  return String(
+    currentWatchAudioRunId ||
+      activePipelineRunId ||
+      pendingFinalAudioRunId ||
+      findActiveBackgroundRunIdForCurrentWorkModule() ||
+      currentWatchPreviewWork?.source_run_id ||
+      ""
+  ).trim();
+}
+
+function getNextWatchGenerationGapModule() {
+  const lyricsReady = isWatchLyricsReadyModule();
+  if (!lyricsReady) return "lyrics";
+  const musicDone =
+    Number(engineProgressState.music || 0) >= 100 &&
+    hasPlayableCurrentWatchAudioModule();
+  if (!musicDone) return "music";
+  const scriptReady = hasWatchScriptReadyModule();
+  if (!scriptReady) return "lyrics";
+  const videoDone =
+    Number(engineProgressState.video || 0) >= 100 &&
+    hasPlayableCurrentWatchVideoModule();
+  if (!videoDone) return "video";
+  const karaDone = Number(engineProgressState.kara || 0) >= 100;
+  if (!karaDone) return "kara";
+  return "play";
+}
+
+function setBoundedWatchCacheEntryModule(cache, key, value, maxEntries) {
+  if (!(cache instanceof Map) || !key) return;
+  if (cache.has(key)) {
+    cache.delete(key);
+  }
+  cache.set(key, value);
+  while (cache.size > maxEntries) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey === undefined) break;
+    cache.delete(oldestKey);
+  }
+}
 
 function armWatchExplicitPreviewIntent(ms = 15000) {
   globalThis.watchExplicitPreviewAllowedUntil = Date.now() + Math.max(1000, Number(ms) || 15000);
@@ -26,7 +1131,7 @@ function armWatchExplicitPreviewIntent(ms = 15000) {
 
 function syncForyouThumbFallbackModule(mode) {
   if (foryouThumbFallback) {
-    foryouThumbFallback.style.display = mode === "fallback" ? "grid" : "none";
+    foryouThumbFallback.style.display = "none";
   }
   if (foryouThumbVideo) {
     foryouThumbVideo.style.display = mode === "video" ? "block" : "none";
@@ -47,11 +1152,23 @@ function getForyouPreviewModeModule() {
 }
 
 function buildForyouThumbSvgModule(title, subtitle, lines = []) {
-  const safeTitle = String(title || "CSS MV").replace(/</g, "&lt;");
   const safeSubtitle = String(subtitle || "").replace(/</g, "&lt;");
   const safeLine = String(lines.find((line) => String(line || "").trim()) || "")
     .replace(/</g, "&lt;")
     .slice(0, 56);
+  const titleLines = globalThis.splitDisplayTitleLinesModule
+    ? globalThis.splitDisplayTitleLinesModule(title || watchBrandTitleModule())
+    : { secondary: "" };
+  const titleMarkup = globalThis.titleLineMarkupModule
+    ? globalThis.titleLineMarkupModule(title || watchBrandTitleModule(), {
+        baseSize: 58,
+        minSize: 30,
+        centerY: 308,
+        fill: "#f4fffb",
+        stroke: "rgba(2, 10, 7, 0.82)",
+        layoutSeed: watchTitleLayoutSeed
+      })
+    : `<text x="50%" y="44%" text-anchor="middle" font-family="Syne, sans-serif" font-size="68" fill="#f4fffb" letter-spacing="6">${escapeHtml(String(title || watchBrandTitleModule()))}</text>`;
   return (
     "data:image/svg+xml;utf8," +
     encodeURIComponent(
@@ -65,8 +1182,8 @@ function buildForyouThumbSvgModule(title, subtitle, lines = []) {
   </defs>
   <rect width="720" height="720" rx="80" fill="#020302"/>
   <circle cx="360" cy="296" r="214" fill="url(#foryouG)"/>
-  <text x="50%" y="44%" text-anchor="middle" font-family="Syne, sans-serif" font-size="68" fill="#f4fffb" letter-spacing="6">${safeTitle}</text>
-  <text x="50%" y="55%" text-anchor="middle" font-family="Space Grotesk, sans-serif" font-size="22" fill="#9fead1" letter-spacing="4">${safeSubtitle}</text>
+  ${titleMarkup}
+  <text x="50%" y="${titleLines.secondary ? "59%" : "55%"}" text-anchor="middle" font-family="Space Grotesk, sans-serif" font-size="22" fill="#9fead1" letter-spacing="4">${safeSubtitle}</text>
   <text x="50%" y="66%" text-anchor="middle" font-family="Space Grotesk, sans-serif" font-size="20" fill="#dffef4" opacity="0.9">${safeLine}</text>
 </svg>`
     )
@@ -74,17 +1191,34 @@ function buildForyouThumbSvgModule(title, subtitle, lines = []) {
 }
 
 function syncForyouThumbFromLyricsModule(title, lines = []) {
-  const subtitle = `${state.style || ""} · ${state.voice || ""}`.replace(/^ · | · $/g, "");
-  const fallback = buildForyouThumbSvgModule(title, subtitle, lines);
-  currentForyouThumbFallbackDataUrl = fallback;
-  setForyouThumbImage(fallback);
-  syncWatchPlaceholderFromCurrentState();
+  currentForyouThumbFallbackDataUrl = "";
+  const currentArtwork = String(
+    globalThis.currentPreviewFrameDataUrl ||
+      globalThis.currentResolvedWatchArtworkDataUrl ||
+      foryouThumbImage?.src ||
+      watchSvg?.src ||
+      ""
+  ).trim();
+  const hasRealArtwork = !!currentArtwork && !/^data:image\/svg\+xml/i.test(currentArtwork);
+  if (hasRealArtwork) {
+    syncWatchPlaceholderFromCurrentState();
+    return true;
+  }
+  if (foryouThumbImage) {
+    foryouThumbImage.removeAttribute("src");
+  }
+  if (watchScreenBackdrop) {
+    watchScreenBackdrop.style.backgroundImage = "";
+  }
   return true;
 }
 
 function setForyouThumbImageModule(uri) {
   if (!foryouThumbImage || !uri) return false;
   foryouThumbImage.src = uri;
+  if (!/^data:image\/svg\+xml/i.test(String(uri || "").trim())) {
+    globalThis.currentResolvedWatchArtworkDataUrl = String(uri || "").trim();
+  }
   setForyouBackgroundImage(uri);
   syncForyouThumbFallbackModule("image");
   schedulePersistCurrentWorkAssets();
@@ -92,12 +1226,9 @@ function setForyouThumbImageModule(uri) {
 }
 
 function restoreForyouThumbFallbackModule() {
-  if (!currentForyouThumbFallbackDataUrl) {
-    syncForyouThumbFallbackModule("fallback");
-    return false;
-  }
-  setForyouThumbImageModule(currentForyouThumbFallbackDataUrl);
-  return true;
+  currentForyouThumbFallbackDataUrl = "";
+  syncForyouThumbFallbackModule("fallback");
+  return false;
 }
 
 function setForyouBackgroundImageModule(uri) {
@@ -119,7 +1250,7 @@ function resetForyouThumbModule() {
     foryouThumbImage.removeAttribute("src");
   }
   setForyouBackgroundImageModule("");
-  syncForyouThumbFallbackModule("fallback");
+  syncForyouThumbFallbackModule("image");
 }
 
 function cancelAutoEnjoyModule() {
@@ -143,7 +1274,7 @@ function setForyouCompactModule(enabled, options = {}) {
       Array.isArray(state.lines) &&
       state.lines.length
     ) {
-      syncForyouThumbFromLyricsModule(state.title, state.lines);
+      syncWatchPlaceholderFromCurrentState();
     }
     if (armAuto) {
       armAutoEnjoy();
@@ -173,7 +1304,7 @@ function clearForyouStructureModule() {
 
 function syncForyouActionButtonsModule() {
   if (watchButton) {
-    watchButton.textContent = loginCopy("Enjoy", "欣赏");
+    watchButton.textContent = loginCopy("Enjoy");
   }
 }
 
@@ -184,6 +1315,8 @@ function armAutoEnjoyModule(delayMs = 10000) {
     if (!autoEnjoyArmed) return;
     autoEnjoyArmed = false;
     autoEnjoyTimer = null;
+    const openedCurrent = await openCurrentGeneratedWatchPlaybackModule({ autoplay: true, preferVideo: true });
+    if (openedCurrent) return;
     await openWatchPreviewFlowModule({ tryRegistry: true });
   }, Math.max(0, Number(delayMs ?? FORYOU_AUTO_ENJOY_DELAY_MS)));
 }
@@ -193,19 +1326,41 @@ function toggleForyouLyricsExpandedModule() {
   if (!foryouPanel.classList.contains("foryou-panel-compact")) return;
   const nextExpanded = !foryouPanel.classList.contains("foryou-lyrics-expanded");
   if (nextExpanded && foryouSelectionTitle) {
-    foryouSelectionTitle.textContent = String(state.title || "CSS MV").trim() || loginCopy("Untitled", "未命名");
+    foryouSelectionTitle.textContent =
+      String(state.title || watchBrandTitleModule()).trim() || loginCopy("Untitled");
   }
   if (nextExpanded && foryouSelectionKicker) {
-    foryouSelectionKicker.textContent = loginCopy("Single Lyrics", "单曲歌词");
+    foryouSelectionKicker.textContent = loginCopy("Single Lyrics");
   }
   if (nextExpanded && foryouSelectionLyrics) {
-    foryouSelectionLyrics.textContent = Array.isArray(state.lines) ? state.lines.join("\n") : "";
+    foryouSelectionLyrics.textContent = formatForyouLyricsDisplayModule(state.lines);
   }
   if (foryouSelection) {
     foryouSelection.hidden = !nextExpanded;
   }
   foryouPanel.classList.toggle("foryou-lyrics-expanded", nextExpanded);
   cancelAutoEnjoyModule();
+}
+
+function formatForyouLyricsDisplayModule(input) {
+  const lines = Array.isArray(input)
+    ? input
+    : String(input || "")
+        .split("\n")
+        .map((line) => String(line || "").trim());
+  const normalized = lines
+    .map((line) => String(line || "").trim())
+    .filter(Boolean);
+  return normalized.join("\n\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+globalThis.formatForyouLyricsDisplayModule = formatForyouLyricsDisplayModule;
+
+function buildSpacedLyricsTextModule(title, lines) {
+  if (typeof globalThis.buildLyricsText === "function") {
+    return globalThis.buildLyricsText(title, lines);
+  }
+  return formatForyouLyricsDisplayModule(lines || []);
 }
 
 function maybeFinalizeForyouPresentationModule() {
@@ -224,8 +1379,8 @@ function maybeFinalizeForyouPresentationModule() {
   foryouCompletionCommitted = true;
   stopPipelineProgressPolling();
   renderKaraEngineSnapshot(null, {
-    currentStage: loginCopy("Karaoke locked", "卡拉 OK 已锁定"),
-    artifactDetail: loginCopy("Ready for watch", "可以进入欣赏")
+    currentStage: loginCopy("Final MV opening"),
+    artifactDetail: loginCopy("Switching into the finished cut now")
   });
   finishCreationSession();
   clearTimeout(foryouCompletionHoldTimer);
@@ -240,16 +1395,16 @@ function maybeFinalizeForyouPresentationModule() {
 }
 
 function buildMarketPreviewSeedModule(work = {}) {
-  const title = String(work?.title || "").trim() || loginCopy("Untitled", "未命名");
+  const title = String(work?.title || "").trim() || loginCopy("Untitled");
   const lyrics = readWorkLyricsSourceTextModule(work);
-  const musicStyle = String(work?.style || "").trim() || loginCopy("Creator preview", "创作者预览");
+  const musicStyle = String(work?.style || "").trim() || loginCopy("Creator preview");
   const baseLines = lyrics
     .split("\n")
     .map((line) => String(line || "").trim())
     .filter(Boolean);
   const sectionTitles = baseLines.length
     ? baseLines.slice(0, 4)
-    : [loginCopy("Verse preview", "主歌预览"), loginCopy("Hook preview", "副歌预览")];
+    : [loginCopy("Verse preview"), loginCopy("Hook preview")];
   const sectionBeats = sectionTitles.map((line, index) => ({
     section: index === 0 ? "Intro" : index === 1 ? "Verse" : index === 2 ? "Chorus" : `Section ${index + 1}`,
     title: line.slice(0, 48),
@@ -264,15 +1419,13 @@ function buildMarketPreviewSeedModule(work = {}) {
     musicStyle,
     musicStructure: sectionBeats.map((item) => item.section).join(" · "),
     videoOutline: loginCopy(
-      `30-second buyer preview for ${title} by ${String(work?.owner_name || work?.owner_email || "creator").trim() || "creator"}.`,
-      `${title} 的 30 秒买家预览，来自 ${String(work?.owner_name || work?.owner_email || "创作者").trim() || "创作者"}。`
+      `30-second buyer preview for ${title} by ${String(work?.owner_name || work?.owner_email || "creator").trim() || "creator"}.`
     ),
     references: [],
     sectionPrompts: sectionBeats.map((item, index) => ({
       section: item.section,
       prompt: loginCopy(
-        `Shot ${index + 1}: ${item.focus}. Keep it teaser-length and purchase-oriented.`,
-        `镜头 ${index + 1}：${item.focus}。保持预告片长度，并突出购买意图。`
+        `Shot ${index + 1}: ${item.focus}. Keep it teaser-length and purchase-oriented.`
       )
     })),
     sectionBeats,
@@ -282,11 +1435,12 @@ function buildMarketPreviewSeedModule(work = {}) {
 
 function readWorkLyricsSourceTextModule(work = {}) {
   const direct = String(work?.lyrics_text || work?.lyrics_preview || "").trim();
-  if (direct) return direct;
+  if (direct && !looksLikeVisualPromptSummaryModule(direct)) return direct;
   const childLyrics = (Array.isArray(work?.children) ? work.children : [])
     .map((child) => readWorkLyricsSourceTextModule(child))
     .filter(Boolean);
-  return childLyrics.join("\n").trim();
+  if (childLyrics.length) return childLyrics.join("\n").trim();
+  return "";
 }
 
 function workLyricsLinesModule(work = {}) {
@@ -298,7 +1452,13 @@ function isInstructionalLyricLineModule(line) {
   if (!text) return true;
   const normalized = text.toLowerCase();
   if (/^#{1,6}\s+/.test(text)) return true;
-  if (/^\[(intro|verse|chorus|bridge|outro|pre-chorus|hook)/i.test(text)) return true;
+  if (
+    /^\[(title|scene|intro|verse|chorus|bridge|outro|pre-chorus|hook|interlude|refrain)([^\]]*)\]$/i.test(
+      text,
+    )
+  ) {
+    return false;
+  }
   if (/^(把《.+》写成|写成一首|write .+ as a song|turn .+ into a song)/i.test(text)) return true;
   if (/^(保留|主歌先|副歌|结尾|让|避免|不要|先用|open with|keep the |let the |close the |push the |repeat the |describe )/i.test(text)) {
     return true;
@@ -309,9 +1469,57 @@ function isInstructionalLyricLineModule(line) {
   return false;
 }
 
-function extractDisplayLyricLinesModule(raw) {
-  return String(raw || "")
+function looksLikeVisualPromptSummaryModule(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return false;
+  const normalized = text.toLowerCase();
+  if (
+    /(camera:|lighting:|environment:|shot brief|visual role:|directing goals:|bars:|focus:|energy:)/i.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+  const lines = text
     .split("\n")
+    .map((line) => String(line || "").trim())
+    .filter(Boolean);
+  if (lines.length !== 1) return false;
+  const line = lines[0];
+  const commaCount = (line.match(/,/g) || []).length;
+  const wordCount = line.split(/\s+/).filter(Boolean).length;
+  const hasLyricPunctuation = /[。！？!?]/.test(line);
+  const promptTokens = [
+    "android",
+    "heroine",
+    "neon",
+    "memory loop",
+    "metallic",
+    "couture",
+    "desert",
+    "temple",
+    "ballroom",
+    "control room",
+    "mist",
+    "horizon",
+    "warrior",
+    "finale",
+    "opera,",
+  ];
+  const looksLikePrompt =
+    commaCount >= 3 &&
+    wordCount >= 6 &&
+    !hasLyricPunctuation &&
+    promptTokens.some((token) => normalized.includes(token));
+  return looksLikePrompt;
+}
+
+function extractDisplayLyricLinesModule(raw) {
+  const parts =
+    globalThis.splitLyricsTitleAndBodyModule?.("", raw) || {
+      bodyLines: String(raw || "").split("\n"),
+    };
+  return (Array.isArray(parts.bodyLines) ? parts.bodyLines : [])
     .map((line) => String(line || "").trim())
     .filter(Boolean)
     .filter((line) => !isInstructionalLyricLineModule(line));
@@ -320,14 +1528,11 @@ function extractDisplayLyricLinesModule(raw) {
 function buildDisplayLyricsPreviewTextModule(work = {}) {
   const lyricLines = workLyricsLinesModule(work);
   if (lyricLines.length) {
-    return lyricLines.join("\n");
+    return formatForyouLyricsDisplayModule(lyricLines);
   }
-  const title = String(work?.title || "").trim() || loginCopy("Untitled", "未命名");
+  const title = String(work?.title || "").trim() || loginCopy("Untitled");
   const style = String(work?.style || "").trim();
-  return loginCopy(
-    `${title}${style ? ` · ${style}` : ""}`,
-    `${title}${style ? ` · ${style}` : ""}`
-  );
+  return style ? `${title}\n${style}` : title;
 }
 
 function getWorkCommerceDetailsModule(workId) {
@@ -371,7 +1576,7 @@ function resolveViewerOrderStateModule(viewerOrders = []) {
 function renderUsageHistoryMarkupModule(entries = [], emptyCopy, limit = 8) {
   const rows = Array.isArray(entries) ? entries.slice(0, limit) : [];
   if (!rows.length) {
-    return `<div class="watch-activity-empty">${escapeHtml(emptyCopy || loginCopy("No action charge history yet.", "还没有动作收费历史。"))}</div>`;
+    return `<div class="watch-activity-empty">${escapeHtml(emptyCopy || loginCopy("No action charge history yet."))}</div>`;
   }
   return rows
     .map((entry) => {
@@ -380,13 +1585,13 @@ function renderUsageHistoryMarkupModule(entries = [], emptyCopy, limit = 8) {
       const actualCost = Number(entry?.cost_cents || 0);
       const blocked = String(entry?.meta?.blocked || "").trim();
       const title = blocked
-        ? `${billableActionLabelModule(actionKey)} · ${loginCopy("blocked", "已拦截")}`
+        ? `${billableActionLabelModule(actionKey)} · ${loginCopy("blocked")}`
         : billableActionLabelModule(actionKey);
       const detailParts = [
-        loginCopy(`Actual ${formatUsdFromCents(actualCost, "$0.00")}`, `实际 ${formatUsdFromCents(actualCost, "$0.00")}`),
-        loginCopy(`Estimate ${formatUsdFromCents(estimatedCost, "$0.00")}`, `估算 ${formatUsdFromCents(estimatedCost, "$0.00")}`),
-        entry?.meta?.covered_by ? loginCopy(`covered by ${entry.meta.covered_by}`, `覆盖方式 ${entry.meta.covered_by}`) : "",
-        blocked ? loginCopy(`reason ${blocked}`, `原因 ${blocked}`) : ""
+        loginCopy(`Actual ${formatUsdFromCents(actualCost, "$0.00")}`),
+        loginCopy(`Estimate ${formatUsdFromCents(estimatedCost, "$0.00")}`),
+        entry?.meta?.covered_by ? loginCopy(`covered by ${entry.meta.covered_by}`) : "",
+        blocked ? loginCopy(`reason ${blocked}`) : ""
       ].filter(Boolean);
       return `
         <div class="watch-activity-item">
@@ -401,17 +1606,17 @@ function renderUsageHistoryMarkupModule(entries = [], emptyCopy, limit = 8) {
 function billableActionLabelModule(actionKey = "") {
   const normalized = String(actionKey || "").trim().toLowerCase();
   const labels = {
-    lyrics_generate: loginCopy("Lyrics generate", "歌词生成"),
-    music_generate: loginCopy("Music generate", "音乐生成"),
-    video_generate: loginCopy("Video generate", "视频生成"),
-    thumbnail_regenerate: loginCopy("Thumbnail regenerate", "重生缩略图"),
-    preview_video_regenerate: loginCopy("Preview clip regenerate", "重生缩略视频"),
-    multi_language: loginCopy("Extra lyric language", "额外歌词语言"),
-    multi_voice: loginCopy("Extra voice lane", "额外声线"),
-    enterprise_route: loginCopy("Enterprise API route", "企业 API 路由"),
-    cinema_booking: loginCopy("Cinema booking", "电影级预约")
+    lyrics_generate: loginCopy("Lyrics generate"),
+    music_generate: loginCopy("Music generate"),
+    video_generate: loginCopy("Video generate"),
+    thumbnail_regenerate: loginCopy("Thumbnail regenerate"),
+    preview_video_regenerate: loginCopy("Preview clip regenerate"),
+    multi_language: loginCopy("Extra lyric language"),
+    multi_voice: loginCopy("Extra voice lane"),
+    enterprise_route: loginCopy("Enterprise API route"),
+    cinema_booking: loginCopy("Cinema booking")
   };
-  return labels[normalized] || normalized || loginCopy("Action", "动作");
+  return labels[normalized] || normalized || loginCopy("Action");
 }
 
 function resolveUsageActionKeyModule(entry = {}) {
@@ -431,12 +1636,12 @@ function getWorkMatchedUsageEventsModule(work = {}, entries = []) {
 function renderLedgerHistoryMarkupModule(entries = [], emptyCopy, limit = 8) {
   const rows = Array.isArray(entries) ? entries.slice(0, limit) : [];
   if (!rows.length) {
-    return `<div class="watch-activity-empty">${escapeHtml(emptyCopy || loginCopy("No ledger entries yet.", "还没有账本记录。"))}</div>`;
+    return `<div class="watch-activity-empty">${escapeHtml(emptyCopy || loginCopy("No ledger entries yet."))}</div>`;
   }
   return rows
     .map((entry) => `
       <div class="watch-activity-item">
-        <div class="watch-activity-title">${escapeHtml(String(entry?.note || entry?.kind || loginCopy("Ledger entry", "账本记录")))}</div>
+        <div class="watch-activity-title">${escapeHtml(String(entry?.note || entry?.kind || loginCopy("Ledger entry")))}</div>
         <div class="watch-activity-meta">${escapeHtml(`${formatUsdFromCents(Number(entry?.amount_cents || 0), "$0.00")} · ${formatDateTime(entry?.created_at)}`)}</div>
       </div>
     `)
@@ -446,29 +1651,41 @@ function renderLedgerHistoryMarkupModule(entries = [], emptyCopy, limit = 8) {
 function renderWorkCostBillMarkupModule(work = {}, entries = []) {
   const computeUnits = Math.max(0, Number(work?.compute_units_estimate || 0));
   const computeCost = Math.max(0, Number(work?.compute_cost_cents_estimate || 0));
-  const suggestedListen = Math.max(0, Number(work?.suggested_listen_price_cents || 0));
-  const suggestedBuyout = Math.max(0, Number(work?.suggested_buyout_price_cents || 0));
+  const suggestedListen = Math.max(99, Number(work?.suggested_listen_price_cents || 0));
+  const suggestedBuyout = Math.max(299, Number(work?.suggested_buyout_price_cents || 0));
   const historyMarkup = renderUsageHistoryMarkupModule(
     getWorkMatchedUsageEventsModule(work, entries),
-    loginCopy("This work does not yet have linked billable action rows.", "这个作品暂时还没有关联到动作计费明细。"),
+    loginCopy("This work does not yet have linked billable action rows."),
     4
   );
   return `
     <div class="work-billing-card">
-      <div class="work-billing-title">${loginCopy("Work cost bill", "作品成本账单")}</div>
+      <div class="work-billing-title">${loginCopy("Work cost bill")}</div>
       <div class="work-billing-grid">
-        <div class="work-billing-stat"><span>${loginCopy("Compute", "算力")}</span><strong>${escapeHtml(`${computeUnits}u`)}</strong></div>
-        <div class="work-billing-stat"><span>${loginCopy("Estimated cost", "估算成本")}</span><strong>${escapeHtml(formatUsdFromCents(computeCost, "$0.00"))}</strong></div>
-        <div class="work-billing-stat"><span>${loginCopy("Suggested listen", "建议聆听价")}</span><strong>${escapeHtml(formatUsdFromCents(suggestedListen, "$0.00"))}</strong></div>
-        <div class="work-billing-stat"><span>${loginCopy("Suggested buyout", "建议买断价")}</span><strong>${escapeHtml(formatUsdFromCents(suggestedBuyout, "$0.00"))}</strong></div>
+        <div class="work-billing-stat"><span>${loginCopy("Compute")}</span><strong>${escapeHtml(`${computeUnits}u`)}</strong></div>
+        <div class="work-billing-stat"><span>${loginCopy("Estimated cost")}</span><strong>${escapeHtml(formatUsdFromCents(computeCost, "$0.00"))}</strong></div>
+        <div class="work-billing-stat"><span>${loginCopy("Suggested listen")}</span><strong>${escapeHtml(formatUsdFromCents(suggestedListen, "$0.00"))}</strong></div>
+        <div class="work-billing-stat"><span>${loginCopy("Suggested buyout")}</span><strong>${escapeHtml(formatUsdFromCents(suggestedBuyout, "$0.00"))}</strong></div>
       </div>
-      <div class="work-extra">${escapeHtml(loginCopy("Pricing can be higher or lower than the system suggestion, but the cost bill stays visible for creators.", "你的定价可以高于或低于系统建议价，但创作者始终能看到这张成本账单。"))}</div>
+      <div class="work-extra">${escapeHtml(loginCopy("Pricing can be higher or lower than the system suggestion, but the cost bill stays visible for creators."))}</div>
       <div class="watch-activity compact">${historyMarkup}</div>
     </div>
   `;
 }
 
 function revealEnginePanelModule(engine) {
+  const showGenerationFlow =
+    readPanelBehaviorSettingsLocal()?.watch?.show_generation_flow === true;
+  const micBehavior = readPanelBehaviorSettingsLocal()?.mic || {};
+  const currentSurfaceMode = String(
+    globalThis.currentCreationSurfaceMode ||
+      micBehavior.settings_surface_mode ||
+      micBehavior.logo_surface_mode ||
+      "mv_only"
+  ).trim();
+  if (!showGenerationFlow && currentSurfaceMode !== "showcase") {
+    return;
+  }
   const panel =
     engine === "lyrics"
       ? lyricsPanel
@@ -520,9 +1737,49 @@ function getEngineProgressTitleModule(engine) {
   return getEngineProgressShellModule(engine)?.querySelector(".engine-progress-title") || null;
 }
 
+function poeticEngineTitleModule(engine) {
+  if (engine === "lyrics") return loginCopy("First Line");
+  if (engine === "music") return loginCopy("Hook Lift");
+  if (engine === "video") return loginCopy("Frame Relations");
+  if (engine === "kara") return loginCopy("Lyric Landing");
+  return String(engine || "").trim();
+}
+
+function syncPoeticEngineLabelsModule() {
+  const mapping = {
+    lyrics: "#lyrics-panel .panel-title",
+    music: "#music-panel .panel-title",
+    video: "#video-panel .panel-title",
+    kara: "#kara-progress-shell .engine-progress-title"
+  };
+  Object.entries(mapping).forEach(([engine, selector]) => {
+    const el = document.querySelector(selector);
+    if (el) {
+      el.textContent = poeticEngineTitleModule(engine);
+    }
+  });
+  ["lyrics", "music", "video"].forEach((engine) => {
+    const titleEl = getEngineProgressTitleModule(engine);
+    const shell = getEngineProgressShellModule(engine);
+    if (titleEl) {
+      const title = poeticEngineTitleModule(engine);
+      titleEl.textContent = title;
+      if (shell) shell.dataset.baseTitle = title;
+    }
+  });
+}
+
 function setEngineProgressVisibleModule(engine, visible, options = {}) {
   const shell = getEngineProgressShellModule(engine);
   if (!shell) return;
+  const showGenerationFlow = readPanelBehaviorSettingsLocal()?.watch?.show_generation_flow === true;
+  if (!showGenerationFlow) {
+    clearTimeout(engineProgressHideTimers[engine]);
+    engineProgressHideTimers[engine] = null;
+    shell.hidden = true;
+    shell.classList.remove("is-fading");
+    return;
+  }
   clearTimeout(engineProgressHideTimers[engine]);
   engineProgressHideTimers[engine] = null;
   const immediate = options?.immediate === true;
@@ -536,12 +1793,18 @@ function setEngineProgressVisibleModule(engine, visible, options = {}) {
     shell.classList.remove("is-fading");
     return;
   }
+  const hideDelayMs =
+    Number(options?.delayMs || 0) > 0
+      ? Number(options.delayMs)
+      : engine === "lyrics"
+        ? 3600
+        : 1400;
   shell.classList.add("is-fading");
   engineProgressHideTimers[engine] = setTimeout(() => {
     shell.hidden = true;
     shell.classList.remove("is-fading");
     engineProgressHideTimers[engine] = null;
-  }, 1400);
+  }, hideDelayMs);
 }
 
 function setEngineDetailModule(engine, detail) {
@@ -601,7 +1864,6 @@ function setEngineStateModule(engine, state) {
 
 function cycleEngineStateModule(engine) {
   if (engine === "lyrics") {
-    cycleLyricsState();
     return;
   }
   const state = engineStates[engine];
@@ -620,6 +1882,13 @@ function initEngineControlsModule() {
   document.querySelectorAll("[data-engine-progress]").forEach((shell) => {
     const engine = shell.getAttribute("data-engine-progress");
     if (!engine) return;
+    if (engine === "lyrics") {
+      shell.title = loginCopy(
+        "Lyrics engine status is view-only here to avoid accidental pause/cancel."
+      );
+      shell.style.cursor = "default";
+      return;
+    }
     shell.addEventListener("click", () => cycleEngineStateModule(engine));
   });
 }
@@ -634,6 +1903,7 @@ function resetEngineStatesModule() {
 
 function animateProgressModule() {
   clearInterval(progressTimer);
+  ensureWatchProgressRotatorModule();
   progressTimer = setInterval(() => {
     if (engineStates.lyrics === "running" && lyricsProgress) {
       const current = lyricsEl?.textContent?.length || 0;
@@ -646,17 +1916,18 @@ function animateProgressModule() {
       setProgress(karaProgress, engineProgressState.kara);
       syncSceneProgress(engineProgressState.video);
     }
-    if (typingState.completed) setEngineProgressVisibleModule("lyrics", false);
-    if (engineProgressState.music >= 100) setEngineProgressVisibleModule("music", false);
-    if (engineProgressState.video >= 100) setEngineProgressVisibleModule("video", false);
-    if (engineProgressState.kara >= 100) setEngineProgressVisibleModule("kara", false);
+    if (typingState.completed && !isLyricsProgressStillPinnedModule()) {
+      setEngineProgressVisibleModule("lyrics", true);
+    }
     syncWatchEngineGrid();
+    syncWatchProgressRotatorModule();
     maybeFinalizeForyouPresentationModule();
   }, 420);
 }
 
 function resetTypingStateModule() {
   typingState = { paused: false, canceled: false, completed: false };
+  globalThis.watchLyricsProgressPinnedUntil = 0;
   foryouCompletionCommitted = false;
   karaCompletionAt = 0;
   clearTimeout(foryouCompletionHoldTimer);
@@ -677,6 +1948,9 @@ function resetTypingStateModule() {
     lyricsEl.textContent = "";
     lyricsEl.scrollTop = 0;
   }
+  watchScreen?.classList.remove("is-live-border", "is-stalled");
+  watchScreen?.classList.add("is-waiting");
+  setWatchPlaybackUiSuppressedModule(false);
   enterLyricSpellcast();
   setEngineProgressVisibleModule("lyrics", true, { immediate: true });
   setEngineProgressVisibleModule("music", false, { immediate: true });
@@ -693,33 +1967,29 @@ function resetTypingStateModule() {
   if (lyricsProgress) setProgress(lyricsProgress, 0);
   revealEnginePanelModule("lyrics");
   syncWatchEngineGrid();
+  ensureWatchProgressRotatorModule();
   renderWatchKaraokeOverlay(0);
+  watchProgressStageKey = "lyrics";
+  watchProgressLastFingerprint = "";
+  watchProgressLastChangeAt = Date.now();
+}
+
+function pinLyricsProgressVisibilityModule(ms = 3600) {
+  globalThis.watchLyricsProgressPinnedUntil = Date.now() + Math.max(800, Number(ms) || 3600);
+}
+
+function isLyricsProgressStillPinnedModule() {
+  return Number(globalThis.watchLyricsProgressPinnedUntil || 0) > Date.now();
 }
 
 function cycleLyricsStateModule() {
-  if (!lyricsEl || typingState.canceled) return;
-  if (!typingState.paused) {
-    typingState.paused = true;
-    lyricsEl.classList.add("paused");
-    setEngineStateModule("lyrics", "paused");
-    setEngineDetailModule("lyrics", "stage: paused");
-    showToast("Lyrics paused");
-    return;
-  }
-  typingState.canceled = true;
-  lyricsEl.classList.remove("paused");
-  lyricsEl.classList.add("canceled");
-  clearTimeout(typingTimer);
-  setEngineProgressVisibleModule("lyrics", false);
-  exitLyricSpellcast(true);
-  setEngineStateModule("lyrics", "canceled");
-  setEngineDetailModule("lyrics", "stage: canceled");
-  showToast("Lyrics canceled");
+  if (!lyricsEl) return;
+  showToast(t("watch.toast.lyricsLocked"));
 }
 
 function initLyricsControlsModule() {
   if (!lyricsEl) return;
-  lyricsEl.addEventListener("click", cycleLyricsStateModule);
+  lyricsEl.title = t("watch.tooltip.lyricsReadonly");
 }
 
 function setProgressModule(el, value) {
@@ -728,66 +1998,335 @@ function setProgressModule(el, value) {
 }
 
 function currentLyricsProgressPercentModule() {
+  const requestState = globalThis.lyricsSeedRequestState || {};
+  const hasSeedLyrics =
+    (globalThis.hasCanonicalLyricsBodyLinesModule?.(
+      String(state.songSeed?.title || state.title || "").trim(),
+      state.songSeed?.lyrics || watchLyricsEditor?.value || lyricsInput?.value || "",
+      2
+    ) ?? false);
+  if (typingState.completed || isWatchLyricsReadyModule() || hasSeedLyrics) {
+    return 100;
+  }
   const current = lyricsEl?.textContent?.length || 0;
+  if (requestState.pending && !lyricsTargetLength && current <= 0) {
+    return 0;
+  }
   return lyricsTargetLength ? Math.min(100, (current / lyricsTargetLength) * 100) : 0;
 }
 
 function syncWatchEngineGridModule() {
   if (!watchEngineGrid) return;
-  clearChildren(watchEngineGrid);
+  const showGenerationFlow = readPanelBehaviorSettingsLocal()?.watch?.show_generation_flow === true;
+  watchEngineGrid.hidden = !showGenerationFlow;
+  if (!showGenerationFlow) {
+    clearChildren(watchEngineGrid);
+    return;
+  }
+  syncPoeticEngineLabelsModule();
   const behavior = readPanelBehaviorSettingsLocal();
   const compactDetail = behavior.watch.engine_detail === "compact";
+  const watchTone = ["opening", "lead", "group", "callback"].includes(String(globalThis.watchNarrativeTone || "").trim())
+    ? String(globalThis.watchNarrativeTone || "").trim()
+    : "opening";
   const cards = [
     {
       engine: "lyrics",
-      title: loginCopy("Lyrics Engine", "歌词引擎"),
+      title: poeticEngineTitleModule("lyrics"),
       progress: currentLyricsProgressPercentModule(),
-      detail: engineDetailState.lyrics || loginCopy("Waiting", "等待中")
+      detail: engineDetailState.lyrics || loginCopy("Waiting"),
+      hue: 145
     },
     {
       engine: "music",
-      title: loginCopy("Audio Engine", "音频引擎"),
+      title: poeticEngineTitleModule("music"),
       progress: engineProgressState.music,
-      detail: engineDetailState.music || loginCopy("Waiting", "等待中")
+      detail: engineDetailState.music || loginCopy("Waiting"),
+      hue: 210
     },
     {
       engine: "video",
-      title: loginCopy("Video Engine", "视频引擎"),
+      title: poeticEngineTitleModule("video"),
       progress: engineProgressState.video,
-      detail: engineDetailState.video || loginCopy("Waiting", "等待中")
+      detail: engineDetailState.video || loginCopy("Waiting"),
+      hue: 290
     },
     {
       engine: "kara",
-      title: loginCopy("Karaoke Sync", "卡拉 OK 同步"),
+      title: poeticEngineTitleModule("kara"),
       progress: engineProgressState.kara,
-      detail: engineDetailState.kara || loginCopy("Waiting", "等待中")
+      detail: engineDetailState.kara || loginCopy("Waiting"),
+      hue: 36
     }
   ];
-  cards.forEach((cardInfo) => {
-    const card = document.createElement("div");
-    card.className = "watch-engine-card";
-    const title = document.createElement("div");
-    title.className = "watch-engine-title";
-    title.textContent = cardInfo.title;
-    const progress = document.createElement("div");
-    progress.className = "watch-engine-progress";
-    const fill = document.createElement("span");
-    fill.style.width = `${Math.round(clampPercent(cardInfo.progress || 0))}%`;
-    progress.appendChild(fill);
-    const detail = document.createElement("div");
-    detail.className = "watch-engine-detail";
-    detail.textContent = cardInfo.detail;
-    if (compactDetail) detail.hidden = true;
-    card.appendChild(title);
-    card.appendChild(progress);
-    card.appendChild(detail);
-    watchEngineGrid.appendChild(card);
+  // CSSOS_PHASE2_WATCH_ENGINE_LIVE 20260420 — mutate existing cards in place
+  // instead of clearChildren+rebuild, so the CSS `transition: width` on the
+  // fill bar actually animates between progress values. This makes the
+  // engine cards feel real-time like the notifications panel even when the
+  // server-side progress poll only ticks every ~1.2s.
+  cards.forEach((cardInfo, idx) => {
+    let card = watchEngineGrid.children[idx];
+    if (!card || card.dataset.engine !== cardInfo.engine) {
+      card = document.createElement("div");
+      card.dataset.engine = cardInfo.engine;
+      card.innerHTML =
+        '<div class="watch-engine-title"></div>' +
+        '<div class="watch-engine-progress"><span></span></div>' +
+        '<div class="watch-engine-detail"></div>';
+      if (watchEngineGrid.children[idx]) {
+        watchEngineGrid.replaceChild(card, watchEngineGrid.children[idx]);
+      } else {
+        watchEngineGrid.appendChild(card);
+      }
+    }
+    const pct = Math.round(clampPercent(cardInfo.progress || 0));
+    const done = pct >= 100;
+    card.className = `watch-engine-card tone-${watchTone}${done ? " is-done" : ""}`;
+    card.style.setProperty("--watch-engine-hue", String(cardInfo.hue));
+    const titleEl = card.querySelector(".watch-engine-title");
+    const progressEl = card.querySelector(".watch-engine-progress");
+    const fillEl = progressEl?.querySelector("span");
+    const detailEl = card.querySelector(".watch-engine-detail");
+    if (titleEl) {
+      const titleText = `${cardInfo.title}`;
+      if (titleEl.firstChild?.nodeType === 3) {
+        if (titleEl.firstChild.nodeValue !== titleText) titleEl.firstChild.nodeValue = titleText;
+      } else {
+        titleEl.textContent = titleText;
+      }
+      // Live percentage badge — mirrors the tabular-nums readout the
+      // notifications panel shows at the right edge of its bars.
+      let pctEl = titleEl.querySelector(".watch-engine-percent");
+      if (!pctEl) {
+        pctEl = document.createElement("span");
+        pctEl.className = "watch-engine-percent";
+        titleEl.appendChild(pctEl);
+      }
+      const pctLabel = `${pct}%`;
+      if (pctEl.textContent !== pctLabel) pctEl.textContent = pctLabel;
+    }
+    if (fillEl) {
+      const nextWidth = `${pct}%`;
+      if (fillEl.style.width !== nextWidth) fillEl.style.width = nextWidth;
+    }
+    if (detailEl) {
+      const nextDetail = String(cardInfo.detail || "");
+      if (detailEl.textContent !== nextDetail) detailEl.textContent = nextDetail;
+      detailEl.hidden = !!compactDetail;
+    }
   });
+  // If there are stale extra children (e.g., after a behavior-setting toggle),
+  // trim them so the grid stays exactly 4 cards.
+  while (watchEngineGrid.children.length > cards.length) {
+    watchEngineGrid.removeChild(watchEngineGrid.lastChild);
+  }
+  syncWatchProgressRotatorModule();
+}
+
+// CSSOS_PHASE2_P2_96_SUBTITLE_WEIGHT 20260424 #96 — classify a cue word
+// as low-weight (function/particle/article) vs high-weight (content:
+// noun/verb/adjective) for the line-split rendering below. Jing's spec
+// says "樱花","盛开","季节" are HIGH while "在那","的" are LOW, and the
+// two classes must render on separate lines. We treat unknown tokens as
+// HIGH by default (most content words won't be in the particle set, and
+// rendering them too-small is worse than rendering them too-large).
+const CSSMV_LOW_WEIGHT_CN = new Set([
+  "的","了","在","是","和","与","也","就","都","把","被","从","到","让","使",
+  "在那","那里","这里","那儿","这儿","那","这","之","其","于","对","向","给",
+  "个","些","过","么","呢","吧","吗","啊","哎","哦","哈","嗯","呀","耶",
+  "不","没","没有","而","但","但是","虽然","如果","因为","所以","然后","就是",
+  "有","又","还","再","很","太","最","只","只是","更","会","要","能","可以",
+  "他","她","它","我","你","您","他们","她们","它们","我们","你们","咱们",
+  "一","二","三","四","五","六","七","八","九","十","两",
+]);
+const CSSMV_LOW_WEIGHT_EN = new Set([
+  "the","a","an","of","in","at","on","to","for","and","or","but","nor","yet",
+  "is","are","was","were","be","been","being","am","'s","'re","'m","'ve","'ll",
+  "i","you","he","she","it","we","they","me","him","her","us","them",
+  "my","your","his","hers","its","our","their","mine","yours","ours","theirs",
+  "this","that","these","those","there","here","where","when","who","which",
+  "with","by","from","as","if","than","then","so","too","very","just","do","does",
+  "not","no","don't","doesn't","didn't","won't","can't","cannot",
+  "up","down","out","off","over","under","into","onto","about","above","below",
+]);
+function cssmvIsLowWeightWord(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return true;
+  // Pure punctuation / whitespace → low
+  if (/^[\s\p{P}\p{S}]+$/u.test(raw)) return true;
+  const lower = raw.toLowerCase();
+  if (CSSMV_LOW_WEIGHT_EN.has(lower)) return true;
+  if (CSSMV_LOW_WEIGHT_CN.has(raw)) return true;
+  // Single CJK character that's a known particle
+  if (raw.length === 1 && /[\u4e00-\u9fff]/.test(raw) && CSSMV_LOW_WEIGHT_CN.has(raw)) return true;
+  return false;
 }
 
 function renderWatchKaraokeOverlayModule(progress = 0) {
   if (!watchKaraokeLine) return;
-  const lines = compactLyricLines(state.lines || []).filter(Boolean);
+  const karaokeTimeline = Array.isArray(watchKaraokeTimelineCache?.data) ? watchKaraokeTimelineCache.data : [];
+  const titleSplit = globalThis.splitLyricsTitleAndBodyModule?.(
+    String(state.songSeed?.title || state.title || "").trim(),
+    watchLyricsEditor?.value || state.songSeed?.lyrics || state.lines || []
+  ) || { titleLine: "", bodyLines: [] };
+  const titleLine = String(titleSplit?.titleLine || "").trim();
+  const synthesizeCueWords = (cue) => {
+    const text = String(cue?.text || "").trim();
+    if (!text) return [];
+    const parts = /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(text)
+      ? text.split("").filter(Boolean)
+      : text.split(/(\s+)/).filter((part) => String(part || "").trim());
+    const start = Number(cue?.start_s || 0);
+    const end = Math.max(start + 0.35, Number(cue?.end_s || start + 2.4));
+    const step = (end - start) / Math.max(1, parts.length);
+    return parts.map((part, index) => {
+      const lower = String(part || "").toLowerCase();
+      const emotion =
+        /fire|ignite|burn|rise|shout|chorus/.test(lower) ? "ignite" :
+        /dream|moon|night|echo|whisper|glow/.test(lower) ? "resolve" :
+        /grief|lost|alone|tear|shadow/.test(lower) ? "intimate" :
+        "";
+      const emphasis =
+        /!|fire|ignite|burn|rise|shout|chorus/.test(lower) ? 0.98 :
+        /dream|moon|night|echo|whisper|glow/.test(lower) ? 0.72 :
+        /grief|lost|alone|tear|shadow/.test(lower) ? 0.56 : 0.34;
+      return {
+        text: part,
+        start_s: Number((start + index * step).toFixed(3)),
+        end_s: Number((start + (index + 1) * step).toFixed(3)),
+        emotion,
+        emphasis
+      };
+    });
+  };
+  const mediaClockSec = Number.isFinite(watchAudioPreview?.currentTime)
+    ? Number(watchAudioPreview.currentTime || 0)
+    : Number.isFinite(watchVideo?.currentTime)
+      ? Number(watchVideo.currentTime || 0)
+      : 0;
+  if (karaokeTimeline.length) {
+    const activeIndex = Math.max(
+      0,
+      karaokeTimeline.findIndex((cue) => mediaClockSec >= Number(cue?.start_s || 0) && mediaClockSec <= Number(cue?.end_s || 0))
+    );
+    const resolvedIndex =
+      activeIndex >= 0
+        ? activeIndex
+        : karaokeTimeline.findIndex((cue) => Number(cue?.start_s || 0) > mediaClockSec);
+    const currentIndex =
+      resolvedIndex >= 0
+        ? resolvedIndex
+        : Math.max(0, karaokeTimeline.length - 1);
+    const prevCue = karaokeTimeline[Math.max(0, currentIndex - 1)] || null;
+    let currentCue = karaokeTimeline[currentIndex] || karaokeTimeline[0] || null;
+    const nextCue = karaokeTimeline[Math.min(karaokeTimeline.length - 1, currentIndex + 1)] || null;
+    const cueWords =
+      Array.isArray(currentCue?.words) && currentCue.words.length
+        ? currentCue.words
+        : synthesizeCueWords(currentCue);
+    const cueText = String(currentCue?.text || "").trim();
+    if (cueText === titleLine) {
+      const nextPlayableCue =
+        karaokeTimeline.slice(currentIndex + 1).find((cue) => String(cue?.text || "").trim() && String(cue?.text || "").trim() !== titleLine) ||
+        karaokeTimeline.find((cue) => String(cue?.text || "").trim() && String(cue?.text || "").trim() !== titleLine) ||
+        null;
+      if (nextPlayableCue) {
+        currentCue = nextPlayableCue;
+      }
+    }
+    const resolvedCueText = String(currentCue?.text || "").trim();
+    const cueEmotion = String(currentCue?.emotion || currentCue?.mood || currentCue?.tone || "").trim().toLowerCase();
+    const inferredEmotion = cueEmotion ||
+      (/fire|ignite|burn|rise|shout|chorus/i.test(resolvedCueText) ? "surge" :
+      /dream|moon|night|echo|whisper|glow/i.test(resolvedCueText) ? "dream" :
+      /grief|lost|alone|tear|shadow/i.test(resolvedCueText) ? "hush" : "steady");
+    const activeWordIndex = Array.isArray(cueWords)
+      ? cueWords.findIndex((word) => mediaClockSec >= Number(word?.start_s || 0) && mediaClockSec <= Number(word?.end_s || 0))
+      : -1;
+    // CSSOS_PHASE2_KARAOKE_FONT_PERSIST 20260420 #85 — pick a per-word font
+    // from the overlay module's cached piece→font map. The map is invalidated
+    // only on ✦ shuffle, so fonts stay stable across timeupdate-driven rebuilds
+    // instead of bouncing between per-token and single-preset every frame.
+    const pickPieceFont = (typeof globalThis.cssmvAssignFontForPiece === "function")
+      ? globalThis.cssmvAssignFontForPiece
+      : null;
+    // CSSOS_PHASE2_P2_96_SUBTITLE_WEIGHT 20260424 #96 — build one span
+    // per word as before, then group consecutive same-weight spans into
+    // <div class="watch-karaoke-row is-weight-high|low"> runs so that
+    // high-weight (content: 樱花/盛开/季节) and low-weight (function:
+    // 在那/的) never share a line. Styling lives in the media-overlays
+    // injected stylesheet (.watch-karaoke-row.is-weight-high/low).
+    const renderedCurrent = (() => {
+      if (!(Array.isArray(cueWords) && cueWords.length)) {
+        return escapeHtml(resolvedCueText);
+      }
+      const wordSpans = cueWords.map((word, index) => {
+        const sung = mediaClockSec >= Number(word?.end_s || 0);
+        const active =
+          activeWordIndex >= 0
+            ? index === activeWordIndex
+            : mediaClockSec >= Number(word?.start_s || 0) && mediaClockSec <= Number(word?.end_s || 0);
+        const cls = ["watch-karaoke-word"];
+        const emotion = String(word?.emotion || "").trim().toLowerCase();
+        const emphasis = Math.max(0, Math.min(1, Number(word?.emphasis || 0) || 0));
+        const beatWeight = Math.max(
+          emphasis,
+          active ? watchMusicLiveEnergy * 0.72 + watchMusicLivePeak * 0.28 : emphasis * 0.7,
+        );
+        if (sung) cls.push("is-sung");
+        if (active) cls.push("is-active");
+        if (emotion) cls.push(`is-${emotion}`);
+        const wordText = String(word?.text || "");
+        const fam = pickPieceFont ? pickPieceFont(wordText) : "";
+        const famCss = fam ? `;font-family:&quot;${String(fam).replace(/"/g, "&quot;")}&quot;, var(--watch-title-font-family, inherit)` : "";
+        const isLow = cssmvIsLowWeightWord(wordText);
+        return {
+          html: `<span class="${cls.join(" ")}" style="--karaoke-word-emphasis:${emphasis.toFixed(3)};--karaoke-word-beat:${beatWeight.toFixed(3)}${famCss}">${escapeHtml(wordText)}</span>`,
+          weight: isLow ? "low" : "high",
+        };
+      });
+      // Group consecutive same-weight spans into rows. Every row is a
+      // block-level <div> so the browser forces a line break between a
+      // high-weight run and a low-weight run, which is exactly what
+      // Jing's "必须另起一行" spec requires.
+      const rows = [];
+      for (const span of wordSpans) {
+        const last = rows[rows.length - 1];
+        if (last && last.weight === span.weight) last.html += span.html;
+        else rows.push({ weight: span.weight, html: span.html });
+      }
+      return rows
+        .map((row) => `<div class="watch-karaoke-row is-weight-${row.weight}">${row.html}</div>`)
+        .join("");
+    })();
+    watchKaraokeLine.dataset.emotion = inferredEmotion;
+    watchSubtitle?.setAttribute("data-emotion", inferredEmotion);
+    watchKaraokeLine.innerHTML = `
+      ${prevCue && prevCue !== currentCue && String(prevCue?.text || "").trim() !== titleLine ? `<div class="watch-karaoke-prev">${escapeHtml(String(prevCue?.text || ""))}</div>` : ""}
+      <div class="watch-karaoke-current ${mediaClockSec > 0 ? "is-active" : ""} is-${escapeHtml(inferredEmotion)}">${renderedCurrent}</div>
+      ${nextCue && nextCue !== currentCue && String(nextCue?.text || "").trim() !== titleLine ? `<div class="watch-karaoke-next">${escapeHtml(String(nextCue?.text || ""))}</div>` : ""}
+    `;
+    // CSSOS_PHASE2_SUBTITLE_LYRIC_WRITE 20260426 #133 — Jing
+    // "请继续修复普通字幕，放在媒体框底部中间…一句歌词，一行字幕"
+    // The active sung lyric only used to land in #watch-karaoke-line. The
+    // bottom-center #watch-subtitle stayed empty (or got cleared by the
+    // status-redirect MutationObserver), so the user never saw a real
+    // single-line subtitle. Push the plain text of the currently-singing
+    // cue here too, tagged with `data-cssmv-origin="lyric"` so the redirect
+    // observer in app.watch-media-layout-p2100.js bypasses its
+    // looksLikeStatus filter and doesn't strip the lyric.
+    if (watchSubtitle) {
+      const oneLine = String(resolvedCueText || "").replace(/\s*\n+\s*/g, " ").trim();
+      watchSubtitle.dataset.cssmvOrigin = "lyric";
+      if (watchSubtitle.textContent !== oneLine) {
+        watchSubtitle.textContent = oneLine;
+      }
+    }
+    return;
+  }
+  const lines = compactLyricLines(state.lines || [])
+    .filter(Boolean)
+    .filter((line) => String(line || "").trim() !== titleLine);
   if (!lines.length) {
     watchKaraokeLine.innerHTML = "";
     return;
@@ -797,11 +2336,26 @@ function renderWatchKaraokeOverlayModule(progress = 0) {
   const prev = lines[Math.max(0, currentIndex - 1)] || "";
   const current = lines[currentIndex] || lines[0] || "";
   const next = lines[Math.min(lines.length - 1, currentIndex + 1)] || "";
+  const inferredEmotion =
+    /fire|ignite|burn|rise|shout|chorus/i.test(current) ? "surge" :
+    /dream|moon|night|echo|whisper|glow/i.test(current) ? "dream" :
+    /grief|lost|alone|tear|shadow/i.test(current) ? "hush" : "steady";
+  watchKaraokeLine.dataset.emotion = inferredEmotion;
+  watchSubtitle?.setAttribute("data-emotion", inferredEmotion);
   watchKaraokeLine.innerHTML = `
     ${prev && prev !== current ? `<div class="watch-karaoke-prev">${escapeHtml(prev)}</div>` : ""}
-    <div class="watch-karaoke-current ${normalizedProgress > 0 ? "is-active" : ""}">${escapeHtml(current)}</div>
+    <div class="watch-karaoke-current ${normalizedProgress > 0 ? "is-active" : ""} is-${escapeHtml(inferredEmotion)}">${escapeHtml(current)}</div>
     ${next && next !== current ? `<div class="watch-karaoke-next">${escapeHtml(next)}</div>` : ""}
   `;
+  // CSSOS_PHASE2_SUBTITLE_LYRIC_WRITE 20260426 #133 — see explanation above
+  // the cueWords branch. Same fix on the no-word-timing fallback path.
+  if (watchSubtitle) {
+    const oneLine = String(current || "").replace(/\s*\n+\s*/g, " ").trim();
+    watchSubtitle.dataset.cssmvOrigin = "lyric";
+    if (watchSubtitle.textContent !== oneLine) {
+      watchSubtitle.textContent = oneLine;
+    }
+  }
 }
 
 function hasWatchExplicitPreviewIntent() {
@@ -879,9 +2433,6 @@ const DEMO_MV_FILES = [
   "mirror-video.MP4"
 ];
 const DEMO_AUDIO_FILES = [
-  "Nvwa.and.the.Sundering.of.Chaos.wav",
-  "The.Mount.Hermon.Oath.wav",
-  "The.Cleaving.of.Chaos.混沌之破.wav",
   "Brothers.Sacred.Song.我替你挡住世界.mp3",
   "Cai.Wei.采薇.mp3",
   "The.Arrival.at.the.Celestial.Court .登天庭问道.mp3",
@@ -936,7 +2487,7 @@ const getDemoAudioFiles = async () => {
       const res = await fetch(url, { cache: "no-store" });
       if (!res.ok) continue;
       const data = await res.json();
-      const audioFiles = normalizeDemoManifestEntries(data).filter((entry) => /\.(wav|mp3|m4a|aac|flac|ogg)$/i.test(entry.name));
+      const audioFiles = normalizeDemoManifestEntries(data).filter((entry) => /\.(mp3|m4a|aac|ogg)$/i.test(entry.name));
       if (audioFiles.length) {
         demoAudioCache = audioFiles;
         return demoAudioCache;
@@ -1007,7 +2558,7 @@ const playDemoMV = async () => {
 };
 
 const playDemoMedia = () => {
-  useLocalWatchVideoFallbackModule(state.title, `${state.style} ${state.voice} cinematic mv`);
+  syncWatchPlaceholderFromCurrentState();
   showToast(t("mic.generation_failed_playing_demo"));
 };
 
@@ -1019,10 +2570,582 @@ function resolvePreferredWatchOpenTab(fallback = "mv") {
   return "mv";
 }
 
+function flattenWatchPlaybackWorksModule(work = {}) {
+  if (!work || typeof work !== "object") return [];
+  const children = Array.isArray(work.children) ? work.children : [];
+  if (!children.length) return [work];
+  const flattenedChildren = children.flatMap((child) => flattenWatchPlaybackWorksModule(child));
+  return flattenedChildren.length ? flattenedChildren : [work];
+}
+
+function sortWatchWorksNewestFirstModule(works = []) {
+  return [...(Array.isArray(works) ? works : [])].sort((left, right) => {
+    const leftTime = Date.parse(String(left?.updated_at || left?.created_at || "")) || 0;
+    const rightTime = Date.parse(String(right?.updated_at || right?.created_at || "")) || 0;
+    if (rightTime !== leftTime) return rightTime - leftTime;
+    return String(right?.title || "").localeCompare(String(left?.title || ""));
+  });
+}
+
+function getLatestOwnedPlaybackQueueModule() {
+  const works = Array.isArray(watchCommerceState?.payload?.ownership?.works)
+    ? watchCommerceState.payload.ownership.works
+    : [];
+  const flattened = sortWatchWorksNewestFirstModule(
+    works.flatMap((work) => flattenWatchPlaybackWorksModule(work)).filter(Boolean)
+  );
+  if (!flattened.length) return null;
+  return {
+    rootWork: { title: loginCopy("Latest works") },
+    items: flattened.map((item) => ({ ...(item || {}) })),
+    index: 0
+  };
+}
+
+async function openLatestOwnedWorkPreviewModule() {
+  const creationBusy = !!globalThis.isCreationBusyModule?.();
+  const lyricsPending = !!globalThis.lyricsSeedRequestState?.pending;
+  if (creationBusy || lyricsPending || hasBlockingWatchSeedModule()) return false;
+  if (!watchCommerceState.loaded && !watchCommerceState.loading && authState.user) {
+    await loadWatchCommerceStateModule?.().catch(() => null);
+  }
+  const queue = getLatestOwnedPlaybackQueueModule();
+  if (!queue?.items?.length) return false;
+  globalThis.currentStructuredWatchQueue = queue;
+  const latestWork = queue.items[0];
+  currentWatchPreviewWork = latestWork;
+  const sourceRunId = String(latestWork?.source_run_id || "").trim();
+  if (sourceRunId) currentWatchAudioRunId = sourceRunId;
+  await renderMarketWorkPreviewIntoWatchModule({
+    work: latestWork,
+    seed: buildMarketPreviewSeed(latestWork),
+    previewUnlimited: canBypassPreviewLimit(authState.user, latestWork)
+  });
+  return true;
+}
+
+function isTeslaWatchEnvironmentModule() {
+  const ua = String(navigator?.userAgent || "").toLowerCase();
+  return ua.includes("tesla") || ua.includes("qtcarbrowser");
+}
+
+function isMobileWatchEnvironmentModule() {
+  try {
+    const hint = navigator?.userAgentData?.mobile;
+    if (typeof hint === "boolean") return hint;
+  } catch (_err) {
+    // userAgentData unsupported — fall through to UA sniff.
+  }
+  const ua = String(navigator?.userAgent || "").toLowerCase();
+  if (!ua) return false;
+  if (/iphone|ipod/.test(ua)) return true;
+  if (/ipad/.test(ua)) return true;
+  if (/android/.test(ua) && /mobile|tablet/.test(ua)) return true;
+  if (/blackberry|bb10|meego|mobile|silk|webos|opera mini|opera mobi|windows phone/.test(ua)) return true;
+  // iPadOS 13+ reports as Mac; detect via touch.
+  if (/macintosh/.test(ua) && typeof navigator?.maxTouchPoints === "number" && navigator.maxTouchPoints > 1) return true;
+  return false;
+}
+
+function isAutoplayRestrictedWatchEnvironmentModule() {
+  return isTeslaWatchEnvironmentModule() || isMobileWatchEnvironmentModule();
+}
+globalThis.isAutoplayRestrictedWatchEnvironmentModule = isAutoplayRestrictedWatchEnvironmentModule;
+
+function setWatchDetailsRevealModule(revealed) {
+  watchDetailsReveal = revealed === true;
+  if (!watchPanel) return;
+  const body = watchPanel.querySelector(".watch-body");
+  if (!(body instanceof HTMLElement)) return;
+  body.classList.toggle("watch-details-revealed", watchDetailsReveal);
+  body.classList.toggle("watch-immersive", !watchDetailsReveal);
+}
+
+function markWatchAutoRecoveryAttemptModule(stageKey = "") {
+  watchAutoRecoveryKey = `${String(currentWatchAudioRunId || activePipelineRunId || pendingFinalAudioRunId || state.title || "default").trim()}::${String(stageKey || "").trim()}`;
+  watchAutoRecoveryStartedAt = Date.now();
+}
+
+function canAutoRecoverWatchStageModule(stageKey = "") {
+  const nextKey = `${String(currentWatchAudioRunId || activePipelineRunId || pendingFinalAudioRunId || state.title || "default").trim()}::${String(stageKey || "").trim()}`;
+  if (!nextKey.trim()) return false;
+  if (watchAutoRecoveryKey !== nextKey) return true;
+  return Date.now() - watchAutoRecoveryStartedAt > 30000;
+}
+
+async function autoRecoverWatchStageModule(stageKey = "lyrics") {
+  if (!canAutoRecoverWatchStageModule(stageKey)) return false;
+  markWatchAutoRecoveryAttemptModule(stageKey);
+  return continueWatchGenerationStageModule(stageKey);
+}
+
+function scrollWatchBodyToActiveMediaFrameModule({ behavior = "auto" } = {}) {
+  if (!watchPanel) return;
+  const body = watchPanel.querySelector(".watch-body");
+  if (!(body instanceof HTMLElement)) return;
+  const target = body.querySelector(
+    '.watch-pane.active .watch-frame, .watch-pane.active .watch-music-stage'
+  );
+  if (!(target instanceof HTMLElement)) return;
+  const nextTop = Math.max(0, target.offsetTop - 8);
+  if (typeof body.scrollTo === "function") {
+    body.scrollTo({ top: nextTop, behavior });
+    return;
+  }
+  body.scrollTop = nextTop;
+}
+
+function initWatchImmersiveScrollModule() {
+  const body = watchPanel?.querySelector(".watch-body");
+  if (!(body instanceof HTMLElement) || body.dataset.immersiveBound === "true") return;
+  body.dataset.immersiveBound = "true";
+  setWatchDetailsRevealModule(false);
+  scrollWatchBodyToActiveMediaFrameModule();
+  body.addEventListener("wheel", (event) => {
+    if (Math.abs(Number(event.deltaY || 0)) < 12) return;
+    setWatchDetailsRevealModule(Number(event.deltaY || 0) < 0);
+  }, { passive: true });
+  body.addEventListener("touchstart", (event) => {
+    watchTouchStartY = Number(event.touches?.[0]?.clientY || 0);
+  }, { passive: true });
+  body.addEventListener("touchmove", (event) => {
+    const nextY = Number(event.touches?.[0]?.clientY || 0);
+    if (!nextY || !watchTouchStartY) return;
+    const delta = nextY - watchTouchStartY;
+    if (Math.abs(delta) < 14) return;
+    setWatchDetailsRevealModule(delta > 0);
+  }, { passive: true });
+}
+
+function getWatchProgressCardsModule() {
+  return [
+    {
+      key: "lyrics",
+      label: loginCopy("Lyrics generation"),
+      progress: currentLyricsProgressPercentModule(),
+      done: typingState.completed && !isLyricsProgressStillPinnedModule()
+    },
+    {
+      key: "music",
+      label: loginCopy("Music generation"),
+      progress: engineProgressState.music,
+      done: Number(engineProgressState.music || 0) >= 100
+    },
+    {
+      key: "video",
+      label: loginCopy("Video generation"),
+      progress: engineProgressState.video,
+      done: Number(engineProgressState.video || 0) >= 100
+    },
+    {
+      key: "kara",
+      label: loginCopy("MV render"),
+      progress: engineProgressState.kara,
+      done: Number(engineProgressState.kara || 0) >= 100
+    }
+  ].filter((entry) => !entry.done);
+}
+
+function getActiveWatchProgressCardModule() {
+  const allCards = [
+    {
+      key: "lyrics",
+      label: t("watch.progress.lyrics").replace(/\s*0%$/, ""),
+      progress: currentLyricsProgressPercentModule(),
+      done:
+        (typingState.completed && !isLyricsProgressStillPinnedModule()) ||
+        (currentLyricsProgressPercentModule() >= 100 && !isLyricsProgressStillPinnedModule())
+    },
+    {
+      key: "music",
+      label: t("watch.progress.music"),
+      progress: engineProgressState.music,
+      done: Number(engineProgressState.music || 0) >= 100
+    },
+    {
+      key: "video",
+      label: t("watch.progress.video"),
+      progress: engineProgressState.video,
+      done: Number(engineProgressState.video || 0) >= 100
+    },
+    {
+      key: "kara",
+      label: t("watch.progress.kara"),
+      progress: engineProgressState.kara,
+      done: Number(engineProgressState.kara || 0) >= 100
+    }
+  ];
+  const liveCards = allCards.filter((entry) => !entry.done);
+  if (!liveCards.length) return null;
+  // CSSOS_PHASE2_HEADERPCT 20260420 — prefer stages that have actually
+  // started (progress > 0) so the rotator can never land on a zeroed stage
+  // while other stages are already reporting realtime progress. If none of
+  // the non-done stages have started yet, fall back to the full list.
+  const startedCards = liveCards.filter(
+    (entry) => Number(entry.progress || 0) > 0
+  );
+  const pool = startedCards.length ? startedCards : liveCards;
+  const rotateIndex = Math.floor(Date.now() / WATCH_PROGRESS_ROTATE_MS) % pool.length;
+  return pool[rotateIndex] || pool[0] || null;
+}
+
+function broadcastWatchProgressToNotificationsModule(stageLabel = "") {
+  const runId = String(getCurrentInFlightWatchRunIdModule() || "").trim();
+  if (!runId) return;
+  // Resolve the 6-stage progress snapshot once; we dispatch it to the
+  // notifications panel AND push it directly into the chase-border stage
+  // bars so the two panels always agree even if the MV-pipeline panel
+  // state machine is idle or out of sync.
+  const stageProgress = {
+    // CSSOS_PHASE2_6STAGE 20260419 — notifications panel renders 6
+    // bars now (cover/lyrics/music/video/subtitles/compose). Emit the
+    // new keys alongside legacy `kara` so older readers keep working.
+    // `compose` mirrors `kara` since both describe the final MV
+    // assembly stage.
+    cover: Math.round(Number(engineProgressState.cover || engineProgressState.thumbnail || 0)),
+    lyrics: Math.round(currentLyricsProgressPercentModule?.() || 0),
+    music: Math.round(Number(engineProgressState.music || 0)),
+    video: Math.round(Number(engineProgressState.video || 0)),
+    subtitles: Math.round(Number(engineProgressState.subtitles || 0)),
+    compose: Math.round(Number(engineProgressState.compose || engineProgressState.kara || 0)),
+    kara: Math.round(Number(engineProgressState.kara || 0)),
+  };
+  window.dispatchEvent(
+    new CustomEvent("cssos:run_progress", {
+      detail: {
+        run_id: runId,
+        title: String(state.title || currentWatchPreviewWork?.title || "").trim(),
+        stage_label: String(stageLabel || "").trim(),
+        progress: stageProgress
+      }
+    })
+  );
+  // Bridge to chase-border stage bars directly. This guarantees the bars
+  // advance AND persist in lockstep with the engines, independent of the
+  // MV-pipeline panel's internal state machine.
+  try {
+    const setBar = globalThis.cssmvStageBarsSetProgress;
+    const setDone = globalThis.cssmvStageBarsSetDone;
+    if (typeof setBar === "function") {
+      ["cover", "lyrics", "music", "video", "subtitles", "compose"].forEach((key) => {
+        const pct = Math.max(0, Math.min(100, Number(stageProgress[key] || 0)));
+        setBar(key, pct);
+        if (pct >= 100 && typeof setDone === "function") {
+          setDone(key);
+        }
+      });
+    }
+  } catch (_err) {}
+}
+
+function syncWatchProgressRotatorModule() {
+  const activeCard = getActiveWatchProgressCardModule();
+  if (activeCard) {
+    watchProgressLastCard = { ...activeCard };
+  }
+  const fallbackStageKey = String(watchProgressStageKey || "kara").trim() || "kara";
+  const fallbackLabel = t(`watch.progress.${fallbackStageKey}`) || fallbackStageKey;
+  const fallbackCard =
+    watchProgressLastCard ||
+    {
+      key: fallbackStageKey,
+      label: fallbackLabel,
+      progress: Math.max(
+        0,
+        Math.min(
+          100,
+          Number(
+            fallbackStageKey === "lyrics"
+              ? currentLyricsProgressPercentModule?.() || 0
+              : engineProgressState[fallbackStageKey] || 0
+          )
+        )
+      )
+    };
+  const resolvedCard = activeCard || fallbackCard;
+  const progressShells = [
+    {
+      shell: watchFrameProgress,
+      fill: watchFrameProgressFill,
+      copy: watchFrameProgressCopy,
+      host: watchScreen,
+    },
+    {
+      shell: typeof watchMusicFrameProgress !== "undefined" ? watchMusicFrameProgress : null,
+      fill: typeof watchMusicFrameProgressFill !== "undefined" ? watchMusicFrameProgressFill : null,
+      copy: typeof watchMusicFrameProgressCopy !== "undefined" ? watchMusicFrameProgressCopy : null,
+      host: watchMusicStage,
+    },
+  ].filter((entry) => entry.shell && entry.fill && entry.copy);
+  if (!progressShells.length) return;
+  if (watchPlaybackUiSuppressed) {
+    progressShells.forEach(({ shell }) => {
+      shell.hidden = true;
+    });
+    if (watchPanelProgressLine) watchPanelProgressLine.hidden = true;
+    return;
+  }
+  if (!resolvedCard) {
+    progressShells.forEach(({ shell, host }) => {
+      shell.hidden = true;
+      host?.classList?.remove?.("is-waiting", "is-stalled");
+    });
+    if (watchPanelProgressLine) {
+      watchPanelProgressLine.hidden = true;
+    }
+    watchScreen?.classList.add("is-live-border");
+    watchScreen?.classList.remove("is-waiting", "is-stalled");
+    if (watchOverlayPlay) {
+      watchOverlayPlay.dataset.actionMode = "play";
+      watchOverlayPlay.title = getCurrentWatchActionLabelModule();
+      watchOverlayPlay.setAttribute("aria-label", watchOverlayPlay.title);
+    }
+    if (watchMusicPlay) {
+      watchMusicPlay.dataset.actionMode = "play";
+      watchMusicPlay.title = getCurrentWatchActionLabelModule();
+      watchMusicPlay.setAttribute("aria-label", watchMusicPlay.title);
+    }
+    return;
+  }
+  progressShells.forEach(({ shell }) => {
+    shell.hidden = false;
+  });
+  if (watchPanelProgressLine) {
+    watchPanelProgressLine.hidden = false;
+  }
+  if (activeCard) {
+    watchScreen?.classList.add("is-waiting");
+    watchScreen?.classList.remove("is-live-border");
+    watchMusicStage?.classList.add("is-waiting");
+  } else {
+    watchScreen?.classList.remove("is-waiting", "is-stalled");
+    watchScreen?.classList.add("is-live-border");
+    watchMusicStage?.classList.remove("is-waiting", "is-stalled");
+  }
+  const percent = Math.round(clampPercent(resolvedCard.progress || 0));
+  const actionableStage = resolveWatchRecoveryStageModule(
+    getNextWatchGenerationGapModule() || resolvedCard.key || "lyrics"
+  );
+  if (watchPanelProgressFill) {
+    watchPanelProgressFill.style.width = `${Math.max(0, percent)}%`;
+    const stageColor =
+      resolvedCard.key === "music"
+        ? "#25d4ff"
+        : resolvedCard.key === "video"
+          ? "#ff9f67"
+          : resolvedCard.key === "kara"
+            ? "#8d7bff"
+            : "#00f5a0";
+    watchPanelProgressFill.style.setProperty("--panel-progress-color", stageColor);
+  }
+  const visiblePercent = Math.max(0, percent);
+  progressShells.forEach(({ fill, copy }) => {
+    fill.style.width = `${visiblePercent}%`;
+    // P2-32: 媒体框下方的 "${label} ${percent}%" 文字提示已由 Watch 面板标题替代（避免重复提示），
+    // 仅保留进度条填充作为视觉反馈。
+    if (copy) {
+      if (copy.textContent !== "") copy.textContent = "";
+      if (copy.style.display !== "none") copy.style.display = "none";
+    }
+  });
+  const watchPanelTitle = document.querySelector("#watch-panel .panel-title");
+  if (watchPanelTitle) {
+    const titleText = String(state.songSeed?.title || state.title || "").trim();
+    const fallbackTitle = loginCopy("Untitled");
+    // CSSOS_PHASE2_TITLE_BAR_LIVE_PCT 20260426 #128 — Jing
+    // Prefer the MV Pipeline panel's own per-stage progress over this
+    // module's `resolvedCard.progress` (which lives in a separate state
+    // machine and can lag behind the actual stage). When the pipeline
+    // exposes an active stage we render `Cover 35%` style status from
+    // its real-time pct; otherwise fall back to the legacy resolvedCard
+    // path so non-pipeline runs (loaded works, market plays) still work.
+    let statusLabel;
+    let livePipeline = null;
+    try {
+      if (typeof globalThis.cssmvPipelineActiveStage === "function") {
+        livePipeline = globalThis.cssmvPipelineActiveStage();
+      }
+    } catch (_e) { /* ignore */ }
+    if (livePipeline) {
+      if (livePipeline.hasError) {
+        statusLabel = `${livePipeline.label} · ${loginCopy("Failed", "失败")}`;
+      } else if (livePipeline.finished && livePipeline.stageId === "compose") {
+        statusLabel = loginCopy("Complete");
+      } else if (livePipeline.finished) {
+        // Last finished stage but pipeline not done overall — show "x done · waiting next".
+        statusLabel = `${livePipeline.label} ${livePipeline.pct}%`;
+      } else {
+        statusLabel = `${livePipeline.label} ${livePipeline.pct}%`;
+      }
+    } else {
+      statusLabel =
+        percent >= 100
+          ? loginCopy("Complete")
+          : `${resolvedCard.label} ${percent}%`;
+    }
+    watchPanelTitle.textContent = `${loginCopy("Watch")} · ${
+      titleText || fallbackTitle
+    } · ${statusLabel}`;
+  }
+  broadcastWatchProgressToNotificationsModule(`${resolvedCard.label} ${percent}%`);
+  const lyricsRequestPending = !!globalThis.lyricsSeedRequestState?.pending;
+  const fingerprint = `${resolvedCard.key}:${percent}`;
+  if (fingerprint !== watchProgressLastFingerprint) {
+    watchProgressLastFingerprint = fingerprint;
+    watchProgressLastChangeAt = Date.now();
+    watchProgressStageKey = resolvedCard.key;
+    watchScreen?.classList.remove("is-stalled");
+    watchMusicStage?.classList.remove("is-stalled");
+    const activeKeyFingerprint = activeCard?.key ? `::${activeCard.key}` : "";
+    if (!activeKeyFingerprint || !watchAutoRecoveryKey.includes(activeKeyFingerprint)) {
+      watchAutoRecoveryKey = "";
+      watchAutoRecoveryStartedAt = 0;
+    }
+  } else if (
+    activeCard &&
+    !(activeCard.key === "lyrics" && lyricsRequestPending) &&
+    Date.now() - watchProgressLastChangeAt >= WATCH_PROGRESS_STALL_MS
+  ) {
+    watchScreen?.classList.add("is-stalled");
+    watchMusicStage?.classList.add("is-stalled");
+    void autoRecoverWatchStageModule(activeCard.key);
+  }
+  if (watchOverlayPlay) {
+    watchOverlayPlay.classList.add("is-generating");
+    watchOverlayPlay.dataset.actionMode = actionableStage;
+    watchOverlayPlay.title = getWatchProgressActionLabelModule(actionableStage);
+    watchOverlayPlay.setAttribute("aria-label", watchOverlayPlay.title);
+  }
+  if (watchMusicPlay) {
+    watchMusicPlay.classList.add("is-generating");
+    watchMusicPlay.dataset.actionMode = actionableStage;
+    watchMusicPlay.title = getWatchProgressActionLabelModule(actionableStage);
+    watchMusicPlay.setAttribute("aria-label", watchMusicPlay.title);
+  }
+}
+
+function ensureWatchProgressRotatorModule() {
+  syncWatchProgressRotatorModule();
+}
+
+function getWatchCommentContextKeyModule() {
+  return String(currentWatchAudioRunId || pendingFinalAudioRunId || activePipelineRunId || state.title || "default").trim() || "default";
+}
+
+function loadWatchCommentsModule() {
+  try {
+    const payload = JSON.parse(localStorage.getItem(WATCH_COMMENTS_STORAGE_KEY) || "{}");
+    const key = getWatchCommentContextKeyModule();
+    watchCommentsState = Array.isArray(payload?.[key]) ? payload[key] : [];
+  } catch (_err) {
+    watchCommentsState = [];
+  }
+}
+
+function persistWatchCommentsModule() {
+  try {
+    const payload = JSON.parse(localStorage.getItem(WATCH_COMMENTS_STORAGE_KEY) || "{}");
+    payload[getWatchCommentContextKeyModule()] = watchCommentsState.slice(0, 40);
+    localStorage.setItem(WATCH_COMMENTS_STORAGE_KEY, JSON.stringify(payload));
+  } catch (_err) {
+    // ignore
+  }
+}
+
+function renderWatchCommentsModule() {
+  if (watchCommentsCopy) {
+    watchCommentsCopy.textContent = watchCommentsState.length
+      ? loginCopy("Live comments are on.")
+      : t("watch.comments.empty");
+  }
+  if (!watchCommentsList) return;
+  if (!watchCommentsState.length) {
+    watchCommentsList.innerHTML = `<div class="watch-activity-empty">${escapeHtml(t("watch.comments.empty"))}</div>`;
+    return;
+  }
+  watchCommentsList.innerHTML = watchCommentsState
+    .slice()
+    .reverse()
+    .map((entry) => `
+      <div class="watch-activity-item">
+        <div class="watch-activity-title">${escapeHtml(String(entry?.text || ""))}</div>
+        <div class="watch-activity-meta">${escapeHtml(String(entry?.author || loginCopy("Guest")))} · ${escapeHtml(String(entry?.createdAt || ""))}</div>
+      </div>
+    `)
+    .join("");
+}
+
+function submitWatchCommentModule() {
+  const text = String(watchCommentInput?.value || "").trim();
+  if (!text) return false;
+  watchCommentsState.push({
+    text,
+    author: String(authState?.user?.email || authState?.user?.name || loginCopy("Guest")).trim(),
+    createdAt: formatDateTime(new Date().toISOString())
+  });
+  persistWatchCommentsModule();
+  renderWatchCommentsModule();
+  if (watchCommentInput) watchCommentInput.value = "";
+  return true;
+}
+
+function syncWatchMusicArtworkBlurModule() {
+  if (!watchMusicStage || !watchMusicArtBlur) return;
+  const enabled = watchMusicArtBlur.checked;
+  watchMusicStage.classList.toggle("is-artwork-sharp", !enabled);
+  try {
+    localStorage.setItem(WATCH_MUSIC_ART_BLUR_KEY, enabled ? "true" : "false");
+  } catch (_err) {
+    // Safari/Tesla-style constrained browsers can reject storage writes when quota is unavailable.
+  }
+}
+
+function fallbackWatchPlaybackToMusicModule(reason = "") {
+  if (watchScreen) {
+    watchScreen.classList.add("watch-screen-audio-fallback");
+    watchScreen.classList.add("is-waiting");
+  }
+  setWatchPlaybackUiSuppressedModule(false);
+  activateWatchTab("music");
+  if (reason && watchSubtitle) {
+    watchSubtitle.textContent = reason;
+  }
+  openWatchMusicPlaybackSurfaceModule({ autoplay: true });
+}
+
+function watchHasPlayableMediaModule() {
+  if (typeof getRememberedWatchFinalAudio === "function" && getRememberedWatchFinalAudio()) return true;
+  const audioSrc = String(watchAudioPreview?.currentSrc || watchAudioPreview?.src || "").trim();
+  if (audioSrc && !audioSrc.startsWith("data:")) return true;
+  const videoSrc = String(watchVideo?.currentSrc || watchVideo?.src || "").trim();
+  if (videoSrc && !videoSrc.startsWith("data:")) return true;
+  return false;
+}
+
+function ensureWatchAutoChainOnOpenModule() {
+  try {
+    if (watchHasPlayableMediaModule()) return false;
+    const run = globalThis.cssmvRunPipeline;
+    if (typeof run !== "function") return false;
+    const p = run({});
+    if (p && typeof p.catch === "function") p.catch(() => {});
+    return true;
+  } catch (_err) {
+    return false;
+  }
+}
+
+globalThis.watchHasPlayableMediaModule = watchHasPlayableMediaModule;
+globalThis.ensureWatchAutoChainOnOpenModule = ensureWatchAutoChainOnOpenModule;
+
 function activateWatchTab(tab) {
   const active = ["mv", "music", "lyrics", "script", "comments", "revenue", "ownership"].includes(tab) ? tab : "mv";
   watchActiveTab = active;
+  globalThis.watchActiveTab = watchActiveTab;
   localStorage.setItem(WATCH_ACTIVE_TAB_STORAGE_KEY, active);
+  if (watchPanel) {
+    watchPanel.dataset.activeWatchTab = active;
+  }
   watchTabButtons.forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.watchTab === active);
   });
@@ -1030,6 +3153,7 @@ function activateWatchTab(tab) {
     pane.classList.toggle("active", pane.dataset.watchPane === active);
   });
   if (active === "music" && watchAudioPreview) {
+    watchScreen?.classList.add("watch-screen-audio-fallback");
     watchAudioPreview.style.display = "block";
     if (
       (!String(watchAudioPreview.currentSrc || watchAudioPreview.src || "").trim() ||
@@ -1043,10 +3167,18 @@ function activateWatchTab(tab) {
       updateWatchAudioDebug();
     }
   }
+  if (active === "mv") {
+    watchScreen?.classList.remove("watch-screen-audio-fallback");
+  }
   if (active === "comments" || active === "revenue" || active === "ownership") {
     renderWatchMetaPanelsModule();
   }
+  if (active === "mv") {
+    requestAnimationFrame(() => scrollWatchBodyToActiveMediaFrameModule());
+  }
 }
+
+globalThis.activateWatchTab = activateWatchTab;
 
 function shouldKeepWatchInMusicModeModule() {
   const preferred = resolvePreferredWatchOpenTab("mv");
@@ -1067,6 +3199,9 @@ function stopWatchMusicVisualizerModule() {
     watchMusicStage.style.setProperty("--watch-music-shadow-live", "var(--watch-music-shadow)");
     watchMusicStage.style.setProperty("--watch-music-secondary-shadow-live", "var(--watch-music-secondary-shadow)");
   }
+  watchScreen?.style.setProperty("--watch-frame-border-energy", "0.16");
+  watchScreen?.style.setProperty("--watch-frame-border-angle", "0deg");
+  applyWatchFrameAccentPaletteModule(0);
 }
 
 function tickWatchMusicVisualizerModule() {
@@ -1081,6 +3216,17 @@ function tickWatchMusicVisualizerModule() {
   const sum = watchMusicAnalyserData.reduce((acc, value) => acc + value, 0);
   const avg = watchMusicAnalyserData.length ? sum / watchMusicAnalyserData.length : 0;
   const energy = Math.max(0, Math.min(1, avg / 160));
+  const peak = watchMusicAnalyserData.length ? Math.max(...watchMusicAnalyserData) / 255 : 0;
+  watchMusicLiveEnergy = energy;
+  watchMusicLivePeak = peak;
+  if (
+    (energy > 0.52 || peak > 0.86) &&
+    Date.now() - lastWatchFrameAccentShiftAt > 520
+  ) {
+    lastWatchFrameAccentShiftAt = Date.now();
+    watchFrameAccentPaletteIndex = (watchFrameAccentPaletteIndex + 1 + Math.floor(Math.random() * (WATCH_FRAME_ACCENT_PALETTES.length - 1))) % WATCH_FRAME_ACCENT_PALETTES.length;
+    applyWatchFrameAccentPaletteModule(watchFrameAccentPaletteIndex);
+  }
   watchMusicStage.style.setProperty("--watch-aura-scale", `${(1 + energy * 0.11).toFixed(3)}`);
   watchMusicStage.style.setProperty("--watch-aura-opacity", `${(0.78 + energy * 0.36).toFixed(3)}`);
   watchMusicStage.style.setProperty("--watch-ring-glow", `${(0.22 + energy * 0.4).toFixed(3)}`);
@@ -1088,6 +3234,11 @@ function tickWatchMusicVisualizerModule() {
   watchMusicStage.style.setProperty("--watch-disc-lift", `${(energy * 2.8).toFixed(2)}px`);
   watchMusicStage.style.setProperty("--watch-music-shadow-live", `rgba(var(--watch-music-accent-1-rgb), ${(0.18 + energy * 0.26).toFixed(3)})`);
   watchMusicStage.style.setProperty("--watch-music-secondary-shadow-live", `rgba(var(--watch-music-accent-2-rgb), ${(0.12 + energy * 0.24).toFixed(3)})`);
+  watchKaraokeLine?.style.setProperty("--karaoke-live-energy", energy.toFixed(3));
+  watchKaraokeLine?.style.setProperty("--karaoke-live-peak", peak.toFixed(3));
+  watchSubtitle?.style.setProperty("--karaoke-live-energy", energy.toFixed(3));
+  watchSubtitle?.style.setProperty("--karaoke-live-peak", peak.toFixed(3));
+  watchScreen?.style.setProperty("--watch-frame-border-energy", `${(0.16 + energy * 0.84).toFixed(3)}`);
   watchMusicAnalyserFrame = requestAnimationFrame(tickWatchMusicVisualizerModule);
 }
 
@@ -1116,31 +3267,114 @@ async function ensureWatchMusicVisualizerModule() {
 function syncWatchMusicStateModule() {
   if (!watchMusicStage || !watchMusicPlayIcon) return;
   const playing = !!(watchAudioPreview && !watchAudioPreview.paused && !watchAudioPreview.ended);
+  const activeStage = getActiveWatchProgressCardModule()?.key || "";
+  const nextNeededStage = getNextWatchGenerationGapModule();
   watchMusicStage.classList.toggle("is-playing", playing);
-  watchMusicPlayIcon.textContent = playing ? "❚❚" : "▶";
+  watchMusicPlay?.classList.toggle("is-paused", playing);
+  watchMusicPlay?.classList.toggle(
+    "is-generating",
+    !playing && !!(activeStage || (nextNeededStage && nextNeededStage !== "play"))
+  );
+  watchMusicPlayIcon.textContent = "";
+  if (watchMusicPlay) {
+    const actionLabel = playing
+      ? t("watch.action.pause")
+      : activeStage || (nextNeededStage && nextNeededStage !== "play")
+        ? getWatchProgressActionLabelModule(activeStage || nextNeededStage)
+        : t("watch.action.play");
+    watchMusicPlay.title = actionLabel;
+    watchMusicPlay.setAttribute("aria-label", actionLabel);
+    watchMusicPlay.dataset.actionMode = playing ? "pause" : activeStage || nextNeededStage || "play";
+  }
   if (watchMusicRing && watchAudioPreview) {
     const duration = Number.isFinite(watchAudioPreview.duration) ? watchAudioPreview.duration : 0;
     const current = Number.isFinite(watchAudioPreview.currentTime) ? watchAudioPreview.currentTime : 0;
     const progress = duration > 0 ? Math.max(0, Math.min(1, current / duration)) : 0;
     watchMusicRing.style.setProperty("--watch-progress", `${Math.round(progress * 360)}deg`);
+    watchScreen?.style.setProperty("--watch-frame-border-progress", `${Math.round(progress * 100)}%`);
+    watchScreen?.style.setProperty("--watch-frame-border-angle", `${Math.round(progress * 360)}deg`);
   }
   if (playing) {
+    setWatchPlaybackUiSuppressedModule(true);
+    applyWatchFrameAccentPaletteModule(watchFrameAccentPaletteIndex);
     void ensureWatchMusicVisualizerModule();
   } else {
+    if (watchActiveTab === "music") {
+      setWatchPlaybackUiSuppressedModule(false);
+    }
     stopWatchMusicVisualizerModule();
   }
 }
 
 function syncWatchEditorsFromSettingsModule() {
-  if (watchLyricsEditor && lyricsInput) watchLyricsEditor.value = lyricsInput.value || "";
-  if (watchOutlineEditor && videoOutlineInput) watchOutlineEditor.value = videoOutlineInput.value || "";
-  if (watchScriptEditor && sectionPromptsInput) watchScriptEditor.value = sectionPromptsInput.value || "";
+  const seed = state.songSeed && typeof state.songSeed === "object" ? state.songSeed : {};
+  const seedLyrics = String(lyricsInput?.value || seed.lyrics || "").trim();
+  const seedOutline = String(videoOutlineInput?.value || seed.videoOutline || seed.video_outline || "").trim();
+  const resolvedMusicStyle = String(
+    seed.musicStyle ||
+      seed.music_style ||
+      seed.style ||
+      state.style ||
+      ""
+  ).trim();
+  const resolvedWikiSource = String(
+    seed.wikiSource ||
+      seed.wiki_source ||
+      seed.sourceWiki ||
+      seed.source_wiki ||
+      seed.references?.wiki ||
+      seed.references?.source ||
+      seed.reference ||
+      ""
+  ).trim();
+  const seedPrompts = Array.isArray(seed.sectionPrompts)
+    ? seed.sectionPrompts
+    : Array.isArray(seed.section_prompts)
+      ? seed.section_prompts
+      : [];
+  if (watchLyricsEditor) {
+    const resolvedTitle = String(seed.title || state.title || "").trim();
+    const candidateLyrics = String(
+      lyricsInput?.value ||
+        globalThis.buildCanonicalLyricsWithTitleModule?.(
+          resolvedTitle,
+          seedLyrics,
+        ) ||
+        seedLyrics ||
+        ""
+    ).trim();
+    const hasBodyLyrics =
+      globalThis.hasCanonicalLyricsBodyLinesModule?.(resolvedTitle, candidateLyrics, 2) ?? false;
+    watchLyricsEditor.value = hasBodyLyrics
+      ? String(
+          globalThis.buildCanonicalLyricsWithTitleModule?.(
+            resolvedTitle,
+            candidateLyrics,
+          ) || candidateLyrics
+        ).trim()
+      : candidateLyrics;
+  }
+  if (watchOutlineEditor) {
+    watchOutlineEditor.value = String(videoOutlineInput?.value || seedOutline || "").trim();
+  }
+  if (watchScriptEditor) {
+    const renderedPrompts =
+      sectionPromptsInput?.value ||
+      globalThis.renderSectionPromptsTextModule?.(seedPrompts) ||
+      "";
+    watchScriptEditor.value = String(renderedPrompts || "").trim();
+  }
+  if (watchLyricsMusicStyle) {
+    watchLyricsMusicStyle.value = resolvedMusicStyle;
+  }
+  if (watchLyricsWikiSource) {
+    watchLyricsWikiSource.value = resolvedWikiSource;
+  }
 }
 
 function renderWatchMetaPanelsModule() {
-  if (watchCommentsCopy) {
-    watchCommentsCopy.textContent = t("watch.comments.empty");
-  }
+  loadWatchCommentsModule();
+  renderWatchCommentsModule();
   const commerce = watchCommerceState.payload || null;
   const account = commerce?.account || null;
   const ownership = commerce?.ownership || null;
@@ -1153,7 +3387,7 @@ function renderWatchMetaPanelsModule() {
 
   if (watchOwnershipCopy) {
     const owner = commerce?.profile?.email || authState.user?.email || t("watch.ownership.guest");
-    const source = state.title || "CSS MV";
+    const source = state.title || watchBrandTitleModule();
     const worksCount = Number(ownership?.works_count || works.length || 0);
     const latestTransfer = transfers[0] || null;
     const latestTransferAmount = latestTransfer ? formatUsdFromCents(latestTransfer.transfer_amount_cents, "$0.00") : "—";
@@ -1173,7 +3407,7 @@ function renderWatchMetaPanelsModule() {
           meta: `${escapeHtml(String(transfer?.transfer_kind || t("watch.ownership.buyout")))} · ${escapeHtml(formatDateTime(transfer?.effective_at || transfer?.created_at))}`
         })),
         ...works.map((work) => ({
-          title: String(work?.title || "").trim() || "CSS MV",
+          title: String(work?.title || "").trim() || watchBrandTitleModule(),
           meta: `${escapeHtml(String(work?.status || "draft"))} · ${escapeHtml(formatDateTime(work?.updated_at || work?.created_at))}`
         }))
       ].slice(0, 8);
@@ -1292,15 +3526,18 @@ function renderWatchCommerceActionsModule(work = currentWatchPreviewWork) {
   const canTransact = isLoggedInUser() && !isOwnedByViewer;
   const listenCents = Number(work?.current_listen_price_cents || work?.listen_price_cents || 0);
   const buyoutCents = Number(work?.current_buyout_price_cents || 0);
-  const buyoutEnabled = Boolean(work?.buyout_enabled) && buyoutCents > 0;
+  const structureRole = String(work?.structure_role || "").trim().toLowerCase();
+  const wholeBuyoutChild = ["act", "scene", "part"].includes(structureRole);
+  const wholeBuyoutOnly = !wholeBuyoutChild && ["opera", "triptych"].includes(normalizeWorkTypeClient(work?.work_type));
+  const buyoutEnabled = Boolean(work?.buyout_enabled) && buyoutCents > 0 && !wholeBuyoutChild;
   const tipsEnabled = canReceiveTips(work);
   const orderState = resolveViewerOrderState(work?.viewer_orders);
   const commerce = watchCommerceState.payload || null;
   const usageEvents = Array.isArray(commerce?.usage_events) ? commerce.usage_events : [];
   const computeUnits = Math.max(0, Number(work?.compute_units_estimate || 0));
   const computeCost = Math.max(0, Number(work?.compute_cost_cents_estimate || 0));
-  const suggestedListen = Math.max(0, Number(work?.suggested_listen_price_cents || listenCents || 0));
-  const suggestedBuyout = Math.max(0, Number(work?.suggested_buyout_price_cents || buyoutCents || 0));
+  const suggestedListen = Math.max(99, Number(work?.suggested_listen_price_cents || listenCents || 0));
+  const suggestedBuyout = Math.max(299, Number(work?.suggested_buyout_price_cents || buyoutCents || 0));
   const listenDisabled = Boolean(
     orderState.paidBuyout || orderState.paidListen || orderState.pendingListen || orderState.pendingBuyout || listenCents <= 0
   );
@@ -1308,28 +3545,38 @@ function renderWatchCommerceActionsModule(work = currentWatchPreviewWork) {
   const tipDisabled = Boolean(!tipsEnabled || orderState.pendingTip);
   watchCommerceActions.hidden = false;
   watchCommerceActions.innerHTML = `
-    <button class="mini-btn ghost" type="button" data-watch-market-action="preview">${loginCopy("Enjoy", "欣赏")}</button>
+    <button class="mini-btn ghost" type="button" data-watch-market-action="preview">${loginCopy("Enjoy")}</button>
     ${canTransact ? `<button class="mini-btn ghost" type="button" data-watch-market-action="listen" ${listenDisabled ? "disabled" : ""}>${marketActionCopy("listen", orderState)}</button>` : ""}
-    ${canTransact ? `<button class="mini-btn ghost" type="button" data-watch-market-action="buyout" ${buyoutDisabled ? "disabled" : ""}>${marketActionCopy("buyout", orderState)}</button>` : ""}
-    ${canTransact ? `<span class="market-inline-action"><button class="mini-btn ghost" type="button" data-watch-market-action="tip" ${tipDisabled ? "disabled" : ""}>${marketActionCopy("tip", orderState)}</button><input class="inline-chip-input market-tip-input" type="number" min="1" step="1" inputmode="decimal" placeholder="${escapeHtml(loginCopy("Tip $", "打赏金额"))}" data-market-tip-input="${escapeHtml(workId)}" hidden /></span>` : ""}
+    ${canTransact && !wholeBuyoutChild ? `<button class="mini-btn ghost" type="button" data-watch-market-action="buyout" ${buyoutDisabled ? "disabled" : ""}>${wholeBuyoutOnly ? loginCopy("Whole buyout") : marketActionCopy("buyout", orderState)}</button>` : ""}
+    ${canTransact ? `<span class="market-inline-action"><button class="mini-btn ghost" type="button" data-watch-market-action="tip" ${tipDisabled ? "disabled" : ""}>${marketActionCopy("tip", orderState)}</button><input class="inline-chip-input market-tip-input" type="number" min="1" step="1" inputmode="decimal" placeholder="${escapeHtml(loginCopy("Tip $"))}" data-market-tip-input="${escapeHtml(workId)}" hidden /></span>` : ""}
     <div class="watch-billing-card">
-      <div class="work-billing-title">${escapeHtml(loginCopy("Work cost bill", "作品成本账单"))}</div>
+      <div class="work-billing-title">${escapeHtml(loginCopy("Work cost bill"))}</div>
       <div class="work-billing-grid">
-        <div class="work-billing-stat"><span>${escapeHtml(loginCopy("Compute", "算力"))}</span><strong>${escapeHtml(`${computeUnits}u`)}</strong></div>
-        <div class="work-billing-stat"><span>${escapeHtml(loginCopy("Estimated cost", "估算成本"))}</span><strong>${escapeHtml(formatUsdFromCents(computeCost, "$0.00"))}</strong></div>
-        <div class="work-billing-stat"><span>${escapeHtml(loginCopy("Suggested listen", "建议聆听价"))}</span><strong>${escapeHtml(formatUsdFromCents(suggestedListen, "$0.00"))}</strong></div>
-        <div class="work-billing-stat"><span>${escapeHtml(loginCopy("Suggested buyout", "建议买断价"))}</span><strong>${escapeHtml(formatUsdFromCents(suggestedBuyout, "$0.00"))}</strong></div>
+        <div class="work-billing-stat"><span>${escapeHtml(loginCopy("Compute"))}</span><strong>${escapeHtml(`${computeUnits}u`)}</strong></div>
+        <div class="work-billing-stat"><span>${escapeHtml(loginCopy("Estimated cost"))}</span><strong>${escapeHtml(formatUsdFromCents(computeCost, "$0.00"))}</strong></div>
+        <div class="work-billing-stat"><span>${escapeHtml(loginCopy("Suggested listen"))}</span><strong>${escapeHtml(formatUsdFromCents(suggestedListen, "$0.00"))}</strong></div>
+        ${wholeBuyoutChild ? "" : `<div class="work-billing-stat"><span>${escapeHtml(wholeBuyoutOnly ? loginCopy("Whole buyout") : loginCopy("Suggested buyout"))}</span><strong>${escapeHtml(formatUsdFromCents(wholeBuyoutOnly ? buyoutCents || suggestedBuyout : suggestedBuyout, "$0.00"))}</strong></div>`}
       </div>
-      <div class="watch-activity compact">${renderUsageHistoryMarkup(getWorkMatchedUsageEvents(work, usageEvents), loginCopy("No matched billable actions for this work yet.", "这个作品暂时还没有匹配到动作计费记录。"), 4)}</div>
+      <div class="watch-activity compact">${renderUsageHistoryMarkup(getWorkMatchedUsageEvents(work, usageEvents), loginCopy("No matched billable actions for this work yet."), 4)}</div>
     </div>
   `;
   watchCommerceActions.querySelector('[data-watch-market-action="listen"]')?.addEventListener("click", (event) => {
     event.stopPropagation();
-    void startStripeCheckoutForWork(workId, "listen", event.currentTarget);
+    const trigger = event.currentTarget;
+    if (typeof dispatchMarketWorkPayment === "function") {
+      void dispatchMarketWorkPayment(workId, "listen", trigger);
+    } else {
+      void startStripeCheckoutForWork(workId, "listen", trigger);
+    }
   });
   watchCommerceActions.querySelector('[data-watch-market-action="buyout"]')?.addEventListener("click", (event) => {
     event.stopPropagation();
-    void startStripeCheckoutForWork(workId, "buyout", event.currentTarget);
+    const trigger = event.currentTarget;
+    if (typeof dispatchMarketWorkPayment === "function") {
+      void dispatchMarketWorkPayment(workId, "buyout", trigger);
+    } else {
+      void startStripeCheckoutForWork(workId, "buyout", trigger);
+    }
   });
   watchCommerceActions.querySelector('[data-watch-market-action="tip"]')?.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -1338,7 +3585,7 @@ function renderWatchCommerceActionsModule(work = currentWatchPreviewWork) {
   watchCommerceActions.querySelector('[data-watch-market-action="preview"]')?.addEventListener("click", (event) => {
     event.stopPropagation();
     armWatchExplicitPreviewIntent();
-    void openWatchPreviewFlowModule({ clearLimit: true, allowDemoFallback: true });
+    void openWatchPreviewFlowModule({ clearLimit: true, allowDemoFallback: false });
   });
   const input = watchCommerceActions.querySelector('[data-market-tip-input]');
   if (input instanceof HTMLInputElement) {
@@ -1448,31 +3695,102 @@ function openWatchPanelShellModule(restoredLayout = false) {
 
 function openWatchPreviewShellModule({ fallbackTab = "mv", restoreAudio = false, center = false } = {}) {
   openPanel(watchPanel);
+  initWatchImmersiveScrollModule();
+  ensureWatchProgressRotatorModule();
   activateWatchTab(resolvePreferredWatchOpenTab(fallbackTab));
+  setWatchDetailsRevealModule(false);
+  requestAnimationFrame(() => {
+    scrollWatchBodyToActiveMediaFrameModule();
+    requestAnimationFrame(() => scrollWatchBodyToActiveMediaFrameModule());
+  });
   if (restoreAudio) {
     restoreRememberedWatchFinalAudio({ preservePlayback: true });
   }
   if (center) {
     ensureWatchCentered();
   }
+  ensureWatchAutoChainOnOpenModule();
 }
 
 function pauseWatchPanelPlayback() {
-  if (!watchVideo) return;
-  watchVideo.pause?.();
+  const videoWasPlaying = !!(
+    watchVideo &&
+    !watchVideo.paused &&
+    !watchVideo.ended &&
+    String(watchVideo.currentSrc || watchVideo.src || "").trim()
+  );
+  const audioWasPlaying = !!(
+    watchAudioPreview &&
+    !watchAudioPreview.paused &&
+    !watchAudioPreview.ended &&
+    String(watchAudioPreview.currentSrc || watchAudioPreview.src || "").trim()
+  );
+  if (watchPanel) {
+    watchPanel.dataset.resumeVideoPlayback = videoWasPlaying ? "true" : "false";
+    watchPanel.dataset.resumeAudioPlayback = audioWasPlaying ? "true" : "false";
+  }
+  watchVideo?.pause?.();
+  watchAudioPreview?.pause?.();
 }
 
 function resumeWatchPanelPlayback() {
-  if (!watchVideo || !watchVideo.src) return;
-  watchVideo.play?.().catch(() => {});
+  const resumeVideo = watchPanel?.dataset?.resumeVideoPlayback === "true";
+  const resumeAudio = watchPanel?.dataset?.resumeAudioPlayback === "true";
+  if (resumeAudio && watchAudioPreview && String(watchAudioPreview.currentSrc || watchAudioPreview.src || "").trim()) {
+    watchAudioPreview.play?.().catch(() => {});
+  }
+  if (resumeVideo && watchVideo && String(watchVideo.currentSrc || watchVideo.src || "").trim()) {
+    watchVideo.play?.().catch(() => {});
+  }
+}
+
+function stopWatchPanelPlaybackModule() {
+  if (watchPanel) {
+    watchPanel.dataset.resumeVideoPlayback = "false";
+    watchPanel.dataset.resumeAudioPlayback = "false";
+  }
+  globalThis.currentStructuredWatchQueue = null;
+  watchVideo?.pause?.();
+  try {
+    if (watchVideo) watchVideo.currentTime = 0;
+  } catch (_err) {}
+  if (watchVideo) {
+    watchVideo.removeAttribute("src");
+    watchVideo.load?.();
+  }
+  watchAudioPreview?.pause?.();
+  try {
+    if (watchAudioPreview) watchAudioPreview.currentTime = 0;
+  } catch (_err) {}
+  if (watchAudioPreview) {
+    watchAudioPreview.removeAttribute("src");
+    watchAudioPreview.load?.();
+    watchAudioPreview.style.display = "none";
+  }
+  clearWatchFrameLoopModule();
+  structuredWatchQueueAdvancePending = false;
+  dismissBlockingWatchOverlay();
+  stopWatchBackgroundWorkModule();
+}
+
+function stopWatchBackgroundWorkModule() {
+  stopPipelineProgressPollingModule?.();
+  stopPendingFinalAudioPollingModule?.();
+  stopRecentRunRecovery?.();
+  watchVideoPreviewRequestPending = false;
+  lastWatchVideoPreviewRequestKey = "";
+  if (videoJobPoll) {
+    clearInterval(videoJobPoll);
+    videoJobPoll = null;
+  }
+  videoJobId = null;
+  clearWatchPlaybackRetryModule();
 }
 
 function minimizeWatchPanelShellModule() {
   setWatchCenterStage(false);
   pauseWatchPanelPlayback();
-  if (!watchVideo) return;
-  watchVideo.removeAttribute("src");
-  watchVideo.load?.();
+  stopWatchBackgroundWorkModule();
 }
 
 function syncWatchPanelCollapseShellModule(isExpanded) {
@@ -1481,6 +3799,7 @@ function syncWatchPanelCollapseShellModule(isExpanded) {
     return;
   }
   pauseWatchPanelPlayback();
+  stopWatchBackgroundWorkModule();
 }
 
 function syncVisibleWatchPanelAfterPreviewReady() {
@@ -1501,7 +3820,7 @@ function handleWatchUserPlaybackGesture() {
   }
   const hasAudio = !!(watchAudioPreview?.src && String(watchAudioPreview.src).trim());
   if (hasAudio) {
-    playWatchAudioPreviewFromStartModule();
+    playWatchAudioPreviewFromStartModule({ preserveCurrentTime: true });
   }
   if (!watchVideo?.src) return hasAudio;
   revealWatchVideoLayerModule();
@@ -1516,26 +3835,356 @@ function handleWatchUserPlaybackGesture() {
   playPromise
     .then(() => {
       globalThis.watchManualPlayHinted = false;
-      if (watchSubtitle?.textContent?.includes("Tap to play")) {
-        watchSubtitle.textContent = "KaraOKe MV · Preview";
+      if (
+        watchSubtitle?.textContent?.includes("Tap to play") ||
+        watchSubtitle?.textContent?.includes("轻触即可播放")
+      ) {
+        watchSubtitle.textContent = watchSubtitleLabelModule("preview");
       }
     })
     .catch(() => {
-      promptManualWatchPlaybackModule("Autoplay blocked · Tap to play");
+      promptManualWatchPlaybackModule(watchToastCopyModule("autoplayBlocked"));
     });
   return true;
 }
 
 async function handleWatchPlaybackSurfaceClick() {
+  if (!authState?.user && typeof openLoginForCreation === "function") {
+    openLoginForCreation(
+      loginCopy(
+        "Sign in first to start the one-tap MV flow."
+      )
+    );
+    return;
+  }
   armWatchExplicitPreviewIntent();
-  if (!watchVideo?.src && !(watchAudioPreview?.src && String(watchAudioPreview.src).trim())) return;
-  if (currentWatchAudioRunId || pendingFinalAudioRunId || activePipelineRunId) {
+  const videoPlaying = !!(
+    watchVideo &&
+    !watchVideo.paused &&
+    !watchVideo.ended &&
+    String(watchVideo.currentSrc || watchVideo.src || "").trim()
+  );
+  const audioPlaying = !!(
+    watchAudioPreview &&
+    !watchAudioPreview.paused &&
+    !watchAudioPreview.ended &&
+    String(watchAudioPreview.currentSrc || watchAudioPreview.src || "").trim()
+  );
+  if (videoPlaying || audioPlaying) {
+    pulseWatchOverlayFeedbackModule("pause");
+    void playWatchOverlayFeedbackToneModule("pause");
+    watchVideo?.pause?.();
+    watchAudioPreview?.pause?.();
+    syncWatchMusicStateModule();
+    return;
+  }
+  const activeStage = getActiveWatchProgressCardModule()?.key || "";
+  const stalled = watchScreen?.classList.contains("is-stalled");
+  const nextNeededStage = getNextWatchGenerationGapModule();
+  if (activeStage || stalled) {
+    const stageToContinue =
+      resolveWatchRecoveryStageModule(activeStage || nextNeededStage || "lyrics") ||
+      watchProgressStageKey ||
+      nextNeededStage ||
+      "lyrics";
+    pulseWatchOverlayFeedbackModule("generate");
+    void playWatchOverlayFeedbackToneModule("generate");
+    await continueWatchGenerationStageModule(stageToContinue);
+    return;
+  }
+  const effectiveStage =
+    activeStage === "lyrics" && nextNeededStage !== "lyrics"
+      ? nextNeededStage
+      : activeStage || nextNeededStage || "lyrics";
+  const requiresGeneration = effectiveStage !== "play" || stalled;
+  pulseWatchOverlayFeedbackModule(requiresGeneration ? "generate" : "resume");
+  void playWatchOverlayFeedbackToneModule(requiresGeneration ? "generate" : "resume");
+  if (effectiveStage && effectiveStage !== "play") {
+    await continueWatchGenerationStageModule(effectiveStage);
+    return;
+  }
+  if (hasCurrentRunInFlightModule()) {
     await attemptImmediateFinalAudioAttach();
+  }
+  const opened = await openCurrentGeneratedWatchPlaybackModule({
+    autoplay: true,
+    preferVideo: true,
+  });
+  if (!opened) {
+    await continueWatchGenerationStageModule(getNextWatchGenerationGapModule() || "lyrics");
+    return;
   }
   handleWatchUserPlaybackGesture();
   if (globalThis.watchManualPlayHinted) {
-    showToast("Playback resumed");
+    showToast(watchToastCopyModule("playbackResumed"));
   }
+}
+
+async function invokeUniversalCreationEntryModule(options = {}) {
+  if (!authState?.user && typeof openLoginForCreation === "function") {
+    openLoginForCreation(
+      loginCopy(
+        "Sign in first to start the one-tap MV flow."
+      )
+    );
+    return false;
+  }
+  const origin = String(options?.origin || "logo").trim() || "logo";
+  const preferredTab = String(options?.preferredTab || "mv").trim() || "mv";
+  const submitVoiceFallback = options?.submitVoiceFallback === true;
+  // CSSOS_PHASE2_UNIVERSAL_ENTRY 20260418 —
+  // Jing's principle: every universal entry must exercise the full 6-stage
+  // pipeline (cover/lyrics/music/video/subtitles/MV). Callers can opt-out via
+  // `options.skipMvPipeline === true` for cases where they only want the
+  // watch UI flow (e.g. legacy song-seed rehearsal). By default we trigger
+  // the 6-stage panel in parallel with the watch playback flow so the user
+  // always sees a complete MV rendered end-to-end.
+  const triggerMvPipeline = options?.skipMvPipeline !== true && preferredTab === "mv";
+  // `options.seed` lets callers pre-fill the pipeline (e.g. advanced settings
+  // "apply render" button with a user-authored config). Missing fields get
+  // randomised by `openMvPipelinePanel`/`runAll` from the local seed bank.
+  const callerSeed = options?.seed && typeof options.seed === "object" ? options.seed : null;
+  showCreationSurfaceModule(origin);
+  globalThis.activateWatchTab?.(preferredTab);
+  armWatchExplicitPreviewIntent();
+  if (submitVoiceFallback) {
+    const submit =
+      globalThis.submitVoiceOrFallbackTitle?.(null) ||
+      globalThis.runBootUiMethod?.("SubmitVoiceOrFallbackTitle", "submitVoiceOrFallbackTitle", null);
+    if (submit && typeof submit.then === "function") {
+      await submit.catch(() => null);
+    }
+  }
+  // Fire-and-forget the 6-stage panel. This runs in parallel with the watch
+  // playback flow so one universal entry tap lights up the full pipeline.
+  // `autoStart: true` means runAll() kicks off immediately after the panel
+  // mounts; if the user's inputs are empty, runAll() synthesises a seed from
+  // the local zero-input bank (缺啥补啥 + 零输入必须随机).
+  if (triggerMvPipeline && typeof globalThis.openMvPipelinePanel === "function") {
+    try {
+      // Prefer any title/lyrics we already have from the song-seed state or
+      // the caller's explicit seed. An empty seed is fine — runAll handles it.
+      const mergedSeed = Object.assign(
+        {},
+        callerSeed || {},
+        {
+          prompt:
+            (callerSeed && callerSeed.prompt) ||
+            String(state?.title || "").trim() ||
+            String(state?.songSeed?.title || "").trim() ||
+            undefined,
+          style:
+            (callerSeed && callerSeed.style) ||
+            String(state?.songSeed?.musicStyle || "").trim() ||
+            undefined,
+          lyrics:
+            (callerSeed && callerSeed.lyrics) ||
+            undefined
+        }
+      );
+      globalThis.openMvPipelinePanel({
+        autoStart: options?.autoStartMvPipeline !== false,
+        seed: mergedSeed,
+        // Don't steal focus from the watch panel — it's the primary surface.
+        focus: options?.focusMvPipeline === true,
+        // Run the 6-stage pipeline in the background; the panel itself only
+        // pops open when the user explicitly clicks the dock item.
+        hidden: options?.showMvPipeline !== true
+      });
+    } catch (mvErr) {
+      // Non-fatal: if the 6-stage panel fails to mount, the watch flow still
+      // runs so the user is never left with nothing.
+      console.warn("[universal-entry] openMvPipelinePanel failed", mvErr);
+    }
+  }
+  if (typeof handleWatchPlaybackSurfaceClick === "function") {
+    return handleWatchPlaybackSurfaceClick();
+  }
+  return false;
+}
+
+async function continueWatchGenerationStageModule(stageKey = "lyrics") {
+  const requestedStageKey = String(stageKey || "").trim() || getNextWatchGenerationGapModule() || "lyrics";
+  const normalizedStageKey = resolveWatchRecoveryStageModule(requestedStageKey);
+  const inFlightRunId = getCurrentInFlightWatchRunIdModule();
+  if (normalizedStageKey !== "lyrics" && inFlightRunId) {
+    globalThis.startPipelineProgressPollingModule?.(inFlightRunId);
+    globalThis.startPendingFinalAudioPollingModule?.(inFlightRunId);
+    return true;
+  }
+  const gate = canAdvanceWatchGenerationStageModule(normalizedStageKey);
+  if (!gate.ok) {
+    const fallbackStage = resolveWatchRecoveryStageModule("lyrics");
+    if (fallbackStage && fallbackStage !== requestedStageKey) {
+      return continueWatchGenerationStageModule(fallbackStage);
+    }
+  }
+  const hasCurrentLyrics =
+    isWatchLyricsReadyModule() ||
+    compactLyricLines(Array.isArray(state.lines) ? state.lines : []).filter(Boolean).length > 1 ||
+    (globalThis.hasCanonicalLyricsBodyLinesModule?.(
+      String(state.songSeed?.title || state.title || "").trim(),
+      watchLyricsEditor?.value || "",
+      2
+    ) ?? false) ||
+    (globalThis.hasCanonicalLyricsBodyLinesModule?.(
+      String(state.songSeed?.title || state.title || "").trim(),
+      state.songSeed?.lyrics || "",
+      2
+    ) ?? false);
+  if (normalizedStageKey === "lyrics") {
+    return regenerateLyricsForWatchModule();
+  }
+  if (!hasCurrentLyrics) {
+    return regenerateLyricsForWatchModule();
+  }
+  return restartWatchGenerationFromCurrentLyricsModule(normalizedStageKey);
+}
+
+async function regenerateLyricsForWatchModule() {
+  if (globalThis.lyricsSeedRequestState?.pending) return false;
+  stopPipelineProgressPolling();
+  stopPendingFinalAudioPolling?.();
+  currentWatchAudioRunId = "";
+  currentWatchAudioRunError = "";
+  resetTypingState();
+  resetEngineStates();
+  try {
+    let seed = null;
+    let resolvedTitle = "";
+    let lines = [];
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      seed =
+        (await globalThis.requestLyricsSeedWithRetryModule?.("music_video", { apply: true, attempts: 1 })) ||
+        (await runLyricsGenerate("music_video", { apply: true }));
+      if (!seed?.ok || seed?.empty || !seed?.data?.lyrics) {
+        continue;
+      }
+      const title = String(
+        seed?.data?.title ||
+        globalThis.extractTitleFromVideoOutlineModule?.(seed?.data?.video_outline || seed?.data?.script || state.songSeed?.video_outline || "") ||
+        state.title ||
+        loginCopy("CSS MV")
+      ).trim();
+      resolvedTitle = title || loginCopy("CSS MV");
+      const canonicalLyrics =
+        globalThis.buildCanonicalLyricsWithTitleModule?.(resolvedTitle, String(seed.data.lyrics || "")) ||
+        String(seed.data.lyrics || "");
+      lines = extractDisplayLyricLines(String(canonicalLyrics || "")).filter(Boolean);
+      if (lines.length >= 2) {
+        break;
+      }
+      seed = null;
+      resolvedTitle = "";
+      lines = [];
+      showToast(t("watch.toast.lyricsInvalid"));
+    }
+    if (!seed || !resolvedTitle || lines.length < 2) {
+      showToast(t("watch.toast.lyricsNotReady"));
+      return false;
+    }
+    state.title = resolvedTitle;
+    state.baseLines = lines.slice();
+    state.lines = lines.slice();
+    try { globalThis.cssmvRenderMvArtTitle?.(resolvedTitle); } catch (_err) {}
+    const lyricText = buildLyricsText(resolvedTitle, lines);
+    lyricsTargetLength = lyricText.length;
+    typingState.completed = lyricText.length > 0;
+    typingState.paused = false;
+    typingState.canceled = false;
+    if (lyricsEl) {
+      lyricsEl.textContent = lyricText;
+      lyricsEl.classList.remove("paused", "canceled");
+    }
+  if (watchLyricsEditor) {
+    watchLyricsEditor.value = buildSpacedLyricsTextModule(resolvedTitle, lines);
+  }
+    setEngineState("lyrics", "done");
+    setEngineDetail("lyrics", "stage: done");
+    globalThis.pinLyricsProgressVisibilityModule?.(3600);
+    if (lyricsProgress) setProgress(lyricsProgress, 100);
+    setEngineProgressVisible("lyrics", false, { delayMs: 3600 });
+    updateEnginePanels(resolvedTitle, lines);
+    void globalThis.requestForyouThumbnail?.(
+      resolvedTitle,
+      String(state.songSeed?.musicStyle || state.songSeed?.creativeSummary?.compact || "").trim(),
+      lines
+    );
+    try {
+      await runPipeline(getMicJobId(), resolvedTitle, lyricText);
+    } catch (_pipelineErr) {
+      showToast(t("watch.toast.lyricsReadyMusicRecovering"));
+    }
+    return true;
+  } catch (_err) {
+    showToast(t("watch.toast.regenerateLyricsFailed"));
+    return false;
+  }
+}
+
+async function restartWatchGenerationFromCurrentLyricsModule(stageKey = "music") {
+  const title = String(
+    state.title ||
+    globalThis.extractTitleFromVideoOutlineModule?.(state.songSeed?.video_outline || state.songSeed?.script || "") ||
+    loginCopy("CSS MV")
+  ).trim();
+  const lines = compactLyricLines(
+    Array.isArray(state.lines) && state.lines.length ? state.lines : String(lyricsEl?.textContent || "").split("\n")
+  ).filter(Boolean);
+  if (!title || !lines.length || typeof runPipeline !== "function") {
+    showToast(t("watch.toast.lyricsNotPrepared"));
+    return false;
+  }
+  if (!(globalThis.hasCompleteSongSeedSnapshotModule?.(state.songSeed) ?? false)) {
+    return regenerateLyricsForWatchModule();
+  }
+  const inFlightRunId = getCurrentInFlightWatchRunIdModule();
+  if (inFlightRunId) {
+    globalThis.startPipelineProgressPollingModule?.(inFlightRunId);
+    globalThis.startPendingFinalAudioPollingModule?.(inFlightRunId);
+    return true;
+  }
+  const lyricText = buildLyricsText(title, lines);
+  stopPipelineProgressPolling();
+  stopPendingFinalAudioPolling?.();
+  currentWatchAudioRunId = "";
+  currentWatchAudioRunError = "";
+  setEngineState("lyrics", "done");
+  setEngineDetail("lyrics", "stage: done");
+  setEngineProgressVisible("lyrics", false, { delayMs: 3600 });
+  setEngineState("music", "running");
+  setEngineProgressVisible("music", true, { immediate: true });
+  updateEnginePanels(title, lines);
+  try {
+    await runPipeline(getMicJobId(), title, lyricText);
+    return true;
+  } catch (_err) {
+    showToast(t("watch.toast.regenerateFailed"));
+    return false;
+  }
+}
+
+function structuredWatchQueueIsActiveModule() {
+  const queue = globalThis.currentStructuredWatchQueue;
+  return !!(queue && Array.isArray(queue.items) && queue.items.length > 1);
+}
+
+let structuredWatchQueueAdvancePending = false;
+
+function queueStructuredWatchAdvanceModule() {
+  if (structuredWatchQueueAdvancePending || !structuredWatchQueueIsActiveModule()) return;
+  structuredWatchQueueAdvancePending = true;
+  window.setTimeout(async () => {
+    structuredWatchQueueAdvancePending = false;
+    const advanced = await globalThis.advanceStructuredWorkPlaybackModule?.();
+    if (!advanced) return;
+    armWatchExplicitPreviewIntent();
+    await openWatchPreviewFlowModule({
+      preferredTab: "mv",
+      clearLimit: true,
+      allowDemoFallback: false
+    });
+  }, 220);
 }
 
 async function openLatestRegistryPreviewInWatch() {
@@ -1555,13 +4204,13 @@ async function openLatestRegistryPreviewInWatch() {
     const videoArtifact = artifacts.find((item) => item.name === "video_preview.mp4");
     const svgArtifact = artifacts.find((item) => item.name === "video_preview.svg");
     if (videoArtifact && setWatchVideoFromArtifact(videoArtifact.uri, { sourceKind: "registry" })) {
-      watchSubtitle.textContent = "KaraOKe MV · Preview";
-      attemptWatchVideoPlaybackModule({ allowFallback: true });
+      watchSubtitle.textContent = watchSubtitleLabelModule("preview");
+      attemptWatchVideoPlaybackModule({ allowFallback: false });
       return true;
     }
     if (svgArtifact) {
       setWatchSvgPreviewModule(svgArtifact.uri);
-      watchSubtitle.textContent = "KaraOKe MV · Preview";
+      watchSubtitle.textContent = watchSubtitleLabelModule("preview");
       return true;
     }
     return false;
@@ -1588,41 +4237,177 @@ async function ensureWatchPanelPreviewPlayback() {
   return false;
 }
 
-async function playWatchPanelDemoFallback() {
-  if (!canUseWatchDemoFallback()) return false;
-  if (shouldKeepWatchInMusicModeModule()) {
+// CSSOS_PHASE2_HYDRATE_WATCH 20260420 — when a user clicks "Open in Watch"
+// from the notifications panel for a completed run, we must pull all of the
+// run's artifacts (video / cover / lyrics / subtitles) into the Watch panel,
+// not just the audio. Otherwise the panel shows black because Watch state
+// still reflects a different (or no) run. This helper fetches the run's
+// pipeline status payload and hydrates video + cover from the artifact list.
+async function hydrateWatchFromRunPayloadModule(runId = "") {
+  const safeRunId = String(runId || "").trim();
+  if (!safeRunId) return false;
+  const statePath = typeof pipelineRunStatePath === "function"
+    ? pipelineRunStatePath(safeRunId)
+    : `runs/${safeRunId}/state.json`;
+  if (!statePath) return false;
+  let payload = null;
+  try {
+    const res = await fetch(
+      `/api/pipeline/status?path=${encodeURIComponent(statePath)}`
+    );
+    if (!res.ok) return false;
+    payload = await res.json().catch(() => null);
+  } catch (_err) {
+    return false;
+  }
+  if (!payload) return false;
+  const artifacts = Array.isArray(payload?.artifacts) ? payload.artifacts : [];
+  let hydrated = false;
+  // Video hydration — prefer mp4 artifacts under the compose/final stage.
+  const videoEntry = artifacts.find((entry) => {
+    const path = String(entry?.path || "").trim().toLowerCase();
+    const mime = String(entry?.mime || "").trim().toLowerCase();
+    if (!path) return false;
+    if (mime && !mime.startsWith("video")) return false;
+    return path.endsWith(".mp4");
+  });
+  if (
+    videoEntry &&
+    typeof finalAudioArtifactUrl === "function" &&
+    typeof setWatchVideoFromArtifact === "function" &&
+    (!watchVideo?.src || !String(watchVideo.src).trim())
+  ) {
+    const videoUrl = finalAudioArtifactUrl(safeRunId, videoEntry.path);
+    if (videoUrl) {
+      setWatchVideoFromArtifact(videoUrl, { sourceKind: "run-artifact" });
+      hydrated = true;
+    }
+  }
+  // Cover hydration — first image/* artifact wins; fall back to cover.png.
+  const coverEntry =
+    artifacts.find((entry) => {
+      const path = String(entry?.path || "").trim().toLowerCase();
+      const mime = String(entry?.mime || "").trim().toLowerCase();
+      if (!path) return false;
+      if (mime && !mime.startsWith("image")) return false;
+      return /(cover|poster|thumb)\.(png|jpe?g|webp)$/i.test(path);
+    }) ||
+    artifacts.find((entry) => {
+      const mime = String(entry?.mime || "").trim().toLowerCase();
+      return mime.startsWith("image");
+    });
+  if (
+    coverEntry &&
+    typeof finalAudioArtifactUrl === "function" &&
+    typeof setWatchSvgPreviewModule === "function"
+  ) {
+    const coverUrl = finalAudioArtifactUrl(safeRunId, coverEntry.path);
+    if (coverUrl) {
+      setWatchSvgPreviewModule(coverUrl);
+      hydrated = true;
+    }
+  }
+  // Title hydration — prefer the run's recorded title so the Watch header
+  // rotator shows the right label even when the user opens an older run.
+  try {
+    const runTitle = String(payload?.title || payload?.meta?.title || "").trim();
+    if (runTitle) {
+      state.title = runTitle;
+      if (state.songSeed) state.songSeed.title = runTitle;
+      const watchPanelTitle = document.querySelector("#watch-panel .panel-title");
+      if (watchPanelTitle) {
+        const prefix = loginCopy("Watch");
+        const suffix = loginCopy("Ready");
+        watchPanelTitle.textContent = `${prefix} · ${runTitle} · ${suffix}`;
+      }
+    }
+  } catch (_err) {}
+  return hydrated;
+}
+
+async function openCurrentGeneratedWatchPlaybackModule({ autoplay = true, preferVideo = true } = {}) {
+  if (watchActiveTab === "music") {
+    preferVideo = false;
+  }
+  const candidateRunId = String(
+    currentWatchAudioRunId || pendingFinalAudioRunId || activePipelineRunId || currentWatchPreviewWork?.source_run_id || ""
+  ).trim();
+  if (candidateRunId) {
+    // Hydrate the full Watch surface (video/cover/title) from the run's
+    // pipeline status payload BEFORE we attempt audio attach, so the panel
+    // isn't black when the user opens an older completed run.
+    await hydrateWatchFromRunPayloadModule(candidateRunId).catch(() => false);
+    await attemptImmediateFinalAudioAttach(candidateRunId);
+  }
+  const generationInFlight =
+    !!candidateRunId &&
+    (
+      !typingState.completed ||
+      Number(engineProgressState.music || 0) < 100 ||
+      Number(engineProgressState.video || 0) < 100 ||
+      Number(engineProgressState.kara || 0) < 100
+    );
+  const hasVideo = !!(watchVideo?.src && String(watchVideo.src).trim()) && !generationInFlight;
+  const hasFinalAudio = currentWatchAudioSourceKind === "final-artifact" || !!getRememberedWatchFinalAudio();
+  if (candidateRunId && !hasFinalAudio && !hasVideo) {
+    openWatchPreviewShellModule({ fallbackTab: preferVideo ? "mv" : "music" });
+    syncWatchSubtitleForWaitingMediaModule();
+    return false;
+  }
+  if (preferVideo && hasVideo) {
+    openWatchPreviewShellModule({ fallbackTab: "mv" });
+    activateWatchTab("mv");
+    handleWatchUserPlaybackGesture();
+    attemptWatchVideoPlaybackModule({ allowFallback: false, maxRetries: 3 });
+    return true;
+  }
+  if (hasFinalAudio) {
     openWatchPreviewShellModule({ fallbackTab: "music", restoreAudio: true });
+    activateWatchTab("music");
+    if (autoplay) {
+      openWatchMusicPlaybackSurfaceModule({ autoplay: true });
+    } else {
+      restoreRememberedWatchFinalAudio();
+    }
     return true;
   }
-  const url = await pickFirstWorkingUrl(await getDemoMvFiles());
-  if (url && setWatchVideoFromArtifact(url, { sourceKind: "demo" })) {
-    watchSubtitle.textContent = "KaraOKe MV · Demo";
-    attemptWatchVideoPlaybackModule({ allowFallback: true });
+  if (hasVideo) {
+    openWatchPreviewShellModule({ fallbackTab: "mv" });
+    activateWatchTab("mv");
+    handleWatchUserPlaybackGesture();
+    attemptWatchVideoPlaybackModule({ allowFallback: false, maxRetries: 3 });
     return true;
   }
+  return false;
+}
+
+window.openCurrentGeneratedWatchPlaybackModule = openCurrentGeneratedWatchPlaybackModule;
+
+async function playWatchPanelDemoFallback() {
   return false;
 }
 
 async function playWatchPanelFailureFallback({ preferDemoMedia = true, allowSilence = true } = {}) {
   let usedDemo = false;
   if (preferDemoMedia && canUseWatchDemoFallback()) {
-    usedDemo = (await tryAttachDemoAudioFallbackModule({ autoplay: true, allowDemoFallback: true }).catch(() => false)) || false;
-    if (!usedDemo) {
-      usedDemo = (await playWatchPanelDemoFallback().catch(() => false)) || false;
-    }
+    usedDemo = false;
   }
   if (!usedDemo && allowSilence) {
-    useLocalWatchVideoFallbackModule(
-      state.title || loginCopy("Creation pending", "创作进行中"),
-      loginCopy("Graceful fallback preview", "优雅静默占位")
-    );
+    if (watchSvg) {
+      watchSvg.style.display = "none";
+      watchSvg.removeAttribute("src");
+      watchSvg.setAttribute("alt", "");
+    }
+    if (watchScreenBackdrop) {
+      watchScreenBackdrop.style.backgroundImage = "";
+    }
     if (watchAudioPreview) {
       watchAudioPreview.pause?.();
       watchAudioPreview.removeAttribute("src");
       watchAudioPreview.load?.();
       watchAudioPreview.style.display = "none";
       currentWatchAudioSourceKind = "none";
-      currentWatchAudioRunError = loginCopy("Silent fallback active.", "当前为静默回退。");
+      currentWatchAudioRunError = "";
       updateWatchAudioDebug();
       syncWatchAudioPresentation();
     }
@@ -1642,35 +4427,6 @@ function handleWatchVideoLoadedData() {
   if (capturedFrame) {
     cacheWatchFrameModule(capturedFrame);
   }
-  void extractWatchPreviewFramesFromSourceModule(watchVideo.currentSrc || watchVideo.src, 4).then((frames) => {
-    if (!frames.length) return;
-    cacheWatchFrameSequenceModule(frames);
-    void buildWatchMotionClipFromFramesModule(frames, {
-      durationSec: 6.2,
-      fps: 8,
-      beatSections: state.songSeed?.sectionBeats || []
-    }).then((clipUrl) => {
-      if (!clipUrl || shouldUseEffectiveWatchPreviewVideo()) return;
-      if (globalThis.currentPreviewMotionClipUrl) {
-        URL.revokeObjectURL(globalThis.currentPreviewMotionClipUrl);
-      }
-      globalThis.currentPreviewMotionClipUrl = clipUrl;
-      if (watchVideo && !shouldUseEffectiveWatchPreviewVideo()) {
-        clearWatchFrameLoopModule();
-        watchVideo.pause?.();
-        globalThis.currentPreviewVideoSourceKind = "frame-motion";
-        watchVideo.src = clipUrl;
-        watchVideo.muted = true;
-        watchVideo.loop = true;
-        watchVideo.playsInline = true;
-        watchVideo.load?.();
-        attemptWatchVideoPlaybackModule({ maxRetries: 1, allowFallback: false });
-      }
-    });
-    if (!shouldUseEffectiveWatchPreviewVideo()) {
-      syncWatchPlaceholderFromCurrentState();
-    }
-  });
   if (shouldUseEffectiveWatchPreviewVideo()) {
     clearWatchFrameLoopModule();
     watchVideo.style.display = "";
@@ -1683,6 +4439,8 @@ function handleWatchVideoLoadedData() {
 
 function handleWatchVideoCanPlay() {
   if (!watchVideo) return;
+  watchVideoRestrictionHits = 0;
+  watchScreen?.classList.remove("is-waiting");
   attemptWatchVideoPlaybackModule({ maxRetries: 2 });
   globalThis.currentPreviewVideoDurationSec = Number.isFinite(watchVideo.duration) ? watchVideo.duration : 0;
   if (
@@ -1708,8 +4466,7 @@ function handleWatchVideoLoadedMetadata() {
     globalThis.currentPreviewVideoDurationSec > 0 &&
     globalThis.currentPreviewVideoDurationSec <= MIN_EFFECTIVE_PREVIEW_DURATION_SEC
   ) {
-    useLocalWatchVideoFallbackModule(state.title, `${state.style} ${state.voice} cinematic mv`);
-    showToast("Preview too short · keeping thumbnail");
+    showToast(watchToastCopyModule("previewShort"));
     return;
   }
   syncWatchPlaceholderFromCurrentState();
@@ -1717,19 +4474,41 @@ function handleWatchVideoLoadedMetadata() {
 }
 
 function handleWatchVideoError() {
-  useLocalWatchVideoFallbackModule(state.title, `${state.style} ${state.voice} cinematic mv`);
+  if (watchSvg) {
+    watchSvg.style.display = "none";
+    watchSvg.removeAttribute("src");
+    watchSvg.setAttribute("alt", "");
+  }
+  if (watchScreenBackdrop) {
+    watchScreenBackdrop.style.backgroundImage = "";
+  }
+  watchVideoRestrictionHits += 1;
+  if (isAutoplayRestrictedWatchEnvironmentModule() || watchVideoRestrictionHits >= 2) {
+    fallbackWatchPlaybackToMusicModule(loginCopy("Video blocked, switching to music."));
+    return;
+  }
   attemptWatchVideoPlaybackModule({ maxRetries: 2 });
 }
 
 function syncWatchPlaybackIndicator(indicator, clickTarget) {
   if (!indicator || !watchVideo) return;
   if (watchVideo.paused) {
-    indicator.textContent = "▶";
+    const audioPlaying = !!(
+      watchAudioPreview &&
+      !watchAudioPreview.paused &&
+      !watchAudioPreview.ended &&
+      String(watchAudioPreview.currentSrc || watchAudioPreview.src || "").trim()
+    );
+    setWatchPlaybackUiSuppressedModule(audioPlaying);
+    watchOverlayPlay?.classList.remove("is-paused");
+    indicator.textContent = "";
     indicator.style.opacity = "0.85";
     clickTarget?.classList.add("is-paused");
     return;
   }
-  indicator.textContent = "❚❚";
+  setWatchPlaybackUiSuppressedModule(true);
+  watchOverlayPlay?.classList.add("is-paused");
+  indicator.textContent = "";
   indicator.style.opacity = "0.35";
   clickTarget?.classList.remove("is-paused");
 }
@@ -1744,37 +4523,82 @@ function handleWatchVideoTimeUpdate() {
 
 function handleWatchAudioPreviewStateSync() {
   syncWatchMusicStateModule();
+  if (watchAudioPreview && !watchAudioPreview.paused && !watchAudioPreview.ended) {
+    setWatchPlaybackUiSuppressedModule(true);
+  } else if (!watchVideo || watchVideo.paused || watchVideo.ended) {
+    setWatchPlaybackUiSuppressedModule(false);
+  }
 }
 
 function handleWatchAudioPreviewTimeUpdate() {
   enforceWatchPreviewLimit();
   enforceWatchReplyWindowLoop();
   maybeRefreshReplyHarmonyHighlight();
+  renderWatchKaraokeOverlayModule();
 }
 
 function handleWatchAudioPreviewTimelineUpdate() {
   maybeRefreshReplyHarmonyHighlight();
+  renderWatchKaraokeOverlayModule();
 }
 
 function handleWatchMusicPlayClick(event) {
-  void attemptImmediateFinalAudioAttach();
   event.preventDefault();
   event.stopPropagation();
+  const videoPlaying = !!(
+    watchVideo &&
+    !watchVideo.paused &&
+    !watchVideo.ended &&
+    String(watchVideo.currentSrc || watchVideo.src || "").trim()
+  );
+  const audioPlaying = !!(
+    watchAudioPreview &&
+    !watchAudioPreview.paused &&
+    !watchAudioPreview.ended &&
+    String(watchAudioPreview.currentSrc || watchAudioPreview.src || "").trim()
+  );
+  if (videoPlaying || audioPlaying) {
+    pulseWatchOverlayFeedbackModule("pause");
+    void playWatchOverlayFeedbackToneModule("pause");
+    watchVideo?.pause?.();
+    watchAudioPreview?.pause?.();
+    syncWatchMusicStateModule();
+    return;
+  }
+  const activeStage = resolveWatchRecoveryStageModule(
+    getNextWatchGenerationGapModule() || getActiveWatchProgressCardModule()?.key || "play"
+  );
+  if (activeStage) {
+    pulseWatchOverlayFeedbackModule("generate");
+    void playWatchOverlayFeedbackToneModule("generate");
+    if (activeStage !== "play") {
+      void continueWatchGenerationStageModule(activeStage);
+      return;
+    }
+  }
+  const existingSrc = String(watchAudioPreview?.currentSrc || watchAudioPreview?.src || "").trim();
+  if (!existingSrc) {
+    void handleWatchPlaybackSurfaceClick();
+    return;
+  }
   if (
-    (!String(watchAudioPreview?.currentSrc || watchAudioPreview?.src || "").trim() ||
-      String(watchAudioPreview?.currentSrc || watchAudioPreview?.src || "").trim().startsWith("data:audio/")) &&
+    (existingSrc.startsWith("data:audio/")) &&
     getRememberedWatchFinalAudio()
   ) {
     restoreRememberedWatchFinalAudio({ preservePlayback: true });
   }
   if (!watchAudioPreview?.src) return;
   if (watchAudioPreview.paused || watchAudioPreview.ended) {
+    pulseWatchOverlayFeedbackModule("resume");
+    void playWatchOverlayFeedbackToneModule("resume");
     void ensureWatchMusicVisualizerModule();
     const playPromise = watchAudioPreview.play?.();
     if (playPromise && typeof playPromise.then === "function") {
       playPromise.catch(() => {});
     }
   } else {
+    pulseWatchOverlayFeedbackModule("pause");
+    void playWatchOverlayFeedbackToneModule("pause");
     watchAudioPreview.pause?.();
   }
   syncWatchMusicStateModule();
@@ -1793,6 +4617,7 @@ function initWatchVideoPlaybackControlsModule() {
   watchVideo.addEventListener("loadeddata", handleWatchVideoLoadedData);
   watchVideo.addEventListener("canplay", handleWatchVideoCanPlay);
   watchVideo.addEventListener("loadedmetadata", handleWatchVideoLoadedMetadata);
+  watchVideo.addEventListener("ended", queueStructuredWatchAdvanceModule);
   watchVideo.addEventListener("error", handleWatchVideoError);
   if (clickTarget) {
     clickTarget.addEventListener("click", handleWatchPlaybackSurfaceClick);
@@ -1801,29 +4626,67 @@ function initWatchVideoPlaybackControlsModule() {
 
 function initWatchMusicControlsModule() {
   if (!watchAudioPreview) return;
+  watchAudioPreview.controls = false;
   ["play", "pause", "ended", "loadedmetadata", "timeupdate", "canplay"].forEach((eventName) => {
     watchAudioPreview.addEventListener(eventName, handleWatchAudioPreviewStateSync);
   });
+  watchAudioPreview.addEventListener("ended", queueStructuredWatchAdvanceModule);
   watchAudioPreview.addEventListener("timeupdate", handleWatchAudioPreviewTimeUpdate);
   ["play", "pause", "ended", "loadedmetadata", "canplay", "seeked"].forEach((eventName) => {
     watchAudioPreview.addEventListener(eventName, handleWatchAudioPreviewTimelineUpdate);
   });
   watchMusicPlay?.addEventListener("click", handleWatchMusicPlayClick);
+  watchStyleShift?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    cycleWatchTypographyPresetModule();
+  });
+  watchStyleShift?.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openWatchStyleMenuModule(event.clientX, event.clientY, "all");
+  });
+  watchStyleShift?.addEventListener("pointerdown", (event) => {
+    if (event.pointerType === "mouse") return;
+    clearTimeout(watchStyleMenuLongpressTimer);
+    watchStyleMenuLongpressTimer = window.setTimeout(() => {
+      openWatchStyleMenuModule(event.clientX, event.clientY, "all");
+    }, 520);
+  });
+  ["pointerup", "pointercancel", "pointerleave"].forEach((eventName) => {
+    watchStyleShift?.addEventListener(eventName, () => {
+      clearTimeout(watchStyleMenuLongpressTimer);
+      watchStyleMenuLongpressTimer = null;
+    });
+  });
   watchAudioPreview.addEventListener("emptied", stopWatchMusicVisualizerModule);
   syncWatchMusicArtworkModule();
   syncWatchMusicStateModule();
+  if (!watchProgressRotatorTimer) {
+    watchProgressRotatorTimer = window.setInterval(() => {
+      syncWatchProgressRotatorModule();
+    }, WATCH_PROGRESS_ROTATE_MS);
+  }
 }
 
-function resetWatchVideoPreviewModule() {
+window.renderWatchKaraokeOverlayModule = renderWatchKaraokeOverlayModule;
+
+function resetWatchVideoPreviewModule(options = {}) {
   if (!watchVideo) return;
-  resetForyouThumb();
-  clearWatchFrameLoopModule();
+  const preserveArtwork = options?.preserveArtwork === true;
+  if (!preserveArtwork) {
+    resetForyouThumb();
+    clearWatchFrameLoopModule();
+  }
   globalThis.currentPreviewVideoDurationSec = 0;
   currentPreviewVideoIsLocalFallback = false;
   globalThis.currentPreviewVideoSourceKind = "none";
   globalThis.currentPreviewVideoHasUsableFrame = false;
-  globalThis.currentPreviewFrameDataUrl = "";
-  globalThis.currentPreviewFrameSequence = [];
+  if (!preserveArtwork) {
+    globalThis.currentPreviewFrameDataUrl = "";
+    globalThis.currentPreviewFrameSequence = [];
+    globalThis.currentWatchArtworkVariantPool = [];
+  }
   if (globalThis.currentPreviewMotionClipUrl) {
     URL.revokeObjectURL(globalThis.currentPreviewMotionClipUrl);
     globalThis.currentPreviewMotionClipUrl = "";
@@ -1835,11 +4698,14 @@ function resetWatchVideoPreviewModule() {
     URL.revokeObjectURL(watchVideoUrl);
     watchVideoUrl = null;
   }
-  if (watchSvg) {
+  if (watchSvg && !preserveArtwork) {
     watchSvg.removeAttribute("src");
     watchSvg.style.display = "none";
   }
   watchVideo.style.display = "";
+  if (preserveArtwork) {
+    syncWatchPlaceholderFromCurrentState();
+  }
 }
 
 function shouldUseEffectiveWatchPreviewVideo() {
@@ -1899,30 +4765,124 @@ function hasCurrentWatchPreviewMedia() {
   );
 }
 
+function hasEffectiveWatchFrameSourceModule() {
+  const src = String(globalThis.currentPreviewFrameDataUrl || watchSvg?.src || "").trim();
+  if (!src) return false;
+  if (/^data:image\/svg\+xml/i.test(src)) return false;
+  return true;
+}
+
 function showWatchFramePlaceholderModule(uri) {
   if (!watchSvg || !uri) return false;
+  if (/^data:image\/svg\+xml/i.test(String(uri || "").trim())) {
+    if (watchSvg) {
+      watchSvg.style.display = "none";
+      watchSvg.removeAttribute("src");
+      watchSvg.setAttribute("alt", "");
+    }
+    if (watchScreenBackdrop) {
+      watchScreenBackdrop.style.backgroundImage = "";
+    }
+    return false;
+  }
+  clearWatchFrameLoopModule();
   watchSvg.src = uri;
   watchSvg.style.display = "block";
   watchSvg.classList.add("glow");
   if (watchVideo) watchVideo.style.display = "none";
+  if (watchScreenBackdrop) {
+    watchScreenBackdrop.style.backgroundImage = `url("${String(uri).replace(/"/g, '\\"')}")`;
+  }
   return true;
 }
 
 function setWatchSvgPreviewModule(uri) {
   if (!watchSvg || !uri) return false;
-  showWatchFramePlaceholderModule(uri);
-  if (getForyouPreviewMode() !== FORYOU_PREVIEW_MODES.VIDEO) {
-    setForyouThumbImage(uri);
+  const safeUri = String(uri || "").trim();
+  const incomingIsSvg = /^data:image\/svg\+xml/i.test(safeUri);
+  if (incomingIsSvg) {
+    return false;
   }
+  const currentArtwork = String(
+    globalThis.currentPreviewFrameDataUrl ||
+      foryouThumbImage?.src ||
+      ""
+  ).trim();
+  const currentHasRealArtwork = !!currentArtwork && !/^data:image\/svg\+xml/i.test(currentArtwork);
+  if (incomingIsSvg && currentHasRealArtwork) {
+    showWatchFramePlaceholderModule(currentArtwork);
+    syncWatchMusicArtworkModule();
+    return true;
+  }
+  globalThis.currentPreviewFrameDataUrl = safeUri;
+  globalThis.currentResolvedWatchArtworkDataUrl = safeUri;
+  showWatchFramePlaceholderModule(safeUri);
+  setForyouThumbImage(safeUri);
+  syncWatchMusicArtworkModule();
   return true;
 }
 
+function pulseWatchOverlayFeedbackModule(mode = "generate") {
+  if (!watchOverlayPlay) return;
+  watchOverlayPlay.classList.remove("is-confirmed", "is-generating");
+  void watchOverlayPlay.offsetWidth;
+  if (mode === "generate") {
+    watchOverlayPlay.classList.add("is-generating");
+  }
+  watchOverlayPlay.classList.add("is-confirmed");
+  window.setTimeout(() => {
+    watchOverlayPlay?.classList.remove("is-confirmed");
+  }, 460);
+}
+
+async function playWatchOverlayFeedbackToneModule(mode = "generate") {
+  if (typeof window === "undefined") return false;
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return false;
+  try {
+    if (!watchMusicAudioContext) {
+      watchMusicAudioContext = new AudioCtx();
+    }
+    if (watchMusicAudioContext.state === "suspended") {
+      await watchMusicAudioContext.resume().catch(() => {});
+    }
+    const ctx = watchMusicAudioContext;
+    const now = ctx.currentTime;
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    oscillator.type = mode === "generate" ? "triangle" : "sine";
+    oscillator.frequency.setValueAtTime(mode === "generate" ? 612 : 540, now);
+    oscillator.frequency.exponentialRampToValueAtTime(mode === "generate" ? 960 : 720, now + 0.12);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.026, now + 0.016);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.2);
+    oscillator.onended = () => {
+      oscillator.disconnect();
+      gain.disconnect();
+    };
+    return true;
+  } catch (_err) {
+    return false;
+  }
+}
+
 function useLocalWatchVideoFallbackModule(title, subtitle) {
-  setWatchSvgPreviewModule(buildLocalVideoPreviewSvg(title, subtitle));
+  if (watchSvg) {
+    watchSvg.style.display = "none";
+    watchSvg.removeAttribute("src");
+    watchSvg.setAttribute("alt", "");
+  }
+  if (watchScreenBackdrop) {
+    watchScreenBackdrop.style.backgroundImage = "";
+  }
   currentPreviewVideoIsLocalFallback = true;
   globalThis.currentPreviewVideoDurationSec = 0;
   globalThis.currentPreviewVideoSourceKind = "local-fallback";
-  watchSubtitle.textContent = "KaraOKe MV · Internal Debug Artifact";
+  syncWatchSubtitleForWaitingMediaModule();
 }
 
 function promptManualWatchPlaybackModule(message) {
@@ -1965,15 +4925,26 @@ function attemptWatchVideoPlaybackModule(options = {}) {
       })
       .catch(() => {
         globalThis.watchPlaybackRetry += 1;
+        if (isAutoplayRestrictedWatchEnvironmentModule()) {
+          const msg = isTeslaWatchEnvironmentModule()
+            ? loginCopy("Driving browser blocked video, music continues.")
+            : loginCopy("Mobile browser blocked autoplay, switching to music.");
+          fallbackWatchPlaybackToMusicModule(msg);
+          return;
+        }
         if (globalThis.watchPlaybackRetry <= maxRetries) {
           showToast(`Auto retry ${globalThis.watchPlaybackRetry}/${maxRetries}`);
           globalThis.watchPlaybackTimer = setTimeout(tryPlay, interval);
           return;
         }
-        if (allowFallback) {
-          useLocalWatchVideoFallbackModule(state.title, `${state.style} ${state.voice} cinematic mv`);
+        if (allowFallback && watchScreenBackdrop) {
+          watchScreenBackdrop.style.backgroundImage = "";
         }
-        promptManualWatchPlaybackModule("Autoplay blocked · Tap to play");
+        if (String(watchAudioPreview?.currentSrc || watchAudioPreview?.src || "").trim()) {
+          fallbackWatchPlaybackToMusicModule(watchToastCopyModule("autoplayBlocked"));
+          return;
+        }
+        promptManualWatchPlaybackModule(watchToastCopyModule("autoplayBlocked"));
       });
   };
 
@@ -2005,11 +4976,24 @@ function getCachedWatchFrameModule() {
   const key = getWatchFrameCacheKeyModule();
   if (!key) return "";
   const memory = globalThis.watchFrameCache.get(key);
-  if (memory) return memory;
+  if (memory) {
+    setBoundedWatchCacheEntryModule(
+      globalThis.watchFrameCache,
+      key,
+      memory,
+      WATCH_FRAME_CACHE_LIMIT
+    );
+    return memory;
+  }
   try {
     const stored = localStorage.getItem(`cssos.watch.frame.${key}`);
     if (stored) {
-      globalThis.watchFrameCache.set(key, stored);
+      setBoundedWatchCacheEntryModule(
+        globalThis.watchFrameCache,
+        key,
+        stored,
+        WATCH_FRAME_CACHE_LIMIT
+      );
       return stored;
     }
   } catch (_err) {
@@ -2022,10 +5006,17 @@ function cacheWatchFrameModule(dataUrl) {
   const key = getWatchFrameCacheKeyModule();
   if (!key || !dataUrl) return;
   globalThis.currentPreviewFrameDataUrl = dataUrl;
-  globalThis.watchFrameCache.set(key, dataUrl);
+  setBoundedWatchCacheEntryModule(
+    globalThis.watchFrameCache,
+    key,
+    dataUrl,
+    WATCH_FRAME_CACHE_LIMIT
+  );
   syncMediaDerivedWorkCoverImage();
   try {
-    localStorage.setItem(`cssos.watch.frame.${key}`, dataUrl);
+    if (String(dataUrl).length <= 220000) {
+      localStorage.setItem(`cssos.watch.frame.${key}`, dataUrl);
+    }
   } catch (_err) {
     // ignore storage quota
   }
@@ -2040,8 +5031,13 @@ function getCachedWatchFrameSequenceModule() {
 function cacheWatchFrameSequenceModule(frames) {
   const key = getWatchFrameCacheKeyModule();
   if (!key || !Array.isArray(frames) || !frames.length) return;
-  globalThis.currentPreviewFrameSequence = frames.slice();
-  globalThis.watchFrameSequenceCache.set(key, globalThis.currentPreviewFrameSequence);
+  globalThis.currentPreviewFrameSequence = frames.slice(0, 4);
+  setBoundedWatchCacheEntryModule(
+    globalThis.watchFrameSequenceCache,
+    key,
+    globalThis.currentPreviewFrameSequence,
+    WATCH_FRAME_SEQUENCE_CACHE_LIMIT
+  );
 }
 
 function clearWatchFrameLoopModule() {
@@ -2266,6 +5262,7 @@ async function buildWatchMotionClipFromFramesModule(frames, options = {}) {
 
 function getCurrentWatchArtworkModule() {
   return (
+    globalThis.resolveWorkCardThumbnailImageModule?.(currentWatchPreviewWork || {}) ||
     resolveWorkCoverImage(currentWatchPreviewWork || {}) ||
     (foryouThumbImage?.src && String(foryouThumbImage.src).trim()) ||
     getCachedWatchFrameModule() ||
@@ -2275,18 +5272,67 @@ function getCurrentWatchArtworkModule() {
   );
 }
 
-async function requestWatchVideoPreviewModule(title, lines) {
+async function requestWatchVideoPreviewModule(title, lines, options = {}) {
   if (shouldKeepWatchInMusicModeModule()) {
     openWatchPreviewShellModule({ fallbackTab: "music", restoreAudio: true });
     return;
   }
   if (!watchVideo) return;
+  const allowDuringGeneration = options?.allowDuringGeneration === true;
+  const generationBusy = !!(
+    globalThis.lyricsSeedRequestState?.pending ||
+    globalThis.watchPipelineLaunchPending ||
+    String(activePipelineRunId || "").trim() ||
+    String(pendingFinalAudioRunId || "").trim() ||
+    String(currentWatchAudioRunId || "").trim() ||
+    globalThis.isCreationBusyModule?.()
+  );
+  const musicReadyForPreview =
+    Number(engineProgressState.music || 0) >= 100 &&
+    hasPlayableCurrentWatchAudioModule();
+  if (allowDuringGeneration && !musicReadyForPreview) {
+    if (watchSubtitle) {
+      watchSubtitle.textContent = t("watch.status.requestingMusicEngine");
+    }
+    void requestWatchFrameArtworkModule(title, t("watch.status.requestingMusicEngine"), lines);
+    return false;
+  }
+  if (generationBusy && !allowDuringGeneration) {
+    if (videoJobPoll) {
+      clearInterval(videoJobPoll);
+      videoJobPoll = null;
+    }
+    videoJobId = null;
+    watchVideoPreviewRequestPending = false;
+    if (watchSubtitle) {
+      syncWatchSubtitleForWaitingMediaModule();
+    }
+    void requestWatchFrameArtworkModule(title, t("watch.status.waitingImage"), lines);
+    return false;
+  }
+  const requestKey = JSON.stringify([
+    String(title || state.title || "").trim(),
+    Array.isArray(lines) ? lines.filter(Boolean).slice(0, 8) : []
+  ]);
+  if (
+    watchVideoPreviewRequestPending ||
+    (requestKey && requestKey === lastWatchVideoPreviewRequestKey && (videoJobPoll || videoJobId))
+  ) {
+    return;
+  }
   if (videoJobPoll) {
     clearInterval(videoJobPoll);
     videoJobPoll = null;
   }
   videoJobId = null;
-  resetWatchVideoPreviewModule();
+  watchVideoPreviewRequestPending = true;
+  lastWatchVideoPreviewRequestKey = requestKey;
+  resetWatchVideoPreviewModule({ preserveArtwork: true });
+  const artworkSubtitle = t("watch.status.waitingImage");
+  if (watchSubtitle) {
+    syncWatchSubtitleForWaitingMediaModule();
+  }
+  void requestWatchFrameArtworkModule(title, artworkSubtitle, lines);
   const prompt = `${state.style} ${state.voice} cinematic mv`;
   const payload = {
     capability_id: "video.gan.v1",
@@ -2307,21 +5353,46 @@ async function requestWatchVideoPreviewModule(title, lines) {
       body: JSON.stringify(payload)
     });
     if (!res.ok) {
-      useLocalWatchVideoFallbackModule(title, prompt);
-      showToast(`Video offline · Local preview (${res.status})`);
       return;
     }
     const body = await res.json();
     const jobId = body?.job?.id || body?.id;
     if (!jobId) {
-      useLocalWatchVideoFallbackModule(title, prompt);
       return;
     }
     videoJobId = jobId;
     pollWatchVideoJobModule(videoJobId);
   } catch (_err) {
-    useLocalWatchVideoFallbackModule(title, prompt);
-    showToast("Video offline · Local preview");
+    return;
+  } finally {
+    watchVideoPreviewRequestPending = false;
+  }
+}
+
+async function requestWatchFrameArtworkModule(title, subtitle, lines = []) {
+  const safeTitle = String(title || state.title || loginCopy("CSS MV")).trim();
+  const safeSubtitle = String(subtitle || t("watch.status.waitingImage")).trim();
+  const safeLines = Array.isArray(lines) ? lines.filter(Boolean).slice(0, 8) : [];
+  try {
+    const pool =
+      (await globalThis.requestThumbnailVariantPool?.(safeTitle, safeSubtitle, safeLines, {
+        count: 5,
+      })) || [];
+    const uniquePool = [...new Set((Array.isArray(pool) ? pool : []).map((item) => String(item || "").trim()).filter(Boolean))].slice(0, 5);
+    if (uniquePool.length) {
+      globalThis.currentWatchArtworkVariantPool = uniquePool;
+    }
+    const image =
+      String(uniquePool[0] || "").trim() ||
+      (await globalThis.requestThumbnailDataUrl?.(safeTitle, safeSubtitle, safeLines)) ||
+      "";
+    if (!image) return false;
+    setWatchSvgPreviewModule(image);
+    syncWatchPlaceholderAfterForyouThumbModule();
+    void primeWatchArtworkSlideshowModule(safeTitle, safeSubtitle, safeLines);
+    return true;
+  } catch (_err) {
+    return false;
   }
 }
 
@@ -2345,21 +5416,16 @@ function pollWatchVideoJobModule(jobId) {
         const svgArtifact = artifacts.find((item) => item.name === "video_preview.svg");
         if (videoArtifact && watchVideo) {
           if (setWatchVideoFromArtifact(videoArtifact.uri, { sourceKind: "job-artifact" })) {
-            attemptWatchVideoPlaybackModule({ allowFallback: true });
-          } else {
-            useLocalWatchVideoFallbackModule(state.title, `${state.style} ${state.voice} cinematic mv`);
+            attemptWatchVideoPlaybackModule({ allowFallback: false });
           }
-          watchSubtitle.textContent = "KaraOKe MV · Preview";
-        } else if (svgArtifact) {
-          setWatchSvgPreviewModule(svgArtifact.uri);
-          watchSubtitle.textContent = "KaraOKe MV · Preview";
+          watchSubtitle.textContent = watchSubtitleLabelModule("preview");
         } else {
-          watchSubtitle.textContent = "KaraOKe MV · Ready";
+          watchSubtitle.textContent = watchSubtitleLabelModule("ready");
         }
         clearInterval(videoJobPoll);
         videoJobPoll = null;
       } else if (job.status === "failed") {
-        watchSubtitle.textContent = "KaraOKe MV · Failed";
+        watchSubtitle.textContent = watchSubtitleLabelModule("failed");
         clearInterval(videoJobPoll);
         videoJobPoll = null;
       }
@@ -2376,23 +5442,61 @@ async function openWatchPreviewFlowModule({
   clearLimit = true,
   tryRegistry = false,
   showEmptyToast = false,
-  allowDemoFallback = false
+  allowDemoFallback = false,
+  preferLatestOwned = false
 } = {}) {
+  const creationBusy = !!globalThis.isCreationBusyModule?.();
+  const lyricsPending = !!globalThis.lyricsSeedRequestState?.pending;
+  const seedPreparing = hasBlockingWatchSeedModule();
+  const sourceRunId = String(currentWatchPreviewWork?.source_run_id || "").trim();
+  const currentRunLocked = !!String(
+    currentWatchAudioRunId || pendingFinalAudioRunId || activePipelineRunId || sourceRunId || ""
+  ).trim();
+  if (sourceRunId && !String(currentWatchAudioRunId || "").trim()) {
+    currentWatchAudioRunId = sourceRunId;
+  }
   if (clearLimit) {
     clearWatchPreviewLimit();
   }
   if (preferredTab) {
     activateWatchTab(resolvePreferredWatchOpenTab(preferredTab));
   }
+  if (creationBusy || lyricsPending || seedPreparing || currentRunLocked) {
+    openWatchPreviewShellModule({ fallbackTab: preferredTab || "mv" });
+    syncWatchPlaceholderFromCurrentState();
+    return false;
+  }
+  if (preferLatestOwned) {
+    const openedLatest = await openLatestOwnedWorkPreviewModule();
+    if (openedLatest) {
+      if (preferredTab === "music") {
+        openWatchMusicPlaybackSurfaceModule({ autoplay: true });
+      } else {
+        attemptWatchVideoPlaybackModule({ allowFallback: false });
+      }
+      return true;
+    }
+  }
   const usedCurrent = await ensureWatchPanelPreviewPlayback();
   if (usedCurrent) return true;
+  if (!preferLatestOwned) {
+    const openedLatest = await openLatestOwnedWorkPreviewModule();
+    if (openedLatest) {
+      if (preferredTab === "music") {
+        openWatchMusicPlaybackSurfaceModule({ autoplay: true });
+      } else {
+        attemptWatchVideoPlaybackModule({ allowFallback: false });
+      }
+      return true;
+    }
+  }
   if (tryRegistry) {
     const registryOk = await openLatestRegistryPreviewInWatch();
     if (registryOk) return true;
   }
   const demoOk = allowDemoFallback ? await playWatchPanelDemoFallback() : false;
   if (!demoOk && showEmptyToast) {
-    showToast("No video ready yet");
+    showToast(watchToastCopyModule("videoPending"));
   }
   return demoOk;
 }
@@ -2412,12 +5516,60 @@ function syncWatchPlaceholderAfterForyouThumbModule() {
 
 function syncWatchMusicArtworkModule() {
   if (!watchMusicStage) return;
-  const artwork = getCurrentWatchArtworkModule();
-  const safe = artwork ? `url("${String(artwork).replace(/"/g, '\\"')}")` : "none";
-  watchMusicStage.style.setProperty("--watch-music-art-image", safe);
+  const variantPool = Array.isArray(globalThis.currentWatchArtworkVariantPool)
+    ? globalThis.currentWatchArtworkVariantPool
+        .map((item) => String(item || "").trim())
+        .filter(Boolean)
+    : [];
+  const dedupedPool = [...new Set(variantPool)];
+  const frameArtwork = String(
+    globalThis.currentResolvedWatchArtworkDataUrl ||
+      globalThis.currentPreviewFrameDataUrl ||
+      dedupedPool[0] ||
+      foryouThumbImage?.src ||
+      watchSvg?.src ||
+      ""
+  ).trim();
+  const stageCandidates = dedupedPool.filter((item) => item && item !== frameArtwork);
+  const stageArtwork = String(
+    stageCandidates[0] ||
+    dedupedPool[1] ||
+    frameArtwork ||
+    getCurrentWatchArtworkModule() ||
+    ""
+  ).trim();
+  const discCandidates = dedupedPool.filter((item) => item && item !== frameArtwork && item !== stageArtwork);
+  const discArtwork = String(
+    discCandidates[0] ||
+    (stageArtwork !== frameArtwork ? frameArtwork : "") ||
+    stageArtwork ||
+    ""
+  ).trim();
+  const stageSafe = stageArtwork ? `url("${String(stageArtwork).replace(/"/g, '\\"')}")` : "none";
+  const discSafe = discArtwork ? `url("${String(discArtwork).replace(/"/g, '\\"')}")` : stageSafe;
+  const frameSafe = frameArtwork ? `url("${String(frameArtwork).replace(/"/g, '\\"')}")` : stageSafe;
+  watchMusicStage.style.setProperty("--watch-music-backdrop-image", stageSafe);
+  watchMusicStage.style.setProperty("--watch-music-art-image", discSafe);
+  watchScreen?.style.setProperty("--watch-frame-art-image", frameSafe);
+  watchScreenBackdrop?.style.setProperty("background-image", frameSafe);
+  document.getElementById("watch-music-art")?.style.setProperty("background-image", discSafe);
+  if (watchMusicArtBlur) {
+    watchMusicArtBlur.checked = localStorage.getItem(WATCH_MUSIC_ART_BLUR_KEY) === "true";
+    syncWatchMusicArtworkBlurModule();
+  }
+  if (
+    stageArtwork &&
+    stageArtwork !== lastWatchArtworkPreloadSrc &&
+    !String(stageArtwork).startsWith("data:image/")
+  ) {
+    lastWatchArtworkPreloadSrc = stageArtwork;
+    const preload = new Image();
+    preload.decoding = "async";
+    preload.src = stageArtwork;
+  }
 }
 
-function playWatchAudioPreviewFromStartModule() {
+function playWatchAudioPreviewFromStartModule(options = {}) {
   if (
     watchAudioPreview &&
     String(watchAudioPreview.currentSrc || watchAudioPreview.src || "").trim().startsWith("data:audio/") &&
@@ -2430,9 +5582,9 @@ function playWatchAudioPreviewFromStartModule() {
     (!String(watchAudioPreview.currentSrc || watchAudioPreview.src || "").trim() ||
       String(watchAudioPreview.currentSrc || watchAudioPreview.src || "").trim().startsWith("data:audio/")) &&
     !getRememberedWatchFinalAudio() &&
-    canUseWatchDemoFallback()
+    !globalThis.isCreationBusyModule?.()
   ) {
-    void tryAttachDemoAudioFallbackModule({ autoplay: true, allowDemoFallback: true });
+    currentWatchAudioSourceKind = "none";
   }
   if (!watchAudioPreview || watchAudioPreview.style.display === "none" || !watchAudioPreview.src) {
     updateWatchAudioDebug();
@@ -2440,10 +5592,12 @@ function playWatchAudioPreviewFromStartModule() {
   }
   watchAudioPreview.autoplay = true;
   watchAudioPreview.playsInline = true;
-  try {
-    watchAudioPreview.currentTime = 0;
-  } catch (_err) {
-    // ignore seek errors
+  if (options?.preserveCurrentTime !== true) {
+    try {
+      watchAudioPreview.currentTime = 0;
+    } catch (_err) {
+      // ignore seek errors
+    }
   }
   const playPromise = watchAudioPreview.play?.();
   if (!playPromise || typeof playPromise.then !== "function") return true;
@@ -2471,10 +5625,16 @@ function openWatchMusicPlaybackSurfaceModule({ clearLimit = false, autoplay = fa
   }
   openWatchPreviewShellModule({ fallbackTab: "music" });
   if (!autoplay) return true;
-  if (playWatchAudioPreviewFromStartModule()) return true;
+  const preserveCurrentTime =
+    !!String(watchAudioPreview?.currentSrc || watchAudioPreview?.src || "").trim() &&
+    Number.isFinite(Number(watchAudioPreview?.currentTime || 0)) &&
+    Number(watchAudioPreview?.currentTime || 0) > 0 &&
+    !!watchAudioPreview?.paused &&
+    !watchAudioPreview?.ended;
+  if (playWatchAudioPreviewFromStartModule({ preserveCurrentTime })) return true;
   const retryPlay = () => {
     watchAudioPreview?.removeEventListener("canplay", retryPlay);
-    playWatchAudioPreviewFromStartModule();
+    playWatchAudioPreviewFromStartModule({ preserveCurrentTime });
   };
   watchAudioPreview?.addEventListener("canplay", retryPlay, { once: true });
   return false;
@@ -2490,40 +5650,136 @@ function openCreationShowcasePanelsModule(options = {}) {
   layoutShowcasePanels();
 }
 
+function openMinimalCreationResultSurfaceModule(options = {}) {
+  const hiddenPanels = [
+    foryouPanel,
+    lyricsPanel,
+    musicPanel,
+    videoPanel,
+    cssmvPanel,
+  ].filter(Boolean);
+  hiddenPanels.forEach((panel) => {
+    panel.classList.add("hidden");
+  });
+  updateDockVisibility?.();
+  if (watchPanel) {
+    openPanel(watchPanel, { focus: options.focus !== false, layout: false });
+    activateWatchTab(resolvePreferredWatchOpenTab(options.preferredTab || "mv"));
+    ensureWatchCentered();
+  }
+  layoutShowcasePanels();
+}
+
+function ensureCreationAdvancedSettingsAccessModule() {
+  try {
+    if (typeof authState !== "undefined" && authState?.user) return true;
+  } catch (_err) {
+    // ignore lookup errors
+  }
+  if (globalThis.authState?.user) return true;
+  if (typeof openLoginForCreation === "function") {
+    openLoginForCreation(
+      loginCopy(
+        "Sign in first to open advanced settings."
+      )
+    );
+  } else {
+    showToast?.(
+      loginCopy(
+        "Sign in first to open advanced settings."
+      )
+    );
+    openPanel?.(loginPanel);
+  }
+  return false;
+}
+
 function openCreationAdvancedSettingsPanelModule() {
+  if (!ensureCreationAdvancedSettingsAccessModule()) return false;
   if (!settingsPanel) return;
-  openPanel(settingsPanel, { focus: false, layout: false });
+  openPanel(settingsPanel, { focus: true, layout: false });
   if (advancedPanelSettings?.hidden) {
     advancedPanelSettings.hidden = false;
     advancedPanelSettingsToggle?.classList.add("is-active");
     void renderAdvancedPanelSettings({ force: true, deferHeavy: true });
+  } else if (advancedPanelSettings?.dataset?.needsRender === "true") {
+    void renderAdvancedPanelSettings({ force: true, deferHeavy: true });
   }
   focusPanel(settingsPanel);
+  globalThis.bringPanelToFrontBridge?.(settingsPanel, { repeatPasses: 3 });
+  advancedPanelSettings?.scrollIntoView?.({ block: "start", behavior: "smooth" });
   layoutShowcasePanels();
+  return true;
 }
 
 function resolveCreationSurfaceModeModule(origin = "logo") {
   const behavior = readPanelBehaviorSettingsLocal();
   const micBehavior = behavior?.mic || {};
-  if (origin === "dock") return micBehavior.dock_surface_mode || "showcase";
-  if (origin === "settings") return micBehavior.settings_surface_mode || micBehavior.logo_surface_mode || "showcase";
-  return micBehavior.logo_surface_mode || "showcase";
+  if (origin === "dock") return micBehavior.dock_surface_mode || "mv_only";
+  if (origin === "settings") return micBehavior.settings_surface_mode || micBehavior.logo_surface_mode || "mv_only";
+  return micBehavior.logo_surface_mode || "mv_only";
 }
 
 function showCreationSurfaceModule(origin = "logo") {
   const mode = resolveCreationSurfaceModeModule(origin);
+  globalThis.currentCreationSurfaceOrigin = origin;
+  globalThis.currentCreationSurfaceMode = mode;
   if (mode === "mv_only") {
-    ensureWatchCentered();
+    openMinimalCreationResultSurfaceModule({
+      preferredTab: "mv"
+    });
+    syncWatchGenerationVisibilityModule();
     return;
   }
   openCreationShowcasePanelsModule();
+  syncWatchGenerationVisibilityModule();
+}
+
+function syncWatchGenerationVisibilityModule() {
+  const showGenerationFlow = readPanelBehaviorSettingsLocal()?.watch?.show_generation_flow === true;
+  if (watchPanel) {
+    watchPanel.dataset.showGenerationFlow = showGenerationFlow ? "true" : "false";
+  }
+  ["lyrics", "music", "video", "kara"].forEach((engine) => {
+    const shell = getEngineProgressShellModule(engine);
+    if (!shell) return;
+    shell.hidden = !showGenerationFlow;
+    shell.classList.remove("is-fading");
+  });
+  syncWatchEngineGridModule();
 }
 
 Object.assign(globalThis, {
+  isWatchLyricsReadyModule,
+  getNextWatchGenerationGapModule,
+  resolveWatchRecoveryStageModule,
+  autoRecoverWatchStageModule,
+  syncWatchSubtitleForWaitingMediaModule,
+  handleWatchPlaybackSurfaceClickModule: handleWatchPlaybackSurfaceClick,
+  invokeUniversalCreationEntryModule,
+  regenerateLyricsForWatchModule,
+  restartWatchGenerationFromCurrentLyricsModule,
+  activateWatchTab,
+  openMinimalCreationResultSurfaceModule,
   openCreationShowcasePanelsModule,
   openCreationAdvancedSettingsPanelModule,
+  openOptimizationPanelModule: openCreationAdvancedSettingsPanelModule,
+  stopWatchPanelPlaybackModule,
   resolveCreationSurfaceModeModule,
-  showCreationSurfaceModule
+  showCreationSurfaceModule,
+  syncWatchGenerationVisibilityModule,
+  getCurrentInFlightWatchRunIdModule,
+  findActiveBackgroundRunIdForCurrentWorkModule,
+  initWatchImmersiveScrollModule,
+  syncWatchMusicArtworkBlurModule,
+  syncWatchMusicArtworkModule,
+  requestWatchFrameArtworkModule,
+  showWatchFramePlaceholderModule,
+  cacheWatchFrameModule,
+  submitWatchCommentModule,
+  ensureWatchCentered,
+  openWatchPreviewFlowModule,
+  showCreationSurface: showCreationSurfaceModule
 });
 
 function primeZeroThresholdAudioPreviewModule(seedLike = {}) {
@@ -2532,85 +5788,75 @@ function primeZeroThresholdAudioPreviewModule(seedLike = {}) {
     return openWatchMusicPlaybackSurfaceModule({ autoplay: true });
   }
   watchAudioAutoplayArmed = true;
-  if (canUseWatchDemoFallback()) {
-    void tryAttachDemoAudioFallbackModule({ autoplay: true, allowDemoFallback: true });
-  }
   return false;
 }
 
 async function tryAttachDemoAudioFallbackModule({ autoplay = false, allowDemoFallback = false } = {}) {
-  if (!allowDemoFallback && !canUseWatchDemoFallback()) return false;
-  if (!watchAudioPreview || getRememberedWatchFinalAudio()) return false;
-  const url = await pickFirstWorkingUrl(await getDemoAudioFiles());
-  if (!url) return false;
-  const preservePlayback = autoplay || !!(!watchAudioPreview.paused && !watchAudioPreview.ended);
-  watchAudioPreview.autoplay = true;
-  watchAudioPreview.playsInline = true;
-  watchAudioPreview.loop = false;
-  watchAudioPreview.muted = false;
-  watchAudioPreview.volume = 1;
-  watchAudioPreview.src = url;
-  watchAudioPreview.style.display = "block";
-  watchAudioPreview.load?.();
-  currentWatchAudioSourceKind = "demo-audio";
-  currentWatchAudioRunError = "";
-  updateWatchAudioDebug();
-  syncWatchAudioPresentation();
-  openWatchPreviewShellModule({ fallbackTab: "music" });
-  if (preservePlayback && !playWatchAudioPreviewFromStartModule()) {
-    const retryPlay = () => {
-      watchAudioPreview.removeEventListener("canplay", retryPlay);
-      playWatchAudioPreviewFromStartModule();
-    };
-    watchAudioPreview.addEventListener("canplay", retryPlay, { once: true });
-  }
-  return true;
+  return false;
 }
 
 function renderSongSeedPreviewModule(seed = state.songSeed) {
   if (!currentWatchPreviewWork) {
     renderWatchCommerceActionsModule(null);
   }
-  const summary = buildSeedPreviewSummary(seed);
+  const summary =
+    globalThis.buildSeedPreviewSummaryModule?.(seed) || { compact: "", watch: "" };
   renderCreationUniverseCard(seed);
   const compactSummary =
     summary.compact ||
     String(seed?.creativeSummary?.compact || "").trim() ||
     String(foryouStyle?.textContent || "").trim();
+  applyWatchTypographyPresetModule(
+    pickWatchTypographyPresetModule(
+      `${seed?.title || state.title || ""}|${seed?.musicStyle || ""}|${seed?.lyrics || ""}`
+    )
+  );
   if (foryouSeedCopy) {
     foryouSeedCopy.textContent = compactSummary;
     foryouSeedCopy.style.display = compactSummary ? "block" : "none";
   }
   if (watchSeedCopy) {
-    watchSeedCopy.textContent = summary.watch || "";
-    watchSeedCopy.style.display = summary.watch ? "block" : "none";
+    const musicSummary = [
+      String(seed?.musicStyle || "").trim(),
+      String(seed?.musicStructure || "").trim(),
+      compactSummary
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    watchSeedCopy.textContent = musicSummary;
+    watchSeedCopy.style.display = musicSummary ? "block" : "none";
   }
-  const candidateRunId = String(currentWatchAudioRunId || pendingFinalAudioRunId || activePipelineRunId || "").trim();
-  if (candidateRunId && currentWatchAudioSourceKind !== "final-artifact" && !getRememberedWatchFinalAudio()) {
-    void attemptImmediateFinalAudioAttach(candidateRunId);
-  }
+  syncWatchPlaceholderFromCurrentState();
+  const creationBusy = !!globalThis.isCreationBusyModule?.();
+  const lyricsRequestPending = !!globalThis.lyricsSeedRequestState?.pending;
   if (watchAudioPreview) {
     if (restoreRememberedWatchFinalAudio()) {
       watchAudioPreview.style.display = "block";
+    } else if (creationBusy || lyricsRequestPending) {
+      watchAudioPreview.pause?.();
+      watchAudioPreview.removeAttribute("src");
+      watchAudioPreview.load?.();
+      watchAudioPreview.style.display = "none";
+      if (currentWatchAudioSourceKind !== "final-artifact") {
+        currentWatchAudioSourceKind = "none";
+      }
+      currentWatchAudioRunError = "";
+      updateWatchAudioDebug();
+      syncWatchAudioPresentation();
     } else if (currentWatchAudioSourceKind !== "final-artifact") {
-      void tryAttachDemoAudioFallbackModule({ autoplay: !!zeroThresholdAutoplayRequested }).then((attached) => {
-        if (attached || !watchAudioPreview) return;
-        if (currentWatchAudioSourceKind !== "final-artifact") {
-          watchAudioPreview.pause?.();
-          watchAudioPreview.removeAttribute("src");
-          watchAudioPreview.load?.();
-          watchAudioPreview.style.display = "none";
-          currentWatchAudioSourceKind = "none";
-          currentWatchAudioRunError = loginCopy("No mix or demo audio available.", "没有可用的混音或 demo 音频。");
-          updateWatchAudioDebug();
-          syncWatchAudioPresentation();
-        }
-      });
+      watchAudioPreview.pause?.();
+      watchAudioPreview.removeAttribute("src");
+      watchAudioPreview.load?.();
+      watchAudioPreview.style.display = "none";
+      currentWatchAudioSourceKind = "none";
+      currentWatchAudioRunError = "";
+      updateWatchAudioDebug();
+      syncWatchAudioPresentation();
     }
   }
   syncWatchMusicArtworkModule();
   syncWatchMusicStateModule();
-  if (seed && zeroThresholdAutoplayRequested) {
+  if (seed && zeroThresholdAutoplayRequested && !creationBusy) {
     openWatchPreviewShellModule({ fallbackTab: "music" });
     playWatchAudioPreviewFromStartModule();
     zeroThresholdAutoplayRequested = false;
@@ -2618,13 +5864,64 @@ function renderSongSeedPreviewModule(seed = state.songSeed) {
   syncWatchEditorsFromSettingsModule();
   renderWatchMetaPanelsModule();
   renderForyouStructure(seed);
+  const seedTitle = String(titleInput?.value || state.title || seed?.title || "").trim();
+  const seedLines = compactLyricLines(
+    String(
+      lyricsInput?.value ||
+      watchLyricsEditor?.value ||
+      (Array.isArray(state.lines) ? state.lines.join("\n") : "") ||
+      seed?.lyrics ||
+      ""
+    ).split("\n")
+  ).filter(Boolean);
+  if (seedTitle) {
+    state.title = seedTitle;
+    try { globalThis.cssmvRenderMvArtTitle?.(seedTitle); } catch (_err) {}
+  }
+  if (seedLines.length) {
+    const shouldHydrateLyricsSurface =
+      !isWatchLyricsReadyModule() ||
+      !String(lyricsEl?.textContent || "").trim() ||
+      String(lyricsEl?.textContent || "").trim().length < 12;
+    if (shouldHydrateLyricsSurface) {
+      refreshLyricsPresentation(seedTitle || state.title, seedLines);
+    }
+  }
+  if (creationBusy || lyricsRequestPending) {
+    void primeWatchArtworkSlideshowModule(
+      seedTitle || state.title || watchBrandTitleModule(),
+      String(seed?.musicStyle || compactSummary || t("watch.subtitle.waitingLyricsSeed")).trim(),
+      seedLines
+    );
+  } else {
+    clearWatchArtworkSlideshowModule();
+  }
+  if (seedTitle && seedLines.length) {
+    void requestWatchFrameArtworkModule(
+      seedTitle,
+      seed?.musicStyle || t("watch.status.waitingImage"),
+      seedLines
+    );
+  }
+  if (seedTitle && seedLines.length) {
+    void globalThis.requestForyouThumbnail?.(
+      seedTitle,
+      String(seed?.musicStyle || seed?.creativeSummary?.compact || "").trim(),
+      seedLines
+    );
+  }
+  syncWatchMusicArtworkModule();
   if (
     seed?.title &&
     !hasEffectivePreviewVideo() &&
     !String(foryouThumbImage?.src || "").trim() &&
-    !String(currentForyouThumbFallbackDataUrl || "").trim()
+    !String(globalThis.currentResolvedWatchArtworkDataUrl || "").trim()
   ) {
-    syncForyouThumbFromLyrics(seed.title, compactLyricLines(String(seed.lyrics || "").split("\n")));
+    void requestWatchFrameArtworkModule(
+      seed.title,
+      seed?.musicStyle || t("watch.status.waitingImage"),
+      compactLyricLines(String(seed.lyrics || "").split("\n"))
+    );
   }
 }
 
@@ -2637,7 +5934,13 @@ async function renderMarketWorkPreviewIntoWatchModule({
   clearWatchPreviewLimit();
   renderSongSeedPreviewModule(seed);
   renderWatchCommerceActionsModule(work);
-  if (watchLyricsEditor) watchLyricsEditor.value = seed.lyrics || "";
+  if (watchLyricsEditor) {
+    watchLyricsEditor.value =
+      globalThis.buildCanonicalLyricsWithTitleModule?.(
+        seed.title || work?.title || state.title || "",
+        seed.lyrics || "",
+      ) || String(seed.lyrics || "").trim();
+  }
   if (watchOutlineEditor) watchOutlineEditor.value = seed.videoOutline || "";
   if (watchScriptEditor) {
     watchScriptEditor.value = Array.isArray(seed.sectionPrompts)
@@ -2648,29 +5951,33 @@ async function renderMarketWorkPreviewIntoWatchModule({
     watchCommentsCopy.textContent = loginCopy(
       previewUnlimited
         ? "Privileged preview. Full playback is available for admin, VIP, or the work owner."
-        : "Buyer preview only. Playback stops at 30 seconds until the full release is unlocked.",
-      previewUnlimited
-        ? "当前是特权预览。管理员、VIP 或作品作者本人可完整播放。"
-        : "这是买家预览版。播放会在 30 秒时自动停止，完整版本需解锁后观看。"
+        : "Buyer preview only. Playback stops at 30 seconds until the full release is unlocked."
     );
   }
+  renderWatchCommentsModule();
   const creator = String(work?.owner_name || work?.owner_email || "Creator").trim() || "Creator";
   if (watchOwnershipCopy) {
     watchOwnershipCopy.textContent = loginCopy(
-      `Previewing ${seed.title} by ${creator}. Purchase listen or buyout to unlock the commerce flow.`,
-      `正在预览 ${creator} 的《${seed.title}》。购买试听或买断后可继续完整交易流程。`
+      `Previewing ${seed.title} by ${creator}. Purchase listen or buyout to unlock the commerce flow.`
     );
   }
   const subtitle = previewUnlimited
-    ? loginCopy("Privileged preview · Full access", "特权预览 · 完整播放")
-    : loginCopy("Buyer preview · 30s max", "买家预览 · 最长 30 秒");
-  const artworkSubtitle = `${creator} · ${seed.musicStyle || loginCopy("Preview", "预览")}`;
-  setWatchSvgPreviewModule(buildLocalVideoPreviewSvg(seed.title, artworkSubtitle));
+    ? loginCopy("Privileged preview · Full access")
+    : loginCopy("Buyer preview · 30s max");
+  const artworkImage = String(
+    work?.cover_image ||
+      work?.preview_image_url ||
+      globalThis.resolveWorkCardThumbnailImageModule?.(work) ||
+      ""
+  ).trim();
+  if (artworkImage) {
+    setWatchSvgPreviewModule(artworkImage);
+  }
   if (watchSubtitle) watchSubtitle.textContent = subtitle;
   if (!previewUnlimited) {
     setWatchPreviewLimit(
       MARKET_WATCH_PREVIEW_LIMIT_SEC,
-      loginCopy("Preview ended at 30 seconds.", "预览已在 30 秒处停止。")
+      loginCopy("Preview ended at 30 seconds.")
     );
   }
   await openWatchPreviewFlowModule({ preferredTab: "mv", clearLimit: false });
@@ -2699,6 +6006,12 @@ function syncWatchPlaceholderFromCurrentState() {
     clearWatchFrameLoopModule();
     return showWatchFramePlaceholderModule(cachedFrame);
   }
+  const resolvedArtwork = String(globalThis.currentResolvedWatchArtworkDataUrl || "").trim();
+  if (resolvedArtwork) {
+    clearWatchFrameLoopModule();
+    setForyouBackgroundImage(resolvedArtwork);
+    return showWatchFramePlaceholderModule(resolvedArtwork);
+  }
   const imageSrc = foryouThumbImage?.src || "";
   if (imageSrc) {
     clearWatchFrameLoopModule();
@@ -2706,7 +6019,14 @@ function syncWatchPlaceholderFromCurrentState() {
     return showWatchFramePlaceholderModule(imageSrc);
   }
   clearWatchFrameLoopModule();
-  if (watchSvg) watchSvg.style.display = "none";
+  if (watchSvg) {
+    watchSvg.style.display = "none";
+    watchSvg.removeAttribute("src");
+    watchSvg.setAttribute("alt", "");
+  }
+  if (watchScreenBackdrop) {
+    watchScreenBackdrop.style.backgroundImage = "";
+  }
   return false;
 }
 const buildExampleAssetProxyUrl = (name) => {
@@ -2714,3 +6034,18 @@ const buildExampleAssetProxyUrl = (name) => {
   if (!safeName) return "";
   return `/api/example-assets/blob?name=${encodeURIComponent(safeName)}`;
 };
+
+globalThis.getForyouPreviewModeModule = getForyouPreviewModeModule;
+globalThis.buildForyouThumbSvgModule = buildForyouThumbSvgModule;
+globalThis.buildForyouThumbSvg = globalThis.buildForyouThumbSvg || buildForyouThumbSvgModule;
+globalThis.syncForyouThumbFromLyricsModule = syncForyouThumbFromLyricsModule;
+globalThis.stopWatchBackgroundWorkModule = stopWatchBackgroundWorkModule;
+
+// CSSOS_PHASE2_FONT_CATALOG_EXPOSURE 20260420 #83
+// Non-module scripts hoist function declarations globally, but `globalThis.X`
+// access isn't guaranteed on all engines — expose explicitly so
+// app.watch-media-overlays.js per-token font picker can reach them.
+globalThis.buildWatchFontCatalogModule = buildWatchFontCatalogModule;
+globalThis.buildWatchSelectableFontOptionsModule = buildWatchSelectableFontOptionsModule;
+globalThis.classifyWatchFontGroupModule = classifyWatchFontGroupModule;
+globalThis.pickWatchRandomFontModule = pickWatchRandomFontModule;

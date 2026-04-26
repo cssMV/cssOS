@@ -5,7 +5,46 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
     <title>CSS Studio</title>
-    <link rel="stylesheet" href="style.css?v=20260325-live-unfreeze-2" />
+    <script>
+      // Pre-paint theme resolver — applies user's saved theme BEFORE any CSS loads
+      // to prevent flash-of-unstyled-theme (FOUT). Must stay in sync with
+      // PANEL_BEHAVIOR_SETTINGS_KEY / appearance.theme_mode in app.panel-behavior-core.js.
+      (function () {
+        try {
+          var raw = localStorage.getItem("cssos.panelBehaviorSettings") || "{}";
+          var parsed = {};
+          try { parsed = JSON.parse(raw) || {}; } catch (_) { parsed = {}; }
+          var mode = (parsed && parsed.appearance && parsed.appearance.theme_mode) || "system";
+          if (mode !== "system" && mode !== "dark" && mode !== "light") mode = "system";
+          var eff = mode;
+          if (mode === "system") {
+            try {
+              eff = (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
+            } catch (_) { eff = "dark"; }
+          }
+          var el = document.documentElement;
+          el.dataset.theme = eff;
+          el.dataset.themeMode = mode;
+          el.dataset.themeIcon = eff === "dark" ? "☾" : "☀";
+          el.style.colorScheme = eff;
+          // Also propagate to body as soon as it exists (some CSS keys off body[data-theme]).
+          var applyToBody = function () {
+            if (!document.body) return;
+            document.body.dataset.theme = eff;
+            document.body.dataset.themeMode = mode;
+          };
+          if (document.body) {
+            applyToBody();
+          } else if (document.addEventListener) {
+            document.addEventListener("DOMContentLoaded", applyToBody, { once: true });
+          }
+        } catch (_) {
+          // swallow — defaults take over
+        }
+      })();
+    </script>
+    <link rel="stylesheet" href="style.css?v=20260426-subtitle-restore-styling-125" />
+    <link rel="stylesheet" href="style.mv-pipeline.css?v=20260418-p2-51-aspect-ratio-1" />
   </head>
   <body>
     <div class="bg">
@@ -35,6 +74,20 @@
       </div>
     </div>
 
+    <div class="theme-switch" id="theme-switch">
+      <button
+        class="theme-toggle"
+        id="theme-quick-toggle"
+        data-i18n-aria="theme.quick.title"
+        aria-label="Theme"
+      >◐</button>
+      <div class="theme-menu is-hidden" id="theme-quick-menu">
+        <button class="theme-menu-item" type="button" data-theme-mode="system" data-i18n="theme.quick.system">System</button>
+        <button class="theme-menu-item" type="button" data-theme-mode="light" data-i18n="theme.quick.light">Light</button>
+        <button class="theme-menu-item" type="button" data-theme-mode="dark" data-i18n="theme.quick.dark">Dark</button>
+      </div>
+    </div>
+
     <main class="stage">
       <section class="panel logo-panel flow" id="logo-panel">
         <div class="panel-body logo-body">
@@ -43,6 +96,7 @@
               <img class="mirror-img mirror-a" src="assets/mirror-1.webp" alt="CSS magic mirror" />
               <img class="mirror-img mirror-b" src="assets/mirror-2.webp" alt="CSS magic mirror" />
               <video class="mirror-video" autoplay muted loop playsinline></video>
+              <div class="mirror-core" aria-hidden="true"></div>
               <div class="mirror-text">
                 <div class="mirror-title">CSS</div>
                 <div class="mirror-subtitle" data-i18n="logo.subtitle">Studio</div>
@@ -112,12 +166,15 @@
       <section class="panel flow hidden" id="watch-panel">
         <div class="panel-bar">
           <div class="panel-icon">▶</div>
-          <div class="panel-title" data-i18n="panel.watch">Watch</div>
+          <div class="panel-title" data-i18n="panel.watch">MV Panel</div>
           <div class="panel-actions">
             <button class="icon-btn" data-i18n-aria="action.settings" aria-label="Settings">⚙</button>
             <button class="icon-btn" data-i18n-aria="action.minimize" aria-label="Minimize">—</button>
             <button class="icon-btn" data-i18n-aria="action.lock" aria-label="Lock panel">⛶</button>
             <button class="icon-btn" data-i18n-aria="action.close" aria-label="Close">×</button>
+          </div>
+          <div class="panel-progress-line watch-panel-progress" id="watch-panel-progress-line" hidden>
+            <span id="watch-panel-progress-fill"></span>
           </div>
         </div>
         <div class="panel-body watch-body">
@@ -138,8 +195,10 @@
             </div>
             <div class="watch-frame">
               <div class="watch-screen">
+                <div id="watch-screen-backdrop" class="watch-screen-backdrop"></div>
                 <video id="watch-video" class="watch-video" autoplay muted loop playsinline></video>
                 <img id="watch-svg" class="watch-svg" alt="MV preview" />
+                <button id="watch-style-shift" class="watch-style-shift" type="button" aria-label="Shuffle title style">✦</button>
                 <button id="watch-overlay-play" class="watch-overlay-play" type="button" data-i18n-aria="action.watch" aria-label="Watch">
                   <span class="watch-overlay-play-ring"></span>
                   <span class="watch-overlay-play-icon">▶</span>
@@ -150,27 +209,44 @@
                 </div>
                 <div class="watch-commerce-actions" id="watch-commerce-actions" hidden></div>
               </div>
+              <div class="watch-frame-progress" id="watch-frame-progress" hidden>
+                <div class="watch-frame-progress-line"><span id="watch-frame-progress-fill"></span></div>
+                <div class="watch-frame-progress-copy" id="watch-frame-progress-copy"></div>
+              </div>
             </div>
             <div class="watch-engine-grid" id="watch-engine-grid"></div>
             <div class="kara-runtime-board" id="kara-runtime-board"></div>
           </div>
-          <div class="watch-pane" id="watch-pane-music" data-watch-pane="music">
-            <div class="watch-info-card">
-              <div class="watch-info-kicker" data-i18n="watch.music.kicker">Preview Audio</div>
-              <div class="watch-music-stage" id="watch-music-stage">
-                <div class="watch-music-aura"></div>
-                <div class="watch-music-ring" id="watch-music-ring">
-                  <div class="watch-music-disc" id="watch-music-disc">
+            <div class="watch-pane" id="watch-pane-music" data-watch-pane="music">
+              <div class="watch-info-card">
+                <div class="watch-music-stage" id="watch-music-stage">
+                  <div class="watch-frame-progress watch-music-frame-progress" id="watch-music-frame-progress" hidden>
+                    <div class="watch-frame-progress-line"><span id="watch-music-frame-progress-fill"></span></div>
+                    <div class="watch-frame-progress-copy" id="watch-music-frame-progress-copy"></div>
+                  </div>
+                  <button id="watch-music-style-shift" class="watch-style-shift watch-music-style-shift" type="button" aria-label="Shuffle title style">✦</button>
+                  <div class="watch-music-aura"></div>
+                  <div class="watch-music-ring" id="watch-music-ring">
+                    <div class="watch-music-disc" id="watch-music-disc">
                     <div class="watch-music-art" id="watch-music-art"></div>
                     <div class="watch-music-hole"></div>
                   </div>
                 </div>
+                <!-- CSSOS_PHASE2_MUSIC_TAB_SUBTITLE 20260426 #131 — Jing
+                     "Music标签页，除了黑胶唱片之外，其余可以复用MV标签页的很多元素"
+                     Mirror karaoke + subtitle text from the MV pane so the
+                     Music tab also shows the active lyric line at the
+                     bottom-center of the music stage. The mirror watcher
+                     lives in app.watch-media-layout-p2100.js. -->
+                <div class="watch-karaoke-line watch-music-karaoke-line" id="watch-music-karaoke-line"></div>
+                <div class="watch-subtitle watch-music-subtitle" id="watch-music-subtitle"></div>
                 <button id="watch-music-play" class="watch-music-play" type="button" data-i18n-aria="action.listen" aria-label="Listen">
                   <span id="watch-music-play-icon">▶</span>
                 </button>
               </div>
+              <input id="watch-music-art-blur" type="checkbox" hidden>
               <div class="watch-seed-copy" id="watch-seed-copy"></div>
-              <audio id="watch-audio-preview" class="watch-audio-preview" controls preload="none"></audio>
+              <audio id="watch-audio-preview" class="watch-audio-preview" preload="none"></audio>
               <div class="watch-audio-debug" id="watch-audio-debug" hidden>
                 <div class="watch-audio-debug-line" id="watch-audio-debug-source"></div>
                 <div class="watch-audio-debug-line" id="watch-audio-debug-path"></div>
@@ -183,6 +259,10 @@
             <div class="watch-info-card">
               <div class="watch-info-kicker" data-i18n="watch.lyrics.kicker">Lyrics</div>
               <textarea id="watch-lyrics-editor" class="watch-editor" spellcheck="false"></textarea>
+              <div class="watch-info-kicker" data-i18n="watch.lyrics.style">Music Style</div>
+              <input id="watch-lyrics-music-style" class="watch-editor watch-editor-short" type="text" />
+              <div class="watch-info-kicker" data-i18n="watch.lyrics.wiki">Wiki Source</div>
+              <input id="watch-lyrics-wiki-source" class="watch-editor watch-editor-short" type="text" />
             </div>
           </div>
           <div class="watch-pane" id="watch-pane-script" data-watch-pane="script">
@@ -197,6 +277,11 @@
             <div class="watch-info-card">
               <div class="watch-info-kicker" data-i18n="watch.comments.kicker">Comments</div>
               <div class="watch-meta-copy" id="watch-comments-copy" data-i18n="watch.comments.empty">No comments yet.</div>
+              <div class="watch-activity" id="watch-comments-list"></div>
+              <form class="watch-comment-form" id="watch-comment-form">
+                <input id="watch-comment-input" class="watch-comment-input" type="text" placeholder="Say something..." />
+                <button id="watch-comment-submit" class="watch-comment-submit" type="submit">Send</button>
+              </form>
             </div>
           </div>
           <div class="watch-pane" id="watch-pane-revenue" data-watch-pane="revenue">
@@ -455,7 +540,10 @@
           </section>
           <div class="mv-hero">
             <div>
-              <div class="mv-title" id="mv-title">嫦娥奔月</div>
+              <!-- CSSMV_CIV_UI_HINTS 20260424 #94 — Jing: static demo title
+                   "嫦娥奔月" removed; app.civilization-ui-hints.js fills this
+                   from the current UI locale's civilization titleHints. -->
+              <div class="mv-title" id="mv-title"></div>
               <div class="mv-sub" id="mv-sub" data-i18n="label.mvSub">
                 3 Scene · 12 Shots · Live Karaoke
               </div>
@@ -817,8 +905,11 @@
           </div>
           <div class="panel-label" data-i18n="label.waveform">Waveform · Style Render</div>
           <div class="engine-meta">
-            <div><span data-i18n="label.style">Style</span> <span id="music-style">Chinese GuFeng</span></div>
-            <div><span data-i18n="label.voice">Voice</span> <span id="voice-style">Feminine</span></div>
+            <!-- CSSMV_CIV_UI_HINTS 20260424 #94 — Jing: removed hardcoded
+                 "Chinese GuFeng" / "Feminine" pre-roll labels; start empty
+                 (—) and let the random-roll / work loader populate them. -->
+            <div><span data-i18n="label.style">Style</span> <span id="music-style">—</span></div>
+            <div><span data-i18n="label.voice">Voice</span> <span id="voice-style">—</span></div>
           </div>
           <div class="tag-row" id="music-tags"></div>
           <div class="music-runtime-board" id="music-runtime-board"></div>
@@ -917,11 +1008,14 @@
         <div class="panel-body settings-body">
           <label>
             <span data-i18n="settings.title">Title</span>
+            <!-- CSSMV_CIV_UI_HINTS 20260424 #94 — Jing: placeholder is set
+                 by app.civilization-ui-hints.js from the UI locale's
+                 civilization titleHints. data-i18n-placeholder removed so
+                 the i18n dict lookup doesn't clobber the dynamic hint. -->
             <input
               id="title-input"
               type="text"
-              placeholder="嫦娥奔月 / Moon of Chang'e"
-              data-i18n-placeholder="settings.titlePlaceholder"
+              placeholder=""
             />
           </label>
           <label class="field-shell field-shell-rich">
@@ -1070,7 +1164,7 @@
                 id="style-input"
                 rows="3"
                 maxlength="2000"
-                placeholder="Chinese GuFeng / Neo-Opera / Future Ballad"
+                placeholder=""
                 data-i18n-placeholder="settings.musicStylePlaceholder"
               ></textarea>
             </label>
@@ -1080,7 +1174,7 @@
             <div class="row">
               <label>
                 <span data-i18n="settings.tempoBpm">Tempo (BPM)</span>
-                <input id="creation-tempo" type="number" min="40" max="220" step="1" value="88" />
+                <input id="creation-tempo" type="number" min="40" max="220" step="1" placeholder="—" />
               </label>
               <label>
                 <span data-i18n="settings.key">Key</span>
@@ -1098,11 +1192,12 @@
             <div class="row">
               <label>
                 <span data-i18n="settings.durationSec">Duration (sec)</span>
-                <input id="creation-duration" type="number" min="30" max="600" step="5" value="180" />
+                <input id="creation-duration" type="number" min="30" max="600" step="5" placeholder="180" />
               </label>
               <label>
                 <span data-i18n="settings.language">Language</span>
                 <select id="creation-language">
+                  <option value="" selected data-i18n="lang.auto">Auto</option>
                   <option value="zh" data-i18n="lang.zh">Chinese</option>
                   <option value="en" data-i18n="lang.en">English</option>
                   <option value="ja" data-i18n="lang.ja">Japanese</option>
@@ -1414,6 +1509,90 @@
         </div>
       </section>
 
+      <section class="panel flow hidden" id="notifications-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">🔔</div>
+          <div class="panel-title" data-i18n="panel.notifications">Notifications</div>
+          <div class="panel-actions">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body notifications-body">
+          <div class="panel-label" data-i18n="notifications.subtitle">Background completions · watch reminders · recovery alerts</div>
+          <div class="notifications-meta" id="notifications-meta"></div>
+          <div class="notifications-actions">
+            <button class="cta ghost" id="notifications-enable" type="button" data-i18n="notifications.enableAlerts">Enable browser alerts</button>
+            <button class="cta ghost" id="notifications-mark-all" type="button" data-i18n="notifications.markAll">Mark all read</button>
+            <button class="cta ghost" id="notifications-clear" type="button" data-i18n="notifications.clear">Clear</button>
+          </div>
+          <div class="notifications-list" id="notifications-list"></div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="subscription-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">💎</div>
+          <div class="panel-title" data-i18n="panel.subscription">Subscription</div>
+          <div class="panel-actions">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body subscription-body" id="subscription-panel-content"></div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="credit-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">💳</div>
+          <div class="panel-title" data-i18n="panel.credit">Credit</div>
+          <div class="panel-actions">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body credit-body" id="credit-panel-content"></div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="workspaces-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">🧱</div>
+          <div class="panel-title" data-i18n="panel.workspaces">Workspaces</div>
+          <div class="panel-actions">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body workspaces-body" id="workspaces-panel-content"></div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="user-admin-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">🧑‍💼</div>
+          <div class="panel-title" data-i18n="panel.userAdmin">User Admin</div>
+          <div class="panel-actions">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body user-admin-body" id="user-admin-panel-content"></div>
+        <div class="resize-handle"></div>
+      </section>
+
       <section class="panel flow hidden" id="works-panel">
         <div class="panel-bar">
           <div class="panel-icon">🗂</div>
@@ -1627,7 +1806,12 @@
       </div>
       <div class="dock-item" data-action="watch" data-actions="click,dblclick,longpress">
         <div class="dock-icon">▶</div>
-        <div class="dock-label" data-i18n="dock.watch">Watch</div>
+        <div class="dock-label" data-i18n="dock.watch">MV</div>
+      </div>
+      <div class="dock-item" data-action="notifications" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">🔔</div>
+        <div class="dock-notification-badge" id="dock-notification-badge" hidden>0</div>
+        <div class="dock-label" data-i18n="dock.notifications">Notifications</div>
       </div>
       <div class="dock-item" data-action="about" data-actions="click,dblclick,longpress">
         <div class="dock-icon">ℹ</div>
@@ -1648,6 +1832,22 @@
       <div class="dock-item" data-action="login" data-actions="click,dblclick,longpress">
         <div class="dock-icon">🔐</div>
         <div class="dock-label" data-i18n="dock.login">Login</div>
+      </div>
+      <div class="dock-item" data-action="subscription" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">💎</div>
+        <div class="dock-label" data-i18n="dock.subscription">Subscription</div>
+      </div>
+      <div class="dock-item" data-action="credit" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">💳</div>
+        <div class="dock-label" data-i18n="dock.credit">Credit</div>
+      </div>
+      <div class="dock-item" data-action="workspaces" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">🗂</div>
+        <div class="dock-label" data-i18n="dock.workspaces">Workspaces</div>
+      </div>
+      <div class="dock-item" data-action="user-admin" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">🧑‍💼</div>
+        <div class="dock-label" data-i18n="dock.userAdmin">User</div>
       </div>
       <div class="dock-item" data-action="works" data-actions="click,dblclick,longpress">
         <div class="dock-icon">🗂</div>
@@ -1679,26 +1879,66 @@
 
     <script src="/i18n/constants.js"></script>
     <script src="/i18n/catalog.js"></script>
-    <script src="/i18n/dict.js"></script>
+    <script src="/i18n/dict.js?v=20260424-p2-98-civ-cascade-1"></script>
     <script src="/i18n/platforms.js"></script>
-    <script src="/i18n/index.js"></script>
-    <script src="app.js?v=20260327-thumb-cover-fix-1"></script>
+    <script src="/i18n/index.js?v=20260417-ui-recovery-1"></script>
+    <script src="/i18n/runtime.js?v=20260424-p2-92-breaker-localstorage-1"></script>
+    <script src="app.dom-globals.js?v=20260412-ui-recovery-5"></script>
+    <script src="app.input-guardrails.js?v=20260420-p2-84-input-guardrails-1"></script>
+    <script src="app.runtime-shell-bridges.js?v=20260417-ui-recovery-1"></script>
+    <script src="app.panel-settings-actions.js?v=20260416-ui-recovery-2"></script>
+    <script src="app.aspect-ratio.js?v=20260426-default-ar-by-orientation-138"></script>
+    <script src="app.creation-duration.js?v=20260426-membership-preset-guard-136"></script>
+    <script src="app.creation-accessors.js?v=20260423-p2-86-lang-auto-empty-1"></script>
+    <script src="app.watch-audio-polling.js?v=20260418-p2-35-cover-progress-1"></script>
+    <script src="app.panel-command-settings.js?v=20260412-ui-recovery-5"></script>
+    <script src="app.panel-behavior-core.js?v=20260418-engines-selector-2"></script>
+    <script src="app.action-permissions.js?v=20260412-ui-recovery-9"></script>
+    <script src="app.context-menu.js?v=20260420-p2-translate-target-sticky-1"></script>
+    <script src="app.delivery-report-bridges.js?v=20260412-ui-recovery-5"></script>
+    <script src="app.civilization-bank.js?v=20260418-p2-41-civbank-1"></script>
+    <script src="app.js?v=20260424-p2-99-creation-state-global-1"></script>
+    <script src="app.creation-language.js?v=20260423-p2-86-lang-auto-empty-1"></script>
+    <!-- CSSMV_CREATION_LANG_OPTIONS 20260425 #100 — Jing: full 10-lang
+         dropdown + setLocale event dispatch + auto-mirror locale into
+         the dropdown so language-panel picks show up here. -->
+    <script src="app.creation-language-options.js?v=20260425-p2-100-lang-options-1"></script>
+    <!-- CSSMV_CIV_UI_HINTS 20260424 #94 — Jing: dynamic title placeholder
+         + clear hardcoded Chinese GuFeng / Feminine pre-roll labels. -->
+    <script src="app.civilization-ui-hints.js?v=20260424-p2-94-civ-ui-hints-1"></script>
+    <!-- CSSMV_CREATION_CIV_DEFAULTS 20260425 #101 — Jing: civ-derived
+         random fills for BPM/key/workType/vocalStyle/instrumentation/
+         ensembleStyle in Advanced Settings. Re-rolls on locale flip. -->
+    <script src="app.creation-civ-defaults.js?v=20260425-p2-101-civ-defaults-1"></script>
+    <script src="app.advanced-panel-settings-render.js?v=20260418-p2-41-engines-i18n-1"></script>
     <script src="app.watch-audio.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.voice-seed.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.creation-flow.js?v=20260327-thumb-cover-fix-1"></script>
+    <script src="app.creation-flow.js?v=20260424-p2-98-civ-cascade-1"></script>
     <script src="app.creation-bridges.js?v=20260327-creation-bridges-split-1"></script>
-    <script src="app.song-seed-ui.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.song-seed-ui.js?v=20260420-p2-4bug-truerandom-title-1"></script>
     <script src="app.work-sync.js?v=20260327-thumb-cover-fix-1"></script>
-    <script src="app.watch-ui.js?v=20260327-thumb-cover-fix-1"></script>
+    <!-- CSSOS_PHASE2_WATCH_FONT_MANIFEST_WIRED 20260420 — Jing (#80):
+         "随机中文字体好像没有明显变化 ... 我点击星星按钮，也闪了一下，但是好像字体都一样"
+         Root cause: this script was missing from index.html, so
+         globalThis.CSSOS_WATCH_FONT_MANIFEST was undefined and the @font-face
+         declarations for 386 bundled fonts (incl. 143 CJK) were never
+         injected. Inline `font-family:"ZihunXxx"` strings silently fell back
+         to system-ui for every token — so every font looked the same.
+         Load it BEFORE app.watch-ui.js so buildWatchFontCatalogModule() can
+         see the manifest on first call. -->
+    <script src="app.watch-font-manifest.js?v=20260426-font-404-prune-134"></script>
+    <script src="app.watch-ui.js?v=20260426-subtitle-lyric-write-133"></script>
     <script src="app.watch-lyrics-bridges.js?v=20260327-watch-lyrics-bridges-split-1"></script>
     <script src="app.watch-surface-bridges.js?v=20260327-watch-surface-bridges-split-1"></script>
     <script src="app.about-panel.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.market-commerce.js?v=20260327-thumb-cover-fix-1"></script>
-    <script src="app.profile-panel.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.market-commerce.js?v=20260420-byok-runway-card-1"></script>
+    <script src="app.profile-panel.js?v=20260415-theme-toggle-6"></script>
     <script src="app.language-panel.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.login-panel.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.works-center.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.api-billing.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.api-billing.js?v=20260418-enforce-capability-export-1"></script>
+    <script src="app.engine-accounts.js?v=20260424-p2-92-breaker-localstorage-1"></script>
+    <script src="app.payments-checkout.js?v=20260419-nihaopay-1"></script>
     <script src="app.music-input-panel.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.artifact-downloads.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.delivery-dashboard-bindings.js?v=20260325-live-unfreeze-2"></script>
@@ -1712,7 +1952,44 @@
     <script src="app.delivery-export-helpers.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.delivery-report-ui.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.delivery-digest-ui.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.delivery-report-bridges.js?v=20260326-delivery-bridges-split-1"></script>
-    <script src="app.boot.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.subscription-panel.js?v=20260419-p2-57e-scroll-restore-1"></script>
+    <script src="app.notifications-panel.js?v=20260420-finished-bars-flow-1"></script>
+    <script src="app.credit-panel.js?v=20260412-ui-recovery-5"></script>
+    <script src="app.workspaces-panel.js?v=20260412-ui-recovery-5"></script>
+    <script src="app.user-admin-panel.js?v=20260412-ui-recovery-5"></script>
+    <script src="app.foryou-seed-preview.js?v=20260417-ui-recovery-1"></script>
+    <script src="app.mv-engines-catalog.js?v=20260419-p2-57d-anon-silent-1"></script>
+    <script src="app.mv-tiers-catalog.js?v=20260419-p2-mv-naming-1"></script>
+    <script src="app.mv-tier-picker-modal.js?v=20260419-p2-mv-naming-1"></script>
+    <script src="app.mv-pipeline-panel.js?v=20260426-hybrid-mixer-debug-132b"></script>
+    <script src="app.cover-slideshow.js?v=20260420-p2-4bug-stiff-fix-1"></script>
+    <script src="app.watch-stage-bars.js?v=20260420-p2-78-kill-waiting-dot-1"></script>
+    <script src="app.watch-music-ring.js?v=20260420-shared-arc-end-burst-1"></script>
+    <script src="app.watch-media-chrome.js?v=20260420-p2-79-kill-bottom-bar-1"></script>
+    <script src="app.watch-media-overlays.js?v=20260424-p2-96-subtitle-weight-1"></script>
+    <script src="app.watch-media-layout-p2100.js?v=20260426-subtitle-lyric-bypass-133"></script>
+    <!-- CSSMV_POPUPS_THEME_FIX 20260425 #108 — Jing: light-theme paint
+         for popups + clear lingering toast/info popover on watch close. -->
+    <script src="app.popups-theme-fix.js?v=20260425-p2-108-popups-theme-1"></script>
+    <!-- CSSMV_NO_FALLBACK_TITLE 20260425 #109 — Jing: no "Untitled" /
+         "CSS MV" / "未标题" placeholder; kick lyrics engine when title
+         is missing. -->
+    <script src="app.no-fallback-title.js?v=20260425-p2-109-no-fallback-title-1"></script>
+    <!-- CSSMV_PANEL_DOCK_ORDER 20260425 #116 — Jing: light-theme paint
+         for .panel-settings + per-panel dock-order option (admin sets
+         default, regular users override their own). -->
+    <script src="app.panel-dock-order.js?v=20260425-p2-116-dock-order-1"></script>
+    <!-- CSSMV_CONSOLE_NOISE 20260425 #118 — Jing: silence cover-webp
+         404 noise + transient endpoint NetworkError rejections; load
+         early so it catches everything from boot. -->
+    <script src="app.console-noise-cleanup.js?v=20260425-p2-118-noise-1"></script>
+    <!-- CSSMV_CONTEXT_MENU_FALLBACKS 20260425 #111 — Jing: dead-link
+         recovery for right-click menu entries. -->
+    <script src="app.context-menu-fallbacks.js?v=20260425-p2-111-ctx-menu-1"></script>
+    <!-- CSSMV_SUBTITLE_CLEANER 20260425 #113 — Jing: strip section
+         markers (**Verse 1**, [Chorus], …) and "/" separators from
+         rendered subtitles + titles. Lyrics editor stays raw. -->
+    <script src="app.subtitle-cleaner.js?v=20260425-p2-113-subtitle-cleaner-1"></script>
+    <script src="app.boot.js?v=20260417-ui-recovery-1"></script>
   </body>
 </html>

@@ -23,7 +23,13 @@
   --emerald: #0bffb9;
   --blue: #0bf7ff;
   --panel: rgba(7, 16, 12, 0.75);
-  --panel-strong: rgba(4, 10, 8, 0.92);
+  /* CSSOS_PHASE2_PANEL_CONSTITUTION_V2 20260419 — --panel-alpha is the
+   * user-customizable background opacity (0.70..1.00). Default 1.00 (fully
+   * opaque) per the new panel constitution (Apple/Windows-style windows).
+   * applyPanelBehaviorSettings writes it at runtime; kept at 1 here so a
+   * zero-config install paints opaque panels out of the box. */
+  --panel-alpha: 1;
+  --panel-strong: rgba(4, 10, 8, var(--panel-alpha));
   --border: rgba(0, 245, 160, 0.35);
   --glow: rgba(0, 245, 160, 0.6);
   --text: #e8fdf4;
@@ -36,6 +42,26 @@
   --wc4: rgba(1, 3, 2, 0.85);
   --bg-intensity: 0.48;
   --bg-motion-scale: 0.24;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f6efe4;
+  --green: #0d8f67;
+  --green-soft: rgba(13, 143, 103, 0.16);
+  --emerald: #14a67d;
+  --blue: #2d8cff;
+  --panel: rgba(255, 252, 247, 0.72);
+  --panel-strong: rgba(255, 250, 242, var(--panel-alpha, 1));
+  --border: rgba(72, 97, 82, 0.2);
+  --glow: rgba(45, 140, 255, 0.22);
+  --text: #1c1914;
+  --muted: rgba(28, 25, 20, 0.58);
+  --shadow: 0 20px 40px rgba(111, 84, 47, 0.14);
+  --wc1: rgba(255, 174, 54, 0.34);
+  --wc2: rgba(255, 247, 236, 0.76);
+  --wc3: rgba(142, 110, 255, 0.18);
+  --wc4: rgba(244, 235, 224, 0.92);
 }
 
 * {
@@ -58,6 +84,10 @@ body {
   z-index: 0;
   background: #010101;
   isolation: isolate;
+}
+
+body[data-theme="light"] .bg {
+  background: #f6efe4;
 }
 
 .bg-blob {
@@ -270,6 +300,15 @@ body[data-background-mode="ink"] .bg::after {
   z-index: 50;
 }
 
+.theme-switch {
+  position: fixed;
+  top: calc(16px + env(safe-area-inset-top));
+  right: calc(16px + env(safe-area-inset-right));
+  z-index: 50;
+  display: grid;
+  justify-items: end;
+}
+
 .version-toggle {
   width: 40px;
   height: 32px;
@@ -284,6 +323,131 @@ body[data-background-mode="ink"] .bg::after {
   display: grid;
   place-items: center;
   padding-left: 6px;
+}
+
+.theme-toggle {
+  width: 28px;
+  height: 28px;
+  border-radius: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  font-size: 15px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  transition:
+    transform 160ms ease,
+    color 160ms ease,
+    opacity 160ms ease;
+}
+
+.theme-toggle:hover {
+  transform: translateY(-1px);
+  color: rgba(232, 253, 244, 0.96);
+  opacity: 1;
+}
+
+.theme-toggle:focus-visible {
+  outline: none;
+  color: rgba(232, 253, 244, 0.96);
+}
+
+body[data-theme="light"] .theme-toggle,
+html[data-theme="light"] .theme-toggle {
+  color: rgba(28, 25, 20, 0.86);
+}
+
+.theme-menu {
+  margin-top: 8px;
+  width: 118px;
+  padding: 6px;
+  border-radius: 16px;
+  border: 1px solid rgba(0, 245, 160, 0.14);
+  background:
+    linear-gradient(180deg, rgba(4, 16, 12, 0.96), rgba(2, 7, 5, 0.94)),
+    radial-gradient(circle at top right, rgba(11, 247, 255, 0.12), transparent 38%);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  display: grid;
+  gap: 4px;
+}
+
+.theme-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(232, 253, 244, 0.86);
+  font-size: 12px;
+  text-align: left;
+}
+
+.theme-menu-item::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  flex: 0 0 7px;
+}
+
+.theme-menu-item.is-active {
+  border-color: rgba(0, 245, 160, 0.24);
+  background: rgba(0, 245, 160, 0.08);
+  color: #f5fff9;
+}
+
+.theme-menu-item.is-active::after {
+  background: linear-gradient(180deg, var(--emerald), var(--blue));
+  box-shadow: 0 0 12px rgba(11, 247, 255, 0.34);
+}
+
+body[data-theme="light"] .theme-menu,
+html[data-theme="light"] .theme-menu {
+  border-color: rgba(72, 97, 82, 0.14);
+  background:
+    linear-gradient(180deg, rgba(255, 252, 247, 0.96), rgba(248, 242, 234, 0.94)),
+    radial-gradient(circle at top right, rgba(45, 140, 255, 0.08), transparent 36%);
+  box-shadow: 0 16px 32px rgba(111, 84, 47, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+body[data-theme="light"] .theme-menu-item,
+html[data-theme="light"] .theme-menu-item {
+  background: rgba(255, 255, 255, 0.56);
+  color: rgba(28, 25, 20, 0.84);
+}
+
+body[data-theme="light"] .theme-menu-item::after,
+html[data-theme="light"] .theme-menu-item::after {
+  box-shadow: inset 0 0 0 1px rgba(28, 25, 20, 0.14);
+}
+/*
+body[data-theme="light"] .dock,
+html[data-theme="light"] .dock {
+  background: rgba(255, 250, 242, 0.72);
+  border-color: rgba(72, 97, 82, 0.16);
+  box-shadow: 0 18px 36px rgba(111, 84, 47, 0.12);
+}
+*/
+body[data-theme="light"] .dock-icon,
+html[data-theme="light"] .dock-icon {
+  background: rgba(13, 143, 103, 0.12);
+  color: rgba(13, 143, 103, 0.96);
+}
+
+body[data-theme="light"] .dock-label,
+html[data-theme="light"] .dock-label {
+  background: rgba(255, 252, 247, 0.82);
+  border-color: rgba(72, 97, 82, 0.12);
+  color: rgba(28, 25, 20, 0.84);
 }
 
 .version-menu {
@@ -516,6 +680,15 @@ body[data-background-mode="ink"] .bg::after {
   content: none;
 }
 
+/* CSSOS_PHASE2_WATCH_SINGLE_PROGRESS 20260419 — Watch panel now has a
+ * full-perimeter rainbow chase border drawn by app.watch-stage-bars.js.
+ * Suppress the default thin green borderFlow ::before so the two do not
+ * stack into "两套进度条" (twin progress bars). */
+#watch-panel.panel-front::before,
+#watch-panel.panel-active::before {
+  content: none !important;
+}
+
 .logo-panel.panel.flow::after {
   content: none;
 }
@@ -580,7 +753,8 @@ body[data-background-mode="ink"] .bg::after {
   height: auto;
 }
 
-.panel-collapsed .resize-handle {
+.panel-collapsed .resize-handle,
+.panel-collapsed .resize-handle-left {
   display: none;
 }
 
@@ -607,17 +781,41 @@ body[data-background-mode="ink"] .bg::after {
   letter-spacing: 0.04em;
   cursor: grab;
   user-select: none;
+  position: relative;
 }
 
-.panel-bar::before {
-  content: "•••";
-  color: var(--green);
-  font-size: 16px;
-  letter-spacing: 4px;
-  line-height: 1;
-  flex: 0 0 auto;
-  opacity: 0.95;
+.panel-progress-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  pointer-events: none;
 }
+
+.panel-progress-line span {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--panel-progress-color, #00f5a0) 80%, #ffffff 20%), var(--panel-progress-color, #00f5a0));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--panel-progress-color, #00f5a0) 60%, transparent);
+  transition: width 0.3s ease;
+}
+
+/* CSSOS_PHASE2_WATCH_SINGLE_PROGRESS 20260419 — keep the Watch panel's
+ * legacy thin progress line permanently suppressed; the new SVG
+ * perimeter stroke (app.watch-stage-bars.js) drives all stage progress. */
+#watch-panel-progress-line {
+  display: none !important;
+}
+
+/* CSSOS_PHASE1_PANEL_BAR_DOTS_REMOVED 20260417:
+   `.panel-bar::before` previously reserved a flex slot (letter-spacing 4px)
+   that rendered as a three-dot strip before every panel icon. Jing requested
+   no dot decoration before panel icons in the Apr 17 product vision; removing
+   the selector entirely so no pseudo-element is generated. */
 
 .drag-handle {
   color: var(--green);
@@ -650,9 +848,15 @@ body[data-background-mode="ink"] .bg::after {
 .panel-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex: 0 0 auto;
   flex-wrap: nowrap;
+}
+
+.panel-actions .icon-btn[aria-label="settings"],
+.panel-actions .icon-btn[aria-label="Settings"],
+.panel-actions .icon-btn[data-i18n-aria="action.settings"] {
+  display: none;
 }
 
 .icon-btn {
@@ -664,6 +868,9 @@ body[data-background-mode="ink"] .bg::after {
   background: rgba(0, 245, 160, 0.08);
   color: var(--text);
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 a.icon-btn {
@@ -1322,16 +1529,16 @@ body.longpress-guard * {
 }
 
 .logo-panel {
-  --mirror-size: 600px;
-  --mirror-mask-inset: 12%;
+  --mirror-size: 520px;
+  --mirror-mask-inset: 4%;
   --hold-ring-inset: 84px;
   --spellcast-ring-scale: 1;
   --spellcast-glow-scale: 0.18;
   --spellcast-ring-z: 0;
   --hold-ring-scale: 1;
   --hold-ring-z: 0;
-  width: min(70vw, 760px);
-  height: min(720px, 82vh);
+  width: min(70vw, 700px);
+  height: min(680px, 78vh);
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
@@ -1366,6 +1573,17 @@ body.longpress-guard * {
   height: 100%;
   position: relative;
   pointer-events: none;
+}
+
+#logo-panel,
+#logo-panel .panel-body,
+#logo-panel .logo-body {
+  background: transparent;
+}
+
+#logo-panel .panel-body,
+#logo-panel .logo-body {
+  overflow: hidden;
 }
 
 .mirror-stage,
@@ -2569,7 +2787,7 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
   overflow: hidden;
 }
 
-.work-cover[data-work-toggle],
+.work-cover[data-work-open-watch],
 .work-cover[data-market-toggle],
 .work-title[data-work-toggle],
 .work-title[data-market-toggle] {
@@ -2737,6 +2955,143 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
   color: rgba(232, 253, 244, 0.72);
 }
 
+/* P2-37: Rich details block rendered inside an expanded work card (and reused
+ * by the For You panel without the owner / cost fields). Uses theme tokens so
+ * it respects the daytime / nighttime theme without a second selector. */
+.work-deep-details {
+  display: none;
+  grid-column: 1 / -1;
+  gap: 10px;
+  padding: 10px 0 4px;
+}
+
+.work-card.is-expanded .work-deep-details,
+.market-card.is-expanded .work-deep-details {
+  display: grid;
+}
+
+.work-deep-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.work-deep-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.work-deep-section {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.work-deep-heading {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--green);
+  font-weight: 600;
+}
+
+.work-deep-body {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.work-deep-lyrics {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 360px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.work-engine-breakdown {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.work-engine-heading {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--green);
+  font-weight: 600;
+}
+
+.work-engine-rows {
+  display: grid;
+  gap: 2px;
+}
+
+.work-engine-row {
+  display: grid;
+  grid-template-columns: 88px 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--text);
+  border-bottom: 1px dashed var(--border);
+}
+
+.work-engine-row:last-child {
+  border-bottom: 0;
+}
+
+.work-engine-row.work-engine-total {
+  padding-top: 6px;
+  margin-top: 2px;
+  border-top: 1px solid var(--border);
+  border-bottom: 0;
+  font-weight: 600;
+  color: var(--green);
+}
+
+.work-engine-stage {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.work-engine-info {
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.work-engine-cost {
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  text-align: right;
+  white-space: nowrap;
+}
+
 .work-hierarchy-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2883,6 +3238,7 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
   color: var(--muted);
 }
 
+
 .works-grid {
   display: grid;
   gap: 16px;
@@ -2997,8 +3353,8 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
 
 .mirror {
   position: relative;
-  width: var(--mirror-size, 600px);
-  height: var(--mirror-size, 600px);
+  width: min(var(--mirror-size, 600px), 100%);
+  height: min(var(--mirror-size, 600px), 100%);
   display: grid;
   place-items: center;
   animation: mirrorBreath 14s ease-in-out infinite;
@@ -3010,6 +3366,21 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
   -webkit-user-select: none;
   user-select: none;
   -webkit-user-drag: none;
+}
+
+.mirror-core {
+  position: absolute;
+  inset: 20%;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.08) 40%, rgba(0, 0, 0, 0) 62%),
+    radial-gradient(circle at 62% 40%, rgba(0, 255, 224, 0.55), rgba(0, 0, 0, 0) 55%),
+    radial-gradient(circle at 45% 65%, rgba(255, 74, 158, 0.42), rgba(0, 0, 0, 0) 58%),
+    radial-gradient(circle at 68% 68%, rgba(255, 214, 74, 0.38), rgba(0, 0, 0, 0) 60%);
+  filter: saturate(1.4) brightness(1.12);
+  mix-blend-mode: screen;
+  pointer-events: none;
+  animation: mirrorCoreHue 24s linear infinite, mirrorCorePulse 7s ease-in-out infinite;
 }
 
 .mirror:focus,
@@ -3230,6 +3601,7 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
   .mirror,
   .mirror-img,
   .mirror-video,
+  .mirror-core,
   .logo-panel .mirror::before,
   .logo-panel .mirror::after,
   .logo-panel .mirror-img,
@@ -3244,6 +3616,20 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
     filter: none !important;
     mix-blend-mode: normal !important;
     box-shadow: none !important;
+  }
+
+  /* P2-40: on mobile/Tesla, the mirrorFadeA/B animations are effectively disabled
+     (duration: 0.001ms). Force the first mirror image to stay visible so the
+     magic mirror actually renders instead of leaving an empty circle. */
+  .mirror-img.mirror-a {
+    opacity: 1 !important;
+  }
+  .mirror-img.mirror-b {
+    opacity: 0 !important;
+  }
+  .logo-panel.mirror-video-active .mirror-img.mirror-a,
+  .logo-panel.mirror-video-active .mirror-img.mirror-b {
+    opacity: 0 !important;
   }
 
   .mirror {
@@ -5579,8 +5965,18 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
 }
 
 .watch-screen {
-  height: min(76vh, 820px);
+  /* CSSOS_PHASE2_P2_53_OUTPUT_AR 20260418 — preview frame now follows the
+   * output aspect-ratio spec (set on :root as --cssos-output-ar by
+   * applyAspectRatioCssVar). Width is derived from height × ratio; max-width
+   * keeps super-wide ratios (32:9) from overflowing the container; min-height
+   * keeps portrait ratios visible on small viewports. */
+  aspect-ratio: var(--cssos-output-ar, 16 / 9);
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: min(76vh, 820px);
   min-height: 320px;
+  margin-inline: auto;
   border-radius: 16px;
   background: radial-gradient(circle at top, rgba(0, 245, 160, 0.2), transparent 60%),
     linear-gradient(120deg, rgba(0, 0, 0, 0.2), rgba(0, 245, 160, 0.12));
@@ -5591,6 +5987,14 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
   padding: 10px;
   position: relative;
   overflow: hidden;
+}
+
+/* Portrait viewport: allow the preview to shrink vertically so a 16:9 output
+ * doesn't hog the whole screen, and let 9:16 output take up to 78vh. */
+@media (orientation: portrait), (max-width: 820px) {
+  .watch-screen {
+    max-height: min(78vh, 920px);
+  }
 }
 
 .watch-screen::before {
@@ -5621,7 +6025,8 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
   width: 100%;
   height: 100%;
   min-height: 240px;
-  object-fit: contain;
+  /* P2-29: cover fills the media frame without letterbox/pillarbox; crop preserves aspect without distortion. */
+  object-fit: cover;
   background: #000;
   opacity: 0.95;
   filter: saturate(1.1) brightness(1.05);
@@ -5634,7 +6039,8 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
   width: 100%;
   height: 100%;
   min-height: 240px;
-  object-fit: contain;
+  /* P2-29: cover fills the media frame without letterbox/pillarbox; crop preserves aspect without distortion. */
+  object-fit: cover;
   background: #000;
   position: absolute;
   inset: 0;
@@ -5735,15 +6141,41 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
   }
 }
 
+/* CSSMV_SUBTITLE_RESTORE_STYLING 20260426 #125 — Jing
+   "请让普通字幕拥有之前该有的样式表，除了不再多行显示。"
+   When this baseline only set color + a subtle 12px glow with no
+   font-size / font-weight / opacity / width, the rendered subtitle
+   inherited the small body font and looked plain. Restore a readable
+   karaoke-style subtitle look: ~16-22px, semibold, full opacity,
+   layered emerald+cyan glow plus a stroke shadow for legibility on any
+   background. Single-line layout is enforced by the JS rule in
+   app.watch-media-layout-p2100.js (`#watch-panel #watch-subtitle
+   { white-space: nowrap !important; ... }`) — we do NOT add multi-line
+   back here. */
 .watch-subtitle {
-  font-family: "Syne", sans-serif;
+  font-family: "Syne", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", sans-serif;
   color: var(--emerald);
-  text-shadow: 0 0 12px rgba(0, 245, 160, 0.6);
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.5),
+    0 -1px 0 rgba(2, 8, 6, 0.94),
+    1px 0 0 rgba(2, 8, 6, 0.94),
+    -1px 0 0 rgba(255, 255, 255, 0.34),
+    0 0 14px rgba(0, 245, 160, 0.55),
+    0 0 24px rgba(11, 247, 255, 0.22);
   position: absolute;
-  bottom: 16px;
+  bottom: 32px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 3;
+  width: min(82%, 880px);
+  text-align: center;
+  font-size: clamp(16px, 1.5vw, 22px);
+  font-weight: 600;
+  line-height: 1.32;
+  letter-spacing: 0.012em;
+  opacity: 0.96;
+  padding: 0;
 }
 
 .watch-commerce-actions {
@@ -5835,13 +6267,64 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
   border-radius: 999px;
   background: rgba(0, 245, 160, 0.1);
   overflow: hidden;
+  position: relative;
 }
 
+/* CSSOS_PHASE2_WATCH_ENGINE_LIVE 20260420 — give the engine cards the same
+   real-time feel as the notifications panel: smooth width transition +
+   scrolling rainbow so tiny progress deltas still read as motion. */
 .watch-engine-progress span {
   display: block;
   height: 100%;
   width: 0%;
-  background: linear-gradient(90deg, var(--green), var(--blue));
+  border-radius: inherit;
+  transition: width 0.4s ease;
+  background-image: linear-gradient(
+    90deg,
+    hsl(var(--watch-engine-hue, 160), 92%, 58%) 0%,
+    hsl(calc(var(--watch-engine-hue, 160) + 36), 92%, 56%) 22%,
+    hsl(calc(var(--watch-engine-hue, 160) + 90), 92%, 56%) 44%,
+    hsl(calc(var(--watch-engine-hue, 160) + 180), 92%, 56%) 66%,
+    hsl(calc(var(--watch-engine-hue, 160) + 270), 92%, 56%) 88%,
+    hsl(var(--watch-engine-hue, 160), 92%, 58%) 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: repeat-x;
+  background-position: 0% 50%;
+  animation: cssosWatchEngineBarScroll 2.2s linear infinite;
+  box-shadow:
+    0 0 8px hsla(var(--watch-engine-hue, 160), 92%, 58%, 0.45),
+    0 0 14px hsla(calc(var(--watch-engine-hue, 160) + 40), 92%, 56%, 0.22);
+}
+
+.watch-engine-card.is-done .watch-engine-progress span {
+  animation-duration: 3.4s;
+  box-shadow:
+    0 0 10px hsla(var(--watch-engine-hue, 160), 92%, 58%, 0.5);
+}
+
+@keyframes cssosWatchEngineBarScroll {
+  0%   { background-position:   0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .watch-engine-progress span {
+    animation-duration: 8s;
+  }
+}
+
+.watch-engine-percent {
+  float: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.82);
+  opacity: 0.92;
+}
+html[data-theme="light"] .watch-engine-percent,
+body[data-theme="light"] .watch-engine-percent {
+  color: rgba(18, 22, 30, 0.9);
 }
 
 .watch-engine-detail {
@@ -5884,7 +6367,19 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
   position: relative;
   display: grid;
   place-items: center;
+  /* CSSOS_PHASE2_P2_63_MUSIC_FILL 20260419 — make the music stage fill the
+   * pane's gray container exactly like the MV preview does. Previously we
+   * ran with `width: auto` + `max-height: min(76vh, 820px)`, which on wide
+   * viewports capped the frame at ~1458px and left ~500px of gray gutter
+   * on each side. Switching to `width: 100%` + no height cap lets the frame
+   * inherit the pane's full width; aspect-ratio then derives height so the
+   * disc stays proportional. */
+  aspect-ratio: var(--cssos-output-ar, 16 / 9);
+  width: 100%;
+  max-width: 100%;
+  height: auto;
   min-height: 380px;
+  margin-inline: auto;
   margin-bottom: 10px;
   border-radius: 22px;
   overflow: hidden;
@@ -5893,7 +6388,19 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
     var(--watch-music-bg, radial-gradient(circle at center, rgba(0, 245, 160, 0.12), rgba(0, 0, 0, 0.82) 65%));
 }
 
+/* Portrait viewport override: allow a little more vertical room so 9:16
+ * outputs breathe, matching the behaviour of .watch-screen above. */
+@media (orientation: portrait), (max-width: 820px) {
+  .watch-music-stage {
+    max-height: min(78vh, 920px);
+  }
+}
+
 .watch-music-stage::before {
+  /* CSSOS_PHASE2_P2_52_MUSIC_BACKDROP 20260418 — second-pass reduction (7px → 4px)
+   * and slightly lower backdrop opacity so the backdrop reads as ambient colour
+   * rather than a blurry duplicate of the disc. Scale softened from 1.03 → 1.02
+   * to minimise the halo you used to see around the backdrop edges. */
   content: "";
   position: absolute;
   inset: 0;
@@ -5901,8 +6408,8 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
   background-size: cover;
   background-position: center;
   opacity: 0.28;
-  filter: blur(20px) saturate(1.06);
-  transform: scale(1.08);
+  filter: blur(4px) saturate(1.08);
+  transform: scale(1.02);
 }
 
 .watch-music-stage::after {
@@ -5974,8 +6481,9 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
   height: 244px;
   border-radius: 50%;
   overflow: hidden;
+  /* CSSOS_PHASE2_VINYL_NO_HOLE 20260420 — dropped the center highlight
+     radial-gradient so the vinyl has no visible hole/spindle, per user. */
   background:
-    radial-gradient(circle at center, rgba(255, 255, 255, 0.08) 0 22px, transparent 24px),
     repeating-radial-gradient(circle at center, rgba(255,255,255,0.06) 0 2px, rgba(255,255,255,0.01) 2px 7px, rgba(0,0,0,0.45) 7px 11px),
     #0b0f0f;
   box-shadow: inset 0 0 36px rgba(0,0,0,0.55), 0 0 24px var(--watch-music-shadow-live);
@@ -5986,25 +6494,56 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
 }
 
 .watch-music-art {
+  /* CSSOS_PHASE2_P2_52_MUSIC_VINYL 20260418 — art now covers the entire disc
+   * (inset: 0, border-radius: 50%, background-size: cover) and spins clockwise
+   * when the stage has `.is-playing`. Rotation is applied to the art layer (not
+   * the disc) so the disc's translateY lift transition is preserved. The
+   * @keyframes watchDiscSpin goes from rotate(0deg) to rotate(360deg), which is
+   * clockwise in CSS's default 2D coordinate system. */
   position: absolute;
-  inset: 28px;
+  inset: 0;
   border-radius: 50%;
   background-image: var(--watch-music-art-image);
   background-size: cover;
   background-position: center;
-  filter: saturate(1.05) brightness(1.02);
+  background-repeat: no-repeat;
+  filter: saturate(1.06) brightness(1.03);
+  animation: watchDiscSpin 12s linear infinite;
+  animation-play-state: paused;
+  transform-origin: 50% 50%;
+  will-change: transform;
+  /* Make sure the art sits above the vinyl-groove disc background so the
+   * album art, not the grooves, is what the user sees. */
+  z-index: 1;
 }
 
-.watch-music-hole {
+/* Subtle groove overlay so the vinyl aesthetic survives even with full-bleed
+ * album art. P2-52: opacity dropped from 0.55 → 0.22 so the album art is the
+ * hero rather than the grooves. Rotates with the art. */
+.watch-music-art::after {
+  content: "";
   position: absolute;
-  inset: 50%;
-  width: 22px;
-  height: 22px;
-  transform: translate(-50%, -50%);
+  inset: 0;
   border-radius: 50%;
-  background: radial-gradient(circle, #0a1210 0 40%, #03110b 60%, rgba(255,255,255,0.12) 100%);
-  border: 1px solid rgba(255,255,255,0.12);
-  z-index: 3;
+  pointer-events: none;
+  background:
+    repeating-radial-gradient(circle at center,
+      rgba(255, 255, 255, 0.03) 0 1px,
+      rgba(0, 0, 0, 0.1) 1px 3px,
+      rgba(255, 255, 255, 0.015) 3px 6px);
+  mix-blend-mode: overlay;
+  opacity: 0.22;
+}
+
+.watch-music-stage.is-playing .watch-music-art {
+  animation-play-state: running;
+}
+
+/* CSSOS_PHASE2_VINYL_NO_HOLE 20260420 — user asked to remove the center
+   spindle hole from the Music vinyl disc. Keep the rule but hide it so we
+   don't lose the hook if we ever want to bring it back. */
+.watch-music-hole {
+  display: none;
 }
 
 .watch-music-play {
@@ -6242,7 +6781,9 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
 .settings-body select {
   width: 100%;
   margin-top: 8px;
-  padding: 12px 14px;
+  padding: 14px 16px;
+  min-height: 48px;
+  font-size: 15px;
   border-radius: 12px;
   border: 1px solid rgba(0, 245, 160, 0.2);
   background: rgba(0, 0, 0, 0.45);
@@ -6290,26 +6831,126 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
   font-size: 11px;
 }
 
-.resize-handle {
-  position: absolute;
-  width: 32px;
-  height: 32px;
-  right: 6px;
-  bottom: 6px;
-  border-right: 2px solid rgba(0, 245, 160, 0.65);
-  border-bottom: 2px solid rgba(0, 245, 160, 0.65);
-  border-radius: 0 0 10px 0;
-  background: radial-gradient(circle at bottom right, rgba(0, 245, 160, 0.18), transparent 65%);
-  z-index: 2;
-  cursor: se-resize;
-  touch-action: none;
+/* CSSOS_PHASE2_PANEL_CONSTITUTION_V2 20260419 — panel resize chevrons
+ * removed. The new constitution (approved by Jing Apr 19, 2026) adopts
+ * Apple/Windows-style 8-way window resize: every edge AND every corner is a
+ * grab zone, with no visible chevron affordance. The two bottom-corner
+ * chevrons (.resize-handle / .resize-handle-left) are kept in the DOM for
+ * backward compatibility with any query selectors that still reference them,
+ * but hidden from view and layered below the new overlay handles so they
+ * can't steal pointer events. */
+.resize-handle,
+.resize-handle-left {
+  display: none !important;
+}
+/* CSSOS_PHASE2_PANEL_CONSTITUTION_V2_END */
+
+/* Legacy selectors — panel-locked / panel-collapsed / media-paused / hidden
+ * previously hid the chevrons. Kept as no-ops so nothing else breaks. */
+.panel.media-paused .resize-handle,
+.panel.media-paused .resize-handle-left,
+.panel.hidden .resize-handle,
+.panel.hidden .resize-handle-left {
+  display: none;
 }
 
-.resize-handle::after {
-  content: "";
+/* CSSOS_PHASE2_PANEL_CONSTITUTION_V2_8WAY 20260419 — the new 8-way resize
+ * handles. Invisible overlay divs injected by ensureEightWayResizeHandles().
+ * Edges are thin 6px strips tucked just inside the panel boundary (slightly
+ * overhanging so the user can catch them at the very edge); corners are
+ * 14×14 squares that overlap their two adjacent edges. Z-index 3 keeps them
+ * above the panel content but below any explicit dialogs/toasts. */
+.panel-resize-edge,
+.panel-resize-corner {
   position: absolute;
-  inset: -10px;
+  z-index: 3;
+  touch-action: none;
+  background: transparent;
+  pointer-events: auto;
 }
+/* Edges hug the inside of the panel border. .panel has `overflow:hidden`,
+ * so negative offsets would be clipped; everything is tucked inside. */
+.panel-resize-edge.n { top: 0;    left: 14px;   right: 14px;  height: 8px;  cursor: n-resize; }
+.panel-resize-edge.s { bottom: 0; left: 14px;   right: 14px;  height: 8px;  cursor: s-resize; }
+.panel-resize-edge.e { top: 14px; right: 0;     bottom: 14px; width: 8px;   cursor: e-resize; }
+.panel-resize-edge.w { top: 14px; left: 0;      bottom: 14px; width: 8px;   cursor: w-resize; }
+.panel-resize-corner.ne { top: 0;    right: 0;  width: 14px; height: 14px; cursor: ne-resize; }
+.panel-resize-corner.nw { top: 0;    left: 0;   width: 14px; height: 14px; cursor: nw-resize; }
+.panel-resize-corner.se { bottom: 0; right: 0;  width: 14px; height: 14px; cursor: se-resize; }
+.panel-resize-corner.sw { bottom: 0; left: 0;   width: 14px; height: 14px; cursor: sw-resize; }
+
+/* Locked / collapsed / hidden / maximized: disable the grab zones so the
+ * panel can't be resized when it wouldn't make sense. */
+.panel-locked .panel-resize-edge,
+.panel-locked .panel-resize-corner,
+.panel-collapsed .panel-resize-edge,
+.panel-collapsed .panel-resize-corner,
+.panel.hidden .panel-resize-edge,
+.panel.hidden .panel-resize-corner,
+.panel.maximized .panel-resize-edge,
+.panel.maximized .panel-resize-corner,
+.panel.media-paused .panel-resize-edge,
+.panel.media-paused .panel-resize-corner {
+  pointer-events: none;
+  cursor: default;
+}
+
+/* Hover hint — when the pointer is near a panel edge, tint it faintly so
+ * users can tell the border is draggable. Stays subtle on dark theme. */
+.panel-resize-edge:hover,
+.panel-resize-corner:hover {
+  background: rgba(0, 245, 160, 0.14);
+}
+html[data-theme="light"] .panel-resize-edge:hover,
+html[data-theme="light"] .panel-resize-corner:hover {
+  background: rgba(13, 143, 103, 0.14);
+}
+/* CSSOS_PHASE2_PANEL_CONSTITUTION_V2_8WAY_END */
+
+/* CSSOS_PHASE2_PANEL_OPACITY_V2 20260419:
+ * Panel constitution v2 moves from a binary transparent-toggle to a
+ * user-adjustable opacity slider (70%..100%). The actual alpha is carried on
+ * `--panel-alpha` which is applied to the `--panel-strong` base color above.
+ * Default is 1.00 (fully opaque), matching Apple/Windows windows. A legacy
+ * `html[data-panel-transparent="true"]` flag is preserved for compatibility
+ * with older saved settings: if present, the slider is forced to 0.70
+ * (min of the new range) so the user sees roughly the same translucent look.
+ */
+.panel,
+.panel.flow {
+  background: var(--panel-surface, var(--panel-strong));
+}
+
+html[data-panel-transparent="true"] {
+  --panel-alpha: 0.70;
+}
+
+/* Logo panel is the ambient stage — always transparent regardless of
+ * setting. Kept as-is for the mirror / spellcasting surface. */
+#logo-panel,
+.logo-panel,
+html[data-panel-transparent="true"] #logo-panel,
+html[data-panel-transparent="true"] .logo-panel {
+  background: transparent;
+}
+/* CSSOS_PHASE2_PANEL_OPACITY_V2_END */
+
+/* CSSOS_PHASE1_MAXIMIZE_FULLSCREEN_BEGIN 20260417:
+   panel[data-maximize-mode="fullscreen"].maximized snaps to the whole viewport
+   (no centered modal look). Watch panel is forced to this mode by JS. */
+.panel.maximized[data-maximize-mode="fullscreen"] {
+  left: 0 !important;
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-height: 100vh !important;
+  transform: none !important;
+  border-radius: 0 !important;
+  z-index: 10050;
+}
+/* CSSOS_PHASE1_MAXIMIZE_FULLSCREEN_END */
 
 .dock {
   position: fixed;
@@ -6321,8 +6962,9 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
   padding: 10px 14px;
   max-width: calc(100% - 32px);
   overflow-x: auto;
-  background: rgba(0, 0, 0, 0.6);
-  border: 1px solid rgba(0, 245, 160, 0.25);
+  background: transparent;
+  border: none;
+  box-shadow: none;
   border-radius: 999px;
   backdrop-filter: blur(16px);
   transition: opacity 0.4s ease, transform 0.4s ease, box-shadow 0.28s ease, border-color 0.28s ease;
@@ -6429,6 +7071,31 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
 #logo-panel textarea,
 #logo-panel select,
 #logo-panel a {
+  pointer-events: none;
+}
+
+#logo-panel.panel-front .panel-bar,
+#logo-panel.panel-front .panel-bar *,
+#logo-panel.panel-front .panel-actions,
+#logo-panel.panel-front .panel-actions *,
+#logo-panel.panel-front .mirror-stage,
+#logo-panel.panel-front .mirror-stage *,
+#logo-panel.panel-front button,
+#logo-panel.panel-front input,
+#logo-panel.panel-front textarea,
+#logo-panel.panel-front select,
+#logo-panel.panel-front a,
+#logo-panel.panel-active .panel-bar,
+#logo-panel.panel-active .panel-bar *,
+#logo-panel.panel-active .panel-actions,
+#logo-panel.panel-active .panel-actions *,
+#logo-panel.panel-active .mirror-stage,
+#logo-panel.panel-active .mirror-stage *,
+#logo-panel.panel-active button,
+#logo-panel.panel-active input,
+#logo-panel.panel-active textarea,
+#logo-panel.panel-active select,
+#logo-panel.panel-active a {
   pointer-events: auto;
 }
 
@@ -6463,6 +7130,26 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
 
 .dock-item[data-action="mic"] {
   gap: 0;
+  width: 64px;
+  min-width: 64px;
+}
+
+.dock-notification-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(255, 72, 108, 0.95);
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  font-weight: 700;
+  box-shadow: 0 0 12px rgba(255, 72, 108, 0.6);
+  pointer-events: none;
 }
 
 .dock-icon-media {
@@ -6502,30 +7189,41 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
 
 .dock-mic-a {
   filter:
-    brightness(2.8)
+    brightness(2.1)
     saturate(0)
-    drop-shadow(0 0 10px rgba(255, 255, 255, 0.52))
-    drop-shadow(0 0 16px rgba(214, 255, 248, 0.34));
-  animation: dockMicPulseA 2.8s ease-in-out infinite;
+    drop-shadow(0 0 6px rgba(255, 255, 255, 0.38))
+    drop-shadow(0 0 10px rgba(214, 255, 248, 0.22));
+  animation: dockMicPulseA 4.2s ease-in-out infinite;
 }
 
 .dock-mic-b {
   filter:
-    brightness(1.15)
-    saturate(1.28)
-    drop-shadow(0 0 12px rgba(0, 245, 160, 0.42))
-    drop-shadow(0 0 20px rgba(57, 176, 255, 0.34));
-  animation: dockMicPulseB 2.8s ease-in-out infinite;
+    brightness(1.05)
+    saturate(1.08)
+    drop-shadow(0 0 8px rgba(0, 245, 160, 0.28))
+    drop-shadow(0 0 14px rgba(57, 176, 255, 0.22));
+  animation: dockMicPulseB 4.2s ease-in-out infinite;
 }
 
 @keyframes dockMicPulseA {
-  0%, 100% { opacity: 0.92; transform: scale(1.04); }
-  50% { opacity: 0.22; transform: scale(0.9); }
+  0%, 100% { opacity: 0.85; transform: scale(1.02); }
+  50% { opacity: 0.38; transform: scale(0.96); }
 }
 
 @keyframes dockMicPulseB {
-  0%, 100% { opacity: 0.26; transform: scale(0.88); }
-  50% { opacity: 1; transform: scale(1.08); }
+  0%, 100% { opacity: 0.3; transform: scale(0.95); }
+  50% { opacity: 0.78; transform: scale(1.03); }
+}
+
+@keyframes mirrorCoreHue {
+  0% { filter: saturate(1.4) brightness(1.1) hue-rotate(0deg); }
+  50% { filter: saturate(1.6) brightness(1.2) hue-rotate(160deg); }
+  100% { filter: saturate(1.4) brightness(1.1) hue-rotate(320deg); }
+}
+
+@keyframes mirrorCorePulse {
+  0%, 100% { opacity: 0.55; transform: scale(0.98); }
+  50% { opacity: 0.95; transform: scale(1.02); }
 }
 
 .dock-item.active .dock-icon {
@@ -6598,6 +7296,65 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
 .advanced-panel-card[data-advanced-panel="permission-overview"] {
   grid-column: 1 / -1;
   width: 100%;
+}
+
+.advanced-panel-card[data-advanced-panel="engines"] {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
+.mv-engines-panel {
+  display: grid;
+  gap: 10px;
+  margin: 6px 0 10px;
+}
+
+.mv-engines-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px 14px;
+}
+
+.mv-engine-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(0, 245, 160, 0.14);
+}
+
+.mv-engine-row > span {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.mv-engine-row select[data-mv-engine-select] {
+  width: 100%;
+}
+
+.mv-engine-row[data-mv-engine-empty="true"] {
+  opacity: 0.55;
+}
+
+.mv-engine-badge {
+  font-size: 11px;
+  color: rgba(226, 255, 240, 0.78);
+  letter-spacing: 0.02em;
+  min-height: 14px;
+}
+
+.mv-engines-panel[data-mv-engines-state="loading"] [data-mv-engines-placeholder],
+.mv-engines-panel[data-mv-engines-state="empty"] [data-mv-engines-placeholder],
+.mv-engines-panel[data-mv-engines-state="error"] [data-mv-engines-placeholder],
+.mv-engines-panel[data-mv-engines-state="unavailable"] [data-mv-engines-placeholder] {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px dashed rgba(0, 245, 160, 0.2);
 }
 
 .advanced-panel-card label {
@@ -7957,3 +8714,389 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
   }
 }
 /* CSSOS_MOBILE_LOGO_FIRST_SCREEN_END */
+
+/* CSSOS_SUBSCRIPTION_PANEL_SCROLL_BEGIN — P2-57b */
+/* The subscription panel renders a long list (plans, current membership, Creator Boost,
+   payment history, actions) inside .panel-body.subscription-body.
+   On Safari/iOS the flex-chain doesn't always propagate a fixed height so the inner
+   grid (.subscription-panel-stack) overflows the viewport and scroll is lost.
+   Force overflow + min-height:0 at each level and clamp the panel height to the
+   viewport so the user can always scroll and reach the upgrade buttons. */
+#subscription-panel {
+  overflow: hidden;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+}
+
+#subscription-panel .panel-body,
+#subscription-panel .subscription-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+#subscription-panel .subscription-panel-stack {
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+#subscription-panel .subscription-panel-stack > * {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+#subscription-panel.maximized,
+#subscription-panel.maximized[data-maximize-mode="fullscreen"] {
+  max-height: 100vh !important;
+  max-height: 100dvh !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+}
+
+#subscription-panel.maximized .panel-body,
+#subscription-panel.maximized .subscription-body {
+  max-height: none;
+}
+/* CSSOS_SUBSCRIPTION_PANEL_SCROLL_END */
+
+/* CSSOS_PAY_METHODS_BEGIN — 20260419
+   Dual-gateway payment UI: International (Stripe) side-by-side with
+   China domestic (NihaoPay: Alipay / WeChat Pay / UnionPay). Applied on
+   subscription plan cards AND Creator Boost rows. Keep colors subdued
+   so the panel stays consistent with the rest of cssOS but give each
+   brand a recognizable accent. */
+
+.pay-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.18);
+  margin-top: 8px;
+}
+
+.pay-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.pay-group-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.pay-group-dot.intl {
+  background: linear-gradient(135deg, #635bff, #8f8bff);
+  box-shadow: 0 0 0 2px rgba(99, 91, 255, 0.18);
+}
+
+.pay-group-dot.cn {
+  background: linear-gradient(135deg, #ff5a5a, #ffb84d);
+  box-shadow: 0 0 0 2px rgba(255, 90, 90, 0.18);
+}
+
+.pay-group-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pay-group-body .mini-btn {
+  flex: 1 1 auto;
+  min-width: 78px;
+  justify-content: center;
+}
+
+/* Brand-accented NihaoPay vendor buttons — keep fill subtle, lean on the
+   left-edge accent and vendor glyph for recognition. */
+.mini-btn.pay-vendor {
+  position: relative;
+  padding-left: 22px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  letter-spacing: 0.06em;
+  text-transform: none;
+  font-size: 11px;
+}
+
+.mini-btn.pay-vendor::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.mini-btn.pay-vendor.alipay::before { background: #1677ff; box-shadow: 0 0 0 2px rgba(22,119,255,0.18); }
+.mini-btn.pay-vendor.wechatpay::before { background: #07c160; box-shadow: 0 0 0 2px rgba(7,193,96,0.18); }
+.mini-btn.pay-vendor.unionpay::before {
+  background: linear-gradient(135deg, #e60012 0%, #e60012 50%, #005bac 50%, #005bac 100%);
+  box-shadow: 0 0 0 2px rgba(0,91,172,0.18);
+}
+
+.mini-btn.pay-vendor:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.mini-btn.pay-stripe {
+  background: linear-gradient(135deg, rgba(99, 91, 255, 0.22), rgba(99, 91, 255, 0.08));
+  border: 1px solid rgba(99, 91, 255, 0.38);
+  color: #e6e4ff;
+  letter-spacing: 0.06em;
+  text-transform: none;
+  font-size: 11px;
+}
+
+.mini-btn.pay-stripe:hover {
+  background: linear-gradient(135deg, rgba(99, 91, 255, 0.34), rgba(99, 91, 255, 0.16));
+}
+
+/* Plan card — make it read like a product card; give the payment groups
+   space to stack without fighting the existing grid items.
+   CSSOS_SUBSCRIPTION_PANEL_PLAN_CARD_FLEX 20260419 —
+   previously only set flex-direction:column, but the base .work-card uses
+   display:grid with 72px|1fr|auto columns, so the pay-group siblings were
+   squeezed into narrow grid cells and the NihaoPay buttons wrapped vertically.
+   Force display:flex here so Plans cards lay out exactly like the Creator
+   Boost boost-shop-card on the right (label above, buttons in one horizontal
+   row, full container width). */
+#subscription-panel .work-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+#subscription-panel .work-card > .work-actions {
+  align-self: stretch;
+  min-width: 0;
+  justify-content: stretch;
+}
+
+#subscription-panel .work-card > .work-actions .mini-btn {
+  flex: 1 1 auto;
+}
+
+/* Pay-group inside a plan card — make sure it spans the full card width
+   the same way it does inside .boost-shop-card on the right. Without this,
+   flex defaults (flex-shrink:1) let the group collapse when the Plans
+   column is the narrower of the auto-fit columns. */
+#subscription-panel .work-card > .pay-group {
+  flex: 1 1 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* And the NihaoPay vendor buttons must be free to wrap only when the
+   card itself is genuinely too narrow — drop min-width so a tight column
+   doesn't force a stacked layout. The boost-shop-card already benefits
+   from a wider min column, so this only bites on the left Plans side. */
+#subscription-panel .work-card .pay-group-body .mini-btn {
+  min-width: 0;
+}
+
+#subscription-panel .work-cover {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* Creator Boost — each product row becomes its own card so the "国内支付"
+   row doesn't pile onto a wide flexbox. */
+.boost-shop-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  margin-top: 12px;
+}
+
+.boost-shop-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.boost-shop-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.boost-shop-title {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--text, #eef);
+}
+
+.boost-shop-price {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.62);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- pay-method picker modal --- */
+.css-pay-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 10, 20, 0.72);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 24px;
+  animation: cssPayPickerFadeIn 160ms ease;
+}
+@keyframes cssPayPickerFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.css-pay-picker-card {
+  position: relative;
+  width: min(440px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  background: linear-gradient(180deg, rgba(28, 30, 48, 0.96), rgba(18, 20, 34, 0.96));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  padding: 22px 22px 18px;
+  color: #f0f2f8;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  animation: cssPayPickerSlideIn 200ms cubic-bezier(.2, .8, .2, 1);
+}
+@keyframes cssPayPickerSlideIn {
+  from { transform: translateY(8px) scale(0.985); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+.css-pay-picker-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms, color 120ms;
+}
+.css-pay-picker-close:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+.css-pay-picker-head {
+  margin-bottom: 14px;
+  padding-right: 24px;
+}
+.css-pay-picker-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.2px;
+}
+.css-pay-picker-subtitle {
+  margin-top: 4px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.62);
+  font-variant-numeric: tabular-nums;
+}
+.css-pay-picker-amount {
+  margin: 10px 0 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.css-pay-picker-amount-label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.58);
+  margin-bottom: 6px;
+}
+.css-pay-picker-amount-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.css-pay-picker-amount-prefix {
+  color: rgba(255, 255, 255, 0.72);
+  font-weight: 600;
+}
+.css-pay-picker-amount-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.25);
+  color: #fff;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+.css-pay-picker-amount-input:focus {
+  border-color: rgba(120, 140, 255, 0.6);
+  box-shadow: 0 0 0 2px rgba(120, 140, 255, 0.16);
+}
+.css-pay-picker-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.css-pay-picker-empty {
+  padding: 14px;
+  text-align: center;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.55);
+}
+.css-pay-picker-foot {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+}
+.css-pay-picker-cancel {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.css-pay-picker-cancel:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+/* CSSOS_PAY_METHODS_END */

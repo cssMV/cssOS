@@ -15,7 +15,25 @@ fn ass_header() -> String {
     s.push('\n');
     s.push_str("[V4+ Styles]\n");
     s.push_str("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n");
-    s.push_str("Style: Default,Arial,44,&H00FFFFFF,&H000000FF,&H00101010,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,80,80,60,1\n");
+    // CSSOS_PHASE2_CJK_FONTS 20260426 #150 — Jing
+    // "请顺手解决中文/日文/韩文乱码问题。"
+    //
+    // The previous style used "HengShanMaoBiCaoShu" — a fancy Chinese
+    // calligraphy font that wasn't installed on the rendering host, so
+    // libass fell back to whatever it could find, which on a clean Linux
+    // install means DejaVu Sans (no CJK glyphs → tofu blocks for every
+    // Chinese / Japanese / Korean character).
+    //
+    // Switching the primary font to "Noto Sans CJK SC" — Google's
+    // pan-CJK font family covering Simplified Chinese, Traditional
+    // Chinese, Japanese kana, and Korean Hangul in one face. Installed
+    // on api-vm via `fonts-noto-cjk` (20260426). libass + fontconfig
+    // will resolve missing-glyph fallbacks within the family
+    // automatically.
+    //
+    // Encoding=1 means "default" (UTF-8). Margins and outline values
+    // unchanged so visual layout matches the prior calligraphy style.
+    s.push_str("Style: Default,Noto Sans CJK SC,44,&H00FFFFFF,&H000000FF,&H00101010,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,80,80,60,1\n");
     s.push('\n');
     s.push_str("[Events]\n");
     s.push_str("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n");

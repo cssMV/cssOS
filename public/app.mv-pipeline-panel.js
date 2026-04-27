@@ -2502,14 +2502,36 @@
             ));
           }
         } else if (typeof globalThis.attemptWatchVideoPlaybackModule === "function") {
-          // CSSOS_PHASE2_ZERO_TOUCH 20260426 #149 — Jing
-          // Try unmuted first (best UX). On autoplay block, retry the
-          // attempt with `muted=true` because Chromium/WebKit allow muted
-          // autoplay even without a recent user gesture. We then nudge the
-          // user via a one-time small toast that the video is muted; first
-          // click anywhere unmutes it. Net effect: visuals + subtitles fire
-          // immediately, never a blank media frame.
+          // CSSOS_PHASE2_NO_FAKE_FALLBACK 20260427 #154 — Jing
+          // "图1，有时候还fallback到这个视频，我们不是已经有真的视频了吗？
+          //  请不要再 fallback 到这个假视频。"
+          //
+          // Previously the autoplay attempt was unmuted-first, retry-with-
+          // music-fallback. The autoplay-block path inside
+          // attemptWatchVideoPlaybackModule routes to fallbackWatchPlaybackToMusicModule
+          // after maxRetries=3 × interval=800ms = 2.4s — which fires BEFORE
+          // any of our muted-retry safety nets. End result: real MV exists
+          // but Watch swaps to the Music tab + cover-slideshow ("fake video"
+          // in Jing's words).
+          //
+          // New approach: PRE-MUTE the video element BEFORE the play()
+          // attempt. Browsers always allow muted autoplay (no user gesture
+          // required), so play() succeeds first try, no fallback ever fires,
+          // and the real MV stays visible. The unmute-on-first-input
+          // handler installed below restores audio the moment the user
+          // clicks/keys/taps anywhere.
+          //
+          // This is the "muted-first, never fallback" principle —
+          // contradicts the original "unmuted-first, fallback to music"
+          // design but matches Jing's "the real MV must always show."
           const watchVideoEl = document.getElementById("watch-video");
+          if (watchVideoEl) {
+            watchVideoEl.muted = true;
+            console.info(
+              "%c[mv-pipeline][zero-touch] pre-muted video for guaranteed autoplay; first user input will unmute",
+              "color:#08f;font-weight:bold"
+            );
+          }
           // Set up one-time unmute-on-first-input handler BEFORE we try
           // playback. If autoplay succeeds unmuted, this is harmless.
           if (watchVideoEl && !globalThis.__cssmvUnmuteHandlerInstalled) {
@@ -2528,11 +2550,15 @@
             window.addEventListener("touchstart", unmuteOnFirstInput, true);
             globalThis.__cssmvUnmuteHandlerInstalled = true;
           }
-          // Attempt playback with retry + music-tab fallback baked in.
+          // CSSOS_PHASE2_NO_FAKE_FALLBACK 20260427 #154 — pre-muted, so
+          // we explicitly disable music-tab fallback. The video WILL
+          // autoplay (browsers grant muted autoplay unconditionally);
+          // no path that switches Watch to the cover-slideshow Music
+          // tab is needed any more.
           globalThis.attemptWatchVideoPlaybackModule({
             maxRetries: 3,
             interval: 800,
-            allowFallback: true
+            allowFallback: false
           });
           // Defense in depth: 2.5s after kicking the attempt, if the
           // <video> element still hasn't started playing AND it's not

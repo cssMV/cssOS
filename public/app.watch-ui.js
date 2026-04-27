@@ -2250,12 +2250,24 @@ function renderWatchKaraokeOverlayModule(progress = 0) {
     const pickPieceFont = (typeof globalThis.cssmvAssignFontForPiece === "function")
       ? globalThis.cssmvAssignFontForPiece
       : null;
-    // CSSOS_PHASE2_P2_96_SUBTITLE_WEIGHT 20260424 #96 — build one span
-    // per word as before, then group consecutive same-weight spans into
-    // <div class="watch-karaoke-row is-weight-high|low"> runs so that
-    // high-weight (content: 樱花/盛开/季节) and low-weight (function:
-    // 在那/的) never share a line. Styling lives in the media-overlays
-    // injected stylesheet (.watch-karaoke-row.is-weight-high/low).
+    // CSSOS_PHASE2_KARAOKE_SINGLE_LINE 20260427 #153 — Jing
+    // "图3，图4，两套字幕，看见了吗？旧的那套，多行显示，黑色，新的绿色的
+    //  一行显示（后来要求恢复单行显示）"
+    //
+    // The previous P2-96 implementation grouped words into per-weight
+    // <div class="watch-karaoke-row is-weight-{high|low}"> rows so
+    // function-words ("the/of/in") stacked separately from content
+    // words. That produced the vertical-stacked, multi-line block on
+    // the left side of the media frame in images 3 and 4. Jing wants
+    // a SINGLE-LINE karaoke render now (matches the restored bottom
+    // subtitle from #120 / #125).
+    //
+    // Render all words as inline spans on one line. Active-word
+    // highlighting + emotion classes + per-word fonts are preserved.
+    // Word weight is no longer used for layout (it was only ever a
+    // line-break trigger). The CSS classes is-weight-high / is-weight-low
+    // are removed so any leftover styles in style.watch.css that targeted
+    // them stop applying.
     const renderedCurrent = (() => {
       if (!(Array.isArray(cueWords) && cueWords.length)) {
         return escapeHtml(resolvedCueText);
@@ -2279,25 +2291,12 @@ function renderWatchKaraokeOverlayModule(progress = 0) {
         const wordText = String(word?.text || "");
         const fam = pickPieceFont ? pickPieceFont(wordText) : "";
         const famCss = fam ? `;font-family:&quot;${String(fam).replace(/"/g, "&quot;")}&quot;, var(--watch-title-font-family, inherit)` : "";
-        const isLow = cssmvIsLowWeightWord(wordText);
-        return {
-          html: `<span class="${cls.join(" ")}" style="--karaoke-word-emphasis:${emphasis.toFixed(3)};--karaoke-word-beat:${beatWeight.toFixed(3)}${famCss}">${escapeHtml(wordText)}</span>`,
-          weight: isLow ? "low" : "high",
-        };
+        // Emit inline-flow spans separated by a thin space so the
+        // browser keeps them on a single line up to the container's
+        // max-width (white-space: nowrap on the parent does the rest).
+        return `<span class="${cls.join(" ")}" style="--karaoke-word-emphasis:${emphasis.toFixed(3)};--karaoke-word-beat:${beatWeight.toFixed(3)}${famCss}">${escapeHtml(wordText)}</span>`;
       });
-      // Group consecutive same-weight spans into rows. Every row is a
-      // block-level <div> so the browser forces a line break between a
-      // high-weight run and a low-weight run, which is exactly what
-      // Jing's "必须另起一行" spec requires.
-      const rows = [];
-      for (const span of wordSpans) {
-        const last = rows[rows.length - 1];
-        if (last && last.weight === span.weight) last.html += span.html;
-        else rows.push({ weight: span.weight, html: span.html });
-      }
-      return rows
-        .map((row) => `<div class="watch-karaoke-row is-weight-${row.weight}">${row.html}</div>`)
-        .join("");
+      return wordSpans.join(" ");
     })();
     watchKaraokeLine.dataset.emotion = inferredEmotion;
     watchSubtitle?.setAttribute("data-emotion", inferredEmotion);

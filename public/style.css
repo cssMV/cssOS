@@ -6233,11 +6233,30 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
   color: rgba(235, 255, 246, 0.96);
   text-shadow: 0 0 16px rgba(11, 247, 255, 0.22), 0 0 26px rgba(0, 245, 160, 0.18);
   font-weight: 700;
+  /* CSSOS_PHASE2_KARAOKE_SINGLE_LINE 20260427 #153 — Jing
+     Force single-line. Per-weight row stack from #96 is gone.
+     nowrap + ellipsis prevents the karaoke render from spilling
+     into multiple rows when long lyric lines arrive. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .watch-karaoke-current.is-active {
   color: rgba(255, 245, 168, 0.98);
   text-shadow: 0 0 18px rgba(255, 226, 122, 0.4), 0 0 24px rgba(0, 245, 160, 0.18);
+}
+
+/* CSSOS_PHASE2_KARAOKE_SINGLE_LINE 20260427 #153 — neutralise legacy
+   per-weight row classes so cached frontends emitting the old markup
+   collapse the rows into the inline flow instead of stacking. */
+.watch-karaoke-row,
+.watch-karaoke-row.is-weight-high,
+.watch-karaoke-row.is-weight-low {
+  display: inline;
+  margin: 0;
+  padding: 0;
 }
 
 .watch-engine-grid {

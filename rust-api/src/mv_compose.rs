@@ -286,36 +286,31 @@ pub async fn compose_mv(req: &ComposeRequest) -> Result<ComposeResult> {
 
 async fn compose_legacy(
     video_path: &Path,
-    audio_path_opt: Option<&Path>,
-    srt_path: Option<&Path>,
+    _audio_path_opt: Option<&Path>,
+    _srt_path: Option<&Path>,
     final_path: &Path,
 ) -> Result<()> {
+    // CSSOS_PHASE2_SEPARATE_STREAMS 20260427 #151 — Jing
+    // "不要烧录字幕，不要烧录音频，这是为以后我们的多语言歌词，多声线方便。
+    //  字幕，音乐，视频，永远都是分开着的。用户可以在欣赏 MV 的时候，可以
+    //  即时切换不同语言的歌词，不同的声线。"
+    //
+    // The legacy/hybrid compose paths used to mux audio + burn subtitles
+    // into the final mp4. That couples the assets together and prevents
+    // runtime switching of language / voice variants. The Watch panel
+    // already handles three separate streams (video / audio / srt) via
+    // separate <video>, <audio> and HTML overlay elements with a sync
+    // controller, so the right thing here is to ship a SILENT VIDEO-ONLY
+    // mp4 from compose. Audio and SRT continue to be delivered as
+    // separate work_assets to the frontend.
+    //
+    // _audio_path_opt and _srt_path are kept in the signature to preserve
+    // API compatibility for the hybrid path; both are unused at the
+    // ffmpeg level now.
     let mut cmd = tokio::process::Command::new("ffmpeg");
     cmd.arg("-y").arg("-i").arg(video_path);
-    if let Some(ap) = audio_path_opt {
-        cmd.arg("-i").arg(ap);
-    }
-
-    if let Some(srt) = srt_path {
-        let filter = format!(
-            "subtitles='{}'",
-            srt.to_string_lossy().replace('\'', r"\\'")
-        );
-        cmd.arg("-vf").arg(filter);
-        cmd.arg("-c:v").arg("libx264").arg("-preset").arg("veryfast");
-    } else {
-        cmd.arg("-c:v").arg("copy");
-    }
-
-    if audio_path_opt.is_some() {
-        cmd.arg("-c:a")
-            .arg("aac")
-            .arg("-b:a")
-            .arg("192k")
-            .arg("-shortest");
-    } else {
-        cmd.arg("-an");
-    }
+    cmd.arg("-c:v").arg("copy");
+    cmd.arg("-an"); // explicit no-audio
     cmd.arg("-movflags")
         .arg("+faststart")
         .arg(final_path)
@@ -511,14 +506,12 @@ async fn compose_xfade_chain(
         prev_label = next_label;
     }
 
-    // Step 3: optional subtitles burn-in.
-    let final_video_label = if let Some(srt) = srt_path {
-        let escaped = srt.to_string_lossy().replace('\'', r"\\'");
-        filter.push_str(&format!(";[vmix]subtitles='{}'[vout]", escaped));
-        "vout"
-    } else {
-        "vmix"
-    };
+    // CSSOS_PHASE2_SEPARATE_STREAMS 20260427 #151 — Jing
+    // No subtitle burn-in. The Watch panel renders SRT via HTML overlay
+    // for runtime language switching. srt_path is intentionally ignored
+    // here (kept in the signature for API stability).
+    let _ = srt_path;
+    let final_video_label = "vmix";
 
     // ---- build ffmpeg command -----------------------------------------------
     let mut cmd = tokio::process::Command::new("ffmpeg");
@@ -526,18 +519,13 @@ async fn compose_xfade_chain(
     for p in seg_paths {
         cmd.arg("-i").arg(p);
     }
-    let audio_input_idx = if let Some(ap) = audio_path_opt {
-        cmd.arg("-i").arg(ap);
-        Some(seg_paths.len())
-    } else {
-        None
-    };
+    // CSSOS_PHASE2_SEPARATE_STREAMS 20260427 #151 — no audio mux either.
+    // Audio file is delivered as a separate work_asset for runtime voice
+    // switching. _audio_path_opt is unused at the ffmpeg level now.
+    let _ = audio_path_opt;
 
     cmd.arg("-filter_complex").arg(&filter);
     cmd.arg("-map").arg(format!("[{}]", final_video_label));
-    if let Some(idx) = audio_input_idx {
-        cmd.arg("-map").arg(format!("{idx}:a"));
-    }
     // Defensive output cap based on ACTUAL durations (so we don't truncate
     // the genuine timeline OR run past it if a seg overshot).
     {
@@ -554,13 +542,7 @@ async fn compose_xfade_chain(
     cmd.arg("-c:v").arg("libx264")
         .arg("-preset").arg("veryfast")
         .arg("-pix_fmt").arg("yuv420p");
-    if audio_input_idx.is_some() {
-        cmd.arg("-c:a").arg("aac")
-            .arg("-b:a").arg("192k")
-            .arg("-shortest");
-    } else {
-        cmd.arg("-an");
-    }
+    cmd.arg("-an"); // explicit no-audio
     cmd.arg("-movflags").arg("+faststart")
         .arg(final_path)
         .stdout(Stdio::piped())
@@ -569,9 +551,7 @@ async fn compose_xfade_chain(
     tracing::info!(
         stage = "compose",
         segments = n,
-        audio = audio_input_idx.is_some(),
-        subs = srt_path.is_some(),
-        "running xfade chain ffmpeg"
+        "running xfade chain ffmpeg (separate streams: video-only output)"
     );
     tracing::debug!(filter = %filter, "xfade filter_complex");
 
@@ -595,32 +575,17 @@ async fn compose_xfade_chain(
 // xfade. Mux the segment's video with optional audio + burned SRT in one pass.
 async fn mux_single_segment(
     seg_path: &Path,
-    audio_path_opt: Option<&Path>,
-    srt_path: Option<&Path>,
+    _audio_path_opt: Option<&Path>,
+    _srt_path: Option<&Path>,
     final_path: &Path,
 ) -> Result<()> {
+    // CSSOS_PHASE2_SEPARATE_STREAMS 20260427 #151 — Jing
+    // Single-segment path: still video-only output. Audio + SRT stay
+    // separate as work_assets; Watch panel composes at play time.
     let mut cmd = tokio::process::Command::new("ffmpeg");
     cmd.arg("-y").arg("-i").arg(seg_path);
-    if let Some(ap) = audio_path_opt {
-        cmd.arg("-i").arg(ap);
-    }
-    if let Some(srt) = srt_path {
-        let filter = format!(
-            "subtitles='{}'",
-            srt.to_string_lossy().replace('\'', r"\\'")
-        );
-        cmd.arg("-vf").arg(filter);
-        cmd.arg("-c:v").arg("libx264").arg("-preset").arg("veryfast");
-    } else {
-        cmd.arg("-c:v").arg("copy");
-    }
-    if audio_path_opt.is_some() {
-        cmd.arg("-c:a").arg("aac")
-            .arg("-b:a").arg("192k")
-            .arg("-shortest");
-    } else {
-        cmd.arg("-an");
-    }
+    cmd.arg("-c:v").arg("copy");
+    cmd.arg("-an"); // explicit no-audio
     cmd.arg("-movflags").arg("+faststart")
         .arg(final_path)
         .stdout(Stdio::piped())

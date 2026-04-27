@@ -2480,6 +2480,85 @@
               "color:#0c0;font-weight:bold",
               alreadyMax ? "yes" : "no"
             );
+
+            // CSSOS_PHASE2_TRUE_FULLSCREEN 20260427 #157 — Jing
+            // "Watch面板请全屏播放，就像用户手动点了媒体框右下角的全屏按钮
+            //  一样。"
+            //
+            // togglePanelMaximize fills the viewport WITHIN the browser
+            // tab (Safari menu bar + tab strip + dock all still visible).
+            // requestFullscreen() escapes the browser chrome entirely — that's
+            // the "media frame fullscreen button" experience Jing asks for.
+            //
+            // Fullscreen API requires a user gesture for the request to
+            // succeed. The pipeline run was started by a user click, but
+            // by the time compose finishes (3-8 minutes later) the gesture
+            // has expired and Safari/Chrome will reject the request.
+            //
+            // Strategy: try it anyway, swallow the rejection silently, and
+            // fall through to a one-time click handler that requests
+            // fullscreen on the next user interaction. Net effect: if the
+            // gesture is still hot, fullscreen fires immediately; if not,
+            // the very next click in the panel triggers it.
+            try {
+              const requestFs = (el) => {
+                if (!el) return Promise.resolve(false);
+                // Vendor prefixes: webkit (Safari), ms (legacy IE/Edge)
+                const fn =
+                  el.requestFullscreen ||
+                  el.webkitRequestFullscreen ||
+                  el.msRequestFullscreen ||
+                  null;
+                if (!fn) return Promise.resolve(false);
+                try {
+                  const result = fn.call(el);
+                  if (result && typeof result.then === "function") {
+                    return result.then(() => true).catch(() => false);
+                  }
+                  return Promise.resolve(true);
+                } catch (_e) {
+                  return Promise.resolve(false);
+                }
+              };
+              // Prefer the watchPanel as the fullscreen target so the title
+              // bar + subtitle overlay stay visible. Fall back to the video
+              // element if panel-level fails.
+              requestFs(watchPanel).then((ok) => {
+                if (ok) {
+                  console.info(
+                    "%c[mv-pipeline][zero-touch] entered TRUE fullscreen on Watch panel",
+                    "color:#0a0;font-weight:bold"
+                  );
+                  return;
+                }
+                const watchVideoEl = document.getElementById("watch-video");
+                requestFs(watchVideoEl).then((ok2) => {
+                  if (ok2) {
+                    console.info("[mv-pipeline][zero-touch] fullscreen on <video> instead");
+                    return;
+                  }
+                  // Both rejected — likely no active user gesture. Install
+                  // a one-shot listener that fullscreens on the next input.
+                  console.info(
+                    "[mv-pipeline][zero-touch] fullscreen needs user gesture — armed for next click"
+                  );
+                  if (!globalThis.__cssmvFsArmHandlerInstalled) {
+                    const fsOnInput = function () {
+                      requestFs(watchPanel).then(() => {
+                        window.removeEventListener("click", fsOnInput, true);
+                        window.removeEventListener("keydown", fsOnInput, true);
+                        window.removeEventListener("touchstart", fsOnInput, true);
+                        globalThis.__cssmvFsArmHandlerInstalled = false;
+                      });
+                    };
+                    window.addEventListener("click", fsOnInput, true);
+                    window.addEventListener("keydown", fsOnInput, true);
+                    window.addEventListener("touchstart", fsOnInput, true);
+                    globalThis.__cssmvFsArmHandlerInstalled = true;
+                  }
+                });
+              });
+            } catch (_fsErr) { /* non-fatal — maximize still active */ }
           }
         } catch (_openMaxErr) {
           console.warn("[mv-pipeline][zero-touch] open+maximize failed:", _openMaxErr);
@@ -2495,11 +2574,58 @@
           globalThis.activateWatchTab("mv");
         }
         if (!mvUrlPlayable) {
-          if (typeof globalThis.fallbackWatchPlaybackToMusicModule === "function") {
+          // CSSOS_PHASE2_FALLBACK_TIERS 20260427 #157 — Jing
+          // "如果MV的视频媒体要fallback的话，请fallback到Music标签页播放
+          //  音乐，或者在MV标签页播放封面图幻灯。"
+          //
+          // Tiered fallback ladder when the composed MV mp4 is not
+          // playable (HEAD probe 404, network error, etc.):
+          //   Tier 1 — Real MV (handled in the else branch below).
+          //   Tier 2 — Cover Ken Burns slideshow on the MV tab.
+          //            User still sees video-shaped media + hears music
+          //            via separate <audio>. Cover image is real cover,
+          //            not the "假视频" abstract shapes.
+          //   Tier 3 — Pure music tab (audio + circular vinyl progress).
+          //            Used when even the cover is missing.
+          //
+          // Tier 2 is preferred because it keeps the MV-shaped panel
+          // experience. Tier 3 is the absolute floor — never silent.
+          let _fallbackHandled = false;
+          if (state.coverUrl &&
+              typeof globalThis.activateWatchTab === "function" &&
+              typeof globalThis.startWatchCoverSlideshowModule === "function") {
+            try {
+              globalThis.activateWatchTab("mv");
+              globalThis.startWatchCoverSlideshowModule({
+                coverUrl: state.coverUrl,
+                durationSecs: state.duration || 60,
+                kenBurns: true
+              });
+              if (typeof globalThis.showToast === "function") {
+                globalThis.showToast(copy(
+                  "Video unavailable · cover slideshow with music",
+                  "视频不可用 · 已切换到封面幻灯 + 音乐"
+                ));
+              }
+              console.info(
+                "%c[mv-pipeline][fallback] tier 2 — cover slideshow on MV tab",
+                "color:#f80;font-weight:bold"
+              );
+              _fallbackHandled = true;
+            } catch (_slideErr) {
+              console.warn("[mv-pipeline][fallback] cover slideshow failed:", _slideErr);
+            }
+          }
+          if (!_fallbackHandled &&
+              typeof globalThis.fallbackWatchPlaybackToMusicModule === "function") {
             globalThis.fallbackWatchPlaybackToMusicModule(copy(
               "Composed video not available · playing music",
               "合成视频不可用 · 已切换到音乐播放"
             ));
+            console.info(
+              "%c[mv-pipeline][fallback] tier 3 — Music tab (no cover available)",
+              "color:#f80;font-weight:bold"
+            );
           }
         } else if (typeof globalThis.attemptWatchVideoPlaybackModule === "function") {
           // CSSOS_PHASE2_NO_FAKE_FALLBACK 20260427 #154 — Jing

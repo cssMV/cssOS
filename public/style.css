@@ -6233,14 +6233,28 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
   color: rgba(235, 255, 246, 0.96);
   text-shadow: 0 0 16px rgba(11, 247, 255, 0.22), 0 0 26px rgba(0, 245, 160, 0.18);
   font-weight: 700;
-  /* CSSOS_PHASE2_KARAOKE_SINGLE_LINE 20260427 #153 — Jing
-     Force single-line. Per-weight row stack from #96 is gone.
-     nowrap + ellipsis prevents the karaoke render from spilling
-     into multiple rows when long lyric lines arrive. */
+  /* CSSOS_PHASE2_KARAOKE_SINGLE_LINE 20260427 #153 — Jing */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
+}
+
+/* CSSOS_PHASE2_KILL_DUAL_SUBTITLE 20260427 #153b — Jing
+   "两套字幕。" The karaoke-line block was still rendering even after
+   #153's per-weight row removal — the screenshot shows the words
+   "Step right up..." etc. stacked vertically above the real subtitle.
+   Reason: independent CSS rules in app.watch-media-overlays.js (injected
+   stylesheet) and emergent layout from the parent grid still produced
+   per-word stacking that the white-space:nowrap on .watch-karaoke-current
+   couldn't undo because the words live in DIFFERENT child blocks
+   (.watch-karaoke-prev, .watch-karaoke-current, .watch-karaoke-next).
+   The ENTIRE karaoke-line is redundant now — #watch-subtitle at the
+   bottom is the canonical lyric render (#125, #133). Hide the whole
+   karaoke-line block. The active-word highlighting feature it provided
+   is preserved by the bottom subtitle's tone-emotion + style classes. */
+.watch-karaoke-line {
+  display: none !important;
 }
 
 .watch-karaoke-current.is-active {

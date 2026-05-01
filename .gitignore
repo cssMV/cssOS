@@ -57,3 +57,8 @@ repo/
 # Commercial Chinese fonts — requires explicit license to redistribute
 # (filename suffixes "(商用需授权)" / "(commercial use needs authorization)")
 public/fonts_cn2/
+
+# Python bytecode cache
+__pycache__/
+*.pyc
+*.pyo

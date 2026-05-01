@@ -1,0 +1,6 @@
+export COS_SECRET_ID="replace-me"
+export COS_SECRET_KEY="replace-me"
+export BUCKET="css-1408082613"
+export REGION="ap-guangzhou"
+export RUN_ROOT="/home/ubuntu/cssOS/runs"
+export PREFIX="runs"

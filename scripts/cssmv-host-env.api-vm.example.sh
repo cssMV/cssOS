@@ -1,0 +1,41 @@
+export CSSMV_FREE_PLUGIN_HOST="/srv/cssos/current/scripts/cssmv-free-plugin-host-adapter.sh"
+export CSSMV_FREE_FX_HOST="/srv/cssos/current/scripts/cssmv-free-plugin-host-adapter.sh"
+export CSSMV_FREE_MIX_HOST="/srv/cssos/current/scripts/cssmv-free-mix-host-adapter.sh"
+export CSSMV_FREE_SINGER_HOST="/srv/cssos/current/scripts/cssmv-free-singer-host-adapter.sh"
+
+# US api-vm assumptions
+export CSSMV_HOST_CARLA_BIN="/usr/bin/carla"
+export CSSMV_HOST_PLUGIN_BIN="$CSSMV_HOST_CARLA_BIN"
+export CSSMV_HOST_MIX_BIN="$CSSMV_HOST_CARLA_BIN"
+export CSSMV_CARLA_INSTRUMENT_RENDER_CMD="/srv/cssos/current/scripts/cssmv-carla-render-template.sh {{SESSION_MANIFEST}} {{OUTPUT_MANIFEST}} {{ARTIFACT_DIR}}"
+export CSSMV_CARLA_VOCAL_FX_RENDER_CMD="/srv/cssos/current/scripts/cssmv-carla-render-template.sh {{SESSION_MANIFEST}} {{OUTPUT_MANIFEST}} {{ARTIFACT_DIR}}"
+export CSSMV_CARLA_MIX_RENDER_CMD="/srv/cssos/current/scripts/cssmv-carla-render-template.sh {{SESSION_MANIFEST}} {{OUTPUT_MANIFEST}} {{ARTIFACT_DIR}}"
+export CSSMV_CARLA_INSTRUMENT_PROJECT_TEMPLATE="/srv/cssmv-hosts/carla/instrument-template.carxp"
+export CSSMV_CARLA_VOCAL_FX_PROJECT_TEMPLATE="/srv/cssmv-hosts/carla/vocal-fx-template.carxp"
+export CSSMV_CARLA_MIX_PROJECT_TEMPLATE="/srv/cssmv-hosts/carla/mix-template.carxp"
+export CSSMV_CARLA_STAGE_RENDER_CMD_INSTRUMENT="QT_QPA_PLATFORM=offscreen timeout 180s /usr/bin/carla --no-gui \"{{PROJECT_FILE}}\" || test $? -eq 124"
+export CSSMV_CARLA_STAGE_RENDER_CMD_VOCAL_FX="QT_QPA_PLATFORM=offscreen timeout 180s /usr/bin/carla --no-gui \"{{PROJECT_FILE}}\" || test $? -eq 124"
+export CSSMV_CARLA_STAGE_RENDER_CMD_MIX="QT_QPA_PLATFORM=offscreen timeout 180s /usr/bin/carla --no-gui \"{{PROJECT_FILE}}\" || test $? -eq 124"
+
+# Keep the singer engine isolated on the server
+export CSSMV_DIFFSINGER_MINI_ROOT="/srv/cssmv-hosts/DiffSingerMiniEngine"
+export CSSMV_DIFFSINGER_PYTHON="/srv/cssmv-hosts/diffsinger-venv/bin/python"
+export CSSMV_DIFFSINGER_BRIDGE_PYTHON="/srv/cssmv-hosts/diffsinger-v14-torch113-venv/bin/python"
+export CSSMV_DIFFSINGER_RENDER_CMD="/srv/cssos/current/scripts/cssmv-diffsinger-render-template.sh {{REQUEST_MANIFEST}} {{LYRICS_INPUT}} {{OUTPUT_MANIFEST}} {{ARTIFACT_DIR}}"
+export CSSMV_DIFFSINGER_SERVER_BASE_URL="http://127.0.0.1:9266"
+export CSSMV_DIFFSINGER_MODEL="1215_opencpop_ds1000_fix_label_nomidi"
+export CSSMV_SINGER_BACKEND="diffsinger"
+export CSSMV_DIFFSINGER_CLI_TEMPLATE="{{PYTHON_BIN}} /srv/cssos/current/scripts/cssmv-diffsinger-submit-render.py \"{{REQUEST_MANIFEST}}\" \"{{LYRICS_INPUT}}\" \"{{OUTPUT_MANIFEST}}\" \"{{ARTIFACT_DIR}}\""
+export CSSMV_SINGER_GENERIC_RENDER_CMD="$CSSMV_DIFFSINGER_CLI_TEMPLATE"
+# Optional: point this at an OpenUtau automation or wrapper when installed.
+# export CSSMV_OPENUTAU_RENDER_CMD="/srv/cssos/current/scripts/cssmv-openutau-render-template.sh \"{{REQUEST_MANIFEST}}\" \"{{LYRICS_INPUT}}\" \"{{OUTPUT_MANIFEST}}\" \"{{ARTIFACT_DIR}}\""
+# Optional: point these at ENUNU / NNSVS / WORLD wrappers when installed.
+# export CSSMV_ENUNU_RENDER_CMD="/srv/cssos/current/scripts/cssmv-enunu-render-template.sh \"{{REQUEST_MANIFEST}}\" \"{{LYRICS_INPUT}}\" \"{{OUTPUT_MANIFEST}}\" \"{{ARTIFACT_DIR}}\""
+# export CSSMV_NNSVS_RENDER_CMD="/srv/cssos/current/scripts/cssmv-nnsvs-render-template.sh \"{{REQUEST_MANIFEST}}\" \"{{LYRICS_INPUT}}\" \"{{OUTPUT_MANIFEST}}\" \"{{ARTIFACT_DIR}}\""
+# export CSSMV_WORLD_RENDER_CMD="/srv/cssos/current/scripts/cssmv-world-render-template.sh \"{{REQUEST_MANIFEST}}\" \"{{LYRICS_INPUT}}\" \"{{OUTPUT_MANIFEST}}\" \"{{ARTIFACT_DIR}}\""
+export CSSMV_DIFFSINGER_LEGACY_ONNX="/tmp/1215_opencpop_ds1000_fix_label_nomidi.diff_decoder.t113.op14.onnx"
+export CSSMV_DIFFSINGER_LEGACY_CHUNK_FRAMES="128"
+export CSSMV_DIFFSINGER_LEGACY_CHUNK_OVERLAP="16"
+export CSSMV_DIFFSINGER_LEGACY_WAV_PATH="vocal.lead.wav"
+# Optional post-mel handoff once a real vocoder is installed on api-vm.
+export CSSMV_DIFFSINGER_LEGACY_VOCODER_CMD="/srv/cssmv-hosts/diffsinger-venv/bin/python /srv/cssos/current/scripts/cssmv-diffsinger-vocode-mel.py {{MEL_NPY}} {{SUBMIT_REQUEST}} {{OUTPUT_WAV}}"

@@ -1,0 +1,39 @@
+{
+  "thumbnail": {
+    "enabled": true,
+    "generated": true,
+    "duration_secs": 4.0,
+    "output_path": "target/cssmv-video-engine/westworld-opera-demo/thumbnail.mp4",
+    "source_scene_ids": [1, 2],
+    "message": null
+  },
+  "scene_video_paths": [
+    "target/cssmv-video-engine/westworld-opera-demo/scenes/scene_001.mp4",
+    "target/cssmv-video-engine/westworld-opera-demo/scenes/scene_002.mp4"
+  ],
+  "compose_result": {
+    "output_path": "target/cssmv-video-engine/westworld-opera-demo/final_mv.mp4",
+    "video_duration_secs": 29.4,
+    "audio_duration_secs": 29.4,
+    "duration_delta_secs": 0.0,
+    "matched": true
+  },
+  "continuity_scores": [
+    {
+      "scene_id": 1,
+      "character_score": 1.0,
+      "style_score": 0.95,
+      "shot_score": 0.92,
+      "overall_score": 0.96,
+      "warnings": []
+    },
+    {
+      "scene_id": 2,
+      "character_score": 1.0,
+      "style_score": 0.95,
+      "shot_score": 0.95,
+      "overall_score": 0.97,
+      "warnings": []
+    }
+  ]
+}

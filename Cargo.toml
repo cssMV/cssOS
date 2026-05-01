@@ -1,0 +1,21 @@
+[package]
+name = "cssmv-video-engine"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "cssmv_video_engine"
+path = "src/lib.rs"
+
+[[bin]]
+name = "cssmv-video-engine"
+path = "src/bin/cssmv_video_engine.rs"
+
+[dependencies]
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+
+[dev-dependencies]
+tempfile = "3.23"

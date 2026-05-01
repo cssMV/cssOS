@@ -1,0 +1,4 @@
+ALTER TABLE user_works
+  ADD COLUMN IF NOT EXISTS cover_image TEXT NULL,
+  ADD COLUMN IF NOT EXISTS preview_image_url TEXT NULL,
+  ADD COLUMN IF NOT EXISTS preview_video_url TEXT NULL;

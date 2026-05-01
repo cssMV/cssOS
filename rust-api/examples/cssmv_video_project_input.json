@@ -1,0 +1,53 @@
+{
+  "project_id": "westworld-opera-demo",
+  "project_prompt": "A bilingual Westworld opera MV with dusty towns and android heroines.",
+  "music": {
+    "audio_path": "build/mix.wav",
+    "duration_secs": 29.4
+  },
+  "thumbnail": {
+    "enabled": true,
+    "duration_secs": 4.0
+  },
+  "style_profile": {
+    "genre": "epic",
+    "color_palette": "amber steel blue",
+    "visual_tone": "heroic dusk",
+    "camera_language": "anamorphic tracking"
+  },
+  "reference_media_paths": [
+    "/srv/cssos/shared/assets/westworld-owned/westworld_ref_owned_v1.mp4"
+  ],
+  "scenes": [
+    {
+      "id": 1,
+      "section_type": "verse",
+      "text_block": "黄沙镇上，机械玫瑰苏醒。",
+      "visual_script": "Wide desert street, one heroine crossing into the light, dust rolling under long shadows.",
+      "duration_secs": 12.6,
+      "entities": {
+        "characters": ["Dolores"],
+        "location": "Westworld town street",
+        "props": ["hat", "revolver"]
+      },
+      "reference_media_paths": [
+        "/srv/cssos/shared/assets/westworld-owned/westworld_ref_owned_v1.mp4"
+      ]
+    },
+    {
+      "id": 2,
+      "section_type": "chorus",
+      "text_block": "命运回声在天际回荡。",
+      "visual_script": "Tracking shot through the main road as chorus rises and the town opens behind her.",
+      "duration_secs": 16.8,
+      "entities": {
+        "characters": ["Dolores"],
+        "location": "Westworld town street",
+        "props": ["sun flare"]
+      },
+      "reference_media_paths": [
+        "/srv/cssos/shared/assets/westworld-owned/westworld_ref_owned_v1.mp4"
+      ]
+    }
+  ]
+}

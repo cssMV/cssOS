@@ -1,0 +1,36 @@
+{
+  "schema": "css.youtube_training_query_whitelist.v1",
+  "description": "Safe, high-signal YouTube search pools for video-model training intake. Keep queries style-focused, non-branded, and rights-aware.",
+  "queries": [
+    {
+      "pool_name": "cinema_portrait_east_asia",
+      "query": "cinematic portrait short film east asia mood lighting costume movement",
+      "results": 10
+    },
+    {
+      "pool_name": "opera_stage_tableau",
+      "query": "opera stage tableau rehearsal costume lighting movement wide shot",
+      "results": 8
+    },
+    {
+      "pool_name": "dance_theater_silhouette",
+      "query": "dance theater silhouette slow movement spotlight stage composition",
+      "results": 10
+    },
+    {
+      "pool_name": "period_drama_corridor",
+      "query": "period drama corridor candlelight costume scene atmosphere slow shot",
+      "results": 8
+    },
+    {
+      "pool_name": "cathedral_ritual_space",
+      "query": "cathedral ritual space cinematic ambience architecture movement interior",
+      "results": 8
+    },
+    {
+      "pool_name": "festival_crowd_night",
+      "query": "festival crowd night flare smoke cinematic crowd movement atmosphere",
+      "results": 10
+    }
+  ]
+}

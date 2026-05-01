@@ -1,0 +1,23 @@
+artifacts/mv: nginx route + file:// audio URL guard
+
+Three more bugs surfaced in the smoke test after #141:
+
+1. /artifacts/mv/<mv_id>.mp4 returned 404 even though MV Pipeline
+   compose succeeded. Files exist in /var/lib/cssos/mv/ but nginx had
+   no location for /artifacts/mv/. Added nginx alias →
+   /var/lib/cssos/mv/, with try_files $uri =404 + 1h cache header.
+   Verified: HEAD /artifacts/mv/mv_*.mp4 → 200.
+
+2. ElevenLabs sync stage returns audio_url as file:///tmp/cssos-music/
+   eleven-sync-*.mp3 (a backend-local path). Browser <audio> element
+   refuses to load file:// URLs as a security violation, firing
+   "Not allowed to load local resource". The backend's compose path
+   handles file:// already (#124), so route the file:// URL into a
+   new state.audioUrlBackendOnly slot for the compose payload, but
+   keep state.audioUrl empty so frontend players don't crash.
+
+3. describeMembershipTier ReferenceError at app.js:1844 — same
+   load-order race that hit getMembershipPreset (#136) and
+   renderWorksPanel (#142). Defensive globalThis lookup added.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>

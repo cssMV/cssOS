@@ -1,0 +1,27 @@
+unified-entry: 5/5 万能入口 routed through cssmvUnifiedEntry
+
+All five universal entrances now go through one labeled helper that
+prints [entry:source] in the console, short-circuits on a fresh
+cssmvPipelineLastResult, and otherwise kicks the MV Pipeline panel.
+
+Wired:
+- [entry:logo-longpress]   dock-watch hold      (app.dock-runtime)
+- [entry:dock-mic]         mic dock click       (app.dock-runtime)
+- [entry:dock-watch]       watch dock click     (app.dock-runtime)
+- [entry:context-menu-mv]  right-click "一键MV" (app.context-menu)
+- [entry:apply-render]     Advanced "Apply&Render" (app.advanced-panel-settings-render)
+
+Critical bug fix in apply-render: was calling BOTH
+openMvPipelinePanel AND legacy startCreation in parallel, causing the
+"走一遍旧流程" double-pipeline behaviour the user reported. Dropped
+the legacy startCreation call when MV Pipeline kicks off
+successfully.
+
+cssmvUnifiedEntry helper exposed in mv-pipeline-panel:
+- Reads cssmvPipelineLastResult; if fresh (default 10min window)
+  short-circuits to openWatchPreviewFlow which adopts the result and
+  skips the new run.
+- Otherwise opens the MV Pipeline panel via openMvPipelinePanel and
+  fires runAll, with the entry source visibly logged for triage.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>

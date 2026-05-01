@@ -1,0 +1,36 @@
+creation-flow: gate legacy startCreation when MV Pipeline owns run
+
+Console showed two parallel pipelines fighting:
+- legacy creative-engine (startCreation → /api/cssmv/song-seed 504,
+  /build/master.mp3 404 storm, "watch.action.resume" i18n complaints,
+  watchPanel title stuck at "SUBTITLES 0%" because legacy
+  engineProgressState was clobbering the bar)
+- new MV Pipeline panel that the unified entry kicked off correctly
+
+Root cause: openMvPipelinePanel({autoStart}) fires the new pipeline,
+but the SAME entry point ALSO chained into handleWatchPlaybackSurfaceClick
+or other listeners that called startCreation. They ran in parallel,
+fired duplicate billing consume calls (CORS-blocked because the runId
+race), and 404-stormed against the legacy run's nonexistent
+build/master.mp3 path.
+
+Fix: startCreation early-returns when:
+- cssmvPipelineLastResult is fresh (within freshMs window), OR
+- cssmvPipelineActiveStage() reports a stage actively running
+
+Logs `[startCreation] skipped — fresh MV Pipeline result owns this
+session` so the bypass is visible in DevTools.
+
+Also #141: maybeAttachFinalAudioArtifactModule short-circuits when MV
+Pipeline audio is already the playing src — no more 404-storm of
+/build/master.mp3 / mix.mp3 / vocals.mp3 / music.mp3 / vocal_master.mp3
+after MV Pipeline finishes.
+
+Also #142: renderWorksPanel defensive guard in app.work-sync.js
+(same load-order race that hit getMembershipPreset).
+
+Also #136 round 2: getMembershipPreset guard at app.js:1835
+(creationSummaryText) and app.js:29942 (queuePriority) and
+app.i18n-hierarchy-defaults.js:233 (creationSummaryTextModule).
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>

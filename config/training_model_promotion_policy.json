@@ -1,0 +1,17 @@
+{
+  "schema": "css.training_model_promotion_policy.v1",
+  "description": "Gate and publish rules for automatically promoting trained melody models into the default creative model slot.",
+  "melody_model": {
+    "targets": {
+      "pitch_accuracy": 0.4,
+      "duration_accuracy": 0.95,
+      "note_mask_f1": 0.999
+    },
+    "sample_gate": {
+      "min_unique_pitch_ratio": 0.18,
+      "min_line_coverage": 0.88,
+      "max_same_pitch_streak": 3
+    },
+    "required_stop_reason": "target_reached"
+  }
+}

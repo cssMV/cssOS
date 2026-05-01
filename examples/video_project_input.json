@@ -1,0 +1,44 @@
+{
+  "project_id": "emerald-hymn",
+  "project_prompt": "An emerald cinematic anthem with radiant skyline transitions",
+  "music": {
+    "audio_path": "examples/assets/demo_music.wav",
+    "duration_secs": 12.0
+  },
+  "thumbnail": {
+    "enabled": true,
+    "duration_secs": 4.0
+  },
+  "style_profile": {
+    "genre": "epic",
+    "color_palette": "emerald-gold",
+    "visual_tone": "luminous fantasy",
+    "camera_language": "gliding cinematic motion"
+  },
+  "scenes": [
+    {
+      "id": 1,
+      "section_type": "verse",
+      "text_block": "Rise from the quiet field",
+      "visual_script": "A hero wakes under a green aurora with lantern light drifting across the frame",
+      "duration_secs": 6.0,
+      "entities": {
+        "characters": ["Aria"],
+        "location": "moonlit field",
+        "props": ["lantern"]
+      }
+    },
+    {
+      "id": 2,
+      "section_type": "chorus",
+      "text_block": "Sing the city into light",
+      "visual_script": "The chorus opens into a radiant skyline with gliding camera movement and reflective glass towers",
+      "duration_secs": 6.0,
+      "entities": {
+        "characters": ["Aria", "Choir"],
+        "location": "emerald skyline",
+        "props": ["banner", "light shards"]
+      }
+    }
+  ]
+}

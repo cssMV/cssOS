@@ -1,0 +1,85 @@
+{
+  "thumbnail": {
+    "enabled": true,
+    "generated": true,
+    "video_path": "target/cssmv-video-engine/emerald-hymn/thumbnail/thumbnail.mp4",
+    "duration_secs": 4.0,
+    "source_scene_ids": [1, 2]
+  },
+  "scene_video_paths": [
+    "target/cssmv-video-engine/emerald-hymn/scenes/scene_001.mp4",
+    "target/cssmv-video-engine/emerald-hymn/scenes/scene_002.mp4"
+  ],
+  "compose_result": {
+    "final_video_path": "target/cssmv-video-engine/emerald-hymn/compose/mv_final.mp4",
+    "matched": true,
+    "duration_delta_secs": 0.0,
+    "output_duration_secs": 12.0,
+    "music_duration_secs": 12.0
+  },
+  "continuity_scores": [
+    {
+      "scene_id": 1,
+      "character_score": 0.84,
+      "style_score": 0.94,
+      "shot_score": 0.88,
+      "overall_score": 0.89,
+      "notes": [
+        "location anchor: moonlit field",
+        "character continuity on Aria",
+        "camera language kept gliding cinematic motion"
+      ]
+    },
+    {
+      "scene_id": 2,
+      "character_score": 0.92,
+      "style_score": 0.94,
+      "shot_score": 0.88,
+      "overall_score": 0.91,
+      "notes": [
+        "location anchor: emerald skyline",
+        "character continuity on Aria, Choir",
+        "camera language kept gliding cinematic motion"
+      ]
+    }
+  ],
+  "character_profiles": [
+    {
+      "name": "Aria",
+      "scene_ids": [1, 2],
+      "primary_locations": ["emerald skyline", "moonlit field"],
+      "props": ["banner", "lantern", "light shards"],
+      "visual_anchor": "A hero wakes under a green aurora with lantern light drifting across the frame"
+    },
+    {
+      "name": "Choir",
+      "scene_ids": [2],
+      "primary_locations": ["emerald skyline"],
+      "props": ["banner", "light shards"],
+      "visual_anchor": "The chorus opens into a radiant skyline with gliding camera movement and reflective glass towers"
+    }
+  ],
+  "normalized_style": {
+    "genre": "epic",
+    "color_palette": "emerald-gold",
+    "visual_tone": "luminous fantasy",
+    "camera_language": "gliding cinematic motion",
+    "consistency_seed": 4912920011631924409
+  },
+  "shot_plans": [
+    {
+      "scene_id": 1,
+      "shot_size": "close-medium",
+      "movement": "glide",
+      "pacing": "urgent",
+      "lens_profile": "50mm"
+    },
+    {
+      "scene_id": 2,
+      "shot_size": "wide",
+      "movement": "glide",
+      "pacing": "urgent",
+      "lens_profile": "28mm"
+    }
+  ]
+}

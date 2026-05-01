@@ -1,0 +1,23 @@
+mv-pipeline: result lock + audio override + live title tick
+
+Stops the legacy creative-engine from re-running the whole MV pipeline
+a second time when the Watch panel opens, and stops the
+remembered-final-audio path from stealing the freshly generated mp3
+back to an old run.
+
+- mv-pipeline-panel publishes globalThis.cssmvPipelineLastResult with
+  {mvUrl, audioUrl, coverUrl, ts, freshMs:600s} immediately after
+  compose-done. openWatchPreviewFlowModule guards on this result first
+  thing — if fresh, it pushes the URL into <video>, switches to MV
+  tab, attempts playback, and returns true with NO pipeline kickoff.
+- Audio element src force-overridden to state.audioUrl post-compose
+  so getRememberedWatchFinalAudio can't bring back the old mp3.
+- Title bar percentage now ticks every 250ms during pipeline run via
+  syncWatchProgressRotatorModule call inside tickStageProgress;
+  combined with cssmvPipelineActiveStage from #128 the title shows
+  live "Cover 35%" / "Music 60%" instead of staying frozen.
+- runAll exported as globalThis.cssmvMvPipelineRunAll so the
+  "万能入口" (logo long-press, mic, play, right-click 一键MV,
+  Apply Render) can be migrated to the unified entry one-by-one.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>

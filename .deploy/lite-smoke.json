@@ -1,0 +1,12 @@
+{
+  "mv_id": "lite_smoke_xfade",
+  "width": 1280,
+  "height": 720,
+  "fps": 25,
+  "segments": [
+    {"kind":"kenburns_image","source_url":"https://cssstudio.app/api/cover-webp/01605c9406c2023d384e30858d097fed.webp","duration_secs":4.0,"effect":"zoom_in"},
+    {"kind":"kenburns_image","source_url":"https://cssstudio.app/api/cover-webp/01605c9406c2023d384e30858d097fed.webp","duration_secs":4.0,"effect":"pan_right"},
+    {"kind":"kenburns_image","source_url":"https://cssstudio.app/api/cover-webp/01605c9406c2023d384e30858d097fed.webp","duration_secs":4.0,"effect":"zoom_out"},
+    {"kind":"kenburns_image","source_url":"https://cssstudio.app/api/cover-webp/01605c9406c2023d384e30858d097fed.webp","duration_secs":4.0,"effect":"pan_left"}
+  ]
+}

@@ -2530,9 +2530,35 @@ function adminEmailSet() {
   return set;
 }
 
-function roleForEmail(email: string | null | undefined) {
+// CSSOS_PHASE2_NO_JUDGE_AS_PLAYER 20260501 #266 — Jing
+// "禁止既当裁判员又当运动员. ...所有 @cssstudio.app 账户和
+//  jingdudc@gmail.com 账户的作品，不可售卖，免费聆听/观看. ...
+//  禁止去买断用户的作品. 不能买卖自己的作品，也不能买卖用户的作品."
+//
+// Single source of truth for "is this email a cssOS staff/admin
+// account?". Matches the explicit allowlist (env ADMIN_EMAILS or the
+// hardcoded default) AND the entire @cssstudio.app domain — any
+// cssstudio.app inbox we provision for staff inherits the rule
+// without manual list maintenance. Used by:
+//   • work pricing setter   → force admin works to free + priceless
+//   • work creation         → same default at insert time
+//   • stripe checkout       → 403 if buyer is an admin
+//   • works/{mine,market}   → surface is_admin_owned flag for clients
+function isCssosAdminEmail(email: string | null | undefined) {
   const e = normalizeEmail(email);
-  if (e && adminEmailSet().has(e)) return "admin";
+  if (!e) return false;
+  if (adminEmailSet().has(e)) return true;
+  // Domain match: anything @cssstudio.app is staff by definition.
+  const at = e.lastIndexOf("@");
+  if (at >= 0) {
+    const domain = e.slice(at + 1);
+    if (domain === "cssstudio.app") return true;
+  }
+  return false;
+}
+
+function roleForEmail(email: string | null | undefined) {
+  if (isCssosAdminEmail(email)) return "admin";
   return "user";
 }
 
@@ -11001,18 +11027,34 @@ function normalizeWorkTreeRow<T extends WorkTreeRow>(row: T) {
     row.source_run_id || "",
     row.preview_video_url,
   );
+  // CSSOS_PHASE2_NO_JUDGE_AS_PLAYER 20260501 #266 — Jing
+  // Defense-in-depth: even if a stale row in work_market_profiles
+  // somehow has non-zero prices for an admin owner, override at
+  // read time. owner_is_admin is exposed to the client so the UI
+  // can render "Free" / "无价之宝 (Priceless)" with confidence.
+  // owner_email itself is stripped from the response — only the
+  // boolean flag goes out, no PII for non-admin viewers.
+  const ownerIsAdmin = isCssosAdminEmail(row.owner_email);
+  const listenCents = ownerIsAdmin
+    ? 0
+    : Number(row.current_listen_price_cents || defaultListenPriceCents());
+  const buyoutCents = ownerIsAdmin
+    ? 0
+    : Number(row.current_buyout_price_cents || defaultBuyoutPriceCents());
+  const buyoutEnabled = ownerIsAdmin ? false : row.buyout_enabled !== false;
+  const { owner_email: _ownerEmail, ...rest } = row as T & {
+    owner_email?: string | null;
+  };
   return {
-    ...row,
+    ...rest,
     work_type: normalizeWorkType(row.work_type),
     visibility: row.visibility || "public",
-    rights_scope: row.rights_scope || "personal_use",
-    current_listen_price_cents: Number(
-      row.current_listen_price_cents || defaultListenPriceCents(),
-    ),
-    current_buyout_price_cents: Number(
-      row.current_buyout_price_cents || defaultBuyoutPriceCents(),
-    ),
-    buyout_enabled: row.buyout_enabled !== false,
+    rights_scope: ownerIsAdmin ? "system_priceless" : row.rights_scope || "personal_use",
+    current_listen_price_cents: listenCents,
+    current_buyout_price_cents: buyoutCents,
+    buyout_enabled: buyoutEnabled,
+    owner_is_admin: ownerIsAdmin,
+    is_priceless: ownerIsAdmin,
     structure_role: workStructureRoleLabel(row.structure_role, row.work_type),
     sequence_index: Number(row.sequence_index || 0),
     cover_image: String(row.cover_image || "").trim() || null,
@@ -12113,14 +12155,22 @@ app.post("/api/works", async (req, res) => {
     const structurePlan = normalizeSongSeedStructurePlan(
       req.body?.structure_plan,
     );
-    const listenPriceCents = Number.parseInt(
+    let listenPriceCents = Number.parseInt(
       String(req.body?.listen_price_cents || "0"),
       10,
     );
-    const buyoutPriceCents = Number.parseInt(
+    let buyoutPriceCents = Number.parseInt(
       String(req.body?.buyout_price_cents || "0"),
       10,
     );
+    // CSSOS_PHASE2_NO_JUDGE_AS_PLAYER 20260501 #266 — Jing
+    // New admin-owned works default to free + priceless. Override any
+    // body-supplied prices at insert time so the rule holds even if a
+    // client (or a scripted backfill) tries to set non-zero values.
+    if (isCssosAdminEmail(user.email)) {
+      listenPriceCents = 0;
+      buyoutPriceCents = 0;
+    }
     const lyricsRaw = req.body?.lyrics_preview
       ? String(req.body.lyrics_preview)
       : "";
@@ -12572,15 +12622,15 @@ app.patch("/api/works/:id/pricing", async (req, res) => {
       return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
     }
     const workId = String(req.params.id || "").trim();
-    const listenPriceCents = Number.parseInt(
+    let listenPriceCents = Number.parseInt(
       String(req.body?.listen_price_cents || "0"),
       10,
     );
-    const buyoutPriceCents = Number.parseInt(
+    let buyoutPriceCents = Number.parseInt(
       String(req.body?.buyout_price_cents || "0"),
       10,
     );
-    const buyoutEnabled =
+    let buyoutEnabled =
       Boolean(req.body?.buyout_enabled) && buyoutPriceCents > 0;
     const requestedVisibility = String(req.body?.visibility || "")
       .trim()
@@ -12594,7 +12644,22 @@ app.patch("/api/works/:id/pricing", async (req, res) => {
     if (!workId) {
       return res.status(400).json({ ok: false, code: "WORK_REQUIRED" });
     }
-    if (!Number.isFinite(listenPriceCents) || listenPriceCents <= 0) {
+    // CSSOS_PHASE2_NO_JUDGE_AS_PLAYER 20260501 #266 — Jing
+    // Admin-owned works are always free to listen/watch and cannot be
+    // bought out ("Priceless"). Override whatever the request body
+    // claimed BEFORE running the > 0 listen-price validation, so admins
+    // can submit a pricing update without tripping INVALID_LISTEN_PRICE.
+    const isAdminOwner = isCssosAdminEmail(user.email);
+    if (isAdminOwner) {
+      listenPriceCents = 0;
+      buyoutPriceCents = 0;
+      buyoutEnabled = false;
+    }
+    // Listen price validation: > 0 for normal users, exactly 0 for admins.
+    if (
+      !isAdminOwner &&
+      (!Number.isFinite(listenPriceCents) || listenPriceCents <= 0)
+    ) {
       return res.status(400).json({ ok: false, code: "INVALID_LISTEN_PRICE" });
     }
     if (buyoutPriceCents < 0 || !Number.isFinite(buyoutPriceCents)) {
@@ -15560,6 +15625,20 @@ app.post("/api/stripe/checkout/create", async (req, res) => {
       return res
         .status(400)
         .json({ ok: false, code: "SELF_PURCHASE_NOT_ALLOWED" });
+    }
+    // CSSOS_PHASE2_NO_JUDGE_AS_PLAYER 20260501 #266 — Jing
+    // "禁止去买断用户的作品.不能买卖自己的作品，也不能买卖用户的作品."
+    // Staff (cssOS admins) already have free listen/watch privileges,
+    // so allowing them to buy out user works would let them outbid
+    // real customers and skim from the marketplace. Hard 403.
+    if (isCssosAdminEmail(user.email)) {
+      return res.status(403).json({
+        ok: false,
+        code: "ADMIN_CANNOT_PURCHASE",
+        message:
+          "cssOS staff accounts cannot purchase or buy out user works. " +
+          "Use a separate non-staff account if you need to test the buyer flow.",
+      });
     }
     const existingOrders = await findExistingBuyerWorkOrder({
       buyerUserId: user.id,

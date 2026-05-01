@@ -3743,13 +3743,29 @@ function renderWatchCommerceActionsModule(work = currentWatchPreviewWork) {
   }
   const isOwnedByViewer =
     Boolean(authState.user?.id) && String(work?.owner_user_id || "").trim() === String(authState.user?.id || "").trim();
-  const canTransact = isLoggedInUser() && !isOwnedByViewer;
+  // CSSOS_PHASE2_NO_JUDGE_AS_PLAYER 20260501 #266 — Jing
+  // Admin-owned works: free listen/watch, no buyout, marketplace
+  // commerce buttons hidden. The backend's normalizeWorkTreeRow stamps
+  // is_priceless / owner_is_admin on every row, but we also fall back
+  // to listenCents===0 + buyout disabled in case an older client cache
+  // hits a non-decorated payload.
+  const isPricelessAdminWork = Boolean(work?.is_priceless || work?.owner_is_admin);
+  // Staff (cssOS admins viewing) can never buy — back-end will 403, so
+  // hide the buttons up front to avoid futile clicks.
+  const viewerEmail = String(authState.user?.email || "").toLowerCase();
+  const viewerIsAdmin = (() => {
+    if (!viewerEmail) return false;
+    if (viewerEmail === "jingdudc@gmail.com") return true;
+    if (viewerEmail === "admin@cssstudio.app") return true;
+    return viewerEmail.endsWith("@cssstudio.app");
+  })();
+  const canTransact = isLoggedInUser() && !isOwnedByViewer && !isPricelessAdminWork && !viewerIsAdmin;
   const listenCents = Number(work?.current_listen_price_cents || work?.listen_price_cents || 0);
   const buyoutCents = Number(work?.current_buyout_price_cents || 0);
   const structureRole = String(work?.structure_role || "").trim().toLowerCase();
   const wholeBuyoutChild = ["act", "scene", "part"].includes(structureRole);
   const wholeBuyoutOnly = !wholeBuyoutChild && ["opera", "triptych"].includes(normalizeWorkTypeClient(work?.work_type));
-  const buyoutEnabled = Boolean(work?.buyout_enabled) && buyoutCents > 0 && !wholeBuyoutChild;
+  const buyoutEnabled = !isPricelessAdminWork && Boolean(work?.buyout_enabled) && buyoutCents > 0 && !wholeBuyoutChild;
   const tipsEnabled = canReceiveTips(work);
   const orderState = resolveViewerOrderState(work?.viewer_orders);
   const commerce = watchCommerceState.payload || null;
@@ -4711,6 +4727,58 @@ function wireWatchSwipeOnceModule() {
   // "循环单曲（右键菜单）." Right-click the video frame to toggle
   // 单曲循环 on/off — fastest path to "play this one over and over."
   // Tab back to the playlist's prior mode on second right-click.
+  // CSSOS_PHASE2_DBLCLICK_FULLSCREEN 20260501 #267 — Jing
+  // "请让媒体框双击切换全屏（影院模式）."
+  // Standard YouTube-style: double-click anywhere on the frame (except
+  // on a real button / input / pill) toggles fullscreen on the same
+  // target the immersive pill already uses (video element first, frame
+  // fallback). Single-click is left untouched so it doesn't interfere
+  // with the play/pause + media-actions menu logic.
+  if (frame && !frame.dataset.dblclickFullscreenWired) {
+    frame.dataset.dblclickFullscreenWired = "1";
+    frame.addEventListener("dblclick", async (ev) => {
+      try {
+        if (
+          ev.target &&
+          ev.target.closest &&
+          ev.target.closest(
+            "button, input, textarea, select, [role=button], #watch-pill-row-bl, #watch-take-toggle, #watch-aspect-pill, .watch-media-action, .watch-author-avatar"
+          )
+        ) {
+          return;
+        }
+        ev.preventDefault();
+        const videoEl = document.getElementById("watch-video");
+        const target = videoEl || frame;
+        const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+        if (isFs) {
+          const exit =
+            document.exitFullscreen ||
+            document.webkitExitFullscreen ||
+            document.mozCancelFullScreen ||
+            document.msExitFullscreen;
+          if (exit) {
+            try { await exit.call(document); } catch (_e) {}
+          }
+          document.body.classList.remove("cssos-watch-theater");
+          return;
+        }
+        const enter =
+          target.requestFullscreen ||
+          target.webkitRequestFullscreen ||
+          target.webkitEnterFullscreen ||
+          target.mozRequestFullScreen ||
+          target.msRequestFullscreen;
+        if (enter) {
+          try {
+            const result = enter.call(target);
+            if (result && typeof result.then === "function") await result;
+          } catch (_e) {}
+          document.body.classList.add("cssos-watch-theater");
+        }
+      } catch (_e) {}
+    });
+  }
   if (frame && !frame.dataset.singleLoopWired) {
     frame.dataset.singleLoopWired = "1";
     let priorMode = null;

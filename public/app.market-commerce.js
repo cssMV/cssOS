@@ -1424,12 +1424,27 @@ function buildMarketCardsMarkup(works = []) {
       const listenCents = Number(
         work?.current_listen_price_cents || work?.listen_price_cents || 0,
       );
-      const listenPrice = formatUsdFromCents(listenCents, "$0.00");
+      // CSSOS_PHASE2_NO_JUDGE_AS_PLAYER 20260501 #266 — Jing
+      // "聆听权/观赏权为'免费'，买断权中文为'无价之宝'."
+      // is_priceless / owner_is_admin are surfaced by the backend's
+      // normalizeWorkTreeRow for any work owned by a cssOS staff
+      // account. Show "Free" / "Priceless" instead of dollar amounts.
+      const isPricelessAdminWork = Boolean(
+        work?.is_priceless || work?.owner_is_admin,
+      );
+      const listenPrice = isPricelessAdminWork
+        ? loginCopy("Free", "免费")
+        : formatUsdFromCents(listenCents, "$0.00");
       const buyoutValue = Number(work?.current_buyout_price_cents || 0);
-      const buyoutEnabled = Boolean(work?.buyout_enabled) && buyoutValue > 0;
-      const buyoutPrice = buyoutEnabled
-        ? formatUsdFromCents(buyoutValue, "$0.00")
-        : loginCopy("Unavailable");
+      const buyoutEnabled =
+        !isPricelessAdminWork &&
+        Boolean(work?.buyout_enabled) &&
+        buyoutValue > 0;
+      const buyoutPrice = isPricelessAdminWork
+        ? loginCopy("Priceless", "无价之宝")
+        : buyoutEnabled
+          ? formatUsdFromCents(buyoutValue, "$0.00")
+          : loginCopy("Unavailable");
       const viewerOrders = Array.isArray(work?.viewer_orders)
         ? work.viewer_orders
         : [];

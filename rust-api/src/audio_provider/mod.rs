@@ -8,6 +8,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
 use tokio::process::Command;
 
+use crate::music_composition::{
+    CompositionLayerPlan, CompositionSectionPlan, HarmonyProgressionFrame, HookRestatementPass,
+    MelodyNoteGroupPlan,
+};
+
 mod custom;
 mod eastwest;
 mod kontakt;
@@ -177,6 +182,9 @@ pub struct ProviderPhraseBlock {
     pub note_density: f32,
     pub contour: String,
     pub chord_slot: String,
+    pub target_degree: Option<i32>,
+    pub rhythm_cell: Option<String>,
+    pub cadence_tone: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -236,6 +244,8 @@ pub struct ProviderStemPart {
     pub start_sec: f32,
     pub end_sec: f32,
     pub note_count: usize,
+    pub density: Option<String>,
+    pub entry_strategy: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -249,6 +259,8 @@ pub struct ProviderStemTrack {
     pub bar_end: u32,
     pub start_sec: f32,
     pub end_sec: f32,
+    pub density_profile: Option<String>,
+    pub entry_strategy: Option<String>,
     pub parts: Vec<ProviderStemPart>,
 }
 
@@ -259,6 +271,8 @@ pub struct ProviderArrangementStemsPlan {
     pub target_duration_s: u32,
     pub stems: Vec<ProviderStemTrack>,
 }
+
+const ENGINE_MAX_DURATION_S_U32: u32 = 31_536_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderRenderQueueItem {
@@ -727,12 +741,7 @@ pub fn plan_from_commands(commands: &Value) -> ProviderPlan {
         .unwrap_or("")
         .trim()
         .to_string();
-    let target_duration_s = creative
-        .get("duration_s")
-        .and_then(|v| v.as_u64())
-        .map(|v| v as u32)
-        .unwrap_or(180)
-        .clamp(120, 600);
+    let target_duration_s = derive_target_duration_s(commands, &creative);
     let tempo_bpm = creative
         .get("tempo_bpm")
         .and_then(|v| v.as_u64())
@@ -806,6 +815,128 @@ pub fn plan_from_commands(commands: &Value) -> ProviderPlan {
         expression_cc_bias,
         humanization,
     }
+}
+
+fn derive_target_duration_s(commands: &Value, creative: &Value) -> u32 {
+    if let Some(requested) = creative
+        .get("duration_s")
+        .and_then(|v| v.as_f64())
+        .filter(|v| v.is_finite() && *v > 0.0)
+    {
+        return requested
+            .round()
+            .clamp(1.0, ENGINE_MAX_DURATION_S_U32 as f64) as u32;
+    }
+    if let Some(derived_from_segments) = commands
+        .get("video")
+        .and_then(|value| value.get("segments"))
+        .and_then(derive_duration_from_segment_values)
+    {
+        return derived_from_segments
+            .round()
+            .clamp(1.0, ENGINE_MAX_DURATION_S_U32 as f64) as u32;
+    }
+    if let Some(derived_from_script) = creative
+        .get("video_script")
+        .and_then(derive_duration_from_segment_values)
+    {
+        return derived_from_script
+            .round()
+            .clamp(1.0, ENGINE_MAX_DURATION_S_U32 as f64) as u32;
+    }
+
+    let section_count = creative
+        .get("section_form")
+        .and_then(|v| v.as_array())
+        .map(|items| items.len())
+        .or_else(|| {
+            creative
+                .get("section_form")
+                .and_then(|v| v.as_str())
+                .map(|raw| {
+                    raw.split(',')
+                        .map(|part| part.trim())
+                        .filter(|part| !part.is_empty())
+                        .count()
+                })
+        })
+        .unwrap_or(0);
+    let lyric_char_count = creative
+        .get("lyrics_prompt")
+        .and_then(|v| v.as_str())
+        .map(|raw| raw.chars().filter(|ch| !ch.is_whitespace()).count())
+        .unwrap_or(0);
+    let lyric_line_count = creative
+        .get("lyrics_prompt")
+        .and_then(|v| v.as_str())
+        .map(|raw| {
+            raw.lines()
+                .map(|line| line.trim())
+                .filter(|line| !line.is_empty())
+                .count()
+        })
+        .unwrap_or(0);
+    let video_line_count = creative
+        .get("video_prompt")
+        .and_then(|v| v.as_str())
+        .map(|raw| {
+            raw.lines()
+                .map(|line| line.trim())
+                .filter(|line| !line.is_empty())
+                .count()
+        })
+        .unwrap_or(0);
+    let narrative_count = lyric_line_count.max(video_line_count);
+    let estimated = if section_count > 0 || narrative_count > 0 || lyric_char_count > 0 {
+        let char_runtime = lyric_char_count as f64 / 4.2;
+        let line_runtime = narrative_count as f64 * 2.8;
+        let section_spacing = if section_count > 0 {
+            section_count.saturating_sub(1) as f64 * 0.85
+        } else {
+            0.0
+        };
+        char_runtime.max(line_runtime) + section_spacing
+    } else {
+        commands
+            .get("video")
+            .and_then(|v| v.get("segments"))
+            .and_then(derive_duration_from_segment_values)
+            .unwrap_or(1.0)
+    };
+    estimated
+        .round()
+        .clamp(1.0, ENGINE_MAX_DURATION_S_U32 as f64) as u32
+}
+
+fn derive_duration_from_segment_values(value: &Value) -> Option<f64> {
+    let segments = value.as_array()?;
+    let mut max_end = 0.0_f64;
+    let mut sum_duration = 0.0_f64;
+    for segment in segments {
+        let start_s = segment
+            .get("start_s")
+            .and_then(|value| value.as_f64())
+            .filter(|value| value.is_finite())
+            .unwrap_or(0.0);
+        let end_s = segment
+            .get("end_s")
+            .and_then(|value| value.as_f64())
+            .filter(|value| value.is_finite() && *value > start_s);
+        let duration_s = segment
+            .get("duration_s")
+            .and_then(|value| value.as_f64())
+            .filter(|value| value.is_finite() && *value > 0.0);
+        if let Some(end_s) = end_s {
+            max_end = max_end.max(end_s);
+        } else if let Some(duration_s) = duration_s {
+            max_end = max_end.max(start_s + duration_s);
+        }
+        if let Some(duration_s) = duration_s {
+            sum_duration += duration_s;
+        }
+    }
+    let derived = max_end.max(sum_duration);
+    (derived > 0.0).then_some(derived)
 }
 
 pub fn write_dry_run_plan(path: &Path, plan: &ProviderPlan) -> Result<()> {
@@ -1331,11 +1462,17 @@ pub fn build_provider_cue_sheet(plan: &ProviderPlan, cues: &[CueSegment]) -> Pro
             }
         })
         .collect::<Vec<_>>();
+    let derived_target_duration_s = cue_segments
+        .iter()
+        .map(|cue| cue.start_sec + cue.duration_sec)
+        .fold(plan.target_duration_s as f32, f32::max)
+        .ceil()
+        .clamp(1.0, ENGINE_MAX_DURATION_S_U32 as f32) as u32;
 
     ProviderCueSheet {
         vendor: plan.vendor,
         profile_name: profile.profile_name,
-        target_duration_s: plan.target_duration_s,
+        target_duration_s: derived_target_duration_s,
         cue_segments,
     }
 }
@@ -1351,13 +1488,17 @@ pub fn write_provider_cue_sheet(path: &Path, cue_sheet: &ProviderCueSheet) -> Re
 pub fn build_provider_midi_draft(
     plan: &ProviderPlan,
     cue_sheet: &ProviderCueSheet,
+    composition_layer: Option<&CompositionLayerPlan>,
 ) -> ProviderMidiDraft {
     let keys = keyswitch_map(plan);
     let channels = collect_role_channels(cue_sheet);
     let segments = cue_sheet
         .cue_segments
         .iter()
-        .map(|segment| build_provider_midi_segment(segment, plan, &channels, &keys))
+        .map(|segment| {
+            let composition_section = composition_section_for_segment(segment, composition_layer);
+            build_provider_midi_segment(segment, plan, &channels, &keys, composition_section)
+        })
         .collect::<Vec<_>>();
 
     ProviderMidiDraft {
@@ -1381,8 +1522,9 @@ pub fn write_provider_midi_draft(path: &Path, draft: &ProviderMidiDraft) -> Resu
 pub fn build_provider_phrase_map(
     plan: &ProviderPlan,
     cue_sheet: &ProviderCueSheet,
+    composition_layer: Option<&CompositionLayerPlan>,
 ) -> ProviderPhraseMap {
-    let draft = build_provider_midi_draft(plan, cue_sheet);
+    let draft = build_provider_midi_draft(plan, cue_sheet, composition_layer);
     ProviderPhraseMap {
         vendor: draft.vendor,
         profile_name: draft.profile_name,
@@ -1402,12 +1544,13 @@ pub fn write_provider_phrase_map(path: &Path, phrase_map: &ProviderPhraseMap) ->
 pub fn build_provider_arrangement_stems_plan(
     plan: &ProviderPlan,
     cue_sheet: &ProviderCueSheet,
+    composition_layer: Option<&CompositionLayerPlan>,
 ) -> ProviderArrangementStemsPlan {
-    let phrase_map = build_provider_phrase_map(plan, cue_sheet);
+    let phrase_map = build_provider_phrase_map(plan, cue_sheet, composition_layer);
     let stem_order = ["lead", "strings", "brass", "perc", "choir", "bass"];
     let stems = stem_order
         .iter()
-        .filter_map(|stem_name| build_stem_track(stem_name, &phrase_map))
+        .filter_map(|stem_name| build_stem_track(stem_name, &phrase_map, composition_layer))
         .collect::<Vec<_>>();
 
     ProviderArrangementStemsPlan {
@@ -1433,7 +1576,7 @@ pub fn build_provider_render_queue(
     plan: &ProviderPlan,
     cue_sheet: &ProviderCueSheet,
 ) -> ProviderRenderQueue {
-    let stems_plan = build_provider_arrangement_stems_plan(plan, cue_sheet);
+    let stems_plan = build_provider_arrangement_stems_plan(plan, cue_sheet, None);
     let queue_items = stems_plan
         .stems
         .iter()
@@ -1478,7 +1621,7 @@ pub fn build_provider_deliverables_manifest(
     plan: &ProviderPlan,
     cue_sheet: &ProviderCueSheet,
 ) -> ProviderDeliverablesManifest {
-    let stems_plan = build_provider_arrangement_stems_plan(plan, cue_sheet);
+    let stems_plan = build_provider_arrangement_stems_plan(plan, cue_sheet, None);
     let mut assets = stems_plan
         .stems
         .iter()
@@ -3527,7 +3670,9 @@ fn build_lyrics_and_cues_text(lyrics_json: &Path) -> Result<String> {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .trim();
-        if !text.is_empty() {
+        let is_meta = (text.starts_with('[') && text.ends_with(']'))
+            || (text.starts_with('《') && text.ends_with('》'));
+        if !text.is_empty() && !is_meta {
             out.push(format!("[{:06.2}s] {text}", t));
         }
     }
@@ -4330,11 +4475,12 @@ fn build_provider_midi_segment(
     plan: &ProviderPlan,
     channels: &[ProviderMidiChannel],
     keys: &[KeyswitchBinding],
+    composition_section: Option<&CompositionSectionPlan>,
 ) -> ProviderMidiSegment {
-    let events = midi_events_for_segment(segment, plan, channels, keys);
+    let events = midi_events_for_segment(segment, plan, channels, keys, composition_section);
     let cc_lanes = cc_lanes_for_segment(segment, plan, channels);
     let automation_lanes = automation_lanes_for_segment(segment, plan, channels);
-    let phrase_map = phrase_map_for_segment(segment, &events, channels, keys);
+    let phrase_map = phrase_map_for_segment(segment, &events, channels, keys, composition_section);
 
     ProviderMidiSegment {
         section_name: segment.template_name.clone(),
@@ -4349,15 +4495,24 @@ fn build_provider_midi_segment(
     }
 }
 
-fn build_stem_track(stem_name: &str, phrase_map: &ProviderPhraseMap) -> Option<ProviderStemTrack> {
+fn build_stem_track(
+    stem_name: &str,
+    phrase_map: &ProviderPhraseMap,
+    composition_layer: Option<&CompositionLayerPlan>,
+) -> Option<ProviderStemTrack> {
     let parts = phrase_map
         .phrase_segments
         .iter()
         .flat_map(|segment| {
+            let composition_section =
+                composition_section_for_name(&segment.section_name, composition_layer);
             segment
                 .phrase_map
                 .iter()
-                .filter(move |phrase| stem_for_role(&phrase.role) == stem_name)
+                .filter(move |phrase| {
+                    stem_for_role(&phrase.role) == stem_name
+                        && composition_stem_part_active(phrase, composition_section)
+                })
                 .map(move |phrase| ProviderStemPart {
                     section_name: segment.section_name.clone(),
                     phrase_id: phrase.phrase_id.clone(),
@@ -4370,6 +4525,8 @@ fn build_stem_track(stem_name: &str, phrase_map: &ProviderPhraseMap) -> Option<P
                     start_sec: phrase.start_sec,
                     end_sec: phrase.end_sec,
                     note_count: phrase.note_count,
+                    density: composition_stem_density(composition_section, stem_name),
+                    entry_strategy: composition_stem_entry_strategy(composition_section, stem_name),
                 })
         })
         .collect::<Vec<_>>();
@@ -4403,6 +4560,8 @@ fn build_stem_track(stem_name: &str, phrase_map: &ProviderPhraseMap) -> Option<P
         .iter()
         .map(|part| part.end_sec)
         .fold(0.0_f32, f32::max);
+    let density_profile = parts.iter().find_map(|part| part.density.clone());
+    let entry_strategy = parts.iter().find_map(|part| part.entry_strategy.clone());
 
     Some(ProviderStemTrack {
         stem_name: stem_name.to_string(),
@@ -4418,6 +4577,8 @@ fn build_stem_track(stem_name: &str, phrase_map: &ProviderPhraseMap) -> Option<P
             0.0
         },
         end_sec,
+        density_profile,
+        entry_strategy,
         parts,
     })
 }
@@ -4448,16 +4609,10 @@ fn midi_events_for_segment(
     plan: &ProviderPlan,
     channels: &[ProviderMidiChannel],
     keys: &[KeyswitchBinding],
+    composition_section: Option<&CompositionSectionPlan>,
 ) -> Vec<ProviderMidiEvent> {
     let mut events = Vec::new();
     let slot_count = segment.chord_slots.len().max(1) as f32;
-    let subdivision = if plan.percussion_activity >= 0.78 || segment.note_density >= 0.8 {
-        3
-    } else if plan.percussion_activity >= 0.45 || segment.note_density >= 0.55 {
-        2
-    } else {
-        1
-    };
     let slot_duration = (segment.duration_sec / slot_count).max(0.35);
 
     for (layer_index, role) in segment.layer_roles.iter().enumerate() {
@@ -4503,27 +4658,52 @@ fn midi_events_for_segment(
 
         for (slot_index, chord_slot) in segment.chord_slots.iter().enumerate() {
             let slot_start = segment.start_sec + slot_duration * slot_index as f32;
+            let subdivision = composition_subdivision(
+                plan,
+                segment.note_density,
+                slot_index,
+                composition_section,
+            );
             for pulse_index in 0..subdivision {
+                if !composition_pulse_active(
+                    slot_index,
+                    pulse_index,
+                    subdivision,
+                    composition_section,
+                ) {
+                    continue;
+                }
                 let pulse_duration = (slot_duration / subdivision as f32).max(0.24);
                 let base_start = slot_start + pulse_duration * pulse_index as f32;
                 let note_start =
                     humanized_time(base_start, pulse_duration, plan, role, pulse_index);
                 let velocity = velocity_for_event(
                     &segment.velocity_curve,
+                    slot_index,
                     pulse_index,
                     subdivision,
                     plan,
                     role,
+                    composition_section,
                 );
                 let note = midi_note_for_role(
                     role,
-                    chord_slot,
+                    composition_chord_slot(segment, slot_index, chord_slot, composition_section),
+                    slot_index,
                     layer_index,
                     pulse_index,
                     &plan.voicing_register,
+                    composition_section,
                 );
-                let duration =
-                    note_duration_for_role(role, pulse_duration, segment.note_density, plan);
+                let duration = note_duration_for_role(
+                    role,
+                    pulse_duration,
+                    composition_note_density(segment.note_density, composition_section),
+                    plan,
+                    slot_index,
+                    pulse_index,
+                    composition_section,
+                );
                 let role_name = role.clone();
                 let patch_name = patch.clone();
                 let articulation_name = articulation.clone();
@@ -4653,6 +4833,7 @@ fn phrase_map_for_segment(
     events: &[ProviderMidiEvent],
     channels: &[ProviderMidiChannel],
     keys: &[KeyswitchBinding],
+    composition_section: Option<&CompositionSectionPlan>,
 ) -> Vec<ProviderPhraseBlock> {
     let slot_count = segment.chord_slots.len().max(1) as f32;
     let slot_duration = (segment.duration_sec / slot_count).max(0.35);
@@ -4701,10 +4882,11 @@ fn phrase_map_for_segment(
                         .count();
                     ProviderPhraseBlock {
                         phrase_id: format!(
-                            "{}-{}-{}",
+                            "{}-{}-{}-{}",
                             segment.template_name,
                             role.replace(' ', "_"),
-                            slot_index + 1
+                            slot_index + 1,
+                            composition_phrase_signature(slot_index, composition_section)
                         ),
                         role: role.clone(),
                         patch: patch.clone(),
@@ -4716,8 +4898,17 @@ fn phrase_map_for_segment(
                         end_sec,
                         note_count,
                         note_density: segment.note_density,
-                        contour: segment.contour.clone(),
-                        chord_slot: chord_slot.clone(),
+                        contour: composition_contour(segment, composition_section),
+                        chord_slot: composition_chord_slot(
+                            segment,
+                            slot_index,
+                            chord_slot,
+                            composition_section,
+                        )
+                        .to_string(),
+                        target_degree: composition_target_degree(slot_index, composition_section),
+                        rhythm_cell: composition_rhythm_cell(slot_index, composition_section),
+                        cadence_tone: composition_cadence_tone(composition_section),
                     }
                 })
                 .collect::<Vec<_>>()
@@ -4727,10 +4918,12 @@ fn phrase_map_for_segment(
 
 fn velocity_for_event(
     curve: &[u8],
+    slot_index: usize,
     pulse_index: usize,
     subdivision: usize,
     plan: &ProviderPlan,
     role: &str,
+    composition_section: Option<&CompositionSectionPlan>,
 ) -> u8 {
     let source = curve
         .get(pulse_index.min(curve.len().saturating_sub(1)))
@@ -4749,6 +4942,18 @@ fn velocity_for_event(
     source
         .saturating_add(pulse_lift)
         .saturating_add(percussion_lift)
+        .saturating_add_signed(composition_grouping_velocity(
+            role,
+            slot_index,
+            pulse_index,
+            composition_section,
+        ))
+        .saturating_add_signed(composition_hook_restatement_velocity(
+            role,
+            slot_index,
+            pulse_index,
+            composition_section,
+        ))
         .saturating_add_signed(humanize_velocity(plan, role, pulse_index))
         .clamp(1, 127)
 }
@@ -4756,9 +4961,11 @@ fn velocity_for_event(
 fn midi_note_for_role(
     role: &str,
     chord_slot: &str,
+    slot_index: usize,
     layer_index: usize,
     pulse_index: usize,
     voicing_register: &str,
+    composition_section: Option<&CompositionSectionPlan>,
 ) -> u8 {
     let base = match role {
         "bass" | "strings-low" | "low-support" => 40_i32,
@@ -4770,13 +4977,17 @@ fn midi_note_for_role(
         "lead" => 69_i32,
         _ => 60_i32 + (layer_index as i32 * 3),
     };
-    let degree = roman_to_semitone(chord_slot);
+    let degree =
+        composition_degree_offset(chord_slot, slot_index, pulse_index, composition_section);
     let movement = if role == "perc" {
         pulse_index as i32
     } else {
         0
     };
-    (base + degree + movement + register_shift(voicing_register, role)).clamp(24, 96) as u8
+    let contour_offset =
+        composition_contour_offset(role, slot_index, pulse_index, composition_section);
+    (base + degree + movement + contour_offset + register_shift(voicing_register, role))
+        .clamp(24, 96) as u8
 }
 
 fn note_duration_for_role(
@@ -4784,6 +4995,9 @@ fn note_duration_for_role(
     pulse_duration: f32,
     density: f32,
     plan: &ProviderPlan,
+    slot_index: usize,
+    pulse_index: usize,
+    composition_section: Option<&CompositionSectionPlan>,
 ) -> f32 {
     let sustain = if role.contains("perc") || role.contains("pizz") {
         0.35 + ((1.0 - plan.percussion_activity) * 0.12)
@@ -4792,7 +5006,862 @@ fn note_duration_for_role(
     } else {
         0.82 + ((1.0 - plan.humanization) * 0.08)
     };
-    (pulse_duration * sustain).max(0.18)
+    let entry_lift = if composition_entry_is_swell(role, composition_section) {
+        0.08
+    } else {
+        0.0
+    };
+    let cadence_trim = if composition_is_cadence_hit(slot_index, pulse_index, composition_section) {
+        0.08
+    } else {
+        0.0
+    };
+    let group_bias =
+        composition_note_group_duration_bias(slot_index, pulse_index, composition_section);
+    let restatement_bias =
+        composition_restatement_duration_bias(slot_index, pulse_index, composition_section);
+    (pulse_duration * (sustain + entry_lift - cadence_trim) * group_bias * restatement_bias)
+        .max(0.18)
+}
+
+fn composition_subdivision(
+    plan: &ProviderPlan,
+    note_density: f32,
+    slot_index: usize,
+    section: Option<&CompositionSectionPlan>,
+) -> usize {
+    if let Some(cell) = composition_rhythm_cell(slot_index, section) {
+        let lower = cell.to_ascii_lowercase();
+        if lower.contains("16") || lower.contains("drive") || lower.contains("motor") {
+            return 4;
+        }
+        if lower.contains("sync") || lower.contains("trip") || lower.contains("12") {
+            return 3;
+        }
+        if lower.contains("8") || lower.contains("pulse") || lower.contains("dual") {
+            return 2;
+        }
+    }
+    if plan.percussion_activity >= 0.78 || note_density >= 0.8 {
+        3
+    } else if plan.percussion_activity >= 0.45 || note_density >= 0.55 {
+        2
+    } else {
+        1
+    }
+}
+
+fn composition_pulse_active(
+    slot_index: usize,
+    pulse_index: usize,
+    subdivision: usize,
+    section: Option<&CompositionSectionPlan>,
+) -> bool {
+    if let Some(pass) = composition_restatement_pass(slot_index, section) {
+        let role = pass.role.to_ascii_lowercase();
+        if role.contains("echo") || role.contains("answer") || role.contains("response") {
+            if subdivision >= 3 && pulse_index == 1 {
+                return true;
+            }
+            if role.contains("echo") && pulse_index == 0 {
+                return false;
+            }
+        }
+    }
+    let Some(cell) = composition_rhythm_cell(slot_index, section) else {
+        return true;
+    };
+    let lower = cell.to_ascii_lowercase();
+    if lower.contains("hold") || lower.contains("sustain") {
+        return pulse_index == 0;
+    }
+    if lower.contains("sync") {
+        return pulse_index != 0;
+    }
+    if lower.contains("offbeat") {
+        return pulse_index % 2 == 1;
+    }
+    if lower.contains("pickup") {
+        return pulse_index + 1 == subdivision;
+    }
+    true
+}
+
+fn composition_contour_offset(
+    role: &str,
+    slot_index: usize,
+    pulse_index: usize,
+    section: Option<&CompositionSectionPlan>,
+) -> i32 {
+    let Some(section) = section else {
+        return 0;
+    };
+    let lower_role = role.to_ascii_lowercase();
+    if lower_role == "lead" || lower_role == "choir" {
+        let contour = section.melody_role.to_ascii_lowercase();
+        if contour.contains("hook") || contour.contains("lift") {
+            let restatement_cycle = if slot_index % 4 >= 2 {
+                [0, 4, 7, 9]
+            } else {
+                [0, 2, 5, 7]
+            };
+            return restatement_cycle[pulse_index.min(3)];
+        }
+        if contour.contains("response") || contour.contains("answer") {
+            return [0, -2, 2, 0][pulse_index.min(3)];
+        }
+    }
+    0
+}
+
+fn composition_section_for_segment<'a>(
+    segment: &ProviderCueSegment,
+    composition_layer: Option<&'a CompositionLayerPlan>,
+) -> Option<&'a CompositionSectionPlan> {
+    composition_layer.and_then(|layer| {
+        layer
+            .sections
+            .iter()
+            .find(|section| {
+                section
+                    .section
+                    .eq_ignore_ascii_case(&segment.source_section)
+                    || section.section.eq_ignore_ascii_case(&segment.template_name)
+            })
+            .or_else(|| {
+                layer.sections.iter().find(|section| {
+                    segment
+                        .template_name
+                        .to_ascii_lowercase()
+                        .contains(&section.section.to_ascii_lowercase())
+                })
+            })
+    })
+}
+
+fn composition_section_for_name<'a>(
+    section_name: &str,
+    composition_layer: Option<&'a CompositionLayerPlan>,
+) -> Option<&'a CompositionSectionPlan> {
+    composition_layer.and_then(|layer| {
+        layer
+            .sections
+            .iter()
+            .find(|section| section.section.eq_ignore_ascii_case(section_name))
+    })
+}
+
+fn composition_progression_frame<'a>(
+    section: Option<&'a CompositionSectionPlan>,
+    slot_index: usize,
+) -> Option<&'a HarmonyProgressionFrame> {
+    section.and_then(|section| {
+        if section.progression_frames.is_empty() {
+            None
+        } else {
+            section
+                .progression_frames
+                .get(slot_index % section.progression_frames.len())
+        }
+    })
+}
+
+fn composition_chord_slot<'a>(
+    _segment: &'a ProviderCueSegment,
+    slot_index: usize,
+    fallback: &'a str,
+    section: Option<&'a CompositionSectionPlan>,
+) -> &'a str {
+    composition_progression_frame(section, slot_index)
+        .map(|frame| frame.chord_target.as_str())
+        .unwrap_or(fallback)
+}
+
+fn composition_degree_offset(
+    chord_slot: &str,
+    slot_index: usize,
+    pulse_index: usize,
+    section: Option<&CompositionSectionPlan>,
+) -> i32 {
+    composition_phrase_degree(slot_index, pulse_index, section).unwrap_or(0)
+        + roman_to_semitone(chord_slot)
+}
+
+fn composition_note_density(base: f32, section: Option<&CompositionSectionPlan>) -> f32 {
+    if let Some(section) = section {
+        let rhythm_weight =
+            (section.phrase_skeleton.rhythm_cells.len().max(1) as f32 / 4.0).clamp(0.75, 1.35);
+        let grouping_weight =
+            composition_note_group(slot_index_for_density(section), Some(section))
+                .map(note_group_density_bias)
+                .unwrap_or(1.0);
+        let pass_weight =
+            composition_restatement_pass(slot_index_for_density(section), Some(section))
+                .map(restatement_density_bias)
+                .unwrap_or(1.0);
+        let melody_role = section.melody_role.to_ascii_lowercase();
+        let restatement_presence =
+            composition_restatement_pass(slot_index_for_density(section), Some(section))
+                .map(|pass| {
+                    let role = pass.role.to_ascii_lowercase();
+                    let landing = pass.landing_move.to_ascii_lowercase();
+                    if role.contains("amplified") {
+                        1.18
+                    } else if role.contains("answer") {
+                        1.12
+                    } else if role.contains("echo") || role.contains("tail") {
+                        0.94
+                    } else if landing.contains("resolve") || landing.contains("cadence") {
+                        1.14
+                    } else if landing.contains("return") || landing.contains("prepare") {
+                        1.08
+                    } else if landing.contains("avoid")
+                        || landing.contains("defer")
+                        || landing.contains("open")
+                    {
+                        0.92
+                    } else {
+                        1.0
+                    }
+                })
+                .unwrap_or(1.0);
+        let hook_lane_weight = if melody_role.contains("hook") || melody_role.contains("chorus") {
+            1.18
+        } else if melody_role.contains("answer") || melody_role.contains("response") {
+            1.06
+        } else {
+            1.0
+        };
+        return (base
+            * rhythm_weight
+            * grouping_weight
+            * pass_weight
+            * hook_lane_weight
+            * restatement_presence)
+            .clamp(0.12, 1.0);
+    }
+    base
+}
+
+fn composition_contour(
+    segment: &ProviderCueSegment,
+    section: Option<&CompositionSectionPlan>,
+) -> String {
+    if let Some(section) = section {
+        return format!(
+            "{}:{}",
+            section.melody_role, section.phrase_skeleton.cadence_tone
+        );
+    }
+    segment.contour.clone()
+}
+
+fn composition_target_degree(
+    slot_index: usize,
+    section: Option<&CompositionSectionPlan>,
+) -> Option<i32> {
+    section.and_then(|section| {
+        let degrees = &section.phrase_skeleton.target_degrees;
+        if degrees.is_empty() {
+            None
+        } else {
+            Some(degrees[slot_index % degrees.len()])
+        }
+    })
+}
+
+fn composition_phrase_degree(
+    slot_index: usize,
+    pulse_index: usize,
+    section: Option<&CompositionSectionPlan>,
+) -> Option<i32> {
+    let section = section?;
+    let degrees = &section.phrase_skeleton.target_degrees;
+    if degrees.is_empty() {
+        return None;
+    }
+    if composition_is_cadence_hit(slot_index, pulse_index, Some(section)) {
+        return Some(section.phrase_skeleton.cadence_tone);
+    }
+    let motif_len = degrees.len().clamp(2, 4);
+    let phrase_bars = usize::from(section.phrase_skeleton.phrase_bars.max(1));
+    let answer_bar = (phrase_bars / 2).max(1);
+    let bar_number = slot_index + 1;
+    let motif_index = (slot_index + pulse_index) % motif_len;
+    let base = degrees[motif_index];
+    let melody_role = section.melody_role.to_ascii_lowercase();
+    let is_restatement_cycle =
+        phrase_bars > 2 && bar_number > answer_bar && slot_index % motif_len == 0;
+    let hook_restatement = composition_hook_restatement_degree(slot_index, pulse_index, section);
+    let neighbor_motion = composition_phrase_neighbor_motion(slot_index, pulse_index, section);
+    if melody_role.contains("answer") || melody_role.contains("response") || bar_number > answer_bar
+    {
+        let answer_lift = if is_restatement_cycle {
+            if motif_index % 2 == 0 {
+                3
+            } else {
+                2
+            }
+        } else if motif_index % 2 == 0 {
+            2
+        } else {
+            0
+        };
+        return Some(
+            base + answer_lift
+                + if pulse_index == 0 {
+                    -1
+                } else if pulse_index == 1 {
+                    2
+                } else {
+                    0
+                }
+                + composition_group_degree_lift(slot_index, pulse_index, Some(section))
+                + composition_restatement_degree_lift(slot_index, pulse_index, Some(section))
+                + hook_restatement
+                + neighbor_motion,
+        );
+    }
+    if melody_role.contains("hook") || melody_role.contains("repeat") {
+        let restatement_push = if is_restatement_cycle && pulse_index == 0 {
+            2
+        } else {
+            0
+        };
+        return Some(
+            base + restatement_push
+                + composition_group_degree_lift(slot_index, pulse_index, Some(section))
+                + composition_restatement_degree_lift(slot_index, pulse_index, Some(section))
+                + hook_restatement
+                + neighbor_motion,
+        );
+    }
+    Some(
+        degrees[(slot_index + pulse_index) % degrees.len()]
+            + composition_group_degree_lift(slot_index, pulse_index, Some(section))
+            + composition_restatement_degree_lift(slot_index, pulse_index, Some(section))
+            + hook_restatement
+            + neighbor_motion,
+    )
+}
+
+fn composition_rhythm_cell(
+    slot_index: usize,
+    section: Option<&CompositionSectionPlan>,
+) -> Option<String> {
+    section.and_then(|section| {
+        let cells = &section.phrase_skeleton.rhythm_cells;
+        if cells.is_empty() {
+            None
+        } else {
+            Some(cells[slot_index % cells.len()].clone())
+        }
+    })
+}
+
+fn composition_cadence_tone(section: Option<&CompositionSectionPlan>) -> Option<i32> {
+    section.map(|section| section.phrase_skeleton.cadence_tone)
+}
+
+fn composition_phrase_signature(
+    slot_index: usize,
+    section: Option<&CompositionSectionPlan>,
+) -> String {
+    let degree = composition_target_degree(slot_index, section)
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "x".to_string());
+    let rhythm = composition_rhythm_cell(slot_index, section)
+        .unwrap_or_else(|| "free".to_string())
+        .replace(' ', "_");
+    let note_group = composition_note_group(slot_index, section)
+        .map(|group| format!("g{}-{}", group.order, group.note_count))
+        .unwrap_or_else(|| "g0".to_string());
+    let pass = composition_restatement_pass(slot_index, section)
+        .map(|pass| format!("p{}", pass.order))
+        .unwrap_or_else(|| "p0".to_string());
+    format!("d{degree}-{rhythm}-{note_group}-{pass}")
+}
+
+fn slot_index_for_density(section: &CompositionSectionPlan) -> usize {
+    section.phrase_skeleton.note_groups.len().saturating_sub(1)
+}
+
+fn composition_note_group<'a>(
+    slot_index: usize,
+    section: Option<&'a CompositionSectionPlan>,
+) -> Option<&'a MelodyNoteGroupPlan> {
+    section.and_then(|section| {
+        let groups = &section.phrase_skeleton.note_groups;
+        if groups.is_empty() {
+            None
+        } else {
+            groups.get(slot_index % groups.len())
+        }
+    })
+}
+
+fn composition_restatement_pass<'a>(
+    slot_index: usize,
+    section: Option<&'a CompositionSectionPlan>,
+) -> Option<&'a HookRestatementPass> {
+    section.and_then(|section| {
+        let passes = &section.phrase_skeleton.hook_restatement_passes;
+        if passes.is_empty() {
+            return None;
+        }
+        let phrase_bars = usize::from(section.phrase_skeleton.phrase_bars.max(1));
+        let bucket =
+            ((slot_index * passes.len()) / phrase_bars).min(passes.len().saturating_sub(1));
+        passes.get(bucket)
+    })
+}
+
+fn note_group_density_bias(group: &MelodyNoteGroupPlan) -> f32 {
+    let count_weight = (group.note_count.max(1) as f32 / 3.0).clamp(0.82, 1.28);
+    let accent_weight =
+        if group.accent_role.contains("arrival") || group.accent_role.contains("hook") {
+            1.08
+        } else if group.accent_role.contains("release") || group.breath_after {
+            0.92
+        } else {
+            1.0
+        };
+    (count_weight * accent_weight).clamp(0.8, 1.3)
+}
+
+fn restatement_density_bias(pass: &HookRestatementPass) -> f32 {
+    let sustain_weight: f32 = if pass.sustain_bias.contains("long") {
+        0.9
+    } else if pass.sustain_bias.contains("short") || pass.sustain_bias.contains("trimmed") {
+        1.06
+    } else {
+        1.0
+    };
+    let lyric_weight: f32 = if pass.lyric_density.contains("wide") {
+        1.05
+    } else if pass.lyric_density.contains("minimal") || pass.lyric_density.contains("thinned") {
+        0.9
+    } else {
+        1.0
+    };
+    (sustain_weight * lyric_weight).clamp(0.82, 1.12)
+}
+
+fn composition_group_degree_lift(
+    slot_index: usize,
+    pulse_index: usize,
+    section: Option<&CompositionSectionPlan>,
+) -> i32 {
+    let Some(group) = composition_note_group(slot_index, section) else {
+        return 0;
+    };
+    let accent = group.accent_role.to_ascii_lowercase();
+    let contour = group.contour_move.to_ascii_lowercase();
+    if accent.contains("arrival") || accent.contains("hook") {
+        if pulse_index == 0 {
+            return 2;
+        }
+    }
+    if contour.contains("rise") || contour.contains("up") {
+        return if pulse_index == 0 { 1 } else { 0 };
+    }
+    if contour.contains("descend") || contour.contains("fall") || contour.contains("down") {
+        return if pulse_index >= 1 { -1 } else { 0 };
+    }
+    0
+}
+
+fn composition_restatement_degree_lift(
+    slot_index: usize,
+    pulse_index: usize,
+    section: Option<&CompositionSectionPlan>,
+) -> i32 {
+    let Some(pass) = composition_restatement_pass(slot_index, section) else {
+        return 0;
+    };
+    let role = pass.role.to_ascii_lowercase();
+    let register = pass.register_bias.to_ascii_lowercase();
+    let landing = pass.landing_move.to_ascii_lowercase();
+    if register.contains("higher") || register.contains("high") {
+        return if pulse_index == 0 { 2 } else { 1 };
+    }
+    if register.contains("lower") || register.contains("low") {
+        return if pulse_index == 0 { -1 } else { -2 };
+    }
+    if role.contains("echo") || role.contains("fade") {
+        return -1;
+    }
+    if landing.contains("overshoot") {
+        return if pulse_index == 0 { 2 } else { 0 };
+    }
+    0
+}
+
+fn composition_restatement_duration_bias(
+    slot_index: usize,
+    pulse_index: usize,
+    section: Option<&CompositionSectionPlan>,
+) -> f32 {
+    let Some(pass) = composition_restatement_pass(slot_index, section) else {
+        return 1.0;
+    };
+    let role = pass.role.to_ascii_lowercase();
+    let sustain = pass.sustain_bias.to_ascii_lowercase();
+    let landing = pass.landing_move.to_ascii_lowercase();
+    if landing.contains("cadence") || landing.contains("resolve") {
+        return if pulse_index == 0 { 1.05 } else { 1.14 };
+    }
+    if role.contains("answer") || role.contains("response") {
+        return if pulse_index == 0 { 0.9 } else { 1.04 };
+    }
+    if role.contains("echo") || role.contains("fade") {
+        return 0.84;
+    }
+    if sustain.contains("long") {
+        return 1.08;
+    }
+    if sustain.contains("short") || sustain.contains("trimmed") {
+        return 0.9;
+    }
+    1.0
+}
+
+fn composition_note_group_duration_bias(
+    slot_index: usize,
+    pulse_index: usize,
+    section: Option<&CompositionSectionPlan>,
+) -> f32 {
+    let Some(group) = composition_note_group(slot_index, section) else {
+        return 1.0;
+    };
+    let accent = group.accent_role.to_ascii_lowercase();
+    let contour = group.contour_move.to_ascii_lowercase();
+    if accent.contains("arrival") || accent.contains("hook") {
+        return match pulse_index {
+            0 => 1.12,
+            1 => 0.98,
+            _ => 0.92,
+        };
+    }
+    if contour.contains("rise") || contour.contains("up") {
+        return if pulse_index == 0 { 0.94 } else { 1.03 };
+    }
+    if contour.contains("fall") || contour.contains("descend") || contour.contains("down") {
+        return if pulse_index == 0 { 1.02 } else { 0.9 };
+    }
+    if group.breath_after && pulse_index >= 1 {
+        return 0.82;
+    }
+    1.0
+}
+
+fn composition_stem_density(
+    section: Option<&CompositionSectionPlan>,
+    stem_name: &str,
+) -> Option<String> {
+    section.and_then(|section| {
+        section
+            .stem_activations
+            .iter()
+            .find(|plan| plan.stem == stem_name)
+            .map(|plan| plan.density.clone())
+    })
+}
+
+fn composition_stem_entry_strategy(
+    section: Option<&CompositionSectionPlan>,
+    stem_name: &str,
+) -> Option<String> {
+    section.and_then(|section| {
+        section
+            .stem_activations
+            .iter()
+            .find(|plan| plan.stem == stem_name)
+            .map(|plan| plan.entry_strategy.clone())
+    })
+}
+
+fn composition_is_cadence_hit(
+    slot_index: usize,
+    pulse_index: usize,
+    section: Option<&CompositionSectionPlan>,
+) -> bool {
+    let Some(section) = section else {
+        return false;
+    };
+    let last_slot = section.progression_frames.len().saturating_sub(1);
+    slot_index >= last_slot && pulse_index > 0
+}
+
+fn composition_entry_is_swell(role: &str, section: Option<&CompositionSectionPlan>) -> bool {
+    section
+        .map(|section| {
+            section.stem_activations.iter().any(|plan| {
+                plan.stem == stem_for_role(role)
+                    && matches!(plan.entry_strategy.as_str(), "swell" | "fade" | "lift")
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn composition_grouping_velocity(
+    role: &str,
+    slot_index: usize,
+    pulse_index: usize,
+    section: Option<&CompositionSectionPlan>,
+) -> i8 {
+    let Some(section) = section else {
+        return 0;
+    };
+    let role_lower = role.to_ascii_lowercase();
+    if !(role_lower == "lead" || role_lower == "choir") {
+        return 0;
+    }
+    if let Some(group) = composition_note_group(slot_index, Some(section)) {
+        let accent = group.accent_role.to_ascii_lowercase();
+        if accent.contains("hook") || accent.contains("arrival") {
+            return match pulse_index {
+                0 => 12,
+                1 => 6,
+                _ => 2,
+            };
+        }
+        if group.breath_after && pulse_index >= 1 {
+            return -4;
+        }
+    }
+    if let Some(pass) = composition_restatement_pass(slot_index, Some(section)) {
+        let role = pass.role.to_ascii_lowercase();
+        let landing = pass.landing_move.to_ascii_lowercase();
+        if role.contains("echo") || role.contains("fade") {
+            return match pulse_index {
+                0 => -1,
+                1 => -3,
+                _ => -4,
+            };
+        }
+        if role.contains("answer") {
+            return match pulse_index {
+                0 => 1,
+                1 => 8,
+                _ => 5,
+            };
+        }
+        if role.contains("amplified") {
+            return match pulse_index {
+                0 => 10,
+                1 => 7,
+                _ => 3,
+            };
+        }
+        if landing.contains("resolve") || landing.contains("cadence") {
+            return match pulse_index {
+                0 => 6,
+                1 => 4,
+                _ => 9,
+            };
+        }
+        if landing.contains("return") || landing.contains("prepare") {
+            return match pulse_index {
+                0 => 2,
+                1 => 5,
+                _ => 7,
+            };
+        }
+        if landing.contains("avoid") || landing.contains("defer") || landing.contains("open") {
+            return match pulse_index {
+                0 => -2,
+                1 => 3,
+                _ => 1,
+            };
+        }
+    }
+    let rhythm = composition_rhythm_cell(slot_index, Some(section))
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let melody_role = section.melody_role.to_ascii_lowercase();
+    if melody_role.contains("hook") && slot_index % 4 >= 2 {
+        return match pulse_index {
+            0 => 10,
+            1 => 5,
+            _ => 1,
+        };
+    }
+    if melody_role.contains("answer") || melody_role.contains("response") {
+        return match pulse_index {
+            0 => -2,
+            1 => 6,
+            2 => 3,
+            _ => 1,
+        };
+    }
+    if rhythm.contains("sync") || rhythm.contains("offbeat") {
+        return if pulse_index == 0 { -3 } else { 4 };
+    }
+    if composition_is_cadence_hit(slot_index, pulse_index, Some(section)) {
+        return 9;
+    }
+    0
+}
+
+fn composition_hook_restatement_velocity(
+    role: &str,
+    slot_index: usize,
+    pulse_index: usize,
+    section: Option<&CompositionSectionPlan>,
+) -> i8 {
+    let Some(section) = section else {
+        return 0;
+    };
+    let role_lower = role.to_ascii_lowercase();
+    if !(role_lower == "lead" || role_lower == "choir") {
+        return 0;
+    }
+    let Some(pass) = composition_restatement_pass(slot_index, Some(section)) else {
+        return 0;
+    };
+    let role = pass.role.to_ascii_lowercase();
+    let landing = pass.landing_move.to_ascii_lowercase();
+    if role.contains("answer") || role.contains("response") {
+        return match pulse_index {
+            0 => 6,
+            1 => 3,
+            _ => 1,
+        };
+    }
+    if role.contains("echo") || role.contains("fade") {
+        return match pulse_index {
+            0 => -5,
+            _ => -2,
+        };
+    }
+    if role.contains("amplified") || landing.contains("overshoot") {
+        return match pulse_index {
+            0 => 9,
+            1 => 5,
+            _ => 2,
+        };
+    }
+    if landing.contains("resolve") || landing.contains("cadence") {
+        return match pulse_index {
+            0 => 4,
+            _ => 8,
+        };
+    }
+    0
+}
+
+fn composition_hook_restatement_degree(
+    slot_index: usize,
+    pulse_index: usize,
+    section: &CompositionSectionPlan,
+) -> i32 {
+    let melody_role = section.melody_role.to_ascii_lowercase();
+    let Some(pass) = composition_restatement_pass(slot_index, Some(section)) else {
+        return 0;
+    };
+    let role = pass.role.to_ascii_lowercase();
+    if !(melody_role.contains("hook")
+        || melody_role.contains("chorus")
+        || role.contains("answer")
+        || role.contains("response")
+        || role.contains("amplified")
+        || role.contains("echo"))
+    {
+        return 0;
+    }
+    match role.as_str() {
+        value if value.contains("echo") => match pulse_index {
+            0 => -2,
+            1 => -1,
+            _ => 0,
+        },
+        value if value.contains("answer") || value.contains("response") => match pulse_index {
+            0 => 0,
+            1 => 2,
+            _ => 1,
+        },
+        value if value.contains("amplified") => match pulse_index {
+            0 => 2,
+            1 => 1,
+            _ => 0,
+        },
+        _ => 0,
+    }
+}
+
+fn composition_phrase_neighbor_motion(
+    slot_index: usize,
+    pulse_index: usize,
+    section: &CompositionSectionPlan,
+) -> i32 {
+    let rhythm = composition_rhythm_cell(slot_index, Some(section))
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let contour = composition_note_group(slot_index, Some(section))
+        .map(|group| group.contour_move.to_ascii_lowercase())
+        .unwrap_or_else(|| {
+            section
+                .phrase_skeleton
+                .hook_restatement
+                .to_ascii_lowercase()
+        });
+    if composition_is_cadence_hit(slot_index, pulse_index, Some(section)) {
+        return 0;
+    }
+    if rhythm.contains("pickup") {
+        return match pulse_index {
+            0 => -1,
+            1 => 1,
+            _ => 0,
+        };
+    }
+    if rhythm.contains("sync") || rhythm.contains("offbeat") {
+        return match pulse_index {
+            0 => 0,
+            1 => 1,
+            2 => -1,
+            _ => 0,
+        };
+    }
+    if contour.contains("lift") || contour.contains("rise") {
+        return match pulse_index {
+            0 => 0,
+            1 => 1,
+            _ => 2,
+        };
+    }
+    if contour.contains("fall") || contour.contains("descend") {
+        return match pulse_index {
+            0 => 1,
+            1 => 0,
+            _ => -1,
+        };
+    }
+    match pulse_index {
+        0 => 0,
+        1 => 1,
+        _ => 0,
+    }
+}
+
+fn composition_stem_part_active(
+    part: &ProviderPhraseBlock,
+    section: Option<&CompositionSectionPlan>,
+) -> bool {
+    let Some(section) = section else {
+        return true;
+    };
+    let stem_name = stem_for_role(&part.role);
+    let active = section
+        .stem_activations
+        .iter()
+        .find(|plan| plan.stem == stem_name);
+    let Some(active) = active else {
+        return true;
+    };
+    let bar = part.bar_start.min(part.bar_end) as u8;
+    active.active_bars.contains(&bar)
 }
 
 fn expression_cc_number(plan: &ProviderPlan) -> u8 {
@@ -5160,7 +6229,7 @@ mod tests {
             }],
         );
 
-        let draft = build_provider_midi_draft(&plan, &cue_sheet);
+        let draft = build_provider_midi_draft(&plan, &cue_sheet, None);
 
         assert_eq!(draft.tempo_bpm, 96);
         assert!(!draft.channels.is_empty());
@@ -5233,7 +6302,7 @@ mod tests {
             }],
         );
 
-        let phrase_map = build_provider_phrase_map(&plan, &cue_sheet);
+        let phrase_map = build_provider_phrase_map(&plan, &cue_sheet, None);
 
         assert_eq!(phrase_map.phrase_segments.len(), 1);
         assert!(phrase_map.phrase_segments[0]
@@ -5306,7 +6375,7 @@ mod tests {
             ],
         );
 
-        let stems_plan = build_provider_arrangement_stems_plan(&plan, &cue_sheet);
+        let stems_plan = build_provider_arrangement_stems_plan(&plan, &cue_sheet, None);
 
         assert!(!stems_plan.stems.is_empty());
         assert!(stems_plan

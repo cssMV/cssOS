@@ -118,6 +118,16 @@ pub struct MusicGenRequest {
     /// meaningfully; Phase 2 adds Suno continuation chains for >4min.
     #[serde(default)]
     pub target_duration_secs: Option<u32>,
+    /// CSSOS_PHASE2_KIE_TITLE 20260429 #207 — Jing
+    /// Explicit song title. Used by Suno-family engines as the `title`
+    /// field in customMode. Skipping this and deriving from `prompt[:64]`
+    /// produced laughable titles like "a fierce battle anthem", which Suno
+    /// then treated as an artist-tag hint and tilted the whole arrangement
+    /// off-style. The frontend should pass the user's actual song title
+    /// here (e.g. "Mount Hermon Oath"); empty/None ⇒ adapter falls back to
+    /// its current prompt-derived heuristic.
+    #[serde(default)]
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -137,6 +147,19 @@ pub struct MusicGenResult {
     /// back to even-divide otherwise — so existing engines don't regress.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aligned_lyrics: Option<Vec<crate::music_gen::AlignedLyricLine>>,
+    /// CSSOS_PHASE2_DUAL_TRACK 20260430 #208 — Jing
+    /// Suno (and any future engine that returns multiple variants per
+    /// generation) gives back 2 clips by default. We expose them as
+    /// "Take 1" (the primary `audio_url` above) and "Take 2" (this
+    /// optional alt). Single-track engines (ElevenLabs, MusicGPT, Stable
+    /// Audio) leave this `None`. Caller decides whether to render two
+    /// MV variants or just offer audio-only A/B compare.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alt_audio_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alt_duration_secs: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alt_conversion_id: Option<String>,
 }
 
 #[derive(Debug, Error)]
@@ -664,6 +687,11 @@ fn finalize_result(task: &SubmitAck, v: serde_json::Value) -> MusicGenResult {
         title,
         raw: v,
         aligned_lyrics,
+        // CSSOS_PHASE2_DUAL_TRACK 20260430 #208 — MusicGPT only returns
+        // a single track. Suno returns 2; only that adapter populates these.
+        alt_audio_url: None,
+        alt_duration_secs: None,
+        alt_conversion_id: None,
     }
 }
 

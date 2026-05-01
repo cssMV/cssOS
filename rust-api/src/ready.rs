@@ -922,7 +922,7 @@ pub fn compute_ready_view_with_dag_limited(
             .outputs
             .first()
             .map(|p| p.display().to_string())
-            .unwrap_or_else(|| "./build/mix.wav".to_string());
+            .unwrap_or_else(|| "./build/mix.mp3".to_string());
         MixSummary {
             status: format!("{:?}", rec.status),
             path,
@@ -931,7 +931,7 @@ pub fn compute_ready_view_with_dag_limited(
     } else {
         MixSummary {
             status: "MISSING".to_string(),
-            path: "./build/mix.wav".to_string(),
+            path: "./build/mix.mp3".to_string(),
             ok: false,
         }
     };

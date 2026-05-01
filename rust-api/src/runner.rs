@@ -293,7 +293,7 @@ fn stage_plan(
             "mix",
             (
                 "internal:mix".to_string(),
-                vec![PathBuf::from("./build/mix.wav")],
+                vec![PathBuf::from("./build/mix.mp3")],
             ),
         ),
         (
@@ -322,7 +322,6 @@ fn is_video_stage(stage: &str) -> bool {
         || is_video_plan_stage(&stage)
         || is_video_assemble_stage(&stage)
         || stage == "mix"
-        || stage == "subtitles"
         || stage == "render"
         || is_video_shot_stage(stage)
 }
@@ -341,6 +340,15 @@ async fn run_engine_stage_if_applicable(
         "mix" => Some(engines::mix::run(&ctx, commands, ui_lang).await),
         "subtitles" => Some(engines::subtitles::run(&ctx, commands, ui_lang).await),
         "render" => Some(engines::render::run(&ctx, commands, ui_lang).await),
+        n if n.starts_with("lyrics_primary.")
+            || n.starts_with("lyrics_adapt.")
+            || n.starts_with("lyrics_timing.") =>
+        {
+            Some(engines::lyrics::run_stage(&ctx, commands, ui_lang, stage).await)
+        }
+        n if n.starts_with("subtitles.") || n.starts_with("karaoke_ass.") => {
+            Some(engines::subtitles::run_stage(&ctx, commands, ui_lang, stage).await)
+        }
         _ => None,
     }
 }
@@ -689,10 +697,7 @@ fn maybe_expand_video_shots(state: &mut RunState) -> bool {
         return false;
     };
     let mut ids: Vec<String> = sb.shots.iter().map(|s| s.id.clone()).collect();
-    let mut n = ids.len();
-    if n < 8 {
-        n = 8;
-    }
+    let mut n = ids.len().max(1);
     if n > 36 {
         n = 36;
     }
@@ -1711,43 +1716,49 @@ async fn run_one_stage_task(
             .unwrap_or(None)
             .or(probe_media_duration_s(&music_path).await.unwrap_or(None));
 
-        let cfg = AutoShotConfig::default();
-        let immersion_snapshot = rec.meta.get("immersion").cloned().and_then(|v| {
-            serde_json::from_value::<crate::immersion_engine::runtime::ImmersionSnapshot>(v).ok()
-        });
-        let (_sb, sb_meta) = match ensure_storyboard_auto(
-            &storyboard_path,
-            seed,
-            duration_s,
-            cfg.clone(),
-            creative_hint,
-            immersion_snapshot.as_ref(),
-            scene_semantics.as_ref(),
-        ) {
-            Ok(v) => v,
-            Err(e) => {
-                rec.status = StageStatus::FAILED;
-                rec.error = Some(e.to_string());
-                (
-                    crate::video::storyboard::Storyboard {
-                        schema: "css.video.storyboard.v1".to_string(),
-                        seed,
-                        fps: 30,
-                        resolution: crate::video::storyboard::Resolution { w: 1280, h: 720 },
-                        shots: vec![],
-                    },
-                    serde_json::json!({"error": e.to_string()}),
-                )
-            }
-        };
-        let shots_summary = format!(
-            "Video Shots: N={} (auto, {}..{}s, clamp {}..{})",
-            _sb.shots.len(),
-            cfg.min_len_s,
-            cfg.max_len_s,
-            cfg.min_shots,
-            cfg.max_shots
-        );
+        let mut sb_meta = serde_json::json!({});
+        let mut shots_summary = "Video Shots: delegated to internal video planner".to_string();
+        if stage == "video" {
+            let cfg = AutoShotConfig::default();
+            let immersion_snapshot = rec.meta.get("immersion").cloned().and_then(|v| {
+                serde_json::from_value::<crate::immersion_engine::runtime::ImmersionSnapshot>(v)
+                    .ok()
+            });
+            let (_sb, auto_meta) = match ensure_storyboard_auto(
+                &storyboard_path,
+                seed,
+                duration_s,
+                cfg.clone(),
+                creative_hint,
+                immersion_snapshot.as_ref(),
+                scene_semantics.as_ref(),
+            ) {
+                Ok(v) => v,
+                Err(e) => {
+                    rec.status = StageStatus::FAILED;
+                    rec.error = Some(e.to_string());
+                    (
+                        crate::video::storyboard::Storyboard {
+                            schema: "css.video.storyboard.v1".to_string(),
+                            seed,
+                            fps: 30,
+                            resolution: crate::video::storyboard::Resolution { w: 1280, h: 720 },
+                            shots: vec![],
+                        },
+                        serde_json::json!({"error": e.to_string()}),
+                    )
+                }
+            };
+            shots_summary = format!(
+                "Video Shots: N={} (auto, {}..{}s, clamp {}..{})",
+                _sb.shots.len(),
+                cfg.min_len_s,
+                cfg.max_len_s,
+                cfg.min_shots,
+                cfg.max_shots
+            );
+            sb_meta = auto_meta;
+        }
         if matches!(rec.status, StageStatus::FAILED) {
             false
         } else {

@@ -61,6 +61,157 @@ fn video_cfg_from_state(state: &RunState) -> Value {
         .unwrap_or_else(|| Value::Object(Default::default()))
 }
 
+fn inferred_video_shots_n(video_obj: &Value) -> usize {
+    video_obj
+        .get("shots_n")
+        .and_then(|value| value.as_u64())
+        .map(|value| value.clamp(1, 256) as usize)
+        .or_else(|| {
+            video_obj
+                .get("segments")
+                .and_then(|value| value.as_array())
+                .map(|items| items.len().clamp(1, 256))
+        })
+        .unwrap_or(1)
+}
+
+fn preferred_audio_candidates(stage_name: &str) -> Vec<PathBuf> {
+    match stage_name {
+        "music" => vec![
+            PathBuf::from("./build/music.mp3"),
+            PathBuf::from("./build/music.wav"),
+            PathBuf::from("./build/audio/music.primary.wav"),
+        ],
+        "vocals" => vec![
+            PathBuf::from("./build/vocals.mp3"),
+            PathBuf::from("./build/vocals.wav"),
+            PathBuf::from("./build/vocals/vocal_master.mp3"),
+            PathBuf::from("./build/vocals/vocal_master.wav"),
+        ],
+        "mix" => vec![
+            PathBuf::from("./build/mix.mp3"),
+            PathBuf::from("./build/master.mp3"),
+            PathBuf::from("./build/mix.wav"),
+            PathBuf::from("./build/master.wav"),
+            PathBuf::from("./build/audio/mix.primary.wav"),
+        ],
+        _ => Vec::new(),
+    }
+}
+
+fn resolve_stage_audio_path(
+    state: &RunState,
+    stage_name: &str,
+    out_dir: &Path,
+) -> Option<(PathBuf, PathBuf)> {
+    let mut candidates = Vec::new();
+    if let Some(rec) = state.stages.get(stage_name) {
+        candidates.extend(rec.outputs.iter().cloned());
+    }
+    candidates.extend(preferred_audio_candidates(stage_name));
+    for rel in candidates {
+        let abs = if rel.is_absolute() {
+            rel.clone()
+        } else {
+            out_dir.join(&rel)
+        };
+        if crate::video::cache::file_ok(&abs) {
+            return Some((rel, abs));
+        }
+    }
+    None
+}
+
+async fn probe_audio_duration_secs(path: &Path) -> Option<f64> {
+    let output = Command::new("ffprobe")
+        .arg("-v")
+        .arg("error")
+        .arg("-show_entries")
+        .arg("format=duration")
+        .arg("-of")
+        .arg("default=noprint_wrappers=1:nokey=1")
+        .arg(path)
+        .output()
+        .await
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(output.stdout).ok()?;
+    let value = text.trim().parse::<f64>().ok()?;
+    if value.is_finite() && value > 0.0 {
+        Some(value)
+    } else {
+        None
+    }
+}
+
+fn estimate_subtitles_duration_secs(state: &RunState, out_dir: &Path) -> Option<f64> {
+    let command_duration = state
+        .commands
+        .get("video")
+        .and_then(|v| v.get("duration_s"))
+        .and_then(|v| v.as_f64())
+        .filter(|v| v.is_finite() && *v > 0.0)
+        .or_else(|| {
+            state
+                .commands
+                .get("creative")
+                .and_then(|v| v.get("duration_s"))
+                .and_then(|v| v.as_f64())
+                .filter(|v| v.is_finite() && *v > 0.0)
+        });
+    if command_duration.is_some() {
+        return command_duration;
+    }
+
+    for path in [out_dir.join("build/lyrics.json"), out_dir.join("lyrics.json")] {
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
+        if let Some(lines) = value.get("lines").and_then(|v| v.as_array()) {
+            let mut max_t = 0.0_f64;
+            let mut line_count = 0_usize;
+            for item in lines {
+                let has_text = item
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .map(|v| !v.trim().is_empty())
+                    .unwrap_or_else(|| item.as_str().map(|v| !v.trim().is_empty()).unwrap_or(false));
+                if !has_text {
+                    continue;
+                }
+                line_count += 1;
+                if let Some(t) = item.get("t").and_then(|v| v.as_f64()) {
+                    if t.is_finite() && t >= 0.0 {
+                        max_t = max_t.max(t);
+                    }
+                }
+            }
+            if line_count > 0 {
+                let estimated = if max_t > 0.0 {
+                    max_t + 3.2
+                } else {
+                    (line_count as f64 * 3.2).max(12.0)
+                };
+                if estimated.is_finite() && estimated > 0.0 {
+                    return Some(estimated);
+                }
+            }
+        }
+        if let Some(text_block) = value.get("text").and_then(|v| v.as_str()) {
+            let line_count = text_block.lines().filter(|line| !line.trim().is_empty()).count();
+            if line_count > 0 {
+                return Some((line_count as f64 * 3.2).max(12.0));
+            }
+        }
+    }
+    None
+}
+
 pub async fn spawn_wait_with_pgid_timeout(
     mut cmd: Command,
     timeout_s: u64,
@@ -119,15 +270,47 @@ pub async fn spawn_wait_with_pgid_timeout(
 }
 
 pub fn build_video_plan_cmd(video_obj: &Value) -> String {
-    let shots_n = v_u64(video_obj, &["shots_n"], 8);
+    let shots_n = inferred_video_shots_n(video_obj) as u64;
     let fps = v_u32(video_obj, &["fps"], 30);
     let w = v_u32(video_obj, &["resolution", "w"], 1280);
     let h = v_u32(video_obj, &["resolution", "h"], 720);
     let seed = v_u64(video_obj, &["seed"], 0);
-    let dur = v_f64(video_obj, &["duration_s"], 8.0);
+    if let Some(dur) = video_obj
+        .get("duration_s")
+        .and_then(|x| x.as_f64())
+        .filter(|value| *value > 0.0)
+    {
+        return format!(
+            "mkdir -p ./build/video && cssos-video plan --shots {} --fps {} --w {} --h {} --seed {} --duration {} --out ./build/video/storyboard.json",
+            shots_n, fps, w, h, seed, dur
+        );
+    }
     format!(
-        "mkdir -p ./build/video && cssos-video plan --shots {} --fps {} --w {} --h {} --seed {} --duration {} --out ./build/video/storyboard.json",
-        shots_n, fps, w, h, seed, dur
+        "mkdir -p ./build/video && DUR=$(python3 - <<'PY'\n\
+import pathlib, subprocess, sys\n\
+def probe_mix():\n\
+    for candidate in ('./build/mix.mp3', './build/master.mp3', './build/mix.wav', './build/master.wav'):\n\
+        mix = pathlib.Path(candidate)\n\
+        if not mix.exists():\n\
+            continue\n\
+        try:\n\
+            out = subprocess.check_output([\n\
+                'ffprobe','-v','error','-show_entries','format=duration','-of','default=noprint_wrappers=1:nokey=1',str(mix)\n\
+            ], stderr=subprocess.DEVNULL).decode().strip()\n\
+            value = float(out)\n\
+            if value > 0:\n\
+                return value\n\
+        except Exception:\n\
+            continue\n\
+    return None\n\
+dur = probe_mix()\n\
+if not dur or dur <= 0:\n\
+    print('missing real audio duration', file=sys.stderr)\n\
+    sys.exit(1)\n\
+print('{{:.3f}}'.format(dur))\n\
+PY\n\
+) && cssos-video plan --shots {} --fps {} --w {} --h {} --seed {} --duration \"$DUR\" --out ./build/video/storyboard.json",
+        shots_n, fps, w, h, seed
     )
 }
 
@@ -146,7 +329,7 @@ pub fn build_video_shot_cmd(video_obj: &Value, stage: &str, out_mp4: &Path) -> S
 }
 
 pub fn build_video_assemble_cmd(_video_obj: &Value) -> String {
-    let shots_n = v_u64(_video_obj, &["shots_n"], 8) as usize;
+    let shots_n = inferred_video_shots_n(_video_obj);
     let mut concat_list = String::new();
     for i in 0..shots_n {
         concat_list.push_str(&format!("file 'shots/video_shot_{:03}.mp4'\\n", i));
@@ -166,7 +349,7 @@ pub async fn run_one_stage_video_dispatch(
     let out_dir = state.config.out_dir.clone();
     let ve = VideoExecutor::new(out_dir.clone());
     let video_cfg = video_cfg_from_state(state);
-    let shots_n = v_u64(&video_cfg, &["shots_n"], 8).clamp(1, 256) as usize;
+    let shots_n = inferred_video_shots_n(&video_cfg);
     let fps = v_u32(&video_cfg, &["fps"], 30).clamp(1, 120);
     let w = v_u32(&video_cfg, &["resolution", "w"], 1280).clamp(160, 7680);
     let h = v_u32(&video_cfg, &["resolution", "h"], 720).clamp(90, 4320);
@@ -184,31 +367,17 @@ pub async fn run_one_stage_video_dispatch(
         "mix" => {
             use crate::video::cache as vcache;
 
-            let music_rel = state
-                .stages
-                .get("music")
-                .and_then(|r| r.outputs.first().cloned())
-                .unwrap_or_else(|| std::path::PathBuf::from("./build/music.wav"));
-            let vocals_rel = state
-                .stages
-                .get("vocals")
-                .and_then(|r| r.outputs.first().cloned())
-                .unwrap_or_else(|| std::path::PathBuf::from("./build/vocals.wav"));
+            let (music_rel, music_abs) = resolve_stage_audio_path(state, "music", &out_dir)
+                .ok_or_else(|| "missing music audio".to_string())?;
+            let (vocals_rel, vocals_abs) = resolve_stage_audio_path(state, "vocals", &out_dir)
+                .ok_or_else(|| "missing vocals audio".to_string())?;
             let mix_rel = state
                 .stages
                 .get(stage)
                 .and_then(|r| r.outputs.first().cloned())
-                .unwrap_or_else(|| std::path::PathBuf::from("./build/mix.wav"));
-            let music_abs = resolve(&music_rel);
-            let vocals_abs = resolve(&vocals_rel);
+                .unwrap_or_else(|| std::path::PathBuf::from("./build/mix.mp3"));
             let mix_abs = resolve(&mix_rel);
 
-            if !vcache::file_ok(&music_abs) {
-                return Err("missing music.wav".to_string());
-            }
-            if !vcache::file_ok(&vocals_abs) {
-                return Err("missing vocals.wav".to_string());
-            }
             if let Some(p) = mix_abs.parent() {
                 let _ = tokio::fs::create_dir_all(p).await;
             }
@@ -234,7 +403,9 @@ pub async fn run_one_stage_video_dispatch(
                 .arg("-filter_complex")
                 .arg("[0:a][1:a]amix=inputs=2:duration=longest:dropout_transition=2")
                 .arg("-c:a")
-                .arg("pcm_s16le")
+                .arg("libmp3lame")
+                .arg("-b:a")
+                .arg("192k")
                 .arg(mix_abs.as_os_str());
             let (pid, pgid, r, err_code) =
                 spawn_wait_with_pgid_timeout(cmd, timeout_s, kill_grace_ms).await;
@@ -258,7 +429,7 @@ pub async fn run_one_stage_video_dispatch(
                 return Err(format!("ffmpeg mix failed: exit={code}"));
             }
             if !vcache::file_ok(&mix_abs) {
-                return Err("mix.wav empty".to_string());
+                return Err("mix audio empty".to_string());
             }
             if let Some(rec) = state.stages.get_mut(stage) {
                 rec.outputs = vec![mix_rel.clone()];
@@ -277,19 +448,24 @@ pub async fn run_one_stage_video_dispatch(
         }
         "subtitles" => {
             use crate::video::cache as vcache;
-            let dur = state
-                .commands
-                .get("video")
-                .and_then(|v| v.get("duration_s"))
-                .and_then(|v| v.as_f64())
-                .unwrap_or(8.0);
+            let has_mix_audio = resolve_stage_audio_path(state, "mix", &out_dir).is_some();
+            let dur = if let Some((_, mix_audio)) = resolve_stage_audio_path(state, "mix", &out_dir) {
+                probe_audio_duration_secs(&mix_audio)
+                    .await
+                    .filter(|value| value.is_finite() && *value > 0.0)
+                    .or_else(|| estimate_subtitles_duration_secs(state, &out_dir))
+                    .ok_or_else(|| "missing real audio duration".to_string())?
+            } else {
+                estimate_subtitles_duration_secs(state, &out_dir)
+                    .ok_or_else(|| "missing real audio duration".to_string())?
+            };
             let ass_rel = state
                 .stages
                 .get(stage)
                 .and_then(|r| r.outputs.first().cloned())
                 .unwrap_or_else(|| std::path::PathBuf::from("./build/subtitles.ass"));
             let ass_path = resolve(&ass_rel);
-            let p = crate::subtitles::ass::write_ass_from_run(
+            let _ = crate::subtitles::ass::write_ass_from_run(
                 &out_dir,
                 &state.ui_lang,
                 dur,
@@ -301,7 +477,7 @@ pub async fn run_one_stage_video_dispatch(
                 return Err("subtitles ass invalid".to_string());
             }
             if let Some(rec) = state.stages.get_mut(stage) {
-                rec.outputs = vec![p];
+                rec.outputs = vec![ass_rel.clone()];
                 let meta = ensure_meta_obj(&mut rec.meta);
                 meta.insert(
                     "subtitles".into(),
@@ -309,7 +485,9 @@ pub async fn run_one_stage_video_dispatch(
                         "burnin": false,
                         "format": "ass",
                         "path": ass_rel.display().to_string(),
-                        "lang": state.ui_lang.clone()
+                        "lang": state.ui_lang.clone(),
+                        "duration_s": dur,
+                        "duration_source": if has_mix_audio { "mix_or_estimated" } else { "estimated_from_lyrics" }
                     }),
                 );
                 rec.status = crate::run_state::StageStatus::SUCCEEDED;
@@ -329,18 +507,10 @@ pub async fn run_one_stage_video_dispatch(
                 .and_then(|r| r.outputs.first().cloned())
                 .map(|p| resolve(&p))
                 .unwrap_or_else(|| out_dir.join("build").join("video").join("video.mp4"));
-            let music_wav = state
-                .stages
-                .get("music")
-                .and_then(|r| r.outputs.first().cloned())
-                .map(|p| resolve(&p))
-                .unwrap_or_else(|| out_dir.join("build").join("music.wav"));
-            let vocals_wav = state
-                .stages
-                .get("vocals")
-                .and_then(|r| r.outputs.first().cloned())
-                .map(|p| resolve(&p))
-                .unwrap_or_else(|| out_dir.join("build").join("vocals.wav"));
+            let (_music_rel, music_audio) = resolve_stage_audio_path(state, "music", &out_dir)
+                .ok_or_else(|| "missing music audio".to_string())?;
+            let (_vocals_rel, vocals_audio) = resolve_stage_audio_path(state, "vocals", &out_dir)
+                .ok_or_else(|| "missing vocals audio".to_string())?;
 
             let final_mp4_rel = state
                 .stages
@@ -357,16 +527,16 @@ pub async fn run_one_stage_video_dispatch(
             if !vcache::file_ok(&video_mp4) {
                 return Err("missing video.mp4".to_string());
             }
-            if !vcache::file_ok(&music_wav) {
-                return Err("missing music.wav".to_string());
+            if !vcache::file_ok(&music_audio) {
+                return Err("missing music audio".to_string());
             }
-            if !vcache::file_ok(&vocals_wav) {
-                return Err("missing vocals.wav".to_string());
+            if !vcache::file_ok(&vocals_audio) {
+                return Err("missing vocals audio".to_string());
             }
 
             let tmp = final_mp4_abs.with_extension("tmp.mp4");
             let _ = std::fs::remove_file(&tmp);
-            crate::video::render::render_mv(&video_mp4, &music_wav, &vocals_wav, &tmp)
+            crate::video::render::render_mv(&video_mp4, &music_audio, &vocals_audio, &tmp)
                 .await
                 .map_err(|e| format!("render failed: {e}"))?;
             if !vcache::file_ok(&tmp) {
@@ -391,8 +561,8 @@ pub async fn run_one_stage_video_dispatch(
                     serde_json::json!({
                         "mode": "copy_first_then_reencode",
                         "video": video_mp4.display().to_string(),
-                        "music": music_wav.display().to_string(),
-                        "vocals": vocals_wav.display().to_string(),
+                        "music": music_audio.display().to_string(),
+                        "vocals": vocals_audio.display().to_string(),
                         "out": final_mp4_abs.display().to_string()
                     }),
                 );
@@ -403,6 +573,7 @@ pub async fn run_one_stage_video_dispatch(
             }
 
             crate::artifacts::build_artifacts_index(state);
+            crate::artifacts::purge_lossless_artifacts(&out_dir);
             outputs.push(final_mp4_rel);
             Ok(outputs)
         }
@@ -602,58 +773,18 @@ pub async fn maybe_run_video_stage(
         .get("video")
         .cloned()
         .unwrap_or_else(|| Value::Object(Default::default()));
-    let shots_n = v_u64(&video_cfg, &["shots_n"], 8).clamp(1, 256) as usize;
+    let shots_n = inferred_video_shots_n(&video_cfg);
     let fps = v_u32(&video_cfg, &["fps"], 30).clamp(1, 120);
     let w = v_u32(&video_cfg, &["resolution", "w"], 1280).clamp(160, 7680);
     let h = v_u32(&video_cfg, &["resolution", "h"], 720).clamp(90, 4320);
     let seed = v_u64(&video_cfg, &["seed"], 123);
-    let duration_s = v_f64(&video_cfg, &["duration_s"], 8.0).clamp(1.0, 600.0);
+    let duration_s = v_f64(&video_cfg, &["duration_s"], 0.0)
+        .max(0.0)
+        .clamp(0.0, 31_536_000.0);
 
     let r: anyhow::Result<()> = if stage == "video_plan" {
-        let sb_path = out_dir.join("video/storyboard.json");
-        let cfg = AutoShotConfig {
-            min_len_s: 2.0,
-            max_len_s: 4.0,
-            min_shots: 2,
-            max_shots: 12,
-            fps,
-            w,
-            h,
-        };
-        let creative_hint = commands
-            .get("creative")
-            .and_then(|c| c.get("prompt"))
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .or_else(|| {
-                commands
-                    .get("creative")
-                    .and_then(|c| c.get("genre"))
-                    .and_then(|v| v.as_str())
-                    .map(|s| format!("genre: {s}"))
-            });
-        let immersion_snapshot = st.viewer_position.map(|pos| {
-            crate::immersion_engine::runtime::ImmersionEngine::new(
-                st.immersion.clone(),
-                st.immersion_zones.clone(),
-            )
-            .snapshot_at(pos)
-        });
-        let scene_semantics = st
-            .scene_semantics
-            .get(&st.immersion.anchor.scene_id)
-            .cloned();
-        ensure_storyboard_auto(
-            &sb_path,
-            seed,
-            Some(duration_s),
-            cfg,
-            creative_hint,
-            immersion_snapshot.as_ref(),
-            scene_semantics.as_ref(),
-        )
-        .map(|_| ())
-        .map_err(anyhow::Error::from)
+        let ctx = crate::engines::EngineCtx::new(out_dir.clone());
+        crate::engines::video::run_plan(&ctx, &commands, &st.ui_lang).await
     } else if stage.starts_with("video_shot_") {
         ve.render_shot_by_id(&stage)
             .await

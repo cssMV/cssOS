@@ -74,9 +74,7 @@ fn highlights(
 
     out.push(format!(
         "系统健康状态：{:?}，pending_recovery={}，still_failing={}。",
-        ops_health.status,
-        ops_health.pending_recovery_count,
-        ops_health.still_failing_count,
+        ops_health.status, ops_health.pending_recovery_count, ops_health.still_failing_count,
     ));
 
     out.push(format!(
@@ -252,23 +250,25 @@ mod tests {
             ],
         };
 
-        let ops_health = crate::css_case_delivery_ops_health::types::CssCaseDeliveryOpsHealthReport {
-            title: "ok".into(),
-            summary: "ok".into(),
-            status: crate::css_case_delivery_ops_health::types::DeliveryOpsHealthStatus::Degraded,
-            checked_at: "2026-03-17T00:00:00Z".into(),
-            api_status: "ok".into(),
-            subscription_count: 1,
-            active_subscription_count: 1,
-            queue_count: 1,
-            alert_count: 1,
-            pending_recovery_count: 0,
-            still_failing_count: 0,
-            recent_failed_log_count: 0,
-            probe_checks: Vec::new(),
-            reasons: Vec::new(),
-            suggested_actions: Vec::new(),
-        };
+        let ops_health =
+            crate::css_case_delivery_ops_health::types::CssCaseDeliveryOpsHealthReport {
+                title: "ok".into(),
+                summary: "ok".into(),
+                status:
+                    crate::css_case_delivery_ops_health::types::DeliveryOpsHealthStatus::Degraded,
+                checked_at: "2026-03-17T00:00:00Z".into(),
+                api_status: "ok".into(),
+                subscription_count: 1,
+                active_subscription_count: 1,
+                queue_count: 1,
+                alert_count: 1,
+                pending_recovery_count: 0,
+                still_failing_count: 0,
+                recent_failed_log_count: 0,
+                probe_checks: Vec::new(),
+                reasons: Vec::new(),
+                suggested_actions: Vec::new(),
+            };
 
         assert!(digest_summary(&metrics, &alerts, &ops_health).contains("1 条异常预警"));
     }

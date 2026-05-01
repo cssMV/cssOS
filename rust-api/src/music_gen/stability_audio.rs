@@ -509,6 +509,9 @@ impl StableAudioClient {
                         // expose lyric alignment. Subtitles fall back to
                         // even-divide for this engine. (#148-D)
                         aligned_lyrics: None,
+                        alt_audio_url: None,
+                        alt_duration_secs: None,
+                        alt_conversion_id: None,
                     });
                 }
                 "failed" | "error" | "canceled" | "cancelled" => {
@@ -567,6 +570,9 @@ fn finalize_from_url(ack: &SubmitAck, audio_url: String, format: String) -> Musi
         title: None,
         raw: serde_json::Value::Null,
         aligned_lyrics: None, // #148-D — instrumental engine, no alignment
+        alt_audio_url: None,
+        alt_duration_secs: None,
+        alt_conversion_id: None,
     }
 }
 

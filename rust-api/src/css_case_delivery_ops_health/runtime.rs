@@ -60,34 +60,49 @@ fn build_reasons(
 ) -> Vec<DeliveryOpsHealthReason> {
     let mut reasons = vec![DeliveryOpsHealthReason {
         label: "Queue coverage".into(),
-        summary: format!("当前可见 {} 个交付队列，{} 个活跃订阅正在被运营面板覆盖。", queue_count, active_subscription_count),
+        summary: format!(
+            "当前可见 {} 个交付队列，{} 个活跃订阅正在被运营面板覆盖。",
+            queue_count, active_subscription_count
+        ),
     }];
 
     if alert_count > 0 {
         reasons.push(DeliveryOpsHealthReason {
             label: "Alert pressure".into(),
-            summary: format!("当前检测到 {} 条实时预警，建议优先复核告警标题和异常摘要。", alert_count),
+            summary: format!(
+                "当前检测到 {} 条实时预警，建议优先复核告警标题和异常摘要。",
+                alert_count
+            ),
         });
     }
 
     if pending_recovery_count > 0 {
         reasons.push(DeliveryOpsHealthReason {
             label: "Recovery queue".into(),
-            summary: format!("恢复队列中仍有 {} 个待处理项，需要继续跟进。", pending_recovery_count),
+            summary: format!(
+                "恢复队列中仍有 {} 个待处理项，需要继续跟进。",
+                pending_recovery_count
+            ),
         });
     }
 
     if still_failing_count > 0 {
         reasons.push(DeliveryOpsHealthReason {
             label: "Still failing".into(),
-            summary: format!("有 {} 个对象在重试后仍失败，已经进入阻塞风险区。", still_failing_count),
+            summary: format!(
+                "有 {} 个对象在重试后仍失败，已经进入阻塞风险区。",
+                still_failing_count
+            ),
         });
     }
 
     if recent_failed_log_count > 0 {
         reasons.push(DeliveryOpsHealthReason {
             label: "Failure log pressure".into(),
-            summary: format!("最近日志中有 {} 条失败记录，建议检查失败模式是否集中。", recent_failed_log_count),
+            summary: format!(
+                "最近日志中有 {} 条失败记录，建议检查失败模式是否集中。",
+                recent_failed_log_count
+            ),
         });
     }
 
@@ -120,7 +135,10 @@ fn build_probe_checks(
         summary: if queue_count == 0 {
             "No delivery queues are currently visible to the ops console.".into()
         } else {
-            format!("{} delivery queues are visible in the current ops snapshot.", queue_count)
+            format!(
+                "{} delivery queues are visible in the current ops snapshot.",
+                queue_count
+            )
         },
     });
 
@@ -257,11 +275,7 @@ pub async fn build_delivery_ops_health(
     let alert_count = ops_console.alerts.alerts.len();
     let pending_recovery_count = ops_console.recovery.summary.pending_recovery_count;
     let still_failing_count = ops_console.recovery.summary.still_failing_count;
-    let recent_failed_log_count = logs
-        .iter()
-        .take(12)
-        .filter(|item| !item.succeeded)
-        .count();
+    let recent_failed_log_count = logs.iter().take(12).filter(|item| !item.succeeded).count();
     let status = status_from_counts(
         alert_count,
         pending_recovery_count,

@@ -41,7 +41,15 @@ const DEFAULT_MODEL: &str = "eleven_music_v1";
 const DEFAULT_POLL_INTERVAL_SECS: u64 = 4;
 const DEFAULT_TIMEOUT_SECS: u64 = 600;
 const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 90;
-const DEFAULT_MUSIC_LENGTH_MS: u64 = 30_000;
+// CSSOS_PHASE2_MUSIC_DEFAULT_FULL 20260428 #168.1 — Jing
+// "我们也不一定写死5分钟，而是歌词需要有多少分钟，就应该有多少分钟。
+//  甚至不要局限于行业标准的8分钟，我曾在Suno用Extend一首歌到6:30分钟。"
+//
+// Old default was 30s (test-tier value) so when lyrics broadcast was
+// broken and target_duration_secs didn't reach the adapter, we got
+// 30-60s output. New default 180s (3 min) is the floor every real
+// song should clear; lyrics-derived target_duration_secs override it.
+const DEFAULT_MUSIC_LENGTH_MS: u64 = 180_000;
 const DEFAULT_CACHE_DIR: &str = "/tmp/cssos-music";
 
 #[derive(Debug, Clone)]
@@ -307,6 +315,27 @@ impl ElevenMusicClient {
         &self,
         req: &MusicGenRequest,
     ) -> Result<MusicGenResult, MusicGenError> {
+        // CSSOS_PHASE2_ELEVEN_SIDECAR 20260429 #185 — Jing
+        // "请使用composition-plan模式 ... 走官方 SDK 才稳"
+        // When ELEVEN_MUSIC_VIA_SIDECAR=1 is set, delegate to the local
+        // Python sidecar that wraps the official elevenlabs SDK. This is
+        // the path that produces real sung vocals — flat-prompt mode
+        // (below) keeps existing as a graceful fallback if the sidecar
+        // is offline or rejects the request.
+        if std::env::var("ELEVEN_MUSIC_VIA_SIDECAR").ok().as_deref() == Some("1") {
+            match self.generate_via_sidecar(req).await {
+                Ok(result) => return Ok(result),
+                Err(err) => {
+                    tracing::warn!(
+                        target = "elevenlabs_music",
+                        sidecar_error = %err,
+                        "sidecar compose failed; falling back to flat-prompt path"
+                    );
+                    // fall through to legacy submit() path
+                }
+            }
+        }
+
         let ack = self.submit(req).await?;
 
         // Sync path: bytes already in hand, or URL already resolved inline.
@@ -328,6 +357,158 @@ impl ElevenMusicClient {
         Err(MusicGenError::MissingField("audio_url|audio_bytes"))
     }
 
+    /// CSSOS_PHASE2_ELEVEN_SIDECAR 20260429 #185 — Jing
+    /// "请使用 composition-plan 模式 ... 走官方 SDK 才稳"
+    ///
+    /// POSTs to a localhost FastAPI sidecar (`/srv/cssos/eleven-music-sidecar`)
+    /// that wraps the official `elevenlabs` Python SDK. The sidecar handles
+    /// composition_plan schema-drift for us; we just hand it the lyrics +
+    /// style + duration and stream the resulting mp3 bytes back.
+    ///
+    /// Returns a `MusicGenResult` with the cached `file://` URL exactly the
+    /// way the legacy `submit()` path does, so callers see no shape change.
+    /// Falls back to the caller (which then tries flat-prompt) on any error.
+    async fn generate_via_sidecar(
+        &self,
+        req: &MusicGenRequest,
+    ) -> Result<MusicGenResult, MusicGenError> {
+        let sidecar_url = std::env::var("ELEVEN_MUSIC_SIDECAR_URL")
+            .unwrap_or_else(|_| "http://127.0.0.1:8765".into());
+        let endpoint = format!("{}/compose", sidecar_url.trim_end_matches('/'));
+
+        // Resolve the same target duration the flat-prompt path uses, so a
+        // run that asked for 5 min gets 5 min from either branch.
+        let duration_ms: u64 = match req.target_duration_secs {
+            Some(secs) if secs > 0 => (secs.clamp(30, 1200) as u64) * 1000,
+            _ => self.cfg.music_length_ms,
+        };
+
+        // MusicGenRequest gives us `prompt` (visual/song seed), `music_style`
+        // (genre + mood text), and `lyrics`. The sidecar treats `style` as
+        // the global style description, so concat prompt + music_style as
+        // one global hint and ship the full lyric body for sectioning.
+        let style_text = match (req.prompt.as_str(), req.music_style.as_deref()) {
+            ("", Some(ms)) if !ms.is_empty() => ms.to_string(),
+            (p, Some(ms)) if !p.is_empty() && !ms.is_empty() => format!("{}. {}", p, ms),
+            (p, _) => p.to_string(),
+        };
+        let body = serde_json::json!({
+            "title":             req.prompt.clone(),
+            "lyrics":            req.lyrics.clone().unwrap_or_default(),
+            "style":             style_text,
+            "duration_ms":       duration_ms,
+            "language":          serde_json::Value::Null,
+            "make_instrumental": req.make_instrumental,
+            "output_format":     "mp3_44100_192",
+        });
+
+        // The sidecar needs as much wall-time as the SDK does; ElevenLabs
+        // composition_plan can take 60-120 s for a 3-5 min song. We give
+        // it 8 min before treating it as hung.
+        let sidecar_http = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(480))
+            .connect_timeout(std::time::Duration::from_secs(5))
+            .pool_max_idle_per_host(1)
+            .user_agent("cssos-rust-api/eleven-sidecar")
+            .build()?;
+
+        tracing::info!(
+            target = "elevenlabs_music",
+            sidecar_url = %endpoint,
+            duration_ms = duration_ms,
+            instrumental = req.make_instrumental,
+            "sidecar compose start"
+        );
+
+        let resp = sidecar_http
+            .post(&endpoint)
+            .json(&body)
+            .send()
+            .await?;
+        let status = resp.status();
+        if !status.is_success() {
+            let detail = resp.text().await.unwrap_or_default();
+            tracing::warn!(
+                target = "elevenlabs_music",
+                status = status.as_u16(),
+                detail = %detail,
+                "sidecar compose failed"
+            );
+            return Err(MusicGenError::Upstream {
+                status: status.as_u16(),
+                body: detail,
+            });
+        }
+        // CSSOS_PHASE2_ALIGNED_LYRICS_FROM_PLAN 20260429 #190 — Jing
+        // "字幕引擎没有拿到带时间戳的歌词时间轴".
+        // The sidecar synthesizes per-line timestamps from the
+        // composition_plan and ships them base64-encoded in this header
+        // so the bytes body itself stays clean audio. Decode + parse here
+        // so /api/mv/subtitles can build a real SRT instead of even-divide.
+        let aligned_b64 = resp
+            .headers()
+            .get("X-Eleven-Aligned-Lyrics-B64")
+            .and_then(|h| h.to_str().ok())
+            .map(|s| s.to_string());
+
+        let bytes = resp.bytes().await?;
+        if bytes.is_empty() {
+            return Err(MusicGenError::Upstream {
+                status: status.as_u16(),
+                body: "sidecar returned 0 audio bytes".into(),
+            });
+        }
+
+        let aligned_lyrics: Option<Vec<crate::music_gen::AlignedLyricLine>> = aligned_b64
+            .as_deref()
+            .and_then(|b64| {
+                use base64::Engine;
+                base64::engine::general_purpose::STANDARD.decode(b64).ok()
+            })
+            .and_then(|raw| String::from_utf8(raw).ok())
+            .and_then(|s| serde_json::from_str(&s).ok());
+
+        // Cache the bytes under the same scheme the flat-prompt path uses
+        // so downstream (compose pipeline, work_assets, polling) treats it
+        // identically to a regular ElevenLabs synchronous response.
+        let task_id = format!("eleven-sidecar-{}", chrono::Utc::now().timestamp_millis());
+        let url = self.cache_bytes_to_local_url(&task_id, &bytes)?;
+
+        tracing::info!(
+            target = "elevenlabs_music",
+            task_id = %task_id,
+            bytes = bytes.len(),
+            cached_url = %url,
+            "sidecar compose ok"
+        );
+
+        Ok(MusicGenResult {
+            task_id,
+            conversion_id: None,
+            audio_url: url,
+            format: "mp3".into(),
+            duration_secs: Some(duration_ms as f64 / 1000.0),
+            title: if req.prompt.is_empty() { None } else { Some(req.prompt.clone()) },
+            raw: serde_json::json!({
+                "engine": "elevenlabs",
+                "version": "v1-composition-plan",
+                "via": "sidecar",
+                "duration_ms": duration_ms,
+                "bytes": bytes.len(),
+            }),
+            // Sidecar synthesizes aligned_lyrics from composition_plan
+            // section durations (#190). When parsing failed for any
+            // reason the value is None and downstream falls back to the
+            // even-divide path in /api/mv/subtitles.
+            aligned_lyrics,
+            // ElevenLabs Music returns a single track per request; #208
+            // dual-track is Suno-only.
+            alt_audio_url: None,
+            alt_duration_secs: None,
+            alt_conversion_id: None,
+        })
+    }
+
     async fn submit(&self, req: &MusicGenRequest) -> Result<SubmitAck, MusicGenError> {
         let url = format!(
             "{}{}",
@@ -335,47 +516,151 @@ impl ElevenMusicClient {
             self.cfg.submit_path
         );
 
-        // The ElevenLabs Music API accepts `prompt`, `music_length_ms`, and
-        // `model_id` at the top level. Optional style/lyrics get folded into
-        // the prompt for v1 (there's no separate lyrics field yet); if ops
-        // flip `ELEVEN_MUSIC_USE_LYRICS_FIELD=1` we emit a separate key.
-        let composed_prompt = compose_prompt(req);
-        let mut body = serde_json::Map::new();
-        body.insert(
-            "prompt".into(),
-            serde_json::Value::String(composed_prompt.clone()),
-        );
         // CSSOS_PHASE2_TARGET_DURATION 20260426 #148-C — Jing
         // "京典模板10节歌词，输出的音乐一般在5分钟左右，现在只有30秒。"
-        // When the caller provides target_duration_secs, override the env
-        // default. ElevenLabs Music supports 10s..5min at the time of
-        // writing; clamp to a conservative 30s..5min range so a buggy or
-        // out-of-spec caller can't trigger a 422.
+        // CSSOS_PHASE2_LONG_SONG 20260428 #168.1 — bumped ceiling 300→600.
+        // CSSOS_PHASE2_COMPOSITION_PLAN 20260429 #168.10 — Jing
+        // "我已经升级为ElevenCreative了... ElevenLabs Music API 在同一个
+        //  endpoint 同时支持两种模式。那就请使用composition-plan模式。"
+        // Resolve target length first so both code paths use it.
         let resolved_length_ms: u64 = match req.target_duration_secs {
             Some(secs) if secs > 0 => {
-                let clamped = secs.clamp(30, 300) as u64;
+                // composition_plan mode supports longer pieces — relax
+                // ceiling from 600 to 1200 (20 min). Sync mode still caps
+                // at 600 below in practice (ElevenLabs returns ~60-90s
+                // regardless of music_length_ms in that mode).
+                let clamped = secs.clamp(30, 1200) as u64;
                 let ms = clamped * 1000;
                 tracing::info!(
                     target = "elevenlabs_music",
                     requested_secs = secs,
                     clamped_secs = clamped,
+                    resolved_ms = ms,
                     "honoring caller-supplied target_duration_secs"
                 );
                 ms
             }
-            _ => self.cfg.music_length_ms,
+            _ => {
+                tracing::warn!(
+                    target = "elevenlabs_music",
+                    default_ms = self.cfg.music_length_ms,
+                    "caller passed NO target_duration_secs — using default; \
+                     lyrics broadcast may be broken upstream"
+                );
+                self.cfg.music_length_ms
+            }
         };
-        body.insert(
-            "music_length_ms".into(),
-            serde_json::Value::Number(serde_json::Number::from(resolved_length_ms)),
-        );
+
+        let composed_prompt = compose_prompt(req);
+        let lyrics_clean = req
+            .lyrics
+            .as_ref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
+        // CSSOS_PHASE2_DROP_COMPOSITION_PLAN 20260429 #174 — Jing
+        // "只是朗读歌词，而不是唱旋律歌词" — composition_plan body in our
+        // schema turned out to make ElevenLabs treat sections as TTS-style
+        // narration instead of sung music. Schema mismatch with their
+        // internal field names. Until we can validate the real schema,
+        // GATE composition_plan behind ELEVEN_MUSIC_COMPOSITION_PLAN=1 env
+        // and default to the documented prompt+lyrics+music_length_ms form
+        // that genuinely outputs sung vocals at the requested duration
+        // (Creator plan supports up to 10 min when lyrics is non-empty).
+        let style_hint = req
+            .music_style
+            .as_ref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let composition_plan_enabled = std::env::var("ELEVEN_MUSIC_COMPOSITION_PLAN")
+            .ok()
+            .map(|s| {
+                let t = s.trim().to_ascii_lowercase();
+                t == "1" || t == "true" || t == "yes"
+            })
+            .unwrap_or(false);
+        let plan_opt = if composition_plan_enabled {
+            if let Some(ref lyrics) = lyrics_clean {
+                build_composition_plan(
+                    lyrics,
+                    resolved_length_ms,
+                    style_hint.as_deref(),
+                    req.make_instrumental,
+                )
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let mut body = serde_json::Map::new();
+        let using_composition_plan = plan_opt.is_some();
+        if let Some(plan) = plan_opt {
+            // CSSOS_PHASE2_PLAN_EXCLUSIVE 20260429 #171b — Jing
+            // ElevenLabs rejects sending BOTH `prompt` and `composition_plan`:
+            //   422 "You must provide exactly one of `prompt` or
+            //        `composition_plan`."
+            // Send ONLY composition_plan in this mode (sections carry their
+            // own duration + lines + style hints). Top-level prompt /
+            // lyrics / music_length_ms get DROPPED here.
+            tracing::info!(
+                target = "elevenlabs_music",
+                resolved_ms = resolved_length_ms,
+                "using composition_plan mode for long-form generation (exclusive — no prompt/lyrics/music_length_ms top-level)"
+            );
+            body.insert("composition_plan".into(), plan);
+        } else {
+            // CSSOS_PHASE2_LYRICS_INLINE_PROMPT 20260429 #178 — Jing
+            // "音乐里的人声呢？之前是有人声的哦"
+            // Top-level `lyrics` field made Eleven generate INSTRUMENTAL.
+            // Their /v1/music flat body apparently treats `prompt` as the
+            // ONLY content directive — `lyrics` is silently ignored. Solution:
+            // embed the lyrics directly INSIDE the prompt with explicit
+            // "sung vocals" instruction so the engine knows it's singing.
+            //
+            // Body shape:
+            //   { prompt: "<style>. Sing these lyrics:\n<full lyrics>",
+            //     music_length_ms }
+            let mut prompt_text = composed_prompt.clone();
+            // Add explicit vocal-mode instruction unless instrumental.
+            if !req.make_instrumental && lyrics_clean.is_some() {
+                let raw = lyrics_clean.as_deref().unwrap_or("");
+                let cleaned = clean_lyrics_for_singing(raw);
+                if !cleaned.is_empty() {
+                    if !prompt_text.is_empty() {
+                        prompt_text.push_str(". ");
+                    }
+                    prompt_text.push_str(
+                        "Full vocal performance with sung lyrics. \
+                        The vocalist must clearly sing every line below \
+                        from start to finish across the whole duration. \
+                        Sing these exact lyrics in order:\n\n",
+                    );
+                    prompt_text.push_str(&cleaned);
+                }
+            }
+            tracing::info!(
+                target = "elevenlabs_music",
+                resolved_ms = resolved_length_ms,
+                has_lyrics = lyrics_clean.is_some(),
+                prompt_chars = prompt_text.chars().count(),
+                "using flat prompt+music_length_ms mode (lyrics inlined into prompt)"
+            );
+            body.insert(
+                "prompt".into(),
+                serde_json::Value::String(prompt_text),
+            );
+            body.insert(
+                "music_length_ms".into(),
+                serde_json::Value::Number(serde_json::Number::from(resolved_length_ms)),
+            );
+        }
         // CSSOS_PHASE2_ELEVEN_MODEL_OPTIONAL 20260425 #100 — Jing saw
         // ElevenLabs reject `"model_id":"eleven_music_v1"` with 422
-        // "Invalid model id". ElevenLabs has changed their Music model
-        // IDs multiple times; rather than hardcode one that'll break
-        // again, we only emit model_id when ops has explicitly set
-        // ELEVEN_MUSIC_MODEL in env. Without the env, ElevenLabs uses
-        // its own server-side default — which always works.
+        // "Invalid model id". Only emit model_id when ops explicitly
+        // configured ELEVEN_MUSIC_MODEL; otherwise let server pick.
+        // Applies to both modes.
         let explicit_model = std::env::var("ELEVEN_MUSIC_MODEL")
             .ok()
             .map(|s| s.trim().to_string())
@@ -386,26 +671,7 @@ impl ElevenMusicClient {
                 serde_json::Value::String(model),
             );
         }
-        if let Some(lyrics) = req
-            .lyrics
-            .as_ref()
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-        {
-            if std::env::var("ELEVEN_MUSIC_USE_LYRICS_FIELD")
-                .ok()
-                .map(|s| {
-                    let t = s.trim().to_ascii_lowercase();
-                    t == "1" || t == "true" || t == "yes"
-                })
-                .unwrap_or(false)
-            {
-                body.insert(
-                    "lyrics".into(),
-                    serde_json::Value::String(lyrics.to_string()),
-                );
-            }
-        }
+        let _ = using_composition_plan; // reserved for future logging
         let body = serde_json::Value::Object(body);
         let resp = self.http.post(&url).json(&body).send().await?;
         let status = resp.status();
@@ -552,6 +818,9 @@ impl ElevenMusicClient {
                         title: None,
                         raw: v,
                         aligned_lyrics,
+                        alt_audio_url: None,
+                        alt_duration_secs: None,
+                        alt_conversion_id: None,
                     });
                 }
                 "failed" | "error" | "canceled" | "cancelled" => {
@@ -592,6 +861,336 @@ fn compose_prompt(req: &MusicGenRequest) -> String {
     parts.join(". ")
 }
 
+// CSSOS_PHASE2_COMPOSITION_PLAN 20260429 #168.10 — composition_plan helpers.
+// ElevenLabs Music API accepts a sectioned plan body where each section has
+// its own duration_ms + lines + local style hints; sum of section durations
+// is the final song length. This is the path that supports 3-10 min songs.
+
+/// Count `[Section Name]` markers in lyrics (one per line, header-only).
+fn count_section_markers(lyrics: &str) -> usize {
+    lyrics
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| {
+            l.starts_with('[')
+                && l.ends_with(']')
+                && l.len() >= 3
+                && l.len() <= 40
+                && !l.contains('\t')
+        })
+        .count()
+}
+
+/// Build a composition_plan JSON value from lyrics text + a target duration.
+/// Returns None when lyrics is empty or unparseable.
+fn build_composition_plan(
+    lyrics: &str,
+    total_duration_ms: u64,
+    style_hint: Option<&str>,
+    instrumental: bool,
+) -> Option<serde_json::Value> {
+    let trimmed = lyrics.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let sections = parse_lyric_sections(trimmed);
+    if sections.is_empty() {
+        return None;
+    }
+
+    let total_lines: usize = sections
+        .iter()
+        .map(|(_, lines)| lines.len().max(1))
+        .sum::<usize>()
+        .max(1);
+    let total_ms = total_duration_ms.max(60_000);
+
+    let mut json_sections: Vec<serde_json::Value> = Vec::new();
+    let mut allocated_ms: u64 = 0;
+    let last_idx = sections.len() - 1;
+    for (i, (name, lines)) in sections.iter().enumerate() {
+        let weight = lines.len().max(1) as f64 / total_lines as f64;
+        let mut section_ms = (total_ms as f64 * weight) as u64;
+        // Min 8s per section so very short sections still render.
+        section_ms = section_ms.max(8_000);
+        if i == last_idx {
+            // Last section absorbs remainder so the sum hits total_ms exactly
+            section_ms = total_ms.saturating_sub(allocated_ms).max(8_000);
+        }
+        allocated_ms = allocated_ms.saturating_add(section_ms);
+
+        let mut section = serde_json::Map::new();
+        section.insert(
+            "section_name".into(),
+            serde_json::Value::String(name.clone()),
+        );
+        section.insert(
+            "duration_ms".into(),
+            serde_json::Value::Number(serde_json::Number::from(section_ms)),
+        );
+        section.insert(
+            "lines".into(),
+            serde_json::Value::Array(
+                lines
+                    .iter()
+                    .map(|l| serde_json::Value::String(l.clone()))
+                    .collect(),
+            ),
+        );
+        section.insert(
+            "positive_local_styles".into(),
+            serde_json::Value::Array(infer_local_styles(name, instrumental)),
+        );
+        section.insert(
+            "negative_local_styles".into(),
+            serde_json::Value::Array(vec![]),
+        );
+        json_sections.push(serde_json::Value::Object(section));
+    }
+
+    let mut positive_global: Vec<serde_json::Value> = Vec::new();
+    if let Some(hint) = style_hint
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        positive_global.push(serde_json::Value::String(hint.to_string()));
+    }
+    if instrumental {
+        positive_global.push(serde_json::Value::String(
+            "instrumental, no vocals".to_string(),
+        ));
+    }
+    if positive_global.is_empty() {
+        positive_global.push(serde_json::Value::String(
+            "cinematic emotional full vocal performance".to_string(),
+        ));
+    }
+
+    let mut plan = serde_json::Map::new();
+    plan.insert(
+        "positive_global_styles".into(),
+        serde_json::Value::Array(positive_global),
+    );
+    plan.insert(
+        "negative_global_styles".into(),
+        serde_json::Value::Array(vec![
+            serde_json::Value::String("low quality, muddy, distorted".to_string()),
+        ]),
+    );
+    plan.insert(
+        "sections".into(),
+        serde_json::Value::Array(json_sections),
+    );
+    Some(serde_json::Value::Object(plan))
+}
+
+/// CSSOS_PHASE2_CLEAN_LYRICS 20260429 #170 — Jing
+/// "现在是不唱歌词，却朗读这些[]里的非歌词文案"
+/// Strip every line wrapped in `[...]` (titles / acts / scenes / stage
+/// directions / section headers) so what remains is ONLY the actual
+/// sung lyric body. Used both inside composition_plan section.lines AND
+/// as a top-level `lyrics` field, so ElevenLabs receives the cleanest
+/// possible singing material no matter which field it reads.
+fn clean_lyrics_for_singing(raw: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    for line in raw.lines() {
+        let t = line.trim();
+        if t.is_empty() {
+            continue;
+        }
+        if t.starts_with('[') && t.ends_with(']') {
+            // Bracket-wrapped — drop entirely (header or metadata).
+            continue;
+        }
+        // Strip leading/trailing bracket fragments inside an otherwise-
+        // clean line, e.g. "[Verse 1] 无上" → "无上".
+        let cleaned = if let (Some(l), Some(r)) = (t.find('['), t.rfind(']')) {
+            if l == 0 && r > l {
+                t[r + 1..].trim().to_string()
+            } else if r == t.len() - 1 && l < r {
+                t[..l].trim().to_string()
+            } else {
+                t.to_string()
+            }
+        } else {
+            t.to_string()
+        };
+        if !cleaned.is_empty() {
+            out.push(cleaned);
+        }
+    }
+    out.join("\n")
+}
+
+/// Detect whether a `[Foo]` bracket line is a real section header
+/// (Verse/Chorus/Bridge/etc.) versus narrative metadata
+/// (`[Act I – ...]`, `[Scene I – ...]`, `[中国创世神话 盘古开天辟地]`).
+/// Without this filter, ElevenLabs would happily *recite* the bracketed
+/// metadata as if it were sung lyrics — exactly the failure Jing reported.
+fn is_section_header_keyword(inner: &str) -> bool {
+    let lc = inner.to_ascii_lowercase();
+    let head = lc.split(|c: char| !c.is_ascii_alphanumeric() && c != '-')
+        .find(|s| !s.is_empty())
+        .unwrap_or("");
+    matches!(
+        head,
+        "verse" | "chorus" | "bridge" | "intro" | "outro" | "hook" |
+        "refrain" | "pre" | "prechorus" | "pre-chorus" | "coda" |
+        "prelude" | "interlude" | "ending" | "opening" | "drop" | "build"
+    )
+}
+
+/// Strip ALL `[ ... ]` bracketed wrappers from a lyric line so ElevenLabs
+/// never receives "[Verse 1 – Deep Xun drone begins]" as text-to-sing.
+fn looks_like_bracket_only_line(line: &str) -> bool {
+    let t = line.trim();
+    t.starts_with('[') && t.ends_with(']') && t.len() >= 3
+}
+
+/// Normalize a section header to a short, music-engine-friendly label
+/// like "Verse 1", "Chorus", etc. — strips the freeform " – descriptor"
+/// tail so ElevenLabs uses the keyword as a structure hint, not as text.
+fn normalize_section_label(inner: &str) -> String {
+    // Cut at first " – " / " - " / ":" / "(" — those start descriptions.
+    let cut_at = inner
+        .find(" – ")
+        .or_else(|| inner.find(" - "))
+        .or_else(|| inner.find('('))
+        .or_else(|| inner.find('—'))
+        .unwrap_or(inner.len());
+    inner[..cut_at].trim().to_string()
+}
+
+/// Parse `[Section Header]` blocks. If no headers found, fall back to
+/// heuristic split into Intro / Verse / Chorus / Outro by line groups.
+///
+/// CSSOS_PHASE2_STRIP_BRACKET_LYRICS 20260429 #170 — Jing
+/// "现在是不唱歌词，却朗读这些[]里的非歌词文案，也不唱歌词，只朗读"
+/// ElevenLabs was reading bracketed narrative wrappers as if they were
+/// sung text. Now: only Verse/Chorus/Bridge/etc. brackets are treated as
+/// section headers; ALL other bracketed lines (titles, acts, scenes,
+/// stage directions) are DROPPED so they're never sung.
+fn parse_lyric_sections(text: &str) -> Vec<(String, Vec<String>)> {
+    let mut out: Vec<(String, Vec<String>)> = Vec::new();
+    let mut current_name: Option<String> = None;
+    let mut current_lines: Vec<String> = Vec::new();
+    let mut found_marker = false;
+
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+        // Bracket-wrapped line: either a real section header or metadata.
+        if line.starts_with('[') && line.ends_with(']') && line.len() >= 3 {
+            let inner = line[1..line.len() - 1].trim();
+            if is_section_header_keyword(inner) {
+                // Real header (Verse 1 / Chorus / Bridge / Intro / Outro).
+                found_marker = true;
+                if !current_lines.is_empty() {
+                    let name = current_name
+                        .clone()
+                        .unwrap_or_else(|| "Verse".to_string());
+                    out.push((name, std::mem::take(&mut current_lines)));
+                }
+                current_name = Some(normalize_section_label(inner));
+            } else {
+                // Narrative metadata — DROP it. Never sing this.
+                tracing::debug!(
+                    target = "elevenlabs_music",
+                    metadata = %inner,
+                    "dropping bracket metadata line (not a section header)"
+                );
+            }
+            continue;
+        }
+        // Non-bracket plain lyric line — but defensively drop any bracket-
+        // wrapped fragments that slipped through the trim.
+        if looks_like_bracket_only_line(line) {
+            continue;
+        }
+        current_lines.push(line.to_string());
+    }
+    if !current_lines.is_empty() {
+        let name = current_name
+            .clone()
+            .unwrap_or_else(|| "Verse".to_string());
+        out.push((name, current_lines));
+    }
+
+    if !found_marker {
+        // No real section markers — flatten and split heuristically.
+        let all_lines: Vec<String> = out
+            .into_iter()
+            .flat_map(|(_, lines)| lines)
+            .collect();
+        return split_unmarked_into_sections(all_lines);
+    }
+
+    // Drop empty sections (header followed by no lines) defensively.
+    out.into_iter().filter(|(_, l)| !l.is_empty()).collect()
+}
+
+/// Heuristic 4-section split for lyrics with no `[Section]` markers.
+fn split_unmarked_into_sections(lines: Vec<String>) -> Vec<(String, Vec<String>)> {
+    let n = lines.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    if n < 4 {
+        return vec![("Verse".to_string(), lines)];
+    }
+    if n < 8 {
+        // Two-section split.
+        let mid = n / 2;
+        return vec![
+            ("Verse".to_string(), lines[..mid].to_vec()),
+            ("Chorus".to_string(), lines[mid..].to_vec()),
+        ];
+    }
+    // Four-section split (Intro / Verse / Chorus / Outro).
+    let chunk = (n + 3) / 4;
+    let names = ["Intro", "Verse", "Chorus", "Outro"];
+    let mut out: Vec<(String, Vec<String>)> = Vec::new();
+    for (i, name) in names.iter().enumerate() {
+        let start = i * chunk;
+        if start >= n {
+            break;
+        }
+        let end = ((i + 1) * chunk).min(n);
+        out.push((name.to_string(), lines[start..end].to_vec()));
+    }
+    out
+}
+
+/// Per-section style hint based on section name pattern.
+fn infer_local_styles(section_name: &str, instrumental: bool) -> Vec<serde_json::Value> {
+    let n = section_name.to_ascii_lowercase();
+    let hint = if n.contains("intro") || n.contains("opening") {
+        "instrumental opening, building atmosphere, ambient swell"
+    } else if n.contains("chorus") || n.contains("hook") || n.contains("refrain") {
+        "powerful chorus, anthemic vocals, full instrumentation"
+    } else if n.contains("bridge") {
+        "emotional bridge, dynamic shift, rising tension"
+    } else if n.contains("outro") || n.contains("ending") || n.contains("coda") {
+        "concluding section, resolving fade, final cadence"
+    } else if n.contains("verse") {
+        "verse vocals, melodic flow, supporting instrumentation"
+    } else if n.contains("pre") {
+        "pre-chorus lift, building energy"
+    } else {
+        "melodic vocals, expressive delivery"
+    };
+    let mut out = vec![serde_json::Value::String(hint.to_string())];
+    if instrumental {
+        out.push(serde_json::Value::String(
+            "instrumental only".to_string(),
+        ));
+    }
+    out
+}
+
 fn finalize_result_from_url(ack: &SubmitAck, audio_url: String) -> MusicGenResult {
     // CSSOS_PHASE2_ALIGNED_LYRICS 20260426 #148-D — Jing
     // The fast-sync path (binary audio response, no JSON envelope) has no
@@ -607,6 +1206,9 @@ fn finalize_result_from_url(ack: &SubmitAck, audio_url: String) -> MusicGenResul
         title: None,
         raw: serde_json::Value::Null,
         aligned_lyrics: None,
+        alt_audio_url: None,
+        alt_duration_secs: None,
+        alt_conversion_id: None,
     }
 }
 

@@ -150,7 +150,7 @@ CREATE TABLE IF NOT EXISTS work_assets (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
 
-  work_id       UUID NOT NULL REFERENCES works(id) ON DELETE CASCADE,
+  work_id       UUID NOT NULL REFERENCES user_works(id) ON DELETE CASCADE,
   asset_type    TEXT NOT NULL,
   url           TEXT NOT NULL,
   meta          JSONB NOT NULL DEFAULT '{}'::jsonb

@@ -132,7 +132,59 @@ pub fn ensure_storyboard_auto(
 
 fn load_storyboard(path: &Path) -> anyhow::Result<Storyboard> {
     let s = fs::read_to_string(path)?;
-    let sb: Storyboard = serde_json::from_str(&s)?;
+    if let Ok(sb) = serde_json::from_str::<Storyboard>(&s) {
+        return Ok(sb);
+    }
+    let value: serde_json::Value = serde_json::from_str(&s)?;
+    let schema = value
+        .get("schema")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    if schema == "css.video.plan.v1" {
+        let seed = value.get("seed").and_then(|v| v.as_u64()).unwrap_or(123);
+        let fps = value.get("fps").and_then(|v| v.as_u64()).unwrap_or(30) as u32;
+        let shots = value
+            .get("shots")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .enumerate()
+            .map(|(index, shot)| Shot {
+                id: shot
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| format!("video_shot_{index:03}")),
+                duration_s: shot
+                    .get("duration_s")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(4.0),
+                prompt: shot
+                    .get("prompt")
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.to_string()),
+                bg: Bg {
+                    kind: "color".to_string(),
+                    value: "#08110d".to_string(),
+                },
+                camera: Camera {
+                    r#move: "push_in".to_string(),
+                    strength: 0.18,
+                    strategy: Some("legacy_plan_upgrade".to_string()),
+                },
+                overlay: Overlay { enabled: false },
+            })
+            .collect();
+        return Ok(Storyboard {
+            schema: "css.video.storyboard.v1".to_string(),
+            seed,
+            fps,
+            resolution: Resolution { w: 1280, h: 720 },
+            shots,
+        });
+    }
+    let sb: Storyboard = serde_json::from_value(value)?;
     Ok(sb)
 }
 

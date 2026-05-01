@@ -157,17 +157,32 @@ pub fn delivery_digest_to_text(
         let pass = ops_health
             .probe_checks
             .iter()
-            .filter(|probe| matches!(probe.status, crate::css_case_delivery_ops_health::types::DeliveryOpsProbeStatus::Pass))
+            .filter(|probe| {
+                matches!(
+                    probe.status,
+                    crate::css_case_delivery_ops_health::types::DeliveryOpsProbeStatus::Pass
+                )
+            })
             .count();
         let warn = ops_health
             .probe_checks
             .iter()
-            .filter(|probe| matches!(probe.status, crate::css_case_delivery_ops_health::types::DeliveryOpsProbeStatus::Warn))
+            .filter(|probe| {
+                matches!(
+                    probe.status,
+                    crate::css_case_delivery_ops_health::types::DeliveryOpsProbeStatus::Warn
+                )
+            })
             .count();
         let fail = ops_health
             .probe_checks
             .iter()
-            .filter(|probe| matches!(probe.status, crate::css_case_delivery_ops_health::types::DeliveryOpsProbeStatus::Fail))
+            .filter(|probe| {
+                matches!(
+                    probe.status,
+                    crate::css_case_delivery_ops_health::types::DeliveryOpsProbeStatus::Fail
+                )
+            })
             .count();
         out.push(String::new());
         out.push("探针总览：".into());

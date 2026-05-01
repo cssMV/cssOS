@@ -139,6 +139,17 @@ pub enum ComposeSegment {
         /// xfade duration in seconds. Default 1.2s.
         #[serde(default)]
         transition_duration_secs: Option<f64>,
+        /// CSSOS_PHASE2_FACE_BIAS_KENBURNS 20260430 #224 — Jing
+        /// "slideshow planner + ffmpeg 是否可以尽量让 Lite 封面图露出
+        ///  人物的脸部？" Optional normalised focus point (0.0..=1.0)
+        /// the Ken Burns zoompan should orbit around. Frontend can pass
+        /// the centroid of a detected face (Browser FaceDetector API)
+        /// or a hand-picked rule-of-thirds bias. Default = (0.5, 0.4)
+        /// — upper-center, where most album-cover faces land.
+        #[serde(default)]
+        focus_x: Option<f64>,
+        #[serde(default)]
+        focus_y: Option<f64>,
     },
 }
 
@@ -286,31 +297,37 @@ pub async fn compose_mv(req: &ComposeRequest) -> Result<ComposeResult> {
 
 async fn compose_legacy(
     video_path: &Path,
-    _audio_path_opt: Option<&Path>,
+    audio_path_opt: Option<&Path>,
     _srt_path: Option<&Path>,
     final_path: &Path,
 ) -> Result<()> {
-    // CSSOS_PHASE2_SEPARATE_STREAMS 20260427 #151 — Jing
-    // "不要烧录字幕，不要烧录音频，这是为以后我们的多语言歌词，多声线方便。
-    //  字幕，音乐，视频，永远都是分开着的。用户可以在欣赏 MV 的时候，可以
-    //  即时切换不同语言的歌词，不同的声线。"
+    // CSSOS_PHASE2_AUDIO_BACK_IN_MP4 20260427 #164 — Jing clarification
+    // "我是叫你剥开音频，不要和视频'烧录'，而不是禁止音频/扔掉音频。"
     //
-    // The legacy/hybrid compose paths used to mux audio + burn subtitles
-    // into the final mp4. That couples the assets together and prevents
-    // runtime switching of language / voice variants. The Watch panel
-    // already handles three separate streams (video / audio / srt) via
-    // separate <video>, <audio> and HTML overlay elements with a sync
-    // controller, so the right thing here is to ship a SILENT VIDEO-ONLY
-    // mp4 from compose. Audio and SRT continue to be delivered as
-    // separate work_assets to the frontend.
+    // Reverts the audio strip from #151. Audio IS muxed back into the
+    // final mp4 so the <video> element plays sound out of the box (no
+    // dependence on a separate <audio> element being primed first). The
+    // SAME audio file is ALSO delivered as a standalone work_asset so
+    // the frontend can later swap voice tracks at runtime.
     //
-    // _audio_path_opt and _srt_path are kept in the signature to preserve
-    // API compatibility for the hybrid path; both are unused at the
-    // ffmpeg level now.
+    // Subtitle burn-in stays disabled (kept independent for runtime
+    // language switch) — that part of #151 is correct.
     let mut cmd = tokio::process::Command::new("ffmpeg");
     cmd.arg("-y").arg("-i").arg(video_path);
-    cmd.arg("-c:v").arg("copy");
-    cmd.arg("-an"); // explicit no-audio
+    if let Some(ap) = audio_path_opt {
+        cmd.arg("-i").arg(ap);
+        cmd.arg("-c:v").arg("copy");
+        cmd.arg("-c:a").arg("aac").arg("-b:a").arg("192k");
+        cmd.arg("-map").arg("0:v:0").arg("-map").arg("1:a:0");
+        // CSSOS_PHASE2_AUDIO_DRIVES_VIDEO 20260430 #210 — Jing
+        // No `-shortest` here either: with `-c:v copy` we keep the video
+        // stream's native length; if audio is longer ffmpeg emits the
+        // remaining audio after video EOF (player shows nothing for the
+        // tail) — that's still better than chopping the song.
+    } else {
+        cmd.arg("-c:v").arg("copy");
+        cmd.arg("-an");
+    }
     cmd.arg("-movflags")
         .arg("+faststart")
         .arg(final_path)
@@ -519,30 +536,71 @@ async fn compose_xfade_chain(
     for p in seg_paths {
         cmd.arg("-i").arg(p);
     }
-    // CSSOS_PHASE2_SEPARATE_STREAMS 20260427 #151 — no audio mux either.
-    // Audio file is delivered as a separate work_asset for runtime voice
-    // switching. _audio_path_opt is unused at the ffmpeg level now.
-    let _ = audio_path_opt;
+    // CSSOS_PHASE2_AUDIO_BACK_IN_MP4 20260427 #164 — Jing clarified.
+    // Mux audio back into the final mp4. Subtitle remains independent
+    // (HTML overlay) so language switch still works.
+    let audio_input_index = if let Some(ap) = audio_path_opt {
+        let idx = seg_paths.len();
+        cmd.arg("-i").arg(ap);
+        Some(idx)
+    } else {
+        None
+    };
 
     cmd.arg("-filter_complex").arg(&filter);
     cmd.arg("-map").arg(format!("[{}]", final_video_label));
-    // Defensive output cap based on ACTUAL durations (so we don't truncate
-    // the genuine timeline OR run past it if a seg overshot).
+    if let Some(ai) = audio_input_index {
+        cmd.arg("-map").arg(format!("{}:a:0", ai));
+        cmd.arg("-c:a").arg("aac").arg("-b:a").arg("192k");
+        // CSSOS_PHASE2_AUDIO_DRIVES_VIDEO 20260430 #210 — Jing
+        // "音乐有多长，视频就要多长，MV 就要多长."
+        // We used to pass `-shortest` so ffmpeg trimmed whichever stream
+        // was shorter — which meant a 3-minute Suno song got chopped to
+        // a 40-second slideshow. Now we INTENTIONALLY drop `-shortest`
+        // and set `-t` to MAX(audio, video) below. If audio is longer the
+        // last frame freezes for the excess (better than truncation;
+        // proper extend-with-tpad is a frontend planner concern that
+        // happens before we get here).
+    } else {
+        cmd.arg("-an");
+    }
+    // CSSOS_PHASE2_AUDIO_DRIVES_VIDEO 20260430 #210 — Jing
+    // Output cap = MAX(audio_duration, video_segment_total). When audio
+    // is longer, ffmpeg holds the final video frame for the trailing
+    // tail rather than `-shortest`-truncating the song.
     {
-        let mut total_dur = actual_durs[0];
+        let mut video_total = actual_durs[0];
         for i in 1..n {
             let (_t_name, t_d) = segment_transition(&segments[i]);
             let max_t = (actual_durs[i - 1].min(actual_durs[i]) * 0.5).max(0.2);
             let t_clamped = t_d.min(max_t);
-            total_dur += actual_durs[i] - t_clamped;
+            video_total += actual_durs[i] - t_clamped;
         }
-        total_dur += 0.05; // tail epsilon
+        video_total += 0.05; // tail epsilon
+
+        let audio_dur = if let Some(ap) = audio_path_opt {
+            let (_w, _h, d) = probe_dimensions(ap).await;
+            d.unwrap_or(0.0)
+        } else {
+            0.0
+        };
+
+        let total_dur = if audio_dur > video_total {
+            tracing::info!(
+                stage = "compose",
+                video_total = video_total,
+                audio_dur = audio_dur,
+                "audio longer than video — extending output to match audio (frame freeze tail)"
+            );
+            audio_dur
+        } else {
+            video_total
+        };
         cmd.arg("-t").arg(format!("{total_dur:.3}"));
     }
     cmd.arg("-c:v").arg("libx264")
         .arg("-preset").arg("veryfast")
         .arg("-pix_fmt").arg("yuv420p");
-    cmd.arg("-an"); // explicit no-audio
     cmd.arg("-movflags").arg("+faststart")
         .arg(final_path)
         .stdout(Stdio::piped())
@@ -575,17 +633,29 @@ async fn compose_xfade_chain(
 // xfade. Mux the segment's video with optional audio + burned SRT in one pass.
 async fn mux_single_segment(
     seg_path: &Path,
-    _audio_path_opt: Option<&Path>,
+    audio_path_opt: Option<&Path>,
     _srt_path: Option<&Path>,
     final_path: &Path,
 ) -> Result<()> {
-    // CSSOS_PHASE2_SEPARATE_STREAMS 20260427 #151 — Jing
-    // Single-segment path: still video-only output. Audio + SRT stay
-    // separate as work_assets; Watch panel composes at play time.
+    // CSSOS_PHASE2_AUDIO_BACK_IN_MP4 20260427 #164 — Jing clarified.
+    // Mux audio back into the final mp4 (video element plays sound out
+    // of the box). Subtitle stays independent.
     let mut cmd = tokio::process::Command::new("ffmpeg");
     cmd.arg("-y").arg("-i").arg(seg_path);
-    cmd.arg("-c:v").arg("copy");
-    cmd.arg("-an"); // explicit no-audio
+    if let Some(ap) = audio_path_opt {
+        cmd.arg("-i").arg(ap);
+        cmd.arg("-c:v").arg("copy");
+        cmd.arg("-c:a").arg("aac").arg("-b:a").arg("192k");
+        cmd.arg("-map").arg("0:v:0").arg("-map").arg("1:a:0");
+        // CSSOS_PHASE2_AUDIO_DRIVES_VIDEO 20260430 #210 — Jing
+        // Same rationale as compose_legacy: drop -shortest. Single-seg
+        // path is mostly the Lite tier 1-image case; if audio is longer
+        // we keep the audio playing past video EOF (frontend overlays
+        // a still cover for the audio tail).
+    } else {
+        cmd.arg("-c:v").arg("copy");
+        cmd.arg("-an");
+    }
     cmd.arg("-movflags").arg("+faststart")
         .arg(final_path)
         .stdout(Stdio::piped())
@@ -635,6 +705,8 @@ async fn render_segment(
             source_url,
             duration_secs,
             effect,
+            focus_x,
+            focus_y,
             ..
         } => {
             // Images may be png/jpg/webp; we keep the extension for ffmpeg's
@@ -643,7 +715,14 @@ async fn render_segment(
             let src = staging.join(format!("src-{:04}.{}", idx, ext));
             download_to(source_url, &src).await?;
             let eff = effect.as_deref().unwrap_or("zoom_in");
-            render_kenburns(&src, out_path, *duration_secs, width, height, fps, eff).await
+            // CSSOS_PHASE2_FACE_BIAS_KENBURNS 20260430 #224 — Jing
+            // Default focus = (0.5, 0.4) — rule-of-thirds upper-center.
+            // Album covers typically place the subject's face here. When
+            // the frontend has detected a face via Browser FaceDetector
+            // API (or any other source), it overrides with the centroid.
+            let fx = focus_x.unwrap_or(0.5).clamp(0.0, 1.0);
+            let fy = focus_y.unwrap_or(0.4).clamp(0.0, 1.0);
+            render_kenburns(&src, out_path, *duration_secs, width, height, fps, eff, fx, fy).await
         }
     }
 }
@@ -724,6 +803,8 @@ async fn render_kenburns(
     height: u32,
     fps: u32,
     effect: &str,
+    focus_x: f64,
+    focus_y: f64,
 ) -> Result<()> {
     let total_frames = ((duration_secs * fps as f64).round() as u64).max(fps as u64);
 
@@ -732,6 +813,43 @@ async fn render_kenburns(
     // zoom into without jaggies — scale input to 2× the target, then let
     // zoompan render at target size.
     let prescale = format!("scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}", width * 2, height * 2, width * 2, height * 2);
+
+    // CSSOS_PHASE2_FACE_BIAS_KENBURNS 20260430 #224 — Jing
+    // "slideshow planner + ffmpeg 是否可以尽量让 Lite 封面图露出
+    //  人物的脸部？" The center of zoompan's viewport is what stays in
+    // the final frame as the zoom intensifies. By biasing center_x/y
+    // toward the detected face (or rule-of-thirds upper-center for the
+    // common album-cover layout), zoom_in pulls TOWARD the face instead
+    // of into a random middle-of-cover point. focus_x/focus_y are 0..=1
+    // normalised; (0.5, 0.4) is the default upper-center used when no
+    // face was detected.
+    //
+    // Math: zoompan's x/y is the TOP-LEFT of the viewport in input coords.
+    // Viewport size at zoom Z is (iw/Z, ih/Z). To CENTER the viewport
+    // at (focus_x*iw, focus_y*ih), top-left becomes:
+    //   x = focus_x*iw - (iw/zoom)/2
+    //   y = focus_y*ih - (ih/zoom)/2
+    // Clamped to keep the viewport inside the input rect.
+    let cx = focus_x;
+    let cy = focus_y;
+    let center_x_expr = format!(
+        "max(0,min(iw-iw/zoom,{cx:.4}*iw-(iw/zoom)/2))",
+        cx = cx
+    );
+    let center_y_expr = format!(
+        "max(0,min(ih-ih/zoom,{cy:.4}*ih-(ih/zoom)/2))",
+        cy = cy
+    );
+    // For pans the start/end clamp is the input rect (full pan, edge to edge);
+    // we override the orthogonal axis with the focus center.
+    let h_pan_y_expr = format!(
+        "max(0,min(ih-ih/zoom,{cy:.4}*ih-(ih/zoom)/2))",
+        cy = cy
+    );
+    let v_pan_x_expr = format!(
+        "max(0,min(iw-iw/zoom,{cx:.4}*iw-(iw/zoom)/2))",
+        cx = cx
+    );
 
     // Pick the zoompan expressions. `zoom` starts at 1 and steps per frame.
     // Over `total_frames` we want to go from 1.0 -> ~1.3 for zoom_in, or
@@ -743,34 +861,34 @@ async fn render_kenburns(
     let (z_expr, x_expr, y_expr) = match effect {
         "zoom_out" => (
             format!("if(eq(on,0),1.3,zoom-{step:.6})"),
-            "iw/2-(iw/zoom/2)".to_string(),
-            "ih/2-(ih/zoom/2)".to_string(),
+            center_x_expr.clone(),
+            center_y_expr.clone(),
         ),
         "pan_left" => (
             "1.15".to_string(),
             format!("(iw-iw/zoom)*(1-on/{n})", n = total_frames),
-            "(ih-ih/zoom)/2".to_string(),
+            h_pan_y_expr.clone(),
         ),
         "pan_right" => (
             "1.15".to_string(),
             format!("(iw-iw/zoom)*(on/{n})", n = total_frames),
-            "(ih-ih/zoom)/2".to_string(),
+            h_pan_y_expr.clone(),
         ),
         "pan_up" => (
             "1.15".to_string(),
-            "(iw-iw/zoom)/2".to_string(),
+            v_pan_x_expr.clone(),
             format!("(ih-ih/zoom)*(1-on/{n})", n = total_frames),
         ),
         "pan_down" => (
             "1.15".to_string(),
-            "(iw-iw/zoom)/2".to_string(),
+            v_pan_x_expr.clone(),
             format!("(ih-ih/zoom)*(on/{n})", n = total_frames),
         ),
-        // Default: zoom_in (gentle push toward center)
+        // Default: zoom_in (gentle push toward focus center)
         _ => (
             format!("min(zoom+{step:.6},1.3)"),
-            "iw/2-(iw/zoom/2)".to_string(),
-            "ih/2-(ih/zoom/2)".to_string(),
+            center_x_expr.clone(),
+            center_y_expr.clone(),
         ),
     };
 

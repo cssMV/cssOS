@@ -75,3 +75,19 @@ pub struct LedgerEntry {
     pub note: Option<String>,
     pub meta: Value,
 }
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct BillingFundHold {
+    pub id: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub user_id: Uuid,
+    pub kind: String,
+    pub status: String,
+    pub amount_cents: i64,
+    pub currency: String,
+    pub note: Option<String>,
+    pub available_at: DateTime<Utc>,
+    pub released_at: Option<DateTime<Utc>>,
+    pub meta: Value,
+}

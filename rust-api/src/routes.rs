@@ -1,3 +1,4 @@
+use axum::extract::OriginalUri;
 use axum::extract::Query;
 
 #[derive(serde::Deserialize)]
@@ -44,7 +45,7 @@ async fn health_handler() -> axum::response::Response {
 use axum::{
     extract::State,
     http::HeaderMap,
-    response::IntoResponse,
+    response::{IntoResponse, Redirect},
     routing::{get, post},
     Json, Router,
 };
@@ -52,10 +53,14 @@ use chrono::Utc;
 use serde::Serialize;
 use serde_json::json;
 use sqlx::PgPool;
+use sqlx::Row;
 
 use crate::artifacts_api;
 use crate::auth::AuthSession;
-use crate::billing::{ensure_account, meter_usage, reset_month};
+use crate::billing::{
+    change_membership_tier_with_balance, ensure_account, meter_usage, normalize_membership_tier,
+    pending_fund_hold_summary, release_matured_fund_holds, reset_month, MembershipChangeError,
+};
 use crate::config::Config;
 use crate::cssapi::docs::docs_router;
 use crate::events::EventBus;
@@ -73,6 +78,9 @@ pub struct AppState {
     pub config: Config,
     pub jobs: Jobs,
     pub event_bus: EventBus,
+    // CSSOS_PHASE2_I18N_MVP 20260418 — two-tier translation cache
+    // (process-local memory + shared Postgres). See i18n_translate.rs.
+    pub i18n_cache: crate::i18n_translate::MemoryCache,
 }
 
 #[derive(Serialize)]
@@ -115,6 +123,7 @@ pub fn router(state: AppState) -> Router {
         .merge(docs_router())
         .merge(runs_api::router())
         .merge(artifacts_api::router())
+        .merge(crate::admin_users_api::router())
         .merge(crate::css_assurance_api::router::router())
         .merge(crate::css_case_api::router::router())
         .merge(crate::css_explain_api::router::router())
@@ -124,6 +133,20 @@ pub fn router(state: AppState) -> Router {
             "/cssapi/v1/mv",
             post(crate::orchestrator::api::create_mv_api),
         )
+        .merge(crate::orchestrator::product_api::router())
+        // CSSOS_PHASE2_MV_API 20260417 — third-party creative pipeline
+        .merge(crate::pipeline_mv_api::router())
+        // CSSOS_PHASE2_I18N_MVP 20260418 — POST /api/i18n/translate
+        .merge(crate::i18n_translate::router())
+        // CSSOS_PHASE2_PAYMENTS 20260419 — NihaoPay WeChat Pay/Alipay/UnionPay
+        // integration. Webhook path /api/payments/webhook/nihaopay is NOT
+        // behind AuthSession (NihaoPay server calls it); signature validated
+        // via verify_sign inside the handler.
+        .merge(crate::payments_api::router())
+        // CSSOS_PHASE2_BYOK 20260420 — per-user third-party API keys
+        // (/api/settings/engine-keys). Runway is the pilot; ElevenLabs /
+        // Stability / Suno land as follow-ups on the same surface.
+        .merge(crate::engine_credentials::api::router())
         .route(
             "/cssapi/v1/engines",
             get(public_api::engines::api_list_engines),
@@ -141,6 +164,40 @@ pub fn router(state: AppState) -> Router {
         .route("/metrics", get(metrics_handler))
         .route("/api/health", get(health_handler))
         .route("/api/auth/providers", get(auth_providers))
+        .route("/api/auth/google", get(auth_google_redirect))
+        .route("/api/auth/github", get(auth_github_redirect))
+        .route("/api/auth/x", get(auth_x_redirect))
+        .route("/api/auth/facebook", get(auth_facebook_redirect))
+        .route("/api/auth/wechat", get(auth_wechat_redirect))
+        .route("/api/auth/weixin", get(auth_weixin_redirect))
+        .route("/api/auth/apple", get(auth_apple_redirect))
+        .route("/api/auth/bsky", get(auth_bsky_redirect))
+        .route(
+            "/api/auth/google/callback",
+            get(auth_google_callback_redirect),
+        )
+        .route(
+            "/api/auth/github/callback",
+            get(auth_github_callback_redirect),
+        )
+        .route("/api/auth/x/callback", get(auth_x_callback_redirect))
+        .route(
+            "/api/auth/facebook/callback",
+            get(auth_facebook_callback_redirect),
+        )
+        .route(
+            "/api/auth/wechat/callback",
+            get(auth_wechat_callback_redirect),
+        )
+        .route(
+            "/api/auth/weixin/callback",
+            get(auth_weixin_callback_redirect),
+        )
+        .route(
+            "/api/auth/apple/callback",
+            get(auth_apple_callback_redirect),
+        )
+        .route("/api/auth/bsky/callback", get(auth_bsky_callback_redirect))
         .route(
             "/api/auth/passkey/register/options",
             get(passkey::register_options),
@@ -159,6 +216,10 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/me", get(me))
         .route("/api/billing/status", get(billing_status))
+        .route(
+            "/api/billing/membership/change",
+            post(billing_membership_change),
+        )
         .route(
             "/api/billing/usage",
             post(billing_usage).get(billing_usage_list),
@@ -274,27 +335,45 @@ async fn pipeline_start(
 }
 
 async fn auth_providers(State(_state): State<AppState>) -> axum::response::Response {
-    let providers = vec![
+    if let Ok(resp) = reqwest::get("http://127.0.0.1:3000/api/auth/providers").await {
+        if resp.status().is_success() {
+            if let Ok(body) = resp.text().await {
+                return ([(axum::http::header::CACHE_CONTROL, "no-store")], body).into_response();
+            }
+        }
+    }
+    let providers: Vec<(&str, &str, Vec<&str>)> = vec![
+        ("apple", "Apple", vec!["APPLE_CLIENT_ID"]),
         (
             "google",
             "Google",
-            ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
+            vec!["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
         ),
         (
             "github",
             "GitHub",
-            ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"],
+            vec!["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"],
         ),
-        ("x", "X", ["X_CLIENT_ID", "X_CLIENT_SECRET"]),
+        ("x", "X", vec!["X_CLIENT_ID", "X_CLIENT_SECRET"]),
+        (
+            "facebook",
+            "Facebook",
+            vec!["FACEBOOK_CLIENT_ID", "FACEBOOK_CLIENT_SECRET"],
+        ),
+        (
+            "wechat",
+            "WeChat",
+            vec!["WECHAT_CLIENT_ID", "WECHAT_CLIENT_SECRET"],
+        ),
         (
             "bsky",
             "Bluesky",
-            ["BLUESKY_HANDLE", "BLUESKY_APP_PASSWORD"],
+            vec!["BLUESKY_HANDLE", "BLUESKY_APP_PASSWORD"],
         ),
         (
             "tiktok",
             "TikTok",
-            ["TIKTOK_CLIENT_ID", "TIKTOK_CLIENT_SECRET"],
+            vec!["TIKTOK_CLIENT_ID", "TIKTOK_CLIENT_SECRET"],
         ),
     ];
     let list: Vec<_> = providers
@@ -319,6 +398,65 @@ async fn auth_providers(State(_state): State<AppState>) -> axum::response::Respo
         return no_data(json!({ "providers": list }));
     }
     ok(json!({ "providers": list }))
+}
+
+fn redirect_with_query(base: &str, uri: &OriginalUri) -> Redirect {
+    let query = uri
+        .0
+        .query()
+        .map(|value| format!("?{value}"))
+        .unwrap_or_default();
+    Redirect::temporary(&format!("{base}{query}"))
+}
+
+async fn auth_google_redirect() -> Redirect {
+    Redirect::temporary("/auth/google")
+}
+async fn auth_github_redirect() -> Redirect {
+    Redirect::temporary("/auth/github")
+}
+async fn auth_x_redirect() -> Redirect {
+    Redirect::temporary("/auth/x")
+}
+async fn auth_facebook_redirect() -> Redirect {
+    Redirect::temporary("/auth/facebook")
+}
+async fn auth_wechat_redirect() -> Redirect {
+    Redirect::temporary("/auth/wechat")
+}
+async fn auth_weixin_redirect() -> Redirect {
+    Redirect::temporary("/auth/wechat")
+}
+async fn auth_apple_redirect() -> Redirect {
+    Redirect::temporary("/auth/apple")
+}
+async fn auth_bsky_redirect() -> Redirect {
+    Redirect::temporary("/auth/bsky")
+}
+
+async fn auth_google_callback_redirect(uri: OriginalUri) -> Redirect {
+    redirect_with_query("/auth/google/callback", &uri)
+}
+async fn auth_github_callback_redirect(uri: OriginalUri) -> Redirect {
+    redirect_with_query("/auth/github/callback", &uri)
+}
+async fn auth_x_callback_redirect(uri: OriginalUri) -> Redirect {
+    redirect_with_query("/auth/x/callback", &uri)
+}
+async fn auth_facebook_callback_redirect(uri: OriginalUri) -> Redirect {
+    redirect_with_query("/auth/facebook/callback", &uri)
+}
+async fn auth_wechat_callback_redirect(uri: OriginalUri) -> Redirect {
+    redirect_with_query("/auth/wechat/callback", &uri)
+}
+async fn auth_weixin_callback_redirect(uri: OriginalUri) -> Redirect {
+    redirect_with_query("/auth/wechat/callback", &uri)
+}
+async fn auth_apple_callback_redirect(uri: OriginalUri) -> Redirect {
+    redirect_with_query("/auth/apple/callback", &uri)
+}
+async fn auth_bsky_callback_redirect(uri: OriginalUri) -> Redirect {
+    redirect_with_query("/auth/bsky/callback", &uri)
 }
 
 async fn me(
@@ -362,15 +500,57 @@ async fn billing_status(
     }
     let user_id = user_id.unwrap();
     let _ = reset_month(&state.pool, user_id).await;
+    let _ = release_matured_fund_holds(&state.pool, user_id).await;
     let (account, created) = match ensure_account(&state.pool, user_id).await {
         Ok(result) => result,
         Err(_) => return no_data(json!({ "authenticated": false })),
     };
+    let membership_tier = sqlx::query_scalar::<_, String>(
+        "SELECT COALESCE(membership_tier, 'free') FROM billing_accounts WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_optional(&state.pool)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or_else(|| "free".to_string());
+    let (pending_balance_cents, next_available_at, pending_rows) =
+        pending_fund_hold_summary(&state.pool, user_id)
+            .await
+            .unwrap_or((0, None, Vec::new()));
+    let latest_membership_change = sqlx::query(
+        r#"
+        SELECT created_at, type, amount_cents, note, meta
+          FROM ledger_entries
+         WHERE user_id = $1
+           AND type LIKE 'membership_change_%'
+         ORDER BY created_at DESC
+         LIMIT 1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_optional(&state.pool)
+    .await
+    .ok()
+    .flatten()
+    .map(|row| {
+        json!({
+            "created_at": row.try_get::<chrono::DateTime<Utc>, _>("created_at").ok(),
+            "type": row.try_get::<String, _>("type").ok(),
+            "amount_cents": row.try_get::<i64, _>("amount_cents").ok(),
+            "note": row.try_get::<Option<String>, _>("note").ok().flatten(),
+            "meta": row.try_get::<serde_json::Value, _>("meta").ok().unwrap_or_else(|| json!({})),
+        })
+    })
+    .unwrap_or(serde_json::Value::Null);
 
     let payload = json!({
         "authenticated": true,
+        "tier": normalize_membership_tier(&membership_tier),
         "currency": account.currency,
         "balance_cents": account.balance_cents,
+        "pending_balance_cents": pending_balance_cents,
+        "pending_balance_release_at": next_available_at,
         "monthly_limit_cents": account.monthly_limit_cents,
         "month_spend_cents": account.month_spend_cents,
         "auto_recharge": {
@@ -379,6 +559,16 @@ async fn billing_status(
             "amount_cents": account.auto_recharge_amount_cents,
         },
         "has_payment_method": account.has_payment_method,
+        "latest_membership_change": latest_membership_change,
+        "recent_fund_holds": pending_rows.into_iter().map(|row| json!({
+            "id": row.id,
+            "kind": row.kind,
+            "status": row.status,
+            "amount_cents": row.amount_cents,
+            "available_at": row.available_at,
+            "note": row.note,
+            "created_at": row.created_at,
+        })).collect::<Vec<_>>(),
     });
 
     if created && account.balance_cents == 0 {
@@ -386,6 +576,102 @@ async fn billing_status(
     }
 
     ok(payload)
+}
+
+#[derive(serde::Deserialize)]
+struct BillingMembershipChangeRequest {
+    target_tier: Option<String>,
+    requested_from: Option<String>,
+}
+
+async fn billing_membership_change(
+    State(state): State<AppState>,
+    AuthSession { user_id }: AuthSession,
+    Json(body): Json<BillingMembershipChangeRequest>,
+) -> axum::response::Response {
+    let Some(user_id) = user_id else {
+        return no_data(json!({
+            "authenticated": false,
+            "changed": false,
+        }));
+    };
+    let target_tier = body
+        .target_tier
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    let requested_from = body
+        .requested_from
+        .unwrap_or_else(|| "subscription_panel".to_string())
+        .trim()
+        .to_string();
+    let refund_mode = |refunded_cents: i64| {
+        if refunded_cents > 0 {
+            json!("platform_hold_14d")
+        } else {
+            serde_json::Value::Null
+        }
+    };
+    match change_membership_tier_with_balance(&state.pool, user_id, &target_tier, &requested_from)
+        .await
+    {
+        Ok(result) => ok(json!({
+            "changed": true,
+            "tier": result.tier,
+            "previous_tier": result.previous_tier,
+            "balance_cents": result.balance_cents,
+            "pending_balance_cents": result.pending_balance_cents,
+            "monthly_limit_cents": result.monthly_limit_cents,
+            "charged_cents": result.charged_cents,
+            "refunded_cents": result.refunded_cents,
+            "net_amount_cents": result.net_amount_cents,
+            "refund_mode": refund_mode(result.refunded_cents),
+            "hold_release_at": result.hold_release_at,
+        })),
+        Err(MembershipChangeError::InvalidTier) => (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(json!({
+                "ok": false,
+                "code": "TARGET_TIER_INVALID",
+                "message": "Target tier is invalid"
+            })),
+        )
+            .into_response(),
+        Err(MembershipChangeError::ForbiddenTier) => (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(json!({
+                "ok": false,
+                "code": "TARGET_TIER_FORBIDDEN",
+                "message": "This tier cannot be self-served"
+            })),
+        )
+            .into_response(),
+        Err(MembershipChangeError::InsufficientBalance {
+            required_cents,
+            balance_cents,
+        }) => (
+            axum::http::StatusCode::PAYMENT_REQUIRED,
+            Json(json!({
+                "ok": false,
+                "code": "INSUFFICIENT_BALANCE",
+                "message": "Not enough balance to switch to this plan",
+                "data": {
+                    "required_cents": required_cents,
+                    "balance_cents": balance_cents,
+                }
+            })),
+        )
+            .into_response(),
+        Err(MembershipChangeError::Sql(_)) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({
+                "ok": false,
+                "code": "MEMBERSHIP_CHANGE_FAILED",
+                "message": "Could not update membership"
+            })),
+        )
+            .into_response(),
+    }
 }
 
 async fn billing_usage(

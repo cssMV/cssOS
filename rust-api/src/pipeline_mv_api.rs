@@ -603,6 +603,14 @@ pub struct MusicRequest {
     /// clipped so a buggy frontend can't trigger upstream errors.
     #[serde(default)]
     pub target_duration_secs: Option<u32>,
+    /// CSSOS_PHASE2_KIE_TITLE 20260429 #207 — Jing
+    /// User-supplied song title (e.g. "Mount Hermon Oath"). Forwarded to
+    /// Suno's `title` field — Suno treats it as a strong style hint, so a
+    /// good title is significant for output quality. Frontend should
+    /// populate this from the user's MV title input. Empty/None ⇒ Suno
+    /// adapter falls back to deriving from prompt's first line.
+    #[serde(default)]
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -635,6 +643,24 @@ pub struct MusicResponse {
     // frontend has a uniform check.
     #[serde(default)]
     pub aligned_lyrics: Option<Vec<crate::music_gen::AlignedLyricLine>>,
+    /// CSSOS_PHASE2_DUAL_TRACK 20260430 #208 — Jing
+    /// Suno returns 2 takes per generation. `audio_url` is "Take 1" (the
+    /// primary clip we built the MV from); these expose "Take 2" so the
+    /// Watch panel can offer A/B compare without a second generation.
+    /// Single-track engines leave both null.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alt_audio_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alt_duration_secs: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alt_conversion_id: Option<String>,
+    /// CSSOS_PHASE2_TIER_DURATION_CAP 20260430 #209 — Jing
+    /// What ceiling we clamped to (so the frontend can render
+    /// "you hit your X-min cap, upgrade to extend"). Always present.
+    #[serde(default)]
+    pub tier_cap_secs: u32,
+    #[serde(default)]
+    pub user_tier: String,
 }
 
 /// CSSOS_PHASE2_P2_87_NO_MUSICGPT_DEFAULT 20260424 — shared runtime-readiness
@@ -648,7 +674,9 @@ fn is_music_engine_ready(engine: &str) -> bool {
             .unwrap_or(false)
     }
     match engine {
-        "suno" => env_non_empty("SUNO_API_KEY"),
+        // CSSOS_PHASE2_KIE_PIVOT 20260429 #204 — kie.ai gateway uses
+        // KIE_API_KEY in /etc/cssos.env; SunoClient::from_env reads either.
+        "suno" => env_non_empty("SUNO_API_KEY") || env_non_empty("KIE_API_KEY"),
         "elevenlabs" | "eleven" | "eleven-music" => {
             env_non_empty("ELEVEN_API_KEY") || env_non_empty("ELEVENLABS_API_KEY")
         }
@@ -686,6 +714,58 @@ fn resolve_music_engine(body: &MusicRequest) -> (String, String) {
         .as_deref()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
+
+    // CSSOS_PHASE2_DURATION_AWARE_ROUTE 20260429 #172 — Jing
+    // "都是第三方面引擎，应该使用哪个引擎都一样，不是吗？难道还要区分吗？"
+    //
+    // From the user's perspective, picking among MusicGPT / ElevenLabs /
+    // Suno / Stability shouldn't be their problem — they just want a
+    // working long-form song. But these engines have very different
+    // capability ceilings:
+    //   • MusicGPT     ≈ 1-2 min hard cap (API limit, even with `prompt`)
+    //   • Stability    ≈ 10-90 s short instrumental loops
+    //   • Suno v5/v4   ≈ 4-8 min full-song with vocals (when key present)
+    //   • ElevenLabs   ≈ 5-10 min via composition_plan (Creator plan)
+    //
+    // If the caller explicitly picked an engine that physically CAN'T
+    // deliver the requested duration, AUTO-UPGRADE silently to ElevenLabs
+    // (or Suno if it's configured first) — better one log line + a working
+    // song than silently capping the user at 60 s and confusing them.
+    let needs_long_form = body.target_duration_secs.map(|s| s > 90).unwrap_or(false);
+    let cannot_deliver_long_form = matches!(
+        requested_engine.as_deref(),
+        Some("musicgpt") | Some("stability") | Some("stable-audio") | Some("stable_audio")
+    );
+    if needs_long_form && cannot_deliver_long_form {
+        // CSSOS_PHASE2_SUNO_FIRST 20260429 #182 — Jing
+        // "现在输出的音乐（没有人声，只有缓慢的音乐）绝对不是我的歌词，音乐
+        //  风格输出的风格，只是一阵轰鸣声而已，没有旋律".
+        // ElevenLabs Music is fundamentally an ambient/score generator —
+        // even with lyrics inlined into the prompt it produces hummed
+        // soundscapes, not actual sung songs with melody and instrumentation.
+        // Suno is the lyrics-to-song engine: explicit `lyrics` field, real
+        // vocal models, real melody. Make Suno the first long-form upgrade
+        // target; ElevenLabs only when Suno is unavailable.
+        let upgrade_target = if is_music_engine_ready("suno") {
+            ("suno", "v5")
+        } else if is_music_engine_ready("elevenlabs") {
+            ("elevenlabs", "v1")
+        } else {
+            // No long-form provider configured — caller's pick stands;
+            // adapter will report whatever it can do. Better than 503.
+            ("", "")
+        };
+        if !upgrade_target.0.is_empty() {
+            tracing::warn!(
+                target: "cssos::mv::music",
+                requested_engine = ?requested_engine,
+                upgraded_to = %upgrade_target.0,
+                target_duration_secs = ?body.target_duration_secs,
+                "auto-upgrading music engine: requested engine cannot deliver long-form duration"
+            );
+            return (upgrade_target.0.into(), upgrade_target.1.into());
+        }
+    }
 
     // CSSOS_PHASE2_P2_87_NO_MUSICGPT_DEFAULT 20260424 — honour the explicit
     // engine choice ALWAYS. We no longer silently fall through to
@@ -726,8 +806,13 @@ fn resolve_music_engine(body: &MusicRequest) -> (String, String) {
         }
     }
 
-    // CSSOS_PHASE2_P2_87_NO_MUSICGPT_DEFAULT 20260424 — MusicGPT intentionally
-    // excluded from the auto-resolve chain. It is opt-in only.
+    // CSSOS_PHASE2_AUTO_RESOLVE_PRIORITY 20260429 #182 — Jing
+    // Suno is now the FIRST auto-resolve choice. The composition_plan path
+    // we hoped for in ElevenLabs turned into "一阵轰鸣声" — ambient music
+    // without vocals or melody. Suno's lyrics field drives a real vocal
+    // model with melody and instrumentation, which is what users actually
+    // want when they provide lyrics. ElevenLabs is only useful for
+    // instrumentals or ambient scores; keep it as a graceful fallback.
     if is_music_engine_ready("suno") {
         ("suno".into(), "v5".into())
     } else if is_music_engine_ready("elevenlabs") {
@@ -735,9 +820,8 @@ fn resolve_music_engine(body: &MusicRequest) -> (String, String) {
     } else if is_music_engine_ready("stability") {
         ("stability".into(), "2.0".into())
     } else {
-        // No non-MusicGPT engine is configured. Return "suno" so the adapter
-        // returns a clean NotConfigured → 503 rather than silently falling
-        // through to MusicGPT's unreliable adapter.
+        // No engine is configured. Return "suno" so the adapter returns a
+        // clean NotConfigured → 503 rather than silently falling through.
         ("suno".into(), "v5".into())
     }
 }
@@ -887,6 +971,23 @@ async fn music_inner(
 ) -> Result<Json<MusicResponse>, (StatusCode, Json<serde_json::Value>)> {
     let user_id = require_user(&auth).await?;
 
+    // CSSOS_PHASE2_TIER_DURATION_CAP 20260430 #209 — Jing
+    // Resolve the user's membership tier and clamp `target_duration_secs`
+    // BEFORE we build the MusicGenRequest. The caps are documented next
+    // to MembershipTierPlan: free 4 / starter 5 / pro 6 / studio 8 /
+    // enterprise (+vip+admin) 10 minutes. A buggy or hostile frontend
+    // can't trick us into a 10-minute Free song this way.
+    let user_tier = sqlx::query_scalar::<_, String>(
+        "SELECT COALESCE(membership_tier, 'free') FROM billing_accounts WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_optional(&app.pool)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or_else(|| "free".to_string());
+    let tier_cap_secs = crate::billing::max_song_duration_secs_for_tier(&user_tier);
+
     // CSSOS_PHASE2_SUNO 20260419 — resolve engine before any I/O so the same
     // engine label appears in both billing meta + response. The catalog
     // default is Suno; callers can override via the `engine` field the
@@ -901,6 +1002,9 @@ async fn music_inner(
         requested_version = ?body.version,
         resolved_engine = %engine,
         resolved_version = %version,
+        user_tier = %user_tier,
+        tier_cap_secs = %tier_cap_secs,
+        requested_target_secs = ?body.target_duration_secs,
         "music: engine dispatch decided"
     );
 
@@ -935,11 +1039,31 @@ async fn music_inner(
     // elsewhere (subtitles input + commit metadata) so the structure isn't
     // lost — only the literal vocalisation of marker tokens is suppressed.
     let cleaned_lyrics = strip_lyric_structure_markers(&resolved_lyrics);
+    let cleaned_lyrics_trim_len = cleaned_lyrics.trim().len();
     let lyrics_for_upstream = if cleaned_lyrics.trim().is_empty() {
         None
     } else {
         Some(cleaned_lyrics)
     };
+    // CSSOS_PHASE2_KIE_LYRICS_TRACE 20260429 #206b — Jing
+    // Mount Hermon came back as a 40s "Verse 1 demo" because Suno got an
+    // empty lyrics field. Log every stage of lyrics massaging so we can
+    // pinpoint where they get dropped (frontend? body.lyrics? strip_markers?).
+    tracing::info!(
+        target: "cssos::mv::music::lyrics_trace",
+        body_lyrics_len = body.lyrics.as_deref().map(|s| s.len()).unwrap_or(0),
+        body_lyrics_preview = %body.lyrics.as_deref().map(|s| {
+            let t = s.trim();
+            let take: String = t.chars().take(80).collect();
+            take
+        }).unwrap_or_default(),
+        resolved_lyrics_len = resolved_lyrics.len(),
+        cleaned_lyrics_len = cleaned_lyrics_trim_len,
+        for_upstream = lyrics_for_upstream.is_some(),
+        title = %body.title.as_deref().unwrap_or(""),
+        make_instrumental = body.make_instrumental,
+        "music: lyrics pipeline trace"
+    );
 
     let outcome = run_music_generation(
         &app,
@@ -960,7 +1084,23 @@ async fn music_inner(
             // at the adapter layer). ElevenLabs / Stable Audio map this
             // onto their native length parameters; Suno + MusicGPT ignore
             // until their respective continuation chains land.
-            target_duration_secs: body.target_duration_secs,
+            //
+            // CSSOS_PHASE2_TIER_DURATION_CAP 20260430 #209 — Jing
+            // Tier ceiling: free 4 / starter 5 / pro 6 / studio 8 / enterprise 10 min.
+            // Always clamp regardless of what the frontend sent (None → tier_cap so
+            // a missing target still respects the membership ceiling on engines
+            // that honour `target_duration_secs`).
+            target_duration_secs: Some(
+                body.target_duration_secs
+                    .map(|v| v.min(tier_cap_secs))
+                    .unwrap_or(tier_cap_secs),
+            ),
+            // CSSOS_PHASE2_KIE_TITLE 20260429 #207 — Jing
+            // Forward the user's song title to the adapter. Suno's `title`
+            // field is a strong style/voice hint — bad titles ("a fierce
+            // battle anthem") tilt the arrangement off-style. None ⇒
+            // adapter derives from prompt[:64] as a safety net.
+            title: body.title.clone(),
         },
     )
     .await?;
@@ -1054,6 +1194,15 @@ async fn music_inner(
         cost_cents,
         use_user_key,
         aligned_lyrics: result.aligned_lyrics,
+        // CSSOS_PHASE2_DUAL_TRACK 20260430 #208 — surface Take 2 if engine
+        // gave us one (Suno does, others currently don't).
+        alt_audio_url: result.alt_audio_url,
+        alt_duration_secs: result.alt_duration_secs,
+        alt_conversion_id: result.alt_conversion_id,
+        // CSSOS_PHASE2_TIER_DURATION_CAP 20260430 #209 — let the frontend
+        // render the cap so users see why they got 4 minutes vs 10.
+        tier_cap_secs,
+        user_tier,
     }))
 }
 
@@ -1429,6 +1578,30 @@ pub struct CommitRequest {
     /// Per-stage engine cost breakdown (`cover_cents`, `music_cents`, ...)
     #[serde(default)]
     pub engine_costs_cents: HashMap<String, i64>,
+    // CSSOS_PHASE2_PERSIST_PLAYABLE 20260430 #214 — Jing
+    // "用户从为你创作/作品中心或者其他面板想再去欣赏这些刚刚输出完毕的作品，
+    //  都变成了无法欣赏，必须从头重新输出." Root cause: the playable URLs +
+    // metadata (audio_url, alt_audio_url, duration_secs, lyrics_full,
+    // engine_meta) were sent in the commit body but the handler dropped
+    // them on the floor. work_assets only got the final_mv. Now we accept
+    // and persist all of them so /api/works/mine + the click-to-play flow
+    // can rehydrate without re-running the pipeline.
+    #[serde(default)]
+    pub audio_url: Option<String>,
+    #[serde(default)]
+    pub alt_audio_url: Option<String>,
+    #[serde(default)]
+    pub subtitle_srt_url: Option<String>,
+    #[serde(default)]
+    pub duration_secs: Option<f64>,
+    #[serde(default)]
+    pub alt_duration_secs: Option<f64>,
+    #[serde(default)]
+    pub lyrics_full: Option<String>,
+    #[serde(default)]
+    pub engine_meta: Option<serde_json::Value>,
+    #[serde(default)]
+    pub aligned_lyrics: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1511,6 +1684,19 @@ async fn commit_inner(
         }
     }
 
+    // CSSOS_PHASE2_PERSIST_PLAYABLE 20260430 #214 — Jing
+    // Use final_mv_url as preview_video_url when the caller didn't specify
+    // one. The /api/works/mine handler returns user_works.preview_video_url
+    // and the click-to-play flow falls back to it; if final_mv is the only
+    // playable artifact (Lite tier has no raw AI clip), routing it through
+    // preview_video_url means clicking a saved work plays the actual MV
+    // instead of triggering a re-run with random lyrics.
+    let preview_video_url_resolved = body
+        .preview_video_url
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| body.final_mv_url.as_deref().filter(|s| !s.trim().is_empty()));
+
     // Create the work row. `compute_cost_cents_estimate` already exists on the
     // table (migration 012) so we can stash the engine total there without a
     // new migration; the detailed breakdown goes on work_assets.meta.
@@ -1528,18 +1714,27 @@ async fn commit_inner(
     .bind(total)
     .bind(body.cover_image_url.as_deref())
     .bind(body.preview_image_url.as_deref())
-    .bind(body.preview_video_url.as_deref())
+    .bind(preview_video_url_resolved)
     .fetch_one(&app.pool)
     .await
     .map_err(sql_error)?;
     let work_id = row.0;
 
     // Record the final MV asset with the full engine-cost breakdown in meta.
+    // CSSOS_PHASE2_PERSIST_PLAYABLE 20260430 #214 — Jing
+    // Stamp duration_secs + lyrics_full + aligned_lyrics + engine_meta into
+    // the final_mv asset's meta so /api/works/mine can return them on
+    // re-fetch. work_assets has UNIQUE(work_id, asset_type) so the upsert
+    // collapses repeat commits cleanly.
     if let Some(mv_url) = body.final_mv_url.as_deref() {
         let meta = json!({
             "kind": "third_party_pipeline",
             "engines": body.engine_costs_cents,
             "total_cents": total,
+            "duration_secs": body.duration_secs,
+            "lyrics_full": body.lyrics_full,
+            "aligned_lyrics": body.aligned_lyrics,
+            "engine_meta": body.engine_meta,
         });
         let _ = sqlx::query(
             "INSERT INTO work_assets (work_id, asset_type, url, meta) \
@@ -1552,6 +1747,199 @@ async fn commit_inner(
         .bind(meta)
         .execute(&app.pool)
         .await;
+    }
+
+    // CSSOS_PHASE2_PERSIST_PLAYABLE 20260430 #214 — Jing
+    // Persist the standalone audio (Take 1) so the Watch panel can play it
+    // independently of the muxed MV (e.g. the `Music` tab, ear-only review).
+    if let Some(audio_url) = body
+        .audio_url
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        let meta = json!({
+            "kind": "audio_track",
+            "take": 1,
+            "duration_secs": body.duration_secs,
+        });
+        let _ = sqlx::query(
+            "INSERT INTO work_assets (work_id, asset_type, url, meta) \
+             VALUES ($1, 'audio_track_1', $2, $3) \
+             ON CONFLICT (work_id, asset_type) DO UPDATE \
+             SET url = EXCLUDED.url, meta = EXCLUDED.meta",
+        )
+        .bind(work_id)
+        .bind(audio_url)
+        .bind(meta)
+        .execute(&app.pool)
+        .await;
+    }
+    // CSSOS_PHASE2_DUAL_TRACK 20260430 #208 — Take 2 (Suno only).
+    if let Some(alt_url) = body
+        .alt_audio_url
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        let meta = json!({
+            "kind": "audio_track",
+            "take": 2,
+        });
+        let _ = sqlx::query(
+            "INSERT INTO work_assets (work_id, asset_type, url, meta) \
+             VALUES ($1, 'audio_track_2', $2, $3) \
+             ON CONFLICT (work_id, asset_type) DO UPDATE \
+             SET url = EXCLUDED.url, meta = EXCLUDED.meta",
+        )
+        .bind(work_id)
+        .bind(alt_url)
+        .bind(meta)
+        .execute(&app.pool)
+        .await;
+    }
+    if let Some(srt_url) = body
+        .subtitle_srt_url
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        let _ = sqlx::query(
+            "INSERT INTO work_assets (work_id, asset_type, url, meta) \
+             VALUES ($1, 'subtitle_srt', $2, '{}'::jsonb) \
+             ON CONFLICT (work_id, asset_type) DO UPDATE \
+             SET url = EXCLUDED.url",
+        )
+        .bind(work_id)
+        .bind(srt_url)
+        .execute(&app.pool)
+        .await;
+    }
+
+    // CSSOS_PHASE2_TAKE_2_AS_WORK 20260430 #221b — Jing
+    // "万能入口们，输出完毕，输出给为你创作/作品中心，是两首原标题，
+    //  不加任何尾巴。用户欣赏第一首，右上角的胶囊要出现，也就是说，
+    //  欣赏一首，另一首必须是下一首。"
+    //
+    // - Both rows now use the SAME original title (no `· Take 2`
+    //   suffix). The two cards visually look identical in works-center,
+    //   which matches the user's mental model: one song, two takes.
+    // - Sibling cross-reference is stamped into each row's final_mv
+    //   meta as `sibling_work_id` so the Watch panel can fetch the OTHER
+    //   take's audio_track_1 and populate the Take 1/Take 2 toggle even
+    //   when the user opens via Take 2's card directly.
+    // - Queue auto-advance ordering: both takes are committed within
+    //   ~ms of each other → adjacent in created_at DESC, so playing
+    //   one and auto-advancing naturally hits the sibling next.
+    if let Some(alt_url) = body
+        .alt_audio_url
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        // Both rows use the original title (no suffix). The user sees
+        // two identical cards; difference is only the audio they play.
+        let take2_title = body.title.clone();
+        let take2_run_id = body
+            .source_run_id
+            .as_deref()
+            .map(|s| format!("{}::take2", s));
+        // Dedup defense: if commit re-fires with same source_run_id we
+        // shouldn't double-insert Take 2.
+        let take2_existing: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT id FROM user_works \
+             WHERE user_id = $1 AND source_run_id = $2 LIMIT 1",
+        )
+        .bind(user_id)
+        .bind(take2_run_id.as_deref())
+        .fetch_optional(&app.pool)
+        .await
+        .ok()
+        .flatten();
+        let take2_id_opt: Option<Uuid> = if let Some((existing,)) = take2_existing {
+            Some(existing)
+        } else {
+            // Insert Take 2 as a TOP-LEVEL sibling so both cards appear
+            // independently in works-center (parent_work_id IS NULL filter).
+            // The two rows are loosely linked by sharing a cover_image and
+            // by source_run_id pattern (`<orig>::take2`); we don't put them
+            // under parent/root so the user sees them as 2 distinct cards
+            // side by side, not nested in an "opera" expansion.
+            let row2 = sqlx::query_as::<_, (Uuid,)>(
+                "INSERT INTO user_works \
+                   (user_id, title, style, lyrics_preview, status, source_run_id, \
+                    compute_cost_cents_estimate, cover_image, preview_image_url, \
+                    preview_video_url) \
+                 VALUES ($1, $2, $3, $4, 'ready', $5, $6, $7, $8, $9) \
+                 RETURNING id",
+            )
+            .bind(user_id)
+            .bind(&take2_title)
+            .bind(body.style.as_deref())
+            .bind(body.lyrics_preview.as_deref())
+            .bind(take2_run_id.as_deref())
+            .bind(0_i64) // Take 2 doesn't add new engine cost (same generation)
+            .bind(body.cover_image_url.as_deref())
+            .bind(body.preview_image_url.as_deref())
+            .bind(preview_video_url_resolved)
+            .fetch_one(&app.pool)
+            .await
+            .ok();
+            row2.map(|r| r.0)
+        };
+        if let Some(take2_id) = take2_id_opt {
+            // Same final_mv (cheaper than recomposing for now).
+            // CSSOS_PHASE2_TAKE_2_AS_WORK 20260430 #221b — sibling
+            // cross-reference so frontend can hydrate the OTHER take's
+            // audio when the user opens either card.
+            if let Some(mv_url) = body.final_mv_url.as_deref() {
+                let meta = json!({
+                    "kind": "third_party_pipeline",
+                    "take_index": 2,
+                    "sibling_work_id": work_id,
+                    "shares_video_with": work_id,
+                    "duration_secs": body.alt_duration_secs.or(body.duration_secs),
+                    "lyrics_full": body.lyrics_full,
+                });
+                let _ = sqlx::query(
+                    "INSERT INTO work_assets (work_id, asset_type, url, meta) \
+                     VALUES ($1, 'final_mv', $2, $3) \
+                     ON CONFLICT (work_id, asset_type) DO UPDATE \
+                     SET url = EXCLUDED.url, meta = EXCLUDED.meta",
+                )
+                .bind(take2_id)
+                .bind(mv_url)
+                .bind(meta)
+                .execute(&app.pool)
+                .await;
+            }
+            // ALSO patch Take 1's final_mv meta to include sibling_work_id
+            // pointing at Take 2 — symmetrical so opening either card
+            // discovers the other.
+            let _ = sqlx::query(
+                "UPDATE work_assets \
+                 SET meta = meta || jsonb_build_object('sibling_work_id', $1::text, 'take_index', 1) \
+                 WHERE work_id = $2 AND asset_type = 'final_mv'",
+            )
+            .bind(take2_id.to_string())
+            .bind(work_id)
+            .execute(&app.pool)
+            .await;
+            // Take 2 row's PRIMARY audio = the alt URL (so playback flows
+            // identically to a single-take work, no special-casing needed).
+            let meta = json!({
+                "kind": "audio_track",
+                "take": 1, // primary for THIS row
+                "alt_take_index": 2, // links back to Take 2 of parent
+            });
+            let _ = sqlx::query(
+                "INSERT INTO work_assets (work_id, asset_type, url, meta) \
+                 VALUES ($1, 'audio_track_1', $2, $3) \
+                 ON CONFLICT (work_id, asset_type) DO UPDATE \
+                 SET url = EXCLUDED.url, meta = EXCLUDED.meta",
+            )
+            .bind(take2_id)
+            .bind(alt_url)
+            .bind(meta)
+            .execute(&app.pool)
+            .await;
+        }
     }
 
     Ok(Json(CommitResponse {
@@ -1667,6 +2055,90 @@ pub struct LyricsResponse {
     /// Cinematic tier. Falls back to a single full-length AI clip otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shot_scripts: Option<Vec<ShotScript>>,
+    /// CSSOS_PHASE2_DERIVED_SETTINGS 20260427 #160 — Jing
+    /// 文明联动 / 智能联动 / 随机联动. The lyrics engine is the brain of the
+    /// pipeline — once it knows the lyric body + UI civilization, it should
+    /// emit the full Advanced-Settings envelope so the user never has to
+    /// pick BPM / Key / Voice Gender / Work Type / Reference Artists by
+    /// hand. The frontend applies these to creationState ONLY when the
+    /// matching field is empty (never overrides explicit user picks).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derived_settings: Option<DerivedSettings>,
+}
+
+/// CSSOS_PHASE2_DERIVED_SETTINGS 20260427 #160 — Jing
+/// All Advanced-Settings fields the lyrics engine can derive from
+/// (UI civilization × lyric body × user's title hint). Every field is
+/// optional — a missing value means "don't override the UI default".
+/// Mirrors the field names in frontend creationState.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DerivedSettings {
+    /// "single" | "triptych" | "opera" | "short_drama" | "series" | "film"
+    /// Inferred from lyric body structure (single block → single,
+    /// numbered movements → triptych, libretto sections → opera, etc.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_type: Option<String>,
+    /// Total song duration in seconds. Computed as sum of section
+    /// line counts × per-line duration (~3.5s/line) + intro/outro buffers.
+    /// NOT the hardcoded 180s default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_secs: Option<u32>,
+    /// "feminine" | "masculine" | "childlike" | "duet" | "androgynous" |
+    /// "polyphonic_choir". Derived from lyric pronouns + civilization
+    /// (e.g. Japanese pop ballad → feminine, Chinese GuFeng war epic →
+    /// masculine, K-pop group song → polyphonic_choir).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice_gender: Option<String>,
+    /// Beats per minute (60-180). Civilization + mood keyed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tempo_bpm: Option<u32>,
+    /// Musical key, e.g. "C", "D minor", "F# major".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    /// Genre — Pop / Rock / Jazz / Hip Hop / R&B / Country / Folk /
+    /// Classical / EDM / Reggae / Chinese GuFeng / J-Pop / K-Pop / etc.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub genre: Option<String>,
+    /// Mood — Emotional / Joyous / Sad / Angry / Gentle / Nostalgic / etc.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mood: Option<String>,
+    /// Featured solo instrument (Violin / Piano / Guzheng / Saxophone …)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instrument: Option<String>,
+    /// Ambient texture (Birdsong / Waves / Rain / Forest / Cityscape …)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ambience: Option<String>,
+    /// Vocal style — soul / belt / falsetto / spoken-word / aria / etc.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vocal_style: Option<String>,
+    /// Ensemble — pop / orchestral / jazz_combo / rock_band / a_cappella …
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ensemble_style: Option<String>,
+    /// Comma-separated instrument list (top of mix), e.g. "piano, strings, harp".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instrumentation: Option<String>,
+    /// Section form summary — "Verse 1, Verse 2, Chorus, Bridge, Chorus, Outro"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub section_form: Option<String>,
+    /// Articulation — "legato lead" / "staccato hook" / "syncopated rap"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub articulation_bias: Option<String>,
+    /// Voice register — "bright high lead" / "warm mid" / "deep bass"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voicing_register: Option<String>,
+    /// Expression CC bias — "swell intro chorus" / "soft verses big chorus"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expression_cc_bias: Option<String>,
+    /// Inspiration notes — short freeform civilization context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inspiration_notes: Option<String>,
+    /// Reference artists (NOT for cloning — for ensemble/style hints).
+    /// E.g. "The Beatles, Aretha Franklin, Whitney Houston" for English/UK.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference_artists: Option<String>,
+    /// IETF language tag — "ja" / "zh" / "en" / "ko" / etc.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
 }
 
 /// CSSOS_PHASE2_LYRIC_SECTIONS 20260426 #148-A2
@@ -1723,7 +2195,7 @@ fn default_lyrics_system_prompt() -> String {
             // Output contract: a single JSON object, no Markdown fence, no
             // preamble. Robust parsing on our side falls back gracefully if
             // the LLM emits plain text (older models, forgetful runs).
-            r#"You are a professional songwriter and music-video director. For the user's theme, produce SINGABLE original lyrics AND a per-section visual shot list. Output ONE JSON object with this exact shape:
+            r#"You are a professional songwriter, music-video director, AND music producer. For the user's theme, produce SINGABLE original lyrics, a per-section visual shot list, AND a complete derived_settings envelope so the production pipeline never has to guess BPM / key / instrumentation / voice gender / reference artists. Output ONE JSON object with this exact shape:
 
 {
   "lyrics": "<full lyrics with section markers like [Verse 1] / [Chorus] / [Bridge] / [Outro] on their own lines>",
@@ -1736,7 +2208,28 @@ fn default_lyrics_system_prompt() -> String {
     {"section_kind": "intro", "scene_description": "Empty wooden stage, single spotlight, dust motes drifting", "mood": "intimate", "motion": "slow push-in"},
     {"section_kind": "verse_1", "scene_description": "Young woman walks alone down a misty cobblestone street at dawn", "mood": "melancholic", "motion": "tracking shot, slow"},
     {"section_kind": "chorus", "scene_description": "She bursts onto a sunlit cliff top, arms wide, hair streaming", "mood": "uplifting", "motion": "sweeping crane up"}
-  ]
+  ],
+  "derived_settings": {
+    "work_type": "single | triptych | opera | short_drama | series | film",
+    "duration_secs": 187,
+    "voice_gender": "feminine | masculine | childlike | duet | androgynous | polyphonic_choir",
+    "tempo_bpm": 88,
+    "key": "C minor",
+    "genre": "Pop | Rock | Jazz | Hip Hop | R&B | Country | Folk | Classical | EDM | Reggae | Chinese GuFeng | J-Pop | K-Pop | Mandopop | Latin Pop | Chanson | …",
+    "mood": "Emotional | Joyous | Sad | Angry | Gentle | Nostalgic | Romantic | Inspiring | Soulful",
+    "instrument": "Violin | Piano | Guitar | Guzheng | Saxophone | Synth Bass | …",
+    "ambience": "Birdsong | Waves | Rain | Forest | Cityscape | Vinyl | Thunder | Campfire",
+    "vocal_style": "soft head voice | emotive belt | falsetto | spoken-word | flowing legato | …",
+    "ensemble_style": "j_pop_band | k_pop | mandopop | guzheng_ensemble | pop_band | latin_pop | chanson | german_pop | russian_pop | arabic_pop | bollywood | …",
+    "instrumentation": "piano, strings, harp",
+    "section_form": "Verse 1, Verse 2, Chorus 1, Verse 3, Verse 4, Chorus 2, Bridge, Chorus 3, Chorus 4, Outro",
+    "articulation_bias": "legato lead | staccato hook | syncopated rap",
+    "voicing_register": "bright high lead | warm mid | deep bass",
+    "expression_cc_bias": "swell intro chorus | soft verses big chorus",
+    "inspiration_notes": "<short freeform civilization context>",
+    "reference_artists": "Aimer, Hikaru Utada, Yorushika",
+    "language": "ja"
+  }
 }
 
 Rules:
@@ -1745,6 +2238,11 @@ Rules:
 - One shot_scripts entry per section. section_kind matches a section.
 - scene_description must be filmable: concrete subject + action + setting. Avoid pure abstraction.
 - motion is a camera direction: "slow zoom", "static", "dolly right", "handheld", "crane up", "rack focus", etc.
+- derived_settings MUST be civilization-coherent: Japanese lyrics → Japanese reference_artists + J-Pop genre + ja language; Chinese GuFeng lyrics → Chinese reference_artists + Guzheng instrument + zh language; English pop ballad → English reference_artists + Pop genre + en language. NEVER mix civilizations (e.g. don't pair Aretha Franklin with Chinese GuFeng).
+- voice_gender: infer from lyric pronouns + civilization. If both present in lyrics, use "duet".
+- duration_secs: realistic song length (45-600s). NEVER 180 by default — compute from total line count × ~3.5s + 8s intro/outro.
+- work_type: single (one block), triptych (3 movements), opera (libretto), short_drama / series / film for narrative/scripted forms.
+- reference_artists: 3-5 iconic artists FROM THE TARGET CIVILIZATION. These are inspiration/ensemble hints, NEVER for cloning.
 - Return JSON ONLY. No Markdown fence, no commentary, no preamble.
 - Match the requested language for the lyrics field. Shot descriptions and theme/mood may stay English (they're director notes)."#
                 .to_string()
@@ -1762,7 +2260,7 @@ Rules:
 /// Returns `(plain_lyrics, Option<sections>, Option<shot_scripts>)`.
 fn parse_lyrics_llm_output(
     raw: &str,
-) -> (String, Option<Vec<LyricSection>>, Option<Vec<ShotScript>>) {
+) -> (String, Option<Vec<LyricSection>>, Option<Vec<ShotScript>>, Option<DerivedSettings>) {
     let trimmed = raw.trim();
     // Strip Markdown JSON fences if the model emitted them despite instructions.
     let core = if let Some(stripped) = trimmed.strip_prefix("```json").and_then(|s| s.strip_suffix("```")) {
@@ -1854,14 +2352,47 @@ fn parse_lyrics_llm_output(
             })
             .filter(|v| !v.is_empty());
 
+        // CSSOS_PHASE2_DERIVED_SETTINGS_PARSE 20260427 #160 — extract envelope.
+        let derived_settings: Option<DerivedSettings> = v
+            .get("derived_settings")
+            .or_else(|| v.get("settings"))
+            .and_then(|node| {
+                let s = serde_json::from_value::<DerivedSettings>(node.clone()).ok()?;
+                if s.work_type.is_some()
+                    || s.duration_secs.is_some()
+                    || s.voice_gender.is_some()
+                    || s.tempo_bpm.is_some()
+                    || s.key.is_some()
+                    || s.genre.is_some()
+                    || s.mood.is_some()
+                    || s.instrument.is_some()
+                    || s.ambience.is_some()
+                    || s.vocal_style.is_some()
+                    || s.ensemble_style.is_some()
+                    || s.instrumentation.is_some()
+                    || s.section_form.is_some()
+                    || s.articulation_bias.is_some()
+                    || s.voicing_register.is_some()
+                    || s.expression_cc_bias.is_some()
+                    || s.inspiration_notes.is_some()
+                    || s.reference_artists.is_some()
+                    || s.language.is_some()
+                {
+                    Some(s)
+                } else {
+                    None
+                }
+            });
+
         if !lyrics.is_empty() {
             tracing::info!(
                 target = "mv_pipeline_lyrics",
                 section_count = sections.as_ref().map(|v| v.len()).unwrap_or(0),
                 shot_count = shot_scripts.as_ref().map(|v| v.len()).unwrap_or(0),
+                derived_present = derived_settings.is_some(),
                 "lyrics LLM emitted JSON envelope"
             );
-            return (lyrics, sections, shot_scripts);
+            return (lyrics, sections, shot_scripts, derived_settings);
         }
     }
 
@@ -1874,6 +2405,7 @@ fn parse_lyrics_llm_output(
     (
         core.to_string(),
         if sections.is_empty() { None } else { Some(sections) },
+        None,
         None,
     )
 }
@@ -1993,7 +2525,7 @@ mod lyrics_parse_tests {
                 {"section_kind": "chorus",  "scene_description": "Cliff edge crane up", "motion": "crane up"}
             ]
         }"#;
-        let (lyrics, sections, shots) = parse_lyrics_llm_output(raw);
+        let (lyrics, sections, shots, _derived) = parse_lyrics_llm_output(raw);
         assert!(lyrics.contains("Line A"));
         let s = sections.expect("sections");
         assert_eq!(s.len(), 2);
@@ -2006,7 +2538,7 @@ mod lyrics_parse_tests {
     #[test]
     fn parses_json_inside_markdown_fence() {
         let raw = "```json\n{\"lyrics\":\"X\",\"sections\":[{\"kind\":\"verse_1\",\"lines\":[\"X\"]}]}\n```";
-        let (l, s, _) = parse_lyrics_llm_output(raw);
+        let (l, s, _, _) = parse_lyrics_llm_output(raw);
         assert_eq!(l, "X");
         assert_eq!(s.unwrap().len(), 1);
     }
@@ -2014,7 +2546,7 @@ mod lyrics_parse_tests {
     #[test]
     fn falls_back_on_plain_text() {
         let raw = "[Verse 1]\nLine A\n\n[Chorus]\nLine B";
-        let (l, s, sh) = parse_lyrics_llm_output(raw);
+        let (l, s, sh, _) = parse_lyrics_llm_output(raw);
         assert!(l.contains("Line A"));
         let sects = s.expect("heuristic sections");
         assert!(sects.iter().any(|x| x.kind == "verse_1"));
@@ -2025,12 +2557,43 @@ mod lyrics_parse_tests {
     #[test]
     fn falls_back_when_json_lacks_lyrics() {
         let raw = r#"{"unrelated": "field"}"#;
-        let (l, s, sh) = parse_lyrics_llm_output(raw);
+        let (l, s, sh, d) = parse_lyrics_llm_output(raw);
         // No lyrics field → falls into plain-text path which returns the raw
         // back as lyrics, no sections/shots.
         assert_eq!(l, raw);
         assert!(s.is_none() || s.unwrap().is_empty());
         assert!(sh.is_none());
+        assert!(d.is_none());
+    }
+
+    #[test]
+    fn parses_derived_settings_envelope() {
+        let raw = r#"{
+            "lyrics": "[Verse 1]\nLine A",
+            "sections": [{"kind": "verse_1", "lines": ["Line A"]}],
+            "derived_settings": {
+                "work_type": "single",
+                "duration_secs": 187,
+                "voice_gender": "feminine",
+                "tempo_bpm": 88,
+                "key": "C minor",
+                "genre": "J-Pop",
+                "mood": "Nostalgic",
+                "vocal_style": "soft head voice",
+                "section_form": "Verse 1, Chorus, Verse 2, Chorus, Bridge, Chorus, Outro",
+                "reference_artists": "Aimer, Yorushika, Hikaru Utada",
+                "language": "ja"
+            }
+        }"#;
+        let (lyrics, _sections, _shots, derived) = parse_lyrics_llm_output(raw);
+        assert!(lyrics.contains("Line A"));
+        let d = derived.expect("derived_settings present");
+        assert_eq!(d.work_type.as_deref(), Some("single"));
+        assert_eq!(d.duration_secs, Some(187));
+        assert_eq!(d.voice_gender.as_deref(), Some("feminine"));
+        assert_eq!(d.tempo_bpm, Some(88));
+        assert_eq!(d.language.as_deref(), Some("ja"));
+        assert_eq!(d.reference_artists.as_deref(), Some("Aimer, Yorushika, Hikaru Utada"));
     }
 }
 
@@ -2173,10 +2736,30 @@ async fn lyrics_inner(
 
     // CSSOS_PHASE2_LYRIC_SECTIONS 20260426 #148-A2 + #148-B — Jing
     // Parse the LLM output for the JSON envelope. The LLM is instructed to
-    // emit structured sections + shot_scripts; we fall back to plain-text
-    // heuristic split if it doesn't comply (older models, transient runs).
-    let (parsed_lyrics, parsed_sections, parsed_shots) =
+    // emit structured sections + shot_scripts + derived_settings; we fall
+    // back to plain-text heuristic split if it doesn't comply.
+    let (parsed_lyrics, parsed_sections, parsed_shots, parsed_derived) =
         parse_lyrics_llm_output(&result.text);
+
+    // CSSOS_PHASE2_DERIVED_SETTINGS_FALLBACK 20260427 #160 — Jing
+    // 文明联动 / 智能联动 / 随机联动. When the LLM doesn't provide a
+    // derived_settings envelope (older models, transient runs, or a refusal),
+    // synthesise one from civilization × lyric body × language so the
+    // frontend Advanced Settings still get filled. The heuristic uses:
+    //   - language → reference_artists, vocal_style, ensemble_style
+    //   - lyric line count + section form → duration_secs
+    //   - civilization + lyric pronouns → voice_gender
+    //   - section count → work_type
+    let final_derived: Option<DerivedSettings> = parsed_derived.or_else(|| {
+        let civ_hint = body.civilization.as_deref().unwrap_or("");
+        let lang_hint = body.language.as_deref().unwrap_or("");
+        Some(derive_settings_fallback(
+            &parsed_lyrics,
+            parsed_sections.as_deref(),
+            civ_hint,
+            lang_hint,
+        ))
+    });
 
     tracing::info!(
         target = "mv_pipeline_lyrics",
@@ -2184,6 +2767,7 @@ async fn lyrics_inner(
         version = %version,
         section_count = parsed_sections.as_ref().map(|v| v.len()).unwrap_or(0),
         shot_count = parsed_shots.as_ref().map(|v| v.len()).unwrap_or(0),
+        derived_present = final_derived.is_some(),
         "lyrics stage emitted parsed envelope"
     );
 
@@ -2200,7 +2784,255 @@ async fn lyrics_inner(
         output_tokens: result.output_tokens,
         sections: parsed_sections,
         shot_scripts: parsed_shots,
+        derived_settings: final_derived,
     }))
+}
+
+/// CSSOS_PHASE2_DERIVED_SETTINGS_FALLBACK 20260427 #160 — Jing
+/// Best-effort heuristic derivation when the lyrics LLM didn't emit a
+/// `derived_settings` envelope. Uses language, civilization, and the
+/// parsed lyric body to populate as many Advanced Settings fields as
+/// possible. Always returns Some with at least language + duration_secs
+/// + work_type filled — frontend overlays only over empty creationState
+/// fields, so over-filling here is safe.
+fn derive_settings_fallback(
+    lyrics: &str,
+    sections: Option<&[LyricSection]>,
+    civilization: &str,
+    language: &str,
+) -> DerivedSettings {
+    let lang = language.trim().to_ascii_lowercase();
+    let civ = civilization.trim().to_ascii_lowercase();
+
+    // Duration: per-section line count × 3.5s + 8s intro/outro buffer.
+    let total_lines: usize = sections
+        .map(|s| s.iter().map(|sec| sec.lines.len()).sum())
+        .unwrap_or_else(|| {
+            lyrics
+                .lines()
+                .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with('['))
+                .count()
+        });
+    // CSSOS_PHASE2_DURATION_HONORS_CHAR_DENSITY 20260429 #168.9a — Jing
+    // Char density matters: a 17-line song with 175 chars/line is ~3 min,
+    // not 60s. Use whichever is larger:
+    //   • 3.5s/line floor (legacy heuristic — fine for short pop)
+    //   • avg_chars_per_line / 12 chars-per-second × line_count (covers
+    //     opera, narrative, CJK-dense lyrics).
+    // Hard floor at 180s (3 min) so we never ship a sub-3-min single
+    // even for sparse lyrics — lyrics LLM should be writing real songs.
+    // Hard ceiling 600s (10 min) for opera / Suno-extend territory.
+    let duration_secs = if total_lines == 0 {
+        Some(180u32)
+    } else {
+        let total_chars: usize = lyrics.chars().filter(|c| !c.is_whitespace()).count();
+        let avg_chars = if total_lines > 0 { total_chars as f32 / total_lines as f32 } else { 0.0 };
+        let by_line = total_lines as f32 * 3.5;
+        let by_chars = total_chars as f32 / 12.0;
+        let raw = by_line.max(by_chars) + 12.0; // 12s buffer for intro/outro
+        Some((raw.round() as u32).clamp(180, 600))
+    };
+    // also useful: log what we picked so we can diagnose later
+    let _ = (duration_secs.unwrap(), total_lines);
+
+    // Work type: count the distinct section kinds we recognise as
+    // top-level "movements". 1 → single, 3 → triptych, 5+ unique → series.
+    let work_type = sections
+        .map(|s| {
+            let unique_kinds: std::collections::HashSet<_> =
+                s.iter().map(|sec| sec.kind.as_str()).collect();
+            match unique_kinds.len() {
+                0 | 1 => "single",
+                2 | 3 => "triptych",
+                4 | 5 => "opera",
+                _ => "series",
+            }
+        })
+        .unwrap_or("single")
+        .to_string();
+
+    // Voice gender: heuristic on body — feminine pronouns ("她", "elle",
+    // "she", "彼女", "그녀") → feminine, masculine ("他", "il", "he", "彼",
+    // "그") → masculine. Fall back to civ-default.
+    let body_lower = lyrics.to_lowercase();
+    let has_fem = body_lower.contains("she ")
+        || body_lower.contains("her ")
+        || body_lower.contains("elle ")
+        || lyrics.contains("她")
+        || lyrics.contains("彼女")
+        || lyrics.contains("그녀");
+    let has_masc = body_lower.contains("he ")
+        || body_lower.contains("him ")
+        || body_lower.contains("his ")
+        || body_lower.contains(" il ")
+        || lyrics.contains("他")
+        || lyrics.contains("彼");
+    let voice_gender = match (has_fem, has_masc) {
+        (true, false) => Some("feminine".to_string()),
+        (false, true) => Some("masculine".to_string()),
+        (true, true) => Some("duet".to_string()),
+        _ => None, // leave to civ-keyed default below if any
+    };
+
+    // Reference atlas + ensemble per language (Jing's requirement: each
+    // civilization has its own iconic artists / ensembles).
+    let (reference_artists, ensemble_style, genre, vocal_style, instrument) = match lang.as_str() {
+        "ja" => (
+            Some("Aimer, Hikaru Utada, Yorushika, Yoasobi, RADWIMPS".to_string()),
+            Some("j_pop_band".to_string()),
+            Some("J-Pop".to_string()),
+            Some("airy mix".to_string()),
+            Some("Piano".to_string()),
+        ),
+        "ko" => (
+            Some("IU, BTS, Crush, Heize, Akdong Musician".to_string()),
+            Some("k_pop".to_string()),
+            Some("K-Pop".to_string()),
+            Some("belt with rap bridge".to_string()),
+            Some("Synth Bass".to_string()),
+        ),
+        "zh" => {
+            // Chinese: differentiate GuFeng vs Mandopop by civilization hint
+            if civ.contains("gufeng") || civ.contains("古风") {
+                (
+                    Some("周杰伦, 毛不易, 林俊杰, 李宇春, 邓紫棋".to_string()),
+                    Some("guzheng_ensemble".to_string()),
+                    Some("Chinese GuFeng".to_string()),
+                    Some("flowing legato".to_string()),
+                    Some("Guzheng".to_string()),
+                )
+            } else {
+                (
+                    Some("Jay Chou, JJ Lin, G.E.M., Eason Chan, Joker Xue".to_string()),
+                    Some("mandopop".to_string()),
+                    Some("Mandopop".to_string()),
+                    Some("emotive lyric".to_string()),
+                    Some("Piano".to_string()),
+                )
+            }
+        }
+        "en" => (
+            Some("The Beatles, Aretha Franklin, Whitney Houston, Hans Zimmer, Daft Punk".to_string()),
+            Some("pop_band".to_string()),
+            Some("Pop".to_string()),
+            Some("soulful belt".to_string()),
+            Some("Piano".to_string()),
+        ),
+        "es" => (
+            Some("Rosalía, Bad Bunny, Shakira, J Balvin, Carlos Vives".to_string()),
+            Some("latin_pop".to_string()),
+            Some("Latin Pop".to_string()),
+            Some("rhythmic vocal".to_string()),
+            Some("Guitar".to_string()),
+        ),
+        "fr" => (
+            Some("Édith Piaf, Stromae, Christine and the Queens, Charles Aznavour".to_string()),
+            Some("chanson".to_string()),
+            Some("Chanson".to_string()),
+            Some("intimate spoken-melodic".to_string()),
+            Some("Piano".to_string()),
+        ),
+        "de" => (
+            Some("Rammstein, Nena, Cro, Mark Forster".to_string()),
+            Some("german_pop".to_string()),
+            Some("German Pop".to_string()),
+            Some("declarative".to_string()),
+            Some("Synth Bass".to_string()),
+        ),
+        "ru" => (
+            Some("Земфира, Виктор Цой, Алла Пугачёва, Полина Гагарина".to_string()),
+            Some("russian_pop".to_string()),
+            Some("Russian Pop".to_string()),
+            Some("dramatic chest".to_string()),
+            Some("Violin".to_string()),
+        ),
+        "ar" => (
+            Some("Fairuz, Amr Diab, Nancy Ajram, Mohammed Abdu".to_string()),
+            Some("arabic_pop".to_string()),
+            Some("Arabic Pop".to_string()),
+            Some("ornamented melisma".to_string()),
+            Some("Oud".to_string()),
+        ),
+        "hi" => (
+            Some("A.R. Rahman, Lata Mangeshkar, Arijit Singh, Shreya Ghoshal".to_string()),
+            Some("bollywood".to_string()),
+            Some("Bollywood".to_string()),
+            Some("filmi vocal".to_string()),
+            Some("Sitar".to_string()),
+        ),
+        _ => (
+            None,
+            Some("pop".to_string()),
+            Some("Pop".to_string()),
+            Some("balanced lead".to_string()),
+            None,
+        ),
+    };
+
+    // Tempo + key: civ-keyed defaults that pair well with the genre.
+    let tempo_bpm = match lang.as_str() {
+        "ja" => Some(96u32),
+        "ko" => Some(110),
+        "zh" => Some(82),
+        "en" => Some(104),
+        "es" => Some(108),
+        "fr" => Some(92),
+        "de" => Some(112),
+        "ru" => Some(98),
+        "ar" => Some(86),
+        "hi" => Some(102),
+        _ => Some(100),
+    };
+    let key = match lang.as_str() {
+        "ja" | "zh" | "ko" => Some("C minor".to_string()),
+        "en" | "es" | "fr" | "de" => Some("D".to_string()),
+        "ar" | "hi" => Some("E minor".to_string()),
+        _ => Some("C".to_string()),
+    };
+
+    // Section form: derived from sections if available, else generic verse-chorus form.
+    let section_form = sections
+        .map(|s| {
+            s.iter()
+                .map(|sec| {
+                    let mut name = sec.kind.replace('_', " ");
+                    if let Some(c) = name.get_mut(0..1) {
+                        c.make_ascii_uppercase();
+                    }
+                    name
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            Some(
+                "Verse 1, Verse 2, Chorus 1, Verse 3, Verse 4, Chorus 2, Bridge, Chorus 3, Chorus 4, Outro"
+                    .to_string(),
+            )
+        });
+
+    DerivedSettings {
+        work_type: Some(work_type),
+        duration_secs,
+        voice_gender,
+        tempo_bpm,
+        key,
+        genre,
+        mood: None,
+        instrument,
+        ambience: None,
+        vocal_style,
+        ensemble_style,
+        instrumentation: None,
+        section_form,
+        articulation_bias: Some("legato lead".to_string()),
+        voicing_register: Some("bright high lead".to_string()),
+        expression_cc_bias: Some("swell intro chorus".to_string()),
+        inspiration_notes: None,
+        reference_artists,
+        language: if lang.is_empty() { None } else { Some(lang) },
+    }
 }
 
 // ------------------------------------------------------------- /mv/subtitles

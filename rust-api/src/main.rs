@@ -1,10 +1,12 @@
 use crate::cssapi::request_id::RequestIdLayer;
 use crate::cssapi::trace::make_trace_layer;
 use opentelemetry_otlp::WithExportConfig;
+use sqlx::PgPool;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
+mod admin_users_api;
 mod artifact_versions;
 mod artifacts;
 mod artifacts_api;
@@ -14,6 +16,7 @@ mod billing;
 mod billing_matrix;
 mod config;
 mod continuity_engine;
+mod cover_webp;
 mod css_access_gate;
 mod css_assurance_api;
 mod css_auction_engine;
@@ -130,26 +133,39 @@ mod dag_export;
 mod dag_runtime;
 mod dag_v3;
 mod dag_viz_html;
+mod data_pipeline;
 mod db;
 mod distributed;
 mod dsl;
+mod engine_credentials;
 mod engine_registry;
 mod engines;
 mod ephemeral;
+mod eval;
 mod event_engine;
 mod events;
 mod film_runtime;
 mod i18n;
+mod i18n_translate;
 mod immersion_engine;
 mod jobs;
+mod llm;
 mod market_package;
 mod media;
 mod metrics;
 mod models;
+mod music_composition;
+mod music_gen;
+mod mv_compose;
+mod mv_keepalive;
+mod mv_random_inputs;
 mod narrative_qa;
 mod orchestrator;
 mod passkey;
+mod payments;
+mod payments_api;
 mod physics_engine;
+mod pipeline_mv_api;
 mod pipeline_status;
 mod presence_engine;
 mod procutil;
@@ -178,7 +194,9 @@ mod schema_keys;
 mod subtitles;
 mod timeline;
 mod timeutil;
+mod training;
 mod video;
+mod video_diffusion;
 mod video_dispatch;
 mod video_executor;
 mod what_if;
@@ -186,6 +204,21 @@ mod ws;
 
 #[tokio::main]
 async fn main() {
+    if std::env::args().any(|arg| arg == "--train-video-diffusion-ddp") {
+        let world_size = std::env::var("WORLD_SIZE")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(4);
+
+        if std::env::var("RANK").is_err() {
+            crate::distributed::launcher::launch(world_size);
+        } else {
+            crate::video_diffusion::train::train_distributed()
+                .expect("distributed video diffusion training failed");
+        }
+        return;
+    }
+
     if std::env::args().any(|a| a == "--print-openapi") {
         let doc = crate::cssapi::openapi::build_openapi();
         print!("{}", doc.to_json().unwrap_or_else(|_| "{}".to_string()));
@@ -197,15 +230,38 @@ async fn main() {
     let mode = std::env::var("CSS_MODE").unwrap_or_else(|_| "all".to_string());
 
     let config = config::Config::from_env().expect("DATABASE_URL not configured");
-    let pool = db::connect(&config.database_url)
-        .await
-        .expect("db connect failed");
+    let connect_attempts = read_env_u32("CSS_DB_CONNECT_ATTEMPTS", 6);
+    let connect_backoff_ms = read_env_u64("CSS_DB_CONNECT_BACKOFF_MS", 1_500);
+    let (pool, db_ready) =
+        match connect_pool_with_backoff(&config.database_url, connect_attempts, connect_backoff_ms)
+            .await
+        {
+            Ok(pool) => (pool, true),
+            Err(err) => {
+                tracing::error!(
+                    error = %err,
+                    attempts = connect_attempts,
+                    "db connect failed after retries; starting rust-api in degraded mode"
+                );
+                let lazy_pool = db::connect_lazy(&config.database_url)
+                    .expect("db lazy pool construction failed");
+                (lazy_pool, false)
+            }
+        };
     let skip_migrate = std::env::var("CSS_SKIP_DB_MIGRATE")
         .ok()
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
-    if !skip_migrate {
-        db::migrate(&pool).await.expect("db migrate failed");
+    if db_ready && !skip_migrate {
+        if let Err(err) = db::migrate(&pool).await {
+            tracing::error!(error = %err, "db migrate failed; continuing in degraded mode");
+        }
+    } else if skip_migrate {
+        tracing::info!("db migrate skipped by config");
+    } else {
+        tracing::warn!(
+            "db unavailable at startup; skipping migrations until connectivity recovers"
+        );
     }
     if let Err(e) = quality_history::init_db(&pool).await {
         tracing::warn!(error = %e, "quality history init failed");
@@ -240,6 +296,7 @@ async fn main() {
         config: config.clone(),
         jobs: jobs::Jobs::new(),
         event_bus: events::global_bus(),
+        i18n_cache: i18n_translate::memory_cache(),
     };
     let app = routes::router(state)
         .layer(RequestIdLayer::default())
@@ -251,6 +308,59 @@ async fn main() {
         .await
         .expect("bind failed");
     axum::serve(listener, app).await.expect("server failed");
+}
+
+async fn connect_pool_with_backoff(
+    database_url: &str,
+    attempts: u32,
+    base_backoff_ms: u64,
+) -> Result<PgPool, sqlx::Error> {
+    let max_attempts = attempts.max(1);
+    let base_delay = base_backoff_ms.max(250);
+    let mut last_error = None;
+    for attempt in 1..=max_attempts {
+        match db::connect(database_url).await {
+            Ok(pool) => {
+                if attempt > 1 {
+                    tracing::info!(attempt, "db connect recovered after retry");
+                }
+                return Ok(pool);
+            }
+            Err(err) => {
+                let delay_ms =
+                    base_delay.saturating_mul(2_u64.saturating_pow(attempt.saturating_sub(1)));
+                let capped_delay_ms = delay_ms.min(30_000);
+                tracing::warn!(
+                    error = %err,
+                    attempt,
+                    max_attempts,
+                    retry_in_ms = capped_delay_ms,
+                    "db connect failed during startup"
+                );
+                last_error = Some(err);
+                if attempt < max_attempts {
+                    tokio::time::sleep(std::time::Duration::from_millis(capped_delay_ms)).await;
+                }
+            }
+        }
+    }
+    Err(last_error.expect("connect attempts should always record an error"))
+}
+
+fn read_env_u32(key: &str, default: u32) -> u32 {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(default)
+}
+
+fn read_env_u64(key: &str, default: u64) -> u64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(default)
 }
 
 fn init_tracing() {

@@ -126,6 +126,28 @@ impl DagBuilder {
         }
     }
 
+    fn voices_for_lang(&self, lang: &str) -> Vec<crate::dag_v3::types::VoiceId> {
+        let matching = self
+            .matrix
+            .voices
+            .iter()
+            .filter(|voice| {
+                let raw = voice.as_str();
+                raw == lang || raw == format!("{lang}_lead") || raw.starts_with(&format!("{lang}_"))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if !matching.is_empty() {
+            return matching;
+        }
+        if lang == self.matrix.primary_lang.as_str()
+            && !self.matrix.primary_voice.as_str().is_empty()
+        {
+            return vec![self.matrix.primary_voice.clone()];
+        }
+        vec![crate::dag_v3::types::VoiceId(format!("{lang}_lead"))]
+    }
+
     pub fn add_input_layer(mut self) -> Self {
         self.push_stage(
             "input_detect",
@@ -273,7 +295,7 @@ impl DagBuilder {
             Some(self.native_backend("vocals")),
         );
         for lang in self.matrix.langs.clone() {
-            for voice in self.matrix.voices.clone() {
+            for voice in self.voices_for_lang(&lang.0) {
                 let vk = VersionKey {
                     lang: Some(lang.clone()),
                     voice: Some(voice.clone()),
@@ -378,7 +400,7 @@ impl DagBuilder {
 
     pub fn add_output_layer(mut self) -> Self {
         for lang in self.matrix.langs.clone() {
-            for voice in self.matrix.voices.clone() {
+            for voice in self.voices_for_lang(&lang.0) {
                 self.push_stage(
                     format!("render_mv.{}.{}", lang.0, voice.0),
                     StageKind::RenderMv,
@@ -422,5 +444,62 @@ impl DagBuilder {
             None,
         );
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dag_v3::{intent::CreativeBrief, intent::CreativeIntent, types::ProjectMode};
+
+    fn demo_builder() -> DagBuilder {
+        DagBuilder::new(
+            CreativeIntent {
+                mode: ProjectMode::MultiVersion,
+                primary_lang: crate::dag_v3::types::LangCode("zh".to_string()),
+                target_langs: vec![
+                    crate::dag_v3::types::LangCode("zh".to_string()),
+                    crate::dag_v3::types::LangCode("en".to_string()),
+                    crate::dag_v3::types::LangCode("ja".to_string()),
+                ],
+                target_voices: vec![
+                    crate::dag_v3::types::VoiceId("zh_lead".to_string()),
+                    crate::dag_v3::types::VoiceId("en_lead".to_string()),
+                    crate::dag_v3::types::VoiceId("ja_lead".to_string()),
+                ],
+                outputs: vec![OutputKind::Mv, OutputKind::KaraokeMv],
+                karaoke: true,
+                auto_mv: true,
+                market_ready: false,
+                source_assets: vec![],
+            },
+            CreativeBrief::default(),
+            VersionMatrix {
+                primary_lang: crate::dag_v3::types::LangCode("zh".to_string()),
+                primary_voice: crate::dag_v3::types::VoiceId("zh_lead".to_string()),
+                langs: vec![
+                    crate::dag_v3::types::LangCode("zh".to_string()),
+                    crate::dag_v3::types::LangCode("en".to_string()),
+                    crate::dag_v3::types::LangCode("ja".to_string()),
+                ],
+                voices: vec![
+                    crate::dag_v3::types::VoiceId("zh_lead".to_string()),
+                    crate::dag_v3::types::VoiceId("en_lead".to_string()),
+                    crate::dag_v3::types::VoiceId("ja_lead".to_string()),
+                ],
+                outputs: vec![OutputKind::Mv, OutputKind::KaraokeMv],
+            },
+        )
+    }
+
+    #[test]
+    fn voices_for_lang_only_returns_matching_lanes() {
+        let builder = demo_builder();
+        let zh = builder.voices_for_lang("zh");
+        let en = builder.voices_for_lang("en");
+        assert_eq!(zh.len(), 1);
+        assert_eq!(en.len(), 1);
+        assert_eq!(zh[0].as_str(), "zh_lead");
+        assert_eq!(en[0].as_str(), "en_lead");
     }
 }

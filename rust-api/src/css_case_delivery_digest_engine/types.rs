@@ -28,7 +28,8 @@ pub struct CssCaseDeliveryDigest {
     pub title: String,
     pub summary: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ops_health: Option<crate::css_case_delivery_ops_health::types::CssCaseDeliveryOpsHealthReport>,
+    pub ops_health:
+        Option<crate::css_case_delivery_ops_health::types::CssCaseDeliveryOpsHealthReport>,
 
     pub daily_metrics: DeliveryDigestDailyMetrics,
 

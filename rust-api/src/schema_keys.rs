@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const STABLE_KEYS_V46: [&str; 5] = [
     "final.mv",
     "subtitles.ass",
-    "mix.wav",
+    "mix.mp3",
     "lyrics.json",
     "video.mp4",
 ];

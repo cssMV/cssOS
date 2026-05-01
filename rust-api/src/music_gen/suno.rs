@@ -1,10 +1,20 @@
 // CSSOS_PHASE2_SUNO 20260419 — Suno v5 HTTP adapter (single-shot MVP).
 //
-// Per Jing 20260419 we target the `sunoapi.org` gateway (docs at
-// https://sunoapi.org, API base `https://api.sunoapi.org`). It's the most
+// CSSOS_PHASE2_KIE_PIVOT 20260429 #204 — Jing
+// We pivoted from `sunoapi.org` to `kie.ai` (login was unstable on
+// sunoapi.org; kie.ai accepts the same `/api/v1/generate` schema and
+// gives reliable access on the user's Suno Premier balance via residential
+// IP egress). Both gateways speak the same shape, so the adapter is
+// gateway-agnostic — only the env vars change. kie.ai REQUIRES a
+// `callBackUrl` field in the submit body (sunoapi.org tolerates it),
+// so we always emit one. Polling at `/record-info` works the same;
+// the callback is just metadata for kie.ai's own logging.
+//
+// Per Jing 20260419 we target the `kie.ai` gateway (docs at
+// https://docs.kie.ai, API base `https://api.kie.ai`). It's the most
 // reliable publicly documented way to hit Suno v5 from a server — the raw
 // `studio-api.suno.ai` / `api.suno.ai` endpoints are cookie-gated and not
-// stable for headless use. The sunoapi.org shape is the documented one:
+// stable for headless use. The kie.ai shape is the documented one:
 // submit → `GET /api/v1/generate/record-info?taskId=` → poll until status
 // leaves the pending set → read `data.response.sunoData[0]`.
 //
@@ -43,17 +53,24 @@ use serde::{Deserialize, Serialize};
 
 use super::musicgpt::{MusicGenError, MusicGenRequest, MusicGenResult};
 
-// Defaults target the sunoapi.org gateway (docs: https://sunoapi.org).
-// `V5` is the default per Jing 20260419 (newest public Suno model with the
-// best quality/latency tradeoff). `V4_5` / `V4` / `V3_5` remain valid and can
-// be set via SUNO_MODEL without a redeploy.
-const DEFAULT_BASE_URL: &str = "https://api.sunoapi.org";
+// Defaults target the kie.ai gateway (docs: https://docs.kie.ai).
+// `V4_5` is the default per Jing 20260429 #204 — empirically verified on
+// kie.ai with the user's Suno Premier balance (V5 may not be available on
+// every gateway plan tier; V4_5 is the safe ubiquitous choice). `V5` /
+// `V4_5PLUS` / `V4` / `V3_5` remain valid and can be set via SUNO_MODEL
+// without a redeploy.
+const DEFAULT_BASE_URL: &str = "https://api.kie.ai";
 const DEFAULT_SUBMIT_PATH: &str = "/api/v1/generate";
 const DEFAULT_POLL_PATH: &str = "/api/v1/generate/record-info";
-const DEFAULT_MODEL: &str = "V5";
+const DEFAULT_MODEL: &str = "V4_5";
 const DEFAULT_POLL_INTERVAL_SECS: u64 = 6;
 const DEFAULT_TIMEOUT_SECS: u64 = 600;
 const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 60;
+// kie.ai REQUIRES `callBackUrl` in the submit body (returns 422 without).
+// We don't actually need callbacks — we poll — but we have to send one.
+// This URL doesn't need to exist; kie.ai just records the value for its
+// own logging. Pointing at our own (404) endpoint keeps it self-documenting.
+const DEFAULT_CALLBACK_URL: &str = "https://cssstudio.app/cssapi/v1/suno-callback";
 
 #[derive(Debug, Clone)]
 pub struct SunoConfig {
@@ -73,13 +90,20 @@ pub struct SunoConfig {
     /// if the caller provided lyrics OR a music_style, we enable custom mode;
     /// otherwise we default to the simpler "describe" flow.
     pub force_custom_mode: Option<bool>,
+    /// kie.ai requires a `callBackUrl` even when the caller polls; this is
+    /// the value emitted in the submit body. Tunable via SUNO_CALLBACK_URL.
+    pub callback_url: String,
 }
 
 impl SunoConfig {
-    /// Read config from environment. Returns None when SUNO_API_KEY is
-    /// empty/unset so callers can decide whether to error or fall back.
+    /// Read config from environment. Returns None when neither SUNO_API_KEY
+    /// nor KIE_API_KEY is set so callers can decide whether to error or fall
+    /// back. KIE_API_KEY is accepted as an alias because the api-vm env file
+    /// uses that name (the gateway is kie.ai).
     pub fn from_env() -> Option<Self> {
-        let api_key = std::env::var("SUNO_API_KEY").ok()?;
+        let api_key = std::env::var("SUNO_API_KEY")
+            .ok()
+            .or_else(|| std::env::var("KIE_API_KEY").ok())?;
         let api_key = api_key.trim().to_string();
         if api_key.is_empty() {
             return None;
@@ -131,6 +155,11 @@ impl SunoConfig {
                 "0" | "false" | "no" => Some(false),
                 _ => None,
             });
+        let callback_url = std::env::var("SUNO_CALLBACK_URL")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| DEFAULT_CALLBACK_URL.to_string());
         Some(Self {
             api_key,
             base_url,
@@ -142,6 +171,7 @@ impl SunoConfig {
             http_timeout: Duration::from_secs(http_timeout),
             return_on_first_clip,
             force_custom_mode,
+            callback_url,
         })
     }
 }
@@ -214,7 +244,113 @@ impl SunoClient {
         req: &MusicGenRequest,
     ) -> Result<MusicGenResult, MusicGenError> {
         let task = self.submit(req).await?;
-        self.poll_until_done(&task).await
+        let mut result = self.poll_until_done(&task).await?;
+        // CSSOS_PHASE2_TIMESTAMPED_LYRICS 20260501 #259 — Jing
+        // "请专门接 kie.ai timestamped-lyrics endpoint，把字幕从粗略均分
+        //  升级到真 word-level."
+        // kie.ai's record-info response does NOT include alignedWords —
+        // they live behind a separate POST endpoint that returns
+        // word-level timing for a given task_id + audio clip. Fetch it
+        // here so MusicGenResult ships with engine-grade timestamps.
+        // Best-effort: a failure on this side-call doesn't fail the
+        // whole generation — the frontend's even-divide fallback still
+        // produces usable subtitles.
+        if result.aligned_lyrics.as_ref().map(|v| v.is_empty()).unwrap_or(true) {
+            match self.fetch_timestamped_lyrics(&task, result.conversion_id.as_deref()).await {
+                Ok(Some(lines)) if !lines.is_empty() => {
+                    tracing::info!(
+                        target: "cssos::suno::lyrics",
+                        task_id = %task.task_id,
+                        lines = lines.len(),
+                        "fetched timestamped lyrics"
+                    );
+                    result.aligned_lyrics = Some(lines);
+                }
+                Ok(_) => {
+                    tracing::info!(
+                        target: "cssos::suno::lyrics",
+                        task_id = %task.task_id,
+                        "no timestamped lyrics returned; frontend will even-divide"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "cssos::suno::lyrics",
+                        task_id = %task.task_id,
+                        err = %e,
+                        "timestamped-lyrics fetch failed (non-fatal)"
+                    );
+                }
+            }
+        }
+        Ok(result)
+    }
+
+    /// Hit kie.ai's `/api/v1/generate/get-timestamped-lyrics` endpoint with
+    /// the given task_id (+ optional audioId for multi-clip selection).
+    /// Returns parsed AlignedLyricLine[] when the response contains a non-
+    /// empty `data.alignedWords` array, None otherwise.
+    async fn fetch_timestamped_lyrics(
+        &self,
+        task: &SunoSubmitAck,
+        audio_id: Option<&str>,
+    ) -> Result<Option<Vec<crate::music_gen::AlignedLyricLine>>, MusicGenError> {
+        let url = format!(
+            "{}/api/v1/generate/get-timestamped-lyrics",
+            self.cfg.base_url.trim_end_matches('/')
+        );
+        let mut body = serde_json::Map::new();
+        body.insert(
+            "taskId".into(),
+            serde_json::Value::String(task.task_id.clone()),
+        );
+        if let Some(aid) = audio_id.filter(|s| !s.is_empty()) {
+            body.insert("audioId".into(), serde_json::Value::String(aid.to_string()));
+        }
+        let resp = self
+            .http
+            .post(&url)
+            .json(&serde_json::Value::Object(body))
+            .send()
+            .await?;
+        let status = resp.status();
+        let text = resp.text().await?;
+        if !status.is_success() {
+            tracing::warn!(
+                target: "cssos::suno::lyrics",
+                task_id = %task.task_id,
+                status = status.as_u16(),
+                body = %text.chars().take(280).collect::<String>(),
+                "non-2xx from get-timestamped-lyrics"
+            );
+            return Ok(None);
+        }
+        let v: serde_json::Value = match serde_json::from_str(&text) {
+            Ok(x) => x,
+            Err(_) => return Ok(None),
+        };
+        // Response shape per kie.ai docs:
+        //   { code, msg, data: { alignedWords: [{word, start, end, success?}] } }
+        // Some accounts return data as an array directly. Handle both.
+        let aligned = v
+            .get("data")
+            .and_then(|d| d.get("alignedWords"))
+            .or_else(|| v.get("alignedWords"))
+            .or_else(|| {
+                v.get("data")
+                    .and_then(|d| d.get("hootCer"))
+                    .and_then(|h| h.get("alignedWords"))
+            });
+        let lines = aligned
+            .and_then(|x| {
+                // Build a synthetic envelope so extract_aligned_lyrics's
+                // "Suno alignedWords" branch runs unchanged (it expects
+                // either v.metadata.alignedWords or v.alignedWords).
+                let mut envelope = serde_json::Map::new();
+                envelope.insert("alignedWords".into(), x.clone());
+                crate::music_gen::extract_aligned_lyrics(&serde_json::Value::Object(envelope))
+            });
+        Ok(lines)
     }
 
     async fn submit(&self, req: &MusicGenRequest) -> Result<SunoSubmitAck, MusicGenError> {
@@ -255,10 +391,29 @@ impl SunoClient {
             .unwrap_or_else(|| self.cfg.model.clone());
 
         let mut body = serde_json::Map::new();
-        body.insert(
-            "prompt".into(),
-            serde_json::Value::String(req.prompt.clone()),
-        );
+        // CSSOS_PHASE2_KIE_PROMPT_IS_LYRICS 20260429 #206c — Jing
+        //
+        // kie.ai's customMode schema is BACKWARDS from what the field name
+        // suggests: in customMode the `prompt` field IS the sung lyrics, not
+        // the description. The separate `lyrics` field we used to send was
+        // silently dropped by kie.ai → Suno generated a 39s "Verse 1 demo"
+        // off the title alone (Mount Hermon Oath).
+        //
+        // Fix: when customMode=true, populate `prompt` with the user's lyrics
+        // (preferred) and only fall back to req.prompt (the description) when
+        // there are no lyrics. We still emit a `lyrics` field too, for
+        // sunoapi.org compatibility (it accepts both shapes).
+        let prompt_value: String = if custom_mode {
+            req.lyrics
+                .as_deref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| req.prompt.clone())
+        } else {
+            req.prompt.clone()
+        };
+        body.insert("prompt".into(), serde_json::Value::String(prompt_value));
         body.insert(
             "model".into(),
             serde_json::Value::String(effective_model),
@@ -267,6 +422,15 @@ impl SunoClient {
         body.insert(
             "instrumental".into(),
             serde_json::Value::Bool(req.make_instrumental),
+        );
+        // CSSOS_PHASE2_KIE_PIVOT 20260429 #204 — kie.ai requires callBackUrl
+        // (rejects with 422 otherwise). We poll record-info ourselves so the
+        // callback is never invoked; the URL just has to be present and
+        // syntactically valid. sunoapi.org tolerates this field, so emitting
+        // it unconditionally keeps both gateways working.
+        body.insert(
+            "callBackUrl".into(),
+            serde_json::Value::String(self.cfg.callback_url.clone()),
         );
         if let Some(style) = req
             .music_style
@@ -295,6 +459,43 @@ impl SunoClient {
                 "lyrics".into(),
                 serde_json::Value::String(lyrics.to_string()),
             );
+        }
+        // CSSOS_PHASE2_KIE_PIVOT 20260429 #204 — kie.ai requires `title` when
+        // customMode=true. Prefer the caller-supplied title (#207); fall back
+        // to deriving from prompt's first line only when none was provided.
+        // The fallback is a safety net: in the production MV pipeline the
+        // frontend must populate `req.title` with the user's actual song
+        // title, because Suno treats `title` as a strong artist/style hint
+        // — bad titles ("a fierce battle anthem") tilt the arrangement off.
+        if custom_mode {
+            let title = req
+                .title
+                .as_deref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(|s| {
+                    if s.chars().count() > 64 {
+                        s.chars().take(64).collect::<String>()
+                    } else {
+                        s.to_string()
+                    }
+                })
+                .or_else(|| {
+                    req.prompt
+                        .lines()
+                        .next()
+                        .map(|s| s.trim())
+                        .filter(|s| !s.is_empty())
+                        .map(|s| {
+                            if s.chars().count() > 64 {
+                                s.chars().take(64).collect::<String>()
+                            } else {
+                                s.to_string()
+                            }
+                        })
+                })
+                .unwrap_or_else(|| "Untitled".to_string());
+            body.insert("title".into(), serde_json::Value::String(title));
         }
 
         let body = serde_json::Value::Object(body);
@@ -366,12 +567,52 @@ impl SunoClient {
             };
 
             let state = extract_state(&v).to_ascii_uppercase();
+            // CSSOS_PHASE2_KIE_TRUNCATION_FIX 20260429 #206 — Jing
+            // Trace every poll so we can prove (in logs) that we're not
+            // returning early. Mount Hermon came back at 2:39/3:19 because
+            // the adapter previously fell through `streamAudioUrl`, which
+            // is the progressively-rendered URL — partial bytes during
+            // FIRST_SUCCESS. The fix is two-fold: (a) only return on the
+            // final SUCCESS state, and (b) drop streamAudioUrl entirely
+            // from finalize_result so we can never accidentally hand the
+            // pipeline an in-progress stream.
+            tracing::debug!(
+                target: "cssos::suno::poll",
+                task_id = %task.task_id,
+                state = %state,
+                elapsed_secs = started.elapsed().as_secs(),
+                "poll tick"
+            );
             match state.as_str() {
                 "SUCCESS" | "COMPLETE" | "COMPLETED" | "FINISHED" | "DONE" => {
+                    // Brief grace so the persistent CDN URL definitely has
+                    // the final bytes flushed. kie.ai sometimes flips
+                    // `data.status` to SUCCESS a beat before the tempfile
+                    // CDN is fully written; 5s is plenty.
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    tracing::info!(
+                        target: "cssos::suno::poll",
+                        task_id = %task.task_id,
+                        elapsed_secs = started.elapsed().as_secs(),
+                        "SUCCESS — finalizing"
+                    );
                     return Ok(finalize_result(task, v));
                 }
                 "FIRST_SUCCESS" | "STREAMING" => {
+                    // CSSOS_PHASE2_KIE_TRUNCATION_FIX 20260429 #206 — Jing
+                    // FIRST_SUCCESS used to be an opt-in early-return. We
+                    // now NEVER return here — kie.ai's audioUrl at this
+                    // state is set but the file at the CDN is still being
+                    // written, which produced 17-second truncations. The
+                    // SUNO_RETURN_FIRST_CLIP env knob is left in for ops
+                    // emergency override but should not be enabled in
+                    // production.
                     if self.cfg.return_on_first_clip {
+                        tracing::warn!(
+                            target: "cssos::suno::poll",
+                            task_id = %task.task_id,
+                            "SUNO_RETURN_FIRST_CLIP=1 — returning a possibly-truncated clip"
+                        );
                         return Ok(finalize_result(task, v));
                     }
                     tokio::time::sleep(self.cfg.poll_interval).await;
@@ -536,18 +777,27 @@ fn extract_first_clip(v: &serde_json::Value) -> Option<&serde_json::Value> {
 fn finalize_result(task: &SunoSubmitAck, v: serde_json::Value) -> MusicGenResult {
     let clip = extract_first_clip(&v).cloned().unwrap_or_else(|| v.clone());
 
-    // Prefer the persistent mp3 URL; fall back to the ephemeral stream URL.
+    // CSSOS_PHASE2_KIE_TRUNCATION_FIX 20260429 #206 — ONLY use the persistent
+    // CDN URL (`audioUrl`). Previously we fell back to `streamAudioUrl` when
+    // audioUrl was empty, but streamAudioUrl is the in-progress streaming
+    // endpoint — downloading from it during FIRST_SUCCESS truncated the
+    // Mount Hermon song from 199s → 182s. By the time we reach
+    // finalize_result we have already gated on data.status == "SUCCESS"
+    // plus a 5s grace, so audioUrl MUST be populated; if it isn't we'd
+    // rather emit an empty-URL warning than ship partial bytes.
     let audio_url = clip
         .get("audioUrl")
         .or_else(|| clip.get("audio_url"))
         .and_then(|x| x.as_str())
-        .or_else(|| {
-            clip.get("streamAudioUrl")
-                .or_else(|| clip.get("stream_audio_url"))
-                .and_then(|x| x.as_str())
-        })
         .unwrap_or_default()
         .to_string();
+    if audio_url.is_empty() {
+        tracing::warn!(
+            target: "cssos::suno::finalize",
+            task_id = %task.task_id,
+            "SUCCESS reached but audioUrl is empty — caller will see no playable URL"
+        );
+    }
 
     let duration_secs = clip
         .get("duration")
@@ -572,6 +822,34 @@ fn finalize_result(task: &SunoSubmitAck, v: serde_json::Value) -> MusicGenResult
     let aligned_lyrics = crate::music_gen::extract_aligned_lyrics(&clip)
         .or_else(|| crate::music_gen::extract_aligned_lyrics(&v));
 
+    // CSSOS_PHASE2_DUAL_TRACK 20260430 #208 — Jing
+    // Suno always returns 2 takes per generation. Surface clip[1] as
+    // alt_audio_url so the frontend can offer a Take 1 / Take 2 toggle in
+    // the Watch panel without making a second generation request.
+    let (alt_audio_url, alt_duration_secs, alt_conversion_id) = extract_second_clip(&v)
+        .map(|c2| {
+            let url = c2
+                .get("audioUrl")
+                .or_else(|| c2.get("audio_url"))
+                .and_then(|x| x.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let dur = c2
+                .get("duration")
+                .or_else(|| c2.get("duration_secs"))
+                .and_then(|x| x.as_f64());
+            let cid = c2
+                .get("id")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string());
+            (
+                if url.is_empty() { None } else { Some(url) },
+                dur,
+                cid,
+            )
+        })
+        .unwrap_or((None, None, None));
+
     MusicGenResult {
         task_id: task.task_id.clone(),
         conversion_id,
@@ -581,5 +859,39 @@ fn finalize_result(task: &SunoSubmitAck, v: serde_json::Value) -> MusicGenResult
         title,
         raw: v,
         aligned_lyrics,
+        alt_audio_url,
+        alt_duration_secs,
+        alt_conversion_id,
     }
+}
+
+/// CSSOS_PHASE2_DUAL_TRACK 20260430 #208 — same pickers as
+/// `extract_first_clip` but for the second clip, so the Watch panel can
+/// offer a Take 1 / Take 2 toggle off a single generation.
+fn extract_second_clip(v: &serde_json::Value) -> Option<&serde_json::Value> {
+    if let Some(arr) = v
+        .get("data")
+        .and_then(|d| d.get("response"))
+        .and_then(|r| r.get("sunoData"))
+        .and_then(|x| x.as_array())
+    {
+        if let Some(second) = arr.get(1) {
+            return Some(second);
+        }
+    }
+    if let Some(arr) = v
+        .get("data")
+        .and_then(|d| d.get("clips"))
+        .and_then(|x| x.as_array())
+    {
+        if let Some(second) = arr.get(1) {
+            return Some(second);
+        }
+    }
+    if let Some(arr) = v.as_array() {
+        if let Some(second) = arr.get(1) {
+            return Some(second);
+        }
+    }
+    None
 }

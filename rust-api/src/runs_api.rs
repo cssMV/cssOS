@@ -10,15 +10,17 @@ use axum::{
 use base64::Engine;
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use sqlx::PgPool;
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
-use std::time::SystemTime;
+use std::time::{SystemTime, UNIX_EPOCH};
 use utoipa::ToSchema;
 
+use crate::auth::AuthSession;
 use crate::cssapi::error::ApiError;
 use crate::cssapi::error_map::map_io;
 #[allow(unused_imports)]
@@ -29,6 +31,173 @@ use crate::events;
 use crate::run_state::{RetryPolicy, RunConfig, RunState, RunStatus, StageRecord, StageStatus};
 use crate::schema_keys::{video_shot_stage_key, VIDEO_ASSEMBLE_STAGE, VIDEO_PLAN_STAGE};
 use crate::{jobs, metrics, ready, run_store, runner};
+
+fn write_structure_plan_artifact(
+    run_dir: &std::path::Path,
+    commands: &Value,
+) -> std::io::Result<()> {
+    let Some(structure_plan) = commands
+        .get("creative")
+        .and_then(|value| value.get("structure_plan"))
+        .filter(|value| value.is_object())
+    else {
+        return Ok(());
+    };
+    let build_dir = run_dir.join("build");
+    fs::create_dir_all(&build_dir)?;
+    let path = build_dir.join("structure.plan.json");
+    let payload = serde_json::to_vec_pretty(structure_plan)?;
+    fs::write(path, payload)
+}
+
+fn write_generated_video_segments_artifact(
+    run_dir: &std::path::Path,
+    commands: &Value,
+    title: &str,
+) -> std::io::Result<()> {
+    let segments = commands
+        .get("video")
+        .and_then(|value| value.get("segments"))
+        .and_then(|value| value.as_array())
+        .cloned()
+        .filter(|items| !items.is_empty())
+        .unwrap_or_else(|| generate_video_segments_from_commands(commands, title));
+    if segments.is_empty() {
+        return Ok(());
+    }
+    let build_dir = run_dir.join("build").join("video");
+    fs::create_dir_all(&build_dir)?;
+    let path = build_dir.join("segments.generated.json");
+    let payload = serde_json::to_vec_pretty(&segments)?;
+    fs::write(path, payload)
+}
+
+fn creative_plan_usize(creative: &Value, key: &str) -> Option<usize> {
+    creative
+        .get("structure_plan")
+        .and_then(|value| value.get(key))
+        .and_then(|value| value.as_u64().map(|raw| raw as usize))
+        .filter(|value| *value > 0)
+}
+
+fn derive_structure_tree_from_commands(commands: &Value, title: &str) -> Value {
+    let creative = commands
+        .get("creative")
+        .cloned()
+        .or_else(|| {
+            commands
+                .get("video")
+                .and_then(|video| video.get("creative"))
+                .cloned()
+        })
+        .unwrap_or(Value::Null);
+    if let Some(existing) = creative
+        .get("structure_tree")
+        .and_then(|value| value.as_array())
+        .filter(|items| !items.is_empty())
+    {
+        return Value::Array(existing.clone());
+    }
+
+    let safe_title = title.trim();
+    if safe_title.is_empty() {
+        return json!([]);
+    }
+
+    let work_type = creative_plan_work_type(&creative).unwrap_or_else(|| "single".to_string());
+    let segments = generate_video_segments_from_commands(commands, safe_title);
+    if work_type == "opera" {
+        let act_number = creative_plan_usize(&creative, "targetActNumber").unwrap_or(1);
+        let scene_start = creative_plan_usize(&creative, "sceneStart").unwrap_or(1);
+        let act_title = format!("{safe_title} · 第{}幕", act_number);
+        let children = segments
+            .iter()
+            .enumerate()
+            .map(|(index, segment)| {
+                let scene_number = segment
+                    .get("scene_id")
+                    .and_then(|value| value.as_str())
+                    .and_then(|value| value.strip_prefix("scene_"))
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .unwrap_or(scene_start + index);
+                json!({
+                    "nodeId": format!("act_{}_scene_{}", act_number, scene_number),
+                    "title": segment.get("label").and_then(|value| value.as_str()).unwrap_or("Scene"),
+                    "role": "scene",
+                    "workType": "opera",
+                    "sequenceIndex": scene_number
+                })
+            })
+            .collect::<Vec<_>>();
+        return json!([
+            {
+                "nodeId": "opera_root",
+                "title": safe_title,
+                "role": "opera",
+                "workType": "opera",
+                "sequenceIndex": 1,
+                "children": [
+                    {
+                        "nodeId": format!("act_{}", act_number),
+                        "title": act_title,
+                        "role": "act",
+                        "workType": "opera",
+                        "sequenceIndex": act_number,
+                        "children": children
+                    }
+                ]
+            }
+        ]);
+    }
+
+    if work_type == "triptych" {
+        let part_number = creative_plan_usize(&creative, "targetPartNumber").unwrap_or(1);
+        let children = segments
+            .iter()
+            .enumerate()
+            .map(|(index, segment)| {
+                json!({
+                    "nodeId": format!("part_{}_scene_{}", part_number, index + 1),
+                    "title": segment.get("label").and_then(|value| value.as_str()).unwrap_or("Scene"),
+                    "role": "scene",
+                    "workType": "triptych",
+                    "sequenceIndex": index + 1
+                })
+            })
+            .collect::<Vec<_>>();
+        return json!([
+            {
+                "nodeId": "triptych_root",
+                "title": safe_title,
+                "role": "triptych",
+                "workType": "triptych",
+                "sequenceIndex": 1,
+                "children": [
+                    {
+                        "nodeId": format!("part_{}", part_number),
+                        "title": format!("{safe_title} · Part {}", part_number),
+                        "role": "part",
+                        "workType": "triptych",
+                        "sequenceIndex": part_number,
+                        "children": children
+                    }
+                ]
+            }
+        ]);
+    }
+
+    json!(segments
+        .iter()
+        .enumerate()
+        .map(|(index, segment)| json!({
+            "nodeId": format!("single_scene_{}", index + 1),
+            "title": segment.get("label").and_then(|value| value.as_str()).unwrap_or("Scene"),
+            "role": "scene",
+            "workType": "single",
+            "sequenceIndex": index + 1
+        }))
+        .collect::<Vec<_>>())
+}
 
 fn env_u64(k: &str, d: u64) -> u64 {
     std::env::var(k)
@@ -101,6 +270,145 @@ fn safe_run_relative_path(run_dir: &std::path::Path, raw_path: &str) -> Option<P
     }
 }
 
+fn asset_bucket_name() -> String {
+    std::env::var("CSSOS_ASSET_BUCKET")
+        .ok()
+        .map(|value| {
+            value
+                .trim()
+                .trim_start_matches("gs://")
+                .trim_end_matches('/')
+                .to_string()
+        })
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "cssstudio-gpu-cssos-assets-prod".to_string())
+}
+
+fn derive_asset_key_for_run_path(run_id: &str, raw_path: &str) -> Option<String> {
+    let trimmed = raw_path.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let rel = trimmed
+        .trim_start_matches("./")
+        .trim_start_matches('/')
+        .trim_start_matches("build/")
+        .trim_start_matches('/');
+    if rel.is_empty() {
+        return None;
+    }
+    Some(format!("works/{}/{}", run_id.trim(), rel))
+}
+
+fn normalize_asset_key_for_run(run_id: &str, raw_asset_key: &str) -> Option<String> {
+    let asset_key = raw_asset_key.trim().trim_start_matches('/');
+    if asset_key.is_empty() {
+        return None;
+    }
+    let run_id = run_id.trim();
+    let works_prefix = format!("works/{}/", run_id);
+    let runs_prefix = format!("runs/{}/", run_id);
+    if asset_key.starts_with(&works_prefix) || asset_key.starts_with(&runs_prefix) {
+        Some(asset_key.to_string())
+    } else {
+        None
+    }
+}
+
+fn resolve_artifact_locator(
+    run_id: &str,
+    query_path: Option<&str>,
+    query_asset_key: Option<&str>,
+) -> Option<(String, Option<String>)> {
+    let path = query_path
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string());
+    let asset_key = query_asset_key
+        .and_then(|value| normalize_asset_key_for_run(run_id, value))
+        .or_else(|| {
+            path.as_deref()
+                .and_then(|value| derive_asset_key_for_run_path(run_id, value))
+        });
+
+    match (path, asset_key) {
+        (Some(path), asset_key) => Some((path, asset_key)),
+        (None, Some(asset_key)) => {
+            let resolved_path = resolve_ticket_artifact_path(
+                run_id,
+                &RunMusicDeliveryArtifactTicketRequest {
+                    path: None,
+                    asset_key: Some(asset_key.clone()),
+                    file_name: None,
+                },
+            )
+            .unwrap_or_else(|| "./build/final_mv.mp4".to_string());
+            Some((resolved_path, Some(asset_key)))
+        }
+        (None, None) => None,
+    }
+}
+
+async fn gcs_access_token() -> Result<String, String> {
+    let client = reqwest::Client::new();
+    if let Ok(response) = client
+        .get("http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token")
+        .header("Metadata-Flavor", "Google")
+        .send()
+        .await
+    {
+        if response.status().is_success() {
+            let payload = response
+                .json::<Value>()
+                .await
+                .map_err(|e| format!("gce_token_json_failed:{e}"))?;
+            if let Some(token) = payload.get("access_token").and_then(|value| value.as_str()) {
+                let trimmed = token.trim();
+                if !trimmed.is_empty() {
+                    return Ok(trimmed.to_string());
+                }
+            }
+        }
+    }
+
+    let output = tokio::process::Command::new("gcloud")
+        .args(["auth", "print-access-token"])
+        .output()
+        .await
+        .map_err(|e| format!("gcloud_access_token_failed:{e}"))?;
+    if !output.status.success() {
+        return Err("gcloud_access_token_status_failed".to_string());
+    }
+    let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if token.is_empty() {
+        return Err("gcloud_access_token_empty".to_string());
+    }
+    Ok(token)
+}
+
+async fn fetch_gcs_asset_bytes(asset_key: &str) -> Result<Vec<u8>, String> {
+    let token = gcs_access_token().await?;
+    let url = format!(
+        "https://storage.googleapis.com/storage/v1/b/{}/o/{}?alt=media",
+        utf8_percent_encode(&asset_bucket_name(), NON_ALPHANUMERIC),
+        utf8_percent_encode(asset_key, NON_ALPHANUMERIC)
+    );
+    let response = reqwest::Client::new()
+        .get(url)
+        .header("authorization", format!("Bearer {}", token))
+        .send()
+        .await
+        .map_err(|e| format!("gcs_fetch_failed:{e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("gcs_fetch_status_failed:{}", response.status()));
+    }
+    response
+        .bytes()
+        .await
+        .map(|bytes| bytes.to_vec())
+        .map_err(|e| format!("gcs_bytes_failed:{e}"))
+}
+
 fn push_delivery_asset(
     run_id: &str,
     run_dir: &std::path::Path,
@@ -109,6 +417,9 @@ fn push_delivery_asset(
     relative_path: &str,
     out: &mut Vec<RunMusicDeliveryArtifactLink>,
 ) {
+    if is_lossless_artifact_target(relative_path) {
+        return;
+    }
     let exists = safe_run_relative_path(run_dir, relative_path)
         .and_then(|p| fs::metadata(p).ok())
         .filter(|m| m.is_file())
@@ -160,6 +471,9 @@ fn collect_directory_delivery_assets(
                         p.to_string_lossy().to_string()
                     }
                 })?;
+            if is_lossless_artifact_target(&rel) {
+                return None;
+            }
             Some((rel, meta.len()))
         })
         .collect::<Vec<_>>();
@@ -2623,7 +2937,25 @@ pub struct RunMusicDeliveryArtifactLink {
 
 #[derive(Debug, Deserialize)]
 pub struct RunMusicDeliveryArtifactQuery {
-    pub path: String,
+    pub path: Option<String>,
+    pub asset_key: Option<String>,
+    pub download: Option<String>,
+    pub download_exp: Option<u64>,
+    pub download_sig: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct RunMusicDeliveryArtifactTicketRequest {
+    pub path: Option<String>,
+    pub asset_key: Option<String>,
+    pub file_name: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct RunMusicDeliveryArtifactTicketResponse {
+    pub download_url: String,
+    pub file_name: String,
+    pub expires_at: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -2889,6 +3221,321 @@ fn creative_u64(cmd: &Value, key: &str, d: u64) -> u64 {
         .unwrap_or(d)
 }
 
+fn split_section_form_for_video_value(raw: Option<&Value>) -> Vec<String> {
+    let mut sections = match raw {
+        Some(Value::Array(items)) => items
+            .iter()
+            .filter_map(|item| item.as_str())
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        Some(Value::String(text)) => text
+            .split(|ch| matches!(ch, ',' | '|' | '/' | '>' | ';' | '\n'))
+            .map(|part| part.trim())
+            .filter(|part| !part.is_empty())
+            .map(|part| part.to_string())
+            .collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
+    if sections.is_empty() {
+        sections = vec![
+            "Verse 1".to_string(),
+            "Verse 2".to_string(),
+            "Chorus 1".to_string(),
+            "Verse 3".to_string(),
+            "Verse 4".to_string(),
+            "Chorus 2".to_string(),
+            "Bridge".to_string(),
+            "Chorus 3".to_string(),
+            "Chorus 4".to_string(),
+            "Outro".to_string(),
+        ];
+    }
+    sections
+}
+
+fn creative_plan_i64(creative: &Value, key: &str) -> Option<i64> {
+    creative
+        .get("structure_plan")
+        .and_then(|value| value.get(key))
+        .and_then(|value| {
+            value
+                .as_i64()
+                .or_else(|| value.as_u64().map(|raw| raw as i64))
+        })
+        .filter(|value| *value > 0)
+}
+
+fn creative_plan_work_type(creative: &Value) -> Option<String> {
+    creative
+        .get("structure_plan")
+        .and_then(|value| value.get("work_type"))
+        .or_else(|| creative.get("work_type"))
+        .and_then(|value| value.as_str())
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty())
+}
+
+fn derive_duration_s_from_commands(
+    video: Option<&serde_json::Map<String, Value>>,
+    creative: &Value,
+) -> f64 {
+    if let Some(duration_s) = video
+        .and_then(|video| video.get("duration_s"))
+        .and_then(|value| value.as_f64())
+        .filter(|value| value.is_finite() && *value > 0.0)
+    {
+        return duration_s.clamp(1.0, 31_536_000.0);
+    }
+    if let Some(duration_s) = creative
+        .get("duration_s")
+        .and_then(|value| value.as_f64())
+        .filter(|value| value.is_finite() && *value > 0.0)
+    {
+        return duration_s.clamp(1.0, 31_536_000.0);
+    }
+    if let Some(duration_s) = video
+        .and_then(|video| video.get("segments"))
+        .and_then(derive_duration_s_from_segments_value)
+    {
+        return duration_s.clamp(1.0, 31_536_000.0);
+    }
+    if let Some(duration_s) = creative
+        .get("video_script")
+        .and_then(derive_duration_s_from_segments_value)
+    {
+        return duration_s.clamp(1.0, 31_536_000.0);
+    }
+    let section_count = split_section_form_for_video_value(creative.get("section_form")).len();
+    let lyric_line_count = creative
+        .get("lyrics_prompt")
+        .and_then(|value| value.as_str())
+        .map(|raw| {
+            raw.lines()
+                .map(|line| line.trim())
+                .filter(|line| !line.is_empty())
+                .count()
+        })
+        .unwrap_or(0);
+    let lyric_char_count = creative
+        .get("lyrics_prompt")
+        .and_then(|value| value.as_str())
+        .map(|raw| raw.chars().filter(|ch| !ch.is_whitespace()).count())
+        .unwrap_or(0);
+    let estimated = if lyric_line_count > 0 || lyric_char_count > 0 || section_count > 0 {
+        estimate_runtime_from_lyric_shape(section_count, lyric_line_count, lyric_char_count)
+    } else {
+        1.0
+    };
+    estimated.clamp(1.0, 31_536_000.0)
+}
+
+fn derive_duration_s_from_segments_value(value: &Value) -> Option<f64> {
+    let segments = value.as_array()?;
+    let mut max_end = 0.0_f64;
+    let mut sum_duration = 0.0_f64;
+    for segment in segments {
+        let start_s = segment
+            .get("start_s")
+            .and_then(|value| value.as_f64())
+            .filter(|value| value.is_finite())
+            .unwrap_or(0.0);
+        let end_s = segment
+            .get("end_s")
+            .and_then(|value| value.as_f64())
+            .filter(|value| value.is_finite() && *value > start_s);
+        let duration_s = segment
+            .get("duration_s")
+            .and_then(|value| value.as_f64())
+            .filter(|value| value.is_finite() && *value > 0.0);
+        if let Some(end_s) = end_s {
+            max_end = max_end.max(end_s);
+        } else if let Some(duration_s) = duration_s {
+            max_end = max_end.max(start_s + duration_s);
+        }
+        if let Some(duration_s) = duration_s {
+            sum_duration += duration_s;
+        }
+    }
+    let derived = max_end.max(sum_duration);
+    (derived > 0.0).then_some(derived)
+}
+
+fn estimate_runtime_from_lyric_shape(
+    section_count: usize,
+    lyric_line_count: usize,
+    lyric_char_count: usize,
+) -> f64 {
+    let char_runtime = lyric_char_count as f64 / 4.2;
+    let line_runtime = lyric_line_count as f64 * 2.8;
+    let section_spacing = if section_count > 0 {
+        section_count.saturating_sub(1) as f64 * 0.85
+    } else {
+        0.0
+    };
+    char_runtime.max(line_runtime) + section_spacing
+}
+
+fn generate_video_segments_from_commands(commands: &Value, title: &str) -> Vec<Value> {
+    let video = commands.get("video").and_then(|value| value.as_object());
+    if let Some(existing) = video
+        .and_then(|video| video.get("segments"))
+        .and_then(|value| value.as_array())
+        .filter(|items| !items.is_empty())
+    {
+        return existing.clone();
+    }
+
+    let creative = commands
+        .get("creative")
+        .cloned()
+        .or_else(|| video.and_then(|value| value.get("creative")).cloned())
+        .unwrap_or(Value::Null);
+    let lyric_line_count = commands
+        .pointer("/lyrics/lines")
+        .and_then(|value| value.as_array())
+        .map(|items| items.len())
+        .unwrap_or_else(|| {
+            commands
+                .pointer("/lyrics/text")
+                .and_then(|value| value.as_str())
+                .map(|raw| {
+                    raw.lines()
+                        .map(str::trim)
+                        .filter(|line| !line.is_empty())
+                        .count()
+                })
+                .unwrap_or(0)
+        });
+    let duration_s = derive_duration_s_from_commands(video, &creative).clamp(1.0, 31_536_000.0);
+    let requested_shots_n = video
+        .and_then(|video| video.get("shots_n"))
+        .and_then(|value| value.as_u64())
+        .map(|value| value.clamp(1, 64) as usize);
+    let section_form = split_section_form_for_video_value(creative.get("section_form"));
+    let sections = if section_form.is_empty() {
+        Vec::new()
+    } else {
+        section_form
+    };
+    let work_type = creative_plan_work_type(&creative).unwrap_or_else(|| "single".to_string());
+    let target_part_number = creative_plan_i64(&creative, "targetPartNumber");
+    let target_act_number = creative_plan_i64(&creative, "targetActNumber");
+    let planned_scene_start = creative_plan_i64(&creative, "sceneStart");
+    let planned_scene_end = creative_plan_i64(&creative, "sceneEnd").or(planned_scene_start);
+    let planned_window_count = match (planned_scene_start, planned_scene_end) {
+        (Some(start), Some(end)) if end >= start => Some((end - start + 1) as usize),
+        (Some(_), None) => Some(1),
+        _ => None,
+    };
+    let inferred_shots_n = if !sections.is_empty() {
+        sections.len()
+    } else if lyric_line_count > 0 {
+        lyric_line_count.max(1)
+    } else {
+        1
+    };
+    let scene_count = if work_type == "opera" {
+        planned_window_count.unwrap_or(inferred_shots_n).max(1)
+    } else {
+        requested_shots_n.unwrap_or(inferred_shots_n).max(1)
+    };
+    let base_duration = (duration_s / scene_count as f64).max(1.0);
+    let visual_prompt = creative
+        .get("video_prompt")
+        .or_else(|| creative.get("prompt"))
+        .and_then(|value| value.as_str())
+        .unwrap_or(title);
+    let mood = creative
+        .get("mood")
+        .and_then(|value| value.as_str())
+        .unwrap_or("lyrical");
+    let reference_media_paths = video
+        .and_then(|video| video.get("reference_media_paths"))
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let primary_thumbnail = reference_media_paths
+        .first()
+        .cloned()
+        .unwrap_or(Value::Null);
+
+    (0..scene_count)
+        .map(|index| {
+            let planned_scene_number = match (planned_scene_start, planned_scene_end) {
+                (Some(start), Some(end)) if end >= start => {
+                    let count = (end - start + 1).max(1) as usize;
+                    Some(start + (index.min(count.saturating_sub(1)) as i64))
+                }
+                (Some(start), _) => Some(start + index as i64),
+                _ => None,
+            };
+            let label = if work_type == "opera" {
+                format!("Scene {}", planned_scene_number.unwrap_or(index as i64 + 1))
+            } else if work_type == "triptych" && target_part_number.unwrap_or(0) > 0 {
+                format!("Part {}", target_part_number.unwrap_or(1))
+            } else {
+                sections
+                    .get(index)
+                    .cloned()
+                    .unwrap_or_else(|| format!("Segment {}", index + 1))
+            };
+            let start_s = base_duration * index as f64;
+            let end_s = if index + 1 == scene_count {
+                duration_s
+            } else {
+                (start_s + base_duration).min(duration_s)
+            };
+            let transition_to_next = if index + 1 == scene_count {
+                "fade"
+            } else if label.to_ascii_lowercase().contains("chorus") {
+                "match"
+            } else {
+                "cut"
+            };
+            let structure_path = if work_type == "opera" && target_act_number.unwrap_or(0) > 0 {
+                let act = target_act_number.unwrap_or(1);
+                vec![
+                    Value::String(title.to_string()),
+                    Value::String(format!("{title} · 第{}幕", act)),
+                    Value::String(label.clone()),
+                ]
+            } else if work_type == "triptych" && target_part_number.unwrap_or(0) > 0 {
+                let part = target_part_number.unwrap_or(1);
+                vec![
+                    Value::String(title.to_string()),
+                    Value::String(format!("{title} · Part {}", part)),
+                    Value::String(label.clone()),
+                ]
+            } else {
+                Vec::new()
+            };
+            let scene_id = if let Some(scene_number) = planned_scene_number {
+                format!("scene_{:03}", scene_number)
+            } else {
+                format!("scene_{:03}", index + 1)
+            };
+            json!({
+                "scene_id": scene_id,
+                "shot_id": format!("video_shot_{:03}", index),
+                "label": label,
+                "start_s": start_s,
+                "end_s": end_s,
+                "duration_s": (end_s - start_s).max(1.0),
+                "transition_to_next": transition_to_next,
+                "subtitle_text": format!("{} · {} · {}", title, visual_prompt, mood),
+                "prompt": format!("{} | section {} | {}", visual_prompt, index + 1, label),
+                "thumbnail_path": primary_thumbnail,
+                "reference_media_paths": reference_media_paths,
+                "structure_role": if work_type == "opera" { "scene" } else if work_type == "triptych" { "part" } else { "single" },
+                "structure_path": structure_path,
+                "structure_plan": creative.get("structure_plan").cloned().unwrap_or(Value::Null)
+            })
+        })
+        .collect()
+}
+
 fn default_stage_record(timeout_s: u64, outputs: Vec<PathBuf>) -> StageRecord {
     StageRecord {
         status: StageStatus::PENDING,
@@ -3036,6 +3683,116 @@ fn stage_is_primary_only(name: &str, matrix: &crate::dag_v3::VersionMatrix) -> b
     }
 }
 
+fn commands_request_multiversion_assets(commands: &Value) -> bool {
+    let lang_count = commands
+        .pointer("/lyrics/track_languages")
+        .and_then(|value| value.as_array())
+        .map(|items| items.len())
+        .unwrap_or(0);
+    let voice_count = commands
+        .pointer("/creative/voice_tracks")
+        .and_then(|value| value.as_array())
+        .map(|items| items.len())
+        .unwrap_or(0);
+    lang_count > 1 || voice_count > 1
+}
+
+fn normalize_version_code(value: &str) -> Option<String> {
+    let normalized = value
+        .trim()
+        .to_lowercase()
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '-' || *ch == '_')
+        .collect::<String>();
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
+fn voice_matches_language(voice: &str, language: &str) -> bool {
+    voice == language
+        || voice == format!("{language}_lead")
+        || voice.starts_with(&format!("{language}_"))
+}
+
+fn apply_requested_versions_from_commands(
+    matrix: &mut crate::dag_v3::VersionMatrix,
+    commands: &Value,
+) {
+    if let Some(values) = commands
+        .pointer("/lyrics/track_languages")
+        .and_then(|value| value.as_array())
+    {
+        let langs = values
+            .iter()
+            .filter_map(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| crate::dag_v3::LangCode(value.to_string()))
+            .collect::<Vec<_>>();
+        if !langs.is_empty() {
+            matrix.langs = langs.clone();
+            if let Some(primary) = langs.first() {
+                matrix.primary_lang = primary.clone();
+            }
+        }
+    }
+    if let Some(values) = commands
+        .pointer("/creative/voice_tracks")
+        .and_then(|value| value.as_array())
+    {
+        let mut voices = values
+            .iter()
+            .filter_map(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| crate::dag_v3::VoiceId(value.to_string()))
+            .collect::<Vec<_>>();
+        for lang in &matrix.langs {
+            let has_match = voices
+                .iter()
+                .any(|voice| voice_matches_language(voice.as_str(), lang.as_str()));
+            if !has_match {
+                voices.push(crate::dag_v3::VoiceId(format!("{}_lead", lang.as_str())));
+            }
+        }
+        let mut deduped = Vec::new();
+        let mut seen = std::collections::BTreeSet::new();
+        for voice in voices {
+            if let Some(normalized) = normalize_version_code(voice.as_str()) {
+                if seen.insert(normalized) {
+                    deduped.push(voice);
+                }
+            }
+        }
+        if !deduped.is_empty() {
+            matrix.voices = deduped.clone();
+            if let Some(primary_match) = deduped
+                .iter()
+                .find(|voice| voice_matches_language(voice.as_str(), matrix.primary_lang.as_str()))
+            {
+                matrix.primary_voice = primary_match.clone();
+            } else if let Some(primary) = deduped.first() {
+                matrix.primary_voice = primary.clone();
+            }
+        }
+    } else if !matrix.langs.is_empty() {
+        for lang in &matrix.langs {
+            let has_match = matrix
+                .voices
+                .iter()
+                .any(|voice| voice_matches_language(voice.as_str(), lang.as_str()));
+            if !has_match {
+                matrix
+                    .voices
+                    .push(crate::dag_v3::VoiceId(format!("{}_lead", lang.as_str())));
+            }
+        }
+    }
+}
+
 fn maybe_apply_dag_v3_plan(run_state: &mut RunState, commands: &Value) -> bool {
     let Some(intent_v) = commands.get("intent") else {
         return false;
@@ -3046,14 +3803,39 @@ fn maybe_apply_dag_v3_plan(run_state: &mut RunState, commands: &Value) -> bool {
     let Ok(intent) = serde_json::from_value::<crate::dag_v3::Intent>(intent_v.clone()) else {
         return false;
     };
-    let Ok(matrix) = serde_json::from_value::<crate::dag_v3::VersionMatrix>(matrix_v.clone())
+    let Ok(mut matrix) = serde_json::from_value::<crate::dag_v3::VersionMatrix>(matrix_v.clone())
     else {
         return false;
     };
+    apply_requested_versions_from_commands(&mut matrix, commands);
 
     let mut stages = crate::dag_v3::expand_stages(&intent, &matrix);
-    crate::dag_v3::primary_only_filter(&mut stages, &matrix);
-    stages.retain(|s| stage_is_primary_only(&s.name.0, &matrix));
+    if let Some(video_shots_n) = commands
+        .pointer("/video/shots_n")
+        .and_then(|value| value.as_u64())
+        .map(|value| value.clamp(1, 256) as usize)
+    {
+        let allowed_video_shots = (0..video_shots_n)
+            .map(crate::schema_keys::video_shot_stage_key)
+            .collect::<std::collections::BTreeSet<_>>();
+        stages.retain(|stage| {
+            if !stage.name.0.starts_with("video_shot_") {
+                return true;
+            }
+            allowed_video_shots.contains(&stage.name.0)
+        });
+        for stage in &mut stages {
+            if stage.name.0 == VIDEO_ASSEMBLE_STAGE {
+                stage.deps.retain(|dep| {
+                    !dep.0.starts_with("video_shot_") || allowed_video_shots.contains(&dep.0)
+                });
+            }
+        }
+    }
+    if !commands_request_multiversion_assets(commands) {
+        crate::dag_v3::primary_only_filter(&mut stages, &matrix);
+        stages.retain(|s| stage_is_primary_only(&s.name.0, &matrix));
+    }
 
     let names: std::collections::BTreeSet<String> =
         stages.iter().map(|s| s.name.0.clone()).collect();
@@ -3429,7 +4211,7 @@ pub async fn runs_create(
     run_state.cssl = cssl.clone();
 
     let run_dir = run_store::run_dir(&run_id);
-    run_state.config.out_dir = run_dir;
+    run_state.config.out_dir = run_dir.clone();
     if let Some(cfg) = body.config {
         run_state.config.wiki_enabled = cfg.wiki_enabled;
         run_state.config.civ_linked = cfg.civ_linked;
@@ -3546,78 +4328,127 @@ pub async fn runs_create(
         .unwrap_or(0.35_f64)
         .clamp(0.0, 1.0);
 
-    let mut lyric_lines = vec![cssl.clone()];
-    if !creative_genre.is_empty() {
-        lyric_lines.push(format!("Style: {}", creative_genre));
-    }
-    if !creative_mood.is_empty() {
-        lyric_lines.push(format!("Mood: {}", creative_mood));
-    }
-    if !creative_instrument.is_empty() {
-        lyric_lines.push(format!("Lead: {}", creative_instrument));
-    }
-    if !creative_ambience.is_empty() {
-        lyric_lines.push(format!("Ambience: {}", creative_ambience));
-    }
-    if !creative_instrumentation.is_empty() {
-        lyric_lines.push(format!("Instrumentation: {}", creative_instrumentation));
-    }
-    if !creative_vocal.is_empty() {
-        lyric_lines.push(format!("Vocal: {}", creative_vocal));
-    }
-    if !creative_vocal_style.is_empty() {
-        lyric_lines.push(format!("Vocal Style: {}", creative_vocal_style));
-    }
-    if !creative_ensemble_style.is_empty() {
-        lyric_lines.push(format!("Ensemble Style: {}", creative_ensemble_style));
-    }
-    if !creative_dynamics_curve.is_empty() {
-        lyric_lines.push(format!("Dynamics Curve: {}", creative_dynamics_curve));
-    }
-    if !creative_section_form.is_empty() {
-        lyric_lines.push(format!("Section Form: {}", creative_section_form));
-    }
-    if !creative_articulation_bias.is_empty() {
-        lyric_lines.push(format!("Articulation Bias: {}", creative_articulation_bias));
-    }
-    if !creative_voicing_register.is_empty() {
-        lyric_lines.push(format!("Voicing Register: {}", creative_voicing_register));
-    }
-    if !creative_expression_cc_bias.is_empty() {
-        lyric_lines.push(format!(
-            "Expression CC Bias: {}",
-            creative_expression_cc_bias
+    let provided_lyric_lines = body
+        .commands
+        .as_ref()
+        .and_then(|cmd| cmd.get("lyrics"))
+        .and_then(|lyrics| lyrics.get("lines"))
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .filter(|items| !items.is_empty());
+    let provided_lyric_text = body
+        .commands
+        .as_ref()
+        .and_then(|cmd| cmd.get("lyrics"))
+        .and_then(|lyrics| {
+            lyrics
+                .get("text")
+                .and_then(|value| value.as_str())
+                .or_else(|| {
+                    lyrics
+                        .get("lyric_drafts")
+                        .and_then(|value| value.as_object())
+                        .and_then(|drafts| {
+                            drafts
+                                .get("zh")
+                                .and_then(|value| value.as_str())
+                                .or_else(|| drafts.values().find_map(|value| value.as_str()))
+                        })
+                })
+        })
+        .map(|text| {
+            text.lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .filter(|items| !items.is_empty());
+    let mut lyric_lines = if let Some(lines) = provided_lyric_lines.or(provided_lyric_text) {
+        lines
+    } else {
+        let mut fallback_lines = vec![cssl.clone()];
+        if !creative_genre.is_empty() {
+            fallback_lines.push(format!("Style: {}", creative_genre));
+        }
+        if !creative_mood.is_empty() {
+            fallback_lines.push(format!("Mood: {}", creative_mood));
+        }
+        if !creative_instrument.is_empty() {
+            fallback_lines.push(format!("Lead: {}", creative_instrument));
+        }
+        if !creative_ambience.is_empty() {
+            fallback_lines.push(format!("Ambience: {}", creative_ambience));
+        }
+        if !creative_instrumentation.is_empty() {
+            fallback_lines.push(format!("Instrumentation: {}", creative_instrumentation));
+        }
+        if !creative_vocal.is_empty() {
+            fallback_lines.push(format!("Vocal: {}", creative_vocal));
+        }
+        if !creative_vocal_style.is_empty() {
+            fallback_lines.push(format!("Vocal Style: {}", creative_vocal_style));
+        }
+        if !creative_ensemble_style.is_empty() {
+            fallback_lines.push(format!("Ensemble Style: {}", creative_ensemble_style));
+        }
+        if !creative_dynamics_curve.is_empty() {
+            fallback_lines.push(format!("Dynamics Curve: {}", creative_dynamics_curve));
+        }
+        if !creative_section_form.is_empty() {
+            fallback_lines.push(format!("Section Form: {}", creative_section_form));
+        }
+        if !creative_articulation_bias.is_empty() {
+            fallback_lines.push(format!("Articulation Bias: {}", creative_articulation_bias));
+        }
+        if !creative_voicing_register.is_empty() {
+            fallback_lines.push(format!("Voicing Register: {}", creative_voicing_register));
+        }
+        if !creative_expression_cc_bias.is_empty() {
+            fallback_lines.push(format!(
+                "Expression CC Bias: {}",
+                creative_expression_cc_bias
+            ));
+        }
+        fallback_lines.push(format!(
+            "Arrangement Density: {:.2}",
+            creative_arrangement_density
         ));
-    }
-    lyric_lines.push(format!(
-        "Arrangement Density: {:.2}",
-        creative_arrangement_density
-    ));
-    lyric_lines.push(format!(
-        "Percussion Activity: {:.2}",
-        creative_percussion_activity
-    ));
-    lyric_lines.push(format!("Humanization: {:.2}", creative_humanization));
-    if !creative_inspiration_notes.is_empty() {
-        lyric_lines.push(format!("Inspiration Notes: {}", creative_inspiration_notes));
-    }
-    if !creative_licensed_style_pack.is_empty() {
-        lyric_lines.push(format!(
-            "Licensed Style Pack: {}",
-            creative_licensed_style_pack
+        fallback_lines.push(format!(
+            "Percussion Activity: {:.2}",
+            creative_percussion_activity
         ));
+        fallback_lines.push(format!("Humanization: {:.2}", creative_humanization));
+        if !creative_inspiration_notes.is_empty() {
+            fallback_lines.push(format!("Inspiration Notes: {}", creative_inspiration_notes));
+        }
+        if !creative_licensed_style_pack.is_empty() {
+            fallback_lines.push(format!(
+                "Licensed Style Pack: {}",
+                creative_licensed_style_pack
+            ));
+        }
+        if !creative_external_audio_adapter.is_empty() {
+            fallback_lines.push(format!(
+                "External Audio Adapter: {}",
+                creative_external_audio_adapter
+            ));
+        }
+        fallback_lines.push("Verse 1: 云阙之上风起，心火未央。".to_string());
+        fallback_lines.push("Chorus: 凌霄宝殿，万象成章。".to_string());
+        fallback_lines
+    };
+    if lyric_lines.is_empty() {
+        lyric_lines.push(cssl.clone());
     }
-    if !creative_external_audio_adapter.is_empty() {
-        lyric_lines.push(format!(
-            "External Audio Adapter: {}",
-            creative_external_audio_adapter
-        ));
-    }
-    if !creative_prompt.is_empty() {
-        lyric_lines.push(creative_prompt.clone());
-    }
-    lyric_lines.push("Verse 1: 云阙之上风起，心火未央。".to_string());
-    lyric_lines.push("Chorus: 凌霄宝殿，万象成章。".to_string());
     let lyrics_json = serde_json::json!({
         "schema": "css.lyrics.v1",
         "title": cssl.clone(),
@@ -3636,6 +4467,7 @@ pub async fn runs_create(
     let suggest_langs = suggest_langs_for(&detected_lang);
     let mut commands = serde_json::json!({
         "schema":"css.commands.v1",
+        "title_hint": cssl.clone(),
         "film_runtime": {
             "enabled": true,
             "mode": "interactive_film"
@@ -3651,11 +4483,9 @@ pub async fn runs_create(
         "render": compiled.render.clone(),
         "video": {
             "schema":"css.video.commands.v1",
-            "shots_n": env_usize("VIDEO_SHOTS", 8),
             "resolution": { "w": env_u32("VIDEO_W", 1280), "h": env_u32("VIDEO_H", 720) },
             "fps": env_u32("VIDEO_FPS", 30),
             "seed": env_u64("VIDEO_SEED", 123),
-            "duration_s": env_f64("VIDEO_DURATION_S", 8.0),
             "storyboard_path": "./build/video/storyboard.json",
             "shots_dir": "./build/video/shots",
             "shots_list_path": "./build/video/shots.txt",
@@ -3705,6 +4535,9 @@ pub async fn runs_create(
                 commands["video"]["resolution"]["h"] = serde_json::json!(x as u32);
             }
         }
+        if let Some(paths) = v.get("reference_media_paths").and_then(|x| x.as_array()) {
+            commands["video"]["reference_media_paths"] = serde_json::json!(paths);
+        }
     }
     if let Some(v) = body.options.as_ref().and_then(|o| o.get("immersion")) {
         commands["immersion"] = v.clone();
@@ -3712,20 +4545,28 @@ pub async fn runs_create(
     if let Some(v) = body.options.as_ref().and_then(|o| o.get("film_runtime")) {
         commands["film_runtime"] = v.clone();
     }
-    let shots_n = commands["video"]["shots_n"]
+    let mut shots_n = commands["video"]["shots_n"]
         .as_u64()
-        .unwrap_or(8)
-        .clamp(1, 256) as usize;
+        .map(|value| value.clamp(1, 256) as usize)
+        .unwrap_or_else(|| {
+            generate_video_segments_from_commands(&commands, &cssl)
+                .len()
+                .clamp(1, 256)
+        });
     let fps = commands["video"]["fps"]
         .as_u64()
         .unwrap_or(30)
         .clamp(1, 120) as u32;
     let seed = commands["video"]["seed"].as_u64().unwrap_or(123);
-    let duration_s = commands["video"]["duration_s"]
+    let explicit_video_duration_s = commands["video"]["duration_s"]
         .as_f64()
-        .filter(|v| v.is_finite())
-        .unwrap_or(8.0)
-        .clamp(1.0, 600.0);
+        .filter(|v| v.is_finite() && *v > 0.0)
+        .map(|value| value.clamp(1.0, 31_536_000.0));
+    let duration_s = explicit_video_duration_s
+        .unwrap_or_else(|| {
+            derive_duration_s_from_commands(commands["video"].as_object(), &creative)
+        })
+        .clamp(1.0, 31_536_000.0);
     let w = commands["video"]["resolution"]["w"]
         .as_u64()
         .unwrap_or(1280)
@@ -3737,18 +4578,47 @@ pub async fn runs_create(
     commands["video"]["shots_n"] = serde_json::json!(shots_n);
     commands["video"]["fps"] = serde_json::json!(fps);
     commands["video"]["seed"] = serde_json::json!(seed);
-    commands["video"]["duration_s"] = serde_json::json!(duration_s);
+    if let Some(explicit_duration_s) = explicit_video_duration_s {
+        commands["video"]["duration_s"] = serde_json::json!(explicit_duration_s);
+    } else if let Some(video) = commands
+        .get_mut("video")
+        .and_then(|value| value.as_object_mut())
+    {
+        video.remove("duration_s");
+    }
     commands["video"]["resolution"]["w"] = serde_json::json!(w);
     commands["video"]["resolution"]["h"] = serde_json::json!(h);
+    commands["creative"] = creative.clone();
     commands["video"]["creative"] = creative.clone();
+    commands["video"]["segments"] =
+        serde_json::json!(generate_video_segments_from_commands(&commands, &cssl));
+    if let Some(count) = commands["video"]["segments"]
+        .as_array()
+        .map(|items| items.len())
+        .filter(|count| *count > 0)
+    {
+        commands["video"]["shots_n"] = serde_json::json!(count);
+    }
+    if commands["creative"]
+        .get("structure_tree")
+        .and_then(|value| value.as_array())
+        .map(|items| items.is_empty())
+        .unwrap_or(true)
+    {
+        let structure_tree = derive_structure_tree_from_commands(&commands, &cssl);
+        if !matches!(structure_tree, Value::Array(ref items) if items.is_empty()) {
+            commands["creative"]["structure_tree"] = structure_tree.clone();
+            commands["video"]["creative"]["structure_tree"] = structure_tree;
+        }
+    }
 
     let music_cmd = format!(
-        "mkdir -p ./build && ffmpeg -y -hide_banner -loglevel error -f lavfi -i anullsrc=r=48000:cl=stereo -t {} -c:a pcm_s16le ./build/music.wav",
-        duration_s
+        "internal:cssmv_music_engine duration_s={} genre={} instrumentation={}",
+        duration_s, creative_genre, creative_instrumentation
     );
     let vocals_cmd = format!(
-        "mkdir -p ./build && ffmpeg -y -hide_banner -loglevel error -f lavfi -i anullsrc=r=48000:cl=stereo -t {} -c:a pcm_s16le ./build/vocals.wav",
-        duration_s
+        "internal:cssmv_vocals_engine duration_s={} lang={} voice={}",
+        duration_s, primary_lang, creative_vocal
     );
     compiled.music = music_cmd.clone();
     compiled.vocals = vocals_cmd.clone();
@@ -3789,12 +4659,43 @@ pub async fn runs_create(
             if let Some(a) = lyrics.get("suggest_langs").and_then(|x| x.as_array()) {
                 commands["lyrics"]["suggest_langs"] = serde_json::json!(a);
             }
+            if let Some(a) = lyrics
+                .get("additional_languages")
+                .and_then(|x| x.as_array())
+            {
+                commands["lyrics"]["additional_languages"] = serde_json::json!(a);
+            }
+            if let Some(a) = lyrics.get("track_languages").and_then(|x| x.as_array()) {
+                commands["lyrics"]["track_languages"] = serde_json::json!(a);
+            }
+            if let Some(text) = lyrics.get("text").and_then(|x| x.as_str()) {
+                commands["lyrics"]["text"] = serde_json::json!(text);
+            }
+            if let Some(lines) = lyrics.get("lines").and_then(|x| x.as_array()) {
+                commands["lyrics"]["lines"] = serde_json::json!(lines);
+            }
+            if let Some(drafts) = lyrics.get("lyric_drafts").and_then(|x| x.as_object()) {
+                commands["lyrics"]["lyric_drafts"] = serde_json::json!(drafts);
+            }
+            if let Some(modes) = lyrics.get("adaptation_mode").and_then(|x| x.as_object()) {
+                commands["lyrics"]["adaptation_mode"] = serde_json::json!(modes);
+            }
         }
         if let Some(voice) = cmd.get("voice") {
             commands["voice"] = voice.clone();
         }
         if let Some(creative) = cmd.get("creative") {
             commands["creative"] = creative.clone();
+            commands["video"]["creative"] = creative.clone();
+            commands["video"]["segments"] =
+                serde_json::json!(generate_video_segments_from_commands(&commands, &cssl));
+            if let Some(count) = commands["video"]["segments"]
+                .as_array()
+                .map(|items| items.len())
+                .filter(|count| *count > 0)
+            {
+                commands["video"]["shots_n"] = serde_json::json!(count);
+            }
         }
         if let Some(immersion) = cmd.get("immersion") {
             commands["immersion"] = immersion.clone();
@@ -3804,12 +4705,56 @@ pub async fn runs_create(
         }
     }
 
+    commands["title_hint"] = serde_json::json!(cssl.clone());
+    shots_n = commands["video"]["shots_n"]
+        .as_u64()
+        .map(|value| value.clamp(1, 256) as usize)
+        .unwrap_or_else(|| {
+            commands["video"]["segments"]
+                .as_array()
+                .map(|items| items.len())
+                .filter(|count| *count > 0)
+                .unwrap_or(1)
+                .clamp(1, 256)
+        });
+    if commands["creative"]
+        .get("structure_tree")
+        .and_then(|value| value.as_array())
+        .map(|items| items.is_empty())
+        .unwrap_or(true)
+    {
+        let structure_tree = derive_structure_tree_from_commands(&commands, &cssl);
+        if !matches!(structure_tree, Value::Array(ref items) if items.is_empty()) {
+            commands["creative"]["structure_tree"] = structure_tree.clone();
+            commands["video"]["creative"]["structure_tree"] = structure_tree;
+        }
+    }
+
+    write_generated_video_segments_artifact(&run_dir, &commands, &cssl).map_err(map_io)?;
+    write_structure_plan_artifact(&run_dir, &commands).map_err(map_io)?;
+
     run_state.commands = commands.clone();
     apply_immersion_config(&mut run_state, &commands);
     apply_scene_semantics(&mut run_state, &commands);
     let dag_v3_applied = maybe_apply_dag_v3_plan(&mut run_state, &commands);
 
     if !dag_v3_applied {
+        run_state
+            .stages
+            .retain(|name, _| !crate::schema_keys::is_video_shot_stage(name));
+        run_state
+            .dag
+            .nodes
+            .retain(|node| !crate::schema_keys::is_video_shot_stage(&node.name));
+        run_state
+            .dag_edges
+            .retain(|name, _| !crate::schema_keys::is_video_shot_stage(name));
+        for deps in run_state.dag_edges.values_mut() {
+            deps.retain(|dep| !crate::schema_keys::is_video_shot_stage(dep));
+        }
+        run_state
+            .topo_order
+            .retain(|name| !crate::schema_keys::is_video_shot_stage(name));
         if let Some(rec) = run_state.stages.get_mut("lyrics") {
             rec.status = StageStatus::PENDING;
             rec.command = commands["lyrics"]
@@ -3931,7 +4876,7 @@ pub async fn runs_create(
                 ended_at: None,
                 exit_code: None,
                 command: None,
-                outputs: vec![PathBuf::from("./build/mix.wav")],
+                outputs: vec![PathBuf::from("./build/mix.mp3")],
                 retries: 0,
                 error: None,
                 heartbeat_at: None,
@@ -5765,56 +6710,321 @@ pub async fn run_music_delivery_artifact(
         )
             .into_response();
     }
-    let run_dir = run_store::run_dir(&run_id);
-    let Some(file_path) = safe_run_relative_path(&run_dir, &q.path) else {
+    let Some((resolved_path, asset_key)) =
+        resolve_artifact_locator(&run_id, q.path.as_deref(), q.asset_key.as_deref())
+    else {
         return (
-            StatusCode::FORBIDDEN,
+            StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
                 "schema":"css.error.v1",
-                "code":"ARTIFACT_PATH_INVALID",
-                "path": q.path
+                "code":"ARTIFACT_TARGET_REQUIRED"
             })),
         )
             .into_response();
     };
-    let Ok(meta) = fs::metadata(&file_path) else {
+    let run_dir = run_store::run_dir(&run_id);
+    let local_file_path = safe_run_relative_path(&run_dir, &resolved_path);
+    let local_bytes = local_file_path.as_ref().and_then(|file_path| {
+        let meta = fs::metadata(file_path).ok()?;
+        if !meta.is_file() || meta.len() == 0 {
+            return None;
+        }
+        fs::read(file_path).ok()
+    });
+    let mime = guess_delivery_mime(&resolved_path);
+    let wants_download = q
+        .download
+        .as_deref()
+        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if wants_download && is_protected_media_delivery_path(&resolved_path) {
+        let valid = q
+            .download_exp
+            .zip(q.download_sig.as_ref())
+            .map(|(exp, sig)| {
+                validate_music_delivery_download_sig(&run_id, &resolved_path, exp, sig)
+            })
+            .unwrap_or(false);
+        if !valid {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({
+                    "schema":"css.error.v1",
+                    "code":"ARTIFACT_DOWNLOAD_TICKET_REQUIRED",
+                    "path": resolved_path
+                })),
+            )
+                .into_response();
+        }
+    }
+    let bytes = if let Some(bytes) = local_bytes {
+        bytes
+    } else if let Some(asset_key) = asset_key.as_ref() {
+        match fetch_gcs_asset_bytes(asset_key).await {
+            Ok(bytes) if !bytes.is_empty() => bytes,
+            Ok(_) => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({
+                        "schema":"css.error.v1",
+                        "code":"ARTIFACT_EMPTY",
+                        "path": resolved_path,
+                        "asset_key": asset_key
+                    })),
+                )
+                    .into_response()
+            }
+            Err(_) => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({
+                        "schema":"css.error.v1",
+                        "code":"ARTIFACT_NOT_FOUND",
+                        "path": resolved_path,
+                        "asset_key": asset_key
+                    })),
+                )
+                    .into_response()
+            }
+        }
+    } else {
         return (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({
                 "schema":"css.error.v1",
                 "code":"ARTIFACT_NOT_FOUND",
-                "path": q.path
+                "path": resolved_path
             })),
         )
             .into_response();
     };
-    if !meta.is_file() || meta.len() == 0 {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({
-                "schema":"css.error.v1",
-                "code":"ARTIFACT_EMPTY",
-                "path": q.path
-            })),
+    if wants_download {
+        let file_name = local_file_path
+            .as_ref()
+            .and_then(|path| path.file_name())
+            .and_then(|name| name.to_str())
+            .or_else(|| {
+                std::path::Path::new(&resolved_path)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+            })
+            .unwrap_or("artifact");
+        (
+            [
+                (axum::http::header::CONTENT_TYPE, mime),
+                (
+                    axum::http::header::CONTENT_DISPOSITION,
+                    format!("attachment; filename=\"{}\"", file_name),
+                ),
+            ],
+            bytes,
         )
-            .into_response();
+            .into_response()
+    } else {
+        ([(axum::http::header::CONTENT_TYPE, mime)], bytes).into_response()
     }
-    let mime = guess_delivery_mime(&q.path);
-    let bytes = match fs::read(&file_path) {
-        Ok(v) => v,
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({
-                    "schema":"css.error.v1",
-                    "code":"ARTIFACT_READ_FAILED",
-                    "path": q.path
-                })),
-            )
-                .into_response()
-        }
+}
+
+fn artifact_download_secret() -> String {
+    std::env::var("CSS_ARTIFACT_DOWNLOAD_SECRET")
+        .or_else(|_| std::env::var("CSSOS_DOWNLOAD_SECRET"))
+        .unwrap_or_else(|_| "cssos-dev-download-secret".to_string())
+}
+
+fn is_protected_media_delivery_path(path: &str) -> bool {
+    let lower = path.trim().to_ascii_lowercase();
+    [
+        ".wav", ".mp3", ".m4a", ".flac", ".ogg", ".mp4", ".mov", ".webm",
+    ]
+    .iter()
+    .any(|suffix| lower.ends_with(suffix))
+}
+
+fn sign_music_delivery_download(run_id: &str, path: &str, exp: u64) -> String {
+    let mut digest = Sha256::new();
+    digest.update(artifact_download_secret().as_bytes());
+    digest.update(b":");
+    digest.update(run_id.as_bytes());
+    digest.update(b":");
+    digest.update(path.as_bytes());
+    digest.update(b":");
+    digest.update(exp.to_string().as_bytes());
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest.finalize())
+}
+
+fn validate_music_delivery_download_sig(run_id: &str, path: &str, exp: u64, sig: &str) -> bool {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_secs())
+        .unwrap_or(0);
+    if exp <= now {
+        return false;
+    }
+    sign_music_delivery_download(run_id, path, exp) == sig.trim()
+}
+
+fn resolve_ticket_artifact_path(
+    run_id: &str,
+    request: &RunMusicDeliveryArtifactTicketRequest,
+) -> Option<String> {
+    let direct_path = request
+        .path
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string());
+    if direct_path.is_some() {
+        return direct_path;
+    }
+    let asset_key = request.asset_key.as_ref()?.trim();
+    if asset_key.is_empty() {
+        return None;
+    }
+    let run_id = run_id.trim();
+    let works_prefix = format!("works/{}/", run_id);
+    if let Some(value) = asset_key.strip_prefix(&works_prefix) {
+        return Some(format!("./build/{}", value.trim_start_matches('/')));
+    }
+    let runs_prefix = format!("runs/{}/", run_id);
+    asset_key
+        .strip_prefix(&runs_prefix)
+        .map(|value| format!("./{}", value.trim_start_matches('/')))
+}
+
+fn normalize_membership_tier(raw: &str) -> &'static str {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "admin" => "admin",
+        "vip" => "vip",
+        "enterprise" => "enterprise",
+        "studio" => "studio",
+        "pro" => "pro",
+        "starter" => "starter",
+        "free" => "free",
+        _ => "guest",
+    }
+}
+
+fn is_pro_plus_tier(raw: &str) -> bool {
+    matches!(
+        normalize_membership_tier(raw),
+        "pro" | "studio" | "enterprise" | "vip" | "admin"
+    )
+}
+
+fn is_lossless_artifact_target(path: &str) -> bool {
+    let lower = path.trim().to_ascii_lowercase();
+    lower.ends_with(".wav") || lower.ends_with(".flac")
+}
+
+async fn resolve_download_access_tier(
+    pool: &PgPool,
+    user_id: Option<uuid::Uuid>,
+) -> Result<&'static str, ApiError> {
+    let Some(user_id) = user_id else {
+        return Ok("guest");
     };
-    ([(axum::http::header::CONTENT_TYPE, mime)], bytes).into_response()
+    let role = sqlx::query_scalar::<_, String>("SELECT role FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|_| {
+            ApiError::internal(
+                "ARTIFACT_TIER_LOOKUP_FAILED",
+                "Could not resolve access tier",
+            )
+        })?;
+    if matches!(role.as_deref(), Some("admin")) {
+        return Ok("admin");
+    }
+    let membership_tier = sqlx::query_scalar::<_, String>(
+        "SELECT membership_tier FROM billing_accounts WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| {
+        ApiError::internal(
+            "ARTIFACT_TIER_LOOKUP_FAILED",
+            "Could not resolve access tier",
+        )
+    })?;
+    Ok(normalize_membership_tier(
+        membership_tier.as_deref().unwrap_or("free"),
+    ))
+}
+
+pub async fn run_music_delivery_artifact_download_ticket(
+    Extension(pool): Extension<PgPool>,
+    AuthSession { user_id }: AuthSession,
+    headers: HeaderMap,
+    Path(run_id): Path<String>,
+    body: Result<Json<RunMusicDeliveryArtifactTicketRequest>, JsonRejection>,
+) -> ApiResult<RunMusicDeliveryArtifactTicketResponse> {
+    let lang = crate::i18n::pick_lang(None, &headers, None);
+    let request = body
+        .map(|payload| payload.0)
+        .map_err(|_| ApiError::bad_request("INVALID_JSON", crate::i18n::t(lang, "invalid_json")))?;
+    let state_path = run_store::run_state_path(&run_id);
+    if !state_path.exists() {
+        return Err(ApiError::not_found(
+            "RUN_NOT_FOUND",
+            crate::i18n::t(lang, "run_not_found"),
+        ));
+    }
+    let Some(resolved_path) = resolve_ticket_artifact_path(&run_id, &request) else {
+        return Err(ApiError::bad_request(
+            "ARTIFACT_TARGET_REQUIRED",
+            "Artifact path or asset key is required",
+        ));
+    };
+    if is_lossless_artifact_target(&resolved_path) {
+        let tier = resolve_download_access_tier(&pool, user_id).await?;
+        if !is_pro_plus_tier(tier) {
+            return Err(ApiError::forbidden(
+                "LOSSLESS_PRO_REQUIRED",
+                "WAV and FLAC downloads require Pro or above",
+            ));
+        }
+    }
+    let run_dir = run_store::run_dir(&run_id);
+    let Some(file_path) = safe_run_relative_path(&run_dir, &resolved_path) else {
+        return Err(ApiError::forbidden(
+            "ARTIFACT_PATH_INVALID",
+            "Artifact path is invalid",
+        ));
+    };
+    let meta = fs::metadata(&file_path)
+        .map_err(|_| ApiError::not_found("ARTIFACT_NOT_FOUND", "Artifact not found"))?;
+    if !meta.is_file() || meta.len() == 0 {
+        return Err(ApiError::not_found("ARTIFACT_EMPTY", "Artifact is empty"));
+    }
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_secs())
+        .unwrap_or(0);
+    let expires_at = now + 600;
+    let sig = sign_music_delivery_download(&run_id, &resolved_path, expires_at);
+    let file_name = request
+        .file_name
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| {
+            file_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("artifact")
+                .to_string()
+        });
+    Ok(Json(RunMusicDeliveryArtifactTicketResponse {
+        download_url: format!(
+            "/cssapi/v1/runs/{}/music-delivery-artifact?path={}&download=1&download_exp={}&download_sig={}",
+            utf8_percent_encode(&run_id, NON_ALPHANUMERIC),
+            utf8_percent_encode(&resolved_path, NON_ALPHANUMERIC),
+            expires_at,
+            utf8_percent_encode(&sig, NON_ALPHANUMERIC)
+        ),
+        file_name,
+        expires_at,
+    }))
 }
 
 pub async fn run_music_compliance_action(
@@ -6483,6 +7693,10 @@ where
             get(run_music_delivery_artifact),
         )
         .route(
+            "/cssapi/v1/runs/:run_id/music-delivery-artifact-download-ticket",
+            post(run_music_delivery_artifact_download_ticket),
+        )
+        .route(
             "/cssapi/v1/runs/:run_id/music-compliance-actions",
             post(run_music_compliance_action),
         )
@@ -6560,6 +7774,184 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     static RUNS_DIR_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn generate_video_segments_from_commands_prefers_existing_segments() {
+        let commands = serde_json::json!({
+            "creative": { "mood": "uplifting" },
+            "video": {
+                "duration_s": 10.0,
+                "segments": [
+                    { "scene_id": "scene_001", "shot_id": "video_shot_000", "label": "Intro", "start_s": 0.0, "end_s": 2.0, "duration_s": 2.0 }
+                ]
+            }
+        });
+        let segments = generate_video_segments_from_commands(&commands, "Neon Hearts");
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0]["label"].as_str(), Some("Intro"));
+    }
+
+    #[test]
+    fn generate_video_segments_from_commands_builds_sectional_defaults() {
+        let commands = serde_json::json!({
+            "creative": {
+                "mood": "uplifting",
+                "video_prompt": "Neon skyline and rain",
+                "section_form": "Intro, Verse 1, Chorus 1, Bridge"
+            },
+            "video": {
+                "duration_s": 16.0,
+                "shots_n": 4
+            }
+        });
+        let segments = generate_video_segments_from_commands(&commands, "Neon Hearts");
+        assert_eq!(segments.len(), 4);
+        assert_eq!(segments[0]["label"].as_str(), Some("Intro"));
+        assert_eq!(segments[2]["transition_to_next"].as_str(), Some("match"));
+        assert!(segments[1]["prompt"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Verse 1"));
+    }
+
+    #[test]
+    fn ticket_artifact_path_accepts_asset_key() {
+        let request = RunMusicDeliveryArtifactTicketRequest {
+            path: None,
+            asset_key: Some("runs/run_123/build/mix.wav".to_string()),
+            file_name: None,
+        };
+        assert_eq!(
+            resolve_ticket_artifact_path("run_123", &request).as_deref(),
+            Some("./build/mix.wav")
+        );
+    }
+
+    #[test]
+    fn ticket_artifact_path_accepts_works_asset_key() {
+        let request = RunMusicDeliveryArtifactTicketRequest {
+            path: None,
+            asset_key: Some("works/run_123/final_mv.mp4".to_string()),
+            file_name: None,
+        };
+        assert_eq!(
+            resolve_ticket_artifact_path("run_123", &request).as_deref(),
+            Some("./build/final_mv.mp4")
+        );
+    }
+
+    #[test]
+    fn artifact_locator_derives_works_asset_key_from_path() {
+        let (path, asset_key) =
+            resolve_artifact_locator("run_abc", Some("./build/final_mv.mp4"), None).unwrap();
+        assert_eq!(path, "./build/final_mv.mp4");
+        assert_eq!(asset_key.as_deref(), Some("works/run_abc/final_mv.mp4"));
+    }
+
+    #[test]
+    fn lossless_ticket_requires_pro_plus_tier() {
+        assert!(is_lossless_artifact_target("./build/mix.wav"));
+        assert!(is_lossless_artifact_target("./build/mix.flac"));
+        assert!(!is_pro_plus_tier("starter"));
+        assert!(is_pro_plus_tier("pro"));
+        assert!(is_pro_plus_tier("vip"));
+    }
+
+    #[tokio::test]
+    async fn runs_create_persists_opera_scene_window_segments() {
+        let _guard = RUNS_DIR_TEST_LOCK.lock().expect("lock");
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("cssos-runs-create-opera-{}", ts));
+        std::fs::create_dir_all(&root).expect("mkdir");
+        std::env::set_var("CSS_RUNS_DIR", root.to_string_lossy().to_string());
+        crate::jobs::queue::init(64).await;
+
+        let create_req = RunsCreateRequest {
+            cssl: "中国大型神话歌剧《封神榜》".to_string(),
+            ui_lang: Some("zh-CN".to_string()),
+            tier: Some("basic".to_string()),
+            options: None,
+            config: None,
+            retry_policy: None,
+            commands: Some(serde_json::json!({
+                "creative": {
+                    "work_type": "opera",
+                    "genre": "mythic opera",
+                    "mood": "epic",
+                    "structure_plan": {
+                        "workType": "opera",
+                        "totalActs": 2,
+                        "scenesPerAct": 6,
+                        "scenesPerBatch": 3,
+                        "targetActNumber": 1,
+                        "sceneStart": 4,
+                        "sceneEnd": 6
+                    }
+                },
+                "video": {
+                    "duration_s": 18.0,
+                    "shots_n": 3
+                }
+            })),
+        };
+
+        let (_status, Json(resp)) = runs_create(HeaderMap::new(), Ok(Json(create_req)))
+            .await
+            .expect("runs_create");
+        let state = crate::run_store::load_run_state(&resp.run_id).expect("load state");
+        let segments = state
+            .commands
+            .pointer("/video/segments")
+            .and_then(|value| value.as_array())
+            .cloned()
+            .expect("video segments");
+        assert_eq!(segments.len(), 3);
+        assert_eq!(segments[0]["label"].as_str(), Some("Scene 4"));
+        assert_eq!(segments[1]["label"].as_str(), Some("Scene 5"));
+        assert_eq!(segments[2]["label"].as_str(), Some("Scene 6"));
+        assert_eq!(
+            segments[0]["structure_path"][1].as_str(),
+            Some("中国大型神话歌剧《封神榜》 · 第1幕")
+        );
+        assert_eq!(
+            state
+                .commands
+                .get("title_hint")
+                .and_then(|value| value.as_str()),
+            Some("中国大型神话歌剧《封神榜》")
+        );
+        let structure_tree = state
+            .commands
+            .pointer("/creative/structure_tree")
+            .and_then(|value| value.as_array())
+            .cloned()
+            .expect("structure tree");
+        assert_eq!(
+            structure_tree[0]["title"].as_str(),
+            Some("中国大型神话歌剧《封神榜》")
+        );
+        assert_eq!(structure_tree[0]["role"].as_str(), Some("opera"));
+        assert_eq!(
+            structure_tree[0]["children"][0]["title"].as_str(),
+            Some("中国大型神话歌剧《封神榜》 · 第1幕")
+        );
+
+        let segments_artifact = crate::run_store::run_dir(&resp.run_id)
+            .join("build")
+            .join("video")
+            .join("segments.generated.json");
+        assert!(segments_artifact.exists(), "segments artifact should exist");
+        let artifact_json: Value = serde_json::from_slice(
+            &std::fs::read(&segments_artifact).expect("read segments artifact"),
+        )
+        .expect("parse segments artifact");
+        let artifact_items = artifact_json.as_array().expect("artifact array");
+        assert_eq!(artifact_items.len(), 3);
+        assert_eq!(artifact_items[0]["label"].as_str(), Some("Scene 4"));
+    }
 
     #[test]
     fn v115_smoke_ready_and_history_share_same_versions_shape() {
@@ -6708,10 +8100,10 @@ mod tests {
             Some("https://example.invalid/releases/42")
         );
         assert!(resp.artifact_paths.contains_key("dashboard"));
-        assert!(resp
+        assert!(!resp
             .package_browser
             .iter()
-            .any(|item| item.category == "stems" && item.relative_path.ends_with("strings.wav")));
+            .any(|item| item.relative_path.ends_with(".wav")));
         assert!(resp
             .package_browser
             .iter()

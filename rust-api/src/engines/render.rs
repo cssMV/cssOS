@@ -18,6 +18,18 @@ pub async fn run(ctx: &EngineCtx, commands: &serde_json::Value, ui_lang: &str) -
         return Err(anyhow!("render input missing: {}", subtitles.display()));
     }
 
+    let video_duration_s = crate::video::duration::probe_media_duration_s(&video)
+        .await?
+        .unwrap_or(0.0);
+    let audio_duration_s = crate::video::duration::probe_media_duration_s(&audio)
+        .await?
+        .unwrap_or(0.0);
+    let target_duration_s = if video_duration_s > 0.0 && audio_duration_s > 0.0 {
+        video_duration_s.max(audio_duration_s)
+    } else {
+        video_duration_s.max(audio_duration_s)
+    };
+
     if let Some(cmdline) = env_cmd("CSS_RENDER_CMD") {
         run_cmd(
             &cmdline,
@@ -28,6 +40,7 @@ pub async fn run(ctx: &EngineCtx, commands: &serde_json::Value, ui_lang: &str) -
                 ("CSS_MIX_WAV", audio.to_string_lossy().to_string()),
                 ("CSS_SUB_ASS", subtitles.to_string_lossy().to_string()),
                 ("CSS_OUT_MP4", out.to_string_lossy().to_string()),
+                ("CSS_TARGET_DURATION_S", format!("{target_duration_s:.3}")),
             ],
         )
         .await?;
@@ -47,32 +60,74 @@ pub async fn run(ctx: &EngineCtx, commands: &serde_json::Value, ui_lang: &str) -
     }
 
     ensure_parent(&out).await?;
-    let copy = tokio::process::Command::new(&ctx.ffmpeg)
-        .arg("-y")
-        .arg("-loglevel")
-        .arg("error")
-        .arg("-i")
-        .arg(&video)
-        .arg("-i")
-        .arg(&audio)
-        .arg("-map")
-        .arg("0:v:0")
-        .arg("-map")
-        .arg("1:a:0")
-        .arg("-c:v")
-        .arg("copy")
-        .arg("-c:a")
-        .arg("aac")
-        .arg("-b:a")
-        .arg("192k")
-        .arg("-shortest")
-        .arg("-movflags")
-        .arg("+faststart")
-        .arg(&out)
-        .status()
-        .await?;
+    let extend_video_s = (target_duration_s - video_duration_s).max(0.0);
+    let needs_video_hold = extend_video_s > 0.05;
 
-    if !copy.success() {
+    let mux_status = if !needs_video_hold {
+        tokio::process::Command::new(&ctx.ffmpeg)
+            .arg("-y")
+            .arg("-loglevel")
+            .arg("error")
+            .arg("-i")
+            .arg(&video)
+            .arg("-i")
+            .arg(&audio)
+            .arg("-map")
+            .arg("0:v:0")
+            .arg("-map")
+            .arg("1:a:0")
+            .arg("-c:v")
+            .arg("copy")
+            .arg("-c:a")
+            .arg("aac")
+            .arg("-b:a")
+            .arg("192k")
+            .arg("-t")
+            .arg(format!("{target_duration_s:.3}"))
+            .arg("-movflags")
+            .arg("+faststart")
+            .arg(&out)
+            .status()
+            .await?
+    } else {
+        tokio::process::Command::new(&ctx.ffmpeg)
+            .arg("-y")
+            .arg("-loglevel")
+            .arg("error")
+            .arg("-i")
+            .arg(&video)
+            .arg("-i")
+            .arg(&audio)
+            .arg("-filter_complex")
+            .arg(format!(
+                "[0:v]tpad=stop_mode=clone:stop_duration={extend_video_s:.3}[vout]"
+            ))
+            .arg("-map")
+            .arg("[vout]")
+            .arg("-map")
+            .arg("1:a:0")
+            .arg("-c:v")
+            .arg("libx264")
+            .arg("-preset")
+            .arg("veryfast")
+            .arg("-crf")
+            .arg("18")
+            .arg("-pix_fmt")
+            .arg("yuv420p")
+            .arg("-c:a")
+            .arg("aac")
+            .arg("-b:a")
+            .arg("192k")
+            .arg("-t")
+            .arg(format!("{target_duration_s:.3}"))
+            .arg("-movflags")
+            .arg("+faststart")
+            .arg(&out)
+            .status()
+            .await?
+    };
+
+    if !mux_status.success() {
         let enc = tokio::process::Command::new(&ctx.ffmpeg)
             .arg("-y")
             .arg("-loglevel")
@@ -91,11 +146,20 @@ pub async fn run(ctx: &EngineCtx, commands: &serde_json::Value, ui_lang: &str) -
             .arg("veryfast")
             .arg("-crf")
             .arg("18")
+            .arg("-pix_fmt")
+            .arg("yuv420p")
             .arg("-c:a")
             .arg("aac")
             .arg("-b:a")
             .arg("192k")
-            .arg("-shortest")
+            .arg("-vf")
+            .arg(if needs_video_hold {
+                format!("tpad=stop_mode=clone:stop_duration={extend_video_s:.3}")
+            } else {
+                "null".to_string()
+            })
+            .arg("-t")
+            .arg(format!("{target_duration_s:.3}"))
             .arg("-movflags")
             .arg("+faststart")
             .arg(&out)
@@ -119,5 +183,6 @@ pub async fn run(ctx: &EngineCtx, commands: &serde_json::Value, ui_lang: &str) -
     if !gate_av.ok {
         return Err(crate::quality_gates::fail_gate(gate_av));
     }
+    finalize_audio_delivery_assets(ctx).await?;
     Ok(())
 }

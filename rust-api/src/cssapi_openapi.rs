@@ -18,9 +18,75 @@ pub struct StageStatusV1 {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PipelineMusicStatusV1 {
+    pub tracks_count: Option<i64>,
+    pub cues_count: Option<i64>,
+    pub current_cue_id: Option<String>,
+    pub current_cue_label: Option<String>,
+    pub current_scene_id: Option<String>,
+    pub current_label: Option<String>,
+    pub current_structure_role: Option<String>,
+    pub current_structure_path: Option<Vec<String>>,
+    pub root_title: Option<String>,
+    pub current_container_title: Option<String>,
+    pub planned_work_type: Option<String>,
+    pub planned_total_parts: Option<i64>,
+    pub planned_total_acts: Option<i64>,
+    pub planned_scenes_per_act: Option<i64>,
+    pub planned_total_scenes: Option<i64>,
+    pub current_part_number: Option<i64>,
+    pub current_act_number: Option<i64>,
+    pub current_scene_start: Option<i64>,
+    pub current_scene_end: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct PipelineVideoStatusV1 {
     pub shots_count: Option<i64>,
+    pub completed_shots: Option<i64>,
+    pub running_shots: Option<i64>,
+    pub failed_shots: Option<i64>,
+    pub scenes_count: Option<i64>,
+    pub segments_count: Option<i64>,
+    pub structure_nodes_count: Option<i64>,
+    pub current_shot_stage: Option<String>,
+    pub current_shot_id: Option<String>,
+    pub current_scene_id: Option<String>,
+    pub current_label: Option<String>,
+    pub current_structure_role: Option<String>,
+    pub current_structure_path: Option<Vec<String>>,
+    pub root_title: Option<String>,
+    pub current_container_title: Option<String>,
+    pub planned_work_type: Option<String>,
+    pub planned_total_parts: Option<i64>,
+    pub planned_total_acts: Option<i64>,
+    pub planned_scenes_per_act: Option<i64>,
+    pub planned_total_scenes: Option<i64>,
+    pub current_part_number: Option<i64>,
+    pub current_act_number: Option<i64>,
+    pub current_scene_start: Option<i64>,
+    pub current_scene_end: Option<i64>,
     pub storyboard: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PipelineKaraStatusV1 {
+    pub subtitle_cues_count: Option<i64>,
+    pub current_scene_id: Option<String>,
+    pub current_label: Option<String>,
+    pub current_structure_role: Option<String>,
+    pub current_structure_path: Option<Vec<String>>,
+    pub root_title: Option<String>,
+    pub current_container_title: Option<String>,
+    pub planned_work_type: Option<String>,
+    pub planned_total_parts: Option<i64>,
+    pub planned_total_acts: Option<i64>,
+    pub planned_scenes_per_act: Option<i64>,
+    pub planned_total_scenes: Option<i64>,
+    pub current_part_number: Option<i64>,
+    pub current_act_number: Option<i64>,
+    pub current_scene_start: Option<i64>,
+    pub current_scene_end: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -36,7 +102,9 @@ pub struct PipelineStatusV1 {
     pub run_state_path: String,
     pub ready: Vec<String>,
     pub stages: Vec<StageStatusV1>,
+    pub music: Option<PipelineMusicStatusV1>,
     pub video: Option<PipelineVideoStatusV1>,
+    pub kara: Option<PipelineKaraStatusV1>,
     pub worker: Option<WorkerStatusV1>,
 }
 
@@ -215,7 +283,9 @@ fn _doc_runs_ready() {}
         schemas(
             ErrorV1,
             StageStatusV1,
+            PipelineMusicStatusV1,
             PipelineVideoStatusV1,
+            PipelineKaraStatusV1,
             WorkerStatusV1,
             PipelineStatusV1,
             CreateRunRequestV1,

@@ -286,6 +286,10 @@ Generate storyboard / shot planning json for the video pipeline.
 - `CSS_LYRICS_JSON`
 - `CSS_MIX_WAV`
 - `CSS_OUT_JSON`
+- `CSS_SEGMENT_TIMELINE_JSON` optional path to a TypeScript-emitted `segmentTimeline` JSON array
+- `CSS_SCENE_PLAN_JSON` optional path to `scene.plan.json`
+- `CSS_MUSIC_PLAN_JSON` optional path to `music.plan.json`
+- `CSS_RENDERED_MEDIA_JSON` optional path to `rendered.media.json`
 
 ### Expected output
 
@@ -306,6 +310,16 @@ The output MUST be valid JSON and include fields compatible with:
       "prompt": "a neon city at night",
       "duration_s": 2.0
     }
+  ],
+  "segments": [
+    {
+      "scene_id": "scene_001",
+      "shot_id": "video_shot_000",
+      "label": "Intro",
+      "start_s": 0.0,
+      "end_s": 2.0,
+      "duration_s": 2.0
+    }
   ]
 }
 ```
@@ -319,6 +333,13 @@ Required rules:
 - each shot includes:
   - `id`: string
   - `prompt`: string
+  - `duration_s`: number > 0
+- if `segments` is present, each segment includes:
+  - `scene_id`: string
+  - `shot_id`: string
+  - `label`: string
+  - `start_s`: number >= 0
+  - `end_s`: number > `start_s`
   - `duration_s`: number > 0
 
 ### Exit code
@@ -362,6 +383,8 @@ Assemble multiple video shot mp4 files into a single video mp4.
 ### Environment variables
 
 - `CSS_SHOTS_TXT` absolute path to concat list file
+- `CSS_STORYBOARD_JSON` optional path to storyboard/plan json
+- `CSS_ASSEMBLE_JSON` optional path to assemble manifest json
 - `CSS_OUT_MP4` absolute path to output assembled video mp4
 
 ### Expected output

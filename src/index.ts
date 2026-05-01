@@ -15911,6 +15911,96 @@ app.post("/api/stripe/webhook", async (req, res) => {
   }
 });
 
+// CSSOS_PHASE2_SUBSCRIPTION_NOTIFY 20260501 #263 — Jing
+// "今天会出现第一个真正的订阅用户. 请在出现时通知我."
+//
+// Lightweight admin-only polling endpoint that surfaces recent
+// customer.subscription.created events from stripe_webhook_events.
+// The frontend (public/app.subscription-watcher.js) polls this every
+// 30s when the logged-in user is an admin and shows a celebratory
+// toast + chime on the first new event since the last poll.
+//
+// Response shape:
+//   { ok: true, events: [{ id, event_type, created_at, livemode,
+//     customer_email, plan_id, amount_cents, currency }] }
+//
+// We restrict to admins to avoid leaking other users' subscription
+// activity to the world; the email allowlist is intentionally narrow.
+app.get("/api/admin/subscription-events/recent", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    const adminEmails = new Set(
+      String(process.env.CSSOS_ADMIN_EMAILS || "admin@cssstudio.app")
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean),
+    );
+    if (!user || !adminEmails.has(String(user.email || "").toLowerCase())) {
+      return res.status(403).json({ ok: false, code: "NOT_ADMIN" });
+    }
+    const sinceParam = String(req.query.since || "").trim();
+    const sinceTs = sinceParam ? new Date(sinceParam) : new Date(Date.now() - 24 * 3600 * 1000);
+    const sinceIso = isNaN(sinceTs.getTime())
+      ? new Date(Date.now() - 24 * 3600 * 1000).toISOString()
+      : sinceTs.toISOString();
+    const result = await withClient((client) =>
+      client.query(
+        `SELECT stripe_event_id, event_type, livemode, payload, created_at
+           FROM stripe_webhook_events
+          WHERE event_type IN ('customer.subscription.created',
+                               'customer.subscription.updated',
+                               'invoice.paid',
+                               'checkout.session.completed')
+            AND created_at >= $1
+          ORDER BY created_at DESC
+          LIMIT 50`,
+        [sinceIso],
+      ),
+    );
+    const events = result.rows.map((r: any) => {
+      let customer_email: string | null = null;
+      let plan_id: string | null = null;
+      let amount_cents: number | null = null;
+      let currency: string | null = null;
+      try {
+        const p = typeof r.payload === "string" ? JSON.parse(r.payload) : r.payload;
+        const obj = p?.data?.object || {};
+        customer_email = obj?.customer_email
+          || obj?.customer_details?.email
+          || obj?.metadata?.email
+          || null;
+        plan_id = obj?.items?.data?.[0]?.price?.id
+          || obj?.lines?.data?.[0]?.price?.id
+          || obj?.plan?.id
+          || null;
+        amount_cents = obj?.amount_total
+          ?? obj?.amount_paid
+          ?? obj?.amount
+          ?? null;
+        currency = obj?.currency || null;
+      } catch (_e) { /* best effort */ }
+      return {
+        id: r.stripe_event_id,
+        event_type: r.event_type,
+        livemode: r.livemode === true,
+        created_at: r.created_at,
+        customer_email,
+        plan_id,
+        amount_cents,
+        currency,
+      };
+    });
+    return res.json({ ok: true, events, server_time: new Date().toISOString() });
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "SUBSCRIPTION_EVENTS_LOOKUP_FAILED",
+      message: String(err),
+    });
+  }
+});
+
 app.post("/api/billing/usage", async (req, res) => {
   noStore(res);
   try {

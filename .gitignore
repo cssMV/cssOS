@@ -25,3 +25,35 @@ public/*.bak.*
 public/ts-node-dev-hook-*
 public/ts-node-dev-ready-*
 public/cloud-sql-proxy
+
+# Rust build artifacts (workspace root + cached builds)
+target/
+
+# Training datasets — generated/derived, not source-of-truth
+data/
+
+# Temp / scratch — never commit
+tmp/
+tmp_audio/
+tmp_inspect/
+tmp_scene_runs/
+tmp_*.json
+tmp_*.sql
+tmp_*.js
+
+# Generated outputs (renderer dumps, latents, scene PNGs/MP4s)
+output/
+rust-api/output/
+
+# Generated reports / scans
+file_tree.txt
+scan-loginCopy-*.json
+scan-loginCopy-*.txt
+
+# Backups + stale vendored snapshot
+backups/
+repo/
+
+# Commercial Chinese fonts — requires explicit license to redistribute
+# (filename suffixes "(商用需授权)" / "(commercial use needs authorization)")
+public/fonts_cn2/

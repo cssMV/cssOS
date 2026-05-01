@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+  <title>支付结果 · cssstudio</title>
+  <style>
+    :root {
+      --bg: #0b0f14;
+      --panel: #121821;
+      --fg: #e7ecf3;
+      --muted: #8b97a8;
+      --accent: #6aa6ff;
+      --ok: #4fd88a;
+      --bad: #ff6d6d;
+      --warn: #ffc766;
+    }
+    @media (prefers-color-scheme: light) {
+      :root { --bg: #f5f7fb; --panel: #ffffff; --fg: #1a1f29; --muted: #5a6475; --accent: #2f6ee3; --ok: #1a9b55; --bad: #c2363a; --warn: #a97300; }
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      width: 100%;
+      max-width: 480px;
+      background: var(--panel);
+      border-radius: 14px;
+      padding: 28px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.22);
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 20px;
+      letter-spacing: 0.3px;
+    }
+    .status {
+      margin: 16px 0 12px;
+      font-size: 28px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+    .status.pending { color: var(--warn); }
+    .status.paid    { color: var(--ok); }
+    .status.failed  { color: var(--bad); }
+    .muted { color: var(--muted); font-size: 13px; line-height: 1.6; }
+    dl { margin: 16px 0; display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; }
+    dt { color: var(--muted); font-size: 13px; }
+    dd { margin: 0; font-size: 14px; word-break: break-all; }
+    .actions { margin-top: 18px; display: flex; gap: 10px; flex-wrap: wrap; }
+    .btn {
+      display: inline-block;
+      padding: 10px 16px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      background: var(--accent);
+      color: #fff;
+      font-size: 14px;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .btn.ghost {
+      background: transparent;
+      color: var(--fg);
+      border-color: currentColor;
+      opacity: 0.75;
+    }
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid currentColor;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      vertical-align: -2px;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <main class="card" aria-live="polite">
+    <h1>支付结果 / Payment result</h1>
+    <div class="status pending" id="status-line"><span class="spinner"></span>等待网关确认…</div>
+    <p class="muted" id="hint">
+      支付宝 / 微信支付 通知可能需要几秒到一分钟到达，请勿关闭此页面。<br>
+      Your bank and the gateway may take up to a minute to notify us. Please keep this page open.
+    </p>
+    <dl id="detail">
+      <dt>订单号 / Reference</dt><dd id="fld-reference">—</dd>
+      <dt>类型 / Kind</dt><dd id="fld-kind">—</dd>
+      <dt>金额 / Amount</dt><dd id="fld-amount">—</dd>
+      <dt>状态 / Status</dt><dd id="fld-status">pending</dd>
+    </dl>
+    <div class="actions">
+      <a class="btn" href="/" id="home-btn">返回首页 / Back to app</a>
+      <button class="btn ghost" type="button" id="refresh-btn">立即刷新 / Refresh now</button>
+    </div>
+  </main>
+
+  <script>
+  (function () {
+    "use strict";
+
+    function qs(name) {
+      try {
+        const u = new URL(window.location.href);
+        return u.searchParams.get(name);
+      } catch (_e) { return null; }
+    }
+
+    const intentId = (qs("intent") || "").trim();
+    const statusLine = document.getElementById("status-line");
+    const hint = document.getElementById("hint");
+    const fldRef = document.getElementById("fld-reference");
+    const fldKind = document.getElementById("fld-kind");
+    const fldAmount = document.getElementById("fld-amount");
+    const fldStatus = document.getElementById("fld-status");
+
+    if (!intentId) {
+      statusLine.className = "status failed";
+      statusLine.textContent = "链接缺少参数 / Missing intent parameter";
+      hint.textContent = "No intent id in URL. Return to the app and try again.";
+      return;
+    }
+
+    const TERMINAL_STATES = new Set(["paid", "failed", "expired", "refunded"]);
+    let pollCount = 0;
+    const MAX_POLLS = 60; // ~2 minutes at 2s
+    let pollTimer = null;
+
+    function fmtCents(c) {
+      const n = Number(c || 0);
+      if (!Number.isFinite(n)) return "—";
+      return "$" + (n / 100).toFixed(2);
+    }
+
+    function render(intent) {
+      if (!intent) return;
+      fldRef.textContent = intent.reference || intent.id || "—";
+      fldKind.textContent = intent.kind || "—";
+      fldAmount.textContent = fmtCents(intent.amount_cents) + " " + (intent.currency || "");
+      fldStatus.textContent = intent.status || "—";
+
+      const status = String(intent.status || "").toLowerCase();
+      if (status === "paid") {
+        statusLine.className = "status paid";
+        statusLine.textContent = "支付成功 ✓ / Payment successful";
+        hint.textContent = "您的余额/会员已更新，可以返回应用继续使用。 Your balance/plan has been updated.";
+      } else if (status === "failed" || status === "expired") {
+        statusLine.className = "status failed";
+        statusLine.textContent = (status === "expired" ? "支付超时" : "支付失败") + " / Payment " + status;
+        hint.textContent = "没有扣款。请返回应用重新发起支付。 No charge. Return to the app to retry.";
+      } else if (status === "refunded") {
+        statusLine.className = "status failed";
+        statusLine.textContent = "已退款 / Refunded";
+        hint.textContent = "本次订单已退款。 This order has been refunded.";
+      } else {
+        statusLine.className = "status pending";
+        statusLine.innerHTML = '<span class="spinner"></span>等待网关确认… / Waiting for gateway notice…';
+      }
+    }
+
+    async function poll(once) {
+      try {
+        const res = await fetch("/api/payments/intents/" + encodeURIComponent(intentId), {
+          method: "GET",
+          credentials: "include"
+        });
+        if (res.status === 401 || res.status === 403) {
+          statusLine.className = "status failed";
+          statusLine.textContent = "未登录或无权限 / Session expired";
+          hint.textContent = "Please sign in again to see this payment result.";
+          if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+          return;
+        }
+        if (!res.ok) return;
+        const payload = await res.json().catch(() => null);
+        const intent = (payload && payload.data) || payload;
+        if (!intent) return;
+        render(intent);
+        const status = String(intent.status || "").toLowerCase();
+        if (TERMINAL_STATES.has(status)) {
+          if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+        }
+      } catch (_e) {
+        // ignore transient errors; next tick will retry
+      }
+    }
+
+    document.getElementById("refresh-btn").addEventListener("click", function () { poll(true); });
+
+    poll(true);
+    pollTimer = setInterval(function () {
+      pollCount += 1;
+      if (pollCount > MAX_POLLS) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+        hint.textContent = "已停止自动刷新，可手动点击“立即刷新”。 Auto-refresh stopped. Use the refresh button to recheck.";
+        return;
+      }
+      poll(false);
+    }, 2000);
+  })();
+  </script>
+</body>
+</html>

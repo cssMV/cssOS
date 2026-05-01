@@ -1,0 +1,462 @@
+/* Split from style.css: dock, panel surface, about/api tabs, and MV overlay */
+
+/* ===== Dock + Panel mobile fixes ===== */
+.dock {
+  gap: 10px !important;
+  padding: 10px 14px !important;
+}
+
+.dock-item {
+  margin: 0 !important;
+}
+
+.dock-label,
+.dock .label,
+.dock .dock-text {
+  display: none !important;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .dock-item {
+    position: relative;
+  }
+
+  .dock-item::after {
+    content: attr(data-label);
+    position: absolute;
+    bottom: calc(100% + 10px);
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 6px 10px;
+    border-radius: 10px;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease;
+    background: rgba(0, 0, 0, 0.55);
+    border: 1px solid rgba(0, 245, 160, 0.25);
+    color: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(10px);
+  }
+
+  .dock-item:hover::after,
+  .dock-item:focus-within::after {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 768px) {
+  .panel {
+    min-height: 240px !important;
+    max-height: calc(100vh - 140px) !important;
+  }
+
+  #logo-panel {
+    width: calc(100vw - 24px) !important;
+    max-width: 560px !important;
+    min-height: 360px !important;
+  }
+}
+
+#version-toggle,
+.version-toggle,
+.top-left-menu {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+#version-toggle:hover,
+.version-toggle:hover {
+  background: transparent !important;
+}
+
+/* ===== About / API panels ===== */
+.about-tabs {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0 48px 4px 0;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+  margin-bottom: 16px;
+  min-height: 52px;
+}
+
+.about-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 245, 160, 0.25);
+  background: rgba(0, 245, 160, 0.08);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.2;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  cursor: pointer;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  scroll-snap-align: start;
+}
+
+.about-tab.active {
+  background: rgba(0, 245, 160, 0.22);
+  box-shadow: 0 0 12px rgba(0, 245, 160, 0.45);
+}
+
+.about-tab-content {
+  display: none;
+  gap: 16px;
+}
+
+.about-tab-content.active {
+  display: grid;
+}
+
+.about-section h3 {
+  font-family: "Syne", sans-serif;
+  font-size: 16px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.about-section p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.about-contact {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.about-social {
+  display: grid;
+  gap: 8px;
+  padding-left: 18px;
+  color: var(--muted);
+}
+
+.api-section {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.api-endpoint {
+  font-family: "Space Grotesk", monospace;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 245, 160, 0.25);
+  background: rgba(0, 0, 0, 0.5);
+  color: var(--green);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.api-code {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.api-code-title {
+  font-size: 12px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.api-code pre {
+  margin: 0;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(0, 245, 160, 0.2);
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--text);
+  overflow-x: auto;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.billing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.billing-card {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(0, 245, 160, 0.18);
+  background: rgba(0, 0, 0, 0.45);
+  display: grid;
+  gap: 8px;
+}
+
+.billing-label {
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.billing-value {
+  font-size: 22px;
+  font-family: "Space Grotesk", sans-serif;
+}
+
+.billing-select,
+.billing-input {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 245, 160, 0.2);
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--text);
+}
+
+.billing-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.billing-history {
+  margin-top: 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.billing-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+}
+
+.api-guest-notice {
+  margin-bottom: 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(0, 245, 160, 0.28);
+  background: rgba(0, 245, 160, 0.08);
+  padding: 12px 14px;
+  font-size: 12px;
+  color: rgba(225, 255, 245, 0.95);
+  display: grid;
+  gap: 6px;
+}
+
+.api-cinema-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.api-cinema-grid label,
+.api-cinema-brief {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: rgba(225, 255, 245, 0.92);
+}
+
+.api-cinema-grid input,
+.api-cinema-brief textarea {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 245, 160, 0.2);
+  background: rgba(9, 16, 18, 0.78);
+  color: #f1fff8;
+  padding: 10px 12px;
+}
+
+.api-cinema-note {
+  align-self: end;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.api-cinema-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.api-cinema-status {
+  flex: 1 1 260px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.api-cinema-booking-brief-preview {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(0, 245, 160, 0.14);
+  display: grid;
+  gap: 6px;
+}
+
+.api-cinema-booking-brief-preview[role="button"] {
+  cursor: pointer;
+}
+
+.api-cinema-booking-brief-label {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(210, 246, 235, 0.62);
+}
+
+.api-cinema-booking-brief-copy {
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(232, 255, 246, 0.9);
+}
+
+.api-cinema-booking-brief-hint {
+  font-size: 11px;
+  color: rgba(0, 245, 160, 0.76);
+}
+
+@media (max-width: 640px) {
+  .panel {
+    min-height: 240px;
+  }
+
+  .panel-body {
+    min-height: 180px;
+    max-height: calc(100vh - 220px);
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+.panel.center-stage {
+  position: fixed !important;
+  left: 50% !important;
+  top: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  width: min(96vw, 1200px) !important;
+  height: min(82vh, 760px) !important;
+  z-index: 50;
+}
+
+.logo-panel.dimmed {
+  opacity: 0.2;
+  filter: saturate(0.8) blur(1px);
+}
+
+/* CSSOS_LOGO_MIRROR_COVER_BEGIN */
+.mirror {
+  overflow: visible;
+  aspect-ratio: 1 / 1;
+  isolation: isolate;
+}
+
+.mirror-img,
+.mirror-video {
+  object-fit: cover;
+  object-position: center;
+  display: block;
+  border-radius: 50%;
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 98.8%, transparent 100%);
+  mask-image: radial-gradient(circle at 50% 50%, #000 98.8%, transparent 100%);
+  -webkit-clip-path: circle(50% at 50% 50%);
+  clip-path: circle(50% at 50% 50%);
+}
+/* CSSOS_LOGO_MIRROR_COVER_END */
+
+/* CSSOS_MV_OVERLAY_BEGIN */
+.mv-overlay {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(3, 6, 5, 0.88);
+  z-index: 99999;
+  pointer-events: none;
+}
+
+.mv-overlay.show {
+  display: flex;
+  pointer-events: auto;
+}
+
+.mv-overlay:not(.show) {
+  display: none;
+  pointer-events: none;
+}
+
+.mv-overlay-inner {
+  position: relative;
+  width: min(96vw, 1200px);
+  height: min(82vh, 760px);
+  border-radius: 24px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 245, 160, 0.25);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+}
+
+.mv-overlay-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.mv-overlay-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  background: rgba(0, 0, 0, 0.45);
+  color: #eafff6;
+  border: 1px solid rgba(0, 245, 160, 0.35);
+  border-radius: 999px;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+/* CSSOS_MV_OVERLAY_END */
+
+/* CSSOS_MOBILE_LOGO_FIRST_SCREEN_BEGIN */
+@media (max-width: 768px) {
+  html,
+  body {
+    height: 100%;
+  }
+
+  .stage {
+    min-height: 100vh;
+    min-height: 100dvh;
+    height: 100vh;
+    height: 100dvh;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    overflow: hidden;
+  }
+
+  #logo-panel {
+    margin: 0 !important;
+  }
+}
+/* CSSOS_MOBILE_LOGO_FIRST_SCREEN_END */

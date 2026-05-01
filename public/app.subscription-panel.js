@@ -1,0 +1,853 @@
+// CSSOS_PHASE2_I18N_ENGLISH_AS_SSOT 20260419
+//
+// English is the SINGLE source of truth. Translations for every other
+// locale — es, fr, ja, ko, de, ru, zh, ar, pt, hi, ... — are derived at
+// runtime through the i18n runtime (public/i18n/runtime.js, backed by
+// POST /api/i18n/translate + IndexedDB cache). No language is privileged;
+// every locale flows through the exact same code path.
+//
+// We route through the global `tr(english, vars?)` helper defined in
+// app.js, which itself wraps `window.CSSOS_I18N.tr()`. If that runtime
+// is unavailable the call returns the English source verbatim. On cache
+// miss, the runtime dispatches `cssos:i18n-translation-ready` once the
+// async batch resolves, and the subscription panel re-renders below.
+//
+// CALL CONVENTION: `tr("Change Plan")` — ONE argument, always English.
+// For interpolation: `tr("Plan: {label}", { label: tierLabel })`.
+//
+// NB: `tr` is a GLOBAL function declared in app.js (which loads before this
+// file per index.html). We must NOT re-declare it here — doing so creates a
+// Safari SyntaxError "Can't create duplicate variable that shadows a global
+// property: 'tr'". Instead we read the global directly, and fall back to a
+// local helper only if someone loads this file without app.js.
+if (typeof globalThis.tr !== "function") {
+  globalThis.tr = function trFallback(english, vars) {
+    const source = typeof english === "string" ? english : String(english == null ? "" : english);
+    try {
+      const i18n = globalThis.CSSOS_I18N;
+      if (i18n && typeof i18n.tr === "function") {
+        const translated = i18n.tr(source, vars);
+        if (typeof translated === "string") return translated;
+      }
+    } catch (_) { /* fall through */ }
+    if (vars && typeof vars === "object") {
+      return source.replace(/\{(\w+)\}/g, (_m, key) =>
+        vars[key] != null ? String(vars[key]) : `{${key}}`
+      );
+    }
+    return source;
+  };
+}
+
+function buildSubscriptionPanelMarkupModule() {
+  const tier = typeof getAccessTier === "function" ? getAccessTier() : "guest";
+  const preset = typeof getMembershipPreset === "function" ? getMembershipPreset(tier) : null;
+  const tierLabel = typeof describeMembershipTier === "function"
+    ? describeMembershipTier(tier)
+    : String(tier || "Guest");
+  const currentPlanLine = tr("Current plan: {tierLabel}", { tierLabel });
+  const boostAvailability = typeof getCreatorBoostAvailability === "function"
+    ? getCreatorBoostAvailability()
+    : { generation: 0, language: 0, voice: 0, thumbnail: 0, preview_video: 0, background_job: 0 };
+  const behaviorBoosts = (typeof readPanelBehaviorSettingsLocal === "function"
+    ? readPanelBehaviorSettingsLocal()?.creator_boost
+    : null) || {};
+  const generationUnitPrice = Math.max(0, Number(behaviorBoosts.generation_unit_cents || 99)) / 100;
+  const backgroundJobUnitPrice = Math.max(0, Number(behaviorBoosts.background_job_unit_cents || 199)) / 100;
+  const languageUnitPrice = Math.max(0, Number(behaviorBoosts.language_unit_cents || 300)) / 100;
+  const voiceUnitPrice = Math.max(0, Number(behaviorBoosts.voice_unit_cents || 500)) / 100;
+  const isAdmin = typeof hasPanelPermission === "function"
+    ? hasPanelPermission("admin.panel")
+    : false;
+  const includedBackgroundSlots =
+    preset?.backgroundJobLimit === null
+      ? tr("Unlimited")
+      : String(Math.max(0, Number(preset?.backgroundJobLimit || 0)));
+  const concurrentBackgroundSlots = Math.max(0, Number(preset?.backgroundConcurrentJobLimit || 0));
+  const price = (amount) => `$${Number(amount || 0).toFixed(2)}`;
+  const maxDurationMin = (Number(preset?.maxDurationSec || 180) / 60).toFixed(0);
+  const queueLane = preset?.queuePriority || "guest";
+  const pendingHoldAmount = Number(billingState?.pending_balance_cents || 0);
+  const pendingHoldDate = billingState?.pending_balance_release_at
+    ? new Date(String(billingState.pending_balance_release_at)).toLocaleDateString()
+    : "";
+  const plans = [
+    {
+      tier: "free",
+      price: 0,
+      label: tr("Basic / Free"),
+      note: tr("Browse and try lightweight creation."),
+      limit: tr("3 creations / month")
+    },
+    {
+      tier: "starter",
+      price: 15,
+      label: tr("Starter"),
+      note: tr("Longer generation and paid creation lane."),
+      limit: tr("30 creations / month")
+    },
+    {
+      tier: "pro",
+      price: 39,
+      label: tr("Pro"),
+      note: tr("Opera, triptych, advanced settings, longer video."),
+      limit: tr("100 creations / month")
+    },
+    {
+      tier: "studio",
+      price: 129,
+      label: tr("Studio"),
+      note: tr("Studio lanes, team workflow, heavier output."),
+      limit: tr("300 creations / month")
+    }
+  ];
+  return `
+    <div class="subscription-panel-stack" style="display:grid; gap:16px;">
+    <div class="works-section">
+      <div class="section-title">${escapeHtml(tr("Membership Lane"))}</div>
+      <div class="comment-card">
+        <div class="comment-meta">
+          <span>${escapeHtml(tr("Purpose"))}</span>
+          <span>${escapeHtml(tr("Subscribe · Upgrade · Creator Boost"))}</span>
+        </div>
+        <div class="comment-text">
+          ${escapeHtml(tr("New users should upgrade here first. Advanced Settings can still link here, but this panel is now the direct subscription entrance."))}
+        </div>
+        <div class="works-note">
+          ${escapeHtml(tr("System defaults stay in code for now. User changes stay local to the current browser session profile."))}
+        </div>
+      </div>
+    </div>
+    <div class="works-section">
+      <div class="section-title">${escapeHtml(tr("Current Membership"))}</div>
+      <div class="comment-card">
+        <div class="comment-meta">
+          <span>${escapeHtml(tr("Tier"))}</span>
+          <span>${escapeHtml(tierLabel)}</span>
+        </div>
+        <div class="comment-text">
+          ${authState.user
+            ? escapeHtml(tr("Your subscription, Creator Boost balance, and upgrade actions live here now."))
+            : escapeHtml(tr("Guests can browse plans here first, then sign in to upgrade."))}
+        </div>
+        <div class="works-note">${escapeHtml(currentPlanLine)}</div>
+        <div class="works-note">
+          ${escapeHtml(tr("Queue lane · {queueLane} · Max duration {maxDurationMin} min", { queueLane, maxDurationMin }))}
+        </div>
+        <div class="works-note">
+          ${escapeHtml(tr("Background queue slots · {includedBackgroundSlots} total · {concurrentBackgroundSlots} concurrent", { includedBackgroundSlots, concurrentBackgroundSlots }))}
+        </div>
+        <div class="works-note">
+          ${escapeHtml(tr("Default audio delivery is MP3. Pro+ can request WAV manually, but lossless files are temporary and auto-clean after 24 hours."))}
+        </div>
+        ${pendingHoldAmount > 0 ? `
+          <div class="works-note">
+            ${escapeHtml(pendingHoldDate
+              ? tr("Refund on hold: {amount} unlocks on {date}.", { amount: price(pendingHoldAmount / 100), date: pendingHoldDate })
+              : tr("Refund on hold: {amount} is still in the 14-day platform hold.", { amount: price(pendingHoldAmount / 100) }))}
+          </div>
+        ` : ""}
+        <!-- CSSOS_PHASE2_PAYMENTS 20260419 — top-right "Change Plan" entry removed per
+             user feedback ("放到右上角太隐蔽了"). Plan selection now lives inline on
+             each plan card below, where both the Stripe (international) and NihaoPay
+             (domestic: Alipay / WeChat Pay / UnionPay) paths are surfaced side-by-side. -->
+      </div>
+    </div>
+    <div class="subscription-plans-grid" style="display:grid; gap:16px; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));">
+      <div class="works-section">
+        <div class="section-title">${escapeHtml(tr("Plans"))}</div>
+        <div class="works-list">
+          ${plans.map((plan) => {
+            const isCurrent = plan.tier === tier;
+            const isPaid = Number(plan.price) > 0;
+            const priceCents = Math.round(Number(plan.price) * 100);
+            return `
+            <article class="work-card">
+              <div class="work-cover">${escapeHtml(plan.tier.slice(0, 1).toUpperCase())}</div>
+              <div class="work-info">
+                <div class="work-title">${escapeHtml(plan.label)}</div>
+                <div class="work-tags">${escapeHtml(plan.price > 0 ? tr("${price}/month", { price: plan.price }) : tr("Free"))}</div>
+                <div class="work-tags">${escapeHtml(plan.limit)}</div>
+                <div class="works-note">${escapeHtml(plan.note)}</div>
+              </div>
+              ${isCurrent
+                ? `<div class="work-actions">
+                     <button class="mini-btn ghost" type="button" disabled>${escapeHtml(tr("Current plan"))}</button>
+                   </div>`
+                : (!isPaid
+                  ? `<div class="work-actions">
+                       <button class="mini-btn" type="button" data-subscription-direct-tier="${escapeHtml(plan.tier)}">${escapeHtml(tr("Switch to Free"))}</button>
+                     </div>`
+                  : `
+                  <div class="pay-group">
+                    <div class="pay-group-head">
+                      <span class="pay-group-dot intl"></span>
+                      <span>${escapeHtml(tr("International · Stripe"))}</span>
+                    </div>
+                    <div class="pay-group-body">
+                      <button class="mini-btn pay-stripe" type="button" data-subscription-direct-tier="${escapeHtml(plan.tier)}">${escapeHtml(tr("Pay with card"))}</button>
+                    </div>
+                  </div>
+                  <div class="pay-group" data-subscription-panel-nihaopay-row="${escapeHtml(plan.tier)}">
+                    <div class="pay-group-head">
+                      <span class="pay-group-dot cn"></span>
+                      <span>${escapeHtml(tr("China · NihaoPay"))}</span>
+                    </div>
+                    <div class="pay-group-body">
+                      <button class="mini-btn pay-vendor alipay" type="button" data-subscription-panel-nihaopay-vendor="alipay" data-subscription-panel-nihaopay-tier="${escapeHtml(plan.tier)}" data-subscription-panel-nihaopay-price="${priceCents}">${escapeHtml(tr("Alipay"))}</button>
+                      <button class="mini-btn pay-vendor wechatpay" type="button" data-subscription-panel-nihaopay-vendor="wechatpay" data-subscription-panel-nihaopay-tier="${escapeHtml(plan.tier)}" data-subscription-panel-nihaopay-price="${priceCents}">${escapeHtml(tr("WeChat Pay"))}</button>
+                      <button class="mini-btn pay-vendor unionpay" type="button" data-subscription-panel-nihaopay-vendor="unionpay" data-subscription-panel-nihaopay-tier="${escapeHtml(plan.tier)}" data-subscription-panel-nihaopay-price="${priceCents}">${escapeHtml(tr("UnionPay"))}</button>
+                    </div>
+                  </div>
+                `)}
+            </article>
+          `;
+          }).join("")}
+        </div>
+      </div>
+      <div class="works-section">
+        <div class="section-title">${escapeHtml(tr("Creator Boost"))}</div>
+        <div class="stat-grid">
+          <div class="stat-card"><div class="stat-label">${escapeHtml(tr("Extra generations"))}</div><div class="stat-value">${Number(boostAvailability.generation || 0)}</div></div>
+          <div class="stat-card"><div class="stat-label">${escapeHtml(tr("Background queue slots"))}</div><div class="stat-value">${Number(boostAvailability.background_job || 0)}</div></div>
+          <div class="stat-card"><div class="stat-label">${escapeHtml(tr("Extra lyric languages"))}</div><div class="stat-value">${Number(boostAvailability.language || 0)}</div></div>
+          <div class="stat-card"><div class="stat-label">${escapeHtml(tr("Extra voice lanes"))}</div><div class="stat-value">${Number(boostAvailability.voice || 0)}</div></div>
+          <div class="stat-card"><div class="stat-label">${escapeHtml(tr("Thumbnail reruns"))}</div><div class="stat-value">${Number(boostAvailability.thumbnail || 0)}</div></div>
+          <div class="stat-card"><div class="stat-label">${escapeHtml(tr("Preview video reruns"))}</div><div class="stat-value">${Number(boostAvailability.preview_video || 0)}</div></div>
+        </div>
+        <!-- CSSOS_PHASE2_PAYMENTS 20260419 — Creator Boost: each row now offers
+             BOTH international Stripe and domestic NihaoPay (Alipay/WeChat/UnionPay).
+             Amounts are kept in cents client-side so we can pass them straight
+             into /api/payments/intents without any extra conversion. -->
+        <div class="boost-shop-grid">
+          ${[
+            { kind: "generation", quantity: 10, unitCents: Math.max(0, Number(behaviorBoosts.generation_unit_cents || 99)) * 10, title: tr("10 Extra Generations") },
+            { kind: "background_job", quantity: 1, unitCents: Math.max(0, Number(behaviorBoosts.background_job_unit_cents || 199)), title: tr("Background Queue Slot") },
+            { kind: "language", quantity: 1, unitCents: Math.max(0, Number(behaviorBoosts.language_unit_cents || 300)), title: tr("Language Boost") },
+            { kind: "voice", quantity: 1, unitCents: Math.max(0, Number(behaviorBoosts.voice_unit_cents || 500)), title: tr("Voice Lane Boost") }
+          ].map((item) => `
+            <div class="boost-shop-card">
+              <div class="boost-shop-head">
+                <span class="boost-shop-title">${escapeHtml(item.title)}</span>
+                <span class="boost-shop-price">${escapeHtml(price(item.unitCents / 100))}</span>
+              </div>
+              <div class="pay-group">
+                <div class="pay-group-head">
+                  <span class="pay-group-dot intl"></span>
+                  <span>${escapeHtml(tr("International · Stripe"))}</span>
+                </div>
+                <div class="pay-group-body">
+                  <button class="mini-btn pay-stripe" type="button" data-subscription-buy-boost="${escapeHtml(item.kind)}" data-subscription-boost-quantity="${item.quantity}">${escapeHtml(tr("Pay with card"))}</button>
+                </div>
+              </div>
+              <div class="pay-group">
+                <div class="pay-group-head">
+                  <span class="pay-group-dot cn"></span>
+                  <span>${escapeHtml(tr("China · NihaoPay"))}</span>
+                </div>
+                <div class="pay-group-body">
+                  <button class="mini-btn pay-vendor alipay" type="button" data-subscription-boost-nihaopay-vendor="alipay" data-subscription-boost-nihaopay-kind="${escapeHtml(item.kind)}" data-subscription-boost-nihaopay-quantity="${item.quantity}" data-subscription-boost-nihaopay-price="${item.unitCents}">${escapeHtml(tr("Alipay"))}</button>
+                  <button class="mini-btn pay-vendor wechatpay" type="button" data-subscription-boost-nihaopay-vendor="wechatpay" data-subscription-boost-nihaopay-kind="${escapeHtml(item.kind)}" data-subscription-boost-nihaopay-quantity="${item.quantity}" data-subscription-boost-nihaopay-price="${item.unitCents}">${escapeHtml(tr("WeChat Pay"))}</button>
+                  <button class="mini-btn pay-vendor unionpay" type="button" data-subscription-boost-nihaopay-vendor="unionpay" data-subscription-boost-nihaopay-kind="${escapeHtml(item.kind)}" data-subscription-boost-nihaopay-quantity="${item.quantity}" data-subscription-boost-nihaopay-price="${item.unitCents}">${escapeHtml(tr("UnionPay"))}</button>
+                </div>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+      <div class="works-section">
+        <div class="section-title">${escapeHtml(tr("Permissions and lanes"))}</div>
+        <div class="comment-card">
+          <div class="comment-text">
+            ${escapeHtml(tr("Membership controls creation limits and output lanes. Creator Boost adds temporary capability without changing your base tier."))}
+          </div>
+          <div class="works-note">
+            ${escapeHtml(tr("Action-level permission overview should stay in its own governance/admin panel instead of mixing into the buyer path."))}
+          </div>
+          ${isAdmin ? `
+            <div class="work-actions" style="margin-top:12px;">
+              <button class="mini-btn ghost" type="button" data-subscription-open-governance>
+                ${escapeHtml(tr("Open permission overview"))}
+              </button>
+            </div>
+          ` : ""}
+        </div>
+      </div>
+    </div>
+    </div>
+  `;
+}
+
+if (!globalThis.subscriptionPanel) {
+  globalThis.subscriptionPanel = document.getElementById("subscription-panel");
+}
+
+function ensureSubscriptionPlanModalModule() {
+  let modal = document.getElementById("subscription-plan-modal");
+  if (modal) return modal;
+  modal = document.createElement("div");
+  modal.id = "subscription-plan-modal";
+  modal.className = "provider-login-modal hidden subscription-plan-modal";
+  modal.innerHTML = `
+    <div class="provider-login-dialog subscription-plan-dialog">
+      <div class="subscription-plan-header">
+        <div>
+          <div class="advanced-panel-card-title">${escapeHtml(tr("Change Plan"))}</div>
+          <div class="advanced-panel-note" data-subscription-plan-subtitle></div>
+        </div>
+        <button class="mini-btn ghost tiny" type="button" data-subscription-plan-close>${escapeHtml(t("overlay.close"))}</button>
+      </div>
+      <div class="subscription-plan-list" data-subscription-plan-list></div>
+      <div class="advanced-panel-note" data-subscription-plan-status></div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal || event.target.closest("[data-subscription-plan-close]")) {
+      modal.classList.add("hidden");
+    }
+  });
+  return modal;
+}
+
+function subscriptionPlansCatalogModule() {
+  return [
+    {
+      tier: "free",
+      price: 0,
+      label: tr("Basic / Free"),
+      limit: tr("3 creations / month"),
+      note: tr("Lightweight creation and browsing.")
+    },
+    {
+      tier: "starter",
+      price: 15,
+      label: tr("Starter"),
+      limit: tr("30 creations / month"),
+      note: tr("Longer duration and paid creation lane.")
+    },
+    {
+      tier: "pro",
+      price: 39,
+      label: tr("Pro"),
+      limit: tr("100 creations / month"),
+      note: tr("Structured works and advanced settings.")
+    },
+    {
+      tier: "studio",
+      price: 129,
+      label: tr("Studio"),
+      limit: tr("300 creations / month"),
+      note: tr("Workspace lanes and team workflow.")
+    },
+    {
+      tier: "enterprise",
+      price: 399,
+      label: tr("Enterprise"),
+      limit: tr("Dedicated route policy"),
+      note: tr("Enterprise API and isolated limits.")
+    }
+  ];
+}
+
+function renderSubscriptionPlanModalModule(targetTier = "") {
+  const modal = ensureSubscriptionPlanModalModule();
+  const list = modal?.querySelector("[data-subscription-plan-list]");
+  const subtitle = modal?.querySelector("[data-subscription-plan-subtitle]");
+  const status = modal?.querySelector("[data-subscription-plan-status]");
+  if (!(list instanceof HTMLElement) || !(subtitle instanceof HTMLElement) || !(status instanceof HTMLElement)) {
+    return false;
+  }
+  const currentTier = typeof getAccessTier === "function" ? getAccessTier() : "guest";
+  const currentTierLabel = typeof describeMembershipTier === "function"
+    ? describeMembershipTier(currentTier)
+    : String(currentTier || "");
+  const plans = subscriptionPlansCatalogModule();
+  subtitle.textContent = authState.user
+    ? tr("Choose a higher or lower membership tier here. Current plan: {currentTierLabel}.", { currentTierLabel })
+    : tr("Browse the full plan ladder first, then sign in to continue.");
+  status.textContent = "";
+  list.innerHTML = plans
+    .map((plan) => {
+      const isCurrent = plan.tier === currentTier;
+      const isTarget = targetTier && plan.tier === targetTier;
+      return `
+        <article class="workspace-card subscription-plan-card${isCurrent ? " is-current" : ""}${isTarget ? " is-target" : ""}">
+          <div class="workspace-card-head">
+            <div>
+              <div class="work-title">${escapeHtml(plan.label)}</div>
+              <div class="work-tags">${escapeHtml(plan.price > 0 ? tr("${price}/month", { price: plan.price }) : tr("Free"))}</div>
+              <div class="work-tags">${escapeHtml(plan.limit)}</div>
+            </div>
+            <div class="report-badge ${isCurrent ? "success" : "warning"}">${escapeHtml(isCurrent ? tr("Current") : plan.tier.toUpperCase())}</div>
+          </div>
+          <div class="works-note">${escapeHtml(plan.note)}</div>
+          ${isCurrent
+            ? `<div class="work-actions">
+                 <button class="mini-btn ghost" type="button" disabled>${escapeHtml(tr("Current plan"))}</button>
+               </div>`
+            : (Number(plan.price) > 0
+              ? `
+              <div class="pay-group">
+                <div class="pay-group-head">
+                  <span class="pay-group-dot intl"></span>
+                  <span>${escapeHtml(tr("International · Stripe"))}</span>
+                </div>
+                <div class="pay-group-body">
+                  <button class="mini-btn pay-stripe" type="button" data-subscription-select-tier="${escapeHtml(plan.tier)}">${escapeHtml(tr("Pay with card"))}</button>
+                </div>
+              </div>
+              <div class="pay-group" data-subscription-nihaopay-row="${escapeHtml(plan.tier)}">
+                <div class="pay-group-head">
+                  <span class="pay-group-dot cn"></span>
+                  <span>${escapeHtml(tr("China · NihaoPay"))}</span>
+                </div>
+                <div class="pay-group-body">
+                  <button class="mini-btn pay-vendor alipay" type="button" data-subscription-nihaopay-vendor="alipay" data-subscription-nihaopay-tier="${escapeHtml(plan.tier)}" data-subscription-nihaopay-price="${Number(plan.price) * 100}">${escapeHtml(tr("Alipay"))}</button>
+                  <button class="mini-btn pay-vendor wechatpay" type="button" data-subscription-nihaopay-vendor="wechatpay" data-subscription-nihaopay-tier="${escapeHtml(plan.tier)}" data-subscription-nihaopay-price="${Number(plan.price) * 100}">${escapeHtml(tr("WeChat Pay"))}</button>
+                  <button class="mini-btn pay-vendor unionpay" type="button" data-subscription-nihaopay-vendor="unionpay" data-subscription-nihaopay-tier="${escapeHtml(plan.tier)}" data-subscription-nihaopay-price="${Number(plan.price) * 100}">${escapeHtml(tr("UnionPay"))}</button>
+                </div>
+              </div>
+            `
+              : `<div class="work-actions">
+                   <button class="mini-btn" type="button" data-subscription-select-tier="${escapeHtml(plan.tier)}">${escapeHtml(tr("Switch to Free"))}</button>
+                 </div>`)}
+        </article>
+      `;
+    })
+    .join("");
+  list.querySelectorAll("[data-subscription-select-tier]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const nextTier = String(button.getAttribute("data-subscription-select-tier") || "").trim();
+      await requestMembershipPlanChange(nextTier, button, status);
+    });
+  });
+  list.querySelectorAll("[data-subscription-nihaopay-vendor]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (!window.cssPaymentsCheckout || typeof window.cssPaymentsCheckout.startCheckout !== "function") {
+        if (typeof showToast === "function") showToast(tr("Payment gateway not ready. Please refresh and try again."));
+        return;
+      }
+      const tier = String(button.getAttribute("data-subscription-nihaopay-tier") || "").trim().toLowerCase();
+      const vendor = String(button.getAttribute("data-subscription-nihaopay-vendor") || "alipay").trim().toLowerCase();
+      const amountCents = Math.max(0, Math.round(Number(button.getAttribute("data-subscription-nihaopay-price") || 0)));
+      if (!tier || !amountCents) return;
+      if (status instanceof HTMLElement) {
+        status.textContent = tr("Redirecting to the payment page...");
+      }
+      await window.cssPaymentsCheckout.startCheckout({
+        kind: "subscription",
+        vendor,
+        amount_cents: amountCents,
+        tier,
+        trigger: button,
+        note: `subscription:${tier}`
+      });
+    });
+  });
+  modal.classList.remove("hidden");
+  return true;
+}
+
+async function requestMembershipPlanChangeModule(targetTier, trigger = null, statusNode = null) {
+  const nextTier = String(targetTier || "").trim().toLowerCase();
+  if (!nextTier) return false;
+  if (!authState.user) {
+    const msg = tr("Sign in first to change your membership plan.");
+    if (typeof openLoginForCreation === "function") {
+      openLoginForCreation(msg);
+    } else if (typeof showToast === "function") {
+      showToast(msg);
+    }
+    return false;
+  }
+  const updateStatus = (message) => {
+    const text = String(message || "");
+    if (statusNode instanceof HTMLElement) {
+      statusNode.textContent = text;
+    } else if (text && typeof showToast === "function") {
+      // Fallback when no statusNode: make sure the user SEES something on click
+      showToast(text);
+    }
+  };
+  try {
+    setButtonBusy(trigger, true);
+    updateStatus(tr("Updating your membership plan..."));
+    const res = await fetch("/api/billing/membership/change", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ target_tier: nextTier, requested_from: "subscription_plan_modal" })
+    });
+    const payload = await res.json().catch(() => null);
+    const data = payload?.data || payload;
+    if (res.ok && payload?.ok !== false && data?.checkout_url) {
+      window.location.href = String(data.checkout_url);
+      return true;
+    }
+    if (res.ok && payload?.ok !== false && data?.tier) {
+      authState.tier = String(data.tier || authState.tier || "");
+      if (typeof fetchBillingStatus === "function") {
+        await fetchBillingStatus().catch(() => null);
+      }
+      await renderSubscriptionPanelModule();
+      if (Number(data.refunded_cents || 0) > 0) {
+        const refundAmount = `$${(Number(data.refunded_cents || 0) / 100).toFixed(2)}`;
+        const holdDate = data.hold_release_at
+          ? new Date(String(data.hold_release_at)).toLocaleDateString()
+          : "";
+        updateStatus(
+          holdDate
+            ? tr("Plan updated. {amount} is now in your 14-day platform hold and will unlock on {date}.", { amount: refundAmount, date: holdDate })
+            : tr("Plan updated. {amount} is now in your 14-day platform hold before it becomes available.", { amount: refundAmount })
+        );
+      } else if (Number(data.charged_cents || 0) > 0) {
+        const chargedAmount = `$${(Number(data.charged_cents || 0) / 100).toFixed(2)}`;
+        updateStatus(tr("Plan updated. Charged {amount} from your balance.", { amount: chargedAmount }));
+      } else {
+        updateStatus(tr("Plan updated."));
+      }
+      return true;
+    }
+    // Non-OK response path — preserve the server code so the catch can branch on it
+    const serverCode = String(payload?.code || "").trim();
+    if (serverCode === "INSUFFICIENT_BALANCE") {
+      throw new Error("INSUFFICIENT_BALANCE");
+    }
+    throw new Error(serverCode || `membership_plan_change_failed:${res.status}`);
+  } catch (_error) {
+    const fallbackCode = String(_error?.message || "");
+    if (fallbackCode === "INSUFFICIENT_BALANCE") {
+      await handleMembershipInsufficientBalanceModule(nextTier, trigger, updateStatus);
+      return false;
+    }
+    updateStatus(tr("Plan change is not available on this billing backend yet. Please try again or contact support."));
+    return false;
+  } finally {
+    setButtonBusy(trigger, false);
+  }
+}
+
+// Offer the user a direct path to pay via Stripe when their balance is too low.
+// Short-term: reuse the existing /api/cssmv/boosts/checkout/create endpoint
+// (a Stripe Checkout session) so we actually get the user into a real payment
+// flow, plus show a clear toast explaining the situation.
+async function handleMembershipInsufficientBalanceModule(targetTier, trigger, updateStatus) {
+  const tierLabel = typeof describeMembershipTier === "function"
+    ? describeMembershipTier(targetTier)
+    : String(targetTier || "");
+  updateStatus(tr("Your in-app balance is not enough to switch to {tierLabel} yet. Choose a payment method to top up 10 generations.", { tierLabel }));
+
+  const picker = window.cssPaymentsCheckout && typeof window.cssPaymentsCheckout.openPicker === "function"
+    ? window.cssPaymentsCheckout.openPicker
+    : null;
+  const pricing = (typeof readPanelBehaviorSettingsLocal === "function"
+    ? (readPanelBehaviorSettingsLocal()?.creator_boost || {})
+    : {}) || {};
+  const unitCents = Math.max(25, Number(pricing.generation_unit_cents || 99) || 99);
+  const qty = 10;
+  const totalCents = unitCents * qty;
+
+  if (!picker) {
+    if (typeof createCreatorBoostCheckout === "function") {
+      try {
+        await createCreatorBoostCheckout("generation", qty, trigger);
+        return true;
+      } catch (_err) {
+        /* fall through */
+      }
+    }
+    updateStatus(tr("Stripe checkout is not reachable right now. Please try again later or contact support."));
+    return false;
+  }
+
+  return await new Promise((resolve) => {
+    let settled = false;
+    const finish = (v) => { if (!settled) { settled = true; resolve(v); } };
+    picker({
+      title: tr("Top up 10 extra generations"),
+      subtitle: tr("Required to switch to {tierLabel}", { tierLabel }),
+      amountCents: totalCents,
+      stripe: {
+        label: tr("Pay with card"),
+        onSelect: async () => {
+          try {
+            if (typeof createCreatorBoostCheckout === "function") {
+              await createCreatorBoostCheckout("generation", qty, trigger);
+              finish(true);
+              return;
+            }
+          } catch (_err) {}
+          updateStatus(tr("Stripe checkout is not reachable right now. Please try again later or contact support."));
+          finish(false);
+        }
+      },
+      nihaopay: {
+        onSelect: (vendor) => {
+          try {
+            window.cssPaymentsCheckout.startCheckout({
+              kind: "purchase",
+              vendor,
+              amount_cents: totalCents,
+              trigger,
+              note: `boost:generation:${qty}`
+            });
+            finish(true);
+          } catch (_err) {
+            finish(false);
+          }
+        }
+      },
+      onCancel: () => {
+        updateStatus(tr("Top-up cancelled. You can try again any time."));
+        finish(false);
+      }
+    });
+  });
+}
+
+async function requestMembershipPlanChange(targetTier, trigger = null, statusNode = null) {
+  return requestMembershipPlanChangeModule(targetTier, trigger, statusNode);
+}
+
+function getSubscriptionPanelModule() {
+  const panel = document.getElementById("subscription-panel");
+  return panel instanceof HTMLElement ? panel : null;
+}
+
+async function renderSubscriptionPanelModule() {
+  const content = document.getElementById("subscription-panel-content");
+  if (!(content instanceof HTMLElement)) return false;
+  // CSSOS_PHASE2_P2_57E 20260419 — preserve the `panel-body subscription-body`
+  // classes declared in index.html. The previous line blew them away on every
+  // re-render, which detached the container from the base `.panel-body`
+  // flex+overflow rules and killed scroll. Keep the historical marker class at
+  // the end for any code that searches for it.
+  content.className = "panel-body subscription-body subscription-panel-content";
+  if (authState.user && !creatorBoostState.loaded && typeof loadCreatorBoostState === "function") {
+    await loadCreatorBoostState().catch(() => null);
+  }
+  content.innerHTML = buildSubscriptionPanelMarkupModule();
+  content.querySelectorAll("[data-subscription-open-plan-modal]").forEach((button) => {
+    button.addEventListener("click", () => {
+      renderSubscriptionPlanModalModule(String(button.getAttribute("data-target-tier") || "").trim());
+    });
+  });
+  content.querySelectorAll("[data-subscription-direct-tier]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const nextTier = String(button.getAttribute("data-subscription-direct-tier") || "").trim();
+      if (!nextTier) return;
+      await requestMembershipPlanChange(nextTier, button);
+    });
+  });
+  // CSSOS_PHASE2_PAYMENTS 20260419 — NihaoPay entry on the main subscription panel
+  // (parallel to the Stripe-backed Change Plan flow). Prompts the user for a vendor
+  // and hands off to window.cssPaymentsCheckout with kind="subscription", which
+  // creates a payment_intent and redirects to NihaoPay SecurePay. Auto-FX is handled
+  // server-side by NihaoPay (USD amount auto-converted at checkout).
+  content.querySelectorAll("[data-subscription-panel-nihaopay-vendor]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (!authState.user) {
+        const msg = tr("Sign in first to subscribe.");
+        if (typeof openLoginForCreation === "function") openLoginForCreation(msg);
+        else if (typeof showToast === "function") showToast(msg);
+        return;
+      }
+      if (!window.cssPaymentsCheckout || typeof window.cssPaymentsCheckout.startCheckout !== "function") {
+        if (typeof showToast === "function") showToast(tr("Payment gateway not ready. Please refresh and try again."));
+        return;
+      }
+      const nextTier = String(button.getAttribute("data-subscription-panel-nihaopay-tier") || "").trim().toLowerCase();
+      const vendor = String(button.getAttribute("data-subscription-panel-nihaopay-vendor") || "alipay").trim().toLowerCase();
+      const amountCents = Math.max(0, Math.round(Number(button.getAttribute("data-subscription-panel-nihaopay-price") || 0)));
+      if (!nextTier || !amountCents) return;
+      if (typeof showToast === "function") showToast(tr("Redirecting to the payment page..."));
+      await window.cssPaymentsCheckout.startCheckout({
+        kind: "subscription",
+        vendor,
+        amount_cents: amountCents,
+        tier: nextTier,
+        trigger: button,
+        note: `subscription:${nextTier}`
+      });
+    });
+  });
+  content.querySelectorAll("[data-subscription-open-api]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openPanel?.(apiPanel);
+      renderApiBillingPanel?.();
+    });
+  });
+  content.querySelectorAll("[data-subscription-open-governance]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openPanel?.(cssmvPanel);
+      renderCssmvGovernancePanel?.();
+    });
+  });
+  content.querySelectorAll("[data-subscription-buy-boost]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const kind = String(button.getAttribute("data-subscription-buy-boost") || "").trim();
+      const quantity = Math.max(1, Number(button.getAttribute("data-subscription-boost-quantity") || 1) || 1);
+      if (!kind) return;
+      if (!authState.user) {
+        openLoginForCreation?.(tr("Sign in first to purchase Creator Boost."));
+        return;
+      }
+      if (typeof createCreatorBoostCheckout === "function") {
+        await createCreatorBoostCheckout(kind, quantity, button).catch(() => null);
+        await loadCreatorBoostState?.(true).catch(() => null);
+        await renderSubscriptionPanelModule();
+      }
+    });
+  });
+  // CSSOS_PHASE2_PAYMENTS 20260419 — NihaoPay entry for Creator Boost (Alipay /
+  // WeChat Pay / UnionPay). Routes through the same /api/payments/intents
+  // endpoint with kind="purchase"; the note carries the boost kind/quantity so
+  // the backend can settle the correct boost bucket after the IPN verifies.
+  content.querySelectorAll("[data-subscription-boost-nihaopay-vendor]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (!authState.user) {
+        const msg = tr("Sign in first to purchase Creator Boost.");
+        if (typeof openLoginForCreation === "function") openLoginForCreation(msg);
+        else if (typeof showToast === "function") showToast(msg);
+        return;
+      }
+      if (!window.cssPaymentsCheckout || typeof window.cssPaymentsCheckout.startCheckout !== "function") {
+        if (typeof showToast === "function") showToast(tr("Payment gateway not ready. Please refresh and try again."));
+        return;
+      }
+      const boostKind = String(button.getAttribute("data-subscription-boost-nihaopay-kind") || "").trim().toLowerCase();
+      const vendor = String(button.getAttribute("data-subscription-boost-nihaopay-vendor") || "alipay").trim().toLowerCase();
+      const quantity = Math.max(1, Number(button.getAttribute("data-subscription-boost-nihaopay-quantity") || 1) || 1);
+      const amountCents = Math.max(0, Math.round(Number(button.getAttribute("data-subscription-boost-nihaopay-price") || 0)));
+      if (!boostKind || !amountCents) return;
+      if (typeof showToast === "function") showToast(tr("Redirecting to the payment page..."));
+      // CSSOS_PHASE2_BOOST_KIND 20260419 — use the new "boost" kind so the
+      // checkout skips the target_creator_id guard that was throwing
+      // "缺少收款人 / Missing creator" on self-purchase boost rows.
+      await window.cssPaymentsCheckout.startCheckout({
+        kind: "boost",
+        vendor,
+        amount_cents: amountCents,
+        trigger: button,
+        note: `boost:${boostKind}:${quantity}`
+      }).catch(() => null);
+    });
+  });
+  content.querySelectorAll("[data-subscription-stripe-topup]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const kind = String(button.getAttribute("data-subscription-stripe-topup") || "").trim() || "generation";
+      const quantity = Math.max(1, Number(button.getAttribute("data-subscription-boost-quantity") || 10) || 10);
+      if (!authState.user) {
+        const msg = tr("Sign in first to open Stripe checkout.");
+        if (typeof openLoginForCreation === "function") openLoginForCreation(msg);
+        else if (typeof showToast === "function") showToast(msg);
+        return;
+      }
+      if (typeof showToast === "function") {
+        showToast(tr("Opening Stripe checkout..."));
+      }
+      if (typeof createCreatorBoostCheckout === "function") {
+        try {
+          await createCreatorBoostCheckout(kind, quantity, button);
+        } catch (_err) {
+          if (typeof showToast === "function") {
+            showToast(tr("Stripe checkout failed to open. Please try again."));
+          }
+        }
+      }
+    });
+  });
+  return true;
+}
+
+function isSubscriptionPanelOffscreenModule(panel) {
+  if (!(panel instanceof HTMLElement)) return true;
+  const rect = panel.getBoundingClientRect?.();
+  if (!rect) return true;
+  if (rect.width < 220 || rect.height < 180) return true;
+  return (
+    rect.right < 120 ||
+    rect.bottom < 120 ||
+    rect.left > window.innerWidth - 120 ||
+    rect.top > window.innerHeight - 120
+  );
+}
+
+function normalizeSubscriptionPanelLayoutModule(panel) {
+  if (!(panel instanceof HTMLElement)) return false;
+  if (typeof clearStoredPanelLayout === "function") {
+    clearStoredPanelLayout(panel.id);
+  }
+  panel.dataset.userMoved = "false";
+  panel.dataset.positioned = "false";
+  panel.dataset.minimized = "false";
+  panel.classList.remove("hidden");
+  panel.style.left = "";
+  panel.style.top = "";
+  panel.style.transform = "";
+  panel.style.width = "";
+  panel.style.height = "";
+  if (typeof placePanelFromTopLeft === "function") {
+    placePanelFromTopLeft(panel);
+  }
+  if (typeof clampPanelInViewport === "function") {
+    clampPanelInViewport(panel);
+  }
+  return true;
+}
+
+function openSubscriptionPanelModule() {
+  const panel = getSubscriptionPanelModule();
+  if (!(panel instanceof HTMLElement)) return false;
+  openPanel?.(panel, { focus: true, layout: true });
+  if (isSubscriptionPanelOffscreenModule(panel)) {
+    normalizeSubscriptionPanelLayoutModule(panel);
+    openPanel?.(panel, { focus: true, layout: true });
+  }
+  panel.classList.remove("hidden");
+  panel.dataset.minimized = "false";
+  globalThis.focusPanelBridge?.(panel);
+  globalThis.bringPanelToFrontBridge?.(panel, { repeatPasses: 3 });
+  void renderSubscriptionPanelModule();
+  return true;
+}
+
+Object.assign(globalThis, {
+  buildSubscriptionPanelMarkupModule,
+  ensureSubscriptionPlanModalModule,
+  getSubscriptionPanelModule,
+  isSubscriptionPanelOffscreenModule,
+  normalizeSubscriptionPanelLayoutModule,
+  renderSubscriptionPlanModalModule,
+  renderSubscriptionPanelModule,
+  requestMembershipPlanChangeModule,
+  openSubscriptionPanelModule
+});
+
+// CSSOS_PHASE2_I18N_SUBSCRIPTION_REFLOW 20260419
+// When the i18n runtime finishes fetching a batch of async translations it
+// dispatches `cssos:i18n-translation-ready` on `window`. We use that to
+// re-render the subscription panel so strings that returned English during
+// the first paint (cache miss) flip to the translated copy. The handler is
+// a no-op when the panel is hidden/minimised.
+(function wireSubscriptionI18nReflow() {
+  let reflowTimer = null;
+  function scheduleReflow() {
+    if (reflowTimer) return;
+    reflowTimer = setTimeout(() => {
+      reflowTimer = null;
+      try {
+        const panel = document.getElementById("subscription-panel");
+        if (!(panel instanceof HTMLElement)) return;
+        if (panel.classList.contains("hidden")) return;
+        if (panel.dataset.minimized === "true") return;
+        void renderSubscriptionPanelModule();
+      } catch (_) { /* ignore */ }
+    }, 60);
+  }
+  try {
+    window.addEventListener("cssos:i18n-translation-ready", scheduleReflow, { passive: true });
+    window.addEventListener("cssos:locale-changed", scheduleReflow, { passive: true });
+  } catch (_) { /* SSR or frozen env — ignore */ }
+})();

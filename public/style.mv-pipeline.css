@@ -1,0 +1,661 @@
+/* CSSOS_PHASE2_MV_PIPELINE_PANEL 20260417 —
+   Styles for the third-party MV pipeline panel injected by
+   app.mv-pipeline-panel.js. Scoped to #mv-pipeline-panel so it can't leak
+   into the rest of the UI. Uses the same accent palette (green/cyan) as the
+   main style.css to stay visually consistent. */
+
+#mv-pipeline-panel {
+  width: min(70vw, 720px);
+}
+
+#mv-pipeline-panel .panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 18px 18px;
+  color: var(--text, #e8f4ec);
+  overflow-y: auto;
+}
+
+#mv-pipeline-panel .mvp-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#mv-pipeline-panel .mvp-inputs label {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(232, 244, 236, 0.72);
+  margin-top: 4px;
+}
+
+#mv-pipeline-panel .mvp-inputs input,
+#mv-pipeline-panel .mvp-inputs textarea {
+  font: inherit;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 245, 160, 0.25);
+  background: rgba(6, 16, 12, 0.55);
+  color: inherit;
+  outline: none;
+  resize: vertical;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+#mv-pipeline-panel .mvp-inputs input:focus,
+#mv-pipeline-panel .mvp-inputs textarea:focus {
+  border-color: rgba(0, 245, 160, 0.7);
+  box-shadow: 0 0 0 2px rgba(0, 245, 160, 0.18);
+}
+
+#mv-pipeline-panel .mvp-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+#mv-pipeline-panel .mvp-actions .cta[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* CSSOS_PHASE2_MV_TIER_LABEL 20260419 — 常驻 tier cost label next to the
+   Generate button. Shows "Hybrid · credit cost $2.17 · 108 listens to break
+   even" (or the selected tier). Clickable pill that cycles Lite → Hybrid →
+   Cinematic; data-tier-id tints the border/background so users can see at
+   a glance which bucket is active. Design principle (Jing 2026-04-19):
+   一切可扩展 — server can add tiers without the pill needing new CSS. */
+
+#mv-pipeline-panel .mvp-tier-label {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: rgba(232, 244, 236, 0.88);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#mv-pipeline-panel .mvp-tier-label:hover,
+#mv-pipeline-panel .mvp-tier-label:focus-visible {
+  border-color: rgba(0, 245, 160, 0.55);
+  background: rgba(0, 245, 160, 0.08);
+  box-shadow: 0 0 0 1px rgba(0, 245, 160, 0.18) inset;
+  color: #dfffee;
+  outline: none;
+}
+
+/* Tier-id tints — muted → green → warm amber, roughly following
+   cost/ambition. If the catalog adds a new tier id we simply fall back to
+   the neutral pill above. */
+#mv-pipeline-panel .mvp-tier-label[data-tier-id="lite"] {
+  border-color: rgba(180, 200, 190, 0.28);
+  background: rgba(180, 200, 190, 0.06);
+  color: rgba(220, 232, 224, 0.92);
+}
+
+#mv-pipeline-panel .mvp-tier-label[data-tier-id="hybrid"] {
+  border-color: rgba(0, 245, 160, 0.45);
+  background: rgba(0, 245, 160, 0.10);
+  color: #d2ffe7;
+}
+
+#mv-pipeline-panel .mvp-tier-label[data-tier-id="cinematic"] {
+  border-color: rgba(255, 176, 74, 0.55);
+  background: rgba(255, 176, 74, 0.12);
+  color: #ffe3bf;
+}
+
+#mv-pipeline-panel .mvp-tier-label[data-tier-id="cinematic"]:hover,
+#mv-pipeline-panel .mvp-tier-label[data-tier-id="cinematic"]:focus-visible {
+  border-color: rgba(255, 176, 74, 0.85);
+  background: rgba(255, 176, 74, 0.18);
+  box-shadow: 0 0 0 1px rgba(255, 176, 74, 0.28) inset;
+  color: #fff1dc;
+}
+
+/* Small caret hint telling users the pill is clickable. Decorative only. */
+#mv-pipeline-panel .mvp-tier-label::after {
+  content: "⇄";
+  font-size: 10px;
+  opacity: 0.55;
+  margin-left: 2px;
+  transform: translateY(-0.5px);
+}
+
+/* P2-51: Aspect-ratio selector (chips + custom W×H + caption). */
+#mv-pipeline-panel .mvp-aspect-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+#mv-pipeline-panel .mvp-aspect-chip {
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text, #e8f4ec);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+  letter-spacing: 0.02em;
+}
+
+#mv-pipeline-panel .mvp-aspect-chip:hover {
+  border-color: rgba(0, 245, 160, 0.55);
+  background: rgba(0, 245, 160, 0.08);
+}
+
+#mv-pipeline-panel .mvp-aspect-chip[aria-pressed="true"] {
+  border-color: rgba(0, 245, 160, 0.85);
+  background: rgba(0, 245, 160, 0.18);
+  color: #dfffee;
+  box-shadow: 0 0 0 1px rgba(0, 245, 160, 0.35) inset;
+}
+
+#mv-pipeline-panel .mvp-aspect-custom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+#mv-pipeline-panel .mvp-aspect-custom[hidden] { display: none; }
+
+#mv-pipeline-panel .mvp-aspect-custom input {
+  width: 92px;
+  font: inherit;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text, #e8f4ec);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+#mv-pipeline-panel .mvp-aspect-custom input:focus {
+  border-color: rgba(0, 245, 160, 0.7);
+  box-shadow: 0 0 0 2px rgba(0, 245, 160, 0.18);
+}
+
+#mv-pipeline-panel .mvp-aspect-x {
+  opacity: 0.6;
+  font-size: 13px;
+}
+
+#mv-pipeline-panel .mvp-aspect-caption {
+  margin-top: 4px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  opacity: 0.75;
+  min-height: 14px;
+}
+
+#mv-pipeline-panel .mvp-aspect-caption[data-warn="true"] {
+  color: #ffb86b;
+  opacity: 0.95;
+}
+
+#mv-pipeline-panel .mvp-stages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px dashed rgba(0, 245, 160, 0.18);
+  padding-top: 12px;
+}
+
+#mv-pipeline-panel .mvp-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(6, 16, 12, 0.35);
+  border: 1px solid rgba(0, 245, 160, 0.1);
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* CSSOS_PHASE2_MV_PIPELINE_RESUME 20260419 — click an error/idle stage
+   row to resume the pipeline from that stage. Cursor + hover glow advertise
+   the affordance. Running/done rows stay non-interactive. */
+#mv-pipeline-panel .mvp-stage:has(.mvp-stage-dot[data-state="error"]),
+#mv-pipeline-panel .mvp-stage:has(.mvp-stage-dot[data-state="idle"]) {
+  cursor: pointer;
+}
+
+#mv-pipeline-panel .mvp-stage:has(.mvp-stage-dot[data-state="error"]):hover,
+#mv-pipeline-panel .mvp-stage:has(.mvp-stage-dot[data-state="idle"]):hover {
+  background: rgba(11, 247, 255, 0.09);
+  box-shadow: 0 0 0 1px rgba(11, 247, 255, 0.24) inset;
+}
+
+#mv-pipeline-panel .mvp-stage-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+#mv-pipeline-panel .mvp-stage-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  flex: 0 0 auto;
+  box-shadow: 0 0 0 0 rgba(0, 245, 160, 0);
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+#mv-pipeline-panel .mvp-stage-dot[data-state="idle"] {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+#mv-pipeline-panel .mvp-stage-dot[data-state="running"] {
+  background: rgba(11, 247, 255, 0.95);
+  box-shadow: 0 0 12px rgba(11, 247, 255, 0.55);
+  animation: mvpPulse 1.1s ease-in-out infinite;
+}
+
+#mv-pipeline-panel .mvp-stage-dot[data-state="done"] {
+  background: rgba(0, 245, 160, 0.95);
+  box-shadow: 0 0 10px rgba(0, 245, 160, 0.55);
+}
+
+#mv-pipeline-panel .mvp-stage-dot[data-state="error"] {
+  background: rgba(255, 88, 88, 0.95);
+  box-shadow: 0 0 10px rgba(255, 88, 88, 0.55);
+}
+
+@keyframes mvpPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.25);
+    opacity: 0.65;
+  }
+}
+
+#mv-pipeline-panel .mvp-stage-label {
+  flex: 1 1 auto;
+  font-weight: 500;
+}
+
+#mv-pipeline-panel .mvp-stage-cost {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: rgba(232, 244, 236, 0.7);
+}
+
+#mv-pipeline-panel .mvp-stage-detail {
+  font-size: 11px;
+  color: rgba(232, 244, 236, 0.62);
+  margin-left: 20px;
+  word-break: break-all;
+  line-height: 1.35;
+  max-height: 3.2em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#mv-pipeline-panel .mvp-stage[data-stage] .mvp-stage-dot[data-state="running"] ~ .mvp-stage-label,
+#mv-pipeline-panel .mvp-stage .mvp-stage-head:has(.mvp-stage-dot[data-state="running"]) .mvp-stage-label {
+  color: rgba(11, 247, 255, 0.95);
+}
+
+#mv-pipeline-panel .mvp-summary {
+  border-top: 1px dashed rgba(0, 245, 160, 0.18);
+  padding-top: 10px;
+  font-size: 13px;
+  color: rgba(232, 244, 236, 0.85);
+}
+
+#mv-pipeline-panel .mvp-summary:empty {
+  display: none;
+}
+
+#mv-pipeline-panel .mvp-summary-head strong {
+  color: rgba(0, 245, 160, 0.95);
+  font-weight: 700;
+}
+
+/* CSSOS_PHASE2_MV_PIPELINE_PROGRESS 20260418 — per-stage progress bar.
+   Hidden by default; fades in when the stage enters `running`. The fill
+   width is set inline by JS (0–100%). Track + fill use the same cyan
+   accent as the running dot so the bar visually ties to the active row. */
+
+#mv-pipeline-panel .mvp-stage-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 2px 20px;
+  opacity: 0;
+  max-height: 0;
+  overflow: hidden;
+  transition: opacity 0.25s ease, max-height 0.25s ease;
+}
+
+#mv-pipeline-panel .mvp-stage-progress.visible {
+  opacity: 1;
+  max-height: 24px;
+}
+
+#mv-pipeline-panel .mvp-stage-progress-track {
+  flex: 1 1 auto;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(11, 247, 255, 0.1);
+  border: 1px solid rgba(11, 247, 255, 0.18);
+  overflow: hidden;
+}
+
+#mv-pipeline-panel .mvp-stage-progress-fill {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    rgba(11, 247, 255, 0.85) 0%,
+    rgba(0, 245, 160, 0.85) 100%
+  );
+  box-shadow: 0 0 8px rgba(11, 247, 255, 0.4);
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+
+#mv-pipeline-panel .mvp-stage-progress-label {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(11, 247, 255, 0.9);
+  min-width: 10em;
+  text-align: right;
+}
+
+#mv-pipeline-panel .mvp-stage-progress.error-state .mvp-stage-progress-fill {
+  background: rgba(255, 88, 88, 0.85);
+  box-shadow: 0 0 8px rgba(255, 88, 88, 0.45);
+}
+
+#mv-pipeline-panel .mvp-stage-progress.error-state .mvp-stage-progress-label {
+  color: rgba(255, 88, 88, 0.95);
+}
+
+/* CSSOS_PHASE2_MV_TIER_PICKER_MODAL 20260419 — overlay modal for the
+   first-time tier picker and the low-balance prompt. Lives outside
+   #mv-pipeline-panel (appended to <body>) so it can sit above any other
+   panel chrome. Follows the same green/cyan accent palette and respects
+   prefers-reduced-motion via hard-cut opacity. */
+
+.mvp-tier-modal-root {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  color: var(--text, #e8f4ec);
+}
+
+.mvp-tier-modal-root[hidden] {
+  display: none !important;
+}
+
+.mvp-tier-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(3, 10, 7, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: mvpTierBackdropIn 0.18s ease-out both;
+}
+
+@keyframes mvpTierBackdropIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.mvp-tier-modal-panel {
+  position: relative;
+  width: min(92vw, 720px);
+  max-height: min(88vh, 720px);
+  overflow: auto;
+  padding: 22px 24px 18px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(10, 22, 16, 0.96) 0%, rgba(6, 16, 12, 0.96) 100%);
+  border: 1px solid rgba(0, 245, 160, 0.28);
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(0, 245, 160, 0.08) inset;
+  animation: mvpTierPanelIn 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes mvpTierPanelIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)   scale(1);     }
+}
+
+.mvp-tier-modal-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(232, 244, 236, 0.8);
+  font-size: 18px;
+  line-height: 24px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mvp-tier-modal-close:hover,
+.mvp-tier-modal-close:focus-visible {
+  background: rgba(0, 245, 160, 0.14);
+  color: #dfffee;
+  outline: none;
+}
+
+.mvp-tier-modal-title {
+  margin: 0 0 6px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #dfffee;
+  letter-spacing: 0.01em;
+  padding-right: 28px;
+}
+
+.mvp-tier-modal-subtitle {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(232, 244, 236, 0.78);
+}
+
+.mvp-tier-modal-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+  margin: 12px 0 16px;
+}
+
+.mvp-tier-card {
+  text-align: left;
+  font: inherit;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(6, 16, 12, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.mvp-tier-card:hover,
+.mvp-tier-card:focus-visible {
+  border-color: rgba(0, 245, 160, 0.55);
+  background: rgba(0, 245, 160, 0.08);
+  box-shadow: 0 0 0 1px rgba(0, 245, 160, 0.18) inset;
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.mvp-tier-card.is-active {
+  border-color: rgba(0, 245, 160, 0.85);
+  background: rgba(0, 245, 160, 0.14);
+  box-shadow: 0 0 0 1px rgba(0, 245, 160, 0.38) inset;
+  color: #dfffee;
+}
+
+.mvp-tier-card[data-tier-id="cinematic"]:hover,
+.mvp-tier-card[data-tier-id="cinematic"]:focus-visible,
+.mvp-tier-card[data-tier-id="cinematic"].is-active {
+  border-color: rgba(255, 176, 74, 0.85);
+  background: rgba(255, 176, 74, 0.14);
+  box-shadow: 0 0 0 1px rgba(255, 176, 74, 0.32) inset;
+  color: #fff1dc;
+}
+
+.mvp-tier-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mvp-tier-card-name {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.mvp-tier-card-ratio {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(232, 244, 236, 0.62);
+}
+
+.mvp-tier-card-priceless {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 6px;
+  border-radius: 999px;
+  align-self: flex-start;
+  background: rgba(255, 176, 74, 0.14);
+  color: rgba(255, 196, 120, 0.95);
+  border: 1px solid rgba(255, 176, 74, 0.32);
+}
+
+.mvp-tier-card-desc {
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(232, 244, 236, 0.78);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.mvp-tier-card-pricing {
+  margin: 0;
+  padding: 8px 0 0;
+  border-top: 1px dashed rgba(0, 245, 160, 0.14);
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.mvp-tier-card-pricing > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mvp-tier-card-pricing dt {
+  font-weight: 400;
+  color: rgba(232, 244, 236, 0.65);
+  margin: 0;
+}
+
+.mvp-tier-card-pricing dd {
+  font-variant-numeric: tabular-nums;
+  color: rgba(232, 244, 236, 0.95);
+  margin: 0;
+}
+
+.mvp-tier-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.mvp-tier-modal-secondary,
+.mvp-tier-modal-primary {
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.mvp-tier-modal-secondary {
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(232, 244, 236, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.mvp-tier-modal-secondary:hover,
+.mvp-tier-modal-secondary:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #f3fff8;
+  outline: none;
+}
+
+.mvp-tier-modal-primary {
+  background: rgba(0, 245, 160, 0.18);
+  color: #dfffee;
+  border: 1px solid rgba(0, 245, 160, 0.55);
+}
+
+.mvp-tier-modal-primary:hover,
+.mvp-tier-modal-primary:focus-visible {
+  background: rgba(0, 245, 160, 0.28);
+  border-color: rgba(0, 245, 160, 0.85);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(0, 245, 160, 0.22);
+}

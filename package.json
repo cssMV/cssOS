@@ -1,6 +1,6 @@
 {
   "name": "cssos",
-  "version": "1.0.0",
+  "version": "2026.5.1",
   "main": "index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",

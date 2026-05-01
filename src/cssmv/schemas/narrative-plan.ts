@@ -1,4 +1,5 @@
 import type { CssMVMode } from "./common";
+import type { StructuredNode, StructuredNodeRole, StructuredWorkType } from "./structure-tree";
 
 export interface SceneBlock {
   blockId: string;
@@ -9,6 +10,11 @@ export interface SceneBlock {
   energy?: string;
   visualRole?: string;
   prompt?: string;
+  workType?: StructuredWorkType;
+  structureNodeId?: string;
+  parentStructureNodeId?: string;
+  structureRole?: StructuredNodeRole;
+  structurePath?: string[];
 }
 
 export interface BeatNode {
@@ -47,6 +53,8 @@ export interface MVPlan {
   emotionalCurve: string[];
   sceneBlocks: SceneBlock[];
   musicStrategy: "full_song" | "hybrid";
+  workType?: StructuredWorkType;
+  structureTree?: StructuredNode[];
 }
 
 export interface SeasonPlan {

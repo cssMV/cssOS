@@ -1,3 +1,7 @@
+import type { ProjectSpec } from "../core/project-spec";
+import { adaptToPlanningContext } from "./planning/planner-adapter";
+import { MusicPlanner } from "./planning/planner";
+import { validateMusicPlanDocument } from "./planning/validation";
 import type { NarrativePlanEnvelope } from "../schemas/narrative-plan";
 import type { MusicPlan, PreviewSegment } from "../schemas/music-plan";
 import type { ScenePlan } from "../schemas/scene-plan";
@@ -23,9 +27,19 @@ function resolveMusicStrategy(narrative: NarrativePlanEnvelope, scenePlan: Scene
 }
 
 export class MusicDirector {
-  plan(graph: StoryGraph, narrative: NarrativePlanEnvelope, scenePlan: ScenePlan): MusicPlan {
+  private readonly planner = new MusicPlanner();
+
+  plan(
+    graph: StoryGraph,
+    narrative: NarrativePlanEnvelope,
+    scenePlan: ScenePlan,
+    project?: ProjectSpec
+  ): MusicPlan {
     const leadMotif = graph.characters[0]?.musicProfile?.themeMotifId;
     const strategy = resolveMusicStrategy(narrative, scenePlan);
+    const planningContext = adaptToPlanningContext(project, graph, narrative, scenePlan);
+    const planningDocument = this.planner.build(scenePlan, planningContext);
+    const planningValidation = validateMusicPlanDocument(planningDocument);
     let runningSec = 0;
     const previewSegments: PreviewSegment[] = scenePlan.scenes.map((scene, index) => {
       const durationSec = Math.max(6, scene.durationSec ?? 12);
@@ -107,10 +121,149 @@ export class MusicDirector {
       strategy,
       structureSummary:
         strategy === "full_song"
-          ? "Compact single-song arc with a stable melodic center and repeatable hook."
-          : "Hybrid sectional arc with rising chant energy, bridge lift, and final release.",
+        ? "Compact single-song arc with a stable melodic center and repeatable hook."
+        : "Hybrid sectional arc with rising chant energy, bridge lift, and final release.",
       previewSegments,
-      previewScript
+      previewScript,
+      sections: planningDocument.sections.map((section) => ({
+        sectionId: section.sectionId,
+        label: section.label,
+        startSec: section.startSec,
+        durationSec: section.durationSec,
+        bars: section.bars,
+        energy: section.energy,
+        role: section.sectionType,
+        motifIds: planningDocument.phrases
+          .filter((phrase) => phrase.sectionId === section.sectionId)
+          .map((phrase) => phrase.motifId),
+        phrases: planningDocument.phrases
+          .filter((phrase) => phrase.sectionId === section.sectionId)
+          .map((phrase) => phrase.phraseId)
+      })),
+      phrases: planningDocument.phrases.map((phrase) => {
+        const rhythm = planningDocument.rhythm.find((entry) => entry.phraseId === phrase.phraseId);
+        const expression = planningDocument.expression.find((entry) => entry.phraseId === phrase.phraseId);
+        const harmony = planningDocument.harmony.find((entry) => entry.phraseId === phrase.phraseId);
+        const melody = planningDocument.melody.find((entry) => entry.phraseId === phrase.phraseId);
+        const sourceSceneId = planningDocument.sections.find(
+          (section) => section.sectionId === phrase.sectionId
+        )?.sourceSceneId;
+        return {
+          phraseId: phrase.phraseId,
+          section:
+            planningDocument.sections.find((section) => section.sectionId === phrase.sectionId)?.label ||
+            phrase.sectionId,
+          startSec: phrase.startSec,
+          durationSec: phrase.durationSec,
+          bars: phrase.bars,
+          role: phrase.role,
+          motifId: phrase.motifId,
+          ...(sourceSceneId ? { sceneId: sourceSceneId } : {}),
+          ...(phrase.followsPhraseId ? { followsPhraseId: phrase.followsPhraseId } : {}),
+          groove: {
+            pocket:
+              rhythm?.pushPullProfile?.includes("pushed")
+                ? "pushed"
+                : rhythm?.microTimingMs && rhythm.microTimingMs >= 16
+                  ? "laid_back"
+                  : "centered",
+            syncopation: rhythm?.syncopation || "medium",
+            swing: rhythm?.swing || "straight",
+            accentPattern: rhythm?.accents || ["1", "3"],
+            ...(rhythm ? { microTimingMs: rhythm.microTimingMs } : {}),
+            ...(rhythm?.barAccents ? { barAccentPattern: rhythm.barAccents } : {}),
+            ...(rhythm?.activityProfile ? { activityProfile: rhythm.activityProfile } : {}),
+            ...(rhythm?.pushPullProfile ? { pushPullProfile: rhythm.pushPullProfile } : {})
+          },
+          dynamics: {
+            intensity: expression?.intensity || "medium",
+            density:
+              expression?.densityCurve === "thin"
+                ? "sparse"
+                : expression?.densityCurve === "bloom"
+                  ? "wall"
+                  : "steady",
+            registerFocus:
+              expression?.registerContour === "rising"
+                ? "high"
+                : expression?.registerContour === "wide"
+                  ? "wide"
+                  : "mid",
+            articulation: expression?.articulation || "mixed"
+          },
+          tension: {
+            anchor:
+              phrase.role === "release"
+                ? "release"
+                : phrase.role === "resolve"
+                  ? "resolve"
+                  : phrase.role === "lift"
+                    ? "build"
+                    : "entry",
+            tension:
+              harmony?.tensionHint === "rising"
+                ? 0.82
+                : harmony?.tensionHint === "resolved"
+                  ? 0.3
+                  : 0.55,
+            release: phrase.role === "release" || phrase.role === "resolve" ? 0.9 : 0.4
+          },
+          constraints: {
+            preserveMotifIds: [phrase.motifId],
+            rewriteScope: "phrase",
+            cadenceBias:
+              harmony?.cadence === "authentic" || harmony?.cadence === "plagal"
+                ? "resolved"
+                : harmony?.cadence === "open" || harmony?.cadence === "half"
+                  ? "open"
+                  : "deceptive",
+            maxLeapSemitones: planningDocument.constraints.complexity >= 0.65 ? 9 : 6,
+            avoidRepetitionWindowBars:
+              phrase.variationRole === "repeat"
+                ? 2
+                : planningDocument.constraints.repetitionStrength >= 0.7
+                  ? 4
+                  : 2
+          },
+          ...(melody
+            ? {
+                melody: {
+                  contour: melody.contour,
+                  phraseFunction: melody.phraseFunction,
+                  hookStrength: melody.hookStrength,
+                  targetDegrees: melody.targetDegrees,
+                  registerAnchor: melody.registerAnchor,
+                  motionBias: melody.motionBias,
+                  leapBudget: melody.leapBudget,
+                  landingTone: melody.landingTone,
+                  ornamentation: melody.ornamentation,
+                  repetitionWindowBars: melody.repetitionWindowBars,
+                  counterlineRole: melody.counterlineRole,
+                  lyricStressMap: melody.lyricStressMap,
+                  climaxBar: melody.climaxBar,
+                  ...(melody.antecedentPhraseId
+                    ? { antecedentPhraseId: melody.antecedentPhraseId }
+                    : {})
+                }
+              }
+            : {})
+        };
+      }),
+      generationControl: {
+        seed: planningDocument.constraints.deterministicSeed,
+        variation: Number((1 - planningDocument.constraints.repetitionStrength).toFixed(2)),
+        humanizeMs: Math.round(planningDocument.constraints.rhythmicActivity * 20),
+        allowSectionRegeneration: true,
+        sampling: {
+          temperature: Number((0.45 + planningDocument.constraints.complexity * 0.25).toFixed(2)),
+          topP: Number((0.78 + planningDocument.constraints.rhythmicActivity * 0.15).toFixed(2)),
+          retryBudget: planningValidation.ok ? 2 : 0
+        },
+        repairPolicy: {
+          onRhythmCollapse: "tighten_grid",
+          onStructureDrift: "snap_to_section_plan"
+        }
+      }
     };
   }
 }

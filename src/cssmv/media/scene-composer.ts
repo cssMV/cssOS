@@ -1,5 +1,6 @@
 import type { NarrativePlanEnvelope } from "../schemas/narrative-plan";
 import type { ScenePlan } from "../schemas/scene-plan";
+import type { StructuredNode } from "../schemas/structure-tree";
 import type { StoryGraph } from "../schemas/story-graph";
 
 function estimateBlockDuration(totalDurationSec: number, sceneCount: number, index: number): number {
@@ -15,8 +16,9 @@ export class SceneComposer {
     const focusCharacterIds = protagonistId ? [protagonistId] : [];
 
     if (narrative.plan.type === "mv") {
-      const blocks = narrative.plan.sceneBlocks.length
-        ? narrative.plan.sceneBlocks
+      const mvPlan = narrative.plan;
+      const blocks = mvPlan.sceneBlocks.length
+        ? mvPlan.sceneBlocks
         : [
             {
               blockId: "sb_fallback_001",
@@ -25,31 +27,50 @@ export class SceneComposer {
             }
           ];
       const totalDurationSec =
-        blocks.reduce((sum, item) => sum + (item.durationSec ?? 0), 0) || narrative.plan.durationSec;
+        blocks.reduce((sum, item) => sum + (item.durationSec ?? 0), 0) || mvPlan.durationSec;
+      const structurePathById = new Map<string, string[]>();
+      const walkStructure = (nodes: StructuredNode[], parents: string[] = []) => {
+        nodes.forEach((node) => {
+          const nextPath = [...parents, node.title];
+          structurePathById.set(node.nodeId, nextPath);
+          walkStructure(Array.isArray(node.children) ? node.children : [], nextPath);
+        });
+      };
+      walkStructure(Array.isArray(mvPlan.structureTree) ? mvPlan.structureTree : []);
 
       const scenes = blocks.map((block, index) => {
-        const scene = {
+        const blockWorkType = block.workType || mvPlan.workType;
+        const structureRole = block.structureRole ?? ("scene" as const);
+        const structurePath =
+          block.structureNodeId && structurePathById.has(block.structureNodeId)
+            ? structurePathById.get(block.structureNodeId)
+            : block.structurePath;
+        const sectionType = block.label.split(":")[0]?.trim().toLowerCase().replace(/\s+/g, "_");
+        return {
           sceneId: `scene_${String(index + 1).padStart(3, "0")}`,
           sourceBlockId: block.blockId,
           sourceSection: block.label.split(":")[0]?.trim() || block.label,
           order: index + 1,
           label: block.label,
           summary: block.summary ?? `Scene adapted from ${block.label}.`,
+          visualPrompt: block.prompt ?? block.summary ?? `Cinematic treatment for ${block.label}.`,
+          visualRole: block.visualRole ?? block.energy ?? "mv progression beat",
           durationSec:
             block.durationSec ??
             estimateBlockDuration(totalDurationSec, blocks.length, index),
           focusCharacterIds,
+          ...(blockWorkType ? { workType: blockWorkType } : {}),
+          ...(block.structureNodeId ? { structureNodeId: block.structureNodeId } : {}),
+          ...(block.parentStructureNodeId ? { parentStructureNodeId: block.parentStructureNodeId } : {}),
+          ...(sectionType ? { sectionType } : {}),
+          structureRole,
+          ...(structurePath?.length ? { structurePath } : {}),
           dialogueDensity:
             index === 0
               ? ("low" as const)
               : index === blocks.length - 1
                 ? ("mid" as const)
                 : ("low" as const)
-        };
-        return {
-          ...scene,
-          ...(block.prompt ? { visualPrompt: block.prompt } : {}),
-          ...(block.visualRole ? { visualRole: block.visualRole } : {})
         };
       });
 
@@ -73,7 +94,9 @@ export class SceneComposer {
 
       return {
         scenes,
-        transitions
+        transitions,
+        ...(mvPlan.workType ? { workType: mvPlan.workType } : {}),
+        ...(mvPlan.structureTree?.length ? { structureTree: mvPlan.structureTree } : {})
       };
     }
 
@@ -94,7 +117,9 @@ export class SceneComposer {
           kind: "fade",
           fromSceneId: "scene_001"
         }
-      ]
+      ],
+      workType: "single",
+      structureTree: []
     };
   }
 }

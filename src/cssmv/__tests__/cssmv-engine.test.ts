@@ -57,6 +57,8 @@ test("CssMVEngine closes the music_video chain with mainVideo output", () => {
   assert.equal(result.narrativePlan.plan.type, "mv");
   assert.ok(result.storyGraph.characters.length > 0);
   assert.ok(result.scenePlan.scenes.length > 0);
+  assert.equal(typeof result.scenePlan.scenes[0]?.visualScript, "string");
+  assert.ok((result.scenePlan.scenes[0]?.directorNotes?.length ?? 0) > 0);
   assert.ok(result.musicPlan.tracks.length > 0);
   assert.ok((result.musicPlan.previewSegments?.length ?? 0) > 0);
   assert.ok((result.renderedMedia.previewStoryboard?.length ?? 0) > 0);

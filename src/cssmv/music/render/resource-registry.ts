@@ -57,11 +57,94 @@ const RESOURCE_REGISTRY: RenderResourceProfile[] = [
     deliveryTargetClass: "buyer_preview",
     approvalChainClass: "self_serve",
     dispatchDeadlineClass: "none",
+    renderExecutorClass: "embedded_stub",
+    hostReservationPolicy: "none",
+    deliveryCheckpointClass: "preview_gate",
     supports: {
       symbolicComposition: true
     },
     matchTags: ["core", "default"],
     notes: ["Internal fallback profile."]
+  },
+  {
+    kind: "style_pack",
+    id: "free-community-stack",
+    displayName: "Free Community Instrument Stack",
+    vendor: "Community freeware / open distribution",
+    source: "licensed_vendor",
+    licenseScope: "evaluation",
+    licenseLabel: "Free-first stack; verify upstream license terms before commercial redistribution.",
+    requiredAssets: ["free-synth-suite", "free-orchestra-suite", "free-drums-suite"],
+    stemRoles: ["lead_vocal", "music_bed", "drums", "bass", "hooks"],
+    preferredMixChain: "free-vocal-chain",
+    defaultVocalRoute: "licensed_voicebank",
+    defaultMixRoute: "licensed_library",
+    defaultInstrumentRoute: "licensed_library",
+    assetPackageId: "free-community-stack-v1",
+    stemPackageTemplate: "free-stack-stems-v1",
+    adapterEndpointClass: "free-plugin-host",
+    renderHostFamily: "licensed_plugin_host",
+    cachePolicy: "project_scoped",
+    provenancePolicy: "standard",
+    retentionPolicy: "project_retained",
+    auditScope: "resource_only",
+    reproducibilityTier: "seeded",
+    executionSla: "interactive",
+    fallbackPolicy: "fallback_to_stub",
+    packagingPolicy: "mix_plus_stems",
+    queueClass: "interactive",
+    retryBudget: "bounded_retries",
+    artifactRetentionClass: "project_bundle",
+    dispatchWindow: "session_batch",
+    deliveryBundleClass: "review_bundle",
+    publicationPolicy: "manual_release",
+    executionMode: "iterative_refine",
+    handoffPolicy: "local_only",
+    verificationPolicy: "artifact_checks",
+    governanceClass: "operator_supervised",
+    approvalRequirement: "single_operator",
+    complianceEnvelope: "licensed_assets",
+    auditTrailClass: "project_event_log",
+    incidentRouting: "operator_queue",
+    exceptionEscalation: "operator_alert",
+    evidencePolicy: "artifact_hashes",
+    releaseTicketClass: "operator_ticket",
+    attestationPolicy: "operator_attestation",
+    operatorOverridePolicy: "ticketed_override",
+    provenanceSealClass: "hash_chain",
+    deliveryAssuranceClass: "review_ready",
+    deliveryTargetClass: "creator_review",
+    approvalChainClass: "operator_review",
+    dispatchDeadlineClass: "session_close",
+    renderExecutorClass: "licensed_plugin_runner",
+    hostReservationPolicy: "session_locked",
+    deliveryCheckpointClass: "review_gate",
+    exampleProducts: [
+      "Vital",
+      "Surge XT",
+      "Spitfire LABS",
+      "BBC Symphony Orchestra Discover",
+      "MT Power Drum Kit 2",
+      "Dexed",
+      "OB-Xd",
+      "Helm",
+      "Yoshimi",
+      "ZynAddSubFX",
+      "SINEfactory"
+    ],
+    recommendedUpgradeIds: ["orchestral", "guofeng-cinema", "mastering-bus", "licensed-voicebank"],
+    upgradeHint: "Upgrade to a commercial orchestral or genre pack plus a licensed mastering bus when budget allows.",
+    supports: {
+      licensedLibraryPlayback: true,
+      stemRendering: true,
+      mixBusProcessing: true
+    },
+    matchTags: ["free", "community", "default", "electronic", "pop", "acg"],
+    notes: [
+      "Free-first instrument route intended to be upgraded to commercial libraries later.",
+      "Prefer a modern synth lane (Vital, Surge XT, Helm, Dexed, OB-Xd) for electronic and hook-heavy work.",
+      "Prefer a cinematic lane (LABS, BBCSO Discover, SINEfactory, MT Power Drum Kit 2) for hybrid score and MV beds."
+    ]
   },
   {
     kind: "style_pack",
@@ -113,6 +196,9 @@ const RESOURCE_REGISTRY: RenderResourceProfile[] = [
     deliveryTargetClass: "release_distribution",
     approvalChainClass: "operator_and_compliance",
     dispatchDeadlineClass: "release_window",
+    renderExecutorClass: "licensed_plugin_runner",
+    hostReservationPolicy: "release_reserved",
+    deliveryCheckpointClass: "release_gate",
     supports: {
       licensedLibraryPlayback: true,
       stemRendering: true,
@@ -171,6 +257,9 @@ const RESOURCE_REGISTRY: RenderResourceProfile[] = [
     deliveryTargetClass: "release_distribution",
     approvalChainClass: "operator_and_compliance",
     dispatchDeadlineClass: "release_window",
+    renderExecutorClass: "licensed_plugin_runner",
+    hostReservationPolicy: "release_reserved",
+    deliveryCheckpointClass: "release_gate",
     supports: {
       licensedLibraryPlayback: true,
       stemRendering: true,
@@ -229,6 +318,9 @@ const RESOURCE_REGISTRY: RenderResourceProfile[] = [
     deliveryTargetClass: "creator_review",
     approvalChainClass: "operator_review",
     dispatchDeadlineClass: "session_close",
+    renderExecutorClass: "external_host_adapter",
+    hostReservationPolicy: "project_pinned",
+    deliveryCheckpointClass: "review_gate",
     supports: {
       externalAdapterBridge: true,
       stemRendering: true,
@@ -287,6 +379,9 @@ const RESOURCE_REGISTRY: RenderResourceProfile[] = [
     deliveryTargetClass: "creator_review",
     approvalChainClass: "operator_review",
     dispatchDeadlineClass: "session_close",
+    renderExecutorClass: "external_host_adapter",
+    hostReservationPolicy: "session_locked",
+    deliveryCheckpointClass: "review_gate",
     supports: {
       externalAdapterBridge: true,
       stemRendering: true,
@@ -295,6 +390,83 @@ const RESOURCE_REGISTRY: RenderResourceProfile[] = [
     },
     matchTags: ["adapter", "external"],
     notes: ["Attach authorized external renderer details here."]
+  },
+  {
+    kind: "voicebank",
+    id: "free-ai-singer",
+    displayName: "Free AI Singer Route",
+    vendor: "Community / evaluation singer stack",
+    source: "licensed_vendor",
+    licenseScope: "evaluation",
+    licenseLabel: "Free-first singer route; verify model and voice license terms before commercial release.",
+    requiredAssets: ["free-ai-singer-engine", "phoneme-dictionary", "voice-profile"],
+    stemRoles: ["lead_vocal", "double_vocal", "harmonies"],
+    preferredMixChain: "free-vocal-chain",
+    defaultVocalRoute: "licensed_voicebank",
+    defaultMixRoute: "licensed_library",
+    defaultInstrumentRoute: "licensed_library",
+    assetPackageId: "free-ai-singer-package-v1",
+    stemPackageTemplate: "free-ai-singer-v1",
+    adapterEndpointClass: "free-ai-singer-host",
+    renderHostFamily: "voicebank_host",
+    cachePolicy: "project_scoped",
+    provenancePolicy: "standard",
+    retentionPolicy: "project_retained",
+    auditScope: "resource_only",
+    reproducibilityTier: "seeded",
+    executionSla: "interactive",
+    fallbackPolicy: "fallback_to_stub",
+    packagingPolicy: "mix_plus_stems",
+    queueClass: "interactive",
+    retryBudget: "bounded_retries",
+    artifactRetentionClass: "project_bundle",
+    dispatchWindow: "session_batch",
+    deliveryBundleClass: "review_bundle",
+    publicationPolicy: "manual_release",
+    executionMode: "iterative_refine",
+    handoffPolicy: "local_only",
+    verificationPolicy: "artifact_checks",
+    governanceClass: "operator_supervised",
+    approvalRequirement: "single_operator",
+    complianceEnvelope: "licensed_assets",
+    auditTrailClass: "project_event_log",
+    incidentRouting: "operator_queue",
+    exceptionEscalation: "operator_alert",
+    evidencePolicy: "artifact_hashes",
+    releaseTicketClass: "operator_ticket",
+    attestationPolicy: "operator_attestation",
+    operatorOverridePolicy: "ticketed_override",
+    provenanceSealClass: "hash_chain",
+    deliveryAssuranceClass: "review_ready",
+    deliveryTargetClass: "creator_review",
+    approvalChainClass: "operator_review",
+    dispatchDeadlineClass: "session_close",
+    renderExecutorClass: "licensed_plugin_runner",
+    hostReservationPolicy: "session_locked",
+    deliveryCheckpointClass: "review_gate",
+    exampleProducts: [
+      "Synthesizer V Basic",
+      "DiffSinger",
+      "UTAU",
+      "OpenUtau",
+      "ENUNU",
+      "NNSVS",
+      "DiffSinger MiniEngine",
+      "DiffSinger + NSF-HiFiGAN",
+      "WORLD vocoder bridge"
+    ],
+    recommendedUpgradeIds: ["licensed-voicebank"],
+    upgradeHint: "Upgrade to a commercial voicebank or authorized singer engine for higher realism and stronger release rights.",
+    supports: {
+      vocalSynthesis: true,
+      stemRendering: true
+    },
+    matchTags: ["free", "singer", "vocal", "ai singer", "acg", "pop"],
+    notes: [
+      "Free-first vocal source route intended to upgrade to commercial singer engines later.",
+      "DiffSinger remains the default path, but the same host slot can dispatch to OpenUtau, ENUNU/NNSVS, or an external vocoder bridge when configured.",
+      "Prefer mp3 stem outputs for product delivery; keep wav export gated to higher-tier manual workflows."
+    ]
   },
   {
     kind: "voicebank",
@@ -346,12 +518,83 @@ const RESOURCE_REGISTRY: RenderResourceProfile[] = [
     deliveryTargetClass: "release_distribution",
     approvalChainClass: "operator_and_compliance",
     dispatchDeadlineClass: "release_window",
+    renderExecutorClass: "licensed_plugin_runner",
+    hostReservationPolicy: "release_reserved",
+    deliveryCheckpointClass: "release_gate",
     supports: {
       vocalSynthesis: true,
       stemRendering: true
     },
     matchTags: ["voicebank", "vocal", "sing"],
     notes: ["Use only with explicit singer / voicebank rights."]
+  },
+  {
+    kind: "mix_chain_preset",
+    id: "free-vocal-chain",
+    displayName: "Free Vocal / Mix Chain",
+    vendor: "Community freeware chain",
+    source: "licensed_vendor",
+    licenseScope: "evaluation",
+    licenseLabel: "Free-first mix chain; verify plugin licenses before redistribution.",
+    requiredAssets: ["pitch-correction", "eq", "compressor", "de-esser", "air", "reverb", "delay"],
+    stemRoles: ["lead_vocal", "mix_bus"],
+    defaultVocalRoute: "licensed_voicebank",
+    defaultMixRoute: "licensed_library",
+    defaultInstrumentRoute: "licensed_library",
+    assetPackageId: "free-vocal-chain-v1",
+    stemPackageTemplate: "free-vocal-chain-v1",
+    adapterEndpointClass: "free-vocal-fx-host",
+    renderHostFamily: "licensed_plugin_host",
+    cachePolicy: "project_scoped",
+    provenancePolicy: "standard",
+    retentionPolicy: "project_retained",
+    auditScope: "resource_only",
+    reproducibilityTier: "seeded",
+    executionSla: "interactive",
+    fallbackPolicy: "fallback_to_lower_fidelity",
+    packagingPolicy: "mix_plus_stems",
+    queueClass: "interactive",
+    retryBudget: "bounded_retries",
+    artifactRetentionClass: "project_bundle",
+    dispatchWindow: "session_batch",
+    deliveryBundleClass: "review_bundle",
+    publicationPolicy: "manual_release",
+    executionMode: "iterative_refine",
+    handoffPolicy: "local_only",
+    verificationPolicy: "artifact_checks",
+    governanceClass: "operator_supervised",
+    approvalRequirement: "single_operator",
+    complianceEnvelope: "licensed_assets",
+    auditTrailClass: "project_event_log",
+    incidentRouting: "operator_queue",
+    exceptionEscalation: "operator_alert",
+    evidencePolicy: "artifact_hashes",
+    releaseTicketClass: "operator_ticket",
+    attestationPolicy: "operator_attestation",
+    operatorOverridePolicy: "ticketed_override",
+    provenanceSealClass: "hash_chain",
+    deliveryAssuranceClass: "review_ready",
+    deliveryTargetClass: "creator_review",
+    approvalChainClass: "operator_review",
+    dispatchDeadlineClass: "session_close",
+    renderExecutorClass: "licensed_plugin_runner",
+    hostReservationPolicy: "session_locked",
+    deliveryCheckpointClass: "review_gate",
+    exampleProducts: [
+      "MAutoPitch",
+      "TDR Nova",
+      "T-De-Esser",
+      "Fresh Air",
+      "Valhalla Supermassive",
+      "Graillon 2"
+    ],
+    recommendedUpgradeIds: ["mastering-bus"],
+    upgradeHint: "Upgrade to a commercial vocal and mastering chain for stronger polish, loudness control, and release readiness.",
+    supports: {
+      mixBusProcessing: true
+    },
+    matchTags: ["free", "mix", "vocal", "pop", "acg", "default"],
+    notes: ["Free-first vocal processing chain intended to upgrade to premium FX later."]
   },
   {
     kind: "mix_chain_preset",
@@ -402,6 +645,9 @@ const RESOURCE_REGISTRY: RenderResourceProfile[] = [
     deliveryTargetClass: "internal_review",
     approvalChainClass: "operator_and_compliance",
     dispatchDeadlineClass: "overnight_cutoff",
+    renderExecutorClass: "licensed_plugin_runner",
+    hostReservationPolicy: "project_pinned",
+    deliveryCheckpointClass: "review_gate",
     supports: {
       mixBusProcessing: true
     },
@@ -411,16 +657,29 @@ const RESOURCE_REGISTRY: RenderResourceProfile[] = [
 ];
 
 function normalizeTags(project: ProjectSpec): string[] {
-  return [
+  const tags = [
     project.creative?.licensed_style_pack,
     project.creative?.external_audio_adapter,
+    project.creative?.resource_budget_tier,
     project.creative?.instrumentation,
     project.creative?.instrument,
     project.creative?.ensemble_style,
-    project.creative?.vocal_style
+    project.creative?.vocal_style,
+    project.creative?.genre,
+    project.creative?.mood,
+    project.creative?.prompt,
+    project.creative?.inspiration_notes
   ]
     .map((value) => String(value || "").trim().toLowerCase())
     .filter(Boolean);
+  if (!project.creative?.licensed_style_pack && !project.creative?.external_audio_adapter) {
+    tags.push("free");
+    tags.push("default");
+  }
+  if (!project.creative?.resource_budget_tier) {
+    tags.push("free_first");
+  }
+  return tags;
 }
 
 export function findResourceProfileById(id: string): RenderResourceProfile | null {
@@ -455,6 +714,15 @@ export function toLegalBinding(profile: RenderResourceProfile | null): LegalReso
   return profile ? [profile] : [];
 }
 
+export function resolveRecommendedUpgradeProfiles(
+  profile: RenderResourceProfile | null
+): RenderResourceProfile[] {
+  const ids = Array.isArray(profile?.recommendedUpgradeIds) ? profile.recommendedUpgradeIds : [];
+  return ids
+    .map((id) => findResourceProfileById(id))
+    .filter((entry): entry is RenderResourceProfile => Boolean(entry));
+}
+
 export interface ResourceSelectionResult {
   capability: keyof RendererCapability;
   primary: RenderResourceProfile | null;
@@ -468,7 +736,12 @@ export function resolveResourceSelection(
   fallbackId = "core"
 ): ResourceSelectionResult {
   const candidates = matchResourcesByCapability(project, capability);
-  const primary = candidates[0] || findResourceProfileById(fallbackId) || null;
+  const exactFallbackMatch = findResourceProfileById(fallbackId);
+  const exactCandidate =
+    candidates.find((entry) => entry.id === fallbackId) ||
+    candidates.find((entry) => entry.adapterEndpointClass === fallbackId) ||
+    null;
+  const primary = exactCandidate || exactFallbackMatch || candidates[0] || null;
   const rationale = [
     `Capability requested: ${capability}.`,
     candidates.length
@@ -476,6 +749,7 @@ export function resolveResourceSelection(
       : `No direct match found; fallback applied${primary ? ` (${primary.id})` : ""}.`
   ];
   if (primary) {
+    const recommendedUpgrades = resolveRecommendedUpgradeProfiles(primary);
     rationale.push(`Primary resource: ${primary.displayName} (${primary.id}).`);
     if (primary.vendor) rationale.push(`Vendor: ${primary.vendor}.`);
     if (primary.licenseLabel) rationale.push(`License: ${primary.licenseLabel}.`);
@@ -604,6 +878,29 @@ export function resolveResourceSelection(
     }
     if (primary.dispatchDeadlineClass) {
       rationale.push(`Dispatch deadline class: ${primary.dispatchDeadlineClass}.`);
+    }
+    if (primary.renderExecutorClass) {
+      rationale.push(`Render executor class: ${primary.renderExecutorClass}.`);
+    }
+    if (primary.hostReservationPolicy) {
+      rationale.push(`Host reservation policy: ${primary.hostReservationPolicy}.`);
+    }
+    if (primary.deliveryCheckpointClass) {
+      rationale.push(`Delivery checkpoint class: ${primary.deliveryCheckpointClass}.`);
+    }
+    if (primary.exampleProducts?.length) {
+      rationale.push(`Example products: ${primary.exampleProducts.join(", ")}.`);
+    }
+    if (primary.recommendedUpgradeIds?.length) {
+      rationale.push(`Recommended upgrade path: ${primary.recommendedUpgradeIds.join(", ")}.`);
+    }
+    if (recommendedUpgrades.length) {
+      rationale.push(
+        `Recommended upgrade targets: ${recommendedUpgrades.map((entry) => entry.displayName).join(", ")}.`
+      );
+    }
+    if (primary.upgradeHint) {
+      rationale.push(`Upgrade hint: ${primary.upgradeHint}`);
     }
   }
   return {

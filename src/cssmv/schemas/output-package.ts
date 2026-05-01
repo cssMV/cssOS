@@ -40,7 +40,10 @@ export interface ArtifactManifestEntry {
     | "preview_script"
     | "video_storyboard_plan"
     | "video_assemble_plan"
-    | "render_execution_manifest";
+    | "render_execution_manifest"
+    | "render_host_plan"
+    | "render_host_runbook"
+    | "render_host_probe";
 }
 
 export interface ArtifactManifest {
@@ -60,6 +63,7 @@ export interface RenderExecutionNode {
     kind: string;
     id: string;
     displayName: string;
+    requiredAssets?: string[];
     vendor?: string;
     source: "internal" | "licensed_vendor" | "customer_bring_your_own";
     licenseScope: "dev_only" | "evaluation" | "commercial";
@@ -79,6 +83,12 @@ export interface RenderExecutionNode {
     deliveryTargetClass?: string;
     approvalChainClass?: string;
     dispatchDeadlineClass?: string;
+    renderExecutorClass?: string;
+    hostReservationPolicy?: string;
+    deliveryCheckpointClass?: string;
+    exampleProducts?: string[];
+    recommendedUpgradeIds?: string[];
+    upgradeHint?: string;
   }>;
   notes?: string[];
 }
@@ -90,6 +100,8 @@ export interface RenderExecutionManifest {
   mode: string;
   audio: RenderExecutionNode;
   vocal: RenderExecutionNode;
+  vocalSource?: RenderExecutionNode;
+  vocalFx?: RenderExecutionNode;
   mix: RenderExecutionNode;
   stems?: Array<{ role: string; path: string }>;
   stemPlan?: Array<{ role: string; targetPath: string; sourceHint?: string; rendererHint?: string }>;
@@ -107,6 +119,12 @@ export interface RenderExecutionManifest {
     deliveryTargetClass?: string;
     approvalChainClass?: string;
     dispatchDeadlineClass?: string;
+    renderExecutorClass?: string;
+    hostReservationPolicy?: string;
+    deliveryCheckpointClass?: string;
+    exampleProducts?: string[];
+    recommendedUpgradeIds?: string[];
+    upgradeHint?: string;
   };
 }
 
@@ -120,8 +138,26 @@ export interface OutputPackage {
     rendererVersion: string;
     mode: "stub" | "symbolic" | "licensed_library" | "external_adapter";
     voiceRenderer?: string;
+    vocalSourceRenderer?: string;
+    vocalFxRenderer?: string;
     instrumentRenderer?: string;
     mixChain?: string;
+    executionSources?: string[];
+    outputQualityTier?: string;
+    hostExecutionModeSummary?: string;
+    hostRenderedAudioActive?: boolean;
+    generatedArtifacts?: string[];
+    hostLaunchCommands?: string[];
+    hostStageSummaries?: Array<{
+      stage: string;
+      executionSource?: string;
+      outputQualityTier?: string;
+      executionStatus?: string;
+      resolvedExecutable?: string;
+      resolvedCommand?: string;
+      launchCwd?: string;
+      generatedArtifacts?: string[];
+    }>;
     notes?: string[];
   };
   episodeVideos?: string[];
@@ -137,4 +173,7 @@ export interface OutputPackage {
   metadata?: OutputMetadata;
   artifactManifest?: ArtifactManifest;
   renderExecutionManifest?: RenderExecutionManifest;
+  renderHostPlan?: unknown;
+  renderHostRunbook?: unknown;
+  renderHostProbe?: unknown;
 }

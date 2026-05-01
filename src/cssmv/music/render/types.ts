@@ -66,6 +66,12 @@ export interface LegalResourceBinding {
   deliveryTargetClass?: "internal_review" | "creator_review" | "buyer_preview" | "release_distribution";
   approvalChainClass?: "self_serve" | "operator_review" | "operator_and_compliance";
   dispatchDeadlineClass?: "none" | "session_close" | "overnight_cutoff" | "release_window";
+  renderExecutorClass?: "embedded_stub" | "licensed_plugin_runner" | "external_host_adapter";
+  hostReservationPolicy?: "none" | "session_locked" | "project_pinned" | "release_reserved";
+  deliveryCheckpointClass?: "none" | "preview_gate" | "review_gate" | "release_gate";
+  exampleProducts?: string[];
+  recommendedUpgradeIds?: string[];
+  upgradeHint?: string;
   notes?: string[];
 }
 
@@ -107,6 +113,47 @@ export interface VocalRenderArtifacts {
   capability: RendererCapability;
   resources?: LegalResourceBinding[];
   notes?: string[];
+}
+
+export interface VocalSourceArtifacts {
+  stemPath?: string;
+  rendererId: string;
+  rendererVersion: string;
+  mode: "stub" | "licensed_library" | "external_adapter";
+  capability: RendererCapability;
+  resources?: LegalResourceBinding[];
+  notes?: string[];
+}
+
+export interface VocalFxChainArtifacts {
+  rendererId: string;
+  rendererVersion: string;
+  mode: "stub" | "licensed_library" | "external_adapter";
+  capability: RendererCapability;
+  resources?: LegalResourceBinding[];
+  notes?: string[];
+}
+
+export interface VocalSourceRenderer {
+  readonly id: string;
+  readonly version: string;
+  readonly mode: VocalSourceArtifacts["mode"];
+  render(input: {
+    project: ProjectSpec;
+    musicPlan: MusicPlan;
+    lyrics?: string | undefined;
+  }): VocalSourceArtifacts;
+}
+
+export interface VocalFxChainRenderer {
+  readonly id: string;
+  readonly version: string;
+  readonly mode: VocalFxChainArtifacts["mode"];
+  render(input: {
+    project: ProjectSpec;
+    musicPlan: MusicPlan;
+    sourceStemPath?: string | undefined;
+  }): VocalFxChainArtifacts;
 }
 
 export interface VocalRenderer {

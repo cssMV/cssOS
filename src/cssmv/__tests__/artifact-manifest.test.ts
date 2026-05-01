@@ -20,12 +20,21 @@ test("cssmv dev flow writes artifact manifest and links it from output package",
   const outDir = path.resolve(process.cwd(), "artifacts", "cssmv", "mv_neon_midnight");
   const manifestPath = path.join(outDir, "artifact.manifest.json");
   const outputPath = path.join(outDir, "output.package.json");
+  const storyboardPath = path.join(outDir, "video.storyboard.json");
+  const assemblePath = path.join(outDir, "video.assemble.json");
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
   const output = JSON.parse(fs.readFileSync(outputPath, "utf8"));
+  const storyboard = JSON.parse(fs.readFileSync(storyboardPath, "utf8"));
+  const assemble = JSON.parse(fs.readFileSync(assemblePath, "utf8"));
 
   assert.equal(manifest.manifestVersion, "cssmv_artifact_manifest_v1");
   assert.equal(manifest.projectId, "mv_neon_midnight");
   assert.ok(Array.isArray(manifest.entries));
   assert.ok(manifest.entries.some((entry: { fileName: string }) => entry.fileName === "story.graph.json"));
+  assert.ok(manifest.entries.some((entry: { fileName: string }) => entry.fileName === "video.storyboard.json"));
   assert.equal(output.artifactManifest?.manifestVersion, "cssmv_artifact_manifest_v1");
+  assert.equal(storyboard.schema, "css.video.plan.v1");
+  assert.ok(Array.isArray(storyboard.segments));
+  assert.equal(assemble.schema, "css.video.assemble.v1");
+  assert.ok(Array.isArray(assemble.shots));
 });

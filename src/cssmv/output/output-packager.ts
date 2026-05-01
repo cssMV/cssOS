@@ -3,6 +3,7 @@ import type { MusicPlan } from "../schemas/music-plan";
 import type { OutputPackage } from "../schemas/output-package";
 import type { RenderedMedia } from "../schemas/rendered-media";
 import type { ScenePlan } from "../schemas/scene-plan";
+import { flattenStructuredLeaves } from "../schemas/structure-tree";
 
 export class OutputPackager {
   package(
@@ -17,13 +18,20 @@ export class OutputPackager {
         : "";
     const outputPackage: OutputPackage = {
       ...(renderedMedia.audioPreview ? { audioPreview: renderedMedia.audioPreview } : {}),
+      ...(renderedMedia.audioMix ? { audioMix: renderedMedia.audioMix } : {}),
       subtitles: renderedMedia.subtitleTrack ? [renderedMedia.subtitleTrack] : [],
+      ...(renderedMedia.subtitleCues?.length ? { subtitleCues: renderedMedia.subtitleCues } : {}),
+      ...(renderedMedia.segmentTimeline?.length
+        ? { segmentTimeline: renderedMedia.segmentTimeline }
+        : {}),
       ...(renderedMedia.previewStoryboard?.length
         ? { previewStoryboard: renderedMedia.previewStoryboard }
         : {}),
       ...(renderedMedia.previewScript?.length
         ? { previewScript: renderedMedia.previewScript }
         : {}),
+      ...(renderedMedia.workType ? { workType: renderedMedia.workType } : {}),
+      ...(renderedMedia.structureTree?.length ? { structureTree: renderedMedia.structureTree } : {}),
       metadata: {
         mode: narrative.mode,
         planType: narrative.plan.type,
@@ -37,6 +45,10 @@ export class OutputPackager {
         previewSegmentCount: musicPlan.previewSegments?.length ?? 0,
         previewScriptLineCount: renderedMedia.previewScript?.length ?? 0,
         previewStoryboardFrameCount: renderedMedia.previewStoryboard?.length ?? 0,
+        subtitleCueCount: renderedMedia.subtitleCues?.length ?? 0,
+        transitionCount: scenePlan.transitions?.length ?? 0,
+        structureNodeCount: flattenStructuredLeaves(renderedMedia.structureTree || []).length,
+        ...(renderedMedia.workType ? { workType: renderedMedia.workType } : {}),
         ...(previewSeedTitle ? { seedTitle: previewSeedTitle } : {})
       }
     };

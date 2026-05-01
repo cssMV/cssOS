@@ -49,6 +49,8 @@ test("MusicDirector turns scene sections into preview segments and beat-aware cu
   };
 
   const plan = director.plan(graph, narrative, scenePlan);
+  const chorusPhrases = (plan.phrases || []).filter((phrase) => phrase.section === "Chorus 1");
+  const hookPhrase = chorusPhrases.find((phrase) => phrase.melody?.phraseFunction === "hook");
 
   assert.equal(plan.strategy, "full_song");
   assert.equal(plan.previewSegments?.length, 2);
@@ -59,4 +61,13 @@ test("MusicDirector turns scene sections into preview segments and beat-aware cu
   assert.equal(plan.previewSegments?.[0]?.hookRole, "setup");
   assert.ok(plan.previewScript?.[1]?.includes("Chorus 1"));
   assert.ok(plan.previewScript?.[1]?.includes("return hook role"));
+  assert.equal(plan.sections?.[1]?.role, "chorus");
+  assert.equal(plan.phrases?.[0]?.role, "statement");
+  assert.equal(plan.phrases?.[0]?.melody?.phraseFunction, "statement");
+  assert.ok(chorusPhrases.length >= 1);
+  assert.equal(hookPhrase?.melody?.phraseFunction, "hook");
+  assert.ok((hookPhrase?.melody?.hookStrength || 0) >= 0.9);
+  assert.ok((hookPhrase?.melody?.targetDegrees || []).length >= 4);
+  assert.ok(plan.generationControl?.seed?.startsWith("cssmv_"));
+  assert.equal(plan.generationControl?.repairPolicy.onStructureDrift, "snap_to_section_plan");
 });

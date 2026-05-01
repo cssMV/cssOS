@@ -1,5 +1,6 @@
 import { MediaCore } from "../media/media-core";
 import { SceneComposer } from "../media/scene-composer";
+import { SceneDirector } from "../media/scene-director";
 import { MusicDirector } from "../music/music-director";
 import { StoryEngine } from "../narrative/story-engine";
 import { NarrativePlannerRouter } from "../narrative/narrative-planner-router";
@@ -28,6 +29,7 @@ export class CssMVEngine {
   private readonly storyEngine = new StoryEngine();
   private readonly narrativeRouter = new NarrativePlannerRouter();
   private readonly sceneComposer = new SceneComposer();
+  private readonly sceneDirector = new SceneDirector();
   private readonly musicDirector = new MusicDirector();
   private readonly mediaCore = new MediaCore();
   private readonly outputPackager = new OutputPackager();
@@ -36,9 +38,14 @@ export class CssMVEngine {
     const projectContext = this.inputAdapter.normalize(project);
     const storyGraph = this.storyEngine.generate(projectContext);
     const narrativePlan = this.narrativeRouter.plan(project, storyGraph);
-    const scenePlan = this.sceneComposer.compose(narrativePlan, storyGraph);
-    const musicPlan = this.musicDirector.plan(storyGraph, narrativePlan, scenePlan);
-    const renderedMedia = this.mediaCore.render(scenePlan, musicPlan);
+    const scenePlan = this.sceneDirector.direct(
+      this.sceneComposer.compose(narrativePlan, storyGraph),
+      narrativePlan,
+      storyGraph,
+      project
+    );
+    const musicPlan = this.musicDirector.plan(storyGraph, narrativePlan, scenePlan, project);
+    const renderedMedia = this.mediaCore.render(scenePlan, musicPlan, { project });
     const outputPackage = this.outputPackager.package(
       renderedMedia,
       narrativePlan,

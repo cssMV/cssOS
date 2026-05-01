@@ -1,0 +1,25 @@
+{
+  "name": "brand-voice-zh",
+  "version": "1.0.0",
+  "description": "Brand Voice (Chinese Edition) — tailored for CSS Studio. Discovers scattered brand materials across Notion, Google Drive, Confluence, Gong, Slack, and meeting transcripts, distills them into LLM-ready guidelines, and enforces brand voice on every piece of AI-generated content. Supports both Simplified Chinese (简体中文) and Traditional Chinese (繁體中文), with parallel English for bilingual teams. | 品牌之声（中文版）— 为 CSS Studio 量身定制。跨 Notion、Google Drive、Confluence、Gong、Slack 及会议记录自动发现品牌素材，提炼成可被大语言模型直接使用的品牌规范，并对所有 AI 生成内容强制执行品牌声音。同时支持简体中文与繁體中文，并附英文原文便于跨国团队协作。",
+  "author": {
+    "name": "CSS Studio"
+  },
+  "keywords": [
+    "brand-voice",
+    "品牌之声",
+    "品牌聲音",
+    "chinese",
+    "simplified-chinese",
+    "traditional-chinese",
+    "zh-CN",
+    "zh-TW",
+    "sales",
+    "marketing",
+    "content-creation",
+    "guidelines",
+    "discovery",
+    "enterprise",
+    "localization"
+  ]
+}

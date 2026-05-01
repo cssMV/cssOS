@@ -1,0 +1,33 @@
+[Unit]
+Description=cssOS ElevenLabs Music sidecar (composition_plan via official SDK)
+Documentation=https://github.com/cssstudio/cssos
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jing
+Group=jing
+WorkingDirectory=/srv/cssos/eleven-music-sidecar
+# Pulled from /etc/cssos/eleven-music-sidecar.env which we keep out of the
+# repo — that file holds ELEVENLABS_API_KEY=sk_xxx and any overrides.
+EnvironmentFile=/etc/cssos/eleven-music-sidecar.env
+Environment=ELEVEN_SIDECAR_HOST=127.0.0.1
+Environment=ELEVEN_SIDECAR_PORT=8765
+Environment=ELEVEN_SIDECAR_LOG_LEVEL=info
+ExecStart=/srv/cssos/eleven-music-sidecar/.venv/bin/uvicorn main:app --host ${ELEVEN_SIDECAR_HOST} --port ${ELEVEN_SIDECAR_PORT} --log-level ${ELEVEN_SIDECAR_LOG_LEVEL}
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=eleven-music-sidecar
+
+# Modest hardening — sidecar only needs loopback network + working dir.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/srv/cssos/eleven-music-sidecar
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,35 @@
+{
+  "name": "brand-voice-zh",
+  "owner": {
+    "name": "CSS Studio"
+  },
+  "metadata": {
+    "description": "Brand Voice for Chinese-language teams — Simplified + Traditional, with English parallel. | 面向中文团队的品牌之声插件 — 简体与繁體双版本，并附英文原文。",
+    "version": "1.0.0",
+    "pluginRoot": "."
+  },
+  "plugins": [
+    {
+      "name": "brand-voice-zh",
+      "source": ".",
+      "description": "Discover brand materials across enterprise platforms, generate LLM-ready guidelines, and enforce brand voice on AI-generated content — in Simplified Chinese (简体中文), Traditional Chinese (繁體中文), and English. Tailored for CSS Studio. | 跨企业平台自动发现品牌素材、生成可供大语言模型使用的品牌规范，并对 AI 生成内容强制执行品牌声音 — 同时输出简体中文、繁體中文与英文。为 CSS Studio 量身定制。",
+      "version": "1.0.0",
+      "keywords": [
+        "brand-voice",
+        "品牌之声",
+        "品牌聲音",
+        "chinese",
+        "zh-CN",
+        "zh-TW",
+        "css-studio",
+        "sales",
+        "marketing",
+        "content-creation",
+        "guidelines",
+        "discovery",
+        "enterprise",
+        "localization"
+      ]
+    }
+  ]
+}

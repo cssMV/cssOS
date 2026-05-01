@@ -388,17 +388,42 @@
         icon: "◎",
         label: global.t?.("context.oneTapMv") || menuCopy("One-Tap MV", "一键MV"),
         run: () => {
-          // CSSOS_PHASE2_UNIFIED_ENTRY 20260426 #138 — Jing
-          // Route through cssmvUnifiedEntry for the [entry:context-menu-mv]
-          // diagnostic + fresh-result short-circuit. Falls back to the
-          // legacy invokeUniversalCreationEntry if the helper is missing.
+          // CSSOS_PHASE2_ONETAP_MV_BULLETPROOF 20260428 #168.4 — Jing
+          // "右键菜单，只有One-Tap MV不工作了"
+          // Three-tier fallback chain. Whichever is available fires.
+          console.info("%c[entry:context-menu-mv] click", "color:#0a0;font-weight:bold");
+          // Tier 1: unified-entry (the canonical wrapper).
           if (typeof global.cssmvUnifiedEntry === "function") {
-            void global.cssmvUnifiedEntry({
-              source: "context-menu-mv",
-              preferredTab: "mv"
-            });
-            return;
+            try {
+              const r = global.cssmvUnifiedEntry({
+                source: "context-menu-mv",
+                preferredTab: "mv"
+              });
+              if (r && typeof r.then === "function") void r;
+              return;
+            } catch (err) {
+              console.warn("[entry:context-menu-mv] cssmvUnifiedEntry threw:", err);
+            }
           }
+          // Tier 2: open the panel directly + auto-start.
+          if (typeof global.openMvPipelinePanel === "function") {
+            try {
+              global.openMvPipelinePanel({ autoStart: true });
+              return;
+            } catch (err) {
+              console.warn("[entry:context-menu-mv] openMvPipelinePanel threw:", err);
+            }
+          }
+          // Tier 3: raw runAll on the panel module.
+          if (typeof global.cssmvMvPipelineRunAll === "function") {
+            try {
+              void global.cssmvMvPipelineRunAll({});
+              return;
+            } catch (err) {
+              console.warn("[entry:context-menu-mv] cssmvMvPipelineRunAll threw:", err);
+            }
+          }
+          // Tier 4: legacy creation entry (last resort).
           void global.invokeUniversalCreationEntry?.({
             origin: "logo",
             preferredTab: "mv",

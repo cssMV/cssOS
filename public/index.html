@@ -43,7 +43,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="style.css?v=20260427-kill-dual-subtitle-153b" />
+    <link rel="stylesheet" href="style.css?v=20260429-duration-overlay-170" />
     <link rel="stylesheet" href="style.mv-pipeline.css?v=20260418-p2-51-aspect-ratio-1" />
   </head>
   <body>
@@ -196,7 +196,11 @@
             <div class="watch-frame">
               <div class="watch-screen">
                 <div id="watch-screen-backdrop" class="watch-screen-backdrop"></div>
-                <video id="watch-video" class="watch-video" autoplay muted loop playsinline></video>
+                <!-- CSSOS_PHASE2_NO_VIDEO_LOOP 20260428 #166 — Jing:
+                     "新的媒体1分钟反反复复播放" — loop attribute caused
+                     short final_mv.mp4 to repeat indefinitely on top of
+                     legacy audio. MV Pipeline runs are linear; no loop. -->
+                <video id="watch-video" class="watch-video" autoplay muted playsinline></video>
                 <img id="watch-svg" class="watch-svg" alt="MV preview" />
                 <button id="watch-style-shift" class="watch-style-shift" type="button" aria-label="Shuffle title style">✦</button>
                 <button id="watch-overlay-play" class="watch-overlay-play" type="button" data-i18n-aria="action.watch" aria-label="Watch">
@@ -1021,12 +1025,24 @@
           <label class="field-shell field-shell-rich">
             <span class="field-label-row">
               <span data-i18n="settings.customLyrics">Custom Lyrics</span>
+              <!-- CSSOS_PHASE2_DUAL_WAND 20260429 #192/#195 — Jing
+                   两个魔法棒。
+                   🪄 (lyrics-regenerate, this row, right side):
+                       generate title + lyrics + ALL params from scratch
+                       using UI language + civilization linkage.
+                   🪄 (style-regenerate, on Music Style row below):
+                       reused as "derive params only from existing
+                       title+lyrics" — see CSSOS_deriveParamsFromLyrics.
+                       The wand image stays the same; the handler now
+                       routes based on whether lyrics are present.
+                   -->
               <button
                 id="lyrics-regenerate"
                 class="field-action-btn"
                 type="button"
                 data-i18n-aria="action.regenerateLyrics"
-                aria-label="Regenerate lyrics"
+                aria-label="Regenerate title + lyrics + all params (civilization-linked)"
+                title="新随机一首：标题+歌词+所有参数"
                 onpointerdown="return window.CSSOS_forceLyricsRegenerate ? window.CSSOS_forceLyricsRegenerate(event) : true;"
               >
                 🪄
@@ -1056,13 +1072,19 @@
           <div class="row row-single">
             <label>
               <span data-i18n="settings.voiceGender">Voice Gender</span>
+              <!-- CSSOS_PHASE2_NO_HARDCODED_VOICE_DEFAULT 20260427 #162 — Jing
+                   "Feminine"是硬编码默认；改成 "Auto" 让 derived_settings 在
+                   lyrics 阶段按文明 × 歌词代词智能填充，用户没显式选择前
+                   一律走 auto 路径。空 value 让前端跳过提交而 derived_settings
+                   能补齐。 -->
               <select id="voice-input">
-                <option data-i18n="creation.option.vocalGender.feminine">Feminine</option>
-                <option data-i18n="creation.option.vocalGender.masculine">Masculine</option>
-                <option data-i18n="creation.option.vocalGender.childlike">Childlike</option>
-                <option data-i18n="creation.option.vocalGender.duet">Duet</option>
-                <option data-i18n="creation.option.vocalGender.androgynous">Androgynous</option>
-                <option data-i18n="creation.option.vocalGender.polyphonic_choir">Polyphonic Choir</option>
+                <option value="" selected data-i18n="creation.option.vocalGender.auto">Auto · 文明智能填充</option>
+                <option value="feminine" data-i18n="creation.option.vocalGender.feminine">Feminine</option>
+                <option value="masculine" data-i18n="creation.option.vocalGender.masculine">Masculine</option>
+                <option value="childlike" data-i18n="creation.option.vocalGender.childlike">Childlike</option>
+                <option value="duet" data-i18n="creation.option.vocalGender.duet">Duet</option>
+                <option value="androgynous" data-i18n="creation.option.vocalGender.androgynous">Androgynous</option>
+                <option value="polyphonic_choir" data-i18n="creation.option.vocalGender.polyphonic_choir">Polyphonic Choir</option>
               </select>
             </label>
           </div>
@@ -1150,12 +1172,25 @@
             <label class="field-shell creation-style-shell">
               <span class="field-label-row">
                 <span data-i18n="settings.musicStyle">Music Style</span>
+                <!-- CSSOS_PHASE2_DUAL_WAND 20260429 #192/#195 — Jing
+                     This is the SECOND wand. Originally a Music Style-only
+                     regenerator; repurposed to "derive ALL other params
+                     from existing title + lyrics" (BPM/key/voice gender/
+                     vocal style/instrumentation/ensemble/percussion/
+                     arrangement density/dynamics/articulation/register/
+                     section form/inspiration/...). Civilization-anchored
+                     by UI language. The first wand (above, in CUSTOM
+                     LYRICS row) regenerates title+lyrics+everything from
+                     scratch; this one preserves the user's title+lyrics
+                     and only fills the other knobs. -->
                 <button
                   id="style-regenerate"
                   class="field-action-btn"
                   type="button"
-                  data-i18n-aria="action.regenerateStyle"
-                  aria-label="Regenerate music style"
+                  data-i18n-aria="action.deriveParamsFromLyrics"
+                  aria-label="Derive params only from current title + lyrics (civilization-linked)"
+                  title="保留歌词，只随机其他参数（BPM/调式/声线/乐器/编制…）"
+                  onpointerdown="return window.CSSOS_deriveParamsFromLyrics ? window.CSSOS_deriveParamsFromLyrics(event) : true;"
                 >
                   🪄
                 </button>
@@ -1178,7 +1213,12 @@
               </label>
               <label>
                 <span data-i18n="settings.key">Key</span>
+                <!-- CSSOS_PHASE2_NO_HARDCODED_KEY_DEFAULT 20260427 #162 — Jing
+                     Hardcoded "C" first-option was the implicit default;
+                     replaced with empty "Auto" so derived_settings drives the
+                     final key based on civilization × language × mood. -->
                 <select id="creation-key">
+                  <option value="" selected data-i18n="creation.option.key.auto">Auto · 智能填充</option>
                   <option value="C">C</option>
                   <option value="D">D</option>
                   <option value="E">E</option>
@@ -1192,7 +1232,11 @@
             <div class="row">
               <label>
                 <span data-i18n="settings.durationSec">Duration (sec)</span>
-                <input id="creation-duration" type="number" min="30" max="600" step="5" placeholder="180" />
+                <!-- CSSOS_PHASE2_NO_HARDCODED_180 20260427 #162 — Jing:
+                     "DURATION (SEC)（不要默认180秒，反人类反音乐的）" —
+                     placeholder shows "auto · 文明智能" so user knows the
+                     lyrics engine will derive the real duration. -->
+                <input id="creation-duration" type="number" min="30" max="600" step="5" placeholder="auto · 文明智能" />
               </label>
               <label>
                 <span data-i18n="settings.language">Language</span>
@@ -1207,10 +1251,18 @@
             <div class="row">
               <label>
                 <span>Work Type</span>
+                <!-- CSSOS_PHASE2_NO_HARDCODED_WORK_TYPE 20260427 #162 — Jing
+                     "Single" was first-option default; let lyrics-stage
+                     derived_settings infer (single / triptych / opera /
+                     short_drama / series / film) from section-form. -->
                 <select id="creation-work-type">
+                  <option value="" selected data-i18n="creation.option.workType.auto">Auto · 智能判断</option>
                   <option value="single">Single</option>
                   <option value="triptych">Triptych</option>
                   <option value="opera">Opera</option>
+                  <option value="short_drama">Short Drama</option>
+                  <option value="series">Series</option>
+                  <option value="film">Film</option>
                 </select>
               </label>
             </div>
@@ -1233,6 +1285,16 @@
                   placeholder="e.g. airy bel canto, chesty soul, close-mic whisper"
                   data-i18n-placeholder="creation.vocalStylePlaceholder"
                 />
+              </label>
+            </div>
+            <!-- CSSOS_PHASE2_MAKE_INSTRUMENTAL_TOGGLE 20260429 #188 — Jing
+                 "make_instrumental 请在高级设置面板才参数开关,
+                  有时候需要生成纯音乐". When checked, the music engine
+                 ignores lyrics and generates instrumental-only audio. -->
+            <div class="row">
+              <label class="row-checkbox">
+                <input id="creation-make-instrumental" type="checkbox" />
+                <span data-i18n="creation.makeInstrumental">Instrumental only (skip vocals & lyrics)</span>
               </label>
             </div>
             <div class="row">
@@ -1894,10 +1956,10 @@
     <script src="app.panel-command-settings.js?v=20260412-ui-recovery-5"></script>
     <script src="app.panel-behavior-core.js?v=20260418-engines-selector-2"></script>
     <script src="app.action-permissions.js?v=20260412-ui-recovery-9"></script>
-    <script src="app.context-menu.js?v=20260426-unified-entry-138"></script>
+    <script src="app.context-menu.js?v=20260428-onetap-bulletproof-168.4"></script>
     <script src="app.delivery-report-bridges.js?v=20260412-ui-recovery-5"></script>
     <script src="app.civilization-bank.js?v=20260418-p2-41-civbank-1"></script>
-    <script src="app.js?v=20260426-describe-tier-guard-143"></script>
+    <script src="app.js?v=20260430-viewport-aspect-200"></script>
     <script src="app.creation-language.js?v=20260423-p2-86-lang-auto-empty-1"></script>
     <!-- CSSMV_CREATION_LANG_OPTIONS 20260425 #100 — Jing: full 10-lang
          dropdown + setLocale event dispatch + auto-mirror locale into
@@ -1909,13 +1971,19 @@
     <!-- CSSMV_CREATION_CIV_DEFAULTS 20260425 #101 — Jing: civ-derived
          random fills for BPM/key/workType/vocalStyle/instrumentation/
          ensembleStyle in Advanced Settings. Re-rolls on locale flip. -->
-    <script src="app.creation-civ-defaults.js?v=20260425-p2-101-civ-defaults-1"></script>
-    <script src="app.advanced-panel-settings-render.js?v=20260426-unified-entry-138"></script>
+    <script src="app.creation-civ-defaults.js?v=20260429-empty-defaults-181"></script>
+    <script src="app.advanced-panel-settings-render.js?v=20260429-idempotent-maximize-176"></script>
     <script src="app.watch-audio.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.voice-seed.js?v=20260325-live-unfreeze-2"></script>
+    <!-- CSSOS_PHASE2_UNIVERSAL_ENTRY_VOICE 20260427 #161 — Jing
+         app.voice-submit.js was previously untracked / never loaded; the
+         browser silently fell back to the legacy createRun path because
+         submitVoiceOrFallbackTitleModule was undefined. Wiring it now so
+         voice-entry routes through MV Pipeline runAll. -->
+    <script src="app.voice-submit.js?v=20260430-universal-entries-230"></script>
     <script src="app.creation-flow.js?v=20260426-legacy-creation-guard-141"></script>
     <script src="app.creation-bridges.js?v=20260327-creation-bridges-split-1"></script>
-    <script src="app.song-seed-ui.js?v=20260420-p2-4bug-truerandom-title-1"></script>
+    <script src="app.song-seed-ui.js?v=20260430-wand-bypass-215"></script>
     <script src="app.work-sync.js?v=20260426-render-works-guard-142"></script>
     <!-- CSSOS_PHASE2_WATCH_FONT_MANIFEST_WIRED 20260420 — Jing (#80):
          "随机中文字体好像没有明显变化 ... 我点击星星按钮，也闪了一下，但是好像字体都一样"
@@ -1927,11 +1995,12 @@
          Load it BEFORE app.watch-ui.js so buildWatchFontCatalogModule() can
          see the manifest on first call. -->
     <script src="app.watch-font-manifest.js?v=20260426-font-404-prune-134"></script>
-    <script src="app.watch-ui.js?v=20260427-karaoke-single-line-153"></script>
+    <script src="app.playlists.js?v=20260501-i18n-258"></script>
+    <script src="app.watch-ui.js?v=20260501-cinema-262"></script>
     <script src="app.watch-lyrics-bridges.js?v=20260327-watch-lyrics-bridges-split-1"></script>
     <script src="app.watch-surface-bridges.js?v=20260327-watch-surface-bridges-split-1"></script>
     <script src="app.about-panel.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.market-commerce.js?v=20260420-byok-runway-card-1"></script>
+    <script src="app.market-commerce.js?v=20260501-title-fs-264"></script>
     <script src="app.profile-panel.js?v=20260415-theme-toggle-6"></script>
     <script src="app.language-panel.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.login-panel.js?v=20260325-live-unfreeze-2"></script>
@@ -1953,7 +2022,7 @@
     <script src="app.delivery-report-ui.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.delivery-digest-ui.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.subscription-panel.js?v=20260419-p2-57e-scroll-restore-1"></script>
-    <script src="app.notifications-panel.js?v=20260420-finished-bars-flow-1"></script>
+    <script src="app.notifications-panel.js?v=20260429-no-runall-184"></script>
     <script src="app.credit-panel.js?v=20260412-ui-recovery-5"></script>
     <script src="app.workspaces-panel.js?v=20260412-ui-recovery-5"></script>
     <script src="app.user-admin-panel.js?v=20260412-ui-recovery-5"></script>
@@ -1961,13 +2030,13 @@
     <script src="app.mv-engines-catalog.js?v=20260419-p2-57d-anon-silent-1"></script>
     <script src="app.mv-tiers-catalog.js?v=20260419-p2-mv-naming-1"></script>
     <script src="app.mv-tier-picker-modal.js?v=20260419-p2-mv-naming-1"></script>
-    <script src="app.mv-pipeline-panel.js?v=20260427-true-fullscreen-fallback-tiers-157"></script>
-    <script src="app.cover-slideshow.js?v=20260420-p2-4bug-stiff-fix-1"></script>
+    <script src="app.mv-pipeline-panel.js?v=20260501-jingdian-261"></script>
+    <script src="app.cover-slideshow.js?v=20260430-slideshow-intensity-200"></script>
     <script src="app.watch-stage-bars.js?v=20260420-p2-78-kill-waiting-dot-1"></script>
     <script src="app.watch-music-ring.js?v=20260420-shared-arc-end-burst-1"></script>
     <script src="app.watch-media-chrome.js?v=20260420-p2-79-kill-bottom-bar-1"></script>
-    <script src="app.watch-media-overlays.js?v=20260424-p2-96-subtitle-weight-1"></script>
-    <script src="app.watch-media-layout-p2100.js?v=20260426-subtitle-lyric-bypass-133"></script>
+    <script src="app.watch-media-overlays.js?v=20260429-title-no-clip-190"></script>
+    <script src="app.watch-media-layout-p2100.js?v=20260429-frame-click-toggle-168.5"></script>
     <!-- CSSMV_POPUPS_THEME_FIX 20260425 #108 — Jing: light-theme paint
          for popups + clear lingering toast/info popover on watch close. -->
     <script src="app.popups-theme-fix.js?v=20260425-p2-108-popups-theme-1"></script>
@@ -1990,6 +2059,6 @@
          markers (**Verse 1**, [Chorus], …) and "/" separators from
          rendered subtitles + titles. Lyrics editor stays raw. -->
     <script src="app.subtitle-cleaner.js?v=20260425-p2-113-subtitle-cleaner-1"></script>
-    <script src="app.boot.js?v=20260417-ui-recovery-1"></script>
+    <script src="app.boot.js?v=20260501-console-silencer-252"></script>
   </body>
 </html>

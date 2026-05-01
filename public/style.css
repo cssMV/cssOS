@@ -2785,6 +2785,28 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
   background: rgba(0, 245, 160, 0.2);
   border: 1px solid rgba(0, 245, 160, 0.35);
   overflow: hidden;
+  position: relative;
+}
+
+/* CSSOS_PHASE2_DURATION_OVERLAY 20260429 #170 — Jing
+   "请显示完整作品时长在为你创作面板/作品中心面板音乐卡片缩略图底部 (压在图上)"
+   Anchor mm:ss to the bottom-right corner of the cover, painted on top of
+   the image. Solid dark pill so it stays readable across any cover art. */
+.work-cover-duration {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.72);
+  border-radius: 6px;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+  z-index: 2;
 }
 
 .work-cover[data-work-open-watch],

@@ -335,12 +335,101 @@ function buildWatchFontCatalogModule() {
   });
 }
 
+// CSSOS_PHASE2_FANCY_FONT_POOL 20260430 #202 — Jing
+// "标题用 fancy font 池（更酷的字体随机）— 这些字体太酷了."
+//
+// Curated allow-list of distinctive display / cinematic / signature
+// fonts pulled from the 386-font manifest (`app.watch-font-manifest.js`).
+// Generic-looking fallbacks (Acmedia, Maves, Brevard etc. used as
+// subtitle defaults) are intentionally absent — they don't have the
+// "cool" character we want for randomized titles.
+//
+// The picker biases toward this set: ~85% chance the random draw lands
+// inside the fancy pool, 15% slips through to the full catalog so a
+// surprise system-y choice still happens occasionally for variety.
+//
+// Group A — Latin display / cinematic / poster
+// Group B — Latin script / signature / calligraphy
+// Group C — CJK display (动感 / 超字社 / 青空黑体)
+const WATCH_FANCY_FONT_ALLOWLIST = new Set([
+  // ─── Latin display ────────────────────────────────────────────────
+  "AQUARIUM", "Alien", "Andromeda", "AvocadoDiet",
+  "Bagsman", "BackToSchool", "Backrush", "Battur", "Beauty",
+  "BoldnessRace", "Brogetta",
+  "CSSTitleBoldA", "CSSTitleBoldB", "CSSTitleBoldC",
+  "CharlieKayden", "ChristmasQueen", "Coventysh", "Cuningham",
+  "CyberGothic", "Cyberion",
+  "DELMANOMORELLI", "DarkFalcon", "DiamondFlower",
+  "Display-Magazine-2", "Display-Magazine-3", "Draco",
+  "Energetic Script", "Firebreak", "Frasell", "Fuel Injection",
+  "GoldenBrick", "GoodHood", "GreenHome",
+  "HFWhale", "HiJack", "Honeybears", "Hypeblox",
+  "IronHorse",
+  "Jacob and son",
+  "LightenUp", "LocalBreweryTwo",
+  "Maleficent", "Marchell", "Meghatone", "Moon Charming", "Munich",
+  "MySunshine",
+  "Nature Green", "Northline",
+  "Orbitron",
+  "Pandemi", "Photogenics", "Polonium", "Polonium Bold",
+  "Qualitative", "Qualy Bold", "Quickstep",
+  "Rainbow", "Realistic", "Rough Owl",
+  "Sinethar", "Starshy", "Suffer", "Swansong",
+  "TheropodsBold", "TheropodsItalic", "Theropods",
+  "Undertones", "Undertow", "Undertow Slab",
+  "VILLADICANCE", "Ventus",
+  "Wilson", "Winstonia", "Winter",
+  // ─── Latin script / signature ────────────────────────────────────
+  "AidianSignatureTi", "Alison", "Allianty", "Aurum Script",
+  "BarbieScript", "Belianty", "Belinda", "Bellamy", "Berthessa",
+  "CastilloSignature", "Cathena",
+  "DilanWhemsy",
+  "FamousIdol",
+  "Hadnich", "HamsleyScript", "Hamsterly",
+  "Janelotus",
+  "KitaharaScript",
+  "Lovelygirly",
+  "MonsieurLaDoulaise", "MrsAlexandra",
+  "YouraScript",
+  // ─── Classic Latin (existing curated set, stays first-class) ─────
+  "Syne", "Cormorant Garamond", "Playfair Display", "Bodoni Moda",
+  "Alfa Slab One",
+  // ─── CJK 中文表现型字体 ──────────────────────────────────────────
+  "HengShanMaoBiCaoShu",
+  "AaJianHaoTi-2",
+  "AZhuPaoPaoTi-2",
+  "ChaoZiSheBeiJianFan-Shan(REEJI-CHAO-BeiMingGBT-Flash)-2",
+  "ChaoZiSheFengYunJianFan-Shan(REEJI-CHAO-FengyunGBT-Flash)-2",
+  "ChaoZiSheGuoFengHongShuJian-2",
+  "ChaoZiSheGuoFengKaiJianFan-Shan(REEJI-CHAO-RuikaiGBT-Flash)-2",
+  "ChaoZiSheKanTingLiuJianFan-Shan(REEJI-CHAO-KanTingLiuGBT-Flash)-2",
+  "ChaoZiSheLingDuBengTaJianFan-Shan(CHAO-BengtaGBT-Flash)-2",
+  "ChaoZiSheLingTuYueYeJianFan-Shan(REEJI-CHAO-HareGBT-Flash)-2",
+  "GEETYPEQingKongHeiGB-YanShiBan-ChangGui(GEETYPE-SkyGB-Demo-Reguar)-2",
+]);
+globalThis.WATCH_FANCY_FONT_ALLOWLIST = WATCH_FANCY_FONT_ALLOWLIST;
+
 function pickWatchRandomFontModule(fontEntries = [], fallback = "") {
   const list = Array.isArray(fontEntries) ? fontEntries.filter((entry) => String(entry?.family || "").trim()) : [];
   if (!list.length) return fallback;
   const recent = new Set(watchRecentRandomFonts);
-  const pool = list.filter((entry) => !recent.has(String(entry.family || "").trim()));
-  const targetPool = pool.length ? pool : list;
+  // CSSOS_PHASE2_FANCY_FONT_POOL 20260501 #248 — Jing
+  // "请同时使用旧的字体池和95款 fancy 字体池."
+  // Build a UNION pool: every entry that's in the catalogue AND in the
+  // fancy allowlist appears TWICE in the weighted draw — i.e. fancy
+  // entries get ~3-5x the weight of generic entries (depending on how
+  // many fancy fonts the catalogue actually contains). The old curated
+  // 12 title + 9 subtitle entries stay in the catalogue alongside the
+  // 95 fancy ones, so neither pool dominates.
+  const fancyEntries = list.filter(
+    (e) => WATCH_FANCY_FONT_ALLOWLIST.has(String(e.family || "").trim())
+  );
+  // Weight = catalogue + fancy doubled (every fancy entry has 2 tickets
+  // in the lottery; non-fancy keep 1 each).
+  const weighted = list.concat(fancyEntries, fancyEntries);
+  const sourceList = weighted;
+  const pool = sourceList.filter((entry) => !recent.has(String(entry.family || "").trim()));
+  const targetPool = pool.length ? pool : sourceList;
   const chosen = targetPool[Math.floor(Math.random() * targetPool.length)] || targetPool[0];
   const family = String(chosen?.family || fallback || "").trim();
   if (!family) return fallback;
@@ -374,7 +463,11 @@ function cycleWatchTypographyPresetModule() {
   applyWatchTypographyPresetModule(nextPreset);
   renderWatchKaraokeOverlayModule();
   syncWatchPlaceholderFromCurrentState();
-  showToast(loginCopy(`Title and subtitle style · ${nextPreset}`));
+  // CSSOS_PHASE2_NO_STYLE_TOAST 20260427 #165 — Jing
+  // "请关闭随机字母的提示，有点烦他。Title and subtitle style · neon
+  //  为什么？因为我根本就没有打开Watch MV面板，他还是总是提示。"
+  // Style cycle is a silent action — typography updates happen on screen,
+  // a toast is redundant and noisy when the panel isn't even visible.
 }
 
 function hideWatchStyleMenuModule() {
@@ -1363,6 +1456,95 @@ function buildSpacedLyricsTextModule(title, lines) {
   return formatForyouLyricsDisplayModule(lines || []);
 }
 
+// CSSOS_PHASE2_LYRICS_NORMALIZER 20260501 #261 — Jing
+// "广播到别的面板的时候，请不要使用代码级的JSON格式，而是清爽的京典模版
+//  (Verse 1, Verse 2, Chorus 1, Verse 3, Verse 4, Chorus 2, Bridge,
+//  Chorus 3, Chorus 4, Outro) 每小节直接隔行."
+//
+// Normalize lyrics input from any shape into clean section-divided text:
+//   • Already plain text with [Verse 1] / **Chorus** / blank-line
+//     section breaks → leave as-is (just collapse triple newlines).
+//   • JSON object { sections: [{section, lines}] } → emit
+//     `[Section]\nline1\nline2\n\n[Next]\n...`.
+//   • JSON object { lyrics: "...." } or { text: "...." } → unwrap.
+//   • Stringified JSON ("{...}") → parse + re-format.
+//   • Arrays of strings → join with \n\n.
+//
+// Keeps section markers in [Section Name] format so Suno + the music
+// engine pick them up as structure hints (they emit better arrangements
+// when they see the markers).
+function normalizeLyricsTextModule(input) {
+  if (input == null) return "";
+  // Try to unwrap JSON (object or stringified-JSON).
+  let parsed = input;
+  if (typeof input === "string") {
+    const trimmed = input.trim();
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try { parsed = JSON.parse(trimmed); } catch (_e) { parsed = input; }
+    }
+  }
+  // Already plain text — collapse triple+ newlines and trim.
+  if (typeof parsed === "string") {
+    return parsed.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  }
+  // Array of strings → join.
+  if (Array.isArray(parsed)) {
+    return parsed
+      .map((line) => String(line || "").trim())
+      .filter(Boolean)
+      .join("\n\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+  if (parsed && typeof parsed === "object") {
+    // { lyrics: "..." } / { text: "..." } / { content: "..." } shells.
+    for (const key of ["lyrics", "text", "content", "value"]) {
+      if (typeof parsed[key] === "string") {
+        return normalizeLyricsTextModule(parsed[key]);
+      }
+    }
+    // { sections: [{section: "Verse 1", lines: ["..."]}] } shape.
+    const sections = Array.isArray(parsed.sections)
+      ? parsed.sections
+      : (Array.isArray(parsed.structure) ? parsed.structure : null);
+    if (sections && sections.length) {
+      const out = [];
+      for (const sec of sections) {
+        const name = String(sec?.section || sec?.name || sec?.title || "").trim();
+        const lines = Array.isArray(sec?.lines)
+          ? sec.lines
+          : (typeof sec?.text === "string"
+              ? sec.text.split(/\r?\n/)
+              : (Array.isArray(sec?.body) ? sec.body : []));
+        const cleanLines = lines.map((l) => String(l || "").trim()).filter(Boolean);
+        if (!cleanLines.length) continue;
+        if (name) out.push(`[${name}]`);
+        out.push(cleanLines.join("\n"));
+        out.push(""); // blank line between sections
+      }
+      return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+    }
+    // Fallback: stringify and try line splits, or give up.
+    try {
+      const serialized = JSON.stringify(parsed, null, 2);
+      // If this is a deeply nested non-lyrics object, return empty —
+      // user shouldn't see raw JSON anywhere.
+      return serialized.length > 4000 ? "" : "";
+    } catch (_e) { return ""; }
+  }
+  return "";
+}
+globalThis.cssosNormalizeLyricsText = normalizeLyricsTextModule;
+
+// 京典 10-section template — order matches Jing's preferred scaffold.
+// Used by the lyrics generator prompt + as a default when assembling
+// section labels for empty drafts.
+const CSSOS_JINGDIAN_SECTIONS = Object.freeze([
+  "Verse 1", "Verse 2", "Chorus 1", "Verse 3", "Verse 4",
+  "Chorus 2", "Bridge", "Chorus 3", "Chorus 4", "Outro",
+]);
+globalThis.CSSOS_JINGDIAN_SECTIONS = CSSOS_JINGDIAN_SECTIONS;
+
 function maybeFinalizeForyouPresentationModule() {
   if (foryouCompletionCommitted) return;
   if (
@@ -2199,11 +2381,28 @@ function renderWatchKaraokeOverlayModule(progress = 0) {
       };
     });
   };
-  const mediaClockSec = Number.isFinite(watchAudioPreview?.currentTime)
-    ? Number(watchAudioPreview.currentTime || 0)
-    : Number.isFinite(watchVideo?.currentTime)
-      ? Number(watchVideo.currentTime || 0)
-      : 0;
+  // CSSOS_PHASE2_KARAOKE_CLOCK_FIX 20260428 #165 — Jing
+  // "字幕也还没有对齐，只显示第一行，就停了"
+  // Old code preferred watchAudioPreview.currentTime — but after #166
+  // we explicitly clear that element's src at runAll() start, and after
+  // #164 the audio plays out of <video> (mp4 with muxed audio). So the
+  // <audio> currentTime stays at 0 and the karaoke ticker is frozen
+  // at the first cue. Prefer whichever media element is ACTIVELY
+  // playing (not paused/ended) and has a real currentTime > 0; fall
+  // back through video → audio → 0.
+  const mediaClockSec = (() => {
+    const v = watchVideo;
+    const a = watchAudioPreview;
+    const vt = Number(v?.currentTime || 0);
+    const at = Number(a?.currentTime || 0);
+    const vPlaying = v && !v.paused && !v.ended && vt > 0;
+    const aPlaying = a && !a.paused && !a.ended && at > 0;
+    if (vPlaying) return vt;
+    if (aPlaying) return at;
+    if (vt > 0) return vt;
+    if (at > 0) return at;
+    return 0;
+  })();
   if (karaokeTimeline.length) {
     const activeIndex = Math.max(
       0,
@@ -2982,9 +3181,25 @@ function syncWatchProgressRotatorModule() {
           ? loginCopy("Complete")
           : `${resolvedCard.label} ${percent}%`;
     }
-    watchPanelTitle.textContent = `${loginCopy("Watch")} · ${
-      titleText || fallbackTitle
-    } · ${statusLabel}`;
+    // CSSOS_PHASE2_CLEAN_TITLE 20260501 #257 — Jing
+    // "能够进入Watch MV面板播放的，应该也必须是完整的作品，所以这时候
+    //  不必要再有这些信息：Video 0%这类的，直接就是：▶ Watch · 作品标题."
+    //
+    // If the pipeline is finished or this work is being played from a
+    // saved row (no live pipeline), drop the status label entirely —
+    // the user's playing a complete work, the percent is meaningless.
+    // Only show "Watch · {title} · {status}" while the pipeline is
+    // actively cooking something new.
+    const pipelineActive = !!(livePipeline && !livePipeline.finished && !livePipeline.hasError);
+    if (pipelineActive) {
+      watchPanelTitle.textContent = `${loginCopy("Watch")} · ${
+        titleText || fallbackTitle
+      } · ${statusLabel}`;
+    } else {
+      watchPanelTitle.textContent = `${loginCopy("Watch")} · ${
+        titleText || fallbackTitle
+      }`;
+    }
   }
   broadcastWatchProgressToNotificationsModule(`${resolvedCard.label} ${percent}%`);
   const lyricsRequestPending = !!globalThis.lyricsSeedRequestState?.pending;
@@ -3344,14 +3559,20 @@ function syncWatchEditorsFromSettingsModule() {
     ).trim();
     const hasBodyLyrics =
       globalThis.hasCanonicalLyricsBodyLinesModule?.(resolvedTitle, candidateLyrics, 2) ?? false;
+    // CSSOS_PHASE2_LYRICS_NORMALIZER 20260501 #261 — pipe everything
+    // through normalizeLyricsTextModule so JSON-shaped payloads never
+    // hit the textarea verbatim.
+    const _norm = (typeof globalThis.cssosNormalizeLyricsText === "function")
+      ? globalThis.cssosNormalizeLyricsText
+      : (s) => s;
     watchLyricsEditor.value = hasBodyLyrics
-      ? String(
+      ? _norm(String(
           globalThis.buildCanonicalLyricsWithTitleModule?.(
             resolvedTitle,
             candidateLyrics,
           ) || candidateLyrics
-        ).trim()
-      : candidateLyrics;
+        ).trim())
+      : _norm(candidateLyrics);
   }
   if (watchOutlineEditor) {
     watchOutlineEditor.value = String(videoOutlineInput?.value || seedOutline || "").trim();
@@ -3685,11 +3906,2050 @@ function prepareWatchPanelForOpen(restoredLayout = false) {
   }
 }
 
+// CSSOS_PHASE2_WATCH_QUEUE 20260430 #208b — Jing
+// "Watch MV 面板先连播自己最新 2 首再播别人的." Cursor-paginated MV queue
+// fed by /cssapi/v1/mv. Plays own works first (newest first), then market
+// discoveries, autoadvancing on <video>/<audio> ended. Up/Down arrow +
+// swipe — short swipe = Take 1/2 toggle on current MV, long swipe = jump
+// to next/prev MV in queue.
+const __cssosWatchQueue = {
+  items: [],
+  index: 0,
+  cursor: null,
+  loadingMore: false,
+  exhausted: false,
+};
+
+async function fetchWatchQueueMoreModule() {
+  if (__cssosWatchQueue.loadingMore || __cssosWatchQueue.exhausted) return;
+  __cssosWatchQueue.loadingMore = true;
+  try {
+    const cursor = __cssosWatchQueue.cursor;
+    const url = "/cssapi/v1/mv?limit=8" + (cursor ? "&cursor=" + encodeURIComponent(cursor) : "");
+    const res = await fetch(url, { credentials: "include" });
+    const payload = await res.json().catch(() => null);
+    if (payload?.ok) {
+      const items = payload?.data?.items || [];
+      const have = new Set(__cssosWatchQueue.items.map((it) => it.id));
+      for (const it of items) {
+        if (!have.has(it.id)) __cssosWatchQueue.items.push(it);
+      }
+      __cssosWatchQueue.cursor = payload?.data?.next_cursor || null;
+      if (!__cssosWatchQueue.cursor) __cssosWatchQueue.exhausted = true;
+    }
+    // CSSOS_PHASE2_QUEUE_FALLBACK 20260430 #234 — Jing
+    // "上滑下滑都说Queue is empty, 说明根本就没有列表."
+    // If /cssapi/v1/mv returned nothing AND we don't have a single
+    // queued item yet, fall back to /api/works/mine (which the works
+    // center uses successfully). Build the queue from there ordered
+    // newest → oldest, filtered to anything with at least one
+    // playable URL. This guarantees the swipe-nav has SOMETHING to
+    // walk through even when the cursor endpoint comes up dry.
+    if (!__cssosWatchQueue.items.length) {
+      try {
+        const mineRes = await fetch("/api/works/mine", { credentials: "include" });
+        const minePayload = await mineRes.json().catch(() => null);
+        const works = minePayload?.data?.works || minePayload?.works || [];
+        const flat = [];
+        const visit = (w) => {
+          if (!w) return;
+          flat.push(w);
+          if (Array.isArray(w.children)) w.children.forEach(visit);
+        };
+        works.forEach(visit);
+        flat.sort((a, b) => {
+          const ta = Date.parse(String(a?.created_at || "")) || 0;
+          const tb = Date.parse(String(b?.created_at || "")) || 0;
+          return tb - ta;
+        });
+        const seen = new Set(__cssosWatchQueue.items.map((it) => it.id));
+        for (const w of flat) {
+          const id = String(w?.id || w?.work_id || "").trim();
+          if (!id || seen.has(id)) continue;
+          const finalMv = String(w.final_mv_url || w.preview_video_url || "").trim();
+          const a1 = String(w.audio_track_1_url || "").trim();
+          const a2 = String(w.audio_track_2_url || "").trim();
+          if (!finalMv && !a1 && !a2) continue; // skip drafts with no media
+          // Skip Take 2 siblings — Take 1 row already carries both audio URLs.
+          if (Number(w.take_index || 0) === 2) continue;
+          __cssosWatchQueue.items.push({
+            id,
+            title: w.title || "",
+            cover_url: w.cover_image || w.preview_image_url || null,
+            preview_video_url: w.preview_video_url || null,
+            final_mv_url: finalMv || null,
+            audio_track_1_url: a1 || null,
+            audio_track_2_url: a2 || null,
+            subtitle_srt_url: w.subtitle_srt_url || null,
+            duration_secs: Number(w.duration_secs || 0) || null,
+            lyrics_preview: w.lyrics_preview || "",
+            sibling_work_id: w.sibling_work_id || null,
+            take_index: w.take_index || null,
+            root_work_id: w.root_work_id || null,
+            sequence_index: w.sequence_index || 0,
+            is_own: true,
+          });
+          seen.add(id);
+        }
+        __cssosWatchQueue.exhausted = true; // mine is one-shot, no cursor
+        console.warn("[watch-queue] fallback /api/works/mine populated %d items", __cssosWatchQueue.items.length);
+      } catch (e) {
+        console.warn("[watch-queue] fallback fetch failed:", e);
+      }
+    }
+  } catch (_e) { /* network best-effort */ }
+  finally {
+    __cssosWatchQueue.loadingMore = false;
+  }
+}
+
+// CSSOS_PHASE2_PREVIEW_CAP 20260430 #222 — Jing
+// "如果遇到会员级别/权限不够，只能播放 30 秒预览，也要继续播完 30 秒，
+//  继续下一首歌." When the queue auto-advances onto a work the viewer
+// can't fully consume (someone else's, no listen permission, no buyout),
+// we play a 30s sample then skip. Detection is best-effort by the
+// item.is_own flag (own works = no cap) and the absence of the canonical
+// "watch unlocked" marker the existing market path sets — full enforcement
+// remains server-side, this is just a UX loop limiter so auto-play doesn't
+// stall on a paywalled track.
+const __CSSOS_PREVIEW_CAP_SECS = 30;
+let __cssosPreviewTimerId = null;
+function __cssosClearPreviewTimer() {
+  if (__cssosPreviewTimerId != null) {
+    clearTimeout(__cssosPreviewTimerId);
+    __cssosPreviewTimerId = null;
+  }
+}
+
+function applyWatchQueueItemModule(item) {
+  if (!item) return;
+  __cssosClearPreviewTimer();
+  // CSSOS_PHASE2_FULL_SWAP_ON_NAV 20260430 #236 — Jing
+  // "切换歌的时候，只是切换视频而已，音频还是旧的，连标题也是旧的，
+  //  歌词也是旧的。应该全部切换."
+  //
+  // Delegate to the canonical card-click renderer so EVERYTHING re-renders
+  // from the new item: cover, title overlay, lyrics editor, seed summary,
+  // take toggle, both <audio> + <video> sources, take auto-advance state,
+  // sibling cross-link, watch panel commerce actions. The partial-swap
+  // path below stays as a fallback only when the renderer hasn't loaded
+  // (e.g. very early in page boot before app.market-commerce.js finishes
+  // initialising).
+  if (typeof globalThis.openMarketWorkPreview === "function") {
+    try {
+      void globalThis.openMarketWorkPreview({
+        id: item.id,
+        work_id: item.id,
+        title: item.title,
+        cover_image: item.cover_url,
+        cover_image_url: item.cover_url,
+        preview_image_url: item.cover_url,
+        preview_video_url: item.preview_video_url,
+        final_mv_url: item.final_mv_url,
+        audio_track_1_url: item.audio_track_1_url,
+        audio_track_2_url: item.audio_track_2_url,
+        subtitle_srt_url: item.subtitle_srt_url,
+        duration_secs: item.duration_secs,
+        lyrics_preview: item.lyrics_preview,
+        lyrics_full: item.lyrics_preview,
+        sibling_work_id: item.sibling_work_id,
+        take_index: item.take_index,
+        root_work_id: item.root_work_id,
+        sequence_index: item.sequence_index,
+        is_own: item.is_own,
+      });
+      return;
+    } catch (e) {
+      console.warn("[watch-queue] openMarketWorkPreview re-render failed, falling back to partial swap:", e);
+    }
+  }
+  try {
+    const audioEl = document.getElementById("watch-audio-preview");
+    const videoEl = document.getElementById("watch-video");
+    const url = String(item.final_mv_url || item.preview_video_url || "").trim();
+    // CSSOS_PHASE2_AUTOPLAY_AFTER_SWIPE 20260430 #232b — Jing
+    // "切换了就要自动播放呀。" Decide ONCE per item whether the audio
+    // element is the source of truth (modern works with audio_track_1)
+    // or the video's baked-in track (legacy works missing audio assets).
+    // - hasAudioElSrc: mute video, drive sound from <audio>
+    // - else:          unmute video, let the MP4's baked-in track play
+    // This kills the "no sound after swipe" failure mode where the
+    // queue silently advanced to a legacy work, video was muted, audio
+    // element had no src, and the user heard nothing.
+    const hasAudioElSrc = !!(audioEl && item.audio_track_1_url);
+    if (videoEl && url) {
+      // CSSOS_PHASE2_PRESERVE_ASPECT 20260430 #235 — clear the previous
+      // item's source-aspect tag so the new item's loadedmetadata can
+      // re-derive from its own dimensions. Don't clear userOverrodeAspect
+      // — that's the user's explicit choice, persists across queue moves.
+      try {
+        const frame = document.querySelector("#watch-panel .watch-frame");
+        if (frame) delete frame.dataset.sourceAspect;
+      } catch (_e) {}
+      videoEl.src = url;
+      videoEl.load && videoEl.load();
+      // CSSOS_PHASE2_PRIME_NO_MUTE 20260501 #256 — never preemptively
+      // mute the video. Take 1 audio is baked in; the user hears it.
+      // switchToTake(2) is the ONE path that mutes video + unmutes
+      // <audio> with a fresh gesture context.
+      videoEl.muted = false;
+      if (videoEl.play) {
+        videoEl.play().catch((err) => {
+          // CSSOS_PHASE2_VIDEO_FALLBACK 20260501 #249 — Jing
+          // "在一些自动播放视频受限的环境，如Tesla的浏览器，应该
+          //  fallback到自动播放音频，至于画面，可以做一个参数，默认
+          //  播放视频的增强版幻灯或者切换到Music标签页. 绝对不要再让
+          //  用户每一首歌都要再去点击一下才播放声音."
+          //
+          // Don't install a per-song click recovery — that's the
+          // exact UX the user is asking us to kill. Instead: continue
+          // audio playback (audio autoplay rules are far more permissive)
+          // and apply the configured visual fallback.
+          console.warn("[watch-queue] video.play() rejected → audio-only fallback:", err?.name || err);
+          activateVideoBlockedFallbackModule(item, videoEl);
+        });
+      }
+      // Read source dimensions once available + re-shape watch frame.
+      try { applyVideoSourceAspectModule(); } catch (_e) {}
+    }
+    if (hasAudioElSrc) {
+      // Prime + play in the same user-initiated gesture chain (swipe /
+      // wheel / arrow → watchQueueAdvanceModule → applyWatchQueueItem).
+      // Each of those gestures is a valid user activation, so audio.play()
+      // is allowed by the autoplay policy. Subsequent programmatic plays
+      // from ended-handlers also work because this play() registers the
+      // element as "user-activated" for the rest of the session.
+      audioEl.src = item.audio_track_1_url;
+      audioEl.muted = false;
+      audioEl.load && audioEl.load();
+      if (audioEl.play) {
+        audioEl.play().catch((err) => {
+          console.warn("[watch-queue] audio.play() rejected:", err);
+          const recover = () => {
+            audioEl.play && audioEl.play().catch(() => {});
+            document.removeEventListener("click", recover, true);
+          };
+          document.addEventListener("click", recover, true);
+        });
+      }
+    } else if (audioEl) {
+      // No audio asset for this item — pause/clear the audio element so
+      // a stale src from the previous item doesn't keep playing on top.
+      try {
+        audioEl.pause();
+        audioEl.removeAttribute("src");
+        audioEl.load && audioEl.load();
+      } catch (_e) {}
+    }
+    // Update title overlay if present
+    try {
+      const titleEl = document.querySelector(".watch-title-text, #watch-title-text");
+      if (titleEl) titleEl.textContent = item.title || "";
+    } catch (_e) {}
+    // Push into pipeline state so Take 1/Take 2 toggle works.
+    try {
+      const pipelineState = globalThis.cssosMvPipelinePanelState
+        ? globalThis.cssosMvPipelinePanelState()
+        : null;
+      if (pipelineState) {
+        pipelineState.mvUrl = url;
+        pipelineState.audioUrl = item.audio_track_1_url || null;
+        pipelineState.altAudioUrl = item.audio_track_2_url || null;
+        pipelineState.duration = Number(item.duration_secs || 0) || 0;
+        pipelineState.title = item.title || "";
+        pipelineState.lyrics = (typeof globalThis.cssosNormalizeLyricsText === "function")
+          ? globalThis.cssosNormalizeLyricsText(item.lyrics_preview || "")
+          : (item.lyrics_preview || "");
+        // Reset Take state when switching MVs.
+        pipelineState.currentTake = 1;
+        // CSSOS_PHASE2_DUAL_TRACK 20260430 #221b — pairKey/sibling
+        // bridged from queue payload so the played-takes map can gate
+        // queue advance until BOTH takes of this work have played.
+        pipelineState.siblingWorkId = item.sibling_work_id || null;
+        const ownId = String(item.id || "").trim();
+        const sibId = String(item.sibling_work_id || "").trim();
+        pipelineState.workId =
+          ownId && sibId ? [ownId, sibId].sort().join("|") : ownId || (item.title || "");
+        // Track structural lineage so the queue never tears a triptych
+        // or opera in half. CSSOS_PHASE2_SELF_FIRST_STRUCTURAL #227.
+        pipelineState.rootWorkId = item.root_work_id || null;
+        pipelineState.sequenceIndex = item.sequence_index ?? null;
+      }
+    } catch (_e) {}
+    // CSSOS_PHASE2_DUAL_TRACK 20260430 #229 — re-inject the ♪1/♪2 toggle
+    // every time the queue advances to a new work. The hoisted injector
+    // is idempotent: it'll create the pill on first call and just refresh
+    // the active highlight on subsequent calls. If the new work has no
+    // alt audio, it strips the toggle so single-track engines (older
+    // ElevenLabs runs) don't show a misleading pill.
+    try {
+      if (typeof globalThis.__cssosInjectTakeToggle === "function") {
+        globalThis.__cssosInjectTakeToggle({
+          altAudioUrl: item.audio_track_2_url || null,
+          currentTake: 1,
+        });
+      }
+    } catch (_e) { /* toggle inject best-effort */ }
+    // CSSOS_PHASE2_PREVIEW_CAP 20260430 #222 — auto-skip after 30s for
+    // not-own works. Server-side permissions still gate the actual play
+    // URL; this is a UX timer so the queue keeps moving even if the
+    // user has no entitlement on the next item.
+    const isOwn = item.is_own === true;
+    if (!isOwn) {
+      __cssosPreviewTimerId = setTimeout(() => {
+        __cssosPreviewTimerId = null;
+        try {
+          if (typeof globalThis.showToast === "function") {
+            globalThis.showToast(
+              "30s preview ended — continuing to next MV (upgrade or buy to unlock full playback)."
+            );
+          }
+        } catch (_e) {}
+        void watchQueueAdvanceModule(+1);
+      }, __CSSOS_PREVIEW_CAP_SECS * 1000);
+    }
+  } catch (_e) { /* apply best-effort */ }
+}
+
+async function watchQueueAdvanceModule(direction = +1, _wrapDepth = 0) {
+  // CSSOS_PHASE2_PLAYLISTS 20260430 #239 — Jing
+  // "请制作一个播放列表... 多种方式播放."
+  // Prefer the cssosPlaylists module (sequential / reverse / shuffle /
+  // loop_all / loop_single + named lists for-you / mine / custom).
+  // Falls back to the legacy __cssosWatchQueue if the module isn't
+  // loaded.
+  if (globalThis.cssosPlaylists) {
+    try {
+      const item = direction > 0
+        ? await globalThis.cssosPlaylists.next()
+        : await globalThis.cssosPlaylists.prev();
+      if (!item) {
+        if (typeof globalThis.showToast === "function") {
+          const mode = globalThis.cssosPlaylists.getMode();
+          if (mode === "sequential") globalThis.showToast("End of playlist (顺序播放). 切换到列表循环可继续.");
+          else if (mode === "reverse") globalThis.showToast("Start of playlist (倒序播放).");
+          else globalThis.showToast("No playable items in the playlist.");
+        }
+        return;
+      }
+      applyWatchQueueItemModule(item);
+      return;
+    } catch (e) {
+      console.warn("[watch-queue] playlist advance failed, falling back:", e);
+    }
+  }
+  if (!__cssosWatchQueue.items.length) {
+    await fetchWatchQueueMoreModule();
+  }
+  if (!__cssosWatchQueue.items.length) {
+    if (typeof globalThis.showToast === "function") {
+      globalThis.showToast("Queue is empty.");
+    }
+    return;
+  }
+  // Prefetch ahead when we're 2 from the end.
+  if (
+    __cssosWatchQueue.items.length - __cssosWatchQueue.index <= 3 &&
+    !__cssosWatchQueue.exhausted
+  ) {
+    void fetchWatchQueueMoreModule();
+  }
+  // CSSOS_PHASE2_QUEUE_WRAP 20260430 #233 — Jing
+  // "没有音频，没有视频的作品，就判定到头了，再从头继续播放."
+  // Wrap around at both ends. Past the last item → restart at items[0].
+  // Before items[0] → wrap to items[length-1]. Skip items that have no
+  // playable media at all (final_mv_url + preview_video_url + audio
+  // tracks all empty) — they're treated like "end-of-queue" so the
+  // chain keeps moving without dead-end stalling on legacy drafts.
+  // _wrapDepth guards against infinite recursion if every item is
+  // unplayable.
+  let next = __cssosWatchQueue.index + direction;
+  const len = __cssosWatchQueue.items.length;
+  if (next < 0) next = len - 1;          // wrap to tail
+  else if (next >= len) next = 0;         // wrap to head — "再从头继续播放"
+  __cssosWatchQueue.index = next;
+  const item = __cssosWatchQueue.items[next];
+  const hasMedia = !!(item && (
+    String(item.final_mv_url || "").trim() ||
+    String(item.preview_video_url || "").trim() ||
+    String(item.audio_track_1_url || "").trim() ||
+    String(item.audio_track_2_url || "").trim()
+  ));
+  if (!hasMedia) {
+    if (_wrapDepth >= len) {
+      // Whole queue is unplayable — bail out gracefully.
+      if (typeof globalThis.showToast === "function") {
+        globalThis.showToast("No playable items in the queue right now.");
+      }
+      return;
+    }
+    console.warn(
+      "[watch-queue] item %s has no media — wrapping to next",
+      item?.id || next
+    );
+    return watchQueueAdvanceModule(direction, _wrapDepth + 1);
+  }
+  applyWatchQueueItemModule(item);
+}
+
+let __cssosWatchEndedWired = false;
+function wireWatchQueueAutoAdvanceOnceModule() {
+  if (__cssosWatchEndedWired) return;
+  const videoEl = document.getElementById("watch-video");
+  const audioEl = document.getElementById("watch-audio-preview");
+  if (!videoEl) return;
+  __cssosWatchEndedWired = true;
+
+  // CSSOS_PHASE2_TAKE_AUTO_ADVANCE 20260430 #208c → #221b — Jing
+  // "用户欣赏第一首,右上角的胶囊要出现,也就是说,欣赏一首,另一首必须是
+  //  下一首。如果是打开第二首,右上角胶囊也要显示第一首,也是要欣赏完
+  //  两首,才会继续别的用户的作品."
+  //
+  // Played-takes set keyed by (work_id|sibling_id) — symmetric across
+  // both takes of a generation pair. When a take finishes:
+  //   1. Find the OTHER take (use altAudioUrl if present, OR the
+  //      sibling work_id from pipelineState.siblingWorkId).
+  //   2. If the other take hasn't played yet in this session → switch
+  //      to it (regardless of whether we started from Take 1 or 2).
+  //   3. Both takes consumed → only NOW advance queue to next MV.
+  // Loop modes (single / both takes) still take precedence and are
+  // owned by the right-click loop cycler in mv-pipeline-panel.js.
+  if (!globalThis.__cssosPlayedTakes) globalThis.__cssosPlayedTakes = new Map();
+  const playedTakes = globalThis.__cssosPlayedTakes;
+  // CSSOS_PHASE2_AUTO_ADVANCE 20260430 #231 — Jing
+  // "随便点击播放一首歌，播放完毕，没有自动播放下一首。请修复."
+  // Backstop: if audio.ended never fires (autoplay-policy block on Take 2,
+  // missing audio_track_2_url, etc.), force the queue to advance after a
+  // generous duration so the chain never stalls. Cancel the backstop on
+  // user interactions / explicit advances.
+  const scheduleAutoAdvanceBackstop = (durationSecs) => {
+    try { clearTimeout(globalThis.__cssosAdvanceBackstopId); } catch (_e) {}
+    const dur = Math.max(60, Number(durationSecs || 0) + 30);
+    globalThis.__cssosAdvanceBackstopId = setTimeout(() => {
+      console.warn(
+        "[watch-queue][backstop] forced advance after %ss — audio.ended never fired",
+        dur
+      );
+      void watchQueueAdvanceModule(+1);
+    }, dur * 1000);
+  };
+  globalThis.__cssosScheduleAutoAdvanceBackstop = scheduleAutoAdvanceBackstop;
+  const onMediaEnded = () => {
+    console.warn("[watch-queue] media ended, evaluating advance");
+    try {
+      const ps = globalThis.cssosMvPipelinePanelState
+        ? globalThis.cssosMvPipelinePanelState()
+        : null;
+      if (ps && (ps.loopMode === 1 || ps.loopMode === 2)) {
+        console.warn("[watch-queue] loop mode active → not advancing");
+        return;
+      }
+      const currentTake = Number(ps?.currentTake || 1);
+      const altUrl = String(ps?.altAudioUrl || "").trim();
+      const siblingWorkId = String(ps?.siblingWorkId || "").trim();
+      const pairKey = String(ps?.workId || ps?.runId || ps?.title || "").trim();
+      if (pairKey) {
+        const set = playedTakes.get(pairKey) || new Set();
+        set.add(currentTake);
+        playedTakes.set(pairKey, set);
+        const other = currentTake === 1 ? 2 : 1;
+        const otherExists = !!(altUrl || siblingWorkId);
+        if (otherExists && !set.has(other)) {
+          console.warn("[watch-queue] switching to ♪ %d", other);
+          const sw = globalThis.__cssosWatchTakeSwitcher;
+          if (typeof sw === "function") {
+            sw(other);
+            // Schedule backstop in case the take-2 audio doesn't fire
+            // its own ended event (autoplay policy etc.).
+            const altDur = Number(ps?.altDuration || ps?.duration || 0);
+            scheduleAutoAdvanceBackstop(altDur);
+            return;
+          }
+        }
+        if (set.has(1) && set.has(2)) playedTakes.delete(pairKey);
+      } else if (currentTake === 1 && altUrl) {
+        console.warn("[watch-queue] fallback: switch to ♪ 2");
+        const sw = globalThis.__cssosWatchTakeSwitcher;
+        if (typeof sw === "function") {
+          sw(2);
+          // CSSOS_PHASE2_TAKE2_BACKSTOP 20260501 #254 — fall back to
+          // duration (Take 1's length), then to a 6-minute headroom so
+          // the backstop never fires mid-Take 2.
+          const altDur = Number(ps?.altDuration || ps?.duration || 360);
+          scheduleAutoAdvanceBackstop(altDur);
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("[watch-queue] onMediaEnded threw:", e);
+    }
+    // Clear backstop — we're advancing for real now.
+    try { clearTimeout(globalThis.__cssosAdvanceBackstopId); } catch (_e) {}
+    console.warn("[watch-queue] advancing to next item");
+    void watchQueueAdvanceModule(+1);
+  };
+  videoEl.addEventListener("ended", onMediaEnded);
+  if (audioEl) audioEl.addEventListener("ended", onMediaEnded);
+  // CSSOS_PHASE2_KARAOKE_LIVE 20260430 #199 — Jing
+  // "字幕跟随 audio.currentTime — fix watch overlay subtitle renderer."
+  // Live karaoke: on every timeupdate (~250ms), look up the active
+  // line by currentTime against either (a) pipelineState.alignedLyrics
+  // when the engine emitted per-line timing, or (b) an even-divide
+  // fallback over pipelineState.lyrics. Single source of timing truth
+  // is whichever element is currently driving sound — pipelineState
+  // tracks that via the muted flags we set in switchToTake.
+  wireWatchKaraokeLiveOnceModule(videoEl, audioEl);
+}
+
+let __cssosKaraokeWired = false;
+function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
+  if (__cssosKaraokeWired) return;
+  __cssosKaraokeWired = true;
+
+  // Cache: lazily-built timeline per work signature. Recomputed when
+  // pipelineState.title or lyrics changes.
+  let cachedSig = "";
+  let cachedTimeline = []; // [{start_s, end_s, text}]
+  let lastIdx = -1;
+
+  const buildTimeline = (ps) => {
+    const aligned = Array.isArray(ps?.alignedLyrics) ? ps.alignedLyrics : null;
+    if (aligned && aligned.length > 0) {
+      return aligned
+        .map((line) => {
+          const start_s = Number(
+            line.start_s !== undefined ? line.start_s : (Number(line.start_ms || 0) / 1000)
+          ) || 0;
+          const end_s = Number(
+            line.end_s !== undefined ? line.end_s : (Number(line.end_ms || 0) / 1000)
+          ) || (start_s + 3);
+          return {
+            start_s,
+            end_s: Math.max(start_s + 0.25, end_s),
+            text: String(line.text || "").trim(),
+            // CSSOS_PHASE2_EMOTIONAL_SUB 20260501 #251 — preserve
+            // engine-emitted emotion + emphasis if present. Older runs
+            // (no annotation) leave these undefined; the karaoke tick
+            // falls back to keyword inference.
+            emotion: String(line.emotion || "").trim() || undefined,
+            emphasis: line.emphasis != null ? Number(line.emphasis) : undefined,
+          };
+        })
+        .filter((c) => c.text);
+    }
+    // Fallback: even-divide over duration. Skip lines that look like
+    // section markers ([Verse], [Chorus], etc.) — they shouldn't appear
+    // as karaoke text.
+    const lyrics = String(ps?.lyrics || "").trim();
+    const dur = Number(ps?.duration || 0);
+    if (!lyrics || dur < 5) return [];
+    const lines = lyrics.split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l && !/^\[[^\]]+\]$/.test(l));
+    if (!lines.length) return [];
+    const each = dur / lines.length;
+    return lines.map((text, i) => ({
+      start_s: i * each,
+      end_s: (i + 1) * each,
+      text,
+    }));
+  };
+
+  const getActiveSourceTime = () => {
+    // Prefer the un-muted, currently-playing element.
+    const audioPlaying = audioEl && !audioEl.paused && !audioEl.muted;
+    const videoPlaying = videoEl && !videoEl.paused && !videoEl.muted;
+    if (audioPlaying) return Number(audioEl.currentTime || 0);
+    if (videoPlaying) return Number(videoEl.currentTime || 0);
+    // Fall back to whichever has the higher currentTime (paused but seeked).
+    const at = Number(audioEl?.currentTime || 0);
+    const vt = Number(videoEl?.currentTime || 0);
+    return Math.max(at, vt);
+  };
+
+  const findActiveIdx = (timeline, t) => {
+    if (!timeline.length) return -1;
+    // Linear scan from lastIdx — songs play forward most of the time so
+    // we usually hit on the 0th iteration.
+    let start = Math.max(0, lastIdx);
+    for (let i = start; i < timeline.length; i += 1) {
+      if (t >= timeline[i].start_s && t < timeline[i].end_s) return i;
+      if (t < timeline[i].start_s) break; // we're between lines
+    }
+    // Wrap if user seeked back.
+    for (let i = 0; i < timeline.length; i += 1) {
+      if (t >= timeline[i].start_s && t < timeline[i].end_s) return i;
+    }
+    return -1;
+  };
+
+  const tick = () => {
+    try {
+      const ps = globalThis.cssosMvPipelinePanelState
+        ? globalThis.cssosMvPipelinePanelState()
+        : null;
+      if (!ps) return;
+      const sig = `${ps.workId || ""}|${ps.title || ""}|${(ps.alignedLyrics || []).length}|${(ps.lyrics || "").length}`;
+      if (sig !== cachedSig) {
+        cachedSig = sig;
+        cachedTimeline = buildTimeline(ps);
+        lastIdx = -1;
+        console.warn(
+          "[karaoke] timeline built: %d lines (engine-aligned=%s)",
+          cachedTimeline.length,
+          !!(ps?.alignedLyrics?.length)
+        );
+      }
+      if (!cachedTimeline.length) return;
+      const t = getActiveSourceTime();
+      const idx = findActiveIdx(cachedTimeline, t);
+      if (idx === lastIdx) return;
+      lastIdx = idx;
+      // CSSOS_PHASE2_KARAOKE_LIVE 20260501 #247 — Jing
+      // "字幕跟唱还是没有修复完毕." Update BOTH targets so the live
+      // line lands wherever the user is looking:
+      //   #watch-subtitle      — small bottom-of-frame line
+      //   #watch-karaoke-line  — the big karaoke text inside the frame
+      // Other writers can clobber #watch-subtitle, but the karaoke line
+      // is dedicated. Writing both is cheap (one DOM mutation each).
+      const sub = document.getElementById("watch-subtitle");
+      const kar = document.getElementById("watch-karaoke-line");
+      if (idx < 0) return; // between lines — keep last visible
+      const line = cachedTimeline[idx];
+      console.warn("[karaoke] line %d/%d t=%ss → %s",
+        idx + 1, cachedTimeline.length, getActiveSourceTime().toFixed(1), line.text.slice(0, 40)
+      );
+      // CSSOS_PHASE2_EMOTIONAL_SUB 20260501 #251 — Jing
+      // "情绪字幕，跟随音乐的节奏，歌词的意境，音量的大小作出情绪变化."
+      //
+      // Each cue may carry an `emotion` string + `emphasis` 0..1 (engine
+      // pipeline adds these on aligned_lyrics; older runs fall back to
+      // keyword inference from text). Map to CSS class so the existing
+      // style.css emotion rules (cinema/dream/neon/ignite/resolve/intimate)
+      // tint the subtitle color, glow, and scale.
+      const inferEmotion = (txt) => {
+        const t = String(txt || "").toLowerCase();
+        if (/fire|ignite|burn|rise|shout|chorus|爆|燃|怒|呐喊|轰/.test(t)) return "ignite";
+        if (/dream|moon|night|echo|whisper|glow|梦|月|夜|低语|微光/.test(t)) return "resolve";
+        if (/grief|lost|alone|tear|shadow|悲|失|孤|泪|影/.test(t)) return "intimate";
+        return "";
+      };
+      const emotion = String(line.emotion || "").trim() || inferEmotion(line.text);
+      const emphasis = Number(line.emphasis || 0.5);
+      if (sub) {
+        sub.textContent = line.text;
+        sub.dataset.cssmvOrigin = "karaoke-live";
+        sub.dataset.emotion = emotion || "";
+        sub.style.setProperty("--karaoke-emphasis", emphasis.toFixed(2));
+        // Color hue per emotion — fallback to neutral white.
+        const hueMap = {
+          ignite: "color-mix(in srgb, #ff7242 70%, white)",
+          resolve: "color-mix(in srgb, #79e6ff 70%, white)",
+          intimate: "color-mix(in srgb, #c2a4ff 60%, white)",
+        };
+        sub.style.color = hueMap[emotion] || "rgba(255,255,255,0.96)";
+        sub.classList.add("karaoke-active");
+        sub.style.transition = "opacity 0.18s ease, transform 0.18s ease, color 0.18s ease";
+        sub.style.opacity = "1";
+        // Emphasis modulates scale — louder/more emotional lines pop
+        // a touch larger, then settle.
+        const peakScale = (1.0 + emphasis * 0.06).toFixed(3);
+        sub.style.transform = `scale(${peakScale})`;
+        setTimeout(() => {
+          if (sub.dataset.cssmvOrigin === "karaoke-live") {
+            sub.style.transform = "scale(0.98)";
+          }
+        }, 120);
+      }
+      if (kar) {
+        // Plain-text fallback: if kar.innerHTML has structured content
+        // (per-word spans), don't overwrite — let the existing fancy
+        // renderer handle that case. Only set textContent when kar is
+        // empty or holds a previous karaoke-live line.
+        const had = String(kar.dataset?.cssmvLiveOrigin || "");
+        if (!kar.children.length || had === "karaoke-live") {
+          kar.textContent = line.text;
+          kar.dataset.cssmvLiveOrigin = "karaoke-live";
+        }
+      }
+    } catch (e) {
+      console.warn("[karaoke] tick threw:", e);
+    }
+  };
+
+  // Bind to BOTH elements — whichever fires timeupdate first/most.
+  if (videoEl) videoEl.addEventListener("timeupdate", tick);
+  if (audioEl) audioEl.addEventListener("timeupdate", tick);
+  // Also a low-rate fallback in case timeupdate stalls (some buggy
+  // sources emit it sparsely). 250ms is fine — humans don't notice
+  // sub-second lag in line transitions.
+  setInterval(tick, 250);
+}
+
+// Expose for swipe handler.
+globalThis.cssosWatchQueueAdvance = watchQueueAdvanceModule;
+globalThis.cssosWatchQueuePrefetch = fetchWatchQueueMoreModule;
+globalThis.applyWatchQueueItemModule = applyWatchQueueItemModule;
+
+// CSSOS_PHASE2_SWIPE_NAVIGATION 20260430 #201/#232 — Jing
+// "上下滑切歌" — TikTok/抖音-style continuous navigation: any up/down
+// gesture jumps to next/prev song. The ♪1↔♪2 take toggle stays
+// reachable via the visible pill in the upper-right (a click or right-
+// click), but the gesture is dedicated to song navigation so users
+// don't have to think about "short vs long" — single mental model.
+//
+// Bindings:
+//   • Touch swipe up   → next song (queue +1)
+//   • Touch swipe down → previous song (queue -1)
+//   • Mouse wheel up   → previous song (one debounced tick per swipe)
+//   • Mouse wheel down → next song
+//   • Trackpad two-finger up/down → same as wheel
+//   • Keyboard ArrowUp/Down + PageUp/PageDown → next/prev song
+//   • Keyboard Shift+ArrowLeft/Right → ♪1/♪2 toggle (alt path)
+let __cssosSwipeWired = false;
+function wireWatchSwipeOnceModule() {
+  if (__cssosSwipeWired) return;
+  const frame = document.querySelector("#watch-panel .watch-frame");
+  if (!frame) return;
+  __cssosSwipeWired = true;
+  const flashDirection = (direction) => {
+    // Brief on-frame indicator so the user gets feedback for the
+    // gesture even before the next song's media loads.
+    try {
+      let chip = document.getElementById("watch-swipe-chip");
+      if (!chip) {
+        chip = document.createElement("div");
+        chip.id = "watch-swipe-chip";
+        chip.style.cssText =
+          "position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);" +
+          "background:rgba(0,0,0,0.6);backdrop-filter:blur(8px);" +
+          "color:#fff;font-size:42px;line-height:1;padding:14px 18px;" +
+          "border-radius:50%;z-index:32;pointer-events:none;" +
+          "transition:opacity 0.25s ease, transform 0.25s ease;opacity:0;";
+        frame.style.position = frame.style.position || "relative";
+        frame.appendChild(chip);
+      }
+      chip.textContent = direction > 0 ? "↓" : "↑";
+      chip.style.opacity = "1";
+      chip.style.transform = "translate(-50%,-50%) scale(1)";
+      clearTimeout(chip.__hideTid);
+      chip.__hideTid = setTimeout(() => {
+        chip.style.opacity = "0";
+        chip.style.transform = "translate(-50%,-50%) scale(0.8)";
+      }, 350);
+    } catch (_e) {}
+  };
+  const advanceSong = (direction) => {
+    flashDirection(direction);
+    void globalThis.cssosWatchQueueAdvance?.(direction);
+  };
+  // Keyboard.
+  document.addEventListener("keydown", (ev) => {
+    if (!watchPanel || watchPanel.classList.contains("hidden")) return;
+    if (ev.target && /input|textarea|select/i.test(ev.target.tagName)) return;
+    if (ev.key === "ArrowDown" || ev.key === "PageDown") {
+      advanceSong(+1);
+      ev.preventDefault();
+    } else if (ev.key === "ArrowUp" || ev.key === "PageUp") {
+      advanceSong(-1);
+      ev.preventDefault();
+    } else if (ev.shiftKey && (ev.key === "ArrowLeft" || ev.key === "ArrowRight")) {
+      try {
+        const sw = globalThis.__cssosWatchTakeSwitcher;
+        if (typeof sw === "function") sw(ev.key === "ArrowRight" ? 2 : 1);
+      } catch (_e) {}
+      ev.preventDefault();
+    }
+  });
+  // Touch swipe.
+  let tStartY = null;
+  let tStartT = 0;
+  frame.addEventListener("touchstart", (ev) => {
+    tStartY = ev.touches?.[0]?.clientY ?? null;
+    tStartT = Date.now();
+  }, { passive: true });
+  frame.addEventListener("touchend", (ev) => {
+    if (tStartY == null) return;
+    const endY = ev.changedTouches?.[0]?.clientY ?? tStartY;
+    const dy = endY - tStartY;
+    const dt = Date.now() - tStartT;
+    tStartY = null;
+    // Reject obvious taps (dt < 80ms or |dy| < 30px). Otherwise any
+    // intentional vertical gesture switches songs — direction = sign(dy)
+    // inverted so swipe-UP advances (TikTok feel: pull next song up).
+    if (dt < 80 || Math.abs(dy) < 30) return;
+    advanceSong(dy < 0 ? +1 : -1);
+  });
+  // Wheel / trackpad — debounced: only one advance per gesture run.
+  let wheelLockUntil = 0;
+  let wheelAccum = 0;
+  frame.addEventListener("wheel", (ev) => {
+    if (!watchPanel || watchPanel.classList.contains("hidden")) return;
+    // Horizontal wheels don't navigate — let them through.
+    if (Math.abs(ev.deltaX) > Math.abs(ev.deltaY)) return;
+    ev.preventDefault();
+    const now = Date.now();
+    if (now < wheelLockUntil) return;
+    wheelAccum += ev.deltaY;
+    if (Math.abs(wheelAccum) < 80) return;
+    advanceSong(wheelAccum > 0 ? +1 : -1);
+    wheelAccum = 0;
+    wheelLockUntil = now + 600;
+  }, { passive: false });
+  wireWatchQueueAutoAdvanceOnceModule();
+  void fetchWatchQueueMoreModule();
+  // CSSOS_PHASE2_PLAYLISTS 20260430 #239 — Jing
+  // Inject the playlist mode pill (left side, mirrors the aspect pill
+  // on the right). Click cycles modes; right-click opens the list-
+  // switcher menu.
+  ensurePlaylistModePillModule();
+  ensureImmersivePillModule();
+  ensureMediaActionsPillModule();
+  ensureAuthorAvatarModule();
+  ensureCinemaAutoHideModule();
+  // CSSOS_PHASE2_SINGLE_LOOP_RIGHTCLICK 20260430 #200 — Jing
+  // "循环单曲（右键菜单）." Right-click the video frame to toggle
+  // 单曲循环 on/off — fastest path to "play this one over and over."
+  // Tab back to the playlist's prior mode on second right-click.
+  if (frame && !frame.dataset.singleLoopWired) {
+    frame.dataset.singleLoopWired = "1";
+    let priorMode = null;
+    frame.addEventListener("contextmenu", (ev) => {
+      // Don't intercept right-click on pills / buttons / inputs.
+      if (ev.target && ev.target.closest && ev.target.closest("button, input, [role=button], #watch-pill-row-bl, #watch-take-toggle, #watch-aspect-pill")) return;
+      if (!globalThis.cssosPlaylists) return;
+      ev.preventDefault();
+      const cur = globalThis.cssosPlaylists.getMode();
+      if (cur === "loop_single") {
+        // Restore previous mode (or default to loop_all)
+        globalThis.cssosPlaylists.setMode(priorMode || "loop_all");
+        priorMode = null;
+      } else {
+        priorMode = cur;
+        globalThis.cssosPlaylists.setMode("loop_single");
+        // Also turn on the actual <audio> / <video> loop attribute so
+        // the current track repeats without depending on ended events.
+        const a = document.getElementById("watch-audio-preview");
+        const v = document.getElementById("watch-video");
+        if (a) a.loop = true;
+        if (v) v.loop = true;
+      }
+      // Sync media element loop attribute when toggling off too.
+      if (globalThis.cssosPlaylists.getMode() !== "loop_single") {
+        const a = document.getElementById("watch-audio-preview");
+        const v = document.getElementById("watch-video");
+        if (a) a.loop = false;
+        if (v) v.loop = false;
+      }
+      if (typeof globalThis.showToast === "function") {
+        globalThis.showToast(globalThis.cssosPlaylists.modeLabel());
+      }
+    });
+  }
+}
+
+// CSSOS_PHASE2_MEDIA_ACTIONS 20260430 #242 — Jing
+// "AirPlay / 画中画 / 还有啥都加，不要占用太多媒体框空间."
+// Single ⋯ pill in the bottom-left row that expands a vertical menu
+// of secondary actions. Each entry self-skips when the underlying API
+// is unavailable (e.g. AirPlay only on Safari, Cast only on Chrome
+// with cast extension, PiP only on Chromium / Safari).
+let __cssosMediaActionsPillWired = false;
+function ensureMediaActionsPillModule() {
+  if (__cssosMediaActionsPillWired) return;
+  const row = ensureBottomLeftPillRowModule();
+  if (!row) return;
+  if (document.getElementById("watch-actions-pill")) return;
+  __cssosMediaActionsPillWired = true;
+
+  const pill = document.createElement("button");
+  pill.id = "watch-actions-pill";
+  pill.type = "button";
+  pill.title = "More actions";
+  pill.textContent = "⋯";
+  pill.style.cssText =
+    "background:rgba(0,0,0,0.55);backdrop-filter:blur(8px);" +
+    "border:1px solid rgba(255,255,255,0.18);border-radius:999px;" +
+    "padding:6px 14px;font-size:14px;font-weight:700;letter-spacing:.04em;" +
+    "color:rgba(255,255,255,0.85);cursor:pointer;line-height:1;";
+  pill.addEventListener("click", () => showMediaActionsMenuModule(pill));
+  row.appendChild(pill);
+}
+
+function buildMediaActionsModule() {
+  const videoEl = document.getElementById("watch-video");
+  const audioEl = document.getElementById("watch-audio-preview");
+  const ps = globalThis.cssosMvPipelinePanelState
+    ? globalThis.cssosMvPipelinePanelState()
+    : null;
+  const finalUrl = String(ps?.mvUrl || videoEl?.src || "").trim();
+  const speedCycle = [0.75, 1, 1.25, 1.5, 2];
+  const currentSpeed = Number(videoEl?.playbackRate || 1);
+  const speedIdx = (() => {
+    const i = speedCycle.findIndex((v) => Math.abs(v - currentSpeed) < 0.01);
+    return i >= 0 ? i : 1; // default 1x
+  })();
+
+  const actions = [];
+
+  // AirPlay (Safari only)
+  if (videoEl && typeof videoEl.webkitShowPlaybackTargetPicker === "function") {
+    actions.push({
+      icon: "📺", label: "AirPlay",
+      onClick: () => {
+        try { videoEl.webkitShowPlaybackTargetPicker(); }
+        catch (e) { console.warn("[airplay]", e); }
+      },
+    });
+  }
+  // Picture-in-Picture
+  if (videoEl && document.pictureInPictureEnabled) {
+    actions.push({
+      icon: "🪟",
+      label: document.pictureInPictureElement === videoEl
+        ? loginCopy("Exit Picture-in-Picture", "退出画中画")
+        : loginCopy("Picture-in-Picture", "画中画"),
+      onClick: async () => {
+        try {
+          if (document.pictureInPictureElement === videoEl) {
+            await document.exitPictureInPicture();
+          } else {
+            await videoEl.requestPictureInPicture();
+          }
+        } catch (e) { console.warn("[pip]", e); }
+      },
+    });
+  }
+  // Cast — Presentation API (Chrome with cast extension / Edge)
+  if (videoEl && "remote" in videoEl && typeof videoEl.remote?.prompt === "function") {
+    actions.push({
+      icon: "📡", label: loginCopy("Cast to device", "投屏 (Cast)"),
+      onClick: async () => {
+        try { await videoEl.remote.prompt(); }
+        catch (e) { console.warn("[cast]", e); }
+      },
+    });
+  }
+  // Playback speed cycler
+  if (videoEl) {
+    const _spdNext = speedCycle[(speedIdx + 1) % speedCycle.length];
+    actions.push({
+      icon: "⏩",
+      label: loginCopy(
+        `Speed ${currentSpeed}× → ${_spdNext}×`,
+        `倍速 ${currentSpeed}× → ${_spdNext}×`
+      ),
+      onClick: () => {
+        const next = speedCycle[(speedIdx + 1) % speedCycle.length];
+        if (videoEl) videoEl.playbackRate = next;
+        if (audioEl) audioEl.playbackRate = next;
+        if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(loginCopy(`Speed ${next}×`, `倍速 ${next}×`));
+        }
+      },
+    });
+  }
+  // Mute toggle (audio + video)
+  const isMuted = (audioEl?.muted ?? true) && (videoEl?.muted ?? true);
+  actions.push({
+    icon: isMuted ? "🔇" : "🔊",
+    label: isMuted ? loginCopy("Unmute", "取消静音") : loginCopy("Mute", "静音"),
+    onClick: () => {
+      const muteAll = !isMuted;
+      if (audioEl) audioEl.muted = muteAll;
+      if (videoEl) videoEl.muted = muteAll;
+      if (typeof globalThis.showToast === "function") {
+        globalThis.showToast(
+          muteAll
+            ? loginCopy("🔇 Muted", "🔇 已静音")
+            : loginCopy("🔊 Unmuted", "🔊 取消静音")
+        );
+      }
+    },
+  });
+  // Share — Web Share API (mobile + recent desktop)
+  if (typeof navigator.share === "function") {
+    actions.push({
+      icon: "📤", label: loginCopy("Share", "分享"),
+      onClick: async () => {
+        try {
+          await navigator.share({
+            title: ps?.title || "cssOS MV",
+            text: `Watch "${ps?.title || ""}" on cssOS`,
+            url: window.location.href,
+          });
+        } catch (e) { console.warn("[share]", e); }
+      },
+    });
+  }
+  // Favorite — add to custom playlist
+  if (globalThis.cssosPlaylists && ps?.workId) {
+    actions.push({
+      icon: "❤️", label: loginCopy("Favorite", "收藏"),
+      onClick: () => {
+        const list = globalThis.cssosPlaylists.getActive();
+        const item = globalThis.cssosPlaylists.current() || {
+          id: String(ps.workId).split("|")[0],
+          title: ps.title,
+          final_mv_url: ps.mvUrl,
+          audio_track_1_url: ps.audioUrl,
+          audio_track_2_url: ps.altAudioUrl,
+          duration_secs: ps.duration,
+        };
+        const ok = globalThis.cssosPlaylists.addToCustom(item);
+        if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(
+            ok
+              ? loginCopy("❤️ Added to favorites", "❤️ 已加入收藏列表")
+              : loginCopy("Already in your favorites", "已经在列表里了")
+          );
+        }
+      },
+    });
+  }
+  // CSSOS_PHASE2_SLIDESHOW_SLIDER 20260430 #200 — slideshow intensity
+  if (typeof globalThis.cssmvSetSlideshowIntensity === "function") {
+    actions.push({
+      icon: "🎞️",
+      label: loginCopy("Slideshow intensity", "幻灯片强度"),
+      isSlider: true,
+      sliderValue: typeof globalThis.cssmvGetSlideshowIntensity === "function"
+        ? globalThis.cssmvGetSlideshowIntensity()
+        : 0.5,
+      onSliderInput: (v) => {
+        const r = globalThis.cssmvSetSlideshowIntensity(v);
+        return loginCopy(`${r.frameMs / 1000 | 0}s per slide`, `每张 ${r.frameMs / 1000 | 0} 秒`);
+      },
+    });
+  }
+  // CSSOS_PHASE2_ASPECT_IN_MENU 20260501 #263 — Jing
+  // "媒体框左上角，请让用户头像独占，之前的媒体规格的那个按钮，
+  //  移动到左下角的三点里."
+  // Aspect cycler moves into the ⋯ menu so the avatar gets the
+  // top-left corner alone. Cycles through the same preset list as the
+  // old in-frame pill (16:9 → 9:16 → 1:1 → 21:9).
+  if (typeof globalThis.__cssosCycleAspect === "function") {
+    actions.push({
+      icon: "📐",
+      label: loginCopy("Aspect ratio", "媒体规格"),
+      onClick: () => {
+        try { globalThis.__cssosCycleAspect(); } catch (e) { console.warn("[aspect]", e); }
+      },
+    });
+  }
+  // Download — own works only
+  if (finalUrl && (ps?.is_own !== false)) {
+    actions.push({
+      icon: "⬇️", label: loginCopy("Download MP4", "下载 MP4"),
+      onClick: () => {
+        try {
+          const a = document.createElement("a");
+          a.href = finalUrl;
+          a.download = `${(ps?.title || "cssos-mv").replace(/[^\w一-鿿-]+/g, "_")}.mp4`;
+          a.target = "_blank";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        } catch (e) { console.warn("[download]", e); }
+      },
+    });
+  }
+  return actions;
+}
+
+function showMediaActionsMenuModule(anchor) {
+  const old = document.getElementById("watch-actions-menu");
+  if (old) { old.remove(); return; }
+  const screen = document.querySelector("#watch-panel .watch-screen");
+  if (!screen) return;
+  const menu = document.createElement("div");
+  menu.id = "watch-actions-menu";
+  menu.dataset.noFrameToggle = "1"; // sliders / row gaps never pause media
+  menu.style.cssText =
+    "position:absolute;left:12px;bottom:48px;min-width:180px;" +
+    "background:rgba(20,20,20,0.95);backdrop-filter:blur(12px);" +
+    "border:1px solid rgba(255,255,255,0.18);border-radius:8px;" +
+    "padding:6px 0;z-index:40;font-size:13px;color:#fff;" +
+    "box-shadow:0 8px 24px rgba(0,0,0,0.4);";
+  const actions = buildMediaActionsModule();
+  if (!actions.length) {
+    const empty = document.createElement("div");
+    empty.style.cssText = "padding:8px 14px;color:rgba(255,255,255,0.5);";
+    empty.textContent = "No actions available on this browser.";
+    menu.appendChild(empty);
+  }
+  for (const a of actions) {
+    if (a.isSlider) {
+      // CSSOS_PHASE2_SLIDESHOW_SLIDER 20260430 #200 — inline range row.
+      const row = document.createElement("div");
+      row.style.cssText =
+        "display:flex;align-items:center;gap:10px;padding:8px 14px;color:inherit;font:inherit;";
+      const icon = document.createElement("span");
+      icon.style.cssText = "font-size:16px;width:22px;text-align:center;";
+      icon.textContent = a.icon;
+      const lbl = document.createElement("span");
+      lbl.style.cssText = "min-width:80px;";
+      lbl.textContent = a.label;
+      const slider = document.createElement("input");
+      slider.type = "range";
+      slider.min = "0";
+      slider.max = "1";
+      slider.step = "0.05";
+      slider.value = String(a.sliderValue ?? 0.5);
+      slider.style.cssText = "flex:1;accent-color:#00f5a0;";
+      const out = document.createElement("span");
+      out.style.cssText = "min-width:64px;font-size:11px;color:rgba(255,255,255,0.7);text-align:right;";
+      out.textContent = "";
+      slider.addEventListener("input", () => {
+        try {
+          const txt = a.onSliderInput(parseFloat(slider.value));
+          if (txt) out.textContent = String(txt);
+        } catch (e) { console.warn("[media-action-slider]", e); }
+      });
+      // Initial label
+      try {
+        const txt = a.onSliderInput(parseFloat(slider.value));
+        if (txt) out.textContent = String(txt);
+      } catch (_e) {}
+      row.appendChild(icon);
+      row.appendChild(lbl);
+      row.appendChild(slider);
+      row.appendChild(out);
+      menu.appendChild(row);
+      continue;
+    }
+    const row = document.createElement("button");
+    row.type = "button";
+    row.style.cssText =
+      "display:flex;align-items:center;gap:10px;width:100%;text-align:left;" +
+      "padding:8px 14px;background:transparent;border:none;color:inherit;" +
+      "font:inherit;cursor:pointer;";
+    row.innerHTML = `<span style="font-size:16px;width:22px;text-align:center;">${a.icon}</span><span>${a.label}</span>`;
+    row.addEventListener("mouseenter", () => { row.style.background = "rgba(255,255,255,0.08)"; });
+    row.addEventListener("mouseleave", () => { row.style.background = "transparent"; });
+    row.addEventListener("click", () => {
+      try { a.onClick(); } catch (e) { console.warn("[media-action]", e); }
+      menu.remove();
+    });
+    menu.appendChild(row);
+  }
+  screen.appendChild(menu);
+  setTimeout(() => {
+    const onDoc = (e) => {
+      if (!menu.contains(e.target) && e.target !== anchor) {
+        menu.remove();
+        document.removeEventListener("click", onDoc, true);
+      }
+    };
+    document.addEventListener("click", onDoc, true);
+  }, 50);
+}
+
+// CSSOS_PHASE2_IMMERSIVE 20260430 #241 — Jing
+// "可以在媒体框左下角加一个'Immersive Environments'按钮，让用户在虚拟环境
+//  中如Apple Vision Pro使用吗？"
+//
+// Three-tier cascade:
+//   1. WebXR `immersive-vr` session if navigator.xr supports it (Quest
+//      browser, Vision Pro WebXR mode, Wolvic, Pico).
+//   2. Apple Vision Pro Safari: requestFullscreen() on the <video>
+//      element wakes up its built-in cinema environment automatically.
+//   3. Desktop / mobile: fullscreen + darken the rest of the page so
+//      the user gets a theater-style experience.
+// CSSOS_PHASE2_VIDEO_FALLBACK 20260501 #249 — Jing
+// "在一些自动播放视频受限的环境，如Tesla的浏览器，应该fallback到自动
+//  播放音频，至于画面，可以做一个参数，默认播放视频的增强版幻灯或者
+//  切换到Music标签页，由用户选择设置。绝对不要再让用户每一首歌都要
+//  再去点击一下才播放声音."
+//
+// Mode: "slideshow" (default) — hide blocked <video>, show Ken-Burns
+// pulsing cover slideshow + audio plays normally. Or "music_tab" —
+// flip the watch-panel tab to Music so the disc + audio waveform UI
+// drives playback. Persisted to localStorage.
+const CSSOS_VIDEO_FALLBACK_KEY = "cssos.video.fallback.mode.v1";
+function getVideoFallbackMode() {
+  try {
+    const v = String(localStorage.getItem(CSSOS_VIDEO_FALLBACK_KEY) || "").trim();
+    if (v === "slideshow" || v === "music_tab") return v;
+  } catch (_e) {}
+  return "slideshow";
+}
+function setVideoFallbackMode(mode) {
+  if (mode !== "slideshow" && mode !== "music_tab") return false;
+  try { localStorage.setItem(CSSOS_VIDEO_FALLBACK_KEY, mode); } catch (_e) {}
+  return true;
+}
+globalThis.cssosGetVideoFallbackMode = getVideoFallbackMode;
+globalThis.cssosSetVideoFallbackMode = setVideoFallbackMode;
+
+function activateVideoBlockedFallbackModule(item, videoEl) {
+  const mode = getVideoFallbackMode();
+  console.warn("[video-fallback] mode=%s — keeping audio, swapping visual", mode);
+  // Make sure audio is still attempting playback (it has more permissive
+  // autoplay rules — should succeed even when video is blocked).
+  const audioEl = document.getElementById("watch-audio-preview");
+  if (audioEl) {
+    audioEl.muted = false;
+    if (audioEl.play) {
+      audioEl.play().catch((err) => {
+        // Audio also blocked — install ONE persistent recovery listener
+        // (not per-song) so a single user click anywhere unblocks the
+        // rest of the queue forever. This is the LAST resort, not the
+        // default UX path.
+        console.warn("[video-fallback] audio.play() also rejected:", err?.name);
+        if (!globalThis.__cssosAudioGlobalRecover) {
+          globalThis.__cssosAudioGlobalRecover = true;
+          const recover = () => {
+            const a = document.getElementById("watch-audio-preview");
+            if (a && a.play) a.play().catch(() => {});
+            document.removeEventListener("click", recover, true);
+            globalThis.__cssosAudioGlobalRecover = false;
+          };
+          document.addEventListener("click", recover, true);
+          if (typeof globalThis.showToast === "function") {
+            globalThis.showToast("Tap once to start audio (browser limit). It will keep playing for the rest of the queue.");
+          }
+        }
+      });
+    }
+  }
+  if (mode === "music_tab") {
+    try {
+      if (typeof globalThis.activateWatchTab === "function") {
+        globalThis.activateWatchTab("music");
+      }
+    } catch (_e) {}
+    return;
+  }
+  // mode === "slideshow"
+  try {
+    if (videoEl) {
+      videoEl.style.opacity = "0";
+      videoEl.style.pointerEvents = "none";
+    }
+    // Promote the cover image into the slideshow host. cssmvSetCoverSlides
+    // accepts an array; feeding it [cover, cover] makes the existing
+    // crossfade engine pulse the same image with Ken-Burns gracefully.
+    const cover = String(item?.cover_url || item?.cover_image || item?.preview_image_url || "").trim();
+    if (cover && typeof globalThis.cssmvSetCoverSlides === "function") {
+      // 4 staggered copies → smooth Ken-Burns drift. Real production
+      // path would supply 5 distinct AI-gen variations; one image is
+      // an acceptable fallback when only one is available.
+      globalThis.cssmvSetCoverSlides([cover, cover, cover, cover]);
+    }
+    // Bump slideshow intensity higher in fallback mode for energy.
+    if (typeof globalThis.cssmvSetSlideshowIntensity === "function") {
+      globalThis.cssmvSetSlideshowIntensity(0.7);
+    }
+  } catch (_e) {}
+}
+globalThis.activateVideoBlockedFallbackModule = activateVideoBlockedFallbackModule;
+
+// CSSOS_PHASE2_CINEMA_AUTOHIDE 20260501 #262 — Jing
+// "让欣赏界面彻底真真正正干干净净。Hover 才显示媒体框上的一切信息，
+//  包括顶部的标题栏。10秒无操作隐藏。Hover 时顶部贴着标题栏，方角，
+//  底部贴着屏幕下边缘。"
+//
+// CSS-driven cinema mode: when watch-panel.classList includes
+// "cssmv-cinema", everything fades out (header, pills, take toggle,
+// avatar, immersive button, ⋯ menu). Hovering the panel re-adds
+// interactivity for 10s.
+//
+// Title overlay flashes in sync with the user's font-shuffle interval
+// (state.fontRefreshIntervalMs, default 60s) — visible for 10s then
+// fades, restoring the truly clean field of view.
+let __cssosCinemaWired = false;
+function ensureCinemaAutoHideModule() {
+  if (__cssosCinemaWired) return;
+  if (!watchPanel) return;
+  __cssosCinemaWired = true;
+  const STYLE_ID = "cssos-cinema-style";
+  if (!document.getElementById(STYLE_ID)) {
+    const st = document.createElement("style");
+    st.id = STYLE_ID;
+    st.textContent = `
+/* When cinema mode is on, hide all chrome and let the media bleed to
+   the screen edges. The 'is-hovering' class re-reveals chrome and
+   slides the frame down to sit flush below the title bar. */
+#watch-panel.cssmv-cinema .panel-title-bar,
+#watch-panel.cssmv-cinema .panel-toolbar,
+#watch-panel.cssmv-cinema .watch-toolbar,
+#watch-panel.cssmv-cinema #watch-pill-row-bl,
+#watch-panel.cssmv-cinema #watch-aspect-pill,
+#watch-panel.cssmv-cinema #watch-author-avatar,
+#watch-panel.cssmv-cinema #watch-take-toggle {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+#watch-panel.cssmv-cinema.is-hovering .panel-title-bar,
+#watch-panel.cssmv-cinema.is-hovering .panel-toolbar,
+#watch-panel.cssmv-cinema.is-hovering .watch-toolbar,
+#watch-panel.cssmv-cinema.is-hovering #watch-pill-row-bl,
+#watch-panel.cssmv-cinema.is-hovering #watch-aspect-pill,
+#watch-panel.cssmv-cinema.is-hovering #watch-author-avatar,
+#watch-panel.cssmv-cinema.is-hovering #watch-take-toggle {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* Full-bleed frame when cinema is active and not hovering: square top
+   corners, attached to viewport edges. */
+#watch-panel.cssmv-cinema .watch-frame {
+  border-radius: 0 !important;
+  margin: 0 !important;
+  transition: margin 0.25s ease, border-radius 0.25s ease;
+}
+#watch-panel.cssmv-cinema.is-hovering .watch-frame {
+  margin-top: 4px !important; /* slide down a hair to clear title bar */
+  border-radius: 8px 8px 0 0 !important;
+}
+/* Title overlay flash — controlled by JS toggling .karaoke-flash. */
+#watch-panel.cssmv-cinema #watch-karaoke-line.karaoke-flash {
+  opacity: 1;
+  transition: opacity 0.4s ease;
+}
+#watch-panel.cssmv-cinema #watch-karaoke-line {
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+`;
+    document.head.appendChild(st);
+  }
+
+  // Default: cinema mode ON whenever watch panel shows. Toggle off via
+  // globalThis.cssosCinemaMode = false for users who prefer chrome.
+  const ENABLED_KEY = "cssos.cinema.enabled.v1";
+  const isEnabled = () => {
+    try {
+      const v = localStorage.getItem(ENABLED_KEY);
+      if (v === "0") return false;
+    } catch (_e) {}
+    return true;
+  };
+  if (isEnabled()) watchPanel.classList.add("cssmv-cinema");
+  globalThis.cssosCinemaMode = (on) => {
+    try { localStorage.setItem(ENABLED_KEY, on ? "1" : "0"); } catch (_e) {}
+    watchPanel.classList.toggle("cssmv-cinema", !!on);
+  };
+
+  // 10-second idle auto-hide: any interaction extends the hover window.
+  let hoverTimer = null;
+  const showHover = () => {
+    watchPanel.classList.add("is-hovering");
+    clearTimeout(hoverTimer);
+    hoverTimer = setTimeout(() => {
+      watchPanel.classList.remove("is-hovering");
+    }, 10_000);
+  };
+  ["mousemove", "touchstart", "pointerdown", "wheel", "keydown"].forEach((ev) => {
+    watchPanel.addEventListener(ev, showHover, { passive: true });
+  });
+  // Initial reveal so the user sees the chrome on first open.
+  showHover();
+
+  // Title-overlay flash on the user's font-shuffle interval. Default 60s.
+  const flashKaraokeTitle = () => {
+    const kar = document.getElementById("watch-karaoke-line");
+    if (!kar) return;
+    kar.classList.add("karaoke-flash");
+    setTimeout(() => kar.classList.remove("karaoke-flash"), 10_000);
+  };
+  const refreshIntervalMs = (() => {
+    try {
+      const v = parseInt(localStorage.getItem("cssos.font.shuffle.ms") || "60000", 10);
+      return Number.isFinite(v) && v > 5000 ? v : 60000;
+    } catch (_e) { return 60000; }
+  })();
+  setInterval(flashKaraokeTitle, refreshIntervalMs);
+  flashKaraokeTitle(); // First flash on open.
+}
+
+// CSSOS_PHASE2_AUTHOR_AVATAR 20260501 #246 — Jing
+// "请在媒体框内设计该首歌的作者头像，用户点击该头像进入到该用户的作品中心.
+//  可以关注该用户加为好友. 同样逻辑，如果点击该用户的作品，则默认从新到旧
+//  循环播放该用户的音乐列表（只播放该用户的作品）."
+//
+// Renders a small circular avatar in the media frame top-left. Reads
+// owner_name + owner_id from pipelineState (pushed from openMarketWork-
+// Preview's hydration). Click → creates a synthetic per-author playlist
+// (filters cssosPlaylists items to that author), sets it active. Long
+// press / right-click → follow/friend menu (scaffold; backend endpoint
+// arrives in a follow-up task).
+let __cssosAuthorAvatarWired = false;
+function ensureAuthorAvatarModule() {
+  if (__cssosAuthorAvatarWired) return;
+  const screen = document.querySelector("#watch-panel .watch-screen");
+  if (!screen) return;
+  if (document.getElementById("watch-author-avatar")) return;
+  __cssosAuthorAvatarWired = true;
+  const avatar = document.createElement("button");
+  avatar.id = "watch-author-avatar";
+  avatar.type = "button";
+  avatar.title = "By unknown author";
+  // CSSOS_PHASE2_AVATAR_SOLO 20260501 #263 — Jing
+  // "媒体框左上角，请让用户头像独占." Aspect pill moved into the ⋯
+  // menu, so the avatar takes the top-left corner alone at top:12px.
+  avatar.style.cssText =
+    "position:absolute;left:12px;top:12px;width:40px;height:40px;" +
+    "border-radius:50%;border:2px solid rgba(255,255,255,0.6);" +
+    "background:rgba(0,0,0,0.55);backdrop-filter:blur(8px);" +
+    "color:#fff;font-size:14px;font-weight:700;cursor:pointer;" +
+    "display:flex;align-items:center;justify-content:center;" +
+    "z-index:30;overflow:hidden;transition:transform .15s ease, box-shadow .15s ease;";
+  avatar.dataset.ownerId = "";
+  // Refresh the avatar whenever the playlist switches songs (which our
+  // code emits via pl.onChange) and on initial mount.
+  const refresh = () => {
+    try {
+      const ps = globalThis.cssosMvPipelinePanelState
+        ? globalThis.cssosMvPipelinePanelState()
+        : null;
+      const ownerId = String(ps?.ownerId || ps?.owner_id || "").trim();
+      const ownerName = String(ps?.ownerName || ps?.owner_name || "").trim();
+      const ownerAvatar = String(ps?.ownerAvatarUrl || "").trim();
+      avatar.dataset.ownerId = ownerId;
+      avatar.title = ownerName ? `By ${ownerName} — click to play their works` : "Unknown author";
+      avatar.innerHTML = "";
+      if (ownerAvatar) {
+        const img = document.createElement("img");
+        img.src = ownerAvatar;
+        img.alt = ownerName || "author";
+        img.style.cssText = "width:100%;height:100%;object-fit:cover;";
+        avatar.appendChild(img);
+      } else {
+        // Fallback: initials.
+        const initial = (ownerName || "?").trim().charAt(0).toUpperCase();
+        avatar.textContent = initial;
+      }
+    } catch (_e) {}
+  };
+  refresh();
+  avatar.addEventListener("click", () => {
+    try {
+      const pl = globalThis.cssosPlaylists;
+      if (!pl) return;
+      const ownerId = avatar.dataset.ownerId;
+      const ownerName = avatar.title.replace(/^By |\s—.*$/g, "").trim() || "Author";
+      if (!ownerId) {
+        if (typeof globalThis.showToast === "function") globalThis.showToast("Author info unavailable on this work.");
+        return;
+      }
+      // Find or create a synthetic per-author playlist.
+      const listId = `author-${ownerId}`;
+      const existing = pl.lists().find((l) => l.id === listId);
+      if (!existing) {
+        // Pull all known items from for-you / mine and filter by owner.
+        const seen = new Set();
+        const collected = [];
+        ["for-you", "mine"].forEach((srcId) => {
+          const items = (pl._state?.lists?.[srcId]?.items || []);
+          for (const it of items) {
+            const id = String(it?.id || "").trim();
+            if (!id || seen.has(id)) continue;
+            // Only include items by this author. We don't store owner_id
+            // on every item right now, so use owner_name match as fallback.
+            const matches =
+              (it.owner_id && String(it.owner_id) === ownerId) ||
+              (it.owner_name && it.owner_name === ownerName);
+            if (matches) {
+              collected.push(it);
+              seen.add(id);
+            }
+          }
+        });
+        // Sort newest → oldest.
+        collected.sort((a, b) =>
+          (Date.parse(String(b?.created_at || "")) || 0) -
+          (Date.parse(String(a?.created_at || "")) || 0)
+        );
+        // Inject into playlists module via the public API.
+        const newId = pl.createCustom(`✨ ${ownerName}`);
+        // createCustom returns id; mutate items directly through _state.
+        const list = pl._state?.lists?.[newId];
+        if (list) list.items = collected;
+        pl.setActive(newId);
+      } else {
+        pl.setActive(listId);
+      }
+      if (typeof globalThis.showToast === "function") {
+        globalThis.showToast(loginCopy(
+          `Now playing only ${ownerName}'s works`,
+          `当前只播放 ${ownerName} 的作品`
+        ));
+      }
+    } catch (e) { console.warn("[author-avatar]", e); }
+  });
+  // Hover effect.
+  avatar.addEventListener("mouseenter", () => { avatar.style.transform = "scale(1.08)"; });
+  avatar.addEventListener("mouseleave", () => { avatar.style.transform = ""; });
+  // Subscribe to playlist + state updates.
+  if (globalThis.cssosPlaylists?.onChange) {
+    globalThis.cssosPlaylists.onChange(refresh);
+  }
+  globalThis.__cssosRefreshAuthorAvatar = refresh;
+  screen.style.position = screen.style.position || "relative";
+  screen.appendChild(avatar);
+}
+
+let __cssosImmersivePillWired = false;
+function ensureImmersivePillModule() {
+  if (__cssosImmersivePillWired) return;
+  const row = ensureBottomLeftPillRowModule();
+  if (!row) return;
+  if (document.getElementById("watch-immersive-pill")) return;
+  __cssosImmersivePillWired = true;
+
+  const pill = document.createElement("button");
+  pill.id = "watch-immersive-pill";
+  pill.type = "button";
+  pill.title = "Immersive Environments — Vision Pro / WebXR / cinema fullscreen";
+  // CSSOS_PHASE2_PILL_ROW 20260430 #241b — sits in the shared
+  // bottom-left flex row alongside the playlist pill, no longer
+  // absolutely positioned itself.
+  pill.style.cssText =
+    "display:flex;align-items:center;gap:6px;" +
+    "background:rgba(0,0,0,0.55);backdrop-filter:blur(8px);" +
+    "border:1px solid rgba(255,255,255,0.18);border-radius:999px;" +
+    "padding:6px 12px;font-size:11px;font-weight:600;letter-spacing:.04em;" +
+    "color:rgba(255,255,255,0.85);cursor:pointer;transition:all .15s ease;";
+  pill.textContent = "👓 Immersive";
+
+  // CSSOS_PHASE2_IMMERSIVE 20260430 #241c — Jing
+  // "Issue During WebXR Experience: The WebXR experience failed to
+  //  respond." Removed the WebXR session.requestSession() path because
+  // immersive-vr requires a WebGL render layer (Three.js / babylon /
+  // raw GL) — without one the XR runtime sees no frames and surfaces
+  // the "failed to respond" error. Vision Pro Safari's native cinema
+  // environment, Quest browser's fullscreen video mode, and desktop
+  // fullscreen ALL light up correctly via plain `requestFullscreen()`
+  // on the <video> element — no XR session needed. We'll re-enable
+  // WebXR with a proper Three.js render layer in a follow-up.
+
+  pill.addEventListener("click", async () => {
+    const videoEl = document.getElementById("watch-video");
+    const frame = document.querySelector("#watch-panel .watch-frame");
+    // Fullscreen the video. Vision Pro Safari triggers its native
+    // cinema environment automatically; Quest browser shows the
+    // video on a curved virtual screen; desktop / mobile go to
+    // standard fullscreen with our theater backdrop.
+    try {
+      const target = videoEl || frame;
+      if (target?.requestFullscreen) {
+        await target.requestFullscreen();
+      } else if (target?.webkitEnterFullscreen) {
+        // iOS / Vision Pro / older Safari path.
+        target.webkitEnterFullscreen();
+      } else if (target?.webkitRequestFullscreen) {
+        target.webkitRequestFullscreen();
+      }
+      document.body.classList.add("cssos-watch-theater");
+      const onExit = () => {
+        if (!document.fullscreenElement) {
+          document.body.classList.remove("cssos-watch-theater");
+          document.removeEventListener("fullscreenchange", onExit);
+        }
+      };
+      document.addEventListener("fullscreenchange", onExit);
+    } catch (err) {
+      console.warn("[immersive] fullscreen failed:", err);
+      if (typeof globalThis.showToast === "function") {
+        globalThis.showToast("Immersive view unavailable on this browser.");
+      }
+    }
+  });
+  row.appendChild(pill);
+
+  // Theater backdrop — kicks in when document.body has the
+  // cssos-watch-theater class (added on fullscreen entry above).
+  if (!document.getElementById("cssos-theater-style")) {
+    const style = document.createElement("style");
+    style.id = "cssos-theater-style";
+    style.textContent =
+      "body.cssos-watch-theater { background:#000 !important; }" +
+      "body.cssos-watch-theater #watch-panel { box-shadow:0 0 60px rgba(0,0,0,0.85); }";
+    document.head.appendChild(style);
+  }
+}
+
+// CSSOS_PHASE2_PILL_ROW 20260430 #241b — Jing
+// "能否和播放列表胶囊并排在右边?" Both pills share a bottom-left flex
+// container so they sit on the same row regardless of label length.
+function ensureBottomLeftPillRowModule() {
+  let row = document.getElementById("watch-pill-row-bl");
+  if (row) return row;
+  const screen = document.querySelector("#watch-panel .watch-screen");
+  if (!screen) return null;
+  row = document.createElement("div");
+  row.id = "watch-pill-row-bl";
+  // CSSOS_PHASE2_NO_PAUSE_ON_CONTROL 20260501 #260 — Jing
+  // "用户操作媒体框里的那些按钮，媒体可以不必暂停."
+  // The frame-click toggle (in app.watch-media-layout-p2100.js) skips
+  // any element with [data-no-frame-toggle]. Tag the whole pill row
+  // so clicks on gaps / dividers / non-button children also skip the
+  // pause-on-click handler.
+  row.dataset.noFrameToggle = "1";
+  row.style.cssText =
+    "position:absolute;left:12px;bottom:12px;display:flex;align-items:center;" +
+    "gap:8px;z-index:30;flex-wrap:wrap;";
+  screen.style.position = screen.style.position || "relative";
+  screen.appendChild(row);
+  return row;
+}
+
+let __cssosPlaylistPillWired = false;
+function ensurePlaylistModePillModule() {
+  if (__cssosPlaylistPillWired) return;
+  const row = ensureBottomLeftPillRowModule();
+  if (!row || !globalThis.cssosPlaylists) return;
+  if (document.getElementById("watch-playlist-pill")) return;
+  __cssosPlaylistPillWired = true;
+  // CSSOS_PHASE2_PLAYLISTS 20260430 #239b — Jing
+  // "右击不应触发右键菜单." Replace the right-click binding with two
+  // distinct clickable regions: the left half (mode label) cycles
+  // playback modes; the right half (list name) opens the list switcher.
+  // Right-click stays inert (browser context menu allowed if user wants
+  // page-level context).
+  const pill = document.createElement("div");
+  pill.id = "watch-playlist-pill";
+  pill.dataset.noFrameToggle = "1"; // gaps / separator never pause media
+  pill.style.cssText =
+    "display:flex;align-items:stretch;" +
+    "background:rgba(0,0,0,0.55);backdrop-filter:blur(8px);" +
+    "border:1px solid rgba(255,255,255,0.18);border-radius:999px;" +
+    "font-size:11px;font-weight:600;letter-spacing:.04em;" +
+    "color:rgba(255,255,255,0.85);overflow:hidden;";
+  const modeBtn = document.createElement("button");
+  modeBtn.type = "button";
+  modeBtn.style.cssText =
+    "background:transparent;border:none;color:inherit;font:inherit;" +
+    "padding:6px 10px;cursor:pointer;transition:background .15s ease;";
+  const sep = document.createElement("div");
+  sep.style.cssText = "width:1px;background:rgba(255,255,255,0.2);margin:4px 0;";
+  const listBtn = document.createElement("button");
+  listBtn.type = "button";
+  listBtn.style.cssText =
+    "background:transparent;border:none;color:inherit;font:inherit;" +
+    "padding:6px 10px;cursor:pointer;transition:background .15s ease;";
+  const refresh = () => {
+    const mode = globalThis.cssosPlaylists.getMode();
+    const list = globalThis.cssosPlaylists.getActive();
+    modeBtn.textContent = globalThis.cssosPlaylists.modeLabel(mode);
+    listBtn.textContent = `${list?.name || "?"} ▾`;
+  };
+  refresh();
+  modeBtn.addEventListener("click", () => {
+    globalThis.cssosPlaylists.cycleMode();
+    refresh();
+    if (typeof globalThis.showToast === "function") {
+      globalThis.showToast(globalThis.cssosPlaylists.modeLabel());
+    }
+  });
+  listBtn.addEventListener("click", () => {
+    showPlaylistSwitcherMenuModule(pill);
+  });
+  globalThis.cssosPlaylists.onChange(refresh);
+  pill.appendChild(modeBtn);
+  pill.appendChild(sep);
+  pill.appendChild(listBtn);
+  row.appendChild(pill);
+}
+
+function showPlaylistSwitcherMenuModule(anchor) {
+  if (!globalThis.cssosPlaylists) return;
+  const old = document.getElementById("watch-playlist-menu");
+  if (old) { old.remove(); return; }
+  const menu = document.createElement("div");
+  menu.id = "watch-playlist-menu";
+  menu.dataset.noFrameToggle = "1";
+  menu.style.cssText =
+    "position:absolute;left:12px;bottom:48px;min-width:160px;" +
+    "background:rgba(20,20,20,0.95);backdrop-filter:blur(12px);" +
+    "border:1px solid rgba(255,255,255,0.18);border-radius:8px;" +
+    "padding:6px 0;z-index:40;font-size:12px;color:#fff;" +
+    "box-shadow:0 8px 24px rgba(0,0,0,0.4);";
+  const lists = globalThis.cssosPlaylists.lists();
+  const active = globalThis.cssosPlaylists.getActive()?.id;
+  for (const l of lists) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.style.cssText =
+      "display:block;width:100%;text-align:left;padding:8px 14px;" +
+      "background:transparent;border:none;color:inherit;font:inherit;cursor:pointer;";
+    row.textContent = `${l.id === active ? "●" : "○"} ${l.name} (${l.count})`;
+    row.addEventListener("click", () => {
+      globalThis.cssosPlaylists.setActive(l.id);
+      menu.remove();
+    });
+    menu.appendChild(row);
+  }
+  // Add custom list
+  const sep = document.createElement("div");
+  sep.style.cssText = "height:1px;background:rgba(255,255,255,0.18);margin:6px 0;";
+  menu.appendChild(sep);
+  const create = document.createElement("button");
+  create.type = "button";
+  create.textContent = loginCopy("＋ New custom list", "＋ 新建自定义列表");
+  create.style.cssText =
+    "display:block;width:100%;text-align:left;padding:8px 14px;" +
+    "background:transparent;border:none;color:#00f5a0;font:inherit;cursor:pointer;";
+  create.addEventListener("click", () => {
+    const name = prompt(loginCopy("Custom list name:", "自定义列表名称："));
+    if (name && name.trim()) {
+      const id = globalThis.cssosPlaylists.createCustom(name.trim());
+      globalThis.cssosPlaylists.setActive(id);
+    }
+    menu.remove();
+  });
+  menu.appendChild(create);
+  const screen = document.querySelector("#watch-panel .watch-screen");
+  if (screen) screen.appendChild(menu);
+  // Click outside dismisses
+  setTimeout(() => {
+    const onDoc = (e) => {
+      if (!menu.contains(e.target)) {
+        menu.remove();
+        document.removeEventListener("click", onDoc, true);
+      }
+    };
+    document.addEventListener("click", onDoc, true);
+  }, 50);
+}
+
+// CSSOS_PHASE2_ORIENTATION_FIT 20260430 #223 — Jing
+// "检测设备的横竖屏状态：横屏自动 16:9，竖屏自动 9:16."
+// CSS-only orientation switch: zero render cost, works for any tier
+// (the existing mp4 uses object-fit:cover to fill the new container —
+// small amount of edge crop when aspect mismatches, but immediate value
+// without re-rendering). For Lite tier we'll add a "Re-render in 9:16
+// · free" button later (#223b) that triggers compose-only recompose.
+let __cssosOrientationListenerWired = false;
+// CSSOS_PHASE2_RECOMPOSE_BUTTON 20260430 #225 — Jing
+// "我建议做一个变形按钮在媒体框里某个地方，方便用户即时调用."
+// In-frame transform pill: top-right corner, cycles through aspects
+// 16:9 → 9:16 → 1:1 → 21:9 → 16:9. CSS-only preview happens
+// instantly (object-fit:cover swap); on confirm, POST /api/mv/compose
+// with new W×H to render NATIVE. Lite is free; Hybrid/Cinematic show
+// the upstream cost so user knows what they're paying.
+const __cssosAspectCycle = [
+  { id: "16x9", label: "16:9", w: 1920, h: 1080, css: "16 / 9" },
+  { id: "9x16", label: "9:16", w: 1080, h: 1920, css: "9 / 16" },
+  { id: "1x1",  label: "1:1",  w: 1080, h: 1080, css: "1 / 1" },
+  { id: "21x9", label: "21:9", w: 2560, h: 1080, css: "21 / 9" },
+];
+let __cssosAspectIdx = 0;
+function __cssosCurrentTier() {
+  try {
+    if (globalThis.cssmvTiers && typeof globalThis.cssmvTiers.currentTierId === "function") {
+      return String(globalThis.cssmvTiers.currentTierId() || "lite").toLowerCase();
+    }
+  } catch (_e) {}
+  return "lite";
+}
+function __cssosRecomposePriceLabel(tier) {
+  if (tier === "lite") return "free";
+  if (tier === "hybrid") return "$0.08";
+  if (tier === "cinematic") return "$0.16";
+  return "free";
+}
+
+function applyWatchFrameOrientationModule() {
+  try {
+    const frame = document.querySelector("#watch-panel .watch-frame");
+    if (!frame) return;
+    const isPortraitDevice = (() => {
+      try {
+        if (window.matchMedia) return window.matchMedia("(orientation: portrait)").matches;
+      } catch (_e) {}
+      return window.innerHeight > window.innerWidth;
+    })();
+    // CSSOS_PHASE2_PRESERVE_ASPECT 20260430 #235 — Jing
+    // "第一次播放也是这种格式，可是第二次再去播放的时候，全部变成了16:9.
+    //  请修复，不要fallback回到16:9，输出时是什么就保持什么."
+    //
+    // If the source video has reported its real dimensions (set by the
+    // loadedmetadata handler in applyVideoSourceAspectModule), use them
+    // verbatim. Otherwise fall back to the device-orientation default.
+    // user-pill override beats both.
+    if (!frame.dataset.userOverrodeAspect && !frame.dataset.sourceAspect) {
+      __cssosAspectIdx = isPortraitDevice ? 1 : 0;
+      const a = __cssosAspectCycle[__cssosAspectIdx];
+      frame.style.aspectRatio = a.css;
+      frame.style.maxHeight = isPortraitDevice ? "85vh" : "65vh";
+      frame.dataset.orientation = isPortraitDevice ? "portrait" : "landscape";
+      frame.dataset.aspect = a.id;
+    }
+    const videoEl = document.getElementById("watch-video");
+    if (videoEl) {
+      videoEl.style.objectFit = "cover";
+      videoEl.style.width = "100%";
+      videoEl.style.height = "100%";
+    }
+    refreshTransformPillModule();
+  } catch (_e) { /* CSS fit best-effort */ }
+}
+
+// CSSOS_PHASE2_PRESERVE_ASPECT 20260430 #235 — Jing
+// Read videoEl.videoWidth / videoHeight on loadedmetadata and apply
+// the ratio to the watch frame so 32:9 / 21:9 / arbitrary aspect MVs
+// keep their original shape on re-play. Cleared when user explicitly
+// taps the transform pill (which sets dataset.userOverrodeAspect).
+function applyVideoSourceAspectModule() {
+  try {
+    const frame = document.querySelector("#watch-panel .watch-frame");
+    const videoEl = document.getElementById("watch-video");
+    if (!frame || !videoEl) return;
+    const apply = () => {
+      const w = Number(videoEl.videoWidth || 0);
+      const h = Number(videoEl.videoHeight || 0);
+      if (w < 8 || h < 8) return;
+      if (frame.dataset.userOverrodeAspect) return;
+      // Tag with the source's dimensions so the orientation-change
+      // listener (matchMedia) doesn't overwrite back to 16:9 on the
+      // next phone-rotate / window-resize.
+      frame.style.aspectRatio = `${w} / ${h}`;
+      frame.dataset.sourceAspect = `${w}x${h}`;
+      // Cap height differently for ultra-wide vs standard so the user
+      // can actually see super-wide MVs without horizontal scrolling.
+      const ratio = w / h;
+      if (ratio >= 2.6) {
+        // 32:9 / 21:9 — go wider, shorter.
+        frame.style.maxHeight = "55vh";
+        frame.dataset.orientation = "ultra-wide";
+        frame.dataset.aspect = ratio >= 3.4 ? "32x9" : "21x9";
+      } else if (ratio >= 1.5) {
+        frame.style.maxHeight = "65vh";
+        frame.dataset.orientation = "landscape";
+        frame.dataset.aspect = "16x9";
+      } else if (ratio >= 0.95 && ratio <= 1.05) {
+        frame.style.maxHeight = "75vh";
+        frame.dataset.orientation = "square";
+        frame.dataset.aspect = "1x1";
+      } else {
+        frame.style.maxHeight = "85vh";
+        frame.dataset.orientation = "portrait";
+        frame.dataset.aspect = "9x16";
+      }
+      console.warn(
+        "[watch-aspect] source dims %dx%d (ratio %s) — frame aspect-ratio set",
+        w, h, ratio.toFixed(2)
+      );
+    };
+    if (videoEl.readyState >= 1) apply();
+    else videoEl.addEventListener("loadedmetadata", apply, { once: true });
+  } catch (_e) {}
+}
+globalThis.applyVideoSourceAspectModule = applyVideoSourceAspectModule;
+
+function refreshTransformPillModule() {
+  try {
+    const a = __cssosAspectCycle[__cssosAspectIdx];
+    const pill = document.getElementById("watch-aspect-pill");
+    if (pill) {
+      const tier = __cssosCurrentTier();
+      const label = pill.querySelector(".aspect-label");
+      const price = pill.querySelector(".aspect-price");
+      if (label) label.textContent = a.label;
+      if (price) price.textContent = __cssosRecomposePriceLabel(tier);
+    }
+  } catch (_e) {}
+}
+
+function ensureTransformPillModule() {
+  // CSSOS_PHASE2_ASPECT_IN_MENU 20260501 #263 — Jing
+  // "媒体框左上角，请让用户头像独占." Aspect pill no longer renders
+  // standalone — its function moved into the ⋯ overflow menu via
+  // globalThis.__cssosCycleAspect (defined below). The function still
+  // exposes the cycle helper for that menu entry to call.
+  if (!globalThis.__cssosCycleAspect) {
+    globalThis.__cssosCycleAspect = function () {
+      __cssosAspectIdx = (__cssosAspectIdx + 1) % __cssosAspectCycle.length;
+      const a = __cssosAspectCycle[__cssosAspectIdx];
+      const frame = document.querySelector("#watch-panel .watch-frame");
+      if (frame) {
+        frame.style.aspectRatio = a.css;
+        frame.dataset.aspect = a.id;
+        frame.dataset.userOverrodeAspect = "1";
+      }
+      if (typeof globalThis.showToast === "function") {
+        const tier = __cssosCurrentTier();
+        const price = __cssosRecomposePriceLabel(tier);
+        globalThis.showToast(`${a.label} · ${price}`);
+      }
+    };
+  }
+  return; // skip standalone pill creation entirely
+  /* eslint-disable no-unreachable */
+  const screen = document.querySelector("#watch-panel .watch-screen");
+  if (!screen) return;
+  if (document.getElementById("watch-aspect-pill")) return;
+  const pill = document.createElement("button");
+  pill.id = "watch-aspect-pill";
+  pill.type = "button";
+  pill.title = "Transform aspect — click to cycle, double-click to render natively";
+  pill.style.cssText =
+    "position:absolute;top:12px;left:12px;display:flex;align-items:center;gap:6px;" +
+    "background:rgba(0,0,0,0.55);backdrop-filter:blur(8px);" +
+    "border:1px solid rgba(255,255,255,0.18);border-radius:999px;" +
+    "padding:6px 12px;z-index:30;font-size:12px;font-weight:600;letter-spacing:.04em;" +
+    "color:#fff;cursor:pointer;transition:all .15s ease;";
+  pill.innerHTML =
+    '<span style="font-size:14px;line-height:1;">🔄</span>' +
+    '<span class="aspect-label" style="color:#fff">16:9</span>' +
+    '<span class="aspect-price" style="color:#9be7c7;font-size:10px;letter-spacing:.06em">free</span>';
+  pill.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    __cssosAspectIdx = (__cssosAspectIdx + 1) % __cssosAspectCycle.length;
+    const a = __cssosAspectCycle[__cssosAspectIdx];
+    const frame = document.querySelector("#watch-panel .watch-frame");
+    if (frame) {
+      frame.style.aspectRatio = a.css;
+      frame.dataset.aspect = a.id;
+      frame.dataset.userOverrodeAspect = "1"; // sticky until reset
+    }
+    refreshTransformPillModule();
+    if (typeof globalThis.showToast === "function") {
+      const tier = __cssosCurrentTier();
+      const price = __cssosRecomposePriceLabel(tier);
+      globalThis.showToast(
+        `Preview at ${a.label} (CSS crop). Double-click pill to render natively · ${price}.`
+      );
+    }
+  });
+  pill.addEventListener("dblclick", async (ev) => {
+    ev.stopPropagation();
+    await triggerNativeRecomposeModule();
+  });
+  screen.style.position = screen.style.position || "relative";
+  screen.appendChild(pill);
+  refreshTransformPillModule();
+}
+
+async function triggerNativeRecomposeModule() {
+  const a = __cssosAspectCycle[__cssosAspectIdx];
+  const tier = __cssosCurrentTier();
+  const price = __cssosRecomposePriceLabel(tier);
+  if (!confirm(`Re-render this MV natively at ${a.label} (${a.w}×${a.h}) · ${price}?\n\n` +
+               (tier === "lite"
+                 ? "Lite is free — only ffmpeg slideshow re-runs."
+                 : "Hybrid/Cinematic re-renders the AI video segment, billed at the displayed cost."))) {
+    return;
+  }
+  try {
+    const ps = globalThis.cssosMvPipelinePanelState
+      ? globalThis.cssosMvPipelinePanelState()
+      : null;
+    if (!ps || !ps.coverUrl || !ps.audioUrl) {
+      if (typeof globalThis.showToast === "function") {
+        globalThis.showToast("Need cover + audio in state to re-render. Open the work first.");
+      }
+      return;
+    }
+    const totalSecs = Number(ps.duration || 200);
+    const planFn = globalThis.cssmvPlanComposeSegments;
+    const plan = typeof planFn === "function"
+      ? planFn({
+          tierId: tier,
+          coverUrl: ps.coverUrl,
+          durationSecs: totalSecs,
+          aiVideoUrl: ps.videoUrl || null,
+          aiVideoDurSecs: ps.videoDurSecs || 0,
+        })
+      : null;
+    if (!plan || !plan.segments) {
+      if (typeof globalThis.showToast === "function") {
+        globalThis.showToast("Could not plan slideshow — no compose helper available.");
+      }
+      return;
+    }
+    if (typeof globalThis.showToast === "function") {
+      globalThis.showToast(`Re-rendering at ${a.label} · this takes ~30-60s for Lite.`);
+    }
+    const newMvId = "mv_" + Date.now() + "_recompose";
+    const composeBody = {
+      mv_id: newMvId,
+      audio_url: ps.audioUrl,
+      segments: plan.segments,
+      width: a.w,
+      height: a.h,
+      fps: 25,
+    };
+    const res = await fetch("/api/mv/compose", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(composeBody),
+    });
+    const payload = await res.json().catch(() => null);
+    if (!res.ok || !payload?.ok) {
+      throw new Error(payload?.error || `compose_failed:${res.status}`);
+    }
+    const newUrl = payload?.public_url || payload?.final_path || "";
+    if (newUrl) {
+      const videoEl = document.getElementById("watch-video");
+      if (videoEl) {
+        videoEl.src = newUrl;
+        videoEl.load && videoEl.load();
+        videoEl.play && videoEl.play().catch(() => {});
+      }
+      ps.mvUrl = newUrl;
+      if (typeof globalThis.showToast === "function") {
+        globalThis.showToast(`Native ${a.label} render ready — playing the freshly recomposed MV.`);
+      }
+    }
+  } catch (err) {
+    if (typeof globalThis.showToast === "function") {
+      globalThis.showToast(`Recompose failed: ${err.message || err}`);
+    }
+  }
+}
+function wireWatchOrientationOnceModule() {
+  if (__cssosOrientationListenerWired) return;
+  __cssosOrientationListenerWired = true;
+  applyWatchFrameOrientationModule();
+  try {
+    const mq = window.matchMedia("(orientation: portrait)");
+    if (mq.addEventListener) {
+      mq.addEventListener("change", applyWatchFrameOrientationModule);
+    } else if (mq.addListener) {
+      // Safari < 14 fallback.
+      mq.addListener(applyWatchFrameOrientationModule);
+    }
+  } catch (_e) {}
+  // Belt-and-suspenders: also re-apply on resize (covers desktops where
+  // the user drags the panel from wide to narrow).
+  window.addEventListener("resize", applyWatchFrameOrientationModule, { passive: true });
+}
+
 function openWatchPanelShellModule(restoredLayout = false) {
   if (!watchPanel) return;
   watchPanel.classList.remove("hidden");
   watchPanel.dataset.minimized = "false";
   prepareWatchPanelForOpen(restoredLayout);
+  wireWatchSwipeOnceModule();
+  wireWatchOrientationOnceModule();
+  ensureTransformPillModule();
+  // CSSOS_PHASE2_UNIFIED_WATCH_ENTRY 20260430 #211 — Jing
+  // "所有进入Watch MV面板的万能入口都没有走MV PIPELINE流程，
+  //  不然MV PIPELINE面板里会显示进度。"
+  // Every Watch entry point must also surface the MV PIPELINE panel so
+  // (a) progress for in-flight runs is visible alongside playback and
+  // (b) historical MVs show which engines/cost they used in the matrix
+  //     view. We open the panel non-modally — Watch keeps focus.
+  try {
+    const pipelinePanel = document.getElementById("mv-pipeline-panel");
+    if (pipelinePanel && pipelinePanel.classList.contains("hidden")) {
+      pipelinePanel.classList.remove("hidden");
+      pipelinePanel.dataset.minimized = "false";
+      // Don't focus it (Watch is foreground), but ensure it's positioned
+      // and visible so the user can glance at progress.
+      if (typeof globalThis.bringPanelOnscreen === "function") {
+        try { globalThis.bringPanelOnscreen(pipelinePanel); } catch (_e) {}
+      }
+    }
+  } catch (_e) {
+    // Panel may not be mounted (page in early boot); the Watch open
+    // path is the priority — don't let pipeline-panel surfacing fail it.
+  }
 }
 
 function openWatchPreviewShellModule({ fallbackTab = "mv", restoreAudio = false, center = false } = {}) {
@@ -4518,6 +6778,12 @@ function handleWatchVideoPlayStateChange(indicator, clickTarget) {
 
 function handleWatchVideoTimeUpdate() {
   enforceWatchPreviewLimit();
+  // CSSOS_PHASE2_KARAOKE_TICK_FROM_VIDEO 20260428 #165 — Jing
+  // After #164 the audio plays out of <video> (mp4 with muxed audio),
+  // so the karaoke overlay must tick on the VIDEO element's timeupdate
+  // events too — not only on <audio>'s. Otherwise the subtitle ticker
+  // freezes at the first cue forever.
+  renderWatchKaraokeOverlayModule();
 }
 
 function handleWatchAudioPreviewStateSync() {
@@ -4835,6 +7101,14 @@ function pulseWatchOverlayFeedbackModule(mode = "generate") {
 }
 
 async function playWatchOverlayFeedbackToneModule(mode = "generate") {
+  // CSSOS_PHASE2_DISABLE_CLICK_SFX 20260430 #237 — Jing
+  // "点击媒体框的音效，如果没有更好听的，还是取消吧，但先别删."
+  // Gated on globalThis.cssosWatchClickSfxEnabled (default false) so the
+  // synthesized triangle/sine beep stays muted until we have a nicer
+  // sample to swap in. Body preserved verbatim below for re-enabling
+  // later: just set globalThis.cssosWatchClickSfxEnabled = true (or
+  // ship a settings toggle) and the tone re-plays without code changes.
+  if (globalThis.cssosWatchClickSfxEnabled !== true) return false;
   if (typeof window === "undefined") return false;
   const AudioCtx = window.AudioContext || window.webkitAudioContext;
   if (!AudioCtx) return false;

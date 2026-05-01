@@ -1039,7 +1039,11 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
     infoBtn.className = "cssmv-fr-btn cssmv-info-btn";
     infoBtn.setAttribute("aria-label", "Info");
     infoBtn.textContent = "i";
-    infoBtn.addEventListener("click", toggleInfo);
+    infoBtn.addEventListener("click", function (e) {
+      // CSSOS_PHASE2_BUTTON_STOPPROP 20260429 #168.5 — see fsBtn block below.
+      if (e && typeof e.stopPropagation === "function") e.stopPropagation();
+      toggleInfo();
+    });
 
     fsBtn = document.createElement("button");
     fsBtn.type = "button";
@@ -1067,6 +1071,13 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
     }
     fsBtn.addEventListener("click", async function (e) {
       e.preventDefault();
+      // CSSOS_PHASE2_BUTTON_STOPPROP 20260429 #168.5 — Jing
+      // "媒体框右下角的四个按钮，被点击的同时，也触发媒体播放点击，
+      //  导致暂停，而暂停之后，无法继续播放. 改进：点击媒体框，切换
+      //  播放/暂停。"
+      // Stop propagation so the new media-frame-click toggler doesn't
+      // also pause the video as a side-effect of pressing fullscreen.
+      e.stopPropagation();
       const panel = document.getElementById("watch-panel");
       if (!panel) return;
       const inFS = !!document.fullscreenElement;
@@ -1130,10 +1141,68 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
     return true;
   }
 
+  function installMediaFrameClickToggle() {
+    // CSSOS_PHASE2_FRAME_CLICK_TOGGLE 20260429 #168.5 — Jing
+    // "改进：点击媒体框，切换播放/暂停。"
+    // Click on the watch-screen frame (NOT on a button) toggles play/pause
+    // on whichever element is currently the active source (video first,
+    // audio fallback). Buttons inside the frame call stopPropagation so
+    // they don't double-trigger.
+    const screen = document.querySelector("#watch-panel .watch-screen");
+    if (!screen) return false;
+    if (screen.dataset.cssmvFrameToggleBound === "1") return true;
+    screen.dataset.cssmvFrameToggleBound = "1";
+    screen.addEventListener("click", function (e) {
+      // If the click originated on (or inside) any control button, ignore.
+      const t = e.target;
+      if (t && typeof t.closest === "function") {
+        if (t.closest("button")) return;
+        if (t.closest(".cssmv-fr-btn")) return;
+        if (t.closest(".cssmv-stem-toggle")) return;
+        if (t.closest("#watch-style-shift")) return;
+        if (t.closest(".watch-overlay-play")) return;
+        if (t.closest(".watch-music-play")) return;
+        if (t.closest("[data-no-frame-toggle]")) return;
+      }
+      const v = document.getElementById("watch-video");
+      const a = document.getElementById("watch-audio-preview");
+      // Choose the element that has a real src + readiness as the "primary."
+      const primary =
+        (v && v.src && v.readyState > 0) ? v :
+        (a && a.src && a.readyState > 0) ? a :
+        v || a;
+      if (!primary) return;
+      try {
+        if (primary.paused || primary.ended) {
+          // Unmute on toggle if user explicitly hits play.
+          try { primary.muted = false; } catch (_e) {}
+          const p = primary.play();
+          if (p && typeof p.catch === "function") p.catch(function () {});
+          // If we picked video, also fire the audio element so they stay
+          // synced (in case audio is a separate track post-#151 streams).
+          if (primary === v && a && a.src) {
+            try { a.muted = false; a.play().catch(function () {}); } catch (_e) {}
+          }
+        } else {
+          primary.pause();
+          if (primary === v && a && !a.paused) {
+            try { a.pause(); } catch (_e) {}
+          }
+        }
+      } catch (_err) { /* non-fatal */ }
+    }, false);
+    console.info(
+      "%c[watch-frame] click-to-toggle play/pause installed",
+      "color:#0a8;font-weight:bold"
+    );
+    return true;
+  }
+
   function boot() {
     appendPopoverToBody();
     const ok1 = installButtons();
     const ok2 = installIdleTracking();
+    installMediaFrameClickToggle();
     if (!(ok1 && ok2)) {
       let tries = 0;
       const iv = setInterval(function () {

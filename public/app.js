@@ -1770,11 +1770,15 @@ function applyCreationDefaults(template) {
   creationState.inspirationNotes = String(creative.inspiration_notes || "").slice(0, 1000);
   creationState.licensedStylePack = String(creative.licensed_style_pack || "");
   creationState.externalAudioAdapter = String(creative.external_audio_adapter || "");
-  creationState.tempo = Number(creative.tempo_bpm || 88);
-  creationState.key = String(creative.musical_key || "C");
-  creationState.duration = Number(creative.duration_s || 180);
+  // CSSOS_PHASE2_NO_HARDCODED_DEFAULTS 20260427 #162 — Jing
+  // "不要写死默认 88 / C / 180 / single — 都从歌词引擎根据 UI 文明派生。"
+  creationState.tempo = creative.tempo_bpm ? Number(creative.tempo_bpm) : null;
+  creationState.key = String(creative.musical_key || "");
+  creationState.duration = creative.duration_s ? Number(creative.duration_s) : null;
   creationState.language = String(creative.language || globalThis.resolveUiPrimaryLanguageModule?.() || globalThis.resolveUiDefaultCreationLanguageModule?.() || "en");
-  creationState.workType = normalizeWorkTypeClient(creative.work_type || "single");
+  creationState.workType = String(creative.work_type || "").trim()
+    ? normalizeWorkTypeClient(creative.work_type)
+    : "";
   creationState.prompt = String(creative.prompt || "").slice(0, 500);
   syncCreationStateToLegacyInputs();
   const pricing = workTypePricingDefaults(creationState.workType);
@@ -3196,15 +3200,25 @@ function randomizeCreationForLyricsRefresh(title) {
       : (seededPick(compatibleInstruments, seed, 3) || ""),
     ambience: hasCreationFieldTouched("ambience") ? creationState.selections.ambience
       : (seededPick(creationOptionCatalog.ambience, seed, 4) || ""),
+    // CSSOS_PHASE2_NO_HARDCODED_DEFAULTS 20260427 #162 — Jing
+    // "VOICE GENDER（不要总是默认女性，请留空，由歌词内容推导出来应该
+    //  女性还是男性或者童声等）"
+    // No "Feminine" fallback — leave empty if civilization didn't pick one,
+    // lyrics engine will infer from lyrics content downstream.
     vocalGender: hasCreationFieldTouched("vocalGender") ? creationState.selections.vocalGender
-      : (seededPick(compatibleVocalGenders, seed, 5) || "Feminine")
+      : (seededPick(compatibleVocalGenders, seed, 5) || "")
   };
   creationState.tempo = hasCreationFieldTouched("tempo") ? creationState.tempo
     : seededNumber(68, 168, 4, seed, 6);
   creationState.key = hasCreationFieldTouched("key") ? creationState.key
-    : (seededPick(keyPool, seed, 7) || "C");
+    : (seededPick(keyPool, seed, 7) || "");
+  // CSSOS_PHASE2_NO_HARDCODED_DEFAULTS 20260427 #162 — Jing
+  // "DURATION (SEC)（不要默认180秒，反人类反音乐的，谁总是输出180秒的歌呢？）"
+  // No 60s/180s hardcoded fallback. Leave null when civilization is silent —
+  // lyrics engine derives final duration from lyric line count + section
+  // form (verse=4 lines×3.5s, chorus=4 lines×3.5s, etc.) downstream.
   creationState.duration = hasCreationFieldTouched("duration") ? creationState.duration
-    : (seededPick([30, 45, 60, 75, 90, 120], seed, 8) || 60);
+    : (seededPick([30, 45, 60, 75, 90, 120], seed, 8) || null);
 
   // Language: when the user didn't explicitly pick one, adopt the effective
   // locale (UI / doc lang) rather than randomizing to zh/en/ja. This keeps
@@ -3219,7 +3233,14 @@ function randomizeCreationForLyricsRefresh(title) {
   if (civ && civ.promptFrame) {
     creationState.culturalFrame = civ.promptFrame;
   }
-  creationState.workType = hasCreationFieldTouched("workType") ? creationState.workType : "single";
+  // CSSOS_PHASE2_NO_HARDCODED_DEFAULTS 20260427 #162 — Jing
+  // "WORK TYPE（也是根据歌词推导出来，如果歌词框里只有一首歌词，就是单曲，
+  //  如果写明是三部曲，就是三部曲，如果歌词框里有歌剧的歌词，那就应该是
+  //  歌剧，还有短剧，电视连续剧，电影分镜脚本等，不能在这里写死默认）"
+  // No "single" fallback. Lyrics engine derives work type from lyric body:
+  // single (one block), triptych (three movements), opera (libretto sections),
+  // short-drama / series / film (scene-numbered scripts), etc.
+  creationState.workType = hasCreationFieldTouched("workType") ? creationState.workType : "";
   creationState.prompt = hasCreationFieldTouched("prompt") ? creationState.prompt
     : (typeof t === "function"
       ? t("mv.random.prompt.fromTitle", { title: String(title || "") })
@@ -3364,6 +3385,180 @@ window.CSSOS_forceLyricsRegenerate = function forceLyricsRegenerate(event) {
   event?.preventDefault?.();
   event?.stopPropagation?.();
   void regenerateSeedFields("lyrics");
+  return false;
+};
+
+// CSSOS_PHASE2_DUAL_WAND 20260429 #192 — Jing
+// "第二个魔法棒，除了标题/歌词内容，并且是根据主界面语言，标题/歌词
+//  内容，智能文明联动随机输出其他所有的参数".
+//
+// Pre-existing title + lyrics stay untouched; the LLM is asked to ONLY
+// emit a derived_settings envelope (BPM/key/voice gender/vocal style/
+// instrumentation/ensemble/percussion/arrangement density/dynamics/
+// articulation/register/section form/inspiration/...) tuned to the
+// civilization implied by the UI language and the lyric content.
+window.CSSOS_deriveParamsFromLyrics = async function deriveParamsFromLyrics(event) {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  const titleEl = document.getElementById("title-input")
+    || document.getElementById("creation-title")
+    || document.getElementById("mvp-title");
+  const lyricsEl = document.getElementById("lyrics-input")
+    || document.getElementById("custom-lyrics")
+    || document.getElementById("creation-lyrics-input");
+  const title = String(titleEl?.value || "").trim();
+  const lyrics = String(lyricsEl?.value || "").trim();
+  if (!lyrics && !title) {
+    if (typeof window.safeShowToast === "function") {
+      window.safeShowToast(
+        document?.documentElement?.lang?.startsWith("zh")
+          ? "请先填写标题或歌词，再点这个棒"
+          : "Type a title or lyrics first, then tap this wand"
+      );
+    }
+    return false;
+  }
+  setLyricsDebugStatus?.(
+    loginCopy?.("Deriving params from current title + lyrics...") ||
+      "Deriving params from current title + lyrics...",
+    "pending"
+  );
+  const uiLang =
+    (typeof globalThis.resolveUiPrimaryLanguageModule === "function"
+      ? globalThis.resolveUiPrimaryLanguageModule()
+      : "") ||
+    String(document?.documentElement?.lang || "").trim() ||
+    "en";
+  const systemPrompt =
+    "You are a music director. The user already wrote the title and " +
+    "lyrics below. Do NOT rewrite or paraphrase the lyrics. Return a " +
+    "JSON envelope { derived_settings: {...} } where derived_settings " +
+    "specifies the OTHER musical parameters that best fit the lyrics: " +
+    "music_style, genre, tempo (bpm number), key (one of C/D/E/F/G/A/B), " +
+    "duration_secs, work_type (single/triptych/opera), voice_gender " +
+    "(feminine/masculine/duet/androgynous/polyphonic_choir/childlike), " +
+    "vocal_style (free text), ensemble, ensemble_style, instrumentation, " +
+    "percussion, arrangement_density (sparse/medium/dense), " +
+    "dynamics_curve (free text describing the energy arc), articulation, " +
+    "register, section_form, inspiration, reference_artists, reference_atlas, " +
+    "expression_cc, humanization, music_structure, video_outline, " +
+    "section_scene_prompts (array of {section, prompt}), license, adapter. " +
+    `Use language=${uiLang} as the cultural anchor: pick instruments, ` +
+    "scales, vocal style, and references from the civilization that " +
+    "language implies. The result must be evocative and dramatic, " +
+    "not generic. Echo the title verbatim. lyrics field MUST be the " +
+    "exact same lyrics the user provided, byte-for-byte.";
+  let json = null;
+  try {
+    // The Rust LyricsRequest only has `prompt` + `style` + `language` +
+    // `system_prompt` — feed title + full lyrics into the prompt itself
+    // so the LLM has the body it must preserve verbatim.
+    const promptBundle = title
+      ? `Title: ${title}\n\nLyrics:\n${lyrics}`
+      : `Lyrics:\n${lyrics}`;
+    const res = await fetch("/api/mv/lyrics", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        prompt: promptBundle,
+        style: String(document.getElementById("style-input")?.value || "").trim(),
+        language: uiLang,
+        system_prompt: systemPrompt
+      })
+    });
+    json = await res.json().catch(() => null);
+  } catch (err) {
+    setLyricsDebugStatus?.(
+      `Derive-params request failed: ${String(err)}`,
+      "error"
+    );
+    return false;
+  }
+  if (!json || !json.derived_settings) {
+    setLyricsDebugStatus?.(
+      "API responded but derived_settings was empty.",
+      "error"
+    );
+    return false;
+  }
+  const d = json.derived_settings || {};
+  // Reuse the same writeDom logic as wand 1.
+  // CSSOS_PHASE2_DERIVED_NO_CLOBBER 20260430 #220 — Jing
+  // "音乐风格总是被 fallback 到 pop." Root cause: this derive-from-lyrics
+  // path overwrote whatever the user typed in #mvp-style with the LLM's
+  // guess (which defaulted to "Pop" for ambiguous prompts). Add the same
+  // protection mv-pipeline-panel.js's writeDom uses — never clobber a
+  // non-empty user-edited value. The LLM can fill BLANK fields; user
+  // edits always win.
+  const writeDom = (id, value) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const v = String(value == null ? "" : value).trim();
+    if (!v) return;
+    const cur = String(el.value || "").trim();
+    if (cur) return; // don't override user-typed value
+    el.value = v;
+    try { el.dispatchEvent(new Event("input", { bubbles: true })); } catch (_) {}
+    try { el.dispatchEvent(new Event("change", { bubbles: true })); } catch (_) {}
+  };
+  // Title + lyrics deliberately NOT re-written here. We only fill the
+  // other params so the user's lyric body is preserved verbatim.
+  writeDom("voice-input", d.voice_gender || d.voice);
+  writeDom("creation-voice-gender", d.voice_gender || d.voice);
+  writeDom("creation-language", d.language || uiLang);
+  writeDom("creation-style", d.music_style || d.genre);
+  writeDom("style-input", d.music_style || d.genre);
+  writeDom("mvp-style", d.music_style || d.genre);
+  writeDom("creation-tempo", d.tempo || d.bpm);
+  writeDom("creation-key", d.key);
+  writeDom("creation-duration", d.duration_secs);
+  writeDom("creation-work-type", d.work_type);
+  writeDom("creation-instrumentation", d.instrumentation);
+  writeDom("creation-vocal-style", d.vocal_style);
+  writeDom("creation-ensemble", d.ensemble || d.ensemble_style);
+  writeDom("creation-ensemble-style", d.ensemble_style || d.ensemble);
+  writeDom("creation-percussion", d.percussion);
+  writeDom("creation-arrangement-density", d.arrangement_density);
+  writeDom("creation-dynamics-curve", d.dynamics_curve);
+  writeDom("creation-articulation", d.articulation);
+  writeDom("creation-register", d.register);
+  writeDom("creation-section-form", d.section_form);
+  writeDom("creation-expression-cc", d.expression_cc);
+  writeDom("creation-humanization", d.humanization);
+  writeDom("creation-inspiration", d.inspiration || d.reference_artists);
+  writeDom("creation-reference-atlas", d.reference_atlas);
+  writeDom("creation-license", d.license);
+  writeDom("creation-adapter", d.adapter);
+  writeDom("creation-music-structure", d.music_structure);
+  writeDom("video-outline-input", d.video_outline);
+  writeDom(
+    "section-prompts-input",
+    Array.isArray(d.section_scene_prompts)
+      ? d.section_scene_prompts
+          .map((s) =>
+            typeof s === "string"
+              ? s
+              : (s?.section ? `${s.section}\n${s.prompt || ""}` : "")
+          )
+          .filter(Boolean)
+          .join("\n\n")
+      : d.section_scene_prompts
+  );
+  console.info(
+    "%c[deriveParamsFromLyrics] echoed %d derived fields (lyrics preserved)",
+    "color:#0a8;font-weight:bold", Object.keys(d).length
+  );
+  setLyricsDebugStatus?.(
+    "All other params filled from your title + lyrics. Lyrics untouched.",
+    "success"
+  );
+  if (typeof window.safeShowToast === "function") {
+    window.safeShowToast(
+      document?.documentElement?.lang?.startsWith("zh")
+        ? "已根据当前歌词回灌所有其他参数 ✦"
+        : "Derived all other params from your lyrics ✦"
+    );
+  }
   return false;
 };
 
@@ -5912,7 +6107,25 @@ const creationState = {
   // P2-51: MV output spec — single source of truth for aspect ratio.
   // Flows to cover gen, video gen, ffmpeg compose, and the watch preview
   // frame (--cssos-output-ar). See public/app.aspect-ratio.js.
-  aspectRatio: "16:9",
+  // CSSOS_PHASE2_VIEWPORT_AWARE_ASPECT 20260430 #200 — Jing
+  // "横屏（主要是电脑桌面端）请默认使用 2560 × 1072 · Anamorphic 2.39:1
+  //  · landscape；竖屏（手机等移动端）请默认使用 1080 × 1920 · Portrait
+  //  9:16 · portrait."
+  // Pick a viewport-appropriate cinematic default. Desktop / laptop /
+  // landscape tablets get the wide anamorphic so EVERY tier (Lite /
+  // Hybrid / Cinematic) ships a movie-style frame; phones in portrait
+  // get the 9:16 default so vertical playback is native, no letterbox.
+  aspectRatio: (() => {
+    try {
+      const isPortrait =
+        typeof window !== "undefined" &&
+        ((window.matchMedia && window.matchMedia("(orientation: portrait)").matches) ||
+          (window.innerHeight && window.innerWidth && window.innerHeight > window.innerWidth));
+      return isPortrait ? "9:16" : "2.39:1";
+    } catch (_e) {
+      return "2.39:1";
+    }
+  })(),
   customWidth: null,
   customHeight: null
 };
@@ -6476,7 +6689,27 @@ function applySongSeedToSettings(seed) {
 
   if (title && !preserveTitle) setSongSeedTitleValue(title, { userEdited: false });
   if (lyricsInput && lyrics) lyricsInput.value = lyrics;
-  if (styleInput && musicStyleText && !preserveStyle) styleInput.value = musicStyleText;
+  // CSSOS_PHASE2_STYLE_NO_CLOBBER 20260430 #212 — Jing
+  // Symptom: user typed an epic style (e.g. "Cinematic Choir, Ethereal,
+  // Orchestral") and at submit it became "Pop". Root cause: this line ran
+  // every time `applySongSeedToSettings` fired (which can be triggered by
+  // many post-input events) and clobbered the input with the LLM-derived
+  // `musicStyle` ("Pop"). The `preserveStyle` flag only caught explicit
+  // typing-events; programmatic .value sets from sibling modules made the
+  // touched-flag race against the apply call.
+  //
+  // Fix: also bail out when the input ALREADY has any non-empty value.
+  // Auto-fill is a fresh-seed convenience, not an authority — the moment
+  // the textarea has content (whether from typing OR a previous apply),
+  // we keep it. The "Pop" default only lands on an empty styleInput.
+  if (
+    styleInput &&
+    musicStyleText &&
+    !preserveStyle &&
+    !String(styleInput.value || "").trim()
+  ) {
+    styleInput.value = musicStyleText;
+  }
   if (lyricsSourceInput) lyricsSourceInput.value = references.join("\n");
   if (musicStructureInput) {
     const rendered = [musicStructureText, renderSectionBeatsText(sectionBeats)]
@@ -8337,6 +8570,62 @@ async function probeFinalAudioArtifact(runId, artifactPath) {
 async function maybeAttachFinalAudioArtifact(runId, statusPayload, derivedMusic = {}) {
   const safeRunId = String(runId || "").trim();
   if (!safeRunId || !watchAudioPreview) return false;
+  // CSSOS_PHASE2_MV_RUNID_GUARD 20260429 #168.9b — Jing
+  // 404 storm on /cssapi/v1/runs/mv-XXXX/music-delivery-artifact?path=
+  // ./build/master.mp3 — the runId starts with "mv-" (MV Pipeline emits
+  // these via cssos:run_progress). MV Pipeline doesn't write legacy
+  // ./build/*.mp3 artifacts, so all probes against an mv- runId are
+  // guaranteed 404. Short-circuit instantly without firing any probes.
+  if (safeRunId.startsWith("mv-")) {
+    return false;
+  }
+  // CSSOS_PHASE2_MV_PIPELINE_OWNS_AUDIO_HARD 20260427 #158 — Jing
+  // "现在正在播放恐怖音效" — Safari falls back to default audio = static
+  // when 4-5 candidate paths (./build/master.mp3, mix.mp3, vocals.mp3,
+  // music.mp3, vocals/vocal_master.mp3) all 404. The previous gate only
+  // bailed when watchAudioPreview.src already matched the MV Pipeline
+  // URL — too weak. Now: if MV Pipeline owns a fresh audio URL, ATTACH IT
+  // DIRECTLY and bypass the legacy probe loop entirely. No 404 storm,
+  // no static fallback.
+  try {
+    const lastRes = globalThis.cssmvPipelineLastResult;
+    if (lastRes && lastRes.audioUrl) {
+      const tsAt = Number(lastRes.tsAt || 0);
+      const freshMs = Number(lastRes.freshMs || 600000);
+      if (tsAt && (Date.now() - tsAt) < freshMs) {
+        const mvAudioUrl = String(lastRes.audioUrl || "").trim();
+        if (mvAudioUrl) {
+          const curSrc = String(watchAudioPreview.src || "").trim();
+          if (curSrc === mvAudioUrl || curSrc.endsWith(mvAudioUrl)) {
+            // Already on the right source. Don't fire any probes.
+            return true;
+          }
+          // Force the MV Pipeline audio onto the element NOW. Skips the
+          // music-delivery-artifact probe loop entirely.
+          const preservePlayback = !!(!watchAudioPreview.paused && !watchAudioPreview.ended);
+          watchAudioPreview.autoplay = true;
+          watchAudioPreview.playsInline = true;
+          watchAudioPreview.loop = false;
+          watchAudioPreview.muted = true;
+          watchAudioPreview.volume = 1;
+          watchAudioPreview.src = mvAudioUrl;
+          watchAudioPreview.style.display = "block";
+          watchAudioPreview.load?.();
+          currentWatchAudioSourceKind = "mv-pipeline";
+          currentWatchAudioRunId = safeRunId;
+          currentWatchAudioArtifactPath = "mv-pipeline";
+          updateWatchAudioDebug();
+          syncWatchAudioPresentation?.();
+          if (preservePlayback || watchAudioAutoplayArmed) {
+            openWatchMusicPlaybackSurface?.({ autoplay: true });
+          } else {
+            openWatchMusicPlaybackSurface?.();
+          }
+          return true;
+        }
+      }
+    }
+  } catch (_e) { /* fall through to legacy probe */ }
   const candidates = collectAudioArtifactCandidates(statusPayload);
   const readyEnough =
     Number(derivedMusic?.progress || 0) >= 62 ||
@@ -8394,6 +8683,30 @@ async function attemptImmediateFinalAudioAttach(runId = "") {
     updateWatchAudioDebug();
     return false;
   }
+  // CSSOS_PHASE2_MV_RUNID_GUARD 20260429 #168.9b — Jing
+  // mv- prefixed runIds don't have legacy ./build/*.mp3 artifacts. Skip
+  // the /api/pipeline/status fetch + music-delivery-artifact probe loop
+  // entirely so console isn't flooded with 404s.
+  if (safeRunId.startsWith("mv-")) {
+    return false;
+  }
+  // CSSOS_PHASE2_LEGACY_STATUS_FETCH_GUARD 20260427 #158 — Jing
+  // When MV Pipeline owns a fresh audio URL, skip the
+  // /api/pipeline/status fetch + music-delivery-artifact probe loop
+  // entirely. Just attach the MV Pipeline audio to the element.
+  try {
+    const lastRes = globalThis.cssmvPipelineLastResult;
+    if (lastRes && lastRes.audioUrl) {
+      const tsAt = Number(lastRes.tsAt || 0);
+      const freshMs = Number(lastRes.freshMs || 600000);
+      if (tsAt && (Date.now() - tsAt) < freshMs) {
+        // maybeAttachFinalAudioArtifact handles MV Pipeline ownership at
+        // its top, so calling it with an empty payload is enough — it'll
+        // attach the MV audio without firing any probes.
+        return await maybeAttachFinalAudioArtifact(safeRunId, { artifacts: [] }, { progress: 100 });
+      }
+    }
+  } catch (_e) { /* fall through to legacy fetch */ }
   const statePath = pipelineRunStatePath(safeRunId);
   if (!statePath) {
     updateWatchAudioDebug();
@@ -8494,6 +8807,19 @@ function openPanel(panel, options = {}) {
   const shouldFocus = options.focus !== false;
   const shouldLayout = options.layout !== false;
   if (!panel) return;
+  // CSSOS_PHASE2_NO_AUTH_LOGIN_POPUP 20260427 #155 — Jing
+  // "我已经登录了，登录面板还总是显示，应该是未登录用户浏览主界面的时候才弹出
+  //  这个引导登录的面板。" — many call sites (api-billing, market-commerce,
+  // works-center, dock-runtime, panel-layout, etc.) call openPanel(loginPanel)
+  // unconditionally to "guide" sign-in. After login they should be no-ops.
+  // Single global guard at the openPanel choke-point catches every direct
+  // call site at once.
+  try {
+    if (panel === loginPanel && authState && authState.user) {
+      // Already signed in. Don't pop the panel back open.
+      return;
+    }
+  } catch (_e) { /* non-fatal */ }
   if (!guardPanelAccess(panel.id)) return;
   const restoredLayout = applyStoredPanelLayout(panel);
   if (panel === watchPanel) {
@@ -29912,6 +30238,50 @@ function finishCreationSession() {
 }
 
 async function runLyricsGenerate(mode, options = {}) {
+  // CSSOS_PHASE2_LEGACY_SONG_SEED_GUARD 20260427 #158 — Jing
+  // "图1, 控制台报错. 现在正在播放恐怖音效, 视频画面是砖头人."
+  // Console showed 504 on /api/cssmv/song-seed firing IN PARALLEL with a
+  // healthy MV Pipeline run. The legacy creative-engine song-seed call has
+  // no business firing once MV Pipeline owns the title/lyrics. Gate it
+  // at the lowest level so EVERY caller (regenerateLyricsForWatchModule,
+  // requestLyricsSeedWithRetryModule, voice-submit, voice-seed, …) is
+  // protected — not just startCreation. Caller can pass
+  // options.allowLegacyAlongsideMv === true to bypass.
+  if (!options?.allowLegacyAlongsideMv) {
+    try {
+      const lastRes = globalThis.cssmvPipelineLastResult;
+      if (lastRes && (lastRes.mvUrl || lastRes.audioUrl || lastRes.title)) {
+        const tsAt = Number(lastRes.tsAt || 0);
+        const freshMs = Number(lastRes.freshMs || 600000);
+        if (tsAt && (Date.now() - tsAt) < freshMs) {
+          console.info(
+            "%c[runLyricsGenerate] skipped — fresh MV Pipeline result owns lyrics (age %dms)",
+            "color:#08f", Date.now() - tsAt
+          );
+          return {
+            ok: true,
+            skipped: "mv_pipeline_owns",
+            data: {
+              title: lastRes.title || "",
+              lyrics: lastRes.lyrics || "",
+              video_outline: lastRes.videoOutline || "",
+              language: lastRes.language || ""
+            }
+          };
+        }
+      }
+      if (typeof globalThis.cssmvPipelineActiveStage === "function") {
+        const live = globalThis.cssmvPipelineActiveStage();
+        if (live && !live.finished && !live.hasError) {
+          console.info(
+            "%c[runLyricsGenerate] skipped — MV Pipeline run in progress (stage=%s pct=%d)",
+            "color:#08f", live.stageId, live.pct
+          );
+          return { ok: true, skipped: "mv_pipeline_running" };
+        }
+      }
+    } catch (_e) { /* fall through to legacy path */ }
+  }
   if (authState.user && !creatorBoostState.loaded) {
     await loadCreatorBoostState().catch(() => null);
   }
@@ -29963,14 +30333,138 @@ async function runLyricsGenerate(mode, options = {}) {
     queue_priority: queuePriority,
     queue_lane: queuePriority
   };
-  const res = await fetch("/api/cssmv/song-seed", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  const json = await res.json().catch(() => null);
+  // CSSOS_PHASE2_WAND_TO_MV_LYRICS 20260429 #189 — Jing
+  // "高级设置面板自定义歌词的魔法棒无法施展魔法"
+  //
+  // The legacy /api/cssmv/song-seed endpoint was killed in #161 cleanup
+  // (404 on every call), so the wand has been silently failing — the
+  // response was empty and applySongSeedToSettings was never called,
+  // hence the "API responded, but the lyrics were not filled into the
+  // editor" toast. Route the wand to the live /api/mv/lyrics endpoint
+  // (which MV Pipeline already uses) and shape its response into the
+  // legacy song-seed envelope so applySongSeedToSettings still works.
+  const lyricsBody = {
+    prompt: title || payload.transcript || "",
+    style: payload.style || "",
+    language: preferredLanguage,
+    civilization: null,
+    cultural_frame: null,
+    voice: payload.voice || ""
+  };
+  let json = null;
+  try {
+    const res = await fetch("/api/mv/lyrics", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(lyricsBody)
+    });
+    const lyricsJson = await res.json().catch(() => null);
+    if (lyricsJson && (lyricsJson.lyrics || lyricsJson.derived_settings)) {
+      const derived = lyricsJson.derived_settings || {};
+      // Build a song-seed-shaped envelope that applySongSeedToSettings
+      // can consume directly. Keep both `lyrics` and `lyrics_full` so
+      // older readers (normalizeSongSeed pulls from .lyrics) work.
+      const seedData = {
+        title: String(derived.title || lyricsJson.title || title || "").trim(),
+        lyrics: String(lyricsJson.lyrics || "").trim(),
+        lyrics_full: String(lyricsJson.lyrics || "").trim(),
+        musicStyle: String(derived.music_style || derived.genre || payload.style || "").trim(),
+        music_style: String(derived.music_style || derived.genre || payload.style || "").trim(),
+        videoOutline: String(derived.video_outline || "").trim(),
+        sectionPrompts: Array.isArray(derived.section_scene_prompts)
+          ? derived.section_scene_prompts
+          : (Array.isArray(lyricsJson.shot_scripts) ? lyricsJson.shot_scripts : []),
+        sectionBeats: Array.isArray(derived.section_beats) ? derived.section_beats : [],
+        musicStructure: String(derived.music_structure || "").trim(),
+        references: Array.isArray(derived.references) ? derived.references : [],
+        workType: String(derived.work_type || "").trim(),
+        // Carry the full derived block so downstream code can read any
+        // extra field (BPM, key, vocal style, ensemble, etc.).
+        derived_settings: derived,
+        sections: Array.isArray(lyricsJson.sections) ? lyricsJson.sections : null,
+        shot_scripts: Array.isArray(lyricsJson.shot_scripts) ? lyricsJson.shot_scripts : null
+      };
+      json = {
+        ok: !!seedData.lyrics,
+        empty: !seedData.lyrics,
+        data: seedData
+      };
+    } else {
+      json = { ok: false, empty: true, data: null, error: "no_lyrics_in_response" };
+    }
+  } catch (fetchErr) {
+    console.warn("[runLyricsGenerate] /api/mv/lyrics failed:", fetchErr);
+    json = { ok: false, empty: true, data: null, error: String(fetchErr) };
+  }
   if (apply && json?.ok && !json?.empty && !isSongSeedQuotaExceeded(json)) {
     applySongSeedToSettings(json.data || json);
+    // CSSOS_PHASE2_WAND_DERIVED_TO_DOM 20260429 #189 — Jing
+    // "请让所有选项都能够获取回灌的随机参数". Push every field of
+    // derived_settings into the matching Advanced Settings DOM input.
+    // applySongSeedToSettings handles title/style/lyrics/structure/
+    // outline/scenes — this echoes the rest (BPM/key/voice gender/
+    // vocal style/instrumentation/ensemble/percussion/etc.) so the
+    // user sees a fully-populated Advanced Settings panel.
+    try {
+      const d = json.data?.derived_settings || {};
+      // CSSOS_PHASE2_DERIVED_NO_CLOBBER 20260430 #220 — Jing
+      // Same fix as line 3486: don't clobber user-typed values when
+      // the runLyricsGenerate path echoes derived_settings. User edits
+      // always win — LLM only fills BLANK inputs.
+      const writeDom = (id, value) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const v = String(value == null ? "" : value).trim();
+        if (!v) return;
+        const cur = String(el.value || "").trim();
+        if (cur) return; // don't override user-typed value
+        el.value = v;
+        try { el.dispatchEvent(new Event("input", { bubbles: true })); } catch (_) {}
+        try { el.dispatchEvent(new Event("change", { bubbles: true })); } catch (_) {}
+      };
+      writeDom("creation-title", d.title);
+      writeDom("mvp-title", d.title);
+      writeDom("voice-input", d.voice_gender || d.voice);
+      writeDom("creation-voice-gender", d.voice_gender || d.voice);
+      writeDom("creation-language", d.language || lyricsBody.language);
+      writeDom("creation-style", d.music_style || d.genre);
+      writeDom("mvp-style", d.music_style || d.genre);
+      writeDom("creation-tempo", d.tempo || d.bpm);
+      writeDom("creation-key", d.key);
+      writeDom("creation-duration", d.duration_secs);
+      writeDom("creation-work-type", d.work_type);
+      writeDom("creation-instrumentation", d.instrumentation);
+      writeDom("creation-vocal-style", d.vocal_style);
+      writeDom("creation-ensemble", d.ensemble || d.ensemble_style);
+      writeDom("creation-ensemble-style", d.ensemble_style || d.ensemble);
+      writeDom("creation-percussion", d.percussion);
+      writeDom("creation-arrangement-density", d.arrangement_density);
+      writeDom("creation-dynamics-curve", d.dynamics_curve);
+      writeDom("creation-articulation", d.articulation);
+      writeDom("creation-register", d.register);
+      writeDom("creation-section-form", d.section_form);
+      writeDom("creation-expression-cc", d.expression_cc);
+      writeDom("creation-humanization", d.humanization);
+      writeDom("creation-inspiration", d.inspiration || d.reference_artists);
+      writeDom("creation-reference-atlas", d.reference_atlas);
+      writeDom("creation-license", d.license);
+      writeDom("creation-adapter", d.adapter);
+      writeDom("creation-music-structure", d.music_structure);
+      writeDom("creation-default-listen", d.default_listen);
+      writeDom("creation-current-universe", d.current_universe);
+      writeDom("wiki-sources", Array.isArray(d.references) ? d.references.join("\n") : d.references);
+      writeDom("creation-story-links", Array.isArray(d.story_links) ? d.story_links.join("\n") : d.story_links);
+      writeDom("video-outline-input", d.video_outline);
+      writeDom("section-scene-prompts", Array.isArray(d.section_scene_prompts)
+        ? d.section_scene_prompts.map((s) => typeof s === "string" ? s : (s?.section ? `${s.section}\n${s.prompt || ""}` : "")).join("\n\n")
+        : d.section_scene_prompts);
+      console.info(
+        "%c[runLyricsGenerate] echoed derived_settings → %d Advanced Settings inputs",
+        "color:#0a8;font-weight:bold", Object.keys(d).length
+      );
+    } catch (echoErr) {
+      console.warn("[runLyricsGenerate] derived-to-dom echo failed:", echoErr);
+    }
   }
   return json;
 }

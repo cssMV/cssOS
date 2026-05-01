@@ -1,3 +1,8 @@
+const FORYOU_MARKET_PAGE_SIZE = 10;
+let foryouMarketVisibleCount = FORYOU_MARKET_PAGE_SIZE;
+let latestVisibleMarketWorks = [];
+let foryouMarketAutoPagingBound = false;
+
 function getPayoutReminderPresentation(connectedAccount) {
   const hasAccount = Boolean(connectedAccount?.stripe_account_id);
   const payoutsEnabled = Boolean(connectedAccount?.payouts_enabled);
@@ -8,46 +13,119 @@ function getPayoutReminderPresentation(connectedAccount) {
     return {
       message: loginCopy(
         "Warm reminder: finish your payout setup so you do not miss fan tips, bounty income, and seller earnings.",
-        "温馨提示：请完成收款方式设置，以免错过粉丝打赏、赏金与卖家收入。"
       ),
-      action: loginCopy("Finish setup", "完成设置")
+      action: loginCopy("Finish setup"),
     };
   }
   if (!chargesEnabled) {
     return {
       message: loginCopy(
         "Your payout account is connected, but Stripe still needs a few details. Please review and update your payout information.",
-        "你的收款账户已经连接，但 Stripe 仍需要补充一些资料，请检查并更新收款信息。"
       ),
-      action: loginCopy("Update info", "更新信息")
+      action: loginCopy("Update info"),
     };
   }
   return {
     message: loginCopy(
       "Your payout account is already connected. Please review the payout status and update details if Stripe still shows pending steps.",
-      "你的收款账户已经连接，请检查收款状态；如果 Stripe 仍显示待完成步骤，请更新资料。"
     ),
-    action: loginCopy("Check status", "检查状态")
+    action: loginCopy("Check status"),
   };
 }
 
 function marketActionCopy(kind, state = {}) {
   if (kind === "listen") {
-    if (state.pendingBuyout || state.pendingListen) return loginCopy("Listen pending", "聆听处理中");
-    if (state.paidBuyout || state.paidListen) return loginCopy("Owned listen", "已购聆听");
-    return loginCopy("Listen", "聆听");
+    if (state.pendingBuyout || state.pendingListen)
+      return loginCopy("Listen pending");
+    if (state.paidBuyout || state.paidListen)
+      return loginCopy("Owned listen");
+    return loginCopy("Listen");
   }
   if (kind === "buyout") {
-    if (state.pendingBuyout) return loginCopy("Buyout pending", "买断处理中");
-    if (state.paidBuyout) return loginCopy("Owned", "已买断");
-    return loginCopy("Buyout", "买断");
+    if (state.pendingBuyout) return loginCopy("Buyout pending");
+    if (state.paidBuyout) return loginCopy("Owned");
+    return loginCopy("Buyout");
   }
   if (kind === "tip") {
-    if (state.pendingTip) return loginCopy("Tip pending", "打赏处理中");
-    if (state.paidTip) return loginCopy("Tipped", "已打赏");
-    return loginCopy("Tip", "打赏");
+    if (state.pendingTip) return loginCopy("Tip pending");
+    if (state.paidTip) return loginCopy("Tipped");
+    return loginCopy("Tip");
   }
   return "";
+}
+
+function workRequiresWholeBuyoutModule(work = {}) {
+  const workType = normalizeWorkTypeClient(work?.work_type);
+  const role = String(work?.structure_role || "")
+    .trim()
+    .toLowerCase();
+  if (workType === "opera" || workType === "triptych") return true;
+  return role === "act" || role === "scene" || role === "part";
+}
+
+function workIsWholeBuyoutChildModule(work = {}) {
+  const role = String(work?.structure_role || "")
+    .trim()
+    .toLowerCase();
+  return role === "act" || role === "scene" || role === "part";
+}
+
+function buyoutLabelForWorkModule(work = {}) {
+  const workType = normalizeWorkTypeClient(work?.work_type);
+  if (workType === "opera") return loginCopy("Opera buyout");
+  if (workType === "triptych")
+    return loginCopy("Triptych buyout");
+  return loginCopy("Buyout");
+}
+
+function resolveDisplayedWorkPricingModule(work = {}, commerce = {}) {
+  // P2-57b: Do NOT fall back to work-type default prices (e.g., $0.99/$2.99) for
+  // display — doing so caused a "price flash" where partially-hydrated works in
+  // the Works Center briefly rendered fake $0.99/$2.99 before real prices
+  // arrived from the server. We now only return real, user-/server-set prices
+  // for the display fields (`listenPriceCents` / `buyoutPriceCents`). The
+  // editor-oriented fields `suggestedListen` / `suggestedBuyout` still expose
+  // the work-type default as a fallback so editor UIs can pre-fill sensibly.
+  const defaults = workTypePricingDefaults(normalizeWorkTypeClient(work?.work_type));
+  const rawListen = Math.max(
+    0,
+    Number(
+      commerce?.listenCents ||
+        work?.current_listen_price_cents ||
+        work?.listen_price_cents ||
+        0
+    )
+  );
+  const rawBuyout = Math.max(
+    0,
+    Number(
+      commerce?.buyoutCents ||
+        work?.current_buyout_price_cents ||
+        work?.buyout_price_cents ||
+        0
+    )
+  );
+  // `suggestedListen`/`suggestedBuyout` are the creator's explicit suggestions
+  // (without defaults as a pollutant) for the pricing-decision logic below.
+  const suggestedListenRaw = Math.max(
+    0,
+    Number(work?.suggested_listen_price_cents || 0)
+  );
+  const suggestedBuyoutRaw = Math.max(
+    0,
+    Number(work?.suggested_buyout_price_cents || 0)
+  );
+  const shouldPreferSuggestedListen = suggestedListenRaw > 0 && !rawListen;
+  const shouldPreferSuggestedBuyout = suggestedBuyoutRaw > 0 && !rawBuyout;
+  return {
+    // Display price — 0 if truly unset (render layer will show "Not set").
+    listenPriceCents: shouldPreferSuggestedListen ? suggestedListenRaw : rawListen,
+    buyoutPriceCents: shouldPreferSuggestedBuyout ? suggestedBuyoutRaw : rawBuyout,
+    // Editor / reference hint — falls back to work-type default when the
+    // creator hasn't explicitly suggested a price, so editors can pre-fill.
+    suggestedListen: suggestedListenRaw || defaults.listenCents,
+    suggestedBuyout: suggestedBuyoutRaw || defaults.buyoutCents
+  };
 }
 
 function renderSellerPanel() {
@@ -58,8 +136,12 @@ function renderSellerPanel() {
   const canSetupPayout = hasPanelPermission("seller.payout");
   if (!canViewSeller) {
     const upgradeCopy = isLoggedInUser()
-      ? loginCopy("Upgrade to a paid membership to unlock seller orders, earnings, and payouts.", "升级到收费会员后可解锁卖家订单、收益和收款。")
-      : loginCopy("Sign in first, then upgrade to a paid membership to unlock seller tools.", "请先登录，再升级到收费会员后可解锁卖家工具。");
+      ? loginCopy(
+          "Upgrade to a paid membership to unlock seller orders, earnings, and payouts.",
+        )
+      : loginCopy(
+          "Sign in first, then upgrade to a paid membership to unlock seller tools.",
+        );
     sellerMetrics.innerHTML = `<div class="works-note">${upgradeCopy}</div>`;
     sellerOrdersList.innerHTML = `<div class="works-note">${upgradeCopy}</div>`;
     sellerLedgerList.innerHTML = `<div class="works-note">${upgradeCopy}</div>`;
@@ -69,67 +151,91 @@ function renderSellerPanel() {
   const connectedAccount = commerce?.connected_account || null;
   const payoutAction = getPayoutActionPresentation(connectedAccount);
   const payoutReminderState = getPayoutReminderPresentation(connectedAccount);
-  const showPayoutReminder = watchCommerceState.loaded && isLoggedInUser() && Boolean(payoutReminderState);
+  const showPayoutReminder =
+    watchCommerceState.loaded &&
+    isLoggedInUser() &&
+    Boolean(payoutReminderState);
   const market = commerce?.market || {};
-  const orders = (Array.isArray(market.orders) ? market.orders : []).filter((row) => {
-    if (behavior.seller.order_filter === "paid") return String(row?.status || "") === "paid";
-    if (behavior.seller.order_filter === "pending") return ["pending", "processing"].includes(String(row?.status || ""));
-    return true;
-  });
-  const ledgerEntries = Array.isArray(commerce?.ledger_entries) ? commerce.ledger_entries : [];
-  const gross = orders.reduce((sum, row) => sum + Number(row?.gross_amount_cents || 0), 0);
+  const orders = (Array.isArray(market.orders) ? market.orders : []).filter(
+    (row) => {
+      if (behavior.seller.order_filter === "paid")
+        return String(row?.status || "") === "paid";
+      if (behavior.seller.order_filter === "pending")
+        return ["pending", "processing"].includes(String(row?.status || ""));
+      return true;
+    },
+  );
+  const ledgerEntries = Array.isArray(commerce?.ledger_entries)
+    ? commerce.ledger_entries
+    : [];
+  const gross = orders.reduce(
+    (sum, row) => sum + Number(row?.gross_amount_cents || 0),
+    0,
+  );
   const net = orders
     .filter((row) => String(row?.status || "") === "paid")
     .reduce((sum, row) => sum + Number(row?.seller_net_cents || 0), 0);
   const pendingSettle = orders
-    .filter((row) => ["pending", "processing"].includes(String(row?.status || "")))
+    .filter((row) =>
+      ["pending", "processing"].includes(String(row?.status || "")),
+    )
     .reduce((sum, row) => sum + Number(row?.seller_net_cents || 0), 0);
   sellerMetrics.innerHTML = `
-    <div class="stat-card"><div class="stat-label">总销售额</div><div class="stat-value">${formatUsdFromCents(gross, "$0.00")}</div></div>
-    <div class="stat-card"><div class="stat-label">已确认收入</div><div class="stat-value">${formatUsdFromCents(net, "$0.00")}</div></div>
-    <div class="stat-card"><div class="stat-label">待处理</div><div class="stat-value">${formatUsdFromCents(pendingSettle, "$0.00")}</div></div>
-    <div class="stat-card"><div class="stat-label">${loginCopy("Mode", "模式")}</div><div class="stat-value">${escapeHtml(canOperateSeller ? loginCopy("Operator", "操作员") : loginCopy("View only", "只读查看"))}</div></div>
+    <div class="stat-card"><div class="stat-label">${loginCopy("Gross sales")}</div><div class="stat-value">${formatUsdFromCents(gross, "$0.00")}</div></div>
+    <div class="stat-card"><div class="stat-label">${loginCopy("Confirmed income")}</div><div class="stat-value">${formatUsdFromCents(net, "$0.00")}</div></div>
+    <div class="stat-card"><div class="stat-label">${loginCopy("Pending settlement")}</div><div class="stat-value">${formatUsdFromCents(pendingSettle, "$0.00")}</div></div>
+    <div class="stat-card"><div class="stat-label">${loginCopy("Mode")}</div><div class="stat-value">${escapeHtml(canOperateSeller ? loginCopy("Operator") : loginCopy("View only"))}</div></div>
   `;
-  const payoutReminder =
-    showPayoutReminder
-      ? `
+  const payoutReminder = showPayoutReminder
+    ? `
         <div class="works-note seller-payout-note">
-          ${loginCopy(
-            payoutReminderState?.message || ""
-          )}
+          ${loginCopy(payoutReminderState?.message || "")}
           <button class="mini-btn ghost tiny" type="button" data-seller-connect ${canSetupPayout ? "" : "hidden"}>${escapeHtml(payoutAction.label)}</button>
         </div>
       `
-      : "";
+    : "";
   const payoutManageAction =
     !showPayoutReminder && payoutAction.visible
       ? `
         <div class="works-note seller-payout-note">
-          ${escapeHtml(loginCopy("Need to update your payout destination or review Stripe steps?", "如果你需要更新收款方式或查看 Stripe 待完成步骤，可从这里进入。"))}
+          ${escapeHtml(loginCopy("Need to update your payout destination or review Stripe steps?"))}
           <button class="mini-btn ghost tiny" type="button" data-seller-connect ${canSetupPayout ? "" : "hidden"}>${escapeHtml(payoutAction.label)}</button>
         </div>
       `
       : "";
   sellerOrdersList.innerHTML = orders.length
-    ? `${payoutReminder}${payoutManageAction}${!canOperateSeller ? `<div class="works-note">${loginCopy("Seller is currently in view-only mode. Operational actions stay in admin workflows.", "卖家面板当前为只读查看模式，操作类动作保留给管理员流程。")}</div>` : ""}` + orders.slice(0, behavior.seller.ledger_limit).map((row) => `
+    ? `${payoutReminder}${payoutManageAction}${!canOperateSeller ? `<div class="works-note">${loginCopy("Seller is currently in view-only mode. Operational actions stay in admin workflows.")}</div>` : ""}` +
+      orders
+        .slice(0, behavior.seller.ledger_limit)
+        .map(
+          (row) => `
         <div class="seller-item">
           <div class="seller-item-title">${escapeHtml(String(row?.order_kind || "order"))} · ${formatUsdFromCents(Number(row?.gross_amount_cents || 0), "$0.00")}</div>
           <div class="seller-item-meta">${escapeHtml(String(row?.status || ""))} · ${escapeHtml(formatDateTime(row?.created_at))}</div>
         </div>
-      `).join("")
-    : `${payoutReminder}${payoutManageAction}<div class="works-note">${loginCopy("No seller orders yet.", "还没有卖家订单。")}</div>`;
+      `,
+        )
+        .join("")
+    : `${payoutReminder}${payoutManageAction}<div class="works-note">${loginCopy("No seller orders yet.")}</div>`;
   sellerLedgerList.innerHTML = ledgerEntries.length
-    ? ledgerEntries.slice(0, behavior.seller.ledger_limit).map((row) => `
+    ? ledgerEntries
+        .slice(0, behavior.seller.ledger_limit)
+        .map(
+          (row) => `
         <div class="seller-item">
           <div class="seller-item-title">${formatUsdFromCents(Number(row?.amount_cents || 0), "$0.00")}</div>
           <div class="seller-item-meta">${escapeHtml(String(row?.kind || row?.note || "entry"))} · ${escapeHtml(formatDateTime(row?.created_at))}</div>
         </div>
-      `).join("")
-    : `<div class="works-note">${loginCopy("No income entries yet.", "还没有收入记录。")}</div>`;
-  sellerOrdersList.querySelector("[data-seller-connect]")?.addEventListener("click", (event) => {
-    event.stopPropagation();
-    void startCreatorPayoutOnboarding(event.currentTarget);
-  });
+      `,
+        )
+        .join("")
+    : `<div class="works-note">${loginCopy("No income entries yet.")}</div>`;
+  sellerOrdersList
+    .querySelector("[data-seller-connect]")
+    ?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      void startCreatorPayoutOnboarding(event.currentTarget);
+    });
   if (!watchCommerceState.loaded && !watchCommerceState.loading) {
     void loadWatchCommerce().then(() => renderSellerPanel());
   }
@@ -141,8 +247,11 @@ async function loadPublicMarketWorks(force = false) {
   publicMarketState.loading = true;
   publicMarketState.error = null;
   publicMarketState.marketState = null;
+  renderForyouMarketplace();
   try {
-    const res = await fetch("/api/works/market?limit=24", { credentials: "include" });
+    const res = await fetch("/api/works/market?limit=24", {
+      credentials: "include",
+    });
     const payload = await res.json().catch(() => null);
     const data = getApiData(payload);
     if (!res.ok || payload?.ok === false) {
@@ -150,7 +259,9 @@ async function loadPublicMarketWorks(force = false) {
     }
     publicMarketState.works = Array.isArray(data?.works) ? data.works : [];
     publicMarketState.marketState =
-      data?.market_state && typeof data.market_state === "object" ? data.market_state : null;
+      data?.market_state && typeof data.market_state === "object"
+        ? data.market_state
+        : null;
     publicMarketState.loaded = true;
     return publicMarketState.works;
   } catch (err) {
@@ -161,32 +272,33 @@ async function loadPublicMarketWorks(force = false) {
     return [];
   } finally {
     publicMarketState.loading = false;
+    renderForyouMarketplace();
   }
 }
 
 function getPublicMarketEmptyCopy() {
-  const reason = String(publicMarketState.marketState?.reason || "").trim().toLowerCase();
+  const reason = String(publicMarketState.marketState?.reason || "")
+    .trim()
+    .toLowerCase();
   if (reason === "empty_database") {
     return loginCopy(
       "This connected database is empty. No users or works have been imported yet.",
-      "当前连接的数据库是空的，还没有导入任何用户或作品数据。"
     );
   }
   if (reason === "no_published_works") {
     return loginCopy(
       "Works exist, but none have been published to the marketplace yet.",
-      "当前已有作品，但还没有作品发布到市场。"
     );
   }
-  return loginCopy("No public works available yet.", "还没有公开作品可购买。");
+  return loginCopy("No public works available yet.");
 }
 
 function buildMarketLoadingNoteMarkup() {
-  return `<div class="works-note">${loginCopy("Loading marketplace...", "正在加载市场...")}</div>`;
+  return `<div class="works-note">${loginCopy("Loading marketplace...")}</div>`;
 }
 
 function buildMarketErrorNoteMarkup() {
-  return `<div class="works-note">${loginCopy("Marketplace is temporarily unavailable. Please refresh and try again.", "市场暂时不可用，请刷新后再试。")}</div>`;
+  return `<div class="works-note">${loginCopy("Marketplace is temporarily unavailable. Please refresh and try again.")}</div>`;
 }
 
 function buildMarketEmptyNoteMarkup() {
@@ -196,37 +308,37 @@ function buildMarketEmptyNoteMarkup() {
 function buildMarketSearchShellMarkup() {
   return `
     <div class="panel-search-shell foryou-search-shell">
-      <div class="panel-search-meta">${loginCopy("Pull down to search the market", "向下拖动显示市场搜索")}</div>
+      <div class="panel-search-meta">${loginCopy("Pull down to search the market")}</div>
       <div class="panel-search-row">
-        <input id="foryou-market-search" class="panel-search-input" type="search" placeholder="${escapeHtml(loginCopy("Search title, style, owner...", "搜索标题、风格、作者..."))}" />
-        <input id="foryou-market-author" class="panel-search-input panel-search-input--narrow" type="search" placeholder="${escapeHtml(loginCopy("Author", "作者"))}" />
+        <input id="foryou-market-search" class="panel-search-input" type="search" placeholder="${escapeHtml(loginCopy("Search title, style, owner..."))}" />
+        <input id="foryou-market-author" class="panel-search-input panel-search-input--narrow" type="search" placeholder="${escapeHtml(loginCopy("Author"))}" />
         <select id="foryou-market-filter" class="panel-search-select">
-          <option value="all">${loginCopy("All", "全部")}</option>
-          <option value="single">${loginCopy("Single", "单曲")}</option>
-          <option value="triptych">${loginCopy("Triptych", "三部曲")}</option>
-          <option value="opera">${loginCopy("Opera", "歌剧")}</option>
-          <option value="owned">${loginCopy("Mine", "我的")}</option>
-          <option value="public">${loginCopy("Others", "别人的")}</option>
+          <option value="all">${loginCopy("All")}</option>
+          <option value="single">${loginCopy("Single")}</option>
+          <option value="triptych">${loginCopy("Triptych")}</option>
+          <option value="opera">${loginCopy("Opera")}</option>
+          <option value="owned">${loginCopy("Mine")}</option>
+          <option value="public">${loginCopy("Others")}</option>
         </select>
         <select id="foryou-market-sort" class="panel-search-select">
-          <option value="newest">${loginCopy("Newest", "最新")}</option>
-          <option value="oldest">${loginCopy("Oldest", "最早")}</option>
-          <option value="title">${loginCopy("Title", "标题")}</option>
-          <option value="listen_low">${loginCopy("Low price", "价格低")}</option>
-          <option value="listen_high">${loginCopy("High price", "价格高")}</option>
+          <option value="newest">${loginCopy("Newest")}</option>
+          <option value="oldest">${loginCopy("Oldest")}</option>
+          <option value="title">${loginCopy("Title")}</option>
+          <option value="listen_low">${loginCopy("Low price")}</option>
+          <option value="listen_high">${loginCopy("High price")}</option>
         </select>
         <select id="foryou-market-price" class="panel-search-select">
-          <option value="all">${loginCopy("Any price", "任意价格")}</option>
-          <option value="free">${loginCopy("Free", "免费")}</option>
-          <option value="under_1">${loginCopy("Under $1", "1 美元内")}</option>
-          <option value="under_5">${loginCopy("Under $5", "5 美元内")}</option>
-          <option value="above_5">${loginCopy("Above $5", "5 美元以上")}</option>
+          <option value="all">${loginCopy("Any price")}</option>
+          <option value="free">${loginCopy("Free")}</option>
+          <option value="under_1">${loginCopy("Under $1")}</option>
+          <option value="under_5">${loginCopy("Under $5")}</option>
+          <option value="above_5">${loginCopy("Above $5")}</option>
         </select>
         <select id="foryou-market-time" class="panel-search-select">
-          <option value="all">${loginCopy("Any time", "任意时间")}</option>
-          <option value="day">${loginCopy("24h", "24 小时")}</option>
-          <option value="week">${loginCopy("7 days", "7 天")}</option>
-          <option value="month">${loginCopy("30 days", "30 天")}</option>
+          <option value="all">${loginCopy("Any time")}</option>
+          <option value="day">${loginCopy("24h")}</option>
+          <option value="week">${loginCopy("7 days")}</option>
+          <option value="month">${loginCopy("30 days")}</option>
         </select>
         <span class="panel-search-count" id="foryou-market-count"></span>
       </div>
@@ -237,23 +349,36 @@ function buildMarketSearchShellMarkup() {
 
 function syncMarketCountLabel(countLabel) {
   if (!(countLabel instanceof HTMLElement)) return;
-  countLabel.textContent = loginCopy(`Top ${behavior.foryou.market_limit}`, `显示前 ${behavior.foryou.market_limit} 条`);
+  countLabel.textContent = loginCopy(`10 per page`);
 }
 
 function bindMarketSearchControls() {
+  const behavior = readPanelBehaviorSettingsLocal();
   const filterInput = document.getElementById("foryou-market-filter");
   const sortInput = document.getElementById("foryou-market-sort");
   const authorInput = document.getElementById("foryou-market-author");
   const priceInput = document.getElementById("foryou-market-price");
   const timeInput = document.getElementById("foryou-market-time");
   const filterBar = document.getElementById("foryou-market-filter-bar");
-  if (filterInput) filterInput.value = String(filterInput.value || behavior.foryou.default_filter || "all");
-  if (sortInput) sortInput.value = String(sortInput.value || behavior.foryou.default_sort || "newest");
-  if (filterInput) filterInput.onchange = () => renderForyouMarketplace();
-  if (sortInput) sortInput.onchange = () => renderForyouMarketplace();
-  if (authorInput) authorInput.oninput = () => renderForyouMarketplace();
-  if (priceInput) priceInput.onchange = () => renderForyouMarketplace();
-  if (timeInput) timeInput.onchange = () => renderForyouMarketplace();
+  if (filterInput)
+    filterInput.value = String(
+      filterInput.value || behavior.foryou.default_filter || "all",
+    );
+  if (sortInput)
+    sortInput.value = String(
+      sortInput.value || behavior.foryou.default_sort || "newest",
+    );
+  if (filterInput)
+    filterInput.onchange = () =>
+      renderForyouMarketplace({ resetVisible: true });
+  if (sortInput)
+    sortInput.onchange = () => renderForyouMarketplace({ resetVisible: true });
+  if (authorInput)
+    authorInput.oninput = () => renderForyouMarketplace({ resetVisible: true });
+  if (priceInput)
+    priceInput.onchange = () => renderForyouMarketplace({ resetVisible: true });
+  if (timeInput)
+    timeInput.onchange = () => renderForyouMarketplace({ resetVisible: true });
   if (filterBar && !filterBar.dataset.boundClear) {
     filterBar.addEventListener("click", (event) => {
       if (!(event.target instanceof Element)) return;
@@ -268,11 +393,11 @@ function bindMarketSearchControls() {
           filter: ["foryou-market-filter", defaults.default_filter || "all"],
           sort: ["foryou-market-sort", defaults.default_sort || "newest"],
           price: ["foryou-market-price", "all"],
-          time: ["foryou-market-time", "all"]
+          time: ["foryou-market-time", "all"],
         };
         if (map[key]) {
           clearSingleSearchControl(map[key][0], map[key][1]);
-          renderForyouMarketplace();
+          renderForyouMarketplace({ resetVisible: true });
         }
         return;
       }
@@ -283,9 +408,9 @@ function bindMarketSearchControls() {
         "foryou-market-filter",
         "foryou-market-sort",
         "foryou-market-price",
-        "foryou-market-time"
+        "foryou-market-time",
       ]);
-      renderForyouMarketplace();
+      renderForyouMarketplace({ resetVisible: true });
     });
     filterBar.dataset.boundClear = "true";
   }
@@ -299,7 +424,7 @@ function ensureMarketSection(body) {
   section.id = "foryou-market-section";
   section.className = "works-section";
   section.innerHTML = `
-    <div class="section-title">${loginCopy("Marketplace", "市场")}</div>
+    <div class="section-title">${loginCopy("Marketplace")}</div>
     ${buildMarketSearchShellMarkup()}
     <div class="works-list" id="foryou-market-list">
       ${buildMarketLoadingNoteMarkup()}
@@ -315,28 +440,709 @@ function ensureMarketSearchReveal(body, behavior) {
   if (typeof ensurePullRevealSearchModule === "function") {
     ensurePullRevealSearchModule(foryouPanel, body, {
       enabled: behavior?.foryou?.search_enabled,
-      placeholder: loginCopy("Search title, style, owner...", "搜索标题、风格、作者..."),
-      hint: loginCopy(`Pull down to search · top ${behavior?.foryou?.market_limit}`, `下拉显示搜索 · 前 ${behavior?.foryou?.market_limit} 条`),
+      placeholder: loginCopy(
+        "Search title, style, owner...",
+      ),
+      hint: loginCopy(
+        `Pull down to search · ${FORYOU_MARKET_PAGE_SIZE} per page`,
+      ),
       value: document.getElementById("foryou-market-search")?.value || "",
-      onInput: () => renderForyouMarketplace()
+      onInput: () => renderForyouMarketplace({ resetVisible: true }),
     });
   }
 }
 
 async function openMarketWorkPreview(work = {}) {
-  currentWatchPreviewWork = work || null;
-  const seed = buildMarketPreviewSeed(work);
-  const previewUnlimited = canBypassPreviewLimit(authState.user, work);
-  await renderMarketWorkPreviewIntoWatchModule({ work, seed, previewUnlimited });
+  const playback = resolveStructuredPlaybackRequestModule(work);
+  const targetWork = playback.targetWork || work || null;
+  currentWatchPreviewWork = targetWork;
+  globalThis.currentStructuredWatchQueue = playback.queue;
+  const sourceRunId = String(targetWork?.source_run_id || "").trim();
+  if (sourceRunId) {
+    currentWatchAudioRunId = sourceRunId;
+  }
+  // CSSOS_PHASE2_HYDRATE_LAST_RESULT 20260429 #169 — Jing
+  // "出现在为你创作面板和作品中心面板的应该是完整的作品了，可是点击欣赏，
+  //  启动Watch之后，又再重新从头开始输出歌词一整套流程？为什么现成的作品
+  //  不播放却要重新输出一个新的呢？"
+  //
+  // When user clicks 欣赏 on a saved work, the work record already contains
+  // final_mv_url + the original lyrics — there's nothing to regenerate.
+  // Hydrate `cssmvPipelineLastResult` so every universal entry's freshness
+  // short-circuit (#137) adopts THIS work's MV instead of kicking a new
+  // pipeline run with random lyrics.
+  try {
+    const finalMvUrl =
+      String(targetWork?.final_mv_url || targetWork?.preview_video_url || "").trim();
+    // CSSOS_PHASE2_DRAFT_HYDRATION 20260430 #216 — Jing
+    // "找回旧作品的歌词/脚本/音频/视频等完整的作品信息，如果缺少哪项就补上."
+    // 498 of the user's saved works are pre-MV-pipeline drafts: they have
+    // lyrics + cover but no audio/video. Without this branch, clicking
+    // them triggered a fresh pipeline that generated RANDOM new lyrics —
+    // losing the user's draft. Now: hydrate cssmvPipelineLastResult with
+    // the SAVED lyrics + title + style + cover so the (eventual) re-run
+    // inherits the draft's content. The next pipeline produces an MV of
+    // THIS draft, not a stranger.
+    if (!finalMvUrl) {
+      const draftLyrics = String(targetWork?.lyrics_full || targetWork?.lyrics_preview || "").trim();
+      const draftTitle = String(targetWork?.title || "").trim();
+      const draftStyle = String(targetWork?.style || "").trim();
+      const draftCover =
+        String(targetWork?.cover_image_url || targetWork?.preview_image_url || targetWork?.cover_image || "").trim();
+      if (draftLyrics || draftTitle) {
+        // Lower freshMs (10 min) so the user can still click the wand to
+        // re-roll lyrics if they want — but the pipeline auto-run that
+        // happens on Watch open inherits this draft's content.
+        globalThis.cssmvPipelineLastResult = {
+          mvUrl: null,
+          coverUrl: draftCover || null,
+          title: draftTitle || null,
+          lyrics: draftLyrics || null,
+          style: draftStyle || null,
+          runId: sourceRunId || null,
+          tsAt: Date.now(),
+          freshMs: 10 * 60 * 1000,
+          source: "openMarketWorkPreview:draft"
+        };
+        // Push into pipeline panel state so it shows the draft when run.
+        try {
+          const pipelineState = globalThis.cssosMvPipelinePanelState
+            ? globalThis.cssosMvPipelinePanelState()
+            : null;
+          if (pipelineState) {
+            pipelineState.title = draftTitle;
+            pipelineState.lyrics = (typeof globalThis.cssosNormalizeLyricsText === "function")
+              ? globalThis.cssosNormalizeLyricsText(draftLyrics)
+              : draftLyrics;
+            pipelineState.style = draftStyle;
+            pipelineState.coverUrl = draftCover;
+            pipelineState.prompt = draftTitle || (draftLyrics.split("\n")[0] || "");
+          }
+        } catch (_e) { /* draft state hydration best-effort */ }
+        if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(
+            "Draft hydrated — your saved lyrics are loaded. Press Start Pipeline to render the MV."
+          );
+        }
+      }
+    }
+    if (finalMvUrl) {
+      const fullLyrics =
+        String(targetWork?.lyrics_full || targetWork?.lyrics_preview || "").trim();
+      // CSSOS_PHASE2_PERSIST_PLAYABLE 20260430 #214 — Jing
+      // Hydrate audio_url + alt_audio_url + duration_secs + aligned_lyrics
+      // so the Watch panel's Take 1/Take 2 toggle, duration overlay, and
+      // synced subtitles all work for saved works without re-running the
+      // pipeline. /api/works/mine now LEFT JOINs work_assets to surface
+      // these.
+      let audioUrl = String(targetWork?.audio_track_1_url || "").trim() || null;
+      let altAudioUrl = String(targetWork?.audio_track_2_url || "").trim() || null;
+      const subtitleUrl = String(targetWork?.subtitle_srt_url || "").trim() || null;
+      const durationSecs = Number(targetWork?.duration_secs || 0) || null;
+      // CSSOS_PHASE2_DUAL_TRACK 20260430 #221b — Jing
+      // "用户欣赏第一首,右上角的胶囊要出现,也就是说,欣赏一首,
+      //  另一首必须是下一首。如果是打开第二首,右上角胶囊也要显示
+      //  第一首,也是要欣赏完两首,才会继续别的用户的作品."
+      //
+      // Sibling discovery: each take's row carries `sibling_work_id` in
+      // its final_mv meta (pipeline_mv_api.rs writes both ways). When the
+      // user opens Take 2's card directly, we won't have audio_track_2 in
+      // the row's own assets (Take 2 stores only its own audio_track_1).
+      // Fetch the sibling's asset URLs and synthesize altAudioUrl so the
+      // toggle pill shows the other take regardless of which card the
+      // user clicked.
+      const siblingId = String(
+        targetWork?.sibling_work_id || targetWork?.final_mv_meta?.sibling_work_id || ""
+      ).trim();
+      const takeIndex = Number(
+        targetWork?.take_index || targetWork?.final_mv_meta?.take_index || 1
+      );
+      if (siblingId && (!altAudioUrl || takeIndex === 2)) {
+        try {
+          const sibRes = await fetch(`/api/works/${encodeURIComponent(siblingId)}`, {
+            credentials: "include",
+          });
+          const sibPayload = await sibRes.json().catch(() => null);
+          const sibling = sibPayload?.data?.work || sibPayload?.work || null;
+          const sibAudio = String(
+            sibling?.audio_track_1_url || sibling?.preview_audio_url || ""
+          ).trim();
+          if (sibAudio) {
+            if (takeIndex === 2) {
+              // Opening Take 2 — its own audio is "audio", and the
+              // SIBLING (Take 1) supplies the alt slot. The toggle pill
+              // will let the user flip back to Take 1 mid-watch.
+              altAudioUrl = sibAudio;
+            } else if (!altAudioUrl) {
+              // Opening Take 1 but its row didn't have audio_track_2
+              // (rare — older works); pull from sibling.
+              altAudioUrl = sibAudio;
+            }
+          }
+        } catch (_e) { /* sibling fetch best-effort */ }
+      }
+      globalThis.cssmvPipelineLastResult = {
+        mvUrl: finalMvUrl,
+        coverUrl: String(targetWork?.cover_image_url || targetWork?.preview_image_url || targetWork?.cover_image || "").trim() || null,
+        title: String(targetWork?.title || "").trim() || null,
+        lyrics: fullLyrics || null,
+        runId: sourceRunId || null,
+        audioUrl,
+        altAudioUrl,
+        subtitleUrl,
+        durationSecs,
+        alignedLyrics: targetWork?.aligned_lyrics || null,
+        // CSSOS_PHASE2_HYDRATION_TTL 20260430 #215 — Jing
+        // "高级设置面板的自定义歌词魔法棒又无法施展魔法了."
+        // Previously freshMs was 24h, which silently hijacked every
+        // lyrics-generate call for an entire day after clicking ANY saved
+        // work. Cut it to 90s — long enough for the hydrated Watch panel
+        // to play uninterrupted, short enough that a follow-up wand press
+        // hits the LLM normally instead of replaying the saved lyrics.
+        tsAt: Date.now(),
+        freshMs: 90 * 1000,
+        source: "openMarketWorkPreview"
+      };
+      // Push these into the pipeline panel state too so the Take 1/Take 2
+      // toggle reappears after reload.
+      try {
+        const pipelineState = globalThis.cssosMvPipelinePanelState
+          ? globalThis.cssosMvPipelinePanelState()
+          : null;
+        if (pipelineState) {
+          pipelineState.mvUrl = finalMvUrl;
+          pipelineState.audioUrl = audioUrl;
+          pipelineState.altAudioUrl = altAudioUrl;
+          pipelineState.duration = durationSecs || 0;
+          // CSSOS_PHASE2_KARAOKE_LIVE 20260430 #199 — Jing
+          // Propagate aligned_lyrics into pipelineState so the live
+          // karaoke timeupdate handler (in app.watch-ui.js) can find
+          // per-line timing without round-tripping through the SRT.
+          pipelineState.alignedLyrics = targetWork?.aligned_lyrics || null;
+          pipelineState.title = String(targetWork?.title || "").trim();
+          pipelineState.lyrics = (typeof globalThis.cssosNormalizeLyricsText === "function")
+            ? globalThis.cssosNormalizeLyricsText(fullLyrics || "")
+            : (fullLyrics || "");
+          // CSSOS_PHASE2_DUAL_TRACK 20260430 #221b — currentTake
+          // reflects which row the user clicked: Take 1 row → 1, Take
+          // 2 row → 2. Watch ended-handler tracks played takes per
+          // session and only advances queue when both are consumed.
+          pipelineState.currentTake = takeIndex === 2 ? 2 : 1;
+          pipelineState.siblingWorkId = siblingId || null;
+          // CSSOS_PHASE2_TAKE2_BACKSTOP_FIX 20260501 #245 — Jing
+          // "总是只播放第一首，忽略第二首而播放下一对歌."
+          // Without altDuration set, the take-switch backstop falls back
+          // to a 60s minimum and prematurely advances mid-Take 2. Mirror
+          // duration as a sane upper bound when alt_duration_secs isn't
+          // present on the row (Suno takes are usually similar length).
+          pipelineState.altDuration = Number(
+            targetWork?.alt_duration_secs || durationSecs || 0
+          ) || 0;
+          // CSSOS_PHASE2_AUTHOR_AVATAR 20260501 #246 — propagate author
+          // identity so the avatar widget can render initials / image
+          // and the per-author playlist filter has an id to pivot on.
+          pipelineState.ownerId = String(
+            targetWork?.owner_id || targetWork?.user_id || ""
+          ).trim();
+          pipelineState.ownerName = String(
+            targetWork?.owner_name || targetWork?.owner_email || "Creator"
+          ).trim();
+          pipelineState.ownerAvatarUrl = String(targetWork?.owner_avatar_url || "").trim();
+          // CSSOS_PHASE2_DUAL_TRACK 20260430 #221b — pairKey for the
+          // played-takes map. Use the LOWER of (workId, siblingWorkId)
+          // so both takes resolve to the same key regardless of which
+          // card the user opens first. Falls back to title when no
+          // sibling exists (single-take engines like ElevenLabs).
+          const ownId = String(targetWork?.id || targetWork?.work_id || "").trim();
+          const siblingNorm = siblingId || "";
+          const pairKey = ownId && siblingNorm
+            ? [ownId, siblingNorm].sort().join("|")
+            : ownId || (targetWork?.title || "");
+          pipelineState.workId = pairKey;
+        }
+      } catch (_e) { /* state hydration best-effort */ }
+    }
+  } catch (_hydrationErr) { /* non-fatal */ }
+  const seed = buildMarketPreviewSeed(targetWork);
+  const previewUnlimited = canBypassPreviewLimit(authState.user, targetWork);
+  await renderMarketWorkPreviewIntoWatchModule({
+    work: targetWork,
+    seed,
+    previewUnlimited,
+  });
+  // CSSOS_PHASE2_DUAL_TRACK 20260430 #229 — Jing
+  // "媒体框右上角的♪1 ♪2不显示了。请修复。用户切换到哪首（对）歌,
+  //  就播放哪首（对）歌."
+  // Re-inject the ♪1/♪2 toggle pill every time the user clicks a saved
+  // work. The pipeline-panel injector reads from the live pipelineState
+  // bridges, which we just hydrated above, so it'll find the right alt
+  // URL + current take and render the pill in the watch frame.
+  try {
+    if (typeof globalThis.__cssosInjectTakeToggle === "function") {
+      const ps = globalThis.cssosMvPipelinePanelState
+        ? globalThis.cssosMvPipelinePanelState()
+        : null;
+      globalThis.__cssosInjectTakeToggle({
+        altAudioUrl: ps?.altAudioUrl || null,
+        currentTake: ps?.currentTake || 1,
+      });
+    }
+  } catch (_e) { /* toggle inject best-effort */ }
+  // CSSOS_PHASE2_TITLE_REFRESH 20260501 #244 / #264 — Jing
+  // "标题里的标题变了，媒体框里的标题还是旧的，两个标题在打架."
+  //
+  // The karaoke overlay calls splitLyricsTitleAndBodyModule(title, lyrics)
+  // — when the lyrics' first line still has the previous song's title
+  // baked in (saved as a heading in the body), the splitter returns the
+  // OLD first line as `titleLine` and the overlay shows it. So syncing
+  // only state.title isn't enough — we MUST also update state.songSeed.lyrics
+  // and watchLyricsEditor.value so the splitter has the new song's text
+  // as its source.
+  try {
+    const newTitle = String(targetWork?.title || "").trim();
+    const newLyrics = String(
+      targetWork?.lyrics_full || targetWork?.lyrics_preview || ""
+    ).trim();
+    if (newTitle) {
+      const ps = globalThis.cssosMvPipelinePanelState
+        ? globalThis.cssosMvPipelinePanelState()
+        : null;
+      if (ps) {
+        ps.title = newTitle;
+        if (ps.songSeed && typeof ps.songSeed === "object") {
+          ps.songSeed.title = newTitle;
+          if (newLyrics) {
+            ps.songSeed.lyrics = (typeof globalThis.cssosNormalizeLyricsText === "function")
+              ? globalThis.cssosNormalizeLyricsText(newLyrics)
+              : newLyrics;
+          }
+        } else {
+          ps.songSeed = { title: newTitle, lyrics: newLyrics || "" };
+        }
+      }
+      // Sync the watch lyrics editor so renderWatchKaraokeOverlayModule
+      // (which reads watchLyricsEditor.value FIRST) picks up the new song.
+      try {
+        const editor = document.getElementById("watch-lyrics-editor")
+          || document.querySelector(".watch-lyrics-editor");
+        if (editor && newLyrics) {
+          const norm = (typeof globalThis.cssosNormalizeLyricsText === "function")
+            ? globalThis.cssosNormalizeLyricsText
+            : (s) => s;
+          editor.value = norm(newLyrics);
+        }
+      } catch (_e) {}
+      // Also invalidate the karaoke timeline cache so the live tick
+      // rebuilds from the new song's data.
+      try {
+        if (globalThis.watchKaraokeTimelineCache) {
+          globalThis.watchKaraokeTimelineCache.runId = "";
+          globalThis.watchKaraokeTimelineCache.data = null;
+        }
+      } catch (_e) {}
+      // Hard-update visible title surfaces so we don't depend on a
+      // re-render call missing one of them.
+      const titleEls = document.querySelectorAll(
+        "#watch-title-text, .watch-title-text, .watch-frame-title, #watch-frame-title"
+      );
+      titleEls.forEach((el) => { el.textContent = newTitle; });
+      // CSSOS_PHASE2_TITLE_BAR_REFRESH 20260501 #254 — Jing
+      // "标题还是第一对的标题."
+      // The watch panel's title bar (#watch-panel .panel-title) shows
+      // "WATCH · {TITLE} · {STATUS}". On queue advance, the title
+      // segment didn't refresh (only the body / overlay did). Splice
+      // the new title into whatever pattern is already there.
+      try {
+        const panelTitle = document.querySelector("#watch-panel .panel-title");
+        if (panelTitle) {
+          const cur = String(panelTitle.textContent || "").trim();
+          if (cur && cur.includes("·")) {
+            const parts = cur.split("·").map((s) => s.trim());
+            if (parts.length >= 2) {
+              parts[1] = newTitle;
+              panelTitle.textContent = parts.join(" · ");
+            } else {
+              panelTitle.textContent = `${parts[0]} · ${newTitle}`;
+            }
+          } else {
+            panelTitle.textContent = `Watch · ${newTitle}`;
+          }
+        }
+      } catch (_e) {}
+      // Re-render the karaoke overlay so the title typography (font,
+      // stroke, layout) repaints with the new text.
+      if (typeof globalThis.renderWatchKaraokeOverlayModule === "function") {
+        globalThis.renderWatchKaraokeOverlayModule();
+      }
+      // Refresh author avatar widget (owner ID / name may have changed).
+      if (typeof globalThis.__cssosRefreshAuthorAvatar === "function") {
+        globalThis.__cssosRefreshAuthorAvatar();
+      }
+    }
+  } catch (_e) {}
+  // CSSOS_PHASE2_PRESERVE_ASPECT 20260430 #235 — Jing
+  // "第一次播放也是这种格式，可是第二次再去播放的时候，全部变成了16:9.
+  //  请修复，不要fallback回到16:9，输出时是什么就保持什么."
+  // Clear the previous work's source-aspect tag so the new work's video
+  // metadata can re-shape the frame. Then trigger the dimension read.
+  try {
+    const frame = document.querySelector("#watch-panel .watch-frame");
+    if (frame) delete frame.dataset.sourceAspect;
+    if (typeof globalThis.applyVideoSourceAspectModule === "function") {
+      globalThis.applyVideoSourceAspectModule();
+    }
+  } catch (_e) {}
+  // CSSOS_PHASE2_AUTO_ADVANCE 20260430 #231 — Jing
+  // "随便点击播放一首歌，播放完毕，没有自动播放下一首. 请修复."
+  // Schedule an absolute-time backstop the moment the user opens a work.
+  // If the media chain stalls (autoplay-blocked Take 2, missing audio
+  // assets on legacy works, video.ended never firing on a loaded-but-
+  // not-played video), this still advances to the next song.
+  try {
+    const sched = globalThis.__cssosScheduleAutoAdvanceBackstop;
+    if (typeof sched === "function") {
+      const dur = Number(targetWork?.duration_secs || 0);
+      const altDur = Number(targetWork?.alt_duration_secs || dur || 0);
+      const total = (dur > 0 ? dur : 0) + (altDur > 0 ? altDur : 0);
+      sched(total > 0 ? total : 240);
+    }
+  } catch (_e) {}
+  // CSSOS_PHASE2_DUAL_TRACK 20260430 #228 — Jing
+  // "自动播放完毕之后，也要自动播放'为你创作'面板接下来个作品,
+  //  也就是说，从最新到最旧自动播放."
+  //
+  // After both takes of THIS work finish playing, the watch ended-handler
+  // calls watchQueueAdvanceModule(+1) which walks __cssosWatchQueue.items.
+  // For that walk to chronologically continue from the clicked work, we
+  // sync the queue's cursor to wherever this work sits in the queue. If
+  // the clicked work isn't in the queue yet (older than the prefetched
+  // page), we fetch more pages until we find it OR the self-scope is
+  // exhausted (then the queue advance falls through to others' works).
+  try {
+    const targetId = String(targetWork?.id || targetWork?.work_id || "").trim();
+    if (targetId && globalThis.cssosWatchQueuePrefetch) {
+      const q = globalThis.__cssosWatchQueue;
+      if (q && Array.isArray(q.items)) {
+        const findIdx = () => q.items.findIndex((it) => String(it?.id || "") === targetId);
+        let idx = findIdx();
+        // Pull additional pages up to a sensible cap if the work isn't
+        // in the prefetched window.
+        let pages = 0;
+        while (idx < 0 && !q.exhausted && pages < 8) {
+          await globalThis.cssosWatchQueuePrefetch();
+          idx = findIdx();
+          pages += 1;
+        }
+        if (idx >= 0) {
+          q.index = idx;
+        }
+      }
+    }
+  } catch (_e) { /* queue-sync best-effort */ }
+  // CSSOS_PHASE2_PLAYLIST_SOURCE 20260501 #245 — Jing
+  // "如果这首歌是自己的，比如从'作品中心'开始播放的，那就默认从新到旧
+  //  循环播放自己'作品中心'面板的音乐列表（只播自己的作品）...
+  //  如果这首歌是别人的，比如从'为你创作'面板开始播放的，那就默认从新到旧
+  //  循环播放'为你创作'面板的音乐列表（播放所有用户的作品，包括自己的）..."
+  //
+  // Source resolution priority:
+  //   1. Explicit options.source ('mine' | 'for-you' | author id) wins —
+  //      callers from each panel pass this directly.
+  //   2. Custom list active → leave alone, the user is in their list.
+  //   3. Robust ownership: targetWork.is_own OR (owner_id == authState.user.id).
+  //      Defends against missing is_own flag on legacy rows.
+  //   4. Fallback: own → "mine", other → "for-you".
+  // Mode (loop_all / sequential / reverse / shuffle) is preserved across
+  // list switches so a user who picked shuffle stays shuffled.
+  try {
+    const pl = globalThis.cssosPlaylists;
+    if (pl) {
+      const targetWorkLocal = targetWork || {};
+      const explicitSource = String(options?.source || work?.__source || "").trim();
+      const ownerId = String(
+        targetWorkLocal?.owner_id ||
+        targetWorkLocal?.user_id ||
+        ""
+      ).trim();
+      const viewerId = String(authState?.user?.id || "").trim();
+      const isOwn =
+        targetWorkLocal?.is_own === true ||
+        (viewerId && ownerId && viewerId === ownerId);
+      const activeId = pl.getActive()?.id || "";
+      const isCustom = activeId.startsWith("custom-");
+      let desired = activeId;
+      if (explicitSource) {
+        desired = explicitSource;
+      } else if (!isCustom) {
+        desired = isOwn ? "mine" : "for-you";
+      }
+      if (desired !== activeId && pl.lists().some((l) => l.id === desired)) {
+        pl.setActive(desired);
+        console.warn(
+          "[playlist] source-aware switch → %s (was %s, isOwn=%s, ownerMatch=%s)",
+          desired, activeId, String(isOwn), ownerId === viewerId
+        );
+      }
+      const wid = String(targetWorkLocal?.id || targetWorkLocal?.work_id || "").trim();
+      if (wid) {
+        const ok = pl.seekTo(wid);
+        if (!ok) {
+          await pl.refresh().catch(() => {});
+          pl.seekTo(wid);
+        }
+      }
+    }
+  } catch (_e) {}
+  // CSSOS_PHASE2_PREVIEW_CAP 20260430 #240 — Jing
+  // "对于权限不够的用户，也要让他播放30秒，然后进入下一首歌."
+  // If the viewer doesn't have full playback rights to this work
+  // (not own + no listen entitlement + no buyout), schedule a 30s
+  // hard cap that advances the playlist. Cleared when the user
+  // navigates away (next openMarketWorkPreview will overwrite or
+  // the take/queue path will clear via __cssosClearPreviewTimer).
+  try {
+    const isOwn = targetWork?.is_own === true ||
+      (authState?.user && String(targetWork?.owner_id || targetWork?.user_id || "") === String(authState.user.id || ""));
+    const hasFullAccess = isOwn || canBypassPreviewLimit(authState.user, targetWork);
+    if (!hasFullAccess) {
+      try { clearTimeout(globalThis.__cssosPreviewCapId); } catch (_e) {}
+      globalThis.__cssosPreviewCapId = setTimeout(() => {
+        if (typeof globalThis.showToast === "function") {
+          globalThis.showToast("30s preview ended — advancing to next work (upgrade or buy to unlock).");
+        }
+        if (globalThis.cssosPlaylists?.next) {
+          void globalThis.cssosPlaylists.next().then((item) => {
+            if (item && typeof globalThis.applyWatchQueueItemModule === "function") {
+              globalThis.applyWatchQueueItemModule(item);
+            } else if (typeof globalThis.cssosWatchQueueAdvance === "function") {
+              globalThis.cssosWatchQueueAdvance(+1);
+            }
+          });
+        } else if (typeof globalThis.cssosWatchQueueAdvance === "function") {
+          void globalThis.cssosWatchQueueAdvance(+1);
+        }
+      }, 30 * 1000);
+      console.warn("[preview-cap] 30s cap scheduled — viewer lacks full access to '%s'", targetWork?.title || "?");
+    } else {
+      // Owner / entitled — clear any leftover cap from a previous item.
+      try { clearTimeout(globalThis.__cssosPreviewCapId); } catch (_e) {}
+    }
+  } catch (_capErr) {}
+  // CSSOS_PHASE2_AUDIO_PRIME_ON_OPEN 20260430 #238 — Jing
+  // "自动进入第2首歌，但是静音播放？为什么不继续有声播放呢？"
+  //
+  // Root cause: when the user first opens a work, the video plays
+  // unmuted (with Take 1 audio baked in), but the <audio> element is
+  // never primed by a user gesture. When Take 1 ends → onMediaEnded →
+  // switchToTake(2) → mutes video + sets audio.src + audio.play() —
+  // but the autoplay policy treats this as a fresh first-play because
+  // <audio> was never user-activated. play() is rejected silently and
+  // both elements end up muted.
+  //
+  // Fix: route Take 1 through the <audio> element from the very start.
+  // The card click (this very call stack) IS a user gesture, so
+  // audio.play() succeeds and registers the element as user-activated
+  // for the rest of the session. Then on take 2 swap, just changing
+  // audio.src + calling play() works without policy interference.
+  try {
+    const audioEl = document.getElementById("watch-audio-preview");
+    const videoEl = document.getElementById("watch-video");
+    const ps = globalThis.cssosMvPipelinePanelState
+      ? globalThis.cssosMvPipelinePanelState()
+      : null;
+    const audioUrl = String(ps?.audioUrl || "").trim();
+    if (audioEl && audioUrl) {
+      // CSSOS_PHASE2_NEXT_PAIR_UNMUTED 20260501 #262 — Jing
+      // "下一对歌曲还是被静音，请修复为开启."
+      // Prime <audio> SILENTLY (muted) so it's user-activated for the
+      // future Take 2 swap. Don't unmute it here — and especially don't
+      // mute the video. Video plays Take 1 baked-in audio = next pair
+      // arrives audible immediately.
+      audioEl.src = audioUrl;
+      audioEl.muted = true;
+      audioEl.load && audioEl.load();
+      if (audioEl.play) {
+        audioEl.play().catch(() => { /* silent prime; video has sound */ });
+      }
+      // Keep video unmuted — its baked-in audio is the actual sound
+      // source for Take 1 / standard playback.
+      if (videoEl) videoEl.muted = false;
+    }
+  } catch (_primeErr) { /* prime best-effort */ }
+  // CSSOS_PHASE2_AUTO_FULLSCREEN_ON_PLAY 20260501 #264 — Jing
+  // "播放媒体时，请帮用户点击一下媒体框右下角的全屏按钮，进入真正全屏，
+  //  即媒体左右撑满屏幕左右边缘.谢谢."
+  //
+  // We're inside the click-handler chain (openMarketWorkPreview was
+  // called from a card click / queue advance triggered by a tap), so
+  // requestFullscreen is allowed by the user-activation gate. Target
+  // the watch frame so chrome/title overlay come along; if that's
+  // blocked (Safari quirks), fall back to the <video> element using
+  // webkitEnterFullscreen which works on iOS too.
+  //
+  // Respect three opt-outs:
+  //   • document.fullscreenElement already set → already fullscreen
+  //   • localStorage('cssos:noAutoFullscreen') === '1' → user disabled
+  //   • The opening was a programmatic queue-advance with
+  //     options.skipFullscreen (set by silent prefetch paths).
+  try {
+    const skip = options && options.skipFullscreen === true;
+    const userOptOut = (() => {
+      try { return localStorage.getItem("cssos:noAutoFullscreen") === "1"; }
+      catch (_e) { return false; }
+    })();
+    if (!skip && !userOptOut && !document.fullscreenElement
+        && !document.webkitFullscreenElement) {
+      const frame = document.querySelector("#watch-panel .watch-frame")
+        || document.getElementById("watch-frame");
+      const videoEl = document.getElementById("watch-video");
+      // Prefer the frame so the title overlay + author avatar come along.
+      // If the frame's request is rejected, try the bare video element
+      // (useful on iOS where webkitEnterFullscreen lives on <video>).
+      const tryFs = (el) => {
+        if (!el) return false;
+        const fn = el.requestFullscreen
+          || el.webkitRequestFullscreen
+          || el.webkitEnterFullscreen
+          || el.mozRequestFullScreen
+          || el.msRequestFullscreen;
+        if (!fn) return false;
+        try {
+          const result = fn.call(el);
+          if (result && typeof result.catch === "function") {
+            result.catch(() => {
+              // First choice failed (often Safari frame-not-allowed).
+              // Fall through to video element on next try.
+              if (el !== videoEl && videoEl) tryFs(videoEl);
+            });
+          }
+          return true;
+        } catch (_e) { return false; }
+      };
+      const ok = tryFs(frame);
+      if (!ok && videoEl) tryFs(videoEl);
+    }
+  } catch (_fsErr) { /* auto-fullscreen best-effort */ }
 }
 
-function renderForyouMarketplace() {
+// CSSOS_PHASE2_FULL_SWAP_ON_NAV 20260430 #236 — Jing
+// "切换歌的时候，只是切换视频而已，音频还是旧的，连标题也是旧的，
+//  歌词也是旧的。应该全部切换."
+// Expose openMarketWorkPreview so the watch queue's swipe/wheel/key
+// advance path can re-run the FULL render flow (cover, title overlay,
+// lyrics editor, seed preview, take toggle, audio + video, watchPanel
+// state) instead of doing a partial swap. The same async work shape is
+// fed in — for a /cssapi/v1/mv item or a /api/works/mine row — both
+// resolve through resolveStructuredPlaybackRequestModule and end up
+// calling renderMarketWorkPreviewIntoWatchModule.
+try {
+  globalThis.openMarketWorkPreview = openMarketWorkPreview;
+} catch (_e) {}
+
+function getStructuredWorkNodeIdModule(work = {}) {
+  return String(work?.work_id || work?.id || work?.local_id || "").trim();
+}
+
+function sortStructuredChildrenForPlaybackModule(children = []) {
+  return [...(Array.isArray(children) ? children : [])].sort((left, right) => {
+    const leftTime = Date.parse(String(left?.updated_at || left?.created_at || "")) || 0;
+    const rightTime = Date.parse(String(right?.updated_at || right?.created_at || "")) || 0;
+    if (rightTime !== leftTime) return rightTime - leftTime;
+    const seqDelta = Number(right?.sequence_index || 0) - Number(left?.sequence_index || 0);
+    if (seqDelta !== 0) return seqDelta;
+    return String(right?.title || "").localeCompare(String(left?.title || ""));
+  });
+}
+
+function flattenStructuredPlaybackLeavesModule(work = {}) {
+  const normalizedType = normalizeWorkTypeClient(work?.work_type);
+  const role = String(work?.structure_role || normalizedType || "").trim().toLowerCase();
+  const children = sortStructuredChildrenForPlaybackModule(resolveRenderableWorkChildren(work));
+  if (!children.length) return [work].filter(Boolean);
+  if (!["opera", "triptych", "act", "part"].includes(role) && normalizedType !== "opera" && normalizedType !== "triptych") {
+    return [work].filter(Boolean);
+  }
+  return children.flatMap((child) => flattenStructuredPlaybackLeavesModule(child));
+}
+
+function resolveStructuredPlaybackRequestModule(work = {}) {
+  const rootWork = work || {};
+  const requestedStartId =
+    String(rootWork?.requested_start_work_id || rootWork?.activeChildWorkId || "").trim();
+  const leaves = flattenStructuredPlaybackLeavesModule(rootWork).filter(
+    (item) => getStructuredWorkNodeIdModule(item),
+  );
+  if (!leaves.length) {
+    return { targetWork: rootWork, queue: null };
+  }
+  const startIndex = requestedStartId
+    ? Math.max(
+        0,
+        leaves.findIndex((item) => getStructuredWorkNodeIdModule(item) === requestedStartId),
+      )
+    : 0;
+  const safeStartIndex = startIndex >= 0 ? startIndex : 0;
+  const queueItems = leaves.slice(safeStartIndex);
+  const rootId = getStructuredWorkNodeIdModule(rootWork);
+  return {
+    targetWork: queueItems[0] || rootWork,
+    queue: queueItems.length > 1 || getStructuredWorkNodeIdModule(queueItems[0]) !== rootId
+      ? {
+          rootWork: { ...(rootWork || {}) },
+          items: queueItems.map((item) => ({ ...(item || {}) })),
+          index: 0,
+        }
+      : null,
+  };
+}
+
+function findRootWorkForPlaybackModule(works = [], targetWorkId = "") {
+  const safeWorks = Array.isArray(works) ? works : [];
+  const targetId = String(targetWorkId || "").trim();
+  if (!targetId) return null;
+  return (
+    safeWorks.find((work) => {
+      const rootId = getStructuredWorkNodeIdModule(work);
+      if (rootId === targetId) return true;
+      return flattenStructuredPlaybackLeavesModule(work).some(
+        (leaf) => getStructuredWorkNodeIdModule(leaf) === targetId,
+      );
+    }) || null
+  );
+}
+
+async function advanceStructuredWorkPlaybackModule() {
+  const queue = globalThis.currentStructuredWatchQueue;
+  if (!queue || !Array.isArray(queue.items) || queue.items.length < 2) return false;
+  const nextIndex = Number(queue.index || 0) + 1;
+  const nextWork = queue.items[nextIndex];
+  if (!nextWork) {
+    globalThis.currentStructuredWatchQueue = null;
+    return false;
+  }
+  globalThis.currentStructuredWatchQueue = {
+    ...queue,
+    index: nextIndex,
+  };
+  currentWatchPreviewWork = { ...(nextWork || {}) };
+  const sourceRunId = String(nextWork?.source_run_id || "").trim();
+  if (sourceRunId) currentWatchAudioRunId = sourceRunId;
+  await renderMarketWorkPreviewIntoWatchModule({
+    work: nextWork,
+    seed: buildMarketPreviewSeed(nextWork),
+    previewUnlimited: canBypassPreviewLimit(authState.user, nextWork),
+  });
+  return true;
+}
+
+function renderForyouMarketplace(options = {}) {
   if (!foryouPanel) return;
   const body = foryouPanel.querySelector(".panel-body");
   if (!body) return;
   const behavior = readPanelBehaviorSettingsLocal();
   ensureMarketSection(body);
   ensureMarketSearchReveal(body, behavior);
+  ensureForyouInfinitePaging();
   bindMarketSearchControls();
   const list = document.getElementById("foryou-market-list");
   const countLabel = document.getElementById("foryou-market-count");
@@ -349,28 +1155,60 @@ function renderForyouMarketplace() {
     list.innerHTML = buildMarketErrorNoteMarkup();
     return;
   }
+  if (options?.resetVisible !== false) {
+    foryouMarketVisibleCount = FORYOU_MARKET_PAGE_SIZE;
+  }
   const marketViewOptions = readMarketListViewOptions();
   syncMarketFilterPills(marketViewOptions);
-  const works = buildVisibleMarketWorks(publicMarketState.works, marketViewOptions);
+  const works = buildVisibleMarketWorks(
+    publicMarketState.works,
+    marketViewOptions,
+  );
+  latestVisibleMarketWorks = Array.isArray(works) ? works : [];
   syncMarketCountLabel(countLabel);
   if (!works.length) {
     list.innerHTML = buildMarketEmptyNoteMarkup();
     return;
   }
-  list.innerHTML = buildMarketCardsMarkup(works);
-  void hydrateMarketCardThumbnails(list, works);
+  const pageWorks = works.slice(0, foryouMarketVisibleCount);
+  list.innerHTML = `
+    <div class="works-list-results">${buildMarketCardsMarkup(pageWorks)}</div>
+    <div class="works-list-footer">
+      <div class="works-note">${escapeHtml(loginCopy(`Showing ${pageWorks.length} of ${works.length} works`))}</div>
+    </div>
+  `;
+  void hydrateMarketCardThumbnails(list, pageWorks);
   bindMarketCardExpandToggle(list);
-  bindMarketCardActionButtons(list, works);
+  bindMarketCardActionButtons(list, pageWorks);
 }
 
 function readMarketListViewOptions() {
+  const behavior = readPanelBehaviorSettingsLocal();
   return {
-    query: String(document.getElementById("foryou-market-search")?.value || "").trim().toLowerCase(),
-    authorQuery: String(document.getElementById("foryou-market-author")?.value || "").trim().toLowerCase(),
-    filterMode: String(document.getElementById("foryou-market-filter")?.value || behavior.foryou.default_filter || "all"),
-    sortMode: String(document.getElementById("foryou-market-sort")?.value || behavior.foryou.default_sort || "newest"),
-    priceMode: String(document.getElementById("foryou-market-price")?.value || "all"),
-    timeMode: String(document.getElementById("foryou-market-time")?.value || "all")
+    query: String(document.getElementById("foryou-market-search")?.value || "")
+      .trim()
+      .toLowerCase(),
+    authorQuery: String(
+      document.getElementById("foryou-market-author")?.value || "",
+    )
+      .trim()
+      .toLowerCase(),
+    filterMode: String(
+      document.getElementById("foryou-market-filter")?.value ||
+        behavior.foryou.default_filter ||
+        "all",
+    ),
+    sortMode: String(
+      document.getElementById("foryou-market-sort")?.value ||
+        behavior.foryou.default_sort ||
+        "newest",
+    ),
+    priceMode: String(
+      document.getElementById("foryou-market-price")?.value || "all",
+    ),
+    timeMode: String(
+      document.getElementById("foryou-market-time")?.value || "all",
+    ),
   };
 }
 
@@ -382,41 +1220,45 @@ function syncMarketFilterPills(options = {}) {
   renderSearchFilterPills(document.getElementById("foryou-market-filter-bar"), {
     query: String(options.query || ""),
     author: String(options.authorQuery || ""),
-    filterLabel: ({
-      all: loginCopy("All", "全部"),
-      single: loginCopy("Single", "单曲"),
-      triptych: loginCopy("Triptych", "三部曲"),
-      opera: loginCopy("Opera", "歌剧"),
-      owned: loginCopy("Mine", "我的"),
-      public: loginCopy("Others", "别人的")
-    })[filterMode],
-    sortLabel: ({
-      newest: loginCopy("Newest", "最新"),
-      oldest: loginCopy("Oldest", "最早"),
-      title: loginCopy("Title", "标题"),
-      listen_low: loginCopy("Low price", "价格低"),
-      listen_high: loginCopy("High price", "价格高")
-    })[sortMode],
-    priceLabel: ({
+    filterLabel: {
+      all: loginCopy("All"),
+      single: loginCopy("Single"),
+      triptych: loginCopy("Triptych"),
+      opera: loginCopy("Opera"),
+      owned: loginCopy("Mine"),
+      public: loginCopy("Others"),
+    }[filterMode],
+    sortLabel: {
+      newest: loginCopy("Newest"),
+      oldest: loginCopy("Oldest"),
+      title: loginCopy("Title"),
+      listen_low: loginCopy("Low price"),
+      listen_high: loginCopy("High price"),
+    }[sortMode],
+    priceLabel: {
       all: "",
-      free: loginCopy("Free", "免费"),
-      under_1: loginCopy("Under $1", "1 美元内"),
-      under_5: loginCopy("Under $5", "5 美元内"),
-      above_5: loginCopy("Above $5", "5 美元以上")
-    })[priceMode],
-    timeLabel: ({
+      free: loginCopy("Free"),
+      under_1: loginCopy("Under $1"),
+      under_5: loginCopy("Under $5"),
+      above_5: loginCopy("Above $5"),
+    }[priceMode],
+    timeLabel: {
       all: "",
-      day: loginCopy("24h", "24 小时"),
-      week: loginCopy("7 days", "7 天"),
-      month: loginCopy("30 days", "30 天")
-    })[timeMode]
+      day: loginCopy("24h"),
+      week: loginCopy("7 days"),
+      month: loginCopy("30 days"),
+    }[timeMode],
   });
 }
 
 function buildVisibleMarketWorks(sourceWorks = [], options = {}) {
   const works = Array.isArray(sourceWorks) ? sourceWorks : [];
-  const query = String(options.query || "").trim().toLowerCase();
-  const authorQuery = String(options.authorQuery || "").trim().toLowerCase();
+  const query = String(options.query || "")
+    .trim()
+    .toLowerCase();
+  const authorQuery = String(options.authorQuery || "")
+    .trim()
+    .toLowerCase();
   const filterMode = String(options.filterMode || "all");
   const sortMode = String(options.sortMode || "newest");
   const priceMode = String(options.priceMode || "all");
@@ -431,33 +1273,130 @@ function buildVisibleMarketWorks(sourceWorks = [], options = {}) {
           work?.lyrics_text,
           work?.lyrics_preview,
           work?.owner_name,
-          work?.owner_handle
-        ].map((value) => String(value || "").toLowerCase()).join("\n");
+          work?.owner_handle,
+        ]
+          .map((value) => String(value || "").toLowerCase())
+          .join("\n");
         return haystack.includes(query);
       }),
-      filterMode
+      filterMode,
     ),
-    sortMode
-  ).filter((work) => {
-    if (!authorQuery) return true;
-    const haystack = [work?.owner_name, work?.owner_email, work?.owner_handle].map((value) => String(value || "").toLowerCase()).join("\n");
-    return haystack.includes(authorQuery);
-  }).filter((work) => {
-    const cents = Number(work?.current_listen_price_cents || work?.listen_price_cents || 0);
-    if (priceMode === "free") return cents <= 0;
-    if (priceMode === "under_1") return cents > 0 && cents <= 100;
-    if (priceMode === "under_5") return cents > 0 && cents <= 500;
-    if (priceMode === "above_5") return cents > 500;
+    sortMode,
+  )
+    .filter((work) => {
+      if (!authorQuery) return true;
+      const haystack = [work?.owner_name, work?.owner_email, work?.owner_handle]
+        .map((value) => String(value || "").toLowerCase())
+        .join("\n");
+      return haystack.includes(authorQuery);
+    })
+    .filter((work) => {
+      const cents = Number(
+        work?.current_listen_price_cents || work?.listen_price_cents || 0,
+      );
+      if (priceMode === "free") return cents <= 0;
+      if (priceMode === "under_1") return cents > 0 && cents <= 100;
+      if (priceMode === "under_5") return cents > 0 && cents <= 500;
+      if (priceMode === "above_5") return cents > 500;
+      return true;
+    })
+    .filter((work) => {
+      if (timeMode === "all") return true;
+      const created = workCreatedTimestamp(work);
+      const age = Date.now() - created;
+      if (timeMode === "day") return age <= 24 * 60 * 60 * 1000;
+      if (timeMode === "week") return age <= 7 * 24 * 60 * 60 * 1000;
+      if (timeMode === "month") return age <= 30 * 24 * 60 * 60 * 1000;
+      return true;
+    });
+}
+
+function looksLikeVisualPromptSummaryForWorks(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+  const lower = raw.toLowerCase();
+  const commaCount = (raw.match(/,/g) || []).length;
+  const promptishTokens = [
+    "android",
+    "heroine",
+    "neon",
+    "memory loop",
+    "metallic",
+    "couture",
+    "desert",
+    "temple",
+    "ballroom",
+    "control room",
+    "mist",
+    "horizon",
+    "warrior",
+    "finale",
+    "moonlit",
+    "mirrored",
+    "opera,",
+  ];
+  if (promptishTokens.some((token) => lower.includes(token)) && commaCount >= 3) {
     return true;
-  }).filter((work) => {
-    if (timeMode === "all") return true;
-    const created = workCreatedTimestamp(work);
-    const age = Date.now() - created;
-    if (timeMode === "day") return age <= 24 * 60 * 60 * 1000;
-    if (timeMode === "week") return age <= 7 * 24 * 60 * 60 * 1000;
-    if (timeMode === "month") return age <= 30 * 24 * 60 * 60 * 1000;
-    return true;
-  }).slice(0, behavior.foryou.market_limit);
+  }
+  return (
+    lower.includes("camera:") ||
+    lower.includes("lighting:") ||
+    lower.includes("environment:") ||
+    lower.includes("shot brief") ||
+    lower.includes("visual role") ||
+    lower.includes("directing goals") ||
+    lower.includes("bars:") ||
+    lower.includes("focus:") ||
+    lower.includes("energy:")
+  );
+}
+
+function resolveWorkLyricsTextForDisplay(work = {}) {
+  const candidates = [
+    work?.lyrics_text,
+    work?.lyrics_preview,
+    work?.lyrics,
+    work?.creative?.lyric_versions?.zh,
+  ];
+  for (const candidate of candidates) {
+    const text = String(candidate || "").trim();
+    if (!text) continue;
+    if (looksLikeVisualPromptSummaryForWorks(text)) continue;
+    return text;
+  }
+  return "";
+}
+
+function buildDisplayLyricsPreviewText(work = {}) {
+  const text = resolveWorkLyricsTextForDisplay(work);
+  if (!text) return "";
+  return text;
+}
+
+function ensureForyouInfinitePaging() {
+  if (foryouMarketAutoPagingBound || !(foryouPanel instanceof HTMLElement))
+    return;
+  const body = foryouPanel.querySelector(".panel-body");
+  if (!(body instanceof HTMLElement)) return;
+  const tryLoadMore = () => {
+    if (latestVisibleMarketWorks.length <= foryouMarketVisibleCount) return;
+    const remaining =
+      latestVisibleMarketWorks.length - foryouMarketVisibleCount;
+    if (remaining <= 0) return;
+    foryouMarketVisibleCount += Math.min(FORYOU_MARKET_PAGE_SIZE, remaining);
+    renderForyouMarketplace({ resetVisible: false });
+  };
+  body.addEventListener(
+    "scroll",
+    () => {
+      const threshold = 120;
+      if (body.scrollTop + body.clientHeight < body.scrollHeight - threshold)
+        return;
+      tryLoadMore();
+    },
+    { passive: true },
+  );
+  foryouMarketAutoPagingBound = true;
 }
 
 function buildMarketCardsMarkup(works = []) {
@@ -465,50 +1404,97 @@ function buildMarketCardsMarkup(works = []) {
   return works
     .map((work) => {
       const workId = String(work?.id || work?.work_id || "").trim();
-      const rawTitle = String(work?.title || "").trim() || loginCopy("Untitled", "未命名");
+      const rawTitle =
+        String(work?.title || "").trim() || loginCopy("Untitled");
       const title = escapeHtml(rawTitle);
-      const style = escapeHtml(String(work?.style || "").trim() || loginCopy("Style not set", "未设置风格"));
+      const style = escapeHtml(
+        String(work?.style || "").trim() ||
+          loginCopy("Style not set"),
+      );
       const workType = normalizeWorkTypeClient(work?.work_type);
-      const preview = escapeHtml(buildDisplayLyricsPreviewText(work) || rawTitle);
-      const createdAt = work?.created_at ? new Date(work.created_at).toLocaleString() : "";
-      const coverImage = resolveWorkCoverImage(work);
-      const listenCents = Number(work?.current_listen_price_cents || work?.listen_price_cents || 0);
+      const preview = escapeHtml(
+        buildDisplayLyricsPreviewText(work) || rawTitle,
+      );
+      const createdAt = work?.created_at
+        ? new Date(work.created_at).toLocaleString()
+        : "";
+      const coverImage =
+        globalThis.resolveWorkCardThumbnailImageModule?.(work) ||
+        resolveWorkCoverImage(work);
+      const listenCents = Number(
+        work?.current_listen_price_cents || work?.listen_price_cents || 0,
+      );
       const listenPrice = formatUsdFromCents(listenCents, "$0.00");
       const buyoutValue = Number(work?.current_buyout_price_cents || 0);
       const buyoutEnabled = Boolean(work?.buyout_enabled) && buyoutValue > 0;
-      const buyoutPrice = buyoutEnabled ? formatUsdFromCents(buyoutValue, "$0.00") : loginCopy("Unavailable", "不可用");
-      const viewerOrders = Array.isArray(work?.viewer_orders) ? work.viewer_orders : [];
+      const buyoutPrice = buyoutEnabled
+        ? formatUsdFromCents(buyoutValue, "$0.00")
+        : loginCopy("Unavailable");
+      const viewerOrders = Array.isArray(work?.viewer_orders)
+        ? work.viewer_orders
+        : [];
       const isOwnedByViewer =
-        Boolean(authState.user?.id) && String(work?.owner_user_id || "").trim() === String(authState.user?.id || "").trim();
+        Boolean(authState.user?.id) &&
+        String(work?.owner_user_id || "").trim() ===
+          String(authState.user?.id || "").trim();
       const canTransact = isLoggedInUser() && !isOwnedByViewer;
       const tipsEnabled = canReceiveTips(work);
-      const hierarchyMarkup = renderHierarchyTree(work.children || [], "market");
+      const hierarchyMarkup = renderHierarchyTree(
+        resolveRenderableWorkChildren(work),
+        "market",
+      );
       const orderState = resolveViewerOrderState(viewerOrders);
-      const listenDisabled = Boolean(isOwnedByViewer || orderState.paidBuyout || orderState.paidListen || orderState.pendingListen || orderState.pendingBuyout || listenCents <= 0);
-      const buyoutDisabled = Boolean(isOwnedByViewer || orderState.paidBuyout || orderState.pendingBuyout);
+      const listenDisabled = Boolean(
+        isOwnedByViewer ||
+        orderState.paidBuyout ||
+        orderState.paidListen ||
+        orderState.pendingListen ||
+        orderState.pendingBuyout ||
+        listenCents <= 0,
+      );
+      const buyoutDisabled = Boolean(
+        isOwnedByViewer || orderState.paidBuyout || orderState.pendingBuyout,
+      );
       const tipDisabled = Boolean(!tipsEnabled || orderState.pendingTip);
+      const wholeBuyoutOnly = workRequiresWholeBuyoutModule(work);
+      // P2-38: thumbnail now opens Watch preview directly (was previously
+       // wired as `data-market-toggle` which only toggled the card expand);
+       // title click toggles an inline detail view (lyrics + style + engines)
+       // WITHOUT the cost or owner fields we show in the owner-facing
+       // works-center card.
+      // CSSOS_PHASE2_DURATION_OVERLAY 20260429 #170 — Jing
+      // "请显示完整作品时长在为你创作面板/作品中心面板音乐卡片缩略图底部
+      //  (压在图上)". Overlay the song's mm:ss duration at the bottom-right
+      // corner of the cover so users know the full track length at a glance.
+      const _durSecs = Number(work?.duration_secs || work?.audio_duration_secs || 0) || 0;
+      const _durOverlay = _durSecs > 0
+        ? `<span class="work-cover-duration">${Math.floor(_durSecs / 60)}:${String(Math.floor(_durSecs % 60)).padStart(2, "0")}</span>`
+        : "";
       return `
         <article class="work-card market-card foryou-shelf-card" data-market-work-id="${escapeHtml(workId)}" data-work-expand>
-          <div class="work-cover" data-market-cover-key="${escapeHtml(workId)}" data-market-toggle>
-            ${coverImage ? `<img src="${escapeHtml(coverImage)}" alt="${title}" />` : `<div class="work-cover-fallback">${rawTitle.slice(0, 2).toUpperCase()}</div>`}
+          <div class="work-cover" data-market-cover-key="${escapeHtml(workId)}" data-market-action="open-watch" role="button" tabindex="0" aria-label="${escapeHtml(loginCopy("Play MV"))}">
+            ${coverImage ? `<img src="${escapeHtml(coverImage)}" alt="${title}" loading="lazy" decoding="async" />` : `<div class="work-cover-fallback">${rawTitle.slice(0, 2).toUpperCase()}</div>`}
+            ${_durOverlay}
           </div>
           <div class="work-info">
             <div class="work-title" data-market-toggle>${title}</div>
             <div class="work-tags" title="${style}">${style}</div>
             <div class="work-pricing">
-              <span class="price-chip ghost-chip">${loginCopy("Type", "类型")} · ${escapeHtml(workTypeLabel(workType))}</span>
-              <span class="price-chip">${loginCopy("Listen", "聆听")} · ${escapeHtml(listenPrice)}</span>
-              <span class="price-chip">${loginCopy("Buyout", "买断")} · ${escapeHtml(buyoutPrice)}</span>
+              <span class="price-chip ghost-chip">${loginCopy("Type")} · ${escapeHtml(workTypeLabel(workType))}</span>
+              <span class="price-chip">${loginCopy("Listen")} · ${escapeHtml(listenPrice)}</span>
+              <span class="price-chip">${escapeHtml(buyoutLabelForWorkModule(work))} · ${escapeHtml(buyoutPrice)}</span>
               ${createdAt ? `<span class="price-chip ghost-chip">${escapeHtml(createdAt)}</span>` : ""}
             </div>
           </div>
           <div class="work-actions">
-            <button class="mini-btn ghost" type="button" data-market-action="preview">${loginCopy("Enjoy", "欣赏")}</button>
+            <button class="mini-btn ghost" type="button" data-market-action="preview">${loginCopy("Enjoy")}</button>
             ${canTransact ? `<button class="mini-btn ghost" type="button" data-market-action="listen" ${listenDisabled ? "disabled" : ""}>${marketActionCopy("listen", orderState)}</button>` : ""}
-            ${canTransact ? `<button class="mini-btn ghost" type="button" data-market-action="buyout" ${buyoutDisabled || !buyoutEnabled ? "disabled" : ""}>${marketActionCopy("buyout", orderState)}</button>` : ""}
-            ${canTransact ? `<span class="market-inline-action"><button class="mini-btn ghost" type="button" data-market-action="tip" ${tipDisabled ? "disabled" : ""}>${marketActionCopy("tip", orderState)}</button><input class="inline-chip-input market-tip-input" type="number" min="1" step="1" inputmode="decimal" placeholder="${escapeHtml(loginCopy("Tip $", "打赏金额"))}" data-market-tip-input="${escapeHtml(workId)}" hidden /></span>` : ""}
+            ${canTransact && !workIsWholeBuyoutChildModule(work) ? `<button class="mini-btn ghost" type="button" data-market-action="buyout" ${buyoutDisabled || !buyoutEnabled ? "disabled" : ""}>${wholeBuyoutOnly ? escapeHtml(loginCopy("Whole buyout")) : marketActionCopy("buyout", orderState)}</button>` : ""}
+            ${canTransact ? `<span class="market-inline-action"><button class="mini-btn ghost" type="button" data-market-action="tip" ${tipDisabled ? "disabled" : ""}>${marketActionCopy("tip", orderState)}</button><input class="inline-chip-input market-tip-input" type="number" min="1" step="1" inputmode="decimal" placeholder="${escapeHtml(loginCopy("Tip $"))}" data-market-tip-input="${escapeHtml(workId)}" hidden /></span>` : ""}
+            ${canTransact && tipsEnabled ? `<button class="mini-btn ghost" type="button" data-market-action="tip-nihaopay" data-market-nihaopay-creator="${escapeHtml(String(work?.owner_user_id || ""))}" data-market-nihaopay-work="${escapeHtml(workId)}" title="${escapeHtml(loginCopy("Tip via Alipay / WeChat Pay"))}">${escapeHtml(loginCopy("Tip · 支付宝/微信"))}</button>` : ""}
           </div>
           <div class="work-details">
+            ${(globalThis.buildWorksCardDeepDetailsMarkupModule || (() => ""))(work, { hideOwnerInfo: true })}
             <div class="work-extra">${preview || title}</div>
             ${hierarchyMarkup}
           </div>
@@ -536,37 +1522,79 @@ function bindMarketCardActionButtons(list, works = []) {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
       const card = button.closest("[data-market-work-id]");
-      const workId = button.getAttribute("data-market-child-id") || card?.getAttribute("data-market-work-id") || "";
+      const childWorkId =
+        button.getAttribute("data-market-child-id") ||
+        "";
+      const rootWorkId = card?.getAttribute("data-market-work-id") || "";
+      const workId = childWorkId || rootWorkId;
       if (!workId) return;
-      const work = works.find((entry) => String(entry?.id || entry?.work_id || "").trim() === workId)
-        || flattenHierarchyWorks(works).find((entry) => String(entry?.id || entry?.work_id || "").trim() === workId);
-      if (!work) return;
+      const rootWork =
+        findRootWorkForPlaybackModule(works, rootWorkId || workId) ||
+        findRootWorkForPlaybackModule(works, workId);
+      if (!rootWork) return;
+      const work = childWorkId
+        ? { ...rootWork, requested_start_work_id: childWorkId }
+        : rootWork;
       void openMarketWorkPreview(work);
+    });
+  });
+  const triggerOpenWatch = (element) => {
+    const card = element.closest("[data-market-work-id]");
+    const rootWorkId = card?.getAttribute("data-market-work-id") || "";
+    if (!rootWorkId) return;
+    const rootWork = findRootWorkForPlaybackModule(works, rootWorkId);
+    if (!rootWork) return;
+    void openMarketWorkPreview(rootWork);
+  };
+  list.querySelectorAll("[data-market-action='open-watch']").forEach((element) => {
+    element.addEventListener("click", (event) => {
+      event.stopPropagation();
+      triggerOpenWatch(element);
+    });
+    element.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      event.stopPropagation();
+      triggerOpenWatch(element);
     });
   });
   list.querySelectorAll("[data-market-action='listen']").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
       const card = button.closest("[data-market-work-id]");
-      const workId = button.getAttribute("data-market-child-id") || card?.getAttribute("data-market-work-id") || "";
+      const workId =
+        button.getAttribute("data-market-child-id") ||
+        card?.getAttribute("data-market-work-id") ||
+        "";
       if (!workId) return;
-      void startStripeCheckoutForWork(workId, "listen", button);
+      void dispatchMarketWorkPayment(workId, "listen", button);
     });
   });
   list.querySelectorAll("[data-market-action='buyout']").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
       const card = button.closest("[data-market-work-id]");
-      const workId = button.getAttribute("data-market-child-id") || card?.getAttribute("data-market-work-id") || "";
+      const workId =
+        button.getAttribute("data-market-child-id") ||
+        card?.getAttribute("data-market-work-id") ||
+        "";
       if (!workId) return;
-      void startStripeCheckoutForWork(workId, "buyout", button);
+      void dispatchMarketWorkPayment(workId, "buyout", button);
     });
   });
   list.querySelectorAll("[data-market-action='tip']").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
-      const card = button.closest("[data-market-work-id], .work-hierarchy-item");
+      const card = button.closest(
+        "[data-market-work-id], .work-hierarchy-item",
+      );
       toggleMarketTipInput(card, true);
+    });
+  });
+  list.querySelectorAll("[data-market-action='tip-nihaopay']").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      await startNihaoPayTipFromButton(button);
     });
   });
   list.querySelectorAll("[data-market-tip-input]").forEach((input) => {
@@ -580,7 +1608,9 @@ function bindMarketCardActionButtons(list, works = []) {
     input.addEventListener("blur", (event) => {
       event.stopPropagation();
       const target = event.currentTarget;
-      const card = target.closest("[data-market-work-id], .work-hierarchy-item");
+      const card = target.closest(
+        "[data-market-work-id], .work-hierarchy-item",
+      );
       const trigger = card?.querySelector('[data-market-action="tip"]');
       void handleMarketTipBlur(target, trigger);
     });
@@ -608,7 +1638,10 @@ async function loadWatchCommerce(force = false) {
     }
     const data = getApiData(raw);
     watchCommerceState.payload = data;
-    if (data?.permission_snapshot && typeof data.permission_snapshot === "object") {
+    if (
+      data?.permission_snapshot &&
+      typeof data.permission_snapshot === "object"
+    ) {
       authState.permissionSnapshot = data.permission_snapshot;
     }
     watchCommerceState.loaded = true;
@@ -674,18 +1707,18 @@ function getPayoutActionPresentation(connectedAccount) {
   if (reminder?.action) {
     return {
       visible: true,
-      label: reminder.action
+      label: reminder.action,
     };
   }
   if (hasAccount) {
     return {
       visible: true,
-      label: loginCopy("Manage payouts", "管理收款")
+      label: loginCopy("Manage payouts"),
     };
   }
   return {
     visible: true,
-    label: loginCopy("Set up payouts", "设置收款")
+    label: loginCopy("Set up payouts"),
   };
 }
 
@@ -739,7 +1772,12 @@ function broadcastWorksCommerceRefresh(options = {}) {
 }
 
 function buildWorksHeroMarkup(options = {}) {
-  const displayName = String(options.displayName || authState.user?.name || authState.user?.email || "User");
+  const displayName = String(
+    options.displayName ||
+      authState.user?.name ||
+      authState.user?.email ||
+      "User",
+  );
   const avatarUrl = String(options.avatarUrl || "").trim();
   const canSellWorks = options.canSellWorks !== false;
   const canSetupPayout = options.canSetupPayout === true;
@@ -747,13 +1785,15 @@ function buildWorksHeroMarkup(options = {}) {
   const connectedAccount = commerce?.connected_account || null;
   const payoutAction = getPayoutActionPresentation(connectedAccount);
   const payoutReminder = getPayoutReminderPresentation(connectedAccount);
-  const showPayoutReminder = watchCommerceState.loaded && canSetupPayout && Boolean(payoutReminder);
+  const showPayoutReminder =
+    watchCommerceState.loaded && canSetupPayout && Boolean(payoutReminder);
+  const canRunThumbnailBackfill = getUserRole() === "admin";
   return `
     <div class="works-hero">
       <div class="works-avatar">${avatarUrl ? `<img class="profile-avatar-image" src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(displayName)}" />` : escapeHtml(displayName.slice(0, 2).toUpperCase())}</div>
       <div class="works-meta">
         <div class="works-name">${escapeHtml(displayName)}</div>
-        <div class="works-role">${loginCopy("Logged in creator", "已登录创作者")}</div>
+        <div class="works-role">${loginCopy("Logged in creator")}</div>
         ${
           showPayoutReminder
             ? `
@@ -765,13 +1805,20 @@ function buildWorksHeroMarkup(options = {}) {
             : ""
         }
         ${
-          !showPayoutReminder && payoutAction.visible && connectedAccount?.stripe_account_id
-            ? `<div class="works-note works-payout-note">${escapeHtml(loginCopy("Need to update your payout method, payout destination, or Stripe details later? Reopen payout settings here any time.", "之后如果你要更新收款方式、收款账户或 Stripe 资料，也可以随时从这里重新进入设置。"))} <button class="mini-btn ghost tiny" type="button" data-works-connect ${canSetupPayout ? "" : "hidden"}>${escapeHtml(payoutAction.label)}</button></div>`
+          !showPayoutReminder &&
+          payoutAction.visible &&
+          connectedAccount?.stripe_account_id
+            ? `<div class="works-note works-payout-note">${escapeHtml(loginCopy("Need to update your payout method, payout destination, or Stripe details later? Reopen payout settings here any time."))} <button class="mini-btn ghost tiny" type="button" data-works-connect ${canSetupPayout ? "" : "hidden"}>${escapeHtml(payoutAction.label)}</button></div>`
             : ""
         }
         ${
           !canSellWorks
-            ? `<div class="works-note">${loginCopy("Free members can view works here. Upgrade when you want to publish, price, and sell them publicly.", "免费用户可以先在这里查看作品；等你准备公开上架、定价和销售时，再升级即可。")}</div>`
+            ? `<div class="works-note">${loginCopy("Free members can view works here. Upgrade when you want to publish, price, and sell them publicly.")}</div>`
+            : ""
+        }
+        ${
+          canRunThumbnailBackfill
+            ? `<div class="works-note"><button class="mini-btn ghost tiny" type="button" data-works-batch-regen-thumbs>${escapeHtml(loginCopy("Backfill missing thumbnails"))}</button></div>`
             : ""
         }
       </div>
@@ -781,22 +1828,22 @@ function buildWorksHeroMarkup(options = {}) {
 
 function buildWorksGuestEmptyMarkup() {
   return `
-    <div class="panel-label">${loginCopy("Creator Works Center", "创作者作品中心")}</div>
+    <div class="panel-label">${loginCopy("Creator Works Center")}</div>
     <div class="works-empty-card">
-      <div class="works-empty-title">${loginCopy("Sign in to view your works", "登录后查看你的作品")}</div>
-      <div class="works-empty-text">${loginCopy("Publishing, pricing, comment moderation, and monetization are available after login.", "发布、定价、评论管理和变现功能需要登录后使用。")}</div>
-      <button class="cta tiny" type="button" data-open-login>${loginCopy("Go to Login", "去登录")}</button>
+      <div class="works-empty-title">${loginCopy("Sign in to view your works")}</div>
+      <div class="works-empty-text">${loginCopy("Publishing, pricing, comment moderation, and monetization are available after login.")}</div>
+      <button class="cta tiny" type="button" data-open-login>${loginCopy("Go to Login")}</button>
     </div>
   `;
 }
 
 function buildWorksPermissionEmptyMarkup() {
   return `
-    <div class="panel-label">${loginCopy("Creator Works Center", "创作者作品中心")}</div>
+    <div class="panel-label">${loginCopy("Creator Works Center")}</div>
     <div class="works-empty-card">
-      <div class="works-empty-title">${loginCopy("Works center requires login", "作品中心需要登录")}</div>
+      <div class="works-empty-title">${loginCopy("Works center requires login")}</div>
       <div class="works-empty-text">${escapeHtml(permissionPrompt("works.open"))}</div>
-      <button class="cta tiny" type="button" data-open-login>${loginCopy("Go to Login", "去登录")}</button>
+      <button class="cta tiny" type="button" data-open-login>${loginCopy("Go to Login")}</button>
     </div>
   `;
 }
@@ -804,38 +1851,38 @@ function buildWorksPermissionEmptyMarkup() {
 function buildWorksSearchShellMarkup(behavior) {
   return `
     <div class="panel-search-shell works-search-shell">
-      <div class="panel-search-meta">${loginCopy("Pull down to search your works", "向下拖动显示作品搜索")}</div>
+      <div class="panel-search-meta">${loginCopy("Pull down to search your works")}</div>
       <div class="panel-search-row">
-        <input id="works-search-input" class="panel-search-input" type="search" placeholder="${escapeHtml(loginCopy("Search title, style, lyrics...", "搜索标题、风格、歌词..."))}" />
-        <input id="works-search-author" class="panel-search-input panel-search-input--narrow" type="search" placeholder="${escapeHtml(loginCopy("Author", "作者"))}" />
+        <input id="works-search-input" class="panel-search-input" type="search" placeholder="${escapeHtml(loginCopy("Search title, style, lyrics..."))}" />
+        <input id="works-search-author" class="panel-search-input panel-search-input--narrow" type="search" placeholder="${escapeHtml(loginCopy("Author"))}" />
         <select id="works-search-filter" class="panel-search-select">
-          <option value="all">${loginCopy("All", "全部")}</option>
-          <option value="single">${loginCopy("Single", "单曲")}</option>
-          <option value="triptych">${loginCopy("Triptych", "三部曲")}</option>
-          <option value="opera">${loginCopy("Opera", "歌剧")}</option>
-          <option value="live">${loginCopy("Live", "上架")}</option>
-          <option value="hidden">${loginCopy("Hidden", "下架")}</option>
+          <option value="all">${loginCopy("All")}</option>
+          <option value="single">${loginCopy("Single")}</option>
+          <option value="triptych">${loginCopy("Triptych")}</option>
+          <option value="opera">${loginCopy("Opera")}</option>
+          <option value="live">${loginCopy("Live")}</option>
+          <option value="hidden">${loginCopy("Hidden")}</option>
         </select>
         <select id="works-search-sort" class="panel-search-select">
-          <option value="newest">${loginCopy("Newest", "最新")}</option>
-          <option value="oldest">${loginCopy("Oldest", "最早")}</option>
-          <option value="title">${loginCopy("Title", "标题")}</option>
-          <option value="type">${loginCopy("Type", "类型")}</option>
+          <option value="newest">${loginCopy("Newest")}</option>
+          <option value="oldest">${loginCopy("Oldest")}</option>
+          <option value="title">${loginCopy("Title")}</option>
+          <option value="type">${loginCopy("Type")}</option>
         </select>
         <select id="works-search-price" class="panel-search-select">
-          <option value="all">${loginCopy("Any price", "任意价格")}</option>
-          <option value="free">${loginCopy("Free", "免费")}</option>
-          <option value="under_1">${loginCopy("Under $1", "1 美元内")}</option>
-          <option value="under_5">${loginCopy("Under $5", "5 美元内")}</option>
-          <option value="above_5">${loginCopy("Above $5", "5 美元以上")}</option>
+          <option value="all">${loginCopy("Any price")}</option>
+          <option value="free">${loginCopy("Free")}</option>
+          <option value="under_1">${loginCopy("Under $1")}</option>
+          <option value="under_5">${loginCopy("Under $5")}</option>
+          <option value="above_5">${loginCopy("Above $5")}</option>
         </select>
         <select id="works-search-time" class="panel-search-select">
-          <option value="all">${loginCopy("Any time", "任意时间")}</option>
-          <option value="day">${loginCopy("24h", "24 小时")}</option>
-          <option value="week">${loginCopy("7 days", "7 天")}</option>
-          <option value="month">${loginCopy("30 days", "30 天")}</option>
+          <option value="all">${loginCopy("Any time")}</option>
+          <option value="day">${loginCopy("24h")}</option>
+          <option value="week">${loginCopy("7 days")}</option>
+          <option value="month">${loginCopy("30 days")}</option>
         </select>
-        <span class="panel-search-count">${loginCopy(`Top ${behavior?.works?.search_limit || 0}`, `显示前 ${behavior?.works?.search_limit || 0} 条`)}</span>
+        <span class="panel-search-count">${loginCopy(`10 per page`)}</span>
       </div>
       <div class="panel-filter-bar" id="works-filter-bar"></div>
     </div>
@@ -845,26 +1892,32 @@ function buildWorksSearchShellMarkup(behavior) {
 function buildWorksListShellMarkup() {
   return `
     <div class="works-section">
-      <div class="section-title">${loginCopy("Your works", "你的作品")}</div>
+      <div class="section-title">${loginCopy("Your works")}</div>
       <div class="works-list" id="works-list-dynamic">
-        <div class="works-note">${loginCopy("Loading works...", "正在加载作品...")}</div>
+        <div class="works-note">${loginCopy("Loading works...")}</div>
       </div>
     </div>
   `;
 }
 
 function buildWorksEmptyNoteMarkup() {
-  return `<div class="works-note">${loginCopy("No works yet. Create one to see it here.", "还没有作品，先创作一个吧。")}</div>`;
+  return `<div class="works-note">${loginCopy("No works yet. Create one to see it here.")}</div>`;
 }
 
 function buildWorksLoadFailedMarkup() {
-  return `<div class="works-note">${loginCopy("Failed to load works.", "加载作品失败。")}</div>`;
+  return `<div class="works-note">${loginCopy("Failed to load works.")}</div>`;
 }
 
 function buildWorksCardPricingMarkup(options = {}) {
   const workType = normalizeWorkTypeClient(options.workType);
-  const listenPrice = String(options.listenPrice || loginCopy("Not set", "未设置"));
-  const buyoutPrice = String(options.buyoutPrice || loginCopy("Not set", "未设置"));
+  const wholeBuyoutOnly = options.wholeBuyoutOnly === true;
+  const wholeBuyoutChild = options.wholeBuyoutChild === true;
+  const listenPrice = String(
+    options.listenPrice || loginCopy("Not set"),
+  );
+  const buyoutPrice = String(
+    options.buyoutPrice || loginCopy("Not set"),
+  );
   const visibility = String(options.visibility || "public").toLowerCase();
   const createdAt = String(options.createdAt || "").trim();
   const voiceSourceBadge = options.voiceSourceBadge === true;
@@ -876,52 +1929,59 @@ function buildWorksCardPricingMarkup(options = {}) {
   const buyoutPriceCents = Math.max(0, Number(options.buyoutPriceCents || 0));
   return `
     <div class="work-pricing">
-      <span class="price-chip ghost-chip">${loginCopy("Type", "类型")} · ${escapeHtml(workTypeLabel(workType))}</span>
+      <span class="price-chip ghost-chip">${loginCopy("Type")} · ${escapeHtml(workTypeLabel(workType))}</span>
       ${
         canEditWorkPrices
           ? `
             <span class="inline-chip-editor" data-inline-editor="listen">
-              <button class="price-chip editable-chip" type="button" data-inline-trigger="listen">${loginCopy("Listen", "聆听")} · ${escapeHtml(listenPrice)}</button>
+              <button class="price-chip editable-chip" type="button" data-inline-trigger="listen">${loginCopy("Listen")} · ${escapeHtml(listenPrice)}</button>
               <input class="inline-chip-input" type="number" min="0.99" step="0.01" value="${escapeHtml((listenPriceCents / 100).toFixed(2))}" data-work-price="listen" hidden />
             </span>
-            <span class="inline-chip-editor" data-inline-editor="buyout">
-              <button class="price-chip editable-chip" type="button" data-inline-trigger="buyout">${loginCopy("Buyout", "买断")} · ${escapeHtml(buyoutPrice)}</button>
-              <input class="inline-chip-input" type="number" min="0" step="0.01" value="${escapeHtml((buyoutPriceCents / 100).toFixed(2))}" data-work-price="buyout" hidden />
-            </span>
+            ${
+              wholeBuyoutChild
+                ? ""
+                : `
+                  <span class="inline-chip-editor" data-inline-editor="buyout">
+                    <button class="price-chip editable-chip" type="button" data-inline-trigger="buyout">${escapeHtml(wholeBuyoutOnly ? buyoutLabelForWorkModule({ work_type: workType }) : loginCopy("Buyout"))} · ${escapeHtml(buyoutPrice)}</button>
+                    <input class="inline-chip-input" type="number" min="0" step="0.01" value="${escapeHtml((buyoutPriceCents / 100).toFixed(2))}" data-work-price="buyout" hidden />
+                  </span>
+                `
+            }
           `
           : `
-            <span class="price-chip">${loginCopy("Listen", "聆听")} · ${escapeHtml(listenPrice)}</span>
-            <span class="price-chip">${loginCopy("Buyout", "买断")} · ${escapeHtml(buyoutPrice)}</span>
+            <span class="price-chip">${loginCopy("Listen")} · ${escapeHtml(listenPrice)}</span>
+            ${wholeBuyoutChild ? "" : `<span class="price-chip">${escapeHtml(wholeBuyoutOnly ? buyoutLabelForWorkModule({ work_type: workType }) : loginCopy("Buyout"))} · ${escapeHtml(buyoutPrice)}</span>`}
           `
       }
       ${
         canEditWorkVisibility
           ? `
             <span class="inline-chip-editor" data-inline-editor="visibility">
-              <button class="price-chip ghost-chip editable-chip" type="button" data-inline-trigger="visibility">${loginCopy("Status", "状态")} · ${escapeHtml(visibility === "private" ? loginCopy("Hidden", "下架") : loginCopy("Live", "上架"))}</button>
+              <button class="price-chip ghost-chip editable-chip" type="button" data-inline-trigger="visibility">${loginCopy("Status")} · ${escapeHtml(visibility === "private" ? loginCopy("Hidden") : loginCopy("Live"))}</button>
               <select class="inline-chip-select" data-work-visibility hidden>
-                <option value="public" ${visibility === "public" ? "selected" : ""}>${loginCopy("Live", "上架")}</option>
-                <option value="private" ${visibility === "private" ? "selected" : ""}>${loginCopy("Hidden", "下架")}</option>
+                <option value="public" ${visibility === "public" ? "selected" : ""}>${loginCopy("Live")}</option>
+                <option value="private" ${visibility === "private" ? "selected" : ""}>${loginCopy("Hidden")}</option>
               </select>
             </span>
           `
-          : `<span class="price-chip ghost-chip">${loginCopy("Status", "状态")} · ${escapeHtml(visibility === "private" ? loginCopy("Hidden", "下架") : loginCopy("Live", "上架"))}</span>`
+          : `<span class="price-chip ghost-chip">${loginCopy("Status")} · ${escapeHtml(visibility === "private" ? loginCopy("Hidden") : loginCopy("Live"))}</span>`
       }
       ${createdAt ? `<span class="price-chip ghost-chip">${escapeHtml(createdAt)}</span>` : ""}
-      ${voiceSourceBadge ? `<span class="price-chip ghost-chip">${escapeHtml(loginCopy("Voice-derived title", "语音提炼标题"))}</span>` : ""}
-      ${computeUnits > 0 ? `<span class="price-chip ghost-chip">${escapeHtml(loginCopy(`Compute ${computeUnits}u`, `算力 ${computeUnits}u`))}</span>` : ""}
-      ${computeCost > 0 ? `<span class="price-chip ghost-chip">${escapeHtml(loginCopy(`Cost ${formatUsdFromCents(computeCost, "$0.00")}`, `成本 ${formatUsdFromCents(computeCost, "$0.00")}`))}</span>` : ""}
+      ${voiceSourceBadge ? `<span class="price-chip ghost-chip">${escapeHtml(loginCopy("Voice-derived title"))}</span>` : ""}
+      ${computeUnits > 0 ? `<span class="price-chip ghost-chip">${escapeHtml(loginCopy(`Compute ${computeUnits}u`))}</span>` : ""}
+      ${computeCost > 0 ? `<span class="price-chip ghost-chip">${escapeHtml(loginCopy(`Cost ${formatUsdFromCents(computeCost, "$0.00")}`))}</span>` : ""}
     </div>
   `;
 }
 
 function buildWorksCardInfoMarkup(options = {}) {
-  const title = String(options.title || "").trim() || loginCopy("Untitled", "未命名");
+  const title =
+    String(options.title || "").trim() || loginCopy("Untitled");
   const style = String(options.style || "").trim();
   return `
     <div class="work-info">
       <div class="work-title" data-work-toggle>${escapeHtml(title)}</div>
-      <div class="work-tags" title="${escapeHtml((style || loginCopy("Style not set", "未设置风格")).replace(/"/g, "&quot;"))}">${escapeHtml(style || loginCopy("Style not set", "未设置风格"))}</div>
+      <div class="work-tags" title="${escapeHtml((style || loginCopy("Style not set")).replace(/"/g, "&quot;"))}">${escapeHtml(style || loginCopy("Style not set"))}</div>
       ${buildWorksCardPricingMarkup(options)}
     </div>
   `;
@@ -941,7 +2001,9 @@ function buildWorksCardMarkup(options = {}) {
 
 function buildWorksCardsMarkup(works = [], options = {}) {
   if (!Array.isArray(works) || !works.length) return "";
-  const usageEvents = Array.isArray(options.usageEvents) ? options.usageEvents : [];
+  const usageEvents = Array.isArray(options.usageEvents)
+    ? options.usageEvents
+    : [];
   const canEditWorkPrices = options.canEditWorkPrices === true;
   const canEditWorkVisibility = options.canEditWorkVisibility === true;
   const canEditWorkType = options.canEditWorkType === true;
@@ -950,31 +2012,63 @@ function buildWorksCardsMarkup(works = [], options = {}) {
   const canRegeneratePreviewVideo = options.canRegeneratePreviewVideo === true;
   return works
     .map((work) => {
-      const workId = String(work?.work_id || work?.id || work?.local_id || "").trim();
-      const title = String(work.title || "").trim() || loginCopy("Untitled", "未命名");
+      const workId = String(
+        work?.work_id || work?.id || work?.local_id || "",
+      ).trim();
+      const title =
+        String(work.title || "").trim() || loginCopy("Untitled");
       const style = String(work.style || "").trim();
       const workType = normalizeWorkTypeClient(work?.work_type);
       const status = String(work.status || "draft");
-      const visibility = String(work.visibility || (status === "hidden" ? "private" : "public")).toLowerCase();
-      const createdAt = work.created_at ? new Date(work.created_at).toLocaleString() : "";
+      const visibility = String(
+        work.visibility || (status === "hidden" ? "private" : "public"),
+      ).toLowerCase();
+      const createdAt = work.created_at
+        ? new Date(work.created_at).toLocaleString()
+        : "";
       const lyricsPreview = buildDisplayLyricsPreviewText(work);
-      const coverImage = resolveWorkCoverImage(work);
-      const source = String(work?.source || "").trim().toLowerCase();
-      const voiceSourceBadge = source === "voice" || work?.show_voice_source_badge;
-      const hierarchyMarkup = renderHierarchyTree(work.children || [], "works");
+      const coverImage =
+        globalThis.resolveWorkCardThumbnailImageModule?.(work) ||
+        resolveWorkCoverImage(work);
+      const source = String(work?.source || "")
+        .trim()
+        .toLowerCase();
+      const voiceSourceBadge =
+        source === "voice" || work?.show_voice_source_badge;
+      const hierarchyMarkup = renderHierarchyTree(
+        resolveRenderableWorkChildren(work),
+        "works",
+      );
       const commerce = getWorkCommerceDetails(workId);
-      const defaults = workTypePricingDefaults(workType);
-      const listenPriceCents = commerce.listenCents > 0 ? commerce.listenCents : defaults.listenCents;
-      const buyoutPriceCents = commerce.buyoutCents > 0 ? commerce.buyoutCents : defaults.buyoutCents;
-      const listenPrice = listenPriceCents > 0 ? formatUsdFromCents(listenPriceCents, "$0.00") : loginCopy("Not set", "未设置");
-      const buyoutPrice = buyoutPriceCents > 0 ? formatUsdFromCents(buyoutPriceCents, "$0.00") : loginCopy("Not set", "未设置");
-      const computeUnits = Math.max(0, Number(work?.compute_units_estimate || 0));
-      const computeCost = Math.max(0, Number(work?.compute_cost_cents_estimate || 0));
-      const suggestedListen = Math.max(0, Number(work?.suggested_listen_price_cents || defaults.listenCents || 0));
-      const suggestedBuyout = Math.max(0, Number(work?.suggested_buyout_price_cents || defaults.buyoutCents || 0));
+      const pricing = resolveDisplayedWorkPricingModule(work, commerce);
+      const listenPriceCents = pricing.listenPriceCents;
+      const buyoutPriceCents = pricing.buyoutPriceCents;
+      const listenPrice =
+        listenPriceCents > 0
+          ? formatUsdFromCents(listenPriceCents, "$0.00")
+          : loginCopy("Not set");
+      const buyoutPrice =
+        buyoutPriceCents > 0
+          ? formatUsdFromCents(buyoutPriceCents, "$0.00")
+          : loginCopy("Not set");
+      const computeUnits = Math.max(
+        0,
+        Number(work?.compute_units_estimate || 0),
+      );
+      const computeCost = Math.max(
+        0,
+        Number(work?.compute_cost_cents_estimate || 0),
+      );
+      const suggestedListen = pricing.suggestedListen;
+      const suggestedBuyout = pricing.suggestedBuyout;
+      const wholeBuyoutOnly =
+        workRequiresWholeBuyoutModule(work) &&
+        !workIsWholeBuyoutChildModule(work);
+      const wholeBuyoutChild = workIsWholeBuyoutChildModule(work);
       return buildWorksCardMarkup({
         workId,
         coverImage,
+        durationSecs: Number(work?.duration_secs || work?.audio_duration_secs || 0) || 0,
         title,
         style,
         workType,
@@ -989,6 +2083,8 @@ function buildWorksCardsMarkup(works = [], options = {}) {
         canEditWorkVisibility,
         listenPriceCents,
         buyoutPriceCents,
+        wholeBuyoutOnly,
+        wholeBuyoutChild,
         canWatchWorks,
         canRegenerateThumbnail,
         canRegeneratePreviewVideo,
@@ -998,94 +2094,422 @@ function buildWorksCardsMarkup(works = [], options = {}) {
         suggestedBuyout,
         usageEvents,
         hierarchyMarkup,
-        canEditWorkType
+        canEditWorkType,
       });
     })
     .join("");
 }
 
+window.resolveDisplayedWorkPricingModule = resolveDisplayedWorkPricingModule;
+
 function buildWorksCardCoverMarkup(options = {}) {
   const workId = String(options.workId || "").trim();
   const coverImage = String(options.coverImage || "").trim();
-  const title = String(options.title || "").trim() || loginCopy("Untitled", "未命名");
+  const title =
+    String(options.title || "").trim() || loginCopy("Untitled");
+  // CSSOS_PHASE2_DURATION_OVERLAY 20260429 #170 — Jing
+  // Overlay total work duration at the bottom-right of the cover thumbnail.
+  const durSecs = Number(options.durationSecs || 0) || 0;
+  const durOverlay = durSecs > 0
+    ? `<span class="work-cover-duration">${Math.floor(durSecs / 60)}:${String(Math.floor(durSecs % 60)).padStart(2, "0")}</span>`
+    : "";
   return `
-    <div class="work-cover" data-work-cover data-work-cover-key="${escapeHtml(workId)}" data-work-toggle>
-      ${coverImage ? `<img src="${escapeHtml(coverImage)}" alt="${escapeHtml(title)}" />` : `<div class="work-cover-fallback">${title.slice(0, 2).toUpperCase()}</div>`}
+    <div class="work-cover" data-work-cover data-work-cover-key="${escapeHtml(workId)}" data-work-open-watch>
+      ${coverImage ? `<img src="${escapeHtml(coverImage)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" />` : `<div class="work-cover-fallback">${title.slice(0, 2).toUpperCase()}</div>`}
+      ${durOverlay}
     </div>
   `;
 }
 
 function buildWorksCardDetailsMarkup(options = {}) {
   const hierarchyMarkup = String(options.hierarchyMarkup || "");
-  const workType = String(options.workType || "single").trim() || "single";
-  const canEditWorkType = options.canEditWorkType === true;
   return `
     <div class="work-details">
       ${buildWorksCardCommerceDetailsMarkup(options)}
       ${hierarchyMarkup}
-      <div class="work-pricing-editor">
-        <label class="work-price-field work-type-field">
-          <span>${loginCopy("Work Type", "作品类型")}</span>
-          <select data-work-type ${canEditWorkType ? "" : "disabled"}>
-            <option value="single" ${workType === "single" ? "selected" : ""}>${loginCopy("Single", "单曲")}</option>
-            <option value="triptych" ${workType === "triptych" ? "selected" : ""}>${loginCopy("Triptych", "三部曲")}</option>
-            <option value="opera" ${workType === "opera" ? "selected" : ""}>${loginCopy("Opera", "歌剧")}</option>
-          </select>
-        </label>
+    </div>
+  `;
+}
+
+function normalizeStructuredPlanForDisplay(work = {}) {
+  const plan = work?.structure_plan;
+  if (!plan || typeof plan !== "object") return null;
+  const readInt = (value, fallback = 0) => {
+    const parsed = Number.parseInt(String(value ?? ""), 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  };
+  return {
+    totalActs: readInt(plan.totalActs, 0),
+    scenesPerAct: readInt(plan.scenesPerAct, 0),
+    totalParts: readInt(plan.totalParts, 0),
+  };
+}
+
+function splitLyricsLinesForHierarchy(work = {}, count = 1) {
+  const lines = String(resolveWorkLyricsTextForDisplay(work) || "")
+    .split("\n")
+    .map((line) => String(line || "").trim())
+    .filter(Boolean);
+  const safeCount = Math.max(1, Number(count || 1));
+  if (!lines.length) {
+    return Array.from({ length: safeCount }, () => []);
+  }
+  const chunkSize = Math.max(1, Math.ceil(lines.length / safeCount));
+  const buckets = [];
+  for (let index = 0; index < safeCount; index += 1) {
+    buckets.push(lines.slice(index * chunkSize, (index + 1) * chunkSize));
+  }
+  return buckets;
+}
+
+function buildFallbackHierarchyChildren(work = {}) {
+  const existingChildren = Array.isArray(work?.children) ? work.children : [];
+  if (existingChildren.length) return existingChildren;
+  const workType = normalizeWorkTypeClient(work?.work_type);
+  const plan = normalizeStructuredPlanForDisplay(work);
+  const rootTitle =
+    String(work?.title || "").trim() || loginCopy("Untitled");
+  const style = String(work?.style || "").trim();
+  if (workType === "triptych") {
+    const totalParts = Math.max(1, Number(plan?.totalParts || 3));
+    const segments = splitLyricsLinesForHierarchy(work, totalParts);
+    return segments.map((lines, index) => ({
+      id: `${String(work?.work_id || work?.id || work?.local_id || rootTitle)}__part_${index + 1}`,
+      title: `${rootTitle} · ${loginCopy("Part")} ${index + 1}`,
+      work_type: "single",
+      structure_role: "part",
+      sequence_index: index + 1,
+      lyrics_preview: lines.join("\n"),
+      lyrics_text: lines.join("\n"),
+      style,
+      children: [],
+    }));
+  }
+  if (workType === "opera") {
+    const estimatedShape =
+      globalThis.estimateOperaShapeModule?.(
+        {
+          title: rootTitle,
+          lyrics: String(work?.lyrics_text || work?.lyrics_preview || ""),
+          sectionPrompts: [],
+          structurePlan: plan,
+        },
+        work,
+        rootTitle,
+      ) || {};
+    const totalActs = Math.max(
+      1,
+      Number(plan?.totalActs || estimatedShape.totalActs || 1),
+    );
+    const scenesPerAct = Math.max(
+      1,
+      Number(plan?.scenesPerAct || estimatedShape.scenesPerAct || 1),
+    );
+    const totalScenes = totalActs * scenesPerAct;
+    const segments = splitLyricsLinesForHierarchy(work, totalScenes);
+    const acts = [];
+    let cursor = 0;
+    for (let actIndex = 1; actIndex <= totalActs; actIndex += 1) {
+      const scenes = [];
+      for (let sceneIndex = 1; sceneIndex <= scenesPerAct; sceneIndex += 1) {
+        const lines = segments[cursor] || [];
+        scenes.push({
+          id: `${String(work?.work_id || work?.id || work?.local_id || rootTitle)}__act_${actIndex}_scene_${sceneIndex}`,
+          title: `${rootTitle} · Scene ${sceneIndex}`,
+          work_type: "single",
+          structure_role: "scene",
+          sequence_index: sceneIndex,
+          lyrics_preview: lines.join("\n"),
+          lyrics_text: lines.join("\n"),
+          style,
+          children: [],
+        });
+        cursor += 1;
+      }
+      acts.push({
+        id: `${String(work?.work_id || work?.id || work?.local_id || rootTitle)}__act_${actIndex}`,
+        title: `${rootTitle} · ${typeof globalThis.formatActLabelModuleBridge === "function" ? globalThis.formatActLabelModuleBridge(actIndex) : `第${actIndex}幕`}`,
+        work_type: "opera",
+        structure_role: "act",
+        sequence_index: actIndex,
+        lyrics_preview: scenes
+          .map((scene) => scene.lyrics_preview)
+          .join("\n"),
+        style,
+        children: scenes,
+      });
+    }
+    return acts;
+  }
+  return [];
+}
+
+function resolveRenderableWorkChildren(work = {}) {
+  const directChildren = Array.isArray(work?.children) ? work.children : [];
+  if (directChildren.length) return directChildren;
+  return buildFallbackHierarchyChildren(work);
+}
+
+function bindWorksHeroActions(container) {
+  if (!(container instanceof Element)) return;
+  container
+    .querySelector("[data-works-connect]")
+    ?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      void startCreatorPayoutOnboarding(event.currentTarget);
+    });
+}
+
+function buildWorkMarketReferenceCopy(options = {}) {
+  const listenCents = Math.max(
+    0,
+    Number(options.listenCents || options.suggestedListen || 0),
+  );
+  const buyoutCents = Math.max(
+    0,
+    Number(options.buyoutCents || options.suggestedBuyout || 0),
+  );
+  const buyoutLabel = options.wholeBuyoutOnly
+    ? loginCopy("Whole buyout")
+    : loginCopy("Buyout");
+  return loginCopy(
+    `Current pricing · Listen ${formatUsdFromCents(listenCents, "$0.00")} / ${buyoutLabel} ${formatUsdFromCents(buyoutCents, "$0.00")}`,
+  );
+}
+
+function buildWorkAssetStatusCopy(work = {}) {
+  const storedCoverImage = String(
+    work?.cover_image || work?.thumbnail_url || "",
+  ).trim();
+  const previewImageUrl = String(work?.preview_image_url || "").trim();
+  const previewVideoUrl = String(work?.preview_video_url || "").trim();
+  const hasGeneratedCover =
+    Boolean(storedCoverImage) && !isSyntheticWorkCoverImage(storedCoverImage);
+  if (hasGeneratedCover) {
+    return loginCopy(
+      `OpenAI cover art is ready. Preview frame ${previewImageUrl ? "is ready" : "can be added later"} / Preview clip ${previewVideoUrl ? "is ready" : "can be added later"}.`,
+    );
+  }
+  return loginCopy(
+    `OpenAI cover art is still missing. Preview frame ${previewImageUrl ? "is ready" : "not ready"} / Preview clip ${previewVideoUrl ? "is ready" : "not ready"}.`,
+  );
+}
+
+// P2-37: Build the deep details block rendered inside an expanded work card.
+// Shows the *full* lyrics (not just the preview), the music style, any wiki /
+// source info, and a per-stage engine breakdown (cover / lyrics / music /
+// video / subtitles / MV compose) including engine name + version + cost. This
+// answers the "which engines were used?" question from creators directly in
+// the works center without them needing to open another panel.
+//
+// Stages are resolved against `work.engine_meta` (new, structured) with a
+// fallback to `work.engine_costs_cents` (older per-stage cost field). Any
+// stage without data is skipped rather than showing a confusing "$0.00".
+const WORKS_ENGINE_STAGE_ORDER = [
+  { id: "cover",     labelEn: "Cover art",  labelZh: "封面图",   costKey: "cover_cents" },
+  { id: "lyrics",    labelEn: "Lyrics",     labelZh: "歌词",     costKey: "lyrics_cents" },
+  { id: "music",     labelEn: "Music",      labelZh: "音乐",     costKey: "music_cents" },
+  { id: "video",     labelEn: "Video",      labelZh: "视频",     costKey: "video_cents" },
+  { id: "subtitles", labelEn: "Subtitles",  labelZh: "字幕",     costKey: "subtitles_cents" },
+  { id: "compose",   labelEn: "MV compose", labelZh: "MV 合成",  costKey: "compose_cents" }
+];
+
+// Pull a stage engine fingerprint out of the work record. Shape is roughly:
+//   { engine, version, provider_model, cost_cents, input_tokens, output_tokens }
+// but all fields are optional — older works may only have cost_cents via
+// engine_costs_cents.
+function readWorkStageEngineEntryModule(work = {}, stage = {}) {
+  const meta =
+    work && typeof work.engine_meta === "object" && work.engine_meta !== null
+      ? work.engine_meta
+      : null;
+  const entry = meta && typeof meta[stage.id] === "object" && meta[stage.id] !== null
+    ? meta[stage.id]
+    : {};
+  const fallbackCosts =
+    work && typeof work.engine_costs_cents === "object" && work.engine_costs_cents !== null
+      ? work.engine_costs_cents
+      : {};
+  const rawCost =
+    entry?.cost_cents != null ? entry.cost_cents : fallbackCosts?.[stage.costKey];
+  const costCents = Math.max(0, Number(rawCost || 0));
+  const engineName = String(entry?.engine || "").trim();
+  const version = String(entry?.version || "").trim();
+  const providerModel = String(entry?.provider_model || "").trim();
+  const hasAnySignal = Boolean(engineName || version || providerModel || costCents > 0);
+  return {
+    stageId: stage.id,
+    labelEn: stage.labelEn,
+    labelZh: stage.labelZh,
+    engineName,
+    version,
+    providerModel,
+    costCents,
+    hasAnySignal
+  };
+}
+
+function buildWorksCardEngineBreakdownMarkup(work = {}, options = {}) {
+  const entries = WORKS_ENGINE_STAGE_ORDER.map((stage) =>
+    readWorkStageEngineEntryModule(work, stage)
+  );
+  const visible = entries.filter((entry) => entry.hasAnySignal);
+  if (!visible.length) return "";
+  const includeCost = options.includeCost !== false; // default true
+  const totalCents = visible.reduce(
+    (sum, entry) => sum + Math.max(0, Number(entry.costCents || 0)),
+    0
+  );
+  const rowsMarkup = visible
+    .map((entry) => {
+      const stageLabel = loginCopy(entry.labelEn);
+      const engineLabel = entry.engineName
+        ? entry.engineName
+        : loginCopy("Unknown engine");
+      const versionLabel = entry.version
+        ? ` · ${entry.version}`
+        : "";
+      const providerLabel = entry.providerModel
+        ? ` · ${entry.providerModel}`
+        : "";
+      const costLabel = includeCost
+        ? formatUsdFromCents(entry.costCents, "$0.00")
+        : "";
+      return `
+        <div class="work-engine-row">
+          <span class="work-engine-stage">${escapeHtml(stageLabel)}</span>
+          <span class="work-engine-info">${escapeHtml(`${engineLabel}${versionLabel}${providerLabel}`)}</span>
+          ${includeCost ? `<span class="work-engine-cost">${escapeHtml(costLabel)}</span>` : ""}
+        </div>
+      `;
+    })
+    .join("");
+  const totalMarkup = includeCost
+    ? `
+        <div class="work-engine-row work-engine-total">
+          <span class="work-engine-stage">${escapeHtml(loginCopy("Total"))}</span>
+          <span class="work-engine-info"></span>
+          <span class="work-engine-cost">${escapeHtml(formatUsdFromCents(totalCents, "$0.00"))}</span>
+        </div>
+      `
+    : "";
+  return `
+    <div class="work-engine-breakdown">
+      <div class="work-engine-heading">${escapeHtml(loginCopy("Engines used"))}</div>
+      <div class="work-engine-rows">
+        ${rowsMarkup}
+        ${totalMarkup}
       </div>
     </div>
   `;
 }
 
-function bindWorksHeroActions(container) {
-  if (!(container instanceof Element)) return;
-  container.querySelector("[data-works-connect]")?.addEventListener("click", (event) => {
-    event.stopPropagation();
-    void startCreatorPayoutOnboarding(event.currentTarget);
-  });
-}
-
-function buildWorkMarketReferenceCopy(options = {}) {
-  const suggestedListen = Math.max(0, Number(options.suggestedListen || 0));
-  const suggestedBuyout = Math.max(0, Number(options.suggestedBuyout || 0));
-  return loginCopy(
-    `Current market reference · Listen ${formatUsdFromCents(suggestedListen, "$0.00")} / Buyout ${formatUsdFromCents(suggestedBuyout, "$0.00")}`,
-    `当前同类作品参考 · 聆听 ${formatUsdFromCents(suggestedListen, "$0.00")} / 买断 ${formatUsdFromCents(suggestedBuyout, "$0.00")}`
-  );
-}
-
-function buildWorkAssetStatusCopy(work = {}) {
-  const storedCoverImage = String(work?.cover_image || work?.thumbnail_url || "").trim();
-  const previewImageUrl = String(work?.preview_image_url || "").trim();
-  const previewVideoUrl = String(work?.preview_video_url || "").trim();
-  const hasGeneratedCover = Boolean(storedCoverImage) && !isSyntheticWorkCoverImage(storedCoverImage);
-  if (hasGeneratedCover) {
-    return loginCopy(
-      `OpenAI cover art is ready. Preview frame ${previewImageUrl ? "is ready" : "can be added later"} / Preview clip ${previewVideoUrl ? "is ready" : "can be added later"}.`,
-      `OpenAI 封面已就绪。预览帧${previewImageUrl ? "已就绪" : "可稍后补齐"} / 缩略视频${previewVideoUrl ? "已就绪" : "可稍后补齐"}。`
+// Full lyrics + style + source/wiki info. Pass `{ hideOwnerInfo: true }` from
+// the For You panel where we don't want to reveal owner / cost fields; the
+// works center owner view uses defaults (all fields shown).
+function buildWorksCardDeepDetailsMarkup(work = {}, options = {}) {
+  const hideOwnerInfo = options.hideOwnerInfo === true;
+  const fullLyrics = String(resolveWorkLyricsTextForDisplay(work) || "").trim();
+  const style = String(work?.style || "").trim();
+  const description = String(work?.description || "").trim();
+  const rawTranscript = String(work?.raw_transcript || "").trim();
+  const sourceRunId = String(work?.source_run_id || "").trim();
+  const workType = normalizeWorkTypeClient(work?.work_type);
+  const createdAt = work?.created_at
+    ? new Date(work.created_at).toLocaleString()
+    : "";
+  const lyricsMarkup = fullLyrics
+    ? `
+        <div class="work-deep-section">
+          <div class="work-deep-heading">${escapeHtml(loginCopy("Full lyrics"))}</div>
+          <div class="work-deep-lyrics">${escapeHtml(fullLyrics)}</div>
+        </div>
+      `
+    : "";
+  const styleMarkup = style
+    ? `
+        <div class="work-deep-section">
+          <div class="work-deep-heading">${escapeHtml(loginCopy("Music style"))}</div>
+          <div class="work-deep-body">${escapeHtml(style)}</div>
+        </div>
+      `
+    : "";
+  const descriptionMarkup = description
+    ? `
+        <div class="work-deep-section">
+          <div class="work-deep-heading">${escapeHtml(loginCopy("Description"))}</div>
+          <div class="work-deep-body">${escapeHtml(description)}</div>
+        </div>
+      `
+    : "";
+  const transcriptMarkup = !hideOwnerInfo && rawTranscript
+    ? `
+        <div class="work-deep-section">
+          <div class="work-deep-heading">${escapeHtml(loginCopy("Source transcript"))}</div>
+          <div class="work-deep-body">${escapeHtml(rawTranscript)}</div>
+        </div>
+      `
+    : "";
+  const metaRows = [];
+  if (workType) {
+    metaRows.push(
+      `<span class="work-deep-meta-chip">${escapeHtml(loginCopy("Type"))} · ${escapeHtml(workTypeLabel(workType))}</span>`
     );
   }
-  return loginCopy(
-    `OpenAI cover art is still missing. Preview frame ${previewImageUrl ? "is ready" : "not ready"} / Preview clip ${previewVideoUrl ? "is ready" : "not ready"}.`,
-    `OpenAI 封面暂未就绪。预览帧${previewImageUrl ? "已就绪" : "未就绪"} / 缩略视频${previewVideoUrl ? "已就绪" : "未就绪"}。`
-  );
+  if (createdAt) {
+    metaRows.push(
+      `<span class="work-deep-meta-chip">${escapeHtml(loginCopy("Created"))} · ${escapeHtml(createdAt)}</span>`
+    );
+  }
+  if (!hideOwnerInfo && sourceRunId) {
+    metaRows.push(
+      `<span class="work-deep-meta-chip">${escapeHtml(loginCopy("Run"))} · ${escapeHtml(sourceRunId.slice(0, 12))}</span>`
+    );
+  }
+  const metaMarkup = metaRows.length
+    ? `<div class="work-deep-meta">${metaRows.join("")}</div>`
+    : "";
+  const engineMarkup = buildWorksCardEngineBreakdownMarkup(work, {
+    includeCost: !hideOwnerInfo
+  });
+  return `
+    <div class="work-deep-details">
+      ${metaMarkup}
+      ${lyricsMarkup}
+      ${styleMarkup}
+      ${descriptionMarkup}
+      ${transcriptMarkup}
+      ${engineMarkup}
+    </div>
+  `;
 }
 
 function buildWorksCardCommerceDetailsMarkup(options = {}) {
   const work = options.work || {};
-  const usageEvents = Array.isArray(options.usageEvents) ? options.usageEvents : [];
+  const usageEvents = Array.isArray(options.usageEvents)
+    ? options.usageEvents
+    : [];
   const title = String(options.title || work?.title || "").trim();
   const lyricsPreview = String(options.lyricsPreview || "").trim();
   const suggestedListen = Math.max(0, Number(options.suggestedListen || 0));
   const suggestedBuyout = Math.max(0, Number(options.suggestedBuyout || 0));
+  const listenCents = Math.max(0, Number(options.listenPriceCents || 0));
+  const buyoutCents = Math.max(0, Number(options.buyoutPriceCents || 0));
+  const wholeBuyoutOnly = options.wholeBuyoutOnly === true;
   return `
+    ${buildWorksCardDeepDetailsMarkup(work, { hideOwnerInfo: false })}
     <div class="work-extra">${escapeHtml(lyricsPreview || title)}</div>
-    <div class="work-extra">${escapeHtml(buildWorkMarketReferenceCopy({ suggestedListen, suggestedBuyout }))}</div>
-    <div class="work-extra">${escapeHtml(loginCopy("你可以高于参考价做精品，也可以低于参考价做传播。", "You can price above the reference for premium positioning, or below it for reach."))}</div>
+    <div class="work-extra">${escapeHtml(buildWorkMarketReferenceCopy({ suggestedListen, suggestedBuyout, listenCents, buyoutCents, wholeBuyoutOnly }))}</div>
+    <div class="work-extra">${escapeHtml(loginCopy("You can price above the reference for premium positioning, or below it for reach."))}</div>
     <div class="work-extra">${escapeHtml(buildWorkAssetStatusCopy(work))}</div>
     ${renderWorkCostBillMarkup(work, usageEvents)}
   `;
 }
+
+// Expose the deep-details renderer for other panels (e.g. P2-38 For You
+// panel) that want to reuse the layout without the owner-only fields.
+globalThis.buildWorksCardDeepDetailsMarkupModule = buildWorksCardDeepDetailsMarkup;
+globalThis.buildWorksCardEngineBreakdownMarkupModule = buildWorksCardEngineBreakdownMarkup;
 
 function buildWorksCardActionsMarkup(options = {}) {
   const canWatchWorks = options.canWatchWorks === true;
@@ -1093,9 +2517,9 @@ function buildWorksCardActionsMarkup(options = {}) {
   const canRegeneratePreviewVideo = options.canRegeneratePreviewVideo === true;
   return `
     <div class="work-actions">
-      <button class="mini-btn ghost" type="button" data-work-action="watch" ${canWatchWorks ? "" : "disabled"}>${loginCopy("Enjoy", "欣赏")}</button>
-      <button class="mini-btn ghost tiny" type="button" data-work-action="regen-thumbnail" ${canRegenerateThumbnail ? "" : "disabled"}>${loginCopy("Regen thumb", "重生缩略图")}</button>
-      <button class="mini-btn ghost tiny" type="button" data-work-action="regen-preview-video" ${canRegeneratePreviewVideo ? "" : "disabled"}>${loginCopy("Regen clip", "重生缩略视频")}</button>
+      <button class="mini-btn ghost" type="button" data-work-action="watch" ${canWatchWorks ? "" : "disabled"}>${loginCopy("Enjoy")}</button>
+      <button class="mini-btn ghost tiny" type="button" data-work-action="regen-thumbnail" ${canRegenerateThumbnail ? "" : "disabled"}>${loginCopy("Regen thumb")}</button>
+      <button class="mini-btn ghost tiny" type="button" data-work-action="regen-preview-video" ${canRegeneratePreviewVideo ? "" : "disabled"}>${loginCopy("Regen clip")}</button>
     </div>
   `;
 }
@@ -1103,21 +2527,155 @@ function buildWorksCardActionsMarkup(options = {}) {
 function mergeLocalAndRemoteWorks(remoteWorks = [], localWorks = []) {
   const safeRemoteWorks = Array.isArray(remoteWorks) ? remoteWorks : [];
   const safeLocalWorks = Array.isArray(localWorks) ? localWorks : [];
+  const readWorkIdentity = (work = {}) => ({
+    workId: String(work?.work_id || work?.id || work?.local_id || "").trim(),
+    sourceRunId: String(work?.source_run_id || "").trim(),
+    title: String(work?.title || "").trim(),
+    createdAt: String(work?.created_at || "").trim(),
+  });
+  const sameStructuredRoot = (left = {}, right = {}) => {
+    const leftType = normalizeWorkTypeClient(left?.work_type);
+    const rightType = normalizeWorkTypeClient(right?.work_type);
+    const leftRole = String(left?.structure_role || leftType || "")
+      .trim()
+      .toLowerCase();
+    const rightRole = String(right?.structure_role || rightType || "")
+      .trim()
+      .toLowerCase();
+    if (!["opera", "triptych"].includes(leftRole) || leftRole !== rightRole)
+      return false;
+    return (
+      String(left?.title || "").trim() &&
+      String(left?.title || "").trim() === String(right?.title || "").trim()
+    );
+  };
+  const pickPreferredString = (...values) => {
+    for (const value of values) {
+      const normalized = String(value || "").trim();
+      if (normalized) return normalized;
+    }
+    return "";
+  };
   const merged = safeRemoteWorks.map((item) => ({ ...item }));
   safeLocalWorks.forEach((localWork) => {
-    const existingIndex = merged.findIndex(
-      (item) =>
-        String(item?.work_id || item?.id || "") === String(localWork?.work_id || localWork?.local_id || "") ||
-        (String(item?.title || "").trim() === String(localWork?.title || "").trim() &&
-          String(item?.created_at || "") === String(localWork?.created_at || ""))
-    );
+    const localIdentity = readWorkIdentity(localWork);
+    const existingIndex = merged.findIndex((item) => {
+      const remoteIdentity = readWorkIdentity(item);
+      if (
+        remoteIdentity.workId &&
+        localIdentity.workId &&
+        remoteIdentity.workId === localIdentity.workId
+      ) {
+        return true;
+      }
+      if (
+        remoteIdentity.sourceRunId &&
+        localIdentity.sourceRunId &&
+        remoteIdentity.sourceRunId === localIdentity.sourceRunId
+      ) {
+        return true;
+      }
+      return Boolean(
+        remoteIdentity.title &&
+        localIdentity.title &&
+        remoteIdentity.createdAt &&
+        localIdentity.createdAt &&
+        remoteIdentity.title === localIdentity.title &&
+        remoteIdentity.createdAt === localIdentity.createdAt,
+      );
+    });
     if (existingIndex >= 0) {
+      const remoteWork = merged[existingIndex] || {};
       merged[existingIndex] = {
         ...localWork,
-        ...merged[existingIndex],
-        cover_image: merged[existingIndex]?.cover_image || localWork?.cover_image || ""
+        ...remoteWork,
+        work_id: pickPreferredString(
+          remoteWork?.work_id,
+          localWork?.work_id,
+          localWork?.local_id,
+        ),
+        local_id: pickPreferredString(
+          localWork?.local_id,
+          remoteWork?.local_id,
+          remoteWork?.work_id,
+        ),
+        source_run_id: pickPreferredString(
+          remoteWork?.source_run_id,
+          localWork?.source_run_id,
+        ),
+        title: pickPreferredString(remoteWork?.title, localWork?.title),
+        style: pickPreferredString(remoteWork?.style, localWork?.style),
+        description: pickPreferredString(
+          remoteWork?.description,
+          localWork?.description,
+        ),
+        lyrics_text: pickPreferredString(
+          localWork?.lyrics_text,
+          remoteWork?.lyrics_text,
+        ),
+        lyrics_preview: pickPreferredString(
+          localWork?.lyrics_preview,
+          remoteWork?.lyrics_preview,
+        ),
+        cover_image: pickPreferredString(
+          remoteWork?.cover_image,
+          localWork?.cover_image,
+        ),
+        preview_image_url: pickPreferredString(
+          remoteWork?.preview_image_url,
+          localWork?.preview_image_url,
+        ),
+        preview_video_url: pickPreferredString(
+          remoteWork?.preview_video_url,
+          localWork?.preview_video_url,
+        ),
+        preview_video_asset_key: pickPreferredString(
+          remoteWork?.preview_video_asset_key,
+          localWork?.preview_video_asset_key,
+        ),
+        owner_name: pickPreferredString(
+          remoteWork?.owner_name,
+          localWork?.owner_name,
+        ),
+        owner_email: pickPreferredString(
+          remoteWork?.owner_email,
+          localWork?.owner_email,
+        ),
+        owner_handle: pickPreferredString(
+          remoteWork?.owner_handle,
+          localWork?.owner_handle,
+        ),
+        created_at: pickPreferredString(
+          remoteWork?.created_at,
+          localWork?.created_at,
+        ),
+        parent_work_id: pickPreferredString(
+          remoteWork?.parent_work_id,
+          localWork?.parent_work_id,
+        ),
+        root_work_id: pickPreferredString(
+          remoteWork?.root_work_id,
+          localWork?.root_work_id,
+        ),
+        structure_plan:
+          remoteWork?.structure_plan &&
+          typeof remoteWork.structure_plan === "object"
+            ? remoteWork.structure_plan
+            : localWork?.structure_plan,
+        children:
+          Array.isArray(remoteWork?.children) && remoteWork.children.length
+            ? remoteWork.children
+            : Array.isArray(localWork?.children)
+              ? localWork.children
+              : [],
       };
     } else {
+      const shadowsRemoteStructuredRoot = merged.some((remoteWork) =>
+        sameStructuredRoot(remoteWork, localWork),
+      );
+      if (shadowsRemoteStructuredRoot) {
+        return;
+      }
       merged.unshift(localWork);
     }
   });
@@ -1127,19 +2685,37 @@ function mergeLocalAndRemoteWorks(remoteWorks = [], localWorks = []) {
 async function hydrateWorksCardThumbnails(container, works) {
   if (!(container instanceof Element) || !Array.isArray(works)) return;
   for (const work of works) {
-    const workId = String(work?.work_id || work?.id || work?.local_id || "").trim();
+    const workId = String(
+      work?.work_id || work?.id || work?.local_id || "",
+    ).trim();
     if (!workId) continue;
-    const cover = container.querySelector(`[data-work-cover-key="${CSS.escape(workId)}"]`);
+    const cover = container.querySelector(
+      `[data-work-cover-key="${CSS.escape(workId)}"]`,
+    );
     if (!(cover instanceof HTMLElement)) continue;
-    const currentImage = String(cover.querySelector("img")?.getAttribute("src") || "").trim();
-    if (currentImage && !isSyntheticWorkCoverImage(currentImage)) continue;
     const title = String(work?.title || "").trim() || "CSS MV";
-    const subtitle = String(work?.style || "").trim() || loginCopy("Creator work", "创作者作品");
+    const currentImage = String(
+      cover.querySelector("img")?.getAttribute("src") || "",
+    ).trim();
+    const fastImage = globalThis.resolveWorkCardThumbnailImageModule?.(work) || "";
+    if (fastImage && currentImage !== fastImage) {
+      cover.innerHTML = `<img src="${escapeHtml(fastImage)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" />`;
+    }
+    if (fastImage && !isSyntheticWorkCoverImage(fastImage)) continue;
+    const subtitle =
+      String(work?.style || "").trim() ||
+      loginCopy("Creator work");
     const lines = workLyricsLines(work);
-    const image = await requestThumbnailDataUrl(title, subtitle, lines);
+    const fallbackImage = await requestThumbnailDataUrl(title, subtitle, lines);
+    const image =
+      (await globalThis.ensureWorkCardThumbnailImageModule?.({
+        ...work,
+        cover_image: fallbackImage || work?.cover_image || ""
+      })) ||
+      fallbackImage;
     if (!image) continue;
-    cover.innerHTML = `<img src="${escapeHtml(image)}" alt="${escapeHtml(title)}" />`;
-    updateLocalWorkCoverImage(workId, image);
+    cover.innerHTML = `<img src="${escapeHtml(image)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" />`;
+    updateLocalWorkAssets(workId, { small_thumbnail_url: image, cover_image: fallbackImage || work?.cover_image || image });
   }
 }
 
@@ -1148,16 +2724,32 @@ async function hydrateMarketCardThumbnails(container, works) {
   for (const work of works) {
     const workId = String(work?.id || work?.work_id || "").trim();
     if (!workId) continue;
-    const cover = container.querySelector(`[data-market-cover-key="${CSS.escape(workId)}"]`);
+    const cover = container.querySelector(
+      `[data-market-cover-key="${CSS.escape(workId)}"]`,
+    );
     if (!(cover instanceof HTMLElement)) continue;
-    const currentImage = String(cover.querySelector("img")?.getAttribute("src") || "").trim();
-    if (currentImage && !isSyntheticWorkCoverImage(currentImage)) continue;
     const title = String(work?.title || "").trim() || "CSS MV";
-    const subtitle = String(work?.style || "").trim() || loginCopy("Marketplace work", "市场作品");
+    const currentImage = String(
+      cover.querySelector("img")?.getAttribute("src") || "",
+    ).trim();
+    const fastImage = globalThis.resolveWorkCardThumbnailImageModule?.(work) || "";
+    if (fastImage && currentImage !== fastImage) {
+      cover.innerHTML = `<img src="${escapeHtml(fastImage)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" />`;
+    }
+    if (fastImage && !isSyntheticWorkCoverImage(fastImage)) continue;
+    const subtitle =
+      String(work?.style || "").trim() ||
+      loginCopy("Marketplace work");
     const lines = workLyricsLines(work);
-    const image = await requestThumbnailDataUrl(title, subtitle, lines);
+    const fallbackImage = await requestThumbnailDataUrl(title, subtitle, lines);
+    const image =
+      (await globalThis.ensureWorkCardThumbnailImageModule?.({
+        ...work,
+        cover_image: fallbackImage || work?.cover_image || ""
+      })) ||
+      fallbackImage;
     if (!image) continue;
-    cover.innerHTML = `<img src="${escapeHtml(image)}" alt="${escapeHtml(title)}" />`;
+    cover.innerHTML = `<img src="${escapeHtml(image)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" />`;
   }
 }
 
@@ -1178,53 +2770,82 @@ function bindWorksCardActionButtons(list, sortedWorks, options = {}) {
   const canWatchWorks = options.canWatchWorks === true;
   const canRegenerateThumbnail = options.canRegenerateThumbnail === true;
   const canRegeneratePreviewVideo = options.canRegeneratePreviewVideo === true;
+  const openWatchFromCard = async (target) => {
+    if (!canWatchWorks) {
+      showToast(permissionPrompt("works.watch"));
+      return;
+    }
+    const card = target?.closest?.("[data-work-id]");
+    const rootWorkId = String(card?.getAttribute("data-work-id") || "").trim();
+    const childWorkId = String(target?.getAttribute?.("data-work-child-id") || "").trim();
+    const rootWork =
+      findRootWorkForPlaybackModule(sortedWorks, rootWorkId || childWorkId) ||
+      findRootWorkForPlaybackModule(sortedWorks, childWorkId);
+    if (!rootWork) {
+      await openWatchPreviewFlowModule({ preferredTab: "mv" });
+      return;
+    }
+    const playbackWork = childWorkId
+      ? { ...rootWork, requested_start_work_id: childWorkId }
+      : rootWork;
+    await openMarketWorkPreview(playbackWork);
+  };
 
   list.querySelectorAll("[data-work-action='watch']").forEach((button) => {
     button.addEventListener("click", async (event) => {
-      if (!canWatchWorks) {
-        showToast(permissionPrompt("works.watch"));
-        return;
-      }
       event.stopPropagation();
-      const childWorkId = button.getAttribute("data-work-child-id") || "";
-      if (childWorkId) {
-        list.querySelectorAll("[data-work-id]").forEach((card) => {
-          if (card instanceof HTMLElement) card.dataset.activeChildWorkId = childWorkId;
-        });
-      }
-      await openWatchPreviewFlowModule({ preferredTab: "mv" });
+      await openWatchFromCard(button);
     });
   });
 
-  list.querySelectorAll("[data-work-action='regen-thumbnail']").forEach((button) => {
-    button.addEventListener("click", async (event) => {
+  list.querySelectorAll("[data-work-open-watch]").forEach((cover) => {
+    cover.addEventListener("click", async (event) => {
       event.stopPropagation();
-      if (!canRegenerateThumbnail) {
-        showToast(permissionPrompt("works.thumbnail.regen"));
-        return;
-      }
-      const card = button.closest("[data-work-id]");
-      const workId = String(card?.getAttribute("data-work-id") || "").trim();
-      const work = sortedWorks.find((item) => String(item?.work_id || item?.id || item?.local_id || "").trim() === workId);
-      if (!work) return;
-      await regenerateWorkThumbnail(work, button);
+      await openWatchFromCard(cover);
     });
   });
 
-  list.querySelectorAll("[data-work-action='regen-preview-video']").forEach((button) => {
-    button.addEventListener("click", async (event) => {
-      event.stopPropagation();
-      if (!canRegeneratePreviewVideo) {
-        showToast(permissionPrompt("works.preview_video.regen"));
-        return;
-      }
-      const card = button.closest("[data-work-id]");
-      const workId = String(card?.getAttribute("data-work-id") || "").trim();
-      const work = sortedWorks.find((item) => String(item?.work_id || item?.id || item?.local_id || "").trim() === workId);
-      if (!work) return;
-      await regenerateWorkPreviewVideo(work, button);
+  list
+    .querySelectorAll("[data-work-action='regen-thumbnail']")
+    .forEach((button) => {
+      button.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        if (!canRegenerateThumbnail) {
+          showToast(permissionPrompt("works.thumbnail.regen"));
+          return;
+        }
+        const card = button.closest("[data-work-id]");
+        const workId = String(card?.getAttribute("data-work-id") || "").trim();
+        const work = sortedWorks.find(
+          (item) =>
+            String(item?.work_id || item?.id || item?.local_id || "").trim() ===
+            workId,
+        );
+        if (!work) return;
+        await regenerateWorkThumbnail(work, button);
+      });
     });
-  });
+
+  list
+    .querySelectorAll("[data-work-action='regen-preview-video']")
+    .forEach((button) => {
+      button.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        if (!canRegeneratePreviewVideo) {
+          showToast(permissionPrompt("works.preview_video.regen"));
+          return;
+        }
+        const card = button.closest("[data-work-id]");
+        const workId = String(card?.getAttribute("data-work-id") || "").trim();
+        const work = sortedWorks.find(
+          (item) =>
+            String(item?.work_id || item?.id || item?.local_id || "").trim() ===
+            workId,
+        );
+        if (!work) return;
+        await regenerateWorkPreviewVideo(work, button);
+      });
+    });
 }
 
 function bindWorksCardEditorControls(list, options = {}) {
@@ -1244,34 +2865,50 @@ function bindWorksCardEditorControls(list, options = {}) {
       const listenInput = card?.querySelector('[data-work-price="listen"]');
       const buyoutInput = card?.querySelector('[data-work-price="buyout"]');
       const visibilityInput = card?.querySelector("[data-work-visibility]");
-      if (listenInput instanceof HTMLInputElement) listenInput.value = (defaults.listenCents / 100).toFixed(2);
-      if (buyoutInput instanceof HTMLInputElement) buyoutInput.value = (defaults.buyoutCents / 100).toFixed(2);
-      void saveWorkPricing(card?.getAttribute("data-work-id") || "", listenInput, buyoutInput, target, visibilityInput);
+      if (listenInput instanceof HTMLInputElement)
+        listenInput.value = (defaults.listenCents / 100).toFixed(2);
+      if (buyoutInput instanceof HTMLInputElement)
+        buyoutInput.value = (defaults.buyoutCents / 100).toFixed(2);
+      void saveWorkPricing(
+        card?.getAttribute("data-work-id") || "",
+        listenInput,
+        buyoutInput,
+        target,
+        visibilityInput,
+      );
     });
   });
 
-  list.querySelectorAll('[data-work-price="listen"], [data-work-price="buyout"]').forEach((input) => {
-    input.addEventListener("blur", (event) => {
-      if (!canEditWorkPrices) return;
-      event.stopPropagation();
-      const target = event.currentTarget;
-      if (!(target instanceof HTMLInputElement)) return;
-      const card = target.closest("[data-work-id]");
-      const workId = card?.getAttribute("data-work-id") || "";
-      if (!workId) return;
-      const listenInput = card?.querySelector('[data-work-price="listen"]');
-      const buyoutInput = card?.querySelector('[data-work-price="buyout"]');
-      const workTypeInput = card?.querySelector("[data-work-type]");
-      const visibilityInput = card?.querySelector("[data-work-visibility]");
-      void saveWorkPricing(workId, listenInput, buyoutInput, workTypeInput, visibilityInput);
+  list
+    .querySelectorAll('[data-work-price="listen"], [data-work-price="buyout"]')
+    .forEach((input) => {
+      input.addEventListener("blur", (event) => {
+        if (!canEditWorkPrices) return;
+        event.stopPropagation();
+        const target = event.currentTarget;
+        if (!(target instanceof HTMLInputElement)) return;
+        const card = target.closest("[data-work-id]");
+        const workId = card?.getAttribute("data-work-id") || "";
+        if (!workId) return;
+        const listenInput = card?.querySelector('[data-work-price="listen"]');
+        const buyoutInput = card?.querySelector('[data-work-price="buyout"]');
+        const workTypeInput = card?.querySelector("[data-work-type]");
+        const visibilityInput = card?.querySelector("[data-work-visibility]");
+        void saveWorkPricing(
+          workId,
+          listenInput,
+          buyoutInput,
+          workTypeInput,
+          visibilityInput,
+        );
+      });
+      input.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.currentTarget?.blur?.();
+      });
     });
-    input.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter") return;
-      event.preventDefault();
-      event.stopPropagation();
-      event.currentTarget?.blur?.();
-    });
-  });
 
   list.querySelectorAll("[data-work-visibility]").forEach((select) => {
     select.addEventListener("change", (event) => {
@@ -1285,61 +2922,113 @@ function bindWorksCardEditorControls(list, options = {}) {
       const listenInput = card?.querySelector('[data-work-price="listen"]');
       const buyoutInput = card?.querySelector('[data-work-price="buyout"]');
       const workTypeInput = card?.querySelector("[data-work-type]");
-      void saveWorkPricing(workId, listenInput, buyoutInput, workTypeInput, target);
+      void saveWorkPricing(
+        workId,
+        listenInput,
+        buyoutInput,
+        workTypeInput,
+        target,
+      );
     });
   });
 }
 
-async function saveWorkPricing(workId, listenInput, buyoutInput, workTypeInput, visibilityInput) {
-  if (!workId || !(listenInput instanceof HTMLInputElement) || !(buyoutInput instanceof HTMLInputElement)) return;
+async function saveWorkPricing(
+  workId,
+  listenInput,
+  buyoutInput,
+  workTypeInput,
+  visibilityInput,
+) {
+  if (!workId || !(listenInput instanceof HTMLInputElement)) return;
   const listenPriceCents = centsFromPriceInput(listenInput.value);
-  const buyoutPriceCents = centsFromPriceInput(buyoutInput.value);
-  const workType = workTypeInput instanceof HTMLSelectElement ? normalizeWorkTypeClient(workTypeInput.value) : null;
-  const visibility = visibilityInput instanceof HTMLSelectElement
-    ? (visibilityInput.value === "private" ? "private" : "public")
-    : "public";
+  const buyoutPriceCents =
+    buyoutInput instanceof HTMLInputElement
+      ? centsFromPriceInput(buyoutInput.value)
+      : 0;
+  const workType =
+    workTypeInput instanceof HTMLSelectElement
+      ? normalizeWorkTypeClient(workTypeInput.value)
+      : null;
+  const visibility =
+    visibilityInput instanceof HTMLSelectElement
+      ? visibilityInput.value === "private"
+        ? "private"
+        : "public"
+      : "public";
   if (listenPriceCents <= 0) {
-    showToast(loginCopy("Listen price must be greater than $0.00.", "试听价格必须大于 $0.00。"));
+    showToast(
+      loginCopy(
+        "Listen price must be greater than $0.00.",
+      ),
+    );
     listenInput.focus();
     return;
   }
   try {
     listenInput.dataset.saving = "true";
-    buyoutInput.dataset.saving = "true";
-    if (visibilityInput instanceof HTMLSelectElement) visibilityInput.dataset.saving = "true";
-    const res = await fetch(`/api/works/${encodeURIComponent(workId)}/pricing`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({
-        listen_price_cents: listenPriceCents,
-        buyout_price_cents: buyoutPriceCents,
-        buyout_enabled: buyoutPriceCents > 0,
-        work_type: workType,
-        visibility
-      })
-    });
+    if (buyoutInput instanceof HTMLInputElement)
+      buyoutInput.dataset.saving = "true";
+    if (visibilityInput instanceof HTMLSelectElement)
+      visibilityInput.dataset.saving = "true";
+    const res = await fetch(
+      `/api/works/${encodeURIComponent(workId)}/pricing`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          listen_price_cents: listenPriceCents,
+          buyout_price_cents: buyoutPriceCents,
+          buyout_enabled: buyoutPriceCents > 0,
+          work_type: workType,
+          visibility,
+        }),
+      },
+    );
     const payload = await res.json().catch(() => null);
     if (!res.ok || payload?.ok === false) {
       throw new Error(payload?.code || `pricing_save_failed:${res.status}`);
     }
     await refreshWorkSurfaces();
     broadcastWorksCommerceRefresh({ includeMarket: true });
-    showToast(loginCopy("Pricing updated.", "定价已更新。"));
+    showToast(loginCopy("Pricing updated."));
   } catch (_err) {
-    showToast(loginCopy("Failed to save pricing.", "保存定价失败。"));
+    showToast(loginCopy("Failed to save pricing."));
   } finally {
     delete listenInput.dataset.saving;
-    delete buyoutInput.dataset.saving;
-    if (visibilityInput instanceof HTMLSelectElement) delete visibilityInput.dataset.saving;
+    if (buyoutInput instanceof HTMLInputElement)
+      delete buyoutInput.dataset.saving;
+    if (visibilityInput instanceof HTMLSelectElement)
+      delete visibilityInput.dataset.saving;
   }
 }
 
 function syncApiBillingCommerceControls(options = {}) {
   const canManageBilling = options.canManageBilling === true;
   const balanceCents = Number(billingState.balance_cents || 0);
+  const pendingBalanceCents = Number(billingState.pending_balance_cents || 0);
   if (apiCreditBalance) {
-    apiCreditBalance.textContent = `$${(balanceCents / 100).toFixed(2)}`;
+    const availableText = `$${(balanceCents / 100).toFixed(2)}`;
+    if (pendingBalanceCents > 0) {
+      const releaseDate = billingState.pending_balance_release_at
+        ? new Date(String(billingState.pending_balance_release_at)).toLocaleDateString()
+        : "";
+      apiCreditBalance.innerHTML = `
+        <div>${escapeHtml(availableText)}</div>
+        <div class="works-note">${escapeHtml(
+          releaseDate
+            ? loginCopy(
+                `Pending release: $${(pendingBalanceCents / 100).toFixed(2)} on ${releaseDate}`
+              )
+            : loginCopy(
+                `Pending release: $${(pendingBalanceCents / 100).toFixed(2)}`
+              )
+        )}</div>
+      `;
+    } else {
+      apiCreditBalance.textContent = availableText;
+    }
   }
   if (apiAddFundsBtn) {
     apiAddFundsBtn.disabled = !canManageBilling;
@@ -1348,8 +3037,14 @@ function syncApiBillingCommerceControls(options = {}) {
   if (apiAutoRecharge) apiAutoRecharge.disabled = !canManageBilling;
   if (apiMonthlyLimit) apiMonthlyLimit.disabled = !canManageBilling;
   if (apiPaymentMethod) apiPaymentMethod.disabled = !canManageBilling;
-  if (apiMonthlyLimit && canManageBilling && Number.isFinite(Number(billingState.monthly_limit_cents))) {
-    apiMonthlyLimit.value = (Number(billingState.monthly_limit_cents) / 100).toFixed(0);
+  if (
+    apiMonthlyLimit &&
+    canManageBilling &&
+    Number.isFinite(Number(billingState.monthly_limit_cents))
+  ) {
+    apiMonthlyLimit.value = (
+      Number(billingState.monthly_limit_cents) / 100
+    ).toFixed(0);
   }
 }
 
@@ -1358,38 +3053,56 @@ function buildProfileCommerceMarkup(options = {}) {
   const studio = commerce?.studio || null;
   const workspace = studio?.workspace || null;
   const workspaceMembers = Array.isArray(studio?.members) ? studio.members : [];
-  const workspaceProjects = Array.isArray(studio?.projects) ? studio.projects.slice(0, 5) : [];
+  const workspaceProjects = Array.isArray(studio?.projects)
+    ? studio.projects.slice(0, 5)
+    : [];
   const workspaceEnabled = canUseStudioWorkspaceClient();
-  const queueLane = studio?.workspace?.queue_lane || commerce?.profile?.queue_lane || getMembershipPreset().queuePriority;
+  const queueLane =
+    studio?.workspace?.queue_lane ||
+    commerce?.profile?.queue_lane ||
+    getMembershipPreset().queuePriority;
   return workspaceEnabled
     ? `
       <div class="profile-account-latest">
         <div class="profile-mini-card">
-          <div class="profile-mini-label">${loginCopy("Studio workspace", "Studio 工作区")}</div>
-          <div class="profile-mini-value">${escapeHtml(String(workspace?.name || loginCopy("Preparing workspace...", "正在准备工作区...")))}</div>
+          <div class="profile-mini-label">${loginCopy("Studio workspace")}</div>
+          <div class="profile-mini-value">${escapeHtml(String(workspace?.name || loginCopy("Preparing workspace...")))}</div>
           <div class="profile-account-meta">${escapeHtml(formatQueueLaneLabel(queueLane))}</div>
-          <div class="profile-account-meta">${escapeHtml(loginCopy(`Members ${workspaceMembers.length}`, `成员 ${workspaceMembers.length}`))} · ${escapeHtml(loginCopy(`Projects ${workspaceProjects.length}`, `项目 ${workspaceProjects.length}`))}</div>
-          <div class="profile-account-meta">${escapeHtml(loginCopy("Studio and above use dedicated production queues instead of the free/basic lanes.", "Studio 及以上会进入独立生产队列，不再与免费/基础队列混用。"))}</div>
+          <div class="profile-account-meta">${escapeHtml(loginCopy(`Members ${workspaceMembers.length}`))} · ${escapeHtml(loginCopy(`Projects ${workspaceProjects.length}`))}</div>
+          <div class="profile-account-meta">${escapeHtml(loginCopy("Studio and above use dedicated production queues instead of the free/basic lanes."))}</div>
           <div class="profile-account-meta">
-            ${studio?.can_collaborate
-              ? `<button class="mini-btn ghost" type="button" data-studio-member-add>${loginCopy("Add member", "添加成员")}</button>`
-              : loginCopy("Team collaboration is currently disabled by the system administrator.", "团队协作当前由系统管理员关闭。")}
-            ${studio?.can_create_projects
-              ? `<button class="mini-btn ghost" type="button" data-studio-project-create>${loginCopy("New project", "新建项目")}</button>`
-              : ""}
+            ${
+              studio?.can_collaborate
+                ? `<button class="mini-btn ghost" type="button" data-studio-member-add>${loginCopy("Add member")}</button>`
+                : loginCopy(
+                    "Team collaboration is currently disabled by the system administrator.",
+                  )
+            }
+            ${
+              studio?.can_create_projects
+                ? `<button class="mini-btn ghost" type="button" data-studio-project-create>${loginCopy("New project")}</button>`
+                : ""
+            }
           </div>
         </div>
         <div class="profile-mini-card">
-          <div class="profile-mini-label">${loginCopy("Latest projects", "最近项目")}</div>
-          <div class="profile-mini-value">${workspaceProjects.length ? escapeHtml(String(workspaceProjects[0]?.title || "")) : escapeHtml(loginCopy("No projects yet", "还没有项目"))}</div>
+          <div class="profile-mini-label">${loginCopy("Latest projects")}</div>
+          <div class="profile-mini-value">${workspaceProjects.length ? escapeHtml(String(workspaceProjects[0]?.title || "")) : escapeHtml(loginCopy("No projects yet"))}</div>
           <div class="profile-account-meta">${
             workspaceProjects.length
               ? workspaceProjects
-                  .map((project) => `${escapeHtml(String(project.title || ""))} · ${escapeHtml(formatQueueLaneLabel(project.queue_lane || queueLane))}`)
+                  .map(
+                    (project) =>
+                      `${escapeHtml(String(project.title || ""))} · ${escapeHtml(formatQueueLaneLabel(project.queue_lane || queueLane))}`,
+                  )
                   .join("<br />")
-              : escapeHtml(loginCopy("Create a Studio/Enterprise project here to keep productions organized.", "在这里创建 Studio / Enterprise 项目，方便整理整套制作流程。"))
+              : escapeHtml(
+                  loginCopy(
+                    "Create a Studio/Enterprise project here to keep productions organized.",
+                  ),
+                )
           }</div>
-          <button class="mini-btn ghost" type="button" data-studio-open-api>${loginCopy("View enterprise/API lane", "查看企业/API 通道")}</button>
+          <button class="mini-btn ghost" type="button" data-studio-open-api>${loginCopy("View enterprise/API lane")}</button>
         </div>
       </div>
     `
@@ -1397,7 +3110,6 @@ function buildProfileCommerceMarkup(options = {}) {
       <div class="profile-account-meta">
         ${loginCopy(
           "Studio and Enterprise memberships unlock team workspace, project lists, and dedicated production lanes.",
-          "Studio 与 Enterprise 会员会解锁团队工作区、项目列表和独立生产队列。"
         )}
       </div>
     `;
@@ -1405,17 +3117,27 @@ function buildProfileCommerceMarkup(options = {}) {
 
 function bindProfileCommerceActions(summary) {
   if (!(summary instanceof Element)) return;
-  summary.querySelector("[data-studio-open-api]")?.addEventListener("click", () => openPanel(apiPanel));
-  summary.querySelector("[data-studio-project-create]")?.addEventListener("click", async () => {
-    const title = window.prompt(loginCopy("New project title", "请输入新项目标题"));
-    if (!title) return;
-    await createStudioProject(title);
-  });
-  summary.querySelector("[data-studio-member-add]")?.addEventListener("click", async () => {
-    const email = window.prompt(loginCopy("Invite teammate email", "请输入成员邮箱"));
-    if (!email) return;
-    await inviteStudioWorkspaceMember(email);
-  });
+  summary
+    .querySelector("[data-studio-open-api]")
+    ?.addEventListener("click", () => openPanel(apiPanel));
+  summary
+    .querySelector("[data-studio-project-create]")
+    ?.addEventListener("click", async () => {
+      const title = window.prompt(
+        loginCopy("New project title"),
+      );
+      if (!title) return;
+      await createStudioProject(title);
+    });
+  summary
+    .querySelector("[data-studio-member-add]")
+    ?.addEventListener("click", async () => {
+      const email = window.prompt(
+        loginCopy("Invite teammate email"),
+      );
+      if (!email) return;
+      await inviteStudioWorkspaceMember(email);
+    });
 }
 
 function ensureProfileCommerceLoaded() {
@@ -1432,18 +3154,16 @@ function renderCinemaBookingBriefMarkup(entry) {
   const brief = String(entry?.brief || "").trim();
   if (!brief) return "";
   const collapsed =
-    brief.length > 220
-      ? `${brief.slice(0, 220).trimEnd()}...`
-      : brief;
+    brief.length > 220 ? `${brief.slice(0, 220).trimEnd()}...` : brief;
   const expandable = collapsed !== brief;
   return `
     <div class="api-cinema-booking-brief-preview" data-cinema-booking-brief ${expandable ? 'tabindex="0" role="button" aria-expanded="false"' : ""}>
-      <div class="api-cinema-booking-brief-label">${escapeHtml(loginCopy("Creative brief", "项目说明"))}</div>
+      <div class="api-cinema-booking-brief-label">${escapeHtml(loginCopy("Creative brief"))}</div>
       <div class="api-cinema-booking-brief-copy" data-cinema-booking-brief-collapsed ${expandable ? "" : "hidden"}>${formatCinemaBookingBriefHtml(collapsed)}</div>
       <div class="api-cinema-booking-brief-copy" data-cinema-booking-brief-full ${expandable ? "hidden" : ""}>${formatCinemaBookingBriefHtml(brief)}</div>
       ${
         expandable
-          ? `<div class="api-cinema-booking-brief-hint" data-cinema-booking-brief-hint>${escapeHtml(loginCopy("Click to show full brief", "点击查看完整说明"))}</div>`
+          ? `<div class="api-cinema-booking-brief-hint" data-cinema-booking-brief-hint>${escapeHtml(loginCopy("Click to show full brief"))}</div>`
           : ""
       }
     </div>
@@ -1456,10 +3176,19 @@ function renderApiBillingCommerceSections(apiBody, options = {}) {
   syncApiBillingCommerceControls(options);
   const commerce = watchCommerceState.payload || null;
   const enterprise = commerce?.enterprise_api || null;
-  const queueLane = enterprise?.queue_lane || commerce?.profile?.queue_lane || getMembershipPreset().queuePriority;
-  const usageEvents = Array.isArray(commerce?.usage_events) ? commerce.usage_events : [];
-  const ledgerEntries = Array.isArray(commerce?.ledger_entries) ? commerce.ledger_entries : [];
-  const cinemaBookings = Array.isArray(commerce?.cinema_bookings) ? commerce.cinema_bookings : [];
+  const queueLane =
+    enterprise?.queue_lane ||
+    commerce?.profile?.queue_lane ||
+    getMembershipPreset().queuePriority;
+  const usageEvents = Array.isArray(commerce?.usage_events)
+    ? commerce.usage_events
+    : [];
+  const ledgerEntries = Array.isArray(commerce?.ledger_entries)
+    ? commerce.ledger_entries
+    : [];
+  const cinemaBookings = Array.isArray(commerce?.cinema_bookings)
+    ? commerce.cinema_bookings
+    : [];
 
   let laneCard = apiBody.querySelector(".api-queue-card");
   if (!laneCard) {
@@ -1468,9 +3197,9 @@ function renderApiBillingCommerceSections(apiBody, options = {}) {
     apiBody.appendChild(laneCard);
   }
   laneCard.innerHTML = `
-    <strong>${escapeHtml(loginCopy("Current production lane", "当前生产队列"))}</strong>
+    <strong>${escapeHtml(loginCopy("Current production lane"))}</strong>
     <div>${escapeHtml(formatQueueLaneLabel(queueLane))}</div>
-    <div>${escapeHtml(loginCopy("Pro and above now use separate queue lanes, so paid production no longer mixes with guest/basic traffic.", "Pro 及以上会员现在会进入各自独立的生产队列，不再与游客/基础流量混排。"))}</div>
+    <div>${escapeHtml(loginCopy("Pro and above now use separate queue lanes, so paid production no longer mixes with guest/basic traffic."))}</div>
   `;
 
   let enterpriseCard = apiBody.querySelector(".api-enterprise-card");
@@ -1481,16 +3210,28 @@ function renderApiBillingCommerceSections(apiBody, options = {}) {
       apiBody.appendChild(enterpriseCard);
     }
     const usage = enterprise?.usage || null;
-    const recentRoutes = Array.isArray(usage?.recent_routes) ? usage.recent_routes.slice(0, 4) : [];
+    const recentRoutes = Array.isArray(usage?.recent_routes)
+      ? usage.recent_routes.slice(0, 4)
+      : [];
     enterpriseCard.innerHTML = `
-      <strong>${escapeHtml(loginCopy("Enterprise API lane", "企业 API 通道"))}</strong>
-      <div>${escapeHtml(enterprise?.enabled ? loginCopy("Enabled", "已启用") : loginCopy("Disabled by admin", "已被管理员关闭"))}</div>
-      <div>${escapeHtml(loginCopy(`Rate limit ${Number(usage?.rpm_limit || 0)} req/min`, `每分钟限额 ${Number(usage?.rpm_limit || 0)} 次`))}</div>
-      <div>${escapeHtml(loginCopy(`Used this minute ${Number(usage?.used_this_minute || 0)}, remaining ${Number(usage?.remaining_this_minute || 0)}`, `本分钟已用 ${Number(usage?.used_this_minute || 0)} 次，剩余 ${Number(usage?.remaining_this_minute || 0)} 次`))}</div>
-      <div>${recentRoutes.length ? recentRoutes.map((entry) => escapeHtml(String(entry.route || ""))).join("<br />") : escapeHtml(loginCopy("No recent enterprise API routes yet.", "最近还没有企业 API 路由记录。"))}</div>
+      <strong>${escapeHtml(loginCopy("Enterprise API lane"))}</strong>
+      <div>${escapeHtml(enterprise?.enabled ? loginCopy("Enabled") : loginCopy("Disabled by admin"))}</div>
+      <div>${escapeHtml(loginCopy(`Rate limit ${Number(usage?.rpm_limit || 0)} req/min`))}</div>
+      <div>${escapeHtml(loginCopy(`Used this minute ${Number(usage?.used_this_minute || 0)}, remaining ${Number(usage?.remaining_this_minute || 0)}`))}</div>
+      <div>${recentRoutes.length ? recentRoutes.map((entry) => escapeHtml(String(entry.route || ""))).join("<br />") : escapeHtml(loginCopy("No recent enterprise API routes yet."))}</div>
     `;
   } else if (enterpriseCard) {
     enterpriseCard.remove();
+  }
+
+  // CSSOS_PHASE2_BYOK 20260420 — Task #70: Runway / ElevenLabs / Stability
+  // BYOK entrance lives in the API panel, right after the queue / enterprise
+  // status cards, so creators who care about cost see it next to their plan
+  // and balance. `renderEngineAccountsCard` is defined in
+  // public/app.engine-accounts.js and hits /api/settings/engine-keys.
+  if (typeof renderEngineAccountsCard === "function") {
+    // fire-and-forget — the card handles its own loading skeleton.
+    renderEngineAccountsCard(apiBody);
   }
 
   let billingHistoryCard = apiBody.querySelector(".api-billing-history-card");
@@ -1500,9 +3241,9 @@ function renderApiBillingCommerceSections(apiBody, options = {}) {
     apiBody.appendChild(billingHistoryCard);
   }
   billingHistoryCard.innerHTML = `
-    <strong>${escapeHtml(loginCopy("Action charge history", "动作收费历史"))}</strong>
-    <div>${escapeHtml(loginCopy("Every billable compute action is listed here so creators can see where server cost was spent.", "所有可计费的算力动作都会列在这里，方便创作者看到服务器成本花在了哪里。"))}</div>
-    <div class="watch-activity compact">${renderUsageHistoryMarkup(usageEvents, loginCopy("No billable action rows yet.", "还没有动作计费记录。"), 10)}</div>
+    <strong>${escapeHtml(loginCopy("Action charge history"))}</strong>
+    <div>${escapeHtml(loginCopy("Every billable compute action is listed here so creators can see where server cost was spent."))}</div>
+    <div class="watch-activity compact">${renderUsageHistoryMarkup(usageEvents, loginCopy("No billable action rows yet."), 10)}</div>
   `;
 
   let ledgerHistoryCard = apiBody.querySelector(".api-ledger-history-card");
@@ -1512,9 +3253,9 @@ function renderApiBillingCommerceSections(apiBody, options = {}) {
     apiBody.appendChild(ledgerHistoryCard);
   }
   ledgerHistoryCard.innerHTML = `
-    <strong>${escapeHtml(loginCopy("Ledger history", "账本历史"))}</strong>
-    <div>${escapeHtml(loginCopy("Credits, debits, and settlement movements appear here.", "充值、扣费和结算流水会显示在这里。"))}</div>
-    <div class="watch-activity compact">${renderLedgerHistoryMarkup(ledgerEntries, loginCopy("No ledger records yet.", "还没有账本流水。"), 10)}</div>
+    <strong>${escapeHtml(loginCopy("Ledger history"))}</strong>
+    <div>${escapeHtml(loginCopy("Credits, debits, and settlement movements appear here."))}</div>
+    <div class="watch-activity compact">${renderLedgerHistoryMarkup(ledgerEntries, loginCopy("No ledger records yet."), 10)}</div>
   `;
 
   let cinemaCard = apiBody.querySelector(".api-cinema-booking-card");
@@ -1523,58 +3264,77 @@ function renderApiBillingCommerceSections(apiBody, options = {}) {
     cinemaCard.className = "api-guest-notice api-cinema-booking-card";
     apiBody.appendChild(cinemaCard);
   }
-  const cinemaPriceCents = Math.max(0, Number(commerce?.billable_actions?.cinemaBookingCents || getBillableActionPricing().cinema_booking || 0));
+  const cinemaPriceCents = Math.max(
+    0,
+    Number(
+      commerce?.billable_actions?.cinemaBookingCents ||
+        getBillableActionPricing().cinema_booking ||
+        0,
+    ),
+  );
   cinemaCard.innerHTML = `
-    <strong>${escapeHtml(loginCopy("Cinema booking / contract intake", "电影级预约 / 签约入口"))}</strong>
-    <div>${escapeHtml(loginCopy("Use this entrance for film-grade, long-form, or contract-required production. Submission creates a real intake record for studio follow-up.", "电影级、长片级、需要合同确认的制作，请走这里提交。提交后会生成真实预约记录，供工作室继续跟进。"))}</div>
+    <strong>${escapeHtml(loginCopy("Cinema booking / contract intake"))}</strong>
+    <div>${escapeHtml(loginCopy("Use this entrance for film-grade, long-form, or contract-required production. Submission creates a real intake record for studio follow-up."))}</div>
     <div class="api-cinema-grid">
-      <label><span>${escapeHtml(loginCopy("Project title", "项目标题"))}</span><input type="text" maxlength="160" data-cinema-booking="title" placeholder="${escapeHtml(loginCopy("Feature / campaign title", "片名 / 项目名"))}" /></label>
-      <label><span>${escapeHtml(loginCopy("Requested duration (minutes)", "目标时长（分钟）"))}</span><input type="number" min="1" max="1440" step="1" data-cinema-booking="duration" /></label>
-      <label><span>${escapeHtml(loginCopy("Contact email", "联系邮箱"))}</span><input type="email" maxlength="160" data-cinema-booking="email" value="${escapeHtml(String(authState.user?.email || ""))}" /></label>
-      <label><span>${escapeHtml(loginCopy("Contact handle", "联系方式备注"))}</span><input type="text" maxlength="160" data-cinema-booking="handle" placeholder="${escapeHtml(loginCopy("WeChat / Telegram / phone note", "微信 / Telegram / 电话备注"))}" /></label>
-      <label><span>${escapeHtml(loginCopy("Budget (USD)", "预算（美元）"))}</span><input type="number" min="0" max="1000000000" step="10000" data-cinema-booking="budget" /></label>
-      <div class="api-cinema-note">${escapeHtml(loginCopy(`Current intake price policy: ${formatUsdFromCents(cinemaPriceCents, "$0.00")} configured.`, `当前预约价格策略：已配置 ${formatUsdFromCents(cinemaPriceCents, "$0.00")}。`))}</div>
+      <label><span>${escapeHtml(loginCopy("Project title"))}</span><input type="text" maxlength="160" data-cinema-booking="title" placeholder="${escapeHtml(loginCopy("Feature / campaign title"))}" /></label>
+      <label><span>${escapeHtml(loginCopy("Requested duration (minutes)"))}</span><input type="number" min="1" max="1440" step="1" data-cinema-booking="duration" /></label>
+      <label><span>${escapeHtml(loginCopy("Contact email"))}</span><input type="email" maxlength="160" data-cinema-booking="email" value="${escapeHtml(String(authState.user?.email || ""))}" /></label>
+      <label><span>${escapeHtml(loginCopy("Contact handle"))}</span><input type="text" maxlength="160" data-cinema-booking="handle" placeholder="${escapeHtml(loginCopy("WeChat / Telegram / phone note"))}" /></label>
+      <label><span>${escapeHtml(loginCopy("Budget (USD)"))}</span><input type="number" min="0" max="1000000000" step="10000" data-cinema-booking="budget" /></label>
+      <div class="api-cinema-note">${escapeHtml(loginCopy(`Current intake price policy: ${formatUsdFromCents(cinemaPriceCents, "$0.00")} configured.`))}</div>
     </div>
     <label class="api-cinema-brief">
-      <span>${escapeHtml(loginCopy("Creative brief", "项目说明"))}</span>
-      <textarea rows="5" maxlength="4000" data-cinema-booking="brief" placeholder="${escapeHtml(loginCopy("Describe story scope, style, delivery expectations, language/voice needs, and contract notes.", "请描述故事体量、风格、交付要求、多语言/多声线需求，以及合同备注。"))}"></textarea>
+      <span>${escapeHtml(loginCopy("Creative brief"))}</span>
+      <textarea rows="5" maxlength="4000" data-cinema-booking="brief" placeholder="${escapeHtml(loginCopy("Describe story scope, style, delivery expectations, language/voice needs, and contract notes."))}"></textarea>
     </label>
     <div class="api-cinema-actions">
-      <button class="mini-btn ghost" type="button" data-cinema-booking-submit ${authState.user ? "" : "disabled"}>${escapeHtml(loginCopy("Submit booking", "提交预约"))}</button>
-      <div class="api-cinema-status" data-cinema-booking-status>${escapeHtml(authState.user ? loginCopy("Submission will create a real booking intake row and stay visible below.", "提交后会生成真实预约记录，并显示在下方。") : loginCopy("Sign in first to submit a cinema booking.", "请先登录后再提交电影级预约。"))}</div>
+      <button class="mini-btn ghost" type="button" data-cinema-booking-submit ${authState.user ? "" : "disabled"}>${escapeHtml(loginCopy("Submit booking"))}</button>
+      <div class="api-cinema-status" data-cinema-booking-status>${escapeHtml(authState.user ? loginCopy("Submission will create a real booking intake row and stay visible below.") : loginCopy("Sign in first to submit a cinema booking."))}</div>
     </div>
     <div class="watch-activity compact">${
       cinemaBookings.length
         ? cinemaBookings
             .slice(0, 6)
-            .map((entry) => `
+            .map(
+              (entry) => `
               <div class="watch-activity-item">
-                <div class="watch-activity-title">${escapeHtml(String(entry?.project_title || loginCopy("Cinema booking", "电影级预约")))}</div>
+                <div class="watch-activity-title">${escapeHtml(String(entry?.project_title || loginCopy("Cinema booking")))}</div>
                 <div class="watch-activity-meta">${escapeHtml(`${String(entry?.status || "submitted")} · ${formatUsdFromCents(Number(entry?.budget_cents || 0), "$0.00")} · ${formatDateTime(entry?.created_at)}`)}</div>
                 ${renderCinemaBookingBriefMarkup(entry)}
               </div>
-            `)
+            `,
+            )
             .join("")
-        : `<div class="watch-activity-empty">${escapeHtml(loginCopy("No cinema booking requests yet.", "还没有电影级预约记录。"))}</div>`
+        : `<div class="watch-activity-empty">${escapeHtml(loginCopy("No cinema booking requests yet."))}</div>`
     }</div>
   `;
   seedCinemaBookingForm(apiBody);
-  cinemaCard.querySelector("[data-cinema-booking-submit]")?.addEventListener("click", (event) => {
-    void submitCinemaBookingRequest(event.currentTarget);
-  });
+  cinemaCard
+    .querySelector("[data-cinema-booking-submit]")
+    ?.addEventListener("click", (event) => {
+      void submitCinemaBookingRequest(event.currentTarget);
+    });
   cinemaCard.querySelectorAll("[data-cinema-booking-brief]").forEach((node) => {
-    if (!(node instanceof HTMLElement) || node.getAttribute("role") !== "button") return;
+    if (
+      !(node instanceof HTMLElement) ||
+      node.getAttribute("role") !== "button"
+    )
+      return;
     const toggle = () => {
       const expanded = node.getAttribute("aria-expanded") === "true";
       const nextExpanded = !expanded;
       node.setAttribute("aria-expanded", nextExpanded ? "true" : "false");
-      node.querySelector("[data-cinema-booking-brief-collapsed]")?.toggleAttribute("hidden", nextExpanded);
-      node.querySelector("[data-cinema-booking-brief-full]")?.toggleAttribute("hidden", !nextExpanded);
+      node
+        .querySelector("[data-cinema-booking-brief-collapsed]")
+        ?.toggleAttribute("hidden", nextExpanded);
+      node
+        .querySelector("[data-cinema-booking-brief-full]")
+        ?.toggleAttribute("hidden", !nextExpanded);
       const hint = node.querySelector("[data-cinema-booking-brief-hint]");
       if (hint instanceof HTMLElement) {
         hint.textContent = nextExpanded
-          ? loginCopy("Click to collapse", "点击收起")
-          : loginCopy("Click to show full brief", "点击查看完整说明");
+          ? loginCopy("Click to collapse")
+          : loginCopy("Click to show full brief");
       }
     };
     node.addEventListener("click", toggle);
@@ -1585,37 +3345,54 @@ function renderApiBillingCommerceSections(apiBody, options = {}) {
     });
   });
 
-  if (authState.user && canUseBilling && !watchCommerceState.loaded && !watchCommerceState.loading) {
+  if (
+    authState.user &&
+    canUseBilling &&
+    !watchCommerceState.loaded &&
+    !watchCommerceState.loading
+  ) {
     void loadWatchCommerce().then(() => renderApiBillingPanel());
   }
 }
 
 async function createStudioProject(title) {
-  const trimmed = String(title || "").trim().slice(0, 120);
+  const trimmed = String(title || "")
+    .trim()
+    .slice(0, 120);
   if (!trimmed) return false;
   try {
     const res = await fetch("/api/studio/projects", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ title: trimmed, created_via: "profile_panel" })
+      body: JSON.stringify({ title: trimmed, created_via: "profile_panel" }),
     });
     const raw = await res.json().catch(() => null);
     if (!res.ok || raw?.ok === false) {
       const code = raw?.code || "";
       if (code === "PROJECT_LIMIT_REACHED") {
-        showToast(loginCopy("Project limit reached for this Studio/Enterprise workspace.", "当前 Studio / Enterprise 工作区的项目数量已达上限。"));
+        showToast(
+          loginCopy(
+            "Project limit reached for this Studio/Enterprise workspace.",
+          ),
+        );
       } else {
-        showToast(loginCopy("Unable to create project right now.", "暂时无法创建项目。"));
+        showToast(
+          loginCopy(
+            "Unable to create project right now.",
+          ),
+        );
       }
       return false;
     }
     await loadWatchCommerce(true);
     broadcastCommerceRefresh({ includeApi: true });
-    showToast(loginCopy("Project created.", "项目已创建。"));
+    showToast(loginCopy("Project created."));
     return true;
   } catch (_err) {
-    showToast(loginCopy("Unable to create project right now.", "暂时无法创建项目。"));
+    showToast(
+      loginCopy("Unable to create project right now."),
+    );
     return false;
   }
 }
@@ -1628,26 +3405,40 @@ async function inviteStudioWorkspaceMember(email, role = "member") {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ email: normalizedEmail, role })
+      body: JSON.stringify({ email: normalizedEmail, role }),
     });
     const raw = await res.json().catch(() => null);
     if (!res.ok || raw?.ok === false) {
       const code = raw?.code || "";
       if (code === "TARGET_USER_NOT_FOUND") {
-        showToast(loginCopy("That teammate has not signed in yet.", "该成员还没有登录过系统。"));
+        showToast(
+          loginCopy(
+            "That teammate has not signed in yet.",
+          ),
+        );
       } else if (code === "TEAM_MEMBER_LIMIT_REACHED") {
-        showToast(loginCopy("Team member limit reached for this workspace.", "当前工作区成员数量已达上限。"));
+        showToast(
+          loginCopy(
+            "Team member limit reached for this workspace.",
+          ),
+        );
       } else {
-        showToast(loginCopy("Unable to add that member right now.", "暂时无法添加该成员。"));
+        showToast(
+          loginCopy(
+            "Unable to add that member right now.",
+          ),
+        );
       }
       return false;
     }
     await loadWatchCommerce(true);
     broadcastCommerceRefresh({ includeApi: false });
-    showToast(loginCopy("Team member added.", "团队成员已添加。"));
+    showToast(loginCopy("Team member added."));
     return true;
   } catch (_err) {
-    showToast(loginCopy("Unable to add that member right now.", "暂时无法添加该成员。"));
+    showToast(
+      loginCopy("Unable to add that member right now."),
+    );
     return false;
   }
 }
@@ -1659,9 +3450,17 @@ async function refreshCreatorBoostSurfaces(options = {}) {
   }
 }
 
-async function createCreatorBoostCheckout(boostKind, quantity = 1, trigger = null) {
+async function createCreatorBoostCheckout(
+  boostKind,
+  quantity = 1,
+  trigger = null,
+) {
   if (!authState.user) {
-    openLoginForCreation(loginCopy("Sign in first to buy Creator Boosts.", "请先登录后购买 Creator Boost 加购。"));
+    openLoginForCreation(
+      loginCopy(
+        "Sign in first to buy Creator Boosts.",
+      ),
+    );
     return null;
   }
   const res = await fetch("/api/cssmv/boosts/checkout/create", {
@@ -1676,14 +3475,16 @@ async function createCreatorBoostCheckout(boostKind, quantity = 1, trigger = nul
         tier: getAccessTier(),
         language: creationState.language,
         duration_s: creationState.duration,
-        work_type: creationState.workType
-      }
-    })
+        work_type: creationState.workType,
+      },
+    }),
   });
   const payload = await res.json().catch(() => null);
   const data = getApiData(payload);
   if (!res.ok || payload?.ok === false || !data?.checkout_url) {
-    throw new Error(payload?.message || `creator_boost_checkout_failed:${res.status}`);
+    throw new Error(
+      payload?.message || `creator_boost_checkout_failed:${res.status}`,
+    );
   }
   if (trigger instanceof HTMLElement) {
     trigger.dataset.loading = "1";
@@ -1692,16 +3493,90 @@ async function createCreatorBoostCheckout(boostKind, quantity = 1, trigger = nul
   return data;
 }
 
-async function consumeSpecificCreatorBoost(boostKind, quantity = 1, reason = "manual_regen") {
+// CSSOS_PHASE2_PAYMENTS 20260419 — Dual-gateway dispatcher for Creator Boost
+// auto-prompts (thumbnail regen, preview video regen, etc.). When availability
+// runs out mid-flow we need to offer both Stripe and NihaoPay vendors instead
+// of going straight to Stripe. Returns true if a checkout was opened and the
+// browser is navigating away (so callers should abort), false otherwise.
+async function dispatchCreatorBoostPayment(boostKind, quantity = 1, trigger = null) {
+  const picker = window.cssPaymentsCheckout && typeof window.cssPaymentsCheckout.openPicker === "function"
+    ? window.cssPaymentsCheckout.openPicker
+    : null;
+  const qty = Math.max(1, Math.round(Number(quantity || 1)));
+  const pricing = (typeof readPanelBehaviorSettingsLocal === "function"
+    ? (readPanelBehaviorSettingsLocal()?.creator_boost || {})
+    : {}) || {};
+  const unitKey = `${String(boostKind || "").trim().toLowerCase()}_unit_cents`;
+  const unitCents = Math.max(1, Math.round(Number(pricing[unitKey] || 0)));
+  const totalCents = unitCents * qty;
+  const prettyKind = String(boostKind || "").replace(/_/g, " ");
+  const title = loginCopy(`Buy ${qty} extra ${prettyKind}`);
+
+  if (!picker) {
+    try {
+      await createCreatorBoostCheckout(boostKind, qty, trigger);
+      return true;
+    } catch (_err) {
+      return false;
+    }
+  }
+  return await new Promise((resolve) => {
+    let settled = false;
+    const finish = (v) => { if (!settled) { settled = true; resolve(v); } };
+    picker({
+      title,
+      amountCents: totalCents,
+      stripe: {
+        label: loginCopy("Pay with card"),
+        onSelect: async () => {
+          try {
+            await createCreatorBoostCheckout(boostKind, qty, trigger);
+            finish(true);
+          } catch (_err) {
+            finish(false);
+          }
+        }
+      },
+      nihaopay: {
+        onSelect: (vendor) => {
+          try {
+            // CSSOS_PHASE2_BOOST_KIND 20260419 — "boost" kind skips the
+            // target_creator_id guard (self-purchase, no recipient
+            // required). Backend reads boostKind/qty from note.
+            window.cssPaymentsCheckout.startCheckout({
+              kind: "boost",
+              vendor,
+              amount_cents: totalCents,
+              trigger,
+              note: `boost:${boostKind}:${qty}`
+            });
+            finish(true);
+          } catch (_err) {
+            finish(false);
+          }
+        }
+      },
+      onCancel: () => finish(false)
+    });
+  });
+}
+
+async function consumeSpecificCreatorBoost(
+  boostKind,
+  quantity = 1,
+  reason = "manual_regen",
+) {
   const res = await fetch("/api/cssmv/boosts/consume", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
-    body: JSON.stringify({ boost_kind: boostKind, quantity, reason })
+    body: JSON.stringify({ boost_kind: boostKind, quantity, reason }),
   });
   const payload = await res.json().catch(() => null);
   if (!res.ok || payload?.ok === false) {
-    throw new Error(payload?.code || `creator_boost_consume_failed:${res.status}`);
+    throw new Error(
+      payload?.code || `creator_boost_consume_failed:${res.status}`,
+    );
   }
   await refreshCreatorBoostSurfaces({ renderAdvanced: true });
   return getApiData(payload);
@@ -1712,7 +3587,9 @@ async function handleStripeCheckoutReturn() {
   const url = new URL(window.location.href);
   const mode = String(url.searchParams.get("stripe_checkout") || "").trim();
   const orderId = String(url.searchParams.get("order_id") || "").trim();
-  const creatorBoostOrderId = String(url.searchParams.get("creator_boost_order_id") || "").trim();
+  const creatorBoostOrderId = String(
+    url.searchParams.get("creator_boost_order_id") || "",
+  ).trim();
   if (!mode) return;
   if (mode === "cancel" && orderId && authState.user) {
     try {
@@ -1720,39 +3597,63 @@ async function handleStripeCheckoutReturn() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ order_id: orderId })
+        body: JSON.stringify({ order_id: orderId }),
       });
       await loadPublicMarketWorks(true).catch(() => []);
       broadcastCommerceRefresh({ includeApi: false, includeMarket: true });
-      showToast(loginCopy("Checkout canceled.", "支付已取消。"));
+      showToast(loginCopy("Checkout canceled."));
     } catch {
       // ignore
     }
   }
   if (mode === "success") {
-    void loadPublicMarketWorks(true).then(() => broadcastCommerceRefresh({ includeApi: false, includeMarket: true }));
+    void loadPublicMarketWorks(true).then(() =>
+      broadcastCommerceRefresh({ includeApi: false, includeMarket: true }),
+    );
     if (creatorBoostOrderId && authState.user) {
       void refreshCreatorBoostSurfaces({ renderAdvanced: true });
-      showToast(loginCopy("Creator Boost purchase completed. Extra capacity is now available in advanced settings.", "Creator Boost 购买已完成，额外容量已经可在高级设置里使用。"));
+      showToast(
+        loginCopy(
+          "Creator Boost purchase completed. Extra capacity is now available in advanced settings.",
+        ),
+      );
     }
   }
   url.searchParams.delete("stripe_checkout");
   url.searchParams.delete("order_id");
   url.searchParams.delete("creator_boost_order_id");
-  window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+  window.history.replaceState(
+    {},
+    document.title,
+    `${url.pathname}${url.search}${url.hash}`,
+  );
 }
 
 async function grantAdminEntitlement(trigger = null) {
-  const emailInput = advancedPanelSettings?.querySelector('[data-advanced-setting="admin-target-email"]');
-  const kindInput = advancedPanelSettings?.querySelector('[data-advanced-setting="admin-entitlement-kind"]');
-  const quantityInput = advancedPanelSettings?.querySelector('[data-advanced-setting="admin-entitlement-quantity"]');
-  const noteInput = advancedPanelSettings?.querySelector('[data-advanced-setting="admin-entitlement-note"]');
+  const emailInput = advancedPanelSettings?.querySelector(
+    '[data-advanced-setting="admin-target-email"]',
+  );
+  const kindInput = advancedPanelSettings?.querySelector(
+    '[data-advanced-setting="admin-entitlement-kind"]',
+  );
+  const quantityInput = advancedPanelSettings?.querySelector(
+    '[data-advanced-setting="admin-entitlement-quantity"]',
+  );
+  const noteInput = advancedPanelSettings?.querySelector(
+    '[data-advanced-setting="admin-entitlement-note"]',
+  );
   const email = String(emailInput?.value || "").trim();
-  const boostKind = String(kindInput?.value || "").trim().toLowerCase();
+  const boostKind = String(kindInput?.value || "")
+    .trim()
+    .toLowerCase();
   const quantity = Math.max(1, Number(quantityInput?.value || 1));
   const note = String(noteInput?.value || "").trim();
   if (!email || !boostKind) {
-    safeShowToast(loginCopy("Enter the target email and entitlement type first.", "请先填写目标邮箱和权益类型。"));
+    safeShowToast(
+      loginCopy(
+        "Enter the target email and entitlement type first.",
+      ),
+    );
     return;
   }
   setButtonBusy(trigger, true);
@@ -1761,16 +3662,20 @@ async function grantAdminEntitlement(trigger = null) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ email, boost_kind: boostKind, quantity, note })
+      body: JSON.stringify({ email, boost_kind: boostKind, quantity, note }),
     });
     const payload = await res.json().catch(() => null);
     if (!res.ok || payload?.ok === false) {
-      throw new Error(payload?.message || `admin_entitlement_grant_failed:${res.status}`);
+      throw new Error(
+        payload?.message || `admin_entitlement_grant_failed:${res.status}`,
+      );
     }
-    safeShowToast(loginCopy("Temporary entitlement granted.", "临时权益已发放。"));
+    safeShowToast(
+      loginCopy("Temporary entitlement granted."),
+    );
     await refreshCreatorBoostSurfaces({ renderAdvanced: true });
   } catch (_err) {
-    safeShowToast(loginCopy("Failed to grant entitlement.", "发放权益失败。"));
+    safeShowToast(loginCopy("Failed to grant entitlement."));
   } finally {
     setButtonBusy(trigger, false);
   }
@@ -1778,9 +3683,11 @@ async function grantAdminEntitlement(trigger = null) {
 
 function toggleMarketTipInput(card, forceOpen = null) {
   if (!(card instanceof Element)) return;
-  const input = card.querySelector('[data-market-tip-input]');
+  const input = card.querySelector("[data-market-tip-input]");
   if (!(input instanceof HTMLInputElement)) return;
-  const button = card.querySelector('[data-market-action="tip"], [data-watch-market-action="tip"]');
+  const button = card.querySelector(
+    '[data-market-action="tip"], [data-watch-market-action="tip"]',
+  );
   const shouldOpen = forceOpen === null ? input.hidden : !!forceOpen;
   input.hidden = !shouldOpen;
   if (button instanceof HTMLButtonElement) button.hidden = shouldOpen;
@@ -1797,7 +3704,9 @@ async function handleMarketTipBlur(input, triggerButton = null) {
   window.setTimeout(async () => {
     const active = document.activeElement;
     if (active === input) return;
-    const card = input.closest("[data-market-work-id], .work-hierarchy-item, #watch-commerce-actions");
+    const card = input.closest(
+      "[data-market-work-id], .work-hierarchy-item, #watch-commerce-actions",
+    );
     const amount = Number(input.value || 0);
     if (Number.isFinite(amount) && amount >= 1) {
       await submitMarketTipFromInput(input, triggerButton);
@@ -1810,21 +3719,198 @@ async function handleMarketTipBlur(input, triggerButton = null) {
 async function submitMarketTipFromInput(input, triggerButton = null) {
   if (!(input instanceof HTMLInputElement)) return;
   const card = input.closest("[data-market-work-id]");
-  const workId = String(input.dataset.marketTipInput || card?.getAttribute("data-market-work-id") || "").trim();
+  const workId = String(
+    input.dataset.marketTipInput ||
+      card?.getAttribute("data-market-work-id") ||
+      "",
+  ).trim();
   if (!workId) return;
   const amount = Number(input.value || 0);
   if (!Number.isFinite(amount) || amount < 1) {
-    showToast(loginCopy("Tips start at $1.00.", "打赏金额至少为 1 美元。"));
+    showToast(loginCopy("Tips start at $1.00."));
     return;
   }
-  await startStripeCheckoutForWork(workId, "tip", triggerButton || input, {
-    tipAmountCents: Math.round(amount * 100)
+  const amountCents = Math.round(amount * 100);
+  const work = findPublicMarketWorkByIdModule(workId);
+  const creatorId = String(work?.owner_user_id || "").trim();
+  const picker = window.cssPaymentsCheckout && typeof window.cssPaymentsCheckout.openPicker === "function"
+    ? window.cssPaymentsCheckout.openPicker
+    : null;
+  if (!picker) {
+    await startStripeCheckoutForWork(workId, "tip", triggerButton || input, {
+      tipAmountCents: amountCents,
+    });
+    return;
+  }
+  picker({
+    title: loginCopy("Tip the creator"),
+    amountCents,
+    stripe: {
+      label: loginCopy("Pay with card"),
+      onSelect: () => {
+        void startStripeCheckoutForWork(workId, "tip", triggerButton || input, {
+          tipAmountCents: amountCents,
+        });
+      }
+    },
+    nihaopay: creatorId ? {
+      onSelect: (vendor) => {
+        window.cssPaymentsCheckout.startCheckout({
+          kind: "tip",
+          vendor,
+          amount_cents: amountCents,
+          target_creator_id: creatorId,
+          trigger: triggerButton || input,
+          note: `tip:${workId}`,
+          metadata: { work_id: workId }
+        });
+      }
+    } : undefined
+  });
+}
+
+// CSSOS_PHASE2_PAYMENTS 20260419 — Dual-gateway dispatcher for listen/buyout.
+// Pops the pay-method picker, then routes Stripe through the legacy
+// startStripeCheckoutForWork() and NihaoPay through cssPaymentsCheckout.
+// The backend already resolves price server-side for Stripe; for NihaoPay we
+// must pass an explicit amount_cents, so we look up the current work price
+// from publicMarketState (which is kept fresh by the marketplace renderer).
+function findPublicMarketWorkByIdModule(workId) {
+  const needle = String(workId || "").trim();
+  if (!needle) return null;
+  const works = Array.isArray(publicMarketState?.works) ? publicMarketState.works : [];
+  const flat = typeof flattenHierarchyWorks === "function"
+    ? flattenHierarchyWorks(works)
+    : works;
+  for (const entry of flat) {
+    const id = String(entry?.id || entry?.work_id || "").trim();
+    if (id && id === needle) return entry;
+  }
+  return null;
+}
+
+async function dispatchMarketWorkPayment(workId, orderKind, button) {
+  const id = String(workId || "").trim();
+  if (!id) return;
+  const kind = String(orderKind || "").trim().toLowerCase();
+  if (kind !== "listen" && kind !== "buyout") {
+    await startStripeCheckoutForWork(id, orderKind, button);
+    return;
+  }
+  if (!isLoggedInUser()) {
+    showToast(loginCopy("Please sign in first."));
+    try { openPanel(loginPanel); } catch (_e) {}
+    return;
+  }
+  const work = findPublicMarketWorkByIdModule(id);
+  const creatorId = String(work?.owner_user_id || "").trim();
+  const listenCents = Math.max(0, Number(work?.current_listen_price_cents || work?.listen_price_cents || 0));
+  const buyoutCents = Math.max(0, Number(work?.current_buyout_price_cents || work?.buyout_price_cents || 0));
+  const amountCents = kind === "buyout" ? buyoutCents : listenCents;
+  const title = loginCopy(
+    kind === "buyout" ? "Buy out this work" : "Unlock listen access",
+  );
+
+  const picker = window.cssPaymentsCheckout && typeof window.cssPaymentsCheckout.openPicker === "function"
+    ? window.cssPaymentsCheckout.openPicker
+    : null;
+  if (!picker) {
+    await startStripeCheckoutForWork(id, orderKind, button);
+    return;
+  }
+  picker({
+    title,
+    amountCents,
+    stripe: {
+      label: loginCopy("Pay with card"),
+      onSelect: () => { void startStripeCheckoutForWork(id, orderKind, button); }
+    },
+    nihaopay: {
+      onSelect: (vendor) => {
+        if (!creatorId) {
+          showToast(loginCopy("Missing creator — please refresh and try again."));
+          return;
+        }
+        if (!(amountCents > 0)) {
+          showToast(loginCopy("This work is not priced yet."));
+          return;
+        }
+        window.cssPaymentsCheckout.startCheckout({
+          kind: "purchase",
+          vendor,
+          amount_cents: amountCents,
+          target_creator_id: creatorId,
+          target_item_id: id,
+          trigger: button,
+          note: `${kind}:${id}`,
+          metadata: { order_kind: kind, work_id: id }
+        });
+      }
+    }
+  });
+}
+
+// CSSOS_PHASE2_PAYMENTS 20260419 — NihaoPay tip path (Alipay/WeChat Pay/UnionPay).
+// Runs parallel to the existing Stripe tip flow. Triggered by the dedicated
+// "Tip · 支付宝/微信" button rendered in renderForyouMarketplace.
+async function startNihaoPayTipFromButton(button) {
+  if (!(button instanceof HTMLElement)) return;
+  if (!window.cssPaymentsCheckout || typeof window.cssPaymentsCheckout.startCheckout !== "function") {
+    showToast(loginCopy("Payment gateway not ready. Please refresh."));
+    return;
+  }
+  if (!isLoggedInUser()) {
+    showToast(loginCopy("Please sign in first."));
+    try { openPanel(loginPanel); } catch (_e) {}
+    return;
+  }
+  const creatorId = String(button.getAttribute("data-market-nihaopay-creator") || "").trim();
+  const workId = String(button.getAttribute("data-market-nihaopay-work") || "").trim();
+  if (!creatorId) {
+    showToast(loginCopy("Missing creator for this tip."));
+    return;
+  }
+  const viewerId = String(authState?.user?.id || "").trim();
+  if (viewerId && creatorId === viewerId) {
+    showToast(loginCopy("You can't tip yourself."));
+    return;
+  }
+  const picker = typeof window.cssPaymentsCheckout.openPicker === "function"
+    ? window.cssPaymentsCheckout.openPicker
+    : null;
+  if (!picker) {
+    showToast(loginCopy("Payment gateway not ready. Please refresh."));
+    return;
+  }
+  picker({
+    title: loginCopy("Tip the creator"),
+    subtitle: loginCopy("Enter an amount, then choose a payment method."),
+    amountCents: 100,
+    allowAmountEdit: true,
+    amountMinCents: 100,
+    // Tips currently only support NihaoPay in this entry point; the standard
+    // in-card tip input (blur handler below) offers Stripe alongside the
+    // picker, so we don't duplicate it here.
+    nihaopay: {
+      onSelect: (vendor, _btn, ctx) => {
+        const amountCents = Math.max(100, Math.round(Number(ctx?.amount_cents || 0)));
+        window.cssPaymentsCheckout.startCheckout({
+          kind: "tip",
+          vendor,
+          amount_cents: amountCents,
+          target_creator_id: creatorId,
+          trigger: button,
+          note: workId ? `tip:${workId}` : "tip",
+          metadata: workId ? { work_id: workId } : undefined
+        });
+      }
+    }
   });
 }
 
 async function startCreatorPayoutOnboarding(trigger = null) {
   if (!isLoggedInUser()) {
-    showToast(loginCopy("Please sign in first.", "请先登录。"));
+    showToast(loginCopy("Please sign in first."));
     openPanel(loginPanel);
     return;
   }
@@ -1834,20 +3920,24 @@ async function startCreatorPayoutOnboarding(trigger = null) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ return_url: window.location.href, refresh_url: window.location.href })
+      body: JSON.stringify({
+        return_url: window.location.href,
+        refresh_url: window.location.href,
+      }),
     });
     const payload = await res.json().catch(() => null);
     const data = getApiData(payload);
     if (!res.ok || payload?.ok === false || !data?.onboarding_url) {
-      throw new Error(payload?.code || `stripe_connect_start_failed:${res.status}`);
+      throw new Error(
+        payload?.code || `stripe_connect_start_failed:${res.status}`,
+      );
     }
     window.location.href = String(data.onboarding_url);
   } catch (_err) {
     showToast(
       loginCopy(
         "Open payout setup failed. Please try again.",
-        "打开收款方式设置失败，请重试。"
-      )
+      ),
     );
   } finally {
     setButtonBusy(trigger, false);
@@ -1857,8 +3947,14 @@ async function startCreatorPayoutOnboarding(trigger = null) {
 async function consumeCreatorBoostsIfNeeded() {
   const preset = getMembershipPreset();
   const counts = getCreationSelectionCounts();
-  const extraLanguages = Math.max(0, counts.languageCount - preset.maxIncludedLanguages);
-  const extraVoices = Math.max(0, counts.voiceLaneCount - preset.maxIncludedVoiceLanes);
+  const extraLanguages = Math.max(
+    0,
+    counts.languageCount - preset.maxIncludedLanguages,
+  );
+  const extraVoices = Math.max(
+    0,
+    counts.voiceLaneCount - preset.maxIncludedVoiceLanes,
+  );
   const tasks = [];
   if (extraLanguages > 0) {
     tasks.push(
@@ -1866,8 +3962,17 @@ async function consumeCreatorBoostsIfNeeded() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ boost_kind: "language", quantity: extraLanguages, reason: "creation_run" })
-      }).then((res) => res.json().catch(() => null).then((payload) => ({ res, payload })))
+        body: JSON.stringify({
+          boost_kind: "language",
+          quantity: extraLanguages,
+          reason: "creation_run",
+        }),
+      }).then((res) =>
+        res
+          .json()
+          .catch(() => null)
+          .then((payload) => ({ res, payload })),
+      ),
     );
   }
   if (extraVoices > 0) {
@@ -1876,48 +3981,94 @@ async function consumeCreatorBoostsIfNeeded() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ boost_kind: "voice", quantity: extraVoices, reason: "creation_run" })
-      }).then((res) => res.json().catch(() => null).then((payload) => ({ res, payload })))
+        body: JSON.stringify({
+          boost_kind: "voice",
+          quantity: extraVoices,
+          reason: "creation_run",
+        }),
+      }).then((res) =>
+        res
+          .json()
+          .catch(() => null)
+          .then((payload) => ({ res, payload })),
+      ),
     );
   }
   if (!tasks.length) return true;
   const results = await Promise.all(tasks);
-  const failed = results.find(({ res, payload }) => !res.ok || payload?.ok === false);
+  const failed = results.find(
+    ({ res, payload }) => !res.ok || payload?.ok === false,
+  );
   if (failed) {
     await loadCreatorBoostState(true);
-    safeShowToast(loginCopy("Creator Boost entitlement is insufficient. Please purchase extra capacity first.", "当前 Creator Boost 额度不足，请先购买额外语言/声线容量。"));
+    safeShowToast(
+      loginCopy(
+        "Creator Boost entitlement is insufficient. Please purchase extra capacity first.",
+      ),
+    );
     return false;
   }
   await loadCreatorBoostState(true);
   return true;
 }
 
-async function regenerateWorkThumbnail(work, trigger = null) {
+async function regenerateWorkThumbnail(work, trigger = null, options = {}) {
   const workId = String(work?.work_id || work?.id || "").trim();
   if (!workId) return false;
-  const availability = getCreatorBoostAvailability();
-  if (availability.thumbnail < 1) {
-    await createCreatorBoostCheckout("thumbnail", 1, trigger);
-    return false;
+  const systemBackfill = options?.systemBackfill === true;
+  const suppressToast = options?.suppressToast === true;
+  if (!systemBackfill) {
+    const availability = getCreatorBoostAvailability();
+    if (availability.thumbnail < 1) {
+      await dispatchCreatorBoostPayment("thumbnail", 1, trigger);
+      return false;
+    }
   }
   setButtonBusy(trigger, true);
   try {
-    await consumeSpecificCreatorBoost("thumbnail", 1, "thumbnail_regen");
+    if (!systemBackfill) {
+      await consumeSpecificCreatorBoost("thumbnail", 1, "thumbnail_regen");
+    }
     const title = String(work?.title || state.title || "CSS MV").trim();
     const subtitle = workCoverSubtitle(work);
-    const image = await requestThumbnailDataUrl(title, subtitle, workLyricsLines(work));
+    const image = await requestThumbnailDataUrl(
+      title,
+      subtitle,
+      workLyricsLines(work),
+    );
     if (!image) throw new Error("thumbnail_regen_failed");
     updateLocalWorkAssets(workId, { cover_image: image });
     await persistWorkAssets(workId, { cover_image: image });
-    if (currentPersistedRootWorkId === workId || String(currentWatchPreviewWork?.id || currentWatchPreviewWork?.work_id || "").trim() === workId) {
+    if (
+      currentPersistedRootWorkId === workId ||
+      String(
+        currentWatchPreviewWork?.id || currentWatchPreviewWork?.work_id || "",
+      ).trim() === workId
+    ) {
       setForyouThumbImage(image);
-      if (currentWatchPreviewWork) currentWatchPreviewWork = { ...currentWatchPreviewWork, cover_image: image };
+      if (currentWatchPreviewWork)
+        currentWatchPreviewWork = {
+          ...currentWatchPreviewWork,
+          cover_image: image,
+        };
     }
     broadcastWorksCommerceRefresh({ includeMarket: true });
-    showToast(loginCopy("Thumbnail regenerated and saved.", "缩略图已重生并保存。"));
+    if (!suppressToast) {
+      showToast(
+        systemBackfill
+          ? loginCopy("Thumbnail backfilled and saved.")
+          : loginCopy("Thumbnail regenerated and saved."),
+      );
+    }
     return true;
   } catch (_err) {
-    showToast(loginCopy("Thumbnail regeneration failed.", "缩略图重生失败。"));
+    if (!suppressToast) {
+      showToast(
+        systemBackfill
+          ? loginCopy("Thumbnail backfill failed.")
+          : loginCopy("Thumbnail regeneration failed."),
+      );
+    }
     return false;
   } finally {
     setButtonBusy(trigger, false);
@@ -1929,22 +4080,30 @@ async function regenerateWorkPreviewVideo(work, trigger = null) {
   if (!workId) return false;
   const availability = getCreatorBoostAvailability();
   if (availability.preview_video < 1) {
-    await createCreatorBoostCheckout("preview_video", 1, trigger);
+    await dispatchCreatorBoostPayment("preview_video", 1, trigger);
     return false;
   }
   setButtonBusy(trigger, true);
   try {
-    await consumeSpecificCreatorBoost("preview_video", 1, "preview_video_regen");
+    await consumeSpecificCreatorBoost(
+      "preview_video",
+      1,
+      "preview_video_regen",
+    );
     currentPersistedRootWorkId = workId;
     currentWatchPreviewWork = { ...(work || {}) };
     state.title = String(work?.title || state.title || "CSS MV").trim();
     state.lines = workLyricsLines(work);
     openWatchPreviewShellModule({ fallbackTab: "mv" });
     requestWatchVideoPreviewModule(state.title, state.lines);
-    showToast(loginCopy("Preview video regeneration started.", "缩略视频重生已开始。"));
+    showToast(
+      loginCopy("Preview video regeneration started."),
+    );
     return true;
   } catch (_err) {
-    showToast(loginCopy("Preview video regeneration failed.", "缩略视频重生失败。"));
+    showToast(
+      loginCopy("Preview video regeneration failed."),
+    );
     return false;
   } finally {
     setButtonBusy(trigger, false);

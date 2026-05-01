@@ -58,10 +58,72 @@ async function renderAdvancedPanelSettingsBridge(options = {}) {
         "%c[entry:apply-render] click",
         "color:#08f"
       );
-      showCreationSurfaceModule?.("settings");
-      activateWatchTab?.(resolvePreferredWatchOpenTab?.("mv") || "mv");
+      // CSSOS_PHASE2_APPLY_RENDER_WATCH_DIRECT 20260429 #171 — Jing
+      // "应用并渲染按钮，输入各项参数之后，点击应该显示 Watch MV 面板输出
+      //  MV 给用户欣赏，可是现在点击没有动静" — pop Watch panel BEFORE the
+      // pipeline kicks off, so the user sees the canvas even while engines
+      // run. Bypasses showCreationSurfaceModule which used to pull
+      // Creation panel to front and bury Watch.
+      // CSSOS_PHASE2_APPLY_RENDER_MAXIMIZE 20260429 #175 — Jing
+      // "我点了应用并渲染，还是没有启动MV面板"
+      // Even with openPanel + bringPanelToFrontBridge, the Watch panel
+      // came up unmaximized and got hidden behind whatever the user had
+      // open on top. Use openAndMaximize so the Watch panel takes the
+      // full viewport center stage, not a tiny corner card.
+      // CSSOS_PHASE2_OPEN_THEN_MAXIMIZE_IDEMPOTENT 20260429 #176 — Jing
+      // openAndMaximize() unconditionally TOGGLES — if Watch was already
+      // maximized from a previous run, calling it again un-maximizes.
+      // Use state-aware logic: open the panel, then ONLY maximize if not
+      // already maximized (idempotent).
+      try {
+        const watchPanelEl = globalThis.watchPanel || document.getElementById("watch-panel");
+        if (watchPanelEl) {
+          if (typeof globalThis.openPanel === "function") {
+            globalThis.openPanel(watchPanelEl);
+          }
+          // Only toggle to maximize if currently NOT maximized.
+          if (
+            watchPanelEl.dataset.maximized !== "true" &&
+            typeof globalThis.togglePanelMaximizeModule === "function"
+          ) {
+            globalThis.togglePanelMaximizeModule(watchPanelEl);
+          }
+          if (typeof globalThis.activateWatchTab === "function") {
+            const resolveTab = globalThis.resolvePreferredWatchOpenTab || ((t) => t);
+            globalThis.activateWatchTab(resolveTab("mv") || "mv");
+          }
+          if (typeof globalThis.bringPanelToFrontBridge === "function") {
+            globalThis.bringPanelToFrontBridge(watchPanelEl, { repeatPasses: 5 });
+          }
+        }
+      } catch (_e) { /* non-fatal */ }
       const title = String(titleInput?.value || "").trim();
-      const lyrics = String(lyricsInput?.value || "").trim();
+      // CSSOS_PHASE2_HARVEST_ALL_LYRIC_TEXTAREAS 20260429 #171 — Jing
+      // "我手动输入的中文歌词，不唱，却从哪里随机拉一个英文垃圾歌词来唱"
+      // The original code only read `lyricsInput` (= #lyrics-input) which
+      // is a Creation-panel field most users never touch. When user typed
+      // into Advanced Settings #custom-lyrics or MV Pipeline #mvp-lyrics,
+      // seed.lyrics ended up empty → runAll's lyrics LLM kicked → English
+      // garbage was sent to ElevenLabs. Read the LONGEST non-empty value
+      // from EVERY known lyric textarea so user input always wins.
+      let harvestedLyrics = "";
+      const _candidates = [
+        document.getElementById("custom-lyrics"),
+        document.getElementById("mvp-lyrics"),
+        document.getElementById("creation-lyrics-input"),
+        document.getElementById("watch-lyrics-editor"),
+        document.getElementById("song-seed-lyrics"),
+        document.getElementById("lyrics-input"),
+        document.querySelector("textarea[data-creation-field='lyrics']"),
+      ];
+      _candidates.forEach((el) => {
+        if (!(el instanceof HTMLTextAreaElement)) return;
+        const v = String(el.value || "").trim();
+        if (v.length > harvestedLyrics.length) harvestedLyrics = v;
+      });
+      const _csLyrics = String(globalThis.creationState?.lyrics || "").trim();
+      if (_csLyrics.length > harvestedLyrics.length) harvestedLyrics = _csLyrics;
+      const lyrics = harvestedLyrics;
       const style = String(
         globalThis.state?.songSeed?.musicStyle ||
         globalThis.creationState?.musicStyle ||
@@ -78,8 +140,12 @@ async function renderAdvancedPanelSettingsBridge(options = {}) {
             source: "apply-render",
             seed: seed,
             preferredTab: "mv",
-            focus: false,
-            hidden: true
+            // Apply&Render is an EXPLICIT user action — NEVER reuse a stale
+            // cached MV (force=true bypasses #137 freshness short-circuit).
+            // Open MV Pipeline panel visibly so user sees stage progress.
+            force: true,
+            focus: true,
+            hidden: false
           });
           return; // ← critical: DO NOT also fire legacy startCreation
         } catch (uErr) {

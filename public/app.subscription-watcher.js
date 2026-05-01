@@ -158,6 +158,32 @@
     const body = amount
       ? loginCopy(`${amount} • ${ev.plan_id || ""}`, `${amount} • ${ev.plan_id || ""}`).trim()
       : (ev.plan_id || "");
+    // CSSOS_PHASE2_FIRST_SUB_CELEBRATION 20260501 #265 — Jing
+    // "弹出庆祝MV，一个制作精美的MV，而不只是一个简单的toast."
+    // For the first paying-subscriber-class events, take over the screen
+    // with the cinematic celebration. For lower-stakes events (updates /
+    // invoice.paid renewals) keep the lightweight toast so renewal noise
+    // doesn't hijack the screen every cycle.
+    const isHeadlineEvent =
+      ev.event_type === "customer.subscription.created" ||
+      ev.event_type === "checkout.session.completed";
+    if (isHeadlineEvent && globalThis.cssosFirstSubCelebration?.present) {
+      try {
+        globalThis.cssosFirstSubCelebration.present(ev);
+        // Headline path skips toast/chime — celebration handles its own.
+        maybeShowBrowserNotification(title, body || tag);
+        try {
+          console.log(
+            "%c[cssOS] %s %s %s",
+            "color:#ff7a59;font-weight:700",
+            title, body, ev.created_at || "",
+          );
+        } catch (_e) {}
+        return;
+      } catch (_e) {
+        // Fall through to the lightweight path on any celebration error.
+      }
+    }
     showToast(`${title}${body ? "  " + body : ""}`);
     maybeShowBrowserNotification(title, body || tag);
     playChime();

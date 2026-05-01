@@ -329,6 +329,20 @@ let lyricRegenerateRequestActive = false;
 // English copy here — add a new dated entry in English and the translator
 // will cover every other locale automatically.
 const VERSION_RELEASE_NOTES = {
+  // CSSOS_PHASE2_VERSION_BUMP 20260501 #265 — Jing
+  "20260501_220000": {
+    headline: "v2026.5.1 — Cinema mode + the celebration is wired",
+    copy: "Calendar versioning takes over (YYYY.M.D). Watch panel runs cinema-mode hover-only chrome with auto-fullscreen on play. Take 1 and Take 2 share the same video and play sequentially without dropping audio. The first paying subscriber triggers a fullscreen celebration MV — bring tissues.",
+    highlights: [
+      "Switched to calendar versioning (2026.5.1)",
+      "Cinema-mode media frame: hover-only UI, 10s autohide, full-bleed",
+      "Auto-fullscreen on play, source-aspect preservation",
+      "Take 1 / Take 2 dual playback with shared title and unmuted handoff",
+      "kie.ai timestamped-lyrics wired for word-level karaoke",
+      "First-subscriber celebration MV (admin only)",
+      "Production console silencer — banner only, cssDebug() to re-enable"
+    ]
+  },
   "20260320_184041": {
     headline: "Random lyric generation is fixed",
     copy: "The lyric magic wand in Advanced Settings now reliably generates and fills in lyrics instead of just flashing.",

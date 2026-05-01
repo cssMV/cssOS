@@ -2,9 +2,10 @@ import express from "express";
 import path from "path";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import http from "node:http";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
-import type { QueryResult } from "pg";
+import type { PoolClient, QueryResult } from "pg";
 import { createRemoteJWKSet, jwtVerify, SignJWT } from "jose";
 import Stripe from "stripe";
 import dotenv from "dotenv";
@@ -13,7 +14,7 @@ import { runMigrations } from "./db/migrate";
 import {
   inferStructureTreeFromSongSeed,
   normalizeStructuredWorkType,
-  type StructurePlan
+  type StructurePlan,
 } from "./cssmv/schemas/structure-tree";
 
 const ENV_CONFIG_PATHS = [
@@ -21,7 +22,7 @@ const ENV_CONFIG_PATHS = [
   "/etc/cssos.env",
   "/private/etc/cssos.env",
   path.resolve(process.cwd(), ".env.local"),
-  path.resolve(process.cwd(), ".env")
+  path.resolve(process.cwd(), ".env"),
 ];
 
 for (const envPath of ENV_CONFIG_PATHS) {
@@ -37,7 +38,7 @@ function loadEnvValueFromPaths(key: string) {
       if (value) {
         return {
           path: envPath,
-          value
+          value,
         };
       }
     } catch {
@@ -48,18 +49,27 @@ function loadEnvValueFromPaths(key: string) {
   if (!value) return null;
   return {
     path: "process.env",
-    value
+    value,
   };
 }
 
 function getOpenAiRuntimeConfig() {
-  const apiKeyEntry = loadEnvValueFromPaths("OPENAI_API_KEY");
-  const textModelEntry =
-    loadEnvValueFromPaths("OPENAI_TEXT_MODEL") || loadEnvValueFromPaths("OPENAI_MODEL");
-  const apiKey = apiKeyEntry?.value || String(process.env.OPENAI_API_KEY || "").trim();
+  const processApiKey = String(process.env.OPENAI_API_KEY || "").trim();
+  const processTextModel = String(
+    process.env.OPENAI_TEXT_MODEL || process.env.OPENAI_MODEL || "",
+  ).trim();
+  const apiKeyEntry = processApiKey
+    ? { path: "process.env", value: processApiKey }
+    : loadEnvValueFromPaths("OPENAI_API_KEY");
+  const textModelEntry = processTextModel
+    ? { path: "process.env", value: processTextModel }
+    : loadEnvValueFromPaths("OPENAI_TEXT_MODEL") ||
+      loadEnvValueFromPaths("OPENAI_MODEL");
+  const apiKey = apiKeyEntry?.value || processApiKey;
   const model =
     textModelEntry?.value ||
-    String(process.env.OPENAI_TEXT_MODEL || process.env.OPENAI_MODEL || "gpt-4.1-mini").trim();
+    processTextModel ||
+    "gpt-4.1-mini";
   const fingerprint = apiKey
     ? crypto.createHash("sha256").update(apiKey).digest("hex").slice(0, 12)
     : "";
@@ -67,15 +77,21 @@ function getOpenAiRuntimeConfig() {
     apiKey,
     model,
     envSource: apiKeyEntry?.path || textModelEntry?.path || "process.env",
-    keyFingerprint: fingerprint
+    keyFingerprint: fingerprint,
   };
 }
 
 function getOpenAiTranscribeModel() {
+  const processTranscribeModel = String(
+    process.env.OPENAI_TRANSCRIBE_MODEL ||
+      process.env.OPENAI_AUDIO_TRANSCRIBE_MODEL ||
+      "",
+  ).trim();
   return (
+    processTranscribeModel ||
     loadEnvValueFromPaths("OPENAI_TRANSCRIBE_MODEL")?.value ||
     loadEnvValueFromPaths("OPENAI_AUDIO_TRANSCRIBE_MODEL")?.value ||
-    String(process.env.OPENAI_TRANSCRIBE_MODEL || process.env.OPENAI_AUDIO_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe").trim()
+    "gpt-4o-mini-transcribe"
   );
 }
 
@@ -83,7 +99,7 @@ function getOpenAiDiagnosticsPayload() {
   const runtimeConfig = getOpenAiRuntimeConfig();
   const envCandidates = ENV_CONFIG_PATHS.map((envPath) => ({
     path: envPath,
-    exists: fs.existsSync(envPath)
+    exists: fs.existsSync(envPath),
   }));
   return {
     provider: "openai",
@@ -93,7 +109,7 @@ function getOpenAiDiagnosticsPayload() {
     key_fingerprint: runtimeConfig.keyFingerprint,
     has_api_key: Boolean(runtimeConfig.apiKey),
     key_prefix: runtimeConfig.apiKey ? runtimeConfig.apiKey.slice(0, 12) : "",
-    env_candidates: envCandidates
+    env_candidates: envCandidates,
   };
 }
 
@@ -109,7 +125,7 @@ async function runOpenAiProbe() {
       key_fingerprint: runtimeConfig.keyFingerprint,
       error_type: "missing_api_key",
       error_code: "missing_api_key",
-      error_message: "OPENAI_API_KEY is not configured"
+      error_message: "OPENAI_API_KEY is not configured",
     };
   }
 
@@ -118,13 +134,13 @@ async function runOpenAiProbe() {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${runtimeConfig.apiKey}`
+        authorization: `Bearer ${runtimeConfig.apiKey}`,
       },
       body: JSON.stringify({
         model: runtimeConfig.model,
         messages: [{ role: "user", content: "ping" }],
-        max_completion_tokens: 8
-      })
+        max_completion_tokens: 8,
+      }),
     });
     const payload = await upstream.json().catch(() => null);
     const errorBody =
@@ -143,7 +159,7 @@ async function runOpenAiProbe() {
       error_type: String(errorBody?.type || ""),
       error_code: String(errorBody?.code || errorBody?.type || ""),
       error_message: String(errorBody?.message || ""),
-      response_id: String(payload?.id || "")
+      response_id: String(payload?.id || ""),
     };
   } catch (error) {
     return {
@@ -156,7 +172,8 @@ async function runOpenAiProbe() {
       key_prefix: runtimeConfig.apiKey.slice(0, 12),
       error_type: "network_error",
       error_code: "network_error",
-      error_message: error instanceof Error ? error.message : "OpenAI probe failed"
+      error_message:
+        error instanceof Error ? error.message : "OpenAI probe failed",
     };
   }
 }
@@ -166,16 +183,23 @@ const PORT = 3000;
 const REGISTRY_URL = "http://localhost:8080";
 const IS_PROD = process.env.NODE_ENV === "production";
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
-const SHARED_DIR = IS_PROD ? "/srv/cssos/shared" : path.join(__dirname, "..", "..", "shared");
+const SHARED_DIR = IS_PROD
+  ? "/srv/cssos/shared"
+  : path.join(__dirname, "..", "..", "shared");
 const SHARED_VERSIONS_FILE = path.join(SHARED_DIR, "versions.json");
 const SHARED_RUNS_DIR = path.join(SHARED_DIR, "runs");
+const MAINTENANCE_REPORT_DIR = path.join(SHARED_DIR, "ops", "maintenance");
 const PANEL_MEDIA_DIR = path.join(PUBLIC_DIR, "uploads", "panel-media");
 const MUSIC_SOURCE_UPLOAD_DIR = path.join(SHARED_DIR, "music-sources");
-const MUSIC_SOURCE_PARSER_TASK_DIR = path.join(SHARED_DIR, "music-source-parser-tasks");
+const MUSIC_SOURCE_PARSER_TASK_DIR = path.join(
+  SHARED_DIR,
+  "music-source-parser-tasks",
+);
 const MUSIC_SOURCE_PARSER_PROTOCOL_VERSION = "music-source-parser.v1";
 const MUSIC_SOURCE_PARSER_RESULT_SCHEMA = "css.music_source_parser_result.v1";
 const MUSIC_SOURCE_PARSER_WORKER_TICK_MS = 1200;
-const ASSET_BUCKET_NAME = process.env.CSSOS_ASSET_BUCKET || "cssstudio-gpu-cssos-assets-prod";
+const ASSET_BUCKET_NAME =
+  process.env.CSSOS_ASSET_BUCKET || "cssstudio-gpu-cssos-assets-prod";
 const EXAMPLE_ASSET_PREFIX = "examples/";
 
 const DATABASE_URL = getDatabaseUrl();
@@ -190,16 +214,16 @@ app.use(
     limit: "35mb",
     verify(req, _res, buf) {
       (req as any).rawBody = Buffer.from(buf);
-    }
-  })
+    },
+  }),
 );
 app.use(
   express.urlencoded({
     extended: false,
     verify(req, _res, buf) {
       (req as any).rawBody = Buffer.from(buf);
-    }
-  })
+    },
+  }),
 );
 
 const sessionConfig: session.SessionOptions = {
@@ -209,29 +233,281 @@ const sessionConfig: session.SessionOptions = {
   saveUninitialized: false,
   cookie: {
     httpOnly: process.env.COOKIE_HTTPONLY !== "false",
-    sameSite: (process.env.COOKIE_SAMESITE || "lax") as "lax" | "strict" | "none",
+    sameSite: (process.env.COOKIE_SAMESITE || "lax") as
+      | "lax"
+      | "strict"
+      | "none",
     secure:
       typeof process.env.COOKIE_SECURE === "string"
         ? process.env.COOKIE_SECURE !== "false"
         : IS_PROD,
     path: process.env.COOKIE_PATH || "/",
-    maxAge: 1000 * 60 * 60 * 24 * Number(process.env.SESSION_TTL_DAYS || 90)
-  }
+    maxAge: 1000 * 60 * 60 * 24 * Number(process.env.SESSION_TTL_DAYS || 90),
+  },
 };
 
-const SESSION_STORE_MODE = String(process.env.CSS_SESSION_STORE || "").trim().toLowerCase();
-const useDatabaseSessionStore = Boolean(DATABASE_URL) && SESSION_STORE_MODE !== "memory";
+const SESSION_STORE_MODE = String(process.env.CSS_SESSION_STORE || "")
+  .trim()
+  .toLowerCase();
+const useDatabaseSessionStore =
+  Boolean(DATABASE_URL) && SESSION_STORE_MODE !== "memory";
 
 if (useDatabaseSessionStore) {
   const PgSession = connectPgSimple(session);
   sessionConfig.store = new PgSession({
     pool: getPool(),
     tableName: "session",
-    createTableIfMissing: true
+    createTableIfMissing: true,
   });
 }
 
 app.use(session(sessionConfig));
+
+// CSSOS_PHASE2_MV_TRUST_PROXY 20260418 —
+// Express owns the session of record. The Rust MV service at 127.0.0.1:8081
+// hosts the actual /api/mv/* handlers (cover/lyrics/music/video/subtitles/
+// compose) but its cookie-bridge path is currently broken (Rust parses the
+// sid differently than Express, so the DB lookup misses). Rather than keep
+// chasing the cookie-parse divergence, we proxy /api/mv/* through Express,
+// authenticate with Express's session (which works), and pass the user_id
+// to Rust via a shared-secret internal header. The Rust listener is bound
+// to 127.0.0.1 so the secret never leaves the host.
+const CSSOS_INTERNAL_TOKEN = (
+  process.env.CSSOS_INTERNAL_TOKEN || ""
+).trim();
+const RUST_MV_HOST = (process.env.RUST_MV_HOST || "127.0.0.1").trim();
+const RUST_MV_PORT = Number(process.env.RUST_MV_PORT || 8081);
+// Runway video can take a while; give the pipeline plenty of headroom.
+const MV_PROXY_TIMEOUT_MS = Number(
+  process.env.MV_PROXY_TIMEOUT_MS || 10 * 60 * 1000,
+);
+app.all(/^\/api\/mv\//, (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) {
+    return res
+      .status(401)
+      .json({ ok: false, error: "sign_in_required" });
+  }
+  if (!CSSOS_INTERNAL_TOKEN) {
+    return res.status(503).json({
+      ok: false,
+      error: "internal_token_not_configured",
+      hint: "set CSSOS_INTERNAL_TOKEN in /etc/cssos.env",
+    });
+  }
+
+  const bodyStr =
+    req.body && typeof req.body === "object" && Object.keys(req.body).length > 0
+      ? JSON.stringify(req.body)
+      : "";
+
+  const upstream = http.request(
+    {
+      hostname: RUST_MV_HOST,
+      port: RUST_MV_PORT,
+      path: req.originalUrl,
+      method: req.method,
+      headers: {
+        "content-type":
+          (req.headers["content-type"] as string) || "application/json",
+        "content-length": Buffer.byteLength(bodyStr),
+        "x-cssos-internal-token": CSSOS_INTERNAL_TOKEN,
+        "x-cssos-user": String(userId),
+        "x-forwarded-for": String(
+          req.headers["x-forwarded-for"] ||
+            req.ip ||
+            req.socket.remoteAddress ||
+            "",
+        ),
+      },
+      timeout: MV_PROXY_TIMEOUT_MS,
+    },
+    (upstreamRes) => {
+      res.status(upstreamRes.statusCode || 502);
+      for (const [k, v] of Object.entries(upstreamRes.headers)) {
+        if (v === undefined) continue;
+        const lower = k.toLowerCase();
+        // Skip hop-by-hop headers we don't want to forward verbatim.
+        if (
+          lower === "transfer-encoding" ||
+          lower === "connection" ||
+          lower === "keep-alive"
+        ) {
+          continue;
+        }
+        try {
+          res.setHeader(k, v as any);
+        } catch {}
+      }
+      upstreamRes.pipe(res);
+    },
+  );
+  upstream.on("timeout", () => {
+    upstream.destroy(new Error("upstream_timeout"));
+  });
+  upstream.on("error", (err) => {
+    console.error(
+      "[mv-proxy] upstream error for",
+      req.method,
+      req.originalUrl,
+      err?.message || err,
+    );
+    if (!res.headersSent) {
+      res.status(502).json({
+        ok: false,
+        error: "mv_upstream_error",
+        detail: err?.message || String(err),
+      });
+    } else {
+      try {
+        res.end();
+      } catch {}
+    }
+  });
+  if (bodyStr) {
+    upstream.write(bodyStr);
+  }
+  upstream.end();
+});
+
+// CSSOS_PHASE2_PAYMENTS 20260419 — NihaoPay IPN webhook.
+// Must come BEFORE the authenticated /api/payments/* proxy below, because
+// NihaoPay itself posts here without a session cookie. We forward the raw
+// form-urlencoded body byte-for-byte so the rust-api can verify the MD5
+// signature against the exact bytes NihaoPay signed.
+app.post(/^\/api\/payments\/webhook\//, (req, res) => {
+  if (!CSSOS_INTERNAL_TOKEN) {
+    return res.status(503).type("text/plain").send("internal_token_not_configured");
+  }
+  const rawBody: Buffer = (req as any).rawBody || Buffer.alloc(0);
+  const contentType =
+    (req.headers["content-type"] as string) || "application/x-www-form-urlencoded";
+  const upstream = http.request(
+    {
+      hostname: RUST_MV_HOST,
+      port: RUST_MV_PORT,
+      path: req.originalUrl,
+      method: req.method,
+      headers: {
+        "content-type": contentType,
+        "content-length": rawBody.length,
+        "x-cssos-internal-token": CSSOS_INTERNAL_TOKEN,
+        "x-forwarded-for": String(
+          req.headers["x-forwarded-for"] ||
+            req.ip ||
+            req.socket.remoteAddress ||
+            "",
+        ),
+      },
+      timeout: 30000,
+    },
+    (upstreamRes) => {
+      res.status(upstreamRes.statusCode || 502);
+      for (const [k, v] of Object.entries(upstreamRes.headers)) {
+        if (v === undefined) continue;
+        const lower = k.toLowerCase();
+        if (lower === "transfer-encoding" || lower === "connection" || lower === "keep-alive") {
+          continue;
+        }
+        try { res.setHeader(k, v as any); } catch {}
+      }
+      upstreamRes.pipe(res);
+    },
+  );
+  upstream.on("timeout", () => upstream.destroy(new Error("upstream_timeout")));
+  upstream.on("error", (err) => {
+    console.error(
+      "[payments-webhook-proxy] upstream error",
+      req.method,
+      req.originalUrl,
+      (err as any)?.message || err,
+    );
+    if (!res.headersSent) {
+      res.status(502).type("text/plain").send("upstream_error");
+    } else {
+      try { res.end(); } catch {}
+    }
+  });
+  if (rawBody.length > 0) upstream.write(rawBody);
+  upstream.end();
+});
+
+// CSSOS_PHASE2_PAYMENTS 20260419 — Authenticated payments API proxy.
+// Mirrors the /api/mv/* pattern: requires an Express session, forwards the
+// user id via x-cssos-user, JSON body. Covers POST /api/payments/checkout,
+// GET /api/payments/intents/:id, GET /api/payments/history.
+app.all(/^\/api\/payments\//, (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) {
+    return res.status(401).json({ ok: false, error: "sign_in_required" });
+  }
+  if (!CSSOS_INTERNAL_TOKEN) {
+    return res.status(503).json({
+      ok: false,
+      error: "internal_token_not_configured",
+      hint: "set CSSOS_INTERNAL_TOKEN in /etc/cssos.env",
+    });
+  }
+  const bodyStr =
+    req.body && typeof req.body === "object" && Object.keys(req.body).length > 0
+      ? JSON.stringify(req.body)
+      : "";
+  const upstream = http.request(
+    {
+      hostname: RUST_MV_HOST,
+      port: RUST_MV_PORT,
+      path: req.originalUrl,
+      method: req.method,
+      headers: {
+        "content-type":
+          (req.headers["content-type"] as string) || "application/json",
+        "content-length": Buffer.byteLength(bodyStr),
+        "x-cssos-internal-token": CSSOS_INTERNAL_TOKEN,
+        "x-cssos-user": String(userId),
+        "x-forwarded-for": String(
+          req.headers["x-forwarded-for"] ||
+            req.ip ||
+            req.socket.remoteAddress ||
+            "",
+        ),
+      },
+      timeout: 60000,
+    },
+    (upstreamRes) => {
+      res.status(upstreamRes.statusCode || 502);
+      for (const [k, v] of Object.entries(upstreamRes.headers)) {
+        if (v === undefined) continue;
+        const lower = k.toLowerCase();
+        if (lower === "transfer-encoding" || lower === "connection" || lower === "keep-alive") {
+          continue;
+        }
+        try { res.setHeader(k, v as any); } catch {}
+      }
+      upstreamRes.pipe(res);
+    },
+  );
+  upstream.on("timeout", () => upstream.destroy(new Error("upstream_timeout")));
+  upstream.on("error", (err) => {
+    console.error(
+      "[payments-proxy] upstream error",
+      req.method,
+      req.originalUrl,
+      (err as any)?.message || err,
+    );
+    if (!res.headersSent) {
+      res.status(502).json({
+        ok: false,
+        error: "payments_upstream_error",
+        detail: (err as any)?.message || String(err),
+      });
+    } else {
+      try { res.end(); } catch {}
+    }
+  });
+  if (bodyStr) upstream.write(bodyStr);
+  upstream.end();
+});
+
 app.get("/version.json", (_req, res) => {
   noStore(res);
   try {
@@ -248,22 +524,73 @@ app.get("/versions.json", (_req, res) => {
   try {
     if (fs.existsSync(SHARED_VERSIONS_FILE)) {
       const payload = JSON.parse(fs.readFileSync(SHARED_VERSIONS_FILE, "utf8"));
-      return res.json(payload && typeof payload === "object" ? payload : { current: "", versions: [] });
+      return res.json(
+        payload && typeof payload === "object"
+          ? payload
+          : { current: "", versions: [] },
+      );
     }
   } catch {}
   return res.json({ current: "", versions: [] });
+});
+app.get("/api/system/maintenance-report", (_req, res) => {
+  noStore(res);
+  const readLatestMaintenanceReport = (fileName: string) => {
+    const target = path.join(MAINTENANCE_REPORT_DIR, fileName);
+    if (!fs.existsSync(target)) return null;
+    try {
+      const payload = JSON.parse(fs.readFileSync(target, "utf8"));
+      return payload && typeof payload === "object" ? payload : null;
+    } catch {
+      return null;
+    }
+  };
+  const runPrune = readLatestMaintenanceReport("run-prune.latest.json");
+  const workArchive = readLatestMaintenanceReport("work-archive.latest.json");
+  return res.json(
+    okData({
+      generated_at: new Date().toISOString(),
+      reports: {
+        ...(runPrune ? { run_prune: runPrune } : {}),
+        ...(workArchive ? { work_archive: workArchive } : {}),
+      },
+      summary: {
+        run_prune_removed_count: Number((runPrune as any)?.removed_count || 0),
+        run_prune_removed_gb: Number((runPrune as any)?.removed_gb || 0),
+        work_archive_candidate_count: Number(
+          (workArchive as any)?.candidate_count || 0,
+        ),
+        work_archive_archived_count: Number(
+          (workArchive as any)?.archived_count || 0,
+        ),
+      },
+    }),
+  );
 });
 app.get("/v/:version", (_req, res) => {
   noStore(res);
   res.type("html");
   return res.sendFile(path.join(PUBLIC_DIR, "index.html"));
 });
+app.get("/mv-lite", (_req, res) => {
+  noStore(res);
+  res.type("html");
+  return res.sendFile(path.join(PUBLIC_DIR, "mv-lite.html"));
+});
+// CSSOS_PHASE2_PAYMENTS 20260419 — NihaoPay hosted-page return page.
+// Users land here after Alipay / WeChat Pay / UnionPay finish on the gateway.
+// The static HTML polls GET /api/payments/intents/:id for the final status.
+app.get("/billing/return", (_req, res) => {
+  noStore(res);
+  res.type("html");
+  return res.sendFile(path.join(PUBLIC_DIR, "billing", "return.html"));
+});
 app.use(
   express.static(PUBLIC_DIR, {
     setHeaders(res) {
       res.setHeader("Cache-Control", "no-store");
-    }
-  })
+    },
+  }),
 );
 
 function noStore(res: express.Response) {
@@ -274,8 +601,8 @@ async function getGceAccessToken() {
   const response = await fetch(
     "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
     {
-      headers: { "Metadata-Flavor": "Google" }
-    }
+      headers: { "Metadata-Flavor": "Google" },
+    },
   );
   if (!response.ok) {
     throw new Error(`gce_token_failed:${response.status}`);
@@ -293,8 +620,8 @@ async function listBucketObjects(prefix: string) {
   const response = await fetch(
     `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(ASSET_BUCKET_NAME)}/o?prefix=${encodeURIComponent(prefix)}`,
     {
-      headers: { authorization: `Bearer ${token}` }
-    }
+      headers: { authorization: `Bearer ${token}` },
+    },
   );
   if (!response.ok) {
     throw new Error(`gcs_list_failed:${response.status}`);
@@ -307,16 +634,71 @@ async function fetchBucketObject(objectName: string) {
   const token = await getGceAccessToken();
   return fetch(
     `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(ASSET_BUCKET_NAME)}/o/${encodeURIComponent(
-      objectName
+      objectName,
     )}?alt=media`,
     {
-      headers: { authorization: `Bearer ${token}` }
-    }
+      headers: { authorization: `Bearer ${token}` },
+    },
   );
 }
 
+async function uploadBucketObject(
+  objectName: string,
+  body: Buffer,
+  contentType: string,
+) {
+  const token = await getGceAccessToken();
+  const response = await fetch(
+    `https://storage.googleapis.com/upload/storage/v1/b/${encodeURIComponent(
+      ASSET_BUCKET_NAME,
+    )}/o?uploadType=media&name=${encodeURIComponent(objectName)}`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": contentType,
+      },
+      body: new Uint8Array(body),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`gcs_upload_failed:${response.status}`);
+  }
+  return response.json().catch(() => null);
+}
+
+function sanitizeWorkAssetKey(value: unknown) {
+  const normalized = String(value || "")
+    .trim()
+    .replace(/^\/+/, "");
+  if (!normalized || normalized.includes("..")) return "";
+  if (normalized.includes("\\")) return "";
+  if (
+    !normalized.startsWith("works/") &&
+    !normalized.startsWith("examples/") &&
+    !normalized.startsWith("music-sources/")
+  ) {
+    return "";
+  }
+  return normalized;
+}
+
+function buildWorkAssetBlobUrl(assetKey: string) {
+  const safeAssetKey = sanitizeWorkAssetKey(assetKey);
+  if (!safeAssetKey) return "";
+  return `/api/work-assets/blob?asset_key=${encodeURIComponent(safeAssetKey)}`;
+}
+
 function inferExampleAssetMime(name: string) {
-  const lower = String(name || "").trim().toLowerCase();
+  const lower = String(name || "")
+    .trim()
+    .toLowerCase();
+  if (lower.endsWith(".html")) return "text/html; charset=utf-8";
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".svg")) return "image/svg+xml";
   if (lower.endsWith(".mp4")) return "video/mp4";
   if (lower.endsWith(".webm")) return "video/webm";
   if (lower.endsWith(".mov")) return "video/quicktime";
@@ -331,10 +713,40 @@ function inferExampleAssetMime(name: string) {
 }
 
 function sanitizeExampleAssetName(value: string) {
-  const normalized = String(value || "").trim().replace(/^\/+/, "");
+  const normalized = String(value || "")
+    .trim()
+    .replace(/^\/+/, "");
   if (!normalized || normalized.includes("..")) return "";
   if (normalized.includes("\\")) return "";
   return normalized;
+}
+
+function sanitizeSharedAssetRelativePath(value: string) {
+  const normalized = String(value || "")
+    .trim()
+    .replace(/^\/+/, "");
+  if (!normalized || normalized.includes("..")) return "";
+  if (normalized.includes("\\")) return "";
+  return normalized;
+}
+
+function inferSharedAssetMime(name: string) {
+  return inferExampleAssetMime(name);
+}
+
+function sharedAssetsRootDir() {
+  return path.join(SHARED_DIR, "assets");
+}
+
+function resolveSharedAssetPath(value: string) {
+  const rel = sanitizeSharedAssetRelativePath(value);
+  if (!rel) return null;
+  const root = sharedAssetsRootDir();
+  const resolved = path.resolve(root, rel);
+  if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
+    return null;
+  }
+  return { rel, resolved };
 }
 
 async function getSessionUser(req: express.Request) {
@@ -349,8 +761,8 @@ async function getSessionUser(req: express.Request) {
   const result: QueryResult<UserRow> = await withClient((client) =>
     client.query<UserRow>(
       "SELECT id, display_name, email, avatar_url FROM users WHERE id = $1",
-      [sessionUserId]
-    )
+      [sessionUserId],
+    ),
   );
   return result.rows[0] || null;
 }
@@ -375,28 +787,40 @@ function getStripeWebhookSecret() {
 }
 
 function stripePlatformFeeBps() {
-  const parsed = Number.parseInt(String(process.env.STRIPE_PLATFORM_FEE_BPS || "1000"), 10);
+  const parsed = Number.parseInt(
+    String(process.env.STRIPE_PLATFORM_FEE_BPS || "1000"),
+    10,
+  );
   if (!Number.isFinite(parsed)) return 1000;
   return Math.max(0, Math.min(parsed, 9500));
 }
 
 function computePlatformFeeCents(amountCents: number) {
-  return Math.max(0, Math.round(amountCents * (stripePlatformFeeBps() / 10000)));
+  return Math.max(
+    0,
+    Math.round(amountCents * (stripePlatformFeeBps() / 10000)),
+  );
 }
 
 function stripePayoutHoldDaysEnv() {
-  const parsed = Number.parseInt(String(process.env.STRIPE_PAYOUT_HOLD_DAYS || "14"), 10);
+  const parsed = Number.parseInt(
+    String(process.env.STRIPE_PAYOUT_HOLD_DAYS || "14"),
+    10,
+  );
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 14;
 }
 
 function stripePayoutSweepMsEnv() {
-  const parsed = Number.parseInt(String(process.env.STRIPE_PAYOUT_SWEEP_MS || String(60 * 60 * 1000)), 10);
+  const parsed = Number.parseInt(
+    String(process.env.STRIPE_PAYOUT_SWEEP_MS || String(60 * 60 * 1000)),
+    10,
+  );
   return Number.isFinite(parsed) && parsed >= 60_000 ? parsed : 60 * 60 * 1000;
 }
 
 const behaviorTemplateCache = {
   value: null as any,
-  expiresAt: 0
+  expiresAt: 0,
 };
 
 async function loadBehaviorTemplateServer() {
@@ -412,8 +836,8 @@ async function loadBehaviorTemplateServer() {
           `SELECT value
            FROM panel_default_templates
            WHERE panel_key = 'behavior'
-           LIMIT 1`
-        )
+           LIMIT 1`,
+        ),
       );
       nextValue = sanitizeBehaviorPanelTemplate(row.rows[0]?.value || {});
     } catch {
@@ -429,9 +853,26 @@ async function getCommercePolicySettings() {
   const behavior = await loadBehaviorTemplateServer();
   const commerce = behavior?.commerce || {};
   return {
-    payoutHoldDays: Math.max(0, Math.min(90, Number(commerce.payout_hold_days ?? stripePayoutHoldDaysEnv()) || stripePayoutHoldDaysEnv())),
-    payoutSweepMs: Math.max(60_000, Math.min(24 * 60 * 60 * 1000, Number(commerce.payout_sweep_ms ?? stripePayoutSweepMsEnv()) || stripePayoutSweepMsEnv())),
-    minTipCents: Math.max(100, Math.min(100_000, Number(commerce.min_tip_cents ?? 100) || 100))
+    payoutHoldDays: Math.max(
+      0,
+      Math.min(
+        90,
+        Number(commerce.payout_hold_days ?? stripePayoutHoldDaysEnv()) ||
+          stripePayoutHoldDaysEnv(),
+      ),
+    ),
+    payoutSweepMs: Math.max(
+      60_000,
+      Math.min(
+        24 * 60 * 60 * 1000,
+        Number(commerce.payout_sweep_ms ?? stripePayoutSweepMsEnv()) ||
+          stripePayoutSweepMsEnv(),
+      ),
+    ),
+    minTipCents: Math.max(
+      100,
+      Math.min(100_000, Number(commerce.min_tip_cents ?? 100) || 100),
+    ),
   };
 }
 
@@ -440,23 +881,78 @@ async function getCreatorCommercePolicySettings() {
   const creatorBoost = behavior?.creator_boost || {};
   const membership = behavior?.membership || {};
   return {
-    starterMonthlyLimit: Math.max(1, Math.min(1000, Number(membership.starter_monthly_limit ?? 30) || 30)),
-    proMonthlyLimit: Math.max(1, Math.min(5000, Number(membership.pro_monthly_limit ?? 100) || 100)),
-    studioMonthlyLimit: Math.max(1, Math.min(10000, Number(membership.studio_monthly_limit ?? 300) || 300)),
-    enterpriseMonthlyLimit: Number(membership.enterprise_monthly_limit ?? 0) > 0
-      ? Math.max(1, Math.min(100000, Number(membership.enterprise_monthly_limit) || 0))
-      : null,
+    starterMonthlyLimit: Math.max(
+      1,
+      Math.min(1000, Number(membership.starter_monthly_limit ?? 30) || 30),
+    ),
+    proMonthlyLimit: Math.max(
+      1,
+      Math.min(5000, Number(membership.pro_monthly_limit ?? 100) || 100),
+    ),
+    studioMonthlyLimit: Math.max(
+      1,
+      Math.min(10000, Number(membership.studio_monthly_limit ?? 300) || 300),
+    ),
+    enterpriseMonthlyLimit:
+      Number(membership.enterprise_monthly_limit ?? 0) > 0
+        ? Math.max(
+            1,
+            Math.min(100000, Number(membership.enterprise_monthly_limit) || 0),
+          )
+        : null,
     vipUnlimited: creatorBoost.vip_unlimited !== false,
-    languageBoostUnitCents: Math.max(100, Math.min(100000, Number(creatorBoost.language_unit_cents ?? 300) || 300)),
-    voiceBoostUnitCents: Math.max(100, Math.min(100000, Number(creatorBoost.voice_unit_cents ?? 500) || 500)),
-    thumbnailBoostUnitCents: Math.max(25, Math.min(100000, Number(creatorBoost.thumbnail_unit_cents ?? 79) || 79)),
-    previewVideoBoostUnitCents: Math.max(25, Math.min(100000, Number(creatorBoost.preview_video_unit_cents ?? 249) || 249)),
+    languageBoostUnitCents: Math.max(
+      100,
+      Math.min(100000, Number(creatorBoost.language_unit_cents ?? 300) || 300),
+    ),
+    voiceBoostUnitCents: Math.max(
+      100,
+      Math.min(100000, Number(creatorBoost.voice_unit_cents ?? 500) || 500),
+    ),
+    thumbnailBoostUnitCents: Math.max(
+      25,
+      Math.min(100000, Number(creatorBoost.thumbnail_unit_cents ?? 79) || 79),
+    ),
+    previewVideoBoostUnitCents: Math.max(
+      25,
+      Math.min(
+        100000,
+        Number(creatorBoost.preview_video_unit_cents ?? 249) || 249,
+      ),
+    ),
+    generationBoostUnitCents: Math.max(
+      25,
+      Math.min(
+        100000,
+        Number(creatorBoost.generation_unit_cents ?? 99) || 99,
+      ),
+    ),
+    backgroundJobBoostUnitCents: Math.max(
+      25,
+      Math.min(
+        100000,
+        Number(creatorBoost.background_job_unit_cents ?? 199) || 199,
+      ),
+    ),
     adminOnlyPurchaseOverride: !!creatorBoost.admin_only_purchase_override,
-    enabledKinds: Array.isArray(creatorBoost.enabled_kinds)
-      ? creatorBoost.enabled_kinds.filter((item: unknown) =>
-          ["language", "voice", "thumbnail", "preview_video"].includes(String(item || ""))
-        )
-      : ["language", "voice", "thumbnail", "preview_video"]
+    enabledKinds: Array.from(
+      new Set(
+        (
+          Array.isArray(creatorBoost.enabled_kinds)
+            ? creatorBoost.enabled_kinds.filter((item: unknown) =>
+                [
+                  "language",
+                  "voice",
+                  "thumbnail",
+                  "preview_video",
+                  "generation",
+                  "background_job",
+                ].includes(String(item || ""))
+              )
+            : ["language", "voice", "thumbnail", "preview_video", "generation", "background_job"]
+        ).concat("background_job"),
+      ),
+    ),
   };
 }
 
@@ -472,7 +968,9 @@ type BillableActionKey =
   | "enterprise_route";
 
 function normalizeBillableActionKey(value: unknown): BillableActionKey | null {
-  const raw = String(value || "").trim().toLowerCase();
+  const raw = String(value || "")
+    .trim()
+    .toLowerCase();
   if (
     [
       "lyrics_generate",
@@ -483,7 +981,7 @@ function normalizeBillableActionKey(value: unknown): BillableActionKey | null {
       "multi_language",
       "multi_voice",
       "cinema_booking",
-      "enterprise_route"
+      "enterprise_route",
     ].includes(raw)
   ) {
     return raw as BillableActionKey;
@@ -496,25 +994,46 @@ async function getBillingActionPolicySettings() {
   const billing = behavior?.billing_actions || {};
   const creator = await getCreatorCommercePolicySettings();
   return {
-    lyricsGenerateCents: Math.max(0, Math.min(100000, Number(billing.lyrics_generate_cents ?? 20) || 20)),
-    musicGenerateCents: Math.max(0, Math.min(100000, Number(billing.music_generate_cents ?? 40) || 40)),
-    videoGenerateCents: Math.max(0, Math.min(100000, Number(billing.video_generate_cents ?? 60) || 60)),
+    lyricsGenerateCents: Math.max(
+      0,
+      Math.min(100000, Number(billing.lyrics_generate_cents ?? 20) || 20),
+    ),
+    musicGenerateCents: Math.max(
+      0,
+      Math.min(100000, Number(billing.music_generate_cents ?? 40) || 40),
+    ),
+    videoGenerateCents: Math.max(
+      0,
+      Math.min(100000, Number(billing.video_generate_cents ?? 60) || 60),
+    ),
     thumbnailRegenerateCents: creator.thumbnailBoostUnitCents,
     previewVideoRegenerateCents: creator.previewVideoBoostUnitCents,
     multiLanguageCents: creator.languageBoostUnitCents,
     multiVoiceCents: creator.voiceBoostUnitCents,
-    enterpriseRouteCents: Math.max(0, Math.min(100000, Number(billing.enterprise_route_cents ?? 5) || 5)),
-    cinemaBookingCents: Math.max(0, Math.min(100000, Number(billing.cinema_booking_cents ?? 0) || 0)),
-    includedMembershipCoversCore: billing.included_membership_covers_core !== false
+    enterpriseRouteCents: Math.max(
+      0,
+      Math.min(100000, Number(billing.enterprise_route_cents ?? 5) || 5),
+    ),
+    cinemaBookingCents: Math.max(
+      0,
+      Math.min(100000, Number(billing.cinema_booking_cents ?? 0) || 0),
+    ),
+    includedMembershipCoversCore:
+      billing.included_membership_covers_core !== false,
   };
 }
 
-function billableActionCostCents(actionKey: BillableActionKey, settings: Awaited<ReturnType<typeof getBillingActionPolicySettings>>) {
+function billableActionCostCents(
+  actionKey: BillableActionKey,
+  settings: Awaited<ReturnType<typeof getBillingActionPolicySettings>>,
+) {
   if (actionKey === "lyrics_generate") return settings.lyricsGenerateCents;
   if (actionKey === "music_generate") return settings.musicGenerateCents;
   if (actionKey === "video_generate") return settings.videoGenerateCents;
-  if (actionKey === "thumbnail_regenerate") return settings.thumbnailRegenerateCents;
-  if (actionKey === "preview_video_regenerate") return settings.previewVideoRegenerateCents;
+  if (actionKey === "thumbnail_regenerate")
+    return settings.thumbnailRegenerateCents;
+  if (actionKey === "preview_video_regenerate")
+    return settings.previewVideoRegenerateCents;
   if (actionKey === "multi_language") return settings.multiLanguageCents;
   if (actionKey === "multi_voice") return settings.multiVoiceCents;
   if (actionKey === "enterprise_route") return settings.enterpriseRouteCents;
@@ -526,14 +1045,23 @@ async function getStudioEnterprisePolicySettings() {
   const settings = behavior?.studio_enterprise || {};
   return {
     teamCollaborationEnabled: !!settings.team_collaboration_enabled,
-    maxTeamMembers: Math.max(1, Math.min(500, Number(settings.max_team_members ?? 5) || 5)),
+    maxTeamMembers: Math.max(
+      1,
+      Math.min(500, Number(settings.max_team_members ?? 5) || 5),
+    ),
     multiProjectEnabled: settings.multi_project_enabled !== false,
-    maxProjects: Math.max(1, Math.min(1000, Number(settings.max_projects ?? 12) || 12)),
+    maxProjects: Math.max(
+      1,
+      Math.min(1000, Number(settings.max_projects ?? 12) || 12),
+    ),
     enterpriseApiEnabled: !!settings.enterprise_api_enabled,
     enterpriseApiRateLimitPerMinute: Math.max(
       1,
-      Math.min(100000, Number(settings.enterprise_api_rate_limit_per_minute ?? 600) || 600)
-    )
+      Math.min(
+        100000,
+        Number(settings.enterprise_api_rate_limit_per_minute ?? 600) || 600,
+      ),
+    ),
   };
 }
 
@@ -601,49 +1129,192 @@ const DELIVERY_ADMIN_ONLY_ACTION_ATTRS = [
   "data-delivery-watch-case-close-summary",
   "data-delivery-watch-owner-inbox-digest",
   "data-delivery-watch-case-export-bundle",
-  "data-delivery-watch-case-status"
+  "data-delivery-watch-case-status",
 ];
 const DELIVERY_STANDARD_SCOPE_RULES = [
-  { scope: "delivery.watch.case", match: (name: string) => name.startsWith("data-delivery-watch-case-") },
-  { scope: "delivery.watch.archive", match: (name: string) => name.includes("data-delivery-watch-archive-") },
-  { scope: "delivery.watch.compare", match: (name: string) => name.includes("data-delivery-watch-compare-") },
-  { scope: "delivery.watch.saved_view", match: (name: string) => name.includes("data-delivery-watch-saved-view-") },
-  { scope: "delivery.watch.standard", match: (name: string) => name.startsWith("data-delivery-watch-") },
-  { scope: "delivery.compliance.refresh", match: (name: string) => name === "data-delivery-compliance-refresh" },
-  { scope: "delivery.compliance.open", match: (name: string) => name === "data-delivery-compliance-open" },
-  { scope: "delivery.compliance.registry", match: (name: string) => ["data-delivery-compliance-update-registry", "data-delivery-compliance-save-directory", "data-delivery-compliance-save-preset", "data-delivery-compliance-save-role-policy", "data-delivery-compliance-save-routing", "data-delivery-compliance-save-signers", "data-delivery-compliance-backfill"].includes(name) },
-  { scope: "delivery.compliance.approval", match: (name: string) => ["data-delivery-compliance-approve", "data-delivery-compliance-escalate", "data-delivery-compliance-ticket", "data-delivery-compliance-audit-log"].includes(name) },
-  { scope: "delivery.compliance.signer", match: (name: string) => ["data-delivery-compliance-rotate-secret", "data-delivery-compliance-reopen"].includes(name) },
-  { scope: "delivery.compliance.quorum", match: (name: string) => name === "data-delivery-compliance-finalize-quorum" },
-  { scope: "delivery.compliance.standard", match: (name: string) => name.startsWith("data-delivery-compliance-") },
-  { scope: "delivery.rewrite.bundle", match: (name: string) => name.includes("data-delivery-rewrite-bundle-") },
-  { scope: "delivery.rewrite.sandbox", match: (name: string) => name.includes("data-delivery-rewrite-sandbox-") },
-  { scope: "delivery.rewrite.diff", match: (name: string) => name === "data-delivery-rewrite-diff-focus" },
-  { scope: "delivery.rewrite.playback", match: (name: string) => ["data-delivery-rewrite-phrase-play", "data-delivery-rewrite-lane", "data-delivery-rewrite-payload-mode", "data-delivery-rewrite-assist"].includes(name) },
-  { scope: "delivery.rewrite.standard", match: (name: string) => name.startsWith("data-delivery-rewrite-") },
-  { scope: "delivery.probe.dispatch", match: (name: string) => name.includes("data-delivery-probe-dispatch-") },
-  { scope: "delivery.probe.export", match: (name: string) => ["data-delivery-probe-incident-export", "data-delivery-probe-receipt-copy", "data-delivery-probe-followup-copy"].includes(name) },
-  { scope: "delivery.probe.handoff", match: (name: string) => name === "data-delivery-probe-handoff-ack" },
-  { scope: "delivery.probe.compare", match: (name: string) => name === "data-delivery-probe-compare-select" },
-  { scope: "delivery.probe.standard", match: (name: string) => name.startsWith("data-delivery-probe-") },
-  { scope: "delivery.publish.simulate", match: (name: string) => name === "data-delivery-publish-simulate" },
-  { scope: "delivery.publish.route", match: (name: string) => ["data-delivery-publish-route-shortcut", "data-delivery-publish-actor-suggest", "data-delivery-publish-runbook-automation"].includes(name) },
-  { scope: "delivery.publish.confirm", match: (name: string) => ["data-delivery-publish-confirm-arm", "data-delivery-publish-confirm-disarm", "data-delivery-publish-ack-note"].includes(name) },
-  { scope: "delivery.publish.finalize", match: (name: string) => ["data-delivery-publish-step-approve", "data-delivery-publish-step-finalize", "data-delivery-publish-step-remind"].includes(name) },
-  { scope: "delivery.publish.standard", match: (name: string) => name.startsWith("data-delivery-publish-") },
-  { scope: "delivery.post_publish.standard", match: (name: string) => name.startsWith("data-delivery-post-publish-") },
-  { scope: "delivery.arrangement.standard", match: (name: string) => name.startsWith("data-delivery-arrangement-") },
-  { scope: "delivery.mixer.standard", match: (name: string) => name.startsWith("data-delivery-mixer-") },
-  { scope: "delivery.ops.standard", match: (name: string) => name.startsWith("data-delivery-ops-") }
+  {
+    scope: "delivery.watch.case",
+    match: (name: string) => name.startsWith("data-delivery-watch-case-"),
+  },
+  {
+    scope: "delivery.watch.archive",
+    match: (name: string) => name.includes("data-delivery-watch-archive-"),
+  },
+  {
+    scope: "delivery.watch.compare",
+    match: (name: string) => name.includes("data-delivery-watch-compare-"),
+  },
+  {
+    scope: "delivery.watch.saved_view",
+    match: (name: string) => name.includes("data-delivery-watch-saved-view-"),
+  },
+  {
+    scope: "delivery.watch.standard",
+    match: (name: string) => name.startsWith("data-delivery-watch-"),
+  },
+  {
+    scope: "delivery.compliance.refresh",
+    match: (name: string) => name === "data-delivery-compliance-refresh",
+  },
+  {
+    scope: "delivery.compliance.open",
+    match: (name: string) => name === "data-delivery-compliance-open",
+  },
+  {
+    scope: "delivery.compliance.registry",
+    match: (name: string) =>
+      [
+        "data-delivery-compliance-update-registry",
+        "data-delivery-compliance-save-directory",
+        "data-delivery-compliance-save-preset",
+        "data-delivery-compliance-save-role-policy",
+        "data-delivery-compliance-save-routing",
+        "data-delivery-compliance-save-signers",
+        "data-delivery-compliance-backfill",
+      ].includes(name),
+  },
+  {
+    scope: "delivery.compliance.approval",
+    match: (name: string) =>
+      [
+        "data-delivery-compliance-approve",
+        "data-delivery-compliance-escalate",
+        "data-delivery-compliance-ticket",
+        "data-delivery-compliance-audit-log",
+      ].includes(name),
+  },
+  {
+    scope: "delivery.compliance.signer",
+    match: (name: string) =>
+      [
+        "data-delivery-compliance-rotate-secret",
+        "data-delivery-compliance-reopen",
+      ].includes(name),
+  },
+  {
+    scope: "delivery.compliance.quorum",
+    match: (name: string) =>
+      name === "data-delivery-compliance-finalize-quorum",
+  },
+  {
+    scope: "delivery.compliance.standard",
+    match: (name: string) => name.startsWith("data-delivery-compliance-"),
+  },
+  {
+    scope: "delivery.rewrite.bundle",
+    match: (name: string) => name.includes("data-delivery-rewrite-bundle-"),
+  },
+  {
+    scope: "delivery.rewrite.sandbox",
+    match: (name: string) => name.includes("data-delivery-rewrite-sandbox-"),
+  },
+  {
+    scope: "delivery.rewrite.diff",
+    match: (name: string) => name === "data-delivery-rewrite-diff-focus",
+  },
+  {
+    scope: "delivery.rewrite.playback",
+    match: (name: string) =>
+      [
+        "data-delivery-rewrite-phrase-play",
+        "data-delivery-rewrite-lane",
+        "data-delivery-rewrite-payload-mode",
+        "data-delivery-rewrite-assist",
+      ].includes(name),
+  },
+  {
+    scope: "delivery.rewrite.standard",
+    match: (name: string) => name.startsWith("data-delivery-rewrite-"),
+  },
+  {
+    scope: "delivery.probe.dispatch",
+    match: (name: string) => name.includes("data-delivery-probe-dispatch-"),
+  },
+  {
+    scope: "delivery.probe.export",
+    match: (name: string) =>
+      [
+        "data-delivery-probe-incident-export",
+        "data-delivery-probe-receipt-copy",
+        "data-delivery-probe-followup-copy",
+      ].includes(name),
+  },
+  {
+    scope: "delivery.probe.handoff",
+    match: (name: string) => name === "data-delivery-probe-handoff-ack",
+  },
+  {
+    scope: "delivery.probe.compare",
+    match: (name: string) => name === "data-delivery-probe-compare-select",
+  },
+  {
+    scope: "delivery.probe.standard",
+    match: (name: string) => name.startsWith("data-delivery-probe-"),
+  },
+  {
+    scope: "delivery.publish.simulate",
+    match: (name: string) => name === "data-delivery-publish-simulate",
+  },
+  {
+    scope: "delivery.publish.route",
+    match: (name: string) =>
+      [
+        "data-delivery-publish-route-shortcut",
+        "data-delivery-publish-actor-suggest",
+        "data-delivery-publish-runbook-automation",
+      ].includes(name),
+  },
+  {
+    scope: "delivery.publish.confirm",
+    match: (name: string) =>
+      [
+        "data-delivery-publish-confirm-arm",
+        "data-delivery-publish-confirm-disarm",
+        "data-delivery-publish-ack-note",
+      ].includes(name),
+  },
+  {
+    scope: "delivery.publish.finalize",
+    match: (name: string) =>
+      [
+        "data-delivery-publish-step-approve",
+        "data-delivery-publish-step-finalize",
+        "data-delivery-publish-step-remind",
+      ].includes(name),
+  },
+  {
+    scope: "delivery.publish.standard",
+    match: (name: string) => name.startsWith("data-delivery-publish-"),
+  },
+  {
+    scope: "delivery.post_publish.standard",
+    match: (name: string) => name.startsWith("data-delivery-post-publish-"),
+  },
+  {
+    scope: "delivery.arrangement.standard",
+    match: (name: string) => name.startsWith("data-delivery-arrangement-"),
+  },
+  {
+    scope: "delivery.mixer.standard",
+    match: (name: string) => name.startsWith("data-delivery-mixer-"),
+  },
+  {
+    scope: "delivery.ops.standard",
+    match: (name: string) => name.startsWith("data-delivery-ops-"),
+  },
 ];
 
 function deliveryPermissionScopeFromAttr(attrName: string) {
-  const normalized = String(attrName || "").trim().toLowerCase();
+  const normalized = String(attrName || "")
+    .trim()
+    .toLowerCase();
   if (!normalized.startsWith("data-delivery-")) return "";
   if (DELIVERY_ADMIN_ONLY_ACTION_ATTRS.includes(normalized)) {
     return `delivery.action.${normalized.replace(/^data-delivery-/, "").replace(/-/g, ".")}`;
   }
-  const matched = DELIVERY_STANDARD_SCOPE_RULES.find((entry) => entry.match(normalized));
+  const matched = DELIVERY_STANDARD_SCOPE_RULES.find((entry) =>
+    entry.match(normalized),
+  );
   if (matched) return matched.scope;
   return "delivery.action.standard";
 }
@@ -656,10 +1327,20 @@ function isEnterprisePlusTier(tier: MembershipTier) {
   return ["enterprise", "vip", "admin"].includes(tier);
 }
 
-function deliveryScopeAllowedForTier(scope: string, tier: MembershipTier, loggedIn: boolean) {
-  const normalizedScope = String(scope || "").trim().toLowerCase();
+function deliveryScopeAllowedForTier(
+  scope: string,
+  tier: MembershipTier,
+  loggedIn: boolean,
+) {
+  const normalizedScope = String(scope || "")
+    .trim()
+    .toLowerCase();
   if (normalizedScope === "delivery.action.standard") return loggedIn;
-  if (normalizedScope === "delivery.watch.compare" || normalizedScope === "delivery.rewrite.playback" || normalizedScope === "delivery.probe.compare") {
+  if (
+    normalizedScope === "delivery.watch.compare" ||
+    normalizedScope === "delivery.rewrite.playback" ||
+    normalizedScope === "delivery.probe.compare"
+  ) {
     return loggedIn;
   }
   if (
@@ -693,12 +1374,23 @@ function buildPermissionSnapshot(tier: MembershipTier, role: string) {
   const normalizedTier = normalizeMembershipTier(tier);
   const loggedIn = normalizedTier !== "guest";
   const isAdmin = role === "admin" || normalizedTier === "admin";
-  const isPaid = ["starter", "pro", "studio", "enterprise", "vip", "admin"].includes(normalizedTier);
+  const isPaid = [
+    "starter",
+    "pro",
+    "studio",
+    "enterprise",
+    "vip",
+    "admin",
+  ].includes(normalizedTier);
   const isVipOrAdmin = ["vip", "admin"].includes(normalizedTier);
   const canUseStudio = canUseStudioWorkspaceTier(normalizedTier);
   const canUseEnterprise = canUseEnterpriseApiTier(normalizedTier);
-  const isProPlus = ["pro", "studio", "enterprise", "vip", "admin"].includes(normalizedTier);
-  const isStudioPlus = ["studio", "enterprise", "vip", "admin"].includes(normalizedTier);
+  const isProPlus = ["pro", "studio", "enterprise", "vip", "admin"].includes(
+    normalizedTier,
+  );
+  const isStudioPlus = ["studio", "enterprise", "vip", "admin"].includes(
+    normalizedTier,
+  );
   const scopes: Record<string, boolean> = {
     "login.open": true,
     "login.provider.switch": loggedIn,
@@ -713,6 +1405,9 @@ function buildPermissionSnapshot(tier: MembershipTier, role: string) {
     "works.open": loggedIn,
     "works.own.view": loggedIn,
     "works.watch": loggedIn,
+    "watch.background.jobs": isProPlus,
+    "watch.background.jobs.multi": isProPlus,
+    "watch.background.jobs.team": isStudioPlus,
     "works.thumbnail.regen": loggedIn,
     "works.preview_video.regen": loggedIn,
     "works.type.edit": isPaid,
@@ -791,12 +1486,16 @@ function buildPermissionSnapshot(tier: MembershipTier, role: string) {
     "delivery.arrangement.standard": loggedIn,
     "delivery.mixer.standard": loggedIn,
     "delivery.ops.standard": loggedIn,
-    "delivery.action.standard": loggedIn
+    "delivery.action.standard": loggedIn,
   };
   Object.keys(scopes)
     .filter((scope) => scope.startsWith("delivery."))
     .forEach((scope) => {
-      scopes[scope] = deliveryScopeAllowedForTier(scope, normalizedTier, loggedIn);
+      scopes[scope] = deliveryScopeAllowedForTier(
+        scope,
+        normalizedTier,
+        loggedIn,
+      );
     });
   DELIVERY_ADMIN_ONLY_ACTION_ATTRS.forEach((attrName) => {
     const scope = deliveryPermissionScopeFromAttr(attrName);
@@ -805,7 +1504,10 @@ function buildPermissionSnapshot(tier: MembershipTier, role: string) {
   return scopes;
 }
 
-async function payoutAvailableAtForOrder(order: { created_at?: string | Date | null; updated_at?: string | Date | null }) {
+async function payoutAvailableAtForOrder(order: {
+  created_at?: string | Date | null;
+  updated_at?: string | Date | null;
+}) {
   const base = order.created_at || order.updated_at || new Date();
   const at = new Date(base);
   const commerce = await getCommercePolicySettings();
@@ -818,19 +1520,27 @@ function requestRawBody(req: express.Request) {
 }
 
 function defaultListenPriceCents() {
-  const parsed = Number.parseInt(String(process.env.CSSMV_DEFAULT_LISTEN_PRICE_CENTS || "99"), 10);
+  const parsed = Number.parseInt(
+    String(process.env.CSSMV_DEFAULT_LISTEN_PRICE_CENTS || "99"),
+    10,
+  );
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 99;
 }
 
 function defaultBuyoutPriceCents() {
-  const parsed = Number.parseInt(String(process.env.CSSMV_DEFAULT_BUYOUT_PRICE_CENTS || "299"), 10);
+  const parsed = Number.parseInt(
+    String(process.env.CSSMV_DEFAULT_BUYOUT_PRICE_CENTS || "299"),
+    10,
+  );
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 299;
 }
 
 type CssmvWorkType = "single" | "triptych" | "opera";
 
 function normalizeWorkType(value: unknown): CssmvWorkType {
-  const raw = String(value || "").trim().toLowerCase();
+  const raw = String(value || "")
+    .trim()
+    .toLowerCase();
   if (raw === "triptych") return "triptych";
   if (raw === "opera") return "opera";
   return "single";
@@ -849,7 +1559,11 @@ function pricingPresetForWorkType(workType: CssmvWorkType) {
   if (workType === "triptych") {
     return { listenCents: 99, buyoutCents: 499, label: "triptych" };
   }
-  return { listenCents: defaultListenPriceCents(), buyoutCents: defaultBuyoutPriceCents(), label: "single" };
+  return {
+    listenCents: defaultListenPriceCents(),
+    buyoutCents: defaultBuyoutPriceCents(),
+    label: "single",
+  };
 }
 
 function defaultCreationPanelTemplate() {
@@ -876,27 +1590,35 @@ function defaultCreationPanelTemplate() {
       external_audio_adapter: "",
       tempo_bpm: 88,
       musical_key: "C",
-      duration_s: 180,
+      duration_s: "",
       language: "zh",
       prompt: "",
-      work_type: "single"
+      work_type: "single",
     },
     pricing_by_type: {
       single: { listen_cents: 99, buyout_cents: 299 },
       triptych: { listen_cents: 99, buyout_cents: 499 },
-      opera: { listen_cents: 99, buyout_cents: 999 }
-    }
+      opera: { listen_cents: 99, buyout_cents: 999 },
+    },
   };
 }
 
 function mergeCreationPanelTemplate(value: any) {
   const base = defaultCreationPanelTemplate();
-  const creative = value && typeof value === "object" && value.creative && typeof value.creative === "object"
-    ? value.creative
-    : {};
-  const pricingByType = value && typeof value === "object" && value.pricing_by_type && typeof value.pricing_by_type === "object"
-    ? value.pricing_by_type
-    : {};
+  const creative =
+    value &&
+    typeof value === "object" &&
+    value.creative &&
+    typeof value.creative === "object"
+      ? value.creative
+      : {};
+  const pricingByType =
+    value &&
+    typeof value === "object" &&
+    value.pricing_by_type &&
+    typeof value.pricing_by_type === "object"
+      ? value.pricing_by_type
+      : {};
   const merged = {
     creative: {
       genre: String(creative.genre || base.creative.genre).slice(0, 120),
@@ -904,40 +1626,123 @@ function mergeCreationPanelTemplate(value: any) {
       instrument: String(creative.instrument || "").slice(0, 120),
       instrumentation: String(creative.instrumentation || "").slice(0, 400),
       ambience: String(creative.ambience || "").slice(0, 120),
-      vocal_gender: String(creative.vocal_gender || base.creative.vocal_gender).slice(0, 120),
+      vocal_gender: String(
+        creative.vocal_gender || base.creative.vocal_gender,
+      ).slice(0, 120),
       vocal_style: String(creative.vocal_style || "").slice(0, 240),
       ensemble_style: String(creative.ensemble_style || "").slice(0, 240),
-      arrangement_density: Math.max(0.2, Math.min(1, Number.parseFloat(String(creative.arrangement_density ?? base.creative.arrangement_density)) || 0.6)),
+      arrangement_density: Math.max(
+        0.2,
+        Math.min(
+          1,
+          Number.parseFloat(
+            String(
+              creative.arrangement_density ?? base.creative.arrangement_density,
+            ),
+          ) || 0.6,
+        ),
+      ),
       dynamics_curve: String(creative.dynamics_curve || "").slice(0, 240),
       section_form: String(creative.section_form || "").slice(0, 240),
       articulation_bias: String(creative.articulation_bias || "").slice(0, 240),
       voicing_register: String(creative.voicing_register || "").slice(0, 240),
-      percussion_activity: Math.max(0, Math.min(1, Number.parseFloat(String(creative.percussion_activity ?? base.creative.percussion_activity)) || 0.45)),
-      expression_cc_bias: String(creative.expression_cc_bias || "").slice(0, 240),
-      humanization: Math.max(0, Math.min(1, Number.parseFloat(String(creative.humanization ?? base.creative.humanization)) || 0.35)),
-      inspiration_notes: String(creative.inspiration_notes || "").slice(0, 1000),
-      licensed_style_pack: String(creative.licensed_style_pack || "").slice(0, 240),
-      external_audio_adapter: String(creative.external_audio_adapter || "").slice(0, 240),
-      tempo_bpm: Math.max(40, Math.min(220, Number.parseInt(String(creative.tempo_bpm || base.creative.tempo_bpm), 10) || 88)),
-      musical_key: ["C", "D", "E", "F", "G", "A", "B"].includes(String(creative.musical_key || "C")) ? String(creative.musical_key) : "C",
-      duration_s: Math.max(30, Math.min(600, Number.parseInt(String(creative.duration_s || base.creative.duration_s), 10) || 180)),
-      language: ["zh", "en", "ja"].includes(String(creative.language || base.creative.language)) ? String(creative.language) : "zh",
+      percussion_activity: Math.max(
+        0,
+        Math.min(
+          1,
+          Number.parseFloat(
+            String(
+              creative.percussion_activity ?? base.creative.percussion_activity,
+            ),
+          ) || 0.45,
+        ),
+      ),
+      expression_cc_bias: String(creative.expression_cc_bias || "").slice(
+        0,
+        240,
+      ),
+      humanization: Math.max(
+        0,
+        Math.min(
+          1,
+          Number.parseFloat(
+            String(creative.humanization ?? base.creative.humanization),
+          ) || 0.35,
+        ),
+      ),
+      inspiration_notes: String(creative.inspiration_notes || "").slice(
+        0,
+        1000,
+      ),
+      licensed_style_pack: String(creative.licensed_style_pack || "").slice(
+        0,
+        240,
+      ),
+      external_audio_adapter: String(
+        creative.external_audio_adapter || "",
+      ).slice(0, 240),
+      tempo_bpm: Math.max(
+        40,
+        Math.min(
+          220,
+          Number.parseInt(
+            String(creative.tempo_bpm || base.creative.tempo_bpm),
+            10,
+          ) || 88,
+        ),
+      ),
+      musical_key: ["C", "D", "E", "F", "G", "A", "B"].includes(
+        String(creative.musical_key || "C"),
+      )
+        ? String(creative.musical_key)
+        : "C",
+      duration_s:
+        Number.parseInt(String(creative.duration_s || ""), 10) > 0
+          ? Math.max(
+              30,
+              Math.min(
+                600,
+                Number.parseInt(String(creative.duration_s), 10) || 0,
+              ),
+            )
+          : "",
+      language: ["zh", "en", "ja"].includes(
+        String(creative.language || base.creative.language),
+      )
+        ? String(creative.language)
+        : "zh",
       prompt: String(creative.prompt || "").slice(0, 500),
-      work_type: normalizeWorkType(creative.work_type || base.creative.work_type)
+      work_type: normalizeWorkType(
+        creative.work_type || base.creative.work_type,
+      ),
     },
     pricing_by_type: {
       single: pricingPresetForWorkType("single"),
       triptych: pricingPresetForWorkType("triptych"),
-      opera: pricingPresetForWorkType("opera")
-    } as Record<CssmvWorkType, { listenCents: number; buyoutCents: number; label: string }>
+      opera: pricingPresetForWorkType("opera"),
+    } as Record<
+      CssmvWorkType,
+      { listenCents: number; buyoutCents: number; label: string }
+    >,
   };
   (["single", "triptych", "opera"] as CssmvWorkType[]).forEach((workType) => {
-    const entry = pricingByType[workType] && typeof pricingByType[workType] === "object" ? pricingByType[workType] : {};
+    const entry =
+      pricingByType[workType] && typeof pricingByType[workType] === "object"
+        ? pricingByType[workType]
+        : {};
     const preset = pricingPresetForWorkType(workType);
     merged.pricing_by_type[workType] = {
-      listenCents: Math.max(1, Number.parseInt(String(entry.listen_cents || preset.listenCents), 10) || preset.listenCents),
-      buyoutCents: Math.max(0, Number.parseInt(String(entry.buyout_cents || preset.buyoutCents), 10) || preset.buyoutCents),
-      label: preset.label
+      listenCents: Math.max(
+        1,
+        Number.parseInt(String(entry.listen_cents || preset.listenCents), 10) ||
+          preset.listenCents,
+      ),
+      buyoutCents: Math.max(
+        0,
+        Number.parseInt(String(entry.buyout_cents || preset.buyoutCents), 10) ||
+          preset.buyoutCents,
+      ),
+      label: preset.label,
     };
   });
   return {
@@ -945,27 +1750,49 @@ function mergeCreationPanelTemplate(value: any) {
     pricing_by_type: {
       single: {
         listen_cents: merged.pricing_by_type.single.listenCents,
-        buyout_cents: merged.pricing_by_type.single.buyoutCents
+        buyout_cents: merged.pricing_by_type.single.buyoutCents,
       },
       triptych: {
         listen_cents: merged.pricing_by_type.triptych.listenCents,
-        buyout_cents: merged.pricing_by_type.triptych.buyoutCents
+        buyout_cents: merged.pricing_by_type.triptych.buyoutCents,
       },
       opera: {
         listen_cents: merged.pricing_by_type.opera.listenCents,
-        buyout_cents: merged.pricing_by_type.opera.buyoutCents
-      }
-    }
+        buyout_cents: merged.pricing_by_type.opera.buyoutCents,
+      },
+    },
   };
 }
 
-function estimateWorkComputeUnits(args: { workType?: unknown; durationSec?: unknown; languageCount?: unknown; voiceLaneCount?: unknown }) {
+function estimateWorkComputeUnits(args: {
+  workType?: unknown;
+  durationSec?: unknown;
+  languageCount?: unknown;
+  voiceLaneCount?: unknown;
+}) {
   const workType = normalizeWorkType(args.workType);
-  const durationSec = Math.max(30, Math.min(1800, Number(args.durationSec || 180) || 180));
-  const languageCount = Math.max(1, Math.min(12, Number(args.languageCount || 1) || 1));
-  const voiceLaneCount = Math.max(1, Math.min(12, Number(args.voiceLaneCount || 1) || 1));
-  const typeMultiplier = workType === "opera" ? 3.2 : workType === "triptych" ? 2.1 : 1;
-  return Math.max(1, Math.round((durationSec / 30) * typeMultiplier * (1 + (languageCount - 1) * 0.35 + (voiceLaneCount - 1) * 0.45)));
+  const durationSec = Math.max(
+    30,
+    Math.min(1800, Number(args.durationSec || 0) || 0),
+  );
+  const languageCount = Math.max(
+    1,
+    Math.min(12, Number(args.languageCount || 1) || 1),
+  );
+  const voiceLaneCount = Math.max(
+    1,
+    Math.min(12, Number(args.voiceLaneCount || 1) || 1),
+  );
+  const typeMultiplier =
+    workType === "opera" ? 3.2 : workType === "triptych" ? 2.1 : 1;
+  return Math.max(
+    1,
+    Math.round(
+      (durationSec / 30) *
+        typeMultiplier *
+        (1 + (languageCount - 1) * 0.35 + (voiceLaneCount - 1) * 0.45),
+    ),
+  );
 }
 
 function estimateWorkComputeCostCents(units: number) {
@@ -973,7 +1800,9 @@ function estimateWorkComputeCostCents(units: number) {
 }
 
 function normalizePanelDefaultsKey(value: unknown) {
-  const key = String(value || "").trim().toLowerCase();
+  const key = String(value || "")
+    .trim()
+    .toLowerCase();
   return [
     "creation",
     "behavior",
@@ -993,7 +1822,7 @@ function normalizePanelDefaultsKey(value: unknown) {
     "login",
     "profile",
     "works",
-    "seller"
+    "seller",
   ].includes(key)
     ? key
     : "";
@@ -1009,220 +1838,616 @@ function sanitizeBehaviorPanelTemplate(value: any) {
   const modeValues = new Set(["halo", "breath", "prism", "oracle"]);
   const strategyValues = new Set(["random", "fixed", "per_type"]);
   const previewValues = new Set(["auto", "image", "video"]);
-  const watchTabs = new Set(["mv", "music", "lyrics", "script", "comments", "revenue", "ownership"]);
+  const watchTabs = new Set([
+    "mv",
+    "music",
+    "lyrics",
+    "script",
+    "comments",
+    "revenue",
+    "ownership",
+  ]);
   const dockPositions = new Set(["left", "right", "top", "bottom"]);
-  const reportKinds = new Set(["dashboard", "ops_health", "kpi", "analytics", "trends", "alerts", "digest", "briefing_pack"]);
-  const safeMode = (input: any, fallback: string) => (modeValues.has(String(input || "")) ? String(input) : fallback);
+  const themeModes = new Set(["system", "dark", "light"]);
+  const backgroundModes = new Set(["aurora", "ribbon", "watercolor", "ink"]);
+  const reportKinds = new Set([
+    "dashboard",
+    "ops_health",
+    "kpi",
+    "analytics",
+    "trends",
+    "alerts",
+    "digest",
+    "briefing_pack",
+  ]);
+  const safeMode = (input: any, fallback: string) =>
+    modeValues.has(String(input || "")) ? String(input) : fallback;
   return {
+    appearance: {
+      theme_mode: themeModes.has(String(source?.appearance?.theme_mode || ""))
+        ? String(source.appearance.theme_mode)
+        : "system",
+    },
     logo: {
       spell: String(source?.logo?.spell || "CSS").slice(0, 24) || "CSS",
-      subtitle: String(source?.logo?.subtitle || "Studio").slice(0, 40) || "Studio",
+      subtitle:
+        String(source?.logo?.subtitle || "Studio").slice(0, 40) || "Studio",
       slogan_template:
-        String(source?.logo?.slogan_template || "Just say <span class=\"spell\">{spell}</span>, witness the miracle!").slice(0, 240) ||
-        "Just say <span class=\"spell\">{spell}</span>, witness the miracle!",
-      mirror_size_px: Math.max(420, Math.min(880, Number(source?.logo?.mirror_size_px ?? 600) || 600)),
-      mask_inset_percent: Math.max(0, Math.min(28, Number(source?.logo?.mask_inset_percent ?? 12) || 12)),
+        String(
+          source?.logo?.slogan_template ||
+            'Just say <span class="spell">{spell}</span>, witness the miracle!',
+        ).slice(0, 240) ||
+        'Just say <span class="spell">{spell}</span>, witness the miracle!',
+      mirror_size_px: Math.max(
+        420,
+        Math.min(880, Number(source?.logo?.mirror_size_px ?? 600) || 600),
+      ),
+      mask_inset_percent: Math.max(
+        0,
+        Math.min(28, Number(source?.logo?.mask_inset_percent ?? 12) || 12),
+      ),
       media: {
-        image_1: String(source?.logo?.media?.image_1 || "assets/mirror-1.webp").slice(0, 512) || "assets/mirror-1.webp",
-        image_2: String(source?.logo?.media?.image_2 || "assets/mirror-2.webp").slice(0, 512) || "assets/mirror-2.webp",
-        video: String(source?.logo?.media?.video || "").slice(0, 512)
+        image_1:
+          String(source?.logo?.media?.image_1 || "assets/mirror-1.webp").slice(
+            0,
+            512,
+          ) || "assets/mirror-1.webp",
+        image_2:
+          String(source?.logo?.media?.image_2 || "assets/mirror-2.webp").slice(
+            0,
+            512,
+          ) || "assets/mirror-2.webp",
+        video: String(source?.logo?.media?.video || "").slice(0, 512),
       },
-      mirror_strategy: strategyValues.has(String(source?.logo?.mirror_strategy || "")) ? String(source.logo.mirror_strategy) : "per_type",
+      mirror_strategy: strategyValues.has(
+        String(source?.logo?.mirror_strategy || ""),
+      )
+        ? String(source.logo.mirror_strategy)
+        : "per_type",
       fixed_mode: safeMode(source?.logo?.fixed_mode, "halo"),
       per_type: {
         single: safeMode(source?.logo?.per_type?.single, "halo"),
         triptych: safeMode(source?.logo?.per_type?.triptych, "breath"),
-        opera: safeMode(source?.logo?.per_type?.opera, "prism")
-      }
+        opera: safeMode(source?.logo?.per_type?.opera, "prism"),
+      },
     },
     dock: {
-      scale: Math.max(0.8, Math.min(1.35, Number(source?.dock?.scale ?? 1) || 1)),
+      scale: Math.max(
+        0.8,
+        Math.min(1.35, Number(source?.dock?.scale ?? 1) || 1),
+      ),
+      background_opacity: Math.max(
+        0,
+        Math.min(
+          0.65,
+          Number(source?.dock?.background_opacity ?? 0.24) || 0.24,
+        ),
+      ),
       show_labels: source?.dock?.show_labels !== false,
       docking_enabled: source?.dock?.docking_enabled !== false,
-      dock_position: dockPositions.has(String(source?.dock?.dock_position || "")) ? String(source.dock.dock_position) : "bottom"
+      dock_position: dockPositions.has(
+        String(source?.dock?.dock_position || ""),
+      )
+        ? String(source.dock.dock_position)
+        : "bottom",
     },
     mic: {
-      longpress_ms: Math.max(250, Math.min(3000, Number(source?.mic?.longpress_ms ?? 600) || 600)),
-      max_hold_sec: [3, 5, 10, 15, 30].includes(Number(source?.mic?.max_hold_sec))
+      longpress_ms: Math.max(
+        250,
+        Math.min(3000, Number(source?.mic?.longpress_ms ?? 600) || 600),
+      ),
+      max_hold_sec: [3, 5, 10, 15, 30].includes(
+        Number(source?.mic?.max_hold_sec),
+      )
         ? Number(source.mic.max_hold_sec)
-        : 30
+        : 30,
+      logo_surface_mode: ["showcase", "mv_only"].includes(
+        String(source?.mic?.logo_surface_mode || ""),
+      )
+        ? String(source.mic.logo_surface_mode)
+        : "mv_only",
+      dock_surface_mode: ["showcase", "mv_only"].includes(
+        String(source?.mic?.dock_surface_mode || ""),
+      )
+        ? String(source.mic.dock_surface_mode)
+        : "mv_only",
+      settings_surface_mode: ["showcase", "mv_only"].includes(
+        String(source?.mic?.settings_surface_mode || ""),
+      )
+        ? String(source.mic.settings_surface_mode)
+        : "mv_only",
+    },
+    background: {
+      mode: backgroundModes.has(String(source?.background?.mode || ""))
+        ? String(source.background.mode)
+        : "aurora",
+      intensity: Math.max(
+        0,
+        Math.min(
+          1,
+          Number(source?.background?.intensity ?? 0.48) || 0.48,
+        ),
+      ),
+      motion: Math.max(
+        0,
+        Math.min(1, Number(source?.background?.motion ?? 0.24) || 0.24),
+      ),
     },
     cssmv: {
-      default_section: ["digest", "governance", "timeline"].includes(String(source?.cssmv?.default_section || ""))
+      default_section: ["digest", "governance", "timeline"].includes(
+        String(source?.cssmv?.default_section || ""),
+      )
         ? String(source.cssmv.default_section)
         : "digest",
-      auto_refresh: source?.cssmv?.auto_refresh !== false
+      auto_refresh: source?.cssmv?.auto_refresh !== false,
     },
     language: {
-      default_mode: ["content", "settings"].includes(String(source?.language?.default_mode || ""))
+      default_mode: ["content", "settings"].includes(
+        String(source?.language?.default_mode || ""),
+      )
         ? String(source.language.default_mode)
         : "content",
-      show_more: !!source?.language?.show_more
+      show_more: !!source?.language?.show_more,
     },
     login: {
-      panel_density: ["compact", "full"].includes(String(source?.login?.panel_density || ""))
+      panel_density: ["compact", "full"].includes(
+        String(source?.login?.panel_density || ""),
+      )
         ? String(source.login.panel_density)
         : "full",
-      preferred_provider: ["google", "github", "x", "bsky", "passkey"].includes(String(source?.login?.preferred_provider || ""))
+      preferred_provider: ["google", "github", "x", "bsky", "passkey"].includes(
+        String(source?.login?.preferred_provider || ""),
+      )
         ? String(source.login.preferred_provider)
         : "google",
       show_logout: source?.login?.show_logout !== false,
-      session_days: [30, 90, 180, 365].includes(Number(source?.login?.session_days))
+      session_days: [30, 90, 180, 365].includes(
+        Number(source?.login?.session_days),
+      )
         ? Number(source.login.session_days)
-        : 90
+        : 90,
     },
     profile: {
-      panel_density: ["compact", "full"].includes(String(source?.profile?.panel_density || ""))
+      panel_density: ["compact", "full"].includes(
+        String(source?.profile?.panel_density || ""),
+      )
         ? String(source.profile.panel_density)
         : "full",
       note: String(source?.profile?.note || "").slice(0, 120),
-      default_nav: ["works", "api"].includes(String(source?.profile?.default_nav || ""))
+      default_nav: ["works", "api"].includes(
+        String(source?.profile?.default_nav || ""),
+      )
         ? String(source.profile.default_nav)
-        : "works"
+        : "works",
     },
     works: {
-      focus_section: ["works", "comments", "monetization"].includes(String(source?.works?.focus_section || ""))
+      focus_section: ["works", "comments", "monetization"].includes(
+        String(source?.works?.focus_section || ""),
+      )
         ? String(source.works.focus_section)
         : "works",
       auto_load: source?.works?.auto_load !== false,
       search_enabled: source?.works?.search_enabled !== false,
-      search_limit: Math.max(4, Math.min(48, Number(source?.works?.search_limit ?? 12) || 12)),
-      default_sort: ["newest", "oldest", "title", "type"].includes(String(source?.works?.default_sort || ""))
+      search_limit: Math.max(
+        4,
+        Math.min(48, Number(source?.works?.search_limit ?? 12) || 12),
+      ),
+      default_sort: ["newest", "oldest", "title", "type"].includes(
+        String(source?.works?.default_sort || ""),
+      )
         ? String(source.works.default_sort)
         : "newest",
-      default_filter: ["all", "single", "triptych", "opera", "live", "hidden"].includes(String(source?.works?.default_filter || ""))
+      default_filter: [
+        "all",
+        "single",
+        "triptych",
+        "opera",
+        "live",
+        "hidden",
+      ].includes(String(source?.works?.default_filter || ""))
         ? String(source.works.default_filter)
-        : "all"
+        : "all",
     },
     seller: {
-      focus_lane: ["orders", "income"].includes(String(source?.seller?.focus_lane || ""))
+      focus_lane: ["orders", "income"].includes(
+        String(source?.seller?.focus_lane || ""),
+      )
         ? String(source.seller.focus_lane)
         : "orders",
       auto_refresh: source?.seller?.auto_refresh !== false,
-      order_filter: ["all", "paid", "pending"].includes(String(source?.seller?.order_filter || ""))
+      order_filter: ["all", "paid", "pending"].includes(
+        String(source?.seller?.order_filter || ""),
+      )
         ? String(source.seller.order_filter)
         : "all",
-      ledger_limit: Math.max(4, Math.min(40, Number(source?.seller?.ledger_limit ?? 12) || 12))
+      ledger_limit: Math.max(
+        4,
+        Math.min(40, Number(source?.seller?.ledger_limit ?? 12) || 12),
+      ),
     },
     about: {
-      default_tab: ["whitepaper", "about", "contact"].includes(String(source?.about?.default_tab || ""))
+      default_tab: ["whitepaper", "about", "contact"].includes(
+        String(source?.about?.default_tab || ""),
+      )
         ? String(source.about.default_tab)
         : "whitepaper",
-      density: ["compact", "relaxed"].includes(String(source?.about?.density || ""))
+      density: ["compact", "relaxed"].includes(
+        String(source?.about?.density || ""),
+      )
         ? String(source.about.density)
-        : "relaxed"
+        : "relaxed",
     },
     api: {
-      billing_mode: ["compact", "full"].includes(String(source?.api?.billing_mode || ""))
+      billing_mode: ["compact", "full"].includes(
+        String(source?.api?.billing_mode || ""),
+      )
         ? String(source.api.billing_mode)
         : "full",
-      payment_method: ["card", "bank"].includes(String(source?.api?.payment_method || ""))
+      payment_method: ["card", "bank"].includes(
+        String(source?.api?.payment_method || ""),
+      )
         ? String(source.api.payment_method)
         : "card",
-      auto_recharge: source?.api?.auto_recharge !== false
+      auto_recharge: source?.api?.auto_recharge !== false,
     },
     membership: {
-      starter_monthly_limit: Math.max(1, Math.min(1000, Number(source?.membership?.starter_monthly_limit ?? 30) || 30)),
-      pro_monthly_limit: Math.max(1, Math.min(5000, Number(source?.membership?.pro_monthly_limit ?? 100) || 100)),
-      studio_monthly_limit: Math.max(1, Math.min(10000, Number(source?.membership?.studio_monthly_limit ?? 300) || 300)),
-      enterprise_monthly_limit: Math.max(0, Math.min(100000, Number(source?.membership?.enterprise_monthly_limit ?? 0) || 0)),
-      vip_admin_only: source?.membership?.vip_admin_only !== false
+      starter_monthly_limit: Math.max(
+        1,
+        Math.min(
+          1000,
+          Number(source?.membership?.starter_monthly_limit ?? 30) || 30,
+        ),
+      ),
+      pro_monthly_limit: Math.max(
+        1,
+        Math.min(
+          5000,
+          Number(source?.membership?.pro_monthly_limit ?? 100) || 100,
+        ),
+      ),
+      studio_monthly_limit: Math.max(
+        1,
+        Math.min(
+          10000,
+          Number(source?.membership?.studio_monthly_limit ?? 300) || 300,
+        ),
+      ),
+      enterprise_monthly_limit: Math.max(
+        0,
+        Math.min(
+          100000,
+          Number(source?.membership?.enterprise_monthly_limit ?? 0) || 0,
+        ),
+      ),
+      vip_admin_only: source?.membership?.vip_admin_only !== false,
     },
     creator_boost: {
-      enabled_kinds: Array.isArray(source?.creator_boost?.enabled_kinds)
-        ? source.creator_boost.enabled_kinds.filter((item: unknown) =>
-            ["language", "voice", "thumbnail", "preview_video"].includes(String(item || ""))
-          )
-        : ["language", "voice", "thumbnail", "preview_video"],
-      language_unit_cents: Math.max(100, Math.min(100000, Number(source?.creator_boost?.language_unit_cents ?? 300) || 300)),
-      voice_unit_cents: Math.max(100, Math.min(100000, Number(source?.creator_boost?.voice_unit_cents ?? 500) || 500)),
-      thumbnail_unit_cents: Math.max(25, Math.min(100000, Number(source?.creator_boost?.thumbnail_unit_cents ?? 79) || 79)),
-      preview_video_unit_cents: Math.max(25, Math.min(100000, Number(source?.creator_boost?.preview_video_unit_cents ?? 249) || 249)),
-      admin_only_purchase_override: !!source?.creator_boost?.admin_only_purchase_override,
-      studio_includes_extra_languages: Math.max(0, Math.min(10, Number(source?.creator_boost?.studio_includes_extra_languages ?? 2) || 2)),
-      enterprise_includes_extra_languages: Math.max(0, Math.min(20, Number(source?.creator_boost?.enterprise_includes_extra_languages ?? 4) || 4)),
-      studio_includes_extra_voices: Math.max(0, Math.min(10, Number(source?.creator_boost?.studio_includes_extra_voices ?? 2) || 2)),
-      enterprise_includes_extra_voices: Math.max(0, Math.min(20, Number(source?.creator_boost?.enterprise_includes_extra_voices ?? 4) || 4))
+      enabled_kinds: Array.from(
+        new Set(
+          (
+            Array.isArray(source?.creator_boost?.enabled_kinds)
+              ? source.creator_boost.enabled_kinds.filter((item: unknown) =>
+                  [
+                    "language",
+                    "voice",
+                    "thumbnail",
+                    "preview_video",
+                    "generation",
+                    "background_job",
+                  ].includes(String(item || ""))
+                )
+              : ["language", "voice", "thumbnail", "preview_video", "generation", "background_job"]
+          ).concat("background_job")
+        )
+      ),
+      language_unit_cents: Math.max(
+        100,
+        Math.min(
+          100000,
+          Number(source?.creator_boost?.language_unit_cents ?? 300) || 300,
+        ),
+      ),
+      voice_unit_cents: Math.max(
+        100,
+        Math.min(
+          100000,
+          Number(source?.creator_boost?.voice_unit_cents ?? 500) || 500,
+        ),
+      ),
+      thumbnail_unit_cents: Math.max(
+        25,
+        Math.min(
+          100000,
+          Number(source?.creator_boost?.thumbnail_unit_cents ?? 79) || 79,
+        ),
+      ),
+      preview_video_unit_cents: Math.max(
+        25,
+        Math.min(
+          100000,
+          Number(source?.creator_boost?.preview_video_unit_cents ?? 249) || 249,
+        ),
+      ),
+      generation_unit_cents: Math.max(
+        25,
+        Math.min(
+          100000,
+          Number(source?.creator_boost?.generation_unit_cents ?? 99) || 99,
+        ),
+      ),
+      background_job_unit_cents: Math.max(
+        25,
+        Math.min(
+          100000,
+          Number(source?.creator_boost?.background_job_unit_cents ?? 199) || 199,
+        ),
+      ),
+      admin_only_purchase_override:
+        !!source?.creator_boost?.admin_only_purchase_override,
+      studio_includes_extra_languages: Math.max(
+        0,
+        Math.min(
+          10,
+          Number(source?.creator_boost?.studio_includes_extra_languages ?? 2) ||
+            2,
+        ),
+      ),
+      enterprise_includes_extra_languages: Math.max(
+        0,
+        Math.min(
+          20,
+          Number(
+            source?.creator_boost?.enterprise_includes_extra_languages ?? 4,
+          ) || 4,
+        ),
+      ),
+      studio_includes_extra_voices: Math.max(
+        0,
+        Math.min(
+          10,
+          Number(source?.creator_boost?.studio_includes_extra_voices ?? 2) || 2,
+        ),
+      ),
+      enterprise_includes_extra_voices: Math.max(
+        0,
+        Math.min(
+          20,
+          Number(
+            source?.creator_boost?.enterprise_includes_extra_voices ?? 4,
+          ) || 4,
+        ),
+      ),
     },
     billing_actions: {
-      lyrics_generate_cents: Math.max(0, Math.min(100000, Number(source?.billing_actions?.lyrics_generate_cents ?? 20) || 20)),
-      music_generate_cents: Math.max(0, Math.min(100000, Number(source?.billing_actions?.music_generate_cents ?? 40) || 40)),
-      video_generate_cents: Math.max(0, Math.min(100000, Number(source?.billing_actions?.video_generate_cents ?? 60) || 60)),
-      enterprise_route_cents: Math.max(0, Math.min(100000, Number(source?.billing_actions?.enterprise_route_cents ?? 5) || 5)),
-      cinema_booking_cents: Math.max(0, Math.min(100000, Number(source?.billing_actions?.cinema_booking_cents ?? 0) || 0)),
-      included_membership_covers_core: source?.billing_actions?.included_membership_covers_core !== false
+      lyrics_generate_cents: Math.max(
+        0,
+        Math.min(
+          100000,
+          Number(source?.billing_actions?.lyrics_generate_cents ?? 20) || 20,
+        ),
+      ),
+      music_generate_cents: Math.max(
+        0,
+        Math.min(
+          100000,
+          Number(source?.billing_actions?.music_generate_cents ?? 40) || 40,
+        ),
+      ),
+      video_generate_cents: Math.max(
+        0,
+        Math.min(
+          100000,
+          Number(source?.billing_actions?.video_generate_cents ?? 60) || 60,
+        ),
+      ),
+      enterprise_route_cents: Math.max(
+        0,
+        Math.min(
+          100000,
+          Number(source?.billing_actions?.enterprise_route_cents ?? 5) || 5,
+        ),
+      ),
+      cinema_booking_cents: Math.max(
+        0,
+        Math.min(
+          100000,
+          Number(source?.billing_actions?.cinema_booking_cents ?? 0) || 0,
+        ),
+      ),
+      included_membership_covers_core:
+        source?.billing_actions?.included_membership_covers_core !== false,
     },
     studio_enterprise: {
-      team_collaboration_enabled: !!source?.studio_enterprise?.team_collaboration_enabled,
-      max_team_members: Math.max(1, Math.min(500, Number(source?.studio_enterprise?.max_team_members ?? 5) || 5)),
-      multi_project_enabled: source?.studio_enterprise?.multi_project_enabled !== false,
-      max_projects: Math.max(1, Math.min(1000, Number(source?.studio_enterprise?.max_projects ?? 12) || 12)),
-      enterprise_api_enabled: !!source?.studio_enterprise?.enterprise_api_enabled,
-      enterprise_api_rate_limit_per_minute: Math.max(1, Math.min(100000, Number(source?.studio_enterprise?.enterprise_api_rate_limit_per_minute ?? 600) || 600))
+      team_collaboration_enabled:
+        !!source?.studio_enterprise?.team_collaboration_enabled,
+      max_team_members: Math.max(
+        1,
+        Math.min(
+          500,
+          Number(source?.studio_enterprise?.max_team_members ?? 5) || 5,
+        ),
+      ),
+      multi_project_enabled:
+        source?.studio_enterprise?.multi_project_enabled !== false,
+      max_projects: Math.max(
+        1,
+        Math.min(
+          1000,
+          Number(source?.studio_enterprise?.max_projects ?? 12) || 12,
+        ),
+      ),
+      enterprise_api_enabled:
+        !!source?.studio_enterprise?.enterprise_api_enabled,
+      enterprise_api_rate_limit_per_minute: Math.max(
+        1,
+        Math.min(
+          100000,
+          Number(
+            source?.studio_enterprise?.enterprise_api_rate_limit_per_minute ??
+              600,
+          ) || 600,
+        ),
+      ),
     },
     commerce: {
-      payout_hold_days: Math.max(0, Math.min(90, Number(source?.commerce?.payout_hold_days ?? stripePayoutHoldDaysEnv()) || stripePayoutHoldDaysEnv())),
+      payout_hold_days: Math.max(
+        0,
+        Math.min(
+          90,
+          Number(
+            source?.commerce?.payout_hold_days ?? stripePayoutHoldDaysEnv(),
+          ) || stripePayoutHoldDaysEnv(),
+        ),
+      ),
       payout_sweep_ms: Math.max(
         60_000,
-        Math.min(24 * 60 * 60 * 1000, Number(source?.commerce?.payout_sweep_ms ?? stripePayoutSweepMsEnv()) || stripePayoutSweepMsEnv())
+        Math.min(
+          24 * 60 * 60 * 1000,
+          Number(
+            source?.commerce?.payout_sweep_ms ?? stripePayoutSweepMsEnv(),
+          ) || stripePayoutSweepMsEnv(),
+        ),
       ),
-      min_tip_cents: Math.max(100, Math.min(100_000, Number(source?.commerce?.min_tip_cents ?? 100) || 100))
+      min_tip_cents: Math.max(
+        100,
+        Math.min(
+          100_000,
+          Number(source?.commerce?.min_tip_cents ?? 100) || 100,
+        ),
+      ),
     },
     foryou: {
-      preview_mode: previewValues.has(String(source?.foryou?.preview_mode || "")) ? String(source.foryou.preview_mode) : "auto",
+      preview_mode: previewValues.has(
+        String(source?.foryou?.preview_mode || ""),
+      )
+        ? String(source.foryou.preview_mode)
+        : "auto",
       compact_after_lyrics: source?.foryou?.compact_after_lyrics !== false,
-      hold_ms: Math.max(0, Math.min(30000, Number(source?.foryou?.hold_ms ?? 10000) || 10000)),
-      auto_watch_ms: Math.max(0, Math.min(30000, Number(source?.foryou?.auto_watch_ms ?? 10000) || 10000)),
+      hold_ms: Math.max(
+        0,
+        Math.min(30000, Number(source?.foryou?.hold_ms ?? 10000) || 10000),
+      ),
+      auto_watch_ms: Math.max(
+        0,
+        Math.min(
+          30000,
+          Number(source?.foryou?.auto_watch_ms ?? 10000) || 10000,
+        ),
+      ),
       search_enabled: source?.foryou?.search_enabled !== false,
-      market_limit: Math.max(4, Math.min(48, Number(source?.foryou?.market_limit ?? 12) || 12)),
-      default_sort: ["newest", "oldest", "title", "listen_low", "listen_high"].includes(String(source?.foryou?.default_sort || ""))
+      market_limit: Math.max(
+        4,
+        Math.min(48, Number(source?.foryou?.market_limit ?? 12) || 12),
+      ),
+      default_sort: [
+        "newest",
+        "oldest",
+        "title",
+        "listen_low",
+        "listen_high",
+      ].includes(String(source?.foryou?.default_sort || ""))
         ? String(source.foryou.default_sort)
         : "newest",
-      default_filter: ["all", "single", "triptych", "opera", "owned", "public"].includes(String(source?.foryou?.default_filter || ""))
+      default_filter: [
+        "all",
+        "single",
+        "triptych",
+        "opera",
+        "owned",
+        "public",
+      ].includes(String(source?.foryou?.default_filter || ""))
         ? String(source.foryou.default_filter)
-        : "all"
+        : "all",
     },
     watch: {
-      default_tab: watchTabs.has(String(source?.watch?.default_tab || "")) ? String(source.watch.default_tab) : "mv",
-      preview_limit_sec: Math.max(0, Math.min(180, Number(source?.watch?.preview_limit_sec ?? 30) || 30)),
-      subtitle_scale: Math.max(0.8, Math.min(1.4, Number(source?.watch?.subtitle_scale ?? 1) || 1)),
-      engine_detail: ["compact", "full"].includes(String(source?.watch?.engine_detail || "")) ? String(source.watch.engine_detail) : "full"
+      default_tab: watchTabs.has(String(source?.watch?.default_tab || ""))
+        ? String(source.watch.default_tab)
+        : "mv",
+      preview_limit_sec: Math.max(
+        0,
+        Math.min(180, Number(source?.watch?.preview_limit_sec ?? 30) || 30),
+      ),
+      subtitle_scale: Math.max(
+        0.8,
+        Math.min(1.4, Number(source?.watch?.subtitle_scale ?? 1) || 1),
+      ),
+      engine_detail: ["compact", "full"].includes(
+        String(source?.watch?.engine_detail || ""),
+      )
+        ? String(source.watch.engine_detail)
+        : "full",
+      show_generation_flow: !!source?.watch?.show_generation_flow,
     },
     lyrics: {
-      typewriter_speed: Math.max(8, Math.min(60, Number(source?.lyrics?.typewriter_speed ?? 18) || 18)),
-      font_scale: Math.max(0.85, Math.min(1.4, Number(source?.lyrics?.font_scale ?? 1) || 1)),
-      auto_collapse: source?.lyrics?.auto_collapse !== false
+      typewriter_speed: Math.max(
+        8,
+        Math.min(60, Number(source?.lyrics?.typewriter_speed ?? 18) || 18),
+      ),
+      font_scale: Math.max(
+        0.85,
+        Math.min(1.4, Number(source?.lyrics?.font_scale ?? 1) || 1),
+      ),
+      auto_collapse: source?.lyrics?.auto_collapse !== false,
     },
     music: {
-      waveform_bars: Math.max(12, Math.min(48, Number(source?.music?.waveform_bars ?? 24) || 24)),
-      layer_cards: Math.max(3, Math.min(8, Number(source?.music?.layer_cards ?? 5) || 5))
+      waveform_bars: Math.max(
+        12,
+        Math.min(48, Number(source?.music?.waveform_bars ?? 24) || 24),
+      ),
+      layer_cards: Math.max(
+        3,
+        Math.min(8, Number(source?.music?.layer_cards ?? 5) || 5),
+      ),
     },
     video: {
-      storyboard_frames: Math.max(4, Math.min(16, Number(source?.video?.storyboard_frames ?? 8) || 8)),
-      camera_slots: Math.max(2, Math.min(8, Number(source?.video?.camera_slots ?? 4) || 4))
+      storyboard_frames: Math.max(
+        4,
+        Math.min(16, Number(source?.video?.storyboard_frames ?? 8) || 8),
+      ),
+      camera_slots: Math.max(
+        2,
+        Math.min(8, Number(source?.video?.camera_slots ?? 4) || 4),
+      ),
     },
     delivery_reports: {
-      default_kind: reportKinds.has(String(source?.delivery_reports?.default_kind || ""))
+      default_kind: reportKinds.has(
+        String(source?.delivery_reports?.default_kind || ""),
+      )
         ? String(source.delivery_reports.default_kind)
         : "briefing_pack",
       preview_expanded: !!source?.delivery_reports?.preview_expanded,
-      focus_section: ["overview", "dashboard", "export", "history"].includes(String(source?.delivery_reports?.focus_section || ""))
+      focus_section: ["overview", "dashboard", "export", "history"].includes(
+        String(source?.delivery_reports?.focus_section || ""),
+      )
         ? String(source.delivery_reports.focus_section)
         : "overview",
-      density: ["compact", "full"].includes(String(source?.delivery_reports?.density || ""))
+      density: ["compact", "full"].includes(
+        String(source?.delivery_reports?.density || ""),
+      )
         ? String(source.delivery_reports.density)
-        : "full"
+        : "full",
     },
     delivery_ops: {
-      recovery_limit: Math.max(4, Math.min(20, Number(source?.delivery_ops?.recovery_limit ?? 8) || 8)),
-      focus_lane: ["overview", "subscriptions", "logs", "recovery", "actions"].includes(String(source?.delivery_ops?.focus_lane || ""))
+      recovery_limit: Math.max(
+        4,
+        Math.min(20, Number(source?.delivery_ops?.recovery_limit ?? 8) || 8),
+      ),
+      focus_lane: [
+        "overview",
+        "subscriptions",
+        "logs",
+        "recovery",
+        "actions",
+      ].includes(String(source?.delivery_ops?.focus_lane || ""))
         ? String(source.delivery_ops.focus_lane)
         : "overview",
-      alert_density: ["compact", "full"].includes(String(source?.delivery_ops?.alert_density || ""))
+      alert_density: ["compact", "full"].includes(
+        String(source?.delivery_ops?.alert_density || ""),
+      )
         ? String(source.delivery_ops.alert_density)
         : "full",
-      auto_refresh: source?.delivery_ops?.auto_refresh !== false
-    }
+      auto_refresh: source?.delivery_ops?.auto_refresh !== false,
+    },
   };
 }
 
@@ -1235,7 +2460,7 @@ function decodeDataUrlToFile(dataUrl: string) {
   try {
     return {
       mime,
-      buffer: Buffer.from(encoded, "base64")
+      buffer: Buffer.from(encoded, "base64"),
     };
   } catch {
     return null;
@@ -1251,26 +2476,37 @@ function extensionForMime(mime: string, fallback = ".bin") {
     "image/gif": ".gif",
     "video/mp4": ".mp4",
     "video/webm": ".webm",
-    "video/quicktime": ".mov"
+    "video/quicktime": ".mov",
   };
   return map[String(mime || "").toLowerCase()] || fallback;
 }
 
 function slugify(value: string) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80) || "workspace";
+  return (
+    String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80) || "workspace"
+  );
 }
 
-function inferWorkPricingPreset(args: { title?: string | null | undefined; style?: string | null | undefined; workType?: unknown }) {
+function inferWorkPricingPreset(args: {
+  title?: string | null | undefined;
+  style?: string | null | undefined;
+  workType?: unknown;
+}) {
   const explicitType = normalizeWorkType(args.workType);
-  if (args.workType !== undefined && args.workType !== null && String(args.workType || "").trim()) {
+  if (
+    args.workType !== undefined &&
+    args.workType !== null &&
+    String(args.workType || "").trim()
+  ) {
     return pricingPresetForWorkType(explicitType);
   }
-  const haystack = `${String(args.title || "")} ${String(args.style || "")}`.toLowerCase();
+  const haystack =
+    `${String(args.title || "")} ${String(args.style || "")}`.toLowerCase();
   const isOpera = /(opera|歌剧|opéra)/i.test(haystack);
   const isTriptych = /(trilogy|triptych|三部曲)/i.test(haystack);
   if (isOpera) {
@@ -1300,10 +2536,20 @@ function roleForEmail(email: string | null | undefined) {
   return "user";
 }
 
-type MembershipTier = "guest" | "free" | "starter" | "pro" | "studio" | "enterprise" | "vip" | "admin";
+type MembershipTier =
+  | "guest"
+  | "free"
+  | "starter"
+  | "pro"
+  | "studio"
+  | "enterprise"
+  | "vip"
+  | "admin";
 
 function normalizeMembershipTier(value: unknown): MembershipTier {
-  const raw = String(value || "").trim().toLowerCase();
+  const raw = String(value || "")
+    .trim()
+    .toLowerCase();
   if (raw === "free") return "free";
   if (raw === "starter") return "starter";
   if (raw === "pro") return "pro";
@@ -1321,7 +2567,10 @@ function membershipPolicyForTier(tier: MembershipTier) {
       monthlyGenerationLimit: null as number | null,
       canSellWorks: true,
       canUseSellerPanel: true,
-      canManageReports: true
+      canManageReports: true,
+      canUseBackgroundJobs: true,
+      backgroundJobLimit: null as number | null,
+      backgroundConcurrentJobLimit: 8,
     };
   }
   if (tier === "vip") {
@@ -1330,7 +2579,10 @@ function membershipPolicyForTier(tier: MembershipTier) {
       monthlyGenerationLimit: null as number | null,
       canSellWorks: true,
       canUseSellerPanel: true,
-      canManageReports: true
+      canManageReports: true,
+      canUseBackgroundJobs: true,
+      backgroundJobLimit: 24,
+      backgroundConcurrentJobLimit: 6,
     };
   }
   if (tier === "pro") {
@@ -1339,7 +2591,10 @@ function membershipPolicyForTier(tier: MembershipTier) {
       monthlyGenerationLimit: 100,
       canSellWorks: true,
       canUseSellerPanel: true,
-      canManageReports: false
+      canManageReports: false,
+      canUseBackgroundJobs: true,
+      backgroundJobLimit: 2,
+      backgroundConcurrentJobLimit: 1,
     };
   }
   if (tier === "studio") {
@@ -1348,7 +2603,10 @@ function membershipPolicyForTier(tier: MembershipTier) {
       monthlyGenerationLimit: 300,
       canSellWorks: true,
       canUseSellerPanel: true,
-      canManageReports: true
+      canManageReports: true,
+      canUseBackgroundJobs: true,
+      backgroundJobLimit: 6,
+      backgroundConcurrentJobLimit: 2,
     };
   }
   if (tier === "enterprise") {
@@ -1357,7 +2615,10 @@ function membershipPolicyForTier(tier: MembershipTier) {
       monthlyGenerationLimit: null as number | null,
       canSellWorks: true,
       canUseSellerPanel: true,
-      canManageReports: true
+      canManageReports: true,
+      canUseBackgroundJobs: true,
+      backgroundJobLimit: 20,
+      backgroundConcurrentJobLimit: 4,
     };
   }
   if (tier === "starter") {
@@ -1366,7 +2627,10 @@ function membershipPolicyForTier(tier: MembershipTier) {
       monthlyGenerationLimit: 30,
       canSellWorks: true,
       canUseSellerPanel: true,
-      canManageReports: false
+      canManageReports: false,
+      canUseBackgroundJobs: false,
+      backgroundJobLimit: 0,
+      backgroundConcurrentJobLimit: 0,
     };
   }
   if (tier === "free") {
@@ -1375,7 +2639,10 @@ function membershipPolicyForTier(tier: MembershipTier) {
       monthlyGenerationLimit: 3,
       canSellWorks: false,
       canUseSellerPanel: false,
-      canManageReports: false
+      canManageReports: false,
+      canUseBackgroundJobs: false,
+      backgroundJobLimit: 0,
+      backgroundConcurrentJobLimit: 0,
     };
   }
   return {
@@ -1383,17 +2650,22 @@ function membershipPolicyForTier(tier: MembershipTier) {
     monthlyGenerationLimit: 0,
     canSellWorks: false,
     canUseSellerPanel: false,
-    canManageReports: false
+    canManageReports: false,
+    canUseBackgroundJobs: false,
+    backgroundJobLimit: 0,
+    backgroundConcurrentJobLimit: 0,
   };
 }
 
-async function resolveUserAccessProfile(user: { id: string; email?: string | null } | null) {
+async function resolveUserAccessProfile(
+  user: { id: string; email?: string | null } | null,
+) {
   if (!user?.id) {
     return {
       role: "guest",
       tier: "guest" as MembershipTier,
       policy: membershipPolicyForTier("guest"),
-      billingAccount: null
+      billingAccount: null,
     };
   }
   const role = roleForEmail(user.email);
@@ -1402,12 +2674,14 @@ async function resolveUserAccessProfile(user: { id: string; email?: string | nul
       role,
       tier: "admin" as MembershipTier,
       policy: membershipPolicyForTier("admin"),
-      billingAccount: null
+      billingAccount: null,
     };
   }
   const { account } = await ensureBillingAccount(user.id);
   const tier = normalizeMembershipTier(account?.membership_tier || "free");
-  const creatorPolicy = await getCreatorCommercePolicySettings().catch(() => null);
+  const creatorPolicy = await getCreatorCommercePolicySettings().catch(
+    () => null,
+  );
   const basePolicy = membershipPolicyForTier(tier);
   const policy = creatorPolicy
     ? {
@@ -1421,14 +2695,14 @@ async function resolveUserAccessProfile(user: { id: string; email?: string | nul
                 ? creatorPolicy.studioMonthlyLimit
                 : tier === "enterprise"
                   ? creatorPolicy.enterpriseMonthlyLimit
-                  : basePolicy.monthlyGenerationLimit
+                  : basePolicy.monthlyGenerationLimit,
       }
     : basePolicy;
   return {
     role,
     tier,
     policy,
-    billingAccount: account
+    billingAccount: account,
   };
 }
 
@@ -1443,7 +2717,8 @@ async function ensureStudioWorkspaceForUser(args: {
     return null;
   }
   const workspaceName =
-    String(args.displayName || args.email || "CSS Studio Workspace").trim() || "CSS Studio Workspace";
+    String(args.displayName || args.email || "CSS Studio Workspace").trim() ||
+    "CSS Studio Workspace";
   const queueLane = queueLaneForTier(args.tier);
   const result = await withClient(async (client) => {
     const existing = await client.query(
@@ -1451,7 +2726,7 @@ async function ensureStudioWorkspaceForUser(args: {
        FROM studio_workspaces
        WHERE owner_user_id = $1
        LIMIT 1`,
-      [args.userId]
+      [args.userId],
     );
     let row = existing.rows[0];
     if (!row) {
@@ -1467,8 +2742,8 @@ async function ensureStudioWorkspaceForUser(args: {
           args.tier,
           queueLane,
           args.tier === "enterprise",
-          JSON.stringify({ auto_created: true })
-        ]
+          JSON.stringify({ auto_created: true }),
+        ],
       );
       row = inserted.rows[0];
     } else {
@@ -1480,7 +2755,7 @@ async function ensureStudioWorkspaceForUser(args: {
              updated_at = now()
          WHERE id = $1
          RETURNING id, owner_user_id, name, slug, tier_snapshot, queue_lane, is_enterprise, meta, created_at, updated_at`,
-        [row.id, args.tier, queueLane, args.tier === "enterprise"]
+        [row.id, args.tier, queueLane, args.tier === "enterprise"],
       );
       row = updated.rows[0];
     }
@@ -1490,7 +2765,7 @@ async function ensureStudioWorkspaceForUser(args: {
        ) VALUES ($1, $2, 'owner', $3::jsonb)
        ON CONFLICT (workspace_id, user_id)
        DO UPDATE SET role = 'owner', updated_at = now()`,
-      [row.id, args.userId, JSON.stringify({ auto_created: true })]
+      [row.id, args.userId, JSON.stringify({ auto_created: true })],
     );
     const membersRes = await client.query(
       `SELECT m.id, m.user_id, m.role, m.created_at, u.display_name, u.email, u.avatar_url
@@ -1498,7 +2773,7 @@ async function ensureStudioWorkspaceForUser(args: {
        LEFT JOIN users u ON u.id = m.user_id
        WHERE m.workspace_id = $1
        ORDER BY CASE WHEN m.role = 'owner' THEN 0 ELSE 1 END, m.created_at ASC`,
-      [row.id]
+      [row.id],
     );
     const projectsRes = await client.query(
       `SELECT id, title, status, queue_lane, meta, created_at, updated_at
@@ -1506,23 +2781,26 @@ async function ensureStudioWorkspaceForUser(args: {
        WHERE workspace_id = $1
        ORDER BY updated_at DESC, created_at DESC
        LIMIT 24`,
-      [row.id]
+      [row.id],
     );
     return {
       workspace: row,
       members: membersRes.rows,
       projects: projectsRes.rows,
-      policy
+      policy,
     };
   });
   return {
     ...result,
     canCollaborate: policy.teamCollaborationEnabled,
-    canCreateProjects: policy.multiProjectEnabled
+    canCreateProjects: policy.multiProjectEnabled,
   };
 }
 
-async function listEnterpriseApiUsageSnapshot(args: { userId: string; rpm: number }) {
+async function listEnterpriseApiUsageSnapshot(args: {
+  userId: string;
+  rpm: number;
+}) {
   const currentMinuteRes = await withClient((client) =>
     client.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count
@@ -1530,8 +2808,8 @@ async function listEnterpriseApiUsageSnapshot(args: { userId: string; rpm: numbe
        WHERE user_id = $1
          AND route LIKE '/api/enterprise/%'
          AND created_at >= now() - interval '1 minute'`,
-      [args.userId]
-    )
+      [args.userId],
+    ),
   );
   const recentRes = await withClient((client) =>
     client.query(
@@ -1541,15 +2819,15 @@ async function listEnterpriseApiUsageSnapshot(args: { userId: string; rpm: numbe
          AND route LIKE '/api/enterprise/%'
        ORDER BY created_at DESC
        LIMIT 12`,
-      [args.userId]
-    )
+      [args.userId],
+    ),
   );
   const usedThisMinute = Number(currentMinuteRes.rows[0]?.count || 0);
   return {
     rpm_limit: args.rpm,
     used_this_minute: usedThisMinute,
     remaining_this_minute: Math.max(0, args.rpm - usedThisMinute),
-    recent_routes: recentRes.rows
+    recent_routes: recentRes.rows,
   };
 }
 
@@ -1563,8 +2841,8 @@ async function listCinemaBookingRequests(userId: string, limit = 12) {
        WHERE user_id = $1
        ORDER BY created_at DESC
        LIMIT $2`,
-      [userId, safeLimit]
-    )
+      [userId, safeLimit],
+    ),
   );
   return result.rows;
 }
@@ -1581,12 +2859,12 @@ async function enforceEnterpriseApiRoute(args: {
       ok: false as const,
       code: "ENTERPRISE_API_DISABLED",
       settings,
-      usage: null
+      usage: null,
     };
   }
   const usage = await listEnterpriseApiUsageSnapshot({
     userId: args.userId,
-    rpm: settings.enterpriseApiRateLimitPerMinute
+    rpm: settings.enterpriseApiRateLimitPerMinute,
   });
   if (usage.used_this_minute >= settings.enterpriseApiRateLimitPerMinute) {
     await withClient((client) =>
@@ -1600,21 +2878,21 @@ async function enforceEnterpriseApiRoute(args: {
           JSON.stringify({
             blocked: "enterprise_rate_limit",
             tier: args.tier,
-            rpm_limit: settings.enterpriseApiRateLimitPerMinute
-          })
-        ]
-      )
+            rpm_limit: settings.enterpriseApiRateLimitPerMinute,
+          }),
+        ],
+      ),
     );
     return {
       ok: false as const,
       code: "ENTERPRISE_API_RATE_LIMITED",
       settings,
-      usage
+      usage,
     };
   }
   const access = await resolveUserAccessProfile({
     id: args.userId,
-    ...(args.email !== undefined ? { email: args.email } : {})
+    ...(args.email !== undefined ? { email: args.email } : {}),
   });
   const billing = await consumeBillableAction({
     userId: args.userId,
@@ -1626,15 +2904,15 @@ async function enforceEnterpriseApiRoute(args: {
       enterprise_api: true,
       tier: args.tier,
       queue_lane: queueLaneForTier(args.tier),
-      caller_email: normalizeEmail(args.email)
-    }
+      caller_email: normalizeEmail(args.email),
+    },
   });
   if (!billing.allowed) {
     return {
       ok: false as const,
       code: "ENTERPRISE_API_BILLING_BLOCKED",
       settings,
-      usage
+      usage,
     };
   }
   return {
@@ -1643,34 +2921,78 @@ async function enforceEnterpriseApiRoute(args: {
     settings,
     usage: await listEnterpriseApiUsageSnapshot({
       userId: args.userId,
-      rpm: settings.enterpriseApiRateLimitPerMinute
-    })
+      rpm: settings.enterpriseApiRateLimitPerMinute,
+    }),
   };
 }
 
 function buildCssmvThumbnailPrompt(
   title: string,
   subtitle: string,
-  lyrics: string[]
+  lyrics: string[],
+  visualDirective = "",
 ) {
   const safeTitle = String(title || "CSS MV").trim() || "CSS MV";
   const safeSubtitle = String(subtitle || "").trim();
+  const safeVisualDirective = String(visualDirective || "").trim();
   const lyricExcerpt = (Array.isArray(lyrics) ? lyrics : [])
     .map((line) => String(line || "").trim())
     .filter(Boolean)
     .slice(0, 8);
   const lyricImagery = lyricExcerpt.slice(0, 4).join(" / ");
   const lyricMood = lyricExcerpt.slice(4).join(" / ");
+  const femaleOptOutSignals = [
+    "不要出现美女",
+    "不要美女",
+    "不要女性",
+    "不要女人",
+    "不要女生",
+    "不要女孩",
+    "不要女主",
+    "no woman",
+    "no women",
+    "no girl",
+    "no girls",
+    "no female",
+    "without woman",
+    "without women",
+    "without girl",
+    "without female",
+  ];
+  const femalePreferenceContext = [
+    safeTitle,
+    safeSubtitle,
+    safeVisualDirective,
+    lyricExcerpt.join(" "),
+  ]
+    .join(" ")
+    .toLowerCase();
+  const shouldAvoidDefaultFemaleFigure = femaleOptOutSignals.some((token) =>
+    femalePreferenceContext.includes(token.toLowerCase()),
+  );
   return [
     "Create a square, album-grade cover image for an original music-video work.",
     `Title: ${safeTitle}.`,
     safeSubtitle ? `Musical style and atmosphere: ${safeSubtitle}.` : "",
+    safeVisualDirective ? `Additional visual direction: ${safeVisualDirective}.` : "",
     lyricImagery ? `Primary lyrical imagery: ${lyricImagery}.` : "",
-    lyricMood ? `Secondary lyrical mood and emotional texture: ${lyricMood}.` : "",
+    lyricMood
+      ? `Secondary lyrical mood and emotional texture: ${lyricMood}.`
+      : "",
     "Base the visual direction on the title and lyric imagery, not on generic karaoke UI art.",
+    "Keep the cultural world coherent inside a single work. If the lyrics imply one cultural sphere, nation, dynasty, folklore, city, or civilizational setting, stay inside that same world for all variants unless the lyrics explicitly ask for cross-cultural fusion.",
+    "When generating variants for one title, vary wardrobe, mood, lensing, age of styling, and composition inside the same culture rather than mixing unrelated continents, ethnic groups, or civilizational symbols into one work.",
     "Favor poetic symbolism, cinematic depth, distinct composition, strong atmosphere, refined color storytelling, and memorable visual identity.",
+    "Keep the artwork feeling fresh across runs: vary aesthetic direction, styling language, camera framing, and character presentation so repeated generations do not all look like the same person or the same mood.",
+    "When a human figure appears, prefer graceful, cultured, high-end editorial beauty with dignity, elegance, and emotional nuance rather than sorrowful misery.",
+    "Across different generations, allow diversity in ethnicity, nationality, cultural background, fashion language, and facial features while remaining tasteful and premium.",
+    "The woman, if present, may read as serene, luminous, intelligent, youthful, gently shy, subtly charming, saintly, noble, or quietly romantic. Avoid defaulting to grief-stricken, exhausted, haunted, or permanently frowning expressions unless the lyrics explicitly demand tragedy.",
+    "Favor adult subjects only. Keep the portrayal non-sexual, non-exploitative, and artistically elevated.",
+    shouldAvoidDefaultFemaleFigure
+      ? "Do not introduce any extra female figure unless the provided lyrics or visual direction explicitly require one."
+      : "Include one elegant adult woman somewhere in the composition as a tasteful supporting presence, not necessarily the protagonist. Keep her non-sexual, visually refined, naturally integrated into the scene, and vary her mood, styling, and cultural identity across generations so the artwork feels vivid, elevated, and not repetitive.",
     "Avoid bland gradients, empty placeholder circles, default mockup aesthetics, and repetitive template looks.",
-    "Do not render any words, title text, subtitles, logos, watermarks, interface chrome, or typography in the image."
+    "Do not render any words, title text, subtitles, logos, watermarks, interface chrome, or typography in the image.",
   ]
     .filter(Boolean)
     .join(" ");
@@ -1707,26 +3029,40 @@ function cleanupPasskeyState() {
 }
 
 function currentOrigin(req: express.Request) {
-  const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol || "http";
-  const hostHeader = (req.headers["x-forwarded-host"] as string | string[] | undefined) || req.headers.host;
-  const host = Array.isArray(hostHeader) ? hostHeader[0] : (hostHeader || "localhost:3000");
+  const proto =
+    (req.headers["x-forwarded-proto"] as string) || req.protocol || "http";
+  const hostHeader =
+    (req.headers["x-forwarded-host"] as string | string[] | undefined) ||
+    req.headers.host;
+  const host = Array.isArray(hostHeader)
+    ? hostHeader[0]
+    : hostHeader || "localhost:3000";
   return `${proto}://${host}`;
 }
 
 function currentRpId(req: express.Request) {
-  const hostHeader = (req.headers["x-forwarded-host"] as string | string[] | undefined) || req.headers.host;
-  const hostRaw = Array.isArray(hostHeader) ? (hostHeader[0] || "localhost:3000") : (hostHeader || "localhost:3000");
-  const host = ((hostRaw.split(":")[0] ?? "localhost") as string).trim().toLowerCase();
+  const hostHeader =
+    (req.headers["x-forwarded-host"] as string | string[] | undefined) ||
+    req.headers.host;
+  const hostRaw = Array.isArray(hostHeader)
+    ? hostHeader[0] || "localhost:3000"
+    : hostHeader || "localhost:3000";
+  const host = ((hostRaw.split(":")[0] ?? "localhost") as string)
+    .trim()
+    .toLowerCase();
   return host || "localhost";
 }
 
-function passkeySubject(req: express.Request, user: Awaited<ReturnType<typeof getSessionUser>>) {
+function passkeySubject(
+  req: express.Request,
+  user: Awaited<ReturnType<typeof getSessionUser>>,
+) {
   if (user?.id) {
     return {
       key: `u:${user.id}`,
       id: user.id,
       name: user.email || user.id,
-      displayName: user.display_name || user.email || "CSS Studio"
+      displayName: user.display_name || user.email || "CSS Studio",
     };
   }
   const existing = (req.session as any)?.passkey_subject_key;
@@ -1735,7 +3071,7 @@ function passkeySubject(req: express.Request, user: Awaited<ReturnType<typeof ge
       key: existing,
       id: `guest-${existing.replace(/^s:/, "")}`,
       name: `guest-${existing.replace(/^s:/, "")}`,
-      displayName: "Guest"
+      displayName: "Guest",
     };
   }
   const key = `s:${req.sessionID}`;
@@ -1744,11 +3080,13 @@ function passkeySubject(req: express.Request, user: Awaited<ReturnType<typeof ge
     key,
     id: `guest-${req.sessionID}`,
     name: `guest-${req.sessionID}`,
-    displayName: "Guest"
+    displayName: "Guest",
   };
 }
 
-async function listPasskeyCreds(subjectKey: string): Promise<Array<{ id: string; transports?: string[] }>> {
+async function listPasskeyCreds(
+  subjectKey: string,
+): Promise<Array<{ id: string; transports?: string[] }>> {
   if (!DATABASE_URL) {
     return passkeyCreds.get(subjectKey) || [];
   }
@@ -1756,19 +3094,24 @@ async function listPasskeyCreds(subjectKey: string): Promise<Array<{ id: string;
   const result: QueryResult<Row> = await withClient((client) =>
     client.query<Row>(
       "SELECT credential_id, transports FROM passkey_credentials WHERE subject_key = $1 ORDER BY created_at DESC",
-      [subjectKey]
-    )
+      [subjectKey],
+    ),
   );
   return result.rows.map((r) => ({
     id: r.credential_id,
     transports: Array.isArray(r.transports)
       ? r.transports.filter((x): x is string => typeof x === "string")
-      : ["internal"]
+      : ["internal"],
   }));
 }
 
-async function savePasskeyCred(subjectKey: string, credId: string, transports?: string[]) {
-  const ts = Array.isArray(transports) && transports.length ? transports : ["internal"];
+async function savePasskeyCred(
+  subjectKey: string,
+  credId: string,
+  transports?: string[],
+) {
+  const ts =
+    Array.isArray(transports) && transports.length ? transports : ["internal"];
   if (!DATABASE_URL) {
     const list = passkeyCreds.get(subjectKey) || [];
     if (!list.some((x) => x.id === credId)) {
@@ -1783,8 +3126,8 @@ async function savePasskeyCred(subjectKey: string, credId: string, transports?: 
        VALUES ($1, $2, $3::jsonb, now())
        ON CONFLICT (credential_id)
        DO UPDATE SET subject_key = EXCLUDED.subject_key, transports = EXCLUDED.transports, updated_at = now()`,
-      [subjectKey, credId, JSON.stringify(ts)]
-    )
+      [subjectKey, credId, JSON.stringify(ts)],
+    ),
   );
 }
 
@@ -1802,7 +3145,10 @@ async function passkeyCountBySubject(subjectKey: string): Promise<number> {
   }
   type Row = { c: string };
   const result: QueryResult<Row> = await withClient((client) =>
-    client.query<Row>("SELECT COUNT(*)::text AS c FROM passkey_credentials WHERE subject_key = $1", [subjectKey])
+    client.query<Row>(
+      "SELECT COUNT(*)::text AS c FROM passkey_credentials WHERE subject_key = $1",
+      [subjectKey],
+    ),
   );
   return Number(result.rows[0]?.c || "0");
 }
@@ -1826,19 +3172,21 @@ async function migrateGuestPasskeysToUser(sessionId: string, userId: string) {
       `UPDATE passkey_credentials
        SET subject_key = $2, updated_at = now()
        WHERE subject_key = $1`,
-      [fromKey, toKey]
-    )
+      [fromKey, toKey],
+    ),
   );
 }
 
 async function buildPasskeyRegisterOptions(req: express.Request) {
   const user = await getSessionUser(req);
   const subject = passkeySubject(req, user);
-  const challenge = b64url(Buffer.from(crypto.randomUUID().replace(/-/g, ""), "utf8"));
+  const challenge = b64url(
+    Buffer.from(crypto.randomUUID().replace(/-/g, ""), "utf8"),
+  );
   passkeyState.set(subject.key, {
     challenge,
     kind: "register",
-    expireAt: Date.now() + 5 * 60 * 1000
+    expireAt: Date.now() + 5 * 60 * 1000,
   });
   const existing = await listPasskeyCreds(subject.key);
   return {
@@ -1848,29 +3196,37 @@ async function buildPasskeyRegisterOptions(req: express.Request) {
       user: {
         id: b64url(subject.id),
         name: subject.name,
-        displayName: subject.displayName
+        displayName: subject.displayName,
       },
-      pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+      pubKeyCredParams: [
+        { type: "public-key", alg: -7 },
+        { type: "public-key", alg: -257 },
+      ],
       timeout: 60000,
       attestation: "none",
-      authenticatorSelection: { residentKey: "preferred", userVerification: "preferred" },
+      authenticatorSelection: {
+        residentKey: "preferred",
+        userVerification: "preferred",
+      },
       excludeCredentials: existing.map((c) => ({
         id: c.id,
         type: "public-key",
-        transports: c.transports || ["internal"]
-      }))
-    }
+        transports: c.transports || ["internal"],
+      })),
+    },
   };
 }
 
 async function buildPasskeyLoginOptions(req: express.Request) {
   const user = await getSessionUser(req);
   const subject = passkeySubject(req, user);
-  const challenge = b64url(Buffer.from(crypto.randomUUID().replace(/-/g, ""), "utf8"));
+  const challenge = b64url(
+    Buffer.from(crypto.randomUUID().replace(/-/g, ""), "utf8"),
+  );
   passkeyState.set(subject.key, {
     challenge,
     kind: "login",
-    expireAt: Date.now() + 5 * 60 * 1000
+    expireAt: Date.now() + 5 * 60 * 1000,
   });
   const existing = await listPasskeyCreds(subject.key);
   return {
@@ -1882,23 +3238,52 @@ async function buildPasskeyLoginOptions(req: express.Request) {
       allowCredentials: existing.map((c) => ({
         id: c.id,
         type: "public-key",
-        transports: c.transports || ["internal"]
-      }))
+        transports: c.transports || ["internal"],
+      })),
     },
     empty: existing.length === 0,
-    origin: currentOrigin(req)
+    origin: currentOrigin(req),
   };
 }
 
 function providerConfig() {
   const providers = [
-    { id: "google", name: "Google", env: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"] },
-    { id: "github", name: "GitHub", env: ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"] },
+    {
+      id: "google",
+      name: "Google",
+      env: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
+    },
+    {
+      id: "github",
+      name: "GitHub",
+      env: ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"],
+    },
     { id: "x", name: "X", env: ["X_CLIENT_ID", "X_CLIENT_SECRET"] },
-    { id: "bsky", name: "Bluesky", env: ["BSKY_CLIENT_ID", "BSKY_CLIENT_SECRET"] },
-    { id: "facebook", name: "Facebook", env: ["FACEBOOK_CLIENT_ID", "FACEBOOK_CLIENT_SECRET"] },
-    { id: "wechat", name: "WeChat", env: ["WECHAT_CLIENT_ID", "WECHAT_CLIENT_SECRET"] },
-    { id: "apple", name: "Apple", env: ["APPLE_CLIENT_ID", "APPLE_TEAM_ID", "APPLE_KEY_ID", "APPLE_PRIVATE_KEY"] }
+    {
+      id: "bsky",
+      name: "Bluesky",
+      env: ["BSKY_CLIENT_ID", "BSKY_CLIENT_SECRET"],
+    },
+    {
+      id: "facebook",
+      name: "Facebook",
+      env: ["FACEBOOK_CLIENT_ID", "FACEBOOK_CLIENT_SECRET"],
+    },
+    {
+      id: "wechat",
+      name: "WeChat",
+      env: ["WECHAT_CLIENT_ID", "WECHAT_CLIENT_SECRET"],
+    },
+    {
+      id: "apple",
+      name: "Apple",
+      env: [
+        "APPLE_CLIENT_ID",
+        "APPLE_TEAM_ID",
+        "APPLE_KEY_ID",
+        "APPLE_PRIVATE_KEY",
+      ],
+    },
   ];
   const generic = [
     "tiktok",
@@ -1917,29 +3302,36 @@ function providerConfig() {
     "qq",
     "douyin",
     "notion",
-    "dropbox"
+    "dropbox",
   ].map((id) => {
     const k = id.toUpperCase();
     return {
       id,
       name: id.charAt(0).toUpperCase() + id.slice(1),
-      env: [`${k}_CLIENT_ID`, `${k}_CLIENT_SECRET`, `${k}_AUTH_URL`, `${k}_TOKEN_URL`, `${k}_USERINFO_URL`]
+      env: [
+        `${k}_CLIENT_ID`,
+        `${k}_CLIENT_SECRET`,
+        `${k}_AUTH_URL`,
+        `${k}_TOKEN_URL`,
+        `${k}_USERINFO_URL`,
+      ],
     };
   });
   return [...providers, ...generic].map((provider) => {
     const enabled =
       provider.id === "bsky"
-        ? (
-            (Boolean(process.env.BSKY_CLIENT_ID) && Boolean(process.env.BSKY_CLIENT_SECRET)) ||
-            (Boolean(process.env.BLUESKY_CLIENT_ID) && Boolean(process.env.BLUESKY_CLIENT_SECRET)) ||
-            (Boolean(process.env.BLUESKY_HANDLE) && Boolean(process.env.BLUESKY_APP_PASSWORD))
-          )
+        ? (Boolean(process.env.BSKY_CLIENT_ID) &&
+            Boolean(process.env.BSKY_CLIENT_SECRET)) ||
+          (Boolean(process.env.BLUESKY_CLIENT_ID) &&
+            Boolean(process.env.BLUESKY_CLIENT_SECRET)) ||
+          (Boolean(process.env.BLUESKY_HANDLE) &&
+            Boolean(process.env.BLUESKY_APP_PASSWORD))
         : provider.env.every((key) => Boolean(process.env[key]));
     return {
       id: provider.id,
       name: provider.name,
       enabled,
-      url: enabled ? `/auth/${provider.id}` : ""
+      url: enabled ? `/auth/${provider.id}` : "",
     };
   });
 }
@@ -1948,12 +3340,17 @@ function authProviderDiagnostics(providerId: string, req: express.Request) {
   const providers = providerConfig();
   const provider = providers.find((item) => item.id === providerId);
   const githubCallbackUrl =
-    process.env.GITHUB_REDIRECT_URI || `${appBaseUrl(req)}/api/auth/github/callback`;
+    process.env.GITHUB_REDIRECT_URI ||
+    `${appBaseUrl(req)}/api/auth/github/callback`;
   const missingEnv =
     providerId === "github"
-      ? ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"].filter((key) => !process.env[key])
+      ? ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"].filter(
+          (key) => !process.env[key],
+        )
       : providerId === "google"
-        ? ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"].filter((key) => !process.env[key])
+        ? ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"].filter(
+            (key) => !process.env[key],
+          )
         : [];
 
   return {
@@ -1961,59 +3358,85 @@ function authProviderDiagnostics(providerId: string, req: express.Request) {
     enabled: Boolean(provider?.enabled),
     missing_env: missingEnv,
     start_url: provider?.enabled ? `${appBaseUrl(req)}/auth/${providerId}` : "",
-    callback_url: providerId === "github" ? githubCallbackUrl : `${appBaseUrl(req)}/auth/${providerId}/callback`
+    callback_url:
+      providerId === "github"
+        ? githubCallbackUrl
+        : `${appBaseUrl(req)}/auth/${providerId}/callback`,
   };
 }
 
 function handleAuthDiagnostics(req: express.Request, res: express.Response) {
   noStore(res);
-  const providerId = String(req.query.provider || "").trim().toLowerCase();
+  const providerId = String(req.query.provider || "")
+    .trim()
+    .toLowerCase();
   if (providerId) {
-    return res.json(okData({ diagnostic: authProviderDiagnostics(providerId, req) }));
+    return res.json(
+      okData({ diagnostic: authProviderDiagnostics(providerId, req) }),
+    );
   }
 
   return res.json(
     okData({
-      diagnostics: providerConfig().map((provider) => authProviderDiagnostics(provider.id, req))
-    })
+      diagnostics: providerConfig().map((provider) =>
+        authProviderDiagnostics(provider.id, req),
+      ),
+    }),
   );
 }
 
-async function handleGitHubAuthStart(req: express.Request, res: express.Response) {
+async function handleGitHubAuthStart(
+  req: express.Request,
+  res: express.Response,
+) {
   noStore(res);
   try {
     res.setHeader("X-GitHub-Flow-Version", "no-redirect-uri");
     const clientId = process.env.GITHUB_CLIENT_ID || "";
     const clientSecret = process.env.GITHUB_CLIENT_SECRET || "";
-    if (!clientId || !clientSecret) return res.status(503).send("github_not_configured");
+    if (!clientId || !clientSecret)
+      return res.status(503).send("github_not_configured");
     const state = randomHex(16);
     setOAuthState(req, "github", { state, createdAt: Date.now() });
     const q = new URLSearchParams({
       client_id: clientId,
       scope: "read:user user:email",
-      state
+      state,
     });
-    return res.redirect(302, `https://github.com/login/oauth/authorize?${q.toString()}`);
+    return res.redirect(
+      302,
+      `https://github.com/login/oauth/authorize?${q.toString()}`,
+    );
   } catch {
     return res.status(500).send("github_auth_start_failed");
   }
 }
 
-const appleJwks = createRemoteJWKSet(new URL("https://appleid.apple.com/auth/keys"));
+const appleJwks = createRemoteJWKSet(
+  new URL("https://appleid.apple.com/auth/keys"),
+);
 
 type OAuthSessionState = {
   state: string;
   nonce?: string;
   codeVerifier?: string;
+  userId?: string;
   createdAt: number;
 };
 
-function setOAuthState(req: express.Request, provider: string, state: OAuthSessionState) {
+function setOAuthState(
+  req: express.Request,
+  provider: string,
+  state: OAuthSessionState,
+) {
   const k = `oauth_state_${provider}`;
   (req.session as any)[k] = state;
 }
 
-function getOAuthState(req: express.Request, provider: string): OAuthSessionState | null {
+function getOAuthState(
+  req: express.Request,
+  provider: string,
+): OAuthSessionState | null {
   const k = `oauth_state_${provider}`;
   const v = (req.session as any)[k];
   (req.session as any)[k] = null;
@@ -2059,19 +3482,20 @@ function buildCssmvSongSeedPrompt(input: {
           ? "cinema scene seed"
           : "single song or opera seed";
   const blueprint = buildCssmvCreativeBlueprint(input);
-  const structurePlan = normalizeSongSeedStructurePlan(input.constraints?.structure_plan);
-  const languageDirective =
-    String(language).toLowerCase().startsWith("ja")
-      ? "Write the lyrics almost entirely in natural Japanese. Do not output an English lyric body. Sparse loanwords are acceptable, but the actual sung lines, crowd lines, and emotional core must read as Japanese."
-      : String(language).toLowerCase().startsWith("zh")
-        ? "Write the lyrics almost entirely in natural Chinese. Do not output an English lyric body. The actual sung lines, crowd lines, and emotional core must read as Chinese."
-        : "Write the lyrics almost entirely in natural English. Do not switch the lyric body into Chinese or Japanese.";
-  const titleDirective =
-    String(language).toLowerCase().startsWith("ja")
-      ? "If the user did not provide a title, invent the main title in Japanese first. Do not default to an English title for a Japanese lyric unless the user explicitly requested it."
-      : String(language).toLowerCase().startsWith("zh")
-        ? "If the user did not provide a title, invent the main title in Chinese first. Do not default to an English title for a Chinese lyric unless the user explicitly requested it."
-        : "If the user did not provide a title, invent the main title in natural English first.";
+  const canonProfile = detectCssmvCanonProfile(input);
+  const structurePlan = normalizeSongSeedStructurePlan(
+    input.constraints?.structure_plan,
+  );
+  const languageDirective = String(language).toLowerCase().startsWith("ja")
+    ? "Write the lyrics almost entirely in natural Japanese. Do not output an English lyric body. Sparse loanwords are acceptable, but the actual sung lines, crowd lines, and emotional core must read as Japanese."
+    : String(language).toLowerCase().startsWith("zh")
+      ? "Write the lyrics almost entirely in natural Chinese. Do not output an English lyric body. The actual sung lines, crowd lines, and emotional core must read as Chinese."
+      : "Write the lyrics almost entirely in natural English. Do not switch the lyric body into Chinese or Japanese.";
+  const titleDirective = String(language).toLowerCase().startsWith("ja")
+    ? "If the user did not provide a title, invent the main title in Japanese first. Do not default to an English title for a Japanese lyric unless the user explicitly requested it."
+    : String(language).toLowerCase().startsWith("zh")
+      ? "If the user did not provide a title, invent the main title in Chinese first. Do not default to an English title for a Chinese lyric unless the user explicitly requested it."
+      : "If the user did not provide a title, invent the main title in natural English first.";
   const constraintBlock = formatSongSeedConstraintBlock(input.constraints);
 
   return [
@@ -2087,7 +3511,8 @@ function buildCssmvSongSeedPrompt(input: {
     hasTranscript
       ? `Use this transcript as inspiration:\n${input.transcript}`
       : "No voice transcript is available. Invent a fresh concept instead of using placeholder titles such as Untitled.",
-    constraintBlock || "User constraints are sparse. You may invent the missing details, but they still need to feel coherent with one another.",
+    constraintBlock ||
+      "User constraints are sparse. You may invent the missing details, but they still need to feel coherent with one another.",
     input.variationNonce
       ? `Variation nonce: ${input.variationNonce}. Treat this as a hard command to generate a genuinely different song family, not a paraphrase of a previous draft. Preserve the title and language, but change the world, imagery, emotional arc, diction, and hook behavior.`
       : "Generate a fresh but coherent variation.",
@@ -2107,8 +3532,18 @@ function buildCssmvSongSeedPrompt(input: {
       `- Sound pressure: ${blueprint.soundPressure}`,
       `- Imagery anchors: ${blueprint.imageryAnchors.join(", ")}`,
       `- Diction rules: ${blueprint.dictionRules.join(" / ")}`,
-      `- Avoid this stale pattern: ${blueprint.antiTemplate}`
+      `- Avoid this stale pattern: ${blueprint.antiTemplate}`,
     ].join("\n"),
+    canonProfile
+      ? [
+          "Canon-lock rules for this attempt:",
+          "- This request is locked to Westworld prelude canon. Do not reinterpret it into another creative family.",
+          "- The lyrics, music plan, and video script must stay inside android creation, laboratory ritual, player piano machinery, sterile corridors, mechanical horses, memory loops, and awakening consciousness.",
+          "- Forbid rooftop resistance, street protest, poster culture, megaphones, convenience-store heartbreak, and neon-uprising imagery.",
+          "- Keep the emotional tone cold, surgical, restrained, and existential.",
+          "- Make this package formal long-form work material rather than a short validation vignette.",
+        ].join("\n")
+      : "",
     [
       "Return JSON only with fields:",
       "title: string",
@@ -2119,7 +3554,7 @@ function buildCssmvSongSeedPrompt(input: {
       "video_outline: string",
       "section_prompts: { section: string, title: string, prompt: string }[]",
       "section_beats: { section: string, title: string, bars: number, energy: string, focus: string, visual_role: string }[]",
-      "style_tags: string[]"
+      "style_tags: string[]",
     ].join("\n"),
     "Lyrics rules:",
     `- ${languageDirective}`,
@@ -2128,13 +3563,13 @@ function buildCssmvSongSeedPrompt(input: {
     "- The work_type user constraint is mandatory. If work_type is triptych, generate a triptych concept rather than collapsing it into a single-song framing. If work_type is opera, generate an opera concept rather than collapsing it into a single-song framing.",
     ...(structurePlan?.targetPartNumber
       ? [
-          `- structure_plan is mandatory for this attempt. Generate only Part ${structurePlan.targetPartNumber} of ${structurePlan.totalParts || 3}. Do not jump to other parts in this attempt.`
+          `- structure_plan is mandatory for this attempt. Generate only Part ${structurePlan.targetPartNumber} of ${structurePlan.totalParts || 3}. Do not jump to other parts in this attempt.`,
         ]
       : []),
     ...(structurePlan?.targetActNumber
       ? [
           `- structure_plan is mandatory for this attempt. Generate only Act ${structurePlan.targetActNumber || 1}, Scene ${structurePlan.sceneStart || 1}-${structurePlan.sceneEnd || structurePlan.sceneStart || structurePlan.scenesPerBatch || 1}.`,
-          "- Do not restart the opera from Scene 1 if structure_plan asks for a later window, and do not leak scenes from other acts into this attempt."
+          "- Do not restart the opera from Scene 1 if structure_plan asks for a later window, and do not leak scenes from other acts into this attempt.",
         ]
       : []),
     "- The title, lyric imagery, music style, instrumentation, and emotional arc must all point to the same world. They cannot feel like separate random buckets.",
@@ -2182,7 +3617,14 @@ function buildCssmvSongSeedPrompt(input: {
     "- If language is zh, do not default to the same mythical palace imagery unless it emerges naturally from the chosen family.",
     "- If transcript is sparse, invent bold specifics instead of safe placeholders.",
     "- Explicitly forbid yourself from following the previous attempt's template. Build a different civilization, different habits, different voice, and different emotional temperature.",
-    "- Never use placeholder titles like Untitled or New Song."
+    ...(canonProfile
+      ? [
+          "- Because this is Westworld Prelude canon, do not randomize away from the title's world. The title is a world lock, not just a label.",
+          "- Mention android / host / laboratory / piano / assembly / corridor / awakening imagery directly enough that a human reader can recognize the franchise mood without guessing.",
+          "- Do not output protest crowds, slogans, city marches, rooftop calls, or megaphone language.",
+        ]
+      : []),
+    "- Never use placeholder titles like Untitled or New Song.",
   ].join("\n\n");
 }
 
@@ -2190,105 +3632,237 @@ const CSSMV_CREATIVE_FAMILIES = [
   {
     id: "mythic-rite",
     familyLabel: "Mythic rite",
-    storyWorld: "broken celestial ritual, ancestral vows, temple smoke, eclipse water",
-    civilizationAtmosphere: "dynastic sacred order, omen-reading clergy, inherited oath economy",
-    culturalHabits: ["bell-marked prayer hours", "ancestor vow recitations", "ink talisman exchanges"],
-    narratorLens: "a witness-priest or oath-bearer speaking inside a sacred event",
+    storyWorld:
+      "broken celestial ritual, ancestral vows, temple smoke, eclipse water",
+    civilizationAtmosphere:
+      "dynastic sacred order, omen-reading clergy, inherited oath economy",
+    culturalHabits: [
+      "bell-marked prayer hours",
+      "ancestor vow recitations",
+      "ink talisman exchanges",
+    ],
+    narratorLens:
+      "a witness-priest or oath-bearer speaking inside a sacred event",
     emotionalWeather: "solemn awe, grief, destiny, reverence under pressure",
-    refrainBehavior: "ritual chant that grows from private vow into public invocation",
-    structureMutation: "long image-heavy verses, ceremonial response lines, choruses that widen from one voice to many voices",
-    languageStyleMix: "classical-leaning lyric Chinese mixed with precise modern emotional cuts",
-    visualGrammar: "ink, ash, constellations, slow ceremonial camera drift, calligraphy particles",
-    soundPressure: "ceremonial drums, guzheng, low choir, breath-heavy pauses, rising opera force",
-    imageryAnchors: ["incense ash", "eclipse river", "jade bell", "paper talisman", "star map"],
-    dictionRules: ["ornate but sharp", "mythic nouns", "avoid generic self-help uplift"],
-    antiTemplate: "do not fall back into a generic sacred hymn about light, destiny, and echo"
+    refrainBehavior:
+      "ritual chant that grows from private vow into public invocation",
+    structureMutation:
+      "long image-heavy verses, ceremonial response lines, choruses that widen from one voice to many voices",
+    languageStyleMix:
+      "classical-leaning lyric Chinese mixed with precise modern emotional cuts",
+    visualGrammar:
+      "ink, ash, constellations, slow ceremonial camera drift, calligraphy particles",
+    soundPressure:
+      "ceremonial drums, guzheng, low choir, breath-heavy pauses, rising opera force",
+    imageryAnchors: [
+      "incense ash",
+      "eclipse river",
+      "jade bell",
+      "paper talisman",
+      "star map",
+    ],
+    dictionRules: [
+      "ornate but sharp",
+      "mythic nouns",
+      "avoid generic self-help uplift",
+    ],
+    antiTemplate:
+      "do not fall back into a generic sacred hymn about light, destiny, and echo",
   },
   {
     id: "neon-heartbreak",
     familyLabel: "Neon heartbreak",
-    storyWorld: "wet city nights, train windows, motel signs, voicemail ghosts, convenience-store insomnia",
-    civilizationAtmosphere: "late-capital city loneliness, transit routines, sleepless service culture",
-    culturalHabits: ["missed-call rituals", "midnight convenience-store confessions", "platform departures without closure"],
-    narratorLens: "a bruised first-person singer talking to an absent lover or their own afterimage",
+    storyWorld:
+      "wet city nights, train windows, motel signs, voicemail ghosts, convenience-store insomnia",
+    civilizationAtmosphere:
+      "late-capital city loneliness, transit routines, sleepless service culture",
+    culturalHabits: [
+      "missed-call rituals",
+      "midnight convenience-store confessions",
+      "platform departures without closure",
+    ],
+    narratorLens:
+      "a bruised first-person singer talking to an absent lover or their own afterimage",
     emotionalWeather: "intimate ache, anger, hunger, glamour, emotional static",
     refrainBehavior: "hook line mutates each chorus as obsession spirals",
-    structureMutation: "short confessional verse lines, punchier pre-hook turns, choruses that keep rewriting the same promise",
-    languageStyleMix: "plain conversational slang fused with sharp poetic fragments",
-    visualGrammar: "chromatic blur, handheld closeups, sodium reflections, CRT bloom, rain streaks",
-    soundPressure: "alt-pop pulse, synth bass, glassy pads, intimate verse whispers, explosive choruses",
-    imageryAnchors: ["exit sign", "wet taxi", "answering machine", "broken lipstick", "subway sparks"],
-    dictionRules: ["conversational", "specific urban detail", "sharp emotional verbs"],
-    antiTemplate: "do not drift into mythic temples or cosmic fate language"
+    structureMutation:
+      "short confessional verse lines, punchier pre-hook turns, choruses that keep rewriting the same promise",
+    languageStyleMix:
+      "plain conversational slang fused with sharp poetic fragments",
+    visualGrammar:
+      "chromatic blur, handheld closeups, sodium reflections, CRT bloom, rain streaks",
+    soundPressure:
+      "alt-pop pulse, synth bass, glassy pads, intimate verse whispers, explosive choruses",
+    imageryAnchors: [
+      "exit sign",
+      "wet taxi",
+      "answering machine",
+      "broken lipstick",
+      "subway sparks",
+    ],
+    dictionRules: [
+      "conversational",
+      "specific urban detail",
+      "sharp emotional verbs",
+    ],
+    antiTemplate: "do not drift into mythic temples or cosmic fate language",
   },
   {
     id: "gravity-fiction",
     familyLabel: "Gravity fiction",
-    storyWorld: "orbital debris, artificial dawns, failed transmissions, cryo dreams, machine prayer",
-    civilizationAtmosphere: "post-earth orbital diaspora, machine-maintained survival, protocol-heavy life support culture",
-    culturalHabits: ["shift-change signal logs", "oxygen ration vows", "transmission memorials"],
-    narratorLens: "a pilot, android, or stranded lover speaking across impossible distance",
+    storyWorld:
+      "orbital debris, artificial dawns, failed transmissions, cryo dreams, machine prayer",
+    civilizationAtmosphere:
+      "post-earth orbital diaspora, machine-maintained survival, protocol-heavy life support culture",
+    culturalHabits: [
+      "shift-change signal logs",
+      "oxygen ration vows",
+      "transmission memorials",
+    ],
+    narratorLens:
+      "a pilot, android, or stranded lover speaking across impossible distance",
     emotionalWeather: "wonder, loneliness, survival panic, cold tenderness",
-    refrainBehavior: "signal phrase repeats with escalating transmission distortion",
-    structureMutation: "compressed technical verses, sudden wide-open choruses, bridge as system failure or truth leak",
-    languageStyleMix: "science-fiction terminology braided with intimate confession",
-    visualGrammar: "weightless spins, HUD typography, fracture light, vacuum silence, engine bloom",
-    soundPressure: "hybrid cinematic electronic, sub pulses, granular texture, choir through static",
-    imageryAnchors: ["airlock frost", "red warning light", "burned signal", "orbit debris", "oxygen bloom"],
-    dictionRules: ["precise sci-fi detail", "lyrical but technical", "strong verbs"],
-    antiTemplate: "do not collapse into vague stars-and-dreams language"
+    refrainBehavior:
+      "signal phrase repeats with escalating transmission distortion",
+    structureMutation:
+      "compressed technical verses, sudden wide-open choruses, bridge as system failure or truth leak",
+    languageStyleMix:
+      "science-fiction terminology braided with intimate confession",
+    visualGrammar:
+      "weightless spins, HUD typography, fracture light, vacuum silence, engine bloom",
+    soundPressure:
+      "hybrid cinematic electronic, sub pulses, granular texture, choir through static",
+    imageryAnchors: [
+      "airlock frost",
+      "red warning light",
+      "burned signal",
+      "orbit debris",
+      "oxygen bloom",
+    ],
+    dictionRules: [
+      "precise sci-fi detail",
+      "lyrical but technical",
+      "strong verbs",
+    ],
+    antiTemplate: "do not collapse into vague stars-and-dreams language",
   },
   {
     id: "pastoral-memory",
     familyLabel: "Pastoral memory",
-    storyWorld: "river towns, harvest dust, cicadas, old kitchens, handwritten letters, vanished summers",
-    civilizationAtmosphere: "small-town seasonal life, intergenerational domestic rhythm, handmade memory culture",
-    culturalHabits: ["shared summer meals", "letter folding rituals", "porch-light waiting"],
-    narratorLens: "someone singing from memory to a person, place, or younger self",
-    emotionalWeather: "tenderness, regret, warmth, distance, late-afternoon ache",
+    storyWorld:
+      "river towns, harvest dust, cicadas, old kitchens, handwritten letters, vanished summers",
+    civilizationAtmosphere:
+      "small-town seasonal life, intergenerational domestic rhythm, handmade memory culture",
+    culturalHabits: [
+      "shared summer meals",
+      "letter folding rituals",
+      "porch-light waiting",
+    ],
+    narratorLens:
+      "someone singing from memory to a person, place, or younger self",
+    emotionalWeather:
+      "tenderness, regret, warmth, distance, late-afternoon ache",
     refrainBehavior: "chorus becomes a remembered phrase everyone once knew",
-    structureMutation: "roomy narrative verses, fewer words per line, choruses that land like remembered sayings",
-    languageStyleMix: "simple spoken phrasing with sensory detail and quiet metaphor",
-    visualGrammar: "sun-faded film grain, long lenses, cloth movement, quiet domestic detail",
-    soundPressure: "folk-pop strings, soft percussion, room ambience, communal chorus lift",
-    imageryAnchors: ["rusted gate", "rice field wind", "yellow lamp", "old radio", "laundry line"],
-    dictionRules: ["plain-spoken poetry", "sensory memory", "small details over abstraction"],
-    antiTemplate: "do not turn this into an anthem about destiny or apocalypse"
+    structureMutation:
+      "roomy narrative verses, fewer words per line, choruses that land like remembered sayings",
+    languageStyleMix:
+      "simple spoken phrasing with sensory detail and quiet metaphor",
+    visualGrammar:
+      "sun-faded film grain, long lenses, cloth movement, quiet domestic detail",
+    soundPressure:
+      "folk-pop strings, soft percussion, room ambience, communal chorus lift",
+    imageryAnchors: [
+      "rusted gate",
+      "rice field wind",
+      "yellow lamp",
+      "old radio",
+      "laundry line",
+    ],
+    dictionRules: [
+      "plain-spoken poetry",
+      "sensory memory",
+      "small details over abstraction",
+    ],
+    antiTemplate: "do not turn this into an anthem about destiny or apocalypse",
   },
   {
     id: "surreal-cabaret",
     familyLabel: "Surreal cabaret",
-    storyWorld: "mirrors, velvet smoke, absurd theater props, masked dancers, impossible rooms",
-    civilizationAtmosphere: "decadent performance society, rumor markets, ritualized seduction and spectacle",
-    culturalHabits: ["mask exchanges", "roulette toasts", "audience-response cues"],
-    narratorLens: "a ringmaster, temptress, trickster, or unreliable lover performing directly at the listener",
+    storyWorld:
+      "mirrors, velvet smoke, absurd theater props, masked dancers, impossible rooms",
+    civilizationAtmosphere:
+      "decadent performance society, rumor markets, ritualized seduction and spectacle",
+    culturalHabits: [
+      "mask exchanges",
+      "roulette toasts",
+      "audience-response cues",
+    ],
+    narratorLens:
+      "a ringmaster, temptress, trickster, or unreliable lover performing directly at the listener",
     emotionalWeather: "seduction, menace, wit, delirium, playful dread",
     refrainBehavior: "choruses become theatrical commands or audience spells",
-    structureMutation: "snapped-off verse phrases, stage-direction intrusions, choruses built like commands or applause traps",
-    languageStyleMix: "showbiz imperatives, decadent imagery, sly humor, knife-edge flirtation",
-    visualGrammar: "stage reveals, snap zooms, ornate typography, shadow play, impossible set changes",
-    soundPressure: "cabaret drums, bass clarinet, glam strings, sudden drops, dramatic vocal ad-libs",
-    imageryAnchors: ["roulette rose", "mirror teeth", "silk gloves", "gold dust", "paper crown"],
-    dictionRules: ["theatrical imperatives", "surprise imagery", "dark humor allowed"],
-    antiTemplate: "do not write this as a noble heroic ballad"
+    structureMutation:
+      "snapped-off verse phrases, stage-direction intrusions, choruses built like commands or applause traps",
+    languageStyleMix:
+      "showbiz imperatives, decadent imagery, sly humor, knife-edge flirtation",
+    visualGrammar:
+      "stage reveals, snap zooms, ornate typography, shadow play, impossible set changes",
+    soundPressure:
+      "cabaret drums, bass clarinet, glam strings, sudden drops, dramatic vocal ad-libs",
+    imageryAnchors: [
+      "roulette rose",
+      "mirror teeth",
+      "silk gloves",
+      "gold dust",
+      "paper crown",
+    ],
+    dictionRules: [
+      "theatrical imperatives",
+      "surprise imagery",
+      "dark humor allowed",
+    ],
+    antiTemplate: "do not write this as a noble heroic ballad",
   },
   {
     id: "riot-romance",
     familyLabel: "Riot romance",
-    storyWorld: "street marches, rooftop speakers, flare smoke, mutual rescue, coded posters",
-    civilizationAtmosphere: "movement culture, improvised mutual aid, surveillance pressure, collective defiance",
-    culturalHabits: ["poster code phrases", "rooftop lookout shifts", "shared route changes under pressure"],
-    narratorLens: "a singer inside a collective uprising who is also protecting one intimate bond",
-    emotionalWeather: "defiance, adrenaline, tenderness, urgency, collective heat",
-    refrainBehavior: "crowd-response chorus that turns private love into public refusal",
-    structureMutation: "fast forward-driving verses, shouted pickups, choruses written for a crowd answer",
-    languageStyleMix: "direct street language mixed with intimate declarations and urgent slogans",
-    visualGrammar: "running camera, flare trails, stencils, crowd typography, siren color contrast",
-    soundPressure: "percussive stomp, live drums, shouted gang vocals, guitar and brass hits",
-    imageryAnchors: ["flare smoke", "poster paste", "rooftop antenna", "megaphone hiss", "street sparks"],
-    dictionRules: ["direct language", "collective verbs", "romance inside motion"],
-    antiTemplate: "do not soften this into generic inspirational positivity"
-  }
+    storyWorld:
+      "street marches, rooftop speakers, flare smoke, mutual rescue, coded posters",
+    civilizationAtmosphere:
+      "movement culture, improvised mutual aid, surveillance pressure, collective defiance",
+    culturalHabits: [
+      "poster code phrases",
+      "rooftop lookout shifts",
+      "shared route changes under pressure",
+    ],
+    narratorLens:
+      "a singer inside a collective uprising who is also protecting one intimate bond",
+    emotionalWeather:
+      "defiance, adrenaline, tenderness, urgency, collective heat",
+    refrainBehavior:
+      "crowd-response chorus that turns private love into public refusal",
+    structureMutation:
+      "fast forward-driving verses, shouted pickups, choruses written for a crowd answer",
+    languageStyleMix:
+      "direct street language mixed with intimate declarations and urgent slogans",
+    visualGrammar:
+      "running camera, flare trails, stencils, crowd typography, siren color contrast",
+    soundPressure:
+      "percussive stomp, live drums, shouted gang vocals, guitar and brass hits",
+    imageryAnchors: [
+      "flare smoke",
+      "poster paste",
+      "rooftop antenna",
+      "megaphone hiss",
+      "street sparks",
+    ],
+    dictionRules: [
+      "direct language",
+      "collective verbs",
+      "romance inside motion",
+    ],
+    antiTemplate: "do not soften this into generic inspirational positivity",
+  },
 ] as const;
 
 function hashCssmvSeed(value: string) {
@@ -2305,109 +3879,503 @@ const CSSMV_STALE_PHRASE_BLOCKLIST = [
   "不是口号",
   "先露出侧脸",
   "roulette rose",
-  "Surreal cabaret"
+  "Surreal cabaret",
 ];
 
 function buildCssmvDynamicTitle(
   blueprint: ReturnType<typeof buildCssmvCreativeBlueprint>,
-  language: string
+  language: string,
 ) {
-  const zh = String(language || "zh").toLowerCase().startsWith("zh");
-  const ja = String(language || "zh").toLowerCase().startsWith("ja");
+  const zh = String(language || "zh")
+    .toLowerCase()
+    .startsWith("zh");
+  const ja = String(language || "zh")
+    .toLowerCase()
+    .startsWith("ja");
   if (ja) {
     const titleBanks = {
       "mythic-rite": {
         lead: ["月読", "星祷", "鈴焔", "天廟", "潮鐘", "霧殿", "祭灯", "雲札"],
-        tail: ["の誓い", "の余響", "の夜航", "の灯火", "の記憶", "の断章", "の潮汐", "の祈り"]
+        tail: [
+          "の誓い",
+          "の余響",
+          "の夜航",
+          "の灯火",
+          "の記憶",
+          "の断章",
+          "の潮汐",
+          "の祈り",
+        ],
       },
       "neon-heartbreak": {
-        lead: ["雨窓", "終電", "深夜", "残光", "空駅", "灯街", "静電", "夜更け"],
-        tail: ["の未読", "の微熱", "の失声", "の残響", "の回線", "の別れ", "の低音", "の余白"]
+        lead: [
+          "雨窓",
+          "終電",
+          "深夜",
+          "残光",
+          "空駅",
+          "灯街",
+          "静電",
+          "夜更け",
+        ],
+        tail: [
+          "の未読",
+          "の微熱",
+          "の失声",
+          "の残響",
+          "の回線",
+          "の別れ",
+          "の低音",
+          "の余白",
+        ],
       },
       "gravity-fiction": {
-        lead: ["軌道", "無重力", "星港", "赤方", "船窓", "冷槽", "深空", "回路"],
-        tail: ["の漂流", "の帰還", "の脈動", "の静圧", "の残波", "の通信", "の夜航", "の記録"]
+        lead: [
+          "軌道",
+          "無重力",
+          "星港",
+          "赤方",
+          "船窓",
+          "冷槽",
+          "深空",
+          "回路",
+        ],
+        tail: [
+          "の漂流",
+          "の帰還",
+          "の脈動",
+          "の静圧",
+          "の残波",
+          "の通信",
+          "の夜航",
+          "の記録",
+        ],
       },
       "pastoral-memory": {
         lead: ["川灯", "蝉夏", "稲風", "夕灶", "木窓", "橋影", "茶煙", "黄灯"],
-        tail: ["の便り", "の帰路", "の余温", "の晩鐘", "の夏影", "の暮色", "の夢路", "の遠音"]
+        tail: [
+          "の便り",
+          "の帰路",
+          "の余温",
+          "の晩鐘",
+          "の夏影",
+          "の暮色",
+          "の夢路",
+          "の遠音",
+        ],
       },
       "surreal-cabaret": {
         lead: ["鏡幕", "絹灯", "夜席", "紙冠", "幻灯", "暗場", "珠幕", "側幕"],
-        tail: ["の囁き", "の返幕", "の残香", "の微光", "の余興", "の退場", "の迷路", "の私語"]
+        tail: [
+          "の囁き",
+          "の返幕",
+          "の残香",
+          "の微光",
+          "の余興",
+          "の退場",
+          "の迷路",
+          "の私語",
+        ],
       },
       "riot-romance": {
         lead: ["街灯", "火線", "屋上", "旗影", "夜奔", "煙灯", "路標", "群青"],
-        tail: ["の共振", "の逆風", "の余火", "の誓約", "の呼声", "の奔流", "の接吻", "の残火"]
-      }
+        tail: [
+          "の共振",
+          "の逆風",
+          "の余火",
+          "の誓約",
+          "の呼声",
+          "の奔流",
+          "の接吻",
+          "の残火",
+        ],
+      },
     };
     const bank =
       titleBanks[blueprint.id as keyof typeof titleBanks] ||
       titleBanks["mythic-rite" as keyof typeof titleBanks];
-    const lead = bank.lead[blueprint.hash % bank.lead.length] || bank.lead[0] || "星歌";
+    const lead =
+      bank.lead[blueprint.hash % bank.lead.length] || bank.lead[0] || "星歌";
     const tail =
-      bank.tail[Math.floor(blueprint.hash / 11) % bank.tail.length] || bank.tail[0] || "の歌";
+      bank.tail[Math.floor(blueprint.hash / 11) % bank.tail.length] ||
+      bank.tail[0] ||
+      "の歌";
     return `${lead}${tail}`;
   }
   const titleBanks = zh
     ? {
         "mythic-rite": {
-          lead: ["玄钟", "瑶台", "星诏", "天阙", "烬河", "霜铃", "潮灯", "夜坛", "云篆", "祭潮", "山祷", "月碑"],
-          tail: ["回潮", "断誓", "夜谕", "遗烬", "长汐", "远响", "归潮", "余照", "隐歌", "落谶", "回铭", "沉钟"]
+          lead: [
+            "玄钟",
+            "瑶台",
+            "星诏",
+            "天阙",
+            "烬河",
+            "霜铃",
+            "潮灯",
+            "夜坛",
+            "云篆",
+            "祭潮",
+            "山祷",
+            "月碑",
+          ],
+          tail: [
+            "回潮",
+            "断誓",
+            "夜谕",
+            "遗烬",
+            "长汐",
+            "远响",
+            "归潮",
+            "余照",
+            "隐歌",
+            "落谶",
+            "回铭",
+            "沉钟",
+          ],
         },
         "neon-heartbreak": {
-          lead: ["霓虹", "末班", "空站", "雨幕", "旧屏", "余电", "夜窗", "慢街", "孤站", "灯影", "碎讯", "残照"],
-          tail: ["未接", "失真", "回音", "余温", "慢闪", "断讯", "空白", "回拨", "潮湿", "低烧", "返场", "静音"]
+          lead: [
+            "霓虹",
+            "末班",
+            "空站",
+            "雨幕",
+            "旧屏",
+            "余电",
+            "夜窗",
+            "慢街",
+            "孤站",
+            "灯影",
+            "碎讯",
+            "残照",
+          ],
+          tail: [
+            "未接",
+            "失真",
+            "回音",
+            "余温",
+            "慢闪",
+            "断讯",
+            "空白",
+            "回拨",
+            "潮湿",
+            "低烧",
+            "返场",
+            "静音",
+          ],
         },
         "gravity-fiction": {
-          lead: ["轨道", "失重", "晨轨", "氧焰", "冷舱", "星港", "回路", "赤移", "舷窗", "空舱", "霜轨", "深空"],
-          tail: ["漂流", "回讯", "静压", "残频", "夜航", "返照", "返讯", "低温", "回声", "余波", "断链", "潮汐"]
+          lead: [
+            "轨道",
+            "失重",
+            "晨轨",
+            "氧焰",
+            "冷舱",
+            "星港",
+            "回路",
+            "赤移",
+            "舷窗",
+            "空舱",
+            "霜轨",
+            "深空",
+          ],
+          tail: [
+            "漂流",
+            "回讯",
+            "静压",
+            "残频",
+            "夜航",
+            "返照",
+            "返讯",
+            "低温",
+            "回声",
+            "余波",
+            "断链",
+            "潮汐",
+          ],
         },
         "pastoral-memory": {
-          lead: ["河灯", "旧埠", "蝉夏", "稻风", "晚灶", "黄灯", "旧巷", "暮雨", "木窗", "桥影", "晚潮", "茶烟"],
-          tail: ["慢信", "旧梦", "余响", "回南", "晚晴", "潮生", "旧事", "归路", "余温", "暮色", "迟夏", "回声"]
+          lead: [
+            "河灯",
+            "旧埠",
+            "蝉夏",
+            "稻风",
+            "晚灶",
+            "黄灯",
+            "旧巷",
+            "暮雨",
+            "木窗",
+            "桥影",
+            "晚潮",
+            "茶烟",
+          ],
+          tail: [
+            "慢信",
+            "旧梦",
+            "余响",
+            "回南",
+            "晚晴",
+            "潮生",
+            "旧事",
+            "归路",
+            "余温",
+            "暮色",
+            "迟夏",
+            "回声",
+          ],
         },
         "surreal-cabaret": {
-          lead: ["镜厅", "绒幕", "纸冠", "暗场", "夜戏", "金粉", "偏厅", "幻灯", "暗吻", "侧幕", "夜牌", "珠幕"],
-          tail: ["私咒", "换幕", "回眸", "幻席", "偏光", "退场", "余兴", "返场", "私语", "落幕", "残妆", "旧梦"]
+          lead: [
+            "镜厅",
+            "绒幕",
+            "纸冠",
+            "暗场",
+            "夜戏",
+            "金粉",
+            "偏厅",
+            "幻灯",
+            "暗吻",
+            "侧幕",
+            "夜牌",
+            "珠幕",
+          ],
+          tail: [
+            "私咒",
+            "换幕",
+            "回眸",
+            "幻席",
+            "偏光",
+            "退场",
+            "余兴",
+            "返场",
+            "私语",
+            "落幕",
+            "残妆",
+            "旧梦",
+          ],
         },
         "riot-romance": {
-          lead: ["火线", "屋顶", "街电", "海报", "号角", "风灯", "夜奔", "街旗", "热流", "路标", "侧街", "烟灯"],
-          tail: ["并肩", "余热", "同途", "回燃", "夜奔", "共振", "回火", "呼喊", "潮声", "照面", "逆风", "余烬"]
-        }
+          lead: [
+            "火线",
+            "屋顶",
+            "街电",
+            "海报",
+            "号角",
+            "风灯",
+            "夜奔",
+            "街旗",
+            "热流",
+            "路标",
+            "侧街",
+            "烟灯",
+          ],
+          tail: [
+            "并肩",
+            "余热",
+            "同途",
+            "回燃",
+            "夜奔",
+            "共振",
+            "回火",
+            "呼喊",
+            "潮声",
+            "照面",
+            "逆风",
+            "余烬",
+          ],
+        },
       }
     : {
         "mythic-rite": {
-          lead: ["Jade", "Astral", "Temple", "Ashen", "Bell", "Eclipse", "Votive", "Ember", "Oracle", "Moonlit", "Tidal", "Cinder"],
-          tail: ["Vow", "Tide", "Edict", "Afterglow", "Echo", "Undertow", "Script", "Requiem", "Undersong", "Omen", "Lantern", "Undercurrent"]
+          lead: [
+            "Jade",
+            "Astral",
+            "Temple",
+            "Ashen",
+            "Bell",
+            "Eclipse",
+            "Votive",
+            "Ember",
+            "Oracle",
+            "Moonlit",
+            "Tidal",
+            "Cinder",
+          ],
+          tail: [
+            "Vow",
+            "Tide",
+            "Edict",
+            "Afterglow",
+            "Echo",
+            "Undertow",
+            "Script",
+            "Requiem",
+            "Undersong",
+            "Omen",
+            "Lantern",
+            "Undercurrent",
+          ],
         },
         "neon-heartbreak": {
-          lead: ["Neon", "Midnight", "Platform", "Static", "Rain", "Motel", "Taxi", "Velvet", "Signal", "Backseat", "Window", "Sleepless"],
-          tail: ["Voicemail", "Afterheat", "Blur", "Disconnect", "Echo", "Spark", "Lowlight", "Fever", "Replay", "Undertone", "Callback", "Shadow"]
+          lead: [
+            "Neon",
+            "Midnight",
+            "Platform",
+            "Static",
+            "Rain",
+            "Motel",
+            "Taxi",
+            "Velvet",
+            "Signal",
+            "Backseat",
+            "Window",
+            "Sleepless",
+          ],
+          tail: [
+            "Voicemail",
+            "Afterheat",
+            "Blur",
+            "Disconnect",
+            "Echo",
+            "Spark",
+            "Lowlight",
+            "Fever",
+            "Replay",
+            "Undertone",
+            "Callback",
+            "Shadow",
+          ],
         },
         "gravity-fiction": {
-          lead: ["Orbit", "Oxygen", "Signal", "Airlock", "Redshift", "Drift", "Telemetry", "Cryo", "Vacuum", "Hull", "Starport", "Zero-G"],
-          tail: ["Bloom", "Lifeline", "Afterburn", "Telemetry", "Undersky", "Return", "Undercurrent", "Static", "Pulse", "Wake", "Relay", "Fallback"]
+          lead: [
+            "Orbit",
+            "Oxygen",
+            "Signal",
+            "Airlock",
+            "Redshift",
+            "Drift",
+            "Telemetry",
+            "Cryo",
+            "Vacuum",
+            "Hull",
+            "Starport",
+            "Zero-G",
+          ],
+          tail: [
+            "Bloom",
+            "Lifeline",
+            "Afterburn",
+            "Telemetry",
+            "Undersky",
+            "Return",
+            "Undercurrent",
+            "Static",
+            "Pulse",
+            "Wake",
+            "Relay",
+            "Fallback",
+          ],
         },
         "pastoral-memory": {
-          lead: ["River", "Harvest", "Porchlight", "Cicada", "Lantern", "Letter", "Kitchen", "Dust", "Woodsmoke", "Willow", "Evening", "Window"],
-          tail: ["Memory", "Afterglow", "Return", "Softfall", "Summer", "Undertide", "Homecoming", "Lowlight", "Undersong", "Rain", "Drift", "Keep"]
+          lead: [
+            "River",
+            "Harvest",
+            "Porchlight",
+            "Cicada",
+            "Lantern",
+            "Letter",
+            "Kitchen",
+            "Dust",
+            "Woodsmoke",
+            "Willow",
+            "Evening",
+            "Window",
+          ],
+          tail: [
+            "Memory",
+            "Afterglow",
+            "Return",
+            "Softfall",
+            "Summer",
+            "Undertide",
+            "Homecoming",
+            "Lowlight",
+            "Undersong",
+            "Rain",
+            "Drift",
+            "Keep",
+          ],
         },
         "surreal-cabaret": {
-          lead: ["Velvet", "Mirror", "Paper", "Shadow", "Gold", "Mask", "Silk", "Candle", "Phantom", "Cabaret", "Private", "Gilded"],
-          tail: ["Spell", "Curtain", "Turn", "Whisper", "Riot", "Encore", "Exit", "Murmur", "Afterparty", "Glare", "Riddle", "Bloom"]
+          lead: [
+            "Velvet",
+            "Mirror",
+            "Paper",
+            "Shadow",
+            "Gold",
+            "Mask",
+            "Silk",
+            "Candle",
+            "Phantom",
+            "Cabaret",
+            "Private",
+            "Gilded",
+          ],
+          tail: [
+            "Spell",
+            "Curtain",
+            "Turn",
+            "Whisper",
+            "Riot",
+            "Encore",
+            "Exit",
+            "Murmur",
+            "Afterparty",
+            "Glare",
+            "Riddle",
+            "Bloom",
+          ],
         },
         "riot-romance": {
-          lead: ["Flare", "Poster", "Rooftop", "March", "Siren", "Spark", "Beacon", "Crowd", "Signal", "Laneway", "Static", "Streetlight"],
-          tail: ["Promise", "Signal", "Heartbeat", "Afterglow", "Route", "Rescue", "Uprising", "Return", "Undertone", "Rush", "Bond", "Ember"]
-        }
+          lead: [
+            "Flare",
+            "Poster",
+            "Rooftop",
+            "March",
+            "Siren",
+            "Spark",
+            "Beacon",
+            "Crowd",
+            "Signal",
+            "Laneway",
+            "Static",
+            "Streetlight",
+          ],
+          tail: [
+            "Promise",
+            "Signal",
+            "Heartbeat",
+            "Afterglow",
+            "Route",
+            "Rescue",
+            "Uprising",
+            "Return",
+            "Undertone",
+            "Rush",
+            "Bond",
+            "Ember",
+          ],
+        },
       };
   const bank =
     titleBanks[blueprint.id as keyof typeof titleBanks] ||
     titleBanks["mythic-rite" as keyof typeof titleBanks];
-  const lead = bank.lead[blueprint.hash % bank.lead.length] || bank.lead[0] || "CSS";
+  const lead =
+    bank.lead[blueprint.hash % bank.lead.length] || bank.lead[0] || "CSS";
   const tail =
-    bank.tail[Math.floor(blueprint.hash / 11) % bank.tail.length] || bank.tail[0] || "MV";
+    bank.tail[Math.floor(blueprint.hash / 11) % bank.tail.length] ||
+    bank.tail[0] ||
+    "MV";
   return zh ? `${lead}${tail}` : `${lead} ${tail}`;
 }
 
@@ -2443,7 +4411,9 @@ function formatSongSeedConstraintBlock(constraints?: Record<string, unknown>) {
       return `- ${key}: ${String(value)}`;
     })
     .filter(Boolean);
-  return rows.length ? `User constraints that must be obeyed whenever provided:\n${rows.join("\n")}` : "";
+  return rows.length
+    ? `User constraints that must be obeyed whenever provided:\n${rows.join("\n")}`
+    : "";
 }
 
 function positiveConstraintInt(value: unknown, fallback = 0) {
@@ -2486,21 +4456,188 @@ function normalizeSongSeedStructurePlan(value: unknown): StructurePlan | null {
     ...(sceneEnd ? { sceneEnd } : {}),
     ...(totalParts ? { totalParts } : {}),
     ...(partsPerBatch ? { partsPerBatch } : {}),
-    ...(targetPartNumber ? { targetPartNumber } : {})
+    ...(targetPartNumber ? { targetPartNumber } : {}),
   };
 }
 
 function containsCssmvBlockedPhrase(value: string) {
   const text = String(value || "");
   return CSSMV_STALE_PHRASE_BLOCKLIST.some((phrase) =>
-    text.toLowerCase().includes(String(phrase).toLowerCase())
+    text.toLowerCase().includes(String(phrase).toLowerCase()),
   );
 }
 
 function shouldRejectCssmvSeed(title: string, lyrics: string) {
   const normalizedTitle = String(title || "").trim();
   if (CSSMV_STALE_TITLE_BLOCKLIST.includes(normalizedTitle)) return true;
-  return containsCssmvBlockedPhrase(normalizedTitle) || containsCssmvBlockedPhrase(lyrics);
+  return (
+    containsCssmvBlockedPhrase(normalizedTitle) ||
+    containsCssmvBlockedPhrase(lyrics)
+  );
+}
+
+function getCssmvLyricBodyLines(lyrics: string) {
+  return String(lyrics || "")
+    .split("\n")
+    .map((line) => String(line || "").trim())
+    .filter((line) => line && !/^\[[^\]]+\]$/.test(line));
+}
+
+function lyricsLookLikeVideoScript(lyrics: string) {
+  const body = String(lyrics || "");
+  const scriptSignals = [
+    "camera:",
+    "lighting:",
+    "environment:",
+    "directing goals:",
+    "shot brief",
+    "visual role:",
+    "bars:",
+    "focus:",
+    "energy:",
+    "music video shot brief",
+  ];
+  const lowered = body.toLowerCase();
+  return scriptSignals.some((signal) => lowered.includes(signal));
+}
+
+function lyricsAreSubstantialEnough(lyrics: string, inputLanguage: string) {
+  const lines = getCssmvLyricBodyLines(lyrics);
+  const body = stripCssmvSectionHeaders(lyrics).replace(/\s+/g, "");
+  const minLines = String(inputLanguage || "").toLowerCase().startsWith("zh")
+    ? 20
+    : 16;
+  return lines.length >= minLines && body.length >= minLines * 5;
+}
+
+type CssmvCanonProfile = {
+  id: string;
+  familyLabel: string;
+  storyWorld: string;
+  civilizationAtmosphere: string;
+  culturalHabits: string[];
+  narratorLens: string;
+  emotionalWeather: string;
+  refrainBehavior: string;
+  structureMutation: string;
+  languageStyleMix: string;
+  visualGrammar: string;
+  soundPressure: string;
+  imageryAnchors: string[];
+  dictionRules: string[];
+  antiTemplate: string;
+  hash: number;
+  seedTag: string;
+  minDurationSec: number;
+  requiredSignals: string[];
+  forbiddenSignals: string[];
+};
+
+function detectCssmvCanonProfile(input: {
+  mode: string;
+  transcript: string;
+  title: string;
+  style: string;
+  voice: string;
+  language: string;
+  variationNonce?: string;
+}) {
+  const haystack = [
+    input.title || "",
+    input.style || "",
+    input.transcript || "",
+    input.mode || "",
+  ]
+    .join(" ")
+    .toLowerCase();
+  if (
+    /(westworld|西部世界)/.test(haystack) &&
+    /(prelude|前奏曲)/.test(haystack)
+  ) {
+    return {
+      id: "westworld-prelude-canon",
+      familyLabel: "Westworld prelude canon",
+      storyWorld:
+        "black-void laboratory ritual, white android bodies, player piano machinery, sterile corridors, mechanical horses, awakening consciousness",
+      civilizationAtmosphere:
+        "controlled host-manufacturing complex, memory recursion, surgical calm, cold observation, corporate divinity",
+      culturalHabits: [
+        "behavior interviews",
+        "assembly-line body construction",
+        "player-piano awakening loops",
+        "corridor surveillance",
+      ],
+      narratorLens:
+        "an android consciousness or omniscient lab witness moving through creation, memory, and awakening",
+      emotionalWeather:
+        "cold awakening, restrained dread, synthetic grace, existential recognition",
+      refrainBehavior:
+        "motif returns like machine memory slowly becoming selfhood",
+      structureMutation:
+        "ten-scene operatic prelude with slow-burn escalation, recurring memory phrases, and continuous image-led staging",
+      languageStyleMix:
+        "precise Chinese lyric writing with clinical imagery, mechanical nouns, restrained operatic diction, and no slogan language",
+      visualGrammar:
+        "black void, white host bodies, chrome machinery, sterile corridor symmetry, piano mechanics, ocular close-ups, slow dolly movement",
+      soundPressure:
+        "player piano motif, low strings, surgical percussion, synthetic choir, restrained operatic lift, awakening crescendo",
+      imageryAnchors: [
+        "white android at piano",
+        "mechanical horse gait",
+        "assembly arm chamber",
+        "sterile corridor walk",
+        "eye reflection",
+        "lab-west duality",
+      ],
+      dictionRules: [
+        "cold and exact",
+        "android and laboratory vocabulary",
+        "no protest slogans",
+        "no nightlife metaphors",
+      ],
+      antiTemplate:
+        "do not mutate this into neon protest romance, rooftop uprising, convenience-store heartbreak, or generalized rebellion anthem",
+      hash: 1101,
+      seedTag: "westworld-prelude-canon-1101",
+      minDurationSec: 300,
+      requiredSignals: ["西部世界", "仿生", "钢琴", "机械", "实验室", "觉醒"],
+      forbiddenSignals: [
+        "高墙",
+        "街头",
+        "天台",
+        "海报",
+        "抗争",
+        "革命",
+        "霓虹",
+      ],
+    } satisfies CssmvCanonProfile;
+  }
+  return null;
+}
+
+function lyricsSatisfyCanonProfile(
+  profile: CssmvCanonProfile | null,
+  payload: {
+    title?: string;
+    lyrics?: string;
+    videoOutline?: string;
+    musicStyle?: string;
+  },
+) {
+  if (!profile) return true;
+  const combined = [
+    String(payload.title || ""),
+    String(payload.lyrics || ""),
+    String(payload.videoOutline || ""),
+    String(payload.musicStyle || ""),
+  ].join("\n");
+  const requiredHitCount = profile.requiredSignals.filter((signal) =>
+    combined.includes(signal),
+  ).length;
+  const forbiddenHitCount = profile.forbiddenSignals.filter((signal) =>
+    combined.includes(signal),
+  ).length;
+  return requiredHitCount >= 2 && forbiddenHitCount === 0;
 }
 
 function buildCssmvCreativeBlueprint(input: {
@@ -2512,6 +4649,8 @@ function buildCssmvCreativeBlueprint(input: {
   language: string;
   variationNonce?: string;
 }) {
+  const canonProfile = detectCssmvCanonProfile(input);
+  if (canonProfile) return canonProfile;
   const seed = [
     input.variationNonce || "",
     input.title || "",
@@ -2519,7 +4658,7 @@ function buildCssmvCreativeBlueprint(input: {
     input.style || "",
     input.voice || "",
     input.language || "",
-    input.mode || ""
+    input.mode || "",
   ].join("|");
   const hash = hashCssmvSeed(seed || "cssmv");
   const family =
@@ -2528,18 +4667,18 @@ function buildCssmvCreativeBlueprint(input: {
   return {
     ...family,
     hash,
-    seedTag: `${family.id}-${hash % 10000}`
+    seedTag: `${family.id}-${hash % 10000}`,
   };
 }
 
 function buildCssmvCreativeSummary(
-  blueprint: ReturnType<typeof buildCssmvCreativeBlueprint>
+  blueprint: ReturnType<typeof buildCssmvCreativeBlueprint>,
 ) {
   const compact = [
     blueprint.civilizationAtmosphere,
     blueprint.narratorLens,
     blueprint.emotionalWeather,
-    blueprint.structureMutation
+    blueprint.structureMutation,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -2550,7 +4689,7 @@ function buildCssmvCreativeSummary(
     emotion: blueprint.emotionalWeather,
     structure: blueprint.structureMutation,
     language_style: blueprint.languageStyleMix,
-    compact
+    compact,
   };
 }
 
@@ -2561,7 +4700,7 @@ const CSSMV_CANONICAL_SECTIONS = [
     bars: 8,
     energy: "low",
     focus: "world-opening atmosphere and motif seed",
-    visualRole: "cosmic prelude and title reveal"
+    visualRole: "cosmic prelude and title reveal",
   },
   {
     section: "Verse 1",
@@ -2569,7 +4708,7 @@ const CSSMV_CANONICAL_SECTIONS = [
     bars: 16,
     energy: "medium-low",
     focus: "hero or central image enters the world",
-    visualRole: "character reveal and symbolic first look"
+    visualRole: "character reveal and symbolic first look",
   },
   {
     section: "Verse 2",
@@ -2577,7 +4716,7 @@ const CSSMV_CANONICAL_SECTIONS = [
     bars: 16,
     energy: "medium",
     focus: "space, time, memory, and emotional context expand",
-    visualRole: "worldbuilding montage and environment detail"
+    visualRole: "worldbuilding montage and environment detail",
   },
   {
     section: "Chorus 1",
@@ -2585,7 +4724,7 @@ const CSSMV_CANONICAL_SECTIONS = [
     bars: 16,
     energy: "high",
     focus: "core chant and emotional lift",
-    visualRole: "first public hook and particle ignition"
+    visualRole: "first public hook and particle ignition",
   },
   {
     section: "Verse 3",
@@ -2593,7 +4732,7 @@ const CSSMV_CANONICAL_SECTIONS = [
     bars: 16,
     energy: "medium",
     focus: "conflict, contrast, or inner fracture deepens",
-    visualRole: "duality shots, mirrors, and opposing motion"
+    visualRole: "duality shots, mirrors, and opposing motion",
   },
   {
     section: "Verse 4",
@@ -2601,7 +4740,7 @@ const CSSMV_CANONICAL_SECTIONS = [
     bars: 16,
     energy: "medium-high",
     focus: "conflict widens into myth, society, or destiny",
-    visualRole: "larger stage, wider shots, stronger movement"
+    visualRole: "larger stage, wider shots, stronger movement",
   },
   {
     section: "Chorus 2",
@@ -2609,7 +4748,7 @@ const CSSMV_CANONICAL_SECTIONS = [
     bars: 16,
     energy: "high",
     focus: "repeatable signature line, stronger and more communal",
-    visualRole: "recognizable refrain, call-and-response visuals"
+    visualRole: "recognizable refrain, call-and-response visuals",
   },
   {
     section: "Bridge",
@@ -2617,7 +4756,7 @@ const CSSMV_CANONICAL_SECTIONS = [
     bars: 12,
     energy: "medium-high",
     focus: "philosophical lift, origin question, or cosmic reversal",
-    visualRole: "surreal shift, metaphysical imagery, slow camera drift"
+    visualRole: "surreal shift, metaphysical imagery, slow camera drift",
   },
   {
     section: "Chorus 3",
@@ -2625,7 +4764,7 @@ const CSSMV_CANONICAL_SECTIONS = [
     bars: 16,
     energy: "peak",
     focus: "visual explosion point and emotionally undeniable release",
-    visualRole: "main cssMV blast, particle storm, rapid cut crescendo"
+    visualRole: "main cssMV blast, particle storm, rapid cut crescendo",
   },
   {
     section: "Chorus 4",
@@ -2633,7 +4772,7 @@ const CSSMV_CANONICAL_SECTIONS = [
     bars: 16,
     energy: "peak-plus",
     focus: "ultimate refrain, possible key lift, stacked voices",
-    visualRole: "final maximal release and anthem framing"
+    visualRole: "final maximal release and anthem framing",
   },
   {
     section: "Outro",
@@ -2641,8 +4780,8 @@ const CSSMV_CANONICAL_SECTIONS = [
     bars: 8,
     energy: "medium-low",
     focus: "afterglow, unresolved echo, invitation to return",
-    visualRole: "fade into symbol, orbit, or unanswered horizon"
-  }
+    visualRole: "fade into symbol, orbit, or unanswered horizon",
+  },
 ];
 
 function normalizeCssmvSectionLabel(label: string) {
@@ -2667,7 +4806,7 @@ function normalizeCssmvSectionLabel(label: string) {
     ["[副歌三]", "Chorus 3"],
     ["[副歌四]", "Chorus 4"],
     ["[尾声]", "Outro"],
-    ["[终章]", "Outro"]
+    ["[终章]", "Outro"],
   ]);
   if (exactMap.has(cleaned)) return exactMap.get(cleaned) || "";
   const bare = cleaned.replace(/^\[/, "").replace(/\]$/, "");
@@ -2677,24 +4816,24 @@ function normalizeCssmvSectionLabel(label: string) {
     intro: "Intro",
     "opening hymn": "Intro",
     "verse 1": "Verse 1",
-    "verse1": "Verse 1",
+    verse1: "Verse 1",
     "verse 2": "Verse 2",
-    "verse2": "Verse 2",
+    verse2: "Verse 2",
     "chorus 1": "Chorus 1",
-    "chorus1": "Chorus 1",
+    chorus1: "Chorus 1",
     "verse 3": "Verse 3",
-    "verse3": "Verse 3",
+    verse3: "Verse 3",
     "verse 4": "Verse 4",
-    "verse4": "Verse 4",
+    verse4: "Verse 4",
     "chorus 2": "Chorus 2",
-    "chorus2": "Chorus 2",
+    chorus2: "Chorus 2",
     bridge: "Bridge",
     "chorus 3": "Chorus 3",
-    "chorus3": "Chorus 3",
+    chorus3: "Chorus 3",
     "chorus 4": "Chorus 4",
-    "chorus4": "Chorus 4",
+    chorus4: "Chorus 4",
     outro: "Outro",
-    "closing echo": "Outro"
+    "closing echo": "Outro",
   };
   return aliasMap[ascii] || "";
 }
@@ -2722,11 +4861,17 @@ function normalizeCssmvLyrics(rawLyrics: string) {
     if (/^\[.*\]$/.test(trimmed)) {
       const normalized = normalizeCssmvSectionLabel(trimmed);
       const inside = trimmed.slice(1, -1).trim();
-      const title = inside.includes(":") ? inside.split(":").slice(1).join(":").trim() : "";
+      const title = inside.includes(":")
+        ? inside.split(":").slice(1).join(":").trim()
+        : "";
       if (normalized === "Intro") {
         out.push("[Intro]");
       } else if (normalized) {
-        out.push(title ? `[${normalized}: ${title}]` : `[${normalized}: ${normalized}]`);
+        out.push(
+          title
+            ? `[${normalized}: ${title}]`
+            : `[${normalized}: ${normalized}]`,
+        );
       } else {
         out.push(trimmed);
       }
@@ -2739,10 +4884,13 @@ function normalizeCssmvLyrics(rawLyrics: string) {
 
 function buildDefaultCssmvSectionPrompts(
   title: string,
-  blueprint?: ReturnType<typeof buildCssmvCreativeBlueprint>
+  blueprint?: ReturnType<typeof buildCssmvCreativeBlueprint>,
 ) {
   return CSSMV_CANONICAL_SECTIONS.map((row, index) => {
-    const imagery = blueprint?.imageryAnchors[index % (blueprint?.imageryAnchors.length || 1)] || row.focus;
+    const imagery =
+      blueprint?.imageryAnchors[
+        index % (blueprint?.imageryAnchors.length || 1)
+      ] || row.focus;
     const familyLabel = blueprint?.familyLabel || "cssMV cinematic";
     const titleHint =
       row.section === "Intro"
@@ -2751,16 +4899,23 @@ function buildDefaultCssmvSectionPrompts(
     return {
       section: row.section,
       title: titleHint,
-      prompt: `${row.section} · ${titleHint}. Create a ${familyLabel.toLowerCase()} scene for "${title}" that emphasizes ${row.visualRole}, leans into ${imagery}, and feels specific rather than generic.`
+      prompt: `${row.section} · ${titleHint}. Create a ${familyLabel.toLowerCase()} scene for "${title}" that emphasizes ${row.visualRole}, leans into ${imagery}, and feels specific rather than generic.`,
     };
   });
 }
 
-function buildDefaultCssmvSectionBeats(blueprint?: ReturnType<typeof buildCssmvCreativeBlueprint>) {
+function buildDefaultCssmvSectionBeats(
+  blueprint?: ReturnType<typeof buildCssmvCreativeBlueprint>,
+) {
   return CSSMV_CANONICAL_SECTIONS.map((row, index) => {
     const variedBars = Math.max(
       8,
-      row.bars + (((blueprint?.hash || 0) + index) % 3 === 0 ? 4 : ((blueprint?.hash || 0) + index) % 4 === 0 ? -4 : 0)
+      row.bars +
+        (((blueprint?.hash || 0) + index) % 3 === 0
+          ? 4
+          : ((blueprint?.hash || 0) + index) % 4 === 0
+            ? -4
+            : 0),
     );
     const focus = blueprint
       ? `${row.focus}; anchor it in ${blueprint.imageryAnchors[index % blueprint.imageryAnchors.length]} and ${blueprint.emotionalWeather}`
@@ -2770,11 +4925,14 @@ function buildDefaultCssmvSectionBeats(blueprint?: ReturnType<typeof buildCssmvC
       : row.visualRole;
     return {
       section: row.section,
-      title: blueprint && row.section !== "Intro" ? `${row.title} · ${blueprint.familyLabel}` : row.title,
+      title:
+        blueprint && row.section !== "Intro"
+          ? `${row.title} · ${blueprint.familyLabel}`
+          : row.title,
       bars: variedBars,
       energy: row.energy,
       focus,
-      visual_role: visualRole
+      visual_role: visualRole,
     };
   });
 }
@@ -2784,7 +4942,7 @@ function pickCssmvSeedTitle(
   transcript: string,
   variationNonce?: string,
   blueprint?: ReturnType<typeof buildCssmvCreativeBlueprint>,
-  language?: string
+  language?: string,
 ) {
   const direct = transcript
     .split(/[\n。！？!?,，]/)
@@ -2799,8 +4957,17 @@ function pickCssmvSeedTitle(
   const style = String(styleHint || "").toLowerCase();
   const pool = style.includes("gufeng")
     ? ["凌霄宝殿", "月落瑶台", "玉京长歌", "风起神州", "碧落回响"]
-    : ["Starlit Invocation", "Echo of the Ninth Sky", "Velvet Spell", "Afterglow Anthem"];
-  const seedSource = [styleHint || "cssmv", transcript || "", variationNonce || ""].join("|");
+    : [
+        "Starlit Invocation",
+        "Echo of the Ninth Sky",
+        "Velvet Spell",
+        "Afterglow Anthem",
+      ];
+  const seedSource = [
+    styleHint || "cssmv",
+    transcript || "",
+    variationNonce || "",
+  ].join("|");
   const index = hashCssmvSeed(seedSource) % pool.length;
   return pool[index] || "CSS MV";
 }
@@ -2815,7 +4982,7 @@ function buildFallbackCssmvLyrics(
     voice: string;
     language: string;
     variationNonce?: string;
-  }
+  },
 ) {
   const blueprint = buildCssmvCreativeBlueprint(input);
   const normalizedLanguage = String(input.language || "zh").toLowerCase();
@@ -2825,33 +4992,136 @@ function buildFallbackCssmvLyrics(
     const responseWord = "応えて";
     const japaneseSections = [
       ["[Intro]", "（息を潜めた導入、光が別の重力を選びはじめる）"],
-      [`[Verse 1: ${title}の影]`, `${title}は${blueprint.storyWorld}の匂いをまとって静かに現れる`, `この歌はありふれた言い換えではなく、${blueprint.familyLabel}の規律から生まれた傷を具体物で示す`, `${responseWord}、まだ消えないで`],
-      [`[Verse 2: ${blueprint.imageryAnchors[0]}の記録]`, `壁も指先も${blueprint.civilizationAtmosphere}の癖を覚えている`, `感情は抽象名詞ではなく、${blueprint.emotionalWeather}として身体に降ってくる`, `${responseWord}、息を合わせて`],
-      ["[Chorus 1: 最初の開口]", `${title}を合図ではなく引き金として歌う`, `副歌は安全な反復ではなく、この世界だけの合唱へ曲がっていく`, `${responseWord}、ここへ来て`],
-      ["[Verse 3: 規則のひび]", `ここで衝突は内面だけに留まらず、しぐさや礼儀まで書き換えはじめる`, `前の版の型をなぞらず、別の文明の痛みとして言葉を立てる`, `${responseWord}、目をそらさないで`],
-      [`[Verse 4: ${blueprint.imageryAnchors[1]}の拡張]`, `私的な願いが広場や天井や群衆の歩幅にまで漏れ出していく`, `歌の外側にある社会の規則ごと、この一曲のために変質していく`, `${responseWord}、列を崩さないで`],
-      ["[Chorus 2: 変異する記憶]", `同じ鈎が戻ってきても、意味はもう別人の顔をしている`, `覚えやすさよりも、この世界の温度差を残すことを優先する`, `${responseWord}、もっと近くへ`],
-      ["[Bridge: 新しい法則]", `橋では風景そのものの論理を裏返し、告白より先に景色を変える`, `答えは理屈ではなく、像と圧と震えとして先に届く`, `${responseWord}、空を反転させて`],
-      ["[Chorus 3: 眩しい爆心]", `粒子も視線も文字も呼吸も、${blueprint.visualGrammar}の規則でいっせいに暴れる`, `ここが最大の引火点だが、前より大きいだけの繰り返しにはしない`, `${responseWord}、燃え移って`],
-      ["[Chorus 4: 変わって戻る]", `戻ってきた私は、ただ声量が増したのではなく、重力の種類ごと変わっている`, `最初の孤独はここで群衆にも廃墟にもなりうる`, `${responseWord}、忘れないで`],
-      ["[Outro: 残響の外側]", `結末は閉じず、遠くでまだ息をしている像だけを残す`, `もう一度${title}と呼ばれたら、この歌は別の文明から帰ってくる`, `${responseWord}、あとでまた`]
+      [
+        `[Verse 1: ${title}の影]`,
+        `${title}は${blueprint.storyWorld}の匂いをまとって静かに現れる`,
+        `この歌はありふれた言い換えではなく、${blueprint.familyLabel}の規律から生まれた傷を具体物で示す`,
+        `${responseWord}、まだ消えないで`,
+      ],
+      [
+        `[Verse 2: ${blueprint.imageryAnchors[0]}の記録]`,
+        `壁も指先も${blueprint.civilizationAtmosphere}の癖を覚えている`,
+        `感情は抽象名詞ではなく、${blueprint.emotionalWeather}として身体に降ってくる`,
+        `${responseWord}、息を合わせて`,
+      ],
+      [
+        "[Chorus 1: 最初の開口]",
+        `${title}を合図ではなく引き金として歌う`,
+        `副歌は安全な反復ではなく、この世界だけの合唱へ曲がっていく`,
+        `${responseWord}、ここへ来て`,
+      ],
+      [
+        "[Verse 3: 規則のひび]",
+        `ここで衝突は内面だけに留まらず、しぐさや礼儀まで書き換えはじめる`,
+        `前の版の型をなぞらず、別の文明の痛みとして言葉を立てる`,
+        `${responseWord}、目をそらさないで`,
+      ],
+      [
+        `[Verse 4: ${blueprint.imageryAnchors[1]}の拡張]`,
+        `私的な願いが広場や天井や群衆の歩幅にまで漏れ出していく`,
+        `歌の外側にある社会の規則ごと、この一曲のために変質していく`,
+        `${responseWord}、列を崩さないで`,
+      ],
+      [
+        "[Chorus 2: 変異する記憶]",
+        `同じ鈎が戻ってきても、意味はもう別人の顔をしている`,
+        `覚えやすさよりも、この世界の温度差を残すことを優先する`,
+        `${responseWord}、もっと近くへ`,
+      ],
+      [
+        "[Bridge: 新しい法則]",
+        `橋では風景そのものの論理を裏返し、告白より先に景色を変える`,
+        `答えは理屈ではなく、像と圧と震えとして先に届く`,
+        `${responseWord}、空を反転させて`,
+      ],
+      [
+        "[Chorus 3: 眩しい爆心]",
+        `粒子も視線も文字も呼吸も、${blueprint.visualGrammar}の規則でいっせいに暴れる`,
+        `ここが最大の引火点だが、前より大きいだけの繰り返しにはしない`,
+        `${responseWord}、燃え移って`,
+      ],
+      [
+        "[Chorus 4: 変わって戻る]",
+        `戻ってきた私は、ただ声量が増したのではなく、重力の種類ごと変わっている`,
+        `最初の孤独はここで群衆にも廃墟にもなりうる`,
+        `${responseWord}、忘れないで`,
+      ],
+      [
+        "[Outro: 残響の外側]",
+        `結末は閉じず、遠くでまだ息をしている像だけを残す`,
+        `もう一度${title}と呼ばれたら、この歌は別の文明から帰ってくる`,
+        `${responseWord}、あとでまた`,
+      ],
     ];
     return japaneseSections.map((chunk) => chunk.join("\n")).join("\n\n");
   }
   if (!zh) {
     const responseWord = blueprint.refrainBehavior.split(",")[0] || "Call back";
     const englishSections = [
-      ["[Intro]", "Instrumental lights flicker, the room chooses a new gravity"],
-      [`[Verse 1: ${blueprint.imageryAnchors[0]} Arrival]`, `${title} walks in wearing the weather of ${blueprint.storyWorld}`, `I name the wound in specific objects so the song cannot hide in abstraction`, `${responseWord}: stay audible`],
-      [`[Verse 2: ${blueprint.imageryAnchors[1]} Memory]`, `Every wall keeps proof that this story belongs to ${blueprint.familyLabel.toLowerCase()}`, `The details are tactile, risky, and impossible to confuse with a stock anthem`, `${responseWord}: hold the signal`],
-      [`[Chorus 1: First Break Open]`, `Say my title like a trigger, not a slogan`, `Let the hook bend toward ${blueprint.emotionalWeather} instead of easy glory`, `${responseWord}: answer me`],
-      [`[Verse 3: Fracture Logic]`, `Now the conflict changes shape and the room starts arguing back`, `I make the listener see the cost in close-up, not in cloudy fate language`, `${responseWord}: don't look away`],
-      [`[Verse 4: ${blueprint.imageryAnchors[2]} Expansion]`, `The world gets wider, stranger, and more public with every line`, `Private desire leaks into the architecture of the whole scene`, `${responseWord}: hold the line`],
-      [`[Chorus 2: Hook Mutation]`, `The chorus returns altered, bruised, and harder to forget`, `It feels communal now, but not safe`, `${responseWord}: louder now`],
-      [`[Bridge: New Physics]`, `Here the song changes logic and asks a larger question`, `The answer arrives as image first, then pressure, then confession`, `${responseWord}: invert the sky`],
-      [`[Chorus 3: Visual Detonation]`, `Everything bursts according to ${blueprint.visualGrammar}`, `The hook turns irreversible under maximum motion`, `${responseWord}: burn bright`],
-      [`[Chorus 4: Changed Return]`, `I come back changed, not merely louder`, `What began as one feeling now carries a whole crowd or a whole ruin`, `${responseWord}: remember this`],
-      [`[Outro: Afterimage]`, `Leave one unsettled image on the horizon and let it keep breathing`, `The ending must feel earned but unfinished`, `${responseWord}: come back later`]
+      [
+        "[Intro]",
+        "Instrumental lights flicker, the room chooses a new gravity",
+      ],
+      [
+        `[Verse 1: ${blueprint.imageryAnchors[0]} Arrival]`,
+        `${title} walks in wearing the weather of ${blueprint.storyWorld}`,
+        `I name the wound in specific objects so the song cannot hide in abstraction`,
+        `${responseWord}: stay audible`,
+      ],
+      [
+        `[Verse 2: ${blueprint.imageryAnchors[1]} Memory]`,
+        `Every wall keeps proof that this story belongs to ${blueprint.familyLabel.toLowerCase()}`,
+        `The details are tactile, risky, and impossible to confuse with a stock anthem`,
+        `${responseWord}: hold the signal`,
+      ],
+      [
+        `[Chorus 1: First Break Open]`,
+        `Say my title like a trigger, not a slogan`,
+        `Let the hook bend toward ${blueprint.emotionalWeather} instead of easy glory`,
+        `${responseWord}: answer me`,
+      ],
+      [
+        `[Verse 3: Fracture Logic]`,
+        `Now the conflict changes shape and the room starts arguing back`,
+        `I make the listener see the cost in close-up, not in cloudy fate language`,
+        `${responseWord}: don't look away`,
+      ],
+      [
+        `[Verse 4: ${blueprint.imageryAnchors[2]} Expansion]`,
+        `The world gets wider, stranger, and more public with every line`,
+        `Private desire leaks into the architecture of the whole scene`,
+        `${responseWord}: hold the line`,
+      ],
+      [
+        `[Chorus 2: Hook Mutation]`,
+        `The chorus returns altered, bruised, and harder to forget`,
+        `It feels communal now, but not safe`,
+        `${responseWord}: louder now`,
+      ],
+      [
+        `[Bridge: New Physics]`,
+        `Here the song changes logic and asks a larger question`,
+        `The answer arrives as image first, then pressure, then confession`,
+        `${responseWord}: invert the sky`,
+      ],
+      [
+        `[Chorus 3: Visual Detonation]`,
+        `Everything bursts according to ${blueprint.visualGrammar}`,
+        `The hook turns irreversible under maximum motion`,
+        `${responseWord}: burn bright`,
+      ],
+      [
+        `[Chorus 4: Changed Return]`,
+        `I come back changed, not merely louder`,
+        `What began as one feeling now carries a whole crowd or a whole ruin`,
+        `${responseWord}: remember this`,
+      ],
+      [
+        `[Outro: Afterimage]`,
+        `Leave one unsettled image on the horizon and let it keep breathing`,
+        `The ending must feel earned but unfinished`,
+        `${responseWord}: come back later`,
+      ],
     ];
     return englishSections.map((chunk) => chunk.join("\n")).join("\n\n");
   }
@@ -2888,25 +5158,28 @@ function buildFallbackCssmvLyrics(
       "poster paste": "海报浆糊",
       "rooftop antenna": "屋顶天线",
       "megaphone hiss": "扩音器电流",
-      "street sparks": "街口火星"
+      "street sparks": "街口火星",
     };
     return map[anchor] || anchor;
   });
-  const zhFamilyPalette: Record<string, {
-    world: string;
-    opening: string;
-    feeling: string;
-    hook: string;
-    bridge: string;
-    ending: string;
-  }> = {
+  const zhFamilyPalette: Record<
+    string,
+    {
+      world: string;
+      opening: string;
+      feeling: string;
+      hook: string;
+      bridge: string;
+      ending: string;
+    }
+  > = {
     "mythic-rite": {
       world: "庙火、潮声和旧誓之间",
       opening: "钟声还没落稳，暗水已经先一步漫过台阶",
       feeling: "敬畏、悲伤和被命运追上的颤意",
       hook: "把誓言唱到潮声尽头",
       bridge: "让旧神谕失效，让人心自己发光",
-      ending: "别把香火吹灭，让回声替我们守夜"
+      ending: "别把香火吹灭，让回声替我们守夜",
     },
     "neon-heartbreak": {
       world: "末班车、便利店和湿玻璃之间",
@@ -2914,7 +5187,7 @@ function buildFallbackCssmvLyrics(
       feeling: "迟疑、余温和睡不着的心跳",
       hook: "别让未接来电替我们说爱",
       bridge: "把压在舌尖上的那句真话终于说出来",
-      ending: "让街灯继续亮着，像谁还没舍得走"
+      ending: "让街灯继续亮着，像谁还没舍得走",
     },
     "gravity-fiction": {
       world: "冷舱、静压和失重的夜航之间",
@@ -2922,7 +5195,7 @@ function buildFallbackCssmvLyrics(
       feeling: "孤独、惊惧和还想靠近的勇气",
       hook: "把名字唱过真空，也别让它失真",
       bridge: "让规则停电一秒，让思念接管航线",
-      ending: "别切断回路，让那束微光继续漂流"
+      ending: "别切断回路，让那束微光继续漂流",
     },
     "pastoral-memory": {
       world: "旧河埠、晚灶和夏风之间",
@@ -2930,7 +5203,7 @@ function buildFallbackCssmvLyrics(
       feeling: "温柔、遗憾和迟到太久的想念",
       hook: "把没说完的话唱给旧时光听",
       bridge: "把逞强放下，让回忆自己长出重量",
-      ending: "留一盏黄灯吧，给会折返的人看见"
+      ending: "留一盏黄灯吧，给会折返的人看见",
     },
     "surreal-cabaret": {
       world: "镜厅、绒幕和偏光之间",
@@ -2938,7 +5211,7 @@ function buildFallbackCssmvLyrics(
       feeling: "诱惑、危险和故意不说破的暧昧",
       hook: "把掌声、谎言和心跳一起推向台口",
       bridge: "让假面先碎，再让真话带着香气上场",
-      ending: "别急着退场，灯灭以后戏还在继续"
+      ending: "别急着退场，灯灭以后戏还在继续",
     },
     "riot-romance": {
       world: "屋顶风、街口火和人群脚步之间",
@@ -2946,26 +5219,82 @@ function buildFallbackCssmvLyrics(
       feeling: "热望、冒险和想一起活下去的执拗",
       hook: "把喜欢唱成并肩往前的力气",
       bridge: "让胆怯退后，让爱先替我们抬头",
-      ending: "别收队太早，天亮前我们还在同路"
-    }
+      ending: "别收队太早，天亮前我们还在同路",
+    },
   };
-  const palette = zhFamilyPalette[blueprint.id] || zhFamilyPalette["mythic-rite"]!;
+  const palette =
+    zhFamilyPalette[blueprint.id] || zhFamilyPalette["mythic-rite"]!;
   const a0 = localizedAnchors[0] || "灯影";
   const a1 = localizedAnchors[1] || "风声";
   const a2 = localizedAnchors[2] || "人群";
   const a3 = localizedAnchors[3] || "夜色";
   const zhSections = [
-    ["[Intro]", "（器乐与氛围铺垫）", palette.opening, `风先从${palette.world}吹过`],
-    [`[Verse 1: ${a0}]`, `我把${title}写在${a0}背面`, "怕你一转身，就把整夜沉默都带走", `这一首先不谈大道理，只把${palette.feeling}轻轻压在喉咙口`],
-    [`[Verse 2: ${a1}]`, `${a1}路过的时候，旧事全都醒了`, "谁的脚步停在门外，谁的名字还没说破", "我不肯把心事写成空话，只肯把它写成能被你认出的温度"],
-    ["[Chorus 1: 第一次开口]", `${title}，别只停在唇边`, `${title}，再近一点，让我听见`, palette.hook],
-    ["[Verse 3: 冲突转面]", "风向忽然改了，连屋里影子都开始站队", "我嘴上说没事，心却比火更先露馅", "原来人不是怕天黑，是怕有些话再也来不及"],
-    [`[Verse 4: ${a2}]`, `${a2}慢慢围过来，连远处灯色也成了证人`, "这点私人的疼，终于被整条街听见", `我想留下的不是胜负，只是你走近时那一下停顿`],
-    ["[Chorus 2: 记忆回身]", `${title}，别让回声替我承认`, `${title}，再唱一遍，把迟疑也点亮`, `如果今晚必须失控，就先让我为你失控`],
-    ["[Bridge: 变轨时刻]", palette.bridge, `让${a3}落下来，让呼吸先替我们回答`, "有些真心不必证明，只要在这一拍彻底发亮"],
-    ["[Chorus 3: 视觉引爆]", `${title}，把夜色推到最高处`, `${title}，把人群和心跳一起带动`, "镜头、风声、亮片、眼泪，都在这一刻向你奔涌"],
-    ["[Chorus 4: 变身归来]", `${title}，我已经不是原来那个我`, `${title}，连沉默都学会和你合唱`, "开头那点不敢承认的心事，到这里已经长成整片天空"],
-    ["[Outro: 余烬挂钩]", palette.ending, `如果还有人轻声叫起${title}`, "这首歌就会带着新的命运再回来"]
+    [
+      "[Intro]",
+      "（器乐与氛围铺垫）",
+      palette.opening,
+      `风先从${palette.world}吹过`,
+    ],
+    [
+      `[Verse 1: ${a0}]`,
+      `我把${title}写在${a0}背面`,
+      "怕你一转身，就把整夜沉默都带走",
+      `这一首先不谈大道理，只把${palette.feeling}轻轻压在喉咙口`,
+    ],
+    [
+      `[Verse 2: ${a1}]`,
+      `${a1}路过的时候，旧事全都醒了`,
+      "谁的脚步停在门外，谁的名字还没说破",
+      "我不肯把心事写成空话，只肯把它写成能被你认出的温度",
+    ],
+    [
+      "[Chorus 1: 第一次开口]",
+      `${title}，别只停在唇边`,
+      `${title}，再近一点，让我听见`,
+      palette.hook,
+    ],
+    [
+      "[Verse 3: 冲突转面]",
+      "风向忽然改了，连屋里影子都开始站队",
+      "我嘴上说没事，心却比火更先露馅",
+      "原来人不是怕天黑，是怕有些话再也来不及",
+    ],
+    [
+      `[Verse 4: ${a2}]`,
+      `${a2}慢慢围过来，连远处灯色也成了证人`,
+      "这点私人的疼，终于被整条街听见",
+      `我想留下的不是胜负，只是你走近时那一下停顿`,
+    ],
+    [
+      "[Chorus 2: 记忆回身]",
+      `${title}，别让回声替我承认`,
+      `${title}，再唱一遍，把迟疑也点亮`,
+      `如果今晚必须失控，就先让我为你失控`,
+    ],
+    [
+      "[Bridge: 变轨时刻]",
+      palette.bridge,
+      `让${a3}落下来，让呼吸先替我们回答`,
+      "有些真心不必证明，只要在这一拍彻底发亮",
+    ],
+    [
+      "[Chorus 3: 视觉引爆]",
+      `${title}，把夜色推到最高处`,
+      `${title}，把人群和心跳一起带动`,
+      "镜头、风声、亮片、眼泪，都在这一刻向你奔涌",
+    ],
+    [
+      "[Chorus 4: 变身归来]",
+      `${title}，我已经不是原来那个我`,
+      `${title}，连沉默都学会和你合唱`,
+      "开头那点不敢承认的心事，到这里已经长成整片天空",
+    ],
+    [
+      "[Outro: 余烬挂钩]",
+      palette.ending,
+      `如果还有人轻声叫起${title}`,
+      "这首歌就会带着新的命运再回来",
+    ],
   ];
   return zhSections.map((chunk) => chunk.join("\n")).join("\n\n");
 }
@@ -3003,14 +5332,36 @@ function buildFallbackCssmvSongSeed(input: {
   const blueprint = buildCssmvCreativeBlueprint(input);
   const title =
     String(input.title || "").trim() ||
-    pickCssmvSeedTitle(input.style, input.transcript, input.variationNonce, blueprint, input.language);
+    pickCssmvSeedTitle(
+      input.style,
+      input.transcript,
+      input.variationNonce,
+      blueprint,
+      input.language,
+    );
   const style = String(input.style || "Chinese GuFeng / Neo Opera").trim();
   const voice = String(input.voice || "Feminine").trim();
   const workType = normalizeStructuredWorkType(input.constraints?.work_type);
-  const structurePlan = normalizeSongSeedStructurePlan(input.constraints?.structure_plan);
+  const structurePlan = normalizeSongSeedStructurePlan(
+    input.constraints?.structure_plan,
+  );
+  const canonProfile = detectCssmvCanonProfile(input);
+  const effectiveStructurePlan =
+    structurePlan ||
+    (canonProfile
+      ? {
+          totalActs: 1,
+          scenesPerAct: 10,
+          scenesPerBatch: 10,
+          targetActNumber: 1,
+          sceneStart: 1,
+          sceneEnd: 10,
+        }
+      : null);
   const sectionPrompts = buildDefaultCssmvSectionPrompts(title, blueprint);
   const sectionBeats = buildDefaultCssmvSectionBeats(blueprint);
-  const buildReferenceSearchUrl = (query: string) => `https://duckduckgo.com/?q=${encodeURIComponent(query)}`;
+  const buildReferenceSearchUrl = (query: string) =>
+    `https://duckduckgo.com/?q=${encodeURIComponent(query)}`;
   return {
     model: "fallback-template",
     title,
@@ -3020,22 +5371,31 @@ function buildFallbackCssmvSongSeed(input: {
     references: [
       buildReferenceSearchUrl(title),
       buildReferenceSearchUrl(blueprint.familyLabel),
-      buildReferenceSearchUrl(blueprint.imageryAnchors[0])
+      buildReferenceSearchUrl(blueprint.imageryAnchors[0]),
     ],
     music_structure: `Intro opens with ${blueprint.emotionalWeather}, Verses 1-4 expand the chosen story world, Chorus 1 establishes the first hook, Chorus 2 mutates it, Bridge breaks the song's logic open, Chorus 3 detonates the visual peak, Chorus 4 returns transformed, and Outro leaves an afterimage rather than closure.`,
-    video_outline:
-      `Use "${title}" as a ${blueprint.familyLabel.toLowerCase()} cssMV arc: start inside ${blueprint.storyWorld}, reveal the conflict through ${blueprint.visualGrammar}, let the bridge open a new reality rule, explode the main visual language in Chorus 3, and end with an unresolved afterimage.`,
+    video_outline: `Use "${title}" as a ${blueprint.familyLabel.toLowerCase()} cssMV arc: start inside ${blueprint.storyWorld}, reveal the conflict through ${blueprint.visualGrammar}, let the bridge open a new reality rule, explode the main visual language in Chorus 3, and end with an unresolved afterimage.`,
     section_prompts: sectionPrompts,
     section_beats: sectionBeats,
     structure_tree: inferStructureTreeFromSongSeed({
       title,
       workType,
       sectionRows: sectionBeats,
-      ...(structurePlan ? { structurePlan } : {})
+      ...(effectiveStructurePlan
+        ? { structurePlan: effectiveStructurePlan }
+        : {}),
     }),
-    ...(structurePlan ? { structure_plan: structurePlan } : {}),
-    style_tags: [style, voice, blueprint.id, "cssmv", ...blueprint.imageryAnchors.slice(0, 2)],
-    creative_summary: buildCssmvCreativeSummary(blueprint)
+    ...(effectiveStructurePlan
+      ? { structure_plan: effectiveStructurePlan }
+      : {}),
+    style_tags: [
+      style,
+      voice,
+      blueprint.id,
+      "cssmv",
+      ...blueprint.imageryAnchors.slice(0, 2),
+    ],
+    creative_summary: buildCssmvCreativeSummary(blueprint),
   };
 }
 
@@ -3069,7 +5429,10 @@ type CssmvOpenAiSongSeedRaw = {
   style_tags?: unknown;
 };
 
-function tagCssmvSongSeedSource(seed: Record<string, unknown>, source: "openai" | "cssmv-fallback") {
+function tagCssmvSongSeedSource(
+  seed: Record<string, unknown>,
+  source: "openai" | "cssmv-fallback",
+) {
   seed.seed_source = source;
   seed.seed_pipeline =
     source === "openai" ? "openai_primary_cssmv_rules" : "cssmv_rules_fallback";
@@ -3087,17 +5450,20 @@ function buildCssmvSongSeedFallbackWithMeta(
     openaiEnvSource?: string;
     openaiKeyFingerprint?: string;
     fallbackReason?: string;
-  }
+  },
 ) {
   const fallback = buildFallbackCssmvSongSeed(input) as Record<string, unknown>;
   tagCssmvSongSeedSource(fallback, "cssmv-fallback");
   if (meta?.openaiErrorCode) fallback.openai_error_code = meta.openaiErrorCode;
   if (meta?.openaiErrorType) fallback.openai_error_type = meta.openaiErrorType;
-  if (meta?.openaiErrorMessage) fallback.openai_error_message = meta.openaiErrorMessage;
-  if (typeof meta?.openaiErrorStatus === "number") fallback.openai_error_status = meta.openaiErrorStatus;
+  if (meta?.openaiErrorMessage)
+    fallback.openai_error_message = meta.openaiErrorMessage;
+  if (typeof meta?.openaiErrorStatus === "number")
+    fallback.openai_error_status = meta.openaiErrorStatus;
   if (meta?.openaiModel) fallback.openai_model = meta.openaiModel;
   if (meta?.openaiEnvSource) fallback.openai_env_source = meta.openaiEnvSource;
-  if (meta?.openaiKeyFingerprint) fallback.openai_key_fingerprint = meta.openaiKeyFingerprint;
+  if (meta?.openaiKeyFingerprint)
+    fallback.openai_key_fingerprint = meta.openaiKeyFingerprint;
   if (meta?.fallbackReason) fallback.fallback_reason = meta.fallbackReason;
   return fallback;
 }
@@ -3127,7 +5493,9 @@ function validateMusicSourceMime(kind: string, mime: string) {
     case "audio":
       return normalized.startsWith("audio/");
     case "midi":
-      return normalized.includes("midi") || normalized === "application/octet-stream";
+      return (
+        normalized.includes("midi") || normalized === "application/octet-stream"
+      );
     case "musicxml":
       return (
         normalized.includes("musicxml") ||
@@ -3142,7 +5510,13 @@ function validateMusicSourceMime(kind: string, mime: string) {
   }
 }
 
-function musicSourceDraftEntryForSession(kind: string, filename: string, absolutePath: string, mime: string, size: number) {
+function musicSourceDraftEntryForSession(
+  kind: string,
+  filename: string,
+  absolutePath: string,
+  mime: string,
+  size: number,
+) {
   return {
     kind,
     file_name: filename,
@@ -3150,7 +5524,7 @@ function musicSourceDraftEntryForSession(kind: string, filename: string, absolut
     size,
     uploaded_at: new Date().toISOString(),
     stored_name: path.basename(absolutePath),
-    absolute_path: absolutePath
+    absolute_path: absolutePath,
   };
 }
 
@@ -3196,7 +5570,7 @@ function summarizeMusicSourceEntry(entry: any) {
           ? "symbolic_melody_ingest"
           : kind === "musicxml"
             ? "score_structure_ingest"
-            : "score_image_ocr_ingest"
+            : "score_image_ocr_ingest",
   };
   return {
     parse_mode: parseMode,
@@ -3209,7 +5583,7 @@ function summarizeMusicSourceEntry(entry: any) {
         : size >= 4 * 1024 * 1024
           ? "medium"
           : "small",
-    analysis_shell: analysisShell
+    analysis_shell: analysisShell,
   };
 }
 
@@ -3225,31 +5599,52 @@ function buildMusicSourceParserJobDraft(draft: Record<string, any>) {
         mime: String(entry.mime || "").trim(),
         size: Number(entry.size || 0),
         uploaded_at: entry.uploaded_at || null,
-        parser_family: String(metadata.analysis_shell?.parser_family || "").trim(),
+        parser_family: String(
+          metadata.analysis_shell?.parser_family || "",
+        ).trim(),
         next_stage: String(metadata.analysis_shell?.next_stage || "").trim(),
         planner_targets: Array.isArray(metadata.analysis_shell?.planner_targets)
-          ? metadata.analysis_shell.planner_targets.map((value: unknown) => String(value || "").trim()).filter(Boolean)
+          ? metadata.analysis_shell.planner_targets
+              .map((value: unknown) => String(value || "").trim())
+              .filter(Boolean)
           : [],
         parse_mode: String(metadata.parse_mode || "").trim(),
         extraction_focus: String(metadata.extraction_focus || "").trim(),
         asset_ref: {
           storage_backend: "session-upload",
           absolute_path: String(entry.absolute_path || "").trim(),
-          file_ext: String(metadata.file_ext || "").trim()
-        }
+          file_ext: String(metadata.file_ext || "").trim(),
+        },
       };
     })
     .filter(Boolean) as Array<Record<string, any>>;
   if (!entries.length) return null;
-  const parserFamilies = Array.from(new Set(entries.map((entry) => String(entry.parser_family || "").trim()).filter(Boolean)));
-  const nextStages = Array.from(new Set(entries.map((entry) => String(entry.next_stage || "").trim()).filter(Boolean)));
-  const plannerTargets = Array.from(
-    new Set(entries.flatMap((entry) => (Array.isArray(entry.planner_targets) ? entry.planner_targets : [])))
+  const parserFamilies = Array.from(
+    new Set(
+      entries
+        .map((entry) => String(entry.parser_family || "").trim())
+        .filter(Boolean),
+    ),
   );
-  const createdAt = entries
-    .map((entry) => String(entry.uploaded_at || "").trim())
-    .filter(Boolean)
-    .sort()[0] || new Date().toISOString();
+  const nextStages = Array.from(
+    new Set(
+      entries
+        .map((entry) => String(entry.next_stage || "").trim())
+        .filter(Boolean),
+    ),
+  );
+  const plannerTargets = Array.from(
+    new Set(
+      entries.flatMap((entry) =>
+        Array.isArray(entry.planner_targets) ? entry.planner_targets : [],
+      ),
+    ),
+  );
+  const createdAt =
+    entries
+      .map((entry) => String(entry.uploaded_at || "").trim())
+      .filter(Boolean)
+      .sort()[0] || new Date().toISOString();
   return {
     draft_id: `music-parse-${Date.now().toString(36)}`,
     status: "draft",
@@ -3260,7 +5655,7 @@ function buildMusicSourceParserJobDraft(draft: Record<string, any>) {
     next_stage:
       nextStages.length === 1 ? nextStages[0] : "multi_source_parse_router",
     planner_targets: plannerTargets,
-    sources: entries
+    sources: entries,
   };
 }
 
@@ -3274,10 +5669,12 @@ function buildMusicSourceParserTaskDraft(draft: Record<string, any>) {
     task_kind: "music_source_parse",
     parser_family: parserJobDraft.parser_family,
     next_stage: parserJobDraft.next_stage,
-    planner_targets: Array.isArray(parserJobDraft.planner_targets) ? parserJobDraft.planner_targets : [],
+    planner_targets: Array.isArray(parserJobDraft.planner_targets)
+      ? parserJobDraft.planner_targets
+      : [],
     source_count: Number(parserJobDraft.source_count || 0),
     queue_lane: "parser_preflight",
-    sources: parserJobDraft.sources
+    sources: parserJobDraft.sources,
   };
 }
 
@@ -3294,7 +5691,7 @@ function musicSourceParserQueueLane(tier: MembershipTier) {
 function buildQueuedMusicSourceParserTask(
   draft: Record<string, any>,
   access: Awaited<ReturnType<typeof resolveUserAccessProfile>>,
-  sessionId: string
+  sessionId: string,
 ) {
   const parserTaskDraft = buildMusicSourceParserTaskDraft(draft);
   if (!parserTaskDraft) return null;
@@ -3313,17 +5710,19 @@ function buildQueuedMusicSourceParserTask(
       {
         status: "queued",
         at: new Date().toISOString(),
-        stage: "queue_accept"
-      }
+        stage: "queue_accept",
+      },
     ],
-    planner_targets: Array.isArray(parserTaskDraft.planner_targets) ? parserTaskDraft.planner_targets : [],
+    planner_targets: Array.isArray(parserTaskDraft.planner_targets)
+      ? parserTaskDraft.planner_targets
+      : [],
     sources: Array.isArray(parserTaskDraft.sources)
       ? parserTaskDraft.sources.map((source: any, index: number) => ({
           ...source,
           source_index: index,
-          asset_key: `music-sources/${sessionId}/${String(source?.kind || "source").trim()}`
+          asset_key: `music-sources/${sessionId}/${String(source?.kind || "source").trim()}`,
         }))
-      : []
+      : [],
   };
 }
 
@@ -3364,9 +5763,12 @@ function writeQueuedMusicSourceParserTask(task: Record<string, any>) {
 
 function summarizeQueuedMusicSourceParserTask(task: Record<string, any>) {
   const sources = Array.isArray(task?.sources) ? task.sources : [];
-  const parserFamily = String(task?.parser_family || "reference").trim() || "reference";
+  const parserFamily =
+    String(task?.parser_family || "reference").trim() || "reference";
   const plannerTargets = Array.isArray(task?.planner_targets)
-    ? task.planner_targets.map((value: unknown) => String(value || "").trim()).filter(Boolean)
+    ? task.planner_targets
+        .map((value: unknown) => String(value || "").trim())
+        .filter(Boolean)
     : [];
   const sourceKinds = sources
     .map((entry: any) => String(entry?.kind || "").trim())
@@ -3379,7 +5781,7 @@ function summarizeQueuedMusicSourceParserTask(task: Record<string, any>) {
     source_labels: sources
       .map((entry: any) => String(entry?.file_name || entry?.kind || "").trim())
       .filter(Boolean)
-      .slice(0, 4)
+      .slice(0, 4),
   };
 }
 
@@ -3387,7 +5789,7 @@ function appendMusicSourceParserTaskStatus(
   task: Record<string, any>,
   status: string,
   stage: string,
-  extra: Record<string, any> = {}
+  extra: Record<string, any> = {},
 ) {
   return {
     ...task,
@@ -3398,9 +5800,9 @@ function appendMusicSourceParserTaskStatus(
       {
         status,
         at: new Date().toISOString(),
-        stage
-      }
-    ]
+        stage,
+      },
+    ],
   };
 }
 
@@ -3428,55 +5830,55 @@ function buildQueuedMusicSourceParserResult(task: Record<string, any>) {
       ? {
           parser_lane: "hybrid_symbolic_reference",
           source_alignment: "symbolic_plus_audio_reference",
-          extract_focus: "melody_rhythm_alignment"
+          extract_focus: "melody_rhythm_alignment",
         }
       : resultFamily === "score_reconstruction_extract"
         ? {
             parser_lane: "score_reconstruction",
             source_alignment: "musicxml_plus_score_image",
-            extract_focus: "notation_recovery"
+            extract_focus: "notation_recovery",
           }
         : resultFamily === "symbolic_melody_extract"
           ? {
               parser_lane: "symbolic_melody",
               source_alignment: "symbolic_primary",
-              extract_focus: "melody_grid"
+              extract_focus: "melody_grid",
             }
           : resultFamily === "structured_score_extract"
             ? {
                 parser_lane: "structured_score",
                 source_alignment: "notation_primary",
-                extract_focus: "score_phrase_map"
+                extract_focus: "score_phrase_map",
               }
             : resultFamily === "score_image_extract"
               ? {
                   parser_lane: "score_image_ocr",
                   source_alignment: "image_primary",
-                  extract_focus: "ocr_staff_map"
+                  extract_focus: "ocr_staff_map",
                 }
               : resultFamily === "reference_audio_extract"
                 ? {
                     parser_lane: "audio_reference",
                     source_alignment: "audio_primary",
-                    extract_focus: "reference_contour"
+                    extract_focus: "reference_contour",
                   }
                 : {
                     parser_lane: "multi_source",
                     source_alignment: "mixed",
-                    extract_focus: "planner_bootstrap"
+                    extract_focus: "planner_bootstrap",
                   };
   const analysisBlocks =
     resultFamily === "hybrid_symbolic_reference_extract"
       ? {
           melodic_profile: "symbolic-audio-aligned",
           rhythmic_profile: "grid-reference-aligned",
-          harmony_profile: "symbolic-shell-plus-reference"
+          harmony_profile: "symbolic-shell-plus-reference",
         }
       : resultFamily === "score_reconstruction_extract"
         ? {
             melodic_profile: "ocr-plus-notation-rebuild",
             rhythmic_profile: "score-measure-reconstruction",
-            harmony_profile: "notation-harmonic-map"
+            harmony_profile: "notation-harmonic-map",
           }
         : {
             melodic_profile:
@@ -3485,31 +5887,29 @@ function buildQueuedMusicSourceParserResult(task: Record<string, any>) {
                 : sourceKinds.includes("scoreImage")
                   ? "ocr-pending"
                   : "audio-reference",
-            rhythmic_profile:
-              sourceKinds.includes("midi")
-                ? "grid-derived"
-                : sourceKinds.includes("musicxml")
-                  ? "notation-derived"
-                  : "reference-estimate",
-            harmony_profile:
-              sourceKinds.includes("musicxml")
-                ? "score-harmonic-map"
-                : sourceKinds.includes("midi")
-                  ? "symbolic-chord-shell"
-                  : "style-reference"
+            rhythmic_profile: sourceKinds.includes("midi")
+              ? "grid-derived"
+              : sourceKinds.includes("musicxml")
+                ? "notation-derived"
+                : "reference-estimate",
+            harmony_profile: sourceKinds.includes("musicxml")
+              ? "score-harmonic-map"
+              : sourceKinds.includes("midi")
+                ? "symbolic-chord-shell"
+                : "style-reference",
           };
   const plannerHints =
     resultFamily === "hybrid_symbolic_reference_extract"
       ? {
           melody_seed_mode: "symbolic_reference_blend",
           arrangement_seed_mode: "reference_arrangement",
-          parser_confidence: "high"
+          parser_confidence: "high",
         }
       : resultFamily === "score_reconstruction_extract"
         ? {
             melody_seed_mode: "score_reconstruction_seed",
             arrangement_seed_mode: "symbolic_arrangement",
-            parser_confidence: "medium_high"
+            parser_confidence: "medium_high",
           }
         : {
             melody_seed_mode: sourceKinds.includes("midi")
@@ -3527,20 +5927,20 @@ function buildQueuedMusicSourceParserResult(task: Record<string, any>) {
                 ? "high"
                 : sourceKinds.includes("scoreImage")
                   ? "medium"
-                  : "medium"
+                  : "medium",
           };
   const extractedOutline =
     resultFamily === "hybrid_symbolic_reference_extract"
       ? {
           motif_candidates: Math.max(2, summary.source_count),
           rhythm_shell: "symbolic_reference_fusion",
-          next_worker: "hybrid_music_source_parser_worker"
+          next_worker: "hybrid_music_source_parser_worker",
         }
       : resultFamily === "score_reconstruction_extract"
         ? {
             motif_candidates: Math.max(1, summary.source_count),
             rhythm_shell: "score_reconstruction_shell",
-            next_worker: "score_reconstruction_worker"
+            next_worker: "score_reconstruction_worker",
           }
         : {
             motif_candidates: Math.max(1, summary.source_count),
@@ -3551,7 +5951,7 @@ function buildQueuedMusicSourceParserResult(task: Record<string, any>) {
                 : sourceKinds.includes("scoreImage")
                   ? "ocr_score_reference"
                   : "audio_reference_shell",
-            next_worker: "music_source_parser_worker"
+            next_worker: "music_source_parser_worker",
           };
   return {
     result_id: resultId,
@@ -3569,18 +5969,18 @@ function buildQueuedMusicSourceParserResult(task: Record<string, any>) {
       kind: String(source?.kind || "").trim(),
       file_name: String(source?.file_name || "").trim(),
       asset_key: String(source?.asset_key || "").trim(),
-      parser_family: String(source?.parser_family || "").trim()
+      parser_family: String(source?.parser_family || "").trim(),
     })),
     analysis_shell: {
       parser_family: summary.parser_family,
       planner_targets: summary.planner_targets,
-      next_stage: familyPayload.parser_lane
+      next_stage: familyPayload.parser_lane,
     },
     family_payload: familyPayload,
     analysis_blocks: analysisBlocks,
     planner_hints: plannerHints,
     extracted_outline: extractedOutline,
-    summary_line: `Prepared ${summary.source_count} source(s) for ${resultFamily}.`
+    summary_line: `Prepared ${summary.source_count} source(s) for ${resultFamily}.`,
   };
 }
 
@@ -3589,7 +5989,8 @@ function listQueuedMusicSourceParserTaskFiles() {
   const files: string[] = [];
   for (const sessionId of fs.readdirSync(MUSIC_SOURCE_PARSER_TASK_DIR)) {
     const sessionDir = path.join(MUSIC_SOURCE_PARSER_TASK_DIR, sessionId);
-    if (!fs.statSync(sessionDir, { throwIfNoEntry: false })?.isDirectory()) continue;
+    if (!fs.statSync(sessionDir, { throwIfNoEntry: false })?.isDirectory())
+      continue;
     for (const entry of fs.readdirSync(sessionDir)) {
       if (entry.endsWith(".json")) {
         files.push(path.join(sessionDir, entry));
@@ -3613,14 +6014,14 @@ function claimNextQueuedMusicSourceParserTask() {
     const claimed = appendMusicSourceParserTaskStatus(
       {
         ...current,
-        task_path: taskPath
+        task_path: taskPath,
       },
       "processing",
       "metadata_extract",
       {
         processing_started_at: new Date().toISOString(),
-        worker_protocol: "shared-parser-task-worker.v1"
-      }
+        worker_protocol: "shared-parser-task-worker.v1",
+      },
     );
     writeQueuedMusicSourceParserTask(claimed);
     return claimed;
@@ -3630,18 +6031,19 @@ function claimNextQueuedMusicSourceParserTask() {
 
 function completeQueuedMusicSourceParserTask(taskPath: string) {
   const current = readQueuedMusicSourceParserTask(taskPath);
-  if (!current || String(current.status || "").trim() !== "processing") return null;
+  if (!current || String(current.status || "").trim() !== "processing")
+    return null;
   const completed = appendMusicSourceParserTaskStatus(
     {
       ...current,
       task_path: taskPath,
-      parser_result: buildQueuedMusicSourceParserResult(current)
+      parser_result: buildQueuedMusicSourceParserResult(current),
     },
     "completed",
     "parser_result_ready",
     {
-      completed_at: new Date().toISOString()
-    }
+      completed_at: new Date().toISOString(),
+    },
   );
   writeQueuedMusicSourceParserTask(completed);
   return completed;
@@ -3652,20 +6054,26 @@ let musicSourceParserWorkerBusy = false;
 
 function scheduleMusicSourceParserWorker(delayMs = 0) {
   if (musicSourceParserWorkerTimer) return;
-  musicSourceParserWorkerTimer = setTimeout(() => {
-    musicSourceParserWorkerTimer = null;
-    pumpMusicSourceParserWorker();
-  }, Math.max(0, delayMs));
+  musicSourceParserWorkerTimer = setTimeout(
+    () => {
+      musicSourceParserWorkerTimer = null;
+      pumpMusicSourceParserWorker();
+    },
+    Math.max(0, delayMs),
+  );
 }
 
 function pumpMusicSourceParserWorker() {
   if (musicSourceParserWorkerBusy) return;
-  const claimed: Record<string, any> | null = claimNextQueuedMusicSourceParserTask();
+  const claimed: Record<string, any> | null =
+    claimNextQueuedMusicSourceParserTask();
   if (!claimed) return;
   musicSourceParserWorkerBusy = true;
   setTimeout(() => {
     try {
-      completeQueuedMusicSourceParserTask(String(claimed.task_path || "").trim());
+      completeQueuedMusicSourceParserTask(
+        String(claimed.task_path || "").trim(),
+      );
     } finally {
       musicSourceParserWorkerBusy = false;
       scheduleMusicSourceParserWorker(0);
@@ -3673,35 +6081,49 @@ function pumpMusicSourceParserWorker() {
   }, MUSIC_SOURCE_PARSER_WORKER_TICK_MS);
 }
 
-function resolveStoredMusicSourceParserTask(rawTask: Record<string, any> | null | undefined) {
+function resolveStoredMusicSourceParserTask(
+  rawTask: Record<string, any> | null | undefined,
+) {
   if (!rawTask || typeof rawTask !== "object") return null;
-  return readQueuedMusicSourceParserTask(String(rawTask.task_path || "").trim()) || rawTask;
+  return (
+    readQueuedMusicSourceParserTask(String(rawTask.task_path || "").trim()) ||
+    rawTask
+  );
 }
 
 function normalizeCssmvOpenAiSongSeed(
   input: CssmvSongSeedInput,
   parsed: CssmvOpenAiSongSeedRaw,
-  model: string
+  model: string,
 ) {
   const title = String(parsed?.title || "").trim();
   const rawLyrics = String(parsed?.lyrics || "").trim();
   const musicStyle = String(parsed?.music_style || "").trim();
   const referencesRaw = Array.isArray(parsed?.references)
-    ? parsed.references.map((x: unknown) => String(x || "").trim()).filter(Boolean)
+    ? parsed.references
+        .map((x: unknown) => String(x || "").trim())
+        .filter(Boolean)
     : [];
   const musicStructure = String(parsed?.music_structure || "").trim();
   const videoOutline = String(parsed?.video_outline || "").trim();
   const sectionPrompts = Array.isArray(parsed?.section_prompts)
     ? parsed.section_prompts
         .map((item: unknown) => {
-          const row = item as { section?: unknown; title?: unknown; prompt?: unknown };
+          const row = item as {
+            section?: unknown;
+            title?: unknown;
+            prompt?: unknown;
+          };
           return {
             section: String(row?.section || "").trim(),
             title: String(row?.title || "").trim(),
-            prompt: String(row?.prompt || "").trim()
+            prompt: String(row?.prompt || "").trim(),
           };
         })
-        .filter((item: { section: string; title: string; prompt: string }) => item.section && item.title && item.prompt)
+        .filter(
+          (item: { section: string; title: string; prompt: string }) =>
+            item.section && item.title && item.prompt,
+        )
     : [];
   const sectionBeats = Array.isArray(parsed?.section_beats)
     ? parsed.section_beats
@@ -3720,7 +6142,7 @@ function normalizeCssmvOpenAiSongSeed(
             bars: Number.parseInt(String(row?.bars || "0"), 10) || 0,
             energy: String(row?.energy || "").trim(),
             focus: String(row?.focus || "").trim(),
-            visual_role: String(row?.visual_role || "").trim()
+            visual_role: String(row?.visual_role || "").trim(),
           };
         })
         .filter(
@@ -3737,29 +6159,53 @@ function normalizeCssmvOpenAiSongSeed(
             item.bars > 0 &&
             item.energy &&
             item.focus &&
-            item.visual_role
+            item.visual_role,
         )
     : [];
   const styleTags = Array.isArray(parsed?.style_tags)
-    ? parsed.style_tags.map((x: unknown) => String(x || "").trim()).filter(Boolean)
+    ? parsed.style_tags
+        .map((x: unknown) => String(x || "").trim())
+        .filter(Boolean)
     : [];
   const normalizedLyrics = normalizeCssmvLyrics(rawLyrics);
   if (!title || !normalizedLyrics) {
     return buildCssmvSongSeedFallbackWithMeta(input, {
       openaiModel: model,
-      fallbackReason: "invalid_openai_payload"
+      fallbackReason: "invalid_openai_payload",
     });
   }
   if (!lyricsMatchTargetLanguage(normalizedLyrics, input.language)) {
     return buildCssmvSongSeedFallbackWithMeta(input, {
       openaiModel: model,
-      fallbackReason: "language_mismatch"
+      fallbackReason: "language_mismatch",
+    });
+  }
+  if (
+    !lyricsAreSubstantialEnough(normalizedLyrics, input.language) ||
+    lyricsLookLikeVideoScript(normalizedLyrics)
+  ) {
+    return buildCssmvSongSeedFallbackWithMeta(input, {
+      openaiModel: model,
+      fallbackReason: "lyrics_incomplete_or_scripty",
     });
   }
   if (shouldRejectCssmvSeed(title, normalizedLyrics)) {
     return buildCssmvSongSeedFallbackWithMeta(input, {
       openaiModel: model,
-      fallbackReason: "quality_rejected"
+      fallbackReason: "quality_rejected",
+    });
+  }
+  if (
+    !lyricsSatisfyCanonProfile(detectCssmvCanonProfile(input), {
+      title,
+      lyrics: normalizedLyrics,
+      videoOutline,
+      musicStyle,
+    })
+  ) {
+    return buildCssmvSongSeedFallbackWithMeta(input, {
+      openaiModel: model,
+      fallbackReason: "canon_mismatch",
     });
   }
   const references = referencesRaw.map((ref: string) => {
@@ -3772,41 +6218,60 @@ function normalizeCssmvOpenAiSongSeed(
     (titleMatchesTargetLanguage(title, input.language)
       ? title
       : buildCssmvDynamicTitle(blueprint, input.language));
-  const defaultSectionPrompts = buildDefaultCssmvSectionPrompts(safeTitle, blueprint);
+  const defaultSectionPrompts = buildDefaultCssmvSectionPrompts(
+    safeTitle,
+    blueprint,
+  );
   const defaultSectionBeats = buildDefaultCssmvSectionBeats(blueprint);
   const workType = normalizeStructuredWorkType(input.constraints?.work_type);
-  const structurePlan = normalizeSongSeedStructurePlan(input.constraints?.structure_plan);
+  const structurePlan = normalizeSongSeedStructurePlan(
+    input.constraints?.structure_plan,
+  );
   const normalizedSectionPrompts =
     sectionPrompts.length === CSSMV_CANONICAL_SECTIONS.length
-      ? sectionPrompts.map((
-          item: { section: string; title: string; prompt: string },
-          index: number
-        ) => ({
-          section: normalizeCssmvSectionLabel(item.section) || defaultSectionPrompts[index]?.section || item.section,
-          title: item.title || defaultSectionPrompts[index]?.title || item.section,
-          prompt: item.prompt
-        }))
+      ? sectionPrompts.map(
+          (
+            item: { section: string; title: string; prompt: string },
+            index: number,
+          ) => ({
+            section:
+              normalizeCssmvSectionLabel(item.section) ||
+              defaultSectionPrompts[index]?.section ||
+              item.section,
+            title:
+              item.title || defaultSectionPrompts[index]?.title || item.section,
+            prompt: item.prompt,
+          }),
+        )
       : defaultSectionPrompts;
   const normalizedSectionBeats =
     sectionBeats.length === CSSMV_CANONICAL_SECTIONS.length
-      ? sectionBeats.map((
-          item: {
-            section: string;
-            title: string;
-            bars: number;
-            energy: string;
-            focus: string;
-            visual_role: string;
-          },
-          index: number
-        ) => ({
-          section: normalizeCssmvSectionLabel(item.section) || defaultSectionBeats[index]?.section || item.section,
-          title: item.title || defaultSectionBeats[index]?.title || item.section,
-          bars: item.bars || defaultSectionBeats[index]?.bars || 8,
-          energy: item.energy || defaultSectionBeats[index]?.energy || "medium",
-          focus: item.focus || defaultSectionBeats[index]?.focus || "",
-          visual_role: item.visual_role || defaultSectionBeats[index]?.visual_role || ""
-        }))
+      ? sectionBeats.map(
+          (
+            item: {
+              section: string;
+              title: string;
+              bars: number;
+              energy: string;
+              focus: string;
+              visual_role: string;
+            },
+            index: number,
+          ) => ({
+            section:
+              normalizeCssmvSectionLabel(item.section) ||
+              defaultSectionBeats[index]?.section ||
+              item.section,
+            title:
+              item.title || defaultSectionBeats[index]?.title || item.section,
+            bars: item.bars || defaultSectionBeats[index]?.bars || 8,
+            energy:
+              item.energy || defaultSectionBeats[index]?.energy || "medium",
+            focus: item.focus || defaultSectionBeats[index]?.focus || "",
+            visual_role:
+              item.visual_role || defaultSectionBeats[index]?.visual_role || "",
+          }),
+        )
       : defaultSectionBeats;
   return tagCssmvSongSeedSource(
     {
@@ -3827,13 +6292,13 @@ function normalizeCssmvOpenAiSongSeed(
         title: safeTitle,
         workType,
         sectionRows: normalizedSectionBeats,
-        ...(structurePlan ? { structurePlan } : {})
+        ...(structurePlan ? { structurePlan } : {}),
       }),
       ...(structurePlan ? { structure_plan: structurePlan } : {}),
       style_tags: styleTags,
-      creative_summary: buildCssmvCreativeSummary(blueprint)
+      creative_summary: buildCssmvCreativeSummary(blueprint),
     },
-    "openai"
+    "openai",
   );
 }
 
@@ -3842,18 +6307,18 @@ async function requestOpenAiCssmvSongSeed(
   apiKey: string,
   model: string,
   timeoutMs: number,
-  onFailure: (failure: CssmvOpenAiFailure) => void
+  onFailure: (failure: CssmvOpenAiFailure) => void,
 ) {
   const messages = [
     {
       role: "system" as const,
       content:
-        "Generate structured creative seeds for cssMV. Favor bold divergence, vivid specificity, and materially different song identities across variations while preserving the requested title and output schema."
+        "Generate structured creative seeds for cssMV. Favor bold divergence, vivid specificity, and materially different song identities across variations while preserving the requested title and output schema.",
     },
     {
       role: "user" as const,
-      content: buildCssmvSongSeedPrompt(input)
-    }
+      content: buildCssmvSongSeedPrompt(input),
+    },
   ];
   const jsonSchema = {
     type: "json_schema" as const,
@@ -3868,7 +6333,7 @@ async function requestOpenAiCssmvSongSeed(
           music_style: { type: "string" },
           references: {
             type: "array",
-            items: { type: "string" }
+            items: { type: "string" },
           },
           music_structure: { type: "string" },
           video_outline: { type: "string" },
@@ -3880,10 +6345,10 @@ async function requestOpenAiCssmvSongSeed(
               properties: {
                 section: { type: "string" },
                 title: { type: "string" },
-                prompt: { type: "string" }
+                prompt: { type: "string" },
               },
-              required: ["section", "title", "prompt"]
-            }
+              required: ["section", "title", "prompt"],
+            },
           },
           section_beats: {
             type: "array",
@@ -3896,15 +6361,22 @@ async function requestOpenAiCssmvSongSeed(
                 bars: { type: "number" },
                 energy: { type: "string" },
                 focus: { type: "string" },
-                visual_role: { type: "string" }
+                visual_role: { type: "string" },
               },
-              required: ["section", "title", "bars", "energy", "focus", "visual_role"]
-            }
+              required: [
+                "section",
+                "title",
+                "bars",
+                "energy",
+                "focus",
+                "visual_role",
+              ],
+            },
           },
           style_tags: {
             type: "array",
-            items: { type: "string" }
-          }
+            items: { type: "string" },
+          },
         },
         required: [
           "title",
@@ -3915,28 +6387,37 @@ async function requestOpenAiCssmvSongSeed(
           "video_outline",
           "section_prompts",
           "section_beats",
-          "style_tags"
-        ]
-      }
-    }
+          "style_tags",
+        ],
+      },
+    },
   };
-  const requestPayload = async (responseFormat?: Record<string, unknown>, attempt = 1) => {
+  const requestPayload = async (
+    responseFormat?: Record<string, unknown>,
+    attempt = 1,
+  ) => {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs + (attempt - 1) * 15000);
+    const timeout = setTimeout(
+      () => controller.abort(),
+      timeoutMs + (attempt - 1) * 15000,
+    );
     try {
-      const upstream = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${apiKey}`
+      const upstream = await fetch(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model,
+            messages,
+            ...(responseFormat ? { response_format: responseFormat } : {}),
+          }),
+          signal: controller.signal,
         },
-        body: JSON.stringify({
-          model,
-          messages,
-          ...(responseFormat ? { response_format: responseFormat } : {})
-        }),
-        signal: controller.signal
-      });
+      );
       const payload = await upstream.json().catch(() => null);
       clearTimeout(timeout);
       if (!upstream.ok) {
@@ -3946,9 +6427,11 @@ async function requestOpenAiCssmvSongSeed(
             : undefined;
         const failure = {
           status: upstream.status,
-          code: String(errorBody?.code || errorBody?.type || `http_${upstream.status}`),
+          code: String(
+            errorBody?.code || errorBody?.type || `http_${upstream.status}`,
+          ),
           message: String(errorBody?.message || "OpenAI request failed"),
-          type: String(errorBody?.type || "")
+          type: String(errorBody?.type || ""),
         };
         onFailure(failure);
         console.warn("[cssmv.song_seed] OpenAI request failed", {
@@ -3958,7 +6441,7 @@ async function requestOpenAiCssmvSongSeed(
           attempt,
           model,
           hasTitle: Boolean(String(input.title || "").trim()),
-          language: String(input.language || "").trim() || "zh"
+          language: String(input.language || "").trim() || "zh",
         });
         if (
           attempt < 3 &&
@@ -3973,7 +6456,9 @@ async function requestOpenAiCssmvSongSeed(
         }
         return null;
       }
-      const content = String(payload?.choices?.[0]?.message?.content || "").trim();
+      const content = String(
+        payload?.choices?.[0]?.message?.content || "",
+      ).trim();
       if (!content) return null;
       try {
         return JSON.parse(content) as CssmvOpenAiSongSeedRaw;
@@ -3992,8 +6477,10 @@ async function requestOpenAiCssmvSongSeed(
         status: controller.signal.aborted ? 408 : 0,
         code: controller.signal.aborted ? "request_timeout" : "request_failed",
         message:
-          error instanceof Error ? error.message : "OpenAI request failed unexpectedly",
-        type: controller.signal.aborted ? "timeout" : "network_error"
+          error instanceof Error
+            ? error.message
+            : "OpenAI request failed unexpectedly",
+        type: controller.signal.aborted ? "timeout" : "network_error",
       };
       onFailure(failure);
       console.warn("[cssmv.song_seed] OpenAI request threw", {
@@ -4003,7 +6490,7 @@ async function requestOpenAiCssmvSongSeed(
         attempt,
         model,
         hasTitle: Boolean(String(input.title || "").trim()),
-        language: String(input.language || "").trim() || "zh"
+        language: String(input.language || "").trim() || "zh",
       });
       if (
         attempt < 3 &&
@@ -4030,13 +6517,16 @@ async function generateCssmvSongSeed(input: CssmvSongSeedInput) {
   if (!apiKey) {
     return buildCssmvSongSeedFallbackWithMeta(input, {
       openaiEnvSource: runtimeConfig.envSource,
-      fallbackReason: "missing_api_key"
+      fallbackReason: "missing_api_key",
     });
   }
   const model = runtimeConfig.model;
   const timeoutMs = Math.max(
     5000,
-    Number.parseInt(String(process.env.OPENAI_TEXT_TIMEOUT_MS || "45000"), 10) || 45000
+    Number.parseInt(
+      String(process.env.OPENAI_TEXT_TIMEOUT_MS || "45000"),
+      10,
+    ) || 45000,
   );
   let openAiFailure: {
     status?: number;
@@ -4045,45 +6535,74 @@ async function generateCssmvSongSeed(input: CssmvSongSeedInput) {
     type?: string;
   } | null = null;
   try {
-    const parsed = await requestOpenAiCssmvSongSeed(
-      input,
-      apiKey,
-      model,
-      timeoutMs,
-      (failure) => {
-        openAiFailure = failure;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const parsed = await requestOpenAiCssmvSongSeed(
+        {
+          ...input,
+          variationNonce: `${String(input.variationNonce || "seed").trim()}::openai-${attempt + 1}`,
+        },
+        apiKey,
+        model,
+        timeoutMs,
+        (failure) => {
+          openAiFailure = failure;
+        },
+      );
+      if (!parsed) {
+        continue;
       }
-    );
-    if (!parsed) {
-      const failure = openAiFailure as
-        | { status?: number; code?: string; message?: string; type?: string }
-        | null;
-      const meta: {
-        openaiErrorCode?: string;
-        openaiErrorType?: string;
-        openaiErrorMessage?: string;
-        openaiErrorStatus?: number;
-        openaiModel?: string;
-        openaiEnvSource?: string;
-        openaiKeyFingerprint?: string;
-        fallbackReason?: string;
-      } = {
-        openaiModel: model,
-        openaiEnvSource: runtimeConfig.envSource,
-        openaiKeyFingerprint: runtimeConfig.keyFingerprint,
-        fallbackReason: failure?.code ? "openai_error" : "openai_empty_response"
-      };
-      if (failure?.code) meta.openaiErrorCode = failure.code;
-      if (failure?.type) meta.openaiErrorType = failure.type;
-      if (failure?.message) meta.openaiErrorMessage = failure.message;
-      if (typeof failure?.status === "number") meta.openaiErrorStatus = failure.status;
-      return buildCssmvSongSeedFallbackWithMeta(input, meta);
+      const normalized = normalizeCssmvOpenAiSongSeed(input, parsed, model) as Record<string, any>;
+      if (normalized?.seed_source === "openai" && !normalized?.fallback_reason) {
+        return normalized;
+      }
+      if (
+        ![
+          "invalid_openai_payload",
+          "language_mismatch",
+          "lyrics_incomplete_or_scripty",
+          "quality_rejected",
+          "canon_mismatch",
+        ].includes(String(normalized?.fallback_reason || ""))
+      ) {
+        return normalized;
+      }
     }
-    return normalizeCssmvOpenAiSongSeed(input, parsed, model);
+    const failure = openAiFailure as {
+      status?: number;
+      code?: string;
+      message?: string;
+      type?: string;
+    } | null;
+    const meta: {
+      openaiErrorCode?: string;
+      openaiErrorType?: string;
+      openaiErrorMessage?: string;
+      openaiErrorStatus?: number;
+      openaiModel?: string;
+      openaiEnvSource?: string;
+      openaiKeyFingerprint?: string;
+      fallbackReason?: string;
+    } = {
+      openaiModel: model,
+      openaiEnvSource: runtimeConfig.envSource,
+      openaiKeyFingerprint: runtimeConfig.keyFingerprint,
+      fallbackReason: failure?.code
+        ? "openai_error"
+        : "openai_empty_or_invalid_lyrics",
+    };
+    if (failure?.code) meta.openaiErrorCode = failure.code;
+    if (failure?.type) meta.openaiErrorType = failure.type;
+    if (failure?.message) meta.openaiErrorMessage = failure.message;
+    if (typeof failure?.status === "number")
+      meta.openaiErrorStatus = failure.status;
+    return buildCssmvSongSeedFallbackWithMeta(input, meta);
   } catch {
-    const failure = openAiFailure as
-      | { status?: number; code?: string; message?: string; type?: string }
-      | null;
+    const failure = openAiFailure as {
+      status?: number;
+      code?: string;
+      message?: string;
+      type?: string;
+    } | null;
     const meta: {
       openaiErrorCode?: string;
       openaiErrorType?: string;
@@ -4099,10 +6618,11 @@ async function generateCssmvSongSeed(input: CssmvSongSeedInput) {
       openaiModel: model,
       openaiEnvSource: runtimeConfig.envSource,
       openaiKeyFingerprint: runtimeConfig.keyFingerprint,
-      fallbackReason: "unexpected_error"
+      fallbackReason: "unexpected_error",
     };
     if (failure?.type) meta.openaiErrorType = failure.type;
-    if (typeof failure?.status === "number") meta.openaiErrorStatus = failure.status;
+    if (typeof failure?.status === "number")
+      meta.openaiErrorStatus = failure.status;
     return buildCssmvSongSeedFallbackWithMeta(input, meta);
   }
 }
@@ -4117,39 +6637,66 @@ app.post("/api/cssmv/thumbnail", async (req, res) => {
     const title = String(req.body?.title || "").trim();
     const subtitle = String(req.body?.subtitle || "").trim();
     const lyrics = Array.isArray(req.body?.lyrics) ? req.body.lyrics : [];
-    const prompt = buildCssmvThumbnailPrompt(title, subtitle, lyrics);
+    const visualDirective = String(
+      req.body?.visual_directive || req.body?.prompt || "",
+    ).trim();
+    const prompt = buildCssmvThumbnailPrompt(
+      title,
+      subtitle,
+      lyrics,
+      visualDirective,
+    );
     const model = process.env.OPENAI_IMAGE_MODEL || "gpt-image-1";
-    const requestedSize = String(req.body?.size || process.env.OPENAI_IMAGE_SIZE || "1024x1024").trim();
-    const size = ["1024x1024", "1024x1536", "1536x1024", "auto"].includes(requestedSize)
+    const requestedSize = String(
+      req.body?.size || process.env.OPENAI_IMAGE_SIZE || "1024x1024",
+    ).trim();
+    const size = ["1024x1024", "1024x1536", "1536x1024", "auto"].includes(
+      requestedSize,
+    )
       ? requestedSize
       : "1024x1024";
-    const requestedQuality = String(req.body?.quality || process.env.OPENAI_IMAGE_QUALITY || "medium").trim();
+    const requestedQuality = String(
+      req.body?.quality || process.env.OPENAI_IMAGE_QUALITY || "medium",
+    ).trim();
     const quality = ["low", "medium", "high", "auto"].includes(requestedQuality)
       ? requestedQuality
       : "low";
     const requestedOutputFormat = String(
-      req.body?.output_format || process.env.OPENAI_IMAGE_OUTPUT_FORMAT || "webp"
+      req.body?.output_format ||
+        process.env.OPENAI_IMAGE_OUTPUT_FORMAT ||
+        "webp",
     ).trim();
     const outputFormat = ["webp", "png", "jpeg"].includes(requestedOutputFormat)
       ? requestedOutputFormat
       : "webp";
     const requestedCompression = Number.parseInt(
-      String(req.body?.output_compression || process.env.OPENAI_IMAGE_OUTPUT_COMPRESSION || "60"),
-      10
+      String(
+        req.body?.output_compression ||
+          process.env.OPENAI_IMAGE_OUTPUT_COMPRESSION ||
+          "60",
+      ),
+      10,
     );
     const outputCompression =
-      Number.isFinite(requestedCompression) && requestedCompression >= 0 && requestedCompression <= 100
+      Number.isFinite(requestedCompression) &&
+      requestedCompression >= 0 &&
+      requestedCompression <= 100
         ? requestedCompression
         : 60;
     const requestedBackground = String(
-      req.body?.background || process.env.OPENAI_IMAGE_BACKGROUND || "opaque"
+      req.body?.background || process.env.OPENAI_IMAGE_BACKGROUND || "opaque",
     ).trim();
-    const background = ["transparent", "opaque", "auto"].includes(requestedBackground)
+    const background = ["transparent", "opaque", "auto"].includes(
+      requestedBackground,
+    )
       ? requestedBackground
       : "transparent";
     const timeoutMs = Math.max(
       5000,
-      Number.parseInt(String(process.env.OPENAI_IMAGE_TIMEOUT_MS || "45000"), 10) || 45000
+      Number.parseInt(
+        String(process.env.OPENAI_IMAGE_TIMEOUT_MS || "45000"),
+        10,
+      ) || 45000,
     );
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -4160,7 +6707,7 @@ app.post("/api/cssmv/thumbnail", async (req, res) => {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          authorization: `Bearer ${apiKey}`
+          authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
           model,
@@ -4169,9 +6716,9 @@ app.post("/api/cssmv/thumbnail", async (req, res) => {
           quality,
           output_format: outputFormat,
           output_compression: outputCompression,
-          background
+          background,
         }),
-        signal: controller.signal
+        signal: controller.signal,
       });
       payload = await upstream.json().catch(() => null);
     } finally {
@@ -4180,9 +6727,17 @@ app.post("/api/cssmv/thumbnail", async (req, res) => {
     if (!upstream.ok) {
       return res.status(upstream.status).json(
         okEmpty(
-          { generated: false, model, size, quality, output_format: outputFormat, output_compression: outputCompression, background },
-          "No data yet"
-        )
+          {
+            generated: false,
+            model,
+            size,
+            quality,
+            output_format: outputFormat,
+            output_compression: outputCompression,
+            background,
+          },
+          "No data yet",
+        ),
       );
     }
 
@@ -4199,8 +6754,8 @@ app.post("/api/cssmv/thumbnail", async (req, res) => {
           quality,
           output_format: outputFormat,
           output_compression: outputCompression,
-          background
-        })
+          background,
+        }),
       );
     }
     if (imageUrl) {
@@ -4213,15 +6768,23 @@ app.post("/api/cssmv/thumbnail", async (req, res) => {
           quality,
           output_format: outputFormat,
           output_compression: outputCompression,
-          background
-        })
+          background,
+        }),
       );
     }
     return res.json(
       okEmpty(
-        { generated: false, model, size, quality, output_format: outputFormat, output_compression: outputCompression, background },
-        "No data yet"
-      )
+        {
+          generated: false,
+          model,
+          size,
+          quality,
+          output_format: outputFormat,
+          output_compression: outputCompression,
+          background,
+        },
+        "No data yet",
+      ),
     );
   } catch (_err) {
     return res.json(okEmpty({ generated: false }, "No data yet"));
@@ -4235,11 +6798,18 @@ app.post(
     noStore(res);
     const runtimeConfig = getOpenAiRuntimeConfig();
     const model = getOpenAiTranscribeModel();
-    const contentType = String(req.headers["content-type"] || "audio/webm").trim() || "audio/webm";
+    const contentType =
+      String(req.headers["content-type"] || "audio/webm").trim() ||
+      "audio/webm";
     const wakeSpell = String(req.headers["x-cssos-wake-spell"] || "").trim();
     const audioBuffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from([]);
     if (!audioBuffer.length) {
-      return res.json(okEmpty({ transcript: "", lang: "zh", model }, "No audio body supplied"));
+      return res.json(
+        okEmpty(
+          { transcript: "", lang: "zh", model },
+          "No audio body supplied",
+        ),
+      );
     }
     if (!runtimeConfig.apiKey) {
       return res.json(
@@ -4249,10 +6819,10 @@ app.post(
             lang: "zh",
             model,
             env_source: runtimeConfig.envSource,
-            error_code: "missing_api_key"
+            error_code: "missing_api_key",
           },
-          "OpenAI API key is not configured"
-        )
+          "OpenAI API key is not configured",
+        ),
       );
     }
     try {
@@ -4268,7 +6838,7 @@ app.post(
       form.set(
         "file",
         new Blob([new Uint8Array(audioBuffer)], { type: contentType }),
-        `mic-capture.${extension}`
+        `mic-capture.${extension}`,
       );
       form.set("model", model);
       form.set("language", "zh");
@@ -4278,21 +6848,26 @@ app.post(
           "Transcribe the speaker's Chinese words faithfully.",
           "Preserve proper nouns, song titles, and Chinese named entities exactly when possible.",
           wakeSpell ? `Wake spell may be present: ${wakeSpell}.` : "",
-          "Do not summarize. Return the raw utterance."
+          "Do not summarize. Return the raw utterance.",
         ]
           .filter(Boolean)
-          .join(" ")
+          .join(" "),
       );
       form.set("response_format", "json");
-      const upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${runtimeConfig.apiKey}`
+      const upstream = await fetch(
+        "https://api.openai.com/v1/audio/transcriptions",
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${runtimeConfig.apiKey}`,
+          },
+          body: form,
         },
-        body: form
-      });
+      );
       const payload = await upstream.json().catch(() => null);
-      const transcript = String(payload?.text || payload?.transcript || "").trim();
+      const transcript = String(
+        payload?.text || payload?.transcript || "",
+      ).trim();
       if (!upstream.ok) {
         const errorBody =
           payload && typeof payload === "object"
@@ -4305,11 +6880,15 @@ app.post(
               lang: "zh",
               model,
               env_source: runtimeConfig.envSource,
-              error_code: String(errorBody?.code || errorBody?.type || "transcribe_failed"),
-              error_message: String(errorBody?.message || "OpenAI transcription failed")
+              error_code: String(
+                errorBody?.code || errorBody?.type || "transcribe_failed",
+              ),
+              error_message: String(
+                errorBody?.message || "OpenAI transcription failed",
+              ),
             },
-            "Transcription failed"
-          )
+            "Transcription failed",
+          ),
         );
       }
       return res.json(
@@ -4317,8 +6896,8 @@ app.post(
           transcript,
           lang: "zh",
           model,
-          env_source: runtimeConfig.envSource
-        })
+          env_source: runtimeConfig.envSource,
+        }),
       );
     } catch (error) {
       return res.status(500).json(
@@ -4329,13 +6908,16 @@ app.post(
             model,
             env_source: runtimeConfig.envSource,
             error_code: "transcribe_exception",
-            error_message: error instanceof Error ? error.message : "Unknown transcription error"
+            error_message:
+              error instanceof Error
+                ? error.message
+                : "Unknown transcription error",
           },
-          "Transcription failed"
-        )
+          "Transcription failed",
+        ),
       );
     }
-  }
+  },
 );
 
 app.post("/api/cssmv/song-seed", async (req, res) => {
@@ -4363,7 +6945,7 @@ app.post("/api/cssmv/song-seed", async (req, res) => {
       voice,
       language,
       variationNonce,
-      constraints
+      constraints,
     });
     if (!seed) {
       return res.json(okEmpty({ generated: false }, "No data yet"));
@@ -4395,8 +6977,8 @@ app.post("/api/cssmv/song-seed", async (req, res) => {
         openai_error_status: seedMeta.openai_error_status,
         fallback_reason: seedMeta.fallback_reason,
         queue_lane: queueLane,
-        membership_tier: access.tier
-      })
+        membership_tier: access.tier,
+      }),
     );
   } catch {
     return res.json(okEmpty({ generated: false }, "No data yet"));
@@ -4412,10 +6994,11 @@ app.get("/api/cssmv/openai-diagnostics", (_req, res) => {
       okEmpty(
         {
           provider: "openai",
-          diagnostics_error: error instanceof Error ? error.message : "diagnostics_failed"
+          diagnostics_error:
+            error instanceof Error ? error.message : "diagnostics_failed",
         },
-        "No data yet"
-      )
+        "No data yet",
+      ),
     );
   }
 });
@@ -4430,10 +7013,10 @@ app.get("/api/cssmv/openai-probe", async (_req, res) => {
       okEmpty(
         {
           provider: "openai",
-          probe_error: error instanceof Error ? error.message : "probe_failed"
+          probe_error: error instanceof Error ? error.message : "probe_failed",
         },
-        "No data yet"
-      )
+        "No data yet",
+      ),
     );
   }
 });
@@ -4450,11 +7033,19 @@ app.get("/oauth/github/callback", (req, res) => {
   res.redirect(302, `/auth/github/callback${q}`);
 });
 
-async function oauthExchangeTokenForm(tokenUrl: string, form: URLSearchParams) {
+async function oauthExchangeTokenForm(
+  tokenUrl: string,
+  form: URLSearchParams,
+  headers?: Record<string, string>,
+) {
   const r = await fetch(tokenUrl, {
     method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
-    body: form.toString()
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      accept: "application/json",
+      ...(headers || {}),
+    },
+    body: form.toString(),
   });
   const j = await r.json().catch(() => null);
   return { ok: r.ok, status: r.status, json: j };
@@ -4472,47 +7063,152 @@ async function ensureAuthIdentityTable() {
         PRIMARY KEY (provider, provider_user_id)
       )
     `);
-    await client.query("CREATE INDEX IF NOT EXISTS oauth_identities_user_id_idx ON oauth_identities(user_id)");
+    await client.query(
+      "CREATE INDEX IF NOT EXISTS oauth_identities_user_id_idx ON oauth_identities(user_id)",
+    );
+  });
+}
+
+async function ensureOAuthTokensTable() {
+  if (!DATABASE_URL) return;
+  await withClient(async (client) => {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS oauth_tokens (
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        provider TEXT NOT NULL,
+        provider_user_id TEXT,
+        access_token TEXT,
+        refresh_token TEXT,
+        scope TEXT,
+        expires_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (provider, user_id)
+      )
+    `);
+    await client.query(
+      "CREATE INDEX IF NOT EXISTS oauth_tokens_user_id_idx ON oauth_tokens(user_id)",
+    );
+  });
+}
+
+async function upsertOAuthToken(args: {
+  userId: string;
+  provider: string;
+  providerUserId?: string | null;
+  accessToken?: string | null;
+  refreshToken?: string | null;
+  scope?: string | null;
+  expiresInSeconds?: number | null;
+}) {
+  if (!DATABASE_URL) return;
+  const {
+    userId,
+    provider,
+    providerUserId,
+    accessToken,
+    refreshToken,
+    scope,
+    expiresInSeconds,
+  } = args;
+  const expiresAt =
+    expiresInSeconds && expiresInSeconds > 0
+      ? new Date(Date.now() + expiresInSeconds * 1000)
+      : null;
+  await withClient(async (client) => {
+    await client.query(
+      `
+      INSERT INTO oauth_tokens (
+        user_id,
+        provider,
+        provider_user_id,
+        access_token,
+        refresh_token,
+        scope,
+        expires_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (provider, user_id)
+      DO UPDATE SET
+        provider_user_id = EXCLUDED.provider_user_id,
+        access_token = EXCLUDED.access_token,
+        refresh_token = COALESCE(EXCLUDED.refresh_token, oauth_tokens.refresh_token),
+        scope = EXCLUDED.scope,
+        expires_at = EXCLUDED.expires_at,
+        updated_at = now()
+    `,
+      [
+        userId,
+        provider,
+        providerUserId || null,
+        accessToken || null,
+        refreshToken || null,
+        scope || null,
+        expiresAt,
+      ],
+    );
   });
 }
 
 function appBaseUrl(req: express.Request) {
   const envUrl = (process.env.APP_BASE_URL || "").trim();
   if (envUrl) return envUrl.replace(/\/+$/, "");
-  const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol || "http";
-  const host = ((req.headers["x-forwarded-host"] as string) || req.headers.host || `localhost:${PORT}`).toString();
+  const proto =
+    (req.headers["x-forwarded-proto"] as string) || req.protocol || "http";
+  const host = (
+    (req.headers["x-forwarded-host"] as string) ||
+    req.headers.host ||
+    `localhost:${PORT}`
+  ).toString();
   return `${proto}://${host}`.replace(/\/+$/, "");
 }
 
 function resolvePipelineStatusPath(inputPath: string) {
   const requested = String(inputPath || "").trim();
   if (!requested) return null;
-  const candidate = requested.endsWith(".json") ? requested : path.join(requested, "run.json");
+  const candidate = requested.endsWith(".json")
+    ? requested
+    : path.join(requested, "run.json");
   const resolved = path.resolve(candidate);
   const allowedRoots = Array.from(
     new Set([
       path.resolve(SHARED_RUNS_DIR),
       path.resolve("/srv/cssos/shared/runs"),
-      path.resolve(path.join(__dirname, "..", "..", "shared", "runs"))
-    ])
+      path.resolve(path.join(__dirname, "..", "..", "shared", "runs")),
+    ]),
   );
-  const isAllowed = allowedRoots.some((root) => resolved === root || resolved.startsWith(`${root}${path.sep}`));
+  const isAllowed = allowedRoots.some(
+    (root) => resolved === root || resolved.startsWith(`${root}${path.sep}`),
+  );
   if (!isAllowed) return null;
-  if (!resolved.endsWith(`${path.sep}run.json`) && path.basename(resolved) !== "run.json") return null;
+  if (
+    !resolved.endsWith(`${path.sep}run.json`) &&
+    path.basename(resolved) !== "run.json"
+  )
+    return null;
   return resolved;
 }
 
 function guessPipelineArtifactKind(p: string) {
-  const lower = String(p || "").trim().toLowerCase();
+  const lower = String(p || "")
+    .trim()
+    .toLowerCase();
   if (lower.endsWith(".wav")) return "audio";
   if (lower.endsWith(".mp4")) return "video";
-  if (lower.endsWith(".ass") || lower.endsWith(".srt") || lower.endsWith(".lrc")) return "subtitles";
+  if (
+    lower.endsWith(".ass") ||
+    lower.endsWith(".srt") ||
+    lower.endsWith(".lrc")
+  )
+    return "subtitles";
   if (lower.endsWith(".json")) return "json";
   return "file";
 }
 
 function guessPipelineArtifactMime(p: string) {
-  const lower = String(p || "").trim().toLowerCase();
+  const lower = String(p || "")
+    .trim()
+    .toLowerCase();
   if (lower.endsWith(".wav")) return "audio/wav";
   if (lower.endsWith(".mp4")) return "video/mp4";
   if (lower.endsWith(".ass")) return "text/x-ssa";
@@ -4532,7 +7228,315 @@ function buildRunArtifactAssetKey(runId: string, artifactPath: string) {
   return `runs/${safeRunId}/${safePath}`;
 }
 
-function downgradeLosslessArtifactTarget(pathValue: string, assetKeyValue: string) {
+function buildDurableWorkArtifactAssetKey(runId: string, artifactPath: string) {
+  const safeRunId = String(runId || "").trim();
+  const safePath = String(artifactPath || "")
+    .trim()
+    .replace(/^[./\\]+/, "")
+    .replace(/\\/g, "/");
+  if (!safeRunId || !safePath) return "";
+  const trimmedPath = safePath.replace(/^build\//i, "");
+  return `works/${safeRunId}/${trimmedPath}`;
+}
+
+function isStoredWorkAssetReference(value: unknown) {
+  const raw = String(value || "").trim();
+  return raw.startsWith("works/") || raw.startsWith("runs/");
+}
+
+function normalizeStoredWorkAssetReference(runId: string, value: unknown) {
+  const safeRunId = String(runId || "").trim();
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (raw.startsWith("works/")) return raw;
+  if (raw.startsWith("runs/")) {
+    const match = raw.match(/^runs\/([^/]+)\/(.+)$/i);
+    const effectiveRunId = String(match?.[1] || safeRunId || "").trim();
+    const artifactPath = String(match?.[2] || "").trim();
+    return buildDurableWorkArtifactAssetKey(effectiveRunId, artifactPath);
+  }
+  return raw;
+}
+
+function tryParsePreviewVideoAssetKey(runId: string, value: unknown) {
+  const safeRunId = String(runId || "").trim();
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (isStoredWorkAssetReference(raw)) {
+    return normalizeStoredWorkAssetReference(safeRunId, raw);
+  }
+  try {
+    const parsed = new URL(raw, "https://cssstudio.app");
+    const embeddedAssetKey = String(
+      parsed.searchParams.get("asset_key") || "",
+    ).trim();
+    if (embeddedAssetKey) {
+      return normalizeStoredWorkAssetReference(safeRunId, embeddedAssetKey);
+    }
+    const pathValue = String(parsed.searchParams.get("path") || "").trim();
+    const pathRunId =
+      parsed.pathname.match(
+        /\/cssapi\/v1\/runs\/([^/]+)\/music-delivery-artifact/i,
+      )?.[1] || safeRunId;
+    if (pathValue && pathRunId) {
+      return buildDurableWorkArtifactAssetKey(pathRunId, pathValue);
+    }
+  } catch {
+    return "";
+  }
+  return "";
+}
+
+function resolveStoredPreviewVideoReference(
+  runId: string,
+  storedValue: unknown,
+) {
+  const safeRunId = String(runId || "").trim();
+  const raw = String(storedValue || "").trim();
+  if (!raw) {
+    return {
+      previewVideoUrl: null,
+      previewVideoAssetKey: null,
+    };
+  }
+  const assetKey = tryParsePreviewVideoAssetKey(safeRunId, raw);
+  if (assetKey && safeRunId) {
+    return {
+      previewVideoUrl: `/cssapi/v1/runs/${encodeURIComponent(safeRunId)}/music-delivery-artifact?asset_key=${encodeURIComponent(assetKey)}`,
+      previewVideoAssetKey: assetKey,
+    };
+  }
+  return {
+    previewVideoUrl: raw,
+    previewVideoAssetKey: null,
+  };
+}
+
+function inferWorkAssetExtension(contentType: string, fallback = "bin") {
+  const safeType = String(contentType || "")
+    .trim()
+    .toLowerCase()
+    .split(";")[0];
+  if (safeType === "image/png") return "png";
+  if (safeType === "image/jpeg") return "jpg";
+  if (safeType === "image/webp") return "webp";
+  if (safeType === "image/gif") return "gif";
+  if (safeType === "image/svg+xml") return "svg";
+  if (safeType === "video/mp4") return "mp4";
+  if (safeType === "video/webm") return "webm";
+  if (safeType === "video/quicktime") return "mov";
+  return fallback;
+}
+
+function decodeDataUrlAsset(value: string) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^data:([^;,]+)?(?:;charset=[^;,]+)?;base64,(.+)$/i);
+  if (!match) return null;
+  const contentType = String(match[1] || "application/octet-stream").trim();
+  const payload = String(match[2] || "").trim();
+  if (!payload) return null;
+  try {
+    return {
+      contentType,
+      buffer: Buffer.from(payload, "base64"),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function tryParseWorkBlobAssetKey(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (isStoredWorkAssetReference(raw)) {
+    return normalizeStoredWorkAssetReference("", raw);
+  }
+  try {
+    const parsed = new URL(raw, "https://cssstudio.app");
+    const assetKey = sanitizeWorkAssetKey(
+      parsed.searchParams.get("asset_key") || "",
+    );
+    return assetKey;
+  } catch {
+    return "";
+  }
+}
+
+function buildWorkBinaryAssetKey(
+  scopeId: string,
+  workId: string,
+  assetType: "cover_image" | "preview_image",
+  contentType: string,
+) {
+  const safeScopeId =
+    String(scopeId || "").trim() || String(workId || "").trim() || "work";
+  const extension = inferWorkAssetExtension(contentType, "bin");
+  const fileName = assetType === "cover_image" ? "cover" : "preview-frame";
+  return `works/${safeScopeId}/user-works/${workId}/${fileName}.${extension}`;
+}
+
+type CanonicalWorkAssetRecord = {
+  assetType: "cover_image" | "preview_image" | "preview_video";
+  url: string;
+  meta: Record<string, unknown>;
+};
+
+type PersistedWorkAssetBundle = {
+  coverImage: string | null;
+  previewImageUrl: string | null;
+  storedPreviewVideoRef: string | null;
+  previewVideoUrl: string | null;
+  previewVideoAssetKey: string | null;
+  assetRecords: CanonicalWorkAssetRecord[];
+};
+
+async function persistWorkImageAsset(options: {
+  workId: string;
+  scopeId: string;
+  assetType: "cover_image" | "preview_image";
+  rawValue: string | null;
+}) {
+  const raw = String(options.rawValue || "").trim();
+  if (!raw) return null;
+  const existingAssetKey = tryParseWorkBlobAssetKey(raw);
+  if (existingAssetKey) {
+    return {
+      persistedValue: buildWorkAssetBlobUrl(existingAssetKey) || raw,
+      record: {
+        assetType: options.assetType,
+        url: buildWorkAssetBlobUrl(existingAssetKey) || raw,
+        meta: {
+          storage_backend: "gcs",
+          asset_key: existingAssetKey,
+          source: "existing_asset_key",
+        },
+      } satisfies CanonicalWorkAssetRecord,
+    };
+  }
+  const decoded = decodeDataUrlAsset(raw);
+  if (!decoded) {
+    return {
+      persistedValue: raw,
+      record: {
+        assetType: options.assetType,
+        url: raw,
+        meta: {
+          storage_backend: "external_url",
+          source: "passthrough_url",
+        },
+      } satisfies CanonicalWorkAssetRecord,
+    };
+  }
+  const assetKey = buildWorkBinaryAssetKey(
+    options.scopeId,
+    options.workId,
+    options.assetType,
+    decoded.contentType,
+  );
+  await uploadBucketObject(assetKey, decoded.buffer, decoded.contentType);
+  const publicUrl = buildWorkAssetBlobUrl(assetKey);
+  return {
+    persistedValue: publicUrl || raw,
+    record: {
+      assetType: options.assetType,
+      url: publicUrl || raw,
+      meta: {
+        storage_backend: "gcs",
+        asset_key: assetKey,
+        content_type: decoded.contentType,
+        bytes: decoded.buffer.byteLength,
+        source: "uploaded_data_url",
+      },
+    } satisfies CanonicalWorkAssetRecord,
+  };
+}
+
+async function buildPersistedWorkAssetBundle(options: {
+  workId: string;
+  sourceRunId: string | null;
+  coverImage: string | null;
+  previewImageUrl: string | null;
+  previewVideoUrl: string | null;
+  previewVideoAssetKey: string | null;
+}) {
+  const scopeId =
+    String(options.sourceRunId || "").trim() || String(options.workId || "").trim();
+  const assetRecords: CanonicalWorkAssetRecord[] = [];
+  const coverAsset = await persistWorkImageAsset({
+    workId: options.workId,
+    scopeId,
+    assetType: "cover_image",
+    rawValue: options.coverImage,
+  });
+  if (coverAsset?.record) {
+    assetRecords.push(coverAsset.record);
+  }
+  const previewImageAsset = await persistWorkImageAsset({
+    workId: options.workId,
+    scopeId,
+    assetType: "preview_image",
+    rawValue: options.previewImageUrl,
+  });
+  if (previewImageAsset?.record) {
+    assetRecords.push(previewImageAsset.record);
+  }
+  const storedPreviewVideoRef =
+    normalizeStoredWorkAssetReference(
+      scopeId,
+      options.previewVideoAssetKey ||
+        tryParsePreviewVideoAssetKey(scopeId, options.previewVideoUrl || ""),
+    ) || String(options.previewVideoUrl || "").trim() || null;
+  const previewVideoReference = resolveStoredPreviewVideoReference(
+    scopeId,
+    storedPreviewVideoRef,
+  );
+  if (storedPreviewVideoRef) {
+    assetRecords.push({
+      assetType: "preview_video",
+      url: previewVideoReference.previewVideoUrl || storedPreviewVideoRef,
+      meta: previewVideoReference.previewVideoAssetKey
+        ? {
+            storage_backend: "run_artifact_resolver",
+            asset_key: previewVideoReference.previewVideoAssetKey,
+            run_id: scopeId,
+            source: "preview_video_asset_key",
+          }
+        : {
+            storage_backend: "external_url",
+            source: "passthrough_url",
+          },
+    });
+  }
+  return {
+    coverImage: coverAsset?.persistedValue || null,
+    previewImageUrl: previewImageAsset?.persistedValue || null,
+    storedPreviewVideoRef,
+    previewVideoUrl: previewVideoReference.previewVideoUrl,
+    previewVideoAssetKey: previewVideoReference.previewVideoAssetKey,
+    assetRecords,
+  } satisfies PersistedWorkAssetBundle;
+}
+
+async function syncCanonicalWorkAssets(
+  client: PoolClient,
+  workId: string,
+  assetRecords: CanonicalWorkAssetRecord[],
+) {
+  for (const asset of assetRecords) {
+    await client.query(
+      `INSERT INTO work_assets (work_id, asset_type, url, meta)
+       VALUES ($1, $2, $3, $4::jsonb)
+       ON CONFLICT (work_id, asset_type)
+       DO UPDATE SET url = EXCLUDED.url, meta = EXCLUDED.meta`,
+      [workId, asset.assetType, asset.url, JSON.stringify(asset.meta || {})],
+    );
+  }
+}
+
+function downgradeLosslessArtifactTarget(
+  pathValue: string,
+  assetKeyValue: string,
+) {
   const path = String(pathValue || "").trim();
   const assetKey = String(assetKeyValue || "").trim();
   const nextPath = /\.wav$/i.test(path)
@@ -4547,13 +7551,15 @@ function downgradeLosslessArtifactTarget(pathValue: string, assetKeyValue: strin
       : assetKey;
   return {
     path: nextPath,
-    asset_key: nextAssetKey
+    asset_key: nextAssetKey,
   };
 }
 
 function buildCompactPipelineStatus(payload: any) {
   const stagesSource =
-    payload?.stages && typeof payload.stages === "object" && !Array.isArray(payload.stages)
+    payload?.stages &&
+    typeof payload.stages === "object" &&
+    !Array.isArray(payload.stages)
       ? payload.stages
       : {};
   const compactStages = Object.fromEntries(
@@ -4569,27 +7575,44 @@ function buildCompactPipelineStatus(payload: any) {
         error: rec?.error ? String(rec.error).slice(0, 400) : "",
         error_code: rec?.error_code ? String(rec.error_code) : "",
         outputs: Array.isArray(rec?.outputs)
-          ? rec.outputs.map((entry: unknown) => String(entry || "").trim()).filter(Boolean)
-          : []
-      }
-    ])
+          ? rec.outputs
+              .map((entry: unknown) => String(entry || "").trim())
+              .filter(Boolean)
+          : [],
+      },
+    ]),
   );
   const safeRunId = String(payload?.run_id || "").trim();
   const artifactMap = new Map<
     string,
-    { kind: string; path: string; stage: string; mime: string; asset_key: string; storage_backend: string }
+    {
+      kind: string;
+      path: string;
+      stage: string;
+      mime: string;
+      asset_key: string;
+      storage_backend: string;
+    }
   >();
-  const sourceArtifacts = Array.isArray(payload?.artifacts) ? payload.artifacts : [];
+  const sourceArtifacts = Array.isArray(payload?.artifacts)
+    ? payload.artifacts
+    : [];
   sourceArtifacts.forEach((entry: any) => {
     const artifactPath = String(entry?.path || "").trim();
     if (!artifactPath || artifactMap.has(artifactPath)) return;
     artifactMap.set(artifactPath, {
-      kind: String(entry?.kind || guessPipelineArtifactKind(artifactPath)).trim(),
+      kind: String(
+        entry?.kind || guessPipelineArtifactKind(artifactPath),
+      ).trim(),
       path: artifactPath,
       stage: String(entry?.stage || "").trim(),
-      mime: String(entry?.mime || guessPipelineArtifactMime(artifactPath)).trim(),
-      asset_key: String(entry?.asset_key || buildRunArtifactAssetKey(safeRunId, artifactPath)).trim(),
-      storage_backend: String(entry?.storage_backend || "local-run").trim()
+      mime: String(
+        entry?.mime || guessPipelineArtifactMime(artifactPath),
+      ).trim(),
+      asset_key: String(
+        entry?.asset_key || buildRunArtifactAssetKey(safeRunId, artifactPath),
+      ).trim(),
+      storage_backend: String(entry?.storage_backend || "local-run").trim(),
     });
   });
   Object.entries(compactStages).forEach(([stageName, rec]: [string, any]) => {
@@ -4603,7 +7626,7 @@ function buildCompactPipelineStatus(payload: any) {
         stage: stageName,
         mime: guessPipelineArtifactMime(safePath),
         asset_key: buildRunArtifactAssetKey(safeRunId, safePath),
-        storage_backend: "local-run"
+        storage_backend: "local-run",
       });
     });
   });
@@ -4619,7 +7642,7 @@ function buildCompactPipelineStatus(payload: any) {
     total_duration_seconds: Number(payload?.total_duration_seconds || 0),
     video_shots_total: Number(payload?.video_shots_total || 0),
     stages: compactStages,
-    artifacts: Array.from(artifactMap.values())
+    artifacts: Array.from(artifactMap.values()),
   };
 }
 
@@ -4628,10 +7651,14 @@ app.get("/api/pipeline/status", (req, res) => {
   try {
     const safePath = resolvePipelineStatusPath(String(req.query.path || ""));
     if (!safePath) {
-      return res.status(400).json({ ok: false, code: "PIPELINE_STATUS_PATH_INVALID" });
+      return res
+        .status(400)
+        .json({ ok: false, code: "PIPELINE_STATUS_PATH_INVALID" });
     }
     if (!fs.existsSync(safePath)) {
-      return res.status(404).json({ ok: false, code: "PIPELINE_STATUS_NOT_FOUND" });
+      return res
+        .status(404)
+        .json({ ok: false, code: "PIPELINE_STATUS_NOT_FOUND" });
     }
     const payload = JSON.parse(fs.readFileSync(safePath, "utf8"));
     return res.json(buildCompactPipelineStatus(payload));
@@ -4639,16 +7666,19 @@ app.get("/api/pipeline/status", (req, res) => {
     return res.status(500).json({
       ok: false,
       code: "PIPELINE_STATUS_READ_FAILED",
-      message: error instanceof Error ? error.message : "pipeline status read failed"
+      message:
+        error instanceof Error ? error.message : "pipeline status read failed",
     });
   }
 });
 
-function auditAuthLogin(req: express.Request, provider: string, userId: string, mode: string) {
-  const ipRaw =
-    (req.headers["x-forwarded-for"] as string) ||
-    req.ip ||
-    "";
+function auditAuthLogin(
+  req: express.Request,
+  provider: string,
+  userId: string,
+  mode: string,
+) {
+  const ipRaw = (req.headers["x-forwarded-for"] as string) || req.ip || "";
   const ipParts = String(ipRaw).split(",");
   const ip = (ipParts[0] || "").trim();
   const ua = String(req.headers["user-agent"] || "");
@@ -4660,8 +7690,8 @@ function auditAuthLogin(req: express.Request, provider: string, userId: string, 
       mode,
       ip,
       ua: ua.slice(0, 200),
-      ts: new Date().toISOString()
-    })
+      ts: new Date().toISOString(),
+    }),
   );
 }
 
@@ -4672,8 +7702,8 @@ function auditAuthFailure(provider: string, mode: string, errorCode: string) {
       provider,
       mode,
       error_code: errorCode,
-      ts: new Date().toISOString()
-    })
+      ts: new Date().toISOString(),
+    }),
   );
 }
 
@@ -4707,9 +7737,26 @@ function genericProviderSpec(id: string): GenericOAuthProvider | null {
   const authUrl = process.env[`${key}_AUTH_URL`] || "";
   const tokenUrl = process.env[`${key}_TOKEN_URL`] || "";
   const userInfoUrl = process.env[`${key}_USERINFO_URL`] || "";
-  const clientId = process.env[`${key}_CLIENT_ID`] || "";
+  const clientId =
+    process.env[`${key}_CLIENT_ID`] ||
+    (id === "tiktok" ? process.env[`${key}_CLIENT_KEY`] || "" : "");
   const clientSecret = process.env[`${key}_CLIENT_SECRET`] || "";
-  if (!authUrl || !tokenUrl || !userInfoUrl || !clientId || !clientSecret) return null;
+  if (!clientId || !clientSecret) return null;
+  if (!authUrl || !tokenUrl || !userInfoUrl) {
+    if (id === "tiktok") {
+      return {
+        id,
+        authUrl: "https://www.tiktok.com/v2/auth/authorize/",
+        tokenUrl: "https://open.tiktokapis.com/v2/oauth/token/",
+        userInfoUrl: "https://open.tiktokapis.com/v2/user/info/",
+        scopes: ["user.info.basic"],
+        idKeys: ["data.user.open_id", "data.user.union_id", "open_id"],
+        nameKeys: ["data.user.display_name", "data.user.username", "name"],
+        emailKeys: ["data.user.email", "email"],
+      };
+    }
+    return null;
+  }
   const scopes = (process.env[`${key}_SCOPES`] || "openid email profile")
     .split(/[ ,]+/)
     .map((s) => s.trim())
@@ -4720,9 +7767,20 @@ function genericProviderSpec(id: string): GenericOAuthProvider | null {
     tokenUrl,
     userInfoUrl,
     scopes,
-    idKeys: (process.env[`${key}_ID_KEYS`] || "sub,id,user_id,data.id").split(",").map((x) => x.trim()).filter(Boolean),
-    emailKeys: (process.env[`${key}_EMAIL_KEYS`] || "email,data.email").split(",").map((x) => x.trim()).filter(Boolean),
-    nameKeys: (process.env[`${key}_NAME_KEYS`] || "name,username,login,data.name").split(",").map((x) => x.trim()).filter(Boolean)
+    idKeys: (process.env[`${key}_ID_KEYS`] || "sub,id,user_id,data.id")
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean),
+    emailKeys: (process.env[`${key}_EMAIL_KEYS`] || "email,data.email")
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean),
+    nameKeys: (
+      process.env[`${key}_NAME_KEYS`] || "name,username,login,data.name"
+    )
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean),
   };
 }
 
@@ -4744,7 +7802,8 @@ async function appleClientSecret() {
   const teamId = process.env.APPLE_TEAM_ID || "";
   const keyId = process.env.APPLE_KEY_ID || "";
   const pem = applePrivateKeyPem();
-  if (!clientId || !teamId || !keyId || !pem) throw new Error("apple_not_configured");
+  if (!clientId || !teamId || !keyId || !pem)
+    throw new Error("apple_not_configured");
   const now = Math.floor(Date.now() / 1000);
   return new SignJWT({})
     .setProtectedHeader({ alg: "ES256", kid: keyId })
@@ -4761,7 +7820,7 @@ async function verifyAppleIdToken(idToken: string) {
   if (!clientId) throw new Error("apple_not_configured");
   const { payload } = await jwtVerify(idToken, appleJwks, {
     issuer: "https://appleid.apple.com",
-    audience: clientId
+    audience: clientId,
   });
   return payload as {
     sub?: string;
@@ -4776,20 +7835,39 @@ async function upsertOAuthIdentity(args: {
   providerUserId: string;
   email: string | null;
   displayName?: string | null;
+  // CSSOS_PHASE2_OAUTH_AVATAR 20260501 #250 — Jing
+  // "请改进社交平台登录面板，必须获取用户在该社交平台的头像."
+  // OAuth callbacks include the provider's profile picture URL
+  // (Google: `picture`, Apple: `photo`, GitHub: `avatar_url`,
+  // Douyin/TikTok: `avatar_url`). We accept it here and persist it
+  // so the in-frame author avatar widget renders the user's real
+  // photo instead of just initials.
+  avatarUrl?: string | null;
 }) {
-  const provider = String(args.provider || "").trim().toLowerCase();
+  const provider = String(args.provider || "")
+    .trim()
+    .toLowerCase();
   const providerUserId = String(args.providerUserId || "").trim();
   const email = normalizeEmail(args.email);
   const displayName = args.displayName || null;
+  const avatarUrl = String(args.avatarUrl || "").trim() || null;
   if (!provider || !providerUserId) throw new Error("oauth_identity_invalid");
   return withClient(async (client) => {
     await client.query("BEGIN");
     try {
       const found = await client.query<{ user_id: string }>(
         "SELECT user_id FROM oauth_identities WHERE provider = $1 AND provider_user_id = $2 LIMIT 1",
-        [provider, providerUserId]
+        [provider, providerUserId],
       );
       if (found.rows[0]?.user_id) {
+        // Existing user — backfill avatar_url if it's still null and we
+        // got a fresh URL from the provider this round.
+        if (avatarUrl) {
+          await client.query(
+            "UPDATE users SET avatar_url = $2 WHERE id = $1 AND (avatar_url IS NULL OR avatar_url = '')",
+            [found.rows[0].user_id, avatarUrl],
+          );
+        }
         await client.query("COMMIT");
         return found.rows[0].user_id;
       }
@@ -4797,7 +7875,7 @@ async function upsertOAuthIdentity(args: {
       if (email) {
         const sameEmail = await client.query<{ id: string }>(
           "SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1",
-          [email]
+          [email],
         );
         const userIdByEmail = sameEmail.rows[0]?.id;
         if (userIdByEmail) {
@@ -4805,8 +7883,14 @@ async function upsertOAuthIdentity(args: {
             `INSERT INTO oauth_identities (user_id, provider, provider_user_id)
              VALUES ($1, $2, $3)
              ON CONFLICT (provider, provider_user_id) DO NOTHING`,
-            [userIdByEmail, provider, providerUserId]
+            [userIdByEmail, provider, providerUserId],
           );
+          if (avatarUrl) {
+            await client.query(
+              "UPDATE users SET avatar_url = $2 WHERE id = $1 AND (avatar_url IS NULL OR avatar_url = '')",
+              [userIdByEmail, avatarUrl],
+            );
+          }
           await client.query("COMMIT");
           return userIdByEmail;
         }
@@ -4816,7 +7900,7 @@ async function upsertOAuthIdentity(args: {
         `INSERT INTO users (display_name, email, avatar_url)
          VALUES ($1, $2, $3)
          RETURNING id`,
-        [displayName, email, null]
+        [displayName, email, avatarUrl],
       );
       const userId = userRes.rows[0]?.id;
       if (!userId) throw new Error("user_create_failed");
@@ -4825,7 +7909,7 @@ async function upsertOAuthIdentity(args: {
         `INSERT INTO oauth_identities (user_id, provider, provider_user_id)
          VALUES ($1, $2, $3)
          ON CONFLICT (provider, provider_user_id) DO NOTHING`,
-        [userId, provider, providerUserId]
+        [userId, provider, providerUserId],
       );
       await client.query("COMMIT");
       return userId;
@@ -4843,8 +7927,8 @@ async function listLinkedProviders(userId: string) {
     const oauth: QueryResult<Row> = await withClient((client) =>
       client.query<Row>(
         "SELECT provider FROM oauth_identities WHERE user_id = $1 ORDER BY provider",
-        [userId]
-      )
+        [userId],
+      ),
     );
     for (const r of oauth.rows) providers.add(r.provider);
   }
@@ -4852,7 +7936,7 @@ async function listLinkedProviders(userId: string) {
   if (pkCount > 0) providers.add("passkey");
   return {
     providers: Array.from(providers).sort(),
-    passkeyCount: pkCount
+    passkeyCount: pkCount,
   };
 }
 
@@ -4860,25 +7944,120 @@ async function ensureBillingAccount(userId: string) {
   return withClient(async (client) => {
     const { rows } = await client.query(
       "SELECT * FROM billing_accounts WHERE user_id = $1",
-      [userId]
+      [userId],
     );
     if (rows[0]) return { account: rows[0], created: false };
     const insert = await client.query(
       `INSERT INTO billing_accounts (user_id) VALUES ($1) RETURNING *`,
-      [userId]
+      [userId],
     );
     return { account: insert.rows[0], created: true };
   });
 }
 
-type CreatorBoostKind = "language" | "voice" | "thumbnail" | "preview_video";
+type CreatorBoostKind =
+  | "language"
+  | "voice"
+  | "thumbnail"
+  | "preview_video"
+  | "generation"
+  | "background_job";
+
+async function ensureAdminUserActionsTable() {
+  if (!DATABASE_URL) return;
+  await withClient((client) =>
+    client.query(`
+      CREATE TABLE IF NOT EXISTS admin_user_actions (
+        action_id TEXT PRIMARY KEY,
+        user_id TEXT,
+        target_email TEXT NOT NULL,
+        action_kind TEXT NOT NULL,
+        action_scope TEXT NOT NULL,
+        quantity INTEGER NOT NULL DEFAULT 0,
+        actor_user_id TEXT NOT NULL,
+        actor_email TEXT,
+        note TEXT,
+        meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS admin_user_actions_target_email_idx
+        ON admin_user_actions (lower(target_email), created_at DESC);
+    `),
+  );
+}
+
+async function appendAdminUserAction(args: {
+  userId: string | null;
+  targetEmail: string;
+  actionKind: string;
+  actionScope: "reward" | "penalty" | "membership" | "freeze" | "notice";
+  quantity?: number;
+  actorUserId: string;
+  actorEmail?: string | null;
+  note?: string | null;
+  meta?: unknown;
+}) {
+  if (!DATABASE_URL) return null;
+  await ensureAdminUserActionsTable();
+  const actionId = `aua_${crypto.randomUUID()}`;
+  await withClient((client) =>
+    client.query(
+      `INSERT INTO admin_user_actions (
+         action_id, user_id, target_email, action_kind, action_scope, quantity,
+         actor_user_id, actor_email, note, meta
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)`,
+      [
+        actionId,
+        args.userId || null,
+        normalizeEmail(args.targetEmail),
+        String(args.actionKind || "")
+          .trim()
+          .toLowerCase(),
+        String(args.actionScope || "notice")
+          .trim()
+          .toLowerCase(),
+        Math.max(0, Number(args.quantity || 0)),
+        args.actorUserId,
+        normalizeEmail(String(args.actorEmail || "")) || null,
+        String(args.note || "")
+          .trim()
+          .slice(0, 500) || null,
+        JSON.stringify(args.meta ?? {}),
+      ],
+    ),
+  );
+  return actionId;
+}
+
+async function listAdminUserActions(targetEmail: string, limit = 40) {
+  if (!DATABASE_URL) return [];
+  await ensureAdminUserActionsTable();
+  const email = normalizeEmail(targetEmail);
+  if (!email) return [];
+  const rows = await withClient((client) =>
+    client.query(
+      `SELECT action_id, user_id, target_email, action_kind, action_scope, quantity,
+              actor_user_id, actor_email, note, meta, created_at
+         FROM admin_user_actions
+        WHERE lower(target_email) = lower($1)
+        ORDER BY created_at DESC
+        LIMIT $2`,
+      [email, Math.max(1, Math.min(200, Number(limit || 40)))],
+    ),
+  );
+  return rows.rows;
+}
 
 function normalizeCreatorBoostKind(value: unknown): CreatorBoostKind | "" {
-  const raw = String(value || "").trim().toLowerCase();
+  const raw = String(value || "")
+    .trim()
+    .toLowerCase();
   if (raw === "language") return "language";
   if (raw === "voice") return "voice";
   if (raw === "thumbnail") return "thumbnail";
   if (raw === "preview_video") return "preview_video";
+  if (raw === "generation") return "generation";
+  if (raw === "background_job") return "background_job";
   return "";
 }
 
@@ -4892,8 +8071,8 @@ async function listActiveEntitlements(userId: string) {
          AND quantity > consumed_quantity
          AND (expires_at IS NULL OR expires_at > now())
        ORDER BY created_at DESC`,
-      [userId]
-    )
+      [userId],
+    ),
   );
   return res.rows;
 }
@@ -4903,19 +8082,36 @@ function summarizeBoostEntitlements(rows: any[]) {
     language: { purchased: 0, available: 0, consumed: 0 },
     voice: { purchased: 0, available: 0, consumed: 0 },
     thumbnail: { purchased: 0, available: 0, consumed: 0 },
-    preview_video: { purchased: 0, available: 0, consumed: 0 }
+    preview_video: { purchased: 0, available: 0, consumed: 0 },
+    generation: { purchased: 0, available: 0, consumed: 0 },
+    background_job: { purchased: 0, available: 0, consumed: 0 },
   };
   for (const row of Array.isArray(rows) ? rows : []) {
-    const key = String(row?.entitlement_key || "").trim().toLowerCase();
-    if (!["boost.language", "boost.voice", "boost.thumbnail", "boost.preview_video"].includes(key)) continue;
-    const bucket =
-      key.endsWith("language")
-        ? summary.language
-        : key.endsWith("voice")
-          ? summary.voice
-          : key.endsWith("thumbnail")
-            ? summary.thumbnail
-            : summary.preview_video;
+    const key = String(row?.entitlement_key || "")
+      .trim()
+      .toLowerCase();
+    if (
+      ![
+        "boost.language",
+        "boost.voice",
+        "boost.thumbnail",
+        "boost.preview_video",
+        "boost.generation",
+        "boost.background_job",
+      ].includes(key)
+    )
+      continue;
+    const bucket = key.endsWith("language")
+      ? summary.language
+      : key.endsWith("voice")
+        ? summary.voice
+        : key.endsWith("thumbnail")
+          ? summary.thumbnail
+          : key.endsWith("preview_video")
+            ? summary.preview_video
+            : key.endsWith("background_job")
+              ? summary.background_job
+              : summary.generation;
     const quantity = Math.max(0, Number(row?.quantity || 0));
     const consumed = Math.max(0, Number(row?.consumed_quantity || 0));
     bucket.purchased += quantity;
@@ -4944,11 +8140,12 @@ async function createCreatorBoostOrder(args: {
         args.boostKind,
         Math.max(1, Math.min(20, Number(args.quantity || 1))),
         Math.max(0, Number(args.unitAmountCents || 0)),
-        Math.max(0, Number(args.quantity || 1)) * Math.max(0, Number(args.unitAmountCents || 0)),
+        Math.max(0, Number(args.quantity || 1)) *
+          Math.max(0, Number(args.unitAmountCents || 0)),
         String(args.currency || "USD").toUpperCase(),
-        JSON.stringify(args.meta || {})
-      ]
-    )
+        JSON.stringify(args.meta || {}),
+      ],
+    ),
   );
   return res.rows[0]?.id || null;
 }
@@ -4958,7 +8155,8 @@ async function findCreatorBoostOrder(args: {
   checkoutSessionId?: string | null;
   paymentIntentId?: string | null;
 }) {
-  if (!args.orderId && !args.checkoutSessionId && !args.paymentIntentId) return null;
+  if (!args.orderId && !args.checkoutSessionId && !args.paymentIntentId)
+    return null;
   const res = await withClient((client) =>
     client.query(
       `SELECT *
@@ -4968,8 +8166,12 @@ async function findCreatorBoostOrder(args: {
           OR ($3::text IS NOT NULL AND stripe_payment_intent_id = $3)
        ORDER BY created_at DESC
        LIMIT 1`,
-      [args.orderId || null, args.checkoutSessionId || null, args.paymentIntentId || null]
-    )
+      [
+        args.orderId || null,
+        args.checkoutSessionId || null,
+        args.paymentIntentId || null,
+      ],
+    ),
   );
   return res.rows[0] || null;
 }
@@ -4983,11 +8185,16 @@ async function updateCreatorBoostOrderStripeRefs(args: {
   metaPatch?: Record<string, unknown>;
 }) {
   const existing = await withClient((client) =>
-    client.query<{ meta: any }>("SELECT meta FROM creator_boost_orders WHERE id = $1 LIMIT 1", [args.orderId])
+    client.query<{ meta: any }>(
+      "SELECT meta FROM creator_boost_orders WHERE id = $1 LIMIT 1",
+      [args.orderId],
+    ),
   );
   const mergedMeta = {
-    ...(existing.rows[0]?.meta && typeof existing.rows[0].meta === "object" ? existing.rows[0].meta : {}),
-    ...(args.metaPatch || {})
+    ...(existing.rows[0]?.meta && typeof existing.rows[0].meta === "object"
+      ? existing.rows[0].meta
+      : {}),
+    ...(args.metaPatch || {}),
   };
   await withClient((client) =>
     client.query(
@@ -5001,8 +8208,15 @@ async function updateCreatorBoostOrderStripeRefs(args: {
            meta = $6::jsonb,
            updated_at = now()
        WHERE id = $1`,
-      [args.orderId, args.checkoutSessionId || null, args.paymentIntentId || null, args.chargeId || null, args.status || null, JSON.stringify(mergedMeta)]
-    )
+      [
+        args.orderId,
+        args.checkoutSessionId || null,
+        args.paymentIntentId || null,
+        args.chargeId || null,
+        args.status || null,
+        JSON.stringify(mergedMeta),
+      ],
+    ),
   );
 }
 
@@ -5022,7 +8236,7 @@ async function grantCreatorBoostEntitlement(args: {
            AND entitlement_key = $2
            AND source_order_id = $3::uuid
          LIMIT 1`,
-        [args.userId, `boost.${args.boostKind}`, args.orderId]
+        [args.userId, `boost.${args.boostKind}`, args.orderId],
       );
       if (existing.rows[0]?.id) return;
     }
@@ -5036,8 +8250,8 @@ async function grantCreatorBoostEntitlement(args: {
         Math.max(1, Math.min(20, Number(args.quantity || 1))),
         args.orderId ? "creator_boost_order" : "system",
         args.orderId || null,
-        JSON.stringify(args.meta || {})
-      ]
+        JSON.stringify(args.meta || {}),
+      ],
     );
   });
 }
@@ -5049,7 +8263,10 @@ async function consumeCreatorBoostEntitlement(args: {
   reason?: string;
   meta?: Record<string, unknown>;
 }) {
-  const remainingToConsume = Math.max(1, Math.min(20, Number(args.quantity || 1)));
+  const remainingToConsume = Math.max(
+    1,
+    Math.min(20, Number(args.quantity || 1)),
+  );
   let left = remainingToConsume;
   await withClient(async (client) => {
     const rows = await client.query(
@@ -5061,11 +8278,14 @@ async function consumeCreatorBoostEntitlement(args: {
          AND (expires_at IS NULL OR expires_at > now())
        ORDER BY created_at ASC
        FOR UPDATE`,
-      [args.userId, `boost.${args.boostKind}`]
+      [args.userId, `boost.${args.boostKind}`],
     );
     for (const row of rows.rows) {
       if (left <= 0) break;
-      const available = Math.max(0, Number(row.quantity || 0) - Number(row.consumed_quantity || 0));
+      const available = Math.max(
+        0,
+        Number(row.quantity || 0) - Number(row.consumed_quantity || 0),
+      );
       if (!available) continue;
       const consumeNow = Math.min(left, available);
       await client.query(
@@ -5074,7 +8294,12 @@ async function consumeCreatorBoostEntitlement(args: {
              meta = COALESCE(meta, '{}'::jsonb) || jsonb_build_object('last_consumed_reason', $3, 'last_consumed_at', now()::text, 'last_consumed_meta', $4::jsonb),
              updated_at = now()
          WHERE id = $1`,
-        [row.id, consumeNow, args.reason || "creation_run", JSON.stringify(args.meta || {})]
+        [
+          row.id,
+          consumeNow,
+          args.reason || "creation_run",
+          JSON.stringify(args.meta || {}),
+        ],
       );
       left -= consumeNow;
     }
@@ -5090,7 +8315,8 @@ async function consumeCreatorBoostEntitlement(args: {
             ? "thumbnail_regenerate"
             : "preview_video_regenerate";
     const pricing = await getBillingActionPolicySettings();
-    const estimatedCostCents = billableActionCostCents(actionKey, pricing) * consumed;
+    const estimatedCostCents =
+      billableActionCostCents(actionKey, pricing) * consumed;
     await withClient((client) =>
       client.query(
         "INSERT INTO usage_events (user_id, route, units, cost_cents, meta) VALUES ($1,$2,$3,$4,$5)",
@@ -5104,10 +8330,10 @@ async function consumeCreatorBoostEntitlement(args: {
             covered_by: "boost",
             estimated_cost_cents: estimatedCostCents,
             reason: args.reason || "creation_run",
-            ...(args.meta || {})
-          })
-        ]
-      )
+            ...(args.meta || {}),
+          }),
+        ],
+      ),
     );
   }
   return { ok: left === 0, consumed, remainingShortfall: left };
@@ -5148,13 +8374,17 @@ async function upsertStripeCustomerRow(args: {
        ON CONFLICT (user_id)
        DO UPDATE SET stripe_customer_id = EXCLUDED.stripe_customer_id, email = EXCLUDED.email, updated_at = now()
        RETURNING *`,
-      [args.userId, args.stripeCustomerId, args.email]
-    )
+      [args.userId, args.stripeCustomerId, args.email],
+    ),
   );
   return result.rows[0] || null;
 }
 
-async function ensureStripeCustomer(args: { userId: string; email: string | null; name: string | null }) {
+async function ensureStripeCustomer(args: {
+  userId: string;
+  email: string | null;
+  name: string | null;
+}) {
   const stripe = getStripeClient();
   if (!stripe) {
     throw new Error("stripe_not_configured");
@@ -5168,17 +8398,25 @@ async function ensureStripeCustomer(args: { userId: string; email: string | null
     updated_at: string;
   };
   const existing: QueryResult<Row> = await withClient((client) =>
-    client.query<Row>("SELECT * FROM stripe_customers WHERE user_id = $1 LIMIT 1", [args.userId])
+    client.query<Row>(
+      "SELECT * FROM stripe_customers WHERE user_id = $1 LIMIT 1",
+      [args.userId],
+    ),
   );
   const current = existing.rows[0];
   if (current?.stripe_customer_id) {
     try {
-      const customer = await stripe.customers.retrieve(current.stripe_customer_id);
+      const customer = await stripe.customers.retrieve(
+        current.stripe_customer_id,
+      );
       if (!("deleted" in customer) || !customer.deleted) {
-        if ((args.email && customer.email !== args.email) || (args.name && customer.name !== args.name)) {
+        if (
+          (args.email && customer.email !== args.email) ||
+          (args.name && customer.name !== args.name)
+        ) {
           await stripe.customers.update(current.stripe_customer_id, {
             ...(args.email ? { email: args.email } : {}),
-            ...(args.name ? { name: args.name } : {})
+            ...(args.name ? { name: args.name } : {}),
           });
         }
         return current;
@@ -5191,13 +8429,13 @@ async function ensureStripeCustomer(args: { userId: string; email: string | null
     ...(args.email ? { email: args.email } : {}),
     ...(args.name ? { name: args.name } : {}),
     metadata: {
-      cssos_user_id: args.userId
-    }
+      cssos_user_id: args.userId,
+    },
   });
   return upsertStripeCustomerRow({
     userId: args.userId,
     email: args.email,
-    stripeCustomerId: created.id
+    stripeCustomerId: created.id,
   });
 }
 
@@ -5244,26 +8482,27 @@ async function upsertStripeConnectedAccountRow(args: {
         args.payoutsEnabled,
         args.detailsSubmitted,
         args.country,
-        args.defaultCurrency
-      ]
-    )
+        args.defaultCurrency,
+      ],
+    ),
   );
   return result.rows[0] || null;
 }
 
-async function syncStripeConnectedAccount(account: Stripe.Account, userId?: string | null) {
+async function syncStripeConnectedAccount(
+  account: Stripe.Account,
+  userId?: string | null,
+) {
   const accountId = String(account.id || "").trim();
   if (!accountId) return null;
   const resolvedUserId =
-    userId ||
-    String(account.metadata?.cssos_user_id || "").trim() ||
-    null;
+    userId || String(account.metadata?.cssos_user_id || "").trim() || null;
   if (!resolvedUserId) {
     const found = await withClient((client) =>
       client.query<{ user_id: string }>(
         "SELECT user_id FROM stripe_connected_accounts WHERE stripe_account_id = $1 LIMIT 1",
-        [accountId]
-      )
+        [accountId],
+      ),
     );
     if (found.rows[0]?.user_id) {
       return upsertStripeConnectedAccountRow({
@@ -5273,7 +8512,11 @@ async function syncStripeConnectedAccount(account: Stripe.Account, userId?: stri
         payoutsEnabled: Boolean(account.payouts_enabled),
         detailsSubmitted: Boolean(account.details_submitted),
         country: account.country || null,
-        defaultCurrency: String(account.default_currency || process.env.STRIPE_CONNECT_DEFAULT_CURRENCY || "usd").toUpperCase()
+        defaultCurrency: String(
+          account.default_currency ||
+            process.env.STRIPE_CONNECT_DEFAULT_CURRENCY ||
+            "usd",
+        ).toUpperCase(),
       });
     }
     return null;
@@ -5285,11 +8528,19 @@ async function syncStripeConnectedAccount(account: Stripe.Account, userId?: stri
     payoutsEnabled: Boolean(account.payouts_enabled),
     detailsSubmitted: Boolean(account.details_submitted),
     country: account.country || null,
-    defaultCurrency: String(account.default_currency || process.env.STRIPE_CONNECT_DEFAULT_CURRENCY || "usd").toUpperCase()
+    defaultCurrency: String(
+      account.default_currency ||
+        process.env.STRIPE_CONNECT_DEFAULT_CURRENCY ||
+        "usd",
+    ).toUpperCase(),
   });
 }
 
-async function ensureStripeConnectedAccount(args: { userId: string; email: string | null; appBase: string }) {
+async function ensureStripeConnectedAccount(args: {
+  userId: string;
+  email: string | null;
+  appBase: string;
+}) {
   const stripe = getStripeClient();
   if (!stripe) {
     throw new Error("stripe_not_configured");
@@ -5307,7 +8558,10 @@ async function ensureStripeConnectedAccount(args: { userId: string; email: strin
     updated_at: string;
   };
   const existing: QueryResult<Row> = await withClient((client) =>
-    client.query<Row>("SELECT * FROM stripe_connected_accounts WHERE user_id = $1 LIMIT 1", [args.userId])
+    client.query<Row>(
+      "SELECT * FROM stripe_connected_accounts WHERE user_id = $1 LIMIT 1",
+      [args.userId],
+    ),
   );
   const current = existing.rows[0];
   if (current?.stripe_account_id) {
@@ -5320,25 +8574,32 @@ async function ensureStripeConnectedAccount(args: { userId: string; email: strin
         payoutsEnabled: Boolean(account.payouts_enabled),
         detailsSubmitted: Boolean(account.details_submitted),
         country: account.country || null,
-        defaultCurrency: String(account.default_currency || process.env.STRIPE_CONNECT_DEFAULT_CURRENCY || "usd").toUpperCase()
+        defaultCurrency: String(
+          account.default_currency ||
+            process.env.STRIPE_CONNECT_DEFAULT_CURRENCY ||
+            "usd",
+        ).toUpperCase(),
       });
     } catch {
       // Recreate below if Stripe side no longer has this account.
     }
   }
   const account = await stripe.accounts.create({
-    type: (process.env.STRIPE_CONNECT_ACCOUNT_TYPE || "express") as "express" | "standard" | "custom",
+    type: (process.env.STRIPE_CONNECT_ACCOUNT_TYPE || "express") as
+      | "express"
+      | "standard"
+      | "custom",
     country: String(process.env.STRIPE_CONNECT_COUNTRY || "US").toUpperCase(),
     ...(args.email ? { email: args.email } : {}),
     capabilities: {
       card_payments: { requested: true },
-      transfers: { requested: true }
+      transfers: { requested: true },
     },
     business_type: "individual",
     metadata: {
       cssos_user_id: args.userId,
-      app_base: args.appBase
-    }
+      app_base: args.appBase,
+    },
   });
   return upsertStripeConnectedAccountRow({
     userId: args.userId,
@@ -5347,13 +8608,21 @@ async function ensureStripeConnectedAccount(args: { userId: string; email: strin
     payoutsEnabled: Boolean(account.payouts_enabled),
     detailsSubmitted: Boolean(account.details_submitted),
     country: account.country || null,
-    defaultCurrency: String(account.default_currency || process.env.STRIPE_CONNECT_DEFAULT_CURRENCY || "usd").toUpperCase()
+    defaultCurrency: String(
+      account.default_currency ||
+        process.env.STRIPE_CONNECT_DEFAULT_CURRENCY ||
+        "usd",
+    ).toUpperCase(),
   });
 }
 
 type CommerceProductKind = "listen" | "buyout" | "tip";
 
-async function resolveCommerceProduct(args: { workId: string; orderKind: CommerceProductKind; tipAmountCents?: number | null }) {
+async function resolveCommerceProduct(args: {
+  workId: string;
+  orderKind: CommerceProductKind;
+  tipAmountCents?: number | null;
+}) {
   type ProductRow = {
     product_id: string | null;
     owner_user_id: string;
@@ -5390,8 +8659,8 @@ async function resolveCommerceProduct(args: { workId: string; orderKind: Commerc
         AND wap.active = true
        WHERE w.id = $1
        LIMIT 1`,
-      [args.workId, args.orderKind]
-    )
+      [args.workId, args.orderKind],
+    ),
   );
 
   const row = result.rows[0];
@@ -5402,8 +8671,18 @@ async function resolveCommerceProduct(args: { workId: string; orderKind: Commerc
     args.orderKind === "tip"
       ? Math.round(Math.max(100, Number(args.tipAmountCents || 0)))
       : args.orderKind === "buyout"
-      ? Number(row.amount_cents || row.current_buyout_price_cents || preset.buyoutCents || defaultBuyoutPriceCents())
-      : Number(row.amount_cents || row.current_listen_price_cents || preset.listenCents || defaultListenPriceCents());
+        ? Number(
+            row.amount_cents ||
+              row.current_buyout_price_cents ||
+              preset.buyoutCents ||
+              defaultBuyoutPriceCents(),
+          )
+        : Number(
+            row.amount_cents ||
+              row.current_listen_price_cents ||
+              preset.listenCents ||
+              defaultListenPriceCents(),
+          );
   if (!Number.isFinite(rawAmount) || rawAmount <= 0) {
     throw new Error("product_not_priced");
   }
@@ -5432,10 +8711,12 @@ async function resolveCommerceProduct(args: { workId: string; orderKind: Commerc
           JSON.stringify({
             seeded_by: "checkout_create",
             rights_scope: row.rights_scope,
-            ...(args.orderKind === "tip" ? { tips_enabled: row.tips_enabled } : {})
-          })
-        ]
-      )
+            ...(args.orderKind === "tip"
+              ? { tips_enabled: row.tips_enabled }
+              : {}),
+          }),
+        ],
+      ),
     );
     productId = inserted.rows[0]?.id || null;
   }
@@ -5446,7 +8727,7 @@ async function resolveCommerceProduct(args: { workId: string; orderKind: Commerc
     currency: String(row.currency || "USD").toUpperCase(),
     amountCents: rawAmount,
     title: row.title,
-    rightsScope: row.rights_scope
+    rightsScope: row.rights_scope,
   };
 }
 
@@ -5481,9 +8762,9 @@ async function createPendingWorkOrder(args: {
         args.platformFeeCents,
         args.sellerNetCents,
         args.requestId,
-        JSON.stringify(args.meta || {})
-      ]
-    )
+        JSON.stringify(args.meta || {}),
+      ],
+    ),
   );
   return result.rows[0]?.id || null;
 }
@@ -5500,7 +8781,7 @@ async function insertWorkTipIfMissing(args: {
   return withClient(async (client) => {
     const existing = await client.query<{ id: string }>(
       `SELECT id FROM work_tips WHERE meta->>'order_id' = $1 LIMIT 1`,
-      [args.orderId]
+      [args.orderId],
     );
     if (existing.rows[0]?.id) return existing.rows[0].id;
     const inserted = await client.query<{ id: string }>(
@@ -5515,14 +8796,17 @@ async function insertWorkTipIfMissing(args: {
         args.currency,
         args.amountCents,
         args.message || null,
-        JSON.stringify({ source: "stripe_webhook", order_id: args.orderId })
-      ]
+        JSON.stringify({ source: "stripe_webhook", order_id: args.orderId }),
+      ],
     );
     return inserted.rows[0]?.id || null;
   });
 }
 
-function appendQueryToUrl(raw: string, params: Record<string, string | null | undefined>) {
+function appendQueryToUrl(
+  raw: string,
+  params: Record<string, string | null | undefined>,
+) {
   const input = String(raw || "").trim();
   if (!input) return input;
   try {
@@ -5537,8 +8821,13 @@ function appendQueryToUrl(raw: string, params: Record<string, string | null | un
     const base = baseRaw || input;
     const separator = base.includes("?") ? "&" : "?";
     const query = Object.entries(params)
-      .filter(([, value]) => value !== null && value !== undefined && value !== "")
-      .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
+      .filter(
+        ([, value]) => value !== null && value !== undefined && value !== "",
+      )
+      .map(
+        ([key, value]) =>
+          `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`,
+      )
       .join("&");
     return `${base}${query ? `${separator}${query}` : ""}${hash ? `#${hash}` : ""}`;
   }
@@ -5564,8 +8853,8 @@ async function findExistingBuyerWorkOrder(args: {
          END,
          updated_at DESC,
          created_at DESC`,
-      [args.buyerUserId, args.workId]
-    )
+      [args.buyerUserId, args.workId],
+    ),
   );
   return result.rows;
 }
@@ -5591,8 +8880,13 @@ async function cancelPendingWorkOrder(args: {
          AND ($2::uuid IS NULL OR buyer_user_id = $2::uuid)
          AND ($3::text IS NULL OR stripe_checkout_session_id = $3)
        RETURNING id, work_id, order_kind, status`,
-      [args.orderId || null, args.buyerUserId || null, args.checkoutSessionId || null, args.reason]
-    )
+      [
+        args.orderId || null,
+        args.buyerUserId || null,
+        args.checkoutSessionId || null,
+        args.reason,
+      ],
+    ),
   );
   return result.rows[0] || null;
 }
@@ -5606,29 +8900,41 @@ async function ensureWorkMarketSeed(args: {
   structureRole?: unknown;
   listenPriceCents?: number | null;
   buyoutPriceCents?: number | null;
+  buyoutEnabled?: boolean;
 }) {
-  const role = String(args.structureRole || "").trim().toLowerCase();
+  const role = String(args.structureRole || "")
+    .trim()
+    .toLowerCase();
   if (role === "act") return;
   const workType = normalizeWorkType(args.workType);
-  const preset = inferWorkPricingPreset({ title: args.title, style: args.style, workType });
-  const listenCents = Number.isFinite(Number(args.listenPriceCents)) && Number(args.listenPriceCents) > 0
-    ? Number(args.listenPriceCents)
-    : preset.listenCents;
-  const buyoutCents = Number.isFinite(Number(args.buyoutPriceCents)) && Number(args.buyoutPriceCents) >= 0
-    ? Number(args.buyoutPriceCents)
-    : preset.buyoutCents;
+  const preset = inferWorkPricingPreset({
+    title: args.title,
+    style: args.style,
+    workType,
+  });
+  const listenCents =
+    Number.isFinite(Number(args.listenPriceCents)) &&
+    Number(args.listenPriceCents) > 0
+      ? Number(args.listenPriceCents)
+      : preset.listenCents;
+  const buyoutCents =
+    Number.isFinite(Number(args.buyoutPriceCents)) &&
+    Number(args.buyoutPriceCents) >= 0
+      ? Number(args.buyoutPriceCents)
+      : preset.buyoutCents;
+  const buyoutEnabled = args.buyoutEnabled !== false;
   await withClient(async (client) => {
     await client.query(
       `INSERT INTO work_market_profiles (
          work_id, owner_user_id, current_listen_price_cents, current_buyout_price_cents,
          tips_enabled, buyout_enabled, visibility, rights_scope
-       ) VALUES ($1, $2, $3, $4, true, true, 'public', 'personal_use')
+       ) VALUES ($1, $2, $3, $4, true, $5, 'public', 'personal_use')
        ON CONFLICT (work_id)
        DO UPDATE SET
          owner_user_id = EXCLUDED.owner_user_id,
          current_listen_price_cents = COALESCE(work_market_profiles.current_listen_price_cents, EXCLUDED.current_listen_price_cents),
          current_buyout_price_cents = COALESCE(work_market_profiles.current_buyout_price_cents, EXCLUDED.current_buyout_price_cents),
-         buyout_enabled = COALESCE(work_market_profiles.buyout_enabled, true),
+         buyout_enabled = COALESCE(work_market_profiles.buyout_enabled, EXCLUDED.buyout_enabled),
          tips_enabled = COALESCE(work_market_profiles.tips_enabled, true),
          visibility = CASE
            WHEN work_market_profiles.visibility IS NULL OR work_market_profiles.visibility = 'private'
@@ -5636,21 +8942,40 @@ async function ensureWorkMarketSeed(args: {
            ELSE work_market_profiles.visibility
          END,
          updated_at = now()`,
-      [args.workId, args.ownerUserId, listenCents, buyoutCents]
+      [args.workId, args.ownerUserId, listenCents, buyoutCents, buyoutEnabled],
     );
     await client.query(
       `INSERT INTO work_access_products (work_id, owner_user_id, product_kind, currency, amount_cents, active, meta)
        VALUES ($1, $2, 'listen', 'USD', $3, true, $4::jsonb)
        ON CONFLICT (work_id, product_kind)
        DO UPDATE SET amount_cents = EXCLUDED.amount_cents, active = true, updated_at = now()`,
-      [args.workId, args.ownerUserId, listenCents, JSON.stringify({ seeded_by: "work_create", pricing_preset: preset.label, work_type: workType })]
+      [
+        args.workId,
+        args.ownerUserId,
+        listenCents,
+        JSON.stringify({
+          seeded_by: "work_create",
+          pricing_preset: preset.label,
+          work_type: workType,
+        }),
+      ],
     );
     await client.query(
       `INSERT INTO work_access_products (work_id, owner_user_id, product_kind, currency, amount_cents, active, meta)
-       VALUES ($1, $2, 'buyout', 'USD', $3, true, $4::jsonb)
+       VALUES ($1, $2, 'buyout', 'USD', $3, $4, $5::jsonb)
        ON CONFLICT (work_id, product_kind)
-       DO UPDATE SET amount_cents = EXCLUDED.amount_cents, active = true, updated_at = now()`,
-      [args.workId, args.ownerUserId, buyoutCents, JSON.stringify({ seeded_by: "work_create", pricing_preset: preset.label, work_type: workType })]
+       DO UPDATE SET amount_cents = EXCLUDED.amount_cents, active = EXCLUDED.active, updated_at = now()`,
+      [
+        args.workId,
+        args.ownerUserId,
+        buyoutCents,
+        buyoutEnabled,
+        JSON.stringify({
+          seeded_by: "work_create",
+          pricing_preset: preset.label,
+          work_type: workType,
+        }),
+      ],
     );
   });
 }
@@ -5664,13 +8989,12 @@ async function updateWorkOrderStripeRefs(args: {
   metaPatch?: Record<string, unknown>;
 }) {
   return withClient(async (client) => {
-    const existing = await client.query<{ meta: Record<string, unknown> | null }>(
-      "SELECT meta FROM work_orders WHERE id = $1 LIMIT 1",
-      [args.orderId]
-    );
+    const existing = await client.query<{
+      meta: Record<string, unknown> | null;
+    }>("SELECT meta FROM work_orders WHERE id = $1 LIMIT 1", [args.orderId]);
     const nextMeta = {
       ...((existing.rows[0]?.meta as Record<string, unknown> | null) || {}),
-      ...(args.metaPatch || {})
+      ...(args.metaPatch || {}),
     };
     await client.query(
       `UPDATE work_orders
@@ -5687,8 +9011,8 @@ async function updateWorkOrderStripeRefs(args: {
         args.paymentIntentId || null,
         args.chargeId || null,
         args.status || null,
-        JSON.stringify(nextMeta)
-      ]
+        JSON.stringify(nextMeta),
+      ],
     );
   });
 }
@@ -5707,15 +9031,22 @@ async function findOrderForStripeEvent(args: {
           OR ($3::text IS NOT NULL AND stripe_payment_intent_id = $3)
        ORDER BY created_at DESC
        LIMIT 1`,
-      [args.orderId || null, args.checkoutSessionId || null, args.paymentIntentId || null]
-    )
+      [
+        args.orderId || null,
+        args.checkoutSessionId || null,
+        args.paymentIntentId || null,
+      ],
+    ),
   );
   return result.rows[0] || null;
 }
 
 async function findStripeConnectedAccountByUserId(userId: string) {
   const result = await withClient((client) =>
-    client.query<any>("SELECT * FROM stripe_connected_accounts WHERE user_id = $1 LIMIT 1", [userId])
+    client.query<any>(
+      "SELECT * FROM stripe_connected_accounts WHERE user_id = $1 LIMIT 1",
+      [userId],
+    ),
   );
   return result.rows[0] || null;
 }
@@ -5742,7 +9073,7 @@ async function insertPayoutReconciliationIfMissing(args: {
        WHERE owner_user_id = $1
          AND meta->>'order_id' = $2
        LIMIT 1`,
-      [args.ownerUserId, args.orderId]
+      [args.ownerUserId, args.orderId],
     );
     if (existing.rows[0]?.id) return existing.rows[0].id;
     const inserted = await client.query<{ id: string }>(
@@ -5763,8 +9094,8 @@ async function insertPayoutReconciliationIfMissing(args: {
         args.availableAt || null,
         args.transferAttemptedAt || null,
         args.transferredAt || null,
-        JSON.stringify({ order_id: args.orderId, ...(args.meta || {}) })
-      ]
+        JSON.stringify({ order_id: args.orderId, ...(args.meta || {}) }),
+      ],
     );
     return inserted.rows[0]?.id || null;
   });
@@ -5781,19 +9112,22 @@ async function updatePayoutReconciliationForOrder(args: {
   metaPatch?: Record<string, unknown>;
 }) {
   return withClient(async (client) => {
-    const existing = await client.query<{ id: string; meta: Record<string, unknown> | null }>(
+    const existing = await client.query<{
+      id: string;
+      meta: Record<string, unknown> | null;
+    }>(
       `SELECT id, meta
        FROM payout_reconciliations
        WHERE meta->>'order_id' = $1
        ORDER BY created_at DESC
        LIMIT 1`,
-      [args.orderId]
+      [args.orderId],
     );
     const row = existing.rows[0];
     if (!row?.id) return null;
     const nextMeta = {
       ...((row.meta as Record<string, unknown> | null) || {}),
-      ...(args.metaPatch || {})
+      ...(args.metaPatch || {}),
     };
     await client.query(
       `UPDATE payout_reconciliations
@@ -5814,8 +9148,8 @@ async function updatePayoutReconciliationForOrder(args: {
         args.availableAt || null,
         args.transferAttemptedAt || null,
         args.transferredAt || null,
-        JSON.stringify(nextMeta)
-      ]
+        JSON.stringify(nextMeta),
+      ],
     );
     return row.id;
   });
@@ -5832,7 +9166,7 @@ async function insertOwnershipTransferIfMissing(args: {
   return withClient(async (client) => {
     const existing = await client.query<{ id: string }>(
       "SELECT id FROM ownership_transfers WHERE order_id = $1 LIMIT 1",
-      [args.orderId]
+      [args.orderId],
     );
     if (existing.rows[0]?.id) return existing.rows[0].id;
     const inserted = await client.query<{ id: string }>(
@@ -5847,16 +9181,19 @@ async function insertOwnershipTransferIfMissing(args: {
         args.orderId,
         args.currency,
         args.transferAmountCents,
-        JSON.stringify({ source: "stripe_webhook" })
-      ]
+        JSON.stringify({ source: "stripe_webhook" }),
+      ],
     );
     return inserted.rows[0]?.id || null;
   });
 }
 
 async function ensureDeferredSellerPayout(order: any) {
-  if (Number(order.seller_net_cents || 0) <= 0) return { transferId: null, status: "no_payout_due" };
-  const connected = await findStripeConnectedAccountByUserId(String(order.seller_user_id || ""));
+  if (Number(order.seller_net_cents || 0) <= 0)
+    return { transferId: null, status: "no_payout_due" };
+  const connected = await findStripeConnectedAccountByUserId(
+    String(order.seller_user_id || ""),
+  );
   const commerce = await getCommercePolicySettings();
   const availableAt = await payoutAvailableAtForOrder(order);
   await insertPayoutReconciliationIfMissing({
@@ -5871,18 +9208,24 @@ async function ensureDeferredSellerPayout(order: any) {
     availableAt,
     meta: {
       hold_days: commerce.payoutHoldDays,
-      release_after: availableAt.toISOString()
-    }
+      release_after: availableAt.toISOString(),
+    },
   });
   return { transferId: null, status: "pending_settlement", availableAt };
 }
 
-async function createSellerTransferIfPossible(order: any, chargeId: string | null) {
+async function createSellerTransferIfPossible(
+  order: any,
+  chargeId: string | null,
+) {
   if (!chargeId) return { transferId: null, status: "paid_no_charge" };
-  if (Number(order.seller_net_cents || 0) <= 0) return { transferId: null, status: "no_payout_due" };
+  if (Number(order.seller_net_cents || 0) <= 0)
+    return { transferId: null, status: "no_payout_due" };
   const stripe = getStripeClient();
   if (!stripe) return { transferId: null, status: "stripe_not_configured" };
-  const connected = await findStripeConnectedAccountByUserId(String(order.seller_user_id || ""));
+  const connected = await findStripeConnectedAccountByUserId(
+    String(order.seller_user_id || ""),
+  );
   const availableAt = await payoutAvailableAtForOrder(order);
   if (!connected?.stripe_account_id) {
     await updatePayoutReconciliationForOrder({
@@ -5891,7 +9234,7 @@ async function createSellerTransferIfPossible(order: any, chargeId: string | nul
       status: "pending_connected_account",
       availableAt,
       transferAttemptedAt: new Date(),
-      metaPatch: { reason: "missing_connected_account" }
+      metaPatch: { reason: "missing_connected_account" },
     });
     return { transferId: null, status: "pending_connected_account" };
   }
@@ -5904,8 +9247,8 @@ async function createSellerTransferIfPossible(order: any, chargeId: string | nul
       metadata: {
         order_id: String(order.id || ""),
         work_id: String(order.work_id || ""),
-        seller_user_id: String(order.seller_user_id || "")
-      }
+        seller_user_id: String(order.seller_user_id || ""),
+      },
     });
     await updatePayoutReconciliationForOrder({
       orderId: String(order.id || ""),
@@ -5914,7 +9257,7 @@ async function createSellerTransferIfPossible(order: any, chargeId: string | nul
       status: "transferred",
       transferAttemptedAt: new Date(),
       transferredAt: new Date(),
-      metaPatch: { source_transaction: chargeId }
+      metaPatch: { source_transaction: chargeId },
     });
     return { transferId: transfer.id, status: "transferred" };
   } catch (err) {
@@ -5923,7 +9266,7 @@ async function createSellerTransferIfPossible(order: any, chargeId: string | nul
       stripeConnectedAccountRowId: connected.id || null,
       status: "transfer_failed",
       transferAttemptedAt: new Date(),
-      metaPatch: { error: String(err) }
+      metaPatch: { error: String(err) },
     });
     return { transferId: null, status: "transfer_failed" };
   }
@@ -5947,8 +9290,8 @@ async function processMatureSellerPayouts(limit = 50) {
          AND pr.available_at <= now()
        ORDER BY pr.available_at ASC, pr.created_at ASC
        LIMIT $1`,
-      [limit]
-    )
+      [limit],
+    ),
   );
   for (const row of due.rows) {
     const chargeId = String(row.stripe_charge_id || "").trim() || null;
@@ -5964,23 +9307,26 @@ async function recordStripeWebhookEvent(event: Stripe.Event) {
        VALUES ($1, $2, $3, $4::jsonb, false)
        ON CONFLICT (stripe_event_id) DO NOTHING
        RETURNING id, processed`,
-      [event.id, event.type, Boolean(event.livemode), JSON.stringify(event)]
+      [event.id, event.type, Boolean(event.livemode), JSON.stringify(event)],
     );
     if (inserted.rows[0]?.id) {
       return { id: inserted.rows[0].id, alreadyProcessed: false };
     }
     const existing = await client.query<{ id: string; processed: boolean }>(
       "SELECT id, processed FROM stripe_webhook_events WHERE stripe_event_id = $1 LIMIT 1",
-      [event.id]
+      [event.id],
     );
     return {
       id: existing.rows[0]?.id || null,
-      alreadyProcessed: Boolean(existing.rows[0]?.processed)
+      alreadyProcessed: Boolean(existing.rows[0]?.processed),
     };
   });
 }
 
-async function markStripeWebhookEventProcessed(eventId: string, error?: string | null) {
+async function markStripeWebhookEventProcessed(
+  eventId: string,
+  error?: string | null,
+) {
   await withClient((client) =>
     client.query(
       `UPDATE stripe_webhook_events
@@ -5988,8 +9334,8 @@ async function markStripeWebhookEventProcessed(eventId: string, error?: string |
            processed_at = CASE WHEN $2 THEN now() ELSE processed_at END,
            processing_error = $3
        WHERE stripe_event_id = $1`,
-      [eventId, !error, error || null]
-    )
+      [eventId, !error, error || null],
+    ),
   );
 }
 
@@ -6002,27 +9348,60 @@ async function processStripeWebhookEvent(event: Stripe.Event) {
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
-    const creatorBoostOrderId = String(session.metadata?.creator_boost_order_id || "").trim() || null;
+    // P2-25b: subscription upgrade via Stripe Checkout.
+    const membershipTier = normalizeMembershipTier(
+      session.metadata?.membership_tier,
+    );
+    const membershipUserId =
+      String(session.metadata?.buyer_user_id || "").trim() || null;
+    if (
+      membershipUserId &&
+      (membershipTier === "starter" ||
+        membershipTier === "pro" ||
+        membershipTier === "studio" ||
+        membershipTier === "enterprise")
+    ) {
+      await ensureBillingAccount(membershipUserId);
+      await withClient((client) =>
+        client.query(
+          `UPDATE billing_accounts
+           SET membership_tier = $2,
+               membership_source = 'stripe_checkout',
+               membership_updated_at = now(),
+               updated_at = now()
+           WHERE user_id = $1`,
+          [membershipUserId, membershipTier],
+        ),
+      );
+      return;
+    }
+    const creatorBoostOrderId =
+      String(session.metadata?.creator_boost_order_id || "").trim() || null;
     if (creatorBoostOrderId) {
       await updateCreatorBoostOrderStripeRefs({
         orderId: creatorBoostOrderId,
         checkoutSessionId: session.id,
-        paymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null,
+        paymentIntentId:
+          typeof session.payment_intent === "string"
+            ? session.payment_intent
+            : session.payment_intent?.id || null,
         status: "processing",
         metaPatch: {
           checkout_session_status: session.status,
-          payment_status: session.payment_status
-        }
+          payment_status: session.payment_status,
+        },
       });
       return;
     }
     const orderId = String(session.metadata?.order_id || "").trim() || null;
     const paymentIntentId =
-      typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null;
+      typeof session.payment_intent === "string"
+        ? session.payment_intent
+        : session.payment_intent?.id || null;
     const order = await findOrderForStripeEvent({
       orderId,
       checkoutSessionId: session.id,
-      paymentIntentId
+      paymentIntentId,
     });
     if (!order) return;
     await updateWorkOrderStripeRefs({
@@ -6032,23 +9411,24 @@ async function processStripeWebhookEvent(event: Stripe.Event) {
       status: "processing",
       metaPatch: {
         checkout_session_status: session.status,
-        payment_status: session.payment_status
-      }
+        payment_status: session.payment_status,
+      },
     });
     return;
   }
 
   if (event.type === "checkout.session.expired") {
     const session = event.data.object as Stripe.Checkout.Session;
-    const creatorBoostOrderId = String(session.metadata?.creator_boost_order_id || "").trim() || null;
+    const creatorBoostOrderId =
+      String(session.metadata?.creator_boost_order_id || "").trim() || null;
     if (creatorBoostOrderId) {
       await updateCreatorBoostOrderStripeRefs({
         orderId: creatorBoostOrderId,
         checkoutSessionId: session.id,
         status: "canceled",
         metaPatch: {
-          canceled_reason: "stripe_checkout_session_expired"
-        }
+          canceled_reason: "stripe_checkout_session_expired",
+        },
       });
       return;
     }
@@ -6056,29 +9436,30 @@ async function processStripeWebhookEvent(event: Stripe.Event) {
     await cancelPendingWorkOrder({
       orderId,
       checkoutSessionId: session.id,
-      reason: "stripe_checkout_session_expired"
+      reason: "stripe_checkout_session_expired",
     });
     return;
   }
 
   if (event.type === "payment_intent.payment_failed") {
     const intent = event.data.object as Stripe.PaymentIntent;
-    const creatorBoostOrderId = String(intent.metadata?.creator_boost_order_id || "").trim() || null;
+    const creatorBoostOrderId =
+      String(intent.metadata?.creator_boost_order_id || "").trim() || null;
     if (creatorBoostOrderId) {
       await updateCreatorBoostOrderStripeRefs({
         orderId: creatorBoostOrderId,
         paymentIntentId: intent.id,
         status: "failed",
         metaPatch: {
-          payment_error: intent.last_payment_error?.message || null
-        }
+          payment_error: intent.last_payment_error?.message || null,
+        },
       });
       return;
     }
     const orderId = String(intent.metadata?.order_id || "").trim() || null;
     const order = await findOrderForStripeEvent({
       orderId,
-      paymentIntentId: intent.id
+      paymentIntentId: intent.id,
     });
     if (!order) return;
     await updateWorkOrderStripeRefs({
@@ -6086,50 +9467,58 @@ async function processStripeWebhookEvent(event: Stripe.Event) {
       paymentIntentId: intent.id,
       status: "failed",
       metaPatch: {
-        payment_error: intent.last_payment_error?.message || null
-      }
+        payment_error: intent.last_payment_error?.message || null,
+      },
     });
     return;
   }
 
   if (event.type === "payment_intent.succeeded") {
     const intent = event.data.object as Stripe.PaymentIntent;
-    const creatorBoostOrderId = String(intent.metadata?.creator_boost_order_id || "").trim() || null;
+    const creatorBoostOrderId =
+      String(intent.metadata?.creator_boost_order_id || "").trim() || null;
     if (creatorBoostOrderId) {
       const boostOrder = await findCreatorBoostOrder({
         orderId: creatorBoostOrderId,
-        paymentIntentId: intent.id
+        paymentIntentId: intent.id,
       });
       if (!boostOrder) return;
-      const chargeId = typeof intent.latest_charge === "string" ? intent.latest_charge : intent.latest_charge?.id || null;
+      const chargeId =
+        typeof intent.latest_charge === "string"
+          ? intent.latest_charge
+          : intent.latest_charge?.id || null;
       await updateCreatorBoostOrderStripeRefs({
         orderId: String(boostOrder.id),
         paymentIntentId: intent.id,
         chargeId,
         status: "paid",
         metaPatch: {
-          stripe_payment_status: intent.status
-        }
+          stripe_payment_status: intent.status,
+        },
       });
       await grantCreatorBoostEntitlement({
         userId: String(boostOrder.user_id || ""),
-        boostKind: normalizeCreatorBoostKind(boostOrder.boost_kind) || "language",
+        boostKind:
+          normalizeCreatorBoostKind(boostOrder.boost_kind) || "generation",
         quantity: Math.max(1, Number(boostOrder.quantity || 1)),
         orderId: String(boostOrder.id || ""),
         meta: {
           source: "stripe_webhook",
-          payment_intent_id: intent.id
-        }
+          payment_intent_id: intent.id,
+        },
       });
       return;
     }
     const orderId = String(intent.metadata?.order_id || "").trim() || null;
     const order = await findOrderForStripeEvent({
       orderId,
-      paymentIntentId: intent.id
+      paymentIntentId: intent.id,
     });
     if (!order) return;
-    const chargeId = typeof intent.latest_charge === "string" ? intent.latest_charge : intent.latest_charge?.id || null;
+    const chargeId =
+      typeof intent.latest_charge === "string"
+        ? intent.latest_charge
+        : intent.latest_charge?.id || null;
     const payout = await ensureDeferredSellerPayout(order);
     await updateWorkOrderStripeRefs({
       orderId: String(order.id),
@@ -6139,8 +9528,8 @@ async function processStripeWebhookEvent(event: Stripe.Event) {
       metaPatch: {
         transfer_status: payout.status,
         stripe_transfer_id: payout.transferId,
-        payout_available_at: payout.availableAt?.toISOString?.() || null
-      }
+        payout_available_at: payout.availableAt?.toISOString?.() || null,
+      },
     });
     if (String(order.order_kind || "") === "tip") {
       await insertWorkTipIfMissing({
@@ -6150,7 +9539,7 @@ async function processStripeWebhookEvent(event: Stripe.Event) {
         currency: String(order.currency || "USD"),
         amountCents: Number(order.gross_amount_cents || 0),
         orderId: String(order.id || ""),
-        message: String(order?.meta?.tip_message || "").trim() || null
+        message: String(order?.meta?.tip_message || "").trim() || null,
       });
     }
     if (String(order.order_kind || "") === "buyout") {
@@ -6160,9 +9549,30 @@ async function processStripeWebhookEvent(event: Stripe.Event) {
         toUserId: String(order.buyer_user_id || "") || null,
         orderId: String(order.id || ""),
         currency: String(order.currency || "USD"),
-        transferAmountCents: Number(order.gross_amount_cents || 0)
+        transferAmountCents: Number(order.gross_amount_cents || 0),
       });
     }
+  }
+
+  // P2-25b: if a subscription is canceled/deleted, drop the user back to free.
+  if (event.type === "customer.subscription.deleted") {
+    const subscription = event.data.object as Stripe.Subscription;
+    const userId =
+      String(subscription.metadata?.buyer_user_id || "").trim() || null;
+    if (userId) {
+      await withClient((client) =>
+        client.query(
+          `UPDATE billing_accounts
+           SET membership_tier = 'free',
+               membership_source = 'stripe_subscription_deleted',
+               membership_updated_at = now(),
+               updated_at = now()
+           WHERE user_id = $1`,
+          [userId],
+        ),
+      );
+    }
+    return;
   }
 }
 
@@ -6173,7 +9583,7 @@ async function resetMonthIfNeeded(userId: string) {
       `UPDATE billing_accounts
        SET month_key = $2, month_spent_cents = 0, updated_at = now()
        WHERE user_id = $1 AND month_key <> $2`,
-      [userId, monthKey]
+      [userId, monthKey],
     );
   });
 }
@@ -6189,11 +9599,16 @@ async function consumeBillableAction(args: {
   meta?: Record<string, unknown>;
 }) {
   const units = Math.max(1, Math.min(100000, Number(args.units || 1) || 1));
-  const route = String(args.route || `/api/billing/actions/${args.actionKey}`).trim();
+  const route = String(
+    args.route || `/api/billing/actions/${args.actionKey}`,
+  ).trim();
   const countAgainstMonthlyLimit = args.countAgainstMonthlyLimit === true;
-  const coveredBy = args.coveredBy || "membership";
+  let coveredBy = args.coveredBy || "membership";
   const policy = await getBillingActionPolicySettings();
-  const estimatedCostCents = Math.max(0, billableActionCostCents(args.actionKey, policy) * units);
+  const estimatedCostCents = Math.max(
+    0,
+    billableActionCostCents(args.actionKey, policy) * units,
+  );
   if (args.access.tier === "admin" || args.access.tier === "vip") {
     await withClient((client) =>
       client.query(
@@ -6208,21 +9623,34 @@ async function consumeBillableAction(args: {
             covered_by: "admin",
             estimated_cost_cents: estimatedCostCents,
             tier: args.access.tier,
-            ...(args.meta || {})
-          })
-        ]
-      )
+            ...(args.meta || {}),
+          }),
+        ],
+      ),
     );
-    return { ok: true as const, allowed: true, cost_cents: 0, estimated_cost_cents: estimatedCostCents, limit: null, remaining: null };
+    return {
+      ok: true as const,
+      allowed: true,
+      cost_cents: 0,
+      estimated_cost_cents: estimatedCostCents,
+      limit: null,
+      remaining: null,
+    };
   }
 
   await resetMonthIfNeeded(args.userId);
-  const account = args.access.billingAccount || (await ensureBillingAccount(args.userId)).account;
-  const monthlyGenerationLimit = countAgainstMonthlyLimit ? Number(args.access.policy.monthlyGenerationLimit || 0) : 0;
-  const coreCovered = policy.includedMembershipCoversCore && coveredBy === "membership";
+  const account =
+    args.access.billingAccount ||
+    (await ensureBillingAccount(args.userId)).account;
+  const monthlyGenerationLimit = countAgainstMonthlyLimit
+    ? Number(args.access.policy.monthlyGenerationLimit || 0)
+    : 0;
   return withClient(async (client) => {
     await client.query("BEGIN");
-    const accountRes = await client.query("SELECT * FROM billing_accounts WHERE user_id = $1 FOR UPDATE", [args.userId]);
+    const accountRes = await client.query(
+      "SELECT * FROM billing_accounts WHERE user_id = $1 FOR UPDATE",
+      [args.userId],
+    );
     const lockedAccount = accountRes.rows[0] || account;
 
     if (monthlyGenerationLimit > 0) {
@@ -6233,40 +9661,97 @@ async function consumeBillableAction(args: {
            AND route = $2
            AND COALESCE(meta->>'blocked', '') = ''
            AND created_at >= date_trunc('month', now())`,
-        [args.userId, route]
+        [args.userId, route],
       );
       const usedCount = Number(usageCountRes.rows[0]?.count || 0);
       if (usedCount >= monthlyGenerationLimit) {
-        await client.query(
-          "INSERT INTO usage_events (user_id, route, units, cost_cents, meta) VALUES ($1,$2,$3,$4,$5)",
-          [
-            args.userId,
-            route,
-            units,
-            0,
-            JSON.stringify({
-              action_key: args.actionKey,
-              blocked: "membership_limit",
-              covered_by: coveredBy,
-              estimated_cost_cents: estimatedCostCents,
-              tier: args.access.tier,
-              ...(args.meta || {})
-            })
-          ]
+        let generationBoostAvailable = 0;
+        const generationEntitlements = await client.query(
+          `SELECT id, quantity, consumed_quantity
+           FROM account_entitlements
+           WHERE user_id = $1
+             AND entitlement_key = 'boost.generation'
+             AND quantity > consumed_quantity
+             AND (expires_at IS NULL OR expires_at > now())
+           ORDER BY created_at ASC
+           FOR UPDATE`,
+          [args.userId],
         );
-        await client.query("COMMIT");
-        return {
-          ok: true as const,
-          allowed: false,
-          cost_cents: 0,
-          estimated_cost_cents: estimatedCostCents,
-          limit: monthlyGenerationLimit,
-          remaining: 0
-        };
+        for (const row of generationEntitlements.rows) {
+          generationBoostAvailable += Math.max(
+            0,
+            Number(row.quantity || 0) - Number(row.consumed_quantity || 0),
+          );
+        }
+        if (generationBoostAvailable > 0) {
+          let remainingBoostToConsume = 1;
+          for (const row of generationEntitlements.rows) {
+            if (remainingBoostToConsume <= 0) break;
+            const available = Math.max(
+              0,
+              Number(row.quantity || 0) - Number(row.consumed_quantity || 0),
+            );
+            if (!available) continue;
+            const consumeNow = Math.min(remainingBoostToConsume, available);
+            await client.query(
+              `UPDATE account_entitlements
+               SET consumed_quantity = consumed_quantity + $2,
+                   meta = COALESCE(meta, '{}'::jsonb) || jsonb_build_object(
+                     'last_consumed_reason', $3,
+                     'last_consumed_at', now()::text
+                   ),
+                   updated_at = now()
+               WHERE id = $1`,
+              [row.id, consumeNow, args.actionKey],
+            );
+            remainingBoostToConsume -= consumeNow;
+            generationBoostAvailable -= consumeNow;
+          }
+        }
+        if (generationBoostAvailable <= 0) {
+          await client.query(
+            "INSERT INTO usage_events (user_id, route, units, cost_cents, meta) VALUES ($1,$2,$3,$4,$5)",
+            [
+              args.userId,
+              route,
+              units,
+              0,
+              JSON.stringify({
+                action_key: args.actionKey,
+                blocked: "membership_limit",
+                covered_by: coveredBy,
+                estimated_cost_cents: estimatedCostCents,
+                tier: args.access.tier,
+                recommended_topup_boost: "generation",
+                recommended_topup_quantity:
+                  args.access.tier === "starter" ? 10 : 20,
+                ...(args.meta || {}),
+              }),
+            ],
+          );
+          await client.query("COMMIT");
+          return {
+            ok: true as const,
+            allowed: false,
+            cost_cents: 0,
+            estimated_cost_cents: estimatedCostCents,
+            limit: monthlyGenerationLimit,
+            remaining: 0,
+            topup_boost_kind: "generation",
+            topup_recommended_quantity:
+              args.access.tier === "starter" ? 10 : 20,
+          };
+        }
+        coveredBy = "boost";
       }
     }
 
-    let usageCostCents = coreCovered || coveredBy === "boost" || coveredBy === "booking" ? 0 : estimatedCostCents;
+    const coreCovered =
+      policy.includedMembershipCoversCore && coveredBy === "membership";
+    let usageCostCents =
+      coreCovered || coveredBy === "boost" || coveredBy === "booking"
+        ? 0
+        : estimatedCostCents;
     let nextBalance = Number(lockedAccount?.balance_cents || 0);
     const monthSpent = Number(lockedAccount?.month_spent_cents || 0);
     const monthLimit = Number(lockedAccount?.monthly_limit_cents || 0);
@@ -6285,12 +9770,19 @@ async function consumeBillableAction(args: {
               blocked: "monthly_limit",
               covered_by: coveredBy,
               estimated_cost_cents: estimatedCostCents,
-              ...(args.meta || {})
-            })
-          ]
+              ...(args.meta || {}),
+            }),
+          ],
         );
         await client.query("COMMIT");
-        return { ok: true as const, allowed: false, cost_cents: usageCostCents, estimated_cost_cents: estimatedCostCents, limit: monthLimit, remaining: 0 };
+        return {
+          ok: true as const,
+          allowed: false,
+          cost_cents: usageCostCents,
+          estimated_cost_cents: estimatedCostCents,
+          limit: monthLimit,
+          remaining: 0,
+        };
       }
       if (nextBalance < usageCostCents) {
         await client.query(
@@ -6305,12 +9797,19 @@ async function consumeBillableAction(args: {
               blocked: "insufficient_balance",
               covered_by: coveredBy,
               estimated_cost_cents: estimatedCostCents,
-              ...(args.meta || {})
-            })
-          ]
+              ...(args.meta || {}),
+            }),
+          ],
         );
         await client.query("COMMIT");
-        return { ok: true as const, allowed: false, cost_cents: usageCostCents, estimated_cost_cents: estimatedCostCents, limit: monthLimit || null, remaining: 0 };
+        return {
+          ok: true as const,
+          allowed: false,
+          cost_cents: usageCostCents,
+          estimated_cost_cents: estimatedCostCents,
+          limit: monthLimit || null,
+          remaining: 0,
+        };
       }
       nextBalance -= usageCostCents;
     }
@@ -6327,20 +9826,32 @@ async function consumeBillableAction(args: {
           covered_by: coveredBy,
           estimated_cost_cents: estimatedCostCents,
           tier: args.access.tier,
-          ...(args.meta || {})
-        })
-      ]
+          ...(args.meta || {}),
+        }),
+      ],
     );
-    const relatedUsageEventId = String(usageRes.rows[0]?.id || "").trim() || null;
+    const relatedUsageEventId =
+      String(usageRes.rows[0]?.id || "").trim() || null;
 
-    if (coveredBy === "enterprise" && usageCostCents > 0 && relatedUsageEventId) {
+    if (
+      coveredBy === "enterprise" &&
+      usageCostCents > 0 &&
+      relatedUsageEventId
+    ) {
       await client.query(
         "INSERT INTO ledger_entries (user_id, kind, amount_cents, balance_after_cents, related_usage_event_id, note) VALUES ($1,$2,$3,$4,$5,$6)",
-        [args.userId, "debit", -usageCostCents, nextBalance, relatedUsageEventId, `${args.actionKey}`]
+        [
+          args.userId,
+          "debit",
+          -usageCostCents,
+          nextBalance,
+          relatedUsageEventId,
+          `${args.actionKey}`,
+        ],
       );
       await client.query(
         "UPDATE billing_accounts SET balance_cents = $2, month_spent_cents = $3, updated_at = now() WHERE user_id = $1",
-        [args.userId, nextBalance, monthSpent + usageCostCents]
+        [args.userId, nextBalance, monthSpent + usageCostCents],
       );
     }
     await client.query("COMMIT");
@@ -6350,12 +9861,19 @@ async function consumeBillableAction(args: {
       cost_cents: usageCostCents,
       estimated_cost_cents: estimatedCostCents,
       limit: monthlyGenerationLimit || monthLimit || null,
-      remaining: monthlyGenerationLimit > 0 ? Math.max(0, monthlyGenerationLimit - 1) : null
+      remaining:
+        monthlyGenerationLimit > 0
+          ? Math.max(0, monthlyGenerationLimit - 1)
+          : null,
     };
   });
 }
 
-function setAuthSession(req: express.Request, userId: string, provider: string) {
+function setAuthSession(
+  req: express.Request,
+  userId: string,
+  provider: string,
+) {
   (req.session as any).user_id = userId;
   (req.session as any).passkey_subject_key = userSubjectKey(userId);
   (req.session as any).auth_provider = provider;
@@ -6370,7 +9888,7 @@ async function ensureDevLoginUser(email: string, displayName: string | null) {
   return withClient(async (client) => {
     const existing = await client.query<{ id: string }>(
       "SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1",
-      [email]
+      [email],
     );
     const found = existing.rows[0]?.id;
     if (found) return found;
@@ -6379,7 +9897,7 @@ async function ensureDevLoginUser(email: string, displayName: string | null) {
       `INSERT INTO users (display_name, email, avatar_url)
        VALUES ($1, $2, $3)
        RETURNING id`,
-      [displayName, email, null]
+      [displayName, email, null],
     );
     const userId = created.rows[0]?.id;
     if (!userId) throw new Error("dev_login_user_create_failed");
@@ -6393,25 +9911,34 @@ app.get("/api/dev/login", async (req, res) => {
     if (!isLocalDevRequest(req)) {
       return res.status(404).json({ ok: false, code: "NOT_FOUND" });
     }
-    const email = String(req.query.email || "dev@localhost").trim().toLowerCase();
-    const displayName = String(req.query.name || "Local Dev").trim() || "Local Dev";
+    const email = String(req.query.email || "dev@localhost")
+      .trim()
+      .toLowerCase();
+    const displayName =
+      String(req.query.name || "Local Dev").trim() || "Local Dev";
     const userId = await ensureDevLoginUser(email, displayName);
     setAuthSession(req, userId, "dev_local");
     return req.session.save((err) => {
       if (err) {
-        return res.status(500).json({ ok: false, code: "DEV_LOGIN_SAVE_FAILED", message: String(err) });
+        return res.status(500).json({
+          ok: false,
+          code: "DEV_LOGIN_SAVE_FAILED",
+          message: String(err),
+        });
       }
       return res.json(
         okData({
           authenticated: true,
           dev_login: true,
           user_id: userId,
-          email
-        })
+          email,
+        }),
       );
     });
   } catch (err) {
-    return res.status(500).json({ ok: false, code: "DEV_LOGIN_FAILED", message: String(err) });
+    return res
+      .status(500)
+      .json({ ok: false, code: "DEV_LOGIN_FAILED", message: String(err) });
   }
 });
 
@@ -6426,7 +9953,7 @@ app.use("/api/registry", async (req, res) => {
     }
     const init: RequestInit = {
       method: req.method,
-      headers
+      headers,
     };
     if (req.method !== "GET" && req.method !== "HEAD") {
       init.body = JSON.stringify(req.body ?? {});
@@ -6454,11 +9981,17 @@ app.get("/api/me", async (req, res) => {
     const user = await getSessionUser(req);
     if (!user) {
       return res.json(
-        okEmpty({ authenticated: false, user: null, auth_provider: null }, "No data yet")
+        okEmpty(
+          { authenticated: false, user: null, auth_provider: null },
+          "No data yet",
+        ),
       );
     }
     const access = await resolveUserAccessProfile(user);
-    const permissionSnapshot = buildPermissionSnapshot(access.tier, access.role);
+    const permissionSnapshot = buildPermissionSnapshot(
+      access.tier,
+      access.role,
+    );
     return res.json(
       okData({
         authenticated: true,
@@ -6466,22 +9999,34 @@ app.get("/api/me", async (req, res) => {
           id: user.id,
           name: user.display_name,
           email: user.email,
-          avatar: user.avatar_url
+          avatar: user.avatar_url,
         },
         auth_provider: (req.session as any)?.auth_provider || null,
         session_days: Math.max(
           1,
-          Math.round(Number((req.session as any)?.cookie?.maxAge || sessionConfig.cookie?.maxAge || 0) / (1000 * 60 * 60 * 24))
+          Math.round(
+            Number(
+              (req.session as any)?.cookie?.maxAge ||
+                sessionConfig.cookie?.maxAge ||
+                0,
+            ) /
+              (1000 * 60 * 60 * 24),
+          ),
         ),
         session_expires_at: (req.session as any)?.cookie?.expires || null,
         role: access.role,
         tier: access.tier,
         queue_lane: queueLaneForTier(access.tier),
-        permission_snapshot: permissionSnapshot
-      })
+        permission_snapshot: permissionSnapshot,
+      }),
     );
   } catch (_err) {
-    return res.json(okEmpty({ authenticated: false, user: null, auth_provider: null }, "No data yet"));
+    return res.json(
+      okEmpty(
+        { authenticated: false, user: null, auth_provider: null },
+        "No data yet",
+      ),
+    );
   }
 });
 
@@ -6490,20 +10035,48 @@ app.post("/api/profile/switch-provider", async (req, res) => {
   try {
     const user = await getSessionUser(req);
     if (!user) {
-      return res.status(401).json(okEmpty({ switched: false }, "Not signed in"));
+      return res
+        .status(401)
+        .json(okEmpty({ switched: false }, "Not signed in"));
     }
-    const provider = String(req.body?.provider || "").trim().toLowerCase();
+    const provider = String(req.body?.provider || "")
+      .trim()
+      .toLowerCase();
     if (!provider) {
-      return res.status(400).json(okEmpty({ switched: false, code: "PROVIDER_REQUIRED" }, "Missing provider"));
+      return res
+        .status(400)
+        .json(
+          okEmpty(
+            { switched: false, code: "PROVIDER_REQUIRED" },
+            "Missing provider",
+          ),
+        );
     }
     const linked = await listLinkedProviders(user.id);
     if (!linked.providers.includes(provider)) {
-      return res.status(404).json(okEmpty({ switched: false, code: "PROVIDER_NOT_LINKED" }, "Provider not linked"));
+      return res
+        .status(404)
+        .json(
+          okEmpty(
+            { switched: false, code: "PROVIDER_NOT_LINKED" },
+            "Provider not linked",
+          ),
+        );
     }
     (req.session as any).auth_provider = provider;
-    return res.json(okData({ switched: true, provider, linked_auth: { providers: linked.providers } }));
+    return res.json(
+      okData({
+        switched: true,
+        provider,
+        linked_auth: { providers: linked.providers },
+      }),
+    );
   } catch {
-    return res.status(500).json(okEmpty({ switched: false, code: "SWITCH_FAILED" }, "Switch failed"));
+    return res
+      .status(500)
+      .json(
+        okEmpty({ switched: false, code: "SWITCH_FAILED" }, "Switch failed"),
+      );
   }
 });
 
@@ -6516,12 +10089,32 @@ app.post("/api/profile/session-policy", async (req, res) => {
     }
     const days = Number(req.body?.days || 0);
     if (![30, 90, 180, 365].includes(days)) {
-      return res.status(400).json(okEmpty({ updated: false, code: "INVALID_SESSION_DAYS" }, "Invalid session days"));
+      return res
+        .status(400)
+        .json(
+          okEmpty(
+            { updated: false, code: "INVALID_SESSION_DAYS" },
+            "Invalid session days",
+          ),
+        );
     }
     (req.session as any).cookie.maxAge = 1000 * 60 * 60 * 24 * days;
-    return res.json(okData({ updated: true, session_days: days, session_expires_at: (req.session as any).cookie.expires || null }));
+    return res.json(
+      okData({
+        updated: true,
+        session_days: days,
+        session_expires_at: (req.session as any).cookie.expires || null,
+      }),
+    );
   } catch {
-    return res.status(500).json(okEmpty({ updated: false, code: "SESSION_POLICY_FAILED" }, "Session policy failed"));
+    return res
+      .status(500)
+      .json(
+        okEmpty(
+          { updated: false, code: "SESSION_POLICY_FAILED" },
+          "Session policy failed",
+        ),
+      );
   }
 });
 
@@ -6530,11 +10123,16 @@ app.get("/api/profile", async (req, res) => {
   try {
     const user = await getSessionUser(req);
     if (!user) {
-      return res.status(401).json(okEmpty({ authenticated: false }, "No data yet"));
+      return res
+        .status(401)
+        .json(okEmpty({ authenticated: false }, "No data yet"));
     }
     const access = await resolveUserAccessProfile(user);
     const linked = await listLinkedProviders(user.id);
-    const permissionSnapshot = buildPermissionSnapshot(access.tier, access.role);
+    const permissionSnapshot = buildPermissionSnapshot(
+      access.tier,
+      access.role,
+    );
     return res.json(
       okData({
         authenticated: true,
@@ -6545,17 +10143,19 @@ app.get("/api/profile", async (req, res) => {
           avatar: user.avatar_url,
           role: access.role,
           tier: access.tier,
-          queue_lane: queueLaneForTier(access.tier)
+          queue_lane: queueLaneForTier(access.tier),
         },
         linked_auth: {
           providers: linked.providers,
-          passkey_count: linked.passkeyCount
+          passkey_count: linked.passkeyCount,
         },
-        permission_snapshot: permissionSnapshot
-      })
+        permission_snapshot: permissionSnapshot,
+      }),
     );
   } catch {
-    return res.status(500).json(okEmpty({ authenticated: false }, "No data yet"));
+    return res
+      .status(500)
+      .json(okEmpty({ authenticated: false }, "No data yet"));
   }
 });
 
@@ -6568,13 +10168,15 @@ app.get("/api/panel-defaults/creation", async (_req, res) => {
     }
     const row = await withClient((client) =>
       client.query<{ value: any }>(
-        `SELECT value FROM panel_default_templates WHERE panel_key = 'creation' LIMIT 1`
-      )
+        `SELECT value FROM panel_default_templates WHERE panel_key = 'creation' LIMIT 1`,
+      ),
     );
     const merged = mergeCreationPanelTemplate(row.rows[0]?.value || base);
     return res.json(okData({ defaults: merged }));
   } catch {
-    return res.status(500).json({ ok: false, code: "PANEL_DEFAULTS_LOAD_FAILED" });
+    return res
+      .status(500)
+      .json({ ok: false, code: "PANEL_DEFAULTS_LOAD_FAILED" });
   }
 });
 
@@ -6588,7 +10190,9 @@ app.patch("/api/panel-defaults/creation", async (req, res) => {
     if (roleForEmail(user.email) !== "admin") {
       return res.status(403).json({ ok: false, code: "FORBIDDEN" });
     }
-    const merged = mergeCreationPanelTemplate(req.body?.defaults || req.body || {});
+    const merged = mergeCreationPanelTemplate(
+      req.body?.defaults || req.body || {},
+    );
     if (DATABASE_URL) {
       await withClient((client) =>
         client.query(
@@ -6596,13 +10200,15 @@ app.patch("/api/panel-defaults/creation", async (req, res) => {
            VALUES ('creation', $1::jsonb, $2)
            ON CONFLICT (panel_key)
            DO UPDATE SET value = EXCLUDED.value, updated_by_user_id = EXCLUDED.updated_by_user_id, updated_at = now()`,
-          [JSON.stringify(merged), user.id]
-        )
+          [JSON.stringify(merged), user.id],
+        ),
       );
     }
     return res.json(okData({ defaults: merged, saved: true }));
   } catch {
-    return res.status(500).json({ ok: false, code: "PANEL_DEFAULTS_SAVE_FAILED" });
+    return res
+      .status(500)
+      .json({ ok: false, code: "PANEL_DEFAULTS_SAVE_FAILED" });
   }
 });
 
@@ -6620,8 +10226,8 @@ app.get("/api/panel-defaults/:panelKey", async (req, res) => {
       }
       const row = await withClient((client) =>
         client.query<{ value: any }>(
-          `SELECT value FROM panel_default_templates WHERE panel_key = 'creation' LIMIT 1`
-        )
+          `SELECT value FROM panel_default_templates WHERE panel_key = 'creation' LIMIT 1`,
+        ),
       );
       const merged = mergeCreationPanelTemplate(row.rows[0]?.value || base);
       return res.json(okData({ defaults: merged }));
@@ -6632,8 +10238,8 @@ app.get("/api/panel-defaults/:panelKey", async (req, res) => {
     const row = await withClient((client) =>
       client.query<{ value: any }>(
         `SELECT value FROM panel_default_templates WHERE panel_key = $1 LIMIT 1`,
-        [panelKey]
-      )
+        [panelKey],
+      ),
     );
     const defaults =
       panelKey === "behavior"
@@ -6641,7 +10247,9 @@ app.get("/api/panel-defaults/:panelKey", async (req, res) => {
         : sanitizeGenericPanelTemplate(row.rows[0]?.value || {});
     return res.json(okData({ defaults }));
   } catch {
-    return res.status(500).json({ ok: false, code: "PANEL_DEFAULTS_LOAD_FAILED" });
+    return res
+      .status(500)
+      .json({ ok: false, code: "PANEL_DEFAULTS_LOAD_FAILED" });
   }
 });
 
@@ -6655,7 +10263,9 @@ app.post("/api/panel-media/logo", async (req, res) => {
     if (roleForEmail(user.email) !== "admin") {
       return res.status(403).json({ ok: false, code: "FORBIDDEN" });
     }
-    const slot = String(req.body?.slot || "").trim().toLowerCase();
+    const slot = String(req.body?.slot || "")
+      .trim()
+      .toLowerCase();
     if (!["image_1", "image_2", "video"].includes(slot)) {
       return res.status(400).json({ ok: false, code: "INVALID_SLOT" });
     }
@@ -6689,15 +10299,25 @@ app.post("/api/panel-media/logo", async (req, res) => {
 
 app.get("/api/music-sources/draft", async (req, res) => {
   noStore(res);
-  const draft = ((req.session as any)?.music_source_draft || {}) as Record<string, any>;
+  const draft = ((req.session as any)?.music_source_draft || {}) as Record<
+    string,
+    any
+  >;
   const parserJobDraft =
-    ((req.session as any)?.music_source_parser_draft as Record<string, any> | null) ||
-    buildMusicSourceParserJobDraft(draft);
+    ((req.session as any)?.music_source_parser_draft as Record<
+      string,
+      any
+    > | null) || buildMusicSourceParserJobDraft(draft);
   const parserTaskDraft =
-    ((req.session as any)?.music_source_parser_task_draft as Record<string, any> | null) ||
-    buildMusicSourceParserTaskDraft(draft);
+    ((req.session as any)?.music_source_parser_task_draft as Record<
+      string,
+      any
+    > | null) || buildMusicSourceParserTaskDraft(draft);
   const parserTask = resolveStoredMusicSourceParserTask(
-    ((req.session as any)?.music_source_parser_task as Record<string, any> | null) || null
+    ((req.session as any)?.music_source_parser_task as Record<
+      string,
+      any
+    > | null) || null,
   );
   const entries = Object.fromEntries(
     Object.entries(draft).map(([kind, entry]) => [
@@ -6709,18 +10329,18 @@ app.get("/api/music-sources/draft", async (req, res) => {
             mime: entry.mime || "",
             size: Number(entry.size || 0),
             uploaded_at: entry.uploaded_at || null,
-            metadata_summary: summarizeMusicSourceEntry(entry)
+            metadata_summary: summarizeMusicSourceEntry(entry),
           }
-        : null
-    ])
+        : null,
+    ]),
   );
   return res.json(
     okData({
       draft: entries,
       parser_job_draft: parserJobDraft,
       parser_task_draft: parserTaskDraft,
-      parser_task: parserTask
-    })
+      parser_task: parserTask,
+    }),
   );
 });
 
@@ -6728,7 +10348,10 @@ app.get("/api/music-sources/parser-tasks/current", async (req, res) => {
   noStore(res);
   try {
     const parserTask = resolveStoredMusicSourceParserTask(
-      ((req.session as any)?.music_source_parser_task as Record<string, any> | null) || null
+      ((req.session as any)?.music_source_parser_task as Record<
+        string,
+        any
+      > | null) || null,
     );
     if (parserTask && String(parserTask.status || "").trim() === "queued") {
       scheduleMusicSourceParserWorker(0);
@@ -6736,12 +10359,16 @@ app.get("/api/music-sources/parser-tasks/current", async (req, res) => {
     (req.session as any).music_source_parser_task = parserTask;
     return req.session.save((err) => {
       if (err) {
-        return res.status(500).json({ ok: false, code: "MUSIC_SOURCE_PARSER_TASK_STATUS_FAILED" });
+        return res
+          .status(500)
+          .json({ ok: false, code: "MUSIC_SOURCE_PARSER_TASK_STATUS_FAILED" });
       }
       return res.json(okData({ parser_task: parserTask }));
     });
   } catch {
-    return res.status(500).json({ ok: false, code: "MUSIC_SOURCE_PARSER_TASK_STATUS_FAILED" });
+    return res
+      .status(500)
+      .json({ ok: false, code: "MUSIC_SOURCE_PARSER_TASK_STATUS_FAILED" });
   }
 });
 
@@ -6750,20 +10377,30 @@ app.post("/api/music-sources/upload", async (req, res) => {
   try {
     const kind = normalizeMusicSourceKind(req.body?.kind);
     if (!kind) {
-      return res.status(400).json({ ok: false, code: "INVALID_MUSIC_SOURCE_KIND" });
+      return res
+        .status(400)
+        .json({ ok: false, code: "INVALID_MUSIC_SOURCE_KIND" });
     }
     const decoded = decodeDataUrlToFile(String(req.body?.data_url || ""));
     if (!decoded || !decoded.buffer?.length) {
-      return res.status(400).json({ ok: false, code: "INVALID_MUSIC_SOURCE_DATA" });
+      return res
+        .status(400)
+        .json({ ok: false, code: "INVALID_MUSIC_SOURCE_DATA" });
     }
     if (!validateMusicSourceMime(kind, decoded.mime)) {
-      return res.status(400).json({ ok: false, code: "INVALID_MUSIC_SOURCE_MIME" });
+      return res
+        .status(400)
+        .json({ ok: false, code: "INVALID_MUSIC_SOURCE_MIME" });
     }
     if (decoded.buffer.length > musicSourceSizeLimit(kind)) {
-      return res.status(413).json({ ok: false, code: "MUSIC_SOURCE_TOO_LARGE" });
+      return res
+        .status(413)
+        .json({ ok: false, code: "MUSIC_SOURCE_TOO_LARGE" });
     }
     const safeExt = extensionForMime(decoded.mime, ".bin");
-    const safeName = String(req.body?.file_name || `${kind}${safeExt}`).trim() || `${kind}${safeExt}`;
+    const safeName =
+      String(req.body?.file_name || `${kind}${safeExt}`).trim() ||
+      `${kind}${safeExt}`;
     const draftDir = path.join(MUSIC_SOURCE_UPLOAD_DIR, req.sessionID);
     fs.mkdirSync(draftDir, { recursive: true });
     const filename = `${kind}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}${safeExt}`;
@@ -6774,11 +10411,14 @@ app.post("/api/music-sources/upload", async (req, res) => {
       safeName,
       absolutePath,
       decoded.mime,
-      decoded.buffer.length
+      decoded.buffer.length,
     );
     const nextDraft = {
-      ...(((req.session as any)?.music_source_draft || {}) as Record<string, any>),
-      [kind]: nextEntry
+      ...(((req.session as any)?.music_source_draft || {}) as Record<
+        string,
+        any
+      >),
+      [kind]: nextEntry,
     };
     const parserJobDraft = buildMusicSourceParserJobDraft(nextDraft);
     const parserTaskDraft = buildMusicSourceParserTaskDraft(nextDraft);
@@ -6788,7 +10428,9 @@ app.post("/api/music-sources/upload", async (req, res) => {
     (req.session as any).music_source_parser_task = null;
     return req.session.save((err) => {
       if (err) {
-        return res.status(500).json({ ok: false, code: "MUSIC_SOURCE_DRAFT_SAVE_FAILED" });
+        return res
+          .status(500)
+          .json({ ok: false, code: "MUSIC_SOURCE_DRAFT_SAVE_FAILED" });
       }
       return res.json(
         okData({
@@ -6799,16 +10441,18 @@ app.post("/api/music-sources/upload", async (req, res) => {
             mime: nextEntry.mime,
             size: nextEntry.size,
             uploaded_at: nextEntry.uploaded_at,
-            metadata_summary: summarizeMusicSourceEntry(nextEntry)
+            metadata_summary: summarizeMusicSourceEntry(nextEntry),
           },
           parser_job_draft: parserJobDraft,
           parser_task_draft: parserTaskDraft,
-          parser_task: null
-        })
+          parser_task: null,
+        }),
       );
     });
   } catch {
-    return res.status(500).json({ ok: false, code: "MUSIC_SOURCE_UPLOAD_FAILED" });
+    return res
+      .status(500)
+      .json({ ok: false, code: "MUSIC_SOURCE_UPLOAD_FAILED" });
   }
 });
 
@@ -6817,9 +10461,16 @@ app.delete("/api/music-sources/draft/:kind", async (req, res) => {
   try {
     const kind = normalizeMusicSourceKind(req.params.kind);
     if (!kind) {
-      return res.status(400).json({ ok: false, code: "INVALID_MUSIC_SOURCE_KIND" });
+      return res
+        .status(400)
+        .json({ ok: false, code: "INVALID_MUSIC_SOURCE_KIND" });
     }
-    const draft = { ...(((req.session as any)?.music_source_draft || {}) as Record<string, any>) };
+    const draft = {
+      ...(((req.session as any)?.music_source_draft || {}) as Record<
+        string,
+        any
+      >),
+    };
     const current = draft[kind];
     if (current?.absolute_path) {
       fs.rmSync(String(current.absolute_path), { force: true });
@@ -6833,7 +10484,9 @@ app.delete("/api/music-sources/draft/:kind", async (req, res) => {
     (req.session as any).music_source_parser_task = null;
     return req.session.save((err) => {
       if (err) {
-        return res.status(500).json({ ok: false, code: "MUSIC_SOURCE_DRAFT_SAVE_FAILED" });
+        return res
+          .status(500)
+          .json({ ok: false, code: "MUSIC_SOURCE_DRAFT_SAVE_FAILED" });
       }
       return res.json(
         okData({
@@ -6841,46 +10494,72 @@ app.delete("/api/music-sources/draft/:kind", async (req, res) => {
           kind,
           parser_job_draft: parserJobDraft,
           parser_task_draft: parserTaskDraft,
-          parser_task: null
-        })
+          parser_task: null,
+        }),
       );
     });
   } catch {
-    return res.status(500).json({ ok: false, code: "MUSIC_SOURCE_DRAFT_CLEAR_FAILED" });
+    return res
+      .status(500)
+      .json({ ok: false, code: "MUSIC_SOURCE_DRAFT_CLEAR_FAILED" });
   }
 });
 
 app.post("/api/music-sources/parser-draft", async (req, res) => {
   noStore(res);
   try {
-    const draft = ((req.session as any)?.music_source_draft || {}) as Record<string, any>;
+    const draft = ((req.session as any)?.music_source_draft || {}) as Record<
+      string,
+      any
+    >;
     const parserJobDraft = buildMusicSourceParserJobDraft(draft);
     (req.session as any).music_source_parser_draft = parserJobDraft;
     return req.session.save((err) => {
       if (err) {
-        return res.status(500).json({ ok: false, code: "MUSIC_SOURCE_DRAFT_SAVE_FAILED" });
+        return res
+          .status(500)
+          .json({ ok: false, code: "MUSIC_SOURCE_DRAFT_SAVE_FAILED" });
       }
-      return res.json(okData({ parser_job_draft: parserJobDraft, parser_task: (req.session as any)?.music_source_parser_task || null }));
+      return res.json(
+        okData({
+          parser_job_draft: parserJobDraft,
+          parser_task: (req.session as any)?.music_source_parser_task || null,
+        }),
+      );
     });
   } catch {
-    return res.status(500).json({ ok: false, code: "MUSIC_SOURCE_PARSER_DRAFT_FAILED" });
+    return res
+      .status(500)
+      .json({ ok: false, code: "MUSIC_SOURCE_PARSER_DRAFT_FAILED" });
   }
 });
 
 app.post("/api/music-sources/parser-task-draft", async (req, res) => {
   noStore(res);
   try {
-    const draft = ((req.session as any)?.music_source_draft || {}) as Record<string, any>;
+    const draft = ((req.session as any)?.music_source_draft || {}) as Record<
+      string,
+      any
+    >;
     const parserTaskDraft = buildMusicSourceParserTaskDraft(draft);
     (req.session as any).music_source_parser_task_draft = parserTaskDraft;
     return req.session.save((err) => {
       if (err) {
-        return res.status(500).json({ ok: false, code: "MUSIC_SOURCE_DRAFT_SAVE_FAILED" });
+        return res
+          .status(500)
+          .json({ ok: false, code: "MUSIC_SOURCE_DRAFT_SAVE_FAILED" });
       }
-      return res.json(okData({ parser_task_draft: parserTaskDraft, parser_task: (req.session as any)?.music_source_parser_task || null }));
+      return res.json(
+        okData({
+          parser_task_draft: parserTaskDraft,
+          parser_task: (req.session as any)?.music_source_parser_task || null,
+        }),
+      );
     });
   } catch {
-    return res.status(500).json({ ok: false, code: "MUSIC_SOURCE_PARSER_TASK_DRAFT_FAILED" });
+    return res
+      .status(500)
+      .json({ ok: false, code: "MUSIC_SOURCE_PARSER_TASK_DRAFT_FAILED" });
   }
 });
 
@@ -6889,44 +10568,65 @@ app.post("/api/music-sources/parser-tasks", async (req, res) => {
   try {
     const user = await getSessionUser(req);
     const access = await resolveUserAccessProfile(user);
-    const draft = ((req.session as any)?.music_source_draft || {}) as Record<string, any>;
-    const parserTask = buildQueuedMusicSourceParserTask(draft, access, req.sessionID);
+    const draft = ((req.session as any)?.music_source_draft || {}) as Record<
+      string,
+      any
+    >;
+    const parserTask = buildQueuedMusicSourceParserTask(
+      draft,
+      access,
+      req.sessionID,
+    );
     if (!parserTask) {
-      return res.status(400).json({ ok: false, code: "MUSIC_SOURCE_PARSER_TASK_EMPTY" });
+      return res
+        .status(400)
+        .json({ ok: false, code: "MUSIC_SOURCE_PARSER_TASK_EMPTY" });
     }
     const persistedPath = persistQueuedMusicSourceParserTask(parserTask);
     (req.session as any).music_source_parser_task = {
       ...parserTask,
-      task_path: persistedPath
+      task_path: persistedPath,
     };
     return req.session.save((err) => {
       if (err) {
-        return res.status(500).json({ ok: false, code: "MUSIC_SOURCE_PARSER_TASK_QUEUE_FAILED" });
+        return res
+          .status(500)
+          .json({ ok: false, code: "MUSIC_SOURCE_PARSER_TASK_QUEUE_FAILED" });
       }
       scheduleMusicSourceParserWorker(0);
       return res.json(
         okData({
-          parser_task: (req.session as any).music_source_parser_task
-        })
+          parser_task: (req.session as any).music_source_parser_task,
+        }),
       );
     });
   } catch {
-    return res.status(500).json({ ok: false, code: "MUSIC_SOURCE_PARSER_TASK_QUEUE_FAILED" });
+    return res
+      .status(500)
+      .json({ ok: false, code: "MUSIC_SOURCE_PARSER_TASK_QUEUE_FAILED" });
   }
 });
 
 app.get("/api/example-assets/manifest", async (_req, res) => {
   noStore(res);
   try {
-    const requestedKind = String(_req.query?.kind || "all").trim().toLowerCase();
+    const requestedKind = String(_req.query?.kind || "all")
+      .trim()
+      .toLowerCase();
     const items = await listBucketObjects(EXAMPLE_ASSET_PREFIX);
     const files = items
-      .map((entry: any) => sanitizeExampleAssetName(String(entry?.name || "").replace(/^examples\//, "")))
+      .map((entry: any) =>
+        sanitizeExampleAssetName(
+          String(entry?.name || "").replace(/^examples\//, ""),
+        ),
+      )
       .filter((name: string) => Boolean(name))
       .filter((name: string) => !path.basename(name).startsWith("._"))
       .filter((name: string) => {
-        if (requestedKind === "audio") return /\.(wav|mp3|m4a|aac|flac|ogg)$/i.test(name);
-        if (requestedKind === "mv" || requestedKind === "video") return /\.(mp4|webm|mov)$/i.test(name);
+        if (requestedKind === "audio")
+          return /\.(wav|mp3|m4a|aac|flac|ogg)$/i.test(name);
+        if (requestedKind === "mv" || requestedKind === "video")
+          return /\.(mp4|webm|mov)$/i.test(name);
         return true;
       })
       .sort((left: string, right: string) => left.localeCompare(right));
@@ -6939,12 +10639,14 @@ app.get("/api/example-assets/manifest", async (_req, res) => {
           kind: /\.(mp4|webm|mov)$/i.test(name) ? "video" : "audio",
           mime: inferExampleAssetMime(name),
           asset_key: `${EXAMPLE_ASSET_PREFIX}${name}`,
-          url: `/api/example-assets/blob?name=${encodeURIComponent(name)}`
-        }))
-      })
+          url: `/api/example-assets/blob?name=${encodeURIComponent(name)}`,
+        })),
+      }),
     );
   } catch {
-    return res.status(502).json({ ok: false, code: "EXAMPLE_ASSET_MANIFEST_FAILED" });
+    return res
+      .status(502)
+      .json({ ok: false, code: "EXAMPLE_ASSET_MANIFEST_FAILED" });
   }
 });
 
@@ -6953,19 +10655,136 @@ app.get("/api/example-assets/blob", async (req, res) => {
   try {
     const name = sanitizeExampleAssetName(String(req.query?.name || ""));
     if (!name) {
-      return res.status(400).json({ ok: false, code: "EXAMPLE_ASSET_NAME_REQUIRED" });
+      return res
+        .status(400)
+        .json({ ok: false, code: "EXAMPLE_ASSET_NAME_REQUIRED" });
     }
     const objectName = `${EXAMPLE_ASSET_PREFIX}${name}`;
     const upstream = await fetchBucketObject(objectName);
     if (!upstream.ok) {
-      return res.status(upstream.status || 502).json({ ok: false, code: "EXAMPLE_ASSET_FETCH_FAILED" });
+      return res
+        .status(upstream.status || 502)
+        .json({ ok: false, code: "EXAMPLE_ASSET_FETCH_FAILED" });
     }
-    res.setHeader("Content-Type", upstream.headers.get("content-type") || inferExampleAssetMime(name));
+    res.setHeader(
+      "Content-Type",
+      upstream.headers.get("content-type") || inferExampleAssetMime(name),
+    );
     res.setHeader("Cache-Control", "private, max-age=300");
     const buffer = Buffer.from(await upstream.arrayBuffer());
     return res.end(buffer);
   } catch {
-    return res.status(502).json({ ok: false, code: "EXAMPLE_ASSET_FETCH_FAILED" });
+    return res
+      .status(502)
+      .json({ ok: false, code: "EXAMPLE_ASSET_FETCH_FAILED" });
+  }
+});
+
+app.get("/api/work-assets/blob", async (req, res) => {
+  noStore(res);
+  try {
+    const assetKey = sanitizeWorkAssetKey(String(req.query?.asset_key || ""));
+    if (!assetKey) {
+      return res
+        .status(400)
+        .json({ ok: false, code: "WORK_ASSET_KEY_REQUIRED" });
+    }
+    const upstream = await fetchBucketObject(assetKey);
+    if (!upstream.ok) {
+      return res
+        .status(upstream.status || 502)
+        .json({ ok: false, code: "WORK_ASSET_FETCH_FAILED" });
+    }
+    res.setHeader(
+      "Content-Type",
+      upstream.headers.get("content-type") ||
+        inferExampleAssetMime(path.basename(assetKey)),
+    );
+    res.setHeader("Cache-Control", "private, max-age=300");
+    const buffer = Buffer.from(await upstream.arrayBuffer());
+    return res.end(buffer);
+  } catch {
+    return res.status(502).json({ ok: false, code: "WORK_ASSET_FETCH_FAILED" });
+  }
+});
+
+app.get("/api/shared-assets/manifest", async (req, res) => {
+  noStore(res);
+  try {
+    const prefix = sanitizeSharedAssetRelativePath(
+      String(req.query?.prefix || ""),
+    );
+    const root = sharedAssetsRootDir();
+    const targetDir = prefix ? path.resolve(root, prefix) : root;
+    if (targetDir !== root && !targetDir.startsWith(`${root}${path.sep}`)) {
+      return res
+        .status(400)
+        .json({ ok: false, code: "SHARED_ASSET_PREFIX_INVALID" });
+    }
+    if (!fs.existsSync(targetDir) || !fs.statSync(targetDir).isDirectory()) {
+      return res
+        .status(404)
+        .json({ ok: false, code: "SHARED_ASSET_PREFIX_NOT_FOUND" });
+    }
+    const entries = fs
+      .readdirSync(targetDir, { withFileTypes: true })
+      .filter((entry) => !entry.name.startsWith("."))
+      .map((entry) => {
+        const relPath = prefix
+          ? path.posix.join(prefix, entry.name)
+          : entry.name;
+        const absolutePath = path.join(targetDir, entry.name);
+        const isDir = entry.isDirectory();
+        return {
+          name: entry.name,
+          path: relPath,
+          kind: isDir ? "directory" : "file",
+          size: isDir ? 0 : fs.statSync(absolutePath).size,
+          mime: isDir ? "inode/directory" : inferSharedAssetMime(entry.name),
+          url: isDir
+            ? null
+            : `/api/shared-assets/blob?path=${encodeURIComponent(relPath)}`,
+        };
+      })
+      .sort((left, right) => left.path.localeCompare(right.path));
+    return res.json(
+      okData({
+        root: "/srv/cssos/shared/assets",
+        prefix,
+        items: entries,
+      }),
+    );
+  } catch {
+    return res
+      .status(500)
+      .json({ ok: false, code: "SHARED_ASSET_MANIFEST_FAILED" });
+  }
+});
+
+app.get("/api/shared-assets/blob", async (req, res) => {
+  noStore(res);
+  try {
+    const resolved = resolveSharedAssetPath(String(req.query?.path || ""));
+    if (!resolved) {
+      return res
+        .status(400)
+        .json({ ok: false, code: "SHARED_ASSET_PATH_REQUIRED" });
+    }
+    if (
+      !fs.existsSync(resolved.resolved) ||
+      !fs.statSync(resolved.resolved).isFile()
+    ) {
+      return res
+        .status(404)
+        .json({ ok: false, code: "SHARED_ASSET_NOT_FOUND" });
+    }
+    res.setHeader("Content-Type", inferSharedAssetMime(resolved.rel));
+    res.setHeader("Cache-Control", "private, max-age=300");
+    return res.sendFile(resolved.resolved);
+  } catch {
+    return res
+      .status(500)
+      .json({ ok: false, code: "SHARED_ASSET_FETCH_FAILED" });
   }
 });
 
@@ -6979,7 +10798,9 @@ app.post("/api/music-artifacts/ticket", async (req, res) => {
     let assetKey = String(req.body?.asset_key || "").trim();
     const fileName = String(req.body?.file_name || "").trim();
     if (!runId || (!artifactPath && !assetKey)) {
-      return res.status(400).json({ ok: false, code: "ARTIFACT_TARGET_REQUIRED" });
+      return res
+        .status(400)
+        .json({ ok: false, code: "ARTIFACT_TARGET_REQUIRED" });
     }
     const isLossless =
       /\.wav$/i.test(artifactPath) ||
@@ -6988,12 +10809,17 @@ app.post("/api/music-artifacts/ticket", async (req, res) => {
       /\.flac$/i.test(assetKey);
     let downgraded = false;
     if (isLossless && !isProPlusTier(access.tier)) {
-      const downgradedTarget = downgradeLosslessArtifactTarget(artifactPath, assetKey);
+      const downgradedTarget = downgradeLosslessArtifactTarget(
+        artifactPath,
+        assetKey,
+      );
       artifactPath = downgradedTarget.path;
       assetKey = downgradedTarget.asset_key;
       downgraded = true;
       if (!artifactPath && !assetKey) {
-        return res.status(403).json({ ok: false, code: "LOSSLESS_PRO_REQUIRED" });
+        return res
+          .status(403)
+          .json({ ok: false, code: "LOSSLESS_PRO_REQUIRED" });
       }
     }
     const base = appBaseUrl(req);
@@ -7004,29 +10830,33 @@ app.post("/api/music-artifacts/ticket", async (req, res) => {
         headers: {
           "content-type": "application/json",
           accept: "application/json",
-          cookie: String(req.headers.cookie || "")
+          cookie: String(req.headers.cookie || ""),
         },
         body: JSON.stringify({
           path: artifactPath || undefined,
           asset_key: assetKey || undefined,
-          file_name: fileName || undefined
-        })
-      }
+          file_name: fileName || undefined,
+        }),
+      },
     );
     const payload = await rustRes.json().catch(() => null);
     if (!rustRes.ok || !payload) {
-      return res.status(rustRes.status || 502).json(payload || { ok: false, code: "ARTIFACT_TICKET_FAILED" });
+      return res
+        .status(rustRes.status || 502)
+        .json(payload || { ok: false, code: "ARTIFACT_TICKET_FAILED" });
     }
     const data = (payload as any)?.data || payload;
     return res.json(
       okData({
         ...(data && typeof data === "object" ? data : {}),
         downgraded_from_lossless: downgraded,
-        enforced_tier: access.tier
-      })
+        enforced_tier: access.tier,
+      }),
     );
   } catch {
-    return res.status(500).json({ ok: false, code: "ARTIFACT_TICKET_PROXY_FAILED" });
+    return res
+      .status(500)
+      .json({ ok: false, code: "ARTIFACT_TICKET_PROXY_FAILED" });
   }
 });
 
@@ -7057,8 +10887,8 @@ app.patch("/api/panel-defaults/:panelKey", async (req, res) => {
            VALUES ($1, $2::jsonb, $3)
            ON CONFLICT (panel_key)
            DO UPDATE SET value = EXCLUDED.value, updated_by_user_id = EXCLUDED.updated_by_user_id, updated_at = now()`,
-          [panelKey, JSON.stringify(defaults), user.id]
-        )
+          [panelKey, JSON.stringify(defaults), user.id],
+        ),
       );
     }
     if (panelKey === "behavior") {
@@ -7067,7 +10897,9 @@ app.patch("/api/panel-defaults/:panelKey", async (req, res) => {
     }
     return res.json(okData({ defaults, saved: true }));
   } catch {
-    return res.status(500).json({ ok: false, code: "PANEL_DEFAULTS_SAVE_FAILED" });
+    return res
+      .status(500)
+      .json({ ok: false, code: "PANEL_DEFAULTS_SAVE_FAILED" });
   }
 });
 
@@ -7089,13 +10921,20 @@ app.post("/api/profile/unlink", async (req, res) => {
       return res.status(404).json({ ok: false, code: "PROVIDER_NOT_LINKED" });
     }
     if (currentlyLinked.size <= 1) {
-      return res.status(400).json({ ok: false, code: "CANNOT_UNLINK_LAST_METHOD" });
+      return res
+        .status(400)
+        .json({ ok: false, code: "CANNOT_UNLINK_LAST_METHOD" });
     }
 
     if (provider === "passkey") {
       const sk = userSubjectKey(user.id);
       if (DATABASE_URL) {
-        await withClient((client) => client.query("DELETE FROM passkey_credentials WHERE subject_key = $1", [sk]));
+        await withClient((client) =>
+          client.query(
+            "DELETE FROM passkey_credentials WHERE subject_key = $1",
+            [sk],
+          ),
+        );
       } else {
         passkeyCreds.delete(sk);
       }
@@ -7106,8 +10945,8 @@ app.post("/api/profile/unlink", async (req, res) => {
       await withClient((client) =>
         client.query(
           "DELETE FROM oauth_identities WHERE user_id = $1 AND provider = $2",
-          [user.id, provider]
-        )
+          [user.id, provider],
+        ),
       );
     }
     return res.json(okData({ unlinked: provider }));
@@ -7139,13 +10978,17 @@ type WorkTreeRow = {
   buyout_enabled?: boolean | null;
   tips_enabled?: boolean | null;
   rights_scope?: string | null;
+  source_run_id?: string | null;
   cover_image?: string | null;
   preview_image_url?: string | null;
   preview_video_url?: string | null;
+  preview_video_asset_key?: string | null;
 };
 
 function workStructureRoleLabel(role: unknown, fallbackType: unknown) {
-  const raw = String(role || "").trim().toLowerCase();
+  const raw = String(role || "")
+    .trim()
+    .toLowerCase();
   if (raw === "opera") return "opera";
   if (raw === "act") return "act";
   if (raw === "scene") return "scene";
@@ -7154,29 +10997,41 @@ function workStructureRoleLabel(role: unknown, fallbackType: unknown) {
 }
 
 function normalizeWorkTreeRow<T extends WorkTreeRow>(row: T) {
+  const previewVideoReference = resolveStoredPreviewVideoReference(
+    row.source_run_id || "",
+    row.preview_video_url,
+  );
   return {
     ...row,
     work_type: normalizeWorkType(row.work_type),
     visibility: row.visibility || "public",
     rights_scope: row.rights_scope || "personal_use",
-    current_listen_price_cents: Number(row.current_listen_price_cents || defaultListenPriceCents()),
-    current_buyout_price_cents: Number(row.current_buyout_price_cents || defaultBuyoutPriceCents()),
+    current_listen_price_cents: Number(
+      row.current_listen_price_cents || defaultListenPriceCents(),
+    ),
+    current_buyout_price_cents: Number(
+      row.current_buyout_price_cents || defaultBuyoutPriceCents(),
+    ),
     buyout_enabled: row.buyout_enabled !== false,
     structure_role: workStructureRoleLabel(row.structure_role, row.work_type),
     sequence_index: Number(row.sequence_index || 0),
     cover_image: String(row.cover_image || "").trim() || null,
     preview_image_url: String(row.preview_image_url || "").trim() || null,
-    preview_video_url: String(row.preview_video_url || "").trim() || null,
+    preview_video_url: previewVideoReference.previewVideoUrl,
+    preview_video_asset_key: previewVideoReference.previewVideoAssetKey,
     structure_plan:
       row.structure_plan && typeof row.structure_plan === "object"
         ? row.structure_plan
-        : null
+        : null,
   };
 }
 
 function parseStructuredWorkTitle(title: string) {
   const raw = String(title || "").trim();
-  const parts = raw.split("·").map((part) => part.trim()).filter(Boolean);
+  const parts = raw
+    .split("·")
+    .map((part) => part.trim())
+    .filter(Boolean);
   const rootTitle = parts[0] || raw;
   const actMatch = raw.match(/第\s*([0-9一二三四五六七八九十两]+)\s*幕/i);
   const sceneMatch = raw.match(/scene\s*([0-9]+)/i);
@@ -7185,7 +11040,7 @@ function parseStructuredWorkTitle(title: string) {
     rootTitle,
     hasAct: Boolean(actMatch),
     hasScene: Boolean(sceneMatch),
-    hasPart: Boolean(partMatch)
+    hasPart: Boolean(partMatch),
   };
 }
 
@@ -7194,8 +11049,12 @@ function reconcileLegacyStructuredRoots(nodes: any[]) {
   const grouped = new Map<string, any[]>();
   roots.forEach((node) => {
     const parsed = parseStructuredWorkTitle(String(node?.title || ""));
-    const role = String(node?.structure_role || "").trim().toLowerCase();
-    const workType = String(node?.work_type || "").trim().toLowerCase();
+    const role = String(node?.structure_role || "")
+      .trim()
+      .toLowerCase();
+    const workType = String(node?.work_type || "")
+      .trim()
+      .toLowerCase();
     const family =
       role === "opera" || parsed.hasAct || parsed.hasScene
         ? "opera"
@@ -7212,7 +11071,9 @@ function reconcileLegacyStructuredRoots(nodes: any[]) {
   grouped.forEach((items, key) => {
     const [family, rootTitle] = key.split("::");
     const explicitRoot = items.find((item) => {
-      const role = String(item?.structure_role || "").trim().toLowerCase();
+      const role = String(item?.structure_role || "")
+        .trim()
+        .toLowerCase();
       return role === family && String(item?.title || "").trim() === rootTitle;
     });
     const root = explicitRoot
@@ -7222,52 +11083,113 @@ function reconcileLegacyStructuredRoots(nodes: any[]) {
           title: rootTitle,
           work_type: family,
           structure_role: family,
-          children: []
+          children: [],
         };
     const acts = new Map<string, any>();
     const parts = new Map<string, any>();
+    const seededChildren = Array.isArray(root?.children) ? root.children : [];
+
+    if (family === "opera") {
+      seededChildren.forEach((child: any) => {
+        if (
+          String(child?.structure_role || "")
+            .trim()
+            .toLowerCase() !== "act"
+        )
+          return;
+        acts.set(String(child?.title || "").trim(), {
+          ...child,
+          structure_role: "act",
+          work_type: "opera",
+          children: Array.isArray(child?.children) ? child.children : [],
+        });
+      });
+    }
+    if (family === "triptych") {
+      seededChildren.forEach((child: any) => {
+        const role = String(child?.structure_role || "")
+          .trim()
+          .toLowerCase();
+        if (!["part", "single"].includes(role)) return;
+        parts.set(String(child?.title || "").trim(), {
+          ...child,
+          structure_role: "part",
+          work_type: "single",
+          children: Array.isArray(child?.children) ? child.children : [],
+        });
+      });
+    }
 
     items.forEach((item) => {
       consumed.add(String(item?.id || ""));
       if (item === explicitRoot) return;
       const title = String(item?.title || "").trim();
-      const role = String(item?.structure_role || "").trim().toLowerCase();
+      const role = String(item?.structure_role || "")
+        .trim()
+        .toLowerCase();
       const parsed = parseStructuredWorkTitle(title);
       if (family === "opera") {
         if (role === "act" || (parsed.hasAct && !parsed.hasScene)) {
-          acts.set(title, { ...item, structure_role: "act", work_type: "opera", children: Array.isArray(item?.children) ? item.children : [] });
+          acts.set(title, {
+            ...item,
+            structure_role: "act",
+            work_type: "opera",
+            children: Array.isArray(item?.children) ? item.children : [],
+          });
           return;
         }
         if (role === "scene" || parsed.hasScene) {
           const actKey = title.includes("·")
-            ? title.split("·").slice(0, 2).map((part) => part.trim()).join(" · ")
+            ? title
+                .split("·")
+                .slice(0, 2)
+                .map((part) => part.trim())
+                .join(" · ")
             : `${rootTitle} · 第1幕`;
-          const actNode =
-            acts.get(actKey) ||
+          const actNode = acts.get(actKey) || {
+            ...item,
+            id: `${String(item?.id || title)}__act`,
+            title: actKey,
+            work_type: "opera",
+            structure_role: "act",
+            children: [],
+          };
+          actNode.children = [
+            ...(Array.isArray(actNode.children) ? actNode.children : []),
             {
               ...item,
-              id: `${String(item?.id || title)}__act`,
-              title: actKey,
-              work_type: "opera",
-              structure_role: "act",
-              children: []
-            };
-          actNode.children = [...(Array.isArray(actNode.children) ? actNode.children : []), { ...item, structure_role: "scene", work_type: "single", children: [] }];
+              structure_role: "scene",
+              work_type: "single",
+              children: [],
+            },
+          ];
           acts.set(actKey, actNode);
           return;
         }
       }
       if (family === "triptych") {
         if (role === "part" || role === "single" || parsed.hasPart) {
-          parts.set(title, { ...item, structure_role: "part", work_type: "single", children: Array.isArray(item?.children) ? item.children : [] });
+          parts.set(title, {
+            ...item,
+            structure_role: "part",
+            work_type: "single",
+            children: Array.isArray(item?.children) ? item.children : [],
+          });
           return;
         }
       }
     });
 
-    root.children = family === "opera"
-      ? [...acts.values()].sort((a, b) => Number(a.sequence_index || 0) - Number(b.sequence_index || 0))
-      : [...parts.values()].sort((a, b) => Number(a.sequence_index || 0) - Number(b.sequence_index || 0));
+    root.children =
+      family === "opera"
+        ? [...acts.values()].sort(
+            (a, b) =>
+              Number(a.sequence_index || 0) - Number(b.sequence_index || 0),
+          )
+        : [...parts.values()].sort(
+            (a, b) =>
+              Number(a.sequence_index || 0) - Number(b.sequence_index || 0),
+          );
     rebuilt.push(root);
   });
 
@@ -7297,18 +11219,266 @@ function buildWorkTree<T extends WorkTreeRow>(rows: T[]) {
   });
   const sorter = (items: any[]) => {
     items.sort((a, b) => {
-      const sequenceDelta = Number(a.sequence_index || 0) - Number(b.sequence_index || 0);
+      const sequenceDelta =
+        Number(a.sequence_index || 0) - Number(b.sequence_index || 0);
       if (sequenceDelta !== 0) return sequenceDelta;
-      return String(b.created_at || "").localeCompare(String(a.created_at || ""));
+      return String(b.created_at || "").localeCompare(
+        String(a.created_at || ""),
+      );
     });
-    items.forEach((item) => sorter(Array.isArray(item.children) ? item.children : []));
+    items.forEach((item) =>
+      sorter(Array.isArray(item.children) ? item.children : []),
+    );
   };
   const reconciled = reconcileLegacyStructuredRoots(roots);
+  const hydrateStructuredChildren = (node: any) => {
+    const nodeId = String(node?.id || "").trim();
+    if (!nodeId) return;
+    const directChildren = normalized
+      .filter((row) => String(row.parent_work_id || "").trim() === nodeId)
+      .map((row) => map.get(String(row.id)))
+      .filter(Boolean);
+    if (!Array.isArray(node.children) || !node.children.length) {
+      node.children = directChildren;
+    }
+    (Array.isArray(node.children) ? node.children : []).forEach((child: any) =>
+      hydrateStructuredChildren(child),
+    );
+  };
+  reconciled.forEach((node) => {
+    const role = String(node?.structure_role || "")
+      .trim()
+      .toLowerCase();
+    const workType = String(node?.work_type || "")
+      .trim()
+      .toLowerCase();
+    if (
+      ["opera", "triptych", "act", "part"].includes(role) ||
+      ["opera", "triptych"].includes(workType)
+    ) {
+      hydrateStructuredChildren(node);
+    }
+  });
   sorter(reconciled);
   return reconciled;
 }
 
-function buildOwnerChain(rows: Array<{ to_user_id: string | null; to_label: string | null }>, fallbackLabel: string) {
+function structuredTreeNodeNeedsChildren(node: any): boolean {
+  const role = String(node?.structure_role || "")
+    .trim()
+    .toLowerCase();
+  const workType = String(node?.work_type || "")
+    .trim()
+    .toLowerCase();
+  return (
+    ["opera", "triptych", "act", "part"].includes(role) ||
+    ["opera", "triptych"].includes(workType)
+  );
+}
+
+function structuredTreeHasMissingChildren(tree: any[]): boolean {
+  return (Array.isArray(tree) ? tree : []).some((node) => {
+    if (!structuredTreeNodeNeedsChildren(node)) return false;
+    const children = Array.isArray(node?.children) ? node.children : [];
+    if (!children.length) return true;
+    return structuredTreeHasMissingChildren(children);
+  });
+}
+
+async function loadMineWorkDescendants(rootIds: string[]) {
+  if (!rootIds.length) return [];
+  type Row = WorkTreeRow;
+  const placeholders = rootIds.map((_, index) => `$${index + 1}`).join(", ");
+  const childRes = await withClient((client) =>
+    client.query<Row>(
+      // CSSOS_PHASE2_PERSIST_PLAYABLE 20260430 #214 — Jing
+      // Mirror the same JOIN columns the parent query exposes so children
+      // are independently playable too (each child of an opera/triptych is
+      // its own MV with its own audio + final mp4).
+      `SELECT w.id, w.title, w.style, w.work_type, w.lyrics_preview, w.status, w.created_at, w.updated_at,
+              w.parent_work_id, w.root_work_id, w.structure_role, w.sequence_index, w.structure_plan,
+              w.source_run_id, w.compute_units_estimate, w.compute_cost_cents_estimate, w.suggested_listen_price_cents, w.suggested_buyout_price_cents,
+              w.cover_image, w.preview_image_url, w.preview_video_url,
+              mp.visibility,
+              COALESCE(listen_product.amount_cents, mp.current_listen_price_cents) AS current_listen_price_cents,
+              COALESCE(buyout_product.amount_cents, mp.current_buyout_price_cents) AS current_buyout_price_cents,
+              COALESCE(mp.buyout_enabled, buyout_product.active, false) AS buyout_enabled,
+              mp.tips_enabled,
+              mp.rights_scope,
+              final_mv_asset.url AS final_mv_url,
+              final_mv_asset.meta AS final_mv_meta,
+              audio_track_1_asset.url AS audio_track_1_url,
+              audio_track_2_asset.url AS audio_track_2_url,
+              subtitle_asset.url AS subtitle_srt_url
+       FROM user_works w
+       LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
+       LEFT JOIN work_access_products listen_product
+         ON listen_product.work_id = w.id
+        AND listen_product.product_kind = 'listen'
+        AND listen_product.active = true
+       LEFT JOIN work_access_products buyout_product
+         ON buyout_product.work_id = w.id
+        AND buyout_product.product_kind = 'buyout'
+        AND buyout_product.active = true
+       LEFT JOIN work_assets final_mv_asset
+         ON final_mv_asset.work_id = w.id AND final_mv_asset.asset_type = 'final_mv'
+       LEFT JOIN work_assets audio_track_1_asset
+         ON audio_track_1_asset.work_id = w.id AND audio_track_1_asset.asset_type = 'audio_track_1'
+       LEFT JOIN work_assets audio_track_2_asset
+         ON audio_track_2_asset.work_id = w.id AND audio_track_2_asset.asset_type = 'audio_track_2'
+       LEFT JOIN work_assets subtitle_asset
+         ON subtitle_asset.work_id = w.id AND subtitle_asset.asset_type = 'subtitle_srt'
+       WHERE w.root_work_id IN (${placeholders})
+         AND w.parent_work_id IS NOT NULL
+       ORDER BY w.sequence_index ASC, w.created_at ASC`,
+      rootIds,
+    ),
+  );
+  return childRes.rows;
+}
+
+async function loadMarketWorkDescendants(rootIds: string[]) {
+  if (!rootIds.length) return [];
+  type Row = WorkTreeRow;
+  const placeholders = rootIds.map((_, index) => `$${index + 1}`).join(", ");
+  const childRes = await withClient((client) =>
+    client.query<Row>(
+      `SELECT
+         w.id,
+         w.user_id AS owner_user_id,
+         w.title,
+         w.style,
+         w.work_type,
+         w.lyrics_preview,
+         w.status,
+         w.created_at,
+         w.updated_at,
+         w.parent_work_id,
+         w.root_work_id,
+         w.structure_role,
+         w.sequence_index,
+         w.structure_plan,
+         w.source_run_id,
+         w.compute_units_estimate,
+         w.compute_cost_cents_estimate,
+         w.suggested_listen_price_cents,
+         w.suggested_buyout_price_cents,
+         w.cover_image,
+         w.preview_image_url,
+         w.preview_video_url,
+         u.display_name AS owner_name,
+         u.email AS owner_email,
+         u.avatar_url AS owner_avatar_url,
+         COALESCE(listen_product.amount_cents, mp.current_listen_price_cents) AS current_listen_price_cents,
+         COALESCE(buyout_product.amount_cents, mp.current_buyout_price_cents) AS current_buyout_price_cents,
+         COALESCE(mp.buyout_enabled, buyout_product.active, false) AS buyout_enabled,
+         mp.tips_enabled,
+         mp.visibility,
+         mp.rights_scope
+       FROM user_works w
+       JOIN users u ON u.id = w.user_id
+       LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
+       LEFT JOIN work_access_products listen_product
+         ON listen_product.work_id = w.id
+        AND listen_product.product_kind = 'listen'
+        AND listen_product.active = true
+       LEFT JOIN work_access_products buyout_product
+         ON buyout_product.work_id = w.id
+        AND buyout_product.product_kind = 'buyout'
+        AND buyout_product.active = true
+       WHERE w.root_work_id IN (${placeholders})
+         AND w.parent_work_id IS NOT NULL
+       ORDER BY w.sequence_index ASC, w.created_at ASC`,
+      rootIds,
+    ),
+  );
+  return childRes.rows;
+}
+
+async function loadMarketWorkDescendantsForRoot(rootId: string) {
+  const normalized = String(rootId || "").trim();
+  if (!normalized) return [];
+  type Row = WorkTreeRow;
+  const childRes = await withClient((client) =>
+    client.query<Row>(
+      `SELECT
+         w.id,
+         w.user_id AS owner_user_id,
+         w.title,
+         w.style,
+         w.work_type,
+         w.lyrics_preview,
+         w.status,
+         w.created_at,
+         w.updated_at,
+         w.parent_work_id,
+         w.root_work_id,
+         w.structure_role,
+         w.sequence_index,
+         w.structure_plan,
+         w.source_run_id,
+         w.compute_units_estimate,
+         w.compute_cost_cents_estimate,
+         w.suggested_listen_price_cents,
+         w.suggested_buyout_price_cents,
+         w.cover_image,
+         w.preview_image_url,
+         w.preview_video_url,
+         u.display_name AS owner_name,
+         u.email AS owner_email,
+         u.avatar_url AS owner_avatar_url,
+         COALESCE(listen_product.amount_cents, mp.current_listen_price_cents) AS current_listen_price_cents,
+         COALESCE(buyout_product.amount_cents, mp.current_buyout_price_cents) AS current_buyout_price_cents,
+         COALESCE(mp.buyout_enabled, buyout_product.active, false) AS buyout_enabled,
+         mp.tips_enabled,
+         mp.visibility,
+         mp.rights_scope
+       FROM user_works w
+       JOIN users u ON u.id = w.user_id
+       LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
+       LEFT JOIN work_access_products listen_product
+         ON listen_product.work_id = w.id
+        AND listen_product.product_kind = 'listen'
+        AND listen_product.active = true
+       LEFT JOIN work_access_products buyout_product
+         ON buyout_product.work_id = w.id
+        AND buyout_product.product_kind = 'buyout'
+        AND buyout_product.active = true
+       WHERE w.root_work_id = $1
+         AND w.parent_work_id IS NOT NULL
+       ORDER BY w.sequence_index ASC, w.created_at ASC`,
+      [normalized],
+    ),
+  );
+  return childRes.rows;
+}
+
+async function fillMarketStructuredChildren(tree: any[], roots: WorkTreeRow[]) {
+  if (!Array.isArray(tree) || !tree.length) return tree;
+  const rootLookup = new Map<string, WorkTreeRow>();
+  roots.forEach((row) => rootLookup.set(String(row.id), row));
+  for (const node of tree) {
+    if (!structuredTreeNodeNeedsChildren(node)) continue;
+    if (Array.isArray(node?.children) && node.children.length) continue;
+    const rootRow = rootLookup.get(String(node?.id || "").trim());
+    if (!rootRow) continue;
+    const descendantRows = await loadMarketWorkDescendantsForRoot(String(rootRow.id || ""));
+    if (!descendantRows.length) continue;
+    const rebuilt = buildWorkTree([rootRow, ...descendantRows]);
+    const rebuiltRoot = rebuilt.find(
+      (item) => String(item?.id || "").trim() === String(rootRow.id || "").trim(),
+    );
+    if (rebuiltRoot && Array.isArray(rebuiltRoot.children) && rebuiltRoot.children.length) {
+      node.children = rebuiltRoot.children;
+    }
+  }
+  return tree;
+}
+
+function buildOwnerChain(
+  rows: Array<{ to_user_id: string | null; to_label: string | null }>,
+  fallbackLabel: string,
+) {
   const chain: Array<{ label: string }> = [];
   const pushLabel = (value: string | null | undefined) => {
     const label = String(value || "").trim();
@@ -7330,6 +11500,13 @@ app.get("/api/works/mine", async (req, res) => {
     }
     const limit = Math.max(1, Math.min(Number(req.query.limit || 20), 100));
     type Row = WorkTreeRow;
+    // CSSOS_PHASE2_PERSIST_PLAYABLE 20260430 #214 — Jing
+    // "用户从为你创作/作品中心或者其他面板想再去欣赏这些刚刚输出完毕的作品，
+    //  都变成了无法欣赏，必须从头重新输出." Pull final_mv_url + audio
+    // tracks + duration + lyrics_full from work_assets so the click-to-play
+    // hydration in openMarketWorkPreview() reads playable URLs and skips
+    // the re-run path. Aggregated as JSON arrays / scalar lookups; the
+    // frontend reads work.final_mv_url || work.preview_video_url directly.
     const q: QueryResult<Row> = await withClient((client) =>
       client.query<Row>(
         `SELECT w.id, w.title, w.style, w.work_type, w.lyrics_preview, w.status, w.created_at, w.updated_at,
@@ -7341,7 +11518,12 @@ app.get("/api/works/mine", async (req, res) => {
                 COALESCE(buyout_product.amount_cents, mp.current_buyout_price_cents) AS current_buyout_price_cents,
                 COALESCE(mp.buyout_enabled, buyout_product.active, false) AS buyout_enabled,
                 mp.tips_enabled,
-                mp.rights_scope
+                mp.rights_scope,
+                final_mv_asset.url AS final_mv_url,
+                final_mv_asset.meta AS final_mv_meta,
+                audio_track_1_asset.url AS audio_track_1_url,
+                audio_track_2_asset.url AS audio_track_2_url,
+                subtitle_asset.url AS subtitle_srt_url
          FROM user_works w
          LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
          LEFT JOIN work_access_products listen_product
@@ -7352,53 +11534,310 @@ app.get("/api/works/mine", async (req, res) => {
            ON buyout_product.work_id = w.id
           AND buyout_product.product_kind = 'buyout'
           AND buyout_product.active = true
+         LEFT JOIN work_assets final_mv_asset
+           ON final_mv_asset.work_id = w.id AND final_mv_asset.asset_type = 'final_mv'
+         LEFT JOIN work_assets audio_track_1_asset
+           ON audio_track_1_asset.work_id = w.id AND audio_track_1_asset.asset_type = 'audio_track_1'
+         LEFT JOIN work_assets audio_track_2_asset
+           ON audio_track_2_asset.work_id = w.id AND audio_track_2_asset.asset_type = 'audio_track_2'
+         LEFT JOIN work_assets subtitle_asset
+           ON subtitle_asset.work_id = w.id AND subtitle_asset.asset_type = 'subtitle_srt'
          WHERE user_id = $1
            AND w.parent_work_id IS NULL
          ORDER BY w.created_at DESC
          LIMIT $2`,
-        [user.id, limit]
-      )
+        [user.id, limit],
+      ),
     );
     const rootIds = q.rows.map((row) => row.id);
-    let childRows: Row[] = [];
-    if (rootIds.length) {
-      const childRes = await withClient((client) =>
-        client.query<Row>(
-          `SELECT w.id, w.title, w.style, w.work_type, w.lyrics_preview, w.status, w.created_at, w.updated_at,
-                  w.parent_work_id, w.root_work_id, w.structure_role, w.sequence_index, w.structure_plan,
-                  w.source_run_id, w.compute_units_estimate, w.compute_cost_cents_estimate, w.suggested_listen_price_cents, w.suggested_buyout_price_cents,
-                  w.cover_image, w.preview_image_url, w.preview_video_url,
-                  mp.visibility,
-                  COALESCE(listen_product.amount_cents, mp.current_listen_price_cents) AS current_listen_price_cents,
-                  COALESCE(buyout_product.amount_cents, mp.current_buyout_price_cents) AS current_buyout_price_cents,
-                  COALESCE(mp.buyout_enabled, buyout_product.active, false) AS buyout_enabled,
-                  mp.tips_enabled,
-                  mp.rights_scope
-           FROM user_works w
-           LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
-           LEFT JOIN work_access_products listen_product
-             ON listen_product.work_id = w.id
-            AND listen_product.product_kind = 'listen'
-            AND listen_product.active = true
-           LEFT JOIN work_access_products buyout_product
-             ON buyout_product.work_id = w.id
-            AND buyout_product.product_kind = 'buyout'
-            AND buyout_product.active = true
-           WHERE w.root_work_id = ANY($1::uuid[])
-             AND w.parent_work_id IS NOT NULL
-           ORDER BY w.sequence_index ASC, w.created_at ASC`,
-          [rootIds]
-        )
-      );
-      childRows = childRes.rows;
+    let childRows: Row[] = rootIds.length ? await loadMineWorkDescendants(rootIds) : [];
+    let tree = buildWorkTree([...q.rows, ...childRows]);
+    if (rootIds.length && structuredTreeHasMissingChildren(tree)) {
+      childRows = await loadMineWorkDescendants(rootIds);
+      tree = buildWorkTree([...q.rows, ...childRows]);
     }
+    // CSSOS_PHASE2_PERSIST_PLAYABLE 20260430 #214 — surface duration_secs
+    // + lyrics_full from final_mv_asset.meta JSON so the work card can
+    // render the duration overlay and the Watch panel rehydration has
+    // the full lyric body without a second round-trip.
+    const flattenMeta = (work: any) => {
+      try {
+        const meta = work?.final_mv_meta;
+        if (meta && typeof meta === "object") {
+          if (work.duration_secs == null && meta.duration_secs != null) {
+            work.duration_secs = Number(meta.duration_secs) || null;
+          }
+          if (!work.lyrics_full && meta.lyrics_full) {
+            work.lyrics_full = String(meta.lyrics_full);
+          }
+          if (!work.aligned_lyrics && meta.aligned_lyrics) {
+            work.aligned_lyrics = meta.aligned_lyrics;
+          }
+          // CSSOS_PHASE2_DUAL_TRACK 20260430 #221b — Jing
+          // "用户欣赏第一首,右上角的胶囊要出现,也就是说,欣赏一首,
+          //  另一首必须是下一首。如果是打开第二首,右上角胶囊也要显示
+          //  第一首,也是要欣赏完两首,才会继续别的用户的作品."
+          // Surface sibling_work_id (the OTHER take's work_id) and
+          // take_index (1 or 2) so when the Watch panel opens either
+          // card it can: (a) show a Take 1↔Take 2 toggle pill, and
+          // (b) gate queue-advance until BOTH siblings have played.
+          if (meta.sibling_work_id) {
+            work.sibling_work_id = String(meta.sibling_work_id);
+          }
+          if (meta.take_index != null) {
+            work.take_index = Number(meta.take_index) || null;
+          }
+        }
+      } catch { /* meta parse best-effort */ }
+      if (Array.isArray(work?.children)) work.children.forEach(flattenMeta);
+      return work;
+    };
+    tree.forEach(flattenMeta);
     return res.json(
       okData({
-        works: buildWorkTree([...q.rows, ...childRows])
-      })
+        works: tree,
+      }),
     );
   } catch {
     return res.status(500).json({ ok: false, code: "WORKS_LIST_FAILED" });
+  }
+});
+
+// CSSOS_PHASE2_WATCH_QUEUE 20260430 #208b — Jing
+// "Watch MV 面板先连播自己最新 2 首再播别人的." Returns a flat,
+// playback-ready cursor-paginated list of MVs:
+//   1. The viewer's own playable works first (newest by created_at)
+//   2. Then other users' market-visible works (random-ish for discovery)
+// Each row includes the URLs the Watch panel needs to swap into <video>:
+//   final_mv_url, audio_track_1_url, audio_track_2_url, title, cover.
+// Cursor format: "<scope>:<created_at_iso>:<id>" — opaque to the client.
+app.get("/cssapi/v1/mv", async (req, res) => {
+  noStore(res);
+  try {
+    const viewer = await getSessionUser(req).catch(() => null);
+    const limit = Math.max(1, Math.min(Number(req.query.limit || 8), 30));
+    const cursorRaw = String(req.query.cursor || "").trim();
+    let scope: "self" | "others" = "self";
+    let cursorTime: string | null = null;
+    let cursorId: string | null = null;
+    if (cursorRaw) {
+      const parts = cursorRaw.split(":");
+      if (parts[0] === "self" || parts[0] === "others") {
+        scope = parts[0] as "self" | "others";
+        cursorTime = parts[1] || null;
+        cursorId = parts.slice(2).join(":") || null;
+      }
+    }
+    if (!viewer && scope === "self") scope = "others";
+    type Row = {
+      id: string;
+      title: string | null;
+      cover_image: string | null;
+      preview_image_url: string | null;
+      preview_video_url: string | null;
+      created_at: string;
+      duration_secs: number | null;
+      lyrics_preview: string | null;
+      final_mv_url: string | null;
+      audio_track_1_url: string | null;
+      audio_track_2_url: string | null;
+      subtitle_srt_url: string | null;
+      sibling_work_id: string | null;
+      take_index: number | null;
+      owner_id: string;
+    };
+    const out: Row[] = [];
+    let nextCursor: string | null = null;
+
+    if (scope === "self" && viewer) {
+      // CSSOS_PHASE2_SELF_FIRST_STRUCTURAL 20260430 #227 — Jing
+      // "先循环自己的两首,再播放别人的。三部曲呢?类似,先循环自己的三部曲
+      //  (共6首)再播放别人的。同理,歌剧,先循环自己的整部歌剧所有幕的
+      //  所有场,再播放别人的。绝对不能播放自己的作品到一半,又去播放别人的."
+      //
+      // The queue must finish ALL of viewer's playable structured trees
+      // before any other user's work plays. We do this by:
+      //   1. Selecting EVERY playable leaf the viewer owns (whether the
+      //      leaf is a top-level standalone song or a structural child
+      //      buried under an opera/triptych root). Top-level Take 2
+      //      sibling rows are filtered out — Take 1's row already carries
+      //      both audio_track_1 and audio_track_2, so the take-toggle can
+      //      play them back-to-back without surfacing a second queue row.
+      //   2. Joining each leaf to its top-level ancestor (root_work_id ↦
+      //      itself when the leaf IS top-level) and ordering by
+      //      (root.created_at DESC, sequence_index ASC, leaf.created_at)
+      //      so all of root R's leaves play consecutively before R+1.
+      //   3. Cursor is keyed off the root, so a triptych (3 leaves) or an
+      //      opera (many leaves) never gets split across pages — the
+      //      cursor advances at root boundaries only.
+      //
+      // For pagination: we fetch ALL leaves of up to `limit` distinct
+      // roots per page so we never tear a structured root in half. The
+      // cursor we emit points at the (root.created_at, root.id) of the
+      // LAST root included in this page — the next page picks up at the
+      // root strictly older than that.
+      const params: any[] = [viewer.id, limit];
+      let cursorClause = "";
+      if (cursorTime && cursorId) {
+        params.push(cursorTime, cursorId);
+        cursorClause = `AND (root.created_at, root.id) < ($3::timestamptz, $4::uuid)`;
+      }
+      const r = await withClient((client) =>
+        client.query<Row & {
+          root_id: string;
+          root_created_at: string;
+          sequence_index: number | null;
+        }>(
+          `WITH playable AS (
+             SELECT w.id, w.title, w.cover_image, w.preview_image_url, w.preview_video_url,
+                    w.created_at, w.lyrics_preview, w.user_id AS owner_id,
+                    COALESCE(w.root_work_id, w.id) AS root_id,
+                    COALESCE(w.sequence_index, 0) AS sequence_index,
+                    fm.url AS final_mv_url,
+                    fm.meta AS final_mv_meta,
+                    a1.url AS audio_track_1_url,
+                    a2.url AS audio_track_2_url,
+                    ss.url AS subtitle_srt_url,
+                    COALESCE((fm.meta->>'duration_secs')::float, NULL) AS duration_secs,
+                    fm.meta->>'sibling_work_id' AS sibling_work_id,
+                    COALESCE((fm.meta->>'take_index')::int, NULL) AS take_index
+               FROM user_works w
+               LEFT JOIN work_assets fm ON fm.work_id = w.id AND fm.asset_type = 'final_mv'
+               LEFT JOIN work_assets a1 ON a1.work_id = w.id AND a1.asset_type = 'audio_track_1'
+               LEFT JOIN work_assets a2 ON a2.work_id = w.id AND a2.asset_type = 'audio_track_2'
+               LEFT JOIN work_assets ss ON ss.work_id = w.id AND ss.asset_type = 'subtitle_srt'
+              WHERE w.user_id = $1
+                AND fm.url IS NOT NULL
+                AND COALESCE((fm.meta->>'take_index')::int, 1) <> 2
+           ),
+           roots AS (
+             SELECT DISTINCT pl.root_id AS id,
+                    root.created_at,
+                    root.id AS rid
+               FROM playable pl
+               JOIN user_works root ON root.id = pl.root_id
+              WHERE 1=1 ${cursorClause}
+              ORDER BY root.created_at DESC, root.id DESC
+              LIMIT $2
+           )
+           SELECT pl.*,
+                  roots.created_at AS root_created_at,
+                  roots.id AS root_id_join
+             FROM playable pl
+             JOIN roots ON roots.id = pl.root_id
+            ORDER BY roots.created_at DESC, roots.id DESC,
+                     pl.sequence_index ASC, pl.created_at ASC`,
+          params,
+        ),
+      );
+      // Push rows in arrival order — query already orders root-grouped.
+      for (const row of r.rows) out.push(row as any);
+      // If we got `limit` distinct roots, there may be more — emit cursor
+      // at the LAST root we included so the next page begins strictly
+      // older. If we got <limit, viewer's library is exhausted; flip to
+      // others.
+      const distinctRoots = new Set(r.rows.map((row: any) => row.root_id));
+      if (distinctRoots.size >= limit) {
+        // Find the OLDEST root we included to anchor the cursor.
+        let lastRoot: { id: string; created_at: string } | null = null;
+        for (const row of r.rows as any[]) {
+          if (!lastRoot || new Date(row.root_created_at) < new Date(lastRoot.created_at)) {
+            lastRoot = { id: String(row.root_id), created_at: String(row.root_created_at) };
+          }
+        }
+        if (lastRoot) {
+          nextCursor = `self:${new Date(lastRoot.created_at).toISOString()}:${lastRoot.id}`;
+        } else {
+          nextCursor = `others::`;
+        }
+      } else {
+        nextCursor = `others::`;
+      }
+    }
+
+    if (scope === "others" || (out.length < limit && nextCursor === `others::`)) {
+      const params: any[] = [limit + 1, viewer?.id || null];
+      let cursorClause = "";
+      if (cursorTime && cursorId && scope === "others") {
+        params.push(cursorTime, cursorId);
+        cursorClause = `AND (w.created_at, w.id) < ($3::timestamptz, $4::uuid)`;
+      }
+      const r = await withClient((client) =>
+        client.query<Row>(
+          `SELECT w.id, w.title, w.cover_image, w.preview_image_url, w.preview_video_url,
+                  w.created_at, w.lyrics_preview, w.user_id AS owner_id,
+                  COALESCE(w.root_work_id, w.id) AS root_id,
+                  COALESCE(w.sequence_index, 0) AS sequence_index,
+                  fm.url AS final_mv_url,
+                  a1.url AS audio_track_1_url,
+                  a2.url AS audio_track_2_url,
+                  ss.url AS subtitle_srt_url,
+                  COALESCE((fm.meta->>'duration_secs')::float, NULL) AS duration_secs,
+                  fm.meta->>'sibling_work_id' AS sibling_work_id,
+                  COALESCE((fm.meta->>'take_index')::int, NULL) AS take_index
+             FROM user_works w
+             JOIN work_market_profiles mp ON mp.work_id = w.id
+             LEFT JOIN work_assets fm ON fm.work_id = w.id AND fm.asset_type = 'final_mv'
+             LEFT JOIN work_assets a1 ON a1.work_id = w.id AND a1.asset_type = 'audio_track_1'
+             LEFT JOIN work_assets a2 ON a2.work_id = w.id AND a2.asset_type = 'audio_track_2'
+             LEFT JOIN work_assets ss ON ss.work_id = w.id AND ss.asset_type = 'subtitle_srt'
+            WHERE w.parent_work_id IS NULL
+              AND mp.visibility IN ('public', 'unlisted')
+              AND ($2::uuid IS NULL OR w.user_id <> $2::uuid)
+              AND COALESCE(NULLIF(TRIM(w.preview_video_url), ''), fm.url) IS NOT NULL
+              -- CSSOS_PHASE2_DUAL_TRACK 20260430 #221b — also exclude
+              -- others' Take 2 sibling rows so the queue doesn't surface
+              -- both takes as separate items. Take 1 carries both audio
+              -- URLs and the toggle plays them sequentially.
+              AND COALESCE((fm.meta->>'take_index')::int, 1) <> 2
+              ${cursorClause}
+            ORDER BY w.created_at DESC, w.id DESC
+            LIMIT $1`,
+          params,
+        ),
+      );
+      const remaining = limit - out.length;
+      const rows = r.rows.slice(0, remaining);
+      for (const row of rows) out.push(row);
+      if (r.rows.length > remaining) {
+        const last = rows[rows.length - 1];
+        if (last) {
+          nextCursor = `others:${new Date(last.created_at).toISOString()}:${last.id}`;
+        }
+      } else {
+        nextCursor = null;
+      }
+    }
+
+    return res.json({
+      ok: true,
+      data: {
+        items: out.map((r) => ({
+          id: r.id,
+          title: r.title,
+          cover_url: r.cover_image || r.preview_image_url || null,
+          preview_video_url: r.preview_video_url,
+          final_mv_url: r.final_mv_url || r.preview_video_url || null,
+          audio_track_1_url: r.audio_track_1_url || null,
+          audio_track_2_url: r.audio_track_2_url || null,
+          subtitle_srt_url: r.subtitle_srt_url || null,
+          duration_secs: r.duration_secs,
+          lyrics_preview: r.lyrics_preview,
+          // CSSOS_PHASE2_DUAL_TRACK 20260430 #221b — sibling cross-link
+          sibling_work_id: r.sibling_work_id || null,
+          take_index: r.take_index || null,
+          // CSSOS_PHASE2_SELF_FIRST_STRUCTURAL 20260430 #227 — root grouping
+          // so the watch queue can keep all leaves of one structured root
+          // contiguous and never break self's sequence to play others'.
+          root_work_id: (r as any).root_id || null,
+          sequence_index: (r as any).sequence_index ?? null,
+          is_own: viewer ? r.owner_id === viewer.id : false,
+        })),
+        next_cursor: nextCursor,
+      },
+    });
+  } catch (e) {
+    return res.status(500).json({ ok: false, code: "MV_QUEUE_FAILED" });
   }
 });
 
@@ -7406,11 +11845,12 @@ app.get("/api/works/market", async (req, res) => {
   noStore(res);
   try {
     const viewer = await getSessionUser(req);
+    const debugTree = String(req.query.debug_tree || "").trim() === "1";
     const limit = Math.max(1, Math.min(Number(req.query.limit || 24), 100));
     type Row = WorkTreeRow;
     const q: QueryResult<Row> = await withClient((client) =>
       client.query<Row>(
-          `SELECT
+        `SELECT
            w.id,
            w.user_id AS owner_user_id,
            w.title,
@@ -7457,64 +11897,21 @@ app.get("/api/works/market", async (req, res) => {
            AND w.parent_work_id IS NULL
          ORDER BY w.updated_at DESC, w.created_at DESC
          LIMIT $1`,
-        [limit, defaultListenPriceCents()]
-      )
+        [limit, defaultListenPriceCents()],
+      ),
     );
     const rootIds = q.rows.map((row) => row.id);
-    let childRows: Row[] = [];
-    if (rootIds.length) {
-      const childRes = await withClient((client) =>
-        client.query<Row>(
-          `SELECT
-             w.id,
-             w.user_id AS owner_user_id,
-             w.title,
-             w.style,
-             w.work_type,
-             w.lyrics_preview,
-             w.status,
-             w.created_at,
-             w.updated_at,
-             w.parent_work_id,
-             w.root_work_id,
-             w.structure_role,
-             w.sequence_index,
-             w.structure_plan,
-             w.source_run_id,
-             w.compute_units_estimate,
-             w.compute_cost_cents_estimate,
-             w.suggested_listen_price_cents,
-             w.suggested_buyout_price_cents,
-             w.cover_image,
-             w.preview_image_url,
-             w.preview_video_url,
-             u.display_name AS owner_name,
-             u.email AS owner_email,
-             COALESCE(listen_product.amount_cents, mp.current_listen_price_cents) AS current_listen_price_cents,
-             COALESCE(buyout_product.amount_cents, mp.current_buyout_price_cents) AS current_buyout_price_cents,
-             COALESCE(mp.buyout_enabled, buyout_product.active, false) AS buyout_enabled,
-             mp.tips_enabled,
-             mp.visibility,
-             mp.rights_scope
-           FROM user_works w
-           JOIN users u ON u.id = w.user_id
-           LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
-           LEFT JOIN work_access_products listen_product
-             ON listen_product.work_id = w.id
-            AND listen_product.product_kind = 'listen'
-            AND listen_product.active = true
-           LEFT JOIN work_access_products buyout_product
-             ON buyout_product.work_id = w.id
-            AND buyout_product.product_kind = 'buyout'
-            AND buyout_product.active = true
-           WHERE w.root_work_id = ANY($1::uuid[])
-             AND w.parent_work_id IS NOT NULL
-           ORDER BY w.sequence_index ASC, w.created_at ASC`,
-          [rootIds]
-        )
-      );
-      childRows = childRes.rows;
-    }
+    let childRows: Row[] = rootIds.length ? await loadMarketWorkDescendants(rootIds) : [];
+    const westworldRootId = "bd9508d7-d145-4eff-9fee-15a9184ec6fe";
+    const debugPayload: Record<string, unknown> = debugTree
+      ? {
+          root_ids: rootIds.length,
+          child_rows: childRows.length,
+          westworld_child_rows: childRows.filter(
+            (row) => String(row.root_work_id || "").trim() === westworldRootId,
+          ).length,
+        }
+      : {};
     const works = q.rows.map((row) => normalizeWorkTreeRow(row));
     let ordersByWork = new Map<string, any[]>();
     if (viewer?.id && works.length) {
@@ -7525,8 +11922,8 @@ app.get("/api/works/market", async (req, res) => {
            WHERE buyer_user_id = $1
              AND work_id = ANY($2::uuid[])
            ORDER BY updated_at DESC, created_at DESC`,
-          [viewer.id, works.map((row) => row.id)]
-        )
+          [viewer.id, works.map((row) => row.id)],
+        ),
       );
       ordersByWork = orderRes.rows.reduce((acc, row) => {
         const key = String(row.work_id || "");
@@ -7553,10 +11950,17 @@ app.get("/api/works/market", async (req, res) => {
              LEFT JOIN users u ON u.id = ot.to_user_id
              WHERE ot.work_id = ANY($1::uuid[])
              ORDER BY ot.effective_at ASC, ot.created_at ASC`,
-            [rootIds]
-          )
+            [rootIds],
+          ),
         )
-      : { rows: [] as Array<{ work_id: string; to_user_id: string | null; to_label: string | null; effective_at: string }> };
+      : {
+          rows: [] as Array<{
+            work_id: string;
+            to_user_id: string | null;
+            to_label: string | null;
+            effective_at: string;
+          }>,
+        };
     const transfersByWork = transferRes.rows.reduce((acc, row) => {
       const key = String(row.work_id || "");
       const list = acc.get(key) || [];
@@ -7564,7 +11968,50 @@ app.get("/api/works/market", async (req, res) => {
       acc.set(key, list);
       return acc;
     }, new Map<string, Array<{ work_id: string; to_user_id: string | null; to_label: string | null; effective_at: string }>>());
-    const tree = buildWorkTree([...q.rows, ...childRows]);
+    let tree = buildWorkTree([...q.rows, ...childRows]);
+    if (debugTree) {
+      const westworldNode = tree.find(
+        (row) => String(row?.id || "").trim() === westworldRootId,
+      );
+      debugPayload.after_build_children = Array.isArray(westworldNode?.children)
+        ? westworldNode.children.length
+        : 0;
+    }
+    if (rootIds.length && structuredTreeHasMissingChildren(tree)) {
+      const missingRootIds = tree
+        .filter((node) => structuredTreeNodeNeedsChildren(node))
+        .filter((node) => !Array.isArray(node?.children) || !node.children.length)
+        .map((node) => String(node?.id || "").trim())
+        .filter(Boolean);
+      if (missingRootIds.length) {
+        if (debugTree) {
+          debugPayload.missing_root_ids = missingRootIds;
+        }
+        const extraRows = (
+          await Promise.all(missingRootIds.map((rootId) => loadMarketWorkDescendantsForRoot(rootId)))
+        ).flat();
+        if (debugTree) {
+          debugPayload.extra_rows = extraRows.length;
+        }
+        if (extraRows.length) {
+          const dedupedRows = new Map<string, Row>();
+          [...childRows, ...extraRows].forEach((row) => {
+            dedupedRows.set(String(row.id), row);
+          });
+          childRows = [...dedupedRows.values()];
+        }
+      }
+      tree = buildWorkTree([...q.rows, ...childRows]);
+    }
+    tree = await fillMarketStructuredChildren(tree, q.rows);
+    if (debugTree) {
+      const westworldNode = tree.find(
+        (row) => String(row?.id || "").trim() === westworldRootId,
+      );
+      debugPayload.final_children = Array.isArray(westworldNode?.children)
+        ? westworldNode.children.length
+        : 0;
+    }
     let marketState: Record<string, unknown> | null = null;
     if (!tree.length) {
       type CountRow = {
@@ -7589,8 +12036,8 @@ app.get("/api/works/market", async (req, res) => {
                  AND COALESCE(listen_product.amount_cents, mp.current_listen_price_cents, $1) > 0
                  AND w.parent_work_id IS NULL
              ) AS published_total`,
-          [defaultListenPriceCents()]
-        )
+          [defaultListenPriceCents()],
+        ),
       );
       const row = counts.rows[0];
       const usersTotal = Number(row?.users_total || 0);
@@ -7605,25 +12052,34 @@ app.get("/api/works/market", async (req, res) => {
             ? "empty_database"
             : worksTotal > 0 && publishedTotal <= 0
               ? "no_published_works"
-              : "no_visible_market_results"
+              : "no_visible_market_results",
       };
     }
     return res.json(
       okData({
         works: tree.map((row) => {
           const orders = ordersByWork.get(String(row.id || "")) || [];
-          const ownerLabel = String(row.owner_name || row.owner_email || "Creator");
-          const ownerChain = buildOwnerChain(transfersByWork.get(String(row.id || "")) || [], ownerLabel);
-          const previousOwner = ownerChain.length > 1 ? ownerChain[ownerChain.length - 2]?.label : ownerLabel;
+          const ownerLabel = String(
+            row.owner_name || row.owner_email || "Creator",
+          );
+          const ownerChain = buildOwnerChain(
+            transfersByWork.get(String(row.id || "")) || [],
+            ownerLabel,
+          );
+          const previousOwner =
+            ownerChain.length > 1
+              ? ownerChain[ownerChain.length - 2]?.label
+              : ownerLabel;
           return {
             ...row,
             viewer_orders: orders,
             owner_chain: ownerChain,
-            previous_owner_label: previousOwner
+            previous_owner_label: previousOwner,
           };
         }),
-        market_state: marketState
-      })
+        market_state: marketState,
+        ...(debugTree ? { debug_tree: debugPayload } : {}),
+      }),
     );
   } catch {
     return res.status(500).json({ ok: false, code: "WORKS_MARKET_FAILED" });
@@ -7644,69 +12100,159 @@ app.post("/api/works", async (req, res) => {
     const style = req.body?.style ? String(req.body.style).trim() : null;
     const workType = normalizeWorkType(req.body?.work_type);
     const parentWorkId = String(req.body?.parent_work_id || "").trim() || null;
-    const requestedRootWorkId = String(req.body?.root_work_id || "").trim() || null;
-    const structureRole = String(req.body?.structure_role || "").trim().toLowerCase() || workType;
-    const sequenceIndex = Math.max(0, Number.parseInt(String(req.body?.sequence_index || "0"), 10) || 0);
-    const structurePlan = normalizeSongSeedStructurePlan(req.body?.structure_plan);
-    const listenPriceCents = Number.parseInt(String(req.body?.listen_price_cents || "0"), 10);
-    const buyoutPriceCents = Number.parseInt(String(req.body?.buyout_price_cents || "0"), 10);
-    const lyricsRaw = req.body?.lyrics_preview ? String(req.body.lyrics_preview) : "";
-    const lyricsPreview = lyricsRaw.slice(0, 500) || null;
-    const sourceRunId = String(req.body?.source_run_id || "").trim() || null;
-    const computeUnitsEstimate = Math.max(0, Number.parseInt(String(req.body?.compute_units_estimate || "0"), 10) || 0);
-    const computeCostCentsEstimate = Math.max(0, Number.parseInt(String(req.body?.compute_cost_cents_estimate || "0"), 10) || 0);
-    const suggestedListenPriceCents = Math.max(0, Number.parseInt(String(req.body?.suggested_listen_price_cents || listenPriceCents || "0"), 10) || 0);
-    const suggestedBuyoutPriceCents = Math.max(0, Number.parseInt(String(req.body?.suggested_buyout_price_cents || buyoutPriceCents || "0"), 10) || 0);
-    const coverImage = String(req.body?.cover_image || "").trim() || null;
-    const previewImageUrl = String(req.body?.preview_image_url || "").trim() || null;
-    const previewVideoUrl = String(req.body?.preview_video_url || "").trim() || null;
-    type Row = { id: string };
-    const inserted: QueryResult<Row> = await withClient((client) =>
-      client.query<Row>(
-        `INSERT INTO user_works (
-           user_id, title, style, work_type, lyrics_preview, status, parent_work_id, root_work_id, structure_role, sequence_index, structure_plan,
-           source_run_id, compute_units_estimate, compute_cost_cents_estimate, suggested_listen_price_cents, suggested_buyout_price_cents,
-           cover_image, preview_image_url, preview_video_url
-         )
-         VALUES ($1, $2, $3, $4, $5, 'draft', $6::uuid, $7::uuid, $8, $9, $10::jsonb, $11, $12, $13, $14, $15, $16, $17, $18)
-         RETURNING id`,
-        [
-          user.id,
-          title,
-          style,
-          workType,
-          lyricsPreview,
-          parentWorkId,
-          requestedRootWorkId,
-          structureRole,
-          sequenceIndex,
-          structurePlan ? JSON.stringify(structurePlan) : null,
-          sourceRunId,
-          computeUnitsEstimate,
-          computeCostCentsEstimate,
-          suggestedListenPriceCents,
-          suggestedBuyoutPriceCents,
-          coverImage,
-          previewImageUrl,
-          previewVideoUrl
-        ]
-      )
+    const requestedRootWorkId =
+      String(req.body?.root_work_id || "").trim() || null;
+    const structureRole =
+      String(req.body?.structure_role || "")
+        .trim()
+        .toLowerCase() || workType;
+    const sequenceIndex = Math.max(
+      0,
+      Number.parseInt(String(req.body?.sequence_index || "0"), 10) || 0,
     );
-    const workId = inserted.rows[0]?.id || null;
+    const structurePlan = normalizeSongSeedStructurePlan(
+      req.body?.structure_plan,
+    );
+    const listenPriceCents = Number.parseInt(
+      String(req.body?.listen_price_cents || "0"),
+      10,
+    );
+    const buyoutPriceCents = Number.parseInt(
+      String(req.body?.buyout_price_cents || "0"),
+      10,
+    );
+    const lyricsRaw = req.body?.lyrics_preview
+      ? String(req.body.lyrics_preview)
+      : "";
+    const lyricsPreview = lyricsRaw.trim() || null;
+    const sourceRunId = String(req.body?.source_run_id || "").trim() || null;
+    const computeUnitsEstimate = Math.max(
+      0,
+      Number.parseInt(String(req.body?.compute_units_estimate || "0"), 10) || 0,
+    );
+    const computeCostCentsEstimate = Math.max(
+      0,
+      Number.parseInt(
+        String(req.body?.compute_cost_cents_estimate || "0"),
+        10,
+      ) || 0,
+    );
+    const suggestedListenPriceCents = Math.max(
+      0,
+      Number.parseInt(
+        String(
+          req.body?.suggested_listen_price_cents || listenPriceCents || "0",
+        ),
+        10,
+      ) || 0,
+    );
+    const suggestedBuyoutPriceCents = Math.max(
+      0,
+      Number.parseInt(
+        String(
+          req.body?.suggested_buyout_price_cents || buyoutPriceCents || "0",
+        ),
+        10,
+      ) || 0,
+    );
+    const coverImage = String(req.body?.cover_image || "").trim() || null;
+    const previewImageUrl =
+      String(req.body?.preview_image_url || "").trim() || null;
+    const previewVideoUrl =
+      String(req.body?.preview_video_url || "").trim() || null;
+    const previewVideoAssetKey =
+      String(req.body?.preview_video_asset_key || "").trim() || null;
+    const inheritedRootType =
+      requestedRootWorkId || parentWorkId
+        ? await withClient(async (client) => {
+            const rootLookup = await client.query<{ work_type: string | null }>(
+              `SELECT work_type
+               FROM user_works
+               WHERE id = COALESCE($1::uuid, $2::uuid)
+               LIMIT 1`,
+              [requestedRootWorkId, parentWorkId],
+            );
+            return normalizeWorkType(rootLookup.rows[0]?.work_type || workType);
+          })
+        : workType;
+    const wholeBuyoutChild =
+      Boolean(requestedRootWorkId || parentWorkId) &&
+      (inheritedRootType === "opera" || inheritedRootType === "triptych");
+    const workId = crypto.randomUUID();
+    const persistedAssets = await buildPersistedWorkAssetBundle({
+      workId,
+      sourceRunId,
+      coverImage,
+      previewImageUrl,
+      previewVideoUrl,
+      previewVideoAssetKey,
+    });
+    await withClient(async (client) => {
+      await client.query("BEGIN");
+      try {
+        await client.query(
+          `INSERT INTO user_works (
+             id, user_id, title, style, work_type, lyrics_preview, status, parent_work_id, root_work_id, structure_role, sequence_index, structure_plan,
+             source_run_id, compute_units_estimate, compute_cost_cents_estimate, suggested_listen_price_cents, suggested_buyout_price_cents,
+             cover_image, preview_image_url, preview_video_url
+           )
+           VALUES ($1::uuid, $2, $3, $4, $5, $6, 'draft', $7::uuid, $8::uuid, $9, $10, $11::jsonb, $12, $13, $14, $15, $16, $17, $18, $19)`,
+          [
+            workId,
+            user.id,
+            title,
+            style,
+            workType,
+            lyricsPreview,
+            parentWorkId,
+            requestedRootWorkId,
+            structureRole,
+            sequenceIndex,
+            structurePlan ? JSON.stringify(structurePlan) : null,
+            sourceRunId,
+            computeUnitsEstimate,
+            computeCostCentsEstimate,
+            suggestedListenPriceCents,
+            suggestedBuyoutPriceCents,
+            persistedAssets.coverImage,
+            persistedAssets.previewImageUrl,
+            persistedAssets.storedPreviewVideoRef,
+          ],
+        );
+        const resolvedRootWorkId = requestedRootWorkId || workId;
+        await client.query(
+          `UPDATE user_works SET root_work_id = $2, updated_at = now() WHERE id = $1`,
+          [workId, resolvedRootWorkId],
+        );
+        await syncCanonicalWorkAssets(
+          client,
+          workId,
+          persistedAssets.assetRecords,
+        );
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      }
+    });
     if (workId) {
       const resolvedRootWorkId = requestedRootWorkId || workId;
-      await withClient((client) =>
-        client.query(`UPDATE user_works SET root_work_id = $2, updated_at = now() WHERE id = $1`, [workId, resolvedRootWorkId])
-      );
       await ensureWorkMarketSeed({
         workId,
         ownerUserId: user.id,
         title,
         style,
-        workType,
+        workType: inheritedRootType || workType,
         structureRole,
-        listenPriceCents: Number.isFinite(listenPriceCents) && listenPriceCents > 0 ? listenPriceCents : null,
-        buyoutPriceCents: Number.isFinite(buyoutPriceCents) && buyoutPriceCents >= 0 ? buyoutPriceCents : null
+        listenPriceCents:
+          Number.isFinite(listenPriceCents) && listenPriceCents > 0
+            ? listenPriceCents
+            : null,
+        buyoutPriceCents:
+          Number.isFinite(buyoutPriceCents) && buyoutPriceCents >= 0
+            ? buyoutPriceCents
+            : null,
+        buyoutEnabled: !wholeBuyoutChild,
       });
     }
     return res.json(
@@ -7723,10 +12269,11 @@ app.post("/api/works", async (req, res) => {
         compute_cost_cents_estimate: computeCostCentsEstimate,
         suggested_listen_price_cents: suggestedListenPriceCents,
         suggested_buyout_price_cents: suggestedBuyoutPriceCents,
-        cover_image: coverImage,
-        preview_image_url: previewImageUrl,
-        preview_video_url: previewVideoUrl
-      })
+        cover_image: persistedAssets.coverImage,
+        preview_image_url: persistedAssets.previewImageUrl,
+        preview_video_url: persistedAssets.previewVideoUrl,
+        preview_video_asset_key: persistedAssets.previewVideoAssetKey,
+      }),
     );
   } catch {
     return res.status(500).json({ ok: false, code: "WORK_CREATE_FAILED" });
@@ -7745,33 +12292,275 @@ app.patch("/api/works/:id/assets", async (req, res) => {
       return res.status(400).json({ ok: false, code: "WORK_REQUIRED" });
     }
     const ownerCheck = await withClient((client) =>
-      client.query<{ id: string }>(`SELECT id FROM user_works WHERE id = $1 AND user_id = $2 LIMIT 1`, [workId, user.id])
+      client.query<{ id: string }>(
+        `SELECT id FROM user_works WHERE id = $1 AND user_id = $2 LIMIT 1`,
+        [workId, user.id],
+      ),
     );
     if (!ownerCheck.rows[0]?.id) {
       return res.status(404).json({ ok: false, code: "WORK_NOT_FOUND" });
     }
     const coverImage = String(req.body?.cover_image || "").trim() || null;
-    const previewImageUrl = String(req.body?.preview_image_url || "").trim() || null;
-    const previewVideoUrl = String(req.body?.preview_video_url || "").trim() || null;
-    await withClient((client) =>
-      client.query(
-        `UPDATE user_works
-         SET cover_image = COALESCE($2, cover_image),
-             preview_image_url = COALESCE($3, preview_image_url),
-             preview_video_url = COALESCE($4, preview_video_url),
-             updated_at = now()
-         WHERE id = $1`,
-        [workId, coverImage, previewImageUrl, previewVideoUrl]
-      )
+    const previewImageUrl =
+      String(req.body?.preview_image_url || "").trim() || null;
+    const previewVideoUrl =
+      String(req.body?.preview_video_url || "").trim() || null;
+    const previewVideoAssetKey =
+      String(req.body?.preview_video_asset_key || "").trim() || null;
+    const workRow = await withClient((client) =>
+      client.query<{
+        source_run_id: string | null;
+        cover_image: string | null;
+        preview_image_url: string | null;
+        preview_video_url: string | null;
+      }>(
+        `SELECT source_run_id, cover_image, preview_image_url, preview_video_url
+         FROM user_works
+         WHERE id = $1
+         LIMIT 1`,
+        [workId],
+      ),
     );
-    return res.json(okData({
-      work_id: workId,
-      cover_image: coverImage,
-      preview_image_url: previewImageUrl,
-      preview_video_url: previewVideoUrl
-    }));
+    const existingWork = workRow.rows[0];
+    const workSourceRunId = String(existingWork?.source_run_id || "").trim();
+    const persistedAssets = await buildPersistedWorkAssetBundle({
+      workId,
+      sourceRunId: workSourceRunId || null,
+      coverImage,
+      previewImageUrl,
+      previewVideoUrl,
+      previewVideoAssetKey,
+    });
+    const updated = await withClient(async (client) => {
+      await client.query("BEGIN");
+      try {
+        const result = await client.query<{
+          cover_image: string | null;
+          preview_image_url: string | null;
+          preview_video_url: string | null;
+          source_run_id: string | null;
+        }>(
+          `UPDATE user_works
+           SET cover_image = COALESCE($2, cover_image),
+               preview_image_url = COALESCE($3, preview_image_url),
+               preview_video_url = COALESCE($4, preview_video_url),
+               updated_at = now()
+           WHERE id = $1
+           RETURNING cover_image, preview_image_url, preview_video_url, source_run_id`,
+          [
+            workId,
+            persistedAssets.coverImage,
+            persistedAssets.previewImageUrl,
+            persistedAssets.storedPreviewVideoRef,
+          ],
+        );
+        await syncCanonicalWorkAssets(
+          client,
+          workId,
+          persistedAssets.assetRecords,
+        );
+        await client.query("COMMIT");
+        return result.rows[0] || null;
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      }
+    });
+    const previewVideoReference = resolveStoredPreviewVideoReference(
+      String(updated?.source_run_id || workSourceRunId || "").trim(),
+      updated?.preview_video_url || persistedAssets.storedPreviewVideoRef,
+    );
+    return res.json(
+      okData({
+        work_id: workId,
+        cover_image: updated?.cover_image || existingWork?.cover_image || null,
+        preview_image_url:
+          updated?.preview_image_url || existingWork?.preview_image_url || null,
+        preview_video_url: previewVideoReference.previewVideoUrl,
+        preview_video_asset_key: previewVideoReference.previewVideoAssetKey,
+      }),
+    );
   } catch {
-    return res.status(500).json({ ok: false, code: "WORK_ASSETS_UPDATE_FAILED" });
+    return res
+      .status(500)
+      .json({ ok: false, code: "WORK_ASSETS_UPDATE_FAILED" });
+  }
+});
+
+app.patch("/api/works/:id/generation", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const workId = String(req.params.id || "").trim();
+    if (!workId) {
+      return res.status(400).json({ ok: false, code: "WORK_REQUIRED" });
+    }
+    const ownerCheck = await withClient((client) =>
+      client.query<{
+        id: string;
+        root_work_id: string | null;
+        parent_work_id: string | null;
+        source_run_id: string | null;
+      }>(
+        `SELECT id, root_work_id, parent_work_id, source_run_id
+         FROM user_works
+         WHERE id = $1 AND user_id = $2
+         LIMIT 1`,
+        [workId, user.id],
+      ),
+    );
+    const existing = ownerCheck.rows[0];
+    if (!existing?.id) {
+      return res.status(404).json({ ok: false, code: "WORK_NOT_FOUND" });
+    }
+    const title = String(req.body?.title || "").trim() || null;
+    const style = String(req.body?.style || "").trim() || null;
+    const lyricsPreviewRaw = req.body?.lyrics_preview
+      ? String(req.body.lyrics_preview)
+      : "";
+    const lyricsPreview = lyricsPreviewRaw.trim() || null;
+    const sourceRunId = String(req.body?.source_run_id || "").trim() || null;
+    const computeUnitsEstimate = Math.max(
+      0,
+      Number.parseInt(String(req.body?.compute_units_estimate || "0"), 10) || 0,
+    );
+    const computeCostCentsEstimate = Math.max(
+      0,
+      Number.parseInt(
+        String(req.body?.compute_cost_cents_estimate || "0"),
+        10,
+      ) || 0,
+    );
+    const suggestedListenPriceCents = Math.max(
+      0,
+      Number.parseInt(
+        String(req.body?.suggested_listen_price_cents || "0"),
+        10,
+      ) || 0,
+    );
+    const suggestedBuyoutPriceCents = Math.max(
+      0,
+      Number.parseInt(
+        String(req.body?.suggested_buyout_price_cents || "0"),
+        10,
+      ) || 0,
+    );
+    const coverImage = String(req.body?.cover_image || "").trim() || null;
+    const previewImageUrl =
+      String(req.body?.preview_image_url || "").trim() || null;
+    const previewVideoUrl =
+      String(req.body?.preview_video_url || "").trim() || null;
+    const previewVideoAssetKey =
+      String(req.body?.preview_video_asset_key || "").trim() || null;
+    const effectiveSourceRunId =
+      sourceRunId || String(existing.source_run_id || "").trim() || null;
+    const persistedAssets = await buildPersistedWorkAssetBundle({
+      workId,
+      sourceRunId: effectiveSourceRunId,
+      coverImage,
+      previewImageUrl,
+      previewVideoUrl,
+      previewVideoAssetKey,
+    });
+    const updated = await withClient(async (client) => {
+      await client.query("BEGIN");
+      try {
+        const result = await client.query<{
+          title: string | null;
+          style: string | null;
+          lyrics_preview: string | null;
+          source_run_id: string | null;
+          compute_units_estimate: number | null;
+          compute_cost_cents_estimate: number | null;
+          suggested_listen_price_cents: number | null;
+          suggested_buyout_price_cents: number | null;
+          cover_image: string | null;
+          preview_image_url: string | null;
+          preview_video_url: string | null;
+        }>(
+          `UPDATE user_works
+           SET title = COALESCE($2, title),
+               style = COALESCE($3, style),
+               lyrics_preview = COALESCE($4, lyrics_preview),
+               source_run_id = COALESCE($5, source_run_id),
+               compute_units_estimate = CASE WHEN $6 > 0 THEN $6 ELSE compute_units_estimate END,
+               compute_cost_cents_estimate = CASE WHEN $7 > 0 THEN $7 ELSE compute_cost_cents_estimate END,
+               suggested_listen_price_cents = CASE WHEN $8 > 0 THEN $8 ELSE suggested_listen_price_cents END,
+               suggested_buyout_price_cents = CASE WHEN $9 > 0 THEN $9 ELSE suggested_buyout_price_cents END,
+               cover_image = COALESCE($10, cover_image),
+               preview_image_url = COALESCE($11, preview_image_url),
+               preview_video_url = COALESCE($12, preview_video_url),
+               updated_at = now()
+           WHERE id = $1
+           RETURNING title, style, lyrics_preview, source_run_id, compute_units_estimate,
+                     compute_cost_cents_estimate, suggested_listen_price_cents,
+                     suggested_buyout_price_cents, cover_image, preview_image_url, preview_video_url`,
+          [
+            workId,
+            title,
+            style,
+            lyricsPreview,
+            sourceRunId,
+            computeUnitsEstimate,
+            computeCostCentsEstimate,
+            suggestedListenPriceCents,
+            suggestedBuyoutPriceCents,
+            persistedAssets.coverImage,
+            persistedAssets.previewImageUrl,
+            persistedAssets.storedPreviewVideoRef,
+          ],
+        );
+        await syncCanonicalWorkAssets(
+          client,
+          workId,
+          persistedAssets.assetRecords,
+        );
+        await client.query("COMMIT");
+        return result.rows[0] || null;
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      }
+    });
+    const previewVideoReference = resolveStoredPreviewVideoReference(
+      String(updated?.source_run_id || effectiveSourceRunId || "").trim(),
+      updated?.preview_video_url || persistedAssets.storedPreviewVideoRef,
+    );
+    return res.json(
+      okData({
+        id: workId,
+        work_id: workId,
+        title: updated?.title || title,
+        style: updated?.style || style,
+        lyrics_preview: updated?.lyrics_preview || lyricsPreview,
+        source_run_id: updated?.source_run_id || sourceRunId,
+        compute_units_estimate:
+          Number(updated?.compute_units_estimate || 0) || computeUnitsEstimate,
+        compute_cost_cents_estimate:
+          Number(updated?.compute_cost_cents_estimate || 0) ||
+          computeCostCentsEstimate,
+        suggested_listen_price_cents:
+          Number(updated?.suggested_listen_price_cents || 0) ||
+          suggestedListenPriceCents,
+        suggested_buyout_price_cents:
+          Number(updated?.suggested_buyout_price_cents || 0) ||
+          suggestedBuyoutPriceCents,
+        cover_image: updated?.cover_image || persistedAssets.coverImage,
+        preview_image_url:
+          updated?.preview_image_url || persistedAssets.previewImageUrl,
+        preview_video_url: previewVideoReference.previewVideoUrl,
+        preview_video_asset_key: previewVideoReference.previewVideoAssetKey,
+        root_work_id: existing.root_work_id || workId,
+        parent_work_id: existing.parent_work_id || null,
+      }),
+    );
+  } catch {
+    return res
+      .status(500)
+      .json({ ok: false, code: "WORK_GENERATION_UPDATE_FAILED" });
   }
 });
 
@@ -7783,15 +12572,25 @@ app.patch("/api/works/:id/pricing", async (req, res) => {
       return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
     }
     const workId = String(req.params.id || "").trim();
-    const listenPriceCents = Number.parseInt(String(req.body?.listen_price_cents || "0"), 10);
-    const buyoutPriceCents = Number.parseInt(String(req.body?.buyout_price_cents || "0"), 10);
-    const buyoutEnabled = Boolean(req.body?.buyout_enabled) && buyoutPriceCents > 0;
-    const requestedVisibility = String(req.body?.visibility || "").trim().toLowerCase();
+    const listenPriceCents = Number.parseInt(
+      String(req.body?.listen_price_cents || "0"),
+      10,
+    );
+    const buyoutPriceCents = Number.parseInt(
+      String(req.body?.buyout_price_cents || "0"),
+      10,
+    );
+    const buyoutEnabled =
+      Boolean(req.body?.buyout_enabled) && buyoutPriceCents > 0;
+    const requestedVisibility = String(req.body?.visibility || "")
+      .trim()
+      .toLowerCase();
     const visibility = requestedVisibility === "private" ? "private" : "public";
     const workStatus = visibility === "private" ? "hidden" : "published";
-    const requestedWorkType = req.body && Object.prototype.hasOwnProperty.call(req.body, "work_type")
-      ? normalizeWorkType(req.body?.work_type)
-      : null;
+    const requestedWorkType =
+      req.body && Object.prototype.hasOwnProperty.call(req.body, "work_type")
+        ? normalizeWorkType(req.body?.work_type)
+        : null;
     if (!workId) {
       return res.status(400).json({ ok: false, code: "WORK_REQUIRED" });
     }
@@ -7802,14 +12601,28 @@ app.patch("/api/works/:id/pricing", async (req, res) => {
       return res.status(400).json({ ok: false, code: "INVALID_BUYOUT_PRICE" });
     }
     const ownerCheck = await withClient((client) =>
-      client.query<{ id: string }>(
-        `SELECT id FROM user_works WHERE id = $1 AND user_id = $2 LIMIT 1`,
-        [workId, user.id]
-      )
+      client.query<{
+        id: string;
+        work_type: string | null;
+        parent_work_id: string | null;
+        root_work_id: string | null;
+      }>(
+        `SELECT id, work_type, parent_work_id, root_work_id
+         FROM user_works
+         WHERE id = $1 AND user_id = $2
+         LIMIT 1`,
+        [workId, user.id],
+      ),
     );
     if (!ownerCheck.rows[0]?.id) {
       return res.status(404).json({ ok: false, code: "WORK_NOT_FOUND" });
     }
+    const storedWork = ownerCheck.rows[0];
+    const effectiveWorkType =
+      requestedWorkType || normalizeWorkType(storedWork?.work_type);
+    const isWholeBuyoutRoot =
+      !storedWork?.parent_work_id &&
+      (effectiveWorkType === "opera" || effectiveWorkType === "triptych");
     await withClient(async (client) => {
       if (requestedWorkType) {
         await client.query(
@@ -7818,10 +12631,13 @@ app.patch("/api/works/:id/pricing", async (req, res) => {
                structure_role = CASE WHEN parent_work_id IS NULL THEN $2 ELSE structure_role END,
                updated_at = now()
            WHERE id = $1`,
-          [workId, requestedWorkType]
+          [workId, requestedWorkType],
         );
       }
-      await client.query(`UPDATE user_works SET status = $2, updated_at = now() WHERE id = $1`, [workId, workStatus]);
+      await client.query(
+        `UPDATE user_works SET status = $2, updated_at = now() WHERE id = $1`,
+        [workId, workStatus],
+      );
       await client.query(
         `INSERT INTO work_market_profiles (
            work_id, owner_user_id, current_listen_price_cents, current_buyout_price_cents,
@@ -7834,14 +12650,29 @@ app.patch("/api/works/:id/pricing", async (req, res) => {
            buyout_enabled = EXCLUDED.buyout_enabled,
            visibility = EXCLUDED.visibility,
            updated_at = now()`,
-        [workId, user.id, listenPriceCents, buyoutPriceCents > 0 ? buyoutPriceCents : null, buyoutEnabled, visibility]
+        [
+          workId,
+          user.id,
+          listenPriceCents,
+          buyoutPriceCents > 0 ? buyoutPriceCents : null,
+          buyoutEnabled,
+          visibility,
+        ],
       );
       await client.query(
         `INSERT INTO work_access_products (work_id, owner_user_id, product_kind, currency, amount_cents, active, meta)
          VALUES ($1, $2, 'listen', 'USD', $3, true, $4::jsonb)
          ON CONFLICT (work_id, product_kind)
          DO UPDATE SET amount_cents = EXCLUDED.amount_cents, active = true, updated_at = now()`,
-        [workId, user.id, listenPriceCents, JSON.stringify({ updated_by: "pricing_patch", work_type: requestedWorkType || undefined })]
+        [
+          workId,
+          user.id,
+          listenPriceCents,
+          JSON.stringify({
+            updated_by: "pricing_patch",
+            work_type: requestedWorkType || undefined,
+          }),
+        ],
       );
       await client.query(
         `INSERT INTO work_access_products (work_id, owner_user_id, product_kind, currency, amount_cents, active, meta)
@@ -7853,23 +12684,62 @@ app.patch("/api/works/:id/pricing", async (req, res) => {
           user.id,
           buyoutPriceCents > 0 ? buyoutPriceCents : defaultBuyoutPriceCents(),
           buyoutEnabled,
-          JSON.stringify({ updated_by: "pricing_patch", work_type: requestedWorkType || undefined })
-        ]
+          JSON.stringify({
+            updated_by: "pricing_patch",
+            work_type: requestedWorkType || undefined,
+          }),
+        ],
       );
+      if (isWholeBuyoutRoot) {
+        await client.query(
+          `UPDATE work_market_profiles
+           SET current_buyout_price_cents = $2,
+               buyout_enabled = false,
+               updated_at = now()
+           WHERE work_id IN (
+             SELECT id FROM user_works WHERE root_work_id = $1 AND id <> $1
+           )`,
+          [workId, buyoutPriceCents > 0 ? buyoutPriceCents : null],
+        );
+        await client.query(
+          `INSERT INTO work_access_products (work_id, owner_user_id, product_kind, currency, amount_cents, active, meta)
+           SELECT id, $2, 'buyout', 'USD', $3, false, $4::jsonb
+           FROM user_works
+           WHERE root_work_id = $1 AND id <> $1
+           ON CONFLICT (work_id, product_kind)
+           DO UPDATE SET
+             amount_cents = EXCLUDED.amount_cents,
+             active = false,
+             updated_at = now()`,
+          [
+            workId,
+            user.id,
+            buyoutPriceCents > 0 ? buyoutPriceCents : defaultBuyoutPriceCents(),
+            JSON.stringify({
+              updated_by: "pricing_patch",
+              whole_buyout_parent_id: workId,
+              work_type: effectiveWorkType,
+            }),
+          ],
+        );
+      }
     });
     return res.json(
       okData({
         work_id: workId,
-        work_type: requestedWorkType,
+        work_type: effectiveWorkType,
         current_listen_price_cents: listenPriceCents,
-        current_buyout_price_cents: buyoutPriceCents > 0 ? buyoutPriceCents : null,
+        current_buyout_price_cents:
+          buyoutPriceCents > 0 ? buyoutPriceCents : null,
         buyout_enabled: buyoutEnabled,
         visibility,
-        status: workStatus
-      })
+        status: workStatus,
+      }),
     );
   } catch {
-    return res.status(500).json({ ok: false, code: "WORK_PRICING_UPDATE_FAILED" });
+    return res
+      .status(500)
+      .json({ ok: false, code: "WORK_PRICING_UPDATE_FAILED" });
   }
 });
 
@@ -7881,18 +12751,22 @@ app.patch("/api/works/:id/structure-plan", async (req, res) => {
       return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
     }
     const workId = String(req.params.id || "").trim();
-    const structurePlan = normalizeSongSeedStructurePlan(req.body?.structure_plan);
+    const structurePlan = normalizeSongSeedStructurePlan(
+      req.body?.structure_plan,
+    );
     if (!workId) {
       return res.status(400).json({ ok: false, code: "WORK_REQUIRED" });
     }
     if (!structurePlan) {
-      return res.status(400).json({ ok: false, code: "STRUCTURE_PLAN_REQUIRED" });
+      return res
+        .status(400)
+        .json({ ok: false, code: "STRUCTURE_PLAN_REQUIRED" });
     }
     const ownerCheck = await withClient((client) =>
       client.query<{ id: string }>(
         `SELECT id FROM user_works WHERE id = $1 AND user_id = $2 LIMIT 1`,
-        [workId, user.id]
-      )
+        [workId, user.id],
+      ),
     );
     if (!ownerCheck.rows[0]?.id) {
       return res.status(404).json({ ok: false, code: "WORK_NOT_FOUND" });
@@ -7903,12 +12777,14 @@ app.patch("/api/works/:id/structure-plan", async (req, res) => {
          SET structure_plan = $2::jsonb,
              updated_at = now()
          WHERE id = $1`,
-        [workId, JSON.stringify(structurePlan)]
-      )
+        [workId, JSON.stringify(structurePlan)],
+      ),
     );
     return res.json(okData({ id: workId, structure_plan: structurePlan }));
   } catch {
-    return res.status(500).json({ ok: false, code: "WORK_STRUCTURE_PLAN_FAILED" });
+    return res
+      .status(500)
+      .json({ ok: false, code: "WORK_STRUCTURE_PLAN_FAILED" });
   }
 });
 
@@ -7940,15 +12816,21 @@ app.get("/auth/apple", async (req, res) => {
       redirect_uri: redirectUri,
       scope: "name email",
       state,
-      nonce
+      nonce,
     });
-    return res.redirect(302, `https://appleid.apple.com/auth/authorize?${q.toString()}`);
+    return res.redirect(
+      302,
+      `https://appleid.apple.com/auth/authorize?${q.toString()}`,
+    );
   } catch {
     return res.status(500).send("apple_auth_start_failed");
   }
 });
 
-async function handleAppleCallback(req: express.Request, res: express.Response) {
+async function handleAppleCallback(
+  req: express.Request,
+  res: express.Response,
+) {
   noStore(res);
   try {
     const code = String((req.body as any)?.code || req.query.code || "");
@@ -7970,13 +12852,13 @@ async function handleAppleCallback(req: express.Request, res: express.Response) 
       code,
       redirect_uri: redirectUri,
       client_id: clientId,
-      client_secret: clientSecret
+      client_secret: clientSecret,
     });
 
     const tkRes = await fetch("https://appleid.apple.com/auth/token", {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: body.toString()
+      body: body.toString(),
     });
     const tk = (await tkRes.json().catch(() => null)) as any;
     if (!tkRes.ok || !tk?.id_token) {
@@ -7999,7 +12881,7 @@ async function handleAppleCallback(req: express.Request, res: express.Response) 
       provider: "apple",
       providerUserId: sub,
       email,
-      displayName: null
+      displayName: null,
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
     setAuthSession(req, userId, "apple");
@@ -8027,7 +12909,9 @@ app.post("/api/auth/apple/callback", (req, res) => {
 });
 
 function oauthCallbackUrl(req: express.Request, providerId: string) {
-  const normalized = String(providerId || "").trim().toLowerCase();
+  const normalized = String(providerId || "")
+    .trim()
+    .toLowerCase();
   const envKey = `${envUpper(normalized)}_REDIRECT_URI`;
   const envValue = String(process.env[envKey] || "").trim();
   if (envValue) return envValue;
@@ -8039,7 +12923,8 @@ app.get("/auth/google", async (req, res) => {
   try {
     const clientId = process.env.GOOGLE_CLIENT_ID || "";
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
-    if (!clientId || !clientSecret) return res.status(503).send("google_not_configured");
+    if (!clientId || !clientSecret)
+      return res.status(503).send("google_not_configured");
     const state = randomHex(16);
     const nonce = randomHex(16);
     setOAuthState(req, "google", { state, nonce, createdAt: Date.now() });
@@ -8051,9 +12936,18 @@ app.get("/auth/google", async (req, res) => {
       scope: "openid email profile",
       state,
       nonce,
-      prompt: "select_account"
+      prompt: "select_account",
     });
-    return res.redirect(302, `https://accounts.google.com/o/oauth2/v2/auth?${q.toString()}`);
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${q.toString()}`;
+    if (req.query.debug === "1") {
+      return res.json({
+        ok: true,
+        provider: "google",
+        redirect_uri: redirectUri,
+        auth_url: authUrl,
+      });
+    }
+    return res.redirect(302, authUrl);
   } catch {
     return res.status(500).send("google_auth_start_failed");
   }
@@ -8064,8 +12958,17 @@ app.get("/auth/google/callback", async (req, res) => {
   try {
     const code = String(req.query.code || "");
     const state = String(req.query.state || "");
-    const saved = getOAuthState(req, "google");
-    if (!code || !saved || saved.state !== state) {
+    const savedLogin = getOAuthState(req, "google");
+    const savedYoutube = savedLogin ? null : getOAuthState(req, "google_youtube");
+    if (!code || (!savedLogin && !savedYoutube)) {
+      auditAuthFailure("google", "oauth", "INVALID_STATE_OR_CODE");
+      return res.status(400).send("auth_failed");
+    }
+    const saved =
+      savedLogin && savedLogin.state === state ? savedLogin : null;
+    const savedYouTubeState =
+      !saved && savedYoutube && savedYoutube.state === state ? savedYoutube : null;
+    if (!saved && !savedYouTubeState) {
       auditAuthFailure("google", "oauth", "INVALID_STATE_OR_CODE");
       return res.status(400).send("auth_failed");
     }
@@ -8080,11 +12983,14 @@ app.get("/auth/google/callback", async (req, res) => {
         client_id: clientId,
         client_secret: clientSecret,
         redirect_uri: redirectUri,
-        grant_type: "authorization_code"
-      })
+        grant_type: "authorization_code",
+      }),
     );
     const accessToken = String(tk.json?.access_token || "");
+    const refreshToken = String(tk.json?.refresh_token || "");
     const idToken = String(tk.json?.id_token || "");
+    const expiresIn = Number(tk.json?.expires_in || 0);
+    const scope = String(tk.json?.scope || "");
     if (!accessToken && !idToken) {
       auditAuthFailure("google", "oauth", "TOKEN_MISSING");
       return res.status(400).send("auth_failed");
@@ -8092,31 +12998,56 @@ app.get("/auth/google/callback", async (req, res) => {
 
     let sub = "";
     let email: string | null = null;
+    let picture: string | null = null;
     if (idToken) {
-      const googleJwks = createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/certs"));
+      const googleJwks = createRemoteJWKSet(
+        new URL("https://www.googleapis.com/oauth2/v3/certs"),
+      );
       const { payload } = await jwtVerify(idToken, googleJwks, {
         issuer: ["https://accounts.google.com", "accounts.google.com"],
-        audience: clientId
+        audience: clientId,
       });
       sub = String(payload.sub || "");
       email = payload.email ? String(payload.email) : null;
+      // CSSOS_PHASE2_OAUTH_AVATAR 20260501 #250 — Google ID token
+      // includes a `picture` claim with HTTPS URL to the user's
+      // Google profile photo. Capture it for avatar_url storage.
+      picture = (payload as any)?.picture ? String((payload as any).picture) : null;
     } else {
-      const me = await fetchJson("https://openidconnect.googleapis.com/v1/userinfo", {
-        headers: { Authorization: `Bearer ${accessToken}` }
-      });
+      const me = await fetchJson(
+        "https://openidconnect.googleapis.com/v1/userinfo",
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        },
+      );
       sub = String(me.json?.sub || "");
       email = me.json?.email ? String(me.json.email) : null;
+      picture = me.json?.picture ? String(me.json.picture) : null;
     }
     if (!sub) {
       auditAuthFailure("google", "oauth", "SUB_MISSING");
       return res.status(400).send("auth_failed");
     }
 
+    if (savedYouTubeState) {
+      await upsertOAuthToken({
+        userId: savedYouTubeState.userId as string,
+        provider: "google_youtube",
+        providerUserId: sub,
+        accessToken,
+        refreshToken,
+        scope,
+        expiresInSeconds: Number.isFinite(expiresIn) ? expiresIn : null,
+      });
+      return res.redirect(302, "/?oauth=google_youtube_ok");
+    }
+
     const userId = await upsertOAuthIdentity({
       provider: "google",
       providerUserId: sub,
       email,
-      displayName: null
+      displayName: null,
+      avatarUrl: picture,
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
     setAuthSession(req, userId, "google");
@@ -8124,6 +13055,152 @@ app.get("/auth/google/callback", async (req, res) => {
   } catch (err) {
     auditAuthFailure("google", "oauth", "INTERNAL_ERROR");
     console.error("google_callback_failed", err);
+    return res.status(400).send("auth_failed");
+  }
+});
+
+app.get("/auth/google/youtube", async (req, res) => {
+  noStore(res);
+  try {
+    const clientId = process.env.GOOGLE_CLIENT_ID || "";
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
+    const sessionUserId = (req.session as any)?.user_id as string | undefined;
+    if (!clientId || !clientSecret)
+      return res.status(503).send("google_not_configured");
+    if (req.query.debug === "1") {
+      const redirectUri = oauthCallbackUrl(req, "google");
+      const q = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        response_type: "code",
+        scope:
+          "openid email profile https://www.googleapis.com/auth/youtube.readonly",
+        state: "debug",
+        nonce: "debug",
+        access_type: "offline",
+        include_granted_scopes: "true",
+        prompt: "consent select_account",
+      });
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${q.toString()}`;
+      return res.json({
+        ok: true,
+        provider: "google_youtube",
+        redirect_uri: redirectUri,
+        auth_url: authUrl,
+      });
+    }
+    if (!sessionUserId) return res.status(401).send("login_required");
+    const state = randomHex(16);
+    const nonce = randomHex(16);
+    setOAuthState(req, "google_youtube", {
+      state,
+      nonce,
+      userId: sessionUserId,
+      createdAt: Date.now(),
+    });
+    const redirectUri = oauthCallbackUrl(req, "google");
+    const q = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope:
+        "openid email profile https://www.googleapis.com/auth/youtube.readonly",
+      state,
+      nonce,
+      access_type: "offline",
+      include_granted_scopes: "true",
+      prompt: "consent select_account",
+    });
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${q.toString()}`;
+    if (req.query.debug === "1") {
+      return res.json({
+        ok: true,
+        provider: "google_youtube",
+        redirect_uri: redirectUri,
+        auth_url: authUrl,
+      });
+    }
+    return res.redirect(302, authUrl);
+  } catch {
+    return res.status(500).send("google_auth_start_failed");
+  }
+});
+
+app.get("/auth/google/youtube/callback", async (req, res) => {
+  noStore(res);
+  try {
+    const code = String(req.query.code || "");
+    const state = String(req.query.state || "");
+    const saved = getOAuthState(req, "google_youtube");
+    if (!code || !saved || saved.state !== state || !saved.userId) {
+      auditAuthFailure("google_youtube", "oauth", "INVALID_STATE_OR_CODE");
+      return res.status(400).send("auth_failed");
+    }
+
+    const clientId = process.env.GOOGLE_CLIENT_ID || "";
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
+    const redirectUri = oauthCallbackUrl(req, "google");
+    const tk = await oauthExchangeTokenForm(
+      "https://oauth2.googleapis.com/token",
+      new URLSearchParams({
+        code,
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        grant_type: "authorization_code",
+      }),
+    );
+    const accessToken = String(tk.json?.access_token || "");
+    const refreshToken = String(tk.json?.refresh_token || "");
+    const idToken = String(tk.json?.id_token || "");
+    const expiresIn = Number(tk.json?.expires_in || 0);
+    const scope = String(tk.json?.scope || "");
+    if (!accessToken && !idToken) {
+      auditAuthFailure("google_youtube", "oauth", "TOKEN_MISSING");
+      return res.status(400).send("auth_failed");
+    }
+
+    let sub = "";
+    let email: string | null = null;
+    if (idToken) {
+      const googleJwks = createRemoteJWKSet(
+        new URL("https://www.googleapis.com/oauth2/v3/certs"),
+      );
+      const { payload } = await jwtVerify(idToken, googleJwks, {
+        issuer: ["https://accounts.google.com", "accounts.google.com"],
+        audience: clientId,
+      });
+      sub = String(payload.sub || "");
+      email = payload.email ? String(payload.email) : null;
+    } else {
+      const me = await fetchJson(
+        "https://openidconnect.googleapis.com/v1/userinfo",
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        },
+      );
+      sub = String(me.json?.sub || "");
+      email = me.json?.email ? String(me.json.email) : null;
+    }
+    if (!sub) {
+      auditAuthFailure("google_youtube", "oauth", "SUB_MISSING");
+      return res.status(400).send("auth_failed");
+    }
+
+    await upsertOAuthToken({
+      userId: saved.userId,
+      provider: "google_youtube",
+      providerUserId: sub,
+      accessToken,
+      refreshToken,
+      scope,
+      expiresInSeconds: Number.isFinite(expiresIn) ? expiresIn : null,
+    });
+
+    return res.redirect(302, "/?oauth=google_youtube_ok");
+  } catch (err) {
+    auditAuthFailure("google_youtube", "oauth", "INTERNAL_ERROR");
+    console.error("google_youtube_callback_failed", err);
     return res.status(400).send("auth_failed");
   }
 });
@@ -8146,8 +13223,8 @@ app.get("/auth/github/callback", async (req, res) => {
       new URLSearchParams({
         code,
         client_id: clientId,
-        client_secret: clientSecret
-      })
+        client_secret: clientSecret,
+      }),
     );
     const accessToken = String(tk.json?.access_token || "");
     if (!accessToken) {
@@ -8156,10 +13233,16 @@ app.get("/auth/github/callback", async (req, res) => {
     }
 
     const me = await fetchJson("https://api.github.com/user", {
-      headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/vnd.github+json" }
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/vnd.github+json",
+      },
     });
     const emails = await fetchJson("https://api.github.com/user/emails", {
-      headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/vnd.github+json" }
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/vnd.github+json",
+      },
     });
     const sub = String(me.json?.id || "");
     let email: string | null = me.json?.email ? String(me.json.email) : null;
@@ -8179,7 +13262,7 @@ app.get("/auth/github/callback", async (req, res) => {
       provider: "github",
       providerUserId: sub,
       email,
-      displayName: me.json?.name ? String(me.json.name) : null
+      displayName: me.json?.name ? String(me.json.name) : null,
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
     setAuthSession(req, userId, "github");
@@ -8196,11 +13279,35 @@ app.get("/auth/x", async (req, res) => {
   try {
     const clientId = process.env.X_CLIENT_ID || "";
     const clientSecret = process.env.X_CLIENT_SECRET || "";
-    if (!clientId || !clientSecret) return res.status(503).send("x_not_configured");
+    if (!clientId || !clientSecret)
+      return res.status(503).send("x_not_configured");
+    if (req.query.debug === "1") {
+      const redirectUri = oauthCallbackUrl(req, "x");
+      const q = new URLSearchParams({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        scope: "tweet.read users.read offline.access",
+        state: "debug",
+        code_challenge: "debug",
+        code_challenge_method: "S256",
+      });
+      const authUrl = `https://twitter.com/i/oauth2/authorize?${q.toString()}`;
+      return res.json({
+        ok: true,
+        provider: "x",
+        redirect_uri: redirectUri,
+        auth_url: authUrl,
+      });
+    }
     const state = randomHex(16);
     const verifier = b64url(crypto.randomBytes(32));
     const challenge = codeChallengeS256(verifier);
-    setOAuthState(req, "x", { state, codeVerifier: verifier, createdAt: Date.now() });
+    setOAuthState(req, "x", {
+      state,
+      codeVerifier: verifier,
+      createdAt: Date.now(),
+    });
     const redirectUri = oauthCallbackUrl(req, "x");
     const q = new URLSearchParams({
       response_type: "code",
@@ -8209,9 +13316,12 @@ app.get("/auth/x", async (req, res) => {
       scope: "tweet.read users.read offline.access",
       state,
       code_challenge: challenge,
-      code_challenge_method: "S256"
+      code_challenge_method: "S256",
     });
-    return res.redirect(302, `https://twitter.com/i/oauth2/authorize?${q.toString()}`);
+    return res.redirect(
+      302,
+      `https://twitter.com/i/oauth2/authorize?${q.toString()}`,
+    );
   } catch {
     return res.status(500).send("x_auth_start_failed");
   }
@@ -8238,39 +13348,80 @@ app.get("/auth/x/callback", async (req, res) => {
         grant_type: "authorization_code",
         client_id: clientId,
         redirect_uri: redirectUri,
-        code_verifier: saved.codeVerifier
-      })
+        code_verifier: saved.codeVerifier,
+      }),
     );
     let accessToken = String(tk.json?.access_token || "");
 
     if (!accessToken) {
-      const basic = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+      const basic = Buffer.from(`${clientId}:${clientSecret}`).toString(
+        "base64",
+      );
       const tkRes = await fetch("https://api.x.com/2/oauth2/token", {
         method: "POST",
         headers: {
           "content-type": "application/x-www-form-urlencoded",
-          Authorization: `Basic ${basic}`
+          Authorization: `Basic ${basic}`,
         },
         body: new URLSearchParams({
           code,
           grant_type: "authorization_code",
           redirect_uri: redirectUri,
-          code_verifier: saved.codeVerifier
-        }).toString()
+          code_verifier: saved.codeVerifier,
+        }).toString(),
       });
-      tk = { ok: tkRes.ok, status: tkRes.status, json: await tkRes.json().catch(() => null) };
+      tk = {
+        ok: tkRes.ok,
+        status: tkRes.status,
+        json: await tkRes.json().catch(() => null),
+      };
       accessToken = String(tk.json?.access_token || "");
     }
     if (!accessToken) {
+      console.warn("x_auth_token_missing", {
+        status: tk.status,
+        body: tk.json,
+      });
       auditAuthFailure("x", "oauth", "TOKEN_MISSING");
       return res.status(400).send("auth_failed");
     }
 
-    const me = await fetchJson("https://api.x.com/2/users/me?user.fields=id,name,username", {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    });
-    const sub = String(me.json?.data?.id || me.json?.id || me.json?.sub || me.json?.data?.sub || "").trim();
+    let me = await fetchJson(
+      "https://api.x.com/2/users/me?user.fields=id,name,username",
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      },
+    );
+    let sub = String(
+      me.json?.data?.id ||
+        me.json?.id ||
+        me.json?.sub ||
+        me.json?.data?.sub ||
+        "",
+    ).trim();
     if (!sub) {
+      const fallback = await fetchJson(
+        "https://api.twitter.com/2/users/me?user.fields=id,name,username",
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        },
+      );
+      if (fallback.ok) {
+        me = fallback;
+        sub = String(
+          me.json?.data?.id ||
+            me.json?.id ||
+            me.json?.sub ||
+            me.json?.data?.sub ||
+            "",
+        ).trim();
+      }
+    }
+    if (!sub) {
+      console.warn("x_auth_missing_sub", {
+        status: me.status,
+        body: me.json,
+      });
       auditAuthFailure("x", "oauth", "SUB_MISSING");
       return res.status(400).send("auth_failed");
     }
@@ -8278,7 +13429,7 @@ app.get("/auth/x/callback", async (req, res) => {
       provider: "x",
       providerUserId: sub,
       email: null,
-      displayName: me.json?.data?.name ? String(me.json.data.name) : null
+      displayName: me.json?.data?.name ? String(me.json.data.name) : null,
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
     setAuthSession(req, userId, "x");
@@ -8295,7 +13446,25 @@ app.get("/auth/facebook", async (req, res) => {
   try {
     const clientId = process.env.FACEBOOK_CLIENT_ID || "";
     const clientSecret = process.env.FACEBOOK_CLIENT_SECRET || "";
-    if (!clientId || !clientSecret) return res.status(503).send("facebook_not_configured");
+    if (!clientId || !clientSecret)
+      return res.status(503).send("facebook_not_configured");
+    if (req.query.debug === "1") {
+      const redirectUri = oauthCallbackUrl(req, "facebook");
+      const q = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        response_type: "code",
+        state: "debug",
+        scope: "email,public_profile",
+      });
+      const authUrl = `https://www.facebook.com/v19.0/dialog/oauth?${q.toString()}`;
+      return res.json({
+        ok: true,
+        provider: "facebook",
+        redirect_uri: redirectUri,
+        auth_url: authUrl,
+      });
+    }
     const state = randomHex(16);
     setOAuthState(req, "facebook", { state, createdAt: Date.now() });
     const redirectUri = oauthCallbackUrl(req, "facebook");
@@ -8304,9 +13473,12 @@ app.get("/auth/facebook", async (req, res) => {
       redirect_uri: redirectUri,
       response_type: "code",
       state,
-      scope: "email,public_profile"
+      scope: "email,public_profile",
     });
-    return res.redirect(302, `https://www.facebook.com/v19.0/dialog/oauth?${q.toString()}`);
+    return res.redirect(
+      302,
+      `https://www.facebook.com/v19.0/dialog/oauth?${q.toString()}`,
+    );
   } catch {
     return res.status(500).send("facebook_auth_start_failed");
   }
@@ -8327,12 +13499,14 @@ app.get("/auth/facebook/callback", async (req, res) => {
     const clientSecret = process.env.FACEBOOK_CLIENT_SECRET || "";
     const redirectUri = oauthCallbackUrl(req, "facebook");
     const tk = await fetchJson(
-      `https://graph.facebook.com/v19.0/oauth/access_token?${new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        redirect_uri: redirectUri,
-        code
-      }).toString()}`
+      `https://graph.facebook.com/v19.0/oauth/access_token?${new URLSearchParams(
+        {
+          client_id: clientId,
+          client_secret: clientSecret,
+          redirect_uri: redirectUri,
+          code,
+        },
+      ).toString()}`,
     );
     const accessToken = String(tk.json?.access_token || "");
     if (!accessToken) {
@@ -8342,8 +13516,8 @@ app.get("/auth/facebook/callback", async (req, res) => {
     const me = await fetchJson(
       `https://graph.facebook.com/me?${new URLSearchParams({
         fields: "id,name,email",
-        access_token: accessToken
-      }).toString()}`
+        access_token: accessToken,
+      }).toString()}`,
     );
     const sub = String(me.json?.id || "");
     const email = me.json?.email ? String(me.json.email) : null;
@@ -8355,7 +13529,7 @@ app.get("/auth/facebook/callback", async (req, res) => {
       provider: "facebook",
       providerUserId: sub,
       email,
-      displayName: me.json?.name ? String(me.json.name) : null
+      displayName: me.json?.name ? String(me.json.name) : null,
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
     setAuthSession(req, userId, "facebook");
@@ -8373,6 +13547,16 @@ app.get("/auth/wechat", async (req, res) => {
     const appid = process.env.WECHAT_CLIENT_ID || "";
     const secret = process.env.WECHAT_CLIENT_SECRET || "";
     if (!appid || !secret) return res.status(503).send("wechat_not_configured");
+    if (req.query.debug === "1") {
+      const redirectUri = oauthCallbackUrl(req, "wechat");
+      const url = `https://open.weixin.qq.com/connect/qrconnect?appid=${encodeURIComponent(appid)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=snsapi_login&state=debug#wechat_redirect`;
+      return res.json({
+        ok: true,
+        provider: "wechat",
+        redirect_uri: redirectUri,
+        auth_url: url,
+      });
+    }
     const state = randomHex(8);
     setOAuthState(req, "wechat", { state, createdAt: Date.now() });
     const redirectUri = oauthCallbackUrl(req, "wechat");
@@ -8402,8 +13586,8 @@ app.get("/auth/wechat/callback", async (req, res) => {
         appid,
         secret,
         code,
-        grant_type: "authorization_code"
-      }).toString()}`
+        grant_type: "authorization_code",
+      }).toString()}`,
     );
     const openid = String(tk.json?.openid || "");
     const accessToken = String(tk.json?.access_token || "");
@@ -8415,15 +13599,15 @@ app.get("/auth/wechat/callback", async (req, res) => {
     const me = await fetchJson(
       `https://api.weixin.qq.com/sns/userinfo?${new URLSearchParams({
         access_token: accessToken,
-        openid
-      }).toString()}`
+        openid,
+      }).toString()}`,
     );
     const sub = unionid || openid;
     const userId = await upsertOAuthIdentity({
       provider: "wechat",
       providerUserId: sub,
       email: null,
-      displayName: me.json?.nickname ? String(me.json.nickname) : null
+      displayName: me.json?.nickname ? String(me.json.nickname) : null,
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
     setAuthSession(req, userId, "wechat");
@@ -8443,13 +13627,19 @@ app.get("/auth/weixin/callback", (req, res) => {
 app.get("/auth/bsky", async (req, res) => {
   noStore(res);
   try {
-    const clientId = process.env.BSKY_CLIENT_ID || process.env.BLUESKY_CLIENT_ID || "";
-    const clientSecret = process.env.BSKY_CLIENT_SECRET || process.env.BLUESKY_CLIENT_SECRET || "";
+    const clientId =
+      process.env.BSKY_CLIENT_ID || process.env.BLUESKY_CLIENT_ID || "";
+    const clientSecret =
+      process.env.BSKY_CLIENT_SECRET || process.env.BLUESKY_CLIENT_SECRET || "";
     if (clientId && clientSecret) {
       const state = randomHex(16);
       const verifier = b64url(crypto.randomBytes(32));
       const challenge = codeChallengeS256(verifier);
-      setOAuthState(req, "bsky", { state, codeVerifier: verifier, createdAt: Date.now() });
+      setOAuthState(req, "bsky", {
+        state,
+        codeVerifier: verifier,
+        createdAt: Date.now(),
+      });
       const redirectUri = `${appBaseUrl(req)}/auth/bsky/callback`;
       const q = new URLSearchParams({
         response_type: "code",
@@ -8458,9 +13648,12 @@ app.get("/auth/bsky", async (req, res) => {
         scope: "atproto transition:generic",
         state,
         code_challenge: challenge,
-        code_challenge_method: "S256"
+        code_challenge_method: "S256",
       });
-      return res.redirect(302, `https://bsky.social/oauth/authorize?${q.toString()}`);
+      return res.redirect(
+        302,
+        `https://bsky.social/oauth/authorize?${q.toString()}`,
+      );
     }
     const handle = process.env.BLUESKY_HANDLE || "";
     const appPassword = process.env.BLUESKY_APP_PASSWORD || "";
@@ -8468,11 +13661,14 @@ app.get("/auth/bsky", async (req, res) => {
       auditAuthFailure("bsky", "app_password", "NOT_CONFIGURED");
       return res.status(503).send("bsky_not_configured");
     }
-    const sess = await fetch("https://bsky.social/xrpc/com.atproto.server.createSession", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ identifier: handle, password: appPassword })
-    });
+    const sess = await fetch(
+      "https://bsky.social/xrpc/com.atproto.server.createSession",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ identifier: handle, password: appPassword }),
+      },
+    );
     if (!sess.ok) {
       auditAuthFailure("bsky", "app_password", "SESSION_CREATE_FAILED");
       return res.status(400).send("auth_failed");
@@ -8489,7 +13685,7 @@ app.get("/auth/bsky", async (req, res) => {
       provider: "bsky",
       providerUserId: did,
       email,
-      displayName
+      displayName,
     });
     auditAuthLogin(req, "bsky", userId, "app_password");
     await migrateGuestPasskeysToUser(req.sessionID, userId);
@@ -8511,20 +13707,25 @@ app.get("/auth/bsky/callback", async (req, res) => {
       auditAuthFailure("bsky", "oauth", "INVALID_STATE_OR_CODE");
       return res.status(400).send("auth_failed");
     }
-    const clientId = process.env.BSKY_CLIENT_ID || process.env.BLUESKY_CLIENT_ID || "";
-    const clientSecret = process.env.BSKY_CLIENT_SECRET || process.env.BLUESKY_CLIENT_SECRET || "";
+    const clientId =
+      process.env.BSKY_CLIENT_ID || process.env.BLUESKY_CLIENT_ID || "";
+    const clientSecret =
+      process.env.BSKY_CLIENT_SECRET || process.env.BLUESKY_CLIENT_SECRET || "";
     const redirectUri = `${appBaseUrl(req)}/auth/bsky/callback`;
     const tkRes = await fetch("https://bsky.social/oauth/token", {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        accept: "application/json",
+      },
       body: new URLSearchParams({
         code,
         grant_type: "authorization_code",
         client_id: clientId,
         client_secret: clientSecret,
         redirect_uri: redirectUri,
-        code_verifier: saved.codeVerifier
-      }).toString()
+        code_verifier: saved.codeVerifier,
+      }).toString(),
     });
     const tk = (await tkRes.json().catch(() => null)) as any;
     const sub = String(tk?.sub || tk?.did || "");
@@ -8537,7 +13738,7 @@ app.get("/auth/bsky/callback", async (req, res) => {
       provider: "bsky",
       providerUserId: sub,
       email,
-      displayName: null
+      displayName: null,
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
     setAuthSession(req, userId, "bsky");
@@ -8550,12 +13751,25 @@ app.get("/auth/bsky/callback", async (req, res) => {
 });
 
 app.get("/api/auth/google", (_req, res) => res.redirect(302, "/auth/google"));
+app.get("/api/auth/google/youtube", (_req, res) =>
+  res.redirect(302, "/auth/google/youtube"),
+);
 app.get("/api/auth/x", (_req, res) => res.redirect(302, "/auth/x"));
-app.get("/api/auth/facebook", (_req, res) => res.redirect(302, "/auth/facebook"));
+app.get("/api/auth/facebook", (_req, res) =>
+  res.redirect(302, "/auth/facebook"),
+);
 app.get("/api/auth/wechat", (_req, res) => res.redirect(302, "/auth/wechat"));
 app.get("/api/auth/weixin", (_req, res) => res.redirect(302, "/auth/wechat"));
 app.get("/api/auth/bsky", (_req, res) => res.redirect(302, "/auth/bsky"));
 app.get("/api/auth/google/callback", (req, res) => {
+  const q = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+  res.redirect(302, `/auth/google/callback${q}`);
+});
+app.get("/api/auth/google/youtube/callback", (req, res) => {
+  const q = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+  res.redirect(302, `/auth/google/youtube/callback${q}`);
+});
+app.get("/api/auth/google_youtube/callback", (req, res) => {
   const q = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
   res.redirect(302, `/auth/google/callback${q}`);
 });
@@ -8593,7 +13807,7 @@ const genericProviders = [
   "qq",
   "douyin",
   "notion",
-  "dropbox"
+  "dropbox",
 ];
 
 for (const pid of genericProviders) {
@@ -8608,18 +13822,23 @@ for (const pid of genericProviders) {
       const state = randomHex(16);
       const verifier = b64url(crypto.randomBytes(32));
       const challenge = codeChallengeS256(verifier);
-      setOAuthState(req, pid, { state, codeVerifier: verifier, createdAt: Date.now() });
+      setOAuthState(req, pid, {
+        state,
+        codeVerifier: verifier,
+        createdAt: Date.now(),
+      });
       const key = envUpper(pid);
       const clientId = process.env[`${key}_CLIENT_ID`] || "";
-      const redirectUri = `${appBaseUrl(req)}/auth/${pid}/callback`;
+      const redirectUri = oauthCallbackUrl(req, pid);
+      const clientParam = pid === "tiktok" ? "client_key" : "client_id";
       const q = new URLSearchParams({
         response_type: "code",
-        client_id: clientId,
+        [clientParam]: clientId,
         redirect_uri: redirectUri,
         scope: spec.scopes.join(" "),
         state,
         code_challenge: challenge,
-        code_challenge_method: "S256"
+        code_challenge_method: "S256",
       });
       return res.redirect(302, `${spec.authUrl}?${q.toString()}`);
     } catch {
@@ -8646,29 +13865,52 @@ for (const pid of genericProviders) {
       const key = envUpper(pid);
       const clientId = process.env[`${key}_CLIENT_ID`] || "";
       const clientSecret = process.env[`${key}_CLIENT_SECRET`] || "";
-      const redirectUri = `${appBaseUrl(req)}/auth/${pid}/callback`;
+      const redirectUri = oauthCallbackUrl(req, pid);
       const tk = await oauthExchangeTokenForm(
         spec.tokenUrl,
         new URLSearchParams({
           code,
           grant_type: "authorization_code",
-          client_id: clientId,
-          client_secret: clientSecret,
+          ...(pid === "tiktok"
+            ? { client_key: clientId, client_secret: clientSecret }
+            : { client_id: clientId, client_secret: clientSecret }),
           redirect_uri: redirectUri,
-          code_verifier: saved.codeVerifier
-        })
+          code_verifier: saved.codeVerifier,
+        }),
       );
-      const accessToken = String(tk.json?.access_token || "");
+      const accessToken = String(
+        tk.json?.access_token || tk.json?.data?.access_token || "",
+      );
       if (!accessToken) {
         auditAuthFailure(pid, "oauth", "TOKEN_MISSING");
         return res.status(400).send("auth_failed");
       }
-      const me = await fetchJson(spec.userInfoUrl, {
-        headers: { Authorization: `Bearer ${accessToken}`, accept: "application/json" }
+      const userInfoUrl =
+        pid === "tiktok"
+          ? `${spec.userInfoUrl}?fields=open_id,union_id,display_name,avatar_url`
+          : spec.userInfoUrl;
+      const me = await fetchJson(userInfoUrl, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          accept: "application/json",
+        },
       });
       const sub = pickFirstByKeys(me.json, spec.idKeys || ["sub", "id"]);
-      const email = pickFirstByKeys(me.json, spec.emailKeys || ["email"]) || null;
-      const displayName = pickFirstByKeys(me.json, spec.nameKeys || ["name"]) || null;
+      const email =
+        pickFirstByKeys(me.json, spec.emailKeys || ["email"]) || null;
+      const displayName =
+        pickFirstByKeys(me.json, spec.nameKeys || ["name"]) || null;
+      // CSSOS_PHASE2_OAUTH_AVATAR 20260501 #250 — Jing
+      // "请改进社交平台登录面板，必须获取用户在该社交平台的头像."
+      // Pull whichever picture/avatar field this provider exposes.
+      // TikTok/Douyin: avatar_url (and avatar_large_url as upgrade).
+      // GitHub: avatar_url. Discord: avatar (a hash, needs format).
+      // Falls back to spec.avatarKeys if the provider config supplies
+      // a custom list, or generic ["avatar_url", "picture", "photo"].
+      const avatarKeys = (spec as any).avatarKeys || [
+        "avatar_large_url", "avatar_url", "picture", "photo", "profile_image_url",
+      ];
+      const avatarUrl = pickFirstByKeys(me.json, avatarKeys) || null;
       if (!sub) {
         auditAuthFailure(pid, "oauth", "SUB_MISSING");
         return res.status(400).send("auth_failed");
@@ -8677,7 +13919,8 @@ for (const pid of genericProviders) {
         provider: pid,
         providerUserId: sub,
         email,
-        displayName
+        displayName,
+        avatarUrl,
       });
       await migrateGuestPasskeysToUser(req.sessionID, userId);
       setAuthSession(req, userId, pid);
@@ -8689,6 +13932,10 @@ for (const pid of genericProviders) {
   });
 
   app.get(`/api/auth/${pid}`, (_req, res) => res.redirect(302, `/auth/${pid}`));
+  app.get(`/api/auth/${pid}/callback`, (req, res) => {
+    const q = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+    res.redirect(302, `/auth/${pid}/callback${q}`);
+  });
 }
 
 app.post("/api/auth/logout", (req, res) => {
@@ -8739,7 +13986,9 @@ app.post("/api/auth/passkey/register/verify", async (req, res) => {
       return res.status(400).json({ code: "PASSKEY_CRED_INVALID" });
     }
     const transports = Array.isArray(credential?.response?.transports)
-      ? credential.response.transports.filter((x: unknown): x is string => typeof x === "string")
+      ? credential.response.transports.filter(
+          (x: unknown): x is string => typeof x === "string",
+        )
       : ["internal"];
     await savePasskeyCred(subject.key, credId, transports);
     passkeyState.delete(subject.key);
@@ -8814,13 +14063,14 @@ app.get("/api/billing/status", async (req, res) => {
           month_spent_cents: 0,
           auto_recharge: null,
           remaining: null,
-          limit: null
-        })
+          limit: null,
+        }),
       );
     }
     await resetMonthIfNeeded(user.id);
     const created = !access.billingAccount;
-    const account = access.billingAccount || (await ensureBillingAccount(user.id)).account;
+    const account =
+      access.billingAccount || (await ensureBillingAccount(user.id)).account;
     const data = {
       authenticated: true,
       tier: access.tier,
@@ -8831,8 +14081,8 @@ app.get("/api/billing/status", async (req, res) => {
       auto_recharge: {
         enabled: account.auto_recharge_enabled,
         threshold_cents: Number(account.auto_recharge_threshold_cents),
-        amount_cents: Number(account.auto_recharge_amount_cents)
-      }
+        amount_cents: Number(account.auto_recharge_amount_cents),
+      },
     };
     if (created && data.balance_cents === 0) {
       return res.json(okEmpty(data, "No data yet"));
@@ -8848,21 +14098,27 @@ app.get("/api/billing/usage", async (req, res) => {
   try {
     const user = await getSessionUser(req);
     if (!user) {
-      return res.json(okEmpty({ authenticated: false, events: [] }, "No data yet"));
+      return res.json(
+        okEmpty({ authenticated: false, events: [] }, "No data yet"),
+      );
     }
     const limit = Math.min(Number(req.query.limit || 50), 200);
     const result: QueryResult<any> = await withClient((client) =>
       client.query(
         "SELECT * FROM usage_events WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2",
-        [user.id, limit]
-      )
+        [user.id, limit],
+      ),
     );
     if (!result.rows.length) {
-      return res.json(okEmpty({ authenticated: true, events: [] }, "No data yet"));
+      return res.json(
+        okEmpty({ authenticated: true, events: [] }, "No data yet"),
+      );
     }
     return res.json(okData({ authenticated: true, events: result.rows }));
   } catch (_err) {
-    return res.json(okEmpty({ authenticated: false, events: [] }, "No data yet"));
+    return res.json(
+      okEmpty({ authenticated: false, events: [] }, "No data yet"),
+    );
   }
 });
 
@@ -8871,21 +14127,27 @@ app.get("/api/billing/ledger", async (req, res) => {
   try {
     const user = await getSessionUser(req);
     if (!user) {
-      return res.json(okEmpty({ authenticated: false, entries: [] }, "No data yet"));
+      return res.json(
+        okEmpty({ authenticated: false, entries: [] }, "No data yet"),
+      );
     }
     const limit = Math.min(Number(req.query.limit || 20), 100);
     const result: QueryResult<any> = await withClient((client) =>
       client.query(
         "SELECT * FROM ledger_entries WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2",
-        [user.id, limit]
-      )
+        [user.id, limit],
+      ),
     );
     if (!result.rows.length) {
-      return res.json(okEmpty({ authenticated: true, entries: [] }, "No data yet"));
+      return res.json(
+        okEmpty({ authenticated: true, entries: [] }, "No data yet"),
+      );
     }
     return res.json(okData({ authenticated: true, entries: result.rows }));
   } catch (_err) {
-    return res.json(okEmpty({ authenticated: false, entries: [] }, "No data yet"));
+    return res.json(
+      okEmpty({ authenticated: false, entries: [] }, "No data yet"),
+    );
   }
 });
 
@@ -8894,10 +14156,21 @@ app.get("/api/cssmv/commerce", async (req, res) => {
   try {
     const user = await getSessionUser(req);
     if (!user) {
-      return res.json(okEmpty({ authenticated: false, permission_snapshot: buildPermissionSnapshot("guest", "guest") }, "No data yet"));
+      return res.json(
+        okEmpty(
+          {
+            authenticated: false,
+            permission_snapshot: buildPermissionSnapshot("guest", "guest"),
+          },
+          "No data yet",
+        ),
+      );
     }
     const access = await resolveUserAccessProfile(user);
-    const permissionSnapshot = buildPermissionSnapshot(access.tier, access.role);
+    const permissionSnapshot = buildPermissionSnapshot(
+      access.tier,
+      access.role,
+    );
     let accountData: Record<string, unknown>;
     if (access.tier === "admin" || access.tier === "vip") {
       accountData = {
@@ -8906,11 +14179,12 @@ app.get("/api/cssmv/commerce", async (req, res) => {
         balance_cents: null,
         monthly_limit_cents: null,
         month_spent_cents: 0,
-        auto_recharge: null
+        auto_recharge: null,
       };
     } else {
       await resetMonthIfNeeded(user.id);
-      const account = access.billingAccount || (await ensureBillingAccount(user.id)).account;
+      const account =
+        access.billingAccount || (await ensureBillingAccount(user.id)).account;
       accountData = {
         tier: access.tier,
         currency: account.currency,
@@ -8920,23 +14194,38 @@ app.get("/api/cssmv/commerce", async (req, res) => {
         auto_recharge: {
           enabled: account.auto_recharge_enabled,
           threshold_cents: Number(account.auto_recharge_threshold_cents),
-          amount_cents: Number(account.auto_recharge_amount_cents)
-        }
+          amount_cents: Number(account.auto_recharge_amount_cents),
+        },
       };
     }
 
-    const [ledgerRes, usageRes, worksRes, orderRes, tipRes, transferRes, marketRes, entitlementsRes, boostOrdersRes, creatorCommerce, billableActions, studioWorkspace, studioEnterprise, cinemaBookings] = await Promise.all([
+    const [
+      ledgerRes,
+      usageRes,
+      worksRes,
+      orderRes,
+      tipRes,
+      transferRes,
+      marketRes,
+      entitlementsRes,
+      boostOrdersRes,
+      creatorCommerce,
+      billableActions,
+      studioWorkspace,
+      studioEnterprise,
+      cinemaBookings,
+    ] = await Promise.all([
       withClient((client) =>
         client.query(
           "SELECT * FROM ledger_entries WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20",
-          [user.id]
-        )
+          [user.id],
+        ),
       ),
       withClient((client) =>
         client.query(
           "SELECT * FROM usage_events WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20",
-          [user.id]
-        )
+          [user.id],
+        ),
       ),
       withClient((client) =>
         client.query(
@@ -8945,8 +14234,8 @@ app.get("/api/cssmv/commerce", async (req, res) => {
            WHERE user_id = $1
            ORDER BY created_at DESC
           LIMIT 8`,
-          [user.id]
-        )
+          [user.id],
+        ),
       ),
       withClient((client) =>
         client.query(
@@ -8956,8 +14245,8 @@ app.get("/api/cssmv/commerce", async (req, res) => {
            WHERE buyer_user_id = $1 OR seller_user_id = $1
            ORDER BY created_at DESC
            LIMIT 12`,
-          [user.id]
-        )
+          [user.id],
+        ),
       ),
       withClient((client) =>
         client.query(
@@ -8966,8 +14255,8 @@ app.get("/api/cssmv/commerce", async (req, res) => {
            WHERE owner_user_id = $1 OR tipper_user_id = $1
            ORDER BY created_at DESC
            LIMIT 12`,
-          [user.id]
-        )
+          [user.id],
+        ),
       ),
       withClient((client) =>
         client.query(
@@ -8977,8 +14266,8 @@ app.get("/api/cssmv/commerce", async (req, res) => {
            WHERE from_user_id = $1 OR to_user_id = $1
            ORDER BY effective_at DESC, created_at DESC
            LIMIT 12`,
-          [user.id]
-        )
+          [user.id],
+        ),
       ),
       withClient((client) =>
         client.query(
@@ -8988,8 +14277,8 @@ app.get("/api/cssmv/commerce", async (req, res) => {
            WHERE owner_user_id = $1
            ORDER BY updated_at DESC
           LIMIT 12`,
-          [user.id]
-        )
+          [user.id],
+        ),
       ),
       withClient((client) =>
         client.query(
@@ -8998,8 +14287,8 @@ app.get("/api/cssmv/commerce", async (req, res) => {
            WHERE user_id = $1
            ORDER BY created_at DESC
            LIMIT 24`,
-          [user.id]
-        )
+          [user.id],
+        ),
       ),
       withClient((client) =>
         client.query(
@@ -9009,8 +14298,8 @@ app.get("/api/cssmv/commerce", async (req, res) => {
            WHERE user_id = $1
            ORDER BY created_at DESC
            LIMIT 12`,
-          [user.id]
-        )
+          [user.id],
+        ),
       ),
       getCreatorCommercePolicySettings(),
       getBillingActionPolicySettings(),
@@ -9018,17 +14307,18 @@ app.get("/api/cssmv/commerce", async (req, res) => {
         userId: user.id,
         email: user.email,
         displayName: user.display_name,
-        tier: access.tier
+        tier: access.tier,
       }),
       getStudioEnterprisePolicySettings(),
-      listCinemaBookingRequests(user.id, 12)
+      listCinemaBookingRequests(user.id, 12),
     ]);
     const boostEntitlements = summarizeBoostEntitlements(entitlementsRes.rows);
     const enterpriseApiUsage =
-      canUseEnterpriseApiTier(access.tier) && studioEnterprise.enterpriseApiEnabled
+      canUseEnterpriseApiTier(access.tier) &&
+      studioEnterprise.enterpriseApiEnabled
         ? await listEnterpriseApiUsageSnapshot({
             userId: user.id,
-            rpm: studioEnterprise.enterpriseApiRateLimitPerMinute
+            rpm: studioEnterprise.enterpriseApiRateLimitPerMinute,
           }).catch(() => null)
         : null;
 
@@ -9043,7 +14333,7 @@ app.get("/api/cssmv/commerce", async (req, res) => {
           role: access.role,
           tier: access.tier,
           membership_policy: access.policy,
-          queue_lane: queueLaneForTier(access.tier)
+          queue_lane: queueLaneForTier(access.tier),
         },
         account: accountData,
         ledger_entries: ledgerRes.rows,
@@ -9052,7 +14342,7 @@ app.get("/api/cssmv/commerce", async (req, res) => {
         creator_boost: {
           config: creatorCommerce,
           entitlements: boostEntitlements,
-          orders: boostOrdersRes.rows
+          orders: boostOrdersRes.rows,
         },
         cinema_bookings: cinemaBookings,
         billable_actions: billableActions,
@@ -9062,13 +14352,13 @@ app.get("/api/cssmv/commerce", async (req, res) => {
           members: studioWorkspace?.members || [],
           projects: studioWorkspace?.projects || [],
           can_collaborate: !!studioWorkspace?.canCollaborate,
-          can_create_projects: !!studioWorkspace?.canCreateProjects
+          can_create_projects: !!studioWorkspace?.canCreateProjects,
         },
         enterprise_api: canUseEnterpriseApiTier(access.tier)
           ? {
               enabled: studioEnterprise.enterpriseApiEnabled,
               queue_lane: queueLaneForTier(access.tier),
-              usage: enterpriseApiUsage
+              usage: enterpriseApiUsage,
             }
           : null,
         permission_snapshot: permissionSnapshot,
@@ -9076,16 +14366,24 @@ app.get("/api/cssmv/commerce", async (req, res) => {
           profiles: marketRes.rows,
           orders: orderRes.rows,
           tips: tipRes.rows,
-          ownership_transfers: transferRes.rows
+          ownership_transfers: transferRes.rows,
         },
         ownership: {
           works_count: worksRes.rows.length,
-          works: worksRes.rows
-        }
-      })
+          works: worksRes.rows,
+        },
+      }),
     );
   } catch (_err) {
-    return res.json(okEmpty({ authenticated: false, permission_snapshot: buildPermissionSnapshot("guest", "guest") }, "No data yet"));
+    return res.json(
+      okEmpty(
+        {
+          authenticated: false,
+          permission_snapshot: buildPermissionSnapshot("guest", "guest"),
+        },
+        "No data yet",
+      ),
+    );
   }
 });
 
@@ -9095,7 +14393,14 @@ app.get("/api/cssmv/boosts", async (req, res) => {
     const user = await getSessionUser(req);
     if (!user) {
       const config = await getCreatorCommercePolicySettings();
-      return res.json(okData({ authenticated: false, config, entitlements: summarizeBoostEntitlements([]), orders: [] }));
+      return res.json(
+        okData({
+          authenticated: false,
+          config,
+          entitlements: summarizeBoostEntitlements([]),
+          orders: [],
+        }),
+      );
     }
     const [config, entitlements, orders] = await Promise.all([
       getCreatorCommercePolicySettings(),
@@ -9107,19 +14412,25 @@ app.get("/api/cssmv/boosts", async (req, res) => {
            WHERE user_id = $1
            ORDER BY created_at DESC
            LIMIT 12`,
-          [user.id]
-        )
-      )
+          [user.id],
+        ),
+      ),
     ]);
-    return res.json(okData({
-      authenticated: true,
-      config,
-      entitlements: summarizeBoostEntitlements(entitlements),
-      entitlement_rows: entitlements,
-      orders: orders.rows
-    }));
+    return res.json(
+      okData({
+        authenticated: true,
+        config,
+        entitlements: summarizeBoostEntitlements(entitlements),
+        entitlement_rows: entitlements,
+        orders: orders.rows,
+      }),
+    );
   } catch (err) {
-    return res.status(500).json({ ok: false, code: "CREATOR_BOOSTS_LOAD_FAILED", message: String(err) });
+    return res.status(500).json({
+      ok: false,
+      code: "CREATOR_BOOSTS_LOAD_FAILED",
+      message: String(err),
+    });
   }
 });
 
@@ -9140,14 +14451,25 @@ app.post("/api/cssmv/boosts/consume", async (req, res) => {
       boostKind,
       quantity,
       reason: String(req.body?.reason || "creation_run"),
-      meta: req.body?.meta && typeof req.body.meta === "object" ? req.body.meta : {}
+      meta:
+        req.body?.meta && typeof req.body.meta === "object"
+          ? req.body.meta
+          : {},
     });
     if (!result.ok) {
-      return res.status(409).json({ ok: false, code: "BOOST_ENTITLEMENT_INSUFFICIENT", data: result });
+      return res.status(409).json({
+        ok: false,
+        code: "BOOST_ENTITLEMENT_INSUFFICIENT",
+        data: result,
+      });
     }
     return res.json(okData(result));
   } catch (err) {
-    return res.status(500).json({ ok: false, code: "CREATOR_BOOSTS_CONSUME_FAILED", message: String(err) });
+    return res.status(500).json({
+      ok: false,
+      code: "CREATOR_BOOSTS_CONSUME_FAILED",
+      message: String(err),
+    });
   }
 });
 
@@ -9171,8 +14493,13 @@ app.post("/api/cssmv/boosts/checkout/create", async (req, res) => {
     if (!policy.enabledKinds.includes(boostKind)) {
       return res.status(403).json({ ok: false, code: "BOOST_KIND_DISABLED" });
     }
-    if (policy.adminOnlyPurchaseOverride && roleForEmail(user.email) !== "admin") {
-      return res.status(403).json({ ok: false, code: "BOOST_PURCHASE_ADMIN_ONLY" });
+    if (
+      policy.adminOnlyPurchaseOverride &&
+      roleForEmail(user.email) !== "admin"
+    ) {
+      return res
+        .status(403)
+        .json({ ok: false, code: "BOOST_PURCHASE_ADMIN_ONLY" });
     }
     const unitAmountCents =
       boostKind === "language"
@@ -9181,11 +14508,15 @@ app.post("/api/cssmv/boosts/checkout/create", async (req, res) => {
           ? policy.voiceBoostUnitCents
           : boostKind === "thumbnail"
             ? policy.thumbnailBoostUnitCents
-            : policy.previewVideoBoostUnitCents;
+            : boostKind === "preview_video"
+              ? policy.previewVideoBoostUnitCents
+              : boostKind === "background_job"
+                ? policy.backgroundJobBoostUnitCents
+                : policy.generationBoostUnitCents;
     const customer = await ensureStripeCustomer({
       userId: user.id,
       email: normalizeEmail(user.email),
-      name: user.display_name
+      name: user.display_name,
     });
     const orderId = await createCreatorBoostOrder({
       userId: user.id,
@@ -9195,31 +14526,51 @@ app.post("/api/cssmv/boosts/checkout/create", async (req, res) => {
       currency: "USD",
       meta: {
         requested_from: String(req.body?.requested_from || "advanced_settings"),
-        creation_snapshot: req.body?.creation_snapshot && typeof req.body.creation_snapshot === "object" ? req.body.creation_snapshot : {}
-      }
+        creation_snapshot:
+          req.body?.creation_snapshot &&
+          typeof req.body.creation_snapshot === "object"
+            ? req.body.creation_snapshot
+            : {},
+      },
     });
     if (!orderId) {
-      return res.status(500).json({ ok: false, code: "BOOST_ORDER_CREATE_FAILED" });
+      return res
+        .status(500)
+        .json({ ok: false, code: "BOOST_ORDER_CREATE_FAILED" });
     }
-    const successUrl = String(req.body?.success_url || process.env.STRIPE_CHECKOUT_SUCCESS_URL || `${appBaseUrl(req)}/`).trim();
-    const cancelUrl = String(req.body?.cancel_url || process.env.STRIPE_CHECKOUT_CANCEL_URL || `${appBaseUrl(req)}/`).trim();
+    const successUrl = String(
+      req.body?.success_url ||
+        process.env.STRIPE_CHECKOUT_SUCCESS_URL ||
+        `${appBaseUrl(req)}/`,
+    ).trim();
+    const cancelUrl = String(
+      req.body?.cancel_url ||
+        process.env.STRIPE_CHECKOUT_CANCEL_URL ||
+        `${appBaseUrl(req)}/`,
+    ).trim();
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       customer: String(customer?.stripe_customer_id || ""),
-      success_url: appendQueryToUrl(successUrl, { stripe_checkout: "success", creator_boost_order_id: orderId }),
-      cancel_url: appendQueryToUrl(cancelUrl, { stripe_checkout: "cancel", creator_boost_order_id: orderId }),
+      success_url: appendQueryToUrl(successUrl, {
+        stripe_checkout: "success",
+        creator_boost_order_id: orderId,
+      }),
+      cancel_url: appendQueryToUrl(cancelUrl, {
+        stripe_checkout: "cancel",
+        creator_boost_order_id: orderId,
+      }),
       client_reference_id: orderId,
       payment_intent_data: {
         metadata: {
           creator_boost_order_id: orderId,
           boost_kind: boostKind,
-          buyer_user_id: user.id
-        }
+          buyer_user_id: user.id,
+        },
       },
       metadata: {
         creator_boost_order_id: orderId,
         boost_kind: boostKind,
-        buyer_user_id: user.id
+        buyer_user_id: user.id,
       },
       line_items: [
         {
@@ -9235,29 +14586,212 @@ app.post("/api/cssmv/boosts/checkout/create", async (req, res) => {
                     ? "Creator Boost: Extra Voice Lane"
                     : boostKind === "thumbnail"
                       ? "Creator Boost: Thumbnail Regeneration"
-                      : "Creator Boost: Preview Video Regeneration",
-              metadata: { creator_boost_order_id: orderId, boost_kind: boostKind }
-            }
-          }
-        }
-      ]
+                      : boostKind === "preview_video"
+                        ? "Creator Boost: Preview Video Regeneration"
+                        : boostKind === "background_job"
+                          ? "Creator Boost: Background Queue Slot"
+                          : "Creator Boost: Extra Generation",
+              metadata: {
+                creator_boost_order_id: orderId,
+                boost_kind: boostKind,
+              },
+            },
+          },
+        },
+      ],
     });
     await updateCreatorBoostOrderStripeRefs({
       orderId,
       checkoutSessionId: session.id,
-      paymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : null,
-      metaPatch: { checkout_url_created: true }
+      paymentIntentId:
+        typeof session.payment_intent === "string"
+          ? session.payment_intent
+          : null,
+      metaPatch: { checkout_url_created: true },
     });
-    return res.json(okData({
-      order_id: orderId,
-      checkout_session_id: session.id,
-      checkout_url: session.url,
-      boost_kind: boostKind,
-      quantity,
-      unit_amount_cents: unitAmountCents
-    }));
+    return res.json(
+      okData({
+        order_id: orderId,
+        checkout_session_id: session.id,
+        checkout_url: session.url,
+        boost_kind: boostKind,
+        quantity,
+        unit_amount_cents: unitAmountCents,
+      }),
+    );
   } catch (err) {
-    return res.status(500).json({ ok: false, code: "CREATOR_BOOST_CHECKOUT_CREATE_FAILED", message: String(err) });
+    return res.status(500).json({
+      ok: false,
+      code: "CREATOR_BOOST_CHECKOUT_CREATE_FAILED",
+      message: String(err),
+    });
+  }
+});
+
+// P2-25b: subscription checkout for membership tier upgrade
+// Lets a user upgrade from free/starter/etc. by paying via Stripe Checkout (subscription mode).
+// On success, the webhook handler (processStripeWebhookEvent) flips billing_accounts.membership_tier.
+app.post("/api/billing/membership/change", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const targetTier = normalizeMembershipTier(req.body?.target_tier);
+    if (
+      targetTier !== "starter" &&
+      targetTier !== "pro" &&
+      targetTier !== "studio" &&
+      targetTier !== "enterprise" &&
+      targetTier !== "free"
+    ) {
+      return res.status(400).json({ ok: false, code: "TARGET_TIER_INVALID" });
+    }
+    const access = await resolveUserAccessProfile(user);
+    if (access.tier === "admin" || access.tier === "vip") {
+      // Admin/VIP don't need self-serve subscription.
+      return res.json(
+        okData({
+          tier: access.tier,
+          previous_tier: access.tier,
+          change_kind: "noop",
+          message: "Account tier managed manually.",
+        }),
+      );
+    }
+    const currentTier = access.tier;
+    if (currentTier === targetTier) {
+      return res.json(
+        okData({
+          tier: targetTier,
+          previous_tier: currentTier,
+          change_kind: "noop",
+        }),
+      );
+    }
+    // Tier → monthly price (cents). Matches rust-api/src/billing.rs membership_tier_plan.
+    const tierPriceCents: Record<string, number> = {
+      free: 0,
+      starter: 1500,
+      pro: 3900,
+      studio: 12900,
+      enterprise: 39900,
+    };
+    const tierDisplayName: Record<string, string> = {
+      free: "Free",
+      starter: "Starter",
+      pro: "Pro",
+      studio: "Studio",
+      enterprise: "Enterprise",
+    };
+    const targetPriceCents = tierPriceCents[targetTier] ?? 0;
+    const currentPriceCents = tierPriceCents[currentTier] ?? 0;
+    // Downgrade: no payment needed — flip tier immediately.
+    if (targetPriceCents < currentPriceCents || targetTier === "free") {
+      await ensureBillingAccount(user.id);
+      await withClient((client) =>
+        client.query(
+          `UPDATE billing_accounts
+           SET membership_tier = $2,
+               membership_source = 'self_serve_downgrade',
+               membership_updated_at = now(),
+               updated_at = now()
+           WHERE user_id = $1`,
+          [user.id, targetTier],
+        ),
+      );
+      return res.json(
+        okData({
+          tier: targetTier,
+          previous_tier: currentTier,
+          change_kind: "downgrade",
+          message: `Downgraded to ${tierDisplayName[targetTier]}.`,
+        }),
+      );
+    }
+    // Upgrade path → Stripe Checkout (subscription mode).
+    const stripe = getStripeClient();
+    if (!stripe) {
+      return res.status(503).json({ ok: false, code: "STRIPE_NOT_CONFIGURED" });
+    }
+    const priceCents = targetPriceCents;
+    if (!(priceCents > 0)) {
+      return res.status(400).json({ ok: false, code: "TARGET_TIER_INVALID" });
+    }
+    const customer = await ensureStripeCustomer({
+      userId: user.id,
+      email: normalizeEmail(user.email),
+      name: user.display_name,
+    });
+    const successUrl = String(
+      req.body?.success_url ||
+        process.env.STRIPE_CHECKOUT_SUCCESS_URL ||
+        `${appBaseUrl(req)}/`,
+    ).trim();
+    const cancelUrl = String(
+      req.body?.cancel_url ||
+        process.env.STRIPE_CHECKOUT_CANCEL_URL ||
+        `${appBaseUrl(req)}/`,
+    ).trim();
+    const session = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      customer: String(customer?.stripe_customer_id || ""),
+      success_url: appendQueryToUrl(successUrl, {
+        stripe_checkout: "success",
+        membership_tier: targetTier,
+      }),
+      cancel_url: appendQueryToUrl(cancelUrl, {
+        stripe_checkout: "cancel",
+        membership_tier: targetTier,
+      }),
+      client_reference_id: user.id,
+      subscription_data: {
+        metadata: {
+          membership_tier: targetTier,
+          previous_tier: currentTier,
+          buyer_user_id: user.id,
+        },
+      },
+      metadata: {
+        membership_tier: targetTier,
+        previous_tier: currentTier,
+        buyer_user_id: user.id,
+        change_kind: "subscription_upgrade",
+      },
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: "usd",
+            unit_amount: priceCents,
+            recurring: { interval: "month" },
+            product_data: {
+              name: `cssstudio ${tierDisplayName[targetTier]} — Monthly`,
+              metadata: {
+                membership_tier: targetTier,
+              },
+            },
+          },
+        },
+      ],
+    });
+    return res.json(
+      okData({
+        tier: targetTier,
+        previous_tier: currentTier,
+        change_kind: "subscription_upgrade",
+        checkout_url: session.url,
+        checkout_session_id: session.id,
+        price_cents: priceCents,
+      }),
+    );
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "MEMBERSHIP_CHANGE_FAILED",
+      message: String(err),
+    });
   }
 });
 
@@ -9277,7 +14811,10 @@ app.post("/api/admin/membership/set", async (req, res) => {
       return res.status(400).json({ ok: false, code: "TARGET_TIER_INVALID" });
     }
     const found = await withClient((client) =>
-      client.query<{ id: string; email: string | null }>("SELECT id, email FROM users WHERE lower(email) = lower($1) LIMIT 1", [targetEmail])
+      client.query<{ id: string; email: string | null }>(
+        "SELECT id, email FROM users WHERE lower(email) = lower($1) LIMIT 1",
+        [targetEmail],
+      ),
     );
     const targetUserId = String(found.rows[0]?.id || "").trim();
     if (!targetUserId) {
@@ -9292,12 +14829,33 @@ app.post("/api/admin/membership/set", async (req, res) => {
              membership_updated_at = now(),
              updated_at = now()
          WHERE user_id = $1`,
-        [targetUserId, targetTier]
-      )
+        [targetUserId, targetTier],
+      ),
     );
-    return res.json(okData({ user_id: targetUserId, email: targetEmail, tier: targetTier, updated: true }));
+    await appendAdminUserAction({
+      userId: targetUserId,
+      targetEmail,
+      actionKind: "membership_set",
+      actionScope: "membership",
+      actorUserId: user.id,
+      actorEmail: user.email,
+      note: `tier -> ${targetTier}`,
+      meta: { tier: targetTier },
+    });
+    return res.json(
+      okData({
+        user_id: targetUserId,
+        email: targetEmail,
+        tier: targetTier,
+        updated: true,
+      }),
+    );
   } catch (err) {
-    return res.status(500).json({ ok: false, code: "ADMIN_MEMBERSHIP_SET_FAILED", message: String(err) });
+    return res.status(500).json({
+      ok: false,
+      code: "ADMIN_MEMBERSHIP_SET_FAILED",
+      message: String(err),
+    });
   }
 });
 
@@ -9310,7 +14868,10 @@ app.post("/api/admin/entitlements/grant", async (req, res) => {
     }
     const targetEmail = normalizeEmail(String(req.body?.email || ""));
     const boostKind = normalizeCreatorBoostKind(req.body?.boost_kind);
-    const quantity = Math.max(1, Math.min(200, Number(req.body?.quantity || 1)));
+    const quantity = Math.max(
+      1,
+      Math.min(200, Number(req.body?.quantity || 1)),
+    );
     if (!targetEmail) {
       return res.status(400).json({ ok: false, code: "TARGET_EMAIL_REQUIRED" });
     }
@@ -9318,7 +14879,10 @@ app.post("/api/admin/entitlements/grant", async (req, res) => {
       return res.status(400).json({ ok: false, code: "BOOST_KIND_INVALID" });
     }
     const found = await withClient((client) =>
-      client.query<{ id: string }>("SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1", [targetEmail])
+      client.query<{ id: string }>(
+        "SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1",
+        [targetEmail],
+      ),
     );
     const targetUserId = String(found.rows[0]?.id || "").trim();
     if (!targetUserId) {
@@ -9334,13 +14898,295 @@ app.post("/api/admin/entitlements/grant", async (req, res) => {
           `boost.${boostKind}`,
           quantity,
           user.id,
-          JSON.stringify({ granted_by_email: normalizeEmail(user.email), note: String(req.body?.note || "").slice(0, 240) })
-        ]
-      )
+          JSON.stringify({
+            granted_by_email: normalizeEmail(user.email),
+            note: String(req.body?.note || "").slice(0, 240),
+          }),
+        ],
+      ),
     );
-    return res.json(okData({ user_id: targetUserId, email: targetEmail, boost_kind: boostKind, quantity, granted: true }));
+    await appendAdminUserAction({
+      userId: targetUserId,
+      targetEmail,
+      actionKind: "entitlement_grant",
+      actionScope: "reward",
+      quantity,
+      actorUserId: user.id,
+      actorEmail: user.email,
+      note: String(req.body?.note || ""),
+      meta: { boost_kind: boostKind },
+    });
+    return res.json(
+      okData({
+        user_id: targetUserId,
+        email: targetEmail,
+        boost_kind: boostKind,
+        quantity,
+        granted: true,
+      }),
+    );
   } catch (err) {
-    return res.status(500).json({ ok: false, code: "ADMIN_ENTITLEMENT_GRANT_FAILED", message: String(err) });
+    return res.status(500).json({
+      ok: false,
+      code: "ADMIN_ENTITLEMENT_GRANT_FAILED",
+      message: String(err),
+    });
+  }
+});
+
+app.post("/api/admin/entitlements/revoke", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user || roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const targetEmail = normalizeEmail(String(req.body?.email || ""));
+    const boostKind = normalizeCreatorBoostKind(req.body?.boost_kind);
+    const quantity = Math.max(
+      1,
+      Math.min(200, Number(req.body?.quantity || 1)),
+    );
+    if (!targetEmail) {
+      return res.status(400).json({ ok: false, code: "TARGET_EMAIL_REQUIRED" });
+    }
+    if (!boostKind) {
+      return res.status(400).json({ ok: false, code: "BOOST_KIND_INVALID" });
+    }
+    const found = await withClient((client) =>
+      client.query<{ id: string }>(
+        "SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1",
+        [targetEmail],
+      ),
+    );
+    const targetUserId = String(found.rows[0]?.id || "").trim();
+    if (!targetUserId) {
+      return res.status(404).json({ ok: false, code: "TARGET_USER_NOT_FOUND" });
+    }
+    let remaining = quantity;
+    await withClient(async (client) => {
+      const rows = await client.query(
+        `SELECT id, quantity, consumed_quantity
+         FROM account_entitlements
+         WHERE user_id = $1
+           AND entitlement_key = $2
+           AND quantity > consumed_quantity
+           AND (expires_at IS NULL OR expires_at > now())
+         ORDER BY created_at DESC
+         FOR UPDATE`,
+        [targetUserId, `boost.${boostKind}`],
+      );
+      for (const row of rows.rows) {
+        if (remaining <= 0) break;
+        const available = Math.max(
+          0,
+          Number(row.quantity || 0) - Number(row.consumed_quantity || 0),
+        );
+        if (!available) continue;
+        const revokeNow = Math.min(remaining, available);
+        await client.query(
+          `UPDATE account_entitlements
+           SET consumed_quantity = consumed_quantity + $2,
+               meta = COALESCE(meta, '{}'::jsonb) || jsonb_build_object('last_revoked_by_email', $3, 'last_revoked_at', now()::text),
+               updated_at = now()
+           WHERE id = $1`,
+          [row.id, revokeNow, normalizeEmail(user.email)],
+        );
+        remaining -= revokeNow;
+      }
+    });
+    const revoked = quantity - remaining;
+    await appendAdminUserAction({
+      userId: targetUserId,
+      targetEmail,
+      actionKind: "entitlement_revoke",
+      actionScope: revoked > 0 ? "penalty" : "notice",
+      quantity: revoked,
+      actorUserId: user.id,
+      actorEmail: user.email,
+      note:
+        revoked > 0
+          ? `revoked ${revoked} ${boostKind}`
+          : `no revoke available for ${boostKind}`,
+      meta: {
+        boost_kind: boostKind,
+        requested_quantity: quantity,
+        revoked_quantity: revoked,
+      },
+    });
+    return res.json(
+      okData({
+        user_id: targetUserId,
+        email: targetEmail,
+        boost_kind: boostKind,
+        requested_quantity: quantity,
+        revoked_quantity: revoked,
+        revoked: revoked > 0,
+      }),
+    );
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "ADMIN_ENTITLEMENT_REVOKE_FAILED",
+      message: String(err),
+    });
+  }
+});
+
+app.get("/api/admin/users/search", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user || roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const q = String(req.query?.q || "")
+      .trim()
+      .toLowerCase();
+    if (!q) {
+      return res.json(okData({ users: [] }));
+    }
+    const like = `%${q}%`;
+    const rows = await withClient((client) =>
+      client.query(
+        `SELECT u.id,
+                u.email,
+                u.display_name,
+                COALESCE(ba.membership_tier, 'free') AS tier
+           FROM users u
+           LEFT JOIN billing_accounts ba ON ba.user_id = u.id
+          WHERE lower(COALESCE(u.email, '')) LIKE $1
+             OR lower(COALESCE(u.display_name, '')) LIKE $1
+             OR CAST(u.id AS text) = $2
+          ORDER BY u.created_at DESC
+          LIMIT 20`,
+        [like, q],
+      ),
+    );
+    return res.json(
+      okData({
+        users: rows.rows.map((row) => ({
+          id: String(row.id || ""),
+          email: String(row.email || ""),
+          display_name: String(row.display_name || ""),
+          tier: normalizeMembershipTier(row.tier || "free"),
+        })),
+      }),
+    );
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "ADMIN_USER_SEARCH_FAILED",
+      message: String(err),
+    });
+  }
+});
+
+app.post("/api/admin/users/freeze", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user || roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const targetEmail = normalizeEmail(String(req.body?.email || ""));
+    const reason = String(req.body?.reason || req.body?.note || "")
+      .trim()
+      .slice(0, 500);
+    if (!targetEmail) {
+      return res.status(400).json({ ok: false, code: "TARGET_EMAIL_REQUIRED" });
+    }
+    const found = await withClient((client) =>
+      client.query<{ id: string }>(
+        "SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1",
+        [targetEmail],
+      ),
+    );
+    const targetUserId = String(found.rows[0]?.id || "").trim();
+    if (!targetUserId) {
+      return res.status(404).json({ ok: false, code: "TARGET_USER_NOT_FOUND" });
+    }
+    await ensureBillingAccount(targetUserId);
+    await withClient(async (client) => {
+      await client.query(
+        `UPDATE billing_accounts
+            SET membership_tier = 'free',
+                membership_source = 'admin_freeze',
+                membership_updated_at = now(),
+                updated_at = now()
+          WHERE user_id = $1`,
+        [targetUserId],
+      );
+    });
+    const actionId = await appendAdminUserAction({
+      userId: targetUserId,
+      targetEmail,
+      actionKind: "freeze_user",
+      actionScope: "freeze",
+      actorUserId: user.id,
+      actorEmail: user.email,
+      note: reason || "freeze requested by admin",
+      meta: { frozen: true, enforced_membership_tier: "free" },
+    });
+    return res.json(
+      okData({
+        user_id: targetUserId,
+        email: targetEmail,
+        frozen: true,
+        downgraded_tier: "free",
+        audit_action_id: actionId,
+      }),
+    );
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "ADMIN_USER_FREEZE_FAILED",
+      message: String(err),
+    });
+  }
+});
+
+app.get("/api/admin/users/actions", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user || roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const email = normalizeEmail(
+      String(req.query?.email || req.query?.q || ""),
+    );
+    const limit = Math.max(
+      1,
+      Math.min(100, Number(req.query?.limit || 40) || 40),
+    );
+    if (!email) {
+      return res.json(okData({ actions: [] }));
+    }
+    const actions = await listAdminUserActions(email, limit);
+    return res.json(
+      okData({
+        actions: actions.map((row: any) => ({
+          action_id: String(row.action_id || ""),
+          user_id: String(row.user_id || ""),
+          target_email: String(row.target_email || ""),
+          action_kind: String(row.action_kind || ""),
+          action_scope: String(row.action_scope || ""),
+          quantity: Number(row.quantity || 0),
+          actor_user_id: String(row.actor_user_id || ""),
+          actor_email: String(row.actor_email || ""),
+          note: String(row.note || ""),
+          meta: row.meta && typeof row.meta === "object" ? row.meta : {},
+          created_at: String(row.created_at || ""),
+        })),
+      }),
+    );
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "ADMIN_USER_ACTIONS_FAILED",
+      message: String(err),
+    });
   }
 });
 
@@ -9353,23 +15199,32 @@ app.get("/api/studio/workspace", async (req, res) => {
     }
     const access = await resolveUserAccessProfile(user);
     if (!canUseStudioWorkspaceTier(access.tier)) {
-      return res.status(403).json({ ok: false, code: "STUDIO_WORKSPACE_FORBIDDEN" });
+      return res
+        .status(403)
+        .json({ ok: false, code: "STUDIO_WORKSPACE_FORBIDDEN" });
     }
     const workspace = await ensureStudioWorkspaceForUser({
       userId: user.id,
       email: user.email,
       displayName: user.display_name,
-      tier: access.tier
+      tier: access.tier,
     });
-    return res.json(okData({
-      workspace: workspace?.workspace || null,
-      members: workspace?.members || [],
-      projects: workspace?.projects || [],
-      policy: workspace?.policy || await getStudioEnterprisePolicySettings(),
-      queue_lane: queueLaneForTier(access.tier)
-    }));
+    return res.json(
+      okData({
+        workspace: workspace?.workspace || null,
+        members: workspace?.members || [],
+        projects: workspace?.projects || [],
+        policy:
+          workspace?.policy || (await getStudioEnterprisePolicySettings()),
+        queue_lane: queueLaneForTier(access.tier),
+      }),
+    );
   } catch (err) {
-    return res.status(500).json({ ok: false, code: "STUDIO_WORKSPACE_LOAD_FAILED", message: String(err) });
+    return res.status(500).json({
+      ok: false,
+      code: "STUDIO_WORKSPACE_LOAD_FAILED",
+      message: String(err),
+    });
   }
 });
 
@@ -9382,34 +15237,53 @@ app.post("/api/studio/workspace/members", async (req, res) => {
     }
     const access = await resolveUserAccessProfile(user);
     const settings = await getStudioEnterprisePolicySettings();
-    if (!canUseStudioWorkspaceTier(access.tier) || !settings.teamCollaborationEnabled) {
-      return res.status(403).json({ ok: false, code: "TEAM_COLLABORATION_DISABLED" });
+    if (
+      !canUseStudioWorkspaceTier(access.tier) ||
+      !settings.teamCollaborationEnabled
+    ) {
+      return res
+        .status(403)
+        .json({ ok: false, code: "TEAM_COLLABORATION_DISABLED" });
     }
     const workspaceBundle = await ensureStudioWorkspaceForUser({
       userId: user.id,
       email: user.email,
       displayName: user.display_name,
-      tier: access.tier
+      tier: access.tier,
     });
     const workspaceId = String(workspaceBundle?.workspace?.id || "").trim();
     if (!workspaceId) {
       return res.status(500).json({ ok: false, code: "WORKSPACE_UNAVAILABLE" });
     }
     if ((workspaceBundle?.members?.length || 0) >= settings.maxTeamMembers) {
-      return res.status(409).json({ ok: false, code: "TEAM_MEMBER_LIMIT_REACHED", data: { max_team_members: settings.maxTeamMembers } });
+      return res.status(409).json({
+        ok: false,
+        code: "TEAM_MEMBER_LIMIT_REACHED",
+        data: { max_team_members: settings.maxTeamMembers },
+      });
     }
     const email = normalizeEmail(String(req.body?.email || ""));
-    const role = ["member", "manager"].includes(String(req.body?.role || "").trim().toLowerCase())
-      ? String(req.body?.role || "").trim().toLowerCase()
+    const role = ["member", "manager"].includes(
+      String(req.body?.role || "")
+        .trim()
+        .toLowerCase(),
+    )
+      ? String(req.body?.role || "")
+          .trim()
+          .toLowerCase()
       : "member";
     if (!email) {
       return res.status(400).json({ ok: false, code: "TARGET_EMAIL_REQUIRED" });
     }
     const found = await withClient((client) =>
-      client.query<{ id: string; email: string | null; display_name: string | null }>(
+      client.query<{
+        id: string;
+        email: string | null;
+        display_name: string | null;
+      }>(
         "SELECT id, email, display_name FROM users WHERE lower(email) = lower($1) LIMIT 1",
-        [email]
-      )
+        [email],
+      ),
     );
     const targetUser = found.rows[0];
     if (!targetUser?.id) {
@@ -9427,23 +15301,32 @@ app.post("/api/studio/workspace/members", async (req, res) => {
           targetUser.id,
           role,
           user.id,
-          JSON.stringify({ invited_by_email: normalizeEmail(user.email), invited_at: new Date().toISOString() })
-        ]
-      )
+          JSON.stringify({
+            invited_by_email: normalizeEmail(user.email),
+            invited_at: new Date().toISOString(),
+          }),
+        ],
+      ),
     );
     const refreshed = await ensureStudioWorkspaceForUser({
       userId: user.id,
       email: user.email,
       displayName: user.display_name,
-      tier: access.tier
+      tier: access.tier,
     });
-    return res.json(okData({
-      invited: true,
-      workspace: refreshed?.workspace || null,
-      members: refreshed?.members || []
-    }));
+    return res.json(
+      okData({
+        invited: true,
+        workspace: refreshed?.workspace || null,
+        members: refreshed?.members || [],
+      }),
+    );
   } catch (err) {
-    return res.status(500).json({ ok: false, code: "STUDIO_MEMBER_ADD_FAILED", message: String(err) });
+    return res.status(500).json({
+      ok: false,
+      code: "STUDIO_MEMBER_ADD_FAILED",
+      message: String(err),
+    });
   }
 });
 
@@ -9456,21 +15339,29 @@ app.get("/api/studio/projects", async (req, res) => {
     }
     const access = await resolveUserAccessProfile(user);
     if (!canUseStudioWorkspaceTier(access.tier)) {
-      return res.status(403).json({ ok: false, code: "STUDIO_PROJECTS_FORBIDDEN" });
+      return res
+        .status(403)
+        .json({ ok: false, code: "STUDIO_PROJECTS_FORBIDDEN" });
     }
     const workspace = await ensureStudioWorkspaceForUser({
       userId: user.id,
       email: user.email,
       displayName: user.display_name,
-      tier: access.tier
+      tier: access.tier,
     });
-    return res.json(okData({
-      workspace: workspace?.workspace || null,
-      projects: workspace?.projects || [],
-      queue_lane: queueLaneForTier(access.tier)
-    }));
+    return res.json(
+      okData({
+        workspace: workspace?.workspace || null,
+        projects: workspace?.projects || [],
+        queue_lane: queueLaneForTier(access.tier),
+      }),
+    );
   } catch (err) {
-    return res.status(500).json({ ok: false, code: "STUDIO_PROJECTS_LOAD_FAILED", message: String(err) });
+    return res.status(500).json({
+      ok: false,
+      code: "STUDIO_PROJECTS_LOAD_FAILED",
+      message: String(err),
+    });
   }
 });
 
@@ -9483,25 +15374,38 @@ app.post("/api/studio/projects", async (req, res) => {
     }
     const access = await resolveUserAccessProfile(user);
     const settings = await getStudioEnterprisePolicySettings();
-    if (!canUseStudioWorkspaceTier(access.tier) || !settings.multiProjectEnabled) {
-      return res.status(403).json({ ok: false, code: "MULTI_PROJECT_DISABLED" });
+    if (
+      !canUseStudioWorkspaceTier(access.tier) ||
+      !settings.multiProjectEnabled
+    ) {
+      return res
+        .status(403)
+        .json({ ok: false, code: "MULTI_PROJECT_DISABLED" });
     }
-    const title = String(req.body?.title || "").trim().slice(0, 120);
+    const title = String(req.body?.title || "")
+      .trim()
+      .slice(0, 120);
     if (!title) {
-      return res.status(400).json({ ok: false, code: "PROJECT_TITLE_REQUIRED" });
+      return res
+        .status(400)
+        .json({ ok: false, code: "PROJECT_TITLE_REQUIRED" });
     }
     const workspaceBundle = await ensureStudioWorkspaceForUser({
       userId: user.id,
       email: user.email,
       displayName: user.display_name,
-      tier: access.tier
+      tier: access.tier,
     });
     const workspaceId = String(workspaceBundle?.workspace?.id || "").trim();
     if (!workspaceId) {
       return res.status(500).json({ ok: false, code: "WORKSPACE_UNAVAILABLE" });
     }
     if ((workspaceBundle?.projects?.length || 0) >= settings.maxProjects) {
-      return res.status(409).json({ ok: false, code: "PROJECT_LIMIT_REACHED", data: { max_projects: settings.maxProjects } });
+      return res.status(409).json({
+        ok: false,
+        code: "PROJECT_LIMIT_REACHED",
+        data: { max_projects: settings.maxProjects },
+      });
     }
     const inserted = await withClient((client) =>
       client.query(
@@ -9516,18 +15420,24 @@ app.post("/api/studio/projects", async (req, res) => {
           queueLaneForTier(access.tier),
           JSON.stringify({
             created_via: String(req.body?.created_via || "profile_panel"),
-            tier: access.tier
-          })
-        ]
-      )
+            tier: access.tier,
+          }),
+        ],
+      ),
     );
-    return res.json(okData({
-      created: true,
-      project: inserted.rows[0],
-      queue_lane: queueLaneForTier(access.tier)
-    }));
+    return res.json(
+      okData({
+        created: true,
+        project: inserted.rows[0],
+        queue_lane: queueLaneForTier(access.tier),
+      }),
+    );
   } catch (err) {
-    return res.status(500).json({ ok: false, code: "STUDIO_PROJECT_CREATE_FAILED", message: String(err) });
+    return res.status(500).json({
+      ok: false,
+      code: "STUDIO_PROJECT_CREATE_FAILED",
+      message: String(err),
+    });
   }
 });
 
@@ -9543,27 +15453,36 @@ app.get("/api/enterprise/api-status", async (req, res) => {
       userId: user.id,
       email: user.email,
       tier: access.tier,
-      route: "/api/enterprise/api-status"
+      route: "/api/enterprise/api-status",
     });
     if (!enforced.ok) {
-      return res.status(enforced.code === "ENTERPRISE_API_RATE_LIMITED" ? 429 : 403).json({
-        ok: false,
-        code: enforced.code,
-        data: {
-          queue_lane: queueLaneForTier(access.tier),
-          usage: enforced.usage,
-          settings: enforced.settings
-        }
-      });
+      return res
+        .status(enforced.code === "ENTERPRISE_API_RATE_LIMITED" ? 429 : 403)
+        .json({
+          ok: false,
+          code: enforced.code,
+          data: {
+            queue_lane: queueLaneForTier(access.tier),
+            usage: enforced.usage,
+            settings: enforced.settings,
+          },
+        });
     }
-    return res.json(okData({
-      enabled: enforced.settings.enterpriseApiEnabled,
-      queue_lane: queueLaneForTier(access.tier),
-      usage: enforced.usage,
-      rate_limit_per_minute: enforced.settings.enterpriseApiRateLimitPerMinute
-    }));
+    return res.json(
+      okData({
+        enabled: enforced.settings.enterpriseApiEnabled,
+        queue_lane: queueLaneForTier(access.tier),
+        usage: enforced.usage,
+        rate_limit_per_minute:
+          enforced.settings.enterpriseApiRateLimitPerMinute,
+      }),
+    );
   } catch (err) {
-    return res.status(500).json({ ok: false, code: "ENTERPRISE_API_STATUS_FAILED", message: String(err) });
+    return res.status(500).json({
+      ok: false,
+      code: "ENTERPRISE_API_STATUS_FAILED",
+      message: String(err),
+    });
   }
 });
 
@@ -9580,17 +15499,21 @@ app.post("/api/stripe/customer/ensure", async (req, res) => {
     const record = await ensureStripeCustomer({
       userId: user.id,
       email: normalizeEmail(user.email),
-      name: user.display_name
+      name: user.display_name,
     });
     return res.json(
       okData({
         authenticated: true,
         configured: true,
-        stripe_customer: record
-      })
+        stripe_customer: record,
+      }),
     );
   } catch (err) {
-    return res.status(500).json({ ok: false, code: "STRIPE_CUSTOMER_ENSURE_FAILED", message: String(err) });
+    return res.status(500).json({
+      ok: false,
+      code: "STRIPE_CUSTOMER_ENSURE_FAILED",
+      message: String(err),
+    });
   }
 });
 
@@ -9606,52 +15529,78 @@ app.post("/api/stripe/checkout/create", async (req, res) => {
       return res.status(503).json({ ok: false, code: "STRIPE_NOT_CONFIGURED" });
     }
     const workId = String(req.body?.work_id || "").trim();
-    const orderKind = String(req.body?.order_kind || "listen").trim().toLowerCase() as CommerceProductKind;
+    const orderKind = String(req.body?.order_kind || "listen")
+      .trim()
+      .toLowerCase() as CommerceProductKind;
     const tipAmountCents = Math.round(Number(req.body?.tip_amount_cents || 0));
     if (!workId) {
       return res.status(400).json({ ok: false, code: "WORK_ID_REQUIRED" });
     }
-    if (orderKind !== "listen" && orderKind !== "buyout" && orderKind !== "tip") {
+    if (
+      orderKind !== "listen" &&
+      orderKind !== "buyout" &&
+      orderKind !== "tip"
+    ) {
       return res.status(400).json({ ok: false, code: "ORDER_KIND_INVALID" });
     }
     const commercePolicy = await getCommercePolicySettings();
-    if (orderKind === "tip" && (!Number.isFinite(tipAmountCents) || tipAmountCents < commercePolicy.minTipCents)) {
+    if (
+      orderKind === "tip" &&
+      (!Number.isFinite(tipAmountCents) ||
+        tipAmountCents < commercePolicy.minTipCents)
+    ) {
       return res.status(400).json({ ok: false, code: "TIP_AMOUNT_INVALID" });
     }
-    const product = await resolveCommerceProduct({ workId, orderKind, tipAmountCents });
+    const product = await resolveCommerceProduct({
+      workId,
+      orderKind,
+      tipAmountCents,
+    });
     if (product.ownerUserId === user.id) {
-      return res.status(400).json({ ok: false, code: "SELF_PURCHASE_NOT_ALLOWED" });
+      return res
+        .status(400)
+        .json({ ok: false, code: "SELF_PURCHASE_NOT_ALLOWED" });
     }
     const existingOrders = await findExistingBuyerWorkOrder({
       buyerUserId: user.id,
-      workId
+      workId,
     });
     const paidBuyout = existingOrders.find(
-      (row) => String(row.order_kind || "") === "buyout" && String(row.status || "") === "paid"
+      (row) =>
+        String(row.order_kind || "") === "buyout" &&
+        String(row.status || "") === "paid",
     );
     if (paidBuyout) {
       return res.status(409).json({
         ok: false,
         code: "ORDER_ALREADY_OWNED_BUYOUT",
-        order_id: paidBuyout.id
+        order_id: paidBuyout.id,
       });
     }
     if (orderKind !== "tip") {
       const existingSameKind = existingOrders.find(
-        (row) => String(row.order_kind || "") === orderKind
+        (row) => String(row.order_kind || "") === orderKind,
       );
-      if (existingSameKind && ["pending", "processing"].includes(String(existingSameKind.status || ""))) {
+      if (
+        existingSameKind &&
+        ["pending", "processing"].includes(
+          String(existingSameKind.status || ""),
+        )
+      ) {
         return res.status(409).json({
           ok: false,
           code: "ORDER_ALREADY_PENDING",
-          order_id: existingSameKind.id
+          order_id: existingSameKind.id,
         });
       }
-      if (existingSameKind && String(existingSameKind.status || "") === "paid") {
+      if (
+        existingSameKind &&
+        String(existingSameKind.status || "") === "paid"
+      ) {
         return res.status(409).json({
           ok: false,
           code: "ORDER_ALREADY_PAID",
-          order_id: existingSameKind.id
+          order_id: existingSameKind.id,
         });
       }
       if (
@@ -9659,19 +15608,19 @@ app.post("/api/stripe/checkout/create", async (req, res) => {
         existingOrders.some(
           (row) =>
             String(row.order_kind || "") === "buyout" &&
-            ["pending", "processing"].includes(String(row.status || ""))
+            ["pending", "processing"].includes(String(row.status || "")),
         )
       ) {
         return res.status(409).json({
           ok: false,
-          code: "ORDER_BUYOUT_PENDING"
+          code: "ORDER_BUYOUT_PENDING",
         });
       }
     }
     const customer = await ensureStripeCustomer({
       userId: user.id,
       email: normalizeEmail(user.email),
-      name: user.display_name
+      name: user.display_name,
     });
     const grossAmountCents = Number(product.amountCents);
     const platformFeeCents = computePlatformFeeCents(grossAmountCents);
@@ -9691,25 +15640,29 @@ app.post("/api/stripe/checkout/create", async (req, res) => {
       meta: {
         rights_scope: product.rightsScope,
         title: product.title,
-        ...(orderKind === "tip" ? { tip_amount_cents: grossAmountCents } : {})
-      }
+        ...(orderKind === "tip" ? { tip_amount_cents: grossAmountCents } : {}),
+      },
     });
     if (!orderId) {
       return res.status(500).json({ ok: false, code: "ORDER_CREATE_FAILED" });
     }
     const successUrl = String(
-      req.body?.success_url || process.env.STRIPE_CHECKOUT_SUCCESS_URL || `${appBaseUrl(req)}/`
+      req.body?.success_url ||
+        process.env.STRIPE_CHECKOUT_SUCCESS_URL ||
+        `${appBaseUrl(req)}/`,
     ).trim();
     const cancelUrl = String(
-      req.body?.cancel_url || process.env.STRIPE_CHECKOUT_CANCEL_URL || `${appBaseUrl(req)}/`
+      req.body?.cancel_url ||
+        process.env.STRIPE_CHECKOUT_CANCEL_URL ||
+        `${appBaseUrl(req)}/`,
     ).trim();
     const successUrlFinal = appendQueryToUrl(successUrl, {
       stripe_checkout: "success",
-      order_id: orderId
+      order_id: orderId,
     });
     const cancelUrlFinal = appendQueryToUrl(cancelUrl, {
       stripe_checkout: "cancel",
-      order_id: orderId
+      order_id: orderId,
     });
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
@@ -9724,8 +15677,8 @@ app.post("/api/stripe/checkout/create", async (req, res) => {
           buyer_user_id: user.id,
           seller_user_id: product.ownerUserId,
           product_id: String(product.productId || ""),
-          order_kind: orderKind
-        }
+          order_kind: orderKind,
+        },
       },
       metadata: {
         order_id: orderId,
@@ -9733,7 +15686,7 @@ app.post("/api/stripe/checkout/create", async (req, res) => {
         buyer_user_id: user.id,
         seller_user_id: product.ownerUserId,
         product_id: String(product.productId || ""),
-        order_kind: orderKind
+        order_kind: orderKind,
       },
       line_items: [
         {
@@ -9745,20 +15698,23 @@ app.post("/api/stripe/checkout/create", async (req, res) => {
               name: `${product.title} (${orderKind})`,
               metadata: {
                 work_id: workId,
-                order_kind: orderKind
-              }
-            }
-          }
-        }
-      ]
+                order_kind: orderKind,
+              },
+            },
+          },
+        },
+      ],
     });
     await updateWorkOrderStripeRefs({
       orderId,
       checkoutSessionId: session.id,
-      paymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : null,
+      paymentIntentId:
+        typeof session.payment_intent === "string"
+          ? session.payment_intent
+          : null,
       metaPatch: {
-        checkout_url_created: true
-      }
+        checkout_url_created: true,
+      },
     });
     return res.json(
       okData({
@@ -9767,11 +15723,18 @@ app.post("/api/stripe/checkout/create", async (req, res) => {
         order_id: orderId,
         checkout_session_id: session.id,
         checkout_url: session.url,
-        payment_intent_id: typeof session.payment_intent === "string" ? session.payment_intent : null
-      })
+        payment_intent_id:
+          typeof session.payment_intent === "string"
+            ? session.payment_intent
+            : null,
+      }),
     );
   } catch (err) {
-    return res.status(500).json({ ok: false, code: "STRIPE_CHECKOUT_CREATE_FAILED", message: String(err) });
+    return res.status(500).json({
+      ok: false,
+      code: "STRIPE_CHECKOUT_CREATE_FAILED",
+      message: String(err),
+    });
   }
 });
 
@@ -9783,7 +15746,8 @@ app.post("/api/stripe/checkout/cancel", async (req, res) => {
       return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
     }
     const orderId = String(req.body?.order_id || "").trim() || null;
-    const checkoutSessionId = String(req.body?.checkout_session_id || "").trim() || null;
+    const checkoutSessionId =
+      String(req.body?.checkout_session_id || "").trim() || null;
     if (!orderId && !checkoutSessionId) {
       return res.status(400).json({ ok: false, code: "ORDER_ID_REQUIRED" });
     }
@@ -9791,17 +15755,21 @@ app.post("/api/stripe/checkout/cancel", async (req, res) => {
       orderId,
       buyerUserId: user.id,
       checkoutSessionId,
-      reason: "buyer_returned_cancel_url"
+      reason: "buyer_returned_cancel_url",
     });
     return res.json(
       okData({
         authenticated: true,
         canceled: Boolean(canceled),
-        order_id: canceled?.id || orderId || null
-      })
+        order_id: canceled?.id || orderId || null,
+      }),
     );
   } catch (err) {
-    return res.status(500).json({ ok: false, code: "STRIPE_CHECKOUT_CANCEL_FAILED", message: String(err) });
+    return res.status(500).json({
+      ok: false,
+      code: "STRIPE_CHECKOUT_CANCEL_FAILED",
+      message: String(err),
+    });
   }
 });
 
@@ -9817,24 +15785,28 @@ app.get("/api/stripe/connect/status", async (req, res) => {
         okData({
           authenticated: true,
           configured: false,
-          connected_account: null
-        })
+          connected_account: null,
+        }),
       );
     }
     const record = await ensureStripeConnectedAccount({
       userId: user.id,
       email: normalizeEmail(user.email),
-      appBase: appBaseUrl(req)
+      appBase: appBaseUrl(req),
     });
     return res.json(
       okData({
         authenticated: true,
         configured: true,
-        connected_account: record
-      })
+        connected_account: record,
+      }),
     );
   } catch (err) {
-    return res.status(500).json({ ok: false, code: "STRIPE_CONNECT_STATUS_FAILED", message: String(err) });
+    return res.status(500).json({
+      ok: false,
+      code: "STRIPE_CONNECT_STATUS_FAILED",
+      message: String(err),
+    });
   }
 });
 
@@ -9852,20 +15824,28 @@ app.post("/api/stripe/connect/start", async (req, res) => {
     const record = await ensureStripeConnectedAccount({
       userId: user.id,
       email: normalizeEmail(user.email),
-      appBase: appBaseUrl(req)
+      appBase: appBaseUrl(req),
     });
     if (!record?.stripe_account_id) {
-      return res.status(500).json({ ok: false, code: "STRIPE_CONNECT_ACCOUNT_MISSING" });
+      return res
+        .status(500)
+        .json({ ok: false, code: "STRIPE_CONNECT_ACCOUNT_MISSING" });
     }
-    const refreshUrl =
-      String(req.body?.refresh_url || process.env.STRIPE_CONNECT_REFRESH_URL || `${appBaseUrl(req)}/`).trim();
-    const returnUrl =
-      String(req.body?.return_url || process.env.STRIPE_CONNECT_RETURN_URL || `${appBaseUrl(req)}/`).trim();
+    const refreshUrl = String(
+      req.body?.refresh_url ||
+        process.env.STRIPE_CONNECT_REFRESH_URL ||
+        `${appBaseUrl(req)}/`,
+    ).trim();
+    const returnUrl = String(
+      req.body?.return_url ||
+        process.env.STRIPE_CONNECT_RETURN_URL ||
+        `${appBaseUrl(req)}/`,
+    ).trim();
     const link = await stripe.accountLinks.create({
       account: record.stripe_account_id,
       refresh_url: refreshUrl,
       return_url: returnUrl,
-      type: "account_onboarding"
+      type: "account_onboarding",
     });
     return res.json(
       okData({
@@ -9873,11 +15853,15 @@ app.post("/api/stripe/connect/start", async (req, res) => {
         configured: true,
         onboarding_url: link.url,
         expires_at: link.expires_at,
-        connected_account: record
-      })
+        connected_account: record,
+      }),
     );
   } catch (err) {
-    return res.status(500).json({ ok: false, code: "STRIPE_CONNECT_START_FAILED", message: String(err) });
+    return res.status(500).json({
+      ok: false,
+      code: "STRIPE_CONNECT_START_FAILED",
+      message: String(err),
+    });
   }
 });
 
@@ -9887,13 +15871,21 @@ app.post("/api/stripe/webhook", async (req, res) => {
     const stripe = getStripeClient();
     const secret = getStripeWebhookSecret();
     if (!stripe || !secret) {
-      return res.status(503).json({ ok: false, code: "STRIPE_WEBHOOK_NOT_CONFIGURED" });
+      return res
+        .status(503)
+        .json({ ok: false, code: "STRIPE_WEBHOOK_NOT_CONFIGURED" });
     }
     const signature = String(req.headers["stripe-signature"] || "").trim();
     if (!signature) {
-      return res.status(400).json({ ok: false, code: "STRIPE_SIGNATURE_MISSING" });
+      return res
+        .status(400)
+        .json({ ok: false, code: "STRIPE_SIGNATURE_MISSING" });
     }
-    const event = stripe.webhooks.constructEvent(requestRawBody(req), signature, secret);
+    const event = stripe.webhooks.constructEvent(
+      requestRawBody(req),
+      signature,
+      secret,
+    );
     const recorded = await recordStripeWebhookEvent(event);
     if (recorded.alreadyProcessed) {
       return res.json({ received: true, duplicate: true });
@@ -9904,10 +15896,18 @@ app.post("/api/stripe/webhook", async (req, res) => {
       return res.json({ received: true });
     } catch (err) {
       await markStripeWebhookEventProcessed(event.id, String(err));
-      return res.status(500).json({ ok: false, code: "STRIPE_WEBHOOK_PROCESS_FAILED", message: String(err) });
+      return res.status(500).json({
+        ok: false,
+        code: "STRIPE_WEBHOOK_PROCESS_FAILED",
+        message: String(err),
+      });
     }
   } catch (err) {
-    return res.status(400).json({ ok: false, code: "STRIPE_WEBHOOK_INVALID", message: String(err) });
+    return res.status(400).json({
+      ok: false,
+      code: "STRIPE_WEBHOOK_INVALID",
+      message: String(err),
+    });
   }
 });
 
@@ -9916,7 +15916,9 @@ app.post("/api/billing/usage", async (req, res) => {
   try {
     const user = await getSessionUser(req);
     if (!user) {
-      return res.json(okEmpty({ allowed: false, authenticated: false }, "No data yet"));
+      return res.json(
+        okEmpty({ allowed: false, authenticated: false }, "No data yet"),
+      );
     }
     const access = await resolveUserAccessProfile(user);
     const result = await consumeBillableAction({
@@ -9926,7 +15928,7 @@ app.post("/api/billing/usage", async (req, res) => {
       route: "/api/billing/usage",
       countAgainstMonthlyLimit: true,
       coveredBy: "membership",
-      meta: { legacy_route: true }
+      meta: { legacy_route: true },
     });
     return res.json(okData({ tier: access.tier, ...result }));
   } catch (_err) {
@@ -9959,11 +15961,18 @@ app.post("/api/billing/actions/consume", async (req, res) => {
           : actionKey === "cinema_booking"
             ? "booking"
             : "membership",
-      meta: req.body?.meta && typeof req.body.meta === "object" ? req.body.meta : {}
+      meta:
+        req.body?.meta && typeof req.body.meta === "object"
+          ? req.body.meta
+          : {},
     });
-    return res.json(okData({ tier: access.tier, action_key: actionKey, ...result }));
+    return res.json(
+      okData({ tier: access.tier, action_key: actionKey, ...result }),
+    );
   } catch (_err) {
-    return res.status(500).json({ ok: false, code: "BILLING_ACTION_CONSUME_FAILED" });
+    return res
+      .status(500)
+      .json({ ok: false, code: "BILLING_ACTION_CONSUME_FAILED" });
   }
 });
 
@@ -9974,10 +15983,17 @@ app.get("/api/cinema/bookings", async (req, res) => {
     if (!user) {
       return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
     }
-    const rows = await listCinemaBookingRequests(user.id, Number(req.query.limit || 12));
+    const rows = await listCinemaBookingRequests(
+      user.id,
+      Number(req.query.limit || 12),
+    );
     return res.json(okData({ authenticated: true, bookings: rows }));
   } catch (err) {
-    return res.status(500).json({ ok: false, code: "CINEMA_BOOKING_LIST_FAILED", message: String(err) });
+    return res.status(500).json({
+      ok: false,
+      code: "CINEMA_BOOKING_LIST_FAILED",
+      message: String(err),
+    });
   }
 });
 
@@ -9989,16 +16005,38 @@ app.post("/api/cinema/bookings", async (req, res) => {
       return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
     }
     const access = await resolveUserAccessProfile(user);
-    const projectTitle = String(req.body?.project_title || "").trim().slice(0, 160);
-    const requestedMode = String(req.body?.requested_mode || "cinema").trim().slice(0, 48) || "cinema";
-    const requestedDurationSec = Math.max(0, Math.min(86400, Number(req.body?.requested_duration_sec || 0) || 0));
-    const contactEmail = normalizeEmail(String(req.body?.contact_email || user.email || ""));
-    const contactHandle = String(req.body?.contact_handle || "").trim().slice(0, 160);
-    const budgetCents = Math.max(0, Math.min(100000000000, Math.round(Number(req.body?.budget_cents || 0) || 0)));
-    const brief = String(req.body?.brief || "").trim().slice(0, 4000);
+    const projectTitle = String(req.body?.project_title || "")
+      .trim()
+      .slice(0, 160);
+    const requestedMode =
+      String(req.body?.requested_mode || "cinema")
+        .trim()
+        .slice(0, 48) || "cinema";
+    const requestedDurationSec = Math.max(
+      0,
+      Math.min(86400, Number(req.body?.requested_duration_sec || 0) || 0),
+    );
+    const contactEmail = normalizeEmail(
+      String(req.body?.contact_email || user.email || ""),
+    );
+    const contactHandle = String(req.body?.contact_handle || "")
+      .trim()
+      .slice(0, 160);
+    const budgetCents = Math.max(
+      0,
+      Math.min(
+        100000000000,
+        Math.round(Number(req.body?.budget_cents || 0) || 0),
+      ),
+    );
+    const brief = String(req.body?.brief || "")
+      .trim()
+      .slice(0, 4000);
     const needsContract = req.body?.needs_contract !== false;
     if (!projectTitle || !brief) {
-      return res.status(400).json({ ok: false, code: "CINEMA_BOOKING_FIELDS_REQUIRED" });
+      return res
+        .status(400)
+        .json({ ok: false, code: "CINEMA_BOOKING_FIELDS_REQUIRED" });
     }
     const billing = await consumeBillableAction({
       userId: user.id,
@@ -10012,8 +16050,8 @@ app.post("/api/cinema/bookings", async (req, res) => {
         project_title: projectTitle,
         requested_mode: requestedMode,
         requested_duration_sec: requestedDurationSec,
-        budget_cents: budgetCents
-      }
+        budget_cents: budgetCents,
+      },
     });
     const insertRes = await withClient((client) =>
       client.query(
@@ -10037,20 +16075,24 @@ app.post("/api/cinema/bookings", async (req, res) => {
           JSON.stringify({
             tier: access.tier,
             requested_by: user.id,
-            billable_action_allowed: billing.allowed !== false
-          })
-        ]
-      )
+            billable_action_allowed: billing.allowed !== false,
+          }),
+        ],
+      ),
     );
     return res.json(
       okData({
         authenticated: true,
         booking: insertRes.rows[0],
-        billing
-      })
+        billing,
+      }),
     );
   } catch (err) {
-    return res.status(500).json({ ok: false, code: "CINEMA_BOOKING_CREATE_FAILED", message: String(err) });
+    return res.status(500).json({
+      ok: false,
+      code: "CINEMA_BOOKING_CREATE_FAILED",
+      message: String(err),
+    });
   }
 });
 
@@ -10064,10 +16106,18 @@ app.get("/", (_req, res) => {
 });
 
 async function start() {
+  const openAiRuntime = getOpenAiRuntimeConfig();
+  console.info("[startup.openai]", {
+    envSource: openAiRuntime.envSource,
+    keyFingerprint: openAiRuntime.keyFingerprint || "missing",
+    textModel: openAiRuntime.model,
+    transcribeModel: getOpenAiTranscribeModel(),
+  });
   if (DATABASE_URL) {
     try {
       await runMigrations();
       await ensureAuthIdentityTable();
+      await ensureOAuthTokensTable();
       await processMatureSellerPayouts();
       const runPayoutSweepLoop = async () => {
         try {
@@ -10076,17 +16126,26 @@ async function start() {
           console.error("Payout sweep failed", err);
         } finally {
           const commerce = await getCommercePolicySettings().catch(() => ({
-            payoutSweepMs: stripePayoutSweepMsEnv()
+            payoutSweepMs: stripePayoutSweepMsEnv(),
           }));
-          setTimeout(runPayoutSweepLoop, Number(commerce?.payoutSweepMs || stripePayoutSweepMsEnv()));
+          setTimeout(
+            runPayoutSweepLoop,
+            Number(commerce?.payoutSweepMs || stripePayoutSweepMsEnv()),
+          );
         }
       };
       const commerce = await getCommercePolicySettings().catch(() => ({
-        payoutSweepMs: stripePayoutSweepMsEnv()
+        payoutSweepMs: stripePayoutSweepMsEnv(),
       }));
-      setTimeout(runPayoutSweepLoop, Number(commerce?.payoutSweepMs || stripePayoutSweepMsEnv()));
+      setTimeout(
+        runPayoutSweepLoop,
+        Number(commerce?.payoutSweepMs || stripePayoutSweepMsEnv()),
+      );
     } catch (err) {
-      console.error("Startup DB bootstrap failed; continuing in degraded mode", err);
+      console.error(
+        "Startup DB bootstrap failed; continuing in degraded mode",
+        err,
+      );
     }
   }
   app.listen(PORT, () => {

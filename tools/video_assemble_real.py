@@ -5,6 +5,10 @@ from pathlib import Path
 
 shots_txt = Path(os.environ["CSS_SHOTS_TXT"])
 out_mp4 = Path(os.environ["CSS_OUT_MP4"])
+_ = (
+    os.environ.get("CSS_STORYBOARD_JSON"),
+    os.environ.get("CSS_ASSEMBLE_JSON"),
+)
 
 out_mp4.parent.mkdir(parents=True, exist_ok=True)
 

@@ -25,6 +25,24 @@
   - 适合小改动高频迭代
   - 单机执行
 
+- `install-slim-release-deploy.sh`
+  - 给 `api-vm / gzvm` 安装瘦身版 `deploy-release.sh`
+  - 避免每个 release 继续复制 `rust-api / registry / remote-rust-api`
+  - 默认把 release 保留数量压到 `3`
+
+- `archive-shared-media-to-gcs.sh`
+  - 把 `/srv/cssos/shared` 下的大体量共享内容镜像到 GCS
+  - 默认覆盖：
+    - `runs`
+    - `assets/examples`
+
+- `prune-test-runs-before-date.sh`
+  - 按日期批量删除历史测试 run
+  - 默认保留：
+    - `RUNNING`
+    - `INIT`
+  - 适合执行“删掉今天以前的测试产物”
+
 - `tail-api-logs.sh`
   - 查看 `cssos-rust-api` 的 systemd 日志
   - 支持最近 N 行和持续追踪

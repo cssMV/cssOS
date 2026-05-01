@@ -68,4 +68,46 @@ assert_json \
   "/cssapi/v1/schema/mv" \
   '"engine" in data.get("required_fields", []) and "input" in data.get("required_fields", [])'
 
+# CSSOS_PHASE2_MV_SMOKE 20260417 — 3P engines registered + price rules seeded.
+assert_json \
+  "engines_musicgpt" \
+  "/cssapi/v1/engines" \
+  'any(e.get("name") == "musicgpt" for e in data.get("engines", []))'
+
+assert_json \
+  "engines_runway" \
+  "/cssapi/v1/engines" \
+  'any(e.get("name") == "runway" for e in data.get("engines", []))'
+
+assert_json \
+  "pricing_musicgpt" \
+  "/cssapi/v1/pricing" \
+  'any(item.get("engine") == "musicgpt" for item in data.get("pricing", []))'
+
+assert_json \
+  "pricing_runway_gen4_image" \
+  "/cssapi/v1/pricing" \
+  'any(item.get("engine") == "runway" and item.get("version") == "gen4-image" for item in data.get("pricing", []))'
+
+# CSSOS_PHASE2_SUNO 20260419 — Suno v5 registered + priced + flagged as the
+# new default music engine. These three checks confirm the three-file catalog
+# plumbing (engine_registry, billing_matrix, public_api::pricing) is wired.
+assert_json \
+  "engines_suno_v5" \
+  "/cssapi/v1/engines" \
+  'any(e.get("name") == "suno" and any(v.get("version") == "v5" for v in e.get("versions", [])) for e in data.get("engines", []))'
+
+assert_json \
+  "pricing_suno_v5" \
+  "/cssapi/v1/pricing" \
+  'any(item.get("engine") == "suno" and item.get("version") == "v5" for item in data.get("pricing", []))'
+
+# Suno must be the catalog default for the music stage (is_default: true in
+# billing_matrix::builtin_registry). Falls back to musicgpt-default if the
+# stage has no is_default entry at all, which would be a regression.
+assert_json \
+  "catalog_music_default_suno" \
+  "/api/mv/engines" \
+  'any(s.get("stage") == "music" and s.get("default_engine") == "suno" and s.get("default_version") == "v5" for s in data.get("stages", []))'
+
 say "all checks passed"

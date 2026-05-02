@@ -32,6 +32,24 @@ export {
   buildTargetSnapshot,
   upsertUserPreferences,
 } from "./preferences.js";
+// Template subsystem — opt-in import, but re-exported here for the
+// common case where a trigger handler just wants to pick + render.
+export {
+  loadPersonalizationTemplates,
+  listLoadedTemplates,
+  getTemplateById,
+  pickBestTemplateForTarget,
+  renderTemplateGift,
+  renderBestTemplateForTrigger,
+  isPersonalizationTemplateRegistryLoaded,
+} from "./templates/index.js";
+export type {
+  PersonalizationTemplateManifest,
+  LoadedTemplate,
+  TemplateAspectRatio,
+  TemplateEmotionalTone,
+  TemplateRenderResult,
+} from "./templates/index.js";
 
 import type { Pool, PoolClient } from "pg";
 import {

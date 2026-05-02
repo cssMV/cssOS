@@ -20,6 +20,17 @@ type Querier = Pool | PoolClient;
 export interface PolicyDecision {
   allowed: boolean;
   reason?: string;
+  /**
+   * When `allowed=false` AND `silent=true`, the engine should skip
+   * the audit insert entirely — the gift "shouldn't fire" is a
+   * structural truth (user opted out / oneShot already delivered)
+   * not an event worth recording per attempt.
+   *
+   * When `allowed=false` AND !silent (cooldown, annual cap), the
+   * engine still records an audit row with status='rate_limited'
+   * so we can see "almost fired but blocked" in analytics.
+   */
+  silent?: boolean;
   /** If allowed=true, should the gift queue (true) or fire now (false). */
   queueDueToQuietHours?: boolean;
 }
@@ -38,22 +49,26 @@ export async function checkPolicies(
   trigger: GiftTrigger,
   target: GiftTargetSnapshot,
 ): Promise<PolicyDecision> {
-  // 1. Master opt-out — silent skip, no audit row needed at the
-  //    engine level (the engine still writes one with status=opted_out
-  //    so we can count the suppressions).
+  // 1. Master opt-out — silent skip. The user said "no gifts please";
+  //    we should not record an audit row per attempt, just leave them
+  //    alone.
   if (target.gift_opt_out) {
     return {
       allowed: false,
+      silent: true,
       reason: "User has gift_opt_out=true",
     };
   }
 
-  // 2. oneShot uniqueness.
+  // 2. oneShot uniqueness — silent skip. The user already received
+  //    this gift; no need to record "tried again, blocked" rows on
+  //    every login / page load.
   if (trigger.oneShot) {
     const seen = await hasEverDelivered(q, target.user_id, trigger.key);
     if (seen) {
       return {
         allowed: false,
+        silent: true,
         reason: "oneShot trigger already fired for this user",
       };
     }

@@ -59,7 +59,6 @@ import {
   markDelivered,
   markFailed,
   markRateLimited,
-  markOptedOut,
 } from "./audit.js";
 import { buildTargetSnapshot } from "./preferences.js";
 import { checkPolicies } from "./rate-limiter.js";
@@ -126,7 +125,24 @@ export async function fireTrigger(
     };
   }
 
-  // 3. Insert audit row.
+  // 3. Pre-flight policy check (BEFORE we insert any audit row).
+  //    Silent failures (master opt-out, oneShot already delivered)
+  //    return immediately with NO audit row — they're structural,
+  //    not per-attempt events. Loud failures (cooldown, annual cap)
+  //    fall through to step 4 so we record "almost fired but blocked".
+  const decision = await checkPolicies(q, trigger, target);
+  if (!decision.allowed && decision.silent) {
+    log("silent skip:", decision.reason);
+    return {
+      status: target.gift_opt_out ? "opted_out" : "rate_limited",
+      auditId: null,
+      workId: null,
+      ...(decision.reason ? { reason: decision.reason } : {}),
+    };
+  }
+
+  // 4. Insert audit row — we'll either fire the gift, or record
+  //    a non-silent block (cooldown / annual cap) for analytics.
   const auditId = await insertAuditRow(q, {
     triggerKey,
     target,
@@ -134,19 +150,8 @@ export async function fireTrigger(
     livemode: livemode !== false,
   });
 
-  // 4. Policy gates.
-  const decision = await checkPolicies(q, trigger, target);
+  // 5. Loud failure path: cooldown or annual cap.
   if (!decision.allowed) {
-    if (target.gift_opt_out) {
-      await markOptedOut(q, auditId);
-      log("opted_out:", decision.reason);
-      return {
-        status: "opted_out",
-        auditId,
-        workId: null,
-        ...(decision.reason ? { reason: decision.reason } : {}),
-      };
-    }
     await markRateLimited(q, auditId, decision.reason || "blocked");
     log("rate_limited:", decision.reason);
     return {

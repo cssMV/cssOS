@@ -9944,6 +9944,33 @@ function setAuthSession(
   (req.session as any).user_id = userId;
   (req.session as any).passkey_subject_key = userSubjectKey(userId);
   (req.session as any).auth_provider = provider;
+  // CSSOS_PHASE2_PERSONALIZATION_WELCOME_HOOK 20260502 #273 - Jing
+  // Every successful login funnels through here (OAuth callbacks,
+  // passkey, email-OTP, dev login). Fire the welcome trigger
+  // unconditionally — the engine's oneShot=true policy + silent-skip
+  // path means returning users never produce audit rows or extra
+  // work. First-time users get a system_gift_audit row, a
+  // personalization_template_renders row, and a Curator-owned
+  // user_works row landing in their /api/personalization/inbox.
+  //
+  // Fire-and-forget: handler errors are caught by the engine and
+  // recorded in the audit row; login MUST NOT block on gift
+  // generation.
+  try {
+    void import("./personalization/index.js").then((mod) => {
+      mod.fireTriggerFireAndForget(getPool(), {
+        triggerKey: "welcome",
+        targetUserId: userId,
+        livemode: true,
+        payload: { provider },
+      });
+    });
+  } catch (err) {
+    console.warn(
+      "[personalization] welcome hook failed to dispatch (non-fatal):",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
 }
 
 function isLocalDevRequest(req: express.Request) {

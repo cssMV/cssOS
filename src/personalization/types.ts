@@ -69,10 +69,12 @@ export interface GiftTargetSnapshot {
 
 /**
  * Args every trigger handler receives. The engine populates
- * `target` and `auditId`; everything else comes from the caller
- * that fired the trigger.
+ * `target`, `auditId`, and `q`; everything else comes from the
+ * caller that fired the trigger.
  */
 export interface GenerateArgs {
+  /** Database querier — same connection the engine used for the audit row. */
+  q: import("pg").Pool | import("pg").PoolClient;
   /** Snapshot of the recipient at trigger time. */
   target: GiftTargetSnapshot;
   /** Trigger-specific payload (Stripe event, plan ids, etc.). */

@@ -593,6 +593,47 @@ app.use(
   }),
 );
 
+// CSSOS_PHASE2_PERSONALIZATION_TEMPLATES 20260502 #270 - Jing
+// Public mount for personalization template assets so the watch
+// frame can fetch base.mp4 / base.mp3 / cover.png at playback time.
+// The directory is /srv/cssos/shared/personalization-templates/ in
+// production; CSSOS_PERSONALIZATION_TEMPLATES_DIR can override (used
+// in dev). Templates are immutable once shipped — long-cache is safe.
+{
+  const templatesRoot =
+    process.env.CSSOS_PERSONALIZATION_TEMPLATES_DIR ||
+    "/srv/cssos/shared/personalization-templates";
+  try {
+    if (fs.existsSync(templatesRoot) && fs.statSync(templatesRoot).isDirectory()) {
+      app.use(
+        "/personalization-templates",
+        express.static(templatesRoot, {
+          maxAge: "30d",
+          immutable: true,
+          setHeaders(res) {
+            res.setHeader("Cache-Control", "public, max-age=2592000, immutable");
+          },
+        }),
+      );
+      console.log(
+        "[personalization] mounted /personalization-templates -> %s",
+        templatesRoot,
+      );
+    } else {
+      console.log(
+        "[personalization] templates root %s does not exist yet — mount skipped (this is expected before templates ship)",
+        templatesRoot,
+      );
+    }
+  } catch (e) {
+    console.warn(
+      "[personalization] could not mount templates root %s: %s",
+      templatesRoot,
+      e instanceof Error ? e.message : String(e),
+    );
+  }
+}
+
 function noStore(res: express.Response) {
   res.setHeader("Cache-Control", "no-store");
 }
@@ -16316,6 +16357,23 @@ async function start() {
         err,
       );
     }
+  }
+  // CSSOS_PHASE2_PERSONALIZATION_TEMPLATES 20260502 #270 - Jing
+  // Boot the personalization engine: scan the templates directory
+  // and register every gift trigger handler. Both calls are
+  // idempotent and best-effort — failure here MUST NOT crash the
+  // API. We log + continue so the rest of cssOS keeps serving even
+  // if the gift system is misconfigured.
+  try {
+    const { loadPersonalizationTemplates, registerAllPersonalizationTriggers } =
+      await import("./personalization/index.js");
+    await loadPersonalizationTemplates();
+    registerAllPersonalizationTriggers();
+  } catch (err) {
+    console.error(
+      "[personalization] engine boot failed; continuing without gifts —",
+      err,
+    );
   }
   app.listen(PORT, () => {
     console.log(`cssOS API running on http://localhost:${PORT}`);

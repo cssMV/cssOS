@@ -26,6 +26,7 @@ export type {
   FireTriggerResult,
 } from "./types.js";
 export { registerGiftTrigger, listRegisteredTriggers } from "./triggers.js";
+export { registerAllPersonalizationTriggers } from "./handlers/index.js";
 export { getSystemUser, getSystemUserIdSync } from "./system-user.js";
 export { listUserGifts, markViewed } from "./audit.js";
 export {
@@ -165,6 +166,7 @@ export async function fireTrigger(
   await markGenerating(q, auditId);
   try {
     const result = await trigger.generate({
+      q,
       target,
       payload: payload || {},
       auditId,

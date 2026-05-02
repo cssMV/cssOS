@@ -16121,6 +16121,135 @@ app.get("/api/admin/subscription-events/recent", async (req, res) => {
   }
 });
 
+// CSSOS_PHASE2_PERSONALIZATION_INBOX 20260502 #271 - Jing
+// User-facing list of system gift MVs delivered to the caller.
+// Joins system_gift_audit (status IN delivered/viewed) with the
+// user_works row that holds the actual MV media. Returns newest-
+// delivered first so the user's inbox feels chronological.
+//
+// Privacy: this endpoint only ever returns rows where
+// target_user_id matches the session user's id. Admin staff use a
+// separate endpoint (TBD) to view delivery analytics across users.
+app.get("/api/personalization/inbox", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const limit = Math.max(
+      1,
+      Math.min(
+        100,
+        Number.parseInt(String(req.query.limit || "50"), 10) || 50,
+      ),
+    );
+    const result = await withClient((client) =>
+      client.query(
+        `SELECT
+           sga.id              AS audit_id,
+           sga.trigger_event,
+           sga.work_id,
+           sga.template_id,
+           sga.dispatched_at,
+           sga.delivered_at,
+           sga.viewed_at,
+           sga.cost_cents,
+           sga.recipient_display_name,
+           sga.recipient_locale,
+           uw.title             AS work_title,
+           uw.style             AS work_style,
+           uw.lyrics_preview    AS work_lyrics_preview,
+           uw.cover_image       AS work_cover_image,
+           uw.preview_image_url AS work_preview_image_url,
+           uw.preview_video_url AS work_preview_video_url
+           FROM system_gift_audit sga
+      LEFT JOIN user_works uw ON uw.id = sga.work_id
+          WHERE sga.target_user_id = $1
+            AND sga.status IN ('delivered', 'viewed')
+          ORDER BY sga.delivered_at DESC NULLS LAST,
+                   sga.dispatched_at DESC
+          LIMIT $2`,
+        [user.id, limit],
+      ),
+    );
+    const items = result.rows.map((r: any) => ({
+      audit_id: r.audit_id,
+      trigger_event: r.trigger_event,
+      work_id: r.work_id,
+      template_id: r.template_id,
+      dispatched_at: r.dispatched_at,
+      delivered_at: r.delivered_at,
+      viewed_at: r.viewed_at,
+      cost_cents: Number(r.cost_cents || 0),
+      title: r.work_title || null,
+      style: r.work_style || null,
+      lyrics_preview: r.work_lyrics_preview || null,
+      cover_image: r.work_cover_image || null,
+      preview_image_url: r.work_preview_image_url || null,
+      preview_video_url: r.work_preview_video_url || null,
+      recipient_display_name: r.recipient_display_name || null,
+    }));
+    return res.json({
+      ok: true,
+      items,
+      total: items.length,
+      unviewed_count: items.filter((g) => !g.viewed_at).length,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "INBOX_LOOKUP_FAILED",
+      message: String(err),
+    });
+  }
+});
+
+// Mark a single gift as viewed. Called by the watch panel the first
+// time the user actually plays the MV (NOT when they merely list the
+// inbox — listing isn't watching). Idempotent: status='delivered' →
+// 'viewed' on first call; subsequent calls are a no-op.
+app.post("/api/personalization/inbox/:auditId/viewed", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const auditId = String(req.params.auditId || "").trim();
+    if (!auditId) {
+      return res.status(400).json({ ok: false, code: "AUDIT_ID_REQUIRED" });
+    }
+    const result = await withClient((client) =>
+      client.query(
+        `UPDATE system_gift_audit
+            SET status='viewed',
+                viewed_at=COALESCE(viewed_at, now()),
+                updated_at=now()
+          WHERE id = $1
+            AND target_user_id = $2
+            AND status IN ('delivered', 'viewed')
+          RETURNING id, viewed_at`,
+        [auditId, user.id],
+      ),
+    );
+    if (!result.rows.length) {
+      return res.status(404).json({ ok: false, code: "GIFT_NOT_FOUND" });
+    }
+    return res.json({
+      ok: true,
+      audit_id: result.rows[0].id,
+      viewed_at: result.rows[0].viewed_at,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "MARK_VIEWED_FAILED",
+      message: String(err),
+    });
+  }
+});
+
 app.post("/api/billing/usage", async (req, res) => {
   noStore(res);
   try {

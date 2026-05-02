@@ -149,31 +149,38 @@ export async function renderTemplateGift(
     [workId, CSSOS_SYSTEM_USER_ID],
   );
 
-  // 5. Persist the chosen base media as work_assets so the watch
-  //    panel's existing asset resolution path picks them up. Only
-  //    insert if the table exists — older deployments may not have
-  //    work_assets yet (migration 014).
+  // 5. Persist the base media into work_assets so the watch panel's
+  //    existing asset-resolution JOINs (final_mv / audio_track_1)
+  //    pick them up alongside the user_works row from step 3. Real
+  //    schema: (work_id UUID, asset_type TEXT, url TEXT, meta JSONB)
+  //    with a unique index on (work_id, asset_type). Cover image
+  //    stays only in user_works.cover_image — no 'cover_image'
+  //    asset_type is used elsewhere in the pipeline.
   try {
     await q.query(
-      `INSERT INTO work_assets (work_id, asset_kind, asset_url, position)
+      `INSERT INTO work_assets (work_id, asset_type, url, meta)
        VALUES
-         ($1, 'preview_video', $2, 0),
-         ($1, 'preview_audio', $3, 0),
-         ($1, 'cover_image',   $4, 0)
-       ON CONFLICT DO NOTHING`,
+         ($1, 'final_mv',      $2, $4::jsonb),
+         ($1, 'audio_track_1', $3, $4::jsonb)
+       ON CONFLICT (work_id, asset_type)
+         DO UPDATE SET url = EXCLUDED.url, meta = EXCLUDED.meta`,
       [
         workId,
         template.base_video_url,
         template.base_audio_url,
-        template.base_cover_url,
+        JSON.stringify({
+          source: "personalization-template",
+          template_id: manifest.id,
+        }),
       ],
     );
   } catch (e) {
-    // work_assets table may not exist yet on this deployment; a NULL
-    // here just means the watch panel falls back to the columns we
-    // wrote on user_works in step 3. Not fatal.
+    // work_assets table may be missing on extremely old deployments;
+    // when it is, the watch panel still falls back to the
+    // preview_video_url / cover_image columns we wrote on user_works
+    // in step 3, so the gift is still playable. Log + continue.
     console.warn(
-      "[personalization-render] work_assets insert skipped (table missing?): %s",
+      "[personalization-render] work_assets insert skipped: %s",
       e instanceof Error ? e.message : String(e),
     );
   }

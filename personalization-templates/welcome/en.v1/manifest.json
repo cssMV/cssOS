@@ -1,0 +1,24 @@
+{
+  "id": "welcome.en.v1",
+  "trigger_key": "welcome",
+  "language": "en",
+  "version": 1,
+  "label": "Welcome MV — English (placeholder v1)",
+
+  "base_video": "base.mp4",
+  "base_audio": "base.mp3",
+  "base_cover": "cover.png",
+  "duration_secs": 30,
+  "aspect_ratio": "16:9",
+
+  "title_template": "Welcome, {name}",
+  "subtitle_template": "From cssOS · Curator",
+
+  "plain_lyrics_file": "lyrics.txt.tpl",
+
+  "emotional_tone": "warm",
+  "max_name_chars": 24,
+  "active": true,
+
+  "notes": "Placeholder v1. All assets synthesised by regenerate.sh — sine-wave C-major ambient pad (no melody, no copyright concerns) + warm dark-purple gradient still + first-frame cover. Replace base.mp3 / base.mp4 / cover.png with real composition + visuals when the creative team is ready, then bump to welcome.en.v2."
+}

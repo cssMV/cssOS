@@ -1,0 +1,39 @@
+# Force git to treat all TypeScript / JavaScript / Markdown / SQL /
+# JSON / shell files as text, even when they contain Unicode escape
+# sequences or zero-width chars in regex literals (which git's
+# heuristic sometimes mistakes for binary data).
+*.ts text diff
+*.tsx text diff
+*.js text diff
+*.mjs text diff
+*.cjs text diff
+*.jsx text diff
+*.json text diff
+*.md text diff
+*.sql text diff
+*.sh text diff
+*.css text diff
+*.html text diff
+*.yml text diff
+*.yaml text diff
+*.toml text diff
+*.rs text diff
+*.py text diff
+
+# Binary file types
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.mp4 binary
+*.mp3 binary
+*.wav binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary

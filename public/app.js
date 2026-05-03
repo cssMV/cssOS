@@ -3620,9 +3620,11 @@ function updateEnginePanels(title, lines) {
   state.voice = voice;
 }
 
-async function startCreation(customTitle, customLyrics) {
-  const allowed = await consumeGeneration();
-  if (!allowed) return;
+async function startCreation(customTitle, customLyrics, options = {}) {
+  if (!options.skipQuota) {
+    const allowed = await consumeGeneration();
+    if (!allowed) return;
+  }
   const selection = lyricBank[Math.floor(Math.random() * lyricBank.length)];
   const title = customTitle || selection.title;
   const baseLines = customLyrics?.trim()
@@ -4397,7 +4399,8 @@ function addInboxItem(item) {
   if (item.id && list.some((x) => x.id === item.id)) return;
   list.unshift({
     id: item.id || `msg-${Date.now()}`,
-    title: item.title || "Message",
+    titleKey: item.titleKey || null,
+    title: item.titleKey ? null : (item.title || "Message"),
     from: item.from || "CSS Studio",
     cover: item.cover || "MV",
     kind: item.kind || "mv",
@@ -4406,6 +4409,14 @@ function addInboxItem(item) {
   });
   writeInbox(list.slice(0, 50));
   renderInbox();
+}
+
+function resolveInboxTitle(item) {
+  if (item.titleKey) {
+    const translated = t(item.titleKey);
+    if (translated && translated !== item.titleKey) return translated;
+  }
+  return item.title || t("works.inboxEmpty") || "Message";
 }
 
 function formatRelativeTime(ts) {
@@ -4431,10 +4442,11 @@ function renderInbox() {
   items.forEach((item) => {
     const card = document.createElement("article");
     card.className = `inbox-card${item.unread ? " unread" : ""}`;
+    const displayTitle = resolveInboxTitle(item);
     card.innerHTML = `
       <div class="work-cover">${item.cover || "✉"}</div>
       <div class="work-info">
-        <div class="work-title">${item.title}</div>
+        <div class="work-title">${displayTitle}</div>
         <div class="work-tags">${item.from}</div>
         <div class="inbox-meta">${formatRelativeTime(item.receivedAt)}</div>
       </div>
@@ -4445,7 +4457,9 @@ function renderInbox() {
       writeInbox(list);
       renderInbox();
       if (item.kind === "mv") {
-        startCreation(item.title);
+        // Opening a previously-received gift MV must NOT consume daily quota —
+        // the user already "received" it; replaying it shouldn't be billed.
+        startCreation(resolveInboxTitle(item), null, { skipQuota: true });
       }
     });
     listEl.appendChild(card);
@@ -4459,7 +4473,7 @@ function renderInbox() {
   if (isWelcome || firstVisit) {
     addInboxItem({
       id: "welcome-mv",
-      title: t("works.welcomeMVTitle") || "Welcome MV · From CSS Studio",
+      titleKey: "works.welcomeMVTitle",
       from: "CSS Studio",
       cover: "🎁",
       kind: "mv"
@@ -4467,7 +4481,9 @@ function renderInbox() {
     localStorage.setItem(WELCOME_SEEN_KEY, "1");
   }
   if (isWelcome) {
-    setTimeout(() => startCreation(), 600);
+    // Welcome link is a gift, not a user-initiated generation — skip quota
+    // so quota-exhausted guests can still see what was shared with them.
+    setTimeout(() => startCreation(undefined, undefined, { skipQuota: true }), 600);
     try {
       const clean = new URL(window.location.href);
       clean.searchParams.delete("welcome");

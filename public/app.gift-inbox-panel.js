@@ -63,16 +63,24 @@
 .gift-inbox-mount {
   margin-top: 24px;
 }
+/* CSSOS_PHASE2_GIFT_INBOX_THEME 20260503 — Jing
+   The gift inbox is mounted inside the Profile panel, which uses a
+   LIGHT (cream) surface in production. The original styling assumed
+   a dark theme and white-on-cream text was invisible. Force a dark
+   translucent card with light text so the panel reads correctly
+   regardless of the parent's surface color. */
 .gift-inbox-card {
-  border: 1px solid var(--cssos-divider, rgba(255,255,255,0.08));
+  border: 1px solid rgba(80, 60, 130, 0.18);
   border-radius: 16px;
-  background: var(--cssos-surface-2, rgba(255,255,255,0.03));
+  background: linear-gradient(180deg, rgba(26, 13, 46, 0.92), rgba(26, 13, 46, 0.86));
+  color: #f7f3ff;
   overflow: hidden;
+  box-shadow: 0 6px 24px rgba(26, 13, 46, 0.18);
 }
 .gift-inbox-header {
   display: flex; align-items: baseline; justify-content: space-between;
   padding: 14px 18px;
-  border-bottom: 1px solid var(--cssos-divider, rgba(255,255,255,0.06));
+  border-bottom: 1px solid rgba(247, 243, 255, 0.10);
 }
 .gift-inbox-header > h3 {
   margin: 0;
@@ -80,10 +88,11 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   font-weight: 600;
-  color: var(--cssos-text-1, #fff);
+  color: #f7f3ff;
 }
 .gift-inbox-header > .gift-inbox-meta {
   font-size: 12px; opacity: 0.7;
+  color: #f7f3ff;
 }
 .gift-inbox-list {
   display: flex; flex-direction: column;
@@ -93,10 +102,11 @@
   padding: 12px 18px;
   cursor: pointer;
   transition: background 0.15s ease;
-  border-top: 1px solid var(--cssos-divider, rgba(255,255,255,0.04));
+  border-top: 1px solid rgba(247, 243, 255, 0.08);
+  color: #f7f3ff;
 }
 .gift-inbox-row:first-child { border-top: 0; }
-.gift-inbox-row:hover { background: rgba(255,255,255,0.04); }
+.gift-inbox-row:hover { background: rgba(255, 255, 255, 0.06); }
 .gift-inbox-cover {
   width: 56px; height: 56px; border-radius: 10px; flex: none;
   background: linear-gradient(135deg, #ff7a59, #aa4cf0) center/cover no-repeat;
@@ -116,7 +126,7 @@
 }
 .gift-inbox-title {
   font-size: 14px; font-weight: 600;
-  color: var(--cssos-text-1, #fff);
+  color: #f7f3ff;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .gift-inbox-meta-line {
@@ -290,7 +300,9 @@
         ev.preventDefault();
         const auditId = row.getAttribute("data-gift-audit-id");
         const workId = row.getAttribute("data-gift-work-id");
-        if (auditId && workId) openGift(auditId, workId);
+        if (!auditId || !workId) return;
+        const giftItem = (cached || []).find((g) => g.audit_id === auditId);
+        openGift(auditId, workId, giftItem || null);
       });
     });
   }
@@ -299,8 +311,15 @@
    * Open a gift: navigate to the watch panel for the work_id, AND
    * mark the gift viewed server-side. Both happen optimistically;
    * the watch-panel open path doesn't wait on the viewed POST.
+   *
+   * CSSOS_PHASE2_GIFT_OPEN 20260503 — Jing
+   * The inbox already has title / cover / preview_video_url for the
+   * gift; pass them in alongside the id so openMarketWorkPreview has
+   * a hydrated work object instead of just `{id}`. System-owned gift
+   * works don't sit in the public market index, so the id-only path
+   * was leaving the watch frame blank.
    */
-  function openGift(auditId, workId) {
+  function openGift(auditId, workId, giftItem) {
     // Optimistic local state — strike out the unviewed dot immediately.
     if (cached) {
       const item = cached.find((g) => g.audit_id === auditId);
@@ -313,18 +332,49 @@
       method: "POST",
       credentials: "same-origin",
     }).catch(() => { /* best-effort */ });
+
+    // Hydrate a work object from the inbox row — at minimum we have
+    // title, cover, audio/video URL pointing at the template assets.
+    const item = giftItem || (cached || []).find((g) => g.audit_id === auditId) || {};
+    const hydratedWork = {
+      id: workId,
+      __source: "gift",
+      title: item.title || "",
+      cover_image: item.cover_image || item.preview_image_url || null,
+      cover_image_url: item.cover_image || item.preview_image_url || null,
+      preview_image_url: item.preview_image_url || item.cover_image || null,
+      preview_video_url: item.preview_video_url || null,
+      final_mv_url: item.preview_video_url || null,
+      lyrics_preview: item.lyrics_preview || "",
+      lyrics_full: item.lyrics_preview || "",
+      style: item.style || "",
+      work_type: "single",
+      structure_role: "gift",
+    };
     // Hand off to the existing market-preview path.
     try {
       if (typeof globalThis.openMarketWorkPreview === "function") {
-        globalThis.openMarketWorkPreview({ id: workId, __source: "gift" });
+        globalThis.openMarketWorkPreview(hydratedWork);
         return;
       }
     } catch (_e) {}
-    // Fallback: navigate to /watch?work=<id> if openMarketWorkPreview
-    // isn't present (legacy load order).
+    // Fallback: nudge the watch panel directly with what we have.
     try {
-      window.location.hash = `#watch?work=${encodeURIComponent(workId)}`;
-    } catch (_e) {}
+      const watchVideo = document.getElementById("watch-video");
+      const watchPanel = document.getElementById("watch-panel");
+      if (watchVideo && hydratedWork.preview_video_url) {
+        watchVideo.src = hydratedWork.preview_video_url;
+        watchVideo.load?.();
+        watchVideo.play?.().catch(() => { /* autoplay may block */ });
+      }
+      if (watchPanel) {
+        watchPanel.classList.remove("hidden");
+        watchPanel.dataset.minimized = "false";
+      }
+      if (typeof globalThis.cssmvRenderMvArtTitle === "function" && hydratedWork.title) {
+        globalThis.cssmvRenderMvArtTitle(hydratedWork.title);
+      }
+    } catch (_e) { /* nothing else to do */ }
   }
 
   async function fetchInbox() {

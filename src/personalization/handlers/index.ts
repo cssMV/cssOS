@@ -14,6 +14,7 @@
 
 import { registerGiftTrigger } from "../triggers.js";
 import { welcomeTrigger } from "./welcome.js";
+import { firstSubscriberTrigger } from "./first-subscriber.js";
 
 let REGISTERED = false;
 
@@ -25,11 +26,11 @@ export function registerAllPersonalizationTriggers(): void {
   if (REGISTERED) return;
   REGISTERED = true;
   registerGiftTrigger(welcomeTrigger);
-  // Stage C will add: firstSubscriberTrigger
+  registerGiftTrigger(firstSubscriberTrigger);
   // Stage D will add: milestone100Trigger, milestone1000Trigger, ...
   // Stage E will add: planUpgradeTrigger, planDowngradeTrigger
   // Stage F will add: birthdayTrigger
   // Stage G will add: feedbackAdoptedTrigger
   // Stage H will add: anniversaryMarriageTrigger, anniversaryOtherTrigger
-  console.log("[personalization] registered triggers: welcome");
+  console.log("[personalization] registered triggers: welcome, first_subscriber");
 }

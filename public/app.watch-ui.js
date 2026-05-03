@@ -4162,6 +4162,19 @@ function applyWatchQueueItemModule(item) {
       const titleEl = document.querySelector(".watch-title-text, #watch-title-text");
       if (titleEl) titleEl.textContent = item.title || "";
     } catch (_e) {}
+    // CSSOS_PHASE2_MV_ART_TITLE_REFRESH 20260503 — Jing
+    // Loop list / wheel / arrow / queue-advance all flow through here.
+    // The big in-frame title overlay (.cssmv-mv-title) is owned by
+    // app.watch-media-overlays.js and only repaints when explicitly told,
+    // so without this call it kept showing the FIRST song's title every
+    // time the user advanced the queue. PR #6 patched the card-click
+    // path; this patches the wheel / Loop-list / next-track path.
+    try {
+      const newTitle = String(item?.title || "").trim();
+      if (newTitle && typeof globalThis.cssmvRenderMvArtTitle === "function") {
+        globalThis.cssmvRenderMvArtTitle(newTitle);
+      }
+    } catch (_e) {}
     // Push into pipeline state so Take 1/Take 2 toggle works.
     try {
       const pipelineState = globalThis.cssosMvPipelinePanelState

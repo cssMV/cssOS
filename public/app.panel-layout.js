@@ -181,8 +181,8 @@ function togglePanelMaximizeModule(panel) {
   focusPanel(panel);
 }
 
-function openAndMaximizeModule(panel) {
-  openPanel(panel);
+function openAndMaximizeModule(panel, options = {}) {
+  openPanel(panel, options);
   togglePanelMaximizeModule(panel);
 }
 

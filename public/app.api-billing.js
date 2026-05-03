@@ -256,11 +256,15 @@ function showMembershipUpsellModule(targetTier, reason) {
 
 function showCreatorBoostPromptModule(kind, count) {
   const countLabel = Number(count || 0);
-  const panelParameterCenter = t("settings.panel.parameterCenter");
+  // Resolve the localized name for the Subscription / Parameter Center panel.
+  // The key "settings.panel.parameterCenter" wasn't in the i18n bundle so the
+  // raw key was leaking into the toast text. Use a loginCopy() fallback.
+  const panelLabel = loginCopy("Subscription panel", "订阅面板");
   if (kind === "language") {
     safeShowToast(
       loginCopy(
-        `This creation currently includes ${countLabel} lyric languages. The plan includes 1 language by default; each extra language is charged as a one-time Creator Boost. Open ${panelParameterCenter} if you want to buy it.`
+        `This creation has ${countLabel} lyric languages. Free plan includes 1; extras are billed as Creator Boost. Open ${panelLabel} to buy.`,
+        `本次创作包含 ${countLabel} 种歌词语言。免费方案默认包含 1 种，多出的每种按 Creator Boost 加购。可在「${panelLabel}」购买。`
       )
     );
     setTimeout(() => {
@@ -270,7 +274,8 @@ function showCreatorBoostPromptModule(kind, count) {
   }
   safeShowToast(
     loginCopy(
-      `This creation currently includes ${countLabel} voice lanes. The plan includes 1 voice lane by default; each extra voice lane is charged as a one-time Creator Boost. Open ${panelParameterCenter} if you want to buy it.`
+      `This creation has ${countLabel} voice lanes. Free plan includes 1; extras are billed as Creator Boost. Open ${panelLabel} to buy.`,
+      `本次创作包含 ${countLabel} 条声线。免费方案默认包含 1 条，多出的每条按 Creator Boost 加购。可在「${panelLabel}」购买。`
     )
   );
   setTimeout(() => {

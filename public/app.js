@@ -8839,15 +8839,16 @@ function openPanel(panel, options = {}) {
   const shouldLayout = options.layout !== false;
   if (!panel) return;
   // CSSOS_PHASE2_NO_AUTH_LOGIN_POPUP 20260427 #155 — Jing
-  // "我已经登录了，登录面板还总是显示，应该是未登录用户浏览主界面的时候才弹出
-  //  这个引导登录的面板。" — many call sites (api-billing, market-commerce,
-  // works-center, dock-runtime, panel-layout, etc.) call openPanel(loginPanel)
-  // unconditionally to "guide" sign-in. After login they should be no-ops.
-  // Single global guard at the openPanel choke-point catches every direct
-  // call site at once.
+  // Suppress *automatic* re-opens of the login panel when the user is
+  // already signed in (call sites like api-billing, market-commerce,
+  // works-center, panel-layout call openPanel(loginPanel) to "guide"
+  // sign-in; after login those should be no-ops).
+  // CSSOS_PHASE2_LOGIN_DOCK_USER_CLICK 20260503 — Jing
+  // BUT user-initiated clicks (dock 🔐, context-menu "Open Login") must
+  // still open the panel so signed-in users can switch / unlink providers
+  // or sign out. The dock-runtime now passes { userInitiated: true }.
   try {
-    if (panel === loginPanel && authState && authState.user) {
-      // Already signed in. Don't pop the panel back open.
+    if (panel === loginPanel && authState && authState.user && !options.userInitiated) {
       return;
     }
   } catch (_e) { /* non-fatal */ }
@@ -30976,8 +30977,8 @@ function buildBuiltinDockActionMap() {
     longpress: () => openPanelSettings(deliveryOpsPanel)
   },
   login: {
-    click: () => openPanel(loginPanel),
-    dblclick: () => openAndMaximize(loginPanel),
+    click: () => openPanel(loginPanel, { userInitiated: true }),
+    dblclick: () => openAndMaximize(loginPanel, { userInitiated: true }),
     longpress: () => openPanelSettings(loginPanel)
   },
   subscription: {

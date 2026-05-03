@@ -1,0 +1,24 @@
+{
+  "id": "first_subscriber.en.v1",
+  "trigger_key": "first_subscriber",
+  "language": "en",
+  "version": 1,
+  "label": "First Subscriber MV — English (placeholder v1)",
+
+  "base_video": "base.mp4",
+  "base_audio": "base.mp3",
+  "base_cover": "cover.png",
+  "duration_secs": 30,
+  "aspect_ratio": "16:9",
+
+  "title_template": "Founding Subscriber — {name}",
+  "subtitle_template": "From cssOS · Curator",
+
+  "plain_lyrics_file": "lyrics.txt.tpl",
+
+  "emotional_tone": "celebratory",
+  "max_name_chars": 24,
+  "active": true,
+
+  "notes": "Placeholder v1. The platform-wide #265 fullscreen Canvas celebration covers the founder-side moment; this template is the *recipient's* personal keepsake — owned by them, sitting in their /api/personalization/inbox forever. Sine-wave C-major rising motif (synthesised by regenerate.sh) over a warm gradient still. Replace with real composition + visuals when the creative team is ready, then bump to first_subscriber.en.v2."
+}

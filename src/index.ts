@@ -9440,6 +9440,42 @@ async function processStripeWebhookEvent(event: Stripe.Event) {
           [membershipUserId, membershipTier],
         ),
       );
+      // CSSOS_PHASE2_PERSONALIZATION_STAGE_C 20260503 — Jing
+      // First paying subscriber on the platform → drop a personal gift
+      // MV in their inbox via the personalization engine. Per-user
+      // oneShot is engine-enforced; the platform-global "exactly once"
+      // gate is enforced here by checking system_gift_audit for any
+      // prior first_subscriber row across all users.
+      try {
+        const { rows: priorRows } = await withClient((client) =>
+          client.query(
+            `SELECT 1
+               FROM system_gift_audit
+              WHERE trigger_key = 'first_subscriber'
+                AND status IN ('pending','generating','delivered','viewed')
+              LIMIT 1`,
+          ),
+        );
+        if (priorRows.length === 0) {
+          void import("./personalization/index.js").then((mod) => {
+            mod.fireTriggerFireAndForget(getPool(), {
+              triggerKey: "first_subscriber",
+              targetUserId: membershipUserId,
+              livemode: true,
+              payload: {
+                source: "stripe_checkout.session.completed",
+                membership_tier: membershipTier,
+                checkout_session_id: session.id,
+              },
+            });
+          });
+        }
+      } catch (err) {
+        console.warn(
+          "[personalization] first_subscriber dispatch failed (non-fatal):",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
       return;
     }
     const creatorBoostOrderId =

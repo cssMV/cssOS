@@ -46,10 +46,10 @@ function renderWorksPanelModule() {
     renderWorksGuestState(worksBody);
     return;
   }
-  if (!context.canOpenWorks || !context.canViewOwnWorks) {
-    renderWorksPermissionState(worksBody);
-    return;
-  }
+  // Any logged-in user (free, starter, pro, ...) may view their own Works
+  // Center. Selling / pricing / payout tools remain individually gated by
+  // their own per-action permissions (works.sell, works.price.edit, etc.)
+  // inside finalizeWorksPanelReady — no need to block the whole panel here.
   finalizeWorksPanelReady(worksBody, {
     displayName: context.displayName,
     avatarUrl: context.avatarUrl,

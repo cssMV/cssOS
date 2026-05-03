@@ -190,6 +190,10 @@ const I18N = {
     "works.action.delete": "Delete",
     "works.action.block": "Block",
     "works.action.follow": "Follow",
+    "works.action.open": "Open",
+    "works.inbox": "Inbox",
+    "works.inboxEmpty": "No messages yet",
+    "works.welcomeMVTitle": "Welcome MV · From CSS Studio",
     "works.price.access": "View/Listen",
     "works.price.buyout": "Buyout",
     "works.price.tip": "Tip",
@@ -288,6 +292,10 @@ const I18N = {
     "works.action.delete": "删除",
     "works.action.block": "拉黑",
     "works.action.follow": "关注",
+    "works.action.open": "打开",
+    "works.inbox": "信箱",
+    "works.inboxEmpty": "暂无消息",
+    "works.welcomeMVTitle": "欢迎MV · 来自 CSS Studio",
     "works.price.access": "观看/聆听",
     "works.price.buyout": "买断",
     "works.price.tip": "打赏",
@@ -1930,6 +1938,7 @@ function setLocale(locale) {
     updateComposingText();
     renderLoginPlatforms();
     updateLoginUI();
+    if (typeof renderInbox === "function") renderInbox();
     loadVersions();
     updateLanguageStatus("language.ready");
     updateLanguageSelection();
@@ -2474,7 +2483,6 @@ function initVideoPlaybackControls() {
   });
   watchVideo.addEventListener("error", () => {
     useLocalVideoFallback(state.title, `${state.style} ${state.voice} cinematic mv`);
-    attemptVideoPlayback({ maxRetries: 2 });
   });
   const clickTarget = document.querySelector(".watch-screen");
   if (clickTarget) {
@@ -2517,12 +2525,6 @@ async function playLatestVideoFromRegistry() {
 }
 
 function useLocalVideoFallback(title, subtitle) {
-  const ok = setVideoFromArtifact(LOCAL_FALLBACK_MP4);
-  if (ok) {
-    watchSubtitle.textContent = "KaraOK MV · Preview (Local)";
-    attemptVideoPlayback({ maxRetries: 2 });
-    return;
-  }
   setSvgPreview(buildLocalVideoPreviewSvg(title, subtitle));
   watchSubtitle.textContent = "KaraOK MV · Preview (Local)";
 }
@@ -4370,6 +4372,111 @@ if (loginLogout) {
   });
 }
 attachAmbientTrail();
+
+const INBOX_KEY = "cssos.inbox";
+const WELCOME_SEEN_KEY = "cssos.welcomeSeen";
+
+function readInbox() {
+  try {
+    const raw = localStorage.getItem(INBOX_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list : [];
+  } catch (_e) {
+    return [];
+  }
+}
+
+function writeInbox(list) {
+  try {
+    localStorage.setItem(INBOX_KEY, JSON.stringify(list));
+  } catch (_e) {}
+}
+
+function addInboxItem(item) {
+  const list = readInbox();
+  if (item.id && list.some((x) => x.id === item.id)) return;
+  list.unshift({
+    id: item.id || `msg-${Date.now()}`,
+    title: item.title || "Message",
+    from: item.from || "CSS Studio",
+    cover: item.cover || "MV",
+    kind: item.kind || "mv",
+    receivedAt: item.receivedAt || Date.now(),
+    unread: item.unread !== false
+  });
+  writeInbox(list.slice(0, 50));
+  renderInbox();
+}
+
+function formatRelativeTime(ts) {
+  const diff = Math.max(0, Date.now() - ts);
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  return `${d}d`;
+}
+
+function renderInbox() {
+  const listEl = document.getElementById("works-inbox-list");
+  if (!listEl) return;
+  const items = readInbox();
+  if (!items.length) {
+    listEl.innerHTML = `<div class="inbox-empty">${t("works.inboxEmpty") || "No messages yet"}</div>`;
+    return;
+  }
+  listEl.innerHTML = "";
+  items.forEach((item) => {
+    const card = document.createElement("article");
+    card.className = `inbox-card${item.unread ? " unread" : ""}`;
+    card.innerHTML = `
+      <div class="work-cover">${item.cover || "✉"}</div>
+      <div class="work-info">
+        <div class="work-title">${item.title}</div>
+        <div class="work-tags">${item.from}</div>
+        <div class="inbox-meta">${formatRelativeTime(item.receivedAt)}</div>
+      </div>
+      <button class="mini-btn" type="button">${t("works.action.open") || "Open"}</button>
+    `;
+    card.addEventListener("click", () => {
+      const list = readInbox().map((x) => (x.id === item.id ? { ...x, unread: false } : x));
+      writeInbox(list);
+      renderInbox();
+      if (item.kind === "mv") {
+        startCreation(item.title);
+      }
+    });
+    listEl.appendChild(card);
+  });
+}
+
+(function handleWelcomeMV() {
+  const params = new URLSearchParams(window.location.search);
+  const isWelcome = params.has("welcome") || params.has("mv");
+  const firstVisit = !localStorage.getItem(WELCOME_SEEN_KEY);
+  if (isWelcome || firstVisit) {
+    addInboxItem({
+      id: "welcome-mv",
+      title: t("works.welcomeMVTitle") || "Welcome MV · From CSS Studio",
+      from: "CSS Studio",
+      cover: "🎁",
+      kind: "mv"
+    });
+    localStorage.setItem(WELCOME_SEEN_KEY, "1");
+  }
+  if (isWelcome) {
+    setTimeout(() => startCreation(), 600);
+    try {
+      const clean = new URL(window.location.href);
+      clean.searchParams.delete("welcome");
+      clean.searchParams.delete("mv");
+      window.history.replaceState({}, "", clean.pathname + clean.search);
+    } catch (_e) {}
+  }
+  renderInbox();
+})();
 
 window.addEventListener("resize", () => {
   panels.forEach((panel) => clampPanelInViewport(panel));

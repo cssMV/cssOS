@@ -774,6 +774,17 @@ async function openMarketWorkPreview(work = {}) {
       if (typeof globalThis.renderWatchKaraokeOverlayModule === "function") {
         globalThis.renderWatchKaraokeOverlayModule();
       }
+      // CSSOS_PHASE2_MV_ART_TITLE_REFRESH 20260503 — Jing
+      // "切换歌曲时媒体框里的字幕标题永远不变."
+      // The big in-frame title overlay (.cssmv-mv-title) lives in
+      // app.watch-media-overlays.js and only re-renders when explicitly
+      // told to. The queue-advance/card-click path was updating the
+      // text-line title surfaces and the karaoke overlay but never
+      // poking the art-title overlay, so the FIRST song's title froze
+      // on screen for the rest of the session.
+      if (typeof globalThis.cssmvRenderMvArtTitle === "function" && newTitle) {
+        try { globalThis.cssmvRenderMvArtTitle(newTitle); } catch (_e) {}
+      }
       // Refresh author avatar widget (owner ID / name may have changed).
       if (typeof globalThis.__cssosRefreshAuthorAvatar === "function") {
         globalThis.__cssosRefreshAuthorAvatar();

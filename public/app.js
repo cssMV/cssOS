@@ -3849,10 +3849,24 @@ function canBypassPreviewLimit(user = authState.user, work = currentWatchPreview
   );
 }
 
+// Scopes every logged-in user must always have, even if a stale server
+// permission snapshot says otherwise. Browsing one's own Works Center and
+// listing one's own works are baseline rights — selling, pricing, payout,
+// and other monetization actions stay individually gated.
+const ALWAYS_ALLOWED_FOR_LOGGED_IN = new Set([
+  "works.open",
+  "works.own.view",
+  "works.watch",
+  "profile.nav.works"
+]);
+
 function hasPanelPermission(scope) {
   const normalized = String(scope || "").trim().toLowerCase();
   if (!normalized || normalized === "public") return true;
   if (normalized === "admin") return isAdminUser();
+  if (ALWAYS_ALLOWED_FOR_LOGGED_IN.has(normalized) && isLoggedInUser()) {
+    return true;
+  }
   const serverSnapshot = authState.permissionSnapshot;
   if (serverSnapshot && typeof serverSnapshot === "object" && normalized in serverSnapshot) {
     return Boolean(serverSnapshot[normalized]);

@@ -1,0 +1,24 @@
+{
+  "id": "milestone_100000.en.v1",
+  "trigger_key": "milestone_100000",
+  "language": "en",
+  "version": 1,
+  "label": "100k Subscribers Milestone MV — English (placeholder v1)",
+
+  "base_video": "base.mp4",
+  "base_audio": "base.mp3",
+  "base_cover": "cover.png",
+  "duration_secs": 30,
+  "aspect_ratio": "16:9",
+
+  "title_template": "100,000 strong, {name}",
+  "subtitle_template": "From cssOS · Curator",
+
+  "plain_lyrics_file": "lyrics.txt.tpl",
+
+  "emotional_tone": "reverent",
+  "max_name_chars": 24,
+  "active": true,
+
+  "notes": "Placeholder v1. Synthesised pad + warm gradient still. Replace with real composition + visuals when the creative team is ready, then bump to milestone_100000.en.v2."
+}

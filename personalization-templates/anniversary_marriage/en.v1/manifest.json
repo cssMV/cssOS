@@ -1,0 +1,24 @@
+{
+  "id": "anniversary_marriage.en.v1",
+  "trigger_key": "anniversary_marriage",
+  "language": "en",
+  "version": 1,
+  "label": "Anniversary MV — English (placeholder v1)",
+
+  "base_video": "base.mp4",
+  "base_audio": "base.mp3",
+  "base_cover": "cover.png",
+  "duration_secs": 30,
+  "aspect_ratio": "16:9",
+
+  "title_template": "Anniversary, {name}",
+  "subtitle_template": "From cssOS · Curator",
+
+  "plain_lyrics_file": "lyrics.txt.tpl",
+
+  "emotional_tone": "tender",
+  "max_name_chars": 24,
+  "active": true,
+
+  "notes": "Placeholder v1. Synthesised pad + warm gradient still. Replace with real composition + visuals when the creative team is ready, then bump to anniversary_marriage.en.v2."
+}

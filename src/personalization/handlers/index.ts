@@ -15,6 +15,22 @@
 import { registerGiftTrigger } from "../triggers.js";
 import { welcomeTrigger } from "./welcome.js";
 import { firstSubscriberTrigger } from "./first-subscriber.js";
+import {
+  milestone100Trigger,
+  milestone1000Trigger,
+  milestone10000Trigger,
+  milestone100000Trigger,
+} from "./milestones.js";
+import {
+  planUpgradeTrigger,
+  planDowngradeTrigger,
+} from "./plan-change.js";
+import { birthdayTrigger } from "./birthday.js";
+import { feedbackAdoptedTrigger } from "./feedback-adopted.js";
+import {
+  anniversaryMarriageTrigger,
+  anniversaryOtherTrigger,
+} from "./anniversaries.js";
 
 let REGISTERED = false;
 
@@ -25,12 +41,31 @@ let REGISTERED = false;
 export function registerAllPersonalizationTriggers(): void {
   if (REGISTERED) return;
   REGISTERED = true;
+  // Stage A/B/C — already shipped
   registerGiftTrigger(welcomeTrigger);
   registerGiftTrigger(firstSubscriberTrigger);
-  // Stage D will add: milestone100Trigger, milestone1000Trigger, ...
-  // Stage E will add: planUpgradeTrigger, planDowngradeTrigger
-  // Stage F will add: birthdayTrigger
-  // Stage G will add: feedbackAdoptedTrigger
-  // Stage H will add: anniversaryMarriageTrigger, anniversaryOtherTrigger
-  console.log("[personalization] registered triggers: welcome, first_subscriber");
+  // Stage D — subscriber-count milestones
+  registerGiftTrigger(milestone100Trigger);
+  registerGiftTrigger(milestone1000Trigger);
+  registerGiftTrigger(milestone10000Trigger);
+  registerGiftTrigger(milestone100000Trigger);
+  // Stage E — plan changes (recurring per user, not oneShot)
+  registerGiftTrigger(planUpgradeTrigger);
+  registerGiftTrigger(planDowngradeTrigger);
+  // Stage F — birthday (cron-driven via runDailyBirthdayFlush)
+  registerGiftTrigger(birthdayTrigger);
+  // Stage G — feedback adopted
+  registerGiftTrigger(feedbackAdoptedTrigger);
+  // Stage H — anniversaries
+  registerGiftTrigger(anniversaryMarriageTrigger);
+  registerGiftTrigger(anniversaryOtherTrigger);
+  console.log(
+    "[personalization] registered triggers: welcome, first_subscriber, " +
+      "milestone_100, milestone_1000, milestone_10000, milestone_100000, " +
+      "plan_upgrade, plan_downgrade, birthday, feedback_adopted, " +
+      "anniversary_marriage, anniversary_other",
+  );
 }
+
+// Re-export the birthday cron so the boot scheduler can call it.
+export { runDailyBirthdayFlush } from "./birthday.js";

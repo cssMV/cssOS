@@ -26,7 +26,10 @@ export type {
   FireTriggerResult,
 } from "./types.js";
 export { registerGiftTrigger, listRegisteredTriggers } from "./triggers.js";
-export { registerAllPersonalizationTriggers } from "./handlers/index.js";
+export {
+  registerAllPersonalizationTriggers,
+  runDailyBirthdayFlush,
+} from "./handlers/index.js";
 export { getSystemUser, getSystemUserIdSync } from "./system-user.js";
 export { listUserGifts, markViewed } from "./audit.js";
 export {

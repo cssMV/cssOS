@@ -16557,10 +16557,49 @@ async function start() {
   // API. We log + continue so the rest of cssOS keeps serving even
   // if the gift system is misconfigured.
   try {
-    const { loadPersonalizationTemplates, registerAllPersonalizationTriggers } =
-      await import("./personalization/index.js");
+    const {
+      loadPersonalizationTemplates,
+      registerAllPersonalizationTriggers,
+      runDailyBirthdayFlush,
+      fireTriggerFireAndForget,
+    } = await import("./personalization/index.js");
     await loadPersonalizationTemplates();
     registerAllPersonalizationTriggers();
+
+    // CSSOS_PHASE2_PERSONALIZATION_STAGE_F 20260503 — Jing
+    // Birthday flush daemon. Scans every 6 hours; the SQL inside
+    // already de-dupes so users won't get the same year's birthday
+    // MV twice even if the cron fires multiple times per local day.
+    // Same-process scheduler (no external cron) keeps the
+    // dependency surface minimal — runs exactly while the API is
+    // up. The SQL also handles per-user timezones so a user in
+    // UTC+8 is hit at the right local-day boundary regardless of
+    // when the VM happens to fire.
+    const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+    const birthdayFlushTick = async () => {
+      try {
+        const userIds = await runDailyBirthdayFlush(
+          getPool(),
+          fireTriggerFireAndForget,
+          getPool(),
+        );
+        if (userIds.length) {
+          console.log(
+            "[personalization] birthday flush dispatched %d gift(s)",
+            userIds.length,
+          );
+        }
+      } catch (e) {
+        console.warn(
+          "[personalization] birthday flush failed (non-fatal):",
+          e instanceof Error ? e.message : String(e),
+        );
+      }
+    };
+    // Fire once shortly after boot (5 min — gives DB pool time to
+    // warm up) so a deploy mid-day still catches the day's birthdays.
+    setTimeout(birthdayFlushTick, 5 * 60 * 1000);
+    setInterval(birthdayFlushTick, SIX_HOURS_MS);
   } catch (err) {
     console.error(
       "[personalization] engine boot failed; continuing without gifts —",

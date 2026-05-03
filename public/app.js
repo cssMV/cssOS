@@ -6227,7 +6227,9 @@ const GUEST_VISIBLE_DOCK_ACTIONS = new Set([
   "api",
   "login",
   "language",
-  "subscription"
+  "subscription",
+  "profile",
+  "works"
 ]);
 
 const getUserRole = () =>

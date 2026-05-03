@@ -3857,6 +3857,7 @@ const ALWAYS_ALLOWED_FOR_LOGGED_IN = new Set([
   "works.open",
   "works.own.view",
   "works.watch",
+  "profile.open",
   "profile.nav.works"
 ]);
 

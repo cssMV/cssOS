@@ -4653,7 +4653,7 @@ function bindInlineChipEditors(container) {
 
 function updateComposingText() {
   if (!watchSubtitle) return;
-  watchSubtitle.textContent = t("status.composing", { spell: state.spell });
+  globalThis.safeSetWatchSubtitleModule?.(t("status.composing", { spell: state.spell }));
 }
 
 function currentLyricsProgressPercent() {
@@ -6658,7 +6658,7 @@ function enforceWatchPreviewLimit() {
   if (!watchPreviewLimitNoticeShown) {
     watchPreviewLimitNoticeShown = true;
     const message = watchPreviewLimitReason || loginCopy("Preview ended at 30 seconds.");
-    if (watchSubtitle) watchSubtitle.textContent = message;
+    globalThis.safeSetWatchSubtitleModule?.(message);
     showToast(message);
   }
   return true;
@@ -8318,9 +8318,9 @@ function syncWatchReplyHarmonyTokenOverlay() {
   if (watchSubtitle) {
     const suffixPattern = /\s·\s(?:Focus|触发词):\s.*$/;
     const baseSubtitle = String(watchSubtitle.textContent || "").replace(suffixPattern, "").trim();
-    watchSubtitle.textContent = token
+    globalThis.safeSetWatchSubtitleModule?.(token
       ? `${baseSubtitle || "KaraOKe MV · Preview"} · ${loginCopy("Focus")}: ${token}`
-      : (baseSubtitle || watchSubtitle.textContent || "");
+      : (baseSubtitle || watchSubtitle.textContent || ""));
   }
   if (watchKaraokeLine) {
     watchKaraokeLine.textContent = token ? `${loginCopy("Focus Token")} · ${token}` : "";
@@ -27799,7 +27799,11 @@ function applySpell(spell, options = {}) {
   if (toast) toast.textContent = formatToast(next);
 
   if (watchSubtitle && watchSubtitle.textContent.includes(prev)) {
-    watchSubtitle.textContent = replaceSpell(watchSubtitle.textContent, prev, next);
+    // CSSOS_PHASE2_SINGLE_WRITER 20260504 — go through the helper so
+    // karaoke-active periods are respected (no spell-replace on a
+    // live karaoke line — that would re-tokenise the actual sung text
+    // mid-performance).
+    globalThis.safeSetWatchSubtitleModule?.(replaceSpell(watchSubtitle.textContent, prev, next));
   }
 
   if (refreshPanels && state.baseLines) {
@@ -28900,11 +28904,11 @@ function renderKaraEngineSnapshot(statusPayload = null, karaSnapshot = {}) {
   renderKaraRuntimeBoard(statusPayload, karaSnapshot);
   renderWatchKaraokeOverlay(karaSnapshot.progress || engineProgressState.kara || 0);
   if (watchSubtitle) {
-    watchSubtitle.textContent =
+    globalThis.safeSetWatchSubtitleModule?.(
       joinDetailParts([
         karaSnapshot.currentStage || loginCopy("KaraOKe MV · Syncing"),
         karaSnapshot.artifactDetail || ""
-      ]) || loginCopy("KaraOKe MV · Syncing");
+      ]) || loginCopy("KaraOKe MV · Syncing"));
   }
 }
 

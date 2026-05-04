@@ -1008,36 +1008,36 @@ function getWatchLyricsSeedSubtitleModule() {
 function syncWatchSubtitleForWaitingMediaModule() {
   if (!watchSubtitle) return;
   if (watchPlaybackUiSuppressed) {
-    watchSubtitle.textContent = "";
+    safeSetWatchSubtitleModule("");
     return;
   }
   const activeStage = getActiveWatchProgressCardModule()?.key || "";
   if (globalThis.lyricsSeedRequestState?.pending) {
-    watchSubtitle.textContent = getWatchLyricsSeedSubtitleModule();
+    safeSetWatchSubtitleModule(getWatchLyricsSeedSubtitleModule());
     return;
   }
   const currentLyricsStatus = String(
     globalThis.summarizeWatchLyricsSeedStatusModule?.() || ""
   ).trim();
   if (currentLyricsStatus && !isWatchLyricsReadyModule()) {
-    watchSubtitle.textContent = currentLyricsStatus;
+    safeSetWatchSubtitleModule(currentLyricsStatus);
     return;
   }
   if (activeStage === "music") {
-    watchSubtitle.textContent = loginCopy("KaraOKe MV · Composing music now");
+    safeSetWatchSubtitleModule(loginCopy("KaraOKe MV · Composing music now"));
     return;
   }
   if (activeStage === "video") {
-    watchSubtitle.textContent = loginCopy("KaraOKe MV · Rendering video now");
+    safeSetWatchSubtitleModule(loginCopy("KaraOKe MV · Rendering video now"));
     return;
   }
   if (activeStage === "kara") {
-    watchSubtitle.textContent = loginCopy("KaraOKe MV · Rendering subtitle MV now");
+    safeSetWatchSubtitleModule(loginCopy("KaraOKe MV · Rendering subtitle MV now"));
     return;
   }
-  watchSubtitle.textContent = hasWatchArtworkReadyModule()
+  safeSetWatchSubtitleModule(hasWatchArtworkReadyModule()
     ? loginCopy("KaraOKe MV · Writing the first line now")
-    : loginCopy("KaraOKe MV · Painting the cover now");
+    : loginCopy("KaraOKe MV · Painting the cover now"));
 }
 
 function setWatchPlaybackUiSuppressedModule(suppressed) {
@@ -1048,7 +1048,7 @@ function setWatchPlaybackUiSuppressedModule(suppressed) {
   }
   if (watchSubtitle) {
     if (watchPlaybackUiSuppressed) {
-      watchSubtitle.textContent = "";
+      safeSetWatchSubtitleModule("");
     } else {
       syncWatchSubtitleForWaitingMediaModule();
     }
@@ -2554,7 +2554,7 @@ function renderWatchKaraokeOverlayModule(progress = 0) {
       const oneLine = String(resolvedCueText || "").replace(/\s*\n+\s*/g, " ").trim();
       watchSubtitle.dataset.cssmvOrigin = "lyric";
       if (watchSubtitle.textContent !== oneLine) {
-        watchSubtitle.textContent = oneLine;
+        safeSetWatchSubtitleModule(oneLine);
       }
     }
     return;
@@ -2588,7 +2588,7 @@ function renderWatchKaraokeOverlayModule(progress = 0) {
     const oneLine = String(current || "").replace(/\s*\n+\s*/g, " ").trim();
     watchSubtitle.dataset.cssmvOrigin = "lyric";
     if (watchSubtitle.textContent !== oneLine) {
-      watchSubtitle.textContent = oneLine;
+      safeSetWatchSubtitleModule(oneLine);
     }
   }
 }
@@ -3368,8 +3368,8 @@ function fallbackWatchPlaybackToMusicModule(reason = "") {
         // pipeline still cooking earlier stages; suppress audio fallback
         if (watchScreen) watchScreen.classList.add("is-waiting");
         if (watchSubtitle) {
-          watchSubtitle.textContent = reason ||
-            (typeof t === "function" ? t("watch.subtitle.composingMv") : "Composing MV…");
+          safeSetWatchSubtitleModule(reason ||
+            (typeof t === "function" ? t("watch.subtitle.composingMv") : "Composing MV…"));
         }
         return;
       }
@@ -3382,7 +3382,7 @@ function fallbackWatchPlaybackToMusicModule(reason = "") {
   setWatchPlaybackUiSuppressedModule(false);
   activateWatchTab("music");
   if (reason && watchSubtitle) {
-    watchSubtitle.textContent = reason;
+    safeSetWatchSubtitleModule(reason);
   }
   openWatchMusicPlaybackSurfaceModule({ autoplay: true });
 }
@@ -4562,6 +4562,33 @@ async function hydrateAlignedFromSrtUrlModule(srtUrl, pipelineStateRef) {
   }
 }
 
+// CSSOS_PHASE2_SINGLE_WRITER 20260504 — Jing
+// "我觉得必须要动的，只留下一个正确的就好，不然互相打架，耗费服务器
+//  算力."
+//
+// All non-karaoke writers route through this single helper. When the
+// karaoke renderer owns the subtitle (timeline non-empty AND a line
+// is currently active) this no-ops — no DOM mutation, no compute
+// wasted, no fight. When karaoke is idle (pre-pipeline / paused /
+// between lines) the status text comes through.
+//
+// Karaoke renderer continues to write directly to .textContent +
+// tag dataset.cssmvOrigin = "karaoke-live" so the MutationObserver
+// belt-and-suspenders also kicks in for any future writer that
+// forgets to call this helper.
+function safeSetWatchSubtitleModule(text) {
+  if (!watchSubtitle) return;
+  if (typeof globalThis.cssosKaraokeOwnsSubtitle === "function" &&
+      globalThis.cssosKaraokeOwnsSubtitle()) {
+    return;
+  }
+  const next = String(text == null ? "" : text);
+  if (watchSubtitle.textContent === next) return; // no-op idempotent
+  safeSetWatchSubtitleModule(next);
+  watchSubtitle.dataset.cssmvOrigin = "status";
+}
+globalThis.safeSetWatchSubtitleModule = safeSetWatchSubtitleModule;
+
 let __cssosKaraokeWired = false;
 function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
   if (__cssosKaraokeWired) return;
@@ -4592,6 +4619,16 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
   // its own writes apart from foreign ones.
   let karaokeReapplying = false;
   let lastAppliedLine = null;
+
+  // CSSOS_PHASE2_SINGLE_WRITER 20260504 — Jing
+  // Exposed for safeSetWatchSubtitleModule. Karaoke "owns" the
+  // subtitle whenever it has a timeline AND has applied a line.
+  // External status writers route through safeSetWatchSubtitle which
+  // checks this and silently no-ops while karaoke is the rightful
+  // owner. Defined AFTER lastAppliedLine so the closure captures it.
+  globalThis.cssosKaraokeOwnsSubtitle = () => {
+    return cachedTimeline.length > 0 && lastAppliedLine !== null;
+  };
   const reapplyKaraokeLine = () => {
     if (!lastAppliedLine) return;
     const sub = document.getElementById("watch-subtitle");
@@ -6433,7 +6470,7 @@ function handleWatchUserPlaybackGesture() {
         watchSubtitle?.textContent?.includes("Tap to play") ||
         watchSubtitle?.textContent?.includes("轻触即可播放")
       ) {
-        watchSubtitle.textContent = watchSubtitleLabelModule("preview");
+        safeSetWatchSubtitleModule(watchSubtitleLabelModule("preview"));
       }
     })
     .catch(() => {
@@ -6838,13 +6875,13 @@ async function openLatestRegistryPreviewInWatch() {
     const videoArtifact = artifacts.find((item) => item.name === "video_preview.mp4");
     const svgArtifact = artifacts.find((item) => item.name === "video_preview.svg");
     if (videoArtifact && setWatchVideoFromArtifact(videoArtifact.uri, { sourceKind: "registry" })) {
-      watchSubtitle.textContent = watchSubtitleLabelModule("preview");
+      safeSetWatchSubtitleModule(watchSubtitleLabelModule("preview"));
       attemptWatchVideoPlaybackModule({ allowFallback: false });
       return true;
     }
     if (svgArtifact) {
       setWatchSvgPreviewModule(svgArtifact.uri);
-      watchSubtitle.textContent = watchSubtitleLabelModule("preview");
+      safeSetWatchSubtitleModule(watchSubtitleLabelModule("preview"));
       return true;
     }
     return false;
@@ -7535,7 +7572,7 @@ function useLocalWatchVideoFallbackModule(title, subtitle) {
 
 function promptManualWatchPlaybackModule(message) {
   globalThis.watchManualPlayHinted = true;
-  if (watchSubtitle) watchSubtitle.textContent = message;
+  safeSetWatchSubtitleModule(message);
   showToast(message);
 }
 
@@ -7940,7 +7977,7 @@ async function requestWatchVideoPreviewModule(title, lines, options = {}) {
     hasPlayableCurrentWatchAudioModule();
   if (allowDuringGeneration && !musicReadyForPreview) {
     if (watchSubtitle) {
-      watchSubtitle.textContent = t("watch.status.requestingMusicEngine");
+      safeSetWatchSubtitleModule(t("watch.status.requestingMusicEngine"));
     }
     void requestWatchFrameArtworkModule(title, t("watch.status.requestingMusicEngine"), lines);
     return false;
@@ -8066,14 +8103,14 @@ function pollWatchVideoJobModule(jobId) {
           if (setWatchVideoFromArtifact(videoArtifact.uri, { sourceKind: "job-artifact" })) {
             attemptWatchVideoPlaybackModule({ allowFallback: false });
           }
-          watchSubtitle.textContent = watchSubtitleLabelModule("preview");
+          safeSetWatchSubtitleModule(watchSubtitleLabelModule("preview"));
         } else {
-          watchSubtitle.textContent = watchSubtitleLabelModule("ready");
+          safeSetWatchSubtitleModule(watchSubtitleLabelModule("ready"));
         }
         clearInterval(videoJobPoll);
         videoJobPoll = null;
       } else if (job.status === "failed") {
-        watchSubtitle.textContent = watchSubtitleLabelModule("failed");
+        safeSetWatchSubtitleModule(watchSubtitleLabelModule("failed"));
         clearInterval(videoJobPoll);
         videoJobPoll = null;
       }
@@ -8657,7 +8694,7 @@ async function renderMarketWorkPreviewIntoWatchModule({
   if (artworkImage) {
     setWatchSvgPreviewModule(artworkImage);
   }
-  if (watchSubtitle) watchSubtitle.textContent = subtitle;
+  safeSetWatchSubtitleModule(subtitle);
   if (!previewUnlimited) {
     setWatchPreviewLimit(
       MARKET_WATCH_PREVIEW_LIMIT_SEC,
@@ -8666,7 +8703,7 @@ async function renderMarketWorkPreviewIntoWatchModule({
   }
   await openWatchPreviewFlowModule({ preferredTab: "mv", clearLimit: false });
   if (watchSubtitle && watchSubtitle.textContent && !watchSubtitle.textContent.includes("30")) {
-    watchSubtitle.textContent = subtitle;
+    safeSetWatchSubtitleModule(subtitle);
   }
 }
 

@@ -612,7 +612,19 @@ window.addEventListener("cssos:mic_hold_commit", async (event) => {
     }
     showCreationSurface(String(event?.detail?.origin || "logo"));
     const blob = await runBootUiMethod("StopRecordingGetBlob", "stopRecordingGetBlob").catch(() => null);
-    await runBootUiMethod("SubmitVoiceOrFallbackTitle", "submitVoiceOrFallbackTitle", blob);
+    // CSSOS_PHASE2_LONGPRESS_KILL_LEGACY 20260504 — Jing
+    // "长按还在走旧流程，请修复". The boot bridge `runBootUiMethod` resolves
+    // SubmitVoiceOrFallbackTitle to the legacy app.voice-seed.js function
+    // first, which goes straight to startCreation() (the brown-stick-figure
+    // path). Prefer the MV-Pipeline-aware `submitVoiceOrFallbackTitleModule`
+    // (registered by app.voice-submit.js) which routes through
+    // openMvPipelinePanel({autoStart:true}).
+    if (typeof globalThis.submitVoiceOrFallbackTitleModule === "function") {
+      console.info("%c[entry:logo-longpress] → submitVoiceOrFallbackTitleModule", "color:#08f;font-weight:bold");
+      await globalThis.submitVoiceOrFallbackTitleModule(blob);
+    } else {
+      await runBootUiMethod("SubmitVoiceOrFallbackTitle", "submitVoiceOrFallbackTitle", blob);
+    }
   } catch (e) {
     stopLogoMicPulse();
     const raw = String(e || "");

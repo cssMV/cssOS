@@ -73,11 +73,20 @@
   cursor: not-allowed;
 }
 
+/* CSSOS_PHASE2_HORIZONTAL_ACTIONS 20260504 — Jing prefers all three
+   buttons (Start / Surprise / Clear) on one row to save vertical space.
+   Allow each to shrink below 120px on narrow panels. */
 @media (max-width: 520px) {
+  #mv-pipeline-panel .mvp-actions {
+    flex-wrap: nowrap;
+  }
   #mv-pipeline-panel .mvp-actions > .cta,
   #mv-pipeline-panel .mvp-actions > #mvp-run {
-    flex: 1 1 100%;
+    flex: 1 1 0;
     min-width: 0;
+    font-size: 11px;
+    padding: 10px 6px;
+    letter-spacing: 0.04em;
   }
 }
 

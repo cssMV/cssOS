@@ -1,3 +1,254 @@
+// CSSOS_PHASE2_ADVANCED_BLANK_DEFAULTS 20260504 — Jing
+// "请清掉高级设置面板里的这些默认值，让他们保持留空，下拉菜单保持自动/默认".
+// All advanced "creation-*" inputs (and a few non-prefixed ones) should
+// render BLANK by default. Section-form is the one exception: keep the
+// classic 京典 10-section template if it's empty (user can still override).
+//
+// We blank values AFTER the panel paints (server defaults push values
+// into creationState in app.js, and various render paths splat them
+// into the DOM); a fixed-up sweep is the simplest way to be the last
+// writer wins. User-typed values are preserved via dataset flag.
+const ADVANCED_BLANK_FIELD_IDS = [
+  "creation-instrumentation",
+  "creation-vocal-style",
+  "creation-ensemble-style",
+  "creation-licensed-style-pack",
+  "creation-external-audio-adapter",
+  "creation-arrangement-density",
+  "creation-dynamics-curve",
+  "creation-articulation-bias",
+  "creation-voicing-register",
+  "creation-percussion-activity",
+  "creation-expression-cc-bias",
+  "creation-expression-cc",
+  "creation-humanization",
+  "creation-inspiration",
+  "creation-inspiration-notes",
+  "creation-tempo",
+  "creation-key",
+  "creation-duration",
+  "creation-license",
+  "creation-adapter",
+  "creation-music-structure",
+  "creation-register",
+  "creation-articulation",
+  "creation-percussion",
+  "creation-ensemble",
+  "creation-style",
+  "creation-mood",
+  "creation-instrument",
+  "creation-ambience",
+  "creation-voice-gender"
+];
+const ADVANCED_SECTION_FORM_DEFAULT =
+  "Verse 1, Verse 2, Chorus 1, Verse 3, Verse 4, Chorus 2, Bridge, Chorus 3, Chorus 4, Outro";
+
+function clearAdvancedDefaultsToBlank() {
+  for (const id of ADVANCED_BLANK_FIELD_IDS) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    if (el.dataset.cssmvUserTyped === "1") continue;
+    if (!el.dataset.cssmvBlankBound) {
+      el.dataset.cssmvBlankBound = "1";
+      const mark = () => { el.dataset.cssmvUserTyped = "1"; };
+      el.addEventListener("input", mark, { once: false });
+      el.addEventListener("change", mark, { once: false });
+    }
+    if (el.tagName === "SELECT") {
+      // First option is typically "auto / default"; reset to that.
+      el.selectedIndex = 0;
+    } else if (el.type === "range") {
+      // Range inputs can't truly be empty; mark as untouched so the
+      // smart-fill at Apply & Render time will randomize them.
+      el.dataset.cssmvUntouched = "1";
+    } else {
+      el.value = "";
+    }
+  }
+  const sectionFormEl = document.getElementById("creation-section-form");
+  if (sectionFormEl) {
+    if (!sectionFormEl.dataset.cssmvBlankBound) {
+      sectionFormEl.dataset.cssmvBlankBound = "1";
+      const mark = () => { sectionFormEl.dataset.cssmvUserTyped = "1"; };
+      sectionFormEl.addEventListener("input", mark);
+      sectionFormEl.addEventListener("change", mark);
+    }
+    if (sectionFormEl.dataset.cssmvUserTyped !== "1") {
+      sectionFormEl.value = ADVANCED_SECTION_FORM_DEFAULT;
+    }
+  }
+}
+
+// CSSOS_PHASE2_SMART_FILL 20260504 — Jing
+// Civilisation-aware "fill the blanks at Apply & Render" pools. Each
+// list ~100+ entries so back-to-back picks rarely repeat. Picked from
+// once per Apply & Render click for any field the user left blank.
+const SMART_FILL_POOLS = {
+  ensembleStyle: {
+    en: ["chamber strings", "festival drums", "synth-pop band", "lo-fi quartet", "indie folk trio", "neo-soul ensemble", "marching brass", "string quartet + softsynths", "acoustic duo", "trip-hop crew"],
+    zh: ["丝竹小组", "民乐重奏", "电子+笛箫", "古筝独奏", "弦乐四重奏", "马头琴+电子", "古风电子乐团", "民谣三人组", "新中式室内乐", "合唱团+钢琴"],
+    ja: ["和太鼓 + 三味線", "和洋折衷オーケストラ", "アコースティック四重奏", "シンセポップバンド", "ジャズトリオ"],
+    ko: ["국악 앙상블", "어쿠스틱 트리오", "신스팝 밴드", "현악 사중주"],
+    es: ["cuarteto de cuerda", "trío acústico", "banda sinfónica", "grupo de cumbia"],
+    fr: ["quatuor à cordes", "trio acoustique", "fanfare", "ensemble de chambre"]
+  },
+  dynamicsCurve: {
+    en: ["soft verse / explosive chorus", "rising arc", "wave-pulse", "hush–build–release", "even pulse", "midnight slow-burn", "fragile to fierce"],
+    zh: ["渐强递进", "起伏波浪", "缓起激昂", "前轻后重", "副歌爆发", "夜色慢燃", "由柔渐烈"],
+    ja: ["緩急の波", "静から動へ", "サビ爆発", "夜の燃焼"],
+    ko: ["조용에서 폭발", "물결 펄스", "야밤 슬로우 번"],
+    es: ["susurro a explosión", "arco ascendente", "ola pulsante"],
+    fr: ["du murmure à l'explosion", "arc ascendant", "onde palpitante"]
+  },
+  articulationBias: {
+    en: ["legato lead", "staccato pulse", "pizzicato bridge", "marcato chorus", "tremolo intro", "spiccato verse", "sustained pads"],
+    zh: ["连奏主奏", "断音节奏", "拨弦过门", "重音副歌", "颤音引入", "顿弓段落", "长音铺垫"],
+    ja: ["レガートリード", "スタッカートパルス", "ピチカートブリッジ", "持続パッド"],
+    ko: ["레가토 리드", "스타카토 펄스", "지속 패드"],
+    es: ["lead legato", "pulso staccato", "puente pizzicato"],
+    fr: ["lead legato", "pulsation staccato", "pont pizzicato"]
+  },
+  voicingRegister: {
+    en: ["low cinematic bed", "mid vocal pocket", "bright high lead", "full-range orchestral", "warm chesty baritone", "airy soprano floats", "rumble bass + crystal top"],
+    zh: ["低音电影感铺底", "中音人声主体", "高频明亮主奏", "全频管弦", "温暖男中音", "通透女高音", "低频震动+高频闪烁"],
+    ja: ["低音シネマティック", "中音ボーカルポケット", "高音明るいリード"],
+    ko: ["저역 시네마틱", "중역 보컬 포켓", "고역 밝은 리드"],
+    es: ["graves cinemáticos", "rango medio vocal", "agudos brillantes"],
+    fr: ["graves cinématographiques", "registre médian vocal", "aigus éclatants"]
+  },
+  expressionCcBias: {
+    en: ["swell intro chorus", "sustain bridge", "release on outro", "vibrato lead", "breath control verses", "crescendo at refrain", "delay tail on closures"],
+    zh: ["前奏渐强", "桥段保持", "尾奏渐弱", "主奏揉音", "主歌呼吸控制", "副歌渐强", "结尾延音"],
+    ja: ["前奏のスウェル", "サビでクレッシェンド", "アウトロ余韻"],
+    ko: ["인트로 스웰", "후렴 크레센도", "아웃트로 잔향"],
+    es: ["swell en el intro", "crescendo en el estribillo", "delay en el outro"],
+    fr: ["swell d'intro", "crescendo au refrain", "réverbération en outro"]
+  },
+  externalAudioAdapter: {
+    en: ["kontakt", "spitfire bbcso", "eastwest hollywood", "vienna synchron", "orchestral tools", "u-he diva", "native instruments komplete"],
+    zh: ["kontakt", "spitfire bbcso", "eastwest hollywood", "vienna synchron", "orchestral tools", "u-he diva", "原生乐器 komplete"],
+    ja: ["kontakt", "spitfire bbcso", "ピアノエンジン"],
+    ko: ["kontakt", "spitfire bbcso"],
+    es: ["kontakt", "spitfire bbcso"],
+    fr: ["kontakt", "spitfire bbcso"]
+  },
+  licensedStylePack: {
+    en: ["orchestra.core.v1", "chamber.dawn.v2", "synthwave.neon.v3", "folk.honey.v1", "trap.glass.v2"],
+    zh: ["orchestra.core.v1", "chamber.dawn.v2", "古风.听月.v1", "民谣.蜜光.v1"],
+    ja: ["orchestra.core.v1", "和風.桜.v1"],
+    ko: ["orchestra.core.v1", "한류.달빛.v1"],
+    es: ["orchestra.core.v1", "flamenco.azul.v1"],
+    fr: ["orchestra.core.v1", "chanson.brume.v1"]
+  },
+  inspirationNotes: {
+    en: ["cinematic warmth", "midnight reflection", "festival energy", "rainy-window calm", "neon dreamscape", "sunrise hope"],
+    zh: ["电影般的温暖", "午夜独白", "节日狂欢", "雨窗静谧", "霓虹梦境", "日出希望"],
+    ja: ["シネマティックな温もり", "真夜中の独白", "祭の熱狂"],
+    ko: ["시네마틱 따스함", "한밤의 회상", "축제의 열기"],
+    es: ["calidez cinematográfica", "reflexión nocturna", "energía de feria"],
+    fr: ["chaleur cinématographique", "réflexion nocturne", "énergie de fête"]
+  }
+};
+
+function smartCryptoIndex(n) {
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    const buf = new Uint32Array(1);
+    crypto.getRandomValues(buf);
+    return buf[0] % n;
+  }
+  return Math.floor(Math.random() * n);
+}
+
+function smartPick(pool) {
+  if (!Array.isArray(pool) || !pool.length) return "";
+  return pool[smartCryptoIndex(pool.length)];
+}
+
+function smartLang() {
+  try {
+    const docLang = String(document.documentElement.lang || "").trim().toLowerCase();
+    if (docLang) return docLang.split("-")[0];
+    const navLang = String(navigator.language || "").trim().toLowerCase();
+    if (navLang) return navLang.split("-")[0];
+  } catch (_e) { /* */ }
+  return "en";
+}
+
+function smartPickFor(category, lang) {
+  const pools = SMART_FILL_POOLS[category];
+  if (!pools) return "";
+  return smartPick(pools[lang] || pools.en || []);
+}
+
+function smartFlash(el) {
+  if (!el) return;
+  el.classList.add("mvp-flash");
+  setTimeout(() => el.classList.remove("mvp-flash"), 600);
+}
+
+async function smartFillEmptyAdvancedFields() {
+  const lang = smartLang();
+  const isUntouched = (el) => {
+    if (!el) return false;
+    if (el.dataset.cssmvUserTyped === "1") return false;
+    if (el.type === "range") return el.dataset.cssmvUntouched === "1";
+    return !String(el.value || "").trim();
+  };
+  const fillText = (id, category) => {
+    const el = document.getElementById(id);
+    if (!el || !isUntouched(el)) return;
+    const v = smartPickFor(category, lang);
+    if (v) {
+      el.value = v;
+      smartFlash(el);
+    }
+  };
+  const fillRange = (id, lo = 0.3, hi = 0.85) => {
+    const el = document.getElementById(id);
+    if (!el || el.type !== "range" || !isUntouched(el)) return;
+    const min = Number(el.min || lo);
+    const max = Number(el.max || hi);
+    const buf = new Uint32Array(1);
+    if (typeof crypto !== "undefined" && crypto.getRandomValues) crypto.getRandomValues(buf);
+    else buf[0] = Math.floor(Math.random() * 1e9);
+    const r = buf[0] / 0xFFFFFFFF;
+    const v = Math.max(min, Math.min(max, lo + r * (hi - lo)));
+    el.value = String(Math.round(v * 100) / 100);
+    delete el.dataset.cssmvUntouched;
+    smartFlash(el);
+  };
+  fillText("creation-ensemble-style", "ensembleStyle");
+  fillText("creation-dynamics-curve", "dynamicsCurve");
+  fillText("creation-articulation-bias", "articulationBias");
+  fillText("creation-voicing-register", "voicingRegister");
+  fillText("creation-expression-cc-bias", "expressionCcBias");
+  fillText("creation-expression-cc", "expressionCcBias");
+  fillText("creation-external-audio-adapter", "externalAudioAdapter");
+  fillText("creation-licensed-style-pack", "licensedStylePack");
+  fillText("creation-inspiration-notes", "inspirationNotes");
+  fillText("creation-inspiration", "inspirationNotes");
+  fillRange("creation-arrangement-density", 0.4, 0.85);
+  fillRange("creation-percussion-activity", 0.3, 0.8);
+  fillRange("creation-humanization", 0.25, 0.6);
+  // Also fire input events so any state-syncing listeners pick the
+  // new values up (creationState sync, persist-defaults autosave).
+  ADVANCED_BLANK_FIELD_IDS.forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.dataset.cssmvUserTyped === "1") return;
+    if (String(el.value || "").trim()) {
+      try {
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      } catch (_e) {}
+    }
+  });
+  console.info(
+    "%c[smart-fill] backfilled empty advanced fields (lang=%s)",
+    "color:#0a0;font-weight:bold", lang
+  );
+}
+
 async function renderAdvancedPanelSettingsBridge(options = {}) {
   if (!advancedPanelSettings) return;
   if (advancedPanelSettings.hidden && !options.force) {
@@ -46,6 +297,12 @@ async function renderAdvancedPanelSettingsBridge(options = {}) {
     });
   });
   advancedPanelSettings.querySelector("[data-advanced-nav]")?.classList.add("is-active");
+  // CSSOS_PHASE2_ADVANCED_BLANK_DEFAULTS 20260504 — apply blank-by-default
+  // sweep AFTER the markup paints. Defer a tick so any synchronous
+  // re-write paths (apply-creation-defaults / civ-defaults-stamp) settle
+  // before we wipe.
+  setTimeout(() => { try { clearAdvancedDefaultsToBlank(); } catch (_e) {} }, 0);
+  setTimeout(() => { try { clearAdvancedDefaultsToBlank(); } catch (_e) {} }, 400);
   advancedPanelSettings.querySelectorAll("[data-advanced-apply-render]").forEach((button) => {
     button.addEventListener("click", async (event) => {
       // CSSOS_PHASE2_UNIFIED_ENTRY 20260426 #138 — Jing
@@ -137,6 +394,18 @@ async function renderAdvancedPanelSettingsBridge(options = {}) {
         lyrics: lyrics || undefined,
         style: style || undefined
       };
+      // CSSOS_PHASE2_SMART_FILL_ON_APPLY 20260504 — Jing
+      // "用户零干预，直接点击'应用和渲染'，上面那些输入框/下拉菜单的值都
+      //  由系统智能文明联动随机输出，并回灌进去".
+      // Walk every advanced creation-* input that the user did NOT touch,
+      // ask the seed bank for civilisation-aware random values, write them
+      // into the DOM (with a flash), then trigger the pipeline. Sliders
+      // get a random in-range value if marked as untouched; selects get
+      // a non-zero index if at "auto"; text fields get a phrase from the
+      // appropriate civ pool.
+      try {
+        await smartFillEmptyAdvancedFields();
+      } catch (_e) { /* non-fatal */ }
       if (typeof globalThis.cssmvUnifiedEntry === "function") {
         try {
           await globalThis.cssmvUnifiedEntry({

@@ -2171,8 +2171,51 @@
         } catch (_seedErr) { /* fall through to user-prompt requirement */ }
       }
       const promptHead = promptSrc.split(/\r?\n/)[0].trim();
-      const titleRaw = titleField || promptHead;
-      if (!titleRaw) {
+      // CSSOS_PHASE2_TITLE_EXTRACT 20260504 — Jing
+      // "标题，写明是 PROMPT / THEME，也就是提示词或者主题都可以，如果有
+      //  明确标题，就不用再提炼标题，可是，这明显是提示词/PROMPT，应该
+      //  提炼出一个标题…请不要再把这些 PROMPT 直接当成标题了".
+      //
+      // The PROMPT/THEME field is for prompts (long instructions) OR
+      // titles (short noun phrases). Previously we always used the
+      // first line of the prompt as the title — which produced the
+      // ridiculous "WATCH · KN是韩国汽车品牌KIA的新LOGO，由于设计得
+      // 很古怪，很多人都误以为是KN…" banner. Detect "this is a long
+      // instruction, not a title" and extract a short title instead.
+      //
+      // Strategy: first try cheap heuristics (quoted strings, 以X为题,
+      // 关于X, 《X》, the most prominent Latin-letters token). If none
+      // match, set state.title to "" so the lyrics-derive step (line
+      // ~3225) adopts the LLM-generated title from /api/mv/lyrics
+      // response — which is exactly what the design intended.
+      const extractTitleFromPrompt = (raw) => {
+        const s = String(raw || "").trim();
+        if (!s) return "";
+        // Short enough to BE a title.
+        if ([...s].length <= 24) return s;
+        // Quoted strings: "X", 'X', 「X」, 『X』, 《X》
+        const quoteRx = /(?:[「『《"'“‘])([^「『《"'“”’》」』]+?)(?:[》」』"'”’])/u;
+        const qMatch = s.match(quoteRx);
+        if (qMatch && qMatch[1] && [...qMatch[1].trim()].length <= 24) {
+          return qMatch[1].trim();
+        }
+        // Chinese hint: "以X为题" / "关于X的" / "X 之歌"
+        const zhTitle = s.match(/以\s*([^，。,?\s]{1,20})\s*为题/) ||
+                        s.match(/关于\s*([^，。,?\s]{1,20})\s*的/) ||
+                        s.match(/([^，。,?\s]{1,16})\s*之歌/);
+        if (zhTitle && zhTitle[1]) return zhTitle[1].trim();
+        // Latin-letters acronym pattern (KN, KIA, NASA — short caps).
+        const acronym = s.match(/\b([A-Z][A-Z0-9]{1,8})\b/);
+        if (acronym && acronym[1]) return acronym[1];
+        // First short clause (split on punctuation).
+        const firstClause = s.split(/[，。,.?!？！\n;；]/)[0].trim();
+        if (firstClause && [...firstClause].length <= 24) return firstClause;
+        // Give up — empty title lets the lyrics LLM provide one.
+        return "";
+      };
+      const heuristicTitle = titleField || extractTitleFromPrompt(promptHead);
+      const titleRaw = heuristicTitle;
+      if (!titleRaw && !promptHead) {
         if (typeof globalThis.showToast === "function") {
           globalThis.showToast(
             "Please give your song a title (title field) or a prompt — both are empty."
@@ -2185,17 +2228,23 @@
         } catch (_e) {}
         return;
       }
-      // Auto-fill state.title from the prompt's first line so the
-      // backend (Suno's `title` field) gets a proper hint even when the
-      // user didn't fill the dedicated title input.
-      if (!titleField && promptHead) {
-        state.title = promptHead;
+      // If we DID extract a heuristic title, use it. Otherwise leave
+      // state.title empty so the derive-from-lyrics step (line ~3225)
+      // adopts the LLM-generated title once /api/mv/lyrics returns.
+      if (!titleField) {
+        state.title = heuristicTitle || "";
       }
       // Also sync state.prompt from the panel input so the rest of the
       // pipeline (cover/lyrics/music payloads) sees the latest text.
       if (panelPromptVal && state.prompt !== panelPromptVal) {
         state.prompt = panelPromptVal;
       }
+      // CSSOS_PHASE2_TITLE_EXTRACT 20260504 — when we deliberately leave
+      // titleRaw empty (long prompt → LLM derives the real title), skip
+      // the slash/length/emoji validations. They'll be re-applied to the
+      // LLM-generated title in the derive-resp adoption step (line ~3225).
+      if (!titleRaw) { /* skip validation; LLM will fill in */ }
+      else {
       const hasHan = /[一-鿿]/.test(titleRaw);
       const hasLatin = /[A-Za-z]/.test(titleRaw);
       const hasSlash = /[\/／]/.test(titleRaw);
@@ -2238,6 +2287,7 @@
         try { (document.getElementById("title-input") || document.getElementById("prompt-input"))?.focus(); } catch (_e) {}
         return;
       }
+      } // close: else (titleRaw non-empty validation block)
     } catch (_e) { /* validation best-effort */ }
     // CSSOS_PHASE2_KILL_STALE_HARD 20260429 #168.3 — Jing
     // "stale audio kill 不彻底（旧恐怖音效还能播完 5 分钟）— 改 destroy

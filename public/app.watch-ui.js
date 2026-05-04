@@ -6272,14 +6272,20 @@ async function invokeUniversalCreationEntryModule(options = {}) {
   const origin = String(options?.origin || "logo").trim() || "logo";
   const preferredTab = String(options?.preferredTab || "mv").trim() || "mv";
   const submitVoiceFallback = options?.submitVoiceFallback === true;
-  // CSSOS_PHASE2_UNIVERSAL_ENTRY 20260418 —
+  // CSSOS_PHASE2_UNIVERSAL_ENTRY 20260418 / 20260504 — Jing
   // Jing's principle: every universal entry must exercise the full 6-stage
   // pipeline (cover/lyrics/music/video/subtitles/MV). Callers can opt-out via
   // `options.skipMvPipeline === true` for cases where they only want the
   // watch UI flow (e.g. legacy song-seed rehearsal). By default we trigger
   // the 6-stage panel in parallel with the watch playback flow so the user
   // always sees a complete MV rendered end-to-end.
-  const triggerMvPipeline = options?.skipMvPipeline !== true && preferredTab === "mv";
+  //
+  // 2026-05-04 fix: previously we additionally gated on `preferredTab === "mv"`
+  // which silently dropped the pipeline for the listen-button (preferredTab
+  // "music") and any other entry that opens the music tab first. The user's
+  // expectation is that the pipeline always runs — the chosen tab is just
+  // which surface to focus on; both tabs share the same MV result.
+  const triggerMvPipeline = options?.skipMvPipeline !== true;
   // `options.seed` lets callers pre-fill the pipeline (e.g. advanced settings
   // "apply render" button with a user-authored config). Missing fields get
   // randomised by `openMvPipelinePanel`/`runAll` from the local seed bank.

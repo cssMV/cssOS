@@ -5006,40 +5006,77 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
         // SRT/ASS export) keeps every punctuation character intact —
         // this filter is render-time-only.
         const stripKaraokePunct = (s) => {
-          // Iterate code-point set as a Set lookup so we don't have
-          // to build a character-class regex (which range-errors when
-          // dashes / brackets sit next to each other). Keeps:
-          // ？ ！ ～ ? ! 字母 数字 emoji 中文字.
+          // CSSOS_PHASE2_PUNCT_FILTER 20260504v2 — Jing
+          // 1. Replace stripped chars with a SPACE (not empty) so the
+          //    line still has natural breath/phrase breaks. e.g.
+          //    "梅雨季节的旧巷子，屋檐下两把伞" →
+          //    "梅雨季节的旧巷子 屋檐下两把伞"
+          // 2. KEEP brackets / quotes — 「再见」 carries meaning
+          //    (quoting a concept). Same for 《诗经》 (book title)
+          //    《》 〈〉 【】 〔〕 ()（） " ' " " ' '.
           if (!__cssmvKaraStripSet) {
             __cssmvKaraStripSet = new Set();
             const chars =
-              "，。、；：·．…" +     // Chinese pause-style
-              "「」『』《》〈〉【】〔〕（）｢｣" + // Chinese brackets / parens
-              "“”‘’\"'" + // “ ” ‘ ’ + ASCII quotes
-              "—–‒‐‑―" + // em/en/figure dashes
-              "-" +                  // ASCII hyphen
-              ",.;:()" +             // Latin pause-style + parens
-              "·•●◆◇○"; // · • ● ◆ ◇ ○
+              "，。、；：·．…" +   // Chinese pause-style only
+              "—–‒‐‑―" +           // em/en/figure dashes
+              ",.;:" +              // Latin pause-style (NO parens — keep ()
+              "·•●◆◇○";           // dots / bullets
             for (const ch of chars) __cssmvKaraStripSet.add(ch);
           }
           let out = "";
           for (const ch of String(s || "")) {
-            if (!__cssmvKaraStripSet.has(ch)) out += ch;
+            out += __cssmvKaraStripSet.has(ch) ? " " : ch;
           }
           return out.replace(/\s+/g, " ").trim();
         };
         const text = stripKaraokePunct(String(line.text || ""));
         const chars = Array.from(text); // preserves CJK + emoji clusters
         const perChar = lineDur / Math.max(chars.length, 1);
-        // Build inner HTML with per-char delay. Spaces: render real
-        // &nbsp; so flexbox layout stays sane.
+        // CSSOS_PHASE2_PER_CHAR_FONT 20260504 — Jing
+        // "普通字幕的每一歌词/每一个字的字幕字体也是可以随机切换的".
+        // Each kara-char span pulls its own font from the 92+ font
+        // manifest via cssmvAssignFontForPiece. The function caches
+        // (text → font) so a given character keeps its font across
+        // re-renders, but shuffleTokenFonts clears the cache so the
+        // next interval re-rolls every span.
+        //
+        // CSSOS_PHASE2_PER_CHAR_EMOTION 20260504 — Jing
+        // "ACC 字幕最适合做情绪字幕，每个字幕情绪都不一样".
+        // Each character ALSO gets its own emotion class on top of
+        // the line baseline. Emotion-keyword chars (火/燃/泪/笑/梦/月…)
+        // override with their own colour burst so a single line can
+        // have heterogeneous emotion accents.
+        const pickFont = (typeof globalThis.cssmvAssignFontForPiece === "function")
+          ? globalThis.cssmvAssignFontForPiece
+          : null;
+        const escapeFontFamily = (fam) =>
+          String(fam || "").replace(/"/g, '\\"').replace(/[<>]/g, "");
+        const charEmotion = (ch) => {
+          if (/[火燃爆怒]/.test(ch)) return "ignite";
+          if (/[泪悲失孤]/.test(ch)) return "grief";
+          if (/[爱心怀]/.test(ch))   return "intimate";
+          if (/[喜笑乐]/.test(ch))   return "joy";
+          if (/[梦月夜星]/.test(ch)) return "resolve";
+          if (/[静安宁海]/.test(ch)) return "calm";
+          return "";
+        };
         const spans = chars.map((ch, i) => {
           const delay = (i * perChar).toFixed(2);
           const dur = perChar.toFixed(2);
-          const safe = ch === " "
-            ? " "
+          const isWhitespace = /\s/.test(ch);
+          const safe = isWhitespace
+            ? "&nbsp;"
             : ch.replace(/&/g, "&amp;").replace(/</g, "&lt;");
-          return `<span class="kara-char" style="--kc-delay:${delay}s;--kc-dur:${dur}s">${safe}</span>`;
+          let fontStyle = "";
+          if (pickFont && !isWhitespace) {
+            const fam = pickFont(ch);
+            if (fam) {
+              fontStyle = `font-family:"${escapeFontFamily(fam)}",inherit;`;
+            }
+          }
+          const emo = isWhitespace ? "" : charEmotion(ch);
+          const cls = emo ? "kara-char kara-c-" + emo : "kara-char";
+          return `<span class="${cls}" style="--kc-delay:${delay}s;--kc-dur:${dur}s;${fontStyle}">${safe}</span>`;
         }).join("");
         sub.innerHTML = spans;
         sub.dataset.cssmvOrigin = "karaoke-live";

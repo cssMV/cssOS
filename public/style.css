@@ -9276,3 +9276,16 @@ html[data-panel-transparent="true"] .logo-panel {
 .watch-mv-art-title.title-emotion-joy      { color: color-mix(in srgb, #ffe079 75%, white); text-shadow: 0 4px 24px rgba(255, 224, 121, 0.55); }
 .watch-mv-art-title.title-emotion-grief    { color: color-mix(in srgb, #88b6c4 75%, white); text-shadow: 0 4px 24px rgba(136, 182, 196, 0.45); font-style: italic; }
 .watch-mv-art-title.title-emotion-calm     { color: color-mix(in srgb, #b6d4ff 75%, white); text-shadow: 0 4px 24px rgba(182, 212, 255, 0.45); }
+
+/* CSSOS_PHASE2_PER_CHAR_EMOTION 20260504 — Jing
+ * Per-character emotion accents on top of the line-level emotion.
+ * The line's .kara-emotion-{name} sets the baseline colour; each
+ * .kara-char.kara-c-{name} can override with a brighter / different
+ * colour burst on emotion-keyword chars so a single line breathes
+ * with heterogeneous accents. */
+.watch-subtitle.karaoke-active .kara-char.kara-c-ignite   { color: #ff7242; text-shadow: 0 0 14px rgba(255,114,66,0.85); }
+.watch-subtitle.karaoke-active .kara-char.kara-c-grief    { color: #88b6c4; text-shadow: 0 0 12px rgba(136,182,196,0.7); font-style: italic; }
+.watch-subtitle.karaoke-active .kara-char.kara-c-intimate { color: #c2a4ff; text-shadow: 0 0 14px rgba(194,164,255,0.8); }
+.watch-subtitle.karaoke-active .kara-char.kara-c-joy      { color: #ffe079; text-shadow: 0 0 14px rgba(255,224,121,0.85); }
+.watch-subtitle.karaoke-active .kara-char.kara-c-resolve  { color: #79e6ff; text-shadow: 0 0 14px rgba(121,230,255,0.8); }
+.watch-subtitle.karaoke-active .kara-char.kara-c-calm     { color: #b6d4ff; text-shadow: 0 0 12px rgba(182,212,255,0.7); }

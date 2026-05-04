@@ -127,6 +127,13 @@ async function pollTask(card) {
     const response = await fetch(`/cssapi/v1/mv/tasks/${encodeURIComponent(card.id)}`, {
       headers: { Accept: "application/json" },
     });
+    if (response.status === 404) {
+      // CSSOS_PHASE2_STOP_404_POLL 20260504 — Jing
+      // The run state was GC'd or never existed. Stop the poll loop
+      // so DevTools doesn't keep painting red 404s every 1.2s.
+      if (card.timer) { clearInterval(card.timer); card.timer = null; }
+      return;
+    }
     if (!response.ok) {
       throw new Error(`status ${response.status}`);
     }

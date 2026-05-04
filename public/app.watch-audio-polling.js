@@ -200,6 +200,16 @@ async function pollPipelineProgressOnceModule(runId) {
   } catch (_err) {
     payload = null;
   }
+  // CSSOS_PHASE2_STOP_404_POLL 20260504 — Jing: a 404 here means the
+  // run state file was GC'd / never existed. Stop the interval timer
+  // for THIS run so we don't keep painting red 404s in DevTools.
+  if (res && res.status === 404) {
+    if (String(activePipelineRunId || "") === String(runId || "")) {
+      stopPipelineProgressPolling?.();
+      activePipelineRunId = null;
+    }
+    return;
+  }
   if (!res?.ok || !payload) {
     return;
   }

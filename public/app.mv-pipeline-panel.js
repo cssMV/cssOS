@@ -2344,19 +2344,13 @@
       // LLM-generated title in the derive-resp adoption step (line ~3225).
       if (!titleRaw) { /* skip validation; LLM will fill in */ }
       else {
-      const hasHan = /[一-鿿]/.test(titleRaw);
-      const hasLatin = /[A-Za-z]/.test(titleRaw);
-      const hasSlash = /[\/／]/.test(titleRaw);
-      if (hasSlash && hasHan && hasLatin) {
-        if (typeof globalThis.showToast === "function") {
-          globalThis.showToast(
-            "Title is mixed-language with a slash separator. Please pick ONE language " +
-            "(remove the other half). Suno reads slashes as track separators and produces shorter tracks."
-          );
-        }
-        try { document.getElementById("title-input")?.focus(); } catch (_e) {}
-        return;
-      }
+      // CSSOS_PHASE2_DROP_SLASH_GATE 20260504 — Jing
+      // "Suno 是可以接受带 / 等特殊字符的多语言标题的，特殊字符，Suno
+      //  也会智能过滤（甚至一些敏感字符）。所以，请取消我们狗拿耗子多
+      //  管闲事的多语言特殊字符的拦截提示".
+      // Removed the over-eager "mixed-language with slash" gate that
+      // refused titles like "Mount Hermon Oath / 黑门之誓". Suno
+      // handles them fine on its end; trust the upstream.
       // CSSOS_PHASE2_TITLE_LENGTH_EMOJI 20260430 #218 — Jing
       // Suno's `title` field tolerates ~80 chars; longer titles get
       // truncated mid-word and confuse the style hint. Emojis (especially

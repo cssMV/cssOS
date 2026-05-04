@@ -3315,6 +3315,29 @@ function syncWatchMusicArtworkBlurModule() {
 }
 
 function fallbackWatchPlaybackToMusicModule(reason = "") {
+  // CSSOS_PHASE2_HORROR_AUDIO_GUARD 20260504 — Jing
+  // "在 Composing MV…92% 完成之前，恐怖音效提前偷跑". The audio fallback
+  // path here calls openWatchMusicPlaybackSurfaceModule({autoplay:true})
+  // which plays whatever URL is on watchAudioPreview — usually the
+  // partial Suno take that was preloaded by the music stage. If the
+  // compose stage hasn't finished blending, that partial Suno track
+  // is not what the user wanted to hear (and sounds eerie/disembodied
+  // because it's playing without the synced video). Hold the fallback
+  // until either compose finishes or the pipeline errors cleanly.
+  try {
+    if (typeof globalThis.cssmvPipelineActiveStage === "function") {
+      const live = globalThis.cssmvPipelineActiveStage();
+      if (live && !live.finished && !live.hasError && live.stageId !== "compose") {
+        // pipeline still cooking earlier stages; suppress audio fallback
+        if (watchScreen) watchScreen.classList.add("is-waiting");
+        if (watchSubtitle) {
+          watchSubtitle.textContent = reason ||
+            (typeof t === "function" ? t("watch.subtitle.composingMv") : "Composing MV…");
+        }
+        return;
+      }
+    }
+  } catch (_e) { /* fall through to legacy behaviour */ }
   if (watchScreen) {
     watchScreen.classList.add("watch-screen-audio-fallback");
     watchScreen.classList.add("is-waiting");

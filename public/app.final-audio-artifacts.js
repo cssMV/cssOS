@@ -79,6 +79,19 @@ async function maybeAttachFinalAudioArtifactModule(runId, statusPayload, derived
         }
       }
     }
+    // CSSOS_PHASE2_MV_PIPELINE_RUNNING_GUARD 20260504 — Jing
+    // "Failed to load resource ... build/master.mp3 / mix.mp3 / vocals.mp3
+    //  / music.mp3" — same 404 storm as #141, but during a run that hasn't
+    // committed yet. cssmvPipelineLastResult is still null, so the guard
+    // above doesn't fire. If MV Pipeline has any active stage running,
+    // it owns this run's audio outcome — skip the legacy /build/* probes
+    // entirely until the pipeline either commits or cleanly errors.
+    if (typeof globalThis.cssmvPipelineActiveStage === "function") {
+      const live = globalThis.cssmvPipelineActiveStage();
+      if (live && !live.finished && !live.hasError) {
+        return true; // pipeline is in flight; leave audio alone
+      }
+    }
   } catch (_e) { /* fall through */ }
   const candidates = collectAudioArtifactCandidatesModule(statusPayload);
   const progressPct = Number(derivedMusic?.progress || 0);

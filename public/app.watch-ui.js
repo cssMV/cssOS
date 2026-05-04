@@ -3942,8 +3942,17 @@ async function fetchWatchQueueMoreModule() {
   try {
     const cursor = __cssosWatchQueue.cursor;
     const url = "/cssapi/v1/mv?limit=8" + (cursor ? "&cursor=" + encodeURIComponent(cursor) : "");
-    const res = await fetch(url, { credentials: "include" });
-    const payload = await res.json().catch(() => null);
+    // CSSOS_PHASE2_405_SILENCE 20260504 — Jing
+    // GET /cssapi/v1/mv has no handler in rust-api/src/routes.rs — only
+    // POST is registered. The router responds 405 Method Not Allowed and
+    // floods the console with red errors. Treat 405 as "endpoint not
+    // available, exhausted=true, fall back to /api/works/mine below" so
+    // we don't pollute DevTools and so the queue still gets a list.
+    const res = await fetch(url, { credentials: "include" }).catch(() => null);
+    if (res && res.status === 405) {
+      __cssosWatchQueue.exhausted = true;
+    }
+    const payload = res ? await res.json().catch(() => null) : null;
     if (payload?.ok) {
       const items = payload?.data?.items || [];
       const have = new Set(__cssosWatchQueue.items.map((it) => it.id));
@@ -6261,6 +6270,19 @@ async function handleWatchPlaybackSurfaceClick() {
 }
 
 async function invokeUniversalCreationEntryModule(options = {}) {
+  // CSSOS_PHASE2_DIAGNOSTIC 20260504 — Jing
+  // Explicit entry log so the user can verify (in DevTools Console) that
+  // their tap actually reached this universal-entry function. Mirrors the
+  // [entry:dock-mic] / [entry:dock-watch] format that cssmvUnifiedEntry
+  // emits, but for the legacy `invokeUniversalCreationEntry` path that
+  // boot.js still uses for logo / listen / watch buttons.
+  console.info(
+    "%c[entry:universal] click origin=%s preferredTab=%s submitVoiceFallback=%s",
+    "color:#08f;font-weight:bold",
+    String(options?.origin || ""),
+    String(options?.preferredTab || ""),
+    String(options?.submitVoiceFallback === true)
+  );
   if (!authState?.user && typeof openLoginForCreation === "function") {
     openLoginForCreation(
       loginCopy(
@@ -6308,9 +6330,15 @@ async function invokeUniversalCreationEntryModule(options = {}) {
     // reached `openMvPipelinePanel` the runAll() was blocked by the busy
     // guard and the user saw the old brown-stick-figure result instead of
     // the MV pipeline. Prefer the *Module* version when it exists.
+    const hasModule = typeof globalThis.submitVoiceOrFallbackTitleModule === "function";
+    const hasLegacy = typeof globalThis.submitVoiceOrFallbackTitle === "function";
+    console.info(
+      "%c[entry:universal] voice-fallback branch — module=%s legacy=%s",
+      "color:#08f", hasModule, hasLegacy
+    );
     const submit =
-      globalThis.submitVoiceOrFallbackTitleModule?.(null) ||
-      globalThis.submitVoiceOrFallbackTitle?.(null) ||
+      (hasModule && globalThis.submitVoiceOrFallbackTitleModule(null)) ||
+      (hasLegacy && globalThis.submitVoiceOrFallbackTitle(null)) ||
       globalThis.runBootUiMethod?.("SubmitVoiceOrFallbackTitle", "submitVoiceOrFallbackTitle", null);
     if (submit && typeof submit.then === "function") {
       await submit.catch(() => null);

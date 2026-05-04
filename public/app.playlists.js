@@ -156,8 +156,12 @@
     try {
       const cursor = list.cursor;
       const url = "/cssapi/v1/mv?limit=12" + (cursor ? "&cursor=" + encodeURIComponent(cursor) : "");
-      const res = await fetch(url, { credentials: "include" });
-      const payload = await res.json().catch(() => null);
+      // CSSOS_PHASE2_405_SILENCE 20260504 — server only registers POST for
+      // /cssapi/v1/mv; GET 405s. Mark exhausted so subsequent loads don't
+      // re-spam the endpoint and the console.
+      const res = await fetch(url, { credentials: "include" }).catch(() => null);
+      if (res && res.status === 405) list.exhausted = true;
+      const payload = res ? await res.json().catch(() => null) : null;
       if (payload?.ok) {
         const items = payload?.data?.items || [];
         const have = new Set(list.items.map((it) => it.id));

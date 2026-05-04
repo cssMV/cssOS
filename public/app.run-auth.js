@@ -149,15 +149,42 @@ globalThis.summarizeWatchLyricsSeedStatusModule = summarizeWatchLyricsSeedStatus
 
 async function runLyricsGenerateBridge(mode, options = {}) {
   const requestState = globalThis.lyricsSeedRequestState || (globalThis.lyricsSeedRequestState = {});
+  const normalizedMode = String(mode || "music_video").trim();
   const inflight = globalThis.lyricsSeedRequestInflight || null;
   const inflightMode = String(requestState.mode || "").trim();
   if (
     inflight &&
     requestState.pending &&
-    inflightMode === String(mode || "music_video").trim()
+    inflightMode === normalizedMode
   ) {
+    console.info(
+      "%c[lyrics-dedup] adopting in-flight lyrics request (mode=%s, age=%dms)",
+      "color:#08f", normalizedMode, Date.now() - Number(requestState.startedAt || 0)
+    );
     return inflight;
   }
+  // CSSOS_PHASE2_LYRICS_BILLING_RACE 20260504 — Jing
+  // "$0.02 的歌词输出成本，为何消耗那么多的钱？我今天早上刚刚充值了10美元，现在
+  //  说完了。肯定是点击一次，输出 N 首歌词".
+  //
+  // ROOT CAUSE: this function only registered the in-flight lock at the
+  // bottom (line was ~334, AFTER the billing call). Between line 154's
+  // null-check and that registration, a second concurrent call would see
+  // null and proceed to line 179 (`consumeBillableAction`) — burning
+  // another $0.02 against the user's quota. Multi-entry universal-tap
+  // (logo / mic / openMvPipelinePanel / submitVoiceFallback) all fire
+  // within the same tick, so this race fires several times per click.
+  //
+  // FIX: register a deferred-resolve sentinel as the in-flight promise
+  // BEFORE we touch billing. Subsequent overlapping calls now early-exit
+  // at the dedup check above. Resolved/rejected at the same time as the
+  // real requestPromise via the `__lyricsLockResolver` closure.
+  let __lyricsLockResolver = null;
+  const __lyricsLockPromise = new Promise((resolve) => { __lyricsLockResolver = resolve; });
+  requestState.pending = true;
+  requestState.startedAt = Date.now();
+  requestState.mode = normalizedMode;
+  globalThis.lyricsSeedRequestInflight = __lyricsLockPromise;
   if (authState.user && !creatorBoostState.loaded) {
     await loadCreatorBoostState().catch(() => null);
   }
@@ -174,6 +201,9 @@ async function runLyricsGenerateBridge(mode, options = {}) {
     allowCinemaBookingPrompt: false
   });
   if (!capability.ok) {
+    requestState.pending = false;
+    globalThis.lyricsSeedRequestInflight = null;
+    __lyricsLockResolver?.({ ok: false, blocked: capability.reason, tier: capability.tier });
     return { ok: false, blocked: capability.reason, tier: capability.tier };
   }
   const billingAllowed = await consumeBillableAction("lyrics_generate", {
@@ -184,6 +214,9 @@ async function runLyricsGenerateBridge(mode, options = {}) {
     }
   });
   if (!billingAllowed) {
+    requestState.pending = false;
+    globalThis.lyricsSeedRequestInflight = null;
+    __lyricsLockResolver?.({ ok: false, blocked: "billing_gate", tier: capability.tier });
     return { ok: false, blocked: "billing_gate", tier: capability.tier };
   }
   songSeedVariationCounter += 1;
@@ -331,6 +364,14 @@ async function runLyricsGenerateBridge(mode, options = {}) {
       globalThis.syncWatchProgressRotatorModule?.();
     }
   })();
+  // CSSOS_PHASE2_LYRICS_BILLING_RACE 20260504 — settle the early-lock
+  // promise with the same outcome as the real request. Anyone who
+  // adopted __lyricsLockPromise at the dedup check above gets the real
+  // result, no extra billing burned.
+  requestPromise.then(
+    (value) => __lyricsLockResolver?.(value),
+    (err) => __lyricsLockResolver?.(Promise.reject(err))
+  );
   globalThis.lyricsSeedRequestInflight = requestPromise;
   return requestPromise;
 }

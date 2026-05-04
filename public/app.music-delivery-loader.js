@@ -35,6 +35,11 @@ async function loadMusicDeliveryDashboardModule(
   persistMusicDeliveryDashboardRunId(normalizedRunId);
   renderMusicDeliveryDashboard();
 
+  // CSSOS_PHASE2_404_SILENCE 20260504 — Jing
+  // /cssapi/v1/runs/<id>/music-delivery-dashboard is not registered in
+  // rust-api/src/routes.rs and 404s for every run, flooding DevTools.
+  // Catch the network promise so a missing endpoint becomes a no-op
+  // instead of an unhandled rejection / red error.
   const dashboardFetch = fetch(
     `${apiBase()}/cssapi/v1/runs/${encodeURIComponent(normalizedRunId)}/music-delivery-dashboard`,
     {
@@ -42,7 +47,7 @@ async function loadMusicDeliveryDashboardModule(
       headers: { accept: "application/json" },
       cache: "no-store"
     }
-  );
+  ).catch(() => null);
   const probeFetch = fetch("/ops/zh-probe-latest.json", {
     method: "GET",
     headers: { accept: "application/json" },
@@ -56,8 +61,10 @@ async function loadMusicDeliveryDashboardModule(
 
   deliveryDashboardRequest = Promise.all([dashboardFetch, probeFetch, probeHistoryFetch])
     .then(async ([res, probeRes, probeHistoryRes]) => {
-      if (!res.ok) {
-        throw new Error(`music delivery dashboard request failed: ${res.status}`);
+      if (!res || !res.ok) {
+        // 404 means endpoint not registered server-side; treat as
+        // gracefully empty rather than throw red errors.
+        return;
       }
       const payload = await res.json();
       deliveryDashboardState.response = payload || null;

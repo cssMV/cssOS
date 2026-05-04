@@ -4000,28 +4000,13 @@ async function fetchWatchQueueMoreModule() {
   if (__cssosWatchQueue.loadingMore || __cssosWatchQueue.exhausted) return;
   __cssosWatchQueue.loadingMore = true;
   try {
-    const cursor = __cssosWatchQueue.cursor;
-    const url = "/cssapi/v1/mv?limit=8" + (cursor ? "&cursor=" + encodeURIComponent(cursor) : "");
-    // CSSOS_PHASE2_405_SILENCE 20260504 — Jing
-    // GET /cssapi/v1/mv has no handler in rust-api/src/routes.rs — only
-    // POST is registered. The router responds 405 Method Not Allowed and
-    // floods the console with red errors. Treat 405 as "endpoint not
-    // available, exhausted=true, fall back to /api/works/mine below" so
-    // we don't pollute DevTools and so the queue still gets a list.
-    const res = await fetch(url, { credentials: "include" }).catch(() => null);
-    if (res && res.status === 405) {
-      __cssosWatchQueue.exhausted = true;
-    }
-    const payload = res ? await res.json().catch(() => null) : null;
-    if (payload?.ok) {
-      const items = payload?.data?.items || [];
-      const have = new Set(__cssosWatchQueue.items.map((it) => it.id));
-      for (const it of items) {
-        if (!have.has(it.id)) __cssosWatchQueue.items.push(it);
-      }
-      __cssosWatchQueue.cursor = payload?.data?.next_cursor || null;
-      if (!__cssosWatchQueue.cursor) __cssosWatchQueue.exhausted = true;
-    }
+    // CSSOS_PHASE2_KILL_405_GET_MV 20260504 — Jing
+    // GET /cssapi/v1/mv?limit=N is unregistered server-side (only POST
+    // exists in rust-api/src/routes.rs:133). Previous "silence" fix
+    // tolerated the 405 but the browser still painted a red console
+    // entry every load. Skip this fetch entirely and go straight to
+    // /api/works/mine below — that's the working data source for the
+    // queue, and the 405 disappears from DevTools.
     // CSSOS_PHASE2_QUEUE_FALLBACK 20260430 #234 — Jing
     // "上滑下滑都说Queue is empty, 说明根本就没有列表."
     // If /cssapi/v1/mv returned nothing AND we don't have a single

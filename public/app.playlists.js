@@ -152,34 +152,17 @@
   async function fetchForYou(list) {
     // for-you = all (own + others), cursor-paginated
     if (list.loading || list.exhausted) return;
-    list.loading = true;
-    try {
-      const cursor = list.cursor;
-      const url = "/cssapi/v1/mv?limit=12" + (cursor ? "&cursor=" + encodeURIComponent(cursor) : "");
-      // CSSOS_PHASE2_405_SILENCE 20260504 — server only registers POST for
-      // /cssapi/v1/mv; GET 405s. Mark exhausted so subsequent loads don't
-      // re-spam the endpoint and the console.
-      const res = await fetch(url, { credentials: "include" }).catch(() => null);
-      if (res && res.status === 405) list.exhausted = true;
-      const payload = res ? await res.json().catch(() => null) : null;
-      if (payload?.ok) {
-        const items = payload?.data?.items || [];
-        const have = new Set(list.items.map((it) => it.id));
-        for (const raw of items) {
-          const it = normaliseItem(raw);
-          if (it && !have.has(it.id)) {
-            list.items.push(it);
-            have.add(it.id);
-          }
-        }
-        list.cursor = payload?.data?.next_cursor || null;
-        if (!list.cursor) list.exhausted = true;
-      }
-    } catch (_e) { /* network best-effort */ }
-    finally {
-      list.loading = false;
-      notify();
-    }
+    // CSSOS_PHASE2_KILL_405_GET_MV 20260504 — Jing
+    // GET /cssapi/v1/mv is unregistered server-side (only POST is
+    // registered in rust-api/src/routes.rs). Don't even attempt the
+    // request — the 405 paints a red entry in DevTools every load.
+    // Mark exhausted so any caller upstream knows this source is
+    // empty; "My Works" loop covers the user's own library via a
+    // separate path. For-You feeds for OTHER users' works are not
+    // yet surfaced through any working endpoint.
+    list.exhausted = true;
+    list.loading = false;
+    notify();
   }
 
   async function fetchMine(list) {

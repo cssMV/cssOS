@@ -4491,6 +4491,31 @@ function wireWatchQueueAutoAdvanceOnceModule() {
   wireWatchKaraokeLiveOnceModule(videoEl, audioEl);
 }
 
+// CSSOS_PHASE2_SECTION_FILTER 20260504 — Jing
+// "[Verse 1] 或者 Verse 1，虽然没有在 [] 里，像这类很明显不是歌词的
+//  文字，就不要再显示在字幕里，这回是必须是纯纯的歌词".
+//
+// Used by every karaoke timeline source (SRT parser, aligned_lyrics
+// engine output, even-divide fallback). Returns true when the line
+// is a structural marker that shouldn't appear as a karaoke caption.
+// The lyrics BODY in the lyrics card / mvp-lyrics textarea is left
+// untouched — section markers there help the user see structure.
+function isLyricSectionMarkerModule(text) {
+  const t = String(text || "").trim();
+  if (!t) return true;
+  // Bracketed: [Verse 1], 【主歌】, （Outro）, **Bridge**, (Intro)
+  if (/^\s*[\[【(（*]+[^\]】)）*]*[\]】)）*]+\s*$/.test(t)) return true;
+  // Bare English keywords with optional number / separator: "Verse",
+  // "Verse 1", "Chorus:", "Pre-Chorus 2-", "Hook.", "Refrain"
+  if (/^(verse|chorus|bridge|intro|outro|pre[-\s]?chorus|post[-\s]?chorus|hook|refrain|interlude|breakdown|drop|build|coda|reprise|tag)\s*\d*\s*[:.\-—]?\s*$/i.test(t)) return true;
+  // Bare Chinese keywords
+  if (/^(主歌|副歌|桥段|前奏|引子|间奏|过门|和声|尾声|结尾|尾奏|桥)\s*\d*\s*[:：.。\-—]?\s*$/.test(t)) return true;
+  // Pure punctuation / emoji-only / number-only
+  if (/^[\s\d:;,.\-—!?'"·•]+$/.test(t)) return true;
+  return false;
+}
+globalThis.isLyricSectionMarkerModule = isLyricSectionMarkerModule;
+
 // CSSOS_PHASE2_SRT_FALLBACK 20260504 — Jing
 // Parse a raw SRT blob into the alignedLyrics shape so the karaoke
 // renderer can sync to vocals when the work was persisted with only
@@ -4521,7 +4546,11 @@ function parseSrtToAlignedLyricsModule(srtText) {
       .map((l) => l.trim())
       .filter((l) => l && !/^\d+$/.test(l));
     const text = textLines.join(" ").trim();
-    if (text) out.push({ start_s, end_s, text });
+    // CSSOS_PHASE2_SECTION_FILTER 20260504 — drop "[Verse 1]" / "Chorus" /
+    // 主歌 / 副歌 etc. so the karaoke caption stays pure lyric.
+    if (text && !isLyricSectionMarkerModule(text)) {
+      out.push({ start_s, end_s, text });
+    }
   }
   return out;
 }
@@ -4704,7 +4733,11 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
             emphasis: line.emphasis != null ? Number(line.emphasis) : undefined,
           };
         })
-        .filter((c) => c.text);
+        // CSSOS_PHASE2_SECTION_FILTER 20260504 — strip [Verse 1] /
+        // Chorus / 主歌 / 副歌 markers Suno occasionally echoes back
+        // as aligned lines. Keeping them here would surface them as
+        // karaoke captions, which is not what they are.
+        .filter((c) => c.text && !isLyricSectionMarkerModule(c.text));
     }
     // Fallback: even-divide over duration. Skip lines that look like
     // section markers ([Verse], [Chorus], etc.) — they shouldn't appear
@@ -4740,7 +4773,10 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
     if (!lyrics || dur < 5) return [];
     const lines = lyrics.split(/\r?\n/)
       .map((l) => l.trim())
-      .filter((l) => l && !/^\[[^\]]+\]$/.test(l));
+      // CSSOS_PHASE2_SECTION_FILTER 20260504 — drop bracketed AND bare
+      // section keywords ("Verse 1", "Chorus" without []), Chinese
+      // 主歌/副歌/桥段, etc. Centralised in isLyricSectionMarkerModule.
+      .filter((l) => l && !isLyricSectionMarkerModule(l));
     if (!lines.length) return [];
     const each = dur / lines.length;
     return lines.map((text, i) => ({

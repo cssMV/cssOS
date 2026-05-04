@@ -1035,18 +1035,58 @@
 
   function wire(panel) {
     panel.querySelector("#mvp-run").addEventListener("click", runAll);
-    // CSSOS_PHASE2_CLEAR_INPUTS 20260504 — clear the three text inputs so
-    // the user can start a fresh run without reloading the page. Stage
-    // badges and result panels intentionally NOT touched: they reset on
-    // the next runAll() naturally, and the user often wants to compare
-    // the in-flight run against the previous output.
+    // CSSOS_PHASE2_CLEAR_INPUTS_AND_STAGES 20260504 — Jing
+    // "只清除了上面的输入框，下面的进度条数据也应该都清除吧？为的是让
+    //  用户不必刷新整个主界面就可以继续输入新的信息".
+    // Wipe the three text inputs AND the six stage cards (cover/lyrics/
+    // music/video/subtitles/compose) so the panel returns to a fresh
+    // pre-run state. Refuse if a run is in flight — clearing mid-run
+    // would orphan the stage state from the still-running pipeline.
     const clearBtn = panel.querySelector("#mvp-clear");
     if (clearBtn) {
       clearBtn.addEventListener("click", function () {
+        if (state.running) {
+          if (typeof globalThis.showToast === "function") {
+            globalThis.showToast(
+              "Pipeline is running — please wait for it to finish before clearing."
+            );
+          }
+          return;
+        }
+        // 1. Wipe inputs
         ["#mvp-prompt", "#mvp-style", "#mvp-lyrics"].forEach(function (sel) {
           const el = panel.querySelector(sel);
           if (el) el.value = "";
         });
+        // 2. Reset run-state in memory
+        state.title = "";
+        state.prompt = "";
+        state.style = "";
+        state.duration = 0;
+        state.altDuration = 0;
+        state.coverUrl = "";
+        state.audioUrl = "";
+        state.altAudioUrl = "";
+        state.videoUrl = "";
+        state.subtitlesUrl = "";
+        state.mvUrl = "";
+        state.lyrics = "";
+        state.alignedLyrics = null;
+        state.shotScripts = null;
+        state.sections = null;
+        // 3. Reset every stage badge to "idle"
+        STAGES.forEach(function (s) { setStage(s.id, "idle", "", 0); });
+        // 4. Re-render summary so the cost line clears too
+        try { renderSummary(); } catch (_e) {}
+        // 5. Reset the watch-panel stage bars (top progress strip)
+        try {
+          if (typeof globalThis.cssmvStageBarsReset === "function") {
+            globalThis.cssmvStageBarsReset();
+          }
+          if (typeof globalThis.cssmvHideMvArtTitle === "function") {
+            globalThis.cssmvHideMvArtTitle();
+          }
+        } catch (_e) {}
         const promptEl = panel.querySelector("#mvp-prompt");
         if (promptEl) promptEl.focus();
       });
@@ -2213,9 +2253,44 @@
         // Give up — empty title lets the lyrics LLM provide one.
         return "";
       };
-      const heuristicTitle = titleField || extractTitleFromPrompt(promptHead);
+      // CSSOS_PHASE2_BRACKETED_PROMPT 20260504 — Jing
+      // "如果用户输入了 prompt（系统必须智能判断/提炼是长标题，还是
+      //  prompt），系统返回提炼后标题，如'KN'，然后旧的 prompt 放在第 2
+      //  行 [...] 中括号里".
+      //
+      // The panel's PROMPT/THEME textarea is now a hybrid widget. Two
+      // user-facing forms it can hold:
+      //   (a) "<title>\n[<original prompt>]"  — what we rewrite TO once
+      //       we've extracted a title from a long prompt.
+      //   (b) anything else (single line title OR a fresh long prompt).
+      //
+      // Re-runs need to recognise form (a) and parse it back into
+      // (title=line1, prompt=bracketed-text-without-brackets) without
+      // re-bracketing. Detection: line1 short (≤ 24 chars), line2 wrapped
+      // in matching [ … ] (allow trailing whitespace).
+      let parsedTitleFromBracketForm = "";
+      let parsedPromptFromBracketForm = "";
+      try {
+        const lines = String(panelPromptVal || "").split(/\r?\n/);
+        if (lines.length >= 2) {
+          const firstLine = lines[0].trim();
+          const rest = lines.slice(1).join("\n").trim();
+          const bracketRx = /^\[\s*([\s\S]+?)\s*\]\s*$/;
+          const bm = rest.match(bracketRx);
+          if (firstLine && [...firstLine].length <= 24 && bm && bm[1]) {
+            parsedTitleFromBracketForm = firstLine;
+            parsedPromptFromBracketForm = bm[1].trim();
+          }
+        }
+      } catch (_e) { /* */ }
+
+      const promptForExtraction = parsedPromptFromBracketForm || promptHead;
+      const heuristicTitle =
+        titleField ||
+        parsedTitleFromBracketForm ||
+        extractTitleFromPrompt(promptForExtraction);
       const titleRaw = heuristicTitle;
-      if (!titleRaw && !promptHead) {
+      if (!titleRaw && !promptForExtraction) {
         if (typeof globalThis.showToast === "function") {
           globalThis.showToast(
             "Please give your song a title (title field) or a prompt — both are empty."
@@ -2234,11 +2309,35 @@
       if (!titleField) {
         state.title = heuristicTitle || "";
       }
-      // Also sync state.prompt from the panel input so the rest of the
-      // pipeline (cover/lyrics/music payloads) sees the latest text.
-      if (panelPromptVal && state.prompt !== panelPromptVal) {
-        state.prompt = panelPromptVal;
+      // The actual prompt text downstream stages should see — strips
+      // the bracket wrapper if we parsed form (a); otherwise the raw
+      // panel prompt.
+      const actualPromptText = parsedPromptFromBracketForm || panelPromptVal;
+      if (actualPromptText && state.prompt !== actualPromptText) {
+        state.prompt = actualPromptText;
       }
+      // Rewrite the mvp-prompt textarea into the "title\n[prompt]" form
+      // so the user sees what was extracted vs what was kept as context.
+      // Skip when:
+      //   • already in bracket form (don't double-bracket)
+      //   • no extraction happened (prompt IS a short title)
+      //   • user typed an explicit titleField (which won the title slot)
+      try {
+        const promptEl = document.getElementById("mvp-prompt");
+        if (
+          promptEl &&
+          heuristicTitle &&
+          !parsedTitleFromBracketForm &&
+          !titleField &&
+          actualPromptText &&
+          actualPromptText !== heuristicTitle
+        ) {
+          const formatted = `${heuristicTitle}\n[${actualPromptText}]`;
+          promptEl.value = formatted;
+          promptEl.classList.add("mvp-flash");
+          setTimeout(() => promptEl.classList.remove("mvp-flash"), 600);
+        }
+      } catch (_e) { /* non-fatal — pipeline still runs */ }
       // CSSOS_PHASE2_TITLE_EXTRACT 20260504 — when we deliberately leave
       // titleRaw empty (long prompt → LLM derives the real title), skip
       // the slash/length/emoji validations. They'll be re-applied to the
@@ -2988,6 +3087,11 @@
             document.getElementById("creation-lyrics-input"),
             document.getElementById("watch-lyrics-editor"),
             document.getElementById("song-seed-lyrics"),
+            // CSSOS_PHASE2_LYRICS_BACKFILL_MVP 20260504 — Jing wants the
+            // generated lyrics to flow back into the MV Pipeline panel's
+            // own #mvp-lyrics textarea too (was missing from the
+            // broadcast list, which only hit the foreign panels).
+            document.getElementById("mvp-lyrics"),
             document.querySelector("textarea[data-creation-field='lyrics']"),
           ];
           targets.forEach((el) => {

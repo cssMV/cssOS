@@ -4613,7 +4613,11 @@ function safeSetWatchSubtitleModule(text) {
   }
   const next = String(text == null ? "" : text);
   if (watchSubtitle.textContent === next) return; // no-op idempotent
-  safeSetWatchSubtitleModule(next);
+  // CSSOS_PHASE2_RECURSION_FIX 20260504 — direct DOM write. The previous
+  // edit accidentally called safeSetWatchSubtitleModule(next) here from
+  // a search-and-replace that walked over its own helper body, causing
+  // infinite recursion → "RangeError: Maximum call stack size exceeded".
+  watchSubtitle.textContent = next;
   watchSubtitle.dataset.cssmvOrigin = "status";
 }
 globalThis.safeSetWatchSubtitleModule = safeSetWatchSubtitleModule;

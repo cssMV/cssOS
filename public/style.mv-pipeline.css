@@ -53,13 +53,32 @@
 #mv-pipeline-panel .mvp-actions {
   display: flex;
   gap: 8px;
-  align-items: center;
+  align-items: stretch;
   flex-wrap: wrap;
 }
 
+/* CSSOS_PHASE2_HORIZONTAL_BUTTONS 20260504 — Jing wanted the three
+   action buttons (Start Pipeline / Surprise me ✨ / Clear) on one row
+   to save vertical space. flex:1 makes them share the row equally;
+   on narrow viewports (≤520px) flex-wrap kicks in and stacks them. */
+#mv-pipeline-panel .mvp-actions > .cta {
+  flex: 1 1 0;
+  min-width: 120px;
+}
+#mv-pipeline-panel .mvp-actions > #mvp-run {
+  flex: 2 1 200px; /* primary action gets a bit more weight */
+}
 #mv-pipeline-panel .mvp-actions .cta[disabled] {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+@media (max-width: 520px) {
+  #mv-pipeline-panel .mvp-actions > .cta,
+  #mv-pipeline-panel .mvp-actions > #mvp-run {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
 }
 
 /* CSSOS_PHASE2_MV_TIER_LABEL 20260419 — 常驻 tier cost label next to the

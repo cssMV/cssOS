@@ -1114,6 +1114,52 @@ async function submitVoiceOrFallbackTitle(blobOrNull) {
     }
   );
   const finalTitle = title || buildDirectCreationFallbackTitle();
+  // CSSOS_PHASE2_LONGPRESS_TO_MV 20260504 — Jing
+  // "长按还在走旧流程,请修复" — preserve voice transcription (everything
+  // above this line) but route the result to MV Pipeline instead of the
+  // legacy startCreation+createRun chain. The transcribed title becomes
+  // the seed prompt; runAll's lyrics stage takes over from there.
+  if (typeof globalThis.openMvPipelinePanel === "function" &&
+      typeof globalThis.cssmvMvPipelineRunAll === "function") {
+    try {
+      const transcript = String(micState?.transcript || "").trim();
+      console.info(
+        "%c[entry:voice-seed-longpress] → MV Pipeline (title=%s, transcript=%d chars)",
+        "color:#08f;font-weight:bold",
+        finalTitle.slice(0, 40),
+        transcript.length
+      );
+      globalThis.openMvPipelinePanel({
+        autoStart: true,
+        seed: {
+          prompt: finalTitle,
+          transcript,
+          source: "voice-longpress"
+        },
+        focus: false,
+        hidden: true
+      });
+      // Pop the watch panel + activate MV tab so user sees progress.
+      try {
+        const watchPanelEl = globalThis.watchPanel || document.getElementById("watch-panel");
+        if (watchPanelEl && typeof globalThis.openPanel === "function") {
+          globalThis.openPanel(watchPanelEl);
+          if (typeof globalThis.activateWatchTab === "function") {
+            globalThis.activateWatchTab("mv");
+          }
+        }
+      } catch (_panelErr) { /* non-fatal */ }
+      setMicCaptureStatus(
+        "submitted",
+        loginCopy("Voice accepted"),
+        loginCopy(`MV Pipeline started with title “${finalTitle}”.`)
+      );
+      return; // skip the legacy startCreation chain
+    } catch (mvErr) {
+      console.warn("[entry:voice-seed-longpress] MV Pipeline failed, falling back to legacy:", mvErr);
+      // fall through to legacy startCreation
+    }
+  }
   const creationPayload = normalizeSongCreationPayload({
     source: voice.bytes > 0 ? "voice" : "manual",
     title: finalTitle,

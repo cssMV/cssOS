@@ -885,7 +885,12 @@
           '<label>' + escapeHtml(promptLabel) + '</label>' +
           '<textarea id="mvp-prompt" rows="2" placeholder="' + escapeHtml(promptPlaceholder) + '"></textarea>' +
           '<label>' + escapeHtml(styleLabel) + '</label>' +
-          '<input id="mvp-style" type="text" placeholder="' + escapeHtml(stylePlaceholder) + '" />' +
+          // CSSOS_PHASE2_STYLE_MULTILINE 20260504 — Jing: style was a
+          // single-line input which clipped longer style descriptions
+          // (e.g. "synth-pop, cinematic, warm, late-night drive,
+          // analog-warm, vinyl crackle"). Move to a 2-row textarea so
+          // the user can comfortably edit and read multi-tag styles.
+          '<textarea id="mvp-style" rows="2" placeholder="' + escapeHtml(stylePlaceholder) + '"></textarea>' +
           '<label>' + escapeHtml(lyricsLabel) + '</label>' +
           '<textarea id="mvp-lyrics" rows="3" placeholder="' + escapeHtml(lyricsPlaceholder) + '"></textarea>' +
           renderAspectRatioControls() +

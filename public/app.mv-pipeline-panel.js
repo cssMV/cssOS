@@ -843,6 +843,10 @@
       );
     }).join("");
     const runLabel = copy("Start pipeline", "开始生成");
+    // CSSOS_PHASE2_CLEAR_INPUTS 20260504 — Jing: a "Clear" companion next
+    // to Start Pipeline so users can wipe the prompt/style/lyrics inputs
+    // and start a fresh run without refreshing the whole page.
+    const clearLabel = copy("Clear", "清除");
     // CSSOS_PHASE2_AUTOSAVE 20260426 #147 — Jing
     // Removed the manual "Save as work" button. The auto-save in the
     // compose-done block now POSTs /api/mv/commit exactly once per mv_id, so
@@ -882,6 +886,7 @@
         '</div>' +
         '<div class="mvp-actions">' +
           '<button id="mvp-run" class="cta">' + escapeHtml(runLabel) + '</button>' +
+          '<button id="mvp-clear" class="cta ghost" type="button">' + escapeHtml(clearLabel) + '</button>' +
           // #147 Save-as-work button removed — auto-save runs on compose-done.
           // CSSOS_PHASE2_MV_TIER_LABEL 20260419 — 常驻 cost label next to
           // the Generate button. Populated by refreshTierCostLabel() once
@@ -1018,6 +1023,22 @@
 
   function wire(panel) {
     panel.querySelector("#mvp-run").addEventListener("click", runAll);
+    // CSSOS_PHASE2_CLEAR_INPUTS 20260504 — clear the three text inputs so
+    // the user can start a fresh run without reloading the page. Stage
+    // badges and result panels intentionally NOT touched: they reset on
+    // the next runAll() naturally, and the user often wants to compare
+    // the in-flight run against the previous output.
+    const clearBtn = panel.querySelector("#mvp-clear");
+    if (clearBtn) {
+      clearBtn.addEventListener("click", function () {
+        ["#mvp-prompt", "#mvp-style", "#mvp-lyrics"].forEach(function (sel) {
+          const el = panel.querySelector(sel);
+          if (el) el.value = "";
+        });
+        const promptEl = panel.querySelector("#mvp-prompt");
+        if (promptEl) promptEl.focus();
+      });
+    }
     // #147: #mvp-save button removed — auto-save runs from compose-done.
     wireAspectRatioControls(panel);
     // CSSOS_PHASE2_MV_TIER_LABEL 20260419 — wire the tier cost label. Click
@@ -3838,13 +3859,22 @@
       // Show both takes' durations side by side when Suno (or any
       // dual-track engine) returns two clips. Falls back to single
       // duration for single-track engines (ElevenLabs, MusicGPT).
-      const _d1 = state.duration ? state.duration.toFixed(1) : null;
-      const _d2 = state.altDuration ? Number(state.altDuration).toFixed(1) : null;
+      // CSSOS_PHASE2_DURATION_MMSS 20260504 — Jing
+      // "182.8 秒，改为 3:03 秒" — humans read minutes:seconds.
+      // Format: ceil to whole seconds first so 182.8 → 183 → 3:03.
+      const _fmtDur = (secs) => {
+        const n = Math.round(Number(secs) || 0);
+        const m = Math.floor(n / 60);
+        const s = n % 60;
+        return `${m}:${String(s).padStart(2, "0")}`;
+      };
+      const _d1 = state.duration ? _fmtDur(state.duration) : null;
+      const _d2 = state.altDuration ? _fmtDur(state.altDuration) : null;
       let _durationLabel = "";
       if (_d1 && _d2) {
-        _durationLabel = ` · ♪1 ${_d1}s · ♪2 ${_d2}s`;
+        _durationLabel = ` · ♪1 ${_d1} · ♪2 ${_d2}`;
       } else if (_d1) {
-        _durationLabel = ` · ${_d1}s`;
+        _durationLabel = ` · ${_d1}`;
       }
       setStage(
         "music",

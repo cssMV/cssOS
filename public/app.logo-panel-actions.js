@@ -115,6 +115,10 @@ function attachLogoPanelActionsBridge() {
     if (!guardLogoCreationAccess()) return;
     event.preventDefault();
     event.stopPropagation();
+    console.info(
+      "%c[entry:logo-image] click → invokeUniversalCreationEntry",
+      "color:#08f;font-weight:bold"
+    );
     void globalThis.invokeUniversalCreationEntry?.({
       origin: "logo",
       preferredTab: "mv",

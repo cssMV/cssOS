@@ -547,6 +547,18 @@ window.addEventListener("cssos:run_created", (event) => {
   void loadMusicDeliveryDashboard(runId, true);
 });
 window.addEventListener("cssos:mic", async (event) => {
+  // CSSOS_PHASE2_KILL_LEGACY_MIC 20260504 — Jing
+  // Previously this listener consulted runBootUiFn("HandleMicClick", ...)
+  // first and short-circuited if a handler was registered. The legacy
+  // app.voice-seed.js still registers `window.handleMicClick` which
+  // calls `startCreation()` directly — that's the brown-stick-figure /
+  // scary-fallback path that the user has been complaining about for
+  // weeks. Because runBootUiFn returned the legacy handler's Promise as
+  // a truthy "handled" flag, the universal-entry fallback below NEVER
+  // ran. Skip the legacy probe entirely; let the universal entry own
+  // every voice-channel tap. Switched preferredTab to "mv" so the MV
+  // Pipeline actually triggers (was "music" which would have skipped
+  // the pipeline before today's #207d fix).
   if (globalThis.isCreationBusyModule?.()) {
     showCreationSurface(String(event?.detail?.origin || "logo"));
     globalThis.activateWatchTab?.("mv");
@@ -554,11 +566,9 @@ window.addEventListener("cssos:mic", async (event) => {
     showToast(t("watch.toast.creationBusy"));
     return;
   }
-  const handled = runBootUiFn("HandleMicClick", "handleMicClick");
-  if (handled) return;
   await globalThis.invokeUniversalCreationEntry?.({
     origin: String(event?.detail?.origin || "logo"),
-    preferredTab: "music",
+    preferredTab: "mv",
     submitVoiceFallback: true
   });
 });

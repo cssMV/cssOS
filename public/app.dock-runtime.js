@@ -87,7 +87,21 @@
       },
       foryou: {
         click: () => global.openPanel(global.foryouPanel),
-        dblclick: () => global.startCreation(),
+        // CSSOS_PHASE2_KILL_LEGACY_DOCK_DBLCLICK 20260504 — Jing
+        // dblclick used to call legacy startCreation() which goes through
+        // /api/cssmv/song-seed and dumps the brown-stick-figure scary
+        // fallback. Route through cssmvUnifiedEntry so the MV Pipeline
+        // panel takes ownership of the run. Fall back to the universal
+        // entry helper if cssmvUnifiedEntry isn't loaded yet.
+        dblclick: () => {
+          if (typeof global.cssmvUnifiedEntry === "function") {
+            void global.cssmvUnifiedEntry({ source: "dock-foryou-dbl", preferredTab: "mv" });
+          } else if (typeof global.invokeUniversalCreationEntry === "function") {
+            void global.invokeUniversalCreationEntry({ origin: "dock", preferredTab: "mv", submitVoiceFallback: true });
+          } else {
+            global.startCreation?.();
+          }
+        },
         longpress: () => openPanelSettingsSafe(global.foryouPanel)
       },
       cssmv: {

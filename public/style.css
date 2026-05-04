@@ -9229,3 +9229,50 @@ html[data-panel-transparent="true"] .logo-panel {
   color: color-mix(in srgb, #b6d4ff 70%, white);
   letter-spacing: 0.05em;
 }
+
+/* CSSOS_PHASE2_TITLE_FLASH 20260504 — Jing
+ * 10-second face-safe title flash + emotion-driven palette.
+ * The art title rotates around 8 anchors so each shuffle lands on
+ * a different region of the frame instead of camping the centre on
+ * top of whatever face the camera is holding. Emotion classes mirror
+ * the karaoke palette so subtitle + title feel like ONE work. */
+.watch-mv-art-title {
+  /* flash entry / exit */
+  transition: opacity 0.45s ease, transform 0.6s ease;
+}
+.watch-mv-art-title.is-flash {
+  /* during the 10s window, the title pulses subtly so the eye finds it. */
+  animation: titleFlashEntry 0.6s ease both;
+}
+.watch-mv-art-title.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+@keyframes titleFlashEntry {
+  0%   { opacity: 0; transform: translate(var(--title-tx, 0), var(--title-ty, 8px)) scale(0.92); filter: blur(6px); }
+  60%  { opacity: 1; transform: translate(var(--title-tx, 0), 0) scale(1.04); filter: blur(0); }
+  100% { opacity: 1; transform: translate(var(--title-tx, 0), 0) scale(1.0);  filter: blur(0); }
+}
+
+/* Anchor positions — keep clear of the centre band where faces live.
+ * Coordinates are relative to the watch-frame; the existing
+ * .watch-mv-art-title rule owns the absolute positioning, we only
+ * shift via CSS variables and translate. */
+.watch-mv-art-title.anchor-tl { left: 6%;  right: auto; top: 6%;  bottom: auto; transform-origin: top left; --title-tx: 0; --title-ty: -10px; }
+.watch-mv-art-title.anchor-tr { left: auto; right: 6%; top: 6%;  bottom: auto; transform-origin: top right; --title-tx: 0; --title-ty: -10px; text-align: right; }
+.watch-mv-art-title.anchor-bl { left: 6%;  right: auto; top: auto; bottom: 12%; transform-origin: bottom left; --title-tx: 0; --title-ty: 10px; }
+.watch-mv-art-title.anchor-br { left: auto; right: 6%; top: auto; bottom: 12%; transform-origin: bottom right; --title-tx: 0; --title-ty: 10px; text-align: right; }
+.watch-mv-art-title.anchor-tc { left: 50%; right: auto; top: 7%;  bottom: auto; transform: translateX(-50%); transform-origin: top center; }
+.watch-mv-art-title.anchor-bc { left: 50%; right: auto; top: auto; bottom: 14%; transform: translateX(-50%); transform-origin: bottom center; }
+.watch-mv-art-title.anchor-ml { left: 4%;  right: auto; top: 50%; bottom: auto; transform: translateY(-50%); transform-origin: left center; }
+.watch-mv-art-title.anchor-mr { left: auto; right: 4%; top: 50%; bottom: auto; transform: translateY(-50%); transform-origin: right center; text-align: right; }
+
+/* Emotion palette for the title — same six the karaoke uses. The
+ * stronger weight + larger shadow vs subtitle reflects "this is the
+ * song's name, see it" while keeping the same colour family. */
+.watch-mv-art-title.title-emotion-ignite   { color: color-mix(in srgb, #ff7242 75%, white); text-shadow: 0 4px 24px rgba(255, 114, 66, 0.55); }
+.watch-mv-art-title.title-emotion-resolve  { color: color-mix(in srgb, #79e6ff 75%, white); text-shadow: 0 4px 24px rgba(121, 230, 255, 0.50); }
+.watch-mv-art-title.title-emotion-intimate { color: color-mix(in srgb, #c2a4ff 65%, white); text-shadow: 0 4px 24px rgba(194, 164, 255, 0.50); font-style: italic; }
+.watch-mv-art-title.title-emotion-joy      { color: color-mix(in srgb, #ffe079 75%, white); text-shadow: 0 4px 24px rgba(255, 224, 121, 0.55); }
+.watch-mv-art-title.title-emotion-grief    { color: color-mix(in srgb, #88b6c4 75%, white); text-shadow: 0 4px 24px rgba(136, 182, 196, 0.45); font-style: italic; }
+.watch-mv-art-title.title-emotion-calm     { color: color-mix(in srgb, #b6d4ff 75%, white); text-shadow: 0 4px 24px rgba(182, 212, 255, 0.45); }

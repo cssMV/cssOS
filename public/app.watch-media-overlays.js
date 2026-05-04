@@ -892,13 +892,18 @@
     el.__cssmvLastText = clean;
     el.innerHTML = wrapGlyphs(clean, pickMotion());
     fitMvTitleFontSize(el, frame);
-    // Use live mvTitleEl reference (not captured `el`) in case the element
-    // gets swapped between now and the delay firing.
+    // CSSOS_PHASE2_TITLE_FLASH 20260504 — Jing's request: title should
+    // not stay on-screen continuously. Show for 10s on first render
+    // (and on every subsequent shuffle), then auto-hide. The flash
+    // helper picks a face-safe anchor + emotion class.
     setTimeout(() => {
       const live = mvTitleEl;
       if (!live || !live.isConnected) return;
-      live.classList.remove("is-hidden");
-      live.classList.add("is-visible");
+      try { showMvArtTitleForFlash(); } catch (_e) {
+        // Fallback: legacy behaviour (always-on)
+        live.classList.remove("is-hidden");
+        live.classList.add("is-visible");
+      }
     }, CONFIG.MV_TITLE_APPEAR_DELAY_MS);
   }
   function hideMvArtTitle() {
@@ -906,6 +911,67 @@
     mvTitleEl.classList.remove("is-visible", "is-playing");
     mvTitleEl.classList.add("is-hidden");
   }
+
+  // CSSOS_PHASE2_TITLE_FLASH 20260504 — Jing
+  // 10-second visibility flash that the auto-rotate-on-shuffle timer
+  // calls into. Picks a face-safe corner each shuffle so the title
+  // rotates around the frame instead of always sitting dead-centre
+  // on top of whatever face the camera is holding. Applies the same
+  // emotion class the karaoke renderer derives so the title "feels"
+  // the song just like the lyric line does.
+  let __cssmvTitleFlashTimer = 0;
+  let __cssmvTitleAnchorIdx = 0;
+  // Title anchors arranged so consecutive shuffles never overlap and
+  // most positions stay clear of the centre (where faces live in
+  // 16:9 portrait-ish framing). Each entry maps to CSS classes.
+  const TITLE_ANCHORS = [
+    "anchor-tl", "anchor-tr",
+    "anchor-bl", "anchor-br",
+    "anchor-tc", "anchor-bc",
+    "anchor-ml", "anchor-mr",
+  ];
+  function pickFaceSafeAnchor() {
+    // Round-robin with small randomisation to avoid perceptible
+    // patterning while still guaranteeing every corner gets used.
+    const next = (__cssmvTitleAnchorIdx + 1 + Math.floor(Math.random() * 3)) % TITLE_ANCHORS.length;
+    __cssmvTitleAnchorIdx = next;
+    return TITLE_ANCHORS[next];
+  }
+  function inferTitleEmotionFromText(s) {
+    const t = String(s || "").toLowerCase();
+    if (/fire|burn|燃|怒|爆|火/.test(t)) return "ignite";
+    if (/love|heart|爱|心|怀/.test(t)) return "intimate";
+    if (/dream|moon|night|梦|月|夜|星/.test(t)) return "resolve";
+    if (/joy|smile|喜|笑|乐|阳光/.test(t)) return "joy";
+    if (/grief|tear|cry|悲|失|泪/.test(t)) return "grief";
+    if (/calm|peace|静|安|宁|海/.test(t)) return "calm";
+    return "";
+  }
+  function showMvArtTitleForFlash(durationMs) {
+    if (!mvTitleEl) return;
+    const flashMs = Math.max(2000, Math.min(60000, Number(durationMs) || 10000));
+    // Anchor swap: clear all anchor-* classes, set the new one
+    TITLE_ANCHORS.forEach((c) => mvTitleEl.classList.remove(c));
+    const anchor = pickFaceSafeAnchor();
+    mvTitleEl.classList.add(anchor);
+    // Emotion class — title gets the same emotion language as karaoke.
+    ["ignite","resolve","intimate","joy","calm","grief"].forEach((k) => {
+      mvTitleEl.classList.remove("title-emotion-" + k);
+    });
+    const emo = inferTitleEmotionFromText(mvTitleLastText);
+    if (emo) mvTitleEl.classList.add("title-emotion-" + emo);
+    mvTitleEl.classList.remove("is-hidden");
+    mvTitleEl.classList.add("is-visible");
+    mvTitleEl.classList.add("is-flash");
+    if (__cssmvTitleFlashTimer) clearTimeout(__cssmvTitleFlashTimer);
+    __cssmvTitleFlashTimer = setTimeout(() => {
+      if (!mvTitleEl) return;
+      mvTitleEl.classList.remove("is-visible", "is-flash");
+      mvTitleEl.classList.add("is-hidden");
+      __cssmvTitleFlashTimer = 0;
+    }, flashMs);
+  }
+  globalThis.cssmvShowMvArtTitleForFlash = showMvArtTitleForFlash;
   // Keep title sized against frame size changes
   function wireMvTitleResize() {
     const frame = qFrame();
@@ -1204,6 +1270,18 @@
       mvTitleEl.innerHTML = wrapGlyphs(mvTitleLastText, pickMotion());
       try { mvTitleEl.__cssmvLastText = ""; } catch (_err) {}
       if (frame) fitMvTitleFontSize(mvTitleEl, frame);
+      // CSSOS_PHASE2_TITLE_SHOW_ON_SHUFFLE 20260504 — Jing
+      // "字幕标题要跟媒体框右下角字幕按钮右键菜单里的时间随机在切换字
+      //  体呢？10秒钟自动隐藏，等到下一次随机字体切换，再显示10秒后自
+      //  动隐藏."
+      // Each shuffle: pop the title visible with the new fancy font;
+      // schedule a 10s auto-hide. Subsequent shuffles re-pop and reset
+      // the timer. Runs piggybacking on the existing auto-rotate timer
+      // (right-click menu on the subtitle button — "Auto-shuffle every
+      // {N} min") so the user-set cadence drives the title cycle too.
+      try {
+        showMvArtTitleForFlash();
+      } catch (_e) { /* non-fatal */ }
     }
 
     // Re-render subtitle + karaoke text (plain mode)

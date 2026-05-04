@@ -4454,7 +4454,11 @@
         // paints the console red).
         const subtitlesBody = withEngine("subtitles", {
           lyrics: state.lyrics,
-          duration_secs: state.duration || SUBTITLES_DEFAULT_DURATION_SECS
+          duration_secs: state.duration || SUBTITLES_DEFAULT_DURATION_SECS,
+          // CSSOS_PHASE2_ASS_OUTPUT 20260504 — Jing: pass title so the
+          // ASS [Script Info] header can include it (purely cosmetic
+          // for renderers that surface a window title; SRT ignores it).
+          title: String(state.title || "").trim() || undefined
         });
         // CSSOS_PHASE2_ALIGNED_LYRICS 20260426 #148-D — Jing
         // When the music engine emitted real per-line timing, hand it to the
@@ -4477,6 +4481,13 @@
         }
         const subs = await postJson("/api/mv/subtitles", subtitlesBody);
         state.subtitlesSrt = subs.srt || null;
+        // CSSOS_PHASE2_ASS_OUTPUT 20260504 — Jing: capture ASS alongside
+        // SRT. The karaoke renderer prefers SRT for now (every browser
+        // can parse it via parseSrtToAlignedLyricsModule); ASS is
+        // available for a future renderer that consumes ASS override
+        // tags directly (live colour swaps per line, per-syllable \k
+        // karaoke, fade effects without DOM keyframes).
+        state.subtitlesAss = subs.ass || null;
         recordEngine("subtitles", subs);
         setStage(
           "subtitles",

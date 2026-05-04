@@ -3072,6 +3072,11 @@ pub struct SubtitlesRequest {
     /// the timing computation. Falls back to even-divide when missing.
     #[serde(default)]
     pub aligned_lyrics: Option<Vec<crate::music_gen::AlignedLyricLine>>,
+    /// CSSOS_PHASE2_ASS_OUTPUT 20260504 — Jing
+    /// Optional song title for the ASS [Script Info] header. Pure
+    /// metadata; doesn't affect timing or SRT output.
+    #[serde(default)]
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -3079,6 +3084,18 @@ pub struct SubtitlesResponse {
     pub ok: bool,
     pub task_id: String,
     pub srt: String,
+    /// CSSOS_PHASE2_ASS_OUTPUT 20260504 — Jing
+    /// "请输出 ACC 字幕文件…比 SRT 拥有更多功能，我们会用到的，
+    ///  比如实时改变样式，颜色等".
+    /// ASS (Advanced SubStation Alpha) emitted alongside SRT. Same
+    /// timing data, but ASS's [Events] / Dialogue lines support inline
+    /// override tags ({\c&Hxxxxxx&} colour, {\fs<n>} size, {\b1}{\b0}
+    /// bold, {\fad(...)} fade, {\k<centiseconds>} per-syllable karaoke,
+    /// {\an<pos>} alignment, etc) so the live karaoke renderer can do
+    /// per-line emotion tinting / size pumping without a separate
+    /// timing pipeline.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ass: String,
     pub line_count: usize,
     pub engine: String,
     pub version: String,
@@ -3096,6 +3113,213 @@ fn format_srt_timestamp(mut secs: f64) -> String {
     let m = (total_s / 60) % 60;
     let h = total_s / 3600;
     format!("{:02}:{:02}:{:02},{:03}", h, m, s, ms)
+}
+
+/// CSSOS_PHASE2_ASS_OUTPUT 20260504 — Jing
+/// ASS uses centisecond precision (h:mm:ss.cc, exactly 2 fractional
+/// digits) and a single dot, NOT comma. Required by libass / VLC /
+/// every ASS-aware renderer.
+fn format_ass_timestamp(mut secs: f64) -> String {
+    if secs < 0.0 {
+        secs = 0.0;
+    }
+    let total_cs = (secs * 100.0).round() as u64;
+    let cs = total_cs % 100;
+    let total_s = total_cs / 100;
+    let s = total_s % 60;
+    let m = (total_s / 60) % 60;
+    let h = total_s / 3600;
+    format!("{}:{:02}:{:02}.{:02}", h, m, s, cs)
+}
+
+/// Strip / escape characters that break ASS Dialogue parsing:
+///   • literal `{` / `}` would open override-tag scopes
+///   • newline / carriage return must become `\N` for line break
+///   • a leading `;` makes libass treat the line as a comment
+fn ass_escape_text(input: &str) -> String {
+    let trimmed = input.trim();
+    let mut out = String::with_capacity(trimmed.len());
+    for ch in trimmed.chars() {
+        match ch {
+            '{' => out.push_str("\\{"),
+            '}' => out.push_str("\\}"),
+            '\n' | '\r' => out.push_str("\\N"),
+            _ => out.push(ch),
+        }
+    }
+    if out.starts_with(';') {
+        out.insert(0, '\\');
+    }
+    out
+}
+
+/// Map a small set of "emotion" tags (engine-emitted on aligned_lyrics
+/// when available) to ASS override tags so the renderer tints / scales
+/// the line without per-frontend logic. Caller passes None when no
+/// annotation is available; the line gets default styling.
+fn ass_emotion_override(emotion: Option<&str>, emphasis: Option<f32>) -> String {
+    let mut tags = String::new();
+    if let Some(e) = emotion {
+        match e.to_ascii_lowercase().as_str() {
+            "ignite" | "fire" | "anger" => tags.push_str("{\\c&H4272FF&}"), // BGR red-ish
+            "resolve" | "dream" | "moonlit" => tags.push_str("{\\c&HFFE679&}"),
+            "intimate" | "grief" | "tender" => tags.push_str("{\\c&HFFA4C2&}"),
+            "joy" | "playful" | "cheerful" => tags.push_str("{\\c&H6BFFB6&}"),
+            _ => {}
+        }
+    }
+    if let Some(e) = emphasis {
+        let pump = (1.0 + e.clamp(0.0, 1.0) * 0.18).clamp(0.85, 1.4);
+        // PercentageX/Y scaling — ASS uses fscx/fscy where 100 is "no scale".
+        let pct = (pump * 100.0).round() as u32;
+        if pct != 100 {
+            tags.push_str(&format!("{{\\fscx{p}\\fscy{p}}}", p = pct));
+        }
+    }
+    if !tags.is_empty() {
+        // Add a soft fade-in/out so style swaps don't snap.
+        tags.push_str("{\\fad(120,120)}");
+    }
+    tags
+}
+
+fn build_ass_from_aligned(
+    aligned: &[crate::music_gen::AlignedLyricLine],
+    min_line_secs: f64,
+    line_gap_secs: f64,
+    title: &str,
+) -> (String, usize) {
+    let mut header = String::new();
+    header.push_str("[Script Info]\n");
+    header.push_str(&format!(
+        "Title: {}\n",
+        if title.is_empty() { "cssOS karaoke" } else { title }
+    ));
+    header.push_str("ScriptType: v4.00+\n");
+    header.push_str("Collisions: Normal\n");
+    header.push_str("WrapStyle: 0\n");
+    header.push_str("ScaledBorderAndShadow: yes\n");
+    header.push_str("PlayResX: 1920\n");
+    header.push_str("PlayResY: 1080\n");
+    header.push_str("YCbCr Matrix: TV.709\n\n");
+
+    header.push_str("[V4+ Styles]\n");
+    header.push_str(
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n",
+    );
+    // Default karaoke style: white primary, cyan-ish secondary (sung
+    // word colour for {\k} tags), black outline, bottom-centre.
+    header.push_str(
+        "Style: Default,Source Han Sans SC,72,&H00FFFFFF,&H00F7B70B,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,2,2,80,80,90,1\n",
+    );
+    // Ignite / hot accents — for emotion: ignite override fallback.
+    header.push_str(
+        "Style: Ignite,Source Han Sans SC,76,&H004272FF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,2,2,80,80,90,1\n",
+    );
+    // Intimate — softer pink, smaller.
+    header.push_str(
+        "Style: Intimate,Source Han Sans SC,64,&H00FFA4C2&,&H00FFFFFF,&H00000000,&H80000000,0,1,0,0,100,100,0,0,1,2,2,2,80,80,80,1\n",
+    );
+    header.push('\n');
+
+    header.push_str("[Events]\n");
+    header
+        .push_str("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n");
+
+    if aligned.is_empty() {
+        return (header, 0);
+    }
+
+    let mut sorted: Vec<&crate::music_gen::AlignedLyricLine> = aligned
+        .iter()
+        .filter(|l| {
+            let t = l.text.trim();
+            if t.is_empty() {
+                return false;
+            }
+            let stripped = t
+                .trim_start_matches('*')
+                .trim_end_matches('*')
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .trim_start_matches('(')
+                .trim_end_matches(')')
+                .trim();
+            !stripped.is_empty()
+                && !stripped.eq_ignore_ascii_case("verse")
+                && !stripped.eq_ignore_ascii_case("chorus")
+                && !stripped.eq_ignore_ascii_case("bridge")
+                && !stripped.eq_ignore_ascii_case("outro")
+                && !stripped.eq_ignore_ascii_case("intro")
+        })
+        .collect();
+    sorted.sort_by_key(|l| l.start_ms);
+
+    let min_line_ms = (min_line_secs * 1000.0).round() as u64;
+    let gap_ms = (line_gap_secs * 1000.0).round() as u64;
+    let count = sorted.len();
+    let mut events = String::new();
+
+    for (idx, line) in sorted.iter().enumerate() {
+        let mut start_ms = line.start_ms;
+        let mut end_ms = line.end_ms.max(start_ms);
+
+        if end_ms.saturating_sub(start_ms) < min_line_ms {
+            let next_start = sorted
+                .get(idx + 1)
+                .map(|l| l.start_ms)
+                .unwrap_or(end_ms + min_line_ms);
+            let extended = start_ms + min_line_ms;
+            end_ms = extended.min(next_start.saturating_sub(gap_ms));
+            if end_ms < start_ms + 100 {
+                end_ms = start_ms + 100;
+            }
+        }
+        if let Some(next) = sorted.get(idx + 1) {
+            let next_start = next.start_ms;
+            if end_ms + gap_ms > next_start {
+                end_ms = next_start.saturating_sub(gap_ms).max(start_ms + 100);
+            }
+        }
+        if idx > 0 {
+            if let Some(prev) = sorted.get(idx - 1) {
+                let prev_end = prev.end_ms.max(prev.start_ms);
+                if start_ms < prev_end + gap_ms {
+                    start_ms = prev_end + gap_ms;
+                    if end_ms <= start_ms {
+                        end_ms = start_ms + min_line_ms.max(100);
+                    }
+                }
+            }
+        }
+
+        let cleaned_raw = line
+            .text
+            .trim()
+            .trim_start_matches('*')
+            .trim_end_matches('*')
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .trim();
+        let escaped = ass_escape_text(cleaned_raw);
+        // Hooks for engine-emitted emotion / emphasis. AlignedLyricLine
+        // doesn't carry those today (only text/start_ms/end_ms/section)
+        // — leave the override empty so the Default style is used.
+        // Future: extend AlignedLyricLine with emotion/emphasis and
+        // wire those fields through here.
+        let override_tags = ass_emotion_override(None, None);
+
+        events.push_str(&format!(
+            "Dialogue: 0,{start},{end},Default,,0,0,0,,{tags}{text}\n",
+            start = format_ass_timestamp(start_ms as f64 / 1000.0),
+            end = format_ass_timestamp(end_ms as f64 / 1000.0),
+            tags = override_tags,
+            text = escaped
+        ));
+    }
+
+    header.push_str(&events);
+    (header, count)
 }
 
 fn build_local_srt(
@@ -3463,6 +3687,32 @@ async fn subtitles_inner(
         ));
     };
 
+    // CSSOS_PHASE2_ASS_OUTPUT 20260504 — emit ASS alongside SRT using
+    // the same timing source. When aligned_lyrics is available we use
+    // those timestamps directly; otherwise we re-parse the SRT we just
+    // produced (cheap — line_count is at most ~80) so even the
+    // even-divide path still gets an ASS file. This way every Watch
+    // panel render has both formats available, regardless of the
+    // engine's alignment quality.
+    let ass = if engine == "cssmv-local" && version == "srt-v1" {
+        let min_line = body.min_line_secs.unwrap_or(1.2);
+        let gap = body.line_gap_secs.unwrap_or(0.08);
+        let title = body.title.clone().unwrap_or_default();
+        if let Some(lines) = body.aligned_lyrics.as_ref().filter(|v| !v.is_empty()) {
+            let (a, _) = build_ass_from_aligned(lines, min_line, gap, &title);
+            a
+        } else {
+            // No aligned_lyrics — synthesise AlignedLyricLine from the
+            // SRT we just built so build_ass_from_aligned can emit ASS
+            // with the same timestamps.
+            let synth: Vec<crate::music_gen::AlignedLyricLine> = parse_srt_to_aligned(&srt);
+            let (a, _) = build_ass_from_aligned(&synth, min_line, gap, &title);
+            a
+        }
+    } else {
+        String::new()
+    };
+
     let task_id = format!("subtitles-{}", Uuid::new_v4());
     let cost_cents = price_cents(&engine, &version);
     let _ = meter_usage(
@@ -3477,6 +3727,7 @@ async fn subtitles_inner(
             "version": version,
             "duration_secs": body.duration_secs,
             "line_count": line_count,
+            "ass_emitted": !ass.is_empty(),
         })),
     )
     .await;
@@ -3485,11 +3736,62 @@ async fn subtitles_inner(
         ok: true,
         task_id,
         srt,
+        ass,
         line_count,
         engine,
         version,
         cost_cents,
     }))
+}
+
+/// CSSOS_PHASE2_ASS_OUTPUT 20260504 — bridge SRT → AlignedLyricLine
+/// so the ASS builder can reuse the SRT-only fallback path. Skips
+/// malformed cues. Used only when aligned_lyrics is absent on the
+/// request.
+fn parse_srt_to_aligned(srt: &str) -> Vec<crate::music_gen::AlignedLyricLine> {
+    let mut out = Vec::new();
+    for block in srt.split("\n\n") {
+        let lines: Vec<&str> = block.lines().collect();
+        if lines.len() < 2 {
+            continue;
+        }
+        // Find the timestamp line (usually index 1, but be tolerant).
+        let ts_idx = lines.iter().position(|l| l.contains("-->"));
+        let Some(ts_idx) = ts_idx else { continue };
+        let ts = lines[ts_idx];
+        let parts: Vec<&str> = ts.split("-->").collect();
+        if parts.len() != 2 {
+            continue;
+        }
+        let parse = |s: &str| -> Option<u64> {
+            let s = s.trim();
+            // h:mm:ss,ms or h:mm:ss.ms
+            let bytes = s.as_bytes();
+            if bytes.len() < 12 {
+                return None;
+            }
+            let h: u64 = s.get(0..2)?.parse().ok()?;
+            let m: u64 = s.get(3..5)?.parse().ok()?;
+            let sec: u64 = s.get(6..8)?.parse().ok()?;
+            let ms_str = s.get(9..)?.trim();
+            let ms: u64 = ms_str.parse().ok()?;
+            Some(h * 3600_000 + m * 60_000 + sec * 1000 + ms)
+        };
+        let (Some(start_ms), Some(end_ms)) = (parse(parts[0]), parse(parts[1])) else {
+            continue;
+        };
+        let text = lines[ts_idx + 1..].join(" ").trim().to_string();
+        if text.is_empty() {
+            continue;
+        }
+        out.push(crate::music_gen::AlignedLyricLine {
+            text,
+            start_ms,
+            end_ms,
+            section: None,
+        });
+    }
+    out
 }
 
 // -------------------------------------------------------------- /mv/engines

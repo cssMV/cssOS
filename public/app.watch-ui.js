@@ -4623,6 +4623,7 @@ function safeSetWatchSubtitleModule(text) {
 globalThis.safeSetWatchSubtitleModule = safeSetWatchSubtitleModule;
 
 let __cssosKaraokeWired = false;
+let __cssmvKaraStripSet = null;
 function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
   if (__cssosKaraokeWired) return;
   __cssosKaraokeWired = true;
@@ -4994,7 +4995,40 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
         lastAppliedLine = line;
         karaokeReapplying = true;
         const lineDur = Math.max(0.3, (line.end_s || 0) - (line.start_s || 0));
-        const text = String(line.text || "");
+        // CSSOS_PHASE2_PUNCT_FILTER 20260504 — Jing
+        // "请把字幕里的标点符号如，。等都过滤一下，？可以保留."
+        // Karaoke captions are sung-text — printed pauses don't add
+        // meaning, only visual noise (each comma takes a span and
+        // briefly glows like a real word). Strip the obvious sung
+        // pauses; keep ？ ！ ～ which carry emotion + the karaoke
+        // renderer's emphasis classes ride them.
+        // The lyrics BODY (lyrics card preview, mvp-lyrics textarea,
+        // SRT/ASS export) keeps every punctuation character intact —
+        // this filter is render-time-only.
+        const stripKaraokePunct = (s) => {
+          // Iterate code-point set as a Set lookup so we don't have
+          // to build a character-class regex (which range-errors when
+          // dashes / brackets sit next to each other). Keeps:
+          // ？ ！ ～ ? ! 字母 数字 emoji 中文字.
+          if (!__cssmvKaraStripSet) {
+            __cssmvKaraStripSet = new Set();
+            const chars =
+              "，。、；：·．…" +     // Chinese pause-style
+              "「」『』《》〈〉【】〔〕（）｢｣" + // Chinese brackets / parens
+              "“”‘’\"'" + // “ ” ‘ ’ + ASCII quotes
+              "—–‒‐‑―" + // em/en/figure dashes
+              "-" +                  // ASCII hyphen
+              ",.;:()" +             // Latin pause-style + parens
+              "·•●◆◇○"; // · • ● ◆ ◇ ○
+            for (const ch of chars) __cssmvKaraStripSet.add(ch);
+          }
+          let out = "";
+          for (const ch of String(s || "")) {
+            if (!__cssmvKaraStripSet.has(ch)) out += ch;
+          }
+          return out.replace(/\s+/g, " ").trim();
+        };
+        const text = stripKaraokePunct(String(line.text || ""));
         const chars = Array.from(text); // preserves CJK + emoji clusters
         const perChar = lineDur / Math.max(chars.length, 1);
         // Build inner HTML with per-char delay. Spaces: render real

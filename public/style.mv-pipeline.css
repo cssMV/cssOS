@@ -659,3 +659,16 @@
   outline: none;
   box-shadow: 0 0 0 2px rgba(0, 245, 160, 0.22);
 }
+
+/* CSSOS_PHASE2_SURPRISE_ME 20260504 — flash highlight when "Surprise me ✨"
+   lands a fresh prompt/style so the user sees what was filled in. */
+@keyframes mvpSurpriseFlash {
+  0%   { background-color: rgba(11, 247, 255, 0.36); border-color: rgba(11, 247, 255, 0.9); }
+  100% { background-color: rgba(255, 255, 255, 0.04); border-color: rgba(0, 245, 160, 0.35); }
+}
+.mvp-flash {
+  animation: mvpSurpriseFlash 600ms ease-out;
+}
+#mvp-surprise {
+  white-space: nowrap;
+}

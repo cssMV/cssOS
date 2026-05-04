@@ -281,6 +281,108 @@ const RUST_MV_PORT = Number(process.env.RUST_MV_PORT || 8081);
 const MV_PROXY_TIMEOUT_MS = Number(
   process.env.MV_PROXY_TIMEOUT_MS || 10 * 60 * 1000,
 );
+// CSSOS_PHASE2_SEED_INFINITE 20260504 — Jing
+// "我要的是不限制，自由" — replace the fixed inline seed pool with a real
+// LLM call that invents a fresh creative song concept on every click.
+// Cheap (~$0.0002 per call on gpt-4o-mini, ~80 tokens output), and the
+// frontend has a combinatorial fallback so we never fail catastrophically.
+//
+// IMPORTANT: this route MUST come BEFORE the catch-all /api/mv/* proxy
+// below or the proxy will swallow it and forward to rust-api which would
+// 404. The route auth-checks via Express session same as the proxy does.
+app.post("/api/mv/seed", express.json({ limit: "16kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) {
+    return res.status(401).json({ ok: false, error: "sign_in_required" });
+  }
+  const cfg = getOpenAiRuntimeConfig();
+  if (!cfg.apiKey) {
+    return res.status(503).json({ ok: false, error: "openai_key_missing" });
+  }
+  const lang = String(req.body?.language || "en").trim().toLowerCase();
+  const festival = req.body?.festival ? String(req.body.festival).trim() : "";
+  const season = req.body?.season ? String(req.body.season).trim() : "";
+  const tod = req.body?.time_of_day ? String(req.body.time_of_day).trim() : "";
+  const recentRaw = Array.isArray(req.body?.recent) ? req.body.recent : [];
+  const recent = recentRaw
+    .map((s: unknown) => String(s || "").trim())
+    .filter((s: string) => s.length > 0)
+    .slice(0, 16);
+  const civilization = req.body?.civilization
+    ? String(req.body.civilization).trim()
+    : "";
+  const sysMsg =
+    "You are a creative-music seed generator. Produce ONE fresh, original " +
+    "song concept that has NEVER appeared in a pop-music dataset before. " +
+    "Output strict JSON only — no markdown, no code fence, no commentary. " +
+    "Schema: {\"prompt\": string, \"style\": string}. " +
+    "The `prompt` is one vivid sentence (≤120 chars) describing a song " +
+    "concept: a character + an action + a setting + an atmosphere. The " +
+    "`style` is 2-4 short comma-separated music-style tags (genre, mood, " +
+    "instrumentation hint). Be specific, tactile, surprising — avoid " +
+    "clichés like 'chasing the dawn' or 'flying to the moon'.";
+  const userMsg =
+    `Language for the prompt: ${lang}. ` +
+    (festival ? `Cultural festival now: ${festival}. ` : "") +
+    (season ? `Season: ${season}. ` : "") +
+    (tod ? `Time of day: ${tod}. ` : "") +
+    (civilization ? `Civilisation hint: ${civilization}. ` : "") +
+    (recent.length > 0
+      ? `AVOID anything that overlaps semantically with these recent prompts: ${JSON.stringify(recent)}. `
+      : "") +
+    `Output JSON only.`;
+  try {
+    const upstream = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${cfg.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: cfg.model || "gpt-4o-mini",
+        messages: [
+          { role: "system", content: sysMsg },
+          { role: "user", content: userMsg },
+        ],
+        max_completion_tokens: 200,
+        temperature: 1.0, // maximise variation
+        response_format: { type: "json_object" },
+      }),
+    });
+    const payload: any = await upstream.json().catch(() => null);
+    if (!upstream.ok) {
+      return res.status(upstream.status).json({
+        ok: false,
+        error: "openai_upstream_error",
+        detail: payload?.error?.message || "",
+      });
+    }
+    const raw = String(payload?.choices?.[0]?.message?.content || "").trim();
+    let parsed: any = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (_e) {
+      // Best-effort: extract JSON-looking object.
+      const m = raw.match(/\{[\s\S]*\}/);
+      if (m) {
+        try { parsed = JSON.parse(m[0]); } catch (_e2) { /* */ }
+      }
+    }
+    const prompt = String(parsed?.prompt || "").trim();
+    const style = String(parsed?.style || "").trim();
+    if (!prompt) {
+      return res.status(502).json({ ok: false, error: "openai_empty_prompt" });
+    }
+    return res.json({ ok: true, prompt, style, source: "openai/gpt-4o-mini" });
+  } catch (err) {
+    return res.status(502).json({
+      ok: false,
+      error: "seed_generation_failed",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
 app.all(/^\/api\/mv\//, (req, res) => {
   const userId = (req.session as any)?.user_id;
   if (!userId) {

@@ -847,6 +847,12 @@
     // to Start Pipeline so users can wipe the prompt/style/lyrics inputs
     // and start a fresh run without refreshing the whole page.
     const clearLabel = copy("Clear", "清除");
+    // CSSOS_PHASE2_SURPRISE_ME 20260504 — Jing's "Layer 2 真无限层":
+    // the user can ask for an LLM-generated seed (truly unbounded) instead
+    // of typing anything. Falls back to the combinatorial seed-bank module
+    // (Layer 1, hundreds of millions of unique combos with civilisation
+    // bias) if /api/mv/seed is unavailable.
+    const surpriseLabel = copy("Surprise me ✨", "随机灵感 ✨");
     // CSSOS_PHASE2_AUTOSAVE 20260426 #147 — Jing
     // Removed the manual "Save as work" button. The auto-save in the
     // compose-done block now POSTs /api/mv/commit exactly once per mv_id, so
@@ -886,6 +892,7 @@
         '</div>' +
         '<div class="mvp-actions">' +
           '<button id="mvp-run" class="cta">' + escapeHtml(runLabel) + '</button>' +
+          '<button id="mvp-surprise" class="cta ghost" type="button" title="LLM-generated, truly random">' + escapeHtml(surpriseLabel) + '</button>' +
           '<button id="mvp-clear" class="cta ghost" type="button">' + escapeHtml(clearLabel) + '</button>' +
           // #147 Save-as-work button removed — auto-save runs on compose-done.
           // CSSOS_PHASE2_MV_TIER_LABEL 20260419 — 常驻 cost label next to
@@ -1037,6 +1044,46 @@
         });
         const promptEl = panel.querySelector("#mvp-prompt");
         if (promptEl) promptEl.focus();
+      });
+    }
+    // CSSOS_PHASE2_SURPRISE_ME 20260504 — fill prompt+style with an
+    // LLM-generated (or combinatorial-fallback) seed. Two-layer:
+    //   Layer 2: pickLlmSeed() hits POST /api/mv/seed (real LLM call,
+    //            truly unbounded). 404 / network → falls through.
+    //   Layer 1: pickRandomSeed() composes from civilisation-aware
+    //            combinatorial parts (hundreds of millions of unique
+    //            combos, festival/season biased).
+    const surpriseBtn = panel.querySelector("#mvp-surprise");
+    if (surpriseBtn) {
+      surpriseBtn.addEventListener("click", async function () {
+        const orig = surpriseBtn.textContent;
+        surpriseBtn.disabled = true;
+        try {
+          surpriseBtn.textContent = "…";
+          const bank = globalThis.cssmvLocalSeedBank;
+          let seed = null;
+          if (bank && typeof bank.pickLlmSeed === "function") {
+            seed = await bank.pickLlmSeed();
+          } else if (bank && typeof bank.pickRandomSeed === "function") {
+            seed = bank.pickRandomSeed();
+          }
+          if (seed && seed.prompt) {
+            const promptEl = panel.querySelector("#mvp-prompt");
+            const styleEl = panel.querySelector("#mvp-style");
+            if (promptEl) promptEl.value = seed.prompt;
+            if (styleEl && seed.style) styleEl.value = seed.style;
+            // Pulse so the user sees what changed.
+            promptEl?.classList.add("mvp-flash");
+            styleEl?.classList.add("mvp-flash");
+            setTimeout(() => {
+              promptEl?.classList.remove("mvp-flash");
+              styleEl?.classList.remove("mvp-flash");
+            }, 600);
+          }
+        } finally {
+          surpriseBtn.disabled = false;
+          surpriseBtn.textContent = orig;
+        }
       });
     }
     // #147: #mvp-save button removed — auto-save runs from compose-done.

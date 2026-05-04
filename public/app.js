@@ -18247,12 +18247,14 @@ async function loadCrossRunWatchSnapshots(runId) {
   const targetRunId = String(runId || "").trim();
   if (!targetRunId) return null;
   try {
+    // CSSOS_PHASE2_404_SILENCE_GODFILE 20260504 — same endpoint as above,
+    // not registered server-side. Catch + return null so we never throw.
     const res = await fetch(
       `${apiBase()}/cssapi/v1/runs/${encodeURIComponent(targetRunId)}/music-delivery-dashboard`,
       { headers: { accept: "application/json" } }
-    );
-    if (!res.ok) {
-      throw new Error(`cross-run watch snapshot load failed: ${res.status}`);
+    ).catch(() => null);
+    if (!res || !res.ok) {
+      return null;
     }
     const payload = await res.json();
     deliveryDashboardState.crossRunIncidentRunId = targetRunId;
@@ -27326,6 +27328,11 @@ async function loadMusicDeliveryDashboard(runId = deliveryDashboardState.runId, 
   persistMusicDeliveryDashboardRunId(normalizedRunId);
   renderMusicDeliveryDashboard();
 
+  // CSSOS_PHASE2_404_SILENCE_GODFILE 20260504 — Jing
+  // /cssapi/v1/runs/<id>/music-delivery-dashboard is unregistered server-side
+  // (rust-api/src/routes.rs only registers POST for /cssapi/v1/mv). Catch
+  // the network promise + treat non-ok as graceful empty so DevTools is not
+  // flooded with red 404s during every MV Pipeline run.
   const dashboardFetch = fetch(
     `${apiBase()}/cssapi/v1/runs/${encodeURIComponent(normalizedRunId)}/music-delivery-dashboard`,
     {
@@ -27333,7 +27340,7 @@ async function loadMusicDeliveryDashboard(runId = deliveryDashboardState.runId, 
       headers: { accept: "application/json" },
       cache: "no-store"
     }
-  );
+  ).catch(() => null);
   const probeFetch = fetch("/ops/zh-probe-latest.json", {
     method: "GET",
     headers: { accept: "application/json" },
@@ -27347,8 +27354,9 @@ async function loadMusicDeliveryDashboard(runId = deliveryDashboardState.runId, 
 
   deliveryDashboardRequest = Promise.all([dashboardFetch, probeFetch, probeHistoryFetch])
     .then(async ([res, probeRes, probeHistoryRes]) => {
-      if (!res.ok) {
-        throw new Error(`music delivery dashboard request failed: ${res.status}`);
+      if (!res || !res.ok) {
+        // Endpoint not registered → treat as gracefully empty.
+        return;
       }
       const payload = await res.json();
       deliveryDashboardState.response = payload || null;

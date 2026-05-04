@@ -47,16 +47,19 @@ async function renderAdvancedPanelSettingsBridge(options = {}) {
   });
   advancedPanelSettings.querySelector("[data-advanced-nav]")?.classList.add("is-active");
   advancedPanelSettings.querySelectorAll("[data-advanced-apply-render]").forEach((button) => {
-    button.addEventListener("click", async () => {
+    button.addEventListener("click", async (event) => {
       // CSSOS_PHASE2_UNIFIED_ENTRY 20260426 #138 — Jing
       // Apply & Render is one of the "万能入口". Route through the unified
       // helper so we get the diagnostic log + fresh-result short-circuit.
       // Also DROP the duplicate legacy `startCreation` call — that was
       // running the old creative-engine pipeline IN PARALLEL with MV
       // Pipeline, causing the user's "走一遍旧流程" complaint.
+      // CSSOS_PHASE2_APPLY_RENDER_SAFETY_NET 20260504 — mark this click
+      // so the document-level delegate doesn't fire a second time.
+      try { event.currentTarget.dataset.__applyRenderHandled = "1"; } catch (_e) {}
       console.info(
-        "%c[entry:apply-render] click",
-        "color:#08f"
+        "%c[entry:apply-render] click — bound handler",
+        "color:#08f;font-weight:bold"
       );
       // CSSOS_PHASE2_APPLY_RENDER_WATCH_DIRECT 20260429 #171 — Jing
       // "应用并渲染按钮，输入各项参数之后，点击应该显示 Watch MV 面板输出
@@ -682,3 +685,55 @@ async function renderAdvancedPanelSettingsBridge(options = {}) {
 Object.assign(globalThis, {
   renderAdvancedPanelSettingsBridge
 });
+
+// CSSOS_PHASE2_APPLY_RENDER_SAFETY_NET 20260504 — Jing
+// Global delegation safety-net for the Apply & Render button. The bound
+// handler above runs once at panel-render time; if the panel is later
+// re-rendered or the button gets re-created via innerHTML (which DOES
+// happen in advanced-panel-settings-render's render path), the original
+// listener is lost. A document-level capture-phase delegate guarantees
+// that ANY click on a [data-advanced-apply-render] element routes
+// through cssmvUnifiedEntry — even if the bound handler is gone.
+//
+// Also serves as a diagnostic: the log "[entry:apply-render] click —
+// delegated safety net" makes it obvious in DevTools whether the bound
+// handler ran first (logs "bound handler") or the safety net caught it.
+(function installApplyRenderSafetyNet() {
+  if (globalThis.__cssosApplyRenderSafetyNetInstalled) return;
+  globalThis.__cssosApplyRenderSafetyNetInstalled = true;
+  document.addEventListener("click", function (e) {
+    const btn = e.target && e.target.closest && e.target.closest("[data-advanced-apply-render]");
+    if (!btn) return;
+    // If the bound handler fired in the same tick, it sets a flag we
+    // can read. Otherwise this delegate kicks the unified entry.
+    if (btn.dataset.__applyRenderHandled === "1") {
+      btn.dataset.__applyRenderHandled = "";
+      return;
+    }
+    console.info(
+      "%c[entry:apply-render] click — delegated safety net",
+      "color:#08f;font-weight:bold"
+    );
+    const title = String(document.getElementById("title-input")?.value || "").trim();
+    const lyrics = String(document.getElementById("lyrics-input")?.value || "").trim();
+    const seed = {
+      prompt: title || undefined,
+      lyrics: lyrics || undefined
+    };
+    if (typeof globalThis.cssmvUnifiedEntry === "function") {
+      void globalThis.cssmvUnifiedEntry({
+        source: "apply-render-safety-net",
+        seed,
+        preferredTab: "mv",
+        force: true,
+        focus: true,
+        hidden: false
+      });
+    } else if (typeof globalThis.invokeUniversalCreationEntry === "function") {
+      void globalThis.invokeUniversalCreationEntry({
+        origin: "apply-render",
+        preferredTab: "mv"
+      });
+    }
+  }, true);
+})();

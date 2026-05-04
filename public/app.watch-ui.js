@@ -6294,7 +6294,22 @@ async function invokeUniversalCreationEntryModule(options = {}) {
   globalThis.activateWatchTab?.(preferredTab);
   armWatchExplicitPreviewIntent();
   if (submitVoiceFallback) {
+    // CSSOS_PHASE2_UNIVERSAL_ENTRY_VOICE 20260504 — Jing
+    // Two functions named `submitVoiceOrFallbackTitle*` coexist:
+    //   • app.voice-seed.js : LEGACY song-seed path (cover-only, fallback
+    //     to the brown-stick-figure scary scene). Registers as
+    //     `submitVoiceOrFallbackTitle` and wins because it loads first.
+    //   • app.voice-submit.js : NEW MV-Pipeline-aware
+    //     `submitVoiceOrFallbackTitleModule`. Same job, but routes through
+    //     openMvPipelinePanel({autoStart:true}) so the 6-stage pipeline
+    //     actually runs.
+    // Previously this block called the LEGACY one. The legacy path set the
+    // `creationBusy` lock, so when invokeUniversalCreationEntry then
+    // reached `openMvPipelinePanel` the runAll() was blocked by the busy
+    // guard and the user saw the old brown-stick-figure result instead of
+    // the MV pipeline. Prefer the *Module* version when it exists.
     const submit =
+      globalThis.submitVoiceOrFallbackTitleModule?.(null) ||
       globalThis.submitVoiceOrFallbackTitle?.(null) ||
       globalThis.runBootUiMethod?.("SubmitVoiceOrFallbackTitle", "submitVoiceOrFallbackTitle", null);
     if (submit && typeof submit.then === "function") {

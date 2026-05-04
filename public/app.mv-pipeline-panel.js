@@ -3748,7 +3748,19 @@
           }, { once: true });
         }
       } catch (_e) { /* metadata probe best-effort */ }
-      state.title = String(music.title || "").trim();   // P2-31: capture title for Watch editors
+      // CSSOS_PHASE2_KEEP_HEURISTIC_TITLE 20260504 — Jing
+      // "进度条下面的 music，就不要再显示旧的 prompt 做标题，而是提炼
+      //  出来的新标题".
+      // The heuristic title-extractor (or LLM-derive) already filled
+      // state.title with a short, human-readable title (e.g. "KN" from
+      // a long instruction prompt). Suno's response.music.title is
+      // sometimes the long prompt verbatim — overwriting state.title
+      // with it would re-pollute every downstream surface (Watch
+      // banner, music card, work record). Only adopt Suno's title
+      // when our state.title is empty.
+      if (!String(state.title || "").trim()) {
+        state.title = String(music.title || "").trim();   // P2-31: capture title for Watch editors
+      }
       // CSSOS_PHASE2_DUAL_TRACK 20260430 #208 — Jing
       // Capture Take 2 (Suno returns 2 clips per generation). Watch panel
       // surfaces a toggle so users can A/B between takes without paying
@@ -4200,10 +4212,16 @@
       } else if (_d1) {
         _durationLabel = ` · ${_d1}`;
       }
+      // CSSOS_PHASE2_MUSIC_CARD_TITLE 20260504 — Jing wants the music
+      // card to show the extracted/short title, NOT the long prompt
+      // Suno sometimes echoes back. state.title is the heuristic-/
+      // LLM-derived title from earlier in the pipeline.
+      const _musicCardTitle =
+        String(state.title || music.title || "").trim() || "Track";
       setStage(
         "music",
         "done",
-        (music.title || "Track") + _durationLabel,
+        _musicCardTitle + _durationLabel,
         music.cost_cents
       );
       // P2-31: re-sync editors now that title + duration are known.

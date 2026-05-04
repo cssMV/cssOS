@@ -4032,7 +4032,14 @@ async function fetchWatchQueueMoreModule() {
     // walk through even when the cursor endpoint comes up dry.
     if (!__cssosWatchQueue.items.length) {
       try {
-        const mineRes = await fetch("/api/works/mine", { credentials: "include" });
+        // CSSOS_PHASE2_LOOP_LIST_LIMIT 20260504 — Jing
+        // "我选择的是循环列表，应该是所有作品循环往复不断播放才对，
+        //  可是看看，好像只有 5 首在循环呢?"
+        // The express handler defaults to limit=20 (max 100). Without
+        // an explicit query string the queue capped at ~10 uniques
+        // (after Take 1/Take 2 dedup); users with more works felt the
+        // loop "ran out". Ask for the 100 max.
+        const mineRes = await fetch("/api/works/mine?limit=100", { credentials: "include" });
         const minePayload = await mineRes.json().catch(() => null);
         const works = minePayload?.data?.works || minePayload?.works || [];
         const flat = [];

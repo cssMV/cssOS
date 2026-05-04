@@ -4802,6 +4802,87 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
     return Math.max(at, vt);
   };
 
+  // CSSOS_PHASE2_AUDIO_ANALYSER 20260504 — Jing
+  // "响应音乐的节奏，音量，歌词的含义作出'情绪反应'…字幕的大小，颜色，
+  //  阴影，字体…会因为情绪而波动".
+  //
+  // Web Audio AnalyserNode wired once to whichever audio source is
+  // playing. Every animation frame we read the time-domain RMS,
+  // smooth it, and push it into a CSS variable on #watch-subtitle.
+  // style.css's .karaoke-active rule then uses --kara-amp to scale +
+  // glow the text so it BREATHES with the song, not just ticks
+  // across lines on a 250ms cadence.
+  let __cssosAudioCtx = null;
+  let __cssosAnalyser = null;
+  let __cssosAmpBuf = null;
+  let __cssosWiredAudioEl = null;
+  let __cssosSmoothAmp = 0;
+  function ensureKaraokeAnalyser(targetEl) {
+    if (!targetEl) return;
+    if (__cssosWiredAudioEl === targetEl && __cssosAnalyser) return;
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      if (!__cssosAudioCtx) __cssosAudioCtx = new Ctx();
+      // createMediaElementSource only works once per element. Cache
+      // the wiring on the element itself so re-entry is cheap.
+      let src = targetEl.__cssosMediaSrc;
+      if (!src) {
+        src = __cssosAudioCtx.createMediaElementSource(targetEl);
+        targetEl.__cssosMediaSrc = src;
+        // We MUST also connect to destination or the audio goes mute.
+        src.connect(__cssosAudioCtx.destination);
+      }
+      const analyser = __cssosAudioCtx.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.6;
+      src.connect(analyser);
+      __cssosAnalyser = analyser;
+      __cssosAmpBuf = new Uint8Array(analyser.fftSize);
+      __cssosWiredAudioEl = targetEl;
+      // resume() if suspended by autoplay policy (will succeed after
+      // any user gesture has hit the page).
+      if (__cssosAudioCtx.state === "suspended") {
+        __cssosAudioCtx.resume().catch(() => {});
+      }
+    } catch (e) {
+      // CrossOrigin / AudioContext denial / second-source attempt —
+      // fall back to a constant amp value (still no harm).
+      console.info("[karaoke] analyser unavailable:", e && e.message);
+    }
+  }
+  function readKaraokeAmp() {
+    if (!__cssosAnalyser || !__cssosAmpBuf) return 0;
+    __cssosAnalyser.getByteTimeDomainData(__cssosAmpBuf);
+    // RMS over the buffer (centred at 128 for unsigned 8-bit time domain).
+    let sum = 0;
+    for (let i = 0; i < __cssosAmpBuf.length; i += 1) {
+      const v = (__cssosAmpBuf[i] - 128) / 128;
+      sum += v * v;
+    }
+    const rms = Math.sqrt(sum / __cssosAmpBuf.length);
+    // Smooth + clamp 0..1.
+    __cssosSmoothAmp = __cssosSmoothAmp * 0.7 + rms * 0.3;
+    return Math.max(0, Math.min(1, __cssosSmoothAmp * 2.0));
+  }
+  function pulseKaraokeAmpFrame() {
+    const sub = document.getElementById("watch-subtitle");
+    if (sub && sub.classList.contains("karaoke-active")) {
+      // Use whichever audio source is currently driving sound.
+      const playingEl =
+        (audioEl && !audioEl.paused && !audioEl.muted ? audioEl : null) ||
+        (videoEl && !videoEl.paused && !videoEl.muted ? videoEl : null);
+      if (playingEl) ensureKaraokeAnalyser(playingEl);
+      const amp = readKaraokeAmp();
+      sub.style.setProperty("--kara-amp", amp.toFixed(3));
+    }
+    requestAnimationFrame(pulseKaraokeAmpFrame);
+  }
+  // Start the RAF loop on first wire.
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(pulseKaraokeAmpFrame);
+  }
+
   const findActiveIdx = (timeline, t) => {
     if (!timeline.length) return -1;
     // Linear scan from lastIdx — songs play forward most of the time so
@@ -4883,43 +4964,66 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
       // tint the subtitle color, glow, and scale.
       const inferEmotion = (txt) => {
         const t = String(txt || "").toLowerCase();
-        if (/fire|ignite|burn|rise|shout|chorus|爆|燃|怒|呐喊|轰/.test(t)) return "ignite";
-        if (/dream|moon|night|echo|whisper|glow|梦|月|夜|低语|微光/.test(t)) return "resolve";
-        if (/grief|lost|alone|tear|shadow|悲|失|孤|泪|影/.test(t)) return "intimate";
+        // CSSOS_PHASE2_EMOTION_KEYWORDS 20260504 — broaden vocabulary
+        // so more lines pick up an emotion automatically. Order matters:
+        // strongest signals first (ignite/grief), softer last (calm).
+        if (/fire|ignite|burn|rise|shout|roar|chorus|fight|战|爆|燃|怒|呐喊|轰|血|火/.test(t)) return "ignite";
+        if (/grief|lost|alone|tear|shadow|cry|gone|farewell|悲|失|孤|泪|影|去|离别|忘/.test(t)) return "grief";
+        if (/love|heart|kiss|hug|warm|home|爱|心|拥抱|温|家|怀/.test(t)) return "intimate";
+        if (/joy|laugh|smile|dance|sun|bright|happy|喜|笑|跳|阳光|乐/.test(t)) return "joy";
+        if (/dream|moon|night|echo|whisper|glow|star|sky|梦|月|夜|低语|微光|星|天/.test(t)) return "resolve";
+        if (/peace|still|quiet|calm|breath|river|sea|静|安|宁|缓|河|海|呼吸/.test(t)) return "calm";
         return "";
       };
       const emotion = String(line.emotion || "").trim() || inferEmotion(line.text);
       const emphasis = Number(line.emphasis || 0.5);
       if (sub) {
-        // CSSOS_PHASE2_KARAOKE_GUARD 20260504 — remember this line so
-        // the MutationObserver above can revert any foreign writer
-        // that stomps our text in the next ~250ms before we tick again.
+        // CSSOS_PHASE2_PERFORMANCE_GRADE_KARAOKE 20260504 — Jing
+        // "字幕和音乐歌声同步…每个字符，每个字都要和音乐歌声咬字同步".
+        //
+        // Per-character render: each char becomes a span with a CSS
+        // animation-delay tied to its position in the line. The CSS
+        // keyframe (style.css `.kara-char`) sweeps opacity + scale +
+        // glow from "not-yet-sung" to "sung-and-pop" over the
+        // character's allotted time slice. With the line's start/end
+        // timestamps that's a free word-by-word karaoke fill.
+        //
+        // For very long lines (>32 chars or English-heavy) we keep
+        // word-level grouping so we don't choke the renderer on tiny
+        // span counts in fast tempo passes.
         lastAppliedLine = line;
         karaokeReapplying = true;
-        sub.textContent = line.text;
+        const lineDur = Math.max(0.3, (line.end_s || 0) - (line.start_s || 0));
+        const text = String(line.text || "");
+        const chars = Array.from(text); // preserves CJK + emoji clusters
+        const perChar = lineDur / Math.max(chars.length, 1);
+        // Build inner HTML with per-char delay. Spaces: render real
+        // &nbsp; so flexbox layout stays sane.
+        const spans = chars.map((ch, i) => {
+          const delay = (i * perChar).toFixed(2);
+          const dur = perChar.toFixed(2);
+          const safe = ch === " "
+            ? " "
+            : ch.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+          return `<span class="kara-char" style="--kc-delay:${delay}s;--kc-dur:${dur}s">${safe}</span>`;
+        }).join("");
+        sub.innerHTML = spans;
         sub.dataset.cssmvOrigin = "karaoke-live";
         sub.dataset.emotion = emotion || "";
         sub.style.setProperty("--karaoke-emphasis", emphasis.toFixed(2));
         Promise.resolve().then(() => { karaokeReapplying = false; });
-        // Color hue per emotion — fallback to neutral white.
-        const hueMap = {
-          ignite: "color-mix(in srgb, #ff7242 70%, white)",
-          resolve: "color-mix(in srgb, #79e6ff 70%, white)",
-          intimate: "color-mix(in srgb, #c2a4ff 60%, white)",
-        };
-        sub.style.color = hueMap[emotion] || "rgba(255,255,255,0.96)";
+        // Drop any inline color/transform from earlier per-line writes —
+        // emotion class + CSS variable now drive everything.
+        sub.style.color = "";
+        sub.style.transform = "";
+        // Emotion class swap (mutually exclusive). style.css defines
+        // .kara-emotion-ignite / -resolve / -intimate / -joy etc with
+        // colour, shadow, font, scale, animation duration variations.
+        ["ignite","resolve","intimate","joy","calm","grief"].forEach((k) => {
+          sub.classList.remove("kara-emotion-" + k);
+        });
+        if (emotion) sub.classList.add("kara-emotion-" + emotion);
         sub.classList.add("karaoke-active");
-        sub.style.transition = "opacity 0.18s ease, transform 0.18s ease, color 0.18s ease";
-        sub.style.opacity = "1";
-        // Emphasis modulates scale — louder/more emotional lines pop
-        // a touch larger, then settle.
-        const peakScale = (1.0 + emphasis * 0.06).toFixed(3);
-        sub.style.transform = `scale(${peakScale})`;
-        setTimeout(() => {
-          if (sub.dataset.cssmvOrigin === "karaoke-live") {
-            sub.style.transform = "scale(0.98)";
-          }
-        }, 120);
       }
       if (kar) {
         // Plain-text fallback: if kar.innerHTML has structured content

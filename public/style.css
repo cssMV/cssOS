@@ -9155,3 +9155,77 @@ html[data-panel-transparent="true"] .logo-panel {
   color: #fff;
 }
 /* CSSOS_PAY_METHODS_END */
+
+/* CSSOS_PHASE2_PERFORMANCE_GRADE_KARAOKE 20260504 — Jing
+ * "字幕和音乐歌声同步…每个字符，每个字都要和音乐歌声咬字同步…
+ *  响应音乐的节奏，音量，歌词的含义作出'情绪反应'"
+ *
+ * Per-character karaoke fill + audio-amplitude pulse + emotion-driven
+ * style. Each .kara-char span gets --kc-delay / --kc-dur from the
+ * frontend (computed from the line's start_s/end_s and char index)
+ * and runs the keyframe `karaCharFill` once on appearance. The
+ * parent .karaoke-active reads --kara-amp (0..1) from the analyser
+ * RAF loop and modulates scale + glow in real time. */
+.watch-subtitle.karaoke-active {
+  /* --kara-amp comes from the audio analyser, default 0 when paused. */
+  --kara-amp: 0;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  /* Real-time pulse: idle text is 0.96x, peaks around 1.06x at amp=1. */
+  transform: scale(calc(0.96 + var(--kara-amp, 0) * 0.10));
+  text-shadow:
+    0 0 calc(8px + var(--kara-amp, 0) * 18px) rgba(255, 255, 255, calc(0.45 + var(--kara-amp, 0) * 0.35)),
+    0 0 calc(2px + var(--kara-amp, 0) * 6px)  currentColor;
+  transition: transform 0.08s linear, text-shadow 0.08s linear;
+  /* Allow per-char inline-block + animation. */
+  display: inline-block;
+  white-space: pre-wrap;
+  /* Nicer base for CJK characters — falls back gracefully for English. */
+  font-family: "Source Han Sans SC", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", "Syne", sans-serif;
+}
+
+@keyframes karaCharFill {
+  0%   { opacity: 0.32; transform: translateY(0.04em) scale(0.95); }
+  20%  { opacity: 1;    transform: translateY(-0.06em) scale(1.12); text-shadow: 0 0 18px currentColor; }
+  60%  { opacity: 1;    transform: translateY(0)       scale(1.0);  }
+  100% { opacity: 1;    transform: translateY(0)       scale(1.0);  }
+}
+
+.watch-subtitle.karaoke-active .kara-char {
+  display: inline-block;
+  opacity: 0.32; /* "not yet sung" baseline */
+  animation-name: karaCharFill;
+  animation-duration: var(--kc-dur, 0.4s);
+  animation-delay: var(--kc-delay, 0s);
+  animation-fill-mode: forwards;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Spaces shouldn't shimmer */
+  white-space: pre;
+}
+
+/* Emotion-driven palette. Primary colour leaks into text-shadow via
+ * currentColor in .karaoke-active above, so changing colour here
+ * auto-tints the glow too. */
+.watch-subtitle.kara-emotion-ignite {
+  color: color-mix(in srgb, #ff7242 70%, white);
+  font-style: italic;
+}
+.watch-subtitle.kara-emotion-resolve {
+  color: color-mix(in srgb, #79e6ff 70%, white);
+}
+.watch-subtitle.kara-emotion-intimate {
+  color: color-mix(in srgb, #c2a4ff 60%, white);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+}
+.watch-subtitle.kara-emotion-joy {
+  color: color-mix(in srgb, #ffe079 70%, white);
+}
+.watch-subtitle.kara-emotion-grief {
+  color: color-mix(in srgb, #88b6c4 70%, white);
+  font-style: italic;
+}
+.watch-subtitle.kara-emotion-calm {
+  color: color-mix(in srgb, #b6d4ff 70%, white);
+  letter-spacing: 0.05em;
+}

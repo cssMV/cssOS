@@ -1480,12 +1480,49 @@ function normalizeLyricsTextModule(input) {
   if (typeof input === "string") {
     const trimmed = input.trim();
     if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-      try { parsed = JSON.parse(trimmed); } catch (_e) { parsed = input; }
+      try { parsed = JSON.parse(trimmed); } catch (_e) {
+        // CSSOS_PHASE2_LYRICS_JSON_RESCUE 20260504 — Jing
+        // "我希望是人类能够看得懂的纯歌词…而不是你们 AI 喜欢看的 JSON 代码".
+        // Strict JSON.parse fails when the LLM emits slightly invalid
+        // JSON (un-escaped quotes inside the string, trailing commas,
+        // etc). Fall back to a regex that grabs the FIRST top-level
+        // string keyed under "lyrics" / "text" / "content" — handles
+        // 90 % of the flawed envelopes we see in the wild.
+        const m = trimmed.match(/"(?:lyrics|text|content|value)"\s*:\s*"([\s\S]*?)"\s*[,}]/);
+        if (m && m[1]) {
+          parsed = m[1];
+        } else {
+          parsed = input;
+        }
+      }
     }
   }
-  // Already plain text — collapse triple+ newlines and trim.
+  // Already plain text — unescape literal "\n", "\t", \" then collapse
+  // triple+ newlines.
   if (typeof parsed === "string") {
-    return parsed.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+    let s = parsed;
+    // CSSOS_PHASE2_LYRICS_LITERAL_NEWLINES 20260504 — Jing
+    // The lyrics card was showing literal "\n" (two chars: backslash
+    // + n) instead of real line breaks. That happens when the upstream
+    // emits a JSON-escaped string but we render it before JSON.parse
+    // had a chance to decode the escapes — or when the content sneaks
+    // past parse via the rescue regex above. Convert common literal
+    // escape sequences to their real characters.
+    if (/\\n/.test(s)) {
+      s = s
+        .replace(/\\r\\n/g, "\n")
+        .replace(/\\n/g, "\n")
+        .replace(/\\t/g, "\t")
+        .replace(/\\"/g, "\"")
+        .replace(/\\\\/g, "\\");
+    }
+    // Make every [Section]/【小节】 marker its own line, with a blank
+    // line before it so the user sees the structure clearly.
+    s = s
+      .replace(/\s*([\[【][^\]\n】]{1,40}[\]】])\s*/g, "\n\n$1\n")
+      .replace(/\r\n/g, "\n")
+      .replace(/\n{3,}/g, "\n\n");
+    return s.trim();
   }
   // Array of strings → join.
   if (Array.isArray(parsed)) {

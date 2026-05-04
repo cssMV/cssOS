@@ -4628,7 +4628,33 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
     // section markers ([Verse], [Chorus], etc.) — they shouldn't appear
     // as karaoke text.
     const lyrics = String(ps?.lyrics || "").trim();
-    const dur = Number(ps?.duration || 0);
+    // CSSOS_PHASE2_DURATION_FROM_MEDIA 20260504 — Jing
+    // "MV 已经播放到这里了，音乐歌声也已经唱了几句？字幕还是迟迟不出来,
+    //  只是在开头那里闪了一下".
+    // Saved works often arrive without pipelineState.duration set
+    // (the work_assets row had duration_secs but it didn't bubble up
+    // through the works API into pipelineState). Without a duration
+    // the even-divide branch returned [] and the user got NO captions
+    // at all — explaining the "flashed once" symptom (one cue from a
+    // transient earlier render still visible, then nothing).
+    // Fall back to whatever <video> or <audio> reports for duration
+    // once the metadata loads. videoEl/audioEl are captured in the
+    // outer closure of wireWatchKaraokeLiveOnceModule so they're
+    // always reachable here.
+    let dur = Number(ps?.duration || 0);
+    if (!dur || dur < 5) {
+      const vd = Number(videoEl?.duration || 0);
+      const ad = Number(audioEl?.duration || 0);
+      const mediaDur = Math.max(
+        Number.isFinite(vd) ? vd : 0,
+        Number.isFinite(ad) ? ad : 0
+      );
+      if (mediaDur > 5) {
+        dur = mediaDur;
+        // Cache it back so subsequent ticks don't hit this fallback.
+        if (ps && typeof ps === "object") ps.duration = mediaDur;
+      }
+    }
     if (!lyrics || dur < 5) return [];
     const lines = lyrics.split(/\r?\n/)
       .map((l) => l.trim())
@@ -4690,7 +4716,11 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
         lastSrtFetchSig = subtitleUrl;
         void hydrateAlignedFromSrtUrlModule(subtitleUrl, ps);
       }
-      const sig = `${ps.workId || ""}|${ps.title || ""}|${(ps.alignedLyrics || []).length}|${(ps.lyrics || "").length}`;
+      // CSSOS_PHASE2_SIG_INCLUDES_DURATION 20260504 — include duration
+      // in the signature so the timeline rebuilds the moment the media
+      // element reports a real duration (was 0 → 256.76 transition was
+      // silent before because sig didn't change).
+      const sig = `${ps.workId || ""}|${ps.title || ""}|${(ps.alignedLyrics || []).length}|${(ps.lyrics || "").length}|${Math.round(Number(ps.duration || 0))}|${Number(videoEl?.duration || 0).toFixed(0)}|${Number(audioEl?.duration || 0).toFixed(0)}`;
       if (sig !== cachedSig) {
         cachedSig = sig;
         cachedTimeline = buildTimeline(ps);

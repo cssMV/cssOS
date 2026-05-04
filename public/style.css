@@ -9289,3 +9289,72 @@ html[data-panel-transparent="true"] .logo-panel {
 .watch-subtitle.karaoke-active .kara-char.kara-c-joy      { color: #ffe079; text-shadow: 0 0 14px rgba(255,224,121,0.85); }
 .watch-subtitle.karaoke-active .kara-char.kara-c-resolve  { color: #79e6ff; text-shadow: 0 0 14px rgba(121,230,255,0.8); }
 .watch-subtitle.karaoke-active .kara-char.kara-c-calm     { color: #b6d4ff; text-shadow: 0 0 12px rgba(182,212,255,0.7); }
+
+/* CSSOS_PHASE2_TRUE_EMOTIONAL_SUBS 20260504 — Jing
+ * "真正的情绪字幕…每一个单词/每一个字的字体/风格各异，都受到音乐
+ *  节奏，音量，歌词含义等多重影响'情绪'的因素而呈现出不同的字幕样式".
+ *
+ * Three-band reactive karaoke. The parent #watch-subtitle.karaoke-active
+ * exposes:
+ *   --kara-amp         (overall RMS)
+ *   --amp-bass / --amp-mid / --amp-treble  (band-specific 0..1)
+ *   --beat-pulse       (kick-drum spike with decay)
+ *
+ * Each .kara-char is tagged with --kc-base-scale (per-char size jitter),
+ * --kc-rot (per-char tilt), AND a frequency-band class that picks which
+ * --amp-* drives THIS char. Result: bass-tagged chars pump on kick
+ * drums, mid-tagged chars ride the vocal envelope, treble-tagged chars
+ * shimmer on cymbals. The line's beat-pulse pumps EVERY char on the
+ * downbeat. Each char's font-weight + italic + rotation come from
+ * inline style — a totally heterogeneous emotional rendering nobody
+ * else has done. */
+
+.watch-subtitle.karaoke-active .kara-char {
+  /* Base values; the reactive transforms compose them with the live amps. */
+  --kc-base-scale: 1;
+  --kc-rot: 0deg;
+  --kc-react-amp: 0;
+  display: inline-block;
+  transform-origin: 50% 80%;
+  transition: transform 0.08s linear, text-shadow 0.08s linear;
+  /* Each char respects its own jittered scale + the band amp + beat
+   * pulse on top. The 0.85→1.30 envelope keeps motion bounded. */
+  transform:
+    rotate(var(--kc-rot, 0deg))
+    scale(calc(
+      var(--kc-base-scale, 1)
+      + var(--kc-react-amp, 0) * 0.20
+      + var(--beat-pulse, 0) * 0.08
+    ));
+  /* Glow scales with the same factors so the visual pulse isn't just size. */
+  text-shadow:
+    0 0 calc(6px + var(--kc-react-amp, 0) * 14px + var(--beat-pulse, 0) * 10px)
+      currentColor,
+    0 0 calc(2px + var(--kc-react-amp, 0) * 4px) rgba(255, 255, 255, 0.6);
+}
+
+/* Per-band assignment: each band class sets --kc-react-amp = the
+ * matching band variable. CSS variables don't reference each other
+ * across the cascade boundary by default; we use the level-3 fallback
+ * trick with a fresh declaration so the value resolves. */
+.watch-subtitle.karaoke-active .kara-band-bass   { --kc-react-amp: var(--amp-bass, 0); }
+.watch-subtitle.karaoke-active .kara-band-mid    { --kc-react-amp: var(--amp-mid, 0); }
+.watch-subtitle.karaoke-active .kara-band-treble { --kc-react-amp: var(--amp-treble, 0); }
+
+/* Spaces shouldn't pulse / glow — keeps phrase breaks calm. */
+.watch-subtitle.karaoke-active .kara-space {
+  display: inline-block;
+  width: 0.25em;
+  --kc-react-amp: 0 !important;
+  transform: none !important;
+  text-shadow: none !important;
+  animation: none !important;
+}
+
+/* Tweak the per-char fill keyframe so it composes with --kc-rot
+ * (otherwise the keyframe's transform clobbers the inline rotation). */
+@keyframes karaCharFill {
+  0%   { opacity: 0.32; }
+  20%  { opacity: 1; }
+  100% { opacity: 1; }
+}

@@ -4816,8 +4816,13 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
   let __cssosAudioCtx = null;
   let __cssosAnalyser = null;
   let __cssosAmpBuf = null;
+  let __cssosFreqBuf = null;
   let __cssosWiredAudioEl = null;
   let __cssosSmoothAmp = 0;
+  // CSSOS_PHASE2_TRUE_EMOTIONAL_SUBS 20260504 — three frequency band
+  // smoothed amplitudes + simple beat detection on the bass band.
+  let __cssosBandBass = 0, __cssosBandMid = 0, __cssosBandTreble = 0;
+  let __cssosBassPrev = 0, __cssosBeatPulse = 0;
   function ensureKaraokeAnalyser(targetEl) {
     if (!targetEl) return;
     if (__cssosWiredAudioEl === targetEl && __cssosAnalyser) return;
@@ -4825,57 +4830,96 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
       const Ctx = window.AudioContext || window.webkitAudioContext;
       if (!Ctx) return;
       if (!__cssosAudioCtx) __cssosAudioCtx = new Ctx();
-      // createMediaElementSource only works once per element. Cache
-      // the wiring on the element itself so re-entry is cheap.
       let src = targetEl.__cssosMediaSrc;
       if (!src) {
         src = __cssosAudioCtx.createMediaElementSource(targetEl);
         targetEl.__cssosMediaSrc = src;
-        // We MUST also connect to destination or the audio goes mute.
         src.connect(__cssosAudioCtx.destination);
       }
       const analyser = __cssosAudioCtx.createAnalyser();
-      analyser.fftSize = 1024;
-      analyser.smoothingTimeConstant = 0.6;
+      // 2048 → ~22 Hz bins at 44.1 kHz, plenty of resolution for
+      // bass / mid / treble band splits.
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0.55;
       src.connect(analyser);
       __cssosAnalyser = analyser;
       __cssosAmpBuf = new Uint8Array(analyser.fftSize);
+      __cssosFreqBuf = new Uint8Array(analyser.frequencyBinCount);
       __cssosWiredAudioEl = targetEl;
-      // resume() if suspended by autoplay policy (will succeed after
-      // any user gesture has hit the page).
       if (__cssosAudioCtx.state === "suspended") {
         __cssosAudioCtx.resume().catch(() => {});
       }
     } catch (e) {
-      // CrossOrigin / AudioContext denial / second-source attempt —
-      // fall back to a constant amp value (still no harm).
       console.info("[karaoke] analyser unavailable:", e && e.message);
     }
   }
-  function readKaraokeAmp() {
-    if (!__cssosAnalyser || !__cssosAmpBuf) return 0;
+  function readKaraokeAmpAndBands() {
+    if (!__cssosAnalyser || !__cssosAmpBuf) return null;
+    // Time-domain RMS for the overall amp.
     __cssosAnalyser.getByteTimeDomainData(__cssosAmpBuf);
-    // RMS over the buffer (centred at 128 for unsigned 8-bit time domain).
     let sum = 0;
     for (let i = 0; i < __cssosAmpBuf.length; i += 1) {
       const v = (__cssosAmpBuf[i] - 128) / 128;
       sum += v * v;
     }
     const rms = Math.sqrt(sum / __cssosAmpBuf.length);
-    // Smooth + clamp 0..1.
     __cssosSmoothAmp = __cssosSmoothAmp * 0.7 + rms * 0.3;
-    return Math.max(0, Math.min(1, __cssosSmoothAmp * 2.0));
+    const amp = Math.max(0, Math.min(1, __cssosSmoothAmp * 2.0));
+
+    // Frequency domain → split into bass / mid / treble bands.
+    __cssosAnalyser.getByteFrequencyData(__cssosFreqBuf);
+    const sampleRate = __cssosAudioCtx?.sampleRate || 44100;
+    const binHz = sampleRate / 2 / __cssosFreqBuf.length;
+    const bandFor = (lowHz, highHz) => {
+      const lo = Math.floor(lowHz / binHz);
+      const hi = Math.min(__cssosFreqBuf.length, Math.ceil(highHz / binHz));
+      let s = 0;
+      for (let i = lo; i < hi; i += 1) s += __cssosFreqBuf[i];
+      const denom = Math.max(1, hi - lo);
+      return (s / denom) / 255; // 0..1
+    };
+    const bassRaw = bandFor(40, 200);
+    const midRaw = bandFor(200, 2000);
+    const trebleRaw = bandFor(2000, 8000);
+    // Smooth each band independently. Bass smooths LESS so kick
+    // hits remain punchy; mid/treble smooth a touch more so vocals
+    // and cymbals feel sustained rather than nervous.
+    __cssosBandBass   = __cssosBandBass   * 0.55 + bassRaw   * 0.45;
+    __cssosBandMid    = __cssosBandMid    * 0.70 + midRaw    * 0.30;
+    __cssosBandTreble = __cssosBandTreble * 0.70 + trebleRaw * 0.30;
+
+    // Beat detection: a sudden bass spike against the recent floor.
+    const bassDelta = __cssosBandBass - __cssosBassPrev;
+    if (bassDelta > 0.18 && __cssosBandBass > 0.45) {
+      __cssosBeatPulse = 1.0; // trigger
+    } else {
+      __cssosBeatPulse = Math.max(0, __cssosBeatPulse - 0.08); // decay
+    }
+    __cssosBassPrev = __cssosBandBass;
+
+    return {
+      amp,
+      bass: Math.min(1, __cssosBandBass * 1.6),
+      mid: Math.min(1, __cssosBandMid * 1.6),
+      treble: Math.min(1, __cssosBandTreble * 1.6),
+      beat: __cssosBeatPulse,
+    };
   }
   function pulseKaraokeAmpFrame() {
     const sub = document.getElementById("watch-subtitle");
     if (sub && sub.classList.contains("karaoke-active")) {
-      // Use whichever audio source is currently driving sound.
       const playingEl =
         (audioEl && !audioEl.paused && !audioEl.muted ? audioEl : null) ||
         (videoEl && !videoEl.paused && !videoEl.muted ? videoEl : null);
       if (playingEl) ensureKaraokeAnalyser(playingEl);
-      const amp = readKaraokeAmp();
-      sub.style.setProperty("--kara-amp", amp.toFixed(3));
+      const reading = readKaraokeAmpAndBands();
+      if (reading) {
+        sub.style.setProperty("--kara-amp", reading.amp.toFixed(3));
+        sub.style.setProperty("--amp-bass", reading.bass.toFixed(3));
+        sub.style.setProperty("--amp-mid", reading.mid.toFixed(3));
+        sub.style.setProperty("--amp-treble", reading.treble.toFixed(3));
+        sub.style.setProperty("--beat-pulse", reading.beat.toFixed(3));
+      }
     }
     requestAnimationFrame(pulseKaraokeAmpFrame);
   }
@@ -5060,6 +5104,40 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
           if (/[静安宁海]/.test(ch)) return "calm";
           return "";
         };
+        // CSSOS_PHASE2_TRUE_EMOTIONAL_SUBS 20260504 — Jing
+        // "真正的情绪字幕…每一个单词/每一个字的字体/风格各异，都受到
+        //  音乐节奏，音量，歌词含义等多重影响'情绪'的因素而呈现出不同
+        //  的字幕样式".
+        //
+        // Each kara-char gets a unique style PROFILE assembled from:
+        //   • emotion (semantic — keyword match)        → colour + glow
+        //   • size jitter (±25 %)                       → visual variety
+        //   • weight jitter (300–900 random)            → light vs bold mix
+        //   • rotation jitter (-4° to +4°, ±8° ignite)  → hand-drawn feel
+        //   • frequency band (bass/mid/treble round-robin) → reacts to
+        //                                                   different
+        //                                                   parts of the
+        //                                                   song
+        //   • base scale tagged with --kc-base-scale     → composed in
+        //                                                   CSS with
+        //                                                   per-band amp
+        //                                                   for live pulse
+        //
+        // The CSS reads --amp-bass / --amp-mid / --amp-treble (set per
+        // frame from the analyser RAF below) and combines with the
+        // per-char base values via calc() so EACH char breathes with
+        // its assigned frequency band — bass-tagged chars pump on
+        // kick drum hits, treble-tagged chars shimmer on cymbals,
+        // mid-tagged chars ride the vocal envelope.
+        const BANDS = ["bass", "mid", "treble"];
+        const cryptoFloat = () => {
+          if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+            const buf = new Uint32Array(1);
+            crypto.getRandomValues(buf);
+            return buf[0] / 0xFFFFFFFF;
+          }
+          return Math.random();
+        };
         const spans = chars.map((ch, i) => {
           const delay = (i * perChar).toFixed(2);
           const dur = perChar.toFixed(2);
@@ -5067,16 +5145,45 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
           const safe = isWhitespace
             ? "&nbsp;"
             : ch.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+          if (isWhitespace) {
+            return `<span class="kara-char kara-space" style="--kc-delay:${delay}s;--kc-dur:${dur}s">${safe}</span>`;
+          }
           let fontStyle = "";
-          if (pickFont && !isWhitespace) {
+          if (pickFont) {
             const fam = pickFont(ch);
             if (fam) {
               fontStyle = `font-family:"${escapeFontFamily(fam)}",inherit;`;
             }
           }
-          const emo = isWhitespace ? "" : charEmotion(ch);
-          const cls = emo ? "kara-char kara-c-" + emo : "kara-char";
-          return `<span class="${cls}" style="--kc-delay:${delay}s;--kc-dur:${dur}s;${fontStyle}">${safe}</span>`;
+          const emo = charEmotion(ch);
+          // Size jitter: 0.85x – 1.25x; emotion-keyword chars skew
+          // larger (1.05 – 1.35) so they pop visually.
+          const sizeJitter = (emo ? 1.05 : 0.85) + cryptoFloat() * (emo ? 0.30 : 0.40);
+          // Weight jitter: 300–900. Calm/grief skew lighter, ignite
+          // skews heavier.
+          let weight;
+          if (emo === "calm" || emo === "grief") weight = 300 + Math.floor(cryptoFloat() * 300); // 300-600
+          else if (emo === "ignite")           weight = 700 + Math.floor(cryptoFloat() * 200); // 700-900
+          else                                  weight = 400 + Math.floor(cryptoFloat() * 500); // 400-900
+          weight = Math.round(weight / 100) * 100; // snap to font-weight legal values
+          // Rotation jitter: ±4° baseline, ignite ±8°
+          const rotMax = emo === "ignite" ? 8 : (emo === "joy" ? 5 : 3.5);
+          const rot = ((cryptoFloat() - 0.5) * 2 * rotMax).toFixed(2);
+          // Italic: 1-in-6 chance, or 1-in-2 for grief/intimate.
+          const italicChance = (emo === "grief" || emo === "intimate") ? 0.5 : 0.16;
+          const italic = cryptoFloat() < italicChance ? "italic" : "normal";
+          // Frequency band assignment — round-robin with a random
+          // shift so consecutive chars usually land on different
+          // bands (don't clump 5 bass chars in a row).
+          const band = BANDS[(i + Math.floor(cryptoFloat() * 3)) % 3];
+          const cls = `kara-char kara-band-${band}` + (emo ? " kara-c-" + emo : "");
+          const inlineStyle =
+            `--kc-delay:${delay}s;--kc-dur:${dur}s;` +
+            `--kc-base-scale:${sizeJitter.toFixed(3)};` +
+            `--kc-rot:${rot}deg;` +
+            `font-weight:${weight};font-style:${italic};` +
+            fontStyle;
+          return `<span class="${cls}" style="${inlineStyle}">${safe}</span>`;
         }).join("");
         sub.innerHTML = spans;
         sub.dataset.cssmvOrigin = "karaoke-live";

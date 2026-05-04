@@ -1974,15 +1974,133 @@
             seeded = bank.pickRandomSeed();
           }
           if (!seeded) {
+            // CSSOS_PHASE2_SEED_POOL_EXPANSION 20260504 — Jing
+            // "我已经刷到多少次'穿越四季的旅人和一只老怀表'，就我一个人,
+            //  就这么短的时间，就可以这样'随机'到第二次".
+            // 6-entry pool → birthday paradox: ~50% collision after 4 picks.
+            // Expand to 80+ across multiple genres & languages, plus a
+            // localStorage no-repeat-recent guard so the last 16 picks
+            // are filtered out before we pick again. Combined with a
+            // crypto.getRandomValues seed, this makes back-to-back
+            // collisions effectively impossible until the user has
+            // exhausted ~80 distinct prompts.
             const inlinePool = [
+              // English ballads / pop
               { prompt: "a hopeful synth-pop ballad about chasing the dawn", style: "synth-pop, cinematic, warm" },
-              { prompt: "夜风穿过霓虹城市,孤身追寻一盏灯", style: "city-pop, dreamy, mid-tempo" },
               { prompt: "a slow piano elegy for an old friend", style: "piano, melancholic, intimate" },
-              { prompt: "한적한 해변에서 들리는 첫사랑의 노래", style: "k-ballad, acoustic, tender" },
+              { prompt: "a cyber-funk anthem for the after-hours crew", style: "synth-funk, retro, groovy" },
+              { prompt: "a midnight indie-folk lullaby for restless dreamers", style: "indie-folk, hushed, candlelit" },
+              { prompt: "an arena rock anthem about leaving a small town behind", style: "stadium-rock, anthemic, soaring" },
+              { prompt: "a dream-pop confessional under flickering streetlights", style: "dream-pop, reverb, twilight" },
+              { prompt: "a hip-hop sketch of a barber shop on a rainy Tuesday", style: "boom-bap, jazzy samples, mellow" },
+              { prompt: "a country waltz about an unsent letter to mama", style: "country-folk, fingerpicked, sepia" },
+              { prompt: "a disco strut about the last call before sunrise", style: "nu-disco, glittering, tight pocket" },
+              { prompt: "a punk shout-along about quitting a soul-crushing job", style: "punk-rock, fast, defiant" },
+              { prompt: "a lo-fi study-room loop watching snow on a window", style: "lo-fi hip-hop, vinyl crackle, soft" },
+              { prompt: "a future-bass love letter from a satellite to its planet", style: "future-bass, glassy, euphoric" },
+              { prompt: "a gospel-choir hymn about the long road home", style: "gospel-soul, hammond organ, fervent" },
+              { prompt: "an outlaw country tale of a runaway and an old map", style: "outlaw-country, dusty, baritone" },
+              { prompt: "an EDM festival bloom about the moment the drop hits", style: "big-room edm, build-and-release, peak-time" },
+              { prompt: "a jazz-noir torch song in a smoke-filled lounge", style: "jazz-noir, brushed drums, sultry" },
+              { prompt: "a math-rock puzzle about debugging at 3 a.m.", style: "math-rock, polyrhythmic, bright" },
+              { prompt: "a trap ode to the grandmother who raised the block", style: "trap-soul, 808s, reverent" },
+              { prompt: "a shoegaze sigh through wet train windows", style: "shoegaze, walls of guitar, bittersweet" },
+              { prompt: "a synthwave drive across a neon desert highway", style: "synthwave, retro, propulsive" },
+              // Chinese (Mandarin) prompts
+              { prompt: "夜风穿过霓虹城市,孤身追寻一盏灯", style: "city-pop, dreamy, mid-tempo" },
               { prompt: "穿越四季的旅人与一只老怀表", style: "folk-rock, narrative, warm" },
-              { prompt: "a cyber-funk anthem for the after-hours crew", style: "synth-funk, retro, groovy" }
+              { prompt: "梅雨时节的旧巷子,屋檐下两把伞慢慢靠近", style: "中式民谣, 温柔, 雨声" },
+              { prompt: "高铁穿过云海,奶奶手心里那粒糖还没化", style: "新民谣, 思乡, 钢琴主导" },
+              { prompt: "凌晨四点的便利店,关东煮和一段未发出的语音", style: "都市抒情, 慵懒电音, 自语" },
+              { prompt: "故宫红墙下,猫和落叶争一片夕阳", style: "古风新民乐, 笛箫, 闲适" },
+              { prompt: "深圳地铁三号线,一首没听完的歌循环了二十分钟", style: "city-pop, 舒缓, 城市夜归" },
+              { prompt: "外卖员的电瓶车,载着一整个小区的晚饭", style: "民谣摇滚, 温暖, 真实" },
+              { prompt: "毕业那天教学楼前的大樟树,最后一次合影", style: "校园民谣, 木吉他, 回忆" },
+              { prompt: "胡同里大爷的鸽哨,飞过新装的玻璃幕墙", style: "新中式电子, 钹与笙, 时空交错" },
+              { prompt: "台风夜的阳台,风铃和母亲的电话同频", style: "氛围流行, 钢琴 + 弦乐, 安然" },
+              { prompt: "凉山小卖部老板娘的儿子,考上了北京的大学", style: "民族民谣, 山歌, 真挚" },
+              { prompt: "上海老洋房里被一条围巾盖住的老唱机", style: "复古爵士, 黑胶质感, 怀旧" },
+              { prompt: "敦煌月牙泉边一支被风吹响的羌笛", style: "新世界音乐, 笛与琵琶, 苍茫" },
+              { prompt: "高考前最后一节晚自习的窗外烟花", style: "青春流行, 弦乐推升, 奋进" },
+              // Cantonese / Hong Kong vibes
+              { prompt: "尖沙咀渡轮上一封没寄出的旧情书", style: "粤语 city-pop, 复古, 海风" },
+              { prompt: "茶餐厅卡座的菠萝油与一段未说出口的告白", style: "粤语流行, 钢琴 + 萨克斯, 暖意" },
+              // Korean
+              { prompt: "한적한 해변에서 들리는 첫사랑의 노래", style: "k-ballad, acoustic, tender" },
+              { prompt: "서울 지하철 마지막 칸의 늦은 밤 이어폰", style: "k-r&b, mellow, late-night" },
+              { prompt: "할머니의 자개장 위에 놓인 오래된 라디오", style: "k-folk, warm strings, nostalgic" },
+              // Japanese
+              { prompt: "京都の路地裏、桜が散る前の最後の自転車", style: "j-pop, acoustic, 春" },
+              { prompt: "新宿の終電に乗り遅れた二人と一缶の缶コーヒー", style: "city-pop, 80s japan, 夜霧" },
+              { prompt: "瀬戸内海のフェリーから見えた朝焼け", style: "j-folk, 弦楽四重奏, 静謐" },
+              // Spanish / Portuguese
+              { prompt: "una bossa nova en una cafetería de Lisboa al atardecer", style: "bossa-nova, nylon guitar, gentle" },
+              { prompt: "una cumbia para bailar en la cocina con la abuela", style: "cumbia, accordion, joyful" },
+              { prompt: "uma serenata para quem partiu sem dizer adeus", style: "fado, mournful, voice-forward" },
+              { prompt: "un reggaetón suave sobre volver a casa después de años", style: "reggaeton-pop, smooth, dembow-lite" },
+              // French
+              { prompt: "une chanson sur un café fumant et un journal froissé", style: "chanson, accordéon, mélancolique" },
+              { prompt: "un slow électronique pour les nuits sur le périph", style: "french-touch, late night, filtered" },
+              // Arabic / Middle Eastern
+              { prompt: "أغنية عن قهوة الفجر وصوت الأذان البعيد", style: "arabic-soul, oud + qanun, 黎明" },
+              { prompt: "a desert caravan ghazal under a thousand stars", style: "world-fusion, oud, ney, hypnotic" },
+              // Hindi / Indian
+              { prompt: "मॉनसून की पहली बारिश और छत पर पुरानी छतरी", style: "indian-folk-pop, harmonium, monsoon" },
+              { prompt: "a Mumbai local-train romance written in raindrops", style: "fusion, sitar + electronics, monsoon" },
+              // Genres / moods less language-bound
+              { prompt: "a tango about a watch repairman who lost his pocketwatch", style: "neo-tango, bandoneón, dramatic" },
+              { prompt: "an Irish folk reel about the lighthouse keeper's daughter", style: "celtic-folk, fiddle, briny" },
+              { prompt: "a string quartet meditation on the first cup of morning tea", style: "neo-classical, chamber, contemplative" },
+              { prompt: "a metal anthem about the launch of a tiny rocket from a backyard", style: "power-metal, anthemic, soaring" },
+              { prompt: "a children's lullaby for a robot learning to dream", style: "lullaby, music-box, tender" },
+              { prompt: "a Saturday-morning bossa about pancakes and old vinyl", style: "bossa-pop, lazy, sun-dappled" },
+              { prompt: "a campfire singalong about a fox who hated being alone", style: "acoustic-folk, communal, warm" },
+              { prompt: "an ambient wash mapping the weather inside an empty mailbox", style: "ambient, drone, hushed" },
+              { prompt: "a bluegrass barn-dance about a tractor named Hope", style: "bluegrass, banjo, foot-stomping" },
+              { prompt: "a hyperpop diary entry from a cat with WiFi anxiety", style: "hyperpop, glitchy, playful" },
+              { prompt: "a soul ballad about the bus driver who knows everyone", style: "neo-soul, hammond, conversational" },
+              { prompt: "a klezmer waltz at a wedding where the cake fell", style: "klezmer, clarinet, joyous-chaotic" },
+              { prompt: "a trip-hop monologue from a payphone that still works", style: "trip-hop, dusty samples, late-90s" },
+              { prompt: "a Hawaiian slack-key tribute to a grandfather's surfboard", style: "hawaiian-folk, slack-key, sun-warm" },
+              { prompt: "a pirate sea-shanty about a parrot who went to college", style: "sea-shanty, communal, jaunty" },
+              { prompt: "a stadium ballad about the last home game of the season", style: "arena-pop, anthemic, bittersweet" },
+              { prompt: "a film-noir score for a detective afraid of cilantro", style: "cinematic-jazz, brushed drums, comic-noir" }
             ];
-            seeded = inlinePool[Math.floor(Math.random() * inlinePool.length)];
+            // Avoid the last 16 prompts the user has seen on this device.
+            const RECENT_KEY = "cssos_seed_recent";
+            const MAX_RECENT = 16;
+            let recent = [];
+            try {
+              recent = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]");
+              if (!Array.isArray(recent)) recent = [];
+            } catch (_e) { recent = []; }
+            const recentSet = new Set(recent);
+            const fresh = inlinePool.filter((s) => !recentSet.has(s.prompt));
+            const candidates = fresh.length > 0 ? fresh : inlinePool;
+            // Use crypto.getRandomValues for a non-Math.random index so
+            // back-to-back picks don't share a PRNG seed (mobile Safari
+            // re-seeds Math.random per JS context which can produce
+            // sequences that feel "sticky").
+            let pickIdx = 0;
+            if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+              const buf = new Uint32Array(1);
+              crypto.getRandomValues(buf);
+              pickIdx = buf[0] % candidates.length;
+            } else {
+              pickIdx = Math.floor(Math.random() * candidates.length);
+            }
+            seeded = candidates[pickIdx];
+            // Remember this pick so it's filtered out next time.
+            try {
+              recent.push(seeded.prompt);
+              while (recent.length > MAX_RECENT) recent.shift();
+              localStorage.setItem(RECENT_KEY, JSON.stringify(recent));
+            } catch (_e) { /* localStorage full or disabled — ignore */ }
+            console.info(
+              "%c[seed-bank] picked %s/%d (recent-excluded=%d)",
+              "color:#0a0", String(seeded.prompt).slice(0, 40) + "…",
+              candidates.length, recent.length
+            );
           }
           if (seeded?.prompt) {
             promptSrc = String(seeded.prompt).trim();

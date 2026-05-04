@@ -4574,6 +4574,59 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
   let lastIdx = -1;
   let lastSrtFetchSig = "";
 
+  // CSSOS_PHASE2_KARAOKE_GUARD 20260504 — Jing
+  // "歌词还是只闪了几下，就是不显示出来，我觉得是被什么吃掉了."
+  //
+  // Root cause: 20+ other writers in app.watch-ui.js do
+  // `watchSubtitle.textContent = "<status>"` ("KaraOKe MV · Composing
+  // music now", "preview", "Mobile browser blocked autoplay…", etc).
+  // Each one stomps the lyric the karaoke tick just wrote. On every
+  // ~250ms tick the karaoke writes again, the next status writer
+  // stomps again — producing the flash-then-blank pattern.
+  //
+  // Defend with a MutationObserver: when karaoke has a non-empty
+  // timeline AND a current line, any external mutation that empties
+  // the subtitle or replaces it with non-karaoke text gets reverted
+  // on the next microtask. We tag our own writes with
+  // dataset.cssmvOrigin = "karaoke-live" so the observer can tell
+  // its own writes apart from foreign ones.
+  let karaokeReapplying = false;
+  let lastAppliedLine = null;
+  const reapplyKaraokeLine = () => {
+    if (!lastAppliedLine) return;
+    const sub = document.getElementById("watch-subtitle");
+    if (!sub) return;
+    karaokeReapplying = true;
+    try {
+      sub.textContent = lastAppliedLine.text;
+      sub.dataset.cssmvOrigin = "karaoke-live";
+    } finally {
+      // Clear the flag on next microtask so the observer doesn't
+      // skip our SUBSEQUENT genuine writes.
+      Promise.resolve().then(() => { karaokeReapplying = false; });
+    }
+  };
+  try {
+    const subForObs = document.getElementById("watch-subtitle");
+    if (subForObs && typeof MutationObserver === "function") {
+      const obs = new MutationObserver(() => {
+        if (karaokeReapplying) return;
+        if (!cachedTimeline.length || !lastAppliedLine) return;
+        const cur = (subForObs.textContent || "").trim();
+        // If a foreign writer cleared us OR replaced our lyric with
+        // a status string, restore the active karaoke line.
+        if (cur !== lastAppliedLine.text) {
+          reapplyKaraokeLine();
+        }
+      });
+      obs.observe(subForObs, {
+        childList: true,
+        characterData: true,
+        subtree: true,
+      });
+    }
+  } catch (_e) { /* MutationObserver unsupported — degrade gracefully */ }
+
   const buildTimeline = (ps) => {
     // Tier 1: engine-emitted aligned_lyrics (Suno per-line timing).
     const aligned = Array.isArray(ps?.alignedLyrics) ? ps.alignedLyrics : null;
@@ -4761,10 +4814,16 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
       const emotion = String(line.emotion || "").trim() || inferEmotion(line.text);
       const emphasis = Number(line.emphasis || 0.5);
       if (sub) {
+        // CSSOS_PHASE2_KARAOKE_GUARD 20260504 — remember this line so
+        // the MutationObserver above can revert any foreign writer
+        // that stomps our text in the next ~250ms before we tick again.
+        lastAppliedLine = line;
+        karaokeReapplying = true;
         sub.textContent = line.text;
         sub.dataset.cssmvOrigin = "karaoke-live";
         sub.dataset.emotion = emotion || "";
         sub.style.setProperty("--karaoke-emphasis", emphasis.toFixed(2));
+        Promise.resolve().then(() => { karaokeReapplying = false; });
         // Color hue per emotion — fallback to neutral white.
         const hueMap = {
           ignite: "color-mix(in srgb, #ff7242 70%, white)",

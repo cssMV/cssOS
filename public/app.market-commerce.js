@@ -619,6 +619,13 @@ async function openMarketWorkPreview(work = {}) {
           // karaoke timeupdate handler (in app.watch-ui.js) can find
           // per-line timing without round-tripping through the SRT.
           pipelineState.alignedLyrics = targetWork?.aligned_lyrics || null;
+          // CSSOS_PHASE2_SUBTITLE_FALLBACK 20260504 — Jing
+          // "从作品中心进入 MV 面板，有时候显示字幕，大部分时候不显示".
+          // Push subtitleUrl into pipelineState so the karaoke wire in
+          // app.watch-ui.js can fall back to fetching+parsing the SRT
+          // when aligned_lyrics is null. Older works persisted before
+          // the aligned_lyrics column existed only have subtitle_srt_url.
+          pipelineState.subtitleUrl = subtitleUrl || null;
           pipelineState.title = String(targetWork?.title || "").trim();
           pipelineState.lyrics = (typeof globalThis.cssosNormalizeLyricsText === "function")
             ? globalThis.cssosNormalizeLyricsText(fullLyrics || "")

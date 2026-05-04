@@ -4499,6 +4499,77 @@ function wireWatchQueueAutoAdvanceOnceModule() {
   wireWatchKaraokeLiveOnceModule(videoEl, audioEl);
 }
 
+// CSSOS_PHASE2_SRT_FALLBACK 20260504 — Jing
+// Parse a raw SRT blob into the alignedLyrics shape so the karaoke
+// renderer can sync to vocals when the work was persisted with only
+// subtitle_srt_url (older works pre-aligned_lyrics column).
+function parseSrtToAlignedLyricsModule(srtText) {
+  if (!srtText || typeof srtText !== "string") return [];
+  const out = [];
+  // SRT cues are separated by blank lines. The cue header is either
+  // numeric index OR straight to the timestamp on some emitters; be
+  // forgiving.
+  const blocks = srtText.replace(/﻿/g, "").split(/\r?\n\r?\n+/);
+  const tsRx = /(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})/;
+  for (const block of blocks) {
+    if (!block.trim()) continue;
+    const lines = block.split(/\r?\n/);
+    let tsLineIdx = -1;
+    for (let i = 0; i < Math.min(lines.length, 3); i += 1) {
+      if (tsRx.test(lines[i])) { tsLineIdx = i; break; }
+    }
+    if (tsLineIdx < 0) continue;
+    const m = lines[tsLineIdx].match(tsRx);
+    if (!m) continue;
+    const toSec = (h, mm, s, ms) =>
+      Number(h) * 3600 + Number(mm) * 60 + Number(s) + Number(ms.padEnd(3, "0").slice(0, 3)) / 1000;
+    const start_s = toSec(m[1], m[2], m[3], m[4]);
+    const end_s = toSec(m[5], m[6], m[7], m[8]);
+    const textLines = lines.slice(tsLineIdx + 1)
+      .map((l) => l.trim())
+      .filter((l) => l && !/^\d+$/.test(l));
+    const text = textLines.join(" ").trim();
+    if (text) out.push({ start_s, end_s, text });
+  }
+  return out;
+}
+globalThis.parseSrtToAlignedLyricsModule = parseSrtToAlignedLyricsModule;
+
+// CSSOS_PHASE2_SRT_HYDRATE_CACHE 20260504 — guard against re-fetching
+// the same SRT URL while a request is in flight or already resolved.
+const __cssosSrtHydrateCache = new Map(); // url → "pending"|aligned[]
+
+async function hydrateAlignedFromSrtUrlModule(srtUrl, pipelineStateRef) {
+  if (!srtUrl) return null;
+  if (__cssosSrtHydrateCache.has(srtUrl)) {
+    const cached = __cssosSrtHydrateCache.get(srtUrl);
+    return cached === "pending" ? null : cached;
+  }
+  __cssosSrtHydrateCache.set(srtUrl, "pending");
+  try {
+    const res = await fetch(srtUrl, { credentials: "include" });
+    if (!res.ok) {
+      __cssosSrtHydrateCache.set(srtUrl, []);
+      return null;
+    }
+    const txt = await res.text();
+    const aligned = parseSrtToAlignedLyricsModule(txt);
+    __cssosSrtHydrateCache.set(srtUrl, aligned);
+    if (pipelineStateRef && Array.isArray(aligned) && aligned.length > 0) {
+      pipelineStateRef.alignedLyrics = aligned;
+      console.info(
+        "%c[karaoke] hydrated %d aligned cues from SRT (%s)",
+        "color:#0a0;font-weight:bold", aligned.length, srtUrl.slice(0, 80)
+      );
+    }
+    return aligned;
+  } catch (err) {
+    __cssosSrtHydrateCache.set(srtUrl, []);
+    console.warn("[karaoke] SRT hydrate failed:", err);
+    return null;
+  }
+}
+
 let __cssosKaraokeWired = false;
 function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
   if (__cssosKaraokeWired) return;
@@ -4509,9 +4580,27 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
   let cachedSig = "";
   let cachedTimeline = []; // [{start_s, end_s, text}]
   let lastIdx = -1;
+  let lastSrtFetchSig = "";
 
   const buildTimeline = (ps) => {
+    // Tier 1: engine-emitted aligned_lyrics (Suno per-line timing).
     const aligned = Array.isArray(ps?.alignedLyrics) ? ps.alignedLyrics : null;
+    // Tier 2 (CSSOS_PHASE2_INLINE_SRT 20260504): parsed SRT TEXT
+    // sitting on pipelineState.subtitlesSrt (set by runAll's subtitles
+    // stage). Parse on the fly when aligned is missing — this is the
+    // common case for For-You / fresh-pipeline runs where Suno didn't
+    // emit aligned_lyrics but cssmv-local/srt-v1 generated proper
+    // timing from the music duration + lyric line count.
+    if ((!aligned || !aligned.length) && typeof ps?.subtitlesSrt === "string" && ps.subtitlesSrt.trim()) {
+      const parsed = parseSrtToAlignedLyricsModule(ps.subtitlesSrt);
+      if (parsed && parsed.length > 0) {
+        return parsed.map((c) => ({
+          start_s: c.start_s,
+          end_s: Math.max(c.start_s + 0.25, c.end_s),
+          text: c.text,
+        }));
+      }
+    }
     if (aligned && aligned.length > 0) {
       return aligned
         .map((line) => {
@@ -4587,15 +4676,30 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
         ? globalThis.cssosMvPipelinePanelState()
         : null;
       if (!ps) return;
+      // CSSOS_PHASE2_SRT_LAZY_FETCH 20260504 — when the work landed
+      // with only a subtitle SRT URL (no aligned_lyrics), hydrate it
+      // asynchronously the first time we see this work. The next
+      // tick (~250ms later) will pick up the parsed cues from
+      // pipelineState.alignedLyrics that hydrate populates.
+      const subtitleUrl = String(ps.subtitleUrl || "").trim();
+      if (
+        subtitleUrl &&
+        (!Array.isArray(ps.alignedLyrics) || ps.alignedLyrics.length === 0) &&
+        lastSrtFetchSig !== subtitleUrl
+      ) {
+        lastSrtFetchSig = subtitleUrl;
+        void hydrateAlignedFromSrtUrlModule(subtitleUrl, ps);
+      }
       const sig = `${ps.workId || ""}|${ps.title || ""}|${(ps.alignedLyrics || []).length}|${(ps.lyrics || "").length}`;
       if (sig !== cachedSig) {
         cachedSig = sig;
         cachedTimeline = buildTimeline(ps);
         lastIdx = -1;
         console.warn(
-          "[karaoke] timeline built: %d lines (engine-aligned=%s)",
+          "[karaoke] timeline built: %d lines (engine-aligned=%s, srt-hydrated=%s)",
           cachedTimeline.length,
-          !!(ps?.alignedLyrics?.length)
+          !!(ps?.alignedLyrics?.length),
+          !!subtitleUrl
         );
       }
       if (!cachedTimeline.length) return;

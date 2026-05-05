@@ -6835,14 +6835,39 @@ function openWatchPanelShellModule(restoredLayout = false) {
     if (typeof globalThis.cssosEnterCinemaLayout === "function") {
       globalThis.cssosEnterCinemaLayout();
     }
+    /* CSSOS_PHASE2_AUTO_CINEMA_SYNC 20260505 — Jing
+     * "需要改进：进入MV面板默认真全屏影院模式，即用户不必再一次点击
+     *  媒体框右下角的全屏按钮."
+     * Two-track approach:
+     *   1. Try requestFullscreen() SYNCHRONOUSLY in this same tick. If
+     *      this function was reached from a user click handler (logo /
+     *      mic / play / right-click / Apply&Render), the user-activation
+     *      flag is still hot and the request lands. Browser chrome
+     *      escapes immediately — no second click needed.
+     *   2. If sync attempt fails (no activation, or rejected), fall
+     *      back to the legacy on-`playing` deferred path so a panel
+     *      restored from saved-session also lands in cinema once media
+     *      starts.
+     * Audio-mute risk on the sync path is handled inside
+     * cssosRequestBrowserFullscreen itself: it snapshots video/audio
+     * mute+volume before requestFullscreen and restores at 50ms+400ms. */
+    if (typeof globalThis.cssosRequestBrowserFullscreen === "function") {
+      // Fire-and-forget — the helper returns a Promise but we don't await
+      // because awaiting would suspend this tick and lose the user gesture
+      // window for any code that runs after us.
+      try { globalThis.cssosRequestBrowserFullscreen(); } catch (_e) {}
+    }
     const v = document.getElementById("watch-video");
     if (v && !v.__cssosCinemaWaiter) {
       v.__cssosCinemaWaiter = true;
       const onPlaying = () => {
         v.removeEventListener("playing", onPlaying);
+        // Only fire deferred fallback if we're STILL not in browser
+        // fullscreen (i.e. the sync attempt above didn't take).
+        if (document.fullscreenElement) return;
         setTimeout(() => {
           try {
-            if (typeof globalThis.cssosRequestBrowserFullscreen === "function") {
+            if (!document.fullscreenElement && typeof globalThis.cssosRequestBrowserFullscreen === "function") {
               globalThis.cssosRequestBrowserFullscreen();
             }
           } catch (_e) {}

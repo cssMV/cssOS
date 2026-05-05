@@ -6949,18 +6949,24 @@ body[data-theme="light"] .watch-engine-percent {
 .panel-resize-corner.se { bottom: 0; right: 0;  width: 14px; height: 14px; cursor: se-resize; }
 .panel-resize-corner.sw { bottom: 0; left: 0;   width: 14px; height: 14px; cursor: sw-resize; }
 
-/* Locked / collapsed / hidden / maximized: disable the grab zones so the
- * panel can't be resized when it wouldn't make sense. */
+/* Locked / collapsed / hidden: disable the grab zones so the panel can't
+ * be resized when it wouldn't make sense.
+ *
+ * CSSOS_PHASE2_PANEL_CONSTITUTION_RESIZE_FROM_MAX 20260505 — Jing
+ * Removed `.panel.maximized` and `.panel.media-paused` from this list.
+ * Every panel now opens MAXIMIZED by default, so disabling resize there
+ * makes the 8-way grab handles permanently dead. The bridge in
+ * app.panel-shell-actions.js already calls restorePanel(panel) on
+ * pointerdown when the panel is maximized — which exits maximize mode
+ * cleanly before the resize gesture continues. So we let the pointer
+ * reach the handle, the bridge exits maximize, and the user gets the
+ * resize they asked for. */
 .panel-locked .panel-resize-edge,
 .panel-locked .panel-resize-corner,
 .panel-collapsed .panel-resize-edge,
 .panel-collapsed .panel-resize-corner,
 .panel.hidden .panel-resize-edge,
-.panel.hidden .panel-resize-corner,
-.panel.maximized .panel-resize-edge,
-.panel.maximized .panel-resize-corner,
-.panel.media-paused .panel-resize-edge,
-.panel.media-paused .panel-resize-corner {
+.panel.hidden .panel-resize-corner {
   pointer-events: none;
   cursor: default;
 }

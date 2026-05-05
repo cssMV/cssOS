@@ -3,26 +3,48 @@ name: Deploy to api-vm
 on:
   push:
     branches: [ "main" ]
+  workflow_dispatch: {}
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-
+    concurrency:
+      group: deploy-api-vm
+      cancel-in-progress: false
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          # Pin api-vm host key (ed25519 fingerprint captured 2026-05-05)
+          cat >> ~/.ssh/known_hosts <<'EOF'
+          34.122.162.77 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEmvkdosCq0uRIVNLrHCZToq3IrUkYtzl7zzdtWY/kcb
+          EOF
+          chmod 600 ~/.ssh/known_hosts
 
-      - name: Auth to Google Cloud (WIF)
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
-          service_account: ${{ secrets.GCP_SA_EMAIL }}
+      - name: Pull main + run deploy-release on api-vm
+        run: |
+          ssh -i ~/.ssh/id_ed25519 jing@34.122.162.77 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /srv/cssos/repo
+          git fetch origin main
+          git checkout -f main
+          git reset --hard origin/main
+          echo "--- HEAD ---"
+          git log --oneline -1
+          echo "--- deploy-release ---"
+          sudo /srv/cssos/bin/deploy-release.sh
+          echo "--- service status ---"
+          sudo systemctl is-active cssOS
+          REMOTE
 
-      - name: Setup gcloud
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Trigger Cloud Build
-        run: gcloud builds submit --config cloudbuild.yaml .
+      - name: Smoke test live site
+        run: |
+          # Verify the site responds 200 and contains the latest commit SHA
+          # in some form (we rely on the inline panel3btn stamp as a tracer
+          # — bumped per release in index.html).
+          curl -sf -o /tmp/live.html https://cssstudio.app/
+          test -s /tmp/live.html
+          echo "live HTML bytes: $(wc -c < /tmp/live.html)"

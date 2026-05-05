@@ -1975,6 +1975,14 @@
     <script src="app.watch-audio-polling.js?v=20260504-stop-404-poll"></script>
     <script src="app.panel-command-settings.js?v=20260412-ui-recovery-5"></script>
     <script src="app.panel-behavior-core.js?v=20260418-engines-selector-2"></script>
+    <!-- CSSOS_PHASE2_PANEL_CONSTITUTION_3BTN_LOAD 20260505 — Jing
+         Bridge that wires the 3 top-right buttons (minimize/maximize/close)
+         and 8-way resize. Was on disk but never loaded → buttons silently
+         did nothing. Must load BEFORE app.js so attachPanelBarActions can
+         delegate to attachPanelBarActionsBridge. -->
+    <script src="app.panel-shell-actions.js?v=20260505-3btn-load"></script>
+    <script src="app.panel-drag.js?v=20260505-3btn-load"></script>
+    <script src="app.panel-focus.js?v=20260505-3btn-load"></script>
     <script src="app.action-permissions.js?v=20260412-ui-recovery-9"></script>
     <script src="app.context-menu.js?v=20260428-onetap-bulletproof-168.4"></script>
     <script src="app.delivery-report-bridges.js?v=20260412-ui-recovery-5"></script>

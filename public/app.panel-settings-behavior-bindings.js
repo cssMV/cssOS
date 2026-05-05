@@ -138,6 +138,74 @@ function bindPanelSettingsBehaviorInputsBridge({
       }
     }));
   });
+  // CSSOS_PHASE2_DOCK_SLOT 20260505 — Jing
+  // "dock position也无效，请修复，第一个位置从0开始". Per-panel slot
+  // index. On change, find the dock-item paired with this panel and
+  // reinsert it at the requested 0-based index, then persist the new
+  // dock order to localStorage so the choice survives reloads.
+  const panelDockSlotInput = settings.querySelector('[data-setting="panel-dock-slot"]');
+  const panelDockSlotReadout = settings.querySelector('[data-setting-readout="panel-dock-slot-current"]');
+  const refreshDockSlotReadout = () => {
+    if (!panelDockSlotReadout) return;
+    const action = resolveDockActionForPanel(panel);
+    const dock = document.querySelector(".dock");
+    if (!dock || !action) {
+      panelDockSlotReadout.textContent = "";
+      return;
+    }
+    const items = Array.from(dock.querySelectorAll(".dock-item"));
+    const idx = items.findIndex((it) => (it.getAttribute("data-action") || "") === action);
+    panelDockSlotReadout.textContent = idx >= 0
+      ? loginCopy(`Currently at slot ${idx}`)
+      : loginCopy("Not in dock");
+  };
+  function resolveDockActionForPanel(p) {
+    if (!p) return "";
+    const id = String(p.id || "").trim();
+    // Map panel ids → dock action names. Most are direct (drop "-panel"),
+    // a couple are bespoke.
+    if (id === "mv-pipeline-panel") return "mv-pipeline";
+    if (id === "cssmv-panel") return "cssmv";
+    return id.replace(/-panel$/, "");
+  }
+  if (panelDockSlotInput) {
+    // Initialise from the current dock position.
+    const action = resolveDockActionForPanel(panel);
+    const dock = document.querySelector(".dock");
+    if (dock && action) {
+      const items = Array.from(dock.querySelectorAll(".dock-item"));
+      const idx = items.findIndex((it) => (it.getAttribute("data-action") || "") === action);
+      panelDockSlotInput.value = idx >= 0 ? String(idx) : "";
+    }
+    refreshDockSlotReadout();
+    panelDockSlotInput.addEventListener("change", () => {
+      const action = resolveDockActionForPanel(panel);
+      const dock = document.querySelector(".dock");
+      if (!dock || !action) return;
+      const raw = String(panelDockSlotInput.value || "").trim();
+      if (!raw) { refreshDockSlotReadout(); return; }
+      const target = Math.max(0, Math.min(64, parseInt(raw, 10) || 0));
+      const items = Array.from(dock.querySelectorAll(".dock-item"));
+      const item = items.find((it) => (it.getAttribute("data-action") || "") === action);
+      if (!item) return;
+      // Move into position. If target >= length, append.
+      const others = items.filter((it) => it !== item);
+      if (target >= others.length) {
+        dock.appendChild(item);
+      } else {
+        dock.insertBefore(item, others[target]);
+      }
+      // Persist the new order to localStorage so the choice survives
+      // reloads (uses the same key restoreDockOrder reads from).
+      try {
+        const newOrder = Array.from(dock.querySelectorAll(".dock-item"))
+          .map((it) => it.getAttribute("data-action") || "")
+          .filter(Boolean);
+        localStorage.setItem("cssos.dockOrder", JSON.stringify(newOrder));
+      } catch (_e) {}
+      refreshDockSlotReadout();
+    });
+  }
   cssmvDefaultSectionInput?.addEventListener("change", () => {
     updatePanelBehaviorSettings((current) => ({
       ...current,

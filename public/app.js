@@ -288,11 +288,90 @@ const { LOCALE_KEY, DEFAULT_LOCALE } = window.CSSOS_I18N_CONSTANTS;
 const USER_ROLE_KEY = "cssos.userRole";
 const DEFAULT_ROLE = "guest";
 const SYSTEM_ADMIN_EMAILS = new Set(["jingdudc@gmail.com", "admin@cssstudio.app"]);
+// CSSOS_PHASE2_ADMIN_DOMAIN 20260504 — Jing
+// "请给系统管理员（所有@cssstudio.app和jingdudc@gmail.com)的作品…
+//  不允许裁判混入运动员". Any @cssstudio.app address counts as a
+// platform administrator, plus the explicit jingdudc@gmail.com whitelist.
+function isAdminEmailModule(email) {
+  const e = String(email || "").trim().toLowerCase();
+  if (!e) return false;
+  if (e === "jingdudc@gmail.com") return true;
+  if (e.endsWith("@cssstudio.app")) return true;
+  return SYSTEM_ADMIN_EMAILS.has(e);
+}
+function isAdminWorkModule(work) {
+  if (!work || typeof work !== "object") return false;
+  return (
+    isAdminEmailModule(work.owner_email) ||
+    isAdminEmailModule(work.author_email) ||
+    isAdminEmailModule(work.creator_email) ||
+    String(work.owner_role || work.author_role || "").toLowerCase() === "admin"
+  );
+}
+globalThis.isAdminEmailModule = isAdminEmailModule;
+globalThis.isAdminWorkModule = isAdminWorkModule;
+
+// CSSOS_PHASE2_PLAYED_INDICATOR 20260504 — Jing
+// "已经欣赏过/播放过的作品和还没有欣赏过/播放过的作品，是否用点
+//  什么比如颜色之类的区分一下". Track played work IDs in localStorage
+// (per current account if known, else anonymous). Cards consult
+// cssosWorkIsPlayedModule(id) to choose .is-played vs .is-unplayed
+// class; CSS lights an accent dot on .is-unplayed covers and gently
+// fades .is-played covers so the eye lands on what's new.
+const __CSSOS_PLAYED_KEY = "cssos.playedWorks.v1";
+let __cssosPlayedSet = null;
+function __cssosLoadPlayed() {
+  if (__cssosPlayedSet) return __cssosPlayedSet;
+  try {
+    const raw = localStorage.getItem(__CSSOS_PLAYED_KEY) || "[]";
+    const arr = JSON.parse(raw);
+    __cssosPlayedSet = new Set(Array.isArray(arr) ? arr.map(String) : []);
+  } catch (_e) {
+    __cssosPlayedSet = new Set();
+  }
+  return __cssosPlayedSet;
+}
+function __cssosSavePlayed() {
+  try {
+    const arr = Array.from(__cssosPlayedSet || new Set());
+    // Cap to 5000 most-recent entries so localStorage doesn't grow forever.
+    const capped = arr.slice(-5000);
+    localStorage.setItem(__CSSOS_PLAYED_KEY, JSON.stringify(capped));
+  } catch (_e) {}
+}
+globalThis.cssosWorkIsPlayedModule = function (workId) {
+  const id = String(workId || "").trim();
+  if (!id) return false;
+  return __cssosLoadPlayed().has(id);
+};
+globalThis.cssosMarkWorkPlayedModule = function (workId) {
+  const id = String(workId || "").trim();
+  if (!id) return;
+  const set = __cssosLoadPlayed();
+  if (set.has(id)) return;
+  set.add(id);
+  __cssosSavePlayed();
+  // Repaint any visible cards for this id immediately.
+  try {
+    document
+      .querySelectorAll(
+        `[data-work-id="${id}"], [data-market-work-id="${id}"]`
+      )
+      .forEach((card) => {
+        card.classList.remove("is-unplayed");
+        card.classList.add("is-played");
+      });
+  } catch (_e) {}
+};
 const LANG_STORAGE_KEY = "CSSOS_LANG";
 const LANG_AUTODETECT_KEY = "CSSOS_LANG_AUTO";
 const LANG_DETECTED_KEY = "CSSOS_LANG_DETECTED";
 const DOCK_ORDER_KEY = "cssos.dockOrder";
+// CSSOS_PHASE2_DOCK_MV_FIRST 20260505 — Jing
+// "请把MV PIPELINE面板图标，在Dock上移动到第一个位置". MV Pipeline
+// is the platform's primary creation surface, so it leads the dock.
 const DOCK_DEFAULT_ORDER = [
+  "mv-pipeline",
   "mic",
   "settings",
   "foryou",
@@ -6234,8 +6313,7 @@ const GUEST_VISIBLE_DOCK_ACTIONS = new Set([
 
 const getUserRole = () =>
   (
-    (authState.user?.email &&
-    SYSTEM_ADMIN_EMAILS.has(String(authState.user.email).trim().toLowerCase())
+    (authState.user?.email && isAdminEmailModule(authState.user.email)
       ? "admin"
       : null) ||
     authState.role ||
@@ -8634,10 +8712,12 @@ async function maybeAttachFinalAudioArtifact(runId, statusPayload, derivedMusic 
           // Force the MV Pipeline audio onto the element NOW. Skips the
           // music-delivery-artifact probe loop entirely.
           const preservePlayback = !!(!watchAudioPreview.paused && !watchAudioPreview.ended);
+          // CSSOS_PHASE2_NO_SWAP_MUTE 20260505 — preserve mute state.
+          const __wasMuted = !!watchAudioPreview.muted;
           watchAudioPreview.autoplay = true;
           watchAudioPreview.playsInline = true;
           watchAudioPreview.loop = false;
-          watchAudioPreview.muted = true;
+          watchAudioPreview.muted = __wasMuted;
           watchAudioPreview.volume = 1;
           watchAudioPreview.src = mvAudioUrl;
           watchAudioPreview.style.display = "block";
@@ -8684,10 +8764,12 @@ async function maybeAttachFinalAudioArtifact(runId, statusPayload, derivedMusic 
       return true;
     }
     const preservePlayback = !!(!watchAudioPreview.paused && !watchAudioPreview.ended);
+    // CSSOS_PHASE2_NO_SWAP_MUTE 20260505 — preserve mute state.
+    const __wasMuted = !!watchAudioPreview.muted;
     watchAudioPreview.autoplay = true;
     watchAudioPreview.playsInline = true;
     watchAudioPreview.loop = false;
-    watchAudioPreview.muted = true;
+    watchAudioPreview.muted = __wasMuted;
     watchAudioPreview.volume = 1;
     watchAudioPreview.src = url;
     watchAudioPreview.style.display = "block";
@@ -8864,6 +8946,27 @@ function openPanel(panel, options = {}) {
     panel.classList.remove("hidden");
     panel.dataset.minimized = "false";
   }
+  // CSSOS_PHASE2_OPEN_MAXIMIZED 20260505 — Jing
+  // "所有面板以最大化状态启动". Default every panel to its maximized
+  // state on first open so the user doesn't fight floating-window
+  // chrome on small viewports. We mark the panel with a one-shot
+  // dataset flag so subsequent opens (after the user has explicitly
+  // un-maximized via the ⛶ button) respect their choice.
+  try {
+    if (panel.dataset.firstOpenMaximized !== "1" &&
+        panel.dataset.userUnmaximized !== "1" &&
+        panel.dataset.maximized !== "true" &&
+        !panel.classList.contains("panel-collapsed") &&
+        typeof globalThis.togglePanelMaximize === "function") {
+      // CSSOS_PHASE2_OPEN_MAXIMIZED_PROPER 20260505 — Jing
+      // Route through the proper toggle helper so the panel gets
+      // data-maximize-mode + cleared inline styles, otherwise the
+      // .panel.maximized[data-maximize-mode="fullscreen"] rule won't
+      // match and the panel stays floating.
+      globalThis.togglePanelMaximize(panel);
+      panel.dataset.firstOpenMaximized = "1";
+    }
+  } catch (_e) { /* non-fatal */ }
   if (shouldFocus) {
     focusPanel(panel);
   }
@@ -18247,12 +18350,16 @@ async function loadCrossRunWatchSnapshots(runId) {
   const targetRunId = String(runId || "").trim();
   if (!targetRunId) return null;
   try {
-    // CSSOS_PHASE2_404_SILENCE_GODFILE 20260504 — same endpoint as above,
-    // not registered server-side. Catch + return null so we never throw.
-    const res = await fetch(
-      `${apiBase()}/cssapi/v1/runs/${encodeURIComponent(targetRunId)}/music-delivery-dashboard`,
-      { headers: { accept: "application/json" } }
-    ).catch(() => null);
+    // CSSOS_PHASE2_404_SILENCE_GODFILE 20260504 — only call for real
+    // server-side UUID runIds; frontend pipeline IDs always 404.
+    const isServerRunId =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetRunId);
+    const res = isServerRunId
+      ? await fetch(
+          `${apiBase()}/cssapi/v1/runs/${encodeURIComponent(targetRunId)}/music-delivery-dashboard`,
+          { headers: { accept: "application/json" } }
+        ).catch(() => null)
+      : null;
     if (!res || !res.ok) {
       return null;
     }
@@ -27329,18 +27436,18 @@ async function loadMusicDeliveryDashboard(runId = deliveryDashboardState.runId, 
   renderMusicDeliveryDashboard();
 
   // CSSOS_PHASE2_404_SILENCE_GODFILE 20260504 — Jing
-  // /cssapi/v1/runs/<id>/music-delivery-dashboard is unregistered server-side
-  // (rust-api/src/routes.rs only registers POST for /cssapi/v1/mv). Catch
-  // the network promise + treat non-ok as graceful empty so DevTools is not
-  // flooded with red 404s during every MV Pipeline run.
-  const dashboardFetch = fetch(
-    `${apiBase()}/cssapi/v1/runs/${encodeURIComponent(normalizedRunId)}/music-delivery-dashboard`,
-    {
-      method: "GET",
-      headers: { accept: "application/json" },
-      cache: "no-store"
-    }
-  ).catch(() => null);
+  // Skip request entirely for frontend-generated runIds (mv-*, preview-*,
+  // run-*); only UUID-shaped IDs come from the persisted rust pipeline.
+  // .catch() suppresses the JS rejection but the browser still paints
+  // the red 404 in the network tab — the only true silence is no fetch.
+  const isServerRunId =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(normalizedRunId);
+  const dashboardFetch = isServerRunId
+    ? fetch(
+        `${apiBase()}/cssapi/v1/runs/${encodeURIComponent(normalizedRunId)}/music-delivery-dashboard`,
+        { method: "GET", headers: { accept: "application/json" }, cache: "no-store" }
+      ).catch(() => null)
+    : Promise.resolve(null);
   const probeFetch = fetch("/ops/zh-probe-latest.json", {
     method: "GET",
     headers: { accept: "application/json" },
@@ -31307,9 +31414,27 @@ function restoreDockOrder() {
   const normalizedStored = Array.isArray(stored)
     ? stored.map((item) => String(item || "").trim()).filter(Boolean)
     : [];
-  const orderedActions = normalizedStored.length
+  // CSSOS_PHASE2_DOCK_MV_FIRST 20260505 — Jing
+  // "请把MV PIPELINE面板图标，在Dock上移动到第一个位置". For users
+  // with stored dock orders from earlier sessions (where mv-pipeline
+  // wasn't in the default list and got appended at the end), prepend
+  // mv-pipeline to the front of the resolved order so the user's
+  // intent — primary creation surface first — applies immediately.
+  // The user can still reorder by drag; their next save persists it.
+  const promoteToFront = (arr, action) => {
+    const idx = arr.indexOf(action);
+    if (idx > 0) {
+      arr.splice(idx, 1);
+      arr.unshift(action);
+    } else if (idx < 0) {
+      arr.unshift(action);
+    }
+    return arr;
+  };
+  let orderedActions = normalizedStored.length
     ? [...new Set([...normalizedStored, ...DOCK_DEFAULT_ORDER, ...Array.from(current.keys())])]
     : [...new Set([...DOCK_DEFAULT_ORDER, ...Array.from(current.keys())])];
+  orderedActions = promoteToFront(orderedActions, "mv-pipeline");
   orderedActions.forEach((action) => {
     const item = current.get(action);
     if (item) dock.appendChild(item);
@@ -31688,6 +31813,11 @@ function attachPanelDrag() {
     let pendingPointerId = null;
     let startX = 0;
     let startY = 0;
+    let lastY = 0;
+    let lastTime = 0;
+    let vy = 0;
+    const FLICK_VY_THRESHOLD = 0.7;
+    const FLICK_DY_MIN = 60;
 
     handle.addEventListener("pointerdown", (event) => {
       if (event.target.closest(".panel-actions")) return;
@@ -31710,6 +31840,10 @@ function attachPanelDrag() {
         restorePanel(panel);
       }
       dragging = true;
+      vy = 0;
+      lastY = event.clientY;
+      lastTime = performance.now();
+      startY = event.clientY;
       panel.classList.add("dragging");
       focusPanel(panel);
       const rect = panel.getBoundingClientRect();
@@ -31741,6 +31875,11 @@ function attachPanelDrag() {
         event.preventDefault();
       }
       if (!dragging) return;
+      const now = performance.now();
+      const dt = now - lastTime;
+      if (dt > 0) vy = (event.clientY - lastY) / dt;
+      lastY = event.clientY;
+      lastTime = now;
       spawnDragTrail(event);
       const proposedLeft = event.clientX - offsetX;
       const proposedTop = event.clientY - offsetY;
@@ -31760,6 +31899,11 @@ function attachPanelDrag() {
       panel.dataset.logoGestureDragging = "false";
       panel.classList.remove("dragging");
       handle.releasePointerCapture?.(event.pointerId);
+      const dy = lastY - startY;
+      if (vy >= FLICK_VY_THRESHOLD && dy >= FLICK_DY_MIN) {
+        minimizeToDock(panel);
+        return;
+      }
       persistPanelLayout(panel);
     };
 

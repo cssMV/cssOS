@@ -345,11 +345,19 @@
         // (only the audio differs). Restart from the start so the user
         // sees the visuals fresh during Take 2 instead of a frozen
         // final frame.
-        if (videoEl) {
-          try { videoEl.currentTime = 0; } catch (_e) {}
-          videoEl.muted = take === 2; // only Take 2 needs video silenced
-          videoEl.play && videoEl.play().catch(() => {});
-        }
+        // CSSOS_PHASE2_TAKE2_AUDIO_FIRST 20260504 — Jing
+        // "歌2总是画面/视频播放，声音被静音". Root cause: when an
+        // auto-advance fires from videoEl.ended → switchToTake(2),
+        // the video.play() at the bottom of this block was firing
+        // BEFORE audio.play(). Browser autoplay policy then often
+        // rejects audio.play() (the user-activation chain has gone
+        // stale post-ended), but since the video already started
+        // muted, the user sees motion and assumes "playing" — except
+        // the song is silent. Fix: prepare audio FIRST, attempt
+        // audio.play() FIRST, and only start video AFTER audio is
+        // confirmed playing (or has cleanly attached its play promise).
+        // If audio.play() rejects, ALSO pause the video so the visual
+        // state matches reality and a single user click resumes both.
         if (audioEl) {
           const sameSrc = audioEl.src && audioEl.src.endsWith(url);
           if (!sameSrc) {
@@ -357,25 +365,54 @@
             audioEl.load && audioEl.load();
           }
           audioEl.muted = false;
-          try {
-            const t = videoEl ? Number(videoEl.currentTime || 0) : 0;
-            if (Number.isFinite(t) && t > 0 && !sameSrc) {
-              audioEl.currentTime = Math.min(t, audioEl.duration || t);
-            }
-          } catch (_e) {}
-          if (audioEl.play) {
-            audioEl.play().catch((err) => {
-              console.warn("[take-switch] audio.play() rejected:", err);
+          audioEl.volume = 1;
+          try { audioEl.currentTime = 0; } catch (_e) {}
+        }
+        if (videoEl) {
+          try { videoEl.currentTime = 0; } catch (_e) {}
+          videoEl.muted = take === 2; // only Take 2 needs video silenced
+        }
+        const startVideo = () => {
+          if (!videoEl || !videoEl.play) return;
+          videoEl.play().catch(() => {});
+        };
+        if (audioEl && audioEl.play) {
+          const playPromise = audioEl.play();
+          if (playPromise && typeof playPromise.then === "function") {
+            playPromise.then(() => {
+              // Audio confirmed playing — now release the video so it
+              // animates in lockstep.
+              startVideo();
+            }).catch((err) => {
+              console.warn("[take-switch] audio.play() rejected:", err?.name || err);
+              // Don't roll the video silently — pause it so the user
+              // sees a frozen frame and immediately understands a tap
+              // is needed. One click recovers BOTH streams.
+              if (videoEl) { try { videoEl.pause(); } catch (_e) {} }
               if (typeof globalThis.showToast === "function") {
                 globalThis.showToast(`♪ ${take} ready — tap the panel to start.`);
               }
               const recover = () => {
-                audioEl.play && audioEl.play().catch(() => {});
                 document.removeEventListener("click", recover, true);
+                document.removeEventListener("keydown", recover, true);
+                document.removeEventListener("touchstart", recover, true);
+                if (audioEl && audioEl.play) {
+                  audioEl.play().then(startVideo).catch(() => startVideo());
+                } else {
+                  startVideo();
+                }
               };
               document.addEventListener("click", recover, true);
+              document.addEventListener("keydown", recover, true);
+              document.addEventListener("touchstart", recover, true);
             });
+          } else {
+            // Older API: assume sync — start video immediately.
+            startVideo();
           }
+        } else {
+          // No audio element — just start the video.
+          startVideo();
         }
         // Refresh toggle pill highlight if injector has rendered it.
         try {
@@ -974,6 +1011,40 @@
     const hIn = panel.querySelector("#mvp-aspect-h");
     if (!row || !custom || !caption || !wIn || !hIn) return;
 
+    // CSSOS_PHASE2_MV_PANEL_TIDY 20260505 — Jing
+    // "16:9那些按钮全部隐藏，只显示当前选择的规格，再点一下，显示
+    //  所有规格". Tap the visible (active) chip to expand the row;
+    // picking a different chip auto-collapses. Tapping outside also
+    // collapses. CSS hides non-active chips when .is-expanded is
+    // absent, so the toggle is purely class-driven.
+    if (!row.dataset.cssosCollapseBound) {
+      row.dataset.cssosCollapseBound = "1";
+      row.addEventListener("click", function (ev) {
+        const chip = ev.target.closest(".mvp-aspect-chip");
+        if (!chip) {
+          // Click on row gutter → toggle expanded state.
+          row.classList.toggle("is-expanded");
+          return;
+        }
+        // Was the row collapsed and the user tapped the visible
+        // (active) chip? Expand instead of acting on the chip.
+        const wasCollapsed = !row.classList.contains("is-expanded");
+        if (wasCollapsed && chip.getAttribute("aria-pressed") === "true") {
+          row.classList.add("is-expanded");
+          ev.preventDefault();
+          ev.stopPropagation();
+          return;
+        }
+        // Picking a chip — collapse afterwards.
+        setTimeout(function () { row.classList.remove("is-expanded"); }, 0);
+      });
+      document.addEventListener("pointerdown", function (ev) {
+        if (!row.classList.contains("is-expanded")) return;
+        if (row.contains(ev.target)) return;
+        row.classList.remove("is-expanded");
+      }, true);
+    }
+
     function refreshCaption() {
       const spec = (typeof globalThis.resolveCreationAspectRatio === "function")
         ? globalThis.resolveCreationAspectRatio()
@@ -1133,6 +1204,25 @@
     }
     // #147: #mvp-save button removed — auto-save runs from compose-done.
     wireAspectRatioControls(panel);
+    // CSSOS_PHASE2_MV_PANEL_TIDY 20260505 — Jing
+    // "进度条们，全部隐藏，留个按钮显示就行". Stages are hidden by
+    // default; tap the summary banner to reveal the per-stage rows.
+    try {
+      const stages = panel.querySelector(".mvp-stages");
+      if (stages && !stages.dataset.cssosCollapseBound) {
+        stages.dataset.cssosCollapseBound = "1";
+        // Initial summary string — refreshed on every stage update.
+        if (!stages.dataset.statusSummary) {
+          stages.dataset.statusSummary = "Pipeline · ready";
+        }
+        stages.addEventListener("click", function (ev) {
+          // Only toggle when clicking the banner area, not when
+          // clicking a stage row inside.
+          if (ev.target.closest(".mvp-stage")) return;
+          stages.classList.toggle("is-expanded");
+        });
+      }
+    } catch (_e) { /* non-fatal */ }
     // CSSOS_PHASE2_MV_TIER_LABEL 20260419 — wire the tier cost label. Click
     // or Enter/Space cycles through Lite/Hybrid/Cinematic (v0 picker; the
     // full slider lands in task #47). Refresh once on mount so the label
@@ -2244,13 +2334,58 @@
                         s.match(/关于\s*([^，。,?\s]{1,20})\s*的/) ||
                         s.match(/([^，。,?\s]{1,16})\s*之歌/);
         if (zhTitle && zhTitle[1]) return zhTitle[1].trim();
-        // Latin-letters acronym pattern (KN, KIA, NASA — short caps).
-        const acronym = s.match(/\b([A-Z][A-Z0-9]{1,8})\b/);
-        if (acronym && acronym[1]) return acronym[1];
+        // CSSOS_PHASE2_NO_ACRONYM_FALLBACK 20260504 — drop the dangerous
+        // 2-letter all-caps fallback (was promoting "KN" / "ACT" etc.).
+        //
+        // CSSOS_PHASE2_NL_PROMPT_TITLE 20260505 — Jing
+        // "a trap-soul song about the matchmaker of a small village …
+        //  系统随机生成的prompt也要提炼标题". Natural-language seeds
+        // (Surprise Me, voice-to-text) typically follow the pattern
+        //   "a <genre> song about <subject> who/that/—/at <modifier>"
+        // Extract <subject> (the noun phrase right after "about") and
+        // tidy it into a title. Capitalise each word, drop trailing
+        // articles, cap to ~28 chars / 5 words.
+        const titleCase = (str) => str
+          .toLowerCase()
+          .replace(/\b([a-z])/g, (m) => m.toUpperCase())
+          // Lowercase common tiny words mid-phrase: of, the, a, an, in,
+          // on, at, and, or, with — but keep them upper-cased at start.
+          .replace(/(\s)(Of|The|A|An|In|On|At|And|Or|With|To|For|By|From)\b/g,
+                   (_m, p, w) => p + w.toLowerCase())
+          .trim();
+        const trimSubject = (sub) => {
+          let out = String(sub || "").trim();
+          // Stop at any clause delimiter that signals "modifier follows".
+          out = out.split(/\s+(?:who|that|which|where|when|while|—|–|-)\s+/i)[0].trim();
+          // Drop trailing connectors / prepositions.
+          out = out.replace(/\s+(of|in|on|at|with|to|for|by|from|and|or)\s*$/i, "");
+          // Cap word count to 5 for a tight title.
+          const words = out.split(/\s+/).filter(Boolean);
+          if (words.length > 5) out = words.slice(0, 5).join(" ");
+          // Cap chars at 28.
+          if ([...out].length > 28) out = [...out].slice(0, 28).join("").trim();
+          return out;
+        };
+        // Pattern A: "song about <X>" / "ballad about <X>" / "<genre> about <X>"
+        const aboutMatch = s.match(/\b(?:song|ballad|tune|track|piece|melody|anthem|chant|hymn|elegy|aria|opus|lullaby|serenade)\s+about\s+(.+?)(?:[.,;:!?]|$)/i)
+                       || s.match(/\babout\s+(.+?)(?:[.,;:!?]|$)/i);
+        if (aboutMatch && aboutMatch[1]) {
+          const sub = trimSubject(aboutMatch[1]);
+          if (sub && [...sub].length >= 3) return titleCase(sub);
+        }
+        // Pattern B: "<X> who/that…" — extract leading noun phrase before relative.
+        const relMatch = s.match(/^(?:a|an|the)?\s*(.{4,40}?)\s+(?:who|that|which|where|when)\s+/i);
+        if (relMatch && relMatch[1]) {
+          const sub = trimSubject(relMatch[1]);
+          if (sub && [...sub].length >= 3) return titleCase(sub);
+        }
         // First short clause (split on punctuation).
         const firstClause = s.split(/[，。,.?!？！\n;；]/)[0].trim();
         if (firstClause && [...firstClause].length <= 24) return firstClause;
-        // Give up — empty title lets the lyrics LLM provide one.
+        // Last resort: title-case the first 4 words so we never hand the
+        // user the raw prompt as a title.
+        const firstWords = s.split(/\s+/).slice(0, 4).join(" ");
+        if (firstWords && [...firstWords].length <= 28) return titleCase(firstWords);
         return "";
       };
       // CSSOS_PHASE2_BRACKETED_PROMPT 20260504 — Jing
@@ -3084,6 +3219,22 @@
           ? globalThis.cssosNormalizeLyricsText
           : (s) => String(s || "").trim();
         state.lyrics = _normLyrics(lyricsResp.lyrics || "");
+        // CSSOS_PHASE2_LYRICS_TITLE_BACKFILL 20260505 — Jing
+        // "系统随机生成的prompt也要提炼标题". When the heuristic gave
+        // up (state.title === "") the lyrics LLM still emits a clean
+        // title in its response — adopt it so downstream stages
+        // (commit, watch overlay, queue items) have a real title
+        // instead of falling back to the raw prompt.
+        try {
+          const respTitle = String(lyricsResp.title || "").trim();
+          if (respTitle && !String(state.title || "").trim()) {
+            state.title = respTitle;
+            console.info(
+              "%c[mv-pipeline][title] adopted from lyrics LLM: %s",
+              "color:#0a8;font-weight:bold", respTitle
+            );
+          }
+        } catch (_titleErr) { /* non-fatal */ }
         // CSSOS_PHASE2_LYRICS_BROADCAST 20260428 #167 — Jing
         // "我手动输入的是完整的歌词，可是MY pipeline面板回灌（广播）给别的
         //  相关的面板的歌词却是不完整的，有的面板甚至没有通知到，如高级
@@ -5744,6 +5895,20 @@
       }
       const panel = ensurePanel();
       panel.classList.remove("hidden");
+      // CSSOS_PHASE2_OPEN_MAXIMIZED 20260505 — Jing
+      // "MV PIPELINE面板…请做成普通面板，最大化状态启动".
+      // Same first-open-maximize as openMvPipelinePanel() above so
+      // the dock-click path also lands fullscreen.
+      try {
+        if (panel.dataset.firstOpenMaximized !== "1" &&
+            panel.dataset.userUnmaximized !== "1" &&
+            panel.dataset.maximized !== "true" &&
+            !panel.classList.contains("panel-collapsed") &&
+            typeof globalThis.togglePanelMaximize === "function") {
+          globalThis.togglePanelMaximize(panel);
+          panel.dataset.firstOpenMaximized = "1";
+        }
+      } catch (_e) {}
       if (typeof globalThis.focusPanel === "function") globalThis.focusPanel(panel);
       refreshStageBadges();
     });
@@ -5797,6 +5962,22 @@
     const panel = ensurePanel();
     if (opts.hidden !== true) {
       panel.classList.remove("hidden");
+      // CSSOS_PHASE2_OPEN_MAXIMIZED 20260505 — Jing
+      // "MV PIPELINE面板还没有以最大化状态启动，请改进上下左右都
+      //  撑满屏幕". Route through togglePanelMaximize so the panel
+      // gets data-maximize-mode="fullscreen" + cleared inline styles
+      // — without that, the CSS fullscreen rule doesn't match and
+      // the panel stays in its prior floating size.
+      try {
+        if (panel.dataset.firstOpenMaximized !== "1" &&
+            panel.dataset.userUnmaximized !== "1" &&
+            panel.dataset.maximized !== "true" &&
+            !panel.classList.contains("panel-collapsed") &&
+            typeof globalThis.togglePanelMaximize === "function") {
+          globalThis.togglePanelMaximize(panel);
+          panel.dataset.firstOpenMaximized = "1";
+        }
+      } catch (_e) { /* non-fatal */ }
       if (opts.focus !== false && typeof globalThis.focusPanel === "function") {
         globalThis.focusPanel(panel);
       }

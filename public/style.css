@@ -6193,7 +6193,14 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
    * Width capped to ~60% of frame so longer lines don't run into
    * the right-side commerce/action chips that live at the bottom-
    * right. */
-  bottom: 32px;
+  /* CSSOS_PHASE2_SUBTITLE_LIFT 20260504 — Jing
+   * "请把字幕往上抬高一点，避免和相关按钮打架". The bottom-left
+   * action chips (Loop list / My Works / Immersive) sit around
+   * y=24px from the frame edge with a row height of ~40px → top
+   * edge ~64px. Lift the subtitle baseline above that with a 12px
+   * safety gap so the lyric never overlaps the chips, even on the
+   * tallest single-line render. */
+  bottom: 88px;
   left: 32px;
   right: auto;
   transform: none;
@@ -9266,14 +9273,21 @@ html[data-panel-transparent="true"] .logo-panel {
  * Coordinates are relative to the watch-frame; the existing
  * .watch-mv-art-title rule owns the absolute positioning, we only
  * shift via CSS variables and translate. */
-.watch-mv-art-title.anchor-tl { left: 6%;  right: auto; top: 6%;  bottom: auto; transform-origin: top left; --title-tx: 0; --title-ty: -10px; }
-.watch-mv-art-title.anchor-tr { left: auto; right: 6%; top: 6%;  bottom: auto; transform-origin: top right; --title-tx: 0; --title-ty: -10px; text-align: right; }
-.watch-mv-art-title.anchor-bl { left: 6%;  right: auto; top: auto; bottom: 12%; transform-origin: bottom left; --title-tx: 0; --title-ty: 10px; }
-.watch-mv-art-title.anchor-br { left: auto; right: 6%; top: auto; bottom: 12%; transform-origin: bottom right; --title-tx: 0; --title-ty: 10px; text-align: right; }
-.watch-mv-art-title.anchor-tc { left: 50%; right: auto; top: 7%;  bottom: auto; transform: translateX(-50%); transform-origin: top center; }
-.watch-mv-art-title.anchor-bc { left: 50%; right: auto; top: auto; bottom: 14%; transform: translateX(-50%); transform-origin: bottom center; }
-.watch-mv-art-title.anchor-ml { left: 4%;  right: auto; top: 50%; bottom: auto; transform: translateY(-50%); transform-origin: left center; }
-.watch-mv-art-title.anchor-mr { left: auto; right: 4%; top: 50%; bottom: auto; transform: translateY(-50%); transform-origin: right center; text-align: right; }
+/* CSSOS_PHASE2_NO_TITLE_SAFE_ZONE 20260504 — Jing
+ * "媒体框就是'安全区'… 不必设置所谓的'安全区'… 这样的字幕标题
+ *  '安全区'会截断字幕标题的，请取消".
+ * Drop the inner safe-zone insets so the title can occupy the full
+ * media frame. Anchors now sit flush against the frame edge (0%)
+ * with a hairline 0.5% breathing room so glow/shadow doesn't get
+ * cropped right at the bevel. The frame itself is the only boundary. */
+.watch-mv-art-title.anchor-tl { left: 0.5%;  right: auto;   top: 0.5%; bottom: auto; transform-origin: top left; --title-tx: 0; --title-ty: -10px; }
+.watch-mv-art-title.anchor-tr { left: auto;  right: 0.5%;   top: 0.5%; bottom: auto; transform-origin: top right; --title-tx: 0; --title-ty: -10px; text-align: right; }
+.watch-mv-art-title.anchor-bl { left: 0.5%;  right: auto;   top: auto; bottom: 0.5%; transform-origin: bottom left; --title-tx: 0; --title-ty: 10px; }
+.watch-mv-art-title.anchor-br { left: auto;  right: 0.5%;   top: auto; bottom: 0.5%; transform-origin: bottom right; --title-tx: 0; --title-ty: 10px; text-align: right; }
+.watch-mv-art-title.anchor-tc { left: 50%;   right: auto;   top: 0.5%; bottom: auto; transform: translateX(-50%); transform-origin: top center; }
+.watch-mv-art-title.anchor-bc { left: 50%;   right: auto;   top: auto; bottom: 0.5%; transform: translateX(-50%); transform-origin: bottom center; }
+.watch-mv-art-title.anchor-ml { left: 0.5%;  right: auto;   top: 50%;  bottom: auto; transform: translateY(-50%); transform-origin: left center; }
+.watch-mv-art-title.anchor-mr { left: auto;  right: 0.5%;   top: 50%;  bottom: auto; transform: translateY(-50%); transform-origin: right center; text-align: right; }
 
 /* Emotion palette for the title — same six the karaoke uses. The
  * stronger weight + larger shadow vs subtitle reflects "this is the
@@ -9365,4 +9379,511 @@ html[data-panel-transparent="true"] .logo-panel {
   0%   { opacity: 0.32; }
   20%  { opacity: 1; }
   100% { opacity: 1; }
+}
+
+/* CSSOS_PHASE2_KARAOKE_NUDGE 20260504 — Jing
+   "字幕对其歌声问题，这是硬伤". Live offset adjuster: ←/→ ±0.25s,
+   ↑/↓ ±1s, 0 reset. The badge briefly surfaces the current offset
+   so the user sees feedback without needing the console. */
+#watch-subtitle[data-cssos-nudge]::after {
+  content: "Δ " attr(data-cssos-nudge);
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 6px;
+  padding: 2px 8px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: #ffd66b;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 4px;
+  pointer-events: none;
+  opacity: 0;
+  animation: cssos-nudge-flash 1.5s ease-out forwards;
+}
+@keyframes cssos-nudge-flash {
+  0%   { opacity: 0; transform: translateY(4px); }
+  15%  { opacity: 1; transform: translateY(0); }
+  70%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* CSSOS_PHASE2_AUTO_CINEMA 20260504 — Jing
+   "默认是全屏（真全屏）影院模式（全黑，不管主题色是黑夜还是白天)".
+   Body-level class that forces a flat-black canvas behind the
+   fullscreened watch panel, regardless of the active theme (light
+   day theme included). Pairs with .is-cssmv-fullscreen on #watch-panel. */
+body.cssos-cinema-mode {
+  background: #000 !important;
+}
+body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen {
+  background: #000 !important;
+}
+body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen .panel-body,
+body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen .watch-body,
+body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen .watch-pane,
+body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen .watch-pane.active {
+  background: #000 !important;
+}
+/* Hide every non-essential surface so only the media frame breathes. */
+body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen .panel-title,
+body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen .panel-titlebar {
+  background: rgba(0,0,0,0.4) !important;
+}
+
+/* CSSOS_PHASE2_FORYOU_LIKE_WORKS 20260504 — Jing
+   "请改进'为你创作'面板作品卡片使用'作品中心'显示方式". Hide the
+   inline marketplace search shell unless the user explicitly pulls
+   down (.search-revealed). The Works Center already follows this
+   pattern; For You now matches: section title → first work card → … →
+   pull-down reveals search controls. */
+#foryou-panel:not(.search-revealed) .foryou-search-shell {
+  display: none !important;
+}
+
+/* CSSOS_PHASE2_PLAYED_INDICATOR 20260504 — Jing
+   Played-vs-unplayed work cards. UNPLAYED works show a small
+   pulsing emerald dot at the top-left of the cover (signal: "new
+   to you, fresh"). PLAYED works fade slightly so the eye lands
+   on unplayed entries first. Hover always restores full opacity. */
+.work-cover { position: relative; }
+.work-cover-played-dot {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  pointer-events: none;
+  background: radial-gradient(circle, #00f5a0 30%, rgba(0,245,160,0.9) 60%, rgba(0,245,160,0) 100%);
+  box-shadow:
+    0 0 8px rgba(0, 245, 160, 0.85),
+    0 0 18px rgba(11, 247, 255, 0.55);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  animation: cssos-played-dot-pulse 2.4s ease-in-out infinite;
+}
+.work-card.is-unplayed .work-cover-played-dot { opacity: 1; }
+.work-card.is-played   .work-cover-played-dot { opacity: 0; }
+@keyframes cssos-played-dot-pulse {
+  0%, 100% { transform: scale(1);   filter: brightness(1); }
+  50%      { transform: scale(1.18); filter: brightness(1.3); }
+}
+/* CSSOS_PHASE2_PLAYED_NO_DIM 20260505 — Jing
+   "为你创作第一个卡片为什么颜色那么深？请修复，让他和所有的卡片一样
+    普通". The brightness/saturation dim on played cards made the
+   most-recently-watched card stand out as visually heavier than its
+   neighbours. Played-state is now signalled SOLELY by the green
+   "unplayed" dot disappearing — covers stay at full brightness so
+   every card reads identically. */
+.work-card.is-played .work-cover img {
+  filter: none;
+}
+
+/* CSSOS_PHASE2_ADMIN_PUBLIC_WORK 20260504 — Jing
+   System / admin works are public goods: they show in marketplace
+   but never sell. Style the chip distinctly so users immediately
+   know it's a free public piece. */
+.price-chip-public {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--watch-frame-accent-1, #00f5a0) 35%, transparent),
+    color-mix(in srgb, var(--watch-frame-accent-2, #0bf7ff) 28%, transparent)) !important;
+  color: #013;
+  font-weight: 700;
+  border: 1px solid color-mix(in srgb, var(--watch-frame-accent-1, #00f5a0) 60%, transparent);
+}
+.work-card.is-admin-public .work-cover::after {
+  content: "公共";
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #c8ffe6;
+  border: 1px solid rgba(0, 245, 160, 0.5);
+  pointer-events: none;
+}
+
+/* CSSOS_PHASE2_FORYOU_DROP_FEATURED 20260505 — Jing
+   "请去掉第一个作品，从Marketplace开始显示，类似'作品中心'面板".
+   The For You panel's hardcoded "featured creation preview" card
+   (.foryou-compact > .foryou-card with the ♪ tile + ENJOY) used to
+   double as a creation-status hero. The user wants the panel to
+   open straight at the MARKETPLACE list, identical pattern to
+   Works Center. Hide the entire featured slot. */
+#foryou-panel .foryou-compact {
+  display: none !important;
+}
+
+/* CSSOS_PHASE2_TIDY_CARDS 20260505 — Jing
+   "作品卡片，请重新设计或者调整，要整齐，简洁".
+   Standardise work-card layout across both panels: cover top-left,
+   info column right of cover, price chips wrap under info, action
+   buttons stack at the bottom in a single tidy row. Eliminates the
+   chip/button overlap visible on mobile when the panel is narrow.
+   Mobile layout switches the cover above the info so chips don't
+   crush against the cover edge. */
+#foryou-panel .work-card,
+#works-panel .work-card,
+.foryou-works-list .work-card {
+  display: grid !important;
+  grid-template-columns: 96px 1fr !important;
+  grid-template-areas:
+    "cover info"
+    "actions actions"
+    "details details" !important;
+  column-gap: 12px !important;
+  row-gap: 10px !important;
+  align-items: start !important;
+  background: rgba(0, 0, 0, 0.32);
+  border: 1px solid rgba(218, 255, 242, 0.18);
+  position: relative;
+}
+#foryou-panel .work-card .work-cover,
+#works-panel .work-card .work-cover {
+  grid-area: cover;
+  width: 96px !important;
+  height: 96px !important;
+  flex: none !important;
+  border-radius: 12px !important;
+  overflow: hidden !important;
+  position: relative;
+}
+#foryou-panel .work-card .work-cover img,
+#works-panel .work-card .work-cover img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  display: block;
+}
+#foryou-panel .work-card .work-info,
+#works-panel .work-card .work-info {
+  grid-area: info;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+#foryou-panel .work-card .work-title,
+#works-panel .work-card .work-title {
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  line-height: 1.25 !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#foryou-panel .work-card .work-tags,
+#works-panel .work-card .work-tags {
+  font-size: 12px !important;
+  color: rgba(218, 255, 242, 0.7);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#foryou-panel .work-card .work-pricing,
+#works-panel .work-card .work-pricing {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+#foryou-panel .work-card .work-pricing .price-chip,
+#works-panel .work-card .work-pricing .price-chip {
+  font-size: 11px !important;
+  padding: 2px 8px !important;
+  border-radius: 999px !important;
+  background: rgba(218, 255, 242, 0.08);
+  border: 1px solid rgba(218, 255, 242, 0.18);
+  white-space: nowrap;
+}
+#foryou-panel .work-card .work-actions,
+#works-panel .work-card .work-actions {
+  grid-area: actions;
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+  align-items: center;
+  margin: 0 !important;
+}
+#foryou-panel .work-card .work-actions > *,
+#works-panel .work-card .work-actions > * {
+  position: static !important;        /* kill any stale absolute positioning */
+  margin: 0 !important;
+}
+#foryou-panel .work-card .work-details,
+#works-panel .work-card .work-details {
+  grid-area: details;
+}
+/* Compact mobile: cover stacks above info so titles get full width. */
+@media (max-width: 560px) {
+  #foryou-panel .work-card,
+  #works-panel .work-card,
+  .foryou-works-list .work-card {
+    grid-template-columns: 1fr !important;
+    grid-template-areas:
+      "cover"
+      "info"
+      "actions"
+      "details" !important;
+  }
+  #foryou-panel .work-card .work-cover,
+  #works-panel .work-card .work-cover {
+    width: 100% !important;
+    height: auto !important;
+    aspect-ratio: 16 / 9 !important;
+  }
+  #foryou-panel .work-card .work-actions,
+  #works-panel .work-card .work-actions {
+    justify-content: flex-start;
+  }
+  #foryou-panel .work-card .mini-btn,
+  #works-panel .work-card .mini-btn {
+    flex: 0 1 auto;
+    font-size: 12px !important;
+    padding: 6px 10px !important;
+  }
+}
+
+/* CSSOS_PHASE2_MOBILE_OVERFLOW_BTN 20260505 — Jing
+   "媒体框右下角的那些按钮，手机端都收到三点里". The ⋯ button
+   appears only on small viewports; tapping it reveals the rest of
+   the bottom-right cluster (info / fullscreen / stem / style /
+   take-toggle) in a vertical column above. Default state on mobile
+   hides every cluster button so the bottom-right corner stays clean
+   for subtitles + playlist chips. */
+.cssmv-overflow-btn {
+  display: none !important;
+  right: 14px !important;
+  bottom: 14px !important;
+  font-size: 22px !important;
+  line-height: 1 !important;
+  /* Always visible on mobile (overrides the .cssmv-fr-btn opacity:0
+     default) since this is the only entry-point. */
+  opacity: 0.92 !important;
+  background: rgba(7, 14, 12, 0.55) !important;
+  border-color: rgba(218, 255, 242, 0.45) !important;
+  backdrop-filter: blur(12px) saturate(1.08) !important;
+  -webkit-backdrop-filter: blur(12px) saturate(1.08) !important;
+}
+@media (max-width: 560px), (pointer: coarse) {
+  /* Show the ⋯ button. */
+  .watch-screen .cssmv-overflow-btn {
+    display: grid !important;
+  }
+  /* Hide every other bottom/top-right cluster button by default. */
+  .watch-screen .cssmv-info-btn,
+  .watch-screen .cssmv-fs-btn,
+  .watch-screen .cssmv-stem-toggle,
+  .watch-screen #watch-style-shift,
+  .watch-screen .cssmv-take-toggle,
+  .watch-screen .watch-take-toggle {
+    display: none !important;
+  }
+  /* When ⋯ is tapped, reveal the cluster as a vertical column
+     stacked above the ⋯ button. Each button keeps its own
+     position-anchored width but we reposition them flush against
+     the right edge. */
+  .watch-screen.cssmv-overflow-open .cssmv-info-btn,
+  .watch-screen.cssmv-overflow-open .cssmv-fs-btn,
+  .watch-screen.cssmv-overflow-open .cssmv-stem-toggle,
+  .watch-screen.cssmv-overflow-open #watch-style-shift,
+  .watch-screen.cssmv-overflow-open .cssmv-take-toggle,
+  .watch-screen.cssmv-overflow-open .watch-take-toggle {
+    display: grid !important;
+    right: 14px !important;
+    top: auto !important;
+    opacity: 1 !important;
+    background: rgba(7, 14, 12, 0.55) !important;
+    border-color: rgba(218, 255, 242, 0.45) !important;
+    backdrop-filter: blur(12px) saturate(1.08) !important;
+    -webkit-backdrop-filter: blur(12px) saturate(1.08) !important;
+    animation: cssos-overflow-pop 0.18s ease-out;
+  }
+  /* Stack: ⋯ at bottom:14, fs at +56, info at +112, stem at +168, … */
+  .watch-screen.cssmv-overflow-open .cssmv-fs-btn       { bottom: 70px !important; }
+  .watch-screen.cssmv-overflow-open .cssmv-info-btn     { bottom: 126px !important; right: 14px !important; }
+  .watch-screen.cssmv-overflow-open .cssmv-stem-toggle  { bottom: 182px !important; right: 14px !important; }
+  .watch-screen.cssmv-overflow-open #watch-style-shift  { bottom: 238px !important; right: 14px !important; }
+  .watch-screen.cssmv-overflow-open .cssmv-take-toggle,
+  .watch-screen.cssmv-overflow-open .watch-take-toggle  { bottom: 294px !important; right: 14px !important; top: auto !important; }
+  /* Rotate the ⋯ slightly so the user sees the toggle is "open." */
+  .watch-screen.cssmv-overflow-open .cssmv-overflow-btn {
+    transform: rotate(90deg) !important;
+    background: linear-gradient(180deg, rgba(7,14,12,0.78), rgba(5,10,9,0.6)) !important;
+  }
+}
+@keyframes cssos-overflow-pop {
+  0%   { transform: translateY(8px) scale(0.85); opacity: 0; }
+  100% { transform: translateY(0) scale(1);      opacity: 1; }
+}
+
+/* CSSOS_PHASE2_NO_PULL_REFRESH 20260505 — Jing
+   "往下拖动触发了刷新屏幕". overscroll-behavior tells mobile Safari /
+   Chrome not to trigger pull-to-refresh when the user drags down
+   inside the watch panel / media frame. Combined with the JS
+   touchmove preventDefault, this defends both the scroll chain
+   (panel-body → document) and the gesture chain. */
+html, body {
+  overscroll-behavior-y: contain;
+}
+#watch-panel,
+#watch-panel .watch-body,
+#watch-panel .watch-pane,
+#watch-panel .watch-frame,
+#watch-panel .watch-screen {
+  overscroll-behavior: contain;
+  /* touch-action: pan-y is fine — we still want native scroll-up
+     inside a long lyrics tab, but the swipe-down on the media
+     frame is intercepted by JS and won't bubble. */
+}
+
+/* CSSOS_PHASE2_MV_PANEL_TIDY 20260505 — Jing
+   "16:9那些按钮全部隐藏，只显示当前选择的规格，再点一下，显示所有
+    规格". The MV Pipeline panel had 7 aspect-ratio chips taking up
+   3+ rows even on desktop. Default state: only the chip with
+   aria-pressed="true" shows. Tapping the row (or the visible chip)
+   adds .is-expanded → reveals the rest. Tapping a new chip auto-
+   collapses (handled in JS). Works the same on mobile + desktop. */
+#mv-pipeline-panel .mvp-aspect-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+#mv-pipeline-panel .mvp-aspect-row:not(.is-expanded) .mvp-aspect-chip[aria-pressed="false"] {
+  display: none;
+}
+#mv-pipeline-panel .mvp-aspect-row:not(.is-expanded)::after {
+  content: "▾";
+  align-self: center;
+  font-size: 14px;
+  color: rgba(218, 255, 242, 0.55);
+  margin-left: 4px;
+  pointer-events: none;
+}
+#mv-pipeline-panel .mvp-aspect-row.is-expanded::after {
+  content: "▴";
+  align-self: center;
+  font-size: 14px;
+  color: rgba(218, 255, 242, 0.55);
+  margin-left: 4px;
+  pointer-events: none;
+}
+
+/* CSSOS_PHASE2_MV_PANEL_TIDY 20260505 — Jing
+   "进度条们，全部隐藏，留个按钮显示就行". Stages collapse to a
+   single status line by default; tapping the .mvp-stages-toggle
+   reveals the per-stage progress bars. */
+#mv-pipeline-panel .mvp-stages {
+  position: relative;
+}
+#mv-pipeline-panel .mvp-stages:not(.is-expanded) .mvp-stage {
+  display: none;
+}
+#mv-pipeline-panel .mvp-stages:not(.is-expanded)::before {
+  content: attr(data-status-summary) " ▾";
+  display: block;
+  padding: 8px 12px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: rgba(218, 255, 242, 0.7);
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px dashed rgba(218, 255, 242, 0.22);
+  border-radius: 10px;
+  cursor: pointer;
+}
+#mv-pipeline-panel .mvp-stages.is-expanded::before {
+  content: "Stages ▴";
+  display: block;
+  padding: 4px 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: rgba(218, 255, 242, 0.55);
+  cursor: pointer;
+}
+
+/* CSSOS_PHASE2_PROFILE_FULLSCREEN 20260505 — Jing
+   "profile面板…请做成普通面板，右上角三按钮，最大化状态启动".
+   Force fullscreen when .maximized is present. Defensive override
+   in case any id-scoped rule outweighs the global one. */
+#profile-panel.maximized,
+#profile-panel.maximized[data-maximize-mode="fullscreen"] {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
+  left: 0 !important;
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  transform: none !important;
+  border-radius: 0 !important;
+}
+
+/* CSSOS_PHASE2_TRUE_FULLSCREEN 20260505 — Jing
+   "面板/媒体框充满整个手机屏幕的真全屏". Push the maximized panel
+   under the notch + home-indicator on iOS, and use 100dvh (dynamic
+   viewport height) so the URL bar's appearance/disappearance doesn't
+   leave a stripe at the bottom. Negative margins here cancel the
+   safe-area inset that the body normally honours.
+
+   What this actually achieves on iOS Safari:
+   • The watch panel's black canvas extends edge-to-edge — no Safari
+     letterbox around the notch / home-indicator.
+   • The panel is sized to 100dvh (true visible viewport) instead of
+     100vh (which leaves room for the URL bar at the top of pages).
+   • When the user installs the page via "Add to Home Screen", the
+     status bar (time/signal) becomes black-translucent and overlays
+     the panel — closest thing to genuinely hiding it.
+
+   What this CAN'T achieve in plain Safari (browser-imposed):
+   • Time/signal/battery indicators at the top — only PWA install or
+     native iOS apps can hide those.
+   • The bottom URL-bar — Safari shows it whenever the user touches
+     the screen edge. requestFullscreen() (already wired) hides it
+     during playback on iOS 16.4+. */
+html, body {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  /* iOS-specific: extend under notch / home-indicator. The watch
+     panel still positions absolutely so safe-area only matters when
+     panel is NOT fullscreen. */
+}
+.panel.maximized[data-maximize-mode="fullscreen"] {
+  /* Use the dynamic viewport so the URL bar's hide/show in Safari
+     doesn't leave a sliver. dvh is supported on iOS 15.4+. */
+  height: 100dvh !important;
+  width: 100dvw !important;
+  max-height: 100dvh !important;
+  max-width: 100dvw !important;
+  /* Negative inset pushes content under the safe-area insets so the
+     cinema canvas reaches the physical screen edges. */
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+/* Watch-specific: black canvas all the way to physical edges. */
+#watch-panel.is-cssmv-fullscreen {
+  height: 100dvh !important;
+  width: 100dvw !important;
+  max-height: 100dvh !important;
+  max-width: 100dvw !important;
+}
+#watch-panel.is-cssmv-fullscreen .watch-frame,
+#watch-panel.is-cssmv-fullscreen .watch-screen {
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+}
+/* Remove the safe-area inset PADDING that was previously honoured
+   in fullscreen — we want the media to reach edges. The panel-bar
+   itself stays in the safe area via its own padding. */
+body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen {
+  padding: 0 !important;
 }

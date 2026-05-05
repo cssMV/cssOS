@@ -173,6 +173,10 @@
     // Initial pass + interval as a safety net for late-mounted nodes.
     scrubPanelTitle();
     scrubMvTitle();
+    // CSSOS_PHASE2_LIGHT_BOOT 20260505 — Jing
+    // Was 500ms × 600 = 5 min of polling — observers already cover the
+    // common cases. Drop to 2 s × 30 = 1 min as a thin safety net for
+    // late-mounted nodes; the MutationObservers above handle the rest.
     let tries = 0;
     const iv = setInterval(() => {
       attachPanelTitleObserver();
@@ -180,8 +184,8 @@
       scrubPanelTitle();
       scrubMvTitle();
       maybeKickLyrics();
-      if (++tries > 600) clearInterval(iv); // ~5 min then stop polling
-    }, 500);
+      if (++tries > 30) clearInterval(iv);
+    }, 2000);
   }
 
   if (document.readyState === "loading") {

@@ -119,12 +119,13 @@
   top: 8%;
   transform: translate(-50%, 0);
   max-width: ${CONFIG.MV_TITLE_MAX_WIDTH_RATIO * 100}%;
-  /* CSSOS_PHASE2_TITLE_NO_CLIP 20260429 #190 — defensive vertical
-     clamp so a misbehaving fit loop never pushes the last line past
-     the bottom edge of the media frame. 70% of frame height covers
-     the auto-fit budget (3 lines × ~7% font) with breathing room. */
-  max-height: 70%;
-  overflow: hidden;
+  /* CSSOS_PHASE2_NO_TITLE_SAFE_ZONE 20260504 — Jing
+     "媒体框就是'安全区'". Allow the title to occupy the full frame
+     height; the only boundary is the frame itself. The auto-fit loop
+     downstream still scales font-size to keep the title from
+     overflowing the frame. */
+  max-height: 100%;
+  overflow: visible;
   text-align: center;
   font-family: var(--watch-title-font-family, "CSSTitleBoldC", "Syne", system-ui, sans-serif);
   font-weight: 800;
@@ -141,8 +142,12 @@
   word-break: break-word;
   overflow-wrap: anywhere;
   transition: opacity 0.36s ease-in-out;
-  padding: 0 4%;
+  /* CSSOS_PHASE2_NO_TITLE_SAFE_ZONE 20260504 — drop the 4% inner
+     padding; the anchor rule pins us to the frame edge directly. */
+  padding: 0;
   white-space: normal;
+  /* No max-width safe-zone either — the media frame is the bound. */
+  max-width: 100%;
 }
 .cssmv-mv-title.is-visible { opacity: 1; }
 .cssmv-mv-title.is-hidden  { opacity: 0; }
@@ -465,10 +470,69 @@
   // ------------------------------------------------------------------
   // Graphemes — CJK chars, English words, punctuation
   // ------------------------------------------------------------------
+  // CSSOS_PHASE2_BRACKET_GROUP 20260504 — Jing
+  // "不是因为是标点符号就分开两个，这种时候应该是括号里面的字幕和
+  //  括号一种字体". When a token list contains a "(" / "（" / "[" /
+  //  "【" followed (eventually) by its matching close bracket, the
+  //  bracket itself + everything inside + the close bracket should
+  //  travel as ONE unit — same font, same line, no break. Otherwise
+  //  the per-glyph layout splits "(가)" across three lines as we just
+  //  saw. This pre-segmenter walks the string once and emits bracket
+  //  groups as single pieces; everything else falls through to the
+  //  existing CJK/Latin segmenter below.
+  const __BRACKETS = { "(": ")", "（": "）", "[": "]", "【": "】", "「": "」", "『": "』", "《": "》" };
+  function preGroupBrackets(str) {
+    const groups = [];
+    let i = 0;
+    while (i < str.length) {
+      const ch = str[i];
+      const close = __BRACKETS[ch];
+      if (close) {
+        const closeIdx = str.indexOf(close, i + 1);
+        // Only collapse if the close is found AND the inner content is
+        // short enough to read as a single typographic unit (≤ 12 chars).
+        // Long bracketed text (e.g. footnotes, attributions) keeps its
+        // word-level breaking so it can wrap naturally.
+        if (closeIdx > i && closeIdx - i - 1 <= 12) {
+          groups.push({ start: i, end: closeIdx + 1 });
+          i = closeIdx + 1;
+          continue;
+        }
+      }
+      i += 1;
+    }
+    if (!groups.length) return null;
+    // Slice the string into [non-bracket, bracket-group, non-bracket, …]
+    const out = [];
+    let cursor = 0;
+    for (const g of groups) {
+      if (g.start > cursor) out.push({ text: str.slice(cursor, g.start), isGroup: false });
+      out.push({ text: str.slice(g.start, g.end), isGroup: true });
+      cursor = g.end;
+    }
+    if (cursor < str.length) out.push({ text: str.slice(cursor), isGroup: false });
+    return out;
+  }
+
   function segmentForEntry(text) {
     const out = [];
     const str = String(text || "");
     if (!str) return out;
+    // CSSOS_PHASE2_BRACKET_GROUP 20260504 — pre-collapse bracket groups
+    // into single pieces so "(가)" stays as one glyph span.
+    const pre = preGroupBrackets(str);
+    if (pre) {
+      for (const seg of pre) {
+        if (seg.isGroup) {
+          out.push(seg.text);
+        } else {
+          // Recurse into the existing segmenter for non-bracket runs.
+          const sub = segmentForEntry(seg.text);
+          for (const s of sub) out.push(s);
+        }
+      }
+      return out;
+    }
     // Prefer Intl.Segmenter if available (word-level for Latin, char-level for CJK)
     if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
       try {
@@ -523,6 +587,19 @@
   // ------------------------------------------------------------------
   let __cssmvFontCatalogCache = null;
   let __cssmvFontCatalogStamp = 0;
+  // CSSOS_PHASE2_FANCY_WEIGHT 20260504 — Jing
+  // "请把fancy font真正接进来，并且给最高权重90%". A family is "plain"
+  // when its name reads as a generic system / sans / serif / mono — those
+  // are workhorse fallbacks the user wants to see only occasionally
+  // (10%). Everything else (calligraphic CN, hand-written, decorative
+  // display, the 143 deployed manifest fonts that survived the prune)
+  // counts as "fancy" and gets the 90% bulk.
+  const __CSSMV_PLAIN_FAMILY_RE = /^(?:system-ui|ui-(?:sans|serif|mono|rounded)|sans-serif|serif|monospace|cursive|fantasy|Helvetica(?:\s+Neue)?|Arial(?:\s+Black|\s+Narrow)?|Times(?:\s+New\s+Roman)?|Georgia|Verdana|Tahoma|Trebuchet(?:\s+MS)?|Courier(?:\s+New)?|Roboto(?:\s+(?:Mono|Slab|Condensed))?|Inter|Lato|Open\s+Sans|Source\s+Sans(?:\s+Pro)?|Source\s+Serif(?:\s+Pro)?|Source\s+Code(?:\s+Pro)?|Noto\s+Sans(?:\s+CJK)?|Noto\s+Serif(?:\s+CJK)?|PingFang(?:\s+SC|\s+TC|\s+HK)?|Hiragino\s+Sans(?:\s+GB)?|Microsoft\s+YaHei|Microsoft\s+JhengHei|SimSun|SimHei|Heiti(?:\s+SC|\s+TC)?|Songti(?:\s+SC|\s+TC)?|Apple\s+SD\s+Gothic\s+Neo|Malgun\s+Gothic|Yu\s+Gothic|Meiryo|MS\s+(?:Gothic|Mincho|PGothic|PMincho))$/i;
+  function classifyFamily(fam) {
+    const t = String(fam || "").trim().replace(/^["']|["']$/g, "");
+    if (!t) return "fancy";
+    return __CSSMV_PLAIN_FAMILY_RE.test(t) ? "plain" : "fancy";
+  }
   function loadFontPools() {
     // cache for ~1s; catalog rarely changes after boot
     const now = Date.now();
@@ -545,10 +622,6 @@
       }
     } catch (_err) {}
     // CSSOS_PHASE2_FONT_POOL_MANIFEST_FALLBACK 20260420 #83
-    // Defensive: if catalog function is unavailable (watch-ui.js load-order
-    // issue, monkey-patch override, whatever), rebuild pools directly from the
-    // font manifest. The manifest is populated by app.watch-font-manifest.js
-    // which loads before this file and exposes CSSOS_WATCH_FONT_MANIFEST.
     if (!cjk.length && !latin.length) {
       try {
         const manifest = Array.isArray(globalThis.CSSOS_WATCH_FONT_MANIFEST)
@@ -566,11 +639,49 @@
         }
       } catch (_err) {}
     }
-    const pools = { cjk, latin };
+    // CSSOS_PHASE2_FANCY_WEIGHT 20260504 — split each script pool into
+    // fancy / plain sub-pools so the per-piece picker can do a 90/10
+    // weighted draw. Falls back gracefully when one bucket is empty
+    // (entire pool counts as the available bucket).
+    const cjkFancy = [], cjkPlain = [];
+    for (const f of cjk) {
+      (classifyFamily(f) === "fancy" ? cjkFancy : cjkPlain).push(f);
+    }
+    const latinFancy = [], latinPlain = [];
+    for (const f of latin) {
+      (classifyFamily(f) === "fancy" ? latinFancy : latinPlain).push(f);
+    }
+    const pools = { cjk, latin, cjkFancy, cjkPlain, latinFancy, latinPlain };
     __cssmvFontCatalogCache = pools;
     __cssmvFontCatalogStamp = now;
+    if (!globalThis.__cssmvFancyLogged) {
+      globalThis.__cssmvFancyLogged = true;
+      try {
+        console.info(
+          "%c[font-pools] cjk fancy=%d plain=%d · latin fancy=%d plain=%d (90/10 weighting active)",
+          "color:#d2a; font-weight:bold",
+          cjkFancy.length, cjkPlain.length, latinFancy.length, latinPlain.length
+        );
+      } catch (_e) {}
+    }
     return pools;
   }
+  // Weighted draw: 90% from the fancy bucket, 10% from plain. If one
+  // side is empty, draw entirely from the other.
+  function pickWeightedFromBuckets(fancy, plain, fancyWeight) {
+    const w = (typeof fancyWeight === "number") ? fancyWeight : 0.9;
+    const useFancy = (Math.random() < w) && fancy.length > 0;
+    const bucket = useFancy ? fancy : (plain.length ? plain : fancy);
+    if (!bucket.length) return "";
+    return bucket[Math.floor(Math.random() * bucket.length)] || "";
+  }
+  globalThis.cssmvPickWeightedFontFamily = function (script, fancyWeight) {
+    const pools = loadFontPools();
+    const isCjk = String(script || "").toLowerCase() === "cjk";
+    const fancy = isCjk ? pools.cjkFancy : pools.latinFancy;
+    const plain = isCjk ? pools.cjkPlain : pools.latinPlain;
+    return pickWeightedFromBuckets(fancy, plain, fancyWeight);
+  };
 
   function perTokenMode() {
     try {
@@ -620,9 +731,17 @@
     if (!cjk.length && !latin.length) return out;
 
     // preset: "line" — pick ONE font per script, apply to every matching token
+    // CSSOS_PHASE2_FANCY_WEIGHT 20260504 — every preset below now
+    // routes its random draw through the 90/10 fancy/plain weighting.
+    const pools = loadFontPools();
+    const drawCjk = () => pickWeightedFromBuckets(pools.cjkFancy, pools.cjkPlain, 0.9)
+                       || pickWeightedFromBuckets(pools.latinFancy, pools.latinPlain, 0.9);
+    const drawLat = () => pickWeightedFromBuckets(pools.latinFancy, pools.latinPlain, 0.9)
+                       || pickWeightedFromBuckets(pools.cjkFancy, pools.cjkPlain, 0.9);
+
     if (preset === "line") {
-      const oneCjk = randomFromPool(cjk) || randomFromPool(latin);
-      const oneLat = randomFromPool(latin) || randomFromPool(cjk);
+      const oneCjk = drawCjk();
+      const oneLat = drawLat();
       for (let i = 0; i < len; i++) {
         const p = pieces[i];
         if (!p || /^\s+$/.test(p)) continue;
@@ -631,7 +750,7 @@
       return out;
     }
 
-    // preset: "rhythm" — strict CJK/Latin alternation (falls back to chaos-style randomness otherwise)
+    // preset: "rhythm" — strict CJK/Latin alternation
     if (preset === "rhythm") {
       let flip = 0;
       for (let i = 0; i < len; i++) {
@@ -639,19 +758,16 @@
         if (!p || /^\s+$/.test(p)) continue;
         const wantCjk = CJK_RE.test(p);
         const useCjk = wantCjk ? (flip++ % 2 === 0) : false;
-        const pool = wantCjk ? (useCjk ? cjk : (cjk.length ? cjk : latin)) : (latin.length ? latin : cjk);
-        out[i] = randomFromPool(pool);
+        out[i] = wantCjk ? (useCjk ? drawCjk() : drawLat()) : drawLat();
       }
       return out;
     }
 
-    // default: "chaos" — fully random per token from the matching script pool
+    // default: "chaos" — fully random per token (weighted)
     for (let i = 0; i < len; i++) {
       const p = pieces[i];
       if (!p || /^\s+$/.test(p)) continue;
-      const wantCjk = CJK_RE.test(p);
-      const pool = wantCjk ? (cjk.length ? cjk : latin) : (latin.length ? latin : cjk);
-      out[i] = randomFromPool(pool);
+      out[i] = CJK_RE.test(p) ? drawCjk() : drawLat();
     }
     return out;
   }
@@ -1219,18 +1335,53 @@
     const t = String(text || "").trim();
     if (!t) return "";
     if (__cssmvPieceFontMap.has(t)) return __cssmvPieceFontMap.get(t) || "";
-    const { cjk, latin } = loadFontPools();
-    if (!cjk.length && !latin.length) {
+    const pools = loadFontPools();
+    if (!pools.cjk.length && !pools.latin.length) {
       __cssmvPieceFontMap.set(t, "");
       return "";
     }
+    // CSSOS_PHASE2_FANCY_WEIGHT 20260504 — Jing
+    // 90% fancy / 10% plain. The deployed manifest is heavy on CJK
+    // calligraphic faces (143 survivors, mostly cjk after fonts_en
+    // pruning), so the Latin fancy bucket can be tiny or empty. To
+    // guarantee the user sees fancy fonts on Latin text too, cross-
+    // pool the FANCY bucket whenever the same-script fancy bucket is
+    // empty — most CJK calligraphic fonts cover the basic Latin block,
+    // and a missing glyph cleanly falls through to var(--watch-title-
+    // font-family) downstream.
     const wantCjk = CJK_RE.test(t);
-    const pool = wantCjk ? (cjk.length ? cjk : latin) : (latin.length ? latin : cjk);
-    const fam = randomFromPool(pool);
+    let fancy = wantCjk ? pools.cjkFancy : pools.latinFancy;
+    if (!fancy.length) fancy = wantCjk ? pools.latinFancy : pools.cjkFancy;
+    let plain = wantCjk ? pools.cjkPlain : pools.latinPlain;
+    if (!plain.length) plain = wantCjk ? pools.latinPlain : pools.cjkPlain;
+    const fam = pickWeightedFromBuckets(fancy, plain, 0.9);
+    // CSSOS_PHASE2_BOUNDED_CACHE 20260505 — Jing
+    // Cap the per-piece font map at 4000 entries so a long-lived
+    // session reading thousands of unique CJK chars + Latin words
+    // can't grow it to 100k+. Eviction: drop the oldest insertion
+    // (Map preserves insertion order, so deleting the first key works).
+    if (__cssmvPieceFontMap.size >= 4000) {
+      const firstKey = __cssmvPieceFontMap.keys().next().value;
+      if (firstKey) __cssmvPieceFontMap.delete(firstKey);
+    }
     __cssmvPieceFontMap.set(t, fam);
     return fam;
   }
   globalThis.cssmvAssignFontForPiece = cssmvAssignFontForPiece;
+  // CSSOS_PHASE2_FANCY_CACHE_BUST 20260504 — Jing
+  // The per-piece font map is persistent across the session so a given
+  // glyph keeps its font between re-renders. But when new fonts get
+  // injected mid-session (Google Fonts arriving after first paint),
+  // earlier assignments are stuck on whatever was available at the
+  // moment they were first looked up. Expose a clear hook so callers
+  // (font-manifest, settings panel, future hot-reload) can invalidate
+  // every assignment and have the next render re-roll across the full
+  // (now larger) pool.
+  globalThis.cssmvClearPieceFontMap = function () {
+    __cssmvPieceFontMap.clear();
+    __cssmvFontCatalogCache = null;
+    __cssmvFontCatalogStamp = 0;
+  };
 
   function shuffleTokenFonts() {
     // CSSMV_FONT_SHUFFLE_FORCE 20260423 #93 — Jing: make this actually fire the
@@ -1540,17 +1691,27 @@
       restartAutoRotate();
     }, 0);
 
-    // Re-wire when Watch panel hydrates later (tabs may re-create nodes)
+    // CSSOS_PHASE2_OBS_DEBOUNCE 20260505 — Jing
+    // "请仔细检查全站代码，查处哪些代码在严重消耗资源". This observer
+    // was watching ENTIRE document.body (childList + subtree), firing
+    // on every DOM mutation across all 240 modules — every Works Center
+    // re-render, every karaoke subtitle update, every font shuffle.
+    // Each fire ran wireStyleShiftMenu / ensureMvTitle / wireMvTitleResize
+    // / wireMvTitleAutoHide / attachObservers — heavy chain. Debounce
+    // to 200 ms so a burst of mutations collapses into a single re-wire.
+    let __cssmvRewireTid = 0;
     const mo = new MutationObserver(() => {
-      wireStyleShiftMenu();
-      ensureMvTitle();
-      wireMvTitleResize();
-      wireMvTitleAutoHide();
-      // P2-42: re-render title if the frame was just (re)created and we have
-      // a title available but no current text attached.
-      if (!mvTitleLastText) renderBootTitleIfAvailable();
-      ensureStemToggleBtn();
-      attachObservers();
+      if (__cssmvRewireTid) return;
+      __cssmvRewireTid = setTimeout(() => {
+        __cssmvRewireTid = 0;
+        wireStyleShiftMenu();
+        ensureMvTitle();
+        wireMvTitleResize();
+        wireMvTitleAutoHide();
+        if (!mvTitleLastText) renderBootTitleIfAvailable();
+        ensureStemToggleBtn();
+        attachObservers();
+      }, 200);
     });
     mo.observe(document.body, { childList: true, subtree: true });
   }

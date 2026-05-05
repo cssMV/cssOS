@@ -34,6 +34,15 @@ function buildPanelSettingsMarkupBridge({
       <input type="text" maxlength="80" data-setting="panel-voice-command" placeholder="${loginCopy("Open this panel")}" />
       <span class="panel-setting-readout" data-setting-readout="panel-voice-default"></span>
     </label>
+    <!-- CSSOS_PHASE2_DOCK_SLOT 20260505 — Jing
+         "dock position也无效，请修复，第一个位置从0开始". Per-panel
+         slot index in the dock; 0 = first, 1 = second, etc. Empty
+         means "use the global default order". -->
+    <label>
+      ${loginCopy("Dock slot index (0 = first)")}
+      <input type="number" min="0" max="64" step="1" data-setting="panel-dock-slot" placeholder="${loginCopy("Default")}" />
+      <span class="panel-setting-readout" data-setting-readout="panel-dock-slot-current"></span>
+    </label>
     ${
       isLogoPanel
         ? `

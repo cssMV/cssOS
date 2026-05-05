@@ -7,6 +7,26 @@
 #mv-pipeline-panel {
   width: min(70vw, 720px);
 }
+/* CSSOS_PHASE2_MV_FULLSCREEN_OVERRIDE 20260505 — Jing
+   "MV PIPELINE面板…请做成普通面板，最大化状态启动".
+   The id-scoped width above had higher specificity (1,0,0) than the
+   global .panel.maximized[data-maximize-mode="fullscreen"] rule
+   (0,3,1), so the panel kept its 720px floating width even when
+   .maximized was applied. Override here so the maximized panel
+   really does fill the viewport on every platform. */
+#mv-pipeline-panel.maximized,
+#mv-pipeline-panel.maximized[data-maximize-mode="fullscreen"] {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
+  left: 0 !important;
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  transform: none !important;
+  border-radius: 0 !important;
+}
 
 #mv-pipeline-panel .panel-body {
   display: flex;

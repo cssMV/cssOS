@@ -36,18 +36,26 @@ async function loadMusicDeliveryDashboardModule(
   renderMusicDeliveryDashboard();
 
   // CSSOS_PHASE2_404_SILENCE 20260504 — Jing
-  // /cssapi/v1/runs/<id>/music-delivery-dashboard is not registered in
-  // rust-api/src/routes.rs and 404s for every run, flooding DevTools.
-  // Catch the network promise so a missing endpoint becomes a no-op
-  // instead of an unhandled rejection / red error.
-  const dashboardFetch = fetch(
-    `${apiBase()}/cssapi/v1/runs/${encodeURIComponent(normalizedRunId)}/music-delivery-dashboard`,
-    {
-      method: "GET",
-      headers: { accept: "application/json" },
-      cache: "no-store"
-    }
-  ).catch(() => null);
+  // "每次输出作品都出现，肯定影响系统". The dashboard endpoint IS
+  // registered server-side, but it requires a persisted run-state file
+  // produced by the rust pipeline. Frontend-generated run IDs (e.g.
+  // mv-1777942167434, "preview-...", anything from the JS pipeline)
+  // never persist a run-state file and so always 404 — and a 404
+  // response body, even when caught at the JS layer, still gets
+  // painted as a red entry in DevTools network tab. The .catch() only
+  // suppresses the JS rejection, not the browser's network log.
+  //
+  // Skip the fetch entirely unless the runId looks like a real
+  // server-side run (currently produced as UUID v4 by the rust pipeline).
+  // Frontend-generated IDs are prefixed mv-, preview-, run-, watch-.
+  const isServerRunId =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(normalizedRunId);
+  const dashboardFetch = isServerRunId
+    ? fetch(
+        `${apiBase()}/cssapi/v1/runs/${encodeURIComponent(normalizedRunId)}/music-delivery-dashboard`,
+        { method: "GET", headers: { accept: "application/json" }, cache: "no-store" }
+      ).catch(() => null)
+    : Promise.resolve(null);
   const probeFetch = fetch("/ops/zh-probe-latest.json", {
     method: "GET",
     headers: { accept: "application/json" },

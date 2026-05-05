@@ -41,17 +41,15 @@ function collectAudioArtifactCandidatesModule(statusPayload) {
 }
 
 async function probeFinalAudioArtifactModule(runId, artifactPath) {
-  const url = finalAudioArtifactUrl(runId, artifactPath);
-  if (!url) return "";
-  try {
-    const res = await fetch(url, {
-      method: "GET",
-      headers: { Range: "bytes=0-1" }
-    });
-    if (res.status === 200 || res.status === 206) return url;
-  } catch (_err) {
-    return "";
-  }
+  // CSSOS_PHASE2_NO_ARTIFACT_PROBE 20260504 — Jing
+  // "控制台报错". The 1-byte Range probe fired a real GET that the
+  // browser logged as 404 in the network panel whenever the artifact
+  // wasn't ready yet. Even with .catch the red line still painted.
+  // Skip the probe entirely; only adopt artifact URLs that the
+  // statusPayload explicitly advertises (handled in the caller —
+  // statusPayloadHasAudioCandidateModule branch wins). This means we
+  // wait one extra polling tick to discover a finished artifact, but
+  // the trade is a clean console for the user.
   return "";
 }
 
@@ -126,10 +124,18 @@ async function maybeAttachFinalAudioArtifactModule(runId, statusPayload, derived
       return true;
     }
     const preservePlayback = !!(!watchAudioPreview.paused && !watchAudioPreview.ended);
+    // CSSOS_PHASE2_NO_SWAP_MUTE 20260505 — Jing
+    // "播放了几秒就自动静音". The hot-swap path used to set
+    // muted=true to avoid a pop on src change, but never unmuted —
+    // so when the polling loop swapped in the final artifact a few
+    // seconds into playback, the song went silent. Modern browsers
+    // handle src swap cleanly without mute; preserve the prior mute
+    // state instead of forcing true.
+    const __wasMuted = !!watchAudioPreview.muted;
     watchAudioPreview.autoplay = true;
     watchAudioPreview.playsInline = true;
     watchAudioPreview.loop = false;
-    watchAudioPreview.muted = true;
+    watchAudioPreview.muted = __wasMuted;
     watchAudioPreview.volume = 1;
     watchAudioPreview.src = url;
     watchAudioPreview.style.display = "block";

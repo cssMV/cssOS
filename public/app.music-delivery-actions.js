@@ -38,6 +38,10 @@
     const targetRunId = String(runId || "").trim();
     if (!targetRunId) return null;
     try {
+      // CSSOS_PHASE2_404_SILENCE 20260504 — skip non-UUID runIds.
+      const isServerRunId =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetRunId);
+      if (!isServerRunId) return null;
       const res = await fetch(
         `${global.apiBase()}/cssapi/v1/runs/${encodeURIComponent(targetRunId)}/music-delivery-dashboard`,
         { headers: { accept: "application/json" } }

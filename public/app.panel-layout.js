@@ -131,6 +131,13 @@ function restorePanelModule(panel) {
   panel.style.transform = restore.transform || "";
   panel.classList.remove("maximized");
   panel.dataset.maximized = "false";
+  // CSSOS_PHASE2_OPEN_MAXIMIZED 20260505 — Jing
+  // Mark that the user explicitly un-maximized this panel so a
+  // subsequent openPanel() call doesn't auto-maximize again. We
+  // don't persist this across reloads (the default is still
+  // maximized on a fresh page load); it only respects the choice
+  // within the current session.
+  panel.dataset.userUnmaximized = "1";
 }
 
 /* CSSOS_PHASE1_MAXIMIZE_PARAMETERIZED 20260417:

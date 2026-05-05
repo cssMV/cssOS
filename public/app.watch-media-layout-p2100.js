@@ -1119,8 +1119,168 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
       if (panel && !document.fullscreenElement) panel.classList.remove("is-cssmv-fullscreen");
     });
 
+    // CSSOS_PHASE2_AUTO_CINEMA 20260504 — Jing
+    // Reusable entry the universal-entry chain calls every time the
+    // Watch panel opens. Equivalent to the user hitting the bottom-
+    // right ⛶ button: requestFullscreen + apply the .is-cssmv-fullscreen
+    // class (cinema layout + dark backdrop). If the browser rejects
+    // requestFullscreen (no user activation), the class still flips so
+    // the visual cinema state shows.
+    // CSSOS_PHASE2_CINEMA_LAYOUT_FIRST 20260505 — Jing
+    // "MV面板/媒体框在载入/启动时，就应该以最大化状态启动".
+    // Phase 1: synchronous layout-only fullscreen — apply the class
+    // + body theme. No requestFullscreen yet (that gets deferred to
+    // Phase 2 in the watch-ui caller, after audio is established).
+    if (!globalThis.cssosEnterCinemaLayout) {
+      globalThis.cssosEnterCinemaLayout = function () {
+        const panel = document.getElementById("watch-panel");
+        if (!panel) return;
+        if (panel.classList.contains("is-cssmv-fullscreen")) return;
+        try { applyScreenAspectRatio(); } catch (_e) {}
+        panel.classList.add("is-cssmv-fullscreen");
+        document.body.classList.add("cssos-cinema-mode");
+      };
+    }
+    if (!globalThis.cssosRequestBrowserFullscreen) {
+      globalThis.cssosRequestBrowserFullscreen = async function () {
+        const panel = document.getElementById("watch-panel");
+        if (!panel) return;
+        if (document.fullscreenElement) return;
+        // Snapshot audio state so the fullscreen reflow can't mute us.
+        const v = document.getElementById("watch-video");
+        const a = document.getElementById("watch-audio-preview");
+        const snap = {
+          vMuted: v?.muted, vVolume: v?.volume,
+          aMuted: a?.muted, aVolume: a?.volume,
+        };
+        const restore = () => {
+          try {
+            if (v && snap.vMuted !== undefined) {
+              v.muted = snap.vMuted;
+              if (typeof snap.vVolume === "number") v.volume = snap.vVolume;
+            }
+            if (a && snap.aMuted !== undefined) {
+              a.muted = snap.aMuted;
+              if (typeof snap.aVolume === "number") a.volume = snap.aVolume;
+            }
+          } catch (_e) {}
+        };
+        try {
+          const fn =
+            panel.requestFullscreen ||
+            panel.webkitRequestFullscreen ||
+            panel.mozRequestFullScreen ||
+            panel.msRequestFullscreen;
+          if (fn) await fn.call(panel);
+          setTimeout(restore, 50);
+          setTimeout(restore, 400);
+        } catch (err) {
+          console.info("[cssos-cinema] requestFullscreen rejected:", err?.name || err);
+          restore();
+        }
+      };
+    }
+    // Backwards-compat: the original combined helper still works for
+    // anyone calling it directly (e.g. the bottom-right ⛶ button).
+    if (!globalThis.cssosEnterCinemaMode) {
+      globalThis.cssosEnterCinemaMode = async function () {
+        const panel = document.getElementById("watch-panel");
+        if (!panel) return;
+        // Already in cinema? Skip.
+        if (panel.classList.contains("is-cssmv-fullscreen") &&
+            document.fullscreenElement) {
+          return;
+        }
+        try { applyScreenAspectRatio(); } catch (_e) {}
+        panel.classList.add("is-cssmv-fullscreen");
+        // Cinema = full black regardless of theme. Stamped on <body>
+        // so any rule scoped to a theme picker still sees a flat dark
+        // canvas behind the fullscreened panel.
+        document.body.classList.add("cssos-cinema-mode");
+        // CSSOS_PHASE2_CINEMA_NO_MUTE 20260504 — capture audio state
+        // BEFORE the fullscreen transition so we can defensively
+        // restore it AFTER. Some browsers drop the audio track during
+        // fullscreen reflow; by snapshotting muted/volume + reapplying,
+        // we make sure the user never lands in silent fullscreen.
+        const v = document.getElementById("watch-video");
+        const a = document.getElementById("watch-audio-preview");
+        const snapshot = {
+          vMuted: v?.muted, vVolume: v?.volume,
+          aMuted: a?.muted, aVolume: a?.volume,
+        };
+        const restoreAudio = () => {
+          try {
+            if (v && snapshot.vMuted !== undefined) {
+              v.muted = snapshot.vMuted;
+              if (typeof snapshot.vVolume === "number") v.volume = snapshot.vVolume;
+            }
+            if (a && snapshot.aMuted !== undefined) {
+              a.muted = snapshot.aMuted;
+              if (typeof snapshot.aVolume === "number") a.volume = snapshot.aVolume;
+            }
+          } catch (_e) {}
+        };
+        if (!document.fullscreenElement) {
+          try {
+            const fn =
+              panel.requestFullscreen ||
+              panel.webkitRequestFullscreen ||
+              panel.mozRequestFullScreen ||
+              panel.msRequestFullscreen;
+            if (fn) await fn.call(panel);
+            // Defensive audio restore (next tick, after layout settles).
+            setTimeout(restoreAudio, 50);
+            setTimeout(restoreAudio, 400);
+          } catch (err) {
+            console.info("[cssos-cinema] requestFullscreen rejected:", err?.name || err);
+            restoreAudio();
+          }
+        }
+      };
+      // Pair: drop the cinema class when the user exits fullscreen.
+      document.addEventListener("fullscreenchange", function () {
+        if (!document.fullscreenElement) {
+          document.body.classList.remove("cssos-cinema-mode");
+        }
+      });
+    }
+
     screen.appendChild(infoBtn);
     screen.appendChild(fsBtn);
+
+    // CSSOS_PHASE2_MOBILE_OVERFLOW_BTN 20260505 — Jing
+    // "媒体框右下角的那些按钮，手机端都收到三点里。以免和右下角的内容
+    //  打架". On mobile (≤560 px), the bottom-right button cluster
+    // (info / fullscreen / take-toggle / stem-toggle / style-shift)
+    // collides with subtitles / playlist chips. Add a single ⋯
+    // overflow button that toggles a `cssmv-overflow-open` class on
+    // .watch-screen; the CSS rules below show the cluster only when
+    // that class is present, so the corner stays clean by default.
+    if (!screen.querySelector(".cssmv-overflow-btn")) {
+      const overflowBtn = document.createElement("button");
+      overflowBtn.type = "button";
+      overflowBtn.className = "cssmv-fr-btn cssmv-overflow-btn";
+      overflowBtn.setAttribute("aria-label", "More");
+      overflowBtn.textContent = "⋯";
+      overflowBtn.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        screen.classList.toggle("cssmv-overflow-open");
+      });
+      // Outside-click closes the overflow group.
+      document.addEventListener("pointerdown", function (e) {
+        if (!screen.classList.contains("cssmv-overflow-open")) return;
+        const t = e.target;
+        if (t && typeof t.closest === "function") {
+          if (t.closest(".cssmv-overflow-btn")) return;
+          if (t.closest(".cssmv-fr-btn")) return;
+          if (t.closest(".cssmv-stem-toggle")) return;
+          if (t.closest("#watch-style-shift")) return;
+        }
+        screen.classList.remove("cssmv-overflow-open");
+      }, true);
+      screen.appendChild(overflowBtn);
+    }
     return true;
   }
 
@@ -1169,20 +1329,74 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
       }
       const v = document.getElementById("watch-video");
       const a = document.getElementById("watch-audio-preview");
-      // Choose the element that has a real src + readiness as the "primary."
       const primary =
         (v && v.src && v.readyState > 0) ? v :
         (a && a.src && a.readyState > 0) ? a :
         v || a;
       if (!primary) return;
+      // CSSOS_PHASE2_BORDER_SEEK 20260504 — Jing
+      // "鼠标点击面板边框，即进度条就从哪里暂停，如果还没播放到的，
+      //  就快进到那里。点击媒体框，切换播放/暂停。"
+      // Click within the outer border band (~16px from any edge of the
+      // media frame) seeks to that fraction of the timeline. The
+      // mapping treats the perimeter as the union of the four edges:
+      //   • top edge   → fraction = x / width        (left→right)
+      //   • bottom     → fraction = x / width        (same direction)
+      //   • left edge  → fraction = y / height       (top→bottom)
+      //   • right edge → fraction = y / height       (same direction)
+      // Whichever edge the click is closest to wins.
+      const rect = screen.getBoundingClientRect();
+      const dx = e.clientX - rect.left;
+      const dy = e.clientY - rect.top;
+      const BORDER_PX = 16;
+      const nearTop    = dy <= BORDER_PX;
+      const nearBottom = dy >= rect.height - BORDER_PX;
+      const nearLeft   = dx <= BORDER_PX;
+      const nearRight  = dx >= rect.width  - BORDER_PX;
+      const onBorder = nearTop || nearBottom || nearLeft || nearRight;
+      if (onBorder) {
+        const dur = Number(primary.duration || 0);
+        if (Number.isFinite(dur) && dur > 0) {
+          let frac;
+          // Pick the closest edge so the seek reads the same axis the
+          // user's click lands on.
+          const dTop    = dy;
+          const dBottom = rect.height - dy;
+          const dLeft   = dx;
+          const dRight  = rect.width  - dx;
+          const minD = Math.min(dTop, dBottom, dLeft, dRight);
+          if (minD === dTop || minD === dBottom) {
+            frac = Math.max(0, Math.min(1, dx / rect.width));
+          } else {
+            frac = Math.max(0, Math.min(1, dy / rect.height));
+          }
+          const target = frac * dur;
+          try {
+            primary.currentTime = target;
+            // If we picked video, also seek audio so they stay synced.
+            if (primary === v && a && a.src && Number.isFinite(Number(a.duration))) {
+              try { a.currentTime = target; } catch (_e) {}
+            }
+            // Show the border-seek hint briefly.
+            screen.dataset.cssosSeekFrac = frac.toFixed(3);
+            console.info(
+              "[watch-frame] border-seek → %s (frac %s)",
+              new Date(target * 1000).toISOString().substr(11, 8),
+              frac.toFixed(3)
+            );
+          } catch (_err) {}
+        }
+        // Border click EITHER way: don't toggle play/pause.
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      // Interior click → toggle play/pause (the original behaviour).
       try {
         if (primary.paused || primary.ended) {
-          // Unmute on toggle if user explicitly hits play.
           try { primary.muted = false; } catch (_e) {}
           const p = primary.play();
           if (p && typeof p.catch === "function") p.catch(function () {});
-          // If we picked video, also fire the audio element so they stay
-          // synced (in case audio is a separate track post-#151 streams).
           if (primary === v && a && a.src) {
             try { a.muted = false; a.play().catch(function () {}); } catch (_e) {}
           }
@@ -1311,6 +1525,25 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
       // Detect: click inside a list-card OR on per-card action button.
       const card = t.closest(".work-card, .foryou-card, .works-card, [data-source-run-id], [data-run-id]");
       if (!card) return;
+
+      // CSSOS_PHASE2_TITLE_TOGGLE_NOT_WATCH 20260504 — Jing
+      // "之前是点击作品标题显示歌词/音乐风格/成本等信息，点击图片打开
+      //  MV面板欣赏作品。现在是点击标题也就如MV，不对". Title clicks
+      // hit data-work-toggle / data-market-toggle (expand details).
+      // Cover clicks hit data-work-open-watch / data-market-action='open-watch'
+      // (open watch). The capture-phase rebooter below was firing on
+      // ANY click inside the card, so title clicks were also kicking
+      // a watch reopen — making the title behave like the cover.
+      // Gate the rebooter so it only runs for cover / action-button
+      // clicks; title-toggle clicks fall through to the expand binder
+      // without poking watch.
+      if (t.closest("[data-work-toggle], [data-market-toggle]")) return;
+      const intentToOpenWatch = !!t.closest(
+        "[data-work-open-watch], [data-market-action='open-watch'], " +
+        "[data-work-action='watch'], [data-market-action='preview'], " +
+        "[data-market-action='listen']"
+      );
+      if (!intentToOpenWatch) return;
 
       // Common run-id holders. Check the CARD first, then the button itself.
       function readId(node) {
@@ -1458,8 +1691,18 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
       }
     }
   }
+  // CSSOS_PHASE2_ADV_DEFAULTS_GATE 20260505 — Jing
+  // "请仔细检查全站代码，查处哪些代码在严重消耗资源". This used to
+  // run every 3 s forever (~28800 DOM walks/day) even when the
+  // Advanced panel is closed — pointless. Run once on boot (800 ms),
+  // then bind a one-shot listener that re-runs ONLY when the
+  // Advanced panel becomes visible / shows the relevant fields.
   setTimeout(emptyAdvancedDefaults, 800);
-  setInterval(emptyAdvancedDefaults, 3000);
+  // Re-run on the cssmv:advanced-panel-opened event (fired by the
+  // advanced-panel module when it mounts the controls). Falls back
+  // to a single 5 s safety re-run.
+  document.addEventListener("cssmv:advanced-panel-opened", emptyAdvancedDefaults);
+  setTimeout(emptyAdvancedDefaults, 5000);
 
   // ========================================================================
   // Jing 2026-04-25 #102v — Pipeline trigger lock

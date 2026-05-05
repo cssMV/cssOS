@@ -358,6 +358,36 @@
       }
       return false;
     },
+    // CSSOS_PHASE2_SCOPED_PLAYLIST 20260504 — Jing
+    // "请确保这样：从'为你创作'打开作品，那就顺序循环播放'为你创作'
+    //  所有的作品；同理，'作品中心'，某个用户的作品中心，也都是这样".
+    // Lets the For You / Works Center bindings hand the playlist module
+    // the EXACT works array the user is seeing on screen. The list is
+    // marked exhausted so no background fetch reorders it. Pair with
+    // setActive(listId) + seekTo(clickedWorkId) so the next/prev walk
+    // is bounded to the panel the user opened from.
+    populate(listId, works) {
+      if (!listId || !state.lists[listId]) return false;
+      const list = state.lists[listId];
+      const seen = new Set();
+      const items = [];
+      for (const w of (Array.isArray(works) ? works : [])) {
+        const it = normaliseItem({ ...w, is_own: list.id === "mine" });
+        if (it && !seen.has(it.id)) {
+          items.push(it);
+          seen.add(it.id);
+        }
+      }
+      list.items = items;
+      list.exhausted = true;
+      list.loading = false;
+      // Reset shuffle permutation so a fresh order is built next time
+      // shuffle mode is invoked (avoids stale indices).
+      state.shuffleOrder = [];
+      state.shuffleCursor = 0;
+      notify();
+      return true;
+    },
     addToCustom(work, listId) {
       const it = normaliseItem(work);
       if (!it) return false;

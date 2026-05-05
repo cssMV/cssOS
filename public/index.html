@@ -2,7 +2,17 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- CSSOS_PHASE2_TRUE_FULLSCREEN 20260505 — Jing
+         "手机端的MV面板能否让面板真全屏充满手机屏幕". viewport-fit=cover
+         lets the page extend UNDER the notch + home-indicator. The
+         apple-mobile-web-app-capable meta lets users "Add to Home
+         Screen" for genuine standalone (iOS hides its own chrome
+         entirely). theme-color=black blends Safari's UI with our
+         cinema canvas during normal browsing. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#000000" />
     <base href="/" />
     <title>CSS Studio</title>
     <script>
@@ -43,8 +53,8 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="style.css?v=20260504-subtitle-bl" />
-    <link rel="stylesheet" href="style.mv-pipeline.css?v=20260504-actions-nowrap" />
+    <link rel="stylesheet" href="style.css?v=20260505-true-fs" />
+    <link rel="stylesheet" href="style.mv-pipeline.css?v=20260505-fs-override" />
   </head>
   <body>
     <div class="bg">
@@ -128,7 +138,7 @@
           <div class="panel-actions">
             <button class="icon-btn" type="button" data-i18n-aria="action.settings" aria-label="settings">⚙</button>
             <button class="icon-btn" aria-label="minimize">—</button>
-            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
             <button class="icon-btn" aria-label="close">×</button>
           </div>
         </div>
@@ -313,7 +323,7 @@
           <div class="panel-actions">
             <button class="icon-btn" aria-label="settings">⚙</button>
             <button class="icon-btn" aria-label="minimize">—</button>
-            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
             <button class="icon-btn" aria-label="close">×</button>
           </div>
         </div>
@@ -395,7 +405,7 @@
           <div class="panel-actions">
             <button class="icon-btn" aria-label="settings">⚙</button>
             <button class="icon-btn" aria-label="minimize">—</button>
-            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
             <button class="icon-btn" aria-label="close">×</button>
           </div>
         </div>
@@ -478,7 +488,7 @@
           <div class="panel-actions">
             <button class="icon-btn" aria-label="settings">⚙</button>
             <button class="icon-btn" aria-label="minimize">—</button>
-            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
             <button class="icon-btn" aria-label="close">×</button>
           </div>
         </div>
@@ -674,7 +684,7 @@
           <div class="panel-actions">
             <button class="icon-btn" aria-label="settings">⚙</button>
             <button class="icon-btn" aria-label="minimize">—</button>
-            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
             <button class="icon-btn" aria-label="close">×</button>
           </div>
         </div>
@@ -774,7 +784,7 @@
           <div class="panel-actions">
             <button class="icon-btn" aria-label="settings">⚙</button>
             <button class="icon-btn" aria-label="minimize">—</button>
-            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
             <button class="icon-btn" aria-label="close">×</button>
           </div>
         </div>
@@ -872,7 +882,7 @@
           <div class="panel-actions">
             <button class="icon-btn" aria-label="settings">⚙</button>
             <button class="icon-btn" aria-label="minimize">—</button>
-            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
             <button class="icon-btn" aria-label="close">×</button>
           </div>
         </div>
@@ -897,7 +907,7 @@
           <div class="panel-actions">
             <button class="icon-btn" aria-label="settings">⚙</button>
             <button class="icon-btn" aria-label="minimize">—</button>
-            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
             <button class="icon-btn" aria-label="close">×</button>
           </div>
         </div>
@@ -969,7 +979,7 @@
           <div class="panel-actions">
             <button class="icon-btn" aria-label="settings">⚙</button>
             <button class="icon-btn" aria-label="minimize">—</button>
-            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
             <button class="icon-btn" aria-label="close">×</button>
           </div>
         </div>
@@ -1503,7 +1513,7 @@
           <div class="panel-actions">
             <button class="icon-btn" aria-label="settings">⚙</button>
             <button class="icon-btn" aria-label="minimize">—</button>
-            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
             <button class="icon-btn" aria-label="close">×</button>
           </div>
         </div>
@@ -1529,7 +1539,7 @@
           <div class="panel-actions">
             <button class="icon-btn" type="button" data-i18n-aria="action.settings" aria-label="settings">⚙</button>
             <button class="icon-btn" aria-label="minimize">—</button>
-            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
             <button class="icon-btn" aria-label="close">×</button>
           </div>
         </div>
@@ -1554,6 +1564,12 @@
           <div class="panel-icon">👤</div>
           <div class="panel-title" data-i18n="profile.title">Profile</div>
           <div class="panel-actions">
+            <!-- CSSOS_PHASE2_PROFILE_CHROME 20260505 — Jing
+                 "profile面板，应该做成普通面板，右上角三按钮，最大化
+                  状态启动". Standard three-button cluster, matching
+                 every other panel. -->
+            <button class="icon-btn" type="button" data-i18n-aria="action.minimize" aria-label="Minimize">—</button>
+            <button class="icon-btn" type="button" data-i18n-aria="action.lock" aria-label="Lock panel">⛶</button>
             <button class="icon-btn" type="button" data-action="profile.close" data-i18n-aria="action.close" aria-label="Close">×</button>
           </div>
         </div>
@@ -1582,7 +1598,7 @@
           <div class="panel-actions">
             <button class="icon-btn" aria-label="settings">⚙</button>
             <button class="icon-btn" aria-label="minimize">—</button>
-            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
             <button class="icon-btn" aria-label="close">×</button>
           </div>
         </div>
@@ -1606,7 +1622,7 @@
           <div class="panel-actions">
             <button class="icon-btn" aria-label="settings">⚙</button>
             <button class="icon-btn" aria-label="minimize">—</button>
-            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
             <button class="icon-btn" aria-label="close">×</button>
           </div>
         </div>
@@ -1621,7 +1637,7 @@
           <div class="panel-actions">
             <button class="icon-btn" aria-label="settings">⚙</button>
             <button class="icon-btn" aria-label="minimize">—</button>
-            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
             <button class="icon-btn" aria-label="close">×</button>
           </div>
         </div>
@@ -1636,7 +1652,7 @@
           <div class="panel-actions">
             <button class="icon-btn" aria-label="settings">⚙</button>
             <button class="icon-btn" aria-label="minimize">—</button>
-            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
             <button class="icon-btn" aria-label="close">×</button>
           </div>
         </div>
@@ -1651,7 +1667,7 @@
           <div class="panel-actions">
             <button class="icon-btn" aria-label="settings">⚙</button>
             <button class="icon-btn" aria-label="minimize">—</button>
-            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
             <button class="icon-btn" aria-label="close">×</button>
           </div>
         </div>
@@ -1666,7 +1682,7 @@
           <div class="panel-actions">
             <button class="icon-btn" aria-label="settings">⚙</button>
             <button class="icon-btn" aria-label="minimize">—</button>
-            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
             <button class="icon-btn" aria-label="close">×</button>
           </div>
         </div>
@@ -1820,7 +1836,7 @@
           <div class="panel-actions">
             <button class="icon-btn" aria-label="settings">⚙</button>
             <button class="icon-btn" aria-label="minimize">—</button>
-            <button class="icon-btn" aria-label="lock">⛶</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
             <button class="icon-btn" aria-label="close">×</button>
           </div>
         </div>
@@ -1963,7 +1979,7 @@
     <script src="app.context-menu.js?v=20260428-onetap-bulletproof-168.4"></script>
     <script src="app.delivery-report-bridges.js?v=20260412-ui-recovery-5"></script>
     <script src="app.civilization-bank.js?v=20260418-p2-41-civbank-1"></script>
-    <script src="app.js?v=20260504-single-writer"></script>
+    <script src="app.js?v=20260505-mv-first"></script>
     <script src="app.creation-language.js?v=20260423-p2-86-lang-auto-empty-1"></script>
     <!-- CSSMV_CREATION_LANG_OPTIONS 20260425 #100 — Jing: full 10-lang
          dropdown + setLocale event dispatch + auto-mirror locale into
@@ -1998,18 +2014,18 @@
          to system-ui for every token — so every font looked the same.
          Load it BEFORE app.watch-ui.js so buildWatchFontCatalogModule() can
          see the manifest on first call. -->
-    <script src="app.watch-font-manifest.js?v=20260426-font-404-prune-134"></script>
-    <script src="app.playlists.js?v=20260504-kill-405"></script>
-    <script src="app.watch-ui.js?v=20260504-true-emotional"></script>
+    <script src="app.watch-font-manifest.js?v=20260505-mobile-relief"></script>
+    <script src="app.playlists.js?v=20260504-scoped"></script>
+    <script src="app.watch-ui.js?v=20260505-light-boot"></script>
     <script src="app.watch-lyrics-bridges.js?v=20260327-watch-lyrics-bridges-split-1"></script>
     <script src="app.watch-surface-bridges.js?v=20260327-watch-surface-bridges-split-1"></script>
     <script src="app.about-panel.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.market-commerce.js?v=20260504-subtitle-url-pipeline"></script>
+    <script src="app.market-commerce.js?v=20260505-full-title"></script>
     <script src="app.profile-panel.js?v=20260415-theme-toggle-6"></script>
     <script src="app.gift-inbox-panel.js?v=20260503-gift-open-hydrated"></script>
     <script src="app.language-panel.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.login-panel.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.works-center.js?v=20260503-works-open-unblock"></script>
+    <script src="app.works-center.js?v=20260505-loading-fix"></script>
     <script src="app.api-billing.js?v=20260503-boost-prompt-i18n"></script>
     <script src="app.engine-accounts.js?v=20260424-p2-92-breaker-localstorage-1"></script>
     <script src="app.payments-checkout.js?v=20260419-nihaopay-1"></script>
@@ -2018,7 +2034,7 @@
     <script src="app.delivery-dashboard-bindings.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.panel-search.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.panel-settings.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.panel-layout.js?v=20260503-openpanel-options-forward"></script>
+    <script src="app.panel-layout.js?v=20260505-open-max"></script>
     <script src="app.dock-settings.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.delivery-ops-bridges.js?v=20260326-delivery-ops-bridges-split-1"></script>
     <script src="app.delivery-ops-panel.js?v=20260325-live-unfreeze-2"></script>
@@ -2038,13 +2054,13 @@
     <script src="app.mv-tiers-catalog.js?v=20260419-p2-mv-naming-1"></script>
     <script src="app.mv-tier-picker-modal.js?v=20260419-p2-mv-naming-1"></script>
     <script src="app.cssmv-seed-bank.js?v=20260504-infinite-seed"></script>
-    <script src="app.mv-pipeline-panel.js?v=20260504-hot-swap"></script>
+    <script src="app.mv-pipeline-panel.js?v=20260505-fs-override"></script>
     <script src="app.cover-slideshow.js?v=20260430-slideshow-intensity-200"></script>
     <script src="app.watch-stage-bars.js?v=20260420-p2-78-kill-waiting-dot-1"></script>
     <script src="app.watch-music-ring.js?v=20260420-shared-arc-end-burst-1"></script>
     <script src="app.watch-media-chrome.js?v=20260420-p2-79-kill-bottom-bar-1"></script>
-    <script src="app.watch-media-overlays.js?v=20260504-title-flash"></script>
-    <script src="app.watch-media-layout-p2100.js?v=20260504-subtitle-bl"></script>
+    <script src="app.watch-media-overlays.js?v=20260505-light-boot"></script>
+    <script src="app.watch-media-layout-p2100.js?v=20260505-light-boot"></script>
     <!-- CSSMV_POPUPS_THEME_FIX 20260425 #108 — Jing: light-theme paint
          for popups + clear lingering toast/info popover on watch close. -->
     <script src="app.popups-theme-fix.js?v=20260425-p2-108-popups-theme-1"></script>

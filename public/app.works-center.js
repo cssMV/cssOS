@@ -106,9 +106,51 @@ function openWorksPanelModule() {
   return !worksPanel.classList.contains("hidden");
 }
 
+// CSSOS_PHASE2_NO_REFETCH_ON_SCROLL 20260504 — Jing
+// "作品中心面板一打开，经常引发系统崩溃". Inflight + cache guards so
+// scroll-driven "load more" doesn't re-fetch 500 rows + re-hydrate
+// every thumbnail per scroll tick.
+let __cssosLoadMyWorksInflight = null;
 async function loadMyWorksModule(options = {}) {
   const list = document.getElementById("works-list-dynamic");
-  if (!list || !authState.user) return;
+  if (!list) return;
+  // CSSOS_PHASE2_LOADING_STUCK_FIX 20260505 — Jing
+  // "作品中心一直在loading，很久很久都无法loading出内容". The
+  // function previously returned silently if authState.user wasn't
+  // yet populated (which happens when the panel opens during the
+  // tiny window before auth finishes hydrating). Nothing rescheduled
+  // a retry, so the "Loading works..." text from the shell markup
+  // sat forever. Retry once auth lands; show a tappable retry chip
+  // if the network fetch fails.
+  if (!authState.user) {
+    if (!list.dataset.cssosAuthWaitBound) {
+      list.dataset.cssosAuthWaitBound = "1";
+      const retry = () => {
+        if (!authState.user) return;
+        list.dataset.cssosAuthWaitBound = "";
+        document.removeEventListener("cssos:auth-state-changed", retry);
+        document.removeEventListener("cssos:auth_ready", retry);
+        void loadMyWorksModule(options);
+      };
+      document.addEventListener("cssos:auth-state-changed", retry);
+      document.addEventListener("cssos:auth_ready", retry);
+      // Short polling fallback in case neither event fires (some
+      // legacy auth paths).
+      let polls = 0;
+      const pollIv = setInterval(() => {
+        if (authState.user) {
+          clearInterval(pollIv);
+          retry();
+        } else if (++polls > 30) {
+          clearInterval(pollIv);
+          // 15s × 1s = give up. Surface a sign-in prompt instead of
+          // leaving the user stuck on "Loading...".
+          list.innerHTML = `<div class="works-note">${loginCopy("Sign in to see your works.")}</div>`;
+        }
+      }, 500);
+    }
+    return;
+  }
   const resetVisible = options?.resetVisible !== false;
   if (resetVisible) {
     worksVisibleCount = WORKS_PAGE_SIZE;
@@ -128,6 +170,8 @@ async function loadMyWorksModule(options = {}) {
     syncWorksFilterPills(worksViewOptions);
     const allVisibleWorks = buildVisibleWorks(works, worksViewOptions);
     latestResolvedWorksCollection = Array.isArray(allVisibleWorks) ? allVisibleWorks : [];
+    // Expose for playlist scoping in openMarketWorkPreview.
+    globalThis.latestResolvedWorksCollection = latestResolvedWorksCollection;
     if (!allVisibleWorks.length) {
       list.innerHTML = buildWorksEmptyNoteMarkup();
       return;
@@ -147,18 +191,43 @@ async function loadMyWorksModule(options = {}) {
     });
   };
 
+  // CSSOS_PHASE2_NO_REFETCH_ON_SCROLL 20260504 — when paging-only
+  // (resetVisible=false) AND we already have a resolved collection,
+  // just re-slice + re-render. Avoids hitting /api/works/mine on
+  // every scroll tick and re-hydrating every thumbnail.
+  // CSSOS_PHASE2_PROGRESSIVE_LOAD 20260505 — exception: when the
+  // caller passes `force: true`, we skip the cache short-circuit
+  // and re-fetch (used to top up with a higher fetch limit).
+  if (!resetVisible && !options?.force &&
+      Array.isArray(latestResolvedWorksCollection) && latestResolvedWorksCollection.length) {
+    renderWorksList(latestResolvedWorksCollection);
+    return;
+  }
+  // Inflight guard: collapse concurrent loads into one request so
+  // rapid scrolling / repeated panel opens don't fan out to multiple
+  // 500-row fetches in parallel.
+  if (__cssosLoadMyWorksInflight) {
+    return __cssosLoadMyWorksInflight;
+  }
   const localWorks = listLocalWorksForCurrentUser();
   if (localWorks.length) {
     renderWorksList(localWorks);
   } else {
     list.innerHTML = buildWorksLoadingMarkup();
   }
-  const resolved = await loadResolvedWorksCollection(localWorks);
-  if (!resolved.ok && !resolved.usedLocalFallback) {
-    list.innerHTML = buildWorksLoadFailedMarkup();
-    return;
-  }
-  renderWorksList(Array.isArray(resolved.works) ? resolved.works : []);
+  __cssosLoadMyWorksInflight = (async () => {
+    try {
+      const resolved = await loadResolvedWorksCollection(localWorks);
+      if (!resolved.ok && !resolved.usedLocalFallback) {
+        list.innerHTML = buildWorksLoadFailedMarkup();
+        return;
+      }
+      renderWorksList(Array.isArray(resolved.works) ? resolved.works : []);
+    } finally {
+      __cssosLoadMyWorksInflight = null;
+    }
+  })();
+  return __cssosLoadMyWorksInflight;
 }
 
 globalThis.loadMyWorksModule = loadMyWorksModule;
@@ -502,7 +571,14 @@ async function loadResolvedWorksCollection(localWorks = []) {
     }
     const controller = typeof AbortController === "function" ? new AbortController() : null;
     const timeoutId = controller ? window.setTimeout(() => controller.abort(), 8000) : null;
-    const res = await fetch("/api/works/mine?limit=120", {
+    // CSSOS_PHASE2_PROGRESSIVE_LOAD 20260505 — Jing
+    // "loading太久，是不是载入太多了？请载入10卡片即可，再拖动，再
+    //  加载10卡片". Start with a small batch (30) so the panel paints
+    // in well under a second on mobile. Subsequent scrolls bump the
+    // requested limit by another batch via ensureWorksInfinitePaging.
+    // The server caps at 1000 so we never exceed that.
+    const fetchLimit = Math.max(30, Math.min(1000, Number(globalThis.__cssosWorksFetchLimit || 30)));
+    const res = await fetch("/api/works/mine?limit=" + fetchLimit, {
       credentials: "include",
       signal: controller?.signal
     });
@@ -552,19 +628,48 @@ function ensureWorksInfinitePaging() {
   if (worksAutoPagingBound || !(worksPanel instanceof HTMLElement)) return;
   const body = worksPanel.querySelector(".works-body");
   if (!(body instanceof HTMLElement)) return;
+  // CSSOS_PHASE2_NO_REFETCH_ON_SCROLL 20260504 — coalesce scroll-driven
+  // load-more bursts. tryLoadMore was firing on every threshold cross
+  // (≥1 per scroll event); with limit=500 that meant 500-row refetches
+  // and full thumbnail re-hydration on every flick. Now: debounce to
+  // 150ms, skip when already at end, never re-fetch (paging is purely
+  // a re-slice of the already-loaded collection).
+  let scrollDebounce = null;
   const tryLoadMore = () => {
-    if (latestResolvedWorksCollection.length <= worksVisibleCount) return;
-    const remaining = latestResolvedWorksCollection.length - worksVisibleCount;
-    if (remaining <= 0) return;
-    worksVisibleCount += Math.min(WORKS_PAGE_SIZE, remaining);
-    void loadMyWorksModule({ resetVisible: false });
+    // CSSOS_PHASE2_PROGRESSIVE_LOAD 20260505 — Jing
+    // Two cases on scroll-to-bottom:
+    //   (a) we have more locally-resolved works than visibleCount —
+    //       just expand the slice (no network).
+    //   (b) we've shown all loaded works AND the server might have
+    //       more — bump the fetch limit and ask again.
+    const have = latestResolvedWorksCollection.length;
+    if (have > worksVisibleCount) {
+      const remaining = have - worksVisibleCount;
+      worksVisibleCount += Math.min(WORKS_PAGE_SIZE, remaining);
+      void loadMyWorksModule({ resetVisible: false });
+      return;
+    }
+    // We've already shown everything we have locally. If the last
+    // fetch returned exactly what was requested, the server probably
+    // has more — bump the limit and re-fetch (preserving the
+    // visible-count so the user doesn't snap back to the top).
+    const lastFetched = Number(globalThis.__cssosWorksFetchLimit || 30);
+    if (have >= lastFetched) {
+      globalThis.__cssosWorksFetchLimit = Math.min(1000, lastFetched + 30);
+      worksVisibleCount += WORKS_PAGE_SIZE;
+      void loadMyWorksModule({ resetVisible: false, force: true });
+    }
   };
   body.addEventListener(
     "scroll",
     () => {
       const threshold = 120;
       if (body.scrollTop + body.clientHeight < body.scrollHeight - threshold) return;
-      tryLoadMore();
+      if (scrollDebounce) return;
+      scrollDebounce = setTimeout(() => {
+        scrollDebounce = null;
+        tryLoadMore();
+      }, 150);
     },
     { passive: true }
   );

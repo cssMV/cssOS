@@ -157,11 +157,13 @@
 
   function boot() {
     refresh();
+    // CSSOS_PHASE2_LIGHT_BOOT 20260505 — was 500ms × 60 = 30s.
+    // Drop to 1.5s × 20 = 30s with slower cadence.
     let tries = 0;
     const iv = setInterval(() => {
       refresh();
-      if (++tries > 60) clearInterval(iv);
-    }, 500);
+      if (++tries > 20) clearInterval(iv);
+    }, 1500);
   }
 
   if (document.readyState === "loading") {

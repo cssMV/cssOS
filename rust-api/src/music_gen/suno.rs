@@ -519,7 +519,17 @@ impl SunoClient {
         // of common field-name variants so a minor upstream tweak doesn't
         // break us.
         let task_id = extract_task_id(&v)
-            .ok_or(MusicGenError::MissingField("taskId"))?
+            .ok_or_else(|| {
+                let preview: String = text.chars().take(2000).collect();
+                tracing::error!(
+                    target: "cssos::mv::music",
+                    upstream_status = status.as_u16(),
+                    top_keys = ?v.as_object().map(|m| m.keys().cloned().collect::<Vec<_>>()).unwrap_or_default(),
+                    upstream_body = %preview,
+                    "suno: 2xx response missing taskId across all known shapes"
+                );
+                MusicGenError::MissingField("taskId")
+            })?
             .to_string();
         Ok(SunoSubmitAck { task_id })
     }
@@ -641,31 +651,69 @@ impl SunoClient {
 // ---------------------------------------------------------------- parsing
 
 fn extract_task_id(v: &serde_json::Value) -> Option<&str> {
+    fn pick<'a>(o: &'a serde_json::Value, keys: &[&str]) -> Option<&'a str> {
+        for k in keys {
+            if let Some(s) = o.get(*k).and_then(|x| x.as_str()) {
+                if !s.is_empty() {
+                    return Some(s);
+                }
+            }
+        }
+        None
+    }
+    let id_keys = ["taskId", "task_id", "id", "jobId", "job_id", "requestId", "request_id"];
+
     // Developer API: { code, msg, data: { taskId } }
-    if let Some(id) = v
-        .get("data")
-        .and_then(|d| d.get("taskId").or_else(|| d.get("task_id")))
-        .and_then(|x| x.as_str())
-    {
-        return Some(id);
+    if let Some(d) = v.get("data") {
+        if let Some(id) = pick(d, &id_keys) {
+            return Some(id);
+        }
+        // { data: [{ id }, ...] }
+        if let Some(arr) = d.as_array() {
+            if let Some(first) = arr.first() {
+                if let Some(id) = pick(first, &id_keys) {
+                    return Some(id);
+                }
+            }
+        }
+        // { data: { tasks: [{ taskId }] } } or { data: { clips: [...] } }
+        for nested_key in &["tasks", "clips", "items", "results"] {
+            if let Some(arr) = d.get(*nested_key).and_then(|x| x.as_array()) {
+                if let Some(first) = arr.first() {
+                    if let Some(id) = pick(first, &id_keys) {
+                        return Some(id);
+                    }
+                }
+            }
+        }
+    }
+    // { result: { taskId } } / { response: { taskId } }
+    for outer in &["result", "response", "task", "payload"] {
+        if let Some(o) = v.get(*outer) {
+            if let Some(id) = pick(o, &id_keys) {
+                return Some(id);
+            }
+        }
     }
     // Top-level task id (older studio API / some self-hosted wrappers).
-    if let Some(id) = v
-        .get("taskId")
-        .or_else(|| v.get("task_id"))
-        .or_else(|| v.get("id"))
-        .and_then(|x| x.as_str())
-    {
+    if let Some(id) = pick(v, &id_keys) {
         return Some(id);
     }
-    // Array-of-clips response shape: [{ id, ... }, { id, ... }] — we treat
-    // the first clip id as the task id so a subsequent feed?ids=<id> call
-    // still works. This matches the studio-api.suno.ai `/api/generate/v2/`
-    // behaviour where the "task" is a pair of clips, each with its own id.
+    // Top-level array of clips: [{ id }, { id }]
     if let Some(arr) = v.as_array() {
         if let Some(first) = arr.first() {
-            if let Some(id) = first.get("id").and_then(|x| x.as_str()) {
+            if let Some(id) = pick(first, &id_keys) {
                 return Some(id);
+            }
+        }
+    }
+    // { taskIds: [...] } / { ids: [...] }
+    for arr_key in &["taskIds", "ids", "task_ids"] {
+        if let Some(arr) = v.get(*arr_key).and_then(|x| x.as_array()) {
+            if let Some(s) = arr.first().and_then(|x| x.as_str()) {
+                if !s.is_empty() {
+                    return Some(s);
+                }
             }
         }
     }

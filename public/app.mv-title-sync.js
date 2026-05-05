@@ -71,13 +71,13 @@
 
   function boot() {
     attachObservers();
-    // Sources may not exist at first boot; retry briefly.
+    // CSSOS_PHASE2_LIGHT_BOOT 20260505 — was 250ms × 40 = 10s of
+    // polling. Drop to 1s × 15 = 15s with a slower cadence.
     let tries = 0;
     const iv = setInterval(() => {
       attachObservers();
-      if (++tries > 40) clearInterval(iv);
-    }, 250);
-    // Initial sync once everything is wired.
+      if (++tries > 15) clearInterval(iv);
+    }, 1000);
     setTimeout(schedule, 600);
   }
 

@@ -4017,14 +4017,12 @@ async function fetchWatchQueueMoreModule() {
     // walk through even when the cursor endpoint comes up dry.
     if (!__cssosWatchQueue.items.length) {
       try {
-        // CSSOS_PHASE2_LOOP_LIST_LIMIT 20260504 — Jing
-        // "我选择的是循环列表，应该是所有作品循环往复不断播放才对，
-        //  可是看看，好像只有 5 首在循环呢?"
-        // The express handler defaults to limit=20 (max 100). Without
-        // an explicit query string the queue capped at ~10 uniques
-        // (after Take 1/Take 2 dedup); users with more works felt the
-        // loop "ran out". Ask for the 100 max.
-        const mineRes = await fetch("/api/works/mine?limit=100", { credentials: "include" });
+        // CSSOS_PHASE2_FULL_QUEUE 20260504 — Jing
+        // "播放10作品之后，应该进入下一个10作品，而不是马上绕回来
+        //  重复，而是直到最后作品". Pull the full library so the
+        // playback queue walks every work before wrapping back to
+        // the head. 500 covers any current owner; bump again later.
+        const mineRes = await fetch("/api/works/mine?limit=500", { credentials: "include" });
         const minePayload = await mineRes.json().catch(() => null);
         const works = minePayload?.data?.works || minePayload?.works || [];
         const flat = [];
@@ -4613,11 +4611,44 @@ function safeSetWatchSubtitleModule(text) {
   }
   const next = String(text == null ? "" : text);
   if (watchSubtitle.textContent === next) return; // no-op idempotent
-  // CSSOS_PHASE2_RECURSION_FIX 20260504 — direct DOM write. The previous
-  // edit accidentally called safeSetWatchSubtitleModule(next) here from
-  // a search-and-replace that walked over its own helper body, causing
-  // infinite recursion → "RangeError: Maximum call stack size exceeded".
-  watchSubtitle.textContent = next;
+  // CSSOS_PHASE2_FANCY_VISIBLE 20260504 — Jing
+  // "光光代码通过了还不行，必须让用户看得到". The fancy 90/10 picker
+  // only ran inside the karaoke per-char renderer, so any subtitle the
+  // user sees BEFORE karaoke takes ownership (status messages, "Music:
+  // Rising shofar motif…", hot-swap text, the four-tier waterfall's
+  // empty windows) was painted as plain textContent — uniform sans-
+  // serif. Wrap every word in a span with a weighted-fancy font so the
+  // user IMMEDIATELY sees the龙飞凤舞 effect on every subtitle line.
+  const pickFont = (typeof globalThis.cssmvAssignFontForPiece === "function")
+    ? globalThis.cssmvAssignFontForPiece : null;
+  if (pickFont && next.trim()) {
+    // Tokenise: keep CJK chars as individual tokens, group Latin letters
+    // into words, preserve spaces. This way a CN subtitle gets per-char
+    // font variation and an EN subtitle gets per-word variation — both
+    // produce visible "every token a different fancy face" output.
+    const escapeAttr = (s) => String(s).replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/&/g, "&amp;");
+    const escapeText = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const tokenRx = /([一-鿿㐀-䶿぀-ヿ가-힯])|([A-Za-z][A-Za-z'’\-]*[A-Za-z]|[A-Za-z])|(\s+)|([^\s])/gu;
+    let html = "";
+    let m;
+    while ((m = tokenRx.exec(next)) !== null) {
+      const cjk = m[1], word = m[2], ws = m[3], other = m[4];
+      if (ws) { html += escapeText(ws); continue; }
+      const tok = cjk || word || other;
+      if (!tok) continue;
+      const fam = pickFont(tok) || "";
+      const safe = escapeText(tok);
+      if (fam) {
+        const escFam = escapeAttr(fam).replace(/&amp;quot;/g, '"');
+        html += `<span class="cssmv-fancy-tok" style="font-family:'${escFam}', var(--watch-subtitle-font-family, inherit)">${safe}</span>`;
+      } else {
+        html += safe;
+      }
+    }
+    watchSubtitle.innerHTML = html;
+  } else {
+    watchSubtitle.textContent = next;
+  }
   watchSubtitle.dataset.cssmvOrigin = "status";
 }
 globalThis.safeSetWatchSubtitleModule = safeSetWatchSubtitleModule;
@@ -4783,24 +4814,125 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
       // 主歌/副歌/桥段, etc. Centralised in isLyricSectionMarkerModule.
       .filter((l) => l && !isLyricSectionMarkerModule(l));
     if (!lines.length) return [];
-    const each = dur / lines.length;
-    return lines.map((text, i) => ({
-      start_s: i * each,
-      end_s: (i + 1) * each,
-      text,
-    }));
+    // CSSOS_PHASE2_WEIGHTED_DIVIDE 20260504 — Jing
+    // "字幕对其歌声问题，这是硬伤". Pure even-divide ignored two real
+    // facts about songs: (a) intros and outros are instrumental — no
+    // lyric lives in the first ~10% or last ~5% of total duration, and
+    // (b) line "weight" varies — a 2-char "啊" should not consume the
+    // same slot as a 14-char line. Weighting by char-count + carving
+    // out intro/outro padding moves the fallback timing dramatically
+    // closer to the actual vocal performance, even before the user
+    // applies the manual nudge below.
+    const introPad = Math.min(8, dur * 0.08);
+    const outroPad = Math.min(4, dur * 0.04);
+    const usable = Math.max(dur - introPad - outroPad, dur * 0.5);
+    // Weight: stripped char count, with a floor so empty/very short
+    // lines still get visible airtime. CJK char ≈ 1, latin word ≈ ~5
+    // chars on average so this naturally weights both scripts okay.
+    const stripped = lines.map((t) => String(t).replace(/\s+/g, ""));
+    const weights = stripped.map((s) => Math.max(2, s.length));
+    const totalW = weights.reduce((a, b) => a + b, 0) || lines.length;
+    const out = [];
+    let cursor = introPad;
+    for (let i = 0; i < lines.length; i += 1) {
+      const slot = (weights[i] / totalW) * usable;
+      const start_s = cursor;
+      const end_s = cursor + slot;
+      out.push({ start_s, end_s, text: lines[i] });
+      cursor = end_s;
+    }
+    return out;
   };
 
-  const getActiveSourceTime = () => {
+  const getRawSourceTime = () => {
     // Prefer the un-muted, currently-playing element.
     const audioPlaying = audioEl && !audioEl.paused && !audioEl.muted;
     const videoPlaying = videoEl && !videoEl.paused && !videoEl.muted;
     if (audioPlaying) return Number(audioEl.currentTime || 0);
     if (videoPlaying) return Number(videoEl.currentTime || 0);
-    // Fall back to whichever has the higher currentTime (paused but seeked).
     const at = Number(audioEl?.currentTime || 0);
     const vt = Number(videoEl?.currentTime || 0);
     return Math.max(at, vt);
+  };
+
+  // CSSOS_PHASE2_KARAOKE_NUDGE 20260504 — Jing
+  // "字幕对其歌声问题，这是硬伤". Even after weighted-divide the
+  // automatic timing won't be perfect — instrumental breaks, ad-libs,
+  // and engine-specific quirks all shift the "true" onset. Give the
+  // user a per-work offset they can dial in real time:
+  //   ←/→  shift -/+ 0.25s
+  //   ↑/↓  shift +/- 1.0s   (yes, ↑ pushes lyrics EARLIER — feels
+  //                          natural: "lyrics need to come up sooner")
+  //   0    reset to 0
+  // Persisted in localStorage keyed by workId|titleHash so a song
+  // dialled in once stays dialled in across sessions.
+  const __cssosNudgeKey = (ps) => {
+    const id = String(ps?.workId || "").trim();
+    const ttl = String(ps?.title || "").trim();
+    if (id) return `cssos:karaNudge:${id}`;
+    if (ttl) return `cssos:karaNudge:t:${ttl}`;
+    return "";
+  };
+  let __cssosNudgeSec = 0;
+  let __cssosNudgeFlashUntil = 0;
+  const loadNudge = (ps) => {
+    try {
+      const k = __cssosNudgeKey(ps);
+      if (!k) { __cssosNudgeSec = 0; return; }
+      const raw = localStorage.getItem(k);
+      const v = raw == null ? 0 : Number(raw);
+      __cssosNudgeSec = Number.isFinite(v) ? v : 0;
+    } catch (_e) { __cssosNudgeSec = 0; }
+  };
+  const saveNudge = () => {
+    try {
+      const ps = globalThis.pipelineState;
+      const k = __cssosNudgeKey(ps);
+      if (!k) return;
+      if (Math.abs(__cssosNudgeSec) < 0.01) localStorage.removeItem(k);
+      else localStorage.setItem(k, __cssosNudgeSec.toFixed(2));
+    } catch (_e) {}
+  };
+  const flashNudgeBadge = () => {
+    __cssosNudgeFlashUntil = Date.now() + 1500;
+    const sub = document.getElementById("watch-subtitle");
+    if (sub) {
+      sub.dataset.cssosNudge = (__cssosNudgeSec >= 0 ? "+" : "") +
+        __cssosNudgeSec.toFixed(2) + "s";
+    }
+  };
+  const adjustNudge = (delta) => {
+    __cssosNudgeSec = Math.max(-30, Math.min(30,
+      Math.round((__cssosNudgeSec + delta) * 100) / 100));
+    saveNudge();
+    flashNudgeBadge();
+    // Force re-pick on next tick.
+    lastIdx = -1;
+  };
+  globalThis.cssosKaraokeNudge = adjustNudge;
+  globalThis.cssosKaraokeNudgeReset = () => { __cssosNudgeSec = 0; saveNudge(); flashNudgeBadge(); lastIdx = -1; };
+  document.addEventListener("keydown", (ev) => {
+    // Ignore when typing in inputs / textareas / contentEditable.
+    const t = ev.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    // Only active while watch is visible AND a karaoke timeline exists.
+    const watchPanel = document.getElementById("watch-panel");
+    if (!watchPanel || watchPanel.hidden) return;
+    if (!cachedTimeline.length) return;
+    if (ev.key === "ArrowLeft")  { adjustNudge(-0.25); ev.preventDefault(); }
+    else if (ev.key === "ArrowRight") { adjustNudge(+0.25); ev.preventDefault(); }
+    else if (ev.key === "ArrowUp")    { adjustNudge(-1.0);  ev.preventDefault(); }
+    else if (ev.key === "ArrowDown")  { adjustNudge(+1.0);  ev.preventDefault(); }
+    else if (ev.key === "0")          { __cssosNudgeSec = 0; saveNudge(); flashNudgeBadge(); lastIdx = -1; ev.preventDefault(); }
+  }, true);
+
+  const getActiveSourceTime = () => {
+    // CSSOS_PHASE2_KARAOKE_NUDGE — apply the user's manual offset so
+    // the picker treats "song time + nudge" as the lookup key. Positive
+    // nudge ⇒ lyrics appear later (the picker sees a smaller t, so it
+    // selects an earlier line later in real-time). Negative ⇒ earlier.
+    const t = getRawSourceTime();
+    return Math.max(0, t - __cssosNudgeSec);
   };
 
   // CSSOS_PHASE2_AUDIO_ANALYSER 20260504 — Jing
@@ -4905,9 +5037,28 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
       beat: __cssosBeatPulse,
     };
   }
+  // CSSOS_PHASE2_RAF_GATE 20260505 — Jing
+  // "请继续检查/优化，看看是哪些代码耗费资源". The original loop ran
+  // at 60 fps forever, even when the watch panel was hidden / no
+  // audio was playing — pure CPU + battery drain on mobile. Now:
+  //   • pause when watch panel is hidden / minimized,
+  //   • pause when no playing media element exists,
+  //   • use a 4-frame budget when not karaoke-active (one read every
+  //     ~67 ms instead of every frame).
+  let __cssosKaraRafFrame = 0;
   function pulseKaraokeAmpFrame() {
+    __cssosKaraRafFrame = (__cssosKaraRafFrame + 1) & 0x7;
+    const panel = watchPanel;
+    if (!panel || panel.classList.contains("hidden") ||
+        panel.dataset.minimized === "true" ||
+        document.hidden) {
+      // Re-arm at a lazy cadence so we wake up fast when panel opens.
+      setTimeout(() => requestAnimationFrame(pulseKaraokeAmpFrame), 500);
+      return;
+    }
     const sub = document.getElementById("watch-subtitle");
-    if (sub && sub.classList.contains("karaoke-active")) {
+    const isKara = !!(sub && sub.classList.contains("karaoke-active"));
+    if (isKara) {
       const playingEl =
         (audioEl && !audioEl.paused && !audioEl.muted ? audioEl : null) ||
         (videoEl && !videoEl.paused && !videoEl.muted ? videoEl : null);
@@ -4920,8 +5071,12 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
         sub.style.setProperty("--amp-treble", reading.treble.toFixed(3));
         sub.style.setProperty("--beat-pulse", reading.beat.toFixed(3));
       }
+      requestAnimationFrame(pulseKaraokeAmpFrame);
+    } else {
+      // Not karaoke — drop to ~15 fps polling so we still notice when
+      // it activates, but stop hammering the CPU.
+      setTimeout(() => requestAnimationFrame(pulseKaraokeAmpFrame), 60);
     }
-    requestAnimationFrame(pulseKaraokeAmpFrame);
   }
   // Start the RAF loop on first wire.
   if (typeof requestAnimationFrame === "function") {
@@ -4973,6 +5128,8 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
         cachedSig = sig;
         cachedTimeline = buildTimeline(ps);
         lastIdx = -1;
+        // CSSOS_PHASE2_KARAOKE_NUDGE — reload per-work offset.
+        loadNudge(ps);
         console.warn(
           "[karaoke] timeline built: %d lines (engine-aligned=%s, srt-hydrated=%s)",
           cachedTimeline.length,
@@ -5222,10 +5379,22 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
   // Bind to BOTH elements — whichever fires timeupdate first/most.
   if (videoEl) videoEl.addEventListener("timeupdate", tick);
   if (audioEl) audioEl.addEventListener("timeupdate", tick);
-  // Also a low-rate fallback in case timeupdate stalls (some buggy
-  // sources emit it sparsely). 250ms is fine — humans don't notice
-  // sub-second lag in line transitions.
-  setInterval(tick, 250);
+  // CSSOS_PHASE2_KARA_TICK_GATE 20260505 — Jing
+  // "请仔细检查全站代码，查处哪些代码在严重消耗资源". The 250ms
+  // fallback ran forever — even when watch panel was hidden / no
+  // media playing, ~14k pointless calls per hour. Gate on:
+  //   • watch panel visible
+  //   • document not hidden (tab in background)
+  //   • at least one media element actively playing
+  setInterval(() => {
+    if (!watchPanel || watchPanel.classList.contains("hidden")) return;
+    if (watchPanel.dataset.minimized === "true") return;
+    if (document.hidden) return;
+    const vPlaying = videoEl && !videoEl.paused && !videoEl.ended;
+    const aPlaying = audioEl && !audioEl.paused && !audioEl.ended;
+    if (!vPlaying && !aPlaying) return;
+    tick();
+  }, 250);
 }
 
 // Expose for swipe handler.
@@ -5310,6 +5479,22 @@ function wireWatchSwipeOnceModule() {
     tStartY = ev.touches?.[0]?.clientY ?? null;
     tStartT = Date.now();
   }, { passive: true });
+  // CSSOS_PHASE2_NO_PULL_REFRESH 20260505 — Jing
+  // "往下拖动触发了刷新屏幕，修改为，往下拖动媒体框，是切换作品".
+  // touchmove must be NON-passive so we can preventDefault to stop
+  // mobile Safari/Chrome from triggering pull-to-refresh on a
+  // downward drag from the top of the page. We block the browser
+  // default for any vertical drag past 8 px on the media frame —
+  // whatever direction it is, it's a song-switch gesture, not a
+  // page-scroll gesture.
+  frame.addEventListener("touchmove", (ev) => {
+    if (tStartY == null) return;
+    const curY = ev.touches?.[0]?.clientY ?? tStartY;
+    const dy = curY - tStartY;
+    if (Math.abs(dy) > 8) {
+      try { ev.preventDefault(); } catch (_e) {}
+    }
+  }, { passive: false });
   frame.addEventListener("touchend", (ev) => {
     if (tStartY == null) return;
     const endY = ev.changedTouches?.[0]?.clientY ?? tStartY;
@@ -6622,6 +6807,50 @@ function openWatchPanelShellModule(restoredLayout = false) {
   wireWatchSwipeOnceModule();
   wireWatchOrientationOnceModule();
   ensureTransformPillModule();
+  // CSSOS_PHASE2_AUTO_CINEMA 20260504 — Jing
+  // "无论从哪个入口进入MV面板，都默认是全屏…影院模式".
+  // CSSOS_PHASE2_CINEMA_NO_MUTE 20260504 — Jing follow-up:
+  // "打开所有作品都默认被静音了". The fullscreen transition was
+  // racing with autoplay — on Safari + some Chromium builds the
+  // requestFullscreen mid-play caused the browser to drop the audio
+  // track silently. Fix: don't fire cinema on open. Instead, listen
+  // for the FIRST `playing` event on the video and trigger cinema
+  // mode AFTER playback is visibly established. By then the audio
+  // track is locked in and fullscreen can no longer mute it. If
+  // playback never establishes (saved-session restore, no media yet),
+  // cinema simply doesn't auto-fire and the user can hit ⛶ manually.
+  // CSSOS_PHASE2_CINEMA_LAYOUT_FIRST 20260505 — Jing
+  // "MV面板/媒体框在载入/启动时，就应该以最大化状态启动".
+  // Two-phase cinema:
+  //   PHASE 1 (sync, NOW)  — apply the .is-cssmv-fullscreen layout
+  //     class + body cinema class. This is pure CSS — fills the
+  //     viewport immediately, no audio-track involvement, no risk
+  //     of muting.
+  //   PHASE 2 (deferred)   — call requestFullscreen() to escape
+  //     browser chrome. This MUST wait for the first `playing`
+  //     event because the fullscreen reflow on Safari/some Chromium
+  //     racing with autoplay can drop the audio track. By then the
+  //     audio decoder is locked in and the API call is safe.
+  try {
+    if (typeof globalThis.cssosEnterCinemaLayout === "function") {
+      globalThis.cssosEnterCinemaLayout();
+    }
+    const v = document.getElementById("watch-video");
+    if (v && !v.__cssosCinemaWaiter) {
+      v.__cssosCinemaWaiter = true;
+      const onPlaying = () => {
+        v.removeEventListener("playing", onPlaying);
+        setTimeout(() => {
+          try {
+            if (typeof globalThis.cssosRequestBrowserFullscreen === "function") {
+              globalThis.cssosRequestBrowserFullscreen();
+            }
+          } catch (_e) {}
+        }, 250);
+      };
+      v.addEventListener("playing", onPlaying);
+    }
+  } catch (_e) {}
   // CSSOS_PHASE2_UNIFIED_WATCH_ENTRY 20260430 #211 — Jing
   // "所有进入Watch MV面板的万能入口都没有走MV PIPELINE流程，
   //  不然MV PIPELINE面板里会显示进度。"
@@ -8341,7 +8570,9 @@ async function requestWatchVideoPreviewModule(title, lines, options = {}) {
   }
   void requestWatchFrameArtworkModule(title, artworkSubtitle, lines);
   const prompt = `${state.style} ${state.voice} cinematic mv`;
+  const taskId = `mv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const payload = {
+    taskId,
     capability_id: "video.gan.v1",
     inputs: [],
     params: {
@@ -8363,7 +8594,10 @@ async function requestWatchVideoPreviewModule(title, lines, options = {}) {
       return;
     }
     const body = await res.json();
-    const jobId = body?.job?.id || body?.id;
+    if (body?.error) {
+      return;
+    }
+    const jobId = body?.job?.id || body?.job?.taskId || body?.id || body?.taskId;
     if (!jobId) {
       return;
     }
@@ -8416,6 +8650,12 @@ function pollWatchVideoJobModule(jobId) {
         return;
       }
       const payload = await res.json();
+      if (payload?.error) {
+        clearInterval(videoJobPoll);
+        videoJobPoll = null;
+        busy = false;
+        return;
+      }
       const job = payload?.job || payload;
       if (job.status === "succeeded") {
         const artifacts = job.artifacts || [];

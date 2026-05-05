@@ -358,7 +358,12 @@ html[data-theme="light"] .cssmv-dock-order-admin-default {
 
   // ---------------------------------------------------------------- observer
   function attachMutationWatcher() {
-    const obs = new MutationObserver(() => injectIntoExistingPanels());
+    // CSSOS_PHASE2_OBS_DEBOUNCE 20260505 — debounce body-wide observer.
+    let tid = 0;
+    const obs = new MutationObserver(() => {
+      if (tid) return;
+      tid = setTimeout(() => { tid = 0; injectIntoExistingPanels(); }, 250);
+    });
     obs.observe(document.body, { childList: true, subtree: true });
   }
 

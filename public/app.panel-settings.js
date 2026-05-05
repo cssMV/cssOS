@@ -57,7 +57,19 @@ function primePanelSettingsDataset(panel, context) {
 }
 
 function buildPanelSettingsBridge(panel) {
-  if (panel.querySelector(".panel-settings")) return;
+  // CSSOS_PHASE2_SETTINGS_REBUILD 20260505 — Jing
+  // "原来的那些设置参数现在又不见了". The early-return based on
+  // existing .panel-settings meant once a panel re-rendered its body
+  // (Works Center / For You / MV Pipeline all rewrite innerHTML on
+  // certain paths), the settings overlay vanished and never came
+  // back because this guard silently no-op'd. Now: only skip if the
+  // existing settings element still has rendered controls; if it's
+  // empty (somehow lost its children), rebuild from scratch.
+  const existing = panel.querySelector(".panel-settings");
+  if (existing && existing.children && existing.children.length > 0) return;
+  if (existing) {
+    try { existing.remove(); } catch (_e) {}
+  }
   const context = buildPanelSettingsContext(panel);
   const {
     titleEl,

@@ -249,7 +249,12 @@ async function loadPublicMarketWorks(force = false) {
   publicMarketState.marketState = null;
   renderForyouMarketplace();
   try {
-    const res = await fetch("/api/works/market?limit=24", {
+    // CSSOS_PHASE2_PROGRESSIVE_LOAD 20260505 — Jing
+    // Start small (30) so first paint is fast on mobile; the scroll
+    // handler bumps the limit by 30 each time the user reaches the
+    // end of the loaded set, all the way up to the 1000 server cap.
+    const fetchLimit = Math.max(30, Math.min(1000, Number(globalThis.__cssosMarketFetchLimit || 30)));
+    const res = await fetch("/api/works/market?limit=" + fetchLimit, {
       credentials: "include",
     });
     const payload = await res.json().catch(() => null);
@@ -456,6 +461,56 @@ async function openMarketWorkPreview(work = {}) {
   const playback = resolveStructuredPlaybackRequestModule(work);
   const targetWork = playback.targetWork || work || null;
   currentWatchPreviewWork = targetWork;
+  // CSSOS_PHASE2_PLAYED_INDICATOR 20260504 — mark this work + its
+  // siblings/children as played the moment a watch session opens for
+  // them, so the unplayed-dot disappears immediately.
+  try {
+    const ids = new Set();
+    const collect = (w) => {
+      if (!w || typeof w !== "object") return;
+      [w.work_id, w.id, w.local_id, w.requested_start_work_id, w.sibling_work_id, w.root_work_id]
+        .filter(Boolean).forEach((v) => ids.add(String(v).trim()));
+    };
+    collect(targetWork);
+    collect(work);
+    if (Array.isArray(playback?.queue)) playback.queue.forEach(collect);
+    ids.forEach((id) => globalThis.cssosMarkWorkPlayedModule?.(id));
+  } catch (_e) {}
+  // CSSOS_PHASE2_SCOPED_PLAYLIST 20260504 — Jing
+  // "从'为你创作'打开作品，那就顺序循环播放'为你创作'所有的作品；
+  //  '作品中心'…也是这样". Honour `work.__cssosOpenedFrom` (set by
+  // the binding sites in bindMarketCardActionButtons /
+  // bindWorksCardActionButtons): seed the matching playlist with the
+  // panel's visible works, switch the active list, and seek to the
+  // clicked id. Subsequent next()/prev() walk THIS list in order.
+  try {
+    const pl = globalThis.cssosPlaylists;
+    if (pl && typeof pl.populate === "function") {
+      const source = String(work?.__cssosOpenedFrom || "").trim();
+      const clickedId = String(targetWork?.id || targetWork?.work_id || "").trim();
+      if (source === "for-you") {
+        const visible = Array.isArray(globalThis.latestVisibleMarketWorks)
+          ? globalThis.latestVisibleMarketWorks
+          : (typeof latestVisibleMarketWorks !== "undefined" ? latestVisibleMarketWorks : []);
+        pl.populate("for-you", visible);
+        pl.setActive("for-you");
+        if (clickedId) pl.seekTo(clickedId);
+      } else if (source === "works-center") {
+        const visible = Array.isArray(globalThis.latestResolvedWorksCollection)
+          ? globalThis.latestResolvedWorksCollection
+          : [];
+        pl.populate("mine", visible);
+        pl.setActive("mine");
+        if (clickedId) pl.seekTo(clickedId);
+      }
+      // Default sensible mode for "play through everything once and loop".
+      // Don't override if user already picked a non-default mode this session.
+      if (pl.getMode && pl.getMode() === "sequential") {
+        // sequential stops at end — we want continuous through the panel.
+        pl.setMode("loop_all");
+      }
+    }
+  } catch (_e) {}
   globalThis.currentStructuredWatchQueue = playback.queue;
   const sourceRunId = String(targetWork?.source_run_id || "").trim();
   if (sourceRunId) {
@@ -759,21 +814,26 @@ async function openMarketWorkPreview(work = {}) {
       // "WATCH · {TITLE} · {STATUS}". On queue advance, the title
       // segment didn't refresh (only the body / overlay did). Splice
       // the new title into whatever pattern is already there.
+      // CSSOS_PHASE2_FULL_TITLE_SWAP 20260505 — Jing
+      // "歌曲切换，如果标题有2+截，下一首歌的标题只切换前面一截而已…
+      //  请改进，换标题就全部换". Old logic split on · and only
+      //  replaced parts[1], so a song whose own title contained ·
+      //  ("长相思 · 夜雨亡国辞" → ["WATCH","长相思","夜雨亡国辞"])
+      //  left the trailing 夜雨亡国辞 dangling on the next song.
+      //  Now we keep ONLY the brand prefix (parts[0], typically
+      //  "WATCH"/"Watch") and append the new title — anything after
+      //  is dropped wholesale, regardless of how many · the old
+      //  title had baked in.
       try {
         const panelTitle = document.querySelector("#watch-panel .panel-title");
         if (panelTitle) {
           const cur = String(panelTitle.textContent || "").trim();
+          let brandPrefix = "Watch";
           if (cur && cur.includes("·")) {
-            const parts = cur.split("·").map((s) => s.trim());
-            if (parts.length >= 2) {
-              parts[1] = newTitle;
-              panelTitle.textContent = parts.join(" · ");
-            } else {
-              panelTitle.textContent = `${parts[0]} · ${newTitle}`;
-            }
-          } else {
-            panelTitle.textContent = `Watch · ${newTitle}`;
+            const firstSep = cur.indexOf("·");
+            brandPrefix = cur.slice(0, firstSep).trim() || brandPrefix;
           }
+          panelTitle.textContent = `${brandPrefix} · ${newTitle}`;
         }
       } catch (_e) {}
       // Re-render the karaoke overlay so the title typography (font,
@@ -1178,11 +1238,19 @@ function renderForyouMarketplace(options = {}) {
   }
   const marketViewOptions = readMarketListViewOptions();
   syncMarketFilterPills(marketViewOptions);
+  // CSSOS_PHASE2_ADMIN_PUBLIC_WORK 20260504 — Jing clarification:
+  // "肯定要显示的，而且还是免费显示，免费聆听，免费欣赏的，但不能
+  //  买断。因为这属于公共作品，系统作品". Admin works DO appear in
+  // the marketplace — they're free public works the platform offers.
+  // The only difference is transactional: no listen-fee, no buyout,
+  // no tip — handled per-card in buildMarketCardsMarkup below.
   const works = buildVisibleMarketWorks(
     publicMarketState.works,
     marketViewOptions,
   );
   latestVisibleMarketWorks = Array.isArray(works) ? works : [];
+  // Expose for the playlist scoping in openMarketWorkPreview.
+  globalThis.latestVisibleMarketWorks = latestVisibleMarketWorks;
   syncMarketCountLabel(countLabel);
   if (!works.length) {
     list.innerHTML = buildMarketEmptyNoteMarkup();
@@ -1396,13 +1464,27 @@ function ensureForyouInfinitePaging() {
     return;
   const body = foryouPanel.querySelector(".panel-body");
   if (!(body instanceof HTMLElement)) return;
+  // CSSOS_PHASE2_NO_REFETCH_ON_SCROLL 20260504 — same fix as Works
+  // Center: debounce scroll-driven load-more so rapid flicks don't
+  // pile up dozens of re-renders + thumbnail re-hydrations in 1s.
+  let scrollDebounce = null;
   const tryLoadMore = () => {
-    if (latestVisibleMarketWorks.length <= foryouMarketVisibleCount) return;
-    const remaining =
-      latestVisibleMarketWorks.length - foryouMarketVisibleCount;
-    if (remaining <= 0) return;
-    foryouMarketVisibleCount += Math.min(FORYOU_MARKET_PAGE_SIZE, remaining);
-    renderForyouMarketplace({ resetVisible: false });
+    // CSSOS_PHASE2_PROGRESSIVE_LOAD 20260505 — same two-case logic
+    // as Works Center: expand the local slice first, then bump the
+    // server fetch limit if local cache is exhausted.
+    const have = latestVisibleMarketWorks.length;
+    if (have > foryouMarketVisibleCount) {
+      const remaining = have - foryouMarketVisibleCount;
+      foryouMarketVisibleCount += Math.min(FORYOU_MARKET_PAGE_SIZE, remaining);
+      renderForyouMarketplace({ resetVisible: false });
+      return;
+    }
+    const lastFetched = Number(globalThis.__cssosMarketFetchLimit || 30);
+    if (have >= lastFetched) {
+      globalThis.__cssosMarketFetchLimit = Math.min(1000, lastFetched + 30);
+      foryouMarketVisibleCount += FORYOU_MARKET_PAGE_SIZE;
+      void loadPublicMarketWorks(true).then(() => renderForyouMarketplace({ resetVisible: false }));
+    }
   };
   body.addEventListener(
     "scroll",
@@ -1410,7 +1492,11 @@ function ensureForyouInfinitePaging() {
       const threshold = 120;
       if (body.scrollTop + body.clientHeight < body.scrollHeight - threshold)
         return;
-      tryLoadMore();
+      if (scrollDebounce) return;
+      scrollDebounce = setTimeout(() => {
+        scrollDebounce = null;
+        tryLoadMore();
+      }, 150);
     },
     { passive: true },
   );
@@ -1499,32 +1585,67 @@ function buildMarketCardsMarkup(works = []) {
       // "请显示完整作品时长在为你创作面板/作品中心面板音乐卡片缩略图底部
       //  (压在图上)". Overlay the song's mm:ss duration at the bottom-right
       // corner of the cover so users know the full track length at a glance.
-      const _durSecs = Number(work?.duration_secs || work?.audio_duration_secs || 0) || 0;
+      // CSSOS_PHASE2_FORYOU_DURATION_FIELDS 20260504 — Jing
+      // "请给作品卡片缩略图也压上作品时长". Read every field name the
+      // backend has used over time so the overlay always finds a value
+      // when one exists. Falls back across duration_secs / audio_*
+      // / preview_* / total_* / final_* etc.
+      const _durSecs = Number(
+        work?.duration_secs ??
+        work?.audio_duration_secs ??
+        work?.preview_duration_secs ??
+        work?.total_duration_secs ??
+        work?.final_duration_secs ??
+        work?.duration ??
+        work?.audio_duration ??
+        work?.duration_seconds ??
+        0
+      ) || 0;
       const _durOverlay = _durSecs > 0
         ? `<span class="work-cover-duration">${Math.floor(_durSecs / 60)}:${String(Math.floor(_durSecs % 60)).padStart(2, "0")}</span>`
         : "";
+      // CSSOS_PHASE2_ADMIN_PUBLIC_WORK 20260504 — Jing
+      // Admin works show in marketplace as FREE PUBLIC works:
+      //   • listen / buyout / tip transactions disabled
+      //   • listen chip → "Free", buyout chip → "Priceless · 无价之宝"
+      //   • a "公共作品" badge replaces the transaction buttons
+      // Everyone — including guests — can hit ENJOY to play for free.
+      const _isAdminOwned = typeof globalThis.isAdminWorkModule === "function"
+        ? globalThis.isAdminWorkModule(work) : false;
+      const cardListenChip = _isAdminOwned ? loginCopy("Free") : escapeHtml(listenPrice);
+      const cardBuyoutChip = _isAdminOwned ? loginCopy("Priceless · 无价之宝") : escapeHtml(buyoutPrice);
+      // CSSOS_PHASE2_PLAYED_INDICATOR 20260504 — Jing
+      // "已经欣赏过/播放过的作品和还没有欣赏过/播放过的作品，是否
+      //  用点什么比如颜色之类的区分一下". Played-state class so CSS
+      // can show an "unplayed" accent dot on the cover and quietly
+      // fade played cards.
+      const _played = typeof globalThis.cssosWorkIsPlayedModule === "function"
+        ? globalThis.cssosWorkIsPlayedModule(workId) : false;
+      const _playedClass = _played ? "is-played" : "is-unplayed";
       return `
-        <article class="work-card market-card foryou-shelf-card" data-market-work-id="${escapeHtml(workId)}" data-work-expand>
+        <article class="work-card market-card foryou-shelf-card ${_playedClass}${_isAdminOwned ? " is-admin-public" : ""}" data-market-work-id="${escapeHtml(workId)}" data-work-expand>
           <div class="work-cover" data-market-cover-key="${escapeHtml(workId)}" data-market-action="open-watch" role="button" tabindex="0" aria-label="${escapeHtml(loginCopy("Play MV"))}">
             ${coverImage ? `<img src="${escapeHtml(coverImage)}" alt="${title}" loading="lazy" decoding="async" />` : `<div class="work-cover-fallback">${rawTitle.slice(0, 2).toUpperCase()}</div>`}
             ${_durOverlay}
+            <span class="work-cover-played-dot" aria-hidden="true"></span>
           </div>
           <div class="work-info">
             <div class="work-title" data-market-toggle>${title}</div>
             <div class="work-tags" title="${style}">${style}</div>
             <div class="work-pricing">
               <span class="price-chip ghost-chip">${loginCopy("Type")} · ${escapeHtml(workTypeLabel(workType))}</span>
-              <span class="price-chip">${loginCopy("Listen")} · ${escapeHtml(listenPrice)}</span>
-              <span class="price-chip">${escapeHtml(buyoutLabelForWorkModule(work))} · ${escapeHtml(buyoutPrice)}</span>
+              <span class="price-chip">${loginCopy("Listen")} · ${cardListenChip}</span>
+              <span class="price-chip">${escapeHtml(buyoutLabelForWorkModule(work))} · ${cardBuyoutChip}</span>
+              ${_isAdminOwned ? `<span class="price-chip price-chip-public">${loginCopy("Public · Free for all")}</span>` : ""}
               ${createdAt ? `<span class="price-chip ghost-chip">${escapeHtml(createdAt)}</span>` : ""}
             </div>
           </div>
           <div class="work-actions">
             <button class="mini-btn ghost" type="button" data-market-action="preview">${loginCopy("Enjoy")}</button>
-            ${canTransact ? `<button class="mini-btn ghost" type="button" data-market-action="listen" ${listenDisabled ? "disabled" : ""}>${marketActionCopy("listen", orderState)}</button>` : ""}
-            ${canTransact && !workIsWholeBuyoutChildModule(work) ? `<button class="mini-btn ghost" type="button" data-market-action="buyout" ${buyoutDisabled || !buyoutEnabled ? "disabled" : ""}>${wholeBuyoutOnly ? escapeHtml(loginCopy("Whole buyout")) : marketActionCopy("buyout", orderState)}</button>` : ""}
+            ${(!_isAdminOwned && canTransact) ? `<button class="mini-btn ghost" type="button" data-market-action="listen" ${listenDisabled ? "disabled" : ""}>${marketActionCopy("listen", orderState)}</button>` : ""}
+            ${(!_isAdminOwned && canTransact && !workIsWholeBuyoutChildModule(work)) ? `<button class="mini-btn ghost" type="button" data-market-action="buyout" ${buyoutDisabled || !buyoutEnabled ? "disabled" : ""}>${wholeBuyoutOnly ? escapeHtml(loginCopy("Whole buyout")) : marketActionCopy("buyout", orderState)}</button>` : ""}
             ${canTransact ? `<span class="market-inline-action"><button class="mini-btn ghost" type="button" data-market-action="tip" ${tipDisabled ? "disabled" : ""}>${marketActionCopy("tip", orderState)}</button><input class="inline-chip-input market-tip-input" type="number" min="1" step="1" inputmode="decimal" placeholder="${escapeHtml(loginCopy("Tip $"))}" data-market-tip-input="${escapeHtml(workId)}" hidden /></span>` : ""}
-            ${canTransact && tipsEnabled ? `<button class="mini-btn ghost" type="button" data-market-action="tip-nihaopay" data-market-nihaopay-creator="${escapeHtml(String(work?.owner_user_id || ""))}" data-market-nihaopay-work="${escapeHtml(workId)}" title="${escapeHtml(loginCopy("Tip via Alipay / WeChat Pay"))}">${escapeHtml(loginCopy("Tip · 支付宝/微信"))}</button>` : ""}
+            ${(canTransact && tipsEnabled) ? `<button class="mini-btn ghost" type="button" data-market-action="tip-nihaopay" data-market-nihaopay-creator="${escapeHtml(String(work?.owner_user_id || ""))}" data-market-nihaopay-work="${escapeHtml(workId)}" title="${escapeHtml(loginCopy("Tip via Alipay / WeChat Pay"))}">${escapeHtml(loginCopy("Tip · 支付宝/微信"))}</button>` : ""}
           </div>
           <div class="work-details">
             ${(globalThis.buildWorksCardDeepDetailsMarkupModule || (() => ""))(work, { hideOwnerInfo: true })}
@@ -1568,7 +1689,7 @@ function bindMarketCardActionButtons(list, works = []) {
       const work = childWorkId
         ? { ...rootWork, requested_start_work_id: childWorkId }
         : rootWork;
-      void openMarketWorkPreview(work);
+      void openMarketWorkPreview({ ...work, __cssosOpenedFrom: "for-you" });
     });
   });
   const triggerOpenWatch = (element) => {
@@ -1577,7 +1698,7 @@ function bindMarketCardActionButtons(list, works = []) {
     if (!rootWorkId) return;
     const rootWork = findRootWorkForPlaybackModule(works, rootWorkId);
     if (!rootWork) return;
-    void openMarketWorkPreview(rootWork);
+    void openMarketWorkPreview({ ...rootWork, __cssosOpenedFrom: "for-you" });
   };
   list.querySelectorAll("[data-market-action='open-watch']").forEach((element) => {
     element.addEventListener("click", (event) => {
@@ -2022,8 +2143,14 @@ function buildWorksCardInfoMarkup(options = {}) {
 
 function buildWorksCardMarkup(options = {}) {
   const workId = String(options.workId || "").trim();
+  // CSSOS_PHASE2_PLAYED_INDICATOR 20260504 — apply played-state class
+  // so the cover dot lights up for unplayed works.
+  const _played = typeof globalThis.cssosWorkIsPlayedModule === "function"
+    ? globalThis.cssosWorkIsPlayedModule(workId) : false;
+  const _playedCls = _played ? "is-played" : "is-unplayed";
+  const _adminCls = options.isAdminOwned ? " is-admin-public" : "";
   return `
-    <article class="work-card" data-work-expand data-work-id="${escapeHtml(workId)}">
+    <article class="work-card ${_playedCls}${_adminCls}" data-work-expand data-work-id="${escapeHtml(workId)}">
       ${buildWorksCardCoverMarkup(options)}
       ${buildWorksCardInfoMarkup(options)}
       ${buildWorksCardActionsMarkup(options)}
@@ -2098,6 +2225,19 @@ function buildWorksCardsMarkup(works = [], options = {}) {
         workRequiresWholeBuyoutModule(work) &&
         !workIsWholeBuyoutChildModule(work);
       const wholeBuyoutChild = workIsWholeBuyoutChildModule(work);
+      // CSSOS_PHASE2_ADMIN_NOT_FOR_SALE 20260504 — Jing
+      // "请给系统管理员…的作品，聆听价格免费，买断价格'无价之宝'，
+      //  而且不允许更改，处于只读". Admin-owned works don't sell on
+      //  the marketplace — listen is free, buyout is priceless, and
+      //  pricing/visibility editors are read-only. Suggested prices
+      //  remain in the details for reference.
+      const isAdminOwned = typeof globalThis.isAdminWorkModule === "function"
+        ? globalThis.isAdminWorkModule(work)
+        : false;
+      const cardListenPrice = isAdminOwned ? loginCopy("Free") : listenPrice;
+      const cardBuyoutPrice = isAdminOwned ? loginCopy("Priceless · 无价之宝") : buyoutPrice;
+      const cardCanEditWorkPrices = canEditWorkPrices && !isAdminOwned;
+      const cardCanEditWorkVisibility = canEditWorkVisibility && !isAdminOwned;
       return buildWorksCardMarkup({
         workId,
         coverImage,
@@ -2105,15 +2245,16 @@ function buildWorksCardsMarkup(works = [], options = {}) {
         title,
         style,
         workType,
-        listenPrice,
-        buyoutPrice,
+        listenPrice: cardListenPrice,
+        buyoutPrice: cardBuyoutPrice,
         visibility,
         createdAt,
         voiceSourceBadge,
         computeUnits,
         computeCost,
-        canEditWorkPrices,
-        canEditWorkVisibility,
+        canEditWorkPrices: cardCanEditWorkPrices,
+        canEditWorkVisibility: cardCanEditWorkVisibility,
+        isAdminOwned,
         listenPriceCents,
         buyoutPriceCents,
         wholeBuyoutOnly,
@@ -2150,6 +2291,7 @@ function buildWorksCardCoverMarkup(options = {}) {
     <div class="work-cover" data-work-cover data-work-cover-key="${escapeHtml(workId)}" data-work-open-watch>
       ${coverImage ? `<img src="${escapeHtml(coverImage)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" />` : `<div class="work-cover-fallback">${title.slice(0, 2).toUpperCase()}</div>`}
       ${durOverlay}
+      <span class="work-cover-played-dot" aria-hidden="true"></span>
     </div>
   `;
 }
@@ -2715,6 +2857,15 @@ function mergeLocalAndRemoteWorks(remoteWorks = [], localWorks = []) {
   return merged;
 }
 
+// CSSOS_PHASE2_NO_AUTO_THUMB_GEN 20260505 — Jing
+// "请取消重新生成所有可见的缩略图功能，怪不得，乱耗费那么多的算力，
+//  金钱…那些旧的测试用的作品，缺啥就缺啥啦，不再补救".
+// Auto thumbnail generation removed entirely. The hydrator now ONLY
+// promotes a real cover (server-provided URL or locally-cached image)
+// when one is available; works without a cover keep whatever the
+// initial render put there (text fallback). No more /api/cssmv/thumbnail
+// OpenAI calls fanned out per scroll. The "Regen Thumb" per-card button
+// stays so the user can still manually regenerate one work at a time.
 async function hydrateWorksCardThumbnails(container, works) {
   if (!(container instanceof Element) || !Array.isArray(works)) return;
   for (const work of works) {
@@ -2734,25 +2885,17 @@ async function hydrateWorksCardThumbnails(container, works) {
     if (fastImage && currentImage !== fastImage) {
       cover.innerHTML = `<img src="${escapeHtml(fastImage)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" />`;
     }
-    if (fastImage && !isSyntheticWorkCoverImage(fastImage)) continue;
-    const subtitle =
-      String(work?.style || "").trim() ||
-      loginCopy("Creator work");
-    const lines = workLyricsLines(work);
-    const fallbackImage = await requestThumbnailDataUrl(title, subtitle, lines);
-    const image =
-      (await globalThis.ensureWorkCardThumbnailImageModule?.({
-        ...work,
-        cover_image: fallbackImage || work?.cover_image || ""
-      })) ||
-      fallbackImage;
-    if (!image) continue;
-    cover.innerHTML = `<img src="${escapeHtml(image)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" />`;
-    updateLocalWorkAssets(workId, { small_thumbnail_url: image, cover_image: fallbackImage || work?.cover_image || image });
+    // Note: previously, when fastImage was missing OR was a synthetic
+    // placeholder, we'd fall through to OpenAI image-gen. That is the
+    // path Jing asked us to kill — every test work without a cover
+    // stays a text-fallback tile, no OpenAI calls.
   }
 }
 
 async function hydrateMarketCardThumbnails(container, works) {
+  // CSSOS_PHASE2_NO_AUTO_THUMB_GEN 20260505 — same removal as the
+  // Works Center hydrator. Marketplace covers are promoted from the
+  // server-provided image only; never OpenAI-generated on scroll.
   if (!(container instanceof Element) || !Array.isArray(works)) return;
   for (const work of works) {
     const workId = String(work?.id || work?.work_id || "").trim();
@@ -2769,20 +2912,6 @@ async function hydrateMarketCardThumbnails(container, works) {
     if (fastImage && currentImage !== fastImage) {
       cover.innerHTML = `<img src="${escapeHtml(fastImage)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" />`;
     }
-    if (fastImage && !isSyntheticWorkCoverImage(fastImage)) continue;
-    const subtitle =
-      String(work?.style || "").trim() ||
-      loginCopy("Marketplace work");
-    const lines = workLyricsLines(work);
-    const fallbackImage = await requestThumbnailDataUrl(title, subtitle, lines);
-    const image =
-      (await globalThis.ensureWorkCardThumbnailImageModule?.({
-        ...work,
-        cover_image: fallbackImage || work?.cover_image || ""
-      })) ||
-      fallbackImage;
-    if (!image) continue;
-    cover.innerHTML = `<img src="${escapeHtml(image)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" />`;
   }
 }
 
@@ -2820,7 +2949,8 @@ function bindWorksCardActionButtons(list, sortedWorks, options = {}) {
     }
     const playbackWork = childWorkId
       ? { ...rootWork, requested_start_work_id: childWorkId }
-      : rootWork;
+      : { ...rootWork };
+    playbackWork.__cssosOpenedFrom = "works-center";
     await openMarketWorkPreview(playbackWork);
   };
 

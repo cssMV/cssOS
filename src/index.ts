@@ -6894,7 +6894,19 @@ app.post("/api/cssmv/thumbnail", async (req, res) => {
       clearTimeout(timeout);
     }
     if (!upstream.ok) {
-      return res.status(upstream.status).json(
+      // CSSOS_PHASE2_THUMBNAIL_NO_RED 20260504 — Jing
+      // "又是控制台报错". OpenAI image-gen rejecting the prompt
+      // (safety filter / size mismatch / etc.) used to bubble 400/4xx
+      // straight back to the browser, painting red lines in the
+      // network panel for what is really a graceful "no thumbnail
+      // available" outcome. Always return 200 with the empty-data
+      // envelope; the front-end already treats `generated: false` as
+      // "skip rendering, fall back to placeholder".
+      console.warn(
+        "[cssmv/thumbnail] upstream non-ok %d — soft-empty response",
+        upstream.status,
+      );
+      return res.json(
         okEmpty(
           {
             generated: false,
@@ -6904,6 +6916,7 @@ app.post("/api/cssmv/thumbnail", async (req, res) => {
             output_format: outputFormat,
             output_compression: outputCompression,
             background,
+            upstream_status: upstream.status,
           },
           "No data yet",
         ),
@@ -7825,9 +7838,21 @@ app.get("/api/pipeline/status", (req, res) => {
         .json({ ok: false, code: "PIPELINE_STATUS_PATH_INVALID" });
     }
     if (!fs.existsSync(safePath)) {
-      return res
-        .status(404)
-        .json({ ok: false, code: "PIPELINE_STATUS_NOT_FOUND" });
+      // CSSOS_PHASE2_NO_RED_404 20260504 — Jing
+      // "又是控制台报错". When the run state file hasn't been
+      // persisted yet (frontend just registered the runId; the rust
+      // pipeline writes asynchronously), the 404 painted a red line
+      // in DevTools every poll cycle until the file landed. Return
+      // 200 with an empty-status envelope and a `pending: true`
+      // marker so callers can distinguish "not found" from "found-
+      // but-empty"; the polling helper already treats empty payloads
+      // as a no-op and tries again next interval.
+      return res.json({
+        ok: true,
+        code: "PIPELINE_STATUS_PENDING",
+        pending: true,
+        stages: {},
+      });
     }
     const payload = JSON.parse(fs.readFileSync(safePath, "utf8"));
     return res.json(buildCompactPipelineStatus(payload));
@@ -11215,6 +11240,10 @@ type WorkTreeRow = {
   preview_image_url?: string | null;
   preview_video_url?: string | null;
   preview_video_asset_key?: string | null;
+  /* CSSOS_PHASE2_MARKET_DURATION 20260504 — surfaced from
+     work_assets.meta->>'duration_secs' so foryou cards can stamp the
+     mm:ss chip. Optional — older rows / drafts may lack this. */
+  duration_secs?: number | null;
 };
 
 function workStructureRoleLabel(role: unknown, fallbackType: unknown) {
@@ -11746,7 +11775,10 @@ app.get("/api/works/mine", async (req, res) => {
     if (!user) {
       return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
     }
-    const limit = Math.max(1, Math.min(Number(req.query.limit || 20), 100));
+    // CSSOS_PHASE2_FULL_LIBRARY_LIMIT 20260504 — Jing: raise the cap so
+    // Works Center / For You / playback queue can pull the full library
+    // and page client-side instead of artificially looping at 100.
+    const limit = Math.max(1, Math.min(Number(req.query.limit || 20), 1000));
     type Row = WorkTreeRow;
     // CSSOS_PHASE2_PERSIST_PLAYABLE 20260430 #214 — Jing
     // "用户从为你创作/作品中心或者其他面板想再去欣赏这些刚刚输出完毕的作品，
@@ -12094,7 +12126,9 @@ app.get("/api/works/market", async (req, res) => {
   try {
     const viewer = await getSessionUser(req);
     const debugTree = String(req.query.debug_tree || "").trim() === "1";
-    const limit = Math.max(1, Math.min(Number(req.query.limit || 24), 100));
+    // CSSOS_PHASE2_FULL_MARKET_LIMIT 20260504 — Jing: same cap raise
+    // as /api/works/mine so the marketplace pages client-side cleanly.
+    const limit = Math.max(1, Math.min(Number(req.query.limit || 24), 1000));
     type Row = WorkTreeRow;
     const q: QueryResult<Row> = await withClient((client) =>
       client.query<Row>(
@@ -12128,7 +12162,12 @@ app.get("/api/works/market", async (req, res) => {
            COALESCE(mp.buyout_enabled, buyout_product.active, false) AS buyout_enabled,
            mp.tips_enabled,
            mp.visibility,
-           mp.rights_scope
+           mp.rights_scope,
+           /* CSSOS_PHASE2_MARKET_DURATION 20260504 — Jing
+              "为你创作面板的作品卡片，压上时长". Surface duration_secs
+              from the final_mv asset's meta so foryou cards can show
+              the mm:ss chip on the cover, matching Works Center. */
+           COALESCE((fm_asset.meta->>'duration_secs')::float, NULL) AS duration_secs
          FROM user_works w
          JOIN users u ON u.id = w.user_id
          LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
@@ -12140,6 +12179,9 @@ app.get("/api/works/market", async (req, res) => {
            ON buyout_product.work_id = w.id
           AND buyout_product.product_kind = 'buyout'
           AND buyout_product.active = true
+         LEFT JOIN work_assets fm_asset
+           ON fm_asset.work_id = w.id
+          AND fm_asset.asset_type = 'final_mv'
          WHERE COALESCE(mp.visibility, 'public') <> 'private'
            AND COALESCE(listen_product.amount_cents, mp.current_listen_price_cents, $2) > 0
            AND w.parent_work_id IS NULL

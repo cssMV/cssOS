@@ -2117,17 +2117,49 @@
     <script src="app.subtitle-cleaner.js?v=20260425-p2-113-subtitle-cleaner-1"></script>
     <script src="app.mv-title-sync.js?v=20260503-mv-title-sync-1"></script>
     <script src="app.boot.js?v=20260504-longpress-kill-legacy"></script>
-    <!-- CSSOS_PHASE2_PANEL_3BTN_BULLETPROOF 20260505 — Jing
-         Top-right minimize/maximize/close buttons kept silently failing
-         even after the bridge load was fixed. Whatever was eating the
-         click somewhere in the cascade — kill it. This handler is the
-         LAST thing wired and runs in capture phase with
-         stopImmediatePropagation, so nothing else gets a chance. It
-         calls the same fns as the bridge (togglePanelCollapse /
-         togglePanelMaximize / minimizeToDock / togglePanelSettings)
-         which are guaranteed-defined globals from app.js by this point. -->
+    <!-- CSSOS_PHASE2_PANEL_3BTN_BULLETPROOF 20260505b — Jing
+         Self-diagnosing version. Stamps the document so you can verify
+         from console that this script actually ran. On every click on a
+         panel-actions button it also flashes a small badge in the
+         top-right corner so you can see WITHOUT devtools whether the
+         click was intercepted. Runs at window-capture (earlier than any
+         document-level handler) with stopImmediatePropagation so nothing
+         else can preempt. Calls top-level globals from app.js. -->
     <script>
       (function () {
+        // Self-stamp: from devtools console run
+        //   document.documentElement.dataset.panel3btn
+        // → should print "armed-842d260b" if this script ran.
+        document.documentElement.dataset.panel3btn = "armed-842d260b";
+
+        // Visual badge so you can see without devtools.
+        var badge;
+        function ensureBadge() {
+          if (badge) return badge;
+          badge = document.createElement("div");
+          badge.id = "panel-3btn-debug-badge";
+          badge.style.cssText =
+            "position:fixed;top:8px;right:8px;z-index:2147483647;" +
+            "padding:6px 10px;border-radius:8px;font:600 11px/1 ui-monospace,monospace;" +
+            "background:rgba(0,245,160,0.95);color:#001b14;pointer-events:none;" +
+            "box-shadow:0 4px 14px rgba(0,0,0,0.4);transition:opacity .25s;opacity:0;";
+          document.body.appendChild(badge);
+          return badge;
+        }
+        function flash(msg) {
+          var b = ensureBadge();
+          b.textContent = msg;
+          b.style.opacity = "1";
+          clearTimeout(flash._t);
+          flash._t = setTimeout(function () { b.style.opacity = "0"; }, 1500);
+        }
+        // On load, briefly show "3btn armed".
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", function () { flash("3btn armed 842d260b"); });
+        } else {
+          flash("3btn armed 842d260b");
+        }
+
         function classify(btn) {
           var raw = ((btn.dataset && btn.dataset.action) || btn.getAttribute("aria-label") || btn.getAttribute("data-i18n-aria") || btn.textContent || "").trim().toLowerCase();
           if (raw.indexOf("setting") >= 0) return "settings";
@@ -2136,7 +2168,11 @@
           if (raw === "×" || raw === "x" || raw.indexOf("close") >= 0) return "close";
           return "";
         }
-        document.addEventListener("click", function (event) {
+
+        // Window-level capture — fires before any document/element handler.
+        // pointerdown gives us first crack; we still also handle click so
+        // text-only browsers / synthetic events work.
+        function handle(event) {
           var t = event.target;
           if (!(t instanceof Element)) return;
           var btn = t.closest(".panel-actions .icon-btn");
@@ -2145,24 +2181,27 @@
           if (!panel) return;
           var kind = classify(btn);
           if (!kind) return;
+          flash("3btn FIRE: " + kind + " (" + (panel.id || "panel") + ")");
           event.preventDefault();
           event.stopPropagation();
           if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+          // Only act on click, not pointerdown (pointerdown is reserved
+          // so the drag handler doesn't grab the button).
+          if (event.type !== "click") return;
           try { if (typeof focusPanel === "function") focusPanel(panel); } catch (_e) {}
           try {
-            if (kind === "minimize" && typeof togglePanelCollapse === "function") {
-              togglePanelCollapse(panel);
-            } else if (kind === "maximize" && typeof togglePanelMaximize === "function") {
-              togglePanelMaximize(panel);
-            } else if (kind === "close" && typeof minimizeToDock === "function") {
-              minimizeToDock(panel);
-            } else if (kind === "settings" && typeof togglePanelSettings === "function") {
-              togglePanelSettings(panel);
-            }
+            if (kind === "minimize" && typeof togglePanelCollapse === "function") togglePanelCollapse(panel);
+            else if (kind === "maximize" && typeof togglePanelMaximize === "function") togglePanelMaximize(panel);
+            else if (kind === "close" && typeof minimizeToDock === "function") minimizeToDock(panel);
+            else if (kind === "settings" && typeof togglePanelSettings === "function") togglePanelSettings(panel);
+            else flash("3btn STUB: " + kind + " fn missing");
           } catch (err) {
             console.error("[panel-3btn]", kind, err);
+            flash("3btn ERROR: " + kind);
           }
-        }, true);
+        }
+        window.addEventListener("pointerdown", handle, true);
+        window.addEventListener("click", handle, true);
       })();
     </script>
   </body>

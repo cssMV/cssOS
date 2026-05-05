@@ -31913,6 +31913,14 @@ function attachPanelDrag() {
 }
 
 function attachPanelBarActions() {
+  /* CSSOS_PHASE2_PANEL_CONSTITUTION_3BTN 20260505 — Jing
+     Boot only calls this legacy function. The 3-button (minimize / maximize /
+     close) click wiring lives in attachPanelBarActionsBridge in
+     app.panel-shell-actions.js — delegate so the buttons actually work. */
+  if (typeof globalThis.attachPanelBarActionsBridge === "function") {
+    globalThis.attachPanelBarActionsBridge();
+    return;
+  }
   document.querySelectorAll(".panel").forEach((panel) => {
     panel.addEventListener("dblclick", (event) => {
       if (event.target.closest(".panel-actions")) return;

@@ -2382,33 +2382,47 @@
       }
       } // close: else (titleRaw non-empty validation block)
     } catch (_e) { /* validation best-effort */ }
-    // CSSOS_PHASE2_KILL_STALE_HARD 20260429 #168.3 — Jing
+    // CSSOS_PHASE2_KILL_STALE_HARD 20260429 #168.3 + 20260504 — Jing
     // "stale audio kill 不彻底（旧恐怖音效还能播完 5 分钟）— 改 destroy
     //  + recreate audio element + cache-bust src 时间戳"
     //
-    // KEEP the element identity (watch-ui keeps a reference to it via
-    // `watchAudioPreview`). Hard-clear: pause → mute → zero volume →
-    // strip src → strip srcObject → strip MediaSource via load() → also
-    // explicitly set src to a 1-byte silent dataURI so any cached
-    // decoder buffer is replaced with silence. Then revoke the silent
-    // src so the element is dormant.
+    // 2026-05-04 update: "MV PIPELINE 走流程的时候，正在播放的媒体是
+    //  否可以不用暂停？等新的媒体输出完毕，直接替换正在播放的媒体，
+    //  全新播放？" — keep currently-playing media flowing through the
+    //  whole pipeline; only swap when new compose-done lands. The
+    //  hard-kill stays in place for STALE / FAILED runs (those are the
+    //  reason this block was added — old horror audio from a crashed
+    //  run would otherwise loop for 5 minutes).
+    //
+    // Decision rule: if the currently-playing element carries
+    // `dataset.cssmvSafeStream = "1"` (set by compose-done after a
+    // successful previous run, see line ~4741) AND it's actively
+    // playing (not paused, not ended), we DON'T kill it. Otherwise
+    // (no marker = unknown provenance, or already paused = nothing
+    // to preserve) we run the legacy hard-kill.
     try {
       const SILENT_DATAURI = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
       const audioEl = document.getElementById("watch-audio-preview");
-      if (audioEl) {
+      const videoEl = document.getElementById("watch-video");
+      const isSafeStream = (el) =>
+        !!el &&
+        el.dataset &&
+        el.dataset.cssmvSafeStream === "1" &&
+        !el.paused &&
+        !el.ended &&
+        Number(el.currentTime || 0) > 0;
+      const audioSafe = isSafeStream(audioEl);
+      const videoSafe = isSafeStream(videoEl);
+      if (audioEl && !audioSafe) {
         try { audioEl.pause(); } catch (_e) {}
         try { audioEl.muted = true; } catch (_e) {}
         try { audioEl.volume = 0; } catch (_e) {}
         try { audioEl.srcObject = null; } catch (_e) {}
-        // Set silent src first to overwrite any pending decoder samples.
         try { audioEl.src = SILENT_DATAURI; audioEl.load && audioEl.load(); } catch (_e) {}
-        // Then remove it so the element is dormant.
         try { audioEl.removeAttribute("src"); audioEl.load && audioEl.load(); } catch (_e) {}
-        // Restore default volume for the next intentional play.
         try { audioEl.volume = 1; } catch (_e) {}
       }
-      const videoEl = document.getElementById("watch-video");
-      if (videoEl) {
+      if (videoEl && !videoSafe) {
         try { videoEl.pause(); } catch (_e) {}
         try { videoEl.muted = true; } catch (_e) {}
         try { videoEl.srcObject = null; } catch (_e) {}
@@ -2416,23 +2430,29 @@
         try { videoEl.removeAttribute("src"); videoEl.load && videoEl.load(); } catch (_e) {}
         try { videoEl.loop = false; videoEl.removeAttribute("loop"); } catch (_e) {}
       }
-      // Kill any rogue <audio> with active src elsewhere on the page.
+      // Other rogue <audio>: still safe to neutralise (none of them
+      // should be a "safe stream" — the watch panel owns playback).
       document.querySelectorAll("audio").forEach((el) => {
         if (el.id === "watch-audio-preview") return;
         if (el.id === "mic-capture-audio") return;
         try { el.pause(); } catch (_e) {}
         try { el.muted = true; } catch (_e) {}
       });
-      // Reset MediaSession so OS-level focus doesn't keep prior session.
-      try {
-        if (navigator.mediaSession) {
-          navigator.mediaSession.playbackState = "none";
-          navigator.mediaSession.metadata = null;
-        }
-      } catch (_msErr) { /* non-fatal */ }
+      // Reset MediaSession only when we actually killed our own stream;
+      // if we preserved playback the metadata should stay too.
+      if (!audioSafe && !videoSafe) {
+        try {
+          if (navigator.mediaSession) {
+            navigator.mediaSession.playbackState = "none";
+            navigator.mediaSession.metadata = null;
+          }
+        } catch (_msErr) { /* non-fatal */ }
+      }
       console.info(
-        "%c[mv-pipeline][kill-stale-hard] silent-overwrite + reset on <audio>+<video>+mediaSession",
-        "color:#a40;font-weight:bold"
+        "%c[mv-pipeline][kill-stale-hard] audioSafe=%s videoSafe=%s — %s",
+        "color:#a40;font-weight:bold",
+        audioSafe, videoSafe,
+        (audioSafe || videoSafe) ? "PRESERVED current playback (will hot-swap on compose-done)" : "killed all"
       );
     } catch (_killErr) { /* non-fatal */ }
     // CSSOS_PHASE2_AUDIO_CONTEXT_PRIME 20260428 #168.2 — Jing
@@ -4765,6 +4785,21 @@
       // P2-31: final sync so anything that appeared late (e.g. mvUrl) is reflected.
       syncWatchOutputs();
       renderSummary();
+      // CSSOS_PHASE2_HOT_SWAP 20260504 — Jing
+      // "MV PIPELINE 走流程的时候，正在播放的媒体是否可以不用暂停？
+      //  等新的媒体输出完毕，直接替换正在播放的媒体，全新播放."
+      // Tag the watch <audio> + <video> as "safe stream" — the next
+      // pipeline run's KILL_STALE_HARD block will see this marker and
+      // skip the kill, letting playback continue uninterrupted until
+      // THIS run's compose-done lands new URLs (which the syncWatch
+      // pipeline above hot-swaps in atomically — browser stops the
+      // old src + starts the new in microseconds, no perceptible gap).
+      try {
+        const audioElTag = document.getElementById("watch-audio-preview");
+        const videoElTag = document.getElementById("watch-video");
+        if (audioElTag && audioElTag.dataset) audioElTag.dataset.cssmvSafeStream = "1";
+        if (videoElTag && videoElTag.dataset) videoElTag.dataset.cssmvSafeStream = "1";
+      } catch (_e) { /* non-fatal */ }
 
       // CSSOS_PHASE2_PIPELINE_RESULT_LOCK 20260426 #137 — Jing
       // "Watch 面板再次跑整个流程而不播放已有 mvUrl"

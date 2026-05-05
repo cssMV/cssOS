@@ -1975,43 +1975,44 @@
     <script src="app.watch-audio-polling.js?v=20260504-stop-404-poll"></script>
     <script src="app.panel-command-settings.js?v=20260412-ui-recovery-5"></script>
     <script src="app.panel-behavior-core.js?v=20260418-engines-selector-2"></script>
-    <!-- CSSOS_PHASE2_PANEL_CONSTITUTION_3BTN_LOAD 20260505 — Jing
-         Bridge that wires the 3 top-right buttons (minimize/maximize/close)
-         and 8-way resize. Was on disk but never loaded → buttons silently
-         did nothing. Must load BEFORE app.js so attachPanelBarActions can
-         delegate to attachPanelBarActionsBridge. -->
-    <script src="app.panel-shell-actions.js?v=20260505-3btn-load"></script>
-    <script src="app.panel-drag.js?v=20260505-3btn-load"></script>
-    <script src="app.panel-focus.js?v=20260505-3btn-load"></script>
     <script src="app.action-permissions.js?v=20260412-ui-recovery-9"></script>
     <script src="app.context-menu.js?v=20260428-onetap-bulletproof-168.4"></script>
     <script src="app.delivery-report-bridges.js?v=20260412-ui-recovery-5"></script>
     <script src="app.civilization-bank.js?v=20260418-p2-41-civbank-1"></script>
-    <!-- CSSOS_MV_FLOW_RESTORE_18 20260505 — Jing
-         These 18 modules export bridges to globalThis that app.js (and
-         siblings) call but were never <script>-loaded → MV pipeline links
-         silently broke (logo panel click, mic icon, play icon, right-click
-         "One-click MV", Apply & Render submit, Advanced Settings flyout).
-         Loading them before app.js so the bridges exist when app.js runs. -->
-    <script src="app.binary-utils.js?v=20260505-mv-flow-restore"></script>
-    <script src="app.i18n-hierarchy-defaults.js?v=20260505-mv-flow-restore"></script>
-    <script src="app.theme-quick-toggle.js?v=20260505-mv-flow-restore"></script>
-    <script src="app.cssmv-governance.js?v=20260505-mv-flow-restore"></script>
-    <script src="app.delivery-copy.js?v=20260505-mv-flow-restore"></script>
-    <script src="app.delivery-governance-inspector.js?v=20260505-mv-flow-restore"></script>
-    <script src="app.final-audio-artifacts.js?v=20260505-mv-flow-restore"></script>
-    <script src="app.watch-preview-utils.js?v=20260505-mv-flow-restore"></script>
-    <script src="app.song-creation-payload.js?v=20260505-mv-flow-restore"></script>
-    <script src="app.structure-planning.js?v=20260505-mv-flow-restore"></script>
-    <script src="app.run-auth.js?v=20260505-mv-flow-restore"></script>
-    <script src="app.logo-panel-actions.js?v=20260505-mv-flow-restore"></script>
-    <script src="app.panel-stack.js?v=20260505-mv-flow-restore"></script>
-    <script src="app.panel-shortcuts.js?v=20260505-mv-flow-restore"></script>
-    <script src="app.panel-settings-markup.js?v=20260505-mv-flow-restore"></script>
-    <script src="app.panel-settings-runtime.js?v=20260505-mv-flow-restore"></script>
-    <script src="app.panel-settings-behavior-bindings.js?v=20260505-mv-flow-restore"></script>
-    <script src="app.panel-settings-tail.js?v=20260505-mv-flow-restore"></script>
     <script src="app.js?v=20260505-mv-first"></script>
+    <!-- CSSOS_MV_FLOW_RESTORE 20260505 — Jing
+         Helpers that export bridges to globalThis read by app.js / siblings.
+         These were silently un-loaded before. Two earlier candidates
+         (app.binary-utils.js, app.watch-preview-utils.js) were dropped on
+         2026-05-05 because their top-level `const` declarations duplicated
+         app.js's, throwing SyntaxError at parse time and killing the rest
+         of the page. The duplicated symbols (b64FromArrayBuffer,
+         MUSIC_PLAN_SS_DISABLED, MUSIC_PLAN_TTL_MS, musicPlan*Breaker) all
+         already exist in app.js, and the only outside caller of the
+         watch-preview-utils exports uses optional chaining `?.()` so the
+         removal is safe.
+         Loading these AFTER app.js so any function in them that reads
+         app.js's top-level `const` bindings (mvPolicyVersion, etc.) doesn't
+         hit a temporal-dead-zone ReferenceError. -->
+    <script src="app.panel-shell-actions.js?v=20260505b-after-appjs"></script>
+    <script src="app.panel-drag.js?v=20260505b-after-appjs"></script>
+    <script src="app.panel-focus.js?v=20260505b-after-appjs"></script>
+    <script src="app.i18n-hierarchy-defaults.js?v=20260505b-after-appjs"></script>
+    <script src="app.theme-quick-toggle.js?v=20260505b-after-appjs"></script>
+    <script src="app.cssmv-governance.js?v=20260505b-after-appjs"></script>
+    <script src="app.delivery-copy.js?v=20260505b-after-appjs"></script>
+    <script src="app.delivery-governance-inspector.js?v=20260505b-after-appjs"></script>
+    <script src="app.final-audio-artifacts.js?v=20260505b-after-appjs"></script>
+    <script src="app.song-creation-payload.js?v=20260505b-after-appjs"></script>
+    <script src="app.structure-planning.js?v=20260505b-after-appjs"></script>
+    <script src="app.run-auth.js?v=20260505b-after-appjs"></script>
+    <script src="app.logo-panel-actions.js?v=20260505b-after-appjs"></script>
+    <script src="app.panel-stack.js?v=20260505b-after-appjs"></script>
+    <script src="app.panel-shortcuts.js?v=20260505b-after-appjs"></script>
+    <script src="app.panel-settings-markup.js?v=20260505b-after-appjs"></script>
+    <script src="app.panel-settings-runtime.js?v=20260505b-after-appjs"></script>
+    <script src="app.panel-settings-behavior-bindings.js?v=20260505b-after-appjs"></script>
+    <script src="app.panel-settings-tail.js?v=20260505b-after-appjs"></script>
     <script src="app.creation-language.js?v=20260423-p2-86-lang-auto-empty-1"></script>
     <!-- CSSMV_CREATION_LANG_OPTIONS 20260425 #100 — Jing: full 10-lang
          dropdown + setLocale event dispatch + auto-mirror locale into

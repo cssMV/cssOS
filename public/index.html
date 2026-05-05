@@ -1987,6 +1987,30 @@
     <script src="app.context-menu.js?v=20260428-onetap-bulletproof-168.4"></script>
     <script src="app.delivery-report-bridges.js?v=20260412-ui-recovery-5"></script>
     <script src="app.civilization-bank.js?v=20260418-p2-41-civbank-1"></script>
+    <!-- CSSOS_MV_FLOW_RESTORE_18 20260505 — Jing
+         These 18 modules export bridges to globalThis that app.js (and
+         siblings) call but were never <script>-loaded → MV pipeline links
+         silently broke (logo panel click, mic icon, play icon, right-click
+         "One-click MV", Apply & Render submit, Advanced Settings flyout).
+         Loading them before app.js so the bridges exist when app.js runs. -->
+    <script src="app.binary-utils.js?v=20260505-mv-flow-restore"></script>
+    <script src="app.i18n-hierarchy-defaults.js?v=20260505-mv-flow-restore"></script>
+    <script src="app.theme-quick-toggle.js?v=20260505-mv-flow-restore"></script>
+    <script src="app.cssmv-governance.js?v=20260505-mv-flow-restore"></script>
+    <script src="app.delivery-copy.js?v=20260505-mv-flow-restore"></script>
+    <script src="app.delivery-governance-inspector.js?v=20260505-mv-flow-restore"></script>
+    <script src="app.final-audio-artifacts.js?v=20260505-mv-flow-restore"></script>
+    <script src="app.watch-preview-utils.js?v=20260505-mv-flow-restore"></script>
+    <script src="app.song-creation-payload.js?v=20260505-mv-flow-restore"></script>
+    <script src="app.structure-planning.js?v=20260505-mv-flow-restore"></script>
+    <script src="app.run-auth.js?v=20260505-mv-flow-restore"></script>
+    <script src="app.logo-panel-actions.js?v=20260505-mv-flow-restore"></script>
+    <script src="app.panel-stack.js?v=20260505-mv-flow-restore"></script>
+    <script src="app.panel-shortcuts.js?v=20260505-mv-flow-restore"></script>
+    <script src="app.panel-settings-markup.js?v=20260505-mv-flow-restore"></script>
+    <script src="app.panel-settings-runtime.js?v=20260505-mv-flow-restore"></script>
+    <script src="app.panel-settings-behavior-bindings.js?v=20260505-mv-flow-restore"></script>
+    <script src="app.panel-settings-tail.js?v=20260505-mv-flow-restore"></script>
     <script src="app.js?v=20260505-mv-first"></script>
     <script src="app.creation-language.js?v=20260423-p2-86-lang-auto-empty-1"></script>
     <!-- CSSMV_CREATION_LANG_OPTIONS 20260425 #100 — Jing: full 10-lang

@@ -135,7 +135,10 @@
   text-overflow: ellipsis !important;
   word-break: keep-all !important;
   overflow-wrap: normal !important;
-  max-width: min(96%, 1280px) !important;
+  /* CSSOS_PHASE2_SUBTITLE_BOTTOM_LEFT 20260504 — Jing: shrink the
+   * max-width so the bottom-left anchored subtitle leaves space on
+   * the right for commerce / action chips and per-take pills. */
+  max-width: min(62%, 720px) !important;
   line-height: 1.2 !important;
 }
 /* The karaoke line wraps each cue in .watch-karaoke-prev / -current /

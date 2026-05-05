@@ -6186,12 +6186,20 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
     0 0 14px rgba(0, 245, 160, 0.55),
     0 0 24px rgba(11, 247, 255, 0.22);
   position: absolute;
+  /* CSSOS_PHASE2_SUBTITLE_BOTTOM_LEFT 20260504 — Jing
+   * "请把普通字幕从右下角，移动到左下角."
+   * Anchor at bottom-left with a tasteful safe-area inset so the
+   * lyric line breathes against the frame edge without crowding it.
+   * Width capped to ~60% of frame so longer lines don't run into
+   * the right-side commerce/action chips that live at the bottom-
+   * right. */
   bottom: 32px;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 32px;
+  right: auto;
+  transform: none;
   z-index: 3;
-  width: min(82%, 880px);
-  text-align: center;
+  max-width: min(62%, 720px);
+  text-align: left;
   font-size: clamp(16px, 1.5vw, 22px);
   font-weight: 600;
   line-height: 1.32;

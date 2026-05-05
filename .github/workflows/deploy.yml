@@ -42,9 +42,16 @@ jobs:
 
       - name: Smoke test live site
         run: |
-          # Verify the site responds 200 and contains the latest commit SHA
-          # in some form (we rely on the inline panel3btn stamp as a tracer
-          # — bumped per release in index.html).
-          curl -sf -o /tmp/live.html https://cssstudio.app/
-          test -s /tmp/live.html
-          echo "live HTML bytes: $(wc -c < /tmp/live.html)"
+          # Verify the site responds 200. The service may still be
+          # restarting right after deploy-release.sh completes, so we
+          # retry a few times before declaring failure.
+          for attempt in 1 2 3 4 5 6; do
+            if curl -sf -o /tmp/live.html https://cssstudio.app/ && [ -s /tmp/live.html ]; then
+              echo "smoke OK (attempt $attempt) — live HTML bytes: $(wc -c < /tmp/live.html)"
+              exit 0
+            fi
+            echo "smoke attempt $attempt failed — retry in 5s"
+            sleep 5
+          done
+          echo "smoke failed after 6 attempts"
+          exit 1

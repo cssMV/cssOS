@@ -23,8 +23,14 @@
   }
 
   function buildShareText(opts) {
-    var title = (opts && opts.title) || "CSS Studio MV";
-    return "🎬 " + title + " — CSS Studio";
+    /* CSSOS_SHARE_TEXT_FORMAT 20260506 — Jing
+     * "长相思 · 夜雨亡国辞 — cssOS，不要；长相思 · 夜雨亡国辞 — CSS Studio要."
+     * Drop the 🎬 prefix and the "CSS Studio MV" fallback so the
+     * tweet/post reads exactly: <work title> — CSS Studio.
+     * If somehow no title is present (defensive), still suffix CSS Studio. */
+    var title = (opts && String(opts.title || "").trim()) || "";
+    if (!title) return "CSS Studio";
+    return title + " — CSS Studio";
   }
 
   function tt(en, zh) {

@@ -70,19 +70,133 @@
     };
   }
 
+  /* CSSOS_SHARE_LINK_DIRECT_OPEN 20260506 — Jing
+   * "面板跳来跳去，最终播放了一个不是分享的那个标题的作品" — even with
+   * isShareLink guards inside the 645-line openMarketWorkPreview, the
+   * function has too many side-effect branches (queue auto-chain, panel
+   * default content, take-toggle hydration, market preview rendering)
+   * for a share link to land cleanly. Bypass it entirely: pre-seed the
+   * pipeline state, drop the watch-panel's .hidden, and let the existing
+   * watch-ui hydration + cinema MutationObserver pick up from there. */
+  function openShareLinkDirect(work) {
+    var mvUrl = String(work.final_mv_url || work.preview_video_url || "").trim();
+    var title = String(work.title || "").trim();
+    var coverUrl = String(work.cover_image || work.preview_image_url || "").trim();
+    var audioUrl = String(work.audio_track_1_url || "").trim();
+    var altAudioUrl = String(work.audio_track_2_url || "").trim();
+    var lyrics = String(work.lyrics_preview || "").trim();
+    var style = String(work.style || "").trim();
+    var duration = Number(work.duration_secs || 0) || null;
+
+    // 1. Seed cssmvPipelineLastResult so watch-ui's hydration finds the
+    //    URL + title without triggering a fresh pipeline run.
+    try {
+      globalThis.cssmvPipelineLastResult = {
+        mvUrl: mvUrl || null,
+        coverUrl: coverUrl || null,
+        title: title || null,
+        lyrics: lyrics || null,
+        style: style || null,
+        runId: null,
+        audioUrl: audioUrl || null,
+        altAudioUrl: altAudioUrl || null,
+        durationSecs: duration,
+        tsAt: Date.now(),
+        // Long freshMs so any subsequent re-hydration check sees this
+        // as authoritative. The single-source-of-truth principle: the
+        // share-link UUID controls the panel, period.
+        freshMs: 60 * 60 * 1000,
+        source: "share-link"
+      };
+    } catch (_e) {}
+
+    // 2. Mirror into mv-pipeline-panel state if it exists.
+    try {
+      var ps = globalThis.cssosMvPipelinePanelState
+        ? globalThis.cssosMvPipelinePanelState()
+        : null;
+      if (ps) {
+        ps.mvUrl = mvUrl || null;
+        ps.audioUrl = audioUrl || null;
+        ps.altAudioUrl = altAudioUrl || null;
+        ps.duration = duration || 0;
+        ps.title = title;
+        ps.coverUrl = coverUrl;
+        ps.lyrics = lyrics;
+        ps.style = style;
+        ps.workId = work.id || null;
+        ps.ownerName = work.owner_name || "";
+      }
+    } catch (_e) {}
+
+    // 3. Drop a single-entry, loop_single playlist so auto-advance can't hop.
+    try {
+      var pl = globalThis.cssosPlaylists;
+      if (pl && typeof pl.populate === "function") {
+        pl.populate("share-link", [work]);
+        pl.setActive && pl.setActive("share-link");
+        pl.setMode && pl.setMode("loop_single");
+      }
+    } catch (_e) {}
+
+    // 4. Directly write the video + audio src so the panel plays this
+    //    exact work even before any hydration helper runs.
+    try {
+      var v = document.getElementById("watch-video");
+      var a = document.getElementById("watch-audio-preview");
+      if (v && mvUrl) {
+        v.src = mvUrl;
+        v.removeAttribute("muted");
+        v.muted = false;
+        v.volume = 1;
+        try { v.load && v.load(); } catch (_e) {}
+        try { v.play && v.play().catch(function () {}); } catch (_e) {}
+      }
+      if (a && audioUrl) {
+        a.src = audioUrl;
+        a.removeAttribute("muted");
+        a.muted = false;
+        a.volume = 1;
+        try { a.load && a.load(); } catch (_e) {}
+      }
+      // Title overlay
+      var t = document.getElementById("watch-title");
+      if (t) t.textContent = title || "";
+    } catch (_e) {}
+
+    // 5. Open the watch panel — un-hide + run the shell module if present
+    //    (this kicks the cinema-enter chain via MutationObserver).
+    try {
+      var watchPanel = document.getElementById("watch-panel");
+      if (watchPanel) {
+        watchPanel.classList.remove("hidden");
+        watchPanel.dataset.minimized = "false";
+        if (typeof globalThis.openWatchPanelShellModule === "function") {
+          try { globalThis.openWatchPanelShellModule(); } catch (_e) {}
+        }
+        if (typeof globalThis.cssosEnterCinemaLayout === "function") {
+          try { globalThis.cssosEnterCinemaLayout(); } catch (_e) {}
+        }
+        if (typeof globalThis.cssosRequestBrowserFullscreen === "function") {
+          try { globalThis.cssosRequestBrowserFullscreen(); } catch (_e) {}
+        }
+      }
+    } catch (_e) {}
+  }
+
   function openWhenReady(work, attempt) {
     attempt = attempt || 0;
-    if (typeof globalThis.openMarketWorkPreview === "function") {
-      try { globalThis.openMarketWorkPreview(work); } catch (e) {
-        console.warn("[share-link] openMarketWorkPreview failed:", e);
-      }
+    // Wait until the watch panel is in the DOM.
+    var watchPanel = document.getElementById("watch-panel");
+    if (watchPanel) {
+      openShareLinkDirect(work);
       return;
     }
-    if (attempt > 60) {
-      console.warn("[share-link] openMarketWorkPreview never appeared");
+    if (attempt > 80) {
+      console.warn("[share-link] watch-panel never appeared");
       return;
     }
-    setTimeout(function () { openWhenReady(work, attempt + 1); }, 250);
+    setTimeout(function () { openWhenReady(work, attempt + 1); }, 200);
   }
 
   async function bootShareLink() {

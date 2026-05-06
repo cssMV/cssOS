@@ -944,6 +944,12 @@ app.get("/billing/return", (_req, res) => {
 });
 app.use(
   express.static(PUBLIC_DIR, {
+    /* CSSOS_SHARE_OG_BYPASS_STATIC 20260506 — disable express.static's
+     * default `/` → index.html behavior so the request falls through
+     * to the app.get("/") handler that injects per-share OG meta when
+     * the URL carries ?cssMV=<id>. Direct /index.html requests still
+     * work; only the bare `/` is rerouted. */
+    index: false,
     setHeaders(res) {
       res.setHeader("Cache-Control", "no-store");
     },

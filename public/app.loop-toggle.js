@@ -42,7 +42,13 @@
     var s = document.createElement("style");
     s.id = "cssos-loop-style";
     s.textContent =
-      ".cssmv-loop-btn.is-on{color:#001b14 !important;background:rgba(0,245,160,0.85) !important;}";
+      ".cssmv-loop-btn.is-on{color:#001b14 !important;background:rgba(0,245,160,0.85) !important;}" +
+      // Narrow viewports (phones in portrait) only have room for the
+      // existing 4-button row. Hide the pip/speed/loop trio rather
+      // than letting them clip off-screen.
+      "@media (max-width:720px){" +
+      ".cssmv-pip-btn,.cssmv-speed-btn,.cssmv-loop-btn{display:none !important;}" +
+      "}";
     document.head.appendChild(s);
   }
 

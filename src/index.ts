@@ -17324,10 +17324,23 @@ function pickRandomCover(work: ShareCoverWorkRow): string | null {
   return arr[Math.floor(Math.random() * arr.length)] ?? null;
 }
 
+/** Strip template-prompt cruft from a style string before it lands in
+ *  share metadata. Some legacy works have raw template fragments saved
+ *  as their `style` (e.g. "[🎵 Music Style（英文｜可直接给…）] · ..."). */
+function cleanStyleForShare(raw: string): string {
+  return String(raw || "")
+    .replace(/\[[^\]]*\]/g, "") // drop [...] bracket blocks
+    .replace(/【[^】]*】/g, "")  // drop 【...】 fullwidth bracket blocks
+    .replace(/[（(][^)）]*[)）]/g, "") // drop (...) and （...）
+    .replace(/[·•|｜]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function buildOgMeta(work: ShareCoverWorkRow, requestUrl: string): string {
   const title = String(work.title || "CSS Studio MV").trim() || "CSS Studio MV";
-  const style = String(work.style || "").trim();
-  const styleHead = style ? (style.split(/[,，\n]/)[0] || "").trim() : "";
+  const cleanedStyle = cleanStyleForShare(work.style || "");
+  const styleHead = cleanedStyle ? (cleanedStyle.split(/[,，\n]/)[0] || "").trim() : "";
   const desc = styleHead
     ? `${title} — ${styleHead} · CSS Studio`
     : `${title} — CSS Studio`;

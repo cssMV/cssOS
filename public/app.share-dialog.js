@@ -23,8 +23,8 @@
   }
 
   function buildShareText(opts) {
-    var title = (opts && opts.title) || "cssOS MV";
-    return "🎬 " + title + " — cssOS";
+    var title = (opts && opts.title) || "CSS Studio MV";
+    return "🎬 " + title + " — CSS Studio";
   }
 
   function tt(en, zh) {
@@ -79,55 +79,103 @@
     return "https://api.qrserver.com/v1/create-qr-code/?size=" + sz + "x" + sz + "&data=" + encodeURIComponent(text);
   }
 
+  function popup(u) {
+    window.open(u, "_blank", "noopener,noreferrer,width=720,height=620");
+  }
+  function copyAndNudge(url, text, en, zh, openUrl) {
+    copyToClipboard(text + "\n" + url).then(function () {
+      toast(tt(en, zh));
+    });
+    if (openUrl) window.open(openUrl, "_blank", "noopener,noreferrer");
+  }
+
   function openTwitterShare(url, text) {
-    var u = "https://twitter.com/intent/tweet?text=" + encodeURIComponent(text + "\n") + "&url=" + encodeURIComponent(url);
-    window.open(u, "_blank", "noopener,noreferrer,width=720,height=600");
+    popup("https://twitter.com/intent/tweet?text=" + encodeURIComponent(text + "\n") + "&url=" + encodeURIComponent(url));
   }
   function openFacebookShare(url) {
-    var u = "https://www.facebook.com/sharer/sharer.php?u=" + encodeURIComponent(url);
-    window.open(u, "_blank", "noopener,noreferrer,width=720,height=620");
+    popup("https://www.facebook.com/sharer/sharer.php?u=" + encodeURIComponent(url));
   }
   function openInstagramShare(url, text) {
-    // Instagram has no web share intent. Copy + nudge.
-    copyToClipboard(text + "\n" + url).then(function () {
-      toast(tt(
-        "Copied. Open Instagram → DM or Story → paste.",
-        "已复制，打开 Instagram → DM/Story → 粘贴即可。"
-      ));
-    });
+    copyAndNudge(url, text,
+      "Copied. Open Instagram → DM or Story → paste.",
+      "已复制，打开 Instagram → DM/Story → 粘贴即可。");
   }
   function openWhatsAppShare(url, text) {
-    var u = "https://api.whatsapp.com/send?text=" + encodeURIComponent(text + " " + url);
-    window.open(u, "_blank", "noopener,noreferrer,width=720,height=620");
+    popup("https://api.whatsapp.com/send?text=" + encodeURIComponent(text + " " + url));
   }
   function openTelegramShare(url, text) {
-    var u = "https://t.me/share/url?url=" + encodeURIComponent(url) + "&text=" + encodeURIComponent(text);
-    window.open(u, "_blank", "noopener,noreferrer,width=720,height=620");
+    popup("https://t.me/share/url?url=" + encodeURIComponent(url) + "&text=" + encodeURIComponent(text));
   }
   function openRedditShare(url, text) {
-    var u = "https://www.reddit.com/submit?url=" + encodeURIComponent(url) + "&title=" + encodeURIComponent(text);
-    window.open(u, "_blank", "noopener,noreferrer,width=720,height=620");
+    popup("https://www.reddit.com/submit?url=" + encodeURIComponent(url) + "&title=" + encodeURIComponent(text));
   }
   function openLinkedInShare(url) {
-    var u = "https://www.linkedin.com/sharing/share-offsite/?url=" + encodeURIComponent(url);
-    window.open(u, "_blank", "noopener,noreferrer,width=720,height=620");
+    popup("https://www.linkedin.com/sharing/share-offsite/?url=" + encodeURIComponent(url));
   }
   function openEmailShare(url, text) {
-    var u = "mailto:?subject=" + encodeURIComponent(text) + "&body=" + encodeURIComponent(text + "\n\n" + url);
-    window.open(u, "_self");
+    window.open("mailto:?subject=" + encodeURIComponent(text) + "&body=" + encodeURIComponent(text + "\n\n" + url), "_self");
   }
+  function openBlueskyShare(url, text) {
+    popup("https://bsky.app/intent/compose?text=" + encodeURIComponent(text + "\n" + url));
+  }
+  function openThreadsShare(url, text) {
+    popup("https://threads.net/intent/post?text=" + encodeURIComponent(text + "\n" + url));
+  }
+  function openTruthSocialShare(url, text) {
+    // Truth Social has no documented intent endpoint. Copy + nudge.
+    copyAndNudge(url, text,
+      "Copied. Open Truth Social → New Post → paste.",
+      "已复制，打开 Truth Social → 新帖子 → 粘贴。");
+    window.open("https://truthsocial.com/", "_blank", "noopener,noreferrer");
+  }
+  function openTikTokShare(url, text) {
+    copyAndNudge(url, text,
+      "Copied. Open TikTok app → caption / DM → paste.",
+      "已复制，打开 TikTok → 发布/私信 → 粘贴。");
+    window.open("https://www.tiktok.com/", "_blank", "noopener,noreferrer");
+  }
+  function openPinterestShare(url, text) {
+    popup("https://pinterest.com/pin/create/button/?url=" + encodeURIComponent(url) + "&description=" + encodeURIComponent(text));
+  }
+  function openTumblrShare(url, text) {
+    popup("https://www.tumblr.com/widgets/share/tool?canonicalUrl=" + encodeURIComponent(url) + "&caption=" + encodeURIComponent(text));
+  }
+  function openYouTubeShare(url, text) {
+    copyAndNudge(url, text,
+      "Copied. Open YouTube → community / comment → paste.",
+      "已复制，打开 YouTube → 社区/评论 → 粘贴。");
+    window.open("https://studio.youtube.com/", "_blank", "noopener,noreferrer");
+  }
+  function openDiscordShare(url, text) {
+    copyAndNudge(url, text,
+      "Copied. Switch to Discord → paste in any channel / DM.",
+      "已复制，切到 Discord → 任意频道/私信粘贴。");
+  }
+  function openMastodonShare(url, text) {
+    // No central instance — copy + nudge so user pastes into their server.
+    copyAndNudge(url, text,
+      "Copied. Open your Mastodon instance → New post → paste.",
+      "已复制，打开你的 Mastodon 实例 → 新嘟文 → 粘贴。");
+  }
+
+  // Chinese platforms (rendered last per Jing 2026-05-06).
   function openWeiboShare(url, text) {
-    var u = "https://service.weibo.com/share/share.php?url=" + encodeURIComponent(url) + "&title=" + encodeURIComponent(text);
-    window.open(u, "_blank", "noopener,noreferrer,width=720,height=620");
+    popup("https://service.weibo.com/share/share.php?url=" + encodeURIComponent(url) + "&title=" + encodeURIComponent(text));
   }
   function openXiaohongshuShare(url, text) {
-    copyToClipboard(text + "\n" + url).then(function () {
-      toast(tt(
-        "Copied. Open Xiaohongshu app → paste in a note.",
-        "已复制，打开小红书 App → 新建笔记 → 粘贴即可。"
-      ));
-    });
+    copyAndNudge(url, text,
+      "Copied. Open Xiaohongshu app → paste in a note.",
+      "已复制，打开小红书 App → 新建笔记 → 粘贴即可。");
     window.open("https://www.xiaohongshu.com/", "_blank", "noopener,noreferrer");
+  }
+  function openDouyinShare(url, text) {
+    copyAndNudge(url, text,
+      "Copied. Open Douyin → caption / DM → paste.",
+      "已复制，打开抖音 → 发布/私信 → 粘贴。");
+    window.open("https://www.douyin.com/", "_blank", "noopener,noreferrer");
+  }
+  function openQQShare(url, text) {
+    popup("https://connect.qq.com/widget/shareqq/index.html?url=" + encodeURIComponent(url) + "&title=" + encodeURIComponent(text));
   }
 
   function dismiss(root) {
@@ -156,14 +204,18 @@
       if (e.target === root) dismiss(root);
     });
 
-    // Card
+    // Card — width hugs the share link length per Jing 2026-05-06
+    // ("小窗口宽度到分享链接长度即可"). 520px fits the typical
+    // https://cssstudio.app/?cssMV=<UUID> string with a small margin
+    // on either side; platform row scrolls horizontally for overflow.
     var card = document.createElement("div");
     card.style.cssText =
-      "min-width:320px;max-width:92vw;padding:22px 24px;border-radius:18px;" +
+      "width:520px;max-width:92vw;padding:22px 24px;border-radius:18px;" +
       "background:rgba(8,18,16,0.96);color:#daffee;" +
       "box-shadow:0 20px 60px rgba(0,0,0,0.6);" +
       "border:1px solid rgba(0,245,160,0.25);" +
-      "font:14px/1.4 -apple-system,system-ui,sans-serif;";
+      "font:14px/1.4 -apple-system,system-ui,sans-serif;" +
+      "box-sizing:border-box;";
 
     // Header
     var hdr = document.createElement("div");
@@ -254,16 +306,35 @@
       });
       return b;
     }
+    /* CSSOS_SHARE_PLATFORMS_FULL 20260506 — Jing
+     * Western platforms first; CN platforms last. Login providers
+     * (Apple, Google, GitHub, Facebook, Discord) appear here so the
+     * share surface is at least as broad as the sign-in surface. */
+    // Western — mainstream
     platforms.appendChild(platformBtn("X", "𝕏", function () { openTwitterShare(url, text); }));
     platforms.appendChild(platformBtn("Facebook", "f", function () { openFacebookShare(url); }));
     platforms.appendChild(platformBtn("Instagram", "📷", function () { openInstagramShare(url, text); }));
+    platforms.appendChild(platformBtn("Threads", "@", function () { openThreadsShare(url, text); }));
+    platforms.appendChild(platformBtn("Bluesky", "🦋", function () { openBlueskyShare(url, text); }));
+    platforms.appendChild(platformBtn("TikTok", "🎵", function () { openTikTokShare(url, text); }));
+    platforms.appendChild(platformBtn("YouTube", "▶", function () { openYouTubeShare(url, text); }));
+    platforms.appendChild(platformBtn("Reddit", "🟠", function () { openRedditShare(url, text); }));
+    platforms.appendChild(platformBtn("Pinterest", "📌", function () { openPinterestShare(url, text); }));
+    platforms.appendChild(platformBtn("Tumblr", "T", function () { openTumblrShare(url, text); }));
+    platforms.appendChild(platformBtn("LinkedIn", "in", function () { openLinkedInShare(url); }));
+    platforms.appendChild(platformBtn("Mastodon", "🐘", function () { openMastodonShare(url, text); }));
+    // Western — messaging
     platforms.appendChild(platformBtn("WhatsApp", "🟢", function () { openWhatsAppShare(url, text); }));
     platforms.appendChild(platformBtn("Telegram", "✈️", function () { openTelegramShare(url, text); }));
-    platforms.appendChild(platformBtn("Reddit", "🟠", function () { openRedditShare(url, text); }));
-    platforms.appendChild(platformBtn("LinkedIn", "in", function () { openLinkedInShare(url); }));
+    platforms.appendChild(platformBtn("Discord", "🎮", function () { openDiscordShare(url, text); }));
+    // Western — political / niche
+    platforms.appendChild(platformBtn("Truth Social", "🇺🇸", function () { openTruthSocialShare(url, text); }));
     platforms.appendChild(platformBtn(tt("Email", "邮件"), "✉️", function () { openEmailShare(url, text); }));
+    // Chinese — last per Jing 2026-05-06
     platforms.appendChild(platformBtn(tt("Weibo", "微博"), "🅦", function () { openWeiboShare(url, text); }));
     platforms.appendChild(platformBtn(tt("Xiaohongshu", "小红书"), "📕", function () { openXiaohongshuShare(url, text); }));
+    platforms.appendChild(platformBtn(tt("Douyin", "抖音"), "🎶", function () { openDouyinShare(url, text); }));
+    platforms.appendChild(platformBtn("QQ", "🐧", function () { openQQShare(url, text); }));
     platforms.appendChild(platformBtn(tt("WeChat", "微信"), "💬", function () { showWeChatQr(); }));
     scroller.appendChild(platforms);
     card.appendChild(scroller);

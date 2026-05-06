@@ -5746,21 +5746,36 @@ function buildMediaActionsModule() {
       }
     },
   });
-  // Share — Web Share API (mobile + recent desktop)
-  if (typeof navigator.share === "function") {
-    actions.push({
-      icon: "📤", label: loginCopy("Share", "分享"),
-      onClick: async () => {
+  // CSSOS_PHASE_A_SHARE_LINK 20260506 — Jing
+  // Replaced navigator.share() (which Jing called "太苹果") with a
+  // custom dialog that builds /?cssMV=<id> share links and offers
+  // X / Weibo / Xiaohongshu / WeChat (QR) destinations. Native
+  // navigator.share is kept as a fallback if the dialog fn isn't loaded.
+  actions.push({
+    icon: "📤", label: loginCopy("Share", "分享"),
+    onClick: async () => {
+      var workId = ps && (ps.workId ? String(ps.workId).split("|")[0] : null);
+      if (typeof globalThis.openCssosShareDialog === "function") {
+        try {
+          globalThis.openCssosShareDialog({
+            workId: workId,
+            title: ps?.title || "",
+            ownerName: ps?.ownerName || "",
+          });
+          return;
+        } catch (e) { console.warn("[share-dialog]", e); }
+      }
+      if (typeof navigator.share === "function") {
         try {
           await navigator.share({
             title: ps?.title || "cssOS MV",
             text: `Watch "${ps?.title || ""}" on cssOS`,
-            url: window.location.href,
+            url: workId ? window.location.origin + "/?cssMV=" + encodeURIComponent(workId) : window.location.href,
           });
         } catch (e) { console.warn("[share]", e); }
-      },
-    });
-  }
+      }
+    },
+  });
   // Favorite — add to custom playlist
   if (globalThis.cssosPlaylists && ps?.workId) {
     actions.push({

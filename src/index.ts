@@ -12121,6 +12121,181 @@ app.get("/cssapi/v1/mv", async (req, res) => {
   }
 });
 
+/* CSSOS_PHASE_A_SHARE_LINK 20260506 — Jing
+ * Public single-work fetch for share-link entry (`/?cssMV=<id>`).
+ *
+ * Returns enough metadata for openMarketWorkPreview() to render the work
+ * in the MV panel + a tier-aware viewer flag set so the front end can
+ * decide whether to:
+ *   - play the full final_mv_url (free work OR owner OR purchaser)
+ *   - play preview_video_url only and surface a sign-in / subscribe CTA
+ *     after the preview loop ends (paid work + guest / non-purchaser)
+ *   - enable WAV / MP4 download buttons (Pro+ only — Phase B)
+ *
+ * Phase A keeps the URL model unchanged (existing public asset URLs).
+ * Phase C will switch all media to 24h-signed tickets so direct hot-
+ * linking dies.
+ *
+ * Authentication: optional. Guests get the same shape as logged-in
+ * users; only the access flags differ.
+ */
+app.get("/api/works/public/:id", async (req, res) => {
+  noStore(res);
+  try {
+    const id = String(req.params.id || "").trim();
+    if (!/^[0-9a-fA-F-]{8,64}$/.test(id)) {
+      return res
+        .status(400)
+        .json({ ok: false, code: "INVALID_WORK_ID" });
+    }
+    const viewer = await getSessionUser(req);
+    type Row = WorkTreeRow & {
+      audio_track_1_url?: string | null;
+      audio_track_2_url?: string | null;
+      final_mv_url?: string | null;
+      lyrics_full?: string | null;
+    };
+    const q: QueryResult<Row> = await withClient((client) =>
+      client.query<Row>(
+        `SELECT
+           w.id,
+           w.user_id AS owner_user_id,
+           w.title,
+           w.style,
+           w.work_type,
+           w.lyrics_preview,
+           w.status,
+           w.created_at,
+           w.updated_at,
+           w.parent_work_id,
+           w.root_work_id,
+           w.structure_role,
+           w.sequence_index,
+           w.structure_plan,
+           w.source_run_id,
+           w.cover_image,
+           w.preview_image_url,
+           w.preview_video_url,
+           u.display_name AS owner_name,
+           u.email AS owner_email,
+           COALESCE(listen_product.amount_cents, mp.current_listen_price_cents) AS current_listen_price_cents,
+           COALESCE(buyout_product.amount_cents, mp.current_buyout_price_cents) AS current_buyout_price_cents,
+           COALESCE(mp.buyout_enabled, buyout_product.active, false) AS buyout_enabled,
+           mp.tips_enabled,
+           mp.visibility,
+           mp.rights_scope,
+           final_mv_asset.url AS final_mv_url,
+           audio_track_1_asset.url AS audio_track_1_url,
+           audio_track_2_asset.url AS audio_track_2_url,
+           COALESCE((final_mv_asset.meta->>'duration_secs')::float, NULL) AS duration_secs
+         FROM user_works w
+         JOIN users u ON u.id = w.user_id
+         LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
+         LEFT JOIN work_access_products listen_product
+           ON listen_product.work_id = w.id
+          AND listen_product.product_kind = 'listen'
+          AND listen_product.active = true
+         LEFT JOIN work_access_products buyout_product
+           ON buyout_product.work_id = w.id
+          AND buyout_product.product_kind = 'buyout'
+          AND buyout_product.active = true
+         LEFT JOIN work_assets final_mv_asset
+           ON final_mv_asset.work_id = w.id
+          AND final_mv_asset.asset_type = 'final_mv'
+         LEFT JOIN work_assets audio_track_1_asset
+           ON audio_track_1_asset.work_id = w.id
+          AND audio_track_1_asset.asset_type = 'audio_track_1'
+         LEFT JOIN work_assets audio_track_2_asset
+           ON audio_track_2_asset.work_id = w.id
+          AND audio_track_2_asset.asset_type = 'audio_track_2'
+         WHERE w.id = $1
+         LIMIT 1`,
+        [id],
+      ),
+    );
+    if (!q.rows.length) {
+      return res.status(404).json({ ok: false, code: "WORK_NOT_FOUND" });
+    }
+    const row = q.rows[0]!;
+    const visibility = String(row.visibility || "public").toLowerCase();
+    if (visibility === "private" && viewer?.id !== row.owner_user_id) {
+      return res.status(404).json({ ok: false, code: "WORK_NOT_FOUND" });
+    }
+    const normalized = normalizeWorkTreeRow(row) as any;
+    // Resolve viewer access tier. getAccessTier-equivalent on server side
+    // is just user.tier (or "guest").
+    const viewerTier = String((viewer as any)?.tier || "guest").toLowerCase();
+    const proPlus = ["pro", "studio", "enterprise", "vip", "admin"].includes(
+      viewerTier,
+    );
+    const isOwner = !!(viewer?.id && viewer.id === row.owner_user_id);
+    // Has the viewer purchased a listen / buyout for this work?
+    let hasPurchased = false;
+    if (viewer?.id && !isOwner) {
+      const orderRes = await withClient((client) =>
+        client.query<{ count: number }>(
+          `SELECT COUNT(*)::int AS count
+           FROM work_orders
+           WHERE buyer_user_id = $1
+             AND work_id = $2
+             AND status IN ('paid','completed','fulfilled')`,
+          [viewer.id, id],
+        ),
+      );
+      hasPurchased = (orderRes.rows[0]?.count || 0) > 0;
+    }
+    const listenCents = Number(normalized.current_listen_price_cents || 0);
+    const isFree = listenCents <= 0;
+    const fullAccess = isFree || isOwner || hasPurchased;
+    const previewOnly = !fullAccess;
+    return res.json({
+      ok: true,
+      data: {
+        id: normalized.id,
+        title: normalized.title,
+        style: normalized.style,
+        work_type: normalized.work_type,
+        lyrics_preview: normalized.lyrics_preview,
+        owner_name: normalized.owner_name || null,
+        duration_secs: normalized.duration_secs || null,
+        cover_image: normalized.cover_image || null,
+        preview_image_url: normalized.preview_image_url || null,
+        // Playable URL: full mv for full-access, preview clip otherwise.
+        // Phase A: preview_video_url (existing). Phase C will add server-
+        // side trimmed 30s clips and signed tickets.
+        final_mv_url: fullAccess
+          ? row.final_mv_url || normalized.preview_video_url || null
+          : null,
+        preview_video_url: normalized.preview_video_url || null,
+        audio_track_1_url: fullAccess ? row.audio_track_1_url || null : null,
+        audio_track_2_url: fullAccess ? row.audio_track_2_url || null : null,
+        // Tier flags for the front end (Phase B will render download UI).
+        viewer_tier: viewerTier,
+        is_free: isFree,
+        is_owner: isOwner,
+        has_purchased: hasPurchased,
+        full_access: fullAccess,
+        preview_only: previewOnly,
+        listen_price_cents: listenCents,
+        can_download_mp3: fullAccess,
+        can_download_wav: fullAccess && proPlus,
+        can_download_mp4: fullAccess && proPlus,
+        // Hint to UI: how to nudge a guest who only sees the preview.
+        gate_action: previewOnly
+          ? viewer
+            ? "subscribe"
+            : "sign_in"
+          : null,
+      },
+    });
+  } catch (err) {
+    console.error("[/api/works/public/:id]", err);
+    return res
+      .status(500)
+      .json({ ok: false, code: "PUBLIC_WORK_FAILED" });
+  }
+});
+
 app.get("/api/works/market", async (req, res) => {
   noStore(res);
   try {

@@ -1979,6 +1979,14 @@
     <script src="app.context-menu.js?v=20260428-onetap-bulletproof-168.4"></script>
     <script src="app.delivery-report-bridges.js?v=20260412-ui-recovery-5"></script>
     <script src="app.civilization-bank.js?v=20260418-p2-41-civbank-1"></script>
+    <!-- CSSOS_PHASE_A_SHARE_LINK 20260506 — Jing
+         Share-link router parses ?cssMV=<id> on boot and opens the MV
+         panel via openMarketWorkPreview. Loaded BEFORE app.js so the
+         fetch is in flight before the rest of boot. The router waits
+         for openMarketWorkPreview to be defined before invoking, so
+         load-order timing isn't critical — this is just the head start. -->
+    <script src="app.share-link-router.js?v=20260506-share-link"></script>
+    <script src="app.share-dialog.js?v=20260506-share-link"></script>
     <script src="app.js?v=20260505-mv-first"></script>
     <!-- CSSOS_MV_FLOW_RESTORE 20260505 — block moved further down
          (just before app.boot.js) so app.cssmv-governance.js's top-level

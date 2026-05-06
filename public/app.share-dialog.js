@@ -83,15 +83,44 @@
     var u = "https://twitter.com/intent/tweet?text=" + encodeURIComponent(text + "\n") + "&url=" + encodeURIComponent(url);
     window.open(u, "_blank", "noopener,noreferrer,width=720,height=600");
   }
-
+  function openFacebookShare(url) {
+    var u = "https://www.facebook.com/sharer/sharer.php?u=" + encodeURIComponent(url);
+    window.open(u, "_blank", "noopener,noreferrer,width=720,height=620");
+  }
+  function openInstagramShare(url, text) {
+    // Instagram has no web share intent. Copy + nudge.
+    copyToClipboard(text + "\n" + url).then(function () {
+      toast(tt(
+        "Copied. Open Instagram → DM or Story → paste.",
+        "已复制，打开 Instagram → DM/Story → 粘贴即可。"
+      ));
+    });
+  }
+  function openWhatsAppShare(url, text) {
+    var u = "https://api.whatsapp.com/send?text=" + encodeURIComponent(text + " " + url);
+    window.open(u, "_blank", "noopener,noreferrer,width=720,height=620");
+  }
+  function openTelegramShare(url, text) {
+    var u = "https://t.me/share/url?url=" + encodeURIComponent(url) + "&text=" + encodeURIComponent(text);
+    window.open(u, "_blank", "noopener,noreferrer,width=720,height=620");
+  }
+  function openRedditShare(url, text) {
+    var u = "https://www.reddit.com/submit?url=" + encodeURIComponent(url) + "&title=" + encodeURIComponent(text);
+    window.open(u, "_blank", "noopener,noreferrer,width=720,height=620");
+  }
+  function openLinkedInShare(url) {
+    var u = "https://www.linkedin.com/sharing/share-offsite/?url=" + encodeURIComponent(url);
+    window.open(u, "_blank", "noopener,noreferrer,width=720,height=620");
+  }
+  function openEmailShare(url, text) {
+    var u = "mailto:?subject=" + encodeURIComponent(text) + "&body=" + encodeURIComponent(text + "\n\n" + url);
+    window.open(u, "_self");
+  }
   function openWeiboShare(url, text) {
     var u = "https://service.weibo.com/share/share.php?url=" + encodeURIComponent(url) + "&title=" + encodeURIComponent(text);
     window.open(u, "_blank", "noopener,noreferrer,width=720,height=620");
   }
-
   function openXiaohongshuShare(url, text) {
-    // Xiaohongshu has no official web share intent. Best-effort: copy
-    // formatted text + URL to clipboard and pop their compose page.
     copyToClipboard(text + "\n" + url).then(function () {
       toast(tt(
         "Copied. Open Xiaohongshu app → paste in a note.",
@@ -121,7 +150,7 @@
     var root = document.createElement("div");
     root.id = "cssos-share-dialog";
     root.style.cssText =
-      "position:fixed;inset:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;" +
+      "position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;" +
       "background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);transition:opacity .18s ease;opacity:0;";
     root.addEventListener("click", function (e) {
       if (e.target === root) dismiss(root);
@@ -198,9 +227,16 @@
     note.style.cssText = "font-size:11px;color:rgba(218,255,238,0.5);margin-bottom:14px;";
     card.appendChild(note);
 
-    // Platforms
+    // Platforms — Western first (X, Facebook, Instagram, WhatsApp, Telegram,
+    // Reddit, LinkedIn, Email), then CN (Weibo, Xiaohongshu, WeChat).
+    // Horizontal scroll so we can keep adding without crowding the card.
+    var scroller = document.createElement("div");
+    scroller.style.cssText =
+      "overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;" +
+      "scrollbar-width:thin;scrollbar-color:rgba(0,245,160,0.4) transparent;" +
+      "padding-bottom:6px;margin-bottom:6px;";
     var platforms = document.createElement("div");
-    platforms.style.cssText = "display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:6px;";
+    platforms.style.cssText = "display:flex;gap:8px;flex-wrap:nowrap;width:max-content;";
 
     function platformBtn(label, glyph, onClick) {
       var b = document.createElement("button");
@@ -208,7 +244,8 @@
       b.style.cssText =
         "display:flex;flex-direction:column;align-items:center;gap:4px;" +
         "padding:10px 8px;border-radius:10px;border:1px solid rgba(0,245,160,0.2);" +
-        "background:rgba(0,0,0,0.25);color:#daffee;cursor:pointer;font-size:11px;";
+        "background:rgba(0,0,0,0.25);color:#daffee;cursor:pointer;font-size:11px;" +
+        "min-width:74px;flex:0 0 auto;";
       b.innerHTML =
         '<span style="font-size:22px;line-height:1;">' + glyph + '</span>' +
         '<span>' + label + '</span>';
@@ -218,10 +255,18 @@
       return b;
     }
     platforms.appendChild(platformBtn("X", "𝕏", function () { openTwitterShare(url, text); }));
+    platforms.appendChild(platformBtn("Facebook", "f", function () { openFacebookShare(url); }));
+    platforms.appendChild(platformBtn("Instagram", "📷", function () { openInstagramShare(url, text); }));
+    platforms.appendChild(platformBtn("WhatsApp", "🟢", function () { openWhatsAppShare(url, text); }));
+    platforms.appendChild(platformBtn("Telegram", "✈️", function () { openTelegramShare(url, text); }));
+    platforms.appendChild(platformBtn("Reddit", "🟠", function () { openRedditShare(url, text); }));
+    platforms.appendChild(platformBtn("LinkedIn", "in", function () { openLinkedInShare(url); }));
+    platforms.appendChild(platformBtn(tt("Email", "邮件"), "✉️", function () { openEmailShare(url, text); }));
     platforms.appendChild(platformBtn(tt("Weibo", "微博"), "🅦", function () { openWeiboShare(url, text); }));
     platforms.appendChild(platformBtn(tt("Xiaohongshu", "小红书"), "📕", function () { openXiaohongshuShare(url, text); }));
     platforms.appendChild(platformBtn(tt("WeChat", "微信"), "💬", function () { showWeChatQr(); }));
-    card.appendChild(platforms);
+    scroller.appendChild(platforms);
+    card.appendChild(scroller);
 
     // WeChat QR area (initially hidden — appended on demand)
     var wechatBox = document.createElement("div");
@@ -245,7 +290,16 @@
     card.appendChild(wechatBox);
 
     root.appendChild(card);
-    document.body.appendChild(root);
+    /* CSSOS_SHARE_OVER_CINEMA 20260506 — Jing
+     * "在影院模式被遮住了". When the watch panel is in browser fullscreen
+     * (panel.requestFullscreen()), only descendants of the fullscreen
+     * element are rendered. Appending to document.body invisibly stuffs
+     * the dialog behind the fullscreen surface. Mount inside the active
+     * fullscreen element instead so the dialog floats above the cinema. */
+    var mount = document.fullscreenElement
+      || document.webkitFullscreenElement
+      || document.body;
+    mount.appendChild(root);
     requestAnimationFrame(function () { root.style.opacity = "1"; });
 
     // ESC closes

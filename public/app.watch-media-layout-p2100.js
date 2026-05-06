@@ -1338,7 +1338,12 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
     if (screen.dataset.cssmvFrameToggleBound === "1") return true;
     screen.dataset.cssmvFrameToggleBound = "1";
     screen.addEventListener("click", function (e) {
-      // If the click originated on (or inside) any control button, ignore.
+      // If the click originated on (or inside) any control button or
+      // corner pill, ignore — clicks on those should NOT toggle play.
+      // CSSOS_FRAME_CLICK_GUARD 20260506 — Jing
+      // "无论是左右下角的信息按钮，点击不要暂停媒体播放".
+      // Added the bottom-left avatar + every corner pill family to the
+      // skip list so they don't double-trigger play/pause.
       const t = e.target;
       if (t && typeof t.closest === "function") {
         if (t.closest("button")) return;
@@ -1347,6 +1352,15 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
         if (t.closest("#watch-style-shift")) return;
         if (t.closest(".watch-overlay-play")) return;
         if (t.closest(".watch-music-play")) return;
+        if (t.closest(".watch-author-avatar")) return;
+        if (t.closest("#watch-author-avatar")) return;
+        if (t.closest("#watch-pill-row-bl")) return;
+        if (t.closest("#watch-pill-row-br")) return;
+        if (t.closest("#watch-aspect-pill")) return;
+        if (t.closest("#watch-take-toggle")) return;
+        if (t.closest("#watch-immersive-pill")) return;
+        if (t.closest(".watch-media-action")) return;
+        if (t.closest(".watch-style-shift")) return;
         if (t.closest("[data-no-frame-toggle]")) return;
       }
       const v = document.getElementById("watch-video");

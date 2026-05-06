@@ -438,15 +438,28 @@ impl SunoClient {
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
         {
+            // CSSOS_SUNO_STYLE_LIMIT 20260506 — Jing
+            // "music engine response was missing a required field: taskId
+            //  修多少次都修不好". Root cause was kie/Suno returning HTTP 200
+            // with body {"code":422,"msg":"The length of music style cannot
+            // exceed 1000 characters","data":null} — our frontend was
+            // synthesising a >1000-char music_style string from rich
+            // metadata. Defensive truncation to 950 chars (with a 50-char
+            // safety margin) so this rejection never reaches the upstream.
+            let trimmed_style: String = if style.chars().count() > 950 {
+                style.chars().take(950).collect()
+            } else {
+                style.to_string()
+            };
             // Suno uses `style` on the new developer API; older surfaces use
             // `tags`. Emit both to be compatible.
             body.insert(
                 "style".into(),
-                serde_json::Value::String(style.to_string()),
+                serde_json::Value::String(trimmed_style.clone()),
             );
             body.insert(
                 "tags".into(),
-                serde_json::Value::String(style.to_string()),
+                serde_json::Value::String(trimmed_style),
             );
         }
         if let Some(lyrics) = req
@@ -513,6 +526,38 @@ impl SunoClient {
                 status: status.as_u16(),
                 body: format!("non-json response: {} ({})", e, text),
             })?;
+
+        // CSSOS_SUNO_FAUX_200 20260506 — Jing
+        // kie.ai (and sometimes sunoapi.org) returns HTTP 200 with a body
+        // shaped like {"code":422,"msg":"The length of music style cannot
+        // exceed 1000 characters","data":null}. The OUTER status is 200
+        // but the INNER `code` is the real status. Without surfacing this
+        // we kept hitting the no-task_id branch and reporting "MissingField"
+        // instead of the real validation error, leaving the user staring
+        // at a recurring "missing taskId" mystery.
+        if let Some(inner_code) = v.get("code").and_then(|x| x.as_u64()) {
+            // Most success replies use 200 here; some use 0. Anything else
+            // is an upstream-level error we should surface verbatim.
+            if inner_code != 200 && inner_code != 0 {
+                let msg = v
+                    .get("msg")
+                    .and_then(|x| x.as_str())
+                    .or_else(|| v.get("message").and_then(|x| x.as_str()))
+                    .unwrap_or("(no msg)")
+                    .to_string();
+                tracing::error!(
+                    target: "cssos::mv::music",
+                    upstream_outer_status = status.as_u16(),
+                    upstream_inner_code = inner_code,
+                    msg = %msg,
+                    "suno: HTTP 200 but inner code is an error — surfacing as Upstream"
+                );
+                return Err(MusicGenError::Upstream {
+                    status: inner_code as u16,
+                    body: format!("suno code={}: {}", inner_code, msg),
+                });
+            }
+        }
 
         // The Suno developer API nests fields under `.data` while the raw
         // studio API returns them at the top level. Try both, plus a handful

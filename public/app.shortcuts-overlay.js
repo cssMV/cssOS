@@ -54,6 +54,7 @@
     { keys: "← / →", desc: tt("Seek -5s / +5s", "后退 5 秒 / 前进 5 秒") },
     { keys: "↑ / ↓", desc: tt("Volume +/- 5%", "音量 +/- 5%") },
     { keys: "0..9", desc: tt("Jump to 0..90% of duration", "跳到 0..90% 进度") },
+    { keys: "S", desc: tt("Save current frame as PNG", "保存当前帧为 PNG") },
     { section: tt("Discovery", "查询") },
     { keys: "?", desc: tt("Show this cheat sheet", "显示这个快捷键速查") },
   ];

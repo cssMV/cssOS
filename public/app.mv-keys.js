@@ -8,6 +8,7 @@
  *   ← / →         seek -5s / +5s
  *   ↑ / ↓         volume +/- 5%
  *   0..9          jump to 0..90% of duration
+ *   S             save current frame as PNG
  *
  * Gating: only active when the document is in real browser fullscreen
  * (document.fullscreenElement is non-null). This avoids stealing keys
@@ -128,6 +129,33 @@
       e.preventDefault();
       m.muted = !m.muted;
       flashHint(m.muted ? "🔇 Muted" : "🔊 " + Math.round(m.volume * 100) + "%");
+      return;
+    }
+    // s — snapshot current frame as PNG
+    if (k === "s") {
+      e.preventDefault();
+      var vid = document.getElementById("watch-video");
+      if (!vid || !vid.videoWidth) { flashHint("⚠ no video"); return; }
+      try {
+        var c = document.createElement("canvas");
+        c.width = vid.videoWidth;
+        c.height = vid.videoHeight;
+        c.getContext("2d").drawImage(vid, 0, 0);
+        c.toBlob(function (blob) {
+          if (!blob) { flashHint("⚠ snapshot failed"); return; }
+          var a = document.createElement("a");
+          var ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+          a.href = URL.createObjectURL(blob);
+          a.download = "cssos-frame-" + ts + ".png";
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+          flashHint("📸 Saved");
+        }, "image/png");
+      } catch (err) {
+        // Cross-origin video without CORS will throw on toBlob — explain it.
+        flashHint("⚠ " + (err && err.name === "SecurityError" ? "CORS blocked" : "failed"));
+      }
       return;
     }
     // 0..9 — jump to %

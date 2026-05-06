@@ -50,26 +50,51 @@
     return candidates[0] || primary;
   }
 
+  /* Safari ships TWO PiP APIs:
+   *   - the standard one (requestPictureInPicture / pictureInPictureElement)
+   *   - the older proprietary one (webkitSetPresentationMode)
+   * The standard API on Safari has a long-standing bug where the PiP
+   * window opens with controls but paints black for videos whose <src>
+   * was set via JS after page load (which is exactly our flow). The
+   * proprietary API is the one Safari's own engineers test and ships
+   * frames reliably. So on Safari, prefer the webkit path. Other
+   * browsers (Chrome / Firefox / Edge) only have the standard API. */
+  var isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
   async function togglePip() {
     var v = pickActiveVideo();
     if (!v) return;
     try { v.disablePictureInPicture = false; } catch (_e) {}
     try { v.removeAttribute("disablePictureInPicture"); } catch (_e) {}
     try {
+      // Already PiP'd → exit on either API path.
       if (document.pictureInPictureElement) {
         await document.exitPictureInPicture();
         return;
       }
-      if (v.webkitPresentationMode === "picture-in-picture" &&
-          typeof v.webkitSetPresentationMode === "function") {
+      if (typeof v.webkitSetPresentationMode === "function" &&
+          v.webkitPresentationMode === "picture-in-picture") {
         v.webkitSetPresentationMode("inline");
         return;
       }
+      // Make sure there's a frame for Safari's compositor to send.
       if (v.readyState < 2) {
         try { v.load(); } catch (_e) {}
       }
       if (v.paused) {
         try { await v.play(); } catch (_e) {}
+      }
+      // Nudge the decoder so the next frame is ready — Safari sometimes
+      // PiP's a stale CALayer that never repaints if we request right
+      // after src change. A tiny seek forces a fresh frame decode.
+      try {
+        var t = v.currentTime;
+        v.currentTime = Math.max(0, t - 0.001);
+        v.currentTime = t;
+      } catch (_e) {}
+      if (isSafari && typeof v.webkitSetPresentationMode === "function") {
+        v.webkitSetPresentationMode("picture-in-picture");
+        return;
       }
       if (typeof v.requestPictureInPicture === "function") {
         await v.requestPictureInPicture();

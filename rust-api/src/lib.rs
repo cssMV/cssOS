@@ -6,6 +6,8 @@ pub mod audio_provider;
 pub mod billing_matrix;
 pub mod continuity_engine;
 pub mod cover_webp;
+pub mod media_signing;
+pub mod secure_artifacts;
 pub mod css_access_gate;
 pub mod css_assurance_api;
 pub mod css_auction_engine;

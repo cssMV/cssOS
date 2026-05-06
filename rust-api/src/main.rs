@@ -17,6 +17,8 @@ mod billing_matrix;
 mod config;
 mod continuity_engine;
 mod cover_webp;
+mod media_signing;
+mod secure_artifacts;
 mod css_access_gate;
 mod css_assurance_api;
 mod css_auction_engine;

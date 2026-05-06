@@ -3700,16 +3700,24 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
 }
 
 .mirror-title {
+  /* CSSOS_LOGO_TEXT_FIT_INNER 20260506 — Jing
+     "请顺手把 CSS 设置小一点，刚好撑满魔镜图片的里面那个小的圆圈."
+     Mirror box itself is min(20vw, 480px); the green-crystal inner
+     circle is roughly 35–40% of that diameter. Text needs to live
+     INSIDE that circle, so the font cap drops from 80px → 42px and
+     vw scaling halves (6.2vw → 2.5vw). Letter-spacing also tightened
+     to keep the three letters compact rather than spread past the
+     circle's left/right edges. */
   font-family: "Rubik", "Syne", sans-serif;
   font-weight: 900;
-  font-size: clamp(36px, 6.2vw, 80px);
-  letter-spacing: 0.16em;
+  font-size: clamp(18px, 2.5vw, 42px);
+  letter-spacing: 0.06em;
   color: #f1fff8;
   text-shadow: 0 0 28px rgba(0, 245, 160, 0.75);
 }
 
 .mirror-subtitle {
-  font-size: clamp(16px, 2.8vw, 22px);
+  font-size: clamp(9px, 1.1vw, 12px);
   letter-spacing: 0.4em;
   text-transform: uppercase;
   color: var(--muted);

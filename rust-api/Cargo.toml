@@ -39,6 +39,8 @@ utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid", "time"] }
 utoipa-swagger-ui = { version = "6", features = ["axum"] }
 num_cpus = "1.16"
 sha2 = "0.10"
+hmac = "0.12"
+hex = "0.4"
 md-5 = "0.10"
 prometheus = "0.13"
 libc = "0.2"

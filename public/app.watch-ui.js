@@ -4283,24 +4283,14 @@ function applyWatchQueueItemModule(item) {
         });
       }
     } catch (_e) { /* toggle inject best-effort */ }
-    // CSSOS_PHASE2_PREVIEW_CAP 20260430 #222 — auto-skip after 30s for
-    // not-own works. Server-side permissions still gate the actual play
-    // URL; this is a UX timer so the queue keeps moving even if the
-    // user has no entitlement on the next item.
-    const isOwn = item.is_own === true;
-    if (!isOwn) {
-      __cssosPreviewTimerId = setTimeout(() => {
-        __cssosPreviewTimerId = null;
-        try {
-          if (typeof globalThis.showToast === "function") {
-            globalThis.showToast(
-              "30s preview ended — continuing to next MV (upgrade or buy to unlock full playback)."
-            );
-          }
-        } catch (_e) {}
-        void watchQueueAdvanceModule(+1);
-      }, __CSSOS_PREVIEW_CAP_SECS * 1000);
-    }
+    // CSSOS_PHASE2_PREVIEW_CAP 20260430 #222 — REMOVED 20260506 — Jing
+    // The old 30s setTimeout + toast + queue-advance was a UX-side
+    // duplicate of the real preview-cap which now lives in
+    // app.preview-cap.js (server-driven via X-Preview-Limit-Seconds,
+    // tier-aware paywall overlay with 10s auto-advance countdown).
+    // Clear any leftover legacy timer so a stale schedule can't fire.
+    try { clearTimeout(__cssosPreviewTimerId); } catch (_e) {}
+    __cssosPreviewTimerId = null;
   } catch (_e) { /* apply best-effort */ }
 }
 

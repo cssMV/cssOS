@@ -1002,41 +1002,15 @@ async function openMarketWorkPreview(work = {}) {
       }
     }
   } catch (_e) {}
-  // CSSOS_PHASE2_PREVIEW_CAP 20260430 #240 — Jing
-  // "对于权限不够的用户，也要让他播放30秒，然后进入下一首歌."
-  // If the viewer doesn't have full playback rights to this work
-  // (not own + no listen entitlement + no buyout), schedule a 30s
-  // hard cap that advances the playlist. Cleared when the user
-  // navigates away (next openMarketWorkPreview will overwrite or
-  // the take/queue path will clear via __cssosClearPreviewTimer).
-  try {
-    const isOwn = targetWork?.is_own === true ||
-      (authState?.user && String(targetWork?.owner_id || targetWork?.user_id || "") === String(authState.user.id || ""));
-    const hasFullAccess = isOwn || canBypassPreviewLimit(authState.user, targetWork);
-    if (!hasFullAccess) {
-      try { clearTimeout(globalThis.__cssosPreviewCapId); } catch (_e) {}
-      globalThis.__cssosPreviewCapId = setTimeout(() => {
-        if (typeof globalThis.showToast === "function") {
-          globalThis.showToast("30s preview ended — advancing to next work (upgrade or buy to unlock).");
-        }
-        if (globalThis.cssosPlaylists?.next) {
-          void globalThis.cssosPlaylists.next().then((item) => {
-            if (item && typeof globalThis.applyWatchQueueItemModule === "function") {
-              globalThis.applyWatchQueueItemModule(item);
-            } else if (typeof globalThis.cssosWatchQueueAdvance === "function") {
-              globalThis.cssosWatchQueueAdvance(+1);
-            }
-          });
-        } else if (typeof globalThis.cssosWatchQueueAdvance === "function") {
-          void globalThis.cssosWatchQueueAdvance(+1);
-        }
-      }, 30 * 1000);
-      console.warn("[preview-cap] 30s cap scheduled — viewer lacks full access to '%s'", targetWork?.title || "?");
-    } else {
-      // Owner / entitled — clear any leftover cap from a previous item.
-      try { clearTimeout(globalThis.__cssosPreviewCapId); } catch (_e) {}
-    }
-  } catch (_capErr) {}
+  // CSSOS_PHASE2_PREVIEW_CAP 20260430 #240 — REMOVED 20260506 — Jing
+  // The old 30s setTimeout + toast + playlist-advance lived here and
+  // was pre-empting the new tier-aware paywall overlay built in
+  // app.preview-cap.js (which reads X-Preview-Limit-Seconds from the
+  // signed media URL and shows login/subscribe/buy buttons with a
+  // 10s auto-advance countdown). Clear any in-flight legacy timer so
+  // a stale schedule from before this deploy doesn't fire.
+  try { clearTimeout(globalThis.__cssosPreviewCapId); } catch (_e) {}
+  delete globalThis.__cssosPreviewCapId;
   // CSSOS_PHASE2_AUDIO_PRIME_ON_OPEN 20260430 #238 — Jing
   // "自动进入第2首歌，但是静音播放？为什么不继续有声播放呢？"
   //

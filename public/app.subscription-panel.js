@@ -797,6 +797,59 @@ function normalizeSubscriptionPanelLayoutModule(panel) {
   return true;
 }
 
+/* CSSOS_SUBSCRIPTION_CLOSE_FIX 20260506 — Jing
+ * The shared panel-bar handler in app.panel-shell-actions.js binds
+ * once on init via panel.dataset.panelBarActionsBound. For reasons
+ * still unclear (possibly the panel's hidden state at first paint, or
+ * the .panel-actions getting re-laid-out by bringPanelToFrontBridge),
+ * the close/minimize/maximize buttons stopped responding for this
+ * panel specifically. Defensive direct binding below — runs on every
+ * open and short-circuits via dataset flag so it only attaches once. */
+function ensureSubscriptionPanelBarBindings(panel) {
+  if (!(panel instanceof HTMLElement)) return;
+  if (panel.dataset.cssosSubBarBound === "1") return;
+  panel.dataset.cssosSubBarBound = "1";
+  const actions = panel.querySelector(".panel-actions");
+  if (!actions) return;
+  // Bind directly to each button by aria-label so we don't depend on
+  // the data-action being set by the shared normalizer.
+  const byLabel = (label) => Array.from(actions.querySelectorAll(".icon-btn"))
+    .find((b) => String(b.getAttribute("aria-label") || "").trim().toLowerCase() === label);
+  const closeBtn = byLabel("close");
+  const minBtn = byLabel("minimize");
+  const maxBtn = byLabel("maximize");
+  if (closeBtn) {
+    closeBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof globalThis.minimizeToDockBridge === "function") {
+        globalThis.minimizeToDockBridge(panel);
+      } else {
+        panel.classList.add("hidden");
+        panel.dataset.minimized = "true";
+      }
+    });
+  }
+  if (minBtn) {
+    minBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof globalThis.togglePanelCollapse === "function") {
+        globalThis.togglePanelCollapse(panel);
+      }
+    });
+  }
+  if (maxBtn) {
+    maxBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof globalThis.togglePanelMaximize === "function") {
+        globalThis.togglePanelMaximize(panel);
+      }
+    });
+  }
+}
+
 function openSubscriptionPanelModule() {
   const panel = getSubscriptionPanelModule();
   if (!(panel instanceof HTMLElement)) return false;
@@ -809,6 +862,7 @@ function openSubscriptionPanelModule() {
   panel.dataset.minimized = "false";
   globalThis.focusPanelBridge?.(panel);
   globalThis.bringPanelToFrontBridge?.(panel, { repeatPasses: 3 });
+  ensureSubscriptionPanelBarBindings(panel);
   void renderSubscriptionPanelModule();
   return true;
 }

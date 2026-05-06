@@ -1589,7 +1589,13 @@ body.longpress-guard * {
 
 #logo-panel .panel-body,
 #logo-panel .logo-body {
-  overflow: hidden;
+  /* CSSOS_LOGO_NO_CLIP 20260506 — Jing
+     "不要截掉魔镜的尖尖角，不要让用户觉得有遮罩层."
+     Was overflow:hidden — clipped the diamond tips of the metal compass
+     so the four star-points looked guillotined and the panel boundary
+     read as a circular mask. visible lets the geometry breathe past the
+     panel rect. */
+  overflow: visible;
 }
 
 .mirror-stage,

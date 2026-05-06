@@ -850,6 +850,18 @@
     const anchor = document.getElementById("cssmv-panel") || document.body;
     anchor.insertAdjacentElement("afterend", panel);
     wire(panel);
+    /* CSSOS_MV_PIPELINE_DRAG_BIND 20260506 — Jing
+     * "这个面板无法拖拽…别的面板都可以拖拽，就这个不可以."
+     * Root cause: the panel is created HERE at first user interaction —
+     * but boot.js had already iterated all .panel elements at startup
+     * (when this one didn't exist yet). All bridge attach functions
+     * (drag, 8-way resize, panel-bar buttons, focus) idempotently re-bind
+     * with a per-element data flag, so calling them again is safe and
+     * fixes only the new MV Pipeline panel. */
+    try { globalThis.attachPanelDragBridge?.(); } catch (_e) {}
+    try { globalThis.attachResizeBridge?.(); } catch (_e) {}
+    try { globalThis.attachPanelBarActionsBridge?.(); } catch (_e) {}
+    try { globalThis.attachPanelFocusBridge?.(); } catch (_e) {}
     // Warm the engines catalog so badge labels populate quickly.
     if (globalThis.cssmvEngines?.fetchCatalog) {
       void globalThis.cssmvEngines.fetchCatalog(false).then(() => {

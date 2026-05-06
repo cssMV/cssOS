@@ -60,6 +60,109 @@
   var stripEl = null;
   var listEl = null;
   var visible = false;
+  var settingsPopover = null;
+
+  var LEAD_OPTIONS = [5, 10, 15];
+  var COUNT_OPTIONS = [5, 8, 10, 15];
+
+  function dismissSettings() {
+    if (!settingsPopover || !settingsPopover.parentNode) return;
+    settingsPopover.style.opacity = "0";
+    setTimeout(function () {
+      if (settingsPopover && settingsPopover.parentNode) {
+        settingsPopover.parentNode.removeChild(settingsPopover);
+      }
+      settingsPopover = null;
+    }, 160);
+  }
+
+  function buildOptionRow(label, options, currentValue, unit, onChoose) {
+    var wrap = document.createElement("div");
+    wrap.style.cssText = "display:flex;flex-direction:column;gap:6px;";
+    var lbl = document.createElement("div");
+    lbl.textContent = label;
+    lbl.style.cssText = "color:#daffee;font:600 11px/1 ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase;opacity:.78;";
+    wrap.appendChild(lbl);
+    var row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:6px;";
+    options.forEach(function (val) {
+      var b = document.createElement("button");
+      b.type = "button";
+      var active = Number(val) === Number(currentValue);
+      b.textContent = String(val) + unit;
+      b.style.cssText =
+        "padding:6px 10px;border-radius:8px;cursor:pointer;flex:1 1 auto;" +
+        "font:600 12px/1 ui-monospace,monospace;" +
+        "border:1px solid " + (active ? "rgba(0,245,160,0.65)" : "rgba(0,245,160,0.18)") + ";" +
+        "background:" + (active ? "rgba(0,245,160,0.2)" : "rgba(0,0,0,0.32)") + ";" +
+        "color:#daffee;";
+      b.addEventListener("click", function (e) {
+        e.preventDefault(); e.stopPropagation();
+        onChoose(val);
+      });
+      row.appendChild(b);
+    });
+    wrap.appendChild(row);
+    return wrap;
+  }
+
+  function toggleSettingsPopover(anchor) {
+    if (settingsPopover) { dismissSettings(); return; }
+    settingsPopover = document.createElement("div");
+    settingsPopover.style.cssText =
+      "position:fixed;z-index:2147483647;min-width:240px;padding:14px 16px;" +
+      "border-radius:12px;background:rgba(8,18,16,0.96);color:#daffee;" +
+      "border:1px solid rgba(0,245,160,0.3);" +
+      "box-shadow:0 16px 40px rgba(0,0,0,0.55);" +
+      "display:flex;flex-direction:column;gap:14px;" +
+      "transition:opacity .14s ease;opacity:0;font:14px/1.4 -apple-system,system-ui,sans-serif;";
+    var rect = anchor.getBoundingClientRect();
+    var top = Math.max(8, rect.top - 230);
+    var right = Math.max(16, window.innerWidth - rect.right - 6);
+    settingsPopover.style.top = top + "px";
+    settingsPopover.style.right = right + "px";
+    settingsPopover.appendChild(buildOptionRow(
+      tt("Lead time", "提前露出"),
+      LEAD_OPTIONS,
+      leadSeconds(),
+      "s",
+      function (v) {
+        try { localStorage.setItem("cssos_up_next_lead_seconds", String(v)); } catch (_e) {}
+        dismissSettings();
+        toggleSettingsPopover(anchor); // rebuild with new active highlight
+      }
+    ));
+    settingsPopover.appendChild(buildOptionRow(
+      tt("Count", "条目数"),
+      COUNT_OPTIONS,
+      countItems(),
+      "",
+      function (v) {
+        try { localStorage.setItem("cssos_up_next_count", String(v)); } catch (_e) {}
+        refresh();
+        dismissSettings();
+        toggleSettingsPopover(anchor);
+      }
+    ));
+    var note = document.createElement("div");
+    note.textContent = tt(
+      "Saved to this browser. Refresh keeps the choice.",
+      "保存在本浏览器，刷新后保留。"
+    );
+    note.style.cssText = "font:400 10px/1.3 ui-monospace,monospace;color:rgba(218,255,238,0.5);";
+    settingsPopover.appendChild(note);
+    var mount = document.fullscreenElement || document.webkitFullscreenElement || document.body;
+    mount.appendChild(settingsPopover);
+    requestAnimationFrame(function () { settingsPopover.style.opacity = "1"; });
+    var onAway = function (e) {
+      if (!settingsPopover) return;
+      if (settingsPopover.contains(e.target)) return;
+      if (anchor && anchor.contains(e.target)) return;
+      dismissSettings();
+      document.removeEventListener("click", onAway, true);
+    };
+    setTimeout(function () { document.addEventListener("click", onAway, true); }, 0);
+  }
   function ensureStrip() {
     if (stripEl && document.body.contains(stripEl)) return stripEl;
     stripEl = document.createElement("div");
@@ -80,11 +183,29 @@
     var ttl = document.createElement("div");
     ttl.textContent = tt("Up Next", "即将播放");
     ttl.style.cssText = "color:#daffee;font:600 11px/1 ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;opacity:.78;";
+    var hdrRight = document.createElement("div");
+    hdrRight.style.cssText = "display:flex;align-items:center;gap:10px;";
     var hint = document.createElement("div");
     hint.textContent = tt("Tap any to play it next", "点击任意一首立即播放");
     hint.style.cssText = "color:rgba(218,255,238,0.55);font:400 11px/1 -apple-system,system-ui,sans-serif;";
+    hdrRight.appendChild(hint);
+    /* CSSOS_UP_NEXT_GEAR 20260506 — tunable lead/count sliders right
+     * inside the strip header. Cleaner than threading two new rows
+     * into the (already crowded) Advanced Settings panel. */
+    var gear = document.createElement("button");
+    gear.type = "button";
+    gear.setAttribute("aria-label", "Up Next settings");
+    gear.textContent = "⚙";
+    gear.style.cssText =
+      "background:transparent;border:0;color:rgba(218,255,238,0.7);" +
+      "cursor:pointer;font:400 14px/1 ui-monospace,monospace;padding:0 4px;";
+    gear.addEventListener("click", function (e) {
+      e.preventDefault(); e.stopPropagation();
+      toggleSettingsPopover(gear);
+    });
+    hdrRight.appendChild(gear);
     hdr.appendChild(ttl);
-    hdr.appendChild(hint);
+    hdr.appendChild(hdrRight);
     bar.appendChild(hdr);
     listEl = document.createElement("div");
     listEl.style.cssText =
@@ -136,8 +257,24 @@
     var thumbUrl = String(item.cover_image || item.preview_image_url || item.cover_image_url || "").trim();
     thumb.style.cssText =
       "width:100%;aspect-ratio:16/9;border-radius:6px;background:#000 center/cover no-repeat;" +
-      (thumbUrl ? "background-image:url('" + thumbUrl.replace(/'/g, "%27") + "');" : "") +
       "position:relative;";
+    /* CSSOS_UP_NEXT_THUMB_PRELOAD 20260506 — Jing
+     * "请提前缓冲，让缩略图都显示". Background-image isn't aggressively
+     * prefetched. Force-load via new Image() the moment the card builds;
+     * paint via inline style only after the bytes are in the cache so the
+     * card never flashes black. */
+    if (thumbUrl) {
+      var preloader = new Image();
+      preloader.decoding = "async";
+      preloader.onload = function () {
+        thumb.style.backgroundImage = "url('" + thumbUrl.replace(/'/g, "%27") + "')";
+      };
+      // If load fails, leave the black box — better than a broken-img
+      // glyph in the corner.
+      preloader.src = thumbUrl;
+      // Some hosts honour <link rel=preload>; cheaper to just kick the
+      // GET above. If the browser already has it, the onload fires sync.
+    }
     if (index === 0) {
       var nextBadge = document.createElement("span");
       nextBadge.textContent = tt("Next", "下一首");

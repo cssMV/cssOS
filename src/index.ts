@@ -3,6 +3,7 @@ import path from "path";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
+import { spawn } from "node:child_process";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import type { PoolClient, QueryResult } from "pg";
@@ -354,8 +355,77 @@ function signArtifactUrl(
   return `/secure/artifacts/${encodeURIComponent(workId)}/${encodeURIComponent(file)}?t=${t}&e=${exp}&k=${kind}`;
 }
 
+/* Phase C.2 — clipped-preview cache layer.
+ * Preview-kind tokens never serve the original file. They serve a
+ * <file>.preview.mp4 (first MEDIA_PREVIEW_LIMIT_SECONDS of the source).
+ * First request: spawn ffmpeg, stream-copy to the cache file, then
+ * sendFile. Concurrent first-requests are coalesced via in-memory
+ * locks. Subsequent requests sendFile straight from the cached clip
+ * — no ffmpeg cost, no extra latency. */
+const previewClipLocks = new Map<string, Promise<string>>();
+
+async function ensurePreviewClip(originalAbsPath: string): Promise<string> {
+  const previewPath = `${originalAbsPath}.preview.mp4`;
+  if (fs.existsSync(previewPath)) {
+    return previewPath;
+  }
+  const inflight = previewClipLocks.get(previewPath);
+  if (inflight) return inflight;
+  const job = new Promise<string>((resolve, reject) => {
+    if (!fs.existsSync(originalAbsPath)) {
+      reject(new Error("source missing"));
+      return;
+    }
+    const args = [
+      "-ss", "0",
+      "-t", String(MEDIA_PREVIEW_LIMIT_SECONDS),
+      "-i", originalAbsPath,
+      "-c", "copy",
+      "-movflags", "+faststart",
+      "-y",
+      previewPath,
+    ];
+    const ff = spawn("/usr/bin/ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
+    let stderr = "";
+    ff.stderr.on("data", (chunk) => { stderr += String(chunk).slice(0, 8000); });
+    ff.once("error", (err) => reject(err));
+    ff.once("close", (code) => {
+      if (code === 0 && fs.existsSync(previewPath)) {
+        resolve(previewPath);
+        return;
+      }
+      // Stream-copy can fail when keyframes don't align; fall back to
+      // a transcode (slower, but always works). Single retry.
+      const retryArgs = [
+        "-ss", "0",
+        "-t", String(MEDIA_PREVIEW_LIMIT_SECONDS),
+        "-i", originalAbsPath,
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
+        "-c:a", "aac", "-b:a", "128k",
+        "-movflags", "+faststart",
+        "-y",
+        previewPath,
+      ];
+      const ff2 = spawn("/usr/bin/ffmpeg", retryArgs, { stdio: ["ignore", "ignore", "pipe"] });
+      let stderr2 = "";
+      ff2.stderr.on("data", (chunk) => { stderr2 += String(chunk).slice(0, 8000); });
+      ff2.once("error", (err) => reject(err));
+      ff2.once("close", (code2) => {
+        if (code2 === 0 && fs.existsSync(previewPath)) {
+          resolve(previewPath);
+        } else {
+          reject(new Error(`ffmpeg failed: copy=${code} transcode=${code2} ${stderr2 || stderr}`));
+        }
+      });
+    });
+  });
+  previewClipLocks.set(previewPath, job);
+  job.finally(() => previewClipLocks.delete(previewPath));
+  return job;
+}
+
 /** Streams the underlying artifact after validating the signed URL. */
-app.get("/secure/artifacts/:wid/:file", (req, res) => {
+app.get("/secure/artifacts/:wid/:file", async (req, res) => {
   noStore(res);
   const wid = String(req.params.wid || "").trim();
   const file = String(req.params.file || "").trim();
@@ -375,13 +445,29 @@ app.get("/secure/artifacts/:wid/:file", (req, res) => {
   if (!verifyMediaToken(wid, file, e, kind, t)) {
     return res.status(403).json({ ok: false, code: "TOKEN_INVALID_OR_EXPIRED" });
   }
+
+  const sourcePath = path.join(MV_ARTIFACTS_DIR, file);
+
   if (kind === "preview") {
     res.setHeader("X-Preview-Limit-Seconds", String(MEDIA_PREVIEW_LIMIT_SECONDS));
+    try {
+      const clipPath = await ensurePreviewClip(sourcePath);
+      res.setHeader("Cache-Control", "private, max-age=600");
+      res.setHeader("X-Cssos-Preview-Cached", "1");
+      return res.sendFile(clipPath, (err) => {
+        if (err && !res.headersSent) {
+          res.status(404).json({ ok: false, code: "PREVIEW_CLIP_NOT_FOUND" });
+        }
+      });
+    } catch (err) {
+      console.error("[secure-artifacts] preview clip failed:", err);
+      // Fall back to header-only enforcement; player still hard-stops at the cap.
+      res.setHeader("X-Cssos-Preview-Fallback", "header-only");
+    }
   }
-  // Long-cache OK because the URL itself expires; nginx static cache will
-  // revalidate via the expiry param. Keep public so CDN-friendly.
+
   res.setHeader("Cache-Control", "private, max-age=600");
-  return res.sendFile(path.join(MV_ARTIFACTS_DIR, file), (err) => {
+  return res.sendFile(sourcePath, (err) => {
     if (err && !res.headersSent) {
       res.status(404).json({ ok: false, code: "ARTIFACT_NOT_FOUND" });
     }

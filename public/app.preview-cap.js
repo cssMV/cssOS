@@ -169,11 +169,14 @@
         capHit = true;
         try { videoEl.pause(); } catch (_e) {}
         try { videoEl.currentTime = Math.max(0, capSeconds - 0.05); } catch (_e) {}
-        // Per Jing: don't halt on a paywall overlay. Auto-advance to
-        // the next work in the up-next strip — same affordance as
-        // "ended" on a free work. Only show the overlay if there's
-        // genuinely nothing to advance to.
-        if (!autoAdvance(videoEl)) {
+        // Per Jing: in normal browsing, don't halt — auto-advance to
+        // the next work in the up-next strip. But share-link visitors
+        // (typically guests landing on a single work) should see the
+        // login/subscribe nudge — there's no queue context for them
+        // and "advance to nothing" would just be a confusing pause.
+        if (globalThis.__cssosShareLinkActive) {
+          showPaywallOverlay(videoEl);
+        } else if (!autoAdvance(videoEl)) {
           showPaywallOverlay(videoEl);
         }
       }

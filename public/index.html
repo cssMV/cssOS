@@ -2246,73 +2246,117 @@
         window.addEventListener("pointerdown", handle, true);
         window.addEventListener("click", handle, true);
 
-        /* CSSOS_PURE_CINEMA_IDLE 20260505 — Jing
-         * "播放媒体时，顶部的菜单栏也要隐藏，媒体框处于正中央，有操作才显示标题
-         *  栏，媒体框左右下角的信息。"
-         * Idle-aware chrome hide:
-         *   - Only active while body has cssos-watch-theater (= cinema mode is on).
-         *   - Any pointer/key activity removes body.cssos-watch-idle, restarts a 3s
-         *     timer, and re-adds the class on expiry.
-         *   - CSS rules in the section below fade out the panel-bar and the watch
-         *     pill rows on body.cssos-watch-idle.cssos-watch-theater. */
+        /* CSSOS_PURE_CINEMA_IDLE 20260505b — Jing
+         * "播放媒体时，顶部的菜单栏也要隐藏，媒体框处于正中央，有操作才显示标题栏"
+         * Behavior:
+         *   - Gate is body.cssos-cinema-mode (set by cssosEnterCinemaLayout —
+         *     fires automatically every time the MV panel opens). The earlier
+         *     gate `cssos-watch-theater` only fires on the manual immersive
+         *     pill, missing the auto-cinema path.
+         *   - When cinema turns on: IMMEDIATELY add body.cssos-watch-idle so
+         *     chrome (panel-bar, dock, info pills) starts hidden. User sees
+         *     pure media only.
+         *   - On any pointer/key activity: remove cssos-watch-idle, brief
+         *     reveal window of 1.5s, then re-add on expiry. */
         (function () {
           var idleTimer = null;
-          var IDLE_MS = 3000;
+          var IDLE_MS = 1500;
           function inCinema() {
-            return document.body && document.body.classList.contains("cssos-watch-theater");
+            return document.body && document.body.classList.contains("cssos-cinema-mode");
+          }
+          function sleep() {
+            if (inCinema()) document.body.classList.add("cssos-watch-idle");
           }
           function wake() {
             if (!inCinema()) {
               if (document.body) document.body.classList.remove("cssos-watch-idle");
+              if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
               return;
             }
             document.body.classList.remove("cssos-watch-idle");
             if (idleTimer) clearTimeout(idleTimer);
-            idleTimer = setTimeout(function () {
-              if (inCinema()) document.body.classList.add("cssos-watch-idle");
-            }, IDLE_MS);
+            idleTimer = setTimeout(sleep, IDLE_MS);
           }
           ["pointermove","pointerdown","wheel","keydown","touchstart"].forEach(function (ev) {
             window.addEventListener(ev, wake, { capture: true, passive: true });
           });
-          // Re-arm whenever cinema toggles on.
+          // Re-arm whenever cinema toggles. On entry: hide immediately. On exit: clear.
           var observer = new MutationObserver(function () {
-            if (inCinema()) wake();
-            else if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; document.body.classList.remove("cssos-watch-idle"); }
+            if (inCinema()) sleep();
+            else { if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; } document.body.classList.remove("cssos-watch-idle"); }
           });
           observer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+          if (inCinema()) sleep();
         })();
       })();
     </script>
     <style>
-      /* CSSOS_PURE_CINEMA_IDLE_CSS 20260505 — Jing
-         When in cinema mode (body.cssos-watch-theater) AND user is idle
-         (body.cssos-watch-idle, set by the script above after 3s without
-         pointer/key activity), fade out everything that isn't the media:
-         the watch panel's title bar, dock, debug badges, info pills.
-         Pointer events are kept enabled so a click anywhere wakes the UI. */
-      body.cssos-watch-theater #watch-panel .panel-bar,
-      body.cssos-watch-theater #dock,
-      body.cssos-watch-theater #toast,
-      body.cssos-watch-theater #panel-3btn-debug-badge {
+      /* CSSOS_PURE_CINEMA_CSS 20260505b — Jing
+         "不管主题色是白天还是晚上，进入MV面板欣赏MV，就默认是真全屏影院模式。"
+         When cinema is on, force a pure-black canvas regardless of light/dark
+         theme, kill ALL panel chrome (border, perimeter rainbow ring, info
+         pills), and gate panel-bar/dock visibility behind cssos-watch-idle.
+         Idle is added IMMEDIATELY on cinema enter (see script above) so the
+         baseline is "hidden chrome, pure media". Activity reveals chrome for
+         1.5s. */
+
+      /* Force black everywhere cinema can leak through, regardless of theme. */
+      body.cssos-cinema-mode,
+      body.cssos-cinema-mode #watch-panel,
+      body.cssos-cinema-mode #watch-panel .panel-body,
+      body.cssos-cinema-mode #watch-panel .watch-body,
+      body.cssos-cinema-mode #watch-panel .watch-pane,
+      body.cssos-cinema-mode #watch-panel .watch-pane.active,
+      body.cssos-cinema-mode #watch-panel .watch-frame,
+      body.cssos-cinema-mode #watch-panel .watch-screen {
+        background: #000 !important;
+      }
+
+      /* Kill the rainbow perimeter chase ring from app.watch-stage-bars.js. */
+      body.cssos-cinema-mode #watch-panel .cssmv-border-bar {
+        display: none !important;
+      }
+
+      /* Strip the green panel border and any glow shadow. */
+      body.cssos-cinema-mode #watch-panel {
+        border: none !important;
+        outline: none !important;
+        box-shadow: none !important;
+        border-radius: 0 !important;
+      }
+
+      /* Smooth fade for the elements we hide. */
+      body.cssos-cinema-mode #watch-panel .panel-bar,
+      body.cssos-cinema-mode #dock,
+      body.cssos-cinema-mode #toast,
+      body.cssos-cinema-mode #panel-3btn-debug-badge,
+      body.cssos-cinema-mode #watch-panel .watch-aspect-pill,
+      body.cssos-cinema-mode #watch-panel #watch-pill-row-bl,
+      body.cssos-cinema-mode #watch-panel #watch-take-toggle,
+      body.cssos-cinema-mode #watch-panel .watch-media-action,
+      body.cssos-cinema-mode #watch-panel .watch-author-avatar {
         transition: opacity .35s ease;
       }
-      body.cssos-watch-theater.cssos-watch-idle #watch-panel .panel-bar,
-      body.cssos-watch-theater.cssos-watch-idle #dock,
-      body.cssos-watch-theater.cssos-watch-idle #panel-3btn-debug-badge,
-      body.cssos-watch-theater.cssos-watch-idle #watch-panel .watch-aspect-pill,
-      body.cssos-watch-theater.cssos-watch-idle #watch-panel #watch-pill-row-bl,
-      body.cssos-watch-theater.cssos-watch-idle #watch-panel #watch-take-toggle,
-      body.cssos-watch-theater.cssos-watch-idle #watch-panel .watch-media-action,
-      body.cssos-watch-theater.cssos-watch-idle #watch-panel .watch-author-avatar {
+
+      /* When idle (default once cinema turns on, until user moves):
+         hide ALL chrome. Panel-bar still occupies its rect so layout
+         doesn't reflow; just goes invisible + non-interactive. */
+      body.cssos-cinema-mode.cssos-watch-idle #watch-panel .panel-bar,
+      body.cssos-cinema-mode.cssos-watch-idle #dock,
+      body.cssos-cinema-mode.cssos-watch-idle #panel-3btn-debug-badge,
+      body.cssos-cinema-mode.cssos-watch-idle #watch-panel .watch-aspect-pill,
+      body.cssos-cinema-mode.cssos-watch-idle #watch-panel #watch-pill-row-bl,
+      body.cssos-cinema-mode.cssos-watch-idle #watch-panel #watch-take-toggle,
+      body.cssos-cinema-mode.cssos-watch-idle #watch-panel .watch-media-action,
+      body.cssos-cinema-mode.cssos-watch-idle #watch-panel .watch-author-avatar {
         opacity: 0;
+        pointer-events: none;
       }
-      /* Force black screen behind cinema, no other panel chrome bleeding through. */
-      body.cssos-watch-theater.cssos-watch-idle {
+      body.cssos-cinema-mode.cssos-watch-idle {
         cursor: none;
       }
 
-      /* MV panel "minimize" → only show panel-bar, hide everything else. */
+      /* MV panel "minimize" → keep only the panel-bar, hide the body. */
       #watch-panel.mv-body-collapsed .panel-body,
       #watch-panel.mv-body-collapsed .watch-body,
       #watch-panel.mv-body-collapsed .watch-frame,

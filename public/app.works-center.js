@@ -219,10 +219,17 @@ async function loadMyWorksModule(options = {}) {
     try {
       const resolved = await loadResolvedWorksCollection(localWorks);
       if (!resolved.ok && !resolved.usedLocalFallback) {
-        list.innerHTML = buildWorksLoadFailedMarkup();
+        try { list.innerHTML = buildWorksLoadFailedMarkup(); } catch (_e) {
+          list.innerHTML = `<div class="works-note">Failed to load works.</div>`;
+        }
         return;
       }
       renderWorksList(Array.isArray(resolved.works) ? resolved.works : []);
+    } catch (err) {
+      console.error("[works-center] load failed:", err);
+      try { list.innerHTML = buildWorksLoadFailedMarkup(); } catch (_e) {
+        list.innerHTML = `<div class="works-note">Failed to load works.</div>`;
+      }
     } finally {
       __cssosLoadMyWorksInflight = null;
     }
@@ -618,6 +625,16 @@ async function loadResolvedWorksCollection(localWorks = []) {
       usedLocalFallback: safeLocalWorks.length > 0
     };
   }
+}
+
+/* CSSOS_PHASE2_WORKS_LOADFAIL_RESTORE 20260505 — Jing
+   Restored after the dead-code sweep on 2026-05-05 nuked the only
+   definition (in a deleted helper). Without it, the call site at line
+   222 hit ReferenceError when /api/works/mine returned 401, the async
+   chain rejected unhandled, and the panel sat on "Loading works..."
+   forever. */
+function buildWorksLoadFailedMarkup() {
+  return `<div class="works-note">${loginCopy("Failed to load works.", "加载作品失败。")}</div>`;
 }
 
 function buildWorksLoadingMarkup() {

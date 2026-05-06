@@ -2339,18 +2339,34 @@
       }
 
       /* When idle (default once cinema turns on, until user moves):
-         hide ALL chrome. Panel-bar still occupies its rect so layout
-         doesn't reflow; just goes invisible + non-interactive. */
-      body.cssos-cinema-mode.cssos-watch-idle #watch-panel .panel-bar,
-      body.cssos-cinema-mode.cssos-watch-idle #dock,
-      body.cssos-cinema-mode.cssos-watch-idle #panel-3btn-debug-badge,
-      body.cssos-cinema-mode.cssos-watch-idle #watch-panel .watch-aspect-pill,
-      body.cssos-cinema-mode.cssos-watch-idle #watch-panel #watch-pill-row-bl,
-      body.cssos-cinema-mode.cssos-watch-idle #watch-panel #watch-take-toggle,
-      body.cssos-cinema-mode.cssos-watch-idle #watch-panel .watch-media-action,
-      body.cssos-cinema-mode.cssos-watch-idle #watch-panel .watch-author-avatar {
-        opacity: 0;
-        pointer-events: none;
+         HARD hide chrome with display:none — opacity:0 was being beaten
+         by some other rule on the user's screen. Higher-specificity
+         multi-anchor selector covers both .panel-bar and .panel-title-bar
+         naming conventions, and adds #watch-pill-row-br + immersive pill
+         + every standalone watch-* button I could find injected by
+         app.watch-ui.js. */
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel .panel-bar,
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel .panel-title-bar,
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel .panel-toolbar,
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel .panel-actions,
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel .watch-toolbar,
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel #watch-pill-row-bl,
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel #watch-pill-row-br,
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel #watch-aspect-pill,
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel #watch-take-toggle,
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel #watch-immersive-pill,
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel #watch-author-avatar,
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel .watch-author-avatar,
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel .watch-media-action,
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel .watch-style-shift,
+      html body.cssos-cinema-mode.cssos-watch-idle #dock,
+      html body.cssos-cinema-mode.cssos-watch-idle #panel-3btn-debug-badge {
+        display: none !important;
+      }
+      /* Keep cssmv-border-bar gone in cinema regardless of idle. */
+      html body.cssos-cinema-mode #watch-panel .cssmv-border-bar,
+      html body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen .cssmv-border-bar {
+        display: none !important;
       }
       body.cssos-cinema-mode.cssos-watch-idle {
         cursor: none;

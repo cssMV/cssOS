@@ -1172,8 +1172,20 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
             panel.mozRequestFullScreen ||
             panel.msRequestFullscreen;
           if (fn) await fn.call(panel);
-          setTimeout(restore, 50);
-          setTimeout(restore, 400);
+          // CSSOS_AUDIO_MUTE_RESTORE 20260505b — Jing
+          // "媒体进度条走了，画面走了，但是好像音乐被静音了". The Safari
+          // fullscreen reflow can mute the audio track multiple times in
+          // a row as it rebuilds layers. Two restore checks (50/400ms) was
+          // not enough — extend to a longer cascade and also re-arm if any
+          // mute event fires within the cascade window.
+          [50, 200, 600, 1200, 2500].forEach(function (ms) { setTimeout(restore, ms); });
+          [v, a].filter(Boolean).forEach(function (el) {
+            var onMute = function () {
+              if (el.muted !== false && (snap.vMuted === false || snap.aMuted === false)) restore();
+            };
+            el.addEventListener("volumechange", onMute);
+            setTimeout(function () { el.removeEventListener("volumechange", onMute); }, 3000);
+          });
         } catch (err) {
           console.info("[cssos-cinema] requestFullscreen rejected:", err?.name || err);
           restore();

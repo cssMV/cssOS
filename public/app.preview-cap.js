@@ -355,10 +355,18 @@
         countdownLeft -= 1;
         if (countdownLeft <= 0) {
           stopCountdown("advance");
-          // Tear down overlay + auto-advance.
-          if (overlayEl && overlayEl.parentNode) overlayEl.parentNode.removeChild(overlayEl);
-          overlayEl = null;
-          autoAdvance(videoEl);
+          // Try advancing first; only tear down the overlay if there
+          // was actually something to advance into. Otherwise the user
+          // would be stuck on a paused video with no UI to act.
+          if (autoAdvance(videoEl)) {
+            if (overlayEl && overlayEl.parentNode) overlayEl.parentNode.removeChild(overlayEl);
+            overlayEl = null;
+          } else {
+            countdownLabel.textContent = tt(
+              "No next work in queue — pick an option above.",
+              "队列已结束 — 请选择上方选项。"
+            );
+          }
           return;
         }
         paintCountdown();

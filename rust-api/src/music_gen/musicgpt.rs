@@ -398,12 +398,62 @@ impl MusicGptClient {
             has_task_id = v.get("task_id").is_some(),
             "musicgpt: parsed 2xx response"
         );
-        let task_id = v
-            .get("task_id")
-            .and_then(|x| x.as_str())
-            .or_else(|| v.get("taskId").and_then(|x| x.as_str()))
-            .ok_or(MusicGenError::MissingField("task_id"))?
-            .to_string();
+        // CSSOS_PHASE2_MUSICGPT_TASKID_DEEP_SEARCH 20260505 — Jing
+        // "music engine response was missing a required field: taskId 这个
+        //  问题我们已经解决了很多次，每次解决就好一阵子，没过多久又出现"
+        // Root cause: MusicGPT's response shape is unstable across conversion
+        // types and API revisions. Past fixes added one key alternative at a
+        // time, then a new variant appeared. Defensive solution: deep-search
+        // any field that looks like a task ID across the JSON tree and a few
+        // common envelope keys (data/result/response/payload). If still
+        // missing, log the full body so we can extend the path table next
+        // time without bisecting again.
+        fn deep_extract_task_id(v: &serde_json::Value) -> Option<String> {
+            const TASK_KEYS: &[&str] = &[
+                "task_id", "taskId", "taskID",
+                "request_id", "requestId",
+                "job_id", "jobId",
+                "id",
+            ];
+            for k in TASK_KEYS {
+                if let Some(s) = v.get(k).and_then(|x| x.as_str()) {
+                    if !s.is_empty() && s.len() >= 6 {
+                        return Some(s.to_string());
+                    }
+                }
+            }
+            for envelope in &["data", "result", "response", "payload", "body", "output"] {
+                if let Some(nested) = v.get(envelope) {
+                    if let Some(t) = deep_extract_task_id(nested) {
+                        return Some(t);
+                    }
+                }
+            }
+            if let Some(obj) = v.as_object() {
+                for val in obj.values() {
+                    if val.is_object() {
+                        if let Some(t) = deep_extract_task_id(val) {
+                            return Some(t);
+                        }
+                    }
+                }
+            }
+            None
+        }
+        let task_id = match deep_extract_task_id(&v) {
+            Some(t) => t,
+            None => {
+                let preview: String = text.chars().take(4000).collect();
+                tracing::error!(
+                    target: "cssos::mv::music",
+                    upstream_status = status.as_u16(),
+                    body_len = text.len(),
+                    full_body = %preview,
+                    "musicgpt: NO task_id found in any known path — please extend deep_extract_task_id with the new key shape and redeploy"
+                );
+                return Err(MusicGenError::MissingField("task_id"));
+            }
+        };
         let conversion_id = v
             .get("conversion_id_1")
             .or_else(|| v.get("conversion_id"))

@@ -1088,17 +1088,27 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
         if (inFS) {
           await document.exitFullscreen();
           panel.classList.remove("is-cssmv-fullscreen");
+          // CSSOS_FS_BTN_CINEMA_SYNC 20260505 — Jing
+          // "退出影院模式后，再进去，媒体框右下角的全屏按钮，影院模式丢失"
+          // The bottom-right ⛶ click handler used to only flip
+          // is-cssmv-fullscreen — leaving body.cssos-cinema-mode out of
+          // sync. Now mirror the body-class flip so chrome-hide CSS +
+          // pure-cinema JS pick up the state correctly on every press.
+          document.body.classList.remove("cssos-cinema-mode", "cssos-watch-theater", "cssos-watch-idle");
         } else if (panel.requestFullscreen) {
           applyScreenAspectRatio();
           await panel.requestFullscreen();
           panel.classList.add("is-cssmv-fullscreen");
+          document.body.classList.add("cssos-cinema-mode");
         } else {
           applyScreenAspectRatio();
           panel.classList.toggle("is-cssmv-fullscreen");
+          document.body.classList.toggle("cssos-cinema-mode", panel.classList.contains("is-cssmv-fullscreen"));
         }
       } catch (_err) {
         applyScreenAspectRatio();
         panel.classList.toggle("is-cssmv-fullscreen");
+        document.body.classList.toggle("cssos-cinema-mode", panel.classList.contains("is-cssmv-fullscreen"));
       }
       // Reposition info popover after fullscreen layout settles so it sits
       // below the (now-resized) media frame instead of where it was anchored

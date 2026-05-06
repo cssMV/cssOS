@@ -2203,12 +2203,38 @@
                 return;
               }
               if (kind === "maximize") {
-                // Exit browser fullscreen + cinema layout + restore manual size
-                try { if (document.fullscreenElement) document.exitFullscreen(); } catch (_e) {}
-                panel.classList.remove("is-cssmv-fullscreen");
-                document.body.classList.remove("cssos-cinema-mode", "cssos-watch-theater", "cssos-watch-idle");
-                if (typeof restorePanel === "function" && panel.dataset.maximized === "true") {
-                  try { restorePanel(panel); } catch (_e) {}
+                /* CSSOS_MV_MAXIMIZE_TOGGLE 20260505 — Jing
+                 * "面板右上角的最大化按钮（无法再进入影院模式，甚至无法再
+                 *  进入MV面板，请修复）"
+                 * Old behavior: only exited cinema. Clicking once when out
+                 * of cinema did nothing. Now a true toggle. */
+                var isInCinema = panel.classList.contains("is-cssmv-fullscreen") ||
+                                 document.body.classList.contains("cssos-cinema-mode");
+                if (isInCinema) {
+                  // EXIT path
+                  try { if (document.fullscreenElement) document.exitFullscreen(); } catch (_e) {}
+                  panel.classList.remove("is-cssmv-fullscreen");
+                  document.body.classList.remove("cssos-cinema-mode", "cssos-watch-theater", "cssos-watch-idle");
+                  if (typeof restorePanel === "function" && panel.dataset.maximized === "true") {
+                    try { restorePanel(panel); } catch (_e) {}
+                  }
+                } else {
+                  // ENTER path — full cinema with browser fullscreen.
+                  if (panel.classList.contains("hidden")) panel.classList.remove("hidden");
+                  panel.dataset.minimized = "false";
+                  try {
+                    if (typeof globalThis.cssosEnterCinemaLayout === "function") {
+                      globalThis.cssosEnterCinemaLayout();
+                    } else {
+                      panel.classList.add("is-cssmv-fullscreen");
+                      document.body.classList.add("cssos-cinema-mode");
+                    }
+                  } catch (_e) {}
+                  try {
+                    if (typeof globalThis.cssosRequestBrowserFullscreen === "function") {
+                      globalThis.cssosRequestBrowserFullscreen();
+                    }
+                  } catch (_e) {}
                 }
                 return;
               }

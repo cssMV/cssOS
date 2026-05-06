@@ -214,6 +214,26 @@ async function loadMyWorksModule(options = {}) {
     renderWorksList(localWorks);
   } else {
     list.innerHTML = buildWorksLoadingMarkup();
+    // CSSOS_PHASE2_LOADING_HARD_TIMEOUT 20260505 — Jing
+    // "作品中心还是在loading". Defensive net so the panel never sits on
+    // "Loading works..." forever even if some downstream renderer throws
+    // silently or auth races with the inflight fetch. After 12s replace
+    // the loading text with a normal empty/failed state — whichever the
+    // inflight task settles on will overwrite this anyway when it lands.
+    var hardTimeout = setTimeout(function () {
+      try {
+        if (list && list.innerHTML.indexOf("works-note") >= 0 && list.textContent.indexOf("oading") >= 0) {
+          if (typeof buildWorksEmptyNoteMarkup === "function") {
+            list.innerHTML = buildWorksEmptyNoteMarkup();
+          } else if (typeof buildWorksLoadFailedMarkup === "function") {
+            list.innerHTML = buildWorksLoadFailedMarkup();
+          } else {
+            list.innerHTML = '<div class="works-note">No works yet.</div>';
+          }
+        }
+      } catch (_e) {}
+    }, 12000);
+    list.dataset.cssosLoadingTimeoutId = String(hardTimeout);
   }
   __cssosLoadMyWorksInflight = (async () => {
     try {
@@ -232,6 +252,10 @@ async function loadMyWorksModule(options = {}) {
       }
     } finally {
       __cssosLoadMyWorksInflight = null;
+      try {
+        var t = list && list.dataset && Number(list.dataset.cssosLoadingTimeoutId || 0);
+        if (t) { clearTimeout(t); list.dataset.cssosLoadingTimeoutId = ""; }
+      } catch (_e) {}
     }
   })();
   return __cssosLoadMyWorksInflight;

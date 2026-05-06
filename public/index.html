@@ -2272,7 +2272,6 @@
             "#watch-panel .panel-actions",
             "#watch-panel .panel-toolbar",
             "#watch-panel .watch-toolbar",
-            "#watch-panel .panel-progress-line",
             "#watch-panel #watch-pill-row-bl",
             "#watch-panel #watch-pill-row-br",
             "#watch-panel #watch-aspect-pill",
@@ -2282,7 +2281,15 @@
             "#watch-panel .watch-author-avatar",
             "#watch-panel .watch-media-action",
             "#watch-panel .watch-style-shift",
-            "#watch-panel .cssmv-border-bar",
+            // Right-bottom corner cluster (♪ ✦ i ⛶) — same fade as the
+            // title bar and left subtitle so chrome hides as one unit.
+            // Per Jing 2026-05-05: 彩虹条 (.cssmv-border-bar) and 进度条
+            // (.panel-progress-line) are intentionally NOT hidden — they
+            // are part of the cinema viewing experience.
+            "#watch-panel .cssmv-fr-btn",
+            "#watch-panel .cssmv-info-btn",
+            "#watch-panel .cssmv-fs-btn",
+            "#watch-panel .cssmv-stem-toggle",
             "#dock"
           ];
           var hidden = []; // [{el, prevDisplay, prevPriority}]
@@ -2326,16 +2333,37 @@
           ["pointermove","pointerdown","wheel","keydown","touchstart"].forEach(function (ev) {
             window.addEventListener(ev, wake, { capture: true, passive: true });
           });
+          function forceUnmuteAndPlay() {
+            try {
+              var v = document.getElementById("watch-video");
+              var a = document.getElementById("watch-audio-preview");
+              [v, a].forEach(function (el) {
+                if (!el) return;
+                el.muted = false;
+                el.removeAttribute("muted");
+                try { el.volume = 1; } catch (_e) {}
+                if (el.play) el.play().catch(function () {});
+                // CSSOS_AUTO_PLAY_RETRY 20260505 — Jing
+                // "有些MV还是需要用户操作一下". Some media streams aren't
+                // ready at click-time so the first play() rejects. Retry
+                // the moment the element fires loadedmetadata / canplay.
+                ["loadedmetadata", "canplay", "loadeddata"].forEach(function (ev) {
+                  if (el.dataset.cssosAutoplayBound) return;
+                  el.addEventListener(ev, function () {
+                    if (!document.body.classList.contains("cssos-cinema-mode")) return;
+                    el.muted = false;
+                    el.removeAttribute("muted");
+                    try { el.volume = 1; } catch (_e) {}
+                    if (el.play) el.play().catch(function () {});
+                  }, { once: false, passive: true });
+                });
+                el.dataset.cssosAutoplayBound = "1";
+              });
+            } catch (_e) {}
+          }
           var observer = new MutationObserver(function () {
             if (inCinema()) {
-              // Force-unmute the media so MV starts with sound (Safari may
-              // leave it muted after autoplay-fullscreen race; we ensure it).
-              try {
-                var v = document.getElementById("watch-video");
-                var a = document.getElementById("watch-audio-preview");
-                if (v) { v.muted = false; v.removeAttribute("muted"); v.volume = 1; v.play && v.play().catch(function () {}); }
-                if (a) { a.muted = false; a.removeAttribute("muted"); a.volume = 1; a.play && a.play().catch(function () {}); }
-              } catch (_e) {}
+              forceUnmuteAndPlay();
               sleep();
             } else {
               showChrome();
@@ -2343,6 +2371,33 @@
             }
           });
           observer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+
+          /* CSSOS_AUTO_RE_ENTER_CINEMA 20260505 — Jing
+           * "退出影院模式之后，再次进入，影院模式丢失了". Watch every
+           * transition of #watch-panel from .hidden to visible and re-fire
+           * cssosEnterCinemaLayout so cinema is the default on every open,
+           * regardless of which open path the user took (logo / mic / play
+           * / right-click / Apply&Render / dock click / restored session). */
+          (function () {
+            var wp = document.getElementById("watch-panel");
+            if (!wp) {
+              // watch-panel may not exist yet on early DOMContentLoaded.
+              document.addEventListener("DOMContentLoaded", arguments.callee);
+              return;
+            }
+            var wasHidden = wp.classList.contains("hidden");
+            new MutationObserver(function () {
+              var nowHidden = wp.classList.contains("hidden");
+              if (wasHidden && !nowHidden) {
+                // Panel just opened — force cinema, force-unmute, force-play.
+                try { if (typeof globalThis.cssosEnterCinemaLayout === "function") globalThis.cssosEnterCinemaLayout(); } catch (_e) {}
+                setTimeout(forceUnmuteAndPlay, 100);
+                setTimeout(forceUnmuteAndPlay, 600);
+              }
+              wasHidden = nowHidden;
+            }).observe(wp, { attributes: true, attributeFilter: ["class"] });
+          })();
+
           if (inCinema()) sleep();
         })();
       })();

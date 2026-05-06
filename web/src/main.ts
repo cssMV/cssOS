@@ -11,6 +11,7 @@
  * panel once the migrations cover everything boot.js expects.
  */
 import { attachLogoPanelActionsBridge } from "./panels/logo";
+import "./panels/dock-settings"; // side-effect: installs window.toggleDockSettingsPopoverModule etc.
 
 const status = document.getElementById("status");
 if (status) {

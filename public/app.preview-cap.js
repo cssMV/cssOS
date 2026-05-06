@@ -358,6 +358,21 @@
       lastSrc = src;
       capSeconds = null;
       clearPaywallOverlay();
+      // Frontend safeguard — free works should never be capped, even if
+      // the backend mistakenly minted a preview-kind token. Read the
+      // listen-price off the loaded work payload; <= 0 cents → free.
+      try {
+        var w = globalThis.currentWatchPreviewWork || {};
+        var cents = Number(
+          w.current_listen_price_cents != null ? w.current_listen_price_cents : (w.listen_price_cents || 0)
+        );
+        if (isFinite(cents) && cents <= 0 && w.is_free !== false) {
+          // Treat as free — bail out of cap entirely.
+          return;
+        }
+        // Also honor explicit fullAccess hints from server.
+        if (w.is_owner === true || w.fullAccess === true || w.full_access === true) return;
+      } catch (_e) {}
       probeCap(src).then(function (n) {
         capSeconds = n;
       });

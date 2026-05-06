@@ -85,14 +85,80 @@
     return "https://api.qrserver.com/v1/create-qr-code/?size=" + sz + "x" + sz + "&data=" + encodeURIComponent(text);
   }
 
+  /* CSSOS_SHARE_POPUP_FOCUS 20260506 — Jing
+   * Pre-share house-keeping so the popup isn't hidden behind cinema:
+   *   1. Exit browser fullscreen if active (popups can't render above
+   *      a fullscreened element).
+   *   2. Open as a NEW TAB ("_blank") — no width/height ⇒ most browsers
+   *      give a real tab next to ours, no detached popup window to be
+   *      occluded.
+   *   3. Listen once for visibilitychange. When the user returns to
+   *      our tab (closed the share tab, or just switched back),
+   *      re-enter cinema if we were in it before.
+   */
+  function exitFullscreenIfAny() {
+    try {
+      if (document.fullscreenElement && typeof document.exitFullscreen === "function") {
+        document.exitFullscreen().catch(function () {});
+      } else if (document.webkitFullscreenElement && typeof document.webkitExitFullscreen === "function") {
+        document.webkitExitFullscreen();
+      }
+    } catch (_e) {}
+  }
+  var __cssosCinemaWasOn = false;
+  function rememberCinemaState() {
+    __cssosCinemaWasOn = !!(
+      document.body && document.body.classList.contains("cssos-cinema-mode")
+    );
+  }
+  function armCinemaResume() {
+    if (!__cssosCinemaWasOn) return;
+    var done = false;
+    var resume = function () {
+      if (done) return;
+      if (document.visibilityState !== "visible") return;
+      done = true;
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("focus", resume);
+      try {
+        if (typeof globalThis.cssosRequestBrowserFullscreen === "function") {
+          globalThis.cssosRequestBrowserFullscreen();
+        } else if (typeof globalThis.cssosEnterCinemaMode === "function") {
+          globalThis.cssosEnterCinemaMode();
+        }
+      } catch (_e) {}
+    };
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("focus", resume);
+    // Failsafe: 5 minutes of no return → drop the listener so we never
+    // surprise-fullscreen on some unrelated future tab focus.
+    setTimeout(function () {
+      done = true;
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("focus", resume);
+    }, 5 * 60 * 1000);
+  }
   function popup(u) {
-    window.open(u, "_blank", "noopener,noreferrer,width=720,height=620");
+    rememberCinemaState();
+    exitFullscreenIfAny();
+    var w = window.open(u, "_blank", "noopener,noreferrer");
+    if (w) {
+      try { w.focus(); } catch (_e) {}
+    }
+    armCinemaResume();
+    return w;
   }
   function copyAndNudge(url, text, en, zh, openUrl) {
     copyToClipboard(text + "\n" + url).then(function () {
       toast(tt(en, zh));
     });
-    if (openUrl) window.open(openUrl, "_blank", "noopener,noreferrer");
+    if (openUrl) {
+      rememberCinemaState();
+      exitFullscreenIfAny();
+      var w = window.open(openUrl, "_blank", "noopener,noreferrer");
+      if (w) { try { w.focus(); } catch (_e) {} }
+      armCinemaResume();
+    }
   }
 
   function openTwitterShare(url, text) {

@@ -357,70 +357,88 @@ function signArtifactUrl(
 
 /* Phase C.2 — clipped-preview cache layer.
  * Preview-kind tokens never serve the original file. They serve a
- * <file>.preview.mp4 (first MEDIA_PREVIEW_LIMIT_SECONDS of the source).
+ * cached clip (first MEDIA_PREVIEW_LIMIT_SECONDS of the source).
  * First request: spawn ffmpeg, stream-copy to the cache file, then
  * sendFile. Concurrent first-requests are coalesced via in-memory
  * locks. Subsequent requests sendFile straight from the cached clip
- * — no ffmpeg cost, no extra latency. */
+ * — no ffmpeg cost, no extra latency.
+ *
+ * Cache lives in MEDIA_PREVIEW_CACHE_DIR (default /srv/cssos/shared/
+ * preview-cache, writable by the Express user) so we don't need to
+ * touch the read-only /var/lib/cssos/mv/ original-artifacts dir. */
+const MEDIA_PREVIEW_CACHE_DIR = (
+  process.env.MEDIA_PREVIEW_CACHE_DIR || "/srv/cssos/shared/preview-cache"
+).trim();
+try { fs.mkdirSync(MEDIA_PREVIEW_CACHE_DIR, { recursive: true }); } catch { /* best-effort */ }
+
 const previewClipLocks = new Map<string, Promise<string>>();
 
-async function ensurePreviewClip(originalAbsPath: string): Promise<string> {
-  const previewPath = `${originalAbsPath}.preview.mp4`;
-  if (fs.existsSync(previewPath)) {
-    return previewPath;
-  }
-  const inflight = previewClipLocks.get(previewPath);
-  if (inflight) return inflight;
-  const job = new Promise<string>((resolve, reject) => {
-    if (!fs.existsSync(originalAbsPath)) {
-      reject(new Error("source missing"));
-      return;
-    }
-    const args = [
-      "-ss", "0",
-      "-t", String(MEDIA_PREVIEW_LIMIT_SECONDS),
-      "-i", originalAbsPath,
-      "-c", "copy",
-      "-movflags", "+faststart",
-      "-y",
-      previewPath,
-    ];
+function previewCachePath(originalAbsPath: string): string {
+  // Hash the source path so two unrelated files can never collide
+  // (mv_X.mp4 + mv_X.preview.mp4 would have, with naive naming).
+  const tag = crypto.createHash("sha1").update(originalAbsPath).digest("hex").slice(0, 16);
+  return path.join(MEDIA_PREVIEW_CACHE_DIR, `${tag}.preview.mp4`);
+}
+
+function spawnFfmpeg(args: string[]): Promise<{ code: number; stderr: string }> {
+  return new Promise((resolve) => {
     const ff = spawn("/usr/bin/ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
     ff.stderr.on("data", (chunk) => { stderr += String(chunk).slice(0, 8000); });
-    ff.once("error", (err) => reject(err));
-    ff.once("close", (code) => {
-      if (code === 0 && fs.existsSync(previewPath)) {
-        resolve(previewPath);
-        return;
-      }
-      // Stream-copy can fail when keyframes don't align; fall back to
-      // a transcode (slower, but always works). Single retry.
-      const retryArgs = [
-        "-ss", "0",
-        "-t", String(MEDIA_PREVIEW_LIMIT_SECONDS),
-        "-i", originalAbsPath,
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
-        "-c:a", "aac", "-b:a", "128k",
-        "-movflags", "+faststart",
-        "-y",
-        previewPath,
-      ];
-      const ff2 = spawn("/usr/bin/ffmpeg", retryArgs, { stdio: ["ignore", "ignore", "pipe"] });
-      let stderr2 = "";
-      ff2.stderr.on("data", (chunk) => { stderr2 += String(chunk).slice(0, 8000); });
-      ff2.once("error", (err) => reject(err));
-      ff2.once("close", (code2) => {
-        if (code2 === 0 && fs.existsSync(previewPath)) {
-          resolve(previewPath);
-        } else {
-          reject(new Error(`ffmpeg failed: copy=${code} transcode=${code2} ${stderr2 || stderr}`));
-        }
-      });
+    ff.on("error", (err) => {
+      // Spawn-level error (binary missing, etc). Surface as a non-zero exit.
+      stderr += "\nspawn-error: " + (err instanceof Error ? err.message : String(err));
+      resolve({ code: -1, stderr });
     });
+    ff.on("close", (code) => resolve({ code: typeof code === "number" ? code : -1, stderr }));
   });
+}
+
+async function buildPreviewClip(originalAbsPath: string, previewPath: string): Promise<void> {
+  if (!fs.existsSync(originalAbsPath)) {
+    throw new Error("source missing");
+  }
+  const baseArgs = ["-ss", "0", "-t", String(MEDIA_PREVIEW_LIMIT_SECONDS), "-i", originalAbsPath];
+  // Stream-copy first — fast, lossless. May fail on non-keyframe-aligned cuts.
+  const copyResult = await spawnFfmpeg([
+    ...baseArgs,
+    "-c", "copy",
+    "-movflags", "+faststart",
+    "-y", previewPath,
+  ]);
+  if (copyResult.code === 0 && fs.existsSync(previewPath)) return;
+  // Transcode fallback — slower but always works.
+  const transcodeResult = await spawnFfmpeg([
+    ...baseArgs,
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
+    "-c:a", "aac", "-b:a", "128k",
+    "-movflags", "+faststart",
+    "-y", previewPath,
+  ]);
+  if (transcodeResult.code === 0 && fs.existsSync(previewPath)) return;
+  throw new Error(
+    `ffmpeg failed: copy=${copyResult.code} transcode=${transcodeResult.code} ` +
+    `stderr=${(transcodeResult.stderr || copyResult.stderr).slice(0, 1000)}`,
+  );
+}
+
+async function ensurePreviewClip(originalAbsPath: string): Promise<string> {
+  const previewPath = previewCachePath(originalAbsPath);
+  if (fs.existsSync(previewPath)) return previewPath;
+  const inflight = previewClipLocks.get(previewPath);
+  if (inflight) return inflight;
+  // Build the lock-promise chain first, THEN store it. The lock cleanup
+  // is part of the chain itself — no dangling .finally branch can produce
+  // an unhandled rejection.
+  const job = (async () => {
+    try {
+      await buildPreviewClip(originalAbsPath, previewPath);
+      return previewPath;
+    } finally {
+      previewClipLocks.delete(previewPath);
+    }
+  })();
   previewClipLocks.set(previewPath, job);
-  job.finally(() => previewClipLocks.delete(previewPath));
   return job;
 }
 

@@ -12296,6 +12296,134 @@ app.get("/api/works/public/:id", async (req, res) => {
   }
 });
 
+/* CSSOS_PHASE_B_DOWNLOAD_TICKET 20260506 — Jing
+ * Tier-gated download endpoint. Phase B contract:
+ *   POST /api/works/:id/download/:format   (format = mp3 | wav | mp4)
+ *     200 → { ok:true, url, expires_in }
+ *     401 → { ok:false, code:"AUTH_REQUIRED" }
+ *     402 → { ok:false, code:"TIER_REQUIRED", required:"pro" }
+ *     404 → { ok:false, code:"NOT_AVAILABLE" }
+ *
+ * Phase B implementation: returns the existing storage URLs straight
+ * away. Phase C will wrap them in a 24h-signed ticket so direct hot-
+ * linking dies and the ticket auto-expires. The frontend already calls
+ * this endpoint and falls back to the work's existing URL if the
+ * endpoint isn't reachable, so deploying the wrapper is a no-op for
+ * users until Phase C tightens enforcement.
+ */
+app.post("/api/works/:id/download/:format", async (req, res) => {
+  noStore(res);
+  try {
+    const id = String(req.params.id || "").trim();
+    const format = String(req.params.format || "").trim().toLowerCase();
+    if (!/^[0-9a-fA-F-]{8,64}$/.test(id)) {
+      return res.status(400).json({ ok: false, code: "INVALID_WORK_ID" });
+    }
+    if (!["mp3", "wav", "mp4"].includes(format)) {
+      return res
+        .status(400)
+        .json({ ok: false, code: "INVALID_FORMAT" });
+    }
+    const viewer = await getSessionUser(req);
+    if (!viewer) {
+      return res
+        .status(401)
+        .json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    type Row = {
+      owner_user_id: string;
+      visibility: string | null;
+      current_listen_price_cents: number | null;
+      final_mv_url: string | null;
+      audio_track_1_url: string | null;
+      title: string | null;
+    };
+    const q: QueryResult<Row> = await withClient((client) =>
+      client.query<Row>(
+        `SELECT
+           w.user_id AS owner_user_id,
+           mp.visibility,
+           COALESCE(listen_product.amount_cents, mp.current_listen_price_cents) AS current_listen_price_cents,
+           final_mv_asset.url AS final_mv_url,
+           audio_track_1_asset.url AS audio_track_1_url,
+           w.title
+         FROM user_works w
+         LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
+         LEFT JOIN work_access_products listen_product
+           ON listen_product.work_id = w.id
+          AND listen_product.product_kind = 'listen'
+          AND listen_product.active = true
+         LEFT JOIN work_assets final_mv_asset
+           ON final_mv_asset.work_id = w.id
+          AND final_mv_asset.asset_type = 'final_mv'
+         LEFT JOIN work_assets audio_track_1_asset
+           ON audio_track_1_asset.work_id = w.id
+          AND audio_track_1_asset.asset_type = 'audio_track_1'
+         WHERE w.id = $1
+         LIMIT 1`,
+        [id],
+      ),
+    );
+    if (!q.rows.length) {
+      return res.status(404).json({ ok: false, code: "WORK_NOT_FOUND" });
+    }
+    const row = q.rows[0]!;
+    const isOwner = viewer.id === row.owner_user_id;
+    let hasPurchased = false;
+    if (!isOwner) {
+      const orderRes = await withClient((client) =>
+        client.query<{ count: number }>(
+          `SELECT COUNT(*)::int AS count
+           FROM work_orders
+           WHERE buyer_user_id = $1
+             AND work_id = $2
+             AND status IN ('paid','completed','fulfilled')`,
+          [viewer.id, id],
+        ),
+      );
+      hasPurchased = (orderRes.rows[0]?.count || 0) > 0;
+    }
+    const isFree = Number(row.current_listen_price_cents || 0) <= 0;
+    const fullAccess = isOwner || hasPurchased || isFree;
+    if (!fullAccess) {
+      return res
+        .status(402)
+        .json({ ok: false, code: "PURCHASE_REQUIRED" });
+    }
+    const tier = String((viewer as any)?.tier || "guest").toLowerCase();
+    const isProPlus = ["pro", "studio", "enterprise", "vip", "admin"].includes(
+      tier,
+    );
+    if ((format === "wav" || format === "mp4") && !isProPlus) {
+      return res
+        .status(402)
+        .json({ ok: false, code: "TIER_REQUIRED", required: "pro" });
+    }
+    let url: string | null = null;
+    if (format === "mp3") url = row.audio_track_1_url || null;
+    else if (format === "wav") url = row.audio_track_1_url || null; // TODO Phase C: server-side flac→wav re-encode
+    else if (format === "mp4") url = row.final_mv_url || null;
+    if (!url) {
+      return res.status(404).json({ ok: false, code: "NOT_AVAILABLE" });
+    }
+    /* TODO CSSOS_PHASE_C — wrap `url` in a 24h-signed ticket so direct
+     * hotlinks die when the ticket expires. For now we return the raw
+     * storage URL; the frontend uses it the same way and the user-
+     * visible behavior is identical. */
+    return res.json({
+      ok: true,
+      url,
+      expires_in: 24 * 60 * 60,
+      format,
+    });
+  } catch (err) {
+    console.error("[/api/works/:id/download/:format]", err);
+    return res
+      .status(500)
+      .json({ ok: false, code: "DOWNLOAD_TICKET_FAILED" });
+  }
+});
+
 app.get("/api/works/market", async (req, res) => {
   noStore(res);
   try {

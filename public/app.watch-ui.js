@@ -5756,6 +5756,26 @@ function buildMediaActionsModule() {
   // custom dialog that builds /?cssMV=<id> share links and offers
   // X / Weibo / Xiaohongshu / WeChat (QR) destinations. Native
   // navigator.share is kept as a fallback if the dialog fn isn't loaded.
+  /* CSSOS_PHASE_B_DOWNLOAD 20260506 — Jing
+   * Tier-gated download menu sits next to share. MP3 for full-access
+   * users, WAV/MP4 for Pro+ (24h temp). app.download-menu.js renders it. */
+  actions.push({
+    icon: "⬇", label: loginCopy("Download", "下载"),
+    onClick: () => {
+      var workId = ps && (ps.workId ? String(ps.workId).split("|")[0] : null);
+      if (!workId) return;
+      if (typeof globalThis.openCssosDownloadMenu === "function") {
+        try {
+          globalThis.openCssosDownloadMenu({
+            workId: workId,
+            title: ps?.title || "",
+            mvUrl: ps?.mvUrl || null,
+            audioUrl: ps?.audioUrl || null,
+          });
+        } catch (e) { console.warn("[download-menu]", e); }
+      }
+    },
+  });
   actions.push({
     icon: "📤", label: loginCopy("Share", "分享"),
     onClick: async () => {

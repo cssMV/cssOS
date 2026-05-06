@@ -37,31 +37,74 @@
     return false;
   }
 
+  /* Pick the <video> element that's actually painting frames. The
+   * watch panel can have multiple video elements (mirror, foryou-thumb,
+   * mv-overlay) — PiP-ing the wrong one yields a black window. */
+  function pickActiveVideo() {
+    var candidates = [];
+    var primary = document.getElementById("watch-video");
+    if (primary) candidates.push(primary);
+    // Any other video that's currently playing visible content.
+    var all = document.querySelectorAll("video");
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      if (candidates.indexOf(el) >= 0) continue;
+      // Skip the offscreen/hidden helpers.
+      if (el.classList.contains("mirror-video")) continue;
+      if (el.id === "foryou-thumb-video") continue;
+      candidates.push(el);
+    }
+    // Prefer one that's playing, has a real frame, and >0 size.
+    function score(el) {
+      var s = 0;
+      if (!el.paused && !el.ended) s += 8;
+      if (el.readyState >= 2) s += 4;
+      if (el.videoWidth > 0 && el.videoHeight > 0) s += 2;
+      if (el.currentTime > 0) s += 1;
+      return s;
+    }
+    candidates.sort(function (a, b) { return score(b) - score(a); });
+    return candidates[0] || primary;
+  }
+
   async function togglePip() {
-    var v = document.getElementById("watch-video");
+    var v = pickActiveVideo();
     if (!v) return;
-    // app.watch-media-chrome.js sets video.disablePictureInPicture = true
-    // to hide Safari's native PiP affordance from its custom controls.
-    // We're providing PiP explicitly via the cluster button, so undo
-    // that block — otherwise PiP opens but no frames are sent and the
-    // window paints solid black.
+    // Belt-and-suspenders unblock — even though the chrome module no
+    // longer disables PiP at init, third-party code might.
     try { v.disablePictureInPicture = false; } catch (_e) {}
     try { v.removeAttribute("disablePictureInPicture"); } catch (_e) {}
     // controlslist also includes "nofullscreen" / "noplaybackrate" but
     // not a PiP-block, so leave it alone.
     try {
-      if (document.pictureInPictureElement === v) {
+      // Already PiP'd — exit.
+      if (document.pictureInPictureElement) {
         await document.exitPictureInPicture();
         return;
       }
-      // Safari fallback uses webkitSetPresentationMode.
-      if (typeof v.webkitSetPresentationMode === "function") {
-        var current = v.webkitPresentationMode;
-        v.webkitSetPresentationMode(current === "picture-in-picture" ? "inline" : "picture-in-picture");
+      if (v.webkitPresentationMode === "picture-in-picture" &&
+          typeof v.webkitSetPresentationMode === "function") {
+        v.webkitSetPresentationMode("inline");
         return;
       }
+      // Make sure there's a frame to send. Safari refuses PiP on a
+      // paused/no-frame video and silently shows black.
+      if (v.readyState < 2) {
+        try { v.load(); } catch (_e) {}
+      }
+      if (v.paused) {
+        try { await v.play(); } catch (_e) {}
+      }
+      // Prefer the modern API on every browser that has it (incl. Safari
+      // 13+). Only fall through to webkitSetPresentationMode if standard
+      // PiP isn't available.
       if (typeof v.requestPictureInPicture === "function") {
         await v.requestPictureInPicture();
+        return;
+      }
+      if (typeof v.webkitSetPresentationMode === "function") {
+        v.webkitSetPresentationMode("picture-in-picture");
+        return;
       }
     } catch (err) {
       console.info("[cssos-pip] toggle failed:", err && err.name ? err.name : err);

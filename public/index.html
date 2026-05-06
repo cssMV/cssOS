@@ -1980,39 +1980,10 @@
     <script src="app.delivery-report-bridges.js?v=20260412-ui-recovery-5"></script>
     <script src="app.civilization-bank.js?v=20260418-p2-41-civbank-1"></script>
     <script src="app.js?v=20260505-mv-first"></script>
-    <!-- CSSOS_MV_FLOW_RESTORE 20260505 — Jing
-         Helpers that export bridges to globalThis read by app.js / siblings.
-         These were silently un-loaded before. Two earlier candidates
-         (app.binary-utils.js, app.watch-preview-utils.js) were dropped on
-         2026-05-05 because their top-level `const` declarations duplicated
-         app.js's, throwing SyntaxError at parse time and killing the rest
-         of the page. The duplicated symbols (b64FromArrayBuffer,
-         MUSIC_PLAN_SS_DISABLED, MUSIC_PLAN_TTL_MS, musicPlan*Breaker) all
-         already exist in app.js, and the only outside caller of the
-         watch-preview-utils exports uses optional chaining `?.()` so the
-         removal is safe.
-         Loading these AFTER app.js so any function in them that reads
-         app.js's top-level `const` bindings (mvPolicyVersion, etc.) doesn't
-         hit a temporal-dead-zone ReferenceError. -->
-    <script src="app.panel-shell-actions.js?v=20260505b-after-appjs"></script>
-    <script src="app.panel-drag.js?v=20260505b-after-appjs"></script>
-    <script src="app.panel-focus.js?v=20260505b-after-appjs"></script>
-    <script src="app.i18n-hierarchy-defaults.js?v=20260505b-after-appjs"></script>
-    <script src="app.theme-quick-toggle.js?v=20260505b-after-appjs"></script>
-    <script src="app.cssmv-governance.js?v=20260505b-after-appjs"></script>
-    <script src="app.delivery-copy.js?v=20260505b-after-appjs"></script>
-    <script src="app.delivery-governance-inspector.js?v=20260505b-after-appjs"></script>
-    <script src="app.final-audio-artifacts.js?v=20260505b-after-appjs"></script>
-    <script src="app.song-creation-payload.js?v=20260505b-after-appjs"></script>
-    <script src="app.structure-planning.js?v=20260505b-after-appjs"></script>
-    <script src="app.run-auth.js?v=20260505b-after-appjs"></script>
-    <script src="app.logo-panel-actions.js?v=20260505b-after-appjs"></script>
-    <script src="app.panel-stack.js?v=20260505b-after-appjs"></script>
-    <script src="app.panel-shortcuts.js?v=20260505b-after-appjs"></script>
-    <script src="app.panel-settings-markup.js?v=20260505b-after-appjs"></script>
-    <script src="app.panel-settings-runtime.js?v=20260505b-after-appjs"></script>
-    <script src="app.panel-settings-behavior-bindings.js?v=20260505b-after-appjs"></script>
-    <script src="app.panel-settings-tail.js?v=20260505b-after-appjs"></script>
+    <!-- CSSOS_MV_FLOW_RESTORE 20260505 — block moved further down
+         (just before app.boot.js) so app.cssmv-governance.js's top-level
+         renderDeliveryDigestSummaryModule() call sees the function defined
+         by app.delivery-digest-ui.js, which loads further along. -->
     <script src="app.creation-language.js?v=20260423-p2-86-lang-auto-empty-1"></script>
     <!-- CSSMV_CREATION_LANG_OPTIONS 20260425 #100 — Jing: full 10-lang
          dropdown + setLocale event dispatch + auto-mirror locale into
@@ -2117,6 +2088,34 @@
          rendered subtitles + titles. Lyrics editor stays raw. -->
     <script src="app.subtitle-cleaner.js?v=20260425-p2-113-subtitle-cleaner-1"></script>
     <script src="app.mv-title-sync.js?v=20260503-mv-title-sync-1"></script>
+    <!-- CSSOS_MV_FLOW_RESTORE 20260505c — Jing
+         These 19 helpers must load AFTER all the file-level helpers above
+         (especially app.delivery-digest-ui.js which defines
+         renderDeliveryDigestSummaryModule that app.cssmv-governance.js
+         calls at top-level), but BEFORE app.boot.js so the bridges are
+         present when boot wires up event handlers. -->
+    <script src="app.panel-shell-actions.js?v=20260505c-end"></script>
+    <script src="app.panel-drag.js?v=20260505c-end"></script>
+    <script src="app.panel-focus.js?v=20260505c-end"></script>
+    <script src="app.i18n-hierarchy-defaults.js?v=20260505c-end"></script>
+    <script src="app.theme-quick-toggle.js?v=20260505c-end"></script>
+    <script src="app.delivery-copy.js?v=20260505c-end"></script>
+    <script src="app.delivery-governance-inspector.js?v=20260505c-end"></script>
+    <script src="app.final-audio-artifacts.js?v=20260505c-end"></script>
+    <script src="app.song-creation-payload.js?v=20260505c-end"></script>
+    <script src="app.structure-planning.js?v=20260505c-end"></script>
+    <script src="app.run-auth.js?v=20260505c-end"></script>
+    <script src="app.logo-panel-actions.js?v=20260505c-end"></script>
+    <script src="app.panel-stack.js?v=20260505c-end"></script>
+    <script src="app.panel-shortcuts.js?v=20260505c-end"></script>
+    <script src="app.panel-settings-markup.js?v=20260505c-end"></script>
+    <script src="app.panel-settings-runtime.js?v=20260505c-end"></script>
+    <script src="app.panel-settings-behavior-bindings.js?v=20260505c-end"></script>
+    <script src="app.panel-settings-tail.js?v=20260505c-end"></script>
+    <!-- cssmv-governance MUST load LAST in this group: its top-level call
+         to renderDeliveryDigestSummaryModule() must run after that fn is
+         defined (delivery-digest-ui.js loads earlier in the file). -->
+    <script src="app.cssmv-governance.js?v=20260505c-end"></script>
     <script src="app.boot.js?v=20260504-longpress-kill-legacy"></script>
     <!-- CSSOS_PHASE2_PANEL_3BTN_BULLETPROOF 20260505b — Jing
          Self-diagnosing version. Stamps the document so you can verify
@@ -2190,7 +2189,50 @@
           // so the drag handler doesn't grab the button).
           if (event.type !== "click") return;
           try { if (typeof focusPanel === "function") focusPanel(panel); } catch (_e) {}
+          var isMv = panel.id === "watch-panel";
           try {
+            if (isMv) {
+              // CSSOS_MV_PANEL_3BTN 20260505 — Jing
+              // MV panel buttons get cinema-aware behavior:
+              //   minimize → toggle .mv-body-collapsed (hide media frame, pause)
+              //   maximize → exit cinema fullscreen → user's manual size
+              //   close    → exit cinema + clear media + minimize to dock
+              if (kind === "minimize") {
+                var collapsed = panel.classList.toggle("mv-body-collapsed");
+                var v = document.getElementById("watch-video");
+                var a = document.getElementById("watch-audio-preview");
+                try {
+                  if (collapsed) { v && v.pause && v.pause(); a && a.pause && a.pause(); }
+                  else { v && v.play && v.play().catch(function () {}); a && a.play && a.play().catch(function () {}); }
+                } catch (_e) {}
+                return;
+              }
+              if (kind === "maximize") {
+                // Exit browser fullscreen + cinema layout + restore manual size
+                try { if (document.fullscreenElement) document.exitFullscreen(); } catch (_e) {}
+                panel.classList.remove("is-cssmv-fullscreen");
+                document.body.classList.remove("cssos-cinema-mode", "cssos-watch-theater", "cssos-watch-idle");
+                if (typeof restorePanel === "function" && panel.dataset.maximized === "true") {
+                  try { restorePanel(panel); } catch (_e) {}
+                }
+                return;
+              }
+              if (kind === "close") {
+                // Pure-cinema cleanup: exit fullscreen, drop classes, stop media,
+                // then hand off to the regular minimize-to-dock flow.
+                try { if (document.fullscreenElement) document.exitFullscreen(); } catch (_e) {}
+                panel.classList.remove("is-cssmv-fullscreen", "mv-body-collapsed");
+                document.body.classList.remove("cssos-cinema-mode", "cssos-watch-theater", "cssos-watch-idle");
+                try {
+                  var vv = document.getElementById("watch-video");
+                  var aa = document.getElementById("watch-audio-preview");
+                  if (vv) { vv.pause(); vv.removeAttribute("src"); vv.load && vv.load(); }
+                  if (aa) { aa.pause(); aa.removeAttribute("src"); aa.load && aa.load(); }
+                } catch (_e) {}
+                if (typeof minimizeToDock === "function") minimizeToDock(panel);
+                return;
+              }
+            }
             if (kind === "minimize" && typeof togglePanelCollapse === "function") togglePanelCollapse(panel);
             else if (kind === "maximize" && typeof togglePanelMaximize === "function") togglePanelMaximize(panel);
             else if (kind === "close" && typeof minimizeToDock === "function") minimizeToDock(panel);
@@ -2203,7 +2245,84 @@
         }
         window.addEventListener("pointerdown", handle, true);
         window.addEventListener("click", handle, true);
+
+        /* CSSOS_PURE_CINEMA_IDLE 20260505 — Jing
+         * "播放媒体时，顶部的菜单栏也要隐藏，媒体框处于正中央，有操作才显示标题
+         *  栏，媒体框左右下角的信息。"
+         * Idle-aware chrome hide:
+         *   - Only active while body has cssos-watch-theater (= cinema mode is on).
+         *   - Any pointer/key activity removes body.cssos-watch-idle, restarts a 3s
+         *     timer, and re-adds the class on expiry.
+         *   - CSS rules in the section below fade out the panel-bar and the watch
+         *     pill rows on body.cssos-watch-idle.cssos-watch-theater. */
+        (function () {
+          var idleTimer = null;
+          var IDLE_MS = 3000;
+          function inCinema() {
+            return document.body && document.body.classList.contains("cssos-watch-theater");
+          }
+          function wake() {
+            if (!inCinema()) {
+              if (document.body) document.body.classList.remove("cssos-watch-idle");
+              return;
+            }
+            document.body.classList.remove("cssos-watch-idle");
+            if (idleTimer) clearTimeout(idleTimer);
+            idleTimer = setTimeout(function () {
+              if (inCinema()) document.body.classList.add("cssos-watch-idle");
+            }, IDLE_MS);
+          }
+          ["pointermove","pointerdown","wheel","keydown","touchstart"].forEach(function (ev) {
+            window.addEventListener(ev, wake, { capture: true, passive: true });
+          });
+          // Re-arm whenever cinema toggles on.
+          var observer = new MutationObserver(function () {
+            if (inCinema()) wake();
+            else if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; document.body.classList.remove("cssos-watch-idle"); }
+          });
+          observer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+        })();
       })();
     </script>
+    <style>
+      /* CSSOS_PURE_CINEMA_IDLE_CSS 20260505 — Jing
+         When in cinema mode (body.cssos-watch-theater) AND user is idle
+         (body.cssos-watch-idle, set by the script above after 3s without
+         pointer/key activity), fade out everything that isn't the media:
+         the watch panel's title bar, dock, debug badges, info pills.
+         Pointer events are kept enabled so a click anywhere wakes the UI. */
+      body.cssos-watch-theater #watch-panel .panel-bar,
+      body.cssos-watch-theater #dock,
+      body.cssos-watch-theater #toast,
+      body.cssos-watch-theater #panel-3btn-debug-badge {
+        transition: opacity .35s ease;
+      }
+      body.cssos-watch-theater.cssos-watch-idle #watch-panel .panel-bar,
+      body.cssos-watch-theater.cssos-watch-idle #dock,
+      body.cssos-watch-theater.cssos-watch-idle #panel-3btn-debug-badge,
+      body.cssos-watch-theater.cssos-watch-idle #watch-panel .watch-aspect-pill,
+      body.cssos-watch-theater.cssos-watch-idle #watch-panel #watch-pill-row-bl,
+      body.cssos-watch-theater.cssos-watch-idle #watch-panel #watch-take-toggle,
+      body.cssos-watch-theater.cssos-watch-idle #watch-panel .watch-media-action,
+      body.cssos-watch-theater.cssos-watch-idle #watch-panel .watch-author-avatar {
+        opacity: 0;
+      }
+      /* Force black screen behind cinema, no other panel chrome bleeding through. */
+      body.cssos-watch-theater.cssos-watch-idle {
+        cursor: none;
+      }
+
+      /* MV panel "minimize" → only show panel-bar, hide everything else. */
+      #watch-panel.mv-body-collapsed .panel-body,
+      #watch-panel.mv-body-collapsed .watch-body,
+      #watch-panel.mv-body-collapsed .watch-frame,
+      #watch-panel.mv-body-collapsed .watch-screen {
+        display: none !important;
+      }
+      #watch-panel.mv-body-collapsed {
+        height: auto !important;
+        min-height: 0 !important;
+      }
+    </style>
   </body>
 </html>

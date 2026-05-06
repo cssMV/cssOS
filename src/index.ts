@@ -263,6 +263,131 @@ if (useDatabaseSessionStore) {
 
 app.use(session(sessionConfig));
 
+/* CSSOS_PHASE_C_MEDIA_SIGNING 20260506 — Jing
+ * "Phase C: 签名 URL + 30 秒预览（媒体防爬）".
+ *
+ * Goal: stop scrapers from grabbing /artifacts/mv/<file> directly from
+ * page source. Every media URL handed to the client now goes through
+ * /secure/artifacts/<workId>/<file> with a short-lived HMAC signature
+ * that pins to (workId, file, expiry, accessKind). The server validates
+ * the signature, optionally enforces a preview cap, then streams the
+ * underlying file from /var/lib/cssos/mv/.
+ *
+ * Token shape (URL params):
+ *   t = HMAC-SHA256(secret, "<workId>|<file>|<exp>|<kind>") base64url
+ *   e = unix-millis expiry
+ *   k = "full" | "preview"
+ *
+ * Phase C.1 (this commit): URL signing + secure route. Preview-only
+ *   tokens still stream the full file but stamp X-Preview-Limit-Seconds
+ *   so the frontend player can stop at 30s.
+ *
+ * Phase C.2 (later): generate <id>.preview.mp4 server-side at MV
+ *   pipeline completion, switch preview tokens to serve that file.
+ *
+ * Phase C.3 (later): remove the legacy /artifacts/mv nginx alias
+ *   and 404 unauthenticated requests.
+ */
+const MEDIA_SIGNING_SECRET = (
+  process.env.MEDIA_SIGNING_SECRET ||
+  process.env.SESSION_SECRET ||
+  "cssos_session_secret"
+).trim();
+const MEDIA_TOKEN_TTL_MS = Number(
+  process.env.MEDIA_TOKEN_TTL_MS || 60 * 60 * 1000, // 1h default
+);
+const MEDIA_PREVIEW_LIMIT_SECONDS = Number(
+  process.env.MEDIA_PREVIEW_LIMIT_SECONDS || 30,
+);
+const MV_ARTIFACTS_DIR = (
+  process.env.MV_ARTIFACTS_DIR || "/var/lib/cssos/mv"
+).trim();
+
+function base64UrlEncode(buf: Buffer): string {
+  return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function signMediaToken(
+  workId: string,
+  file: string,
+  expiresAtMs: number,
+  kind: "full" | "preview",
+): string {
+  const payload = `${workId}|${file}|${expiresAtMs}|${kind}`;
+  const sig = crypto.createHmac("sha256", MEDIA_SIGNING_SECRET).update(payload).digest();
+  return base64UrlEncode(sig);
+}
+
+function verifyMediaToken(
+  workId: string,
+  file: string,
+  expiresAtMs: number,
+  kind: "full" | "preview",
+  token: string,
+): boolean {
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs < Date.now()) return false;
+  if (kind !== "full" && kind !== "preview") return false;
+  const expected = signMediaToken(workId, file, expiresAtMs, kind);
+  // Constant-time compare to avoid timing oracles.
+  const a = Buffer.from(expected);
+  const b = Buffer.from(String(token || ""));
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+/** Build a /secure/artifacts/... URL for a raw artifact path. */
+function signArtifactUrl(
+  workId: string,
+  rawUrl: string | null | undefined,
+  kind: "full" | "preview",
+): string | null {
+  if (!rawUrl) return null;
+  const trimmed = String(rawUrl).trim();
+  if (!trimmed) return null;
+  // Only sign URLs that point at our /artifacts/mv/ alias. External /api/cover-webp
+  // covers stay raw for now (Phase C.2 will tighten if needed).
+  const m = trimmed.match(/^\/?artifacts\/mv\/(.+)$/);
+  if (!m) return trimmed;
+  const file = m[1] || "";
+  const exp = Date.now() + MEDIA_TOKEN_TTL_MS;
+  const t = signMediaToken(workId, file, exp, kind);
+  return `/secure/artifacts/${encodeURIComponent(workId)}/${encodeURIComponent(file)}?t=${t}&e=${exp}&k=${kind}`;
+}
+
+/** Streams the underlying artifact after validating the signed URL. */
+app.get("/secure/artifacts/:wid/:file", (req, res) => {
+  noStore(res);
+  const wid = String(req.params.wid || "").trim();
+  const file = String(req.params.file || "").trim();
+  const t = String(req.query.t || "").trim();
+  const e = Number(req.query.e || 0);
+  const kRaw = String(req.query.k || "").trim().toLowerCase();
+  const kind: "full" | "preview" = kRaw === "preview" ? "preview" : "full";
+  if (!wid || !file || !t || !e) {
+    return res.status(400).json({ ok: false, code: "TOKEN_MISSING" });
+  }
+  if (!/^[0-9a-fA-F-]{8,64}$/.test(wid)) {
+    return res.status(400).json({ ok: false, code: "INVALID_WORK_ID" });
+  }
+  if (file.includes("..") || file.includes("/") || file.includes("\\")) {
+    return res.status(400).json({ ok: false, code: "INVALID_FILE" });
+  }
+  if (!verifyMediaToken(wid, file, e, kind, t)) {
+    return res.status(403).json({ ok: false, code: "TOKEN_INVALID_OR_EXPIRED" });
+  }
+  if (kind === "preview") {
+    res.setHeader("X-Preview-Limit-Seconds", String(MEDIA_PREVIEW_LIMIT_SECONDS));
+  }
+  // Long-cache OK because the URL itself expires; nginx static cache will
+  // revalidate via the expiry param. Keep public so CDN-friendly.
+  res.setHeader("Cache-Control", "private, max-age=600");
+  return res.sendFile(path.join(MV_ARTIFACTS_DIR, file), (err) => {
+    if (err && !res.headersSent) {
+      res.status(404).json({ ok: false, code: "ARTIFACT_NOT_FOUND" });
+    }
+  });
+});
+
 // CSSOS_PHASE2_MV_TRUST_PROXY 20260418 —
 // Express owns the session of record. The Rust MV service at 127.0.0.1:8081
 // hosts the actual /api/mv/* handlers (cover/lyrics/music/video/subtitles/
@@ -12248,6 +12373,24 @@ app.get("/api/works/public/:id", async (req, res) => {
     const isFree = listenCents <= 0;
     const fullAccess = isFree || isOwner || hasPurchased;
     const previewOnly = !fullAccess;
+    /* CSSOS_PHASE_C_SIGNED_URLS 20260506 — wrap every playable URL with a
+     * short-lived HMAC token. Anyone who scrapes page source / HTML gets
+     * a token that's bound to (workId, file, expiry, accessKind). For
+     * paid works seen by guests, the token is "preview" — server stamps
+     * X-Preview-Limit-Seconds so the player stops at the cap. */
+    const signKind: "full" | "preview" = fullAccess ? "full" : "preview";
+    const signedFinalMv = signArtifactUrl(
+      id,
+      row.final_mv_url || normalized.preview_video_url || null,
+      signKind,
+    );
+    const signedPreviewVideo = signArtifactUrl(
+      id,
+      normalized.preview_video_url || null,
+      signKind,
+    );
+    const signedAudio1 = signArtifactUrl(id, row.audio_track_1_url || null, signKind);
+    const signedAudio2 = signArtifactUrl(id, row.audio_track_2_url || null, signKind);
     return res.json({
       ok: true,
       data: {
@@ -12260,15 +12403,13 @@ app.get("/api/works/public/:id", async (req, res) => {
         duration_secs: normalized.duration_secs || null,
         cover_image: normalized.cover_image || null,
         preview_image_url: normalized.preview_image_url || null,
-        // Playable URL: full mv for full-access, preview clip otherwise.
-        // Phase A: preview_video_url (existing). Phase C will add server-
-        // side trimmed 30s clips and signed tickets.
-        final_mv_url: fullAccess
-          ? row.final_mv_url || normalized.preview_video_url || null
-          : null,
-        preview_video_url: normalized.preview_video_url || null,
-        audio_track_1_url: fullAccess ? row.audio_track_1_url || null : null,
-        audio_track_2_url: fullAccess ? row.audio_track_2_url || null : null,
+        // Playable URL: signed token, full kind for full-access viewers,
+        // preview kind for guests on paid works (player honours the
+        // X-Preview-Limit-Seconds header response from /secure/artifacts).
+        final_mv_url: fullAccess ? signedFinalMv : null,
+        preview_video_url: signedPreviewVideo,
+        audio_track_1_url: fullAccess ? signedAudio1 : null,
+        audio_track_2_url: fullAccess ? signedAudio2 : null,
         // Tier flags for the front end (Phase B will render download UI).
         viewer_tier: viewerTier,
         is_free: isFree,

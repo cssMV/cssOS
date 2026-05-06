@@ -40,6 +40,15 @@
   async function togglePip() {
     var v = document.getElementById("watch-video");
     if (!v) return;
+    // app.watch-media-chrome.js sets video.disablePictureInPicture = true
+    // to hide Safari's native PiP affordance from its custom controls.
+    // We're providing PiP explicitly via the cluster button, so undo
+    // that block — otherwise PiP opens but no frames are sent and the
+    // window paints solid black.
+    try { v.disablePictureInPicture = false; } catch (_e) {}
+    try { v.removeAttribute("disablePictureInPicture"); } catch (_e) {}
+    // controlslist also includes "nofullscreen" / "noplaybackrate" but
+    // not a PiP-block, so leave it alone.
     try {
       if (document.pictureInPictureElement === v) {
         await document.exitPictureInPicture();
@@ -88,6 +97,10 @@
     // Reflect PiP state in the button's tinting so the user sees on/off.
     var v = document.getElementById("watch-video");
     if (v) {
+      // Pre-clear the chrome-module's PiP block so the first PiP request
+      // already has frames flowing — without this the first click opens
+      // a black PiP window and only subsequent toggles work.
+      try { v.disablePictureInPicture = false; } catch (_e) {}
       var sync = function () {
         var on =
           document.pictureInPictureElement === v ||

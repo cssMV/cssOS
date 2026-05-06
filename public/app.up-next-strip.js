@@ -254,7 +254,19 @@
     card.onmouseleave = function () { card.style.transform = ""; };
 
     var thumb = document.createElement("div");
-    var thumbUrl = String(item.cover_image || item.preview_image_url || item.cover_image_url || "").trim();
+    /* CSSOS_UP_NEXT_THUMB_FIELD 20260506 — Jing
+     * "缩略图还是没有出来". Root cause: playlist items go through
+     * normaliseItem() in app.playlists.js, which stores the cover URL
+     * ONLY in `cover_url` (line 134). My lookup chain missed that key.
+     * Now read cover_url first, then fall back to the original-shape
+     * keys for any work passed in directly (share-link / market). */
+    var thumbUrl = String(
+      item.cover_url ||
+      item.cover_image ||
+      item.preview_image_url ||
+      item.cover_image_url ||
+      ""
+    ).trim();
     thumb.style.cssText =
       "width:100%;aspect-ratio:16/9;border-radius:6px;background:#000 center/cover no-repeat;" +
       "position:relative;";

@@ -17237,9 +17237,139 @@ app.get("/health", (_req, res) => {
   res.json({ status: "cssOS running 🚀" });
 });
 
-app.get("/", (_req, res) => {
+/* CSSOS_SHARE_OG_INJECT 20260506 — Jing
+ * "分享作品到社交平台的时候，请带上封面图，我们有好几张封面图，请每一次
+ *  都随机分享一张封面图. 效果，同一个作品，每次分享，封面图都随机."
+ *
+ * When the share-link landing URL `/?cssMV=<work_id>` is fetched (by a
+ * social-platform crawler OR a real browser), we splice OG meta tags
+ * into the index.html <head> so the share preview shows the work's
+ * cover, title, and a one-line description. We pick the cover at
+ * REQUEST time from a per-work pool (cover_image + preview_image_url
+ * + any work_assets rows of cover_image / preview_image type), so
+ * different scrapes — and therefore different platforms — can land on
+ * different covers. Same work shared twice → potentially different
+ * preview image, which is what the user asked for ("每次分享，封面图
+ * 都随机").
+ *
+ * Cache the original index.html bytes once at first request to avoid
+ * re-reading the file every navigation. Falls back to the raw sendFile
+ * if anything goes wrong (DB miss, FS error) — the SPA still loads.
+ */
+let __cachedIndexHtml: Buffer | null = null;
+function readIndexHtml(): Buffer {
+  if (__cachedIndexHtml) return __cachedIndexHtml;
+  __cachedIndexHtml = fs.readFileSync(path.join(PUBLIC_DIR, "index.html"));
+  return __cachedIndexHtml;
+}
+
+function escapeHtmlAttr(s: string): string {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+interface ShareCoverWorkRow {
+  id: string;
+  title: string | null;
+  style: string | null;
+  cover_image: string | null;
+  preview_image_url: string | null;
+  asset_urls: string[] | null;
+}
+
+async function fetchShareWork(id: string): Promise<ShareCoverWorkRow | null> {
+  if (!/^[0-9a-fA-F-]{8,64}$/.test(id)) return null;
+  try {
+    const q = await withClient((client) =>
+      client.query<ShareCoverWorkRow>(
+        `SELECT
+           w.id, w.title, w.style, w.cover_image, w.preview_image_url,
+           ARRAY_REMOVE(ARRAY_AGG(DISTINCT a.url), NULL) AS asset_urls
+         FROM user_works w
+         LEFT JOIN work_assets a
+           ON a.work_id = w.id
+          AND a.asset_type IN ('cover_image','preview_image')
+         WHERE w.id = $1::uuid
+         GROUP BY w.id, w.title, w.style, w.cover_image, w.preview_image_url
+         LIMIT 1`,
+        [id],
+      ),
+    );
+    return q.rows[0] || null;
+  } catch (err) {
+    console.warn("[share-og] fetch failed:", err);
+    return null;
+  }
+}
+
+function pickRandomCover(work: ShareCoverWorkRow): string | null {
+  const pool = new Set<string>();
+  if (work.cover_image) pool.add(work.cover_image);
+  if (work.preview_image_url) pool.add(work.preview_image_url);
+  for (const u of work.asset_urls || []) {
+    if (u) pool.add(u);
+  }
+  const arr = Array.from(pool);
+  if (!arr.length) return null;
+  return arr[Math.floor(Math.random() * arr.length)] ?? null;
+}
+
+function buildOgMeta(work: ShareCoverWorkRow, requestUrl: string): string {
+  const title = String(work.title || "CSS Studio MV").trim() || "CSS Studio MV";
+  const style = String(work.style || "").trim();
+  const styleHead = style ? (style.split(/[,，\n]/)[0] || "").trim() : "";
+  const desc = styleHead
+    ? `${title} — ${styleHead} · CSS Studio`
+    : `${title} — CSS Studio`;
+  const cover = pickRandomCover(work);
+  const lines: string[] = [];
+  lines.push(`<meta property="og:type" content="video.other" />`);
+  lines.push(`<meta property="og:title" content="${escapeHtmlAttr(title)}" />`);
+  lines.push(`<meta property="og:description" content="${escapeHtmlAttr(desc)}" />`);
+  lines.push(`<meta property="og:url" content="${escapeHtmlAttr(requestUrl)}" />`);
+  lines.push(`<meta property="og:site_name" content="CSS Studio" />`);
+  if (cover) {
+    lines.push(`<meta property="og:image" content="${escapeHtmlAttr(cover)}" />`);
+    lines.push(`<meta property="og:image:alt" content="${escapeHtmlAttr(title)}" />`);
+  }
+  // Twitter fallback (X reads twitter:* over og:* when both are present)
+  lines.push(`<meta name="twitter:card" content="${cover ? "summary_large_image" : "summary"}" />`);
+  lines.push(`<meta name="twitter:title" content="${escapeHtmlAttr(title)}" />`);
+  lines.push(`<meta name="twitter:description" content="${escapeHtmlAttr(desc)}" />`);
+  if (cover) lines.push(`<meta name="twitter:image" content="${escapeHtmlAttr(cover)}" />`);
+  return "\n    <!-- CSSOS_SHARE_OG_INJECT 20260506 — per-share OG meta -->\n    " + lines.join("\n    ") + "\n";
+}
+
+app.get("/", async (req, res) => {
   noStore(res);
-  res.sendFile(path.join(PUBLIC_DIR, "index.html"));
+  res.type("html");
+  const cssMV = String(req.query.cssMV || "").trim();
+  if (!cssMV) {
+    return res.sendFile(path.join(PUBLIC_DIR, "index.html"));
+  }
+  try {
+    const work = await fetchShareWork(cssMV);
+    if (!work) {
+      return res.sendFile(path.join(PUBLIC_DIR, "index.html"));
+    }
+    const html = readIndexHtml().toString("utf8");
+    const requestUrl = `https://${req.get("host") || "cssstudio.app"}${req.originalUrl}`;
+    const ogBlock = buildOgMeta(work, requestUrl);
+    // Inject right before </head>. Case-insensitive, first match.
+    const idx = html.search(/<\/head>/i);
+    if (idx < 0) {
+      return res.sendFile(path.join(PUBLIC_DIR, "index.html"));
+    }
+    const out = html.slice(0, idx) + ogBlock + html.slice(idx);
+    return res.send(out);
+  } catch (err) {
+    console.warn("[share-og] inject failed, falling back to raw:", err);
+    return res.sendFile(path.join(PUBLIC_DIR, "index.html"));
+  }
 });
 
 async function start() {

@@ -12511,7 +12511,15 @@ app.get("/api/works/public/:id", async (req, res) => {
     }
     const listenCents = Number(normalized.current_listen_price_cents || 0);
     const isFree = listenCents <= 0;
-    const fullAccess = isFree || isOwner || hasPurchased;
+    // CSSOS_ADMIN_FREE 20260506 — Jing
+    // Works owned by an admin (anyone with @cssstudio.app email or
+    // jingdudc@gmail.com, or role='admin') are free for everyone,
+    // including guests. No 30s cap.
+    const ownerEmail = String(row.owner_email || "").toLowerCase().trim();
+    const isOwnerAdmin =
+      ownerEmail === "jingdudc@gmail.com" ||
+      /@cssstudio\.app$/i.test(ownerEmail);
+    const fullAccess = isFree || isOwner || hasPurchased || isOwnerAdmin;
     const previewOnly = !fullAccess;
     /* CSSOS_PHASE_C_SIGNED_URLS 20260506 — wrap every playable URL with a
      * short-lived HMAC token. Anyone who scrapes page source / HTML gets
@@ -12952,7 +12960,13 @@ app.get("/api/works/market", async (req, res) => {
           const purchased = orders.some((o: { status?: string }) =>
             o?.status === "paid" || o?.status === "completed" || o?.status === "fulfilled",
           );
-          const fullAccess = isOwner || isFree || purchased;
+          // CSSOS_ADMIN_FREE 20260506 — admin-owned works are free for all.
+          const ownerEmailMkt = String((row as { owner_email?: string }).owner_email || "")
+            .toLowerCase().trim();
+          const isOwnerAdminMkt =
+            ownerEmailMkt === "jingdudc@gmail.com" ||
+            /@cssstudio\.app$/i.test(ownerEmailMkt);
+          const fullAccess = isOwner || isFree || purchased || isOwnerAdminMkt;
           const signed = signMediaUrlsOnRow(row, fullAccess ? "full" : "preview");
           return {
             ...signed,

@@ -13157,7 +13157,8 @@ app.post("/api/works", async (req, res) => {
         suggested_buyout_price_cents: suggestedBuyoutPriceCents,
         cover_image: persistedAssets.coverImage,
         preview_image_url: persistedAssets.previewImageUrl,
-        preview_video_url: persistedAssets.previewVideoUrl,
+        // Phase C.3.b — sign owner-emitted media URLs as "full".
+        preview_video_url: signArtifactUrl(workId, persistedAssets.previewVideoUrl, "full"),
         preview_video_asset_key: persistedAssets.previewVideoAssetKey,
       }),
     );
@@ -13262,7 +13263,8 @@ app.patch("/api/works/:id/assets", async (req, res) => {
         cover_image: updated?.cover_image || existingWork?.cover_image || null,
         preview_image_url:
           updated?.preview_image_url || existingWork?.preview_image_url || null,
-        preview_video_url: previewVideoReference.previewVideoUrl,
+        // Phase C.3.b — owner-only endpoint, sign "full".
+        preview_video_url: signArtifactUrl(workId, previewVideoReference.previewVideoUrl, "full"),
         preview_video_asset_key: previewVideoReference.previewVideoAssetKey,
       }),
     );
@@ -13437,7 +13439,8 @@ app.patch("/api/works/:id/generation", async (req, res) => {
         cover_image: updated?.cover_image || persistedAssets.coverImage,
         preview_image_url:
           updated?.preview_image_url || persistedAssets.previewImageUrl,
-        preview_video_url: previewVideoReference.previewVideoUrl,
+        // Phase C.3.b — owner-only endpoint, sign "full".
+        preview_video_url: signArtifactUrl(workId, previewVideoReference.previewVideoUrl, "full"),
         preview_video_asset_key: previewVideoReference.previewVideoAssetKey,
         root_work_id: existing.root_work_id || workId,
         parent_work_id: existing.parent_work_id || null,

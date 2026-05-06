@@ -352,17 +352,37 @@
     if (!id) return;
     try {
       var pl = globalThis.cssosPlaylists;
-      if (pl && typeof pl.seekTo === "function") {
-        pl.seekTo(id);
-      }
+      if (pl && typeof pl.seekTo === "function") pl.seekTo(id);
     } catch (_e) {}
-    // Trigger the existing "open work" flow. openMarketWorkPreview is the
-    // universal entry — it'll honour playlist scope set above.
-    try {
-      if (typeof globalThis.openMarketWorkPreview === "function") {
-        globalThis.openMarketWorkPreview(item);
-      }
-    } catch (_e) {}
+    /* CSSOS_JUMP_BY_ID 20260506 — Jing
+     * Don't pass the stale playlist item to openMarketWorkPreview.
+     * Playlist items can have outdated cover / src / lyric fields and
+     * the player ends up showing the previous song's video while the
+     * audio swaps — classic 张冠李戴 bug. Always refetch the canonical
+     * work data by ID first, then hand the fresh payload to the
+     * existing open flow. */
+    fetch("/api/works/public/" + encodeURIComponent(id), {
+      credentials: "include",
+      headers: { Accept: "application/json" },
+    }).then(function (r) { return r.json().catch(function () { return null; }); })
+      .then(function (j) {
+        var data = (j && (j.data || j)) || null;
+        var fresh = (data && data.id) ? data : item;
+        try {
+          if (typeof globalThis.openMarketWorkPreview === "function") {
+            globalThis.openMarketWorkPreview(fresh);
+          }
+        } catch (_e) {}
+      })
+      .catch(function () {
+        // Network failure → fall back to the stale item; better than
+        // nothing, and the player will still try to play.
+        try {
+          if (typeof globalThis.openMarketWorkPreview === "function") {
+            globalThis.openMarketWorkPreview(item);
+          }
+        } catch (_e) {}
+      });
     hide();
   }
 
@@ -451,6 +471,35 @@
   } else {
     init();
   }
+
+  /* Canonical "open work by ID" path — fresh fetch, never trust the
+   * caller's possibly-stale shape. Other modules (share-link router,
+   * works-grid, dock now-playing tooltip) can call this to be sure
+   * the audio + video + cover + lyric all match the requested ID. */
+  globalThis.cssosOpenWorkById = function (id, fallbackItem) {
+    var workId = String(id || "").trim();
+    if (!workId) return Promise.resolve(false);
+    return fetch("/api/works/public/" + encodeURIComponent(workId), {
+      credentials: "include",
+      headers: { Accept: "application/json" },
+    }).then(function (r) { return r.json().catch(function () { return null; }); })
+      .then(function (j) {
+        var data = (j && (j.data || j)) || null;
+        var fresh = (data && data.id) ? data : (fallbackItem || { id: workId });
+        if (typeof globalThis.openMarketWorkPreview === "function") {
+          globalThis.openMarketWorkPreview(fresh);
+          return true;
+        }
+        return false;
+      })
+      .catch(function () {
+        if (fallbackItem && typeof globalThis.openMarketWorkPreview === "function") {
+          globalThis.openMarketWorkPreview(fallbackItem);
+          return true;
+        }
+        return false;
+      });
+  };
 
   globalThis.cssosUpNext = {
     setLead: function (n) {

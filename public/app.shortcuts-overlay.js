@@ -48,6 +48,12 @@
     { keys: tt("Click ⤢", "点击 ⤢"), desc: tt("Toggle cinema fullscreen", "切换影院全屏") },
     { keys: tt("Click —", "点击 —"), desc: tt("Collapse media frame, pause", "折叠媒体框 + 暂停") },
     { keys: tt("Click ✕", "点击 ✕"), desc: tt("Close MV, exit cinema", "关闭 MV 退出影院") },
+    { section: tt("MV (in fullscreen)", "MV (全屏时)") },
+    { keys: "Space", desc: tt("Play / Pause", "播放 / 暂停") },
+    { keys: "J / L", desc: tt("Seek -10s / +10s", "后退 10 秒 / 前进 10 秒") },
+    { keys: "← / →", desc: tt("Seek -5s / +5s", "后退 5 秒 / 前进 5 秒") },
+    { keys: "↑ / ↓", desc: tt("Volume +/- 5%", "音量 +/- 5%") },
+    { keys: "0..9", desc: tt("Jump to 0..90% of duration", "跳到 0..90% 进度") },
     { section: tt("Discovery", "查询") },
     { keys: "?", desc: tt("Show this cheat sheet", "显示这个快捷键速查") },
   ];

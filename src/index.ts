@@ -336,6 +336,32 @@ function verifyMediaToken(
   return crypto.timingSafeEqual(a, b);
 }
 
+/** Sign a row's media URLs in place. Used by /api/works/mine + market so
+ * the URLs handed to the player can never be used past their expiry, and
+ * preview-kind viewers literally can't fetch past 30s of bytes. */
+type SignableRow = {
+  id?: string | number | null;
+  preview_video_url?: string | null;
+  final_mv_url?: string | null;
+  audio_track_1_url?: string | null;
+  audio_track_2_url?: string | null;
+  subtitle_srt_url?: string | null;
+};
+function signMediaUrlsOnRow<T extends SignableRow>(
+  row: T,
+  kind: "full" | "preview",
+): T {
+  const wid = String(row.id ?? "").trim();
+  if (!wid) return row;
+  const out: T = { ...row };
+  if (out.preview_video_url) out.preview_video_url = signArtifactUrl(wid, out.preview_video_url, kind);
+  if (out.final_mv_url) out.final_mv_url = signArtifactUrl(wid, out.final_mv_url, kind);
+  if (out.audio_track_1_url) out.audio_track_1_url = signArtifactUrl(wid, out.audio_track_1_url, kind);
+  if (out.audio_track_2_url) out.audio_track_2_url = signArtifactUrl(wid, out.audio_track_2_url, kind);
+  if (out.subtitle_srt_url) out.subtitle_srt_url = signArtifactUrl(wid, out.subtitle_srt_url, kind);
+  return out;
+}
+
 /** Build a /secure/artifacts/... URL for a raw artifact path. */
 function signArtifactUrl(
   workId: string,
@@ -12321,7 +12347,10 @@ app.get("/cssapi/v1/mv", async (req, res) => {
     return res.json({
       ok: true,
       data: {
-        items: out.map((r) => ({
+        items: out.map((rRaw) => {
+          // /api/works/mine is owner-only — always sign as "full".
+          const r = signMediaUrlsOnRow(rRaw, "full");
+          return ({
           id: r.id,
           title: r.title,
           cover_url: r.cover_image || r.preview_image_url || null,
@@ -12340,8 +12369,9 @@ app.get("/cssapi/v1/mv", async (req, res) => {
           // contiguous and never break self's sequence to play others'.
           root_work_id: (r as any).root_id || null,
           sequence_index: (r as any).sequence_index ?? null,
-          is_own: viewer ? r.owner_id === viewer.id : false,
-        })),
+          is_own: viewer ? (rRaw as { owner_id?: string }).owner_id === viewer.id : false,
+        });
+        }),
         next_cursor: nextCursor,
       },
     });
@@ -12908,8 +12938,18 @@ app.get("/api/works/market", async (req, res) => {
             ownerChain.length > 1
               ? ownerChain[ownerChain.length - 2]?.label
               : ownerLabel;
+          /* Phase C.3 — sign media URLs per viewer access. Free works
+           * + owner + paid customers get full tokens; everyone else
+           * gets preview-kind tokens that resolve to a 30s clip. */
+          const isOwner = !!viewer && viewer.id === row.owner_user_id;
+          const isFree = Number((row as { current_listen_price_cents?: number }).current_listen_price_cents || 0) <= 0;
+          const purchased = orders.some((o: { status?: string }) =>
+            o?.status === "paid" || o?.status === "completed" || o?.status === "fulfilled",
+          );
+          const fullAccess = isOwner || isFree || purchased;
+          const signed = signMediaUrlsOnRow(row, fullAccess ? "full" : "preview");
           return {
-            ...row,
+            ...signed,
             viewer_orders: orders,
             owner_chain: ownerChain,
             previous_owner_label: previousOwner,

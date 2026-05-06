@@ -1,21 +1,25 @@
 /* CSSOS_PIP_BUTTON 20260506 — Jing
  *
- * Add a Picture-in-Picture (PiP) toggle to the watch frame button
- * cluster. Lets the user pop the video into a floating mini-window so
- * they can keep watching while doing something else (writing on
- * another panel, switching apps, etc.). Same affordance YouTube,
- * Vimeo, and the macOS native player all expose.
+ * Picture-in-Picture toggle. After several rounds of "PiP opens but
+ * paints black" reports on Safari, this is the shadow-video approach:
  *
- * Browser support is widespread (Chromium / Edge / Safari / Firefox);
- * the button hides itself on browsers that don't expose
- * `requestPictureInPicture`. Fails closed.
+ *   We don't PiP the visible #watch-video at all. Instead we maintain
+ *   a hidden "shadow" <video> element, mirror src + currentTime + rate
+ *   into it, request PiP on the shadow, and pause the original while
+ *   PiP is active. When PiP closes, we resume the original from the
+ *   shadow's currentTime. The shadow has no CSS, no controlslist, no
+ *   chrome-module interference, and no disablePictureInPicture history
+ *   in Safari's AVPlayer — so PiP frames flow reliably.
  *
- * Lives next to the existing .cssmv-fs-btn (⛶) inside the watch
- * frame's .cssmv-fr-btn cluster, so cinema-mode chrome-hide rules
- * already cover it without a CSS change.
+ *   Click the cluster button OR the in-PiP "return to tab" button to
+ *   swap. Safari also lets the user click the placeholder rendered in
+ *   the original element to exit, which we honor via the standard
+ *   leavepictureinpicture event.
  */
 (function () {
   "use strict";
+
+  var SHADOW_ID = "cssos-pip-shadow-video";
 
   function tt(en, zh) {
     if (typeof globalThis.loginCopy === "function") {
@@ -27,34 +31,24 @@
   }
 
   function isPipSupported() {
-    var v = document.getElementById("watch-video");
-    if (!v) return false;
-    if (typeof v.requestPictureInPicture === "function" && document.pictureInPictureEnabled !== false) return true;
-    // Older Safari: webkitSupportsPresentationMode
-    if (typeof v.webkitSupportsPresentationMode === "function" && v.webkitSupportsPresentationMode("picture-in-picture")) {
-      return true;
-    }
+    var probe = document.createElement("video");
+    if (typeof probe.requestPictureInPicture === "function" && document.pictureInPictureEnabled !== false) return true;
+    if (typeof probe.webkitSupportsPresentationMode === "function" && probe.webkitSupportsPresentationMode("picture-in-picture")) return true;
     return false;
   }
 
-  /* Pick the <video> element that's actually painting frames. The
-   * watch panel can have multiple video elements (mirror, foryou-thumb,
-   * mv-overlay) — PiP-ing the wrong one yields a black window. */
+  /* Find the <video> currently painting frames. */
   function pickActiveVideo() {
-    var candidates = [];
     var primary = document.getElementById("watch-video");
-    if (primary) candidates.push(primary);
-    // Any other video that's currently playing visible content.
+    var candidates = primary ? [primary] : [];
     var all = document.querySelectorAll("video");
     for (var i = 0; i < all.length; i++) {
       var el = all[i];
-      if (candidates.indexOf(el) >= 0) continue;
-      // Skip the offscreen/hidden helpers.
+      if (el.id === SHADOW_ID) continue;
       if (el.classList.contains("mirror-video")) continue;
       if (el.id === "foryou-thumb-video") continue;
-      candidates.push(el);
+      if (candidates.indexOf(el) < 0) candidates.push(el);
     }
-    // Prefer one that's playing, has a real frame, and >0 size.
     function score(el) {
       var s = 0;
       if (!el.paused && !el.ended) s += 8;
@@ -67,48 +61,99 @@
     return candidates[0] || primary;
   }
 
-  async function togglePip() {
-    var v = pickActiveVideo();
-    if (!v) return;
-    // Belt-and-suspenders unblock — even though the chrome module no
-    // longer disables PiP at init, third-party code might.
-    try { v.disablePictureInPicture = false; } catch (_e) {}
-    try { v.removeAttribute("disablePictureInPicture"); } catch (_e) {}
-    // controlslist also includes "nofullscreen" / "noplaybackrate" but
-    // not a PiP-block, so leave it alone.
+  function ensureShadow() {
+    var sh = document.getElementById(SHADOW_ID);
+    if (sh) return sh;
+    sh = document.createElement("video");
+    sh.id = SHADOW_ID;
+    sh.playsInline = true;
+    // Hidden but rendered — Safari needs a non-zero rendering layer to
+    // emit frames into PiP. position:fixed off-screen with 1×1 size and
+    // opacity:0 keeps it invisible but alive.
+    sh.style.cssText =
+      "position:fixed;left:-2px;top:-2px;width:1px;height:1px;" +
+      "opacity:0.001;pointer-events:none;z-index:-1;";
+    sh.setAttribute("aria-hidden", "true");
+    document.body.appendChild(sh);
+    return sh;
+  }
+
+  /* Mirror src + audio + position from src video into shadow. */
+  function mirrorFromTo(src, dst) {
+    if (!src || !dst) return;
+    var srcUrl = src.currentSrc || src.src || "";
+    if (srcUrl && dst.src !== srcUrl) {
+      try { dst.src = srcUrl; } catch (_e) {}
+    }
+    try { dst.muted = src.muted; dst.volume = src.volume; } catch (_e) {}
+    try { dst.playbackRate = src.playbackRate || 1; } catch (_e) {}
+    try { dst.currentTime = src.currentTime || 0; } catch (_e) {}
+  }
+
+  var lastOriginal = null;
+
+  async function enterPip() {
+    var orig = pickActiveVideo();
+    if (!orig) return;
+    lastOriginal = orig;
+    var sh = ensureShadow();
+    mirrorFromTo(orig, sh);
+    // Wait for the shadow to have a frame.
+    await new Promise(function (resolve) {
+      var done = false;
+      var go = function () { if (done) return; done = true; resolve(); };
+      if (sh.readyState >= 2) return go();
+      var ev = function () {
+        sh.removeEventListener("loadeddata", ev);
+        sh.removeEventListener("canplay", ev);
+        go();
+      };
+      sh.addEventListener("loadeddata", ev, { once: true });
+      sh.addEventListener("canplay", ev, { once: true });
+      try { sh.load(); } catch (_e) {}
+      // Time-out fallback — request anyway after 1.2s.
+      setTimeout(go, 1200);
+    });
     try {
-      // Already PiP'd — exit.
-      if (document.pictureInPictureElement) {
-        await document.exitPictureInPicture();
-        return;
-      }
-      if (v.webkitPresentationMode === "picture-in-picture" &&
-          typeof v.webkitSetPresentationMode === "function") {
-        v.webkitSetPresentationMode("inline");
-        return;
-      }
-      // Make sure there's a frame to send. Safari refuses PiP on a
-      // paused/no-frame video and silently shows black.
-      if (v.readyState < 2) {
-        try { v.load(); } catch (_e) {}
-      }
-      if (v.paused) {
-        try { await v.play(); } catch (_e) {}
-      }
-      // Prefer the modern API on every browser that has it (incl. Safari
-      // 13+). Only fall through to webkitSetPresentationMode if standard
-      // PiP isn't available.
-      if (typeof v.requestPictureInPicture === "function") {
-        await v.requestPictureInPicture();
-        return;
-      }
-      if (typeof v.webkitSetPresentationMode === "function") {
-        v.webkitSetPresentationMode("picture-in-picture");
-        return;
+      // Pause the original, play the shadow.
+      try { orig.pause(); } catch (_e) {}
+      try { await sh.play(); } catch (_e) {}
+      if (typeof sh.requestPictureInPicture === "function") {
+        await sh.requestPictureInPicture();
+      } else if (typeof sh.webkitSetPresentationMode === "function") {
+        sh.webkitSetPresentationMode("picture-in-picture");
       }
     } catch (err) {
-      console.info("[cssos-pip] toggle failed:", err && err.name ? err.name : err);
+      console.info("[cssos-pip] enter failed:", err && err.name ? err.name : err);
+      // Roll back — resume the original so user isn't left with a paused video.
+      try { orig.play(); } catch (_e) {}
     }
+  }
+
+  async function exitPip() {
+    var sh = document.getElementById(SHADOW_ID);
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else if (sh && sh.webkitPresentationMode === "picture-in-picture") {
+        sh.webkitSetPresentationMode("inline");
+      }
+    } catch (_e) {}
+    // Hand control back to the original.
+    if (sh && lastOriginal) {
+      try { lastOriginal.currentTime = sh.currentTime || lastOriginal.currentTime; } catch (_e) {}
+      try { lastOriginal.play(); } catch (_e) {}
+      try { sh.pause(); } catch (_e) {}
+    }
+  }
+
+  async function togglePip() {
+    var sh = document.getElementById(SHADOW_ID);
+    var inPip =
+      !!document.pictureInPictureElement ||
+      (sh && sh.webkitPresentationMode === "picture-in-picture");
+    if (inPip) await exitPip();
+    else await enterPip();
   }
 
   function ensureButton() {
@@ -122,14 +167,8 @@
     btn.className = "cssmv-fr-btn cssmv-pip-btn";
     btn.setAttribute("aria-label", tt("Picture in Picture", "画中画"));
     btn.title = tt("Picture in Picture", "画中画");
-    // ⊞ glyph reads as "split-out window" cross-browser. SVG would be
-    // crisper but adds noise; the existing fr-btn cluster uses simple
-    // characters (i / ⛶) so we match that vibe.
     btn.textContent = "⊞";
-    btn.style.cssText =
-      // Existing cluster occupies right:14 (⛶) / 68 (i) / 120 (♪×) / 172 (stem).
-      // Pin past 172 with a 54px stride so we don't collide.
-      "right:226px;font-size:18px;";
+    btn.style.cssText = "right:226px;font-size:18px;";
     btn.addEventListener("click", function (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -137,25 +176,25 @@
     });
     screen.appendChild(btn);
 
-    // Reflect PiP state in the button's tinting so the user sees on/off.
-    var v = document.getElementById("watch-video");
-    if (v) {
-      // Pre-clear the chrome-module's PiP block so the first PiP request
-      // already has frames flowing — without this the first click opens
-      // a black PiP window and only subsequent toggles work.
-      try { v.disablePictureInPicture = false; } catch (_e) {}
-      var sync = function () {
-        var on =
-          document.pictureInPictureElement === v ||
-          v.webkitPresentationMode === "picture-in-picture";
-        btn.classList.toggle("is-on", !!on);
-      };
-      v.addEventListener("enterpictureinpicture", sync);
-      v.addEventListener("leavepictureinpicture", sync);
-      // Safari path
-      v.addEventListener("webkitpresentationmodechanged", sync);
-      sync();
-    }
+    // Reflect PiP state on the button.
+    var sh = ensureShadow();
+    var sync = function () {
+      var on =
+        document.pictureInPictureElement === sh ||
+        sh.webkitPresentationMode === "picture-in-picture";
+      btn.classList.toggle("is-on", !!on);
+      // When the user closes PiP from the OS chrome, also resume the
+      // original from where the shadow stopped.
+      if (!on && lastOriginal) {
+        try { lastOriginal.currentTime = sh.currentTime || lastOriginal.currentTime; } catch (_e) {}
+        try { lastOriginal.play(); } catch (_e) {}
+        try { sh.pause(); } catch (_e) {}
+      }
+    };
+    sh.addEventListener("enterpictureinpicture", sync);
+    sh.addEventListener("leavepictureinpicture", sync);
+    sh.addEventListener("webkitpresentationmodechanged", sync);
+    sync();
     return btn;
   }
 
@@ -170,6 +209,7 @@
 
   function init() {
     ensureStyles();
+    ensureShadow();
     ensureButton();
   }
   if (document.readyState === "loading") {
@@ -177,12 +217,11 @@
   } else {
     init();
   }
-  // Re-attach if the watch frame gets rebuilt.
   if (document.body) {
     new MutationObserver(function () {
       ensureButton();
     }).observe(document.body, { childList: true, subtree: true });
   }
 
-  globalThis.cssosPip = { toggle: togglePip, supported: isPipSupported };
+  globalThis.cssosPip = { toggle: togglePip, supported: isPipSupported, enter: enterPip, exit: exitPip };
 })();

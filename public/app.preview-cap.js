@@ -106,6 +106,39 @@
     frame.appendChild(overlayEl);
   }
 
+  /* Try every reasonable surface for "play the next work" without
+   * coupling tightly to any one of them. Returns true if we kicked
+   * something off. */
+  function autoAdvance(videoEl) {
+    // 1. Direct global hook, if a future module exposes it.
+    try {
+      if (typeof globalThis.cssosWatchNext === "function") {
+        globalThis.cssosWatchNext({ reason: "preview-cap" });
+        return true;
+      }
+    } catch (_e) {}
+    // 2. Up-next strip "next" button by data attribute or class name.
+    var sel = [
+      "[data-action='mv-next']",
+      "#watch-panel .cssmv-up-next-next",
+      "#watch-panel .up-next-next",
+      "#watch-panel .watch-next-btn",
+      "#watch-panel [data-cssos-up-next-next]",
+    ].join(",");
+    var btn = document.querySelector(sel);
+    if (btn) {
+      try { btn.click(); return true; } catch (_e) {}
+    }
+    // 3. First clickable thumbnail in the up-next strip.
+    var thumb = document.querySelector(
+      "#watch-panel .cssmv-up-next [data-work-id], #watch-panel .up-next-strip [data-work-id]"
+    );
+    if (thumb) {
+      try { thumb.click(); return true; } catch (_e) {}
+    }
+    return false;
+  }
+
   function clearPaywallOverlay() {
     if (overlayEl && overlayEl.parentNode) overlayEl.parentNode.removeChild(overlayEl);
     overlayEl = null;
@@ -128,14 +161,25 @@
     }
     videoEl.addEventListener("loadstart", refreshCap, { passive: true });
     videoEl.addEventListener("emptied", refreshCap, { passive: true });
+    var capHit = false;
     videoEl.addEventListener("timeupdate", function () {
       if (capSeconds == null) return;
+      if (capHit) return;
       if (videoEl.currentTime >= capSeconds - 0.1) {
+        capHit = true;
         try { videoEl.pause(); } catch (_e) {}
         try { videoEl.currentTime = Math.max(0, capSeconds - 0.05); } catch (_e) {}
-        showPaywallOverlay(videoEl);
+        // Per Jing: don't halt on a paywall overlay. Auto-advance to
+        // the next work in the up-next strip — same affordance as
+        // "ended" on a free work. Only show the overlay if there's
+        // genuinely nothing to advance to.
+        if (!autoAdvance(videoEl)) {
+          showPaywallOverlay(videoEl);
+        }
       }
     }, { passive: true });
+    videoEl.addEventListener("emptied", function () { capHit = false; }, { passive: true });
+    videoEl.addEventListener("loadstart", function () { capHit = false; }, { passive: true });
     videoEl.addEventListener("seeking", function () {
       if (capSeconds == null) return;
       if (videoEl.currentTime > capSeconds + 0.1) {

@@ -312,7 +312,11 @@ audio#watch-audio-preview.cssmv-headless-visible {
     if (video) {
       if (video.hasAttribute("controls")) video.removeAttribute("controls");
       video.controls = false;
-      try { video.disablePictureInPicture = true; } catch (_e) {}
+      // Don't disable PiP — app.pip-button.js exposes our own ⊞ button
+      // in the cluster. Safari caches disablePictureInPicture state in
+      // the AVPlayer layer so flipping it back later doesn't restore
+      // frame relay → PiP window paints black. Just leave it enabled.
+      try { video.disablePictureInPicture = false; } catch (_e) {}
       try { video.disableRemotePlayback = true; } catch (_e) {}
       video.setAttribute("controlslist", "nodownload noplaybackrate nofullscreen");
     }

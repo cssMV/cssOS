@@ -2424,10 +2424,9 @@
         background: #000 !important;
       }
 
-      /* Kill the rainbow perimeter chase ring from app.watch-stage-bars.js. */
-      body.cssos-cinema-mode #watch-panel .cssmv-border-bar {
-        display: none !important;
-      }
+      /* Per Jing 2026-05-05: keep the rainbow perimeter chase ring
+         (.cssmv-border-bar) visible — it's part of the cinema viewing
+         experience, not chrome to hide. */
 
       /* Strip the green panel border and any glow shadow. */
       body.cssos-cinema-mode #watch-panel {
@@ -2475,11 +2474,7 @@
       html body.cssos-cinema-mode.cssos-watch-idle #panel-3btn-debug-badge {
         display: none !important;
       }
-      /* Keep cssmv-border-bar gone in cinema regardless of idle. */
-      html body.cssos-cinema-mode #watch-panel .cssmv-border-bar,
-      html body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen .cssmv-border-bar {
-        display: none !important;
-      }
+      /* (cssmv-border-bar rainbow ring is intentionally preserved in cinema.) */
       body.cssos-cinema-mode.cssos-watch-idle {
         cursor: none;
       }

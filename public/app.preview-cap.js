@@ -291,6 +291,71 @@
         }
       })
       .catch(function () {});
+    /* 10-second auto-advance — Jing's spec:
+     *   - Cap fires → overlay shows with a visible countdown (10s)
+     *   - User interacts (clicks any button, drops a dropdown, etc.)
+     *     → cancel countdown, wait for them
+     *   - No interaction by t=0 → autoAdvance() to next work
+     * The countdown is paused on pointerover anywhere in the overlay,
+     * resumed on pointerout — same affordance YouTube uses on its
+     * "next video in 5s" autoplay nag. */
+    var COUNTDOWN_S = 10;
+    var countdownLeft = COUNTDOWN_S;
+    var countdownTimer = 0;
+    var countdownPaused = false;
+    var countdownStopped = false;
+    var countdownLabel = document.createElement("div");
+    countdownLabel.style.cssText =
+      "margin-top:4px;font:500 11px/1.2 ui-monospace,monospace;" +
+      "color:rgba(218,255,238,0.55);text-align:center;letter-spacing:.04em;";
+    function paintCountdown() {
+      if (countdownStopped) {
+        countdownLabel.textContent = "";
+        return;
+      }
+      countdownLabel.textContent = tt(
+        "Skipping to next in " + countdownLeft + "s · hover or click to stay",
+        countdownLeft + " 秒后跳到下一首 · 悬停或点击可暂停"
+      );
+    }
+    function stopCountdown(reason /* "user" | "advance" */) {
+      if (countdownStopped) return;
+      countdownStopped = true;
+      if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = 0; }
+      paintCountdown();
+    }
+    function startCountdown() {
+      paintCountdown();
+      countdownTimer = setInterval(function () {
+        if (countdownStopped) return;
+        if (countdownPaused) { paintCountdown(); return; }
+        countdownLeft -= 1;
+        if (countdownLeft <= 0) {
+          stopCountdown("advance");
+          // Tear down overlay + auto-advance.
+          if (overlayEl && overlayEl.parentNode) overlayEl.parentNode.removeChild(overlayEl);
+          overlayEl = null;
+          autoAdvance(videoEl);
+          return;
+        }
+        paintCountdown();
+      }, 1000);
+    }
+    overlayEl.appendChild(countdownLabel);
+    // Any click inside the overlay → user is engaging → cancel countdown.
+    overlayEl.addEventListener("click", function () { stopCountdown("user"); }, { capture: true });
+    // Hover-pause: while pointer is over the overlay, freeze the countdown.
+    overlayEl.addEventListener("pointerenter", function () { countdownPaused = true; paintCountdown(); });
+    overlayEl.addEventListener("pointerleave", function () { countdownPaused = false; paintCountdown(); });
+    // Share-link single-work view has no queue to advance into — disable
+    // countdown entirely so the user just sees the buttons.
+    if (globalThis.__cssosShareLinkActive) {
+      countdownStopped = true;
+      countdownLabel.textContent = "";
+    } else {
+      startCountdown();
+    }
+
     var dismiss = document.createElement("button");
     dismiss.type = "button";
     dismiss.textContent = tt("Dismiss", "关闭");
@@ -299,6 +364,7 @@
       "font:400 12px/1 ui-monospace,monospace;cursor:pointer;padding:6px 10px;";
     dismiss.addEventListener("click", function (e) {
       e.preventDefault(); e.stopPropagation();
+      stopCountdown("user");
       if (overlayEl && overlayEl.parentNode) overlayEl.parentNode.removeChild(overlayEl);
       overlayEl = null;
     });
@@ -387,16 +453,12 @@
         capHit = true;
         try { videoEl.pause(); } catch (_e) {}
         try { videoEl.currentTime = Math.max(0, capSeconds - 0.05); } catch (_e) {}
-        // Per Jing: in normal browsing, don't halt — auto-advance to
-        // the next work in the up-next strip. But share-link visitors
-        // (typically guests landing on a single work) should see the
-        // login/subscribe nudge — there's no queue context for them
-        // and "advance to nothing" would just be a confusing pause.
-        if (globalThis.__cssosShareLinkActive) {
-          showPaywallOverlay(videoEl);
-        } else if (!autoAdvance(videoEl)) {
-          showPaywallOverlay(videoEl);
-        }
+        // Per Jing: always show the tier-aware paywall when the cap
+        // hits, with a 10s auto-advance countdown. The overlay itself
+        // handles: user interaction → cancel countdown, t=0 → call
+        // autoAdvance() to next work. Share-link single-work visitors
+        // skip the countdown (no queue to advance into).
+        showPaywallOverlay(videoEl);
       }
     }, { passive: true });
     videoEl.addEventListener("emptied", function () { capHit = false; }, { passive: true });

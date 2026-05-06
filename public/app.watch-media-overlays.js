@@ -1047,6 +1047,20 @@
     "anchor-ml", "anchor-mr",
   ];
   function pickFaceSafeAnchor() {
+    // CSSOS_FACE_SAFE_ANCHOR_HOOK 20260506 — Jing
+    // If app.face-safe-overlay.js detected a face, use its
+    // recommended diagonal-opposite anchor so the title genuinely
+    // misses the face, not just rotates blindly. Falls back to the
+    // round-robin when no detection is available.
+    try {
+      if (globalThis.cssosFaceSafe && typeof globalThis.cssosFaceSafe.titleAnchor === "function") {
+        const a = globalThis.cssosFaceSafe.titleAnchor();
+        if (a && TITLE_ANCHORS.indexOf(a) >= 0) {
+          __cssmvTitleAnchorIdx = TITLE_ANCHORS.indexOf(a);
+          return a;
+        }
+      }
+    } catch (_e) {}
     // Round-robin with small randomisation to avoid perceptible
     // patterning while still guaranteeing every corner gets used.
     const next = (__cssmvTitleAnchorIdx + 1 + Math.floor(Math.random() * 3)) % TITLE_ANCHORS.length;

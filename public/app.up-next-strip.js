@@ -226,11 +226,40 @@
     var current = null;
     try { current = pl.current && pl.current(); } catch (_e) {}
     var currentId = current && (current.id || current.work_id);
-    var items = active.items.filter(function (it) {
-      var id = it && (it.id || it.work_id);
-      return id && id !== currentId;
-    });
-    return items.slice(0, countItems());
+    /* CSSOS_UP_NEXT_ORDER_FIX 20260506 — Jing
+     * Previously we just filtered out the current item and returned
+     * the head of the playlist — so the strip always showed the same
+     * "newest" cards regardless of where in the queue the user was.
+     * Now slice strictly AFTER the current index. If loop_all is on
+     * (or we're near the tail), wrap to the head so the strip is
+     * never empty mid-queue. Items still skip the current one. */
+    var items = active.items.slice();
+    var idx = -1;
+    if (currentId) {
+      for (var i = 0; i < items.length; i++) {
+        var it = items[i];
+        var id = it && (it.id || it.work_id);
+        if (id === currentId) { idx = i; break; }
+      }
+    }
+    var ordered;
+    if (idx >= 0) {
+      var loopAll = active.mode === "loop_all" || active.loop === "all" || active.loop === true;
+      if (loopAll) {
+        // Concat tail-after-current + head-before-current.
+        ordered = items.slice(idx + 1).concat(items.slice(0, idx));
+      } else {
+        ordered = items.slice(idx + 1);
+      }
+    } else {
+      // Couldn't locate current item — fall back to the playlist as-is
+      // minus any duplicate of currentId, preserving order.
+      ordered = items.filter(function (it) {
+        var id = it && (it.id || it.work_id);
+        return id !== currentId;
+      });
+    }
+    return ordered.slice(0, countItems());
   }
 
   function truncateTitle(s, n) {

@@ -12,6 +12,7 @@
  */
 import { attachLogoPanelActionsBridge } from "./panels/logo";
 import "./panels/dock-settings"; // side-effect: installs window.toggleDockSettingsPopoverModule etc.
+import "./panels/panel-shell-actions"; // 3-button bar + 8-way resize bridges
 
 const status = document.getElementById("status");
 if (status) {

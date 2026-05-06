@@ -52,11 +52,15 @@
     overlayEl = document.createElement("div");
     overlayEl.id = "cssos-preview-paywall";
     overlayEl.style.cssText =
-      "position:absolute;inset:0;z-index:50;display:flex;flex-direction:column;" +
+      "position:absolute;inset:0;z-index:2147483646;display:flex;flex-direction:column;" +
       "align-items:center;justify-content:center;gap:14px;" +
       "background:radial-gradient(circle at 50% 40%,rgba(0,0,0,0.6),rgba(0,0,0,0.92));" +
       "color:#daffee;font:14px/1.4 -apple-system,system-ui,sans-serif;" +
-      "backdrop-filter:blur(6px);";
+      "backdrop-filter:blur(6px);" +
+      // Critical — cinema chrome-hide CSS sets pointer-events:none on
+      // hidden overlays. Force auto so the Sign in / Subscribe buttons
+      // work even if the user is in cinema fullscreen.
+      "pointer-events:auto;";
     var headline = document.createElement("div");
     headline.textContent = tt(
       "Preview ended — sign in or subscribe to keep watching.",
@@ -73,19 +77,52 @@
       b.style.cssText =
         "padding:9px 18px;border-radius:999px;cursor:pointer;" +
         "font:600 13px/1 -apple-system,system-ui,sans-serif;" +
-        "background:rgba(0,245,160,0.85);color:#001b14;border:0;";
+        "background:rgba(0,245,160,0.85);color:#001b14;border:0;" +
+        // Same belt-and-suspenders as the overlay itself — chrome-hide
+        // CSS occasionally flips pointer-events on descendants.
+        "pointer-events:auto;position:relative;z-index:1;";
       b.addEventListener("click", function (e) {
         e.preventDefault(); e.stopPropagation();
         fn && fn();
       });
       return b;
     }
+    /* Robust opener — try every known surface in order. The dock
+     * action click is the most reliable because it goes through the
+     * full openPanel(loginPanel) wiring including settings, density,
+     * and focus. */
+    function openByDockAction(action) {
+      // 0. Exit cinema fullscreen first — login/subscribe panels open
+      //    behind the fullscreen surface otherwise.
+      try {
+        if (document.fullscreenElement && document.exitFullscreen) {
+          document.exitFullscreen().catch(function () {});
+        }
+      } catch (_e) {}
+      var dockBtn = document.querySelector('.dock-item[data-action="' + action + '"]');
+      if (dockBtn) { try { dockBtn.click(); return true; } catch (_e) {} }
+      try {
+        if (typeof globalThis.handleGlobalAction === "function") {
+          globalThis.handleGlobalAction(action);
+          return true;
+        }
+      } catch (_e) {}
+      if (action === "subscription" && typeof globalThis.openSubscriptionPanelModule === "function") {
+        try { globalThis.openSubscriptionPanelModule(); return true; } catch (_e) {}
+      }
+      // Last resort — open the panel element directly if exposed.
+      var panelId = action === "login" ? "login-panel" : "subscription-panel";
+      var panelEl = document.getElementById(panelId);
+      if (panelEl && typeof globalThis.openPanel === "function") {
+        try { globalThis.openPanel(panelEl, { userInitiated: true }); return true; } catch (_e) {}
+      }
+      return false;
+    }
     row.appendChild(pillBtn(tt("Sign in", "登录"), function () {
-      // Try to open the login panel via the dock action dispatcher.
-      try { globalThis.handleGlobalAction && globalThis.handleGlobalAction("login"); } catch (_e) {}
+      openByDockAction("login");
     }));
     row.appendChild(pillBtn(tt("Subscribe", "订阅"), function () {
-      try { globalThis.handleGlobalAction && globalThis.handleGlobalAction("subscription"); } catch (_e) {}
+      openByDockAction("subscription");
     }));
     overlayEl.appendChild(row);
     var dismiss = document.createElement("button");

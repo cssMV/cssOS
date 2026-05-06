@@ -3544,24 +3544,12 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
 
 .mirror-img {
   position: absolute;
-  /* CSSOS_LOGO_NO_HALO 20260506 — Jing
-     "请取消外面的遮罩圈，或者缩小里面的魔镜尺寸，让人感觉不到遮罩层的存在."
-     The previous drop-shadow(0 0 26px) drew a soft circular halo around
-     the metal-compass logo that read as a visible mask ring (especially
-     on the light theme — cream background + 26px green bleed reads as a
-     faint pink/red halo). Shrink the inset slightly so the logo itself
-     is smaller within its frame AND drop the shadow blur to 0 so no
-     halo forms. The breathing animation (mirrorFadeA cross-fade between
-     mirror-1.webp and mirror-2.webp) is unchanged — that's the breath
-     the user wants to keep. */
-  inset: 6%;
-  width: auto;
-  height: auto;
-  right: 6%;
-  bottom: 6%;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
   opacity: 0;
-  filter: none;
+  filter: drop-shadow(0 0 26px rgba(0, 245, 160, 0.35));
   animation: mirrorFadeA 16s ease-in-out infinite;
   pointer-events: none;
   z-index: 1;
@@ -3571,14 +3559,12 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
 
 .mirror-video {
   position: absolute;
-  inset: 6%;
-  right: 6%;
-  bottom: 6%;
-  width: auto;
-  height: auto;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
   opacity: 0;
-  filter: none;
+  filter: drop-shadow(0 0 26px rgba(0, 245, 160, 0.35));
   transition: opacity 1.2s ease;
   pointer-events: none;
   z-index: 1;

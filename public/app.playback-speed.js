@@ -135,7 +135,7 @@
     btn.setAttribute("aria-label", tt("Playback speed", "播放速度"));
     btn.title = tt("Click: cycle speed · Right-click: pick", "点击: 循环切换 · 右键: 选择");
     btn.textContent = fmt(readRate());
-    btn.style.cssText = "right:164px;font-size:12px;font-weight:700;letter-spacing:.02em;";
+    btn.style.cssText = "right:280px;font-size:12px;font-weight:700;letter-spacing:.02em;";
     btn.addEventListener("click", function (e) {
       e.preventDefault();
       e.stopPropagation();

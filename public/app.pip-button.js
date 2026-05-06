@@ -75,10 +75,9 @@
     // characters (i / ⛶) so we match that vibe.
     btn.textContent = "⊞";
     btn.style.cssText =
-      // Sit between i (info) and ⛶ (fullscreen) in the bottom-right cluster.
-      // CSS already paints .cssmv-fr-btn at right:14px / right:64px, so we
-      // pin to right:114px (one button-width left of info).
-      "right:114px;font-size:18px;";
+      // Existing cluster occupies right:14 (⛶) / 68 (i) / 120 (♪×) / 172 (stem).
+      // Pin past 172 with a 54px stride so we don't collide.
+      "right:226px;font-size:18px;";
     btn.addEventListener("click", function (e) {
       e.preventDefault();
       e.stopPropagation();

@@ -57,13 +57,17 @@
     btn.setAttribute("aria-label", tt("Loop", "循环"));
     btn.title = tt("Loop", "循环");
     btn.textContent = "⟳";
-    // Cluster lineup (right-edge, bottom):
-    //   14  — ⛶ fullscreen
-    //   64  — i info
-    //   114 — ⊞ pip
-    //   164 — × speed (digits)
-    //   214 — ⟳ loop
-    btn.style.cssText = "right:214px;font-size:16px;";
+    // Cluster lineup (right-edge, bottom). Existing 14/68/120/172 are
+    // owned by ⛶/i/♪×/stem respectively. Our buttons stride 54px past
+    // 172 so we share the row cleanly:
+    //   14  — ⛶ fullscreen     (existing)
+    //   68  — i info           (existing)
+    //   120 — ♪× style shift   (existing)
+    //   172 — stem toggle      (existing)
+    //   226 — ⊞ pip
+    //   280 — ×× speed
+    //   334 — ⟳ loop
+    btn.style.cssText = "right:334px;font-size:16px;";
     btn.addEventListener("click", function (e) {
       e.preventDefault();
       e.stopPropagation();

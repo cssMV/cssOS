@@ -187,13 +187,110 @@
         }
       }, 700);
     }
-    row.appendChild(pillBtn(tt("Sign in", "登录"), function () {
-      buildDropdown("login");
-    }));
-    row.appendChild(pillBtn(tt("Subscribe", "订阅"), function () {
-      buildDropdown("subscription");
-    }));
+    /* Tier-aware buttons. Per Jing:
+     *   Guest        → Sign in · Subscribe
+     *   Free user    → Subscribe · Buy listen · Buy view · Buy out
+     *   Subscriber   → Buy listen · Buy view · Buy out
+     *   Owner/Admin  → no overlay (server already grants fullAccess)
+     * The buttons are rebuilt after /api/me resolves. We render a
+     * temporary "Sign in / Subscribe" pair first so the overlay isn't
+     * empty during the round trip. */
+    function readWorkId() {
+      var w = globalThis.currentWatchPreviewWork;
+      if (w && (w.id || w.work_id)) return String(w.id || w.work_id).trim();
+      try {
+        var sp = new URLSearchParams(window.location.search);
+        var fromUrl = String(sp.get("cssMV") || "").trim();
+        if (fromUrl) return fromUrl;
+      } catch (_e) {}
+      return "";
+    }
+    function buildBuyUrl(workId, kind) {
+      // Open the work's market page with an explicit purchase intent.
+      // The market-commerce module already accepts ?cssMV=…&cssBuy=…
+      // (or falls back to opening the work's panel). Popup-friendly.
+      var base = "/?cssMV=" + encodeURIComponent(workId) + "&cssBuy=" + encodeURIComponent(kind);
+      return base;
+    }
+    function renderRowForTier(meInfo) {
+      // Clear any existing buttons.
+      while (row.firstChild) row.removeChild(row.firstChild);
+      var authed = !!(meInfo && meInfo.authenticated);
+      var tier = String((meInfo && meInfo.tier) || "guest").toLowerCase();
+      var paid = ["pro", "studio", "enterprise", "vip", "admin"].indexOf(tier) >= 0;
+      var workId = readWorkId();
+      if (!authed) {
+        // Guest — login or subscribe (no direct purchase).
+        row.appendChild(pillBtn(tt("Sign in", "登录"), function () {
+          buildDropdown("login");
+        }));
+        row.appendChild(pillBtn(tt("Subscribe", "订阅"), function () {
+          buildDropdown("subscription");
+        }));
+        return;
+      }
+      if (!paid) {
+        // Free user — subscribe + per-work purchase options.
+        row.appendChild(pillBtn(tt("Subscribe", "订阅"), function () {
+          buildDropdown("subscription");
+        }));
+        if (workId) {
+          row.appendChild(pillBtn(tt("Listen access", "聆听权"), function () {
+            openOAuthPopup(buildBuyUrl(workId, "listen"));
+          }));
+          row.appendChild(pillBtn(tt("View access", "观赏权"), function () {
+            openOAuthPopup(buildBuyUrl(workId, "view"));
+          }));
+          row.appendChild(pillBtn(tt("Buy out", "买断"), function () {
+            openOAuthPopup(buildBuyUrl(workId, "buyout"));
+          }));
+        }
+        return;
+      }
+      // Subscriber on someone else's paid work — direct purchase only.
+      if (workId) {
+        row.appendChild(pillBtn(tt("Listen access", "聆听权"), function () {
+          openOAuthPopup(buildBuyUrl(workId, "listen"));
+        }));
+        row.appendChild(pillBtn(tt("View access", "观赏权"), function () {
+          openOAuthPopup(buildBuyUrl(workId, "view"));
+        }));
+        row.appendChild(pillBtn(tt("Buy out", "买断"), function () {
+          openOAuthPopup(buildBuyUrl(workId, "buyout"));
+        }));
+      }
+    }
+    // Initial render with the safe default (guest), then refine after
+    // /api/me resolves.
+    renderRowForTier(null);
     overlayEl.appendChild(row);
+    fetch("/api/me", { credentials: "include", headers: { Accept: "application/json" } })
+      .then(function (r) { return r.json().catch(function () { return null; }); })
+      .then(function (j) {
+        var data = (j && (j.data || j)) || null;
+        if (!data) return;
+        renderRowForTier({
+          authenticated: !!data.authenticated,
+          tier: data.tier,
+          role: data.role,
+        });
+        // Update headline copy by tier.
+        if (data.authenticated) {
+          var t = String(data.tier || "").toLowerCase();
+          if (["pro", "studio", "enterprise", "vip", "admin"].indexOf(t) >= 0) {
+            headline.textContent = tt(
+              "Preview ended — purchase access to keep watching.",
+              "30 秒预览结束——购买权限即可继续观看。"
+            );
+          } else {
+            headline.textContent = tt(
+              "Preview ended — subscribe or buy access to keep watching.",
+              "30 秒预览结束——订阅或购买权限即可继续观看。"
+            );
+          }
+        }
+      })
+      .catch(function () {});
     var dismiss = document.createElement("button");
     dismiss.type = "button";
     dismiss.textContent = tt("Dismiss", "关闭");

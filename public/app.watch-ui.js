@@ -3398,6 +3398,11 @@ function watchHasPlayableMediaModule() {
 
 function ensureWatchAutoChainOnOpenModule() {
   try {
+    /* CSSOS_SHARE_LINK_NO_REGEN 20260506 — Jing
+     * Share-link openings must never trigger a fresh pipeline run
+     * (the linked work IS the source of truth — even if it's preview-
+     * only with no final_mv_url, we just play that preview, period). */
+    if (globalThis.__cssosShareLinkActive) return false;
     if (watchHasPlayableMediaModule()) return false;
     const run = globalThis.cssmvRunPipeline;
     if (typeof run !== "function") return false;

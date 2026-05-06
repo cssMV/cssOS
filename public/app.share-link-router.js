@@ -108,6 +108,13 @@
       }
       var work = shapeWorkFromPublicResponse(payload.data);
       if (!work) return;
+      /* CSSOS_SHARE_LINK_SENTINEL 20260506 — Jing
+       * Stamp a global flag so ensureWatchAutoChainOnOpenModule (and
+       * any other "no media → regen pipeline" path) bails out for the
+       * lifetime of this share session. The flag is cleared the moment
+       * the user closes / minimizes the MV panel via the 3-button
+       * close, or by their next manual action — see app.watch-ui.js. */
+      globalThis.__cssosShareLinkActive = true;
       // Wait until DOM is ready AND openMarketWorkPreview is defined.
       if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", function () {

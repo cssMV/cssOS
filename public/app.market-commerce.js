@@ -458,7 +458,26 @@ function ensureMarketSearchReveal(body, behavior) {
 }
 
 async function openMarketWorkPreview(work = {}) {
-  const playback = resolveStructuredPlaybackRequestModule(work);
+  /* CSSOS_SHARE_LINK_SINGLE_SOURCE 20260506 — Jing
+   * "用户点击进来，好像要经过几道关卡，这个UUID好像也不是唯一真源,
+   *  面板跳来跳去，最终播放了一个不是分享的那个标题的作品."
+   *
+   * Share-link openings (?cssMV=<id>) come in with __cssosShareLink:true
+   * on the work. For those:
+   *   - skip the structured-playback resolver (which can swap the work
+   *     to a child leaf if work has children/scenes)
+   *   - skip "scoped playlist seed from For You / Works Center"
+   *   - skip the draft-hydration block (which would trigger a fresh
+   *     pipeline run when final_mv_url is missing — wrong for share)
+   *   - replace any existing playlist with a SINGLE-entry "share-link"
+   *     list in loop_single mode so auto-advance can't hop to a sibling
+   *
+   * The UUID in the URL is the single source of truth: that exact work
+   * plays, that exact title shows, nothing else. */
+  const isShareLink = !!work?.__cssosShareLink;
+  const playback = isShareLink
+    ? { targetWork: work, queue: null }
+    : resolveStructuredPlaybackRequestModule(work);
   const targetWork = playback.targetWork || work || null;
   currentWatchPreviewWork = targetWork;
   // CSSOS_PHASE2_PLAYED_INDICATOR 20260504 — mark this work + its
@@ -477,13 +496,21 @@ async function openMarketWorkPreview(work = {}) {
     ids.forEach((id) => globalThis.cssosMarkWorkPlayedModule?.(id));
   } catch (_e) {}
   // CSSOS_PHASE2_SCOPED_PLAYLIST 20260504 — Jing
-  // "从'为你创作'打开作品，那就顺序循环播放'为你创作'所有的作品；
-  //  '作品中心'…也是这样". Honour `work.__cssosOpenedFrom` (set by
-  // the binding sites in bindMarketCardActionButtons /
-  // bindWorksCardActionButtons): seed the matching playlist with the
-  // panel's visible works, switch the active list, and seek to the
-  // clicked id. Subsequent next()/prev() walk THIS list in order.
+  // Share-link branch: a single-entry list in loop_single mode so
+  // auto-advance can't hop to a sibling. Bypasses the "scoped playlist
+  // from panel" logic below.
+  if (isShareLink) {
+    try {
+      const pl = globalThis.cssosPlaylists;
+      if (pl && typeof pl.populate === "function") {
+        pl.populate("share-link", [targetWork]);
+        pl.setActive && pl.setActive("share-link");
+        pl.setMode && pl.setMode("loop_single");
+      }
+    } catch (_e) {}
+  }
   try {
+    if (isShareLink) throw new Error("CSSOS_SHARE_LINK_SKIP_SCOPED_PLAYLIST");
     const pl = globalThis.cssosPlaylists;
     if (pl && typeof pl.populate === "function") {
       const source = String(work?.__cssosOpenedFrom || "").trim();
@@ -538,7 +565,11 @@ async function openMarketWorkPreview(work = {}) {
     // the SAVED lyrics + title + style + cover so the (eventual) re-run
     // inherits the draft's content. The next pipeline produces an MV of
     // THIS draft, not a stranger.
-    if (!finalMvUrl) {
+    if (!finalMvUrl && !isShareLink) {
+      // Share-link guard: if we landed here from /?cssMV=<id> and the
+      // server returned no final_mv_url (preview-only / guest), DO NOT
+      // trigger the draft-hydration → pipeline-regen path. Show whatever
+      // preview URL we have and stop. The cinema viewer is observing.
       const draftLyrics = String(targetWork?.lyrics_full || targetWork?.lyrics_preview || "").trim();
       const draftTitle = String(targetWork?.title || "").trim();
       const draftStyle = String(targetWork?.style || "").trim();

@@ -97,33 +97,28 @@
   }
 
   function openBuyForWork(workId, kind) {
-    // The work share-link router will open the MV in cinema mode. We
-    // also click the Listen / View / Buyout CTA on the market commerce
-    // overlay once it's rendered. The exact CTA selectors depend on
-    // app.market-commerce.js rendering — try a few known patterns and
-    // fall back to surfacing the work info panel.
+    // app.market-commerce.js renders purchase CTAs as
+    // <button data-market-action="listen|buyout"> in the work card +
+    // info overlay. There's no separate "view" action — audio
+    // (聆听权) and video (观赏权) both run through the same listen
+    // commerce flow. Map "view" → "listen" so user intent matches.
+    var actionMap = { listen: "listen", view: "listen", buyout: "buyout" };
+    var action = actionMap[kind] || "listen";
     tryAction(
       function () {
-        return !!globalThis.currentWatchPreviewWork ||
-               !!document.getElementById("watch-panel");
+        return !!document.querySelector('[data-market-action="' + action + '"]:not([disabled])') ||
+               !!document.querySelector("#watch-panel .cssmv-info-btn");
       },
       function () {
-        var sel = {
-          listen: ['[data-action="buy-listen"]', '[data-buy="listen"]', '.cssmv-buy-listen'],
-          view:   ['[data-action="buy-view"]',   '[data-buy="view"]',   '.cssmv-buy-view'],
-          buyout: ['[data-action="buy-buyout"]', '[data-buy="buyout"]', '.cssmv-buy-buyout'],
-        };
-        var arr = sel[kind] || [];
-        var btn = null;
-        for (var i = 0; i < arr.length; i++) {
-          btn = document.querySelector(arr[i]);
-          if (btn) break;
-        }
+        var btn = document.querySelector(
+          '[data-market-action="' + action + '"]:not([disabled])'
+        );
         if (btn) {
           try { btn.click(); } catch (_e) {}
         } else {
-          // Fall back: open the info / details surface so user can find
-          // the purchase controls manually.
+          // Open the info / details surface so user can find purchase
+          // controls. The cssmv-info-btn toggles the overlay where the
+          // CTAs are rendered.
           var info = document.querySelector("#watch-panel .cssmv-info-btn");
           if (info) {
             try { info.click(); } catch (_e) {}
@@ -135,7 +130,76 @@
     );
   }
 
+  /* Cross-window auth signal — when this page lands as a popup after
+   * OAuth callback OR as the parent receiving the success ping, broadcast
+   * via localStorage so any open tab/window dismisses its paywall and
+   * re-fetches the work URL with the new session cookie. */
+  function broadcastAuthSuccess() {
+    try {
+      localStorage.setItem("cssos_auth_change", String(Date.now()));
+      // Some browsers don't fire the storage event in the writing tab,
+      // so dispatch a custom in-tab event too for the parent if we're
+      // somehow the same window.
+      try {
+        window.dispatchEvent(new CustomEvent("cssos:auth-change", {
+          detail: { source: "deeplink-broadcast", ts: Date.now() },
+        }));
+      } catch (_e) {}
+    } catch (_e) {}
+  }
+  function isOnAuthCallbackPath() {
+    var p = String(window.location.pathname || "");
+    return /^\/auth\/(google|github)\/callback/.test(p) ||
+           /^\/api\/auth\/(google|github)\/callback/.test(p);
+  }
+
+  /* Listener side — runs in the parent window. When another tab/window
+   * writes cssos_auth_change to localStorage, dismiss any open paywall
+   * and force the active media element to refetch its URL. */
+  function wireAuthListener() {
+    window.addEventListener("storage", function (e) {
+      if (e.key !== "cssos_auth_change") return;
+      handleAuthChanged();
+    });
+    // Same-window event for popups that postMessage back.
+    window.addEventListener("cssos:auth-change", handleAuthChanged);
+    window.addEventListener("message", function (e) {
+      if (!e || !e.data) return;
+      if (e.data === "cssos:auth-change" ||
+          (typeof e.data === "object" && e.data.type === "cssos:auth-change")) {
+        handleAuthChanged();
+      }
+    });
+  }
+  function handleAuthChanged() {
+    // Tear down any visible paywall overlay.
+    var pw = document.getElementById("cssos-preview-paywall");
+    if (pw && pw.parentNode) pw.parentNode.removeChild(pw);
+    // Force the active <video> to refetch its URL — server-side will
+    // mint a fresh full-access token now that the session is paid /
+    // entitled / authed.
+    ["watch-video", "watch-audio-preview"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      try { el.dispatchEvent(new Event("cssos:refresh-access")); } catch (_e) {}
+      try {
+        var t = el.currentTime || 0;
+        el.load();
+        el.currentTime = t;
+        el.play().catch(function () {});
+      } catch (_e) {}
+    });
+  }
+
   function init() {
+    // Broadcast on the OAuth callback page so the original tab learns.
+    if (isOnAuthCallbackPath()) {
+      broadcastAuthSuccess();
+      // Also try to close ourselves if we're a popup — the parent has
+      // what it needs.
+      try { if (window.opener) setTimeout(function () { window.close(); }, 800); } catch (_e) {}
+    }
+    wireAuthListener();
     var p = readParams();
     if (p.cssOpen === "subscription") return openSubscription();
     if (p.cssOpen === "login") return openLogin();

@@ -164,27 +164,50 @@
         window.open(url, "_blank");
         return;
       }
+      // Snapshot pre-popup auth state so we can detect a real change.
+      var preAuth = null;
+      fetch("/api/me", { credentials: "include", headers: { Accept: "application/json" } })
+        .then(function (r) { return r.json().catch(function () { return null; }); })
+        .then(function (j) {
+          var d = (j && (j.data || j)) || {};
+          preAuth = { authed: !!d.authenticated, tier: String(d.tier || ""), uid: (d.user && d.user.id) || null };
+        })
+        .catch(function () {});
       var t = setInterval(function () {
-        if (popup.closed) {
-          clearInterval(t);
-          // Tear down the paywall and force the video to refetch its
-          // URL (the calling code re-probes via emptied/loadstart).
-          if (overlayEl && overlayEl.parentNode) overlayEl.parentNode.removeChild(overlayEl);
-          overlayEl = null;
-          // Trigger a refetch by toggling the source to itself —
-          // browsers re-issue the HEAD/range requests, picking up the
-          // freshly-minted full-access cookies / new token if auth
-          // landed. We also dispatch a custom event so the watch-ui
-          // module (or share-link router) can re-fetch /api/works/public
-          // and replace the src outright.
-          try {
-            var v = document.getElementById("watch-video");
-            if (v) {
-              try { v.dispatchEvent(new Event("cssos:refresh-access")); } catch (_e) {}
-              try { v.load(); v.play().catch(function () {}); } catch (_e) {}
+        if (!popup.closed) return;
+        clearInterval(t);
+        // Re-check /api/me — only widen access if something actually
+        // changed (auth flipped, tier upgraded, new entitlement).
+        fetch("/api/me", { credentials: "include", headers: { Accept: "application/json" } })
+          .then(function (r) { return r.json().catch(function () { return null; }); })
+          .then(function (j) {
+            var d = (j && (j.data || j)) || {};
+            var post = { authed: !!d.authenticated, tier: String(d.tier || ""), uid: (d.user && d.user.id) || null };
+            var changed = !preAuth ||
+              preAuth.authed !== post.authed ||
+              preAuth.tier !== post.tier ||
+              preAuth.uid !== post.uid;
+            if (changed) {
+              if (overlayEl && overlayEl.parentNode) overlayEl.parentNode.removeChild(overlayEl);
+              overlayEl = null;
+              // Broadcast so any other tabs also pick up the change.
+              try { localStorage.setItem("cssos_auth_change", String(Date.now())); } catch (_e) {}
+              ["watch-video", "watch-audio-preview"].forEach(function (id) {
+                var el = document.getElementById(id);
+                if (!el) return;
+                try { el.dispatchEvent(new Event("cssos:refresh-access")); } catch (_e) {}
+                try {
+                  var ct = el.currentTime || 0;
+                  el.load();
+                  el.currentTime = ct;
+                  el.play().catch(function () {});
+                } catch (_e) {}
+              });
             }
-          } catch (_e) {}
-        }
+            // No change → leave overlay up. User cancelled or popup
+            // didn't complete the flow.
+          })
+          .catch(function () {});
       }, 700);
     }
     /* Tier-aware buttons. Per Jing:

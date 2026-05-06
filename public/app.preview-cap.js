@@ -87,42 +87,111 @@
       });
       return b;
     }
-    /* Robust opener — try every known surface in order. The dock
-     * action click is the most reliable because it goes through the
-     * full openPanel(loginPanel) wiring including settings, density,
-     * and focus. */
-    function openByDockAction(action) {
-      // 0. Exit cinema fullscreen first — login/subscribe panels open
-      //    behind the fullscreen surface otherwise.
-      try {
-        if (document.fullscreenElement && document.exitFullscreen) {
-          document.exitFullscreen().catch(function () {});
-        }
-      } catch (_e) {}
-      var dockBtn = document.querySelector('.dock-item[data-action="' + action + '"]');
-      if (dockBtn) { try { dockBtn.click(); return true; } catch (_e) {} }
-      try {
-        if (typeof globalThis.handleGlobalAction === "function") {
-          globalThis.handleGlobalAction(action);
-          return true;
-        }
-      } catch (_e) {}
-      if (action === "subscription" && typeof globalThis.openSubscriptionPanelModule === "function") {
-        try { globalThis.openSubscriptionPanelModule(); return true; } catch (_e) {}
+    /* Per Jing — keep the user inside cinema fullscreen. Instead of
+     * exiting fullscreen and opening the login/subscribe panel, expand
+     * an inline dropdown ON the overlay with OAuth provider buttons.
+     * OAuth itself runs in a popup window so the main page never
+     * navigates and fullscreen is preserved. On popup close we re-fetch
+     * the work URL — if access widened (auth succeeded), playback
+     * resumes from the cap point with the full-access source. */
+    var dropdown = null;
+    function closeDropdown() {
+      if (dropdown && dropdown.parentNode) dropdown.parentNode.removeChild(dropdown);
+      dropdown = null;
+    }
+    function buildDropdown(kind /* "login" | "subscription" */) {
+      closeDropdown();
+      dropdown = document.createElement("div");
+      dropdown.style.cssText =
+        "margin-top:6px;padding:10px;border-radius:14px;" +
+        "background:rgba(8,18,16,0.96);" +
+        "border:1px solid rgba(0,245,160,0.35);" +
+        "box-shadow:0 14px 32px rgba(0,0,0,0.55);" +
+        "display:flex;flex-direction:column;gap:8px;min-width:240px;" +
+        "pointer-events:auto;position:relative;z-index:2;";
+      function providerBtn(label, url) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.textContent = label;
+        b.style.cssText =
+          "all:unset;cursor:pointer;padding:10px 14px;border-radius:8px;" +
+          "background:rgba(0,245,160,0.16);border:1px solid rgba(0,245,160,0.3);" +
+          "color:#daffee;font:600 13px/1.1 -apple-system,system-ui,sans-serif;" +
+          "text-align:center;pointer-events:auto;";
+        b.addEventListener("mouseenter", function () {
+          b.style.background = "rgba(0,245,160,0.26)";
+        });
+        b.addEventListener("mouseleave", function () {
+          b.style.background = "rgba(0,245,160,0.16)";
+        });
+        b.addEventListener("click", function (e) {
+          e.preventDefault(); e.stopPropagation();
+          openOAuthPopup(url);
+        });
+        return b;
       }
-      // Last resort — open the panel element directly if exposed.
-      var panelId = action === "login" ? "login-panel" : "subscription-panel";
-      var panelEl = document.getElementById(panelId);
-      if (panelEl && typeof globalThis.openPanel === "function") {
-        try { globalThis.openPanel(panelEl, { userInitiated: true }); return true; } catch (_e) {}
+      if (kind === "login") {
+        dropdown.appendChild(providerBtn(tt("Continue with Google", "使用 Google 登录"), "/auth/google"));
+        dropdown.appendChild(providerBtn(tt("Continue with GitHub", "使用 GitHub 登录"), "/auth/github"));
+      } else {
+        // Subscription — open the subscription panel in a popup so the
+        // user stays in cinema fullscreen. The popup hosts the full
+        // subscription / payment flow.
+        dropdown.appendChild(providerBtn(tt("View subscription plans", "查看订阅方案"), "/?cssOpen=subscription"));
       }
-      return false;
+      var hint = document.createElement("div");
+      hint.textContent = tt(
+        "Opens in a popup — you'll stay in cinema mode.",
+        "在弹窗中打开——保留影院模式。"
+      );
+      hint.style.cssText = "font:400 10px/1.3 ui-monospace,monospace;color:rgba(218,255,238,0.55);text-align:center;padding-top:2px;";
+      dropdown.appendChild(hint);
+      overlayEl.appendChild(dropdown);
+    }
+    /* Open the OAuth / subscription URL in a popup window so the main
+     * page never navigates. Watch for popup close → re-probe the cap
+     * (which re-runs the HEAD probe of the secure-artifacts URL). If
+     * access widened, the cap returns null and the cap-hit state is
+     * cleared so playback continues. */
+    function openOAuthPopup(url) {
+      var w = 500, h = 640;
+      var x = Math.max(0, (window.screen.availWidth - w) / 2);
+      var y = Math.max(0, (window.screen.availHeight - h) / 2);
+      var feat = "popup,width=" + w + ",height=" + h + ",left=" + x + ",top=" + y;
+      var popup = window.open(url, "cssos_auth", feat);
+      if (!popup) {
+        // Popup blocker — fall back to a new tab.
+        window.open(url, "_blank");
+        return;
+      }
+      var t = setInterval(function () {
+        if (popup.closed) {
+          clearInterval(t);
+          // Tear down the paywall and force the video to refetch its
+          // URL (the calling code re-probes via emptied/loadstart).
+          if (overlayEl && overlayEl.parentNode) overlayEl.parentNode.removeChild(overlayEl);
+          overlayEl = null;
+          // Trigger a refetch by toggling the source to itself —
+          // browsers re-issue the HEAD/range requests, picking up the
+          // freshly-minted full-access cookies / new token if auth
+          // landed. We also dispatch a custom event so the watch-ui
+          // module (or share-link router) can re-fetch /api/works/public
+          // and replace the src outright.
+          try {
+            var v = document.getElementById("watch-video");
+            if (v) {
+              try { v.dispatchEvent(new Event("cssos:refresh-access")); } catch (_e) {}
+              try { v.load(); v.play().catch(function () {}); } catch (_e) {}
+            }
+          } catch (_e) {}
+        }
+      }, 700);
     }
     row.appendChild(pillBtn(tt("Sign in", "登录"), function () {
-      openByDockAction("login");
+      buildDropdown("login");
     }));
     row.appendChild(pillBtn(tt("Subscribe", "订阅"), function () {
-      openByDockAction("subscription");
+      buildDropdown("subscription");
     }));
     overlayEl.appendChild(row);
     var dismiss = document.createElement("button");

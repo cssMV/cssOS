@@ -13830,10 +13830,10 @@ app.post("/api/admin/pipeline/dry-run", async (req, res) => {
     const prompt = String(req.body?.prompt || "calm cinematic mountain dawn, slow zoom").trim();
     type Stage = { name: string; ok: boolean; ms: number; provider: string; url?: string; error?: string };
     const stages: Stage[] = [];
-    const pushStage = (s: Stage) => {
-      const out: Stage = { name: s.name, ok: s.ok, ms: s.ms, provider: s.provider };
-      if (s.url) out.url = s.url;
-      if (s.error) out.error = s.error;
+    const pushStage = (name: string, ok: boolean, ms: number, provider: string, url?: string | undefined, error?: string | undefined) => {
+      const out: Stage = { name, ok, ms, provider };
+      if (url) out.url = url;
+      if (error) out.error = error;
       stages.push(out);
     };
     const t0 = Date.now();
@@ -13841,12 +13841,12 @@ app.post("/api/admin/pipeline/dry-run", async (req, res) => {
     // 1. Music — Mubert
     let mt = Date.now();
     const mus = await callMusicGen({ prompt, duration_secs: 30, tags: ["cinematic", "ambient"] });
-    pushStage({ name: "music", ok: mus.ok, ms: Date.now() - mt, provider: mus.provider, url: mus.audio_url, error: mus.error });
+    pushStage("music", mus.ok, Date.now() - mt, mus.provider, mus.audio_url, mus.error);
 
     // 2. Cover — fal Flux
     mt = Date.now();
     const img = await callImageGen({ prompt, size: "1024x1024" });
-    pushStage({ name: "cover", ok: img.ok, ms: Date.now() - mt, provider: img.provider, url: img.image_url, error: img.error });
+    pushStage("cover", img.ok, Date.now() - mt, img.provider, img.image_url, img.error);
 
     // 3. Video — Kling i2v if cover succeeded, else t2v
     mt = Date.now();
@@ -13858,7 +13858,7 @@ app.post("/api/admin/pipeline/dry-run", async (req, res) => {
     };
     if (img.ok && img.image_url) vidReq.image_url = img.image_url;
     const vid = await callVideoGen(vidReq);
-    pushStage({ name: "video", ok: vid.ok, ms: Date.now() - mt, provider: vid.provider, url: vid.video_url, error: vid.error });
+    pushStage("video", vid.ok, Date.now() - mt, vid.provider, vid.video_url, vid.error);
 
     // 4. Subtitles — Groq Whisper on the music URL (if got one)
     mt = Date.now();
@@ -13876,7 +13876,7 @@ app.post("/api/admin/pipeline/dry-run", async (req, res) => {
     } else {
       subErr = "no_audio_to_transcribe";
     }
-    pushStage({ name: "subtitles", ok: subOk, ms: Date.now() - mt, provider: subProvider, error: subErr });
+    pushStage("subtitles", subOk, Date.now() - mt, subProvider, undefined, subErr);
 
     return res.json({
       ok: stages.every((s) => s.ok),

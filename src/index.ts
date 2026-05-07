@@ -18,6 +18,7 @@ import {
   normalizeStructuredWorkType,
   type StructurePlan,
 } from "./cssmv/schemas/structure-tree";
+import { SEED_PERSON_PROFILES } from "./person_mv_seed";
 
 const ENV_CONFIG_PATHS = [
   "/srv/cssos.env",
@@ -9703,6 +9704,91 @@ type CreatorBoostKind =
   | "generation"
   | "background_job";
 
+/* ============================================================
+ * CSSOS_PERSON_MV 20260507 — Jing
+ * "人物文明 MV 宇宙" Wave 1 — DB schema + seed roster.
+ *
+ *   person_profiles:  curated + ad-hoc personality records.
+ *                     Seed table is populated once on boot from
+ *                     SEED_PERSON_PROFILES (idempotent ON CONFLICT).
+ *   person_mvs:       per-MV record linking work_id ↔ person_id ↔
+ *                     creator user. Counter views derive from this.
+ *
+ * Wave 2-4 will add adhoc registration, scenario seeding, civ-aware
+ * smart linking. For now we ship the read paths so the panel can
+ * render the curated roster. ============================================================ */
+async function ensurePersonMvTables() {
+  if (!DATABASE_URL) return;
+  await withClient((client) =>
+    client.query(`
+      CREATE TABLE IF NOT EXISTS person_profiles (
+        person_id          TEXT PRIMARY KEY,
+        name_zh            TEXT NOT NULL,
+        name_en            TEXT NOT NULL,
+        civilization       TEXT NOT NULL,
+        era                TEXT,
+        lifespan           TEXT,
+        roles              TEXT[] NOT NULL DEFAULT '{}',
+        core_theme         TEXT,
+        visual_symbols     TEXT[] NOT NULL DEFAULT '{}',
+        music_style_hint   TEXT,
+        tone               TEXT,
+        influence_score    INTEGER NOT NULL DEFAULT 0,
+        risk_notes         TEXT[] NOT NULL DEFAULT '{}',
+        source_status      TEXT NOT NULL DEFAULT 'curated',
+        created_by_user_id UUID,
+        created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS person_profiles_civ_idx
+        ON person_profiles (civilization);
+      CREATE INDEX IF NOT EXISTS person_profiles_influence_idx
+        ON person_profiles (influence_score DESC);
+      CREATE INDEX IF NOT EXISTS person_profiles_source_idx
+        ON person_profiles (source_status);
+
+      CREATE TABLE IF NOT EXISTS person_mvs (
+        mv_id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        person_id          TEXT NOT NULL REFERENCES person_profiles(person_id) ON DELETE CASCADE,
+        work_id            UUID NOT NULL,
+        created_by_user_id UUID NOT NULL,
+        scenario_seed      TEXT,
+        duration_secs      INTEGER,
+        approval_status    TEXT NOT NULL DEFAULT 'auto_published',
+        visibility         TEXT NOT NULL DEFAULT 'public',
+        created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS person_mvs_person_idx ON person_mvs (person_id);
+      CREATE INDEX IF NOT EXISTS person_mvs_creator_idx ON person_mvs (created_by_user_id);
+    `),
+  );
+}
+
+let personSeedLoaded = false;
+async function seedPersonProfilesOnce() {
+  if (personSeedLoaded || !DATABASE_URL) return;
+  await ensurePersonMvTables();
+  for (const p of SEED_PERSON_PROFILES) {
+    await withClient((client) =>
+      client.query(
+        `INSERT INTO person_profiles (
+            person_id, name_zh, name_en, civilization, era, lifespan,
+            roles, core_theme, visual_symbols, music_style_hint, tone,
+            influence_score, risk_notes, source_status
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'curated')
+         ON CONFLICT (person_id) DO NOTHING`,
+        [
+          p.person_id, p.name_zh, p.name_en, p.civilization, p.era, p.lifespan,
+          p.roles, p.core_theme, p.visual_symbols, p.music_style_hint, p.tone,
+          p.influence_score, p.risk_notes,
+        ],
+      ),
+    );
+  }
+  personSeedLoaded = true;
+  console.info("[person-mv] seed loaded — %d profiles", SEED_PERSON_PROFILES.length);
+}
+
 async function ensureAdminUserActionsTable() {
   if (!DATABASE_URL) return;
   await withClient((client) =>
@@ -13805,6 +13891,86 @@ app.post("/api/admin/engine/test", async (req, res) => {
     return res.status(400).json({ ok: false, code: "INVALID_KIND" });
   } catch (err) {
     return res.status(500).json({ ok: false, code: "TEST_FAILED", error: String((err as Error)?.message || err) });
+  }
+});
+
+/* CSSOS_PERSON_MV_API 20260507 — Wave 1 read endpoints. Public —
+ * anyone can browse the roster. Admin endpoint for adding adhoc
+ * profiles + creating MVs lands in Wave 2/3. */
+app.get("/api/person-mv/persons", async (req, res) => {
+  noStore(res);
+  try {
+    await seedPersonProfilesOnce();
+    const civ = String(req.query.civ || "").trim();
+    const search = String(req.query.search || "").trim().toLowerCase();
+    const tier = Number(req.query.tier || 1);
+    const page = Math.max(1, Number(req.query.page || 1) || 1);
+    const limit = Math.max(10, Math.min(200, Number(req.query.limit || 60) || 60));
+    const offset = (page - 1) * limit;
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (civ) { params.push(civ); where.push(`civilization = $${params.length}`); }
+    if (search) {
+      params.push(`%${search}%`);
+      where.push(
+        `(lower(name_zh) LIKE $${params.length} OR lower(name_en) LIKE $${params.length} ` +
+        `OR lower(civilization) LIKE $${params.length} OR lower(core_theme) LIKE $${params.length})`,
+      );
+    }
+    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    // Tier 1 = influence_score DESC; Tier 2 = civilization, then influence.
+    const orderSql = tier === 2
+      ? "ORDER BY civilization, influence_score DESC, name_en"
+      : "ORDER BY influence_score DESC, name_en";
+    params.push(limit); params.push(offset);
+    const r = await withClient((c) =>
+      c.query<{
+        person_id: string; name_zh: string; name_en: string;
+        civilization: string; era: string | null; lifespan: string | null;
+        roles: string[]; core_theme: string | null; visual_symbols: string[];
+        music_style_hint: string | null; tone: string | null;
+        influence_score: number; risk_notes: string[];
+        source_status: string; mv_count: number;
+      }>(
+        `SELECT pp.*,
+                (SELECT COUNT(*)::int FROM person_mvs pm WHERE pm.person_id = pp.person_id) AS mv_count
+           FROM person_profiles pp
+           ${whereSql}
+           ${orderSql}
+           LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        params,
+      ),
+    );
+    return res.json({ ok: true, data: { tier, page, limit, persons: r.rows } });
+  } catch (err) {
+    console.warn("[person-mv] list failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "PERSON_LIST_FAILED" });
+  }
+});
+
+app.get("/api/person-mv/persons/:id", async (req, res) => {
+  noStore(res);
+  try {
+    await seedPersonProfilesOnce();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const r = await withClient((c) =>
+      c.query(`SELECT * FROM person_profiles WHERE person_id = $1`, [id]),
+    );
+    const profile = r.rows[0];
+    if (!profile) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const mvs = await withClient((c) =>
+      c.query(
+        `SELECT mv_id, work_id, created_by_user_id, duration_secs, created_at, approval_status, visibility
+         FROM person_mvs WHERE person_id = $1
+         ORDER BY created_at DESC LIMIT 100`,
+        [id],
+      ),
+    );
+    return res.json({ ok: true, data: { profile, mvs: mvs.rows } });
+  } catch (err) {
+    console.warn("[person-mv] detail failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "PERSON_DETAIL_FAILED" });
   }
 });
 

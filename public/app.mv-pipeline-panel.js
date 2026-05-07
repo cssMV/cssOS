@@ -3310,7 +3310,22 @@
     } catch (_err) { /* non-fatal */ }
     renderSummary();
     try {
+      // PARALLEL PIPELINE — Jing 2026-05-07
+      // "6个可以同时呀，只要拿到了自己需要的东西，就走呀，别一个等一个."
+      // Cover and lyrics have no inter-dependency (lyrics never reads
+      // state.coverUrl; cover never reads state.lyrics). Music DOES depend on
+      // state.lyrics (lyric-line counter drives target duration), so it stays
+      // serial after lyrics. Video depends on cover.image_url + state.shotScripts
+      // (set inside lyrics) — also stays serial. By kicking cover + lyrics off
+      // concurrently we eliminate the cover-finishes-before-lyrics-starts wait,
+      // which is the dominant T0 overlap available in this pipeline.
+      //
+      // Each stage block is wrapped in an async IIFE that throws on internal
+      // stage failure, exactly like the original `await` chain did. We join
+      // with Promise.allSettled then rethrow the first rejection so the outer
+      // catch still resolves `failingStage` via findRunningStage().
       // Stage 1 — cover (+ 4 parallel variations for 5-image slideshow)
+      const coverP = (async () => {
       if (STAGE_ORDER.indexOf("cover") >= resumeStartIdx) {
       setStage("cover", "running", "");
       const coverSuffix = (globalThis.currentLocale === "zh")
@@ -3382,8 +3397,10 @@
         // Slideshow is a non-blocking UX enhancement; errors shouldn't fail the pipeline.
       }
       } // end Stage 1 (cover) resume guard
+      })(); // end coverP IIFE
 
       // Stage 2 — lyrics (real LLM call when user provided no lyrics)
+      const lyricsP = (async () => {
       if (STAGE_ORDER.indexOf("lyrics") >= resumeStartIdx) {
       setStage("lyrics", "running", "");
       if (!state.lyrics) {
@@ -3993,6 +4010,16 @@
         syncWatchOutputs();
       }
       } // end Stage 2 (lyrics) resume guard
+      })(); // end lyricsP IIFE
+
+      // Join cover + lyrics. Use allSettled so we don't lose the result of one
+      // when the other rejects, then rethrow the first rejection so the outer
+      // catch still tags the failing stage via findRunningStage().
+      {
+        const _parallelResults = await Promise.allSettled([coverP, lyricsP]);
+        const _firstReject = _parallelResults.find(function (r) { return r.status === "rejected"; });
+        if (_firstReject) throw _firstReject.reason;
+      }
 
       // Stage 3 — music
       if (STAGE_ORDER.indexOf("music") >= resumeStartIdx) {

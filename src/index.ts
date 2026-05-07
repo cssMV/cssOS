@@ -7969,6 +7969,9 @@ const LLM_PROVIDER_DEFAULTS = {
   // /v1beta/models/<model>:generateContent and the schema differs.
   // Adapter below translates messages → contents and choices → candidates.
   gemini:   { url: "https://generativelanguage.googleapis.com/v1beta/models",                       model: "gemini-2.0-flash",          keyEnv: "GEMINI_API_KEY",   dialect: "gemini" },
+  // Together AI — OpenAI-compatible. Many open-weights models; we
+  // pick Llama-3.3-70B free-tier (60 RPM) as the chat default.
+  together: { url: "https://api.together.xyz/v1/chat/completions",                                   model: "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free", keyEnv: "TOGETHER_API_KEY", dialect: "openai" },
   // DeepSeek-V3 — OpenAI-compatible endpoint, ~$0.14/1M tokens (≈ 1/30
   // the cost of GPT-4). Sits ahead of OpenAI as the cheap-paid fallback
   // when all free tiers are exhausted.
@@ -7978,7 +7981,7 @@ const LLM_PROVIDER_DEFAULTS = {
 type LlmProvider = keyof typeof LLM_PROVIDER_DEFAULTS;
 
 function llmProviderOrder(prefer?: string[]): LlmProvider[] {
-  const env = String(process.env.LLM_PROVIDER_ORDER || "groq,cerebras,gemini,deepseek,openai")
+  const env = String(process.env.LLM_PROVIDER_ORDER || "groq,cerebras,gemini,together,deepseek,openai")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   const list = (prefer && prefer.length ? prefer : env)
     .filter((p): p is LlmProvider => p in LLM_PROVIDER_DEFAULTS);
@@ -8104,9 +8107,10 @@ type ImageGenResponse = {
 };
 
 function imageProviderOrder(prefer?: string[]): string[] {
-  const env = String(process.env.IMAGE_PROVIDER_ORDER || "fal,openai")
+  const env = String(process.env.IMAGE_PROVIDER_ORDER || "fal,together,openai")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-  return (prefer && prefer.length ? prefer : env).filter((p) => p === "fal" || p === "openai");
+  return (prefer && prefer.length ? prefer : env).filter((p) =>
+    p === "fal" || p === "together" || p === "openai");
 }
 
 async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
@@ -8153,6 +8157,44 @@ async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
           ok: true, status: upstream.status,
           provider: "fal", model: "flux-schnell",
           image_url: url, raw: json,
+        };
+      }
+      if (provider === "together") {
+        const apiKey = String(process.env.TOGETHER_API_KEY || "").trim();
+        if (!apiKey) continue;
+        const model = String(process.env.TOGETHER_IMAGE_MODEL || "black-forest-labs/FLUX.1-schnell-Free");
+        const upstream = await fetch("https://api.together.xyz/v1/images/generations", {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({
+            model,
+            prompt: req.prompt,
+            width: w,
+            height: h,
+            steps: 4,
+            n: 1,
+          }),
+        });
+        const json: any = await upstream.json().catch(() => null);
+        if (!upstream.ok) {
+          lastErr = String(json?.error?.message || `together_${upstream.status}`);
+          lastStatus = upstream.status;
+          console.warn(`[image-router] together ${upstream.status}: ${lastErr.slice(0, 200)}`);
+          continue;
+        }
+        const first = json?.data?.[0] || null;
+        const url = typeof first?.url === "string" ? first.url : "";
+        const b64 = typeof first?.b64_json === "string" ? first.b64_json : "";
+        if (!url && !b64) {
+          lastErr = "together_no_image_in_response";
+          continue;
+        }
+        return {
+          ok: true, status: upstream.status,
+          provider: "together", model,
+          image_url: url || undefined,
+          image_b64: b64 || undefined,
+          raw: json,
         };
       }
       if (provider === "openai") {

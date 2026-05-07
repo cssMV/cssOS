@@ -8260,9 +8260,18 @@ type MusicGenResponse = {
   audio_b64?: string;
   error?: string;
 };
-const MUSIC_PROVIDERS = ["suno", "elevenlabs", "stability", "mubert"] as const;
+const MUSIC_PROVIDERS = ["mubert", "elevenlabs", "stability", "suno"] as const;
+/* CSSOS_PROVIDER_PRIORITY 20260507 — Jing
+ * "第三方引擎，优者优先（有时效限制者特别优先），免费档次，其他档
+ * 次以此类推，openAI兜底."
+ *   mubert     — free tier, Customer access-token rolls 1y
+ *                (time-limited → use first to amortize before expiry)
+ *   elevenlabs — paid sidecar (music-v1)
+ *   stability  — paid stable-audio-2
+ *   suno       — paid via kie.ai (highest quality, last because $$)
+ */
 function musicProviderOrder(prefer?: string[]): string[] {
-  const env = String(process.env.MUSIC_PROVIDER_ORDER || "suno,elevenlabs,stability,mubert")
+  const env = String(process.env.MUSIC_PROVIDER_ORDER || "mubert,elevenlabs,stability,suno")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   return (prefer && prefer.length ? prefer : env).filter((p) =>
     (MUSIC_PROVIDERS as readonly string[]).includes(p));
@@ -8391,9 +8400,16 @@ type VideoGenResponse = {
   poll_url?: string;
   error?: string;
 };
-const VIDEO_PROVIDERS = ["fal", "replicate", "runway", "luma", "kling"] as const;
+const VIDEO_PROVIDERS = ["fal", "kling", "luma", "replicate", "runway"] as const;
+/* Order rationale (free/time-limited first, paid last):
+ *   fal       — free tier credits (first because cheapest)
+ *   kling     — $9.8 trial pack (100 units, 30-day expiry → use up first)
+ *   luma      — $20 credit balance, time-bounded
+ *   replicate — $20 funded, generic per-call cost
+ *   runway   — premium, last because $$$
+ */
 function videoProviderOrder(prefer?: string[]): string[] {
-  const env = String(process.env.VIDEO_PROVIDER_ORDER || "fal,replicate,runway,luma,kling")
+  const env = String(process.env.VIDEO_PROVIDER_ORDER || "fal,kling,luma,replicate,runway")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   return (prefer && prefer.length ? prefer : env).filter((p) =>
     (VIDEO_PROVIDERS as readonly string[]).includes(p));
@@ -8673,9 +8689,11 @@ type TtsGenResponse = {
   audio_b64?: string;
   error?: string;
 };
-const TTS_PROVIDERS = ["elevenlabs", "azure", "openai", "play"] as const;
+const TTS_PROVIDERS = ["azure", "elevenlabs", "play", "openai"] as const;
+/* azure free tier (500k chars/mo) → elevenlabs (paid premium voice
+ * library) → play (free tier 5k chars) → openai (paid fallback). */
 function ttsProviderOrder(prefer?: string[]): string[] {
-  const env = String(process.env.TTS_PROVIDER_ORDER || "elevenlabs,azure,openai,play")
+  const env = String(process.env.TTS_PROVIDER_ORDER || "azure,elevenlabs,play,openai")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   return (prefer && prefer.length ? prefer : env).filter((p) =>
     (TTS_PROVIDERS as readonly string[]).includes(p));

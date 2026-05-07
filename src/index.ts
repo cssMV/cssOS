@@ -8672,6 +8672,9 @@ const PROVIDER_TIERS: Record<string, "free" | "cheap" | "standard" | "premium"> 
   huggingface: "free",  // also LLM free tier
   together: "cheap",    // also LLM cheap/free
   replicate: "cheap",
+  fireworks: "cheap",       // FLUX-1-schnell-fp8 via Fireworks workflow
+  deepinfra: "cheap",       // FLUX-1-schnell via DeepInfra inference
+  stability_image: "cheap", // Stable Image Core; distinct from stability(music)=standard
   // image + LLM premium
   openai: "premium",
   runway: "premium",
@@ -9566,12 +9569,12 @@ type ImageGenResponse = {
   error?: string;
 };
 
-const IMAGE_PROVIDERS = ["fal", "huggingface", "together", "replicate", "openai", "pollinations"] as const;
+const IMAGE_PROVIDERS = ["fal", "huggingface", "pollinations", "fireworks", "deepinfra", "stability_image", "together", "replicate", "openai"] as const;
 function imageProviderOrder(prefer?: string[]): string[] {
-  // Tier order: fal(free) → huggingface(free) → together(cheap) → replicate(cheap) → openai(premium) → pollinations(free no-key, last-resort)
-  // pollinations is intentionally last so paid quality wins when configured;
-  // it kicks in only when every keyed provider is unavailable / out of credits.
-  const env = String(process.env.IMAGE_PROVIDER_ORDER || "fal,huggingface,together,replicate,openai,pollinations")
+  // Tier order: fal/huggingface/pollinations(free) → fireworks/deepinfra/stability_image/together/replicate(cheap) → openai(premium).
+  // pollinations promoted up the free tier — no-key reliable. fireworks/deepinfra/stability_image
+  // lead the cheap tier (fast FLUX-schnell variants and Stability core).
+  const env = String(process.env.IMAGE_PROVIDER_ORDER || "fal,huggingface,pollinations,fireworks,deepinfra,stability_image,together,replicate,openai")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   const list = (prefer && prefer.length ? prefer : env).filter((p) =>
     (IMAGE_PROVIDERS as readonly string[]).includes(p));
@@ -9705,6 +9708,114 @@ async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
           ok: true, status: upstream.status,
           provider: "replicate", model,
           image_url: url, raw: json,
+        };
+      }
+      if (provider === "fireworks") {
+        const apiKey = String(process.env.FIREWORKS_API_KEY || "").trim();
+        if (!apiKey) continue;
+        // Fireworks workflow endpoint for FLUX-1-schnell-fp8. Returns binary JPEG.
+        const ratio = w === h ? "1:1" : (w / h >= 2 ? "21:9" : (w > h ? "16:9" : (h / w >= 2 ? "9:21" : "9:16")));
+        const upstream = await fetch("https://api.fireworks.ai/inference/v1/workflows/accounts/fireworks/models/flux-1-schnell-fp8/text_to_image", {
+          method: "POST",
+          headers: { "content-type": "application/json", accept: "image/jpeg", authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({
+            prompt: req.prompt,
+            aspect_ratio: ratio,
+            guidance_scale: 3.5,
+            num_inference_steps: 4,
+            seed: Math.floor(Math.random() * 2_147_483_647),
+          }),
+        });
+        if (!upstream.ok) {
+          const body = await upstream.text().catch(() => "");
+          lastErr = body.slice(0, 200) || `fireworks_${upstream.status}`;
+          lastStatus = upstream.status;
+          if (isCreditsError(lastStatus, body + " " + lastErr)) console.warn(`[image-router] fireworks credits exhausted, falling through`);
+          else console.warn(`[image-router] fireworks ${upstream.status}: ${lastErr}`);
+          continue;
+        }
+        const buf = Buffer.from(await upstream.arrayBuffer());
+        return {
+          ok: true, status: upstream.status,
+          provider: "fireworks", model: "flux-1-schnell-fp8",
+          image_b64: buf.toString("base64"),
+        };
+      }
+      if (provider === "deepinfra") {
+        const apiKey = String(process.env.DEEPINFRA_API_KEY || "").trim();
+        if (!apiKey) continue;
+        // DeepInfra FLUX-1-schnell. Returns JSON with images[] (data URLs or URLs).
+        const upstream = await fetch("https://api.deepinfra.com/v1/inference/black-forest-labs/FLUX-1-schnell", {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `bearer ${apiKey}` },
+          body: JSON.stringify({
+            prompt: req.prompt,
+            width: w,
+            height: h,
+            num_inference_steps: 4,
+          }),
+        });
+        const json: any = await upstream.json().catch(() => null);
+        if (!upstream.ok) {
+          lastErr = String(json?.detail || json?.error || `deepinfra_${upstream.status}`);
+          lastStatus = upstream.status;
+          if (isCreditsError(lastStatus, JSON.stringify(json || {}) + " " + lastErr)) console.warn(`[image-router] deepinfra credits exhausted, falling through`);
+          else console.warn(`[image-router] deepinfra ${upstream.status}: ${lastErr.slice(0, 200)}`);
+          continue;
+        }
+        // Field name varies — check both `images` and `output`.
+        const arr: any = Array.isArray(json?.images) ? json.images : (Array.isArray(json?.output) ? json.output : null);
+        const first = arr ? arr[0] : null;
+        let image_url: string | undefined;
+        let image_b64: string | undefined;
+        if (typeof first === "string") {
+          if (first.startsWith("data:")) {
+            const comma = first.indexOf(",");
+            image_b64 = comma >= 0 ? first.slice(comma + 1) : undefined;
+          } else {
+            image_url = first;
+          }
+        }
+        if (!image_url && !image_b64) {
+          lastErr = "deepinfra_no_image_in_response";
+          continue;
+        }
+        const resp: ImageGenResponse = {
+          ok: true, status: upstream.status,
+          provider: "deepinfra", model: "FLUX-1-schnell",
+          raw: json,
+        };
+        if (image_url) resp.image_url = image_url;
+        if (image_b64) resp.image_b64 = image_b64;
+        return resp;
+      }
+      if (provider === "stability_image") {
+        const apiKey = String(process.env.STABILITY_API_KEY || "").trim();
+        if (!apiKey) continue;
+        // Stable Image Core — multipart/form-data. accept: image/* returns binary bytes.
+        const ratio = w === h ? "1:1" : (w / h >= 2 ? "21:9" : (w > h ? "16:9" : (h / w >= 2 ? "9:21" : "9:16")));
+        const fd = new FormData();
+        fd.append("prompt", req.prompt);
+        fd.append("aspect_ratio", ratio);
+        fd.append("output_format", "png");
+        const upstream = await fetch("https://api.stability.ai/v2beta/stable-image/generate/core", {
+          method: "POST",
+          headers: { authorization: `Bearer ${apiKey}`, accept: "image/*" },
+          body: fd,
+        });
+        if (!upstream.ok) {
+          const body = await upstream.text().catch(() => "");
+          lastErr = body.slice(0, 200) || `stability_${upstream.status}`;
+          lastStatus = upstream.status;
+          if (isCreditsError(lastStatus, body + " " + lastErr)) console.warn(`[image-router] stability_image credits exhausted, falling through`);
+          else console.warn(`[image-router] stability_image ${upstream.status}: ${lastErr}`);
+          continue;
+        }
+        const buf = Buffer.from(await upstream.arrayBuffer());
+        return {
+          ok: true, status: upstream.status,
+          provider: "stability_image", model: "stable-image-core",
+          image_b64: buf.toString("base64"),
         };
       }
       if (provider === "huggingface") {

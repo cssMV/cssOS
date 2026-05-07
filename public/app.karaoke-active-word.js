@@ -25,32 +25,42 @@
     if (document.getElementById("cssos-karaoke-word-style")) return;
     var s = document.createElement("style");
     s.id = "cssos-karaoke-word-style";
+    /* Specificity bump — `.watch-karaoke-line` is the parent the
+     * renderer creates. Doubling up the class selectors and adding
+     * the parent reaches specificity (0,3,0) which beats the inline
+     * `style="font-family:..."` the renderer injects via attr — wait,
+     * inline always wins. So we use `font-family: ... !important` AND
+     * separately blow away the inline by writing it ourselves at
+     * apply-time. CSS can't override inline without !important on
+     * font-family, but inline + !important does win. */
     s.textContent =
-      ".watch-karaoke-word{transition:transform .18s ease,color .18s ease,letter-spacing .18s ease;}" +
-      ".cssmv-word-hot{" +
+      ".watch-karaoke-line .watch-karaoke-word{transition:transform .15s ease,letter-spacing .15s ease;}" +
+      ".watch-karaoke-line .watch-karaoke-word.cssmv-word-hot," +
+      ".watch-karaoke-current .watch-karaoke-word.cssmv-word-hot{" +
         "display:inline-block;" +
-        "font-family:'Bungee Shade','Rubik Wet Paint','Ranchers','Bungee','Eater','Faster One',cursive,sans-serif !important;" +
-        "transform:scale(1.28) translateY(-2px);" +
+        "font-family:'Bungee Shade','Rubik Wet Paint','Bungee Outline','Faster One','Monoton','Eater','Bungee','Permanent Marker','Lobster',cursive,sans-serif !important;" +
+        "transform:scale(1.6) translateY(-3px);" +
         "color:#fff !important;" +
-        "letter-spacing:0.02em;" +
-        "animation:cssmv-word-breath 1.2s ease-in-out infinite,cssmv-word-glow 0.7s ease-in-out infinite alternate;" +
-        "padding:0 0.06em;" +
+        "letter-spacing:0.04em;" +
+        "animation:cssmv-word-breath 1.0s ease-in-out infinite,cssmv-word-glow 0.6s ease-in-out infinite alternate !important;" +
+        "padding:0 0.1em;" +
+        "z-index:10;position:relative;" +
       "}" +
       "@keyframes cssmv-word-breath{" +
-        "0%,100%{transform:scale(1.22) translateY(-1px);}" +
-        "50%   {transform:scale(1.34) translateY(-3px);}" +
+        "0%,100%{transform:scale(1.55) translateY(-2px);}" +
+        "50%   {transform:scale(1.78) translateY(-5px);}" +
       "}" +
       "@keyframes cssmv-word-glow{" +
-        "0%  {text-shadow:0 0 6px rgba(0,245,160,0.85),0 0 14px rgba(255,200,80,0.55),0 0 22px rgba(120,180,255,0.35);}" +
-        "33% {text-shadow:0 0 8px rgba(255,80,180,0.85),0 0 16px rgba(255,160,40,0.55),0 0 26px rgba(0,245,160,0.45);}" +
-        "66% {text-shadow:0 0 7px rgba(255,255,80,0.9),0 0 14px rgba(120,255,200,0.55),0 0 24px rgba(180,80,255,0.45);}" +
-        "100%{text-shadow:0 0 9px rgba(120,180,255,0.9),0 0 18px rgba(255,80,80,0.55),0 0 26px rgba(0,245,160,0.45);}" +
+        "0%  {text-shadow:0 0 6px rgba(0,245,160,1),0 0 14px rgba(255,200,80,0.7),0 0 24px rgba(120,180,255,0.5);}" +
+        "33% {text-shadow:0 0 8px rgba(255,80,180,1),0 0 18px rgba(255,160,40,0.7),0 0 28px rgba(0,245,160,0.55);}" +
+        "66% {text-shadow:0 0 7px rgba(255,255,80,1),0 0 16px rgba(120,255,200,0.7),0 0 26px rgba(180,80,255,0.55);}" +
+        "100%{text-shadow:0 0 9px rgba(120,180,255,1),0 0 20px rgba(255,80,80,0.7),0 0 28px rgba(0,245,160,0.55);}" +
       "}" +
-      ".cssmv-word-explode{animation:cssmv-word-explode 0.45s ease-out forwards !important;}" +
+      ".watch-karaoke-line .watch-karaoke-word.cssmv-word-explode{animation:cssmv-word-explode 0.3s ease-out forwards !important;}" +
       "@keyframes cssmv-word-explode{" +
-        "0%  {transform:scale(1.28);filter:blur(0);}" +
-        "50% {transform:scale(1.55);filter:blur(0.5px);}" +
-        "100%{transform:scale(1.20);filter:blur(0);}" +
+        "0%  {transform:scale(1.6);filter:blur(0);}" +
+        "50% {transform:scale(2.0);filter:blur(0.6px);}" +
+        "100%{transform:scale(1.0);filter:blur(0);}" +
       "}";
     document.head.appendChild(s);
   }
@@ -126,15 +136,38 @@
     return -1;
   }
 
-  function tick() {
+  /* Alignment lookahead — Whisper's t_start is when the human voice
+   * begins the word; rendering the active class at exactly that
+   * moment means the user's eye reads the word AFTER hearing it,
+   * because audio output adds ~120-200ms of latency (especially BT).
+   * Highlight slightly EARLIER so eye + ear meet. */
+  var LOOKAHEAD_S = 0.18;
+
+  function applyHotByTime() {
     if (!lineWords.length) return;
     var media = getActiveMedia();
     if (!media) return;
-    var t = Number(media.currentTime || 0);
+    var t = Number(media.currentTime || 0) + LOOKAHEAD_S;
     var phase2 = indexFromGlobalWords(t);
     var idx;
-    if (phase2 !== null) {
-      idx = phase2;
+    if (phase2 !== null && phase2 >= 0) {
+      // Phase 2 path uses the GLOBAL word array (Whisper). But our
+      // lineWords are the spans of the CURRENT line only. Map global
+      // index → current line by matching text content.
+      var arr = globalThis.cssosKaraokeWords;
+      var hotText = arr[phase2] && arr[phase2].text ? String(arr[phase2].text).toLowerCase().replace(/[^\w一-鿿]/g, "") : "";
+      if (hotText) {
+        var found = -1;
+        for (var i = 0; i < lineWords.length; i++) {
+          var lt = String(lineWords[i].text || "").toLowerCase().replace(/[^\w一-鿿]/g, "");
+          if (lt && (lt === hotText || lt.indexOf(hotText) >= 0 || hotText.indexOf(lt) >= 0)) {
+            found = i; break;
+          }
+        }
+        idx = found >= 0 ? found : -1;
+      } else {
+        idx = -1;
+      }
     } else {
       // Phase 1 — even distribution within the estimated line duration.
       var elapsed = Math.max(0, t - lineStartedAt);
@@ -144,26 +177,49 @@
     if (idx === hotIdx) return;
     if (hotIdx >= 0 && lineWords[hotIdx]) {
       var prev = lineWords[hotIdx].el;
-      // Brief explode on hand-off so the eye notices the swap.
       prev.classList.add("cssmv-word-explode");
       setTimeout(function () {
         try { prev.classList.remove("cssmv-word-hot", "cssmv-word-explode"); } catch (_e) {}
-      }, 280);
+      }, 220);
     }
     hotIdx = idx;
     if (idx >= 0 && lineWords[idx]) {
-      lineWords[idx].el.classList.add("cssmv-word-hot");
+      var hotEl = lineWords[idx].el;
+      hotEl.classList.add("cssmv-word-hot");
+      // The renderer writes font-family inline (style="font-family:..."),
+      // which beats class-based CSS even with !important. Override by
+      // clearing the inline rule on the hot word so our class wins.
+      try { hotEl.style.removeProperty("font-family"); } catch (_e) {}
     }
   }
+  function tick() { applyHotByTime(); }
 
   function bindObserver() {
     var line = document.querySelector("#watch-karaoke-line, .watch-karaoke-line");
     if (!line || line.dataset.cssosKwBound === "1") return;
     line.dataset.cssosKwBound = "1";
-    var mo = new MutationObserver(function () { onLineChanged(); });
+    /* The renderer rebuilds .watch-karaoke-word spans on every
+     * timeupdate (~4Hz). Each rebuild blows away our hot class. So
+     * after every mutation: 1) detect if line text changed (new line
+     * → reset line-start timer); 2) re-snapshot lineWords; 3) re-pick
+     * hot index for the current time. The whole flow runs in <1ms. */
+    var lastLineText = "";
+    var mo = new MutationObserver(function () {
+      var current = String(line.textContent || "").trim();
+      var lineChanged = current !== lastLineText;
+      lastLineText = current;
+      if (lineChanged) {
+        onLineChanged();
+      } else {
+        // Same line, renderer just rebuilt spans — re-snapshot + reapply.
+        snapshotLine();
+        hotIdx = -1; // force reapply
+        applyHotByTime();
+      }
+    });
     mo.observe(line, { childList: true, characterData: true, subtree: true });
-    // First snapshot in case the line is already populated.
     onLineChanged();
+    lastLineText = String(line.textContent || "").trim();
   }
 
   function bindMedia() {

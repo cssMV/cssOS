@@ -1338,29 +1338,36 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
     if (screen.dataset.cssmvFrameToggleBound === "1") return true;
     screen.dataset.cssmvFrameToggleBound = "1";
     screen.addEventListener("click", function (e) {
-      // If the click originated on (or inside) any control button or
-      // corner pill, ignore — clicks on those should NOT toggle play.
-      // CSSOS_FRAME_CLICK_GUARD 20260506 — Jing
-      // "无论是左右下角的信息按钮，点击不要暂停媒体播放".
-      // Added the bottom-left avatar + every corner pill family to the
-      // skip list so they don't double-trigger play/pause.
+      /* CSSOS_FRAME_CLICK_GUARD 20260506 #2 — Jing
+       * "用户在媒体框里的操作，正在播放的媒体不必暂停". Inverted the
+       * skip-list approach — instead of enumerating every interactive
+       * element (which keeps growing as new pills/buttons land), we
+       * only toggle play/pause when the click target is the bare
+       * video/screen background itself. Anything else (button, pill,
+       * overlay, lyric, title, dropdown, anchor, input, even a
+       * CSS-only "cursor:pointer" element) is treated as an
+       * intentional UI operation and the media keeps playing. */
       const t = e.target;
+      const v = document.getElementById("watch-video");
+      const isBareSurface =
+        t === screen ||
+        t === v ||
+        (t && t.classList && (
+          t.classList.contains("watch-screen") ||
+          t.classList.contains("watch-video") ||
+          t.classList.contains("watch-frame")
+        ));
+      if (!isBareSurface) {
+        // Click landed on something interactive in the frame — let it
+        // do its thing without toggling play/pause.
+        return;
+      }
+      // Defensive — even on the bare surface, if the click is inside
+      // any interactive ancestor (lyric overlay, anchor, pill row),
+      // skip. This catches edge cases where the bare-surface check
+      // matched a transparent overlay layered on top of a button.
       if (t && typeof t.closest === "function") {
-        if (t.closest("button")) return;
-        if (t.closest(".cssmv-fr-btn")) return;
-        if (t.closest(".cssmv-stem-toggle")) return;
-        if (t.closest("#watch-style-shift")) return;
-        if (t.closest(".watch-overlay-play")) return;
-        if (t.closest(".watch-music-play")) return;
-        if (t.closest(".watch-author-avatar")) return;
-        if (t.closest("#watch-author-avatar")) return;
-        if (t.closest("#watch-pill-row-bl")) return;
-        if (t.closest("#watch-pill-row-br")) return;
-        if (t.closest("#watch-aspect-pill")) return;
-        if (t.closest("#watch-take-toggle")) return;
-        if (t.closest("#watch-immersive-pill")) return;
-        if (t.closest(".watch-media-action")) return;
-        if (t.closest(".watch-style-shift")) return;
+        if (t.closest("button,a,input,select,textarea,[role='button'],[contenteditable]")) return;
         if (t.closest("[data-no-frame-toggle]")) return;
       }
       const v = document.getElementById("watch-video");

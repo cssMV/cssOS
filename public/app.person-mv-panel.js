@@ -364,7 +364,9 @@
       try { globalThis.minimizeToDockBridge?.(panelEl); } catch (_e) {}
     });
     wireChromeBtn(minBtn, function () {
-      if (typeof globalThis.togglePanelCollapse === "function") {
+      if (typeof globalThis.togglePanelCollapseBridge === "function") {
+        globalThis.togglePanelCollapseBridge(panelEl);
+      } else if (typeof globalThis.togglePanelCollapse === "function") {
         globalThis.togglePanelCollapse(panelEl);
       } else {
         panelEl.classList.toggle("panel-collapsed");

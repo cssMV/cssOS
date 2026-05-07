@@ -551,18 +551,26 @@
    * Plus civ-aware engine preferences via cssmvEngines.setSelection
    * before opening the panel so the right LLM/music engine fires
    * for that culture. No duration forced — pipeline LLM picks. */
-  function buildSeed(p) {
-    var name = localizedName(p);
-    var symbols = (p.visual_symbols || []).filter(Boolean).slice(0, 4).join("、");
-    var promptParts = [
-      name,
-      p.core_theme || "",
-      p.era ? "(" + p.era + ")" : "",
-      symbols ? tt("Visual symbols: ", "视觉意象：") + symbols : "",
-      p.tone ? tt("Tone: ", "情感基调：") + p.tone : "",
-    ].filter(Boolean);
+  function buildSeed(p, lore) {
+    /* CSSOS_PERSON_MV_CINEMA_FIRST 20260507 — Jing
+     * New prompt format (two lines):
+     *   line 1: {name_zh}
+     *   line 2: [{intro}]   ← lore.bio first sentence > core_theme > roles
+     */
+    var nameZh = p.name_zh || p.name_en || p.person_id;
+    var intro = "";
+    var bio = lore && typeof lore.bio === "string" ? lore.bio : "";
+    if (bio) {
+      var firstSent = bio.split(/[。.!?！？\n]/)[0];
+      if (firstSent) intro = firstSent.trim();
+    }
+    if (!intro && p.core_theme) intro = String(p.core_theme).trim();
+    if (!intro && Array.isArray(p.roles) && p.roles.length) {
+      intro = p.roles.filter(Boolean).join("·");
+    }
+    var prompt = nameZh + (intro ? "\n[" + intro + "]" : "");
     return {
-      prompt: promptParts.join(" · "),
+      prompt: prompt,
       style: p.music_style_hint || "",
       lyrics: "",
       __personId: p.person_id,
@@ -602,8 +610,8 @@
     } catch (_e) {}
   }
 
-  function jumpIntoPipeline(person) {
-    var seed = buildSeed(person);
+  function jumpIntoPipeline(person, lore) {
+    var seed = buildSeed(person, lore);
     applyCivHints(person.civilization);
     if (typeof globalThis.openMvPipelinePanel === "function") {
       globalThis.openMvPipelinePanel({ seed: seed, autoStart: false });
@@ -933,20 +941,47 @@
       host.innerHTML = h;
       wireBack(host);
 
-      // Cinema button
+      /* CSSOS_PERSON_MV_CINEMA_FIRST 20260507 — Jing
+       * Unified cinema entry. Both 🎬 and ✨ "Create New Version" /
+       * empty-state "Create now" funnel here. Pipeline UI is NEVER
+       * shown to the user; if forceNew or queue is empty, the run
+       * fires silently in the background and the cinema black screen
+       * shows the person hero + spinner until the first MV finishes.
+       */
+      function enterCinemaForPerson(opts) {
+        opts = opts || {};
+        var seed = buildSeed(p, lore);
+        applyCivHints(p.civilization);
+        var queue = opts.forceNew
+          ? []
+          : mvs.map(function(m){ return m.work_id; }).filter(Boolean);
+        if (typeof globalThis.openMvPipelinePanel === "function") {
+          globalThis.openMvPipelinePanel({
+            cinema: true,
+            queue: queue,
+            personId: p.person_id,
+            seed: seed,
+            forceNew: !!opts.forceNew,
+            personName: nameZh,
+            personNameEn: nameLatin || p.name_en || "",
+            personNameNative: nameNative,
+            personEra: p.era || "",
+            personCiv: p.civilization || "",
+            personPortrait: portrait || "",
+          });
+        }
+      }
       var cinemaBtn = host.querySelector(".pmv-cinema");
       if (cinemaBtn) {
         cinemaBtn.addEventListener("click", function(){
-          var queue = mvs.map(function(m){ return m.work_id; }).filter(Boolean);
-          var seed = buildSeed(p);
-          if (typeof globalThis.openMvPipelinePanel === "function") {
-            globalThis.openMvPipelinePanel({ cinema: true, queue: queue, personId: p.person_id, seed: seed });
-          }
+          enterCinemaForPerson({ forceNew: false });
         });
       }
-      // Create-new-version button(s)
+      // Create-new-version button(s) — also enter cinema, force fresh gen.
       host.querySelectorAll(".pmv-create-mv").forEach(function(btn){
-        btn.addEventListener("click", function(){ jumpIntoPipeline(p); });
+        btn.addEventListener("click", function(){
+          enterCinemaForPerson({ forceNew: true });
+        });
       });
       // Retry
       var retryBtn = host.querySelector(".pmv-retry");

@@ -6307,7 +6307,7 @@
         '<video class="cinema-video" playsinline></video>' +
         '<div class="cinema-strip"></div>' +
         '<div class="cinema-teaser" hidden></div>' +
-        '<div class="cinema-loading" hidden>正在生成首支 MV…</div>';
+        '<div class="cinema-loading" hidden></div>';
       body.appendChild(stage);
     }
     stage.style.display = "";
@@ -6321,6 +6321,15 @@
       teaserOn: false,
       keyHandler: null,
       seed: opts.seed || null,
+      forceNew: !!opts.forceNew,
+      person: {
+        name: opts.personName || "",
+        nameEn: opts.personNameEn || "",
+        nameNative: opts.personNameNative || "",
+        era: opts.personEra || "",
+        civ: opts.personCiv || "",
+        portrait: opts.personPortrait || "",
+      },
     };
 
     // Bind keys
@@ -6334,12 +6343,29 @@
     };
     document.addEventListener("keydown", cinemaSt.keyHandler, true);
 
-    if (cinemaSt.queue.length) {
+    if (cinemaSt.queue.length && !cinemaSt.forceNew) {
       cinemaPlayCurrent();
     } else {
-      // Empty queue → trigger pipeline + show "正在生成首支 MV…"
-      const loading = stage.querySelector(".cinema-loading");
-      if (loading) loading.hidden = false;
+      // Empty queue (or forceNew) → background pipeline run with hero loading.
+      renderCinemaHeroLoading(stage, cinemaSt.person);
+      // Pre-fill the (hidden) pipeline inputs from the seed so runAll picks
+      // up the multiline prompt + style. Person seeds force-overwrite.
+      try {
+        const seed = cinemaSt.seed || {};
+        const promptEl = panel.querySelector("#mvp-prompt");
+        const styleEl = panel.querySelector("#mvp-style");
+        const lyricsEl = panel.querySelector("#mvp-lyrics");
+        const isPersonSeed = !!seed.__personId;
+        if (promptEl && seed.prompt && (isPersonSeed || !promptEl.value)) {
+          promptEl.value = String(seed.prompt);
+          try { promptEl.dispatchEvent(new Event("input", { bubbles: true })); } catch (_e) {}
+        }
+        if (styleEl && seed.style && (isPersonSeed || !styleEl.value)) {
+          styleEl.value = String(seed.style);
+          try { styleEl.dispatchEvent(new Event("input", { bubbles: true })); } catch (_e) {}
+        }
+        if (lyricsEl && isPersonSeed) lyricsEl.value = "";
+      } catch (_e) {}
       // fire normal pipeline run in background
       try {
         if (typeof globalThis.cssmvRunPipeline === "function") {
@@ -6352,6 +6378,7 @@
           const wid = ev && ev.detail && (ev.detail.work_id || ev.detail.workId);
           if (wid && cinemaSt) {
             cinemaSt.queue.push(wid);
+            const loading = stage.querySelector(".cinema-loading");
             if (loading) loading.hidden = true;
             cinemaPlayCurrent();
           }
@@ -6370,7 +6397,14 @@
     try { delete document.body.dataset.cinema; } catch (_e) {}
     if (!cinemaSt) return;
     const panel = cinemaSt.panel;
-    if (panel) delete panel.dataset.cinema;
+    if (panel) {
+      delete panel.dataset.cinema;
+      // CSSOS_PERSON_MV_CINEMA_FIRST 20260507 — Jing
+      // Codex flow never wants the user dumped into the MV PIPELINE editor
+      // after cinema exits. Hide the panel so they fall back to whatever
+      // was open underneath (typically the person codex page).
+      panel.classList.add("hidden");
+    }
     const stage = cinemaSt.stage;
     if (stage) {
       const v = stage.querySelector(".cinema-video");
@@ -6497,11 +6531,52 @@
       });
     } catch (_e) {}
   }
+  /* CSSOS_PERSON_MV_CINEMA_FIRST 20260507 — Jing
+   * Full-bleed hero loading state shown whenever the cinema queue is
+   * empty or before the first track has started. Person name is the
+   * focal point; portrait (if any) lives behind it at low opacity.
+   */
+  function renderCinemaHeroLoading(stage, person) {
+    if (!stage || !person) return;
+    const loading = stage.querySelector(".cinema-loading");
+    if (!loading) return;
+    const esc = function (s) {
+      return String(s == null ? "" : s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    };
+    const name = person.name || "";
+    const sub = [person.nameEn, person.nameNative].filter(Boolean).join(" · ");
+    const chips = [person.era, person.civ].filter(Boolean);
+    const bgImg = person.portrait
+      ? '<div class="cinema-hero-bg" style="background-image:url(\'' + String(person.portrait).replace(/'/g, "%27") + '\');"></div>'
+      : '';
+    const subtitleTpl = (typeof globalThis.t === "function")
+      ? globalThis.t("Generating first MV for {name}…", "正在为 {name} 生成首支 MV…")
+      : "正在为 {name} 生成首支 MV…";
+    const subtitle = String(subtitleTpl).replace("{name}", name || "—");
+    loading.innerHTML =
+      bgImg +
+      '<div class="cinema-hero-block">' +
+        '<div class="cinema-hero-name">' + esc(name) + '</div>' +
+        (sub ? '<div class="cinema-hero-sub">' + esc(sub) + '</div>' : '') +
+        (chips.length
+          ? '<div class="cinema-hero-chips">' +
+              chips.map(function (c) { return '<span class="cinema-hero-chip">' + esc(c) + '</span>'; }).join("") +
+            '</div>'
+          : '') +
+        '<div class="cinema-hero-spinner"><span class="cinema-spin-ring"></span><span class="cinema-hero-status">' + esc(subtitle) + '</span></div>' +
+      '</div>';
+    loading.hidden = false;
+  }
+
   function ensureCinemaStyles() {
     if (document.getElementById("cssos-cinema-style")) return;
     const s = document.createElement("style");
     s.id = "cssos-cinema-style";
     s.textContent =
+      /* Hide ALL pipeline chrome during cinema. The cinema-stage is the
+       * only descendant of .panel-body that should remain visible. */
       '.panel[data-cinema="true"] .panel-bar,' +
       '.panel[data-cinema="true"] .mvp-action-bar,' +
       '.panel[data-cinema="true"] .mvp-settings,' +
@@ -6509,10 +6584,20 @@
       '.panel[data-cinema="true"] .mvp-cost,' +
       '.panel[data-cinema="true"] .mvp-inputs { display:none !important; }' +
       '.panel[data-cinema="true"] .panel-body { background:#000; padding:0; }' +
+      '.panel[data-cinema="true"] .panel-body > *:not(.cinema-stage) { display:none !important; }' +
       '.panel[data-cinema="true"] .cinema-stage { position:absolute; inset:0; background:#000; display:flex; align-items:center; justify-content:center; }' +
       '.panel[data-cinema="true"] .cinema-video { width:100%; height:100%; object-fit:contain; background:#000; }' +
       '.panel[data-cinema="true"] .cinema-strip { position:absolute; left:0; right:0; bottom:0; padding:8px 14px; color:#daffee; font:600 12px/1.3 ui-monospace,monospace; background:linear-gradient(transparent,rgba(0,0,0,.7)); text-align:center; }' +
-      '.panel[data-cinema="true"] .cinema-loading { position:absolute; color:#daffee; font:700 18px/1.3 ui-monospace,monospace; }' +
+      '.panel[data-cinema="true"] .cinema-loading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#daffee; }' +
+      '.panel[data-cinema="true"] .cinema-hero-bg { position:absolute; inset:0; background-size:cover; background-position:center; opacity:.18; filter:blur(6px) saturate(1.05); }' +
+      '.panel[data-cinema="true"] .cinema-hero-block { position:relative; text-align:center; padding:0 24px; max-width:min(900px,92vw); }' +
+      '.panel[data-cinema="true"] .cinema-hero-name { font-weight:800; letter-spacing:.02em; font-size:clamp(40px,6vw,96px); line-height:1.05; color:#daffee; text-shadow:0 4px 30px rgba(0,245,160,.25); }' +
+      '.panel[data-cinema="true"] .cinema-hero-sub { margin-top:14px; font-size:clamp(14px,1.4vw,20px); color:rgba(218,255,238,.62); letter-spacing:.04em; }' +
+      '.panel[data-cinema="true"] .cinema-hero-chips { margin-top:18px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }' +
+      '.panel[data-cinema="true"] .cinema-hero-chip { font:600 12px/1 ui-monospace,monospace; padding:6px 10px; border-radius:999px; background:rgba(0,245,160,.10); border:1px solid rgba(0,245,160,.32); color:#9ff5cd; letter-spacing:.06em; }' +
+      '.panel[data-cinema="true"] .cinema-hero-spinner { margin-top:32px; display:flex; gap:12px; align-items:center; justify-content:center; color:rgba(218,255,238,.78); font:600 13px/1.3 ui-monospace,monospace; }' +
+      '.panel[data-cinema="true"] .cinema-spin-ring { width:18px; height:18px; border-radius:50%; border:2px solid rgba(0,245,160,.25); border-top-color:#00f5a0; animation:cssos-cinema-spin 0.9s linear infinite; }' +
+      '@keyframes cssos-cinema-spin { to { transform: rotate(360deg); } }' +
       '.panel[data-cinema="true"] .cinema-teaser { position:absolute; left:0; right:0; bottom:36px; padding:8px 14px; color:#daffee; }' +
       '.panel[data-cinema="true"] .cinema-teaser-label { font:700 11px/1 ui-monospace,monospace; color:#00f5a0; margin-bottom:6px; letter-spacing:.08em; }' +
       '.panel[data-cinema="true"] .cinema-teaser-row { display:flex; gap:8px; overflow-x:auto; }' +
@@ -6610,14 +6695,23 @@
       const promptEl = panel.querySelector("#mvp-prompt");
       const styleEl = panel.querySelector("#mvp-style");
       const lyricsEl = panel.querySelector("#mvp-lyrics");
-      if (promptEl && opts.seed.prompt && !promptEl.value) {
+      // CSSOS_PERSON_MV_CINEMA_FIRST 20260507 — person seeds (those carrying
+      // __personId) force-overwrite so the new "{name}\n[{intro}]" multiline
+      // format always lands, even if the textarea has stale content.
+      const isPersonSeed = !!opts.seed.__personId;
+      if (promptEl && opts.seed.prompt && (isPersonSeed || !promptEl.value)) {
         promptEl.value = String(opts.seed.prompt);
+        try { promptEl.dispatchEvent(new Event("input", { bubbles: true })); } catch (_e) {}
       }
-      if (styleEl && opts.seed.style && !styleEl.value) {
+      if (styleEl && opts.seed.style && (isPersonSeed || !styleEl.value)) {
         styleEl.value = String(opts.seed.style);
+        try { styleEl.dispatchEvent(new Event("input", { bubbles: true })); } catch (_e) {}
       }
       if (lyricsEl && opts.seed.lyrics && !lyricsEl.value) {
         lyricsEl.value = String(opts.seed.lyrics);
+      } else if (lyricsEl && isPersonSeed) {
+        // Person flow: always start blank — let LLM write fresh lyrics.
+        lyricsEl.value = "";
       }
     }
     if (opts.autoStart) {

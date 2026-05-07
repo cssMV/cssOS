@@ -294,14 +294,25 @@
     var mainStage = document.querySelector("main.stage") || document.querySelector("main");
     (mainStage || document.body).appendChild(panelEl);
     bindPanelEvents();
-    /* CSSOS_PERSON_MV_BAR_BIND 20260507 — Jing
-     * The shared panel-shell-actions binds .panel-actions buttons in
-     * a single forEach on init. Items appended later (us) miss it
-     * → close/min/max do nothing. Re-run the bridge so my panel gets
-     * the canonical wiring on top of my own fallback listeners. */
-    if (typeof globalThis.attachPanelBarActionsBridge === "function") {
-      try { globalThis.attachPanelBarActionsBridge(); } catch (_e) {}
-    }
+    /* CSSOS_PERSON_MV_BRIDGES 20260507 — Jing
+     * Every shared bridge is a forEach over .panel that ran ONCE on
+     * init. Items appended later miss them. Fire all four so my
+     * panel matches the canonical contract:
+     *   - bar actions: close/min/max click handling
+     *   - drag:        drag the title bar to reposition
+     *   - resize:      8-way edge/corner resize handles
+     *   - focus:       click anywhere → bring panel to front
+     */
+    [
+      "attachPanelBarActionsBridge",
+      "attachPanelDragBridge",
+      "attachResizeBridge",
+      "attachPanelFocusBridge",
+    ].forEach(function (fn) {
+      try {
+        if (typeof globalThis[fn] === "function") globalThis[fn]();
+      } catch (err) { console.warn("[person-mv]", fn, "threw", err); }
+    });
     return panelEl;
   }
 

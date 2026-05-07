@@ -1218,8 +1218,58 @@ async function advanceStructuredWorkPlaybackModule() {
   return true;
 }
 
+/* CSSOS_FORYOU_CLOSE_FIX 20260507 — Jing
+ * "为你创作 panel close button doesn't work, total fish-net escape".
+ * Same root cause as subscription-panel: the shared panel-bar handler
+ * binds via dataset.panelBarActionsBound on init; for hidden-at-init
+ * panels (foryou starts with .hidden) the binding can drift. Defensive
+ * direct binding by aria-label survives all edge cases. */
+function ensureForyouPanelBarBindings(panel) {
+  if (!(panel instanceof HTMLElement)) return;
+  if (panel.dataset.cssosFyBarBound === "1") return;
+  panel.dataset.cssosFyBarBound = "1";
+  const actions = panel.querySelector(".panel-actions");
+  if (!actions) return;
+  const byLabel = (label) => Array.from(actions.querySelectorAll(".icon-btn"))
+    .find((b) => String(b.getAttribute("aria-label") || "").trim().toLowerCase() === label);
+  const closeBtn = byLabel("close");
+  const minBtn = byLabel("minimize");
+  const maxBtn = byLabel("maximize");
+  if (closeBtn) {
+    closeBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof globalThis.minimizeToDockBridge === "function") {
+        globalThis.minimizeToDockBridge(panel);
+      } else {
+        panel.classList.add("hidden");
+        panel.dataset.minimized = "true";
+      }
+    });
+  }
+  if (minBtn) {
+    minBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof globalThis.togglePanelCollapse === "function") {
+        globalThis.togglePanelCollapse(panel);
+      }
+    });
+  }
+  if (maxBtn) {
+    maxBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof globalThis.togglePanelMaximize === "function") {
+        globalThis.togglePanelMaximize(panel);
+      }
+    });
+  }
+}
+
 function renderForyouMarketplace(options = {}) {
   if (!foryouPanel) return;
+  ensureForyouPanelBarBindings(foryouPanel);
   const body = foryouPanel.querySelector(".panel-body");
   if (!body) return;
   const behavior = readPanelBehaviorSettingsLocal();

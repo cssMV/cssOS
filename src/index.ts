@@ -7968,13 +7968,13 @@ type LlmResponse = {
 };
 const LLM_PROVIDER_DEFAULTS = {
   groq:        { url: "https://api.groq.com/openai/v1/chat/completions",                                model: "llama-3.3-70b-versatile",                       keyEnv: "GROQ_API_KEY",        dialect: "openai" },
-  cerebras:    { url: "https://api.cerebras.ai/v1/chat/completions",                                    model: "llama-3.3-70b",                                 keyEnv: "CEREBRAS_API_KEY",    dialect: "openai" },
+  cerebras:    { url: "https://api.cerebras.ai/v1/chat/completions",                                    model: "llama3.1-8b",                                   keyEnv: "CEREBRAS_API_KEY",    dialect: "openai" },
   // Gemini doesn't speak chat/completions — its endpoint is
   // /v1beta/models/<model>:generateContent and the schema differs.
   // Adapter below translates messages → contents and choices → candidates.
   gemini:      { url: "https://generativelanguage.googleapis.com/v1beta/models",                       model: "gemini-2.0-flash",                              keyEnv: "GEMINI_API_KEY",      dialect: "gemini" },
   // Together AI — OpenAI-compatible. Free Llama-3.3-70B (60 RPM).
-  together:    { url: "https://api.together.xyz/v1/chat/completions",                                   model: "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",  keyEnv: "TOGETHER_API_KEY",    dialect: "openai" },
+  together:    { url: "https://api.together.xyz/v1/chat/completions",                                   model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",       keyEnv: "TOGETHER_API_KEY",    dialect: "openai" },
   // Mistral La Plateforme — OpenAI-compatible. mistral-small-latest
   // free tier (1 req/sec). Strong on European languages + code via
   // codestral-latest variant.
@@ -13779,6 +13779,28 @@ app.post("/api/admin/engine/test", async (req, res) => {
       if (provider) videoReq.prefer = [provider];
       const result = await callVideoGen(videoReq);
       return res.json({ ok: result.ok, data: result });
+    }
+    if (kind === "llm") {
+      const llmReq: LlmRequest = {
+        messages: [{
+          role: "user",
+          content: String(req.body?.prompt || "Reply in exactly five words."),
+        }],
+        max_tokens: 64,
+        temperature: 0.4,
+      };
+      if (provider) llmReq.prefer = [provider];
+      const result = await callLlm(llmReq);
+      return res.json({
+        ok: result.ok,
+        data: {
+          provider: result.provider,
+          model: result.model,
+          status: result.status,
+          content: result.content?.slice(0, 400) || "",
+          error: result.error,
+        },
+      });
     }
     return res.status(400).json({ ok: false, code: "INVALID_KIND" });
   } catch (err) {

@@ -152,9 +152,30 @@
     item.setAttribute("data-action", "person-mv");
     item.setAttribute("data-actions", "click,dblclick,longpress");
     item.tabIndex = 0;
+    /* CSSOS_PERSON_MV_NODRAG 20260507 — Jing
+     * The dock-order module adds draggable="true" + sets the
+     * webkit-user-drag inline style on every dock-item it sees,
+     * which makes pointerdown initiate a drag instead of firing
+     * click. We don't want our icon to be drag-reorderable for
+     * v1 — it's a fixed entry. Force draggable off and watch via
+     * MutationObserver so any later attempt to flip it back gets
+     * clobbered. */
+    item.draggable = false;
+    item.setAttribute("draggable", "false");
+    item.style.webkitUserDrag = "none";
+    item.style.userSelect = "none";
     item.innerHTML =
       '<div class="dock-icon">🏛</div>' +
       '<div class="dock-label">' + (tt("People MV", "人物MV")) + '</div>';
+    /* If something flips draggable back on, flip it off again. */
+    new MutationObserver(function () {
+      if (item.getAttribute("draggable") !== "false") {
+        item.setAttribute("draggable", "false");
+      }
+      if (item.style.webkitUserDrag !== "none") {
+        item.style.webkitUserDrag = "none";
+      }
+    }).observe(item, { attributes: true, attributeFilter: ["draggable", "style"] });
     /* CSSOS_PERSON_MV_DIRECT_V2 20260507 — Jing
      * Bug from previous attempt: pointerup.preventDefault() told
      * the browser "don't generate click after this", which then

@@ -7963,25 +7963,36 @@ type LlmResponse = {
   error?: string;
 };
 const LLM_PROVIDER_DEFAULTS = {
-  groq:     { url: "https://api.groq.com/openai/v1/chat/completions",                                model: "llama-3.3-70b-versatile",   keyEnv: "GROQ_API_KEY",     dialect: "openai" },
-  cerebras: { url: "https://api.cerebras.ai/v1/chat/completions",                                    model: "llama-3.3-70b",             keyEnv: "CEREBRAS_API_KEY", dialect: "openai" },
+  groq:        { url: "https://api.groq.com/openai/v1/chat/completions",                                model: "llama-3.3-70b-versatile",                       keyEnv: "GROQ_API_KEY",        dialect: "openai" },
+  cerebras:    { url: "https://api.cerebras.ai/v1/chat/completions",                                    model: "llama-3.3-70b",                                 keyEnv: "CEREBRAS_API_KEY",    dialect: "openai" },
   // Gemini doesn't speak chat/completions — its endpoint is
   // /v1beta/models/<model>:generateContent and the schema differs.
   // Adapter below translates messages → contents and choices → candidates.
-  gemini:   { url: "https://generativelanguage.googleapis.com/v1beta/models",                       model: "gemini-2.0-flash",          keyEnv: "GEMINI_API_KEY",   dialect: "gemini" },
-  // Together AI — OpenAI-compatible. Many open-weights models; we
-  // pick Llama-3.3-70B free-tier (60 RPM) as the chat default.
-  together: { url: "https://api.together.xyz/v1/chat/completions",                                   model: "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free", keyEnv: "TOGETHER_API_KEY", dialect: "openai" },
-  // DeepSeek-V3 — OpenAI-compatible endpoint, ~$0.14/1M tokens (≈ 1/30
-  // the cost of GPT-4). Sits ahead of OpenAI as the cheap-paid fallback
-  // when all free tiers are exhausted.
-  deepseek: { url: "https://api.deepseek.com/v1/chat/completions",                                   model: "deepseek-chat",             keyEnv: "DEEPSEEK_API_KEY", dialect: "openai" },
-  openai:   { url: "https://api.openai.com/v1/chat/completions",                                     model: "gpt-4o-mini",               keyEnv: "OPENAI_API_KEY",   dialect: "openai" },
+  gemini:      { url: "https://generativelanguage.googleapis.com/v1beta/models",                       model: "gemini-2.0-flash",                              keyEnv: "GEMINI_API_KEY",      dialect: "gemini" },
+  // Together AI — OpenAI-compatible. Free Llama-3.3-70B (60 RPM).
+  together:    { url: "https://api.together.xyz/v1/chat/completions",                                   model: "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",  keyEnv: "TOGETHER_API_KEY",    dialect: "openai" },
+  // Mistral La Plateforme — OpenAI-compatible. mistral-small-latest
+  // free tier (1 req/sec). Strong on European languages + code via
+  // codestral-latest variant.
+  mistral:     { url: "https://api.mistral.ai/v1/chat/completions",                                     model: "mistral-small-latest",                          keyEnv: "MISTRAL_API_KEY",     dialect: "openai" },
+  // OpenRouter — one key, any model. Specify model with provider/name
+  // pattern, e.g. "anthropic/claude-3.5-haiku", "openai/gpt-4o-mini".
+  // Pay-as-you-go but consolidated billing. Great for ops simplicity.
+  openrouter:  { url: "https://openrouter.ai/api/v1/chat/completions",                                  model: "meta-llama/llama-3.3-70b-instruct:free",        keyEnv: "OPENROUTER_API_KEY",  dialect: "openai" },
+  // DeepSeek-V3 — OpenAI-compatible. ~$0.14/1M tokens (≈ 1/30 GPT-4).
+  deepseek:    { url: "https://api.deepseek.com/v1/chat/completions",                                   model: "deepseek-chat",                                 keyEnv: "DEEPSEEK_API_KEY",    dialect: "openai" },
+  // Anthropic Claude — different schema (messages, system field
+  // separate, x-api-key header). Adapter handles the translation.
+  anthropic:   { url: "https://api.anthropic.com/v1/messages",                                          model: "claude-3-5-haiku-latest",                       keyEnv: "ANTHROPIC_API_KEY",   dialect: "anthropic" },
+  // HuggingFace Inference API — OpenAI-compatible router endpoint.
+  // Free but slow / occasionally cold; good last-resort free tier.
+  huggingface: { url: "https://router.huggingface.co/v1/chat/completions",                              model: "meta-llama/Llama-3.3-70B-Instruct",             keyEnv: "HUGGINGFACE_API_KEY", dialect: "openai" },
+  openai:      { url: "https://api.openai.com/v1/chat/completions",                                     model: "gpt-4o-mini",                                   keyEnv: "OPENAI_API_KEY",      dialect: "openai" },
 } as const;
 type LlmProvider = keyof typeof LLM_PROVIDER_DEFAULTS;
 
 function llmProviderOrder(prefer?: string[]): LlmProvider[] {
-  const env = String(process.env.LLM_PROVIDER_ORDER || "groq,cerebras,gemini,together,deepseek,openai")
+  const env = String(process.env.LLM_PROVIDER_ORDER || "groq,cerebras,gemini,together,mistral,huggingface,openrouter,deepseek,anthropic,openai")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   const list = (prefer && prefer.length ? prefer : env)
     .filter((p): p is LlmProvider => p in LLM_PROVIDER_DEFAULTS);
@@ -8002,7 +8013,42 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
       let upstream: Response;
       let json: any;
       let content = "";
-      if (cfg.dialect === "gemini") {
+      if (cfg.dialect === "anthropic") {
+        // Anthropic /v1/messages — different shape:
+        //   - x-api-key header (not Bearer)
+        //   - max_tokens REQUIRED
+        //   - system messages → top-level `system` string
+        //   - messages = [{role:"user|assistant", content}]
+        //   - response: content[0].text
+        const systemMsgs = req.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
+        const messages = req.messages
+          .filter((m) => m.role !== "system")
+          .map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content }));
+        const body: Record<string, unknown> = {
+          model,
+          messages,
+          max_tokens: req.max_tokens || 1024,
+        };
+        if (systemMsgs) body.system = systemMsgs;
+        if (req.temperature !== undefined) body.temperature = req.temperature;
+        upstream = await fetch(cfg.url, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify(body),
+        });
+        json = await upstream.json().catch(() => null);
+        if (!upstream.ok) {
+          lastErr = String(json?.error?.message || `anthropic_${upstream.status}`);
+          lastStatus = upstream.status;
+          console.warn(`[llm-router] anthropic ${upstream.status}: ${lastErr.slice(0, 200)}`);
+          continue;
+        }
+        content = String(json?.content?.[0]?.text || "");
+      } else if (cfg.dialect === "gemini") {
         // Translate to Gemini schema:
         //   messages[{role,content}] → { contents: [{role, parts:[{text}]}] }
         //   role "system" → systemInstruction; "assistant" → "model"; "user" → "user"
@@ -8076,6 +8122,50 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
 }
 
 /* ============================================================
+ * CSSOS_PROVIDER_DISCOVERY 20260506 — Jing
+ * Open-system contract: GET /api/llm/providers tells the frontend
+ * which providers are configured + their default models so the user
+ * can pick their preferred engine. Caller can then send `prefer:[…]`
+ * with each request. Keys themselves are NEVER returned, only the
+ * presence flag + redacted prefix.
+ * ============================================================ */
+function buildProvidersSnapshot() {
+  const llm = (Object.keys(LLM_PROVIDER_DEFAULTS) as LlmProvider[]).map((p) => {
+    const cfg = LLM_PROVIDER_DEFAULTS[p];
+    const key = String(process.env[cfg.keyEnv] || "").trim();
+    return {
+      id: p,
+      kind: "llm",
+      configured: !!key,
+      default_model: cfg.model,
+      dialect: cfg.dialect,
+      free_tier: ["groq", "cerebras", "gemini", "together", "mistral", "huggingface", "openrouter"].includes(p),
+    };
+  });
+  const image = (IMAGE_PROVIDERS as readonly string[]).map((id) => {
+    const env = id === "fal" ? "FAL_API_KEY"
+      : id === "together" ? "TOGETHER_API_KEY"
+      : id === "replicate" ? "REPLICATE_API_KEY"
+      : id === "huggingface" ? "HUGGINGFACE_API_KEY"
+      : "OPENAI_API_KEY";
+    const key = String(process.env[env] || "").trim();
+    return {
+      id, kind: "image", configured: !!key,
+      default_model: id === "fal" ? "flux-schnell"
+        : id === "together" ? "FLUX.1-schnell-Free"
+        : id === "replicate" ? "black-forest-labs/flux-schnell"
+        : id === "huggingface" ? "FLUX.1-schnell"
+        : "gpt-image-1",
+      free_tier: id === "fal" || id === "together" || id === "huggingface",
+    };
+  });
+  return {
+    llm: { providers: llm, default_order: llmProviderOrder() },
+    image: { providers: image, default_order: imageProviderOrder() },
+  };
+}
+
+/* ============================================================
  * CSSOS_IMAGE_ROUTER 20260506 — fal.ai Flux schnell → OpenAI gpt-image-1
  * ----------------------------------------------------------------
  * Image generation router. fal.ai Flux schnell is ~10x faster +
@@ -8106,11 +8196,12 @@ type ImageGenResponse = {
   error?: string;
 };
 
+const IMAGE_PROVIDERS = ["fal", "together", "replicate", "huggingface", "openai"] as const;
 function imageProviderOrder(prefer?: string[]): string[] {
-  const env = String(process.env.IMAGE_PROVIDER_ORDER || "fal,together,openai")
+  const env = String(process.env.IMAGE_PROVIDER_ORDER || "fal,together,replicate,huggingface,openai")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   return (prefer && prefer.length ? prefer : env).filter((p) =>
-    p === "fal" || p === "together" || p === "openai");
+    (IMAGE_PROVIDERS as readonly string[]).includes(p));
 }
 
 async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
@@ -8195,6 +8286,73 @@ async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
           image_url: url || undefined,
           image_b64: b64 || undefined,
           raw: json,
+        };
+      }
+      if (provider === "replicate") {
+        const apiKey = String(process.env.REPLICATE_API_KEY || process.env.REPLICATE_API_TOKEN || "").trim();
+        if (!apiKey) continue;
+        // Replicate uses model versions. Default to FLUX schnell official.
+        const model = String(process.env.REPLICATE_IMAGE_MODEL || "black-forest-labs/flux-schnell");
+        // Sync prediction (Replicate's async-by-default flow with Prefer: wait).
+        const upstream = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Token ${apiKey}`,
+            "Prefer": "wait=60",
+          },
+          body: JSON.stringify({
+            input: {
+              prompt: req.prompt,
+              aspect_ratio: w === h ? "1:1" : (w > h ? "16:9" : "9:16"),
+              output_format: req.output_format || "png",
+            },
+          }),
+        });
+        const json: any = await upstream.json().catch(() => null);
+        if (!upstream.ok) {
+          lastErr = String(json?.detail || json?.error || `replicate_${upstream.status}`);
+          lastStatus = upstream.status;
+          console.warn(`[image-router] replicate ${upstream.status}: ${lastErr.slice(0, 200)}`);
+          continue;
+        }
+        const out = json?.output;
+        const url = Array.isArray(out) ? out[0] : (typeof out === "string" ? out : "");
+        if (!url) {
+          lastErr = "replicate_no_image_in_output";
+          continue;
+        }
+        return {
+          ok: true, status: upstream.status,
+          provider: "replicate", model,
+          image_url: url, raw: json,
+        };
+      }
+      if (provider === "huggingface") {
+        const apiKey = String(process.env.HUGGINGFACE_API_KEY || "").trim();
+        if (!apiKey) continue;
+        const model = String(process.env.HUGGINGFACE_IMAGE_MODEL || "black-forest-labs/FLUX.1-schnell");
+        // HF returns binary image bytes directly.
+        const upstream = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({
+            inputs: req.prompt,
+            parameters: { width: w, height: h, num_inference_steps: 4 },
+          }),
+        });
+        if (!upstream.ok) {
+          const body = await upstream.text().catch(() => "");
+          lastErr = body.slice(0, 200) || `huggingface_${upstream.status}`;
+          lastStatus = upstream.status;
+          console.warn(`[image-router] huggingface ${upstream.status}: ${lastErr}`);
+          continue;
+        }
+        const buf = Buffer.from(await upstream.arrayBuffer());
+        return {
+          ok: true, status: upstream.status,
+          provider: "huggingface", model,
+          image_b64: buf.toString("base64"),
         };
       }
       if (provider === "openai") {
@@ -12829,6 +12987,12 @@ app.post("/api/works/:id/karaoke/transcribe", async (req, res) => {
   } catch (_err) {
     return res.status(500).json({ ok: false, code: "TRANSCRIBE_FAILED" });
   }
+});
+
+/* CSSOS_PROVIDER_DISCOVERY — exposed for the frontend engine picker. */
+app.get("/api/llm/providers", (_req, res) => {
+  noStore(res);
+  return res.json({ ok: true, data: buildProvidersSnapshot() });
 });
 
 app.get("/api/works/public/:id", async (req, res) => {

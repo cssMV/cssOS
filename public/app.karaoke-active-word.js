@@ -21,34 +21,78 @@
 (function () {
   "use strict";
 
+  /* ============== Parameters (read from localStorage + sane defaults)
+   * Override at runtime via globalThis.cssosKaraokeWord.config({...}).
+   * All values flow through CSS custom properties so changes apply
+   * without rewriting the stylesheet. */
+  var DEFAULTS = {
+    enabled: true,
+    lookahead_s: 0.18,        // ear-eye alignment offset
+    scale_base: 1.6,          // hot word base size multiplier
+    scale_breath_min: 1.55,   // breath bottom
+    scale_breath_max: 1.78,   // breath peak
+    scale_explode: 2.0,       // explode peak on hand-off
+    breath_ms: 1000,          // breath cycle
+    glow_ms: 600,             // glow cycle (alternates)
+    explode_ms: 300,          // explode duration
+    color: "#fff",            // hot word color
+    letter_spacing_em: 0.04,  // hot word letter-spacing
+    padding_em: 0.1,          // hot word horizontal padding
+    font_pool: "'Bungee Shade','Rubik Wet Paint','Bungee Outline','Faster One','Monoton','Eater','Bungee','Permanent Marker','Lobster',cursive,sans-serif",
+  };
+  function readConfig() {
+    var saved = {};
+    try {
+      var raw = localStorage.getItem("cssos_karaoke_config");
+      if (raw) saved = JSON.parse(raw) || {};
+    } catch (_e) {}
+    return Object.assign({}, DEFAULTS, saved);
+  }
+  function writeConfig(patch) {
+    var cfg = Object.assign(readConfig(), patch || {});
+    try { localStorage.setItem("cssos_karaoke_config", JSON.stringify(cfg)); } catch (_e) {}
+    applyConfigToCss(cfg);
+    return cfg;
+  }
+  function applyConfigToCss(cfg) {
+    cfg = cfg || readConfig();
+    var root = document.documentElement;
+    root.style.setProperty("--cssmv-kw-lookahead", String(cfg.lookahead_s));
+    root.style.setProperty("--cssmv-kw-scale", String(cfg.scale_base));
+    root.style.setProperty("--cssmv-kw-scale-breath-min", String(cfg.scale_breath_min));
+    root.style.setProperty("--cssmv-kw-scale-breath-max", String(cfg.scale_breath_max));
+    root.style.setProperty("--cssmv-kw-scale-explode", String(cfg.scale_explode));
+    root.style.setProperty("--cssmv-kw-breath-ms", cfg.breath_ms + "ms");
+    root.style.setProperty("--cssmv-kw-glow-ms", cfg.glow_ms + "ms");
+    root.style.setProperty("--cssmv-kw-explode-ms", cfg.explode_ms + "ms");
+    root.style.setProperty("--cssmv-kw-color", cfg.color);
+    root.style.setProperty("--cssmv-kw-letter-spacing", cfg.letter_spacing_em + "em");
+    root.style.setProperty("--cssmv-kw-padding", "0 " + cfg.padding_em + "em");
+    root.style.setProperty("--cssmv-kw-font-pool", cfg.font_pool);
+  }
+
   function ensureStyles() {
     if (document.getElementById("cssos-karaoke-word-style")) return;
+    applyConfigToCss();
     var s = document.createElement("style");
     s.id = "cssos-karaoke-word-style";
-    /* Specificity bump — `.watch-karaoke-line` is the parent the
-     * renderer creates. Doubling up the class selectors and adding
-     * the parent reaches specificity (0,3,0) which beats the inline
-     * `style="font-family:..."` the renderer injects via attr — wait,
-     * inline always wins. So we use `font-family: ... !important` AND
-     * separately blow away the inline by writing it ourselves at
-     * apply-time. CSS can't override inline without !important on
-     * font-family, but inline + !important does win. */
     s.textContent =
       ".watch-karaoke-line .watch-karaoke-word{transition:transform .15s ease,letter-spacing .15s ease;}" +
       ".watch-karaoke-line .watch-karaoke-word.cssmv-word-hot," +
       ".watch-karaoke-current .watch-karaoke-word.cssmv-word-hot{" +
         "display:inline-block;" +
-        "font-family:'Bungee Shade','Rubik Wet Paint','Bungee Outline','Faster One','Monoton','Eater','Bungee','Permanent Marker','Lobster',cursive,sans-serif !important;" +
-        "transform:scale(1.6) translateY(-3px);" +
-        "color:#fff !important;" +
-        "letter-spacing:0.04em;" +
-        "animation:cssmv-word-breath 1.0s ease-in-out infinite,cssmv-word-glow 0.6s ease-in-out infinite alternate !important;" +
-        "padding:0 0.1em;" +
+        "font-family:var(--cssmv-kw-font-pool) !important;" +
+        "transform:scale(var(--cssmv-kw-scale)) translateY(-3px);" +
+        "color:var(--cssmv-kw-color) !important;" +
+        "letter-spacing:var(--cssmv-kw-letter-spacing);" +
+        "animation:cssmv-word-breath var(--cssmv-kw-breath-ms) ease-in-out infinite," +
+                  "cssmv-word-glow var(--cssmv-kw-glow-ms) ease-in-out infinite alternate !important;" +
+        "padding:var(--cssmv-kw-padding);" +
         "z-index:10;position:relative;" +
       "}" +
       "@keyframes cssmv-word-breath{" +
-        "0%,100%{transform:scale(1.55) translateY(-2px);}" +
-        "50%   {transform:scale(1.78) translateY(-5px);}" +
+        "0%,100%{transform:scale(var(--cssmv-kw-scale-breath-min)) translateY(-2px);}" +
+        "50%   {transform:scale(var(--cssmv-kw-scale-breath-max)) translateY(-5px);}" +
       "}" +
       "@keyframes cssmv-word-glow{" +
         "0%  {text-shadow:0 0 6px rgba(0,245,160,1),0 0 14px rgba(255,200,80,0.7),0 0 24px rgba(120,180,255,0.5);}" +
@@ -56,10 +100,10 @@
         "66% {text-shadow:0 0 7px rgba(255,255,80,1),0 0 16px rgba(120,255,200,0.7),0 0 26px rgba(180,80,255,0.55);}" +
         "100%{text-shadow:0 0 9px rgba(120,180,255,1),0 0 20px rgba(255,80,80,0.7),0 0 28px rgba(0,245,160,0.55);}" +
       "}" +
-      ".watch-karaoke-line .watch-karaoke-word.cssmv-word-explode{animation:cssmv-word-explode 0.3s ease-out forwards !important;}" +
+      ".watch-karaoke-line .watch-karaoke-word.cssmv-word-explode{animation:cssmv-word-explode var(--cssmv-kw-explode-ms) ease-out forwards !important;}" +
       "@keyframes cssmv-word-explode{" +
-        "0%  {transform:scale(1.6);filter:blur(0);}" +
-        "50% {transform:scale(2.0);filter:blur(0.6px);}" +
+        "0%  {transform:scale(var(--cssmv-kw-scale));filter:blur(0);}" +
+        "50% {transform:scale(var(--cssmv-kw-scale-explode));filter:blur(0.6px);}" +
         "100%{transform:scale(1.0);filter:blur(0);}" +
       "}";
     document.head.appendChild(s);
@@ -136,18 +180,15 @@
     return -1;
   }
 
-  /* Alignment lookahead — Whisper's t_start is when the human voice
-   * begins the word; rendering the active class at exactly that
-   * moment means the user's eye reads the word AFTER hearing it,
-   * because audio output adds ~120-200ms of latency (especially BT).
-   * Highlight slightly EARLIER so eye + ear meet. */
-  var LOOKAHEAD_S = 0.18;
+  /* Alignment lookahead — read from config so the user can tune. */
+  function getLookahead() { return Number(readConfig().lookahead_s) || 0; }
 
   function applyHotByTime() {
+    if (!readConfig().enabled) return;
     if (!lineWords.length) return;
     var media = getActiveMedia();
     if (!media) return;
-    var t = Number(media.currentTime || 0) + LOOKAHEAD_S;
+    var t = Number(media.currentTime || 0) + getLookahead();
     var phase2 = indexFromGlobalWords(t);
     var idx;
     if (phase2 !== null && phase2 >= 0) {
@@ -300,5 +341,21 @@
     setWordTimings: function (arr) {
       globalThis.cssosKaraokeWords = Array.isArray(arr) ? arr : null;
     },
+    /** Read current config (defaults merged with localStorage). */
+    config: function () { return readConfig(); },
+    /** Patch config — partial object, persists to localStorage,
+     * re-applies CSS variables immediately. */
+    setConfig: function (patch) { return writeConfig(patch); },
+    /** Restore to factory defaults. */
+    resetConfig: function () {
+      try { localStorage.removeItem("cssos_karaoke_config"); } catch (_e) {}
+      applyConfigToCss();
+      return readConfig();
+    },
+    /** Sugar — the most common knobs the user might want from the
+     * console without remembering field names. */
+    setLookahead: function (sec) { return writeConfig({ lookahead_s: Number(sec) }); },
+    setScale: function (n) { return writeConfig({ scale_base: Number(n), scale_breath_min: Number(n) * 0.97, scale_breath_max: Number(n) * 1.11, scale_explode: Number(n) * 1.25 }); },
+    enable: function (on) { return writeConfig({ enabled: !!on }); },
   };
 })();

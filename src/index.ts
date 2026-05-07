@@ -8209,7 +8209,9 @@ async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
   let lastErr = "no_providers_available";
   let lastStatus = 0;
   const sizeStr = req.size || "1024x1024";
-  const [w, h] = sizeStr.split("x").map((n) => Number.parseInt(n, 10) || 1024);
+  const dims = sizeStr.split("x").map((n) => Number.parseInt(n, 10) || 1024);
+  const w = dims[0] || 1024;
+  const h = dims[1] || 1024;
   for (const provider of order) {
     try {
       if (provider === "fal") {

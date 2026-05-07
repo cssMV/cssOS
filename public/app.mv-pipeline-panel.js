@@ -1713,7 +1713,7 @@
     }
     if (newState === "running") startStageProgress(id);
     else if (newState === "done") completeStageProgress(id);
-    else if (newState === "error") failStageProgress(id);
+    else if (newState === "error") failStageProgress(id, detail);
     else if (newState === "idle") resetStageProgress(id);
     renderSummary();
     // CSSOS_PHASE2_NOTIF_PROGRESS_BROADCAST 20260429 #168.6 — Jing
@@ -1993,7 +1993,7 @@
     }
   }
 
-  function failStageProgress(id) {
+  function failStageProgress(id, errMsg) {
     const p = state.progress[id];
     stopStageProgress(id);
     if (p) {
@@ -2001,6 +2001,14 @@
       renderProgress(id);
     }
     showProgress(id, true, "error-state", true);
+    // CSSOS_PERSON_MV_CINEMA_PROGRESS 20260507 — Jing
+    // Surface stage-level failures to cinema-mode loading screen so the
+    // user gets a "❌ 失败 · 重试" affordance instead of a forever spinner.
+    try {
+      globalThis.dispatchEvent(new CustomEvent("cssmv:stage-error", {
+        detail: { stage: id, message: String(errMsg || "") }
+      }));
+    } catch (_dispatchErr) {}
   }
 
   function resetStageProgress(id) {
@@ -6421,6 +6429,11 @@
     if (cinemaSt.keyHandler) {
       document.removeEventListener("keydown", cinemaSt.keyHandler, true);
     }
+    // CSSOS_PERSON_MV_CINEMA_PROGRESS 20260507 — Jing
+    // Tear down progress / error listeners attached by renderCinemaHeroLoading.
+    if (typeof cinemaSt._cleanup === "function") {
+      try { cinemaSt._cleanup(); } catch (_e) {}
+    }
     cinemaSt = null;
   }
   async function cinemaPlayCurrent() {
@@ -6624,6 +6637,26 @@
     // Person intro line (lore.bio first sentence > core_theme > roles).
     // Already truncated to ~80 chars upstream; clamp to 2 lines via CSS.
     const intro = person.intro ? esc(person.intro) : "";
+    // CSSOS_PERSON_MV_CINEMA_PROGRESS 20260507 — Jing
+    // Live pipeline progress block. Subscribes to `cssos:run_progress`
+    // (per-stage 0..100 broadcast from the pipeline panel) and
+    // `cssmv:stage-error` (failure surface). The listener is stashed on
+    // cinemaSt._cleanup so exitCinemaMode can detach it.
+    const trI18n = function (en, zh) {
+      try {
+        const i18n = globalThis.CSSOS_I18N;
+        if (i18n && typeof i18n.tr === "function") return String(i18n.tr(en));
+        if (typeof globalThis.t === "function") return String(globalThis.t(en, zh));
+      } catch (_e) {}
+      return zh;
+    };
+    const STAGE_META = [
+      { id: "lyrics",   weight: 5,  icon: "✍️", en: "Lyrics",  zh: "写词" },
+      { id: "music",    weight: 35, icon: "🎵", en: "Music",   zh: "配乐" },
+      { id: "cover",    weight: 10, icon: "🖼️", en: "Cover",   zh: "封面" },
+      { id: "video",    weight: 40, icon: "🎬", en: "Video",   zh: "视频" },
+      { id: "compose",  weight: 10, icon: "🎞️", en: "Compose", zh: "合成" }
+    ];
     loading.innerHTML =
       bgImg +
       '<div class="cinema-hero-block">' +
@@ -6634,10 +6667,108 @@
               chips.map(function (c) { return '<span class="cinema-hero-chip">' + esc(c) + '</span>'; }).join("") +
             '</div>'
           : '') +
-        '<div class="cinema-hero-spinner"><span class="cinema-spin-ring"></span><span class="cinema-hero-status">' + esc(subtitle) + '</span></div>' +
+        '<div class="cinema-hero-status-line">' + esc(subtitle) + '</div>' +
+        '<div class="cinema-hero-progress" data-cinema-progress>' +
+          '<div class="cinema-hero-progress-stages" data-cinema-progress-stages></div>' +
+          '<div class="cinema-hero-progress-bar"><div class="cinema-hero-progress-fill" data-cinema-progress-fill></div></div>' +
+          '<div class="cinema-hero-progress-pct" data-cinema-progress-pct>0%</div>' +
+        '</div>' +
         (intro ? '<div class="cinema-hero-intro">' + intro + '</div>' : '') +
       '</div>';
     loading.hidden = false;
+
+    // Wire listeners (idempotent — detach any prior listeners first).
+    if (cinemaSt && typeof cinemaSt._cleanup === "function") {
+      try { cinemaSt._cleanup(); } catch (_e) {}
+      cinemaSt._cleanup = null;
+    }
+    const stagesEl = loading.querySelector("[data-cinema-progress-stages]");
+    const fillEl = loading.querySelector("[data-cinema-progress-fill]");
+    const pctEl = loading.querySelector("[data-cinema-progress-pct]");
+    const statusEl = loading.querySelector(".cinema-hero-status-line");
+    let lastPcts = { lyrics: 0, music: 0, cover: 0, video: 0, compose: 0 };
+    const renderStages = function (pcts) {
+      if (!stagesEl) return;
+      stagesEl.innerHTML = STAGE_META.map(function (s) {
+        const p = Math.max(0, Math.min(100, Math.round(pcts[s.id] || 0)));
+        const tag = p >= 100 ? "✓" : (p > 0 ? (p + "%") : "…");
+        const cls = p >= 100 ? "done" : (p > 0 ? "active" : "pending");
+        return '<span class="cinema-hero-progress-chip ' + cls + '">' +
+          s.icon + " " + esc(trI18n(s.en, s.zh)) + " " + tag + "</span>";
+      }).join("");
+    };
+    const computeOverall = function (pcts) {
+      let total = 0, denom = 0;
+      for (let i = 0; i < STAGE_META.length; i++) {
+        const s = STAGE_META[i];
+        const p = Math.max(0, Math.min(100, Number(pcts[s.id] || 0)));
+        total += (p / 100) * s.weight;
+        denom += s.weight;
+      }
+      return denom ? Math.round((total / denom) * 100) : 0;
+    };
+    const onProgress = function (ev) {
+      try {
+        const pr = ev && ev.detail && ev.detail.progress;
+        if (!pr) return;
+        // compose stage falls back to subtitles/kara if compose isn't set
+        const composePct = (pr.compose != null) ? pr.compose : (pr.subtitles != null ? pr.subtitles : (pr.kara || 0));
+        lastPcts = {
+          lyrics: Number(pr.lyrics || 0),
+          music: Number(pr.music || 0),
+          cover: Number(pr.cover || 0),
+          video: Number(pr.video || 0),
+          compose: Number(composePct || 0),
+        };
+        const overall = computeOverall(lastPcts);
+        if (fillEl) fillEl.style.width = overall + "%";
+        if (pctEl) pctEl.textContent = overall + "%";
+        renderStages(lastPcts);
+      } catch (_e) {}
+    };
+    const onError = function (ev) {
+      try {
+        const det = (ev && ev.detail) || {};
+        const stageId = det.stage || "";
+        const meta = STAGE_META.find(function (m) { return m.id === stageId; });
+        const stageLabel = meta ? trI18n(meta.en, meta.zh) : stageId;
+        const failTpl = trI18n("Generation failed: {stage} ({msg})", "生成失败：{stage}（{msg}）");
+        const retryLbl = trI18n("Retry", "重试");
+        const msg = String(det.message || "").slice(0, 120);
+        const txt = failTpl.replace("{stage}", stageLabel).replace("{msg}", msg);
+        loading.innerHTML =
+          bgImg +
+          '<div class="cinema-hero-block">' +
+            '<div class="cinema-hero-name">' + esc(name) + '</div>' +
+            (sub ? '<div class="cinema-hero-sub">' + esc(sub) + '</div>' : '') +
+            '<div class="cinema-hero-error">❌ ' + esc(txt) + '</div>' +
+            '<div class="cinema-hero-error-actions">' +
+              '<button type="button" class="cinema-hero-retry" data-cinema-retry>' + esc(retryLbl) + '</button>' +
+            '</div>' +
+          '</div>';
+        const btn = loading.querySelector("[data-cinema-retry]");
+        if (btn) {
+          btn.addEventListener("click", function () {
+            try {
+              renderCinemaHeroLoading(stage, person);
+              if (typeof globalThis.cssmvRunPipeline === "function" && cinemaSt) {
+                globalThis.cssmvRunPipeline({ seed: cinemaSt.seed });
+              }
+            } catch (_e) {}
+          });
+        }
+      } catch (_e) {}
+    };
+    try { window.addEventListener("cssos:run_progress", onProgress); } catch (_e) {}
+    try { globalThis.addEventListener("cssmv:stage-error", onError); } catch (_e) {}
+    if (cinemaSt) {
+      cinemaSt._cleanup = function () {
+        try { window.removeEventListener("cssos:run_progress", onProgress); } catch (_e) {}
+        try { globalThis.removeEventListener("cssmv:stage-error", onError); } catch (_e) {}
+      };
+    }
+    // Initial paint of stage chips at 0%.
+    renderStages(lastPcts);
   }
 
   function ensureCinemaStyles() {
@@ -6691,6 +6822,23 @@
       'body[data-cinema="true"] #cssos-karaoke-settings { opacity:1 !important; pointer-events:auto !important; z-index:100000 !important; }' +
       /* Person-intro line under the spinner: small, fades, max 2 lines. */
       '.cinema-hero-intro { margin:14px auto 0; max-width:min(640px,82vw); font:400 13px/1.5 ui-serif,serif; color:rgba(218,255,238,.7); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; text-align:center; }' +
+      /* CSSOS_PERSON_MV_CINEMA_PROGRESS 20260507 — Jing
+       * Live pipeline progress block: per-stage chips + thin rainbow bar
+       * + overall percent. Mounted inside .cinema-hero-block. */
+      '.cinema-hero-status-line { margin-top:28px; font:600 13px/1.4 ui-monospace,monospace; color:rgba(218,255,238,.85); letter-spacing:.04em; text-align:center; }' +
+      '.cinema-hero-progress { margin:14px auto 0; max-width:480px; width:min(480px,86vw); display:flex; flex-direction:column; align-items:stretch; gap:8px; }' +
+      '.cinema-hero-progress-stages { display:flex; flex-wrap:wrap; gap:6px; justify-content:center; }' +
+      '.cinema-hero-progress-chip { font:600 11px/1 ui-monospace,monospace; padding:5px 8px; border-radius:999px; background:rgba(0,245,160,.06); border:1px solid rgba(0,245,160,.18); color:rgba(218,255,238,.55); letter-spacing:.04em; transition:background .25s,color .25s,border-color .25s; }' +
+      '.cinema-hero-progress-chip.active { background:rgba(0,245,160,.16); border-color:rgba(0,245,160,.55); color:#daffee; }' +
+      '.cinema-hero-progress-chip.done { background:rgba(0,245,160,.28); border-color:rgba(0,245,160,.85); color:#001a10; }' +
+      '.cinema-hero-progress-bar { position:relative; height:6px; border-radius:999px; background:rgba(255,255,255,.08); overflow:hidden; }' +
+      '.cinema-hero-progress-fill { height:100%; width:0%; background:linear-gradient(90deg,#ff5e62,#ff9966,#ffe066,#7afca6,#5cc8ff,#9b8cff,#ff5edc); background-size:200% 100%; animation:cssos-cinema-rainbow 6s linear infinite; transition:width .35s ease-out; }' +
+      '@keyframes cssos-cinema-rainbow { 0% { background-position:0% 50%; } 100% { background-position:200% 50%; } }' +
+      '.cinema-hero-progress-pct { font:700 12px/1 ui-monospace,monospace; color:rgba(218,255,238,.78); text-align:center; letter-spacing:.06em; }' +
+      '.cinema-hero-error { margin-top:24px; font:600 14px/1.5 ui-monospace,monospace; color:#ff8585; max-width:min(560px,86vw); margin-left:auto; margin-right:auto; }' +
+      '.cinema-hero-error-actions { margin-top:14px; display:flex; justify-content:center; }' +
+      '.cinema-hero-retry { background:rgba(255,133,133,.12); border:1px solid rgba(255,133,133,.6); color:#ffb3b3; padding:8px 18px; border-radius:999px; font:700 12px/1 ui-monospace,monospace; letter-spacing:.06em; cursor:pointer; }' +
+      '.cinema-hero-retry:hover { background:rgba(255,133,133,.22); color:#fff; }' +
       /* CSSOS_PERSON_MV_CINEMA_SUBS 20260507 — Jing
        * Emotion karaoke subtitle ticker overlay for cinema video. */
       '#cssos-cinema-stage .cinema-subs { position:absolute; left:0; right:0; bottom:64px; padding:0 24px; text-align:center; pointer-events:none; z-index:5; }' +

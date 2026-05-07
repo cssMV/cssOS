@@ -6268,6 +6268,226 @@
     init();
   }
 
+  // CSSOS_PHASE2_MV_CINEMA 20260507 — Wave 2.5 Cinema mode
+  // Maximize the pipeline panel, hide all chrome, render a black-bg
+  // <video> that autoplays through `queue` (work_id list). Supports
+  // ↑/↓ skip, ← exit, Space pause, M mute. Last 10s shows other MVs
+  // for the same person as a teaser strip. Empty queue auto-triggers
+  // a normal pipeline run and pushes the result into the queue.
+  let cinemaSt = null;
+  function enterCinemaMode(opts) {
+    if (!isMvPipelineAllowedForCurrentUser()) {
+      routeGuestToLogin();
+      return null;
+    }
+    const panel = ensurePanel();
+    panel.classList.remove("hidden");
+    panel.dataset.cinema = "true";
+    if (typeof globalThis.togglePanelMaximize === "function" && panel.dataset.maximized !== "true") {
+      try { globalThis.togglePanelMaximize(panel); } catch (_e) {}
+    }
+    try { document.body.dataset.cinema = "true"; } catch (_e) {}
+    ensureCinemaStyles();
+
+    // Build cinema overlay inside panel-body
+    const body = panel.querySelector(".panel-body") || panel;
+    let stage = panel.querySelector(".cinema-stage");
+    if (!stage) {
+      stage = document.createElement("div");
+      stage.className = "cinema-stage";
+      stage.innerHTML =
+        '<video class="cinema-video" playsinline></video>' +
+        '<div class="cinema-strip"></div>' +
+        '<div class="cinema-teaser" hidden></div>' +
+        '<div class="cinema-loading" hidden>正在生成首支 MV…</div>';
+      body.appendChild(stage);
+    }
+    stage.style.display = "";
+
+    cinemaSt = {
+      panel: panel,
+      stage: stage,
+      queue: Array.isArray(opts.queue) ? opts.queue.filter(Boolean) : [],
+      personId: opts.personId || null,
+      idx: 0,
+      teaserOn: false,
+      keyHandler: null,
+      seed: opts.seed || null,
+    };
+
+    // Bind keys
+    cinemaSt.keyHandler = function (e) {
+      if (!document.body.dataset.cinema) return;
+      if (e.key === "Escape" || e.key === "ArrowLeft") { exitCinemaMode(); e.preventDefault(); }
+      else if (e.key === "ArrowDown") { cinemaSkip(+1); e.preventDefault(); }
+      else if (e.key === "ArrowUp") { cinemaSkip(-1); e.preventDefault(); }
+      else if (e.key === " ") { cinemaTogglePause(); e.preventDefault(); }
+      else if (e.key === "m" || e.key === "M") { cinemaToggleMute(); e.preventDefault(); }
+    };
+    document.addEventListener("keydown", cinemaSt.keyHandler, true);
+
+    if (cinemaSt.queue.length) {
+      cinemaPlayCurrent();
+    } else {
+      // Empty queue → trigger pipeline + show "正在生成首支 MV…"
+      const loading = stage.querySelector(".cinema-loading");
+      if (loading) loading.hidden = false;
+      // fire normal pipeline run in background
+      try {
+        if (typeof globalThis.cssmvRunPipeline === "function") {
+          globalThis.cssmvRunPipeline({ seed: cinemaSt.seed });
+        }
+      } catch (_e) {}
+      // Listen for runFinish event to push the new mv into queue
+      const finishHandler = function (ev) {
+        try {
+          const wid = ev && ev.detail && (ev.detail.work_id || ev.detail.workId);
+          if (wid && cinemaSt) {
+            cinemaSt.queue.push(wid);
+            if (loading) loading.hidden = true;
+            cinemaPlayCurrent();
+          }
+        } catch (_e) {}
+      };
+      globalThis.addEventListener("cssmv:run-finish", finishHandler, { once: true });
+      globalThis.addEventListener("mvPipelineRunFinish", finishHandler, { once: true });
+    }
+    return panel;
+  }
+  function exitCinemaMode() {
+    try { delete document.body.dataset.cinema; } catch (_e) {}
+    if (!cinemaSt) return;
+    const panel = cinemaSt.panel;
+    if (panel) delete panel.dataset.cinema;
+    const stage = cinemaSt.stage;
+    if (stage) {
+      const v = stage.querySelector(".cinema-video");
+      if (v) { try { v.pause(); v.removeAttribute("src"); v.load(); } catch (_e) {} }
+      stage.style.display = "none";
+    }
+    if (cinemaSt.keyHandler) {
+      document.removeEventListener("keydown", cinemaSt.keyHandler, true);
+    }
+    cinemaSt = null;
+  }
+  async function cinemaPlayCurrent() {
+    if (!cinemaSt || !cinemaSt.queue.length) return;
+    const wid = cinemaSt.queue[cinemaSt.idx];
+    if (!wid) return;
+    const stage = cinemaSt.stage;
+    const video = stage.querySelector(".cinema-video");
+    const strip = stage.querySelector(".cinema-strip");
+    let videoUrl = null, title = "", creator = "";
+    try {
+      const r = await fetch("/api/works/" + encodeURIComponent(wid), { credentials: "include" });
+      const j = await r.json().catch(function(){ return null; });
+      const w = (j && (j.data || j.work || j)) || {};
+      videoUrl = w.video_url || w.url || (w.assets && (w.assets.video_url || w.assets.video)) || null;
+      title = w.title || w.name || "";
+      creator = w.creator || w.user_name || w.created_by || "";
+    } catch (_e) {}
+    if (!videoUrl) {
+      // skip to next
+      if (cinemaSt.idx < cinemaSt.queue.length - 1) { cinemaSt.idx += 1; return cinemaPlayCurrent(); }
+      return;
+    }
+    video.src = videoUrl;
+    video.muted = false;
+    video.autoplay = true;
+    try { await video.play(); } catch (_e) {}
+    if (strip) {
+      strip.textContent = (title || "untitled") + (creator ? " · " + creator : "") +
+        " · " + (cinemaSt.idx + 1) + "/" + cinemaSt.queue.length;
+    }
+    // Teaser: last 10s
+    cinemaSt.teaserOn = false;
+    video.ontimeupdate = function () {
+      if (!cinemaSt) return;
+      const dur = video.duration || 0;
+      if (dur > 0 && (dur - video.currentTime) <= 10 && !cinemaSt.teaserOn) {
+        cinemaSt.teaserOn = true;
+        showCinemaTeaser();
+      }
+    };
+    video.onended = function () {
+      const teaser = stage.querySelector(".cinema-teaser");
+      if (teaser) teaser.hidden = true;
+      cinemaSkip(+1);
+    };
+  }
+  function cinemaSkip(delta) {
+    if (!cinemaSt) return;
+    const next = cinemaSt.idx + delta;
+    if (next < 0 || next >= cinemaSt.queue.length) {
+      // wrap or exit at end — wrap so loop is endless
+      cinemaSt.idx = (next + cinemaSt.queue.length) % cinemaSt.queue.length;
+    } else {
+      cinemaSt.idx = next;
+    }
+    cinemaPlayCurrent();
+  }
+  function cinemaTogglePause() {
+    if (!cinemaSt) return;
+    const v = cinemaSt.stage.querySelector(".cinema-video");
+    if (!v) return;
+    if (v.paused) { try { v.play(); } catch (_e) {} } else { v.pause(); }
+  }
+  function cinemaToggleMute() {
+    if (!cinemaSt) return;
+    const v = cinemaSt.stage.querySelector(".cinema-video");
+    if (!v) return;
+    v.muted = !v.muted;
+  }
+  async function showCinemaTeaser() {
+    if (!cinemaSt || !cinemaSt.personId) return;
+    const teaser = cinemaSt.stage.querySelector(".cinema-teaser");
+    if (!teaser) return;
+    try {
+      const r = await fetch("/api/person-mv/persons/" + encodeURIComponent(cinemaSt.personId) + "/codex", { credentials: "include" });
+      const j = await r.json().catch(function(){ return null; });
+      const mvs = ((j && j.data && j.data.mvs) || []).filter(function(m){
+        return m.work_id && m.work_id !== cinemaSt.queue[cinemaSt.idx];
+      }).slice(0, 8);
+      if (!mvs.length) return;
+      teaser.innerHTML = '<div class="cinema-teaser-label">同人物 · 其他版本</div>' +
+        '<div class="cinema-teaser-row">' +
+          mvs.map(function(m){
+            return '<div class="cinema-teaser-card" data-work-id="' + String(m.work_id || "").replace(/"/g,"&quot;") + '">' +
+              ((m.duration_secs || 0) + "s") + '</div>';
+          }).join("") +
+        '</div>';
+      teaser.hidden = false;
+    } catch (_e) {}
+  }
+  function ensureCinemaStyles() {
+    if (document.getElementById("cssos-cinema-style")) return;
+    const s = document.createElement("style");
+    s.id = "cssos-cinema-style";
+    s.textContent =
+      '.panel[data-cinema="true"] .panel-bar,' +
+      '.panel[data-cinema="true"] .mvp-action-bar,' +
+      '.panel[data-cinema="true"] .mvp-settings,' +
+      '.panel[data-cinema="true"] .mvp-stages,' +
+      '.panel[data-cinema="true"] .mvp-cost,' +
+      '.panel[data-cinema="true"] .mvp-inputs { display:none !important; }' +
+      '.panel[data-cinema="true"] .panel-body { background:#000; padding:0; }' +
+      '.panel[data-cinema="true"] .cinema-stage { position:absolute; inset:0; background:#000; display:flex; align-items:center; justify-content:center; }' +
+      '.panel[data-cinema="true"] .cinema-video { width:100%; height:100%; object-fit:contain; background:#000; }' +
+      '.panel[data-cinema="true"] .cinema-strip { position:absolute; left:0; right:0; bottom:0; padding:8px 14px; color:#daffee; font:600 12px/1.3 ui-monospace,monospace; background:linear-gradient(transparent,rgba(0,0,0,.7)); text-align:center; }' +
+      '.panel[data-cinema="true"] .cinema-loading { position:absolute; color:#daffee; font:700 18px/1.3 ui-monospace,monospace; }' +
+      '.panel[data-cinema="true"] .cinema-teaser { position:absolute; left:0; right:0; bottom:36px; padding:8px 14px; color:#daffee; }' +
+      '.panel[data-cinema="true"] .cinema-teaser-label { font:700 11px/1 ui-monospace,monospace; color:#00f5a0; margin-bottom:6px; letter-spacing:.08em; }' +
+      '.panel[data-cinema="true"] .cinema-teaser-row { display:flex; gap:8px; overflow-x:auto; }' +
+      '.panel[data-cinema="true"] .cinema-teaser-card { flex:0 0 120px; aspect-ratio:16/9; background:rgba(255,255,255,.08); border:1px solid rgba(0,245,160,.3); border-radius:6px; display:flex; align-items:flex-end; justify-content:center; padding:4px; font:600 11px/1 ui-monospace,monospace; }' +
+      'body[data-cinema="true"] .floating-bottom-right,' +
+      'body[data-cinema="true"] .dock-floating,' +
+      'body[data-cinema="true"] #cssos-help-bubble,' +
+      'body[data-cinema="true"] .cssos-help-bubble,' +
+      'body[data-cinema="true"] .floating-help,' +
+      'body[data-cinema="true"] .dock { opacity:0; pointer-events:none; transition:opacity .3s; }';
+    document.head.appendChild(s);
+  }
+
   // Unified opener used by the dock, logo taps, right-click 一键MV, the Watch
   // MV/Music tab play button, etc. All universal entry points call this with
   // `{autoStart: true, seed}` so the 6-stage pipeline fires with zero clicks.
@@ -6283,6 +6503,13 @@
   //     pipeline to run in the background without the panel popping open.
   globalThis.openMvPipelinePanel = function (options) {
     const opts = options || {};
+    // CSSOS_PHASE2_MV_CINEMA 20260507 — Wave 2.5
+    // Cinema mode: maximize panel, hide chrome, autoplay queue of MVs.
+    if (opts.cinema === true) {
+      try { return enterCinemaMode(opts); } catch (err) {
+        console.warn("[cinema] enter failed:", err);
+      }
+    }
     // CSSOS_PHASE2_MV_GUEST_GATE — guests may not mount, view, or run the
     // pipeline. Universal entry points (Watch play, logo tap, right-click
     // 一键MV) all funnel through this opener, so this is the single choke

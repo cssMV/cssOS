@@ -9760,6 +9760,12 @@ async function ensurePersonMvTables() {
       );
       CREATE INDEX IF NOT EXISTS person_mvs_person_idx ON person_mvs (person_id);
       CREATE INDEX IF NOT EXISTS person_mvs_creator_idx ON person_mvs (created_by_user_id);
+
+      ALTER TABLE person_profiles ADD COLUMN IF NOT EXISTS name_native TEXT;
+      ALTER TABLE person_profiles ADD COLUMN IF NOT EXISTS name_latin TEXT;
+      ALTER TABLE person_profiles ADD COLUMN IF NOT EXISTS lore JSONB NOT NULL DEFAULT '{}'::jsonb;
+      ALTER TABLE person_profiles ADD COLUMN IF NOT EXISTS portrait_url TEXT;
+      ALTER TABLE person_profiles ADD COLUMN IF NOT EXISTS portrait_generated_at TIMESTAMPTZ;
     `),
   );
 }
@@ -9772,13 +9778,18 @@ async function seedPersonProfilesOnce() {
     await withClient((client) =>
       client.query(
         `INSERT INTO person_profiles (
-            person_id, name_zh, name_en, civilization, era, lifespan,
+            person_id, name_zh, name_en, name_native, name_latin,
+            civilization, era, lifespan,
             roles, core_theme, visual_symbols, music_style_hint, tone,
             influence_score, risk_notes, source_status
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'curated')
-         ON CONFLICT (person_id) DO NOTHING`,
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'curated')
+         ON CONFLICT (person_id) DO UPDATE SET
+            name_native = EXCLUDED.name_native,
+            name_latin  = EXCLUDED.name_latin`,
         [
-          p.person_id, p.name_zh, p.name_en, p.civilization, p.era, p.lifespan,
+          p.person_id, p.name_zh, p.name_en,
+          (p as any).name_native || null, (p as any).name_latin || null,
+          p.civilization, p.era, p.lifespan,
           p.roles, p.core_theme, p.visual_symbols, p.music_style_hint, p.tone,
           p.influence_score, p.risk_notes,
         ],
@@ -13971,6 +13982,141 @@ app.get("/api/person-mv/persons/:id", async (req, res) => {
   } catch (err) {
     console.warn("[person-mv] detail failed:", (err as Error)?.message || err);
     return res.status(500).json({ ok: false, code: "PERSON_DETAIL_FAILED" });
+  }
+});
+
+/* CSSOS_PERSON_MV_CODEX 20260507 — Jing
+ * Wave 2.5 — Person Codex page. Returns the full lore + portrait +
+ * MV gallery + contemporaries + lineage for a single person. Lore
+ * and portrait are generated on first request (best-effort) and
+ * cached on the row. ?refresh=1 forces regeneration. */
+app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
+  noStore(res);
+  try {
+    await seedPersonProfilesOnce();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const refresh = String(req.query.refresh || "") === "1";
+    const r = await withClient((c) =>
+      c.query<any>(`SELECT * FROM person_profiles WHERE person_id = $1`, [id]),
+    );
+    let person: any = r.rows[0];
+    if (!person) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+
+    // Best-effort lore generation
+    let lore: any = person.lore || {};
+    const loreEmpty = !lore || !lore.bio || (Array.isArray(lore.events) && lore.events.length === 0);
+    if (refresh || loreEmpty) {
+      try {
+        const sysPrompt =
+          "你是文明编年史官。返回严格 JSON，键: bio (string, 80-160字, 中文), " +
+          "events (array of {year:string, title:string, impact:string}, 5-8项), " +
+          "contributions (array of string, 3-6项), controversies (array of string, 1-4项), " +
+          "assessments (array of {perspective:'东方'|'西方'|'现代', text:string}, 恰好3项), " +
+          "contemporaries (array of string), lineage (array of string), " +
+          "influenced (array of string)。要求多视角平衡, 不神化不黑化, 全部使用 zh-CN。" +
+          "只返回 JSON 不要其他文字。";
+        const userPrompt = `人物: ${person.name_zh} (${person.name_en})\n` +
+          `文明: ${person.civilization}\n时代: ${person.era || ""}\n生卒: ${person.lifespan || ""}\n` +
+          `主题: ${person.core_theme || ""}\n意象: ${(person.visual_symbols || []).join("、")}`;
+        const llm = await callLlm({
+          messages: [
+            { role: "system", content: sysPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          temperature: 0.5,
+          max_tokens: 1500,
+          response_format: { type: "json_object" },
+        });
+        if (llm.ok && llm.content) {
+          const parsed = JSON.parse(llm.content);
+          lore = { ...parsed, generated_at: new Date().toISOString() };
+          await withClient((c) =>
+            c.query(`UPDATE person_profiles SET lore = $1::jsonb, updated_at = now() WHERE person_id = $2`,
+              [JSON.stringify(lore), id]),
+          );
+        }
+      } catch (err) {
+        console.warn("[person-mv] codex lore gen failed:", (err as Error)?.message || err);
+      }
+    }
+
+    // Best-effort portrait generation
+    let portraitUrl: string | null = person.portrait_url || null;
+    if (refresh || !portraitUrl) {
+      try {
+        const portraitPrompt = `Cinematic hero portrait of ${person.name_zh} (${person.name_en}), ` +
+          `${person.civilization} civilization, ${person.era || ""}, ` +
+          `${(person.visual_symbols || []).join(" ")}, painterly, dramatic lighting, no text, 16:9`;
+        const img = await callImageGen({ prompt: portraitPrompt, size: "1024x576" });
+        if (img.ok && img.image_url) {
+          portraitUrl = img.image_url;
+          await withClient((c) =>
+            c.query(`UPDATE person_profiles SET portrait_url = $1, portrait_generated_at = now() WHERE person_id = $2`,
+              [portraitUrl, id]),
+          );
+        }
+      } catch (err) {
+        console.warn("[person-mv] codex portrait gen failed:", (err as Error)?.message || err);
+      }
+    }
+
+    // MV gallery
+    const mvsR = await withClient((c) =>
+      c.query(
+        `SELECT mv_id, work_id, created_by_user_id, duration_secs, created_at
+           FROM person_mvs WHERE person_id = $1
+           ORDER BY created_at DESC LIMIT 100`,
+        [id],
+      ),
+    );
+    const totalMvCount = mvsR.rowCount || 0;
+    let myMvCount = 0;
+    try {
+      const u = await getSessionUser(req).catch(() => null);
+      if (u && u.id) {
+        myMvCount = mvsR.rows.filter((row: any) => String(row.created_by_user_id) === String(u.id)).length;
+      }
+    } catch (_e) {}
+
+    // Contemporaries — different civilization, ordered by influence
+    const contemR = await withClient((c) =>
+      c.query(
+        `SELECT person_id, name_zh, name_en, civilization, era, influence_score
+           FROM person_profiles
+          WHERE person_id <> $1 AND civilization <> $2 AND era IS NOT NULL
+          ORDER BY influence_score DESC LIMIT 6`,
+        [id, person.civilization],
+      ),
+    );
+
+    // Lineage — same civilization
+    const linR = await withClient((c) =>
+      c.query(
+        `SELECT person_id, name_zh, name_en, civilization, era, influence_score
+           FROM person_profiles
+          WHERE person_id <> $1 AND civilization = $2
+          ORDER BY influence_score DESC LIMIT 6`,
+        [id, person.civilization],
+      ),
+    );
+
+    return res.json({
+      ok: true,
+      data: {
+        person,
+        lore: lore || {},
+        portrait_url: portraitUrl,
+        mvs: mvsR.rows,
+        contemporaries: contemR.rows,
+        lineage: linR.rows,
+        total_mv_count: totalMvCount,
+        my_mv_count: myMvCount,
+      },
+    });
+  } catch (err) {
+    console.warn("[person-mv] codex failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "CODEX_FAILED" });
   }
 });
 

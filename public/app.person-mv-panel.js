@@ -442,7 +442,7 @@
       var now = Date.now();
       if (now - cardLastFire < 400) return;
       cardLastFire = now;
-      jumpIntoPipeline(p);
+      openCodex(p.person_id);
     }, true);
     panelEl.addEventListener("click", function (e) {
       var p = cardCore(e);
@@ -451,7 +451,7 @@
       var now = Date.now();
       if (now - cardLastFire < 400) return;
       cardLastFire = now;
-      jumpIntoPipeline(p);
+      openCodex(p.person_id);
       try { e.preventDefault(); e.stopPropagation(); } catch (_e) {}
     }, true);
   }
@@ -536,7 +536,7 @@
       card.onclick = function (e) {
         console.warn("[person-mv] card.onclick", p.person_id);
         if (e) { try { e.preventDefault(); e.stopPropagation(); } catch (_e) {} }
-        jumpIntoPipeline(p);
+        openCodex(p.person_id);
       };
       grid.appendChild(card);
     });
@@ -647,6 +647,321 @@
       console.warn("[person-mv] openMvPipelinePanel not available", seed);
     }
   }
+
+  /* CSSOS_PERSON_MV_CODEX 20260507 — Wave 2.5
+   * Click a card → load /codex → swap panel body to codex view.
+   * Hero portrait + bio + timeline + contributions/controversies +
+   * assessments + MV gallery + contemporaries + lineage. Back button
+   * restores grid view. URL hash sync for deep-link. */
+  var codexState = { activeId: null };
+
+  function ensureCodexStyles() {
+    if (document.getElementById("cssos-person-codex-style")) return;
+    var s = document.createElement("style");
+    s.id = "cssos-person-codex-style";
+    s.textContent =
+      ".pmv-codex{padding:0;color:#daffee;overflow-y:auto;max-height:100%;}" +
+      ".pmv-codex .pmv-hero{position:relative;height:280px;border-radius:12px;overflow:hidden;margin:12px;background:linear-gradient(135deg,#012019,#003a2c);}" +
+      ".pmv-codex .pmv-hero img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.55;}" +
+      ".pmv-codex .pmv-hero-overlay{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-end;padding:18px;background:linear-gradient(transparent,rgba(0,0,0,.65));}" +
+      ".pmv-codex .pmv-hero-name-zh{font:800 32px/1.1 ui-serif,serif;color:#fff;letter-spacing:.04em;}" +
+      ".pmv-codex .pmv-hero-name-native{font:600 18px/1.2 ui-serif,serif;color:#bff5dc;margin-top:4px;}" +
+      ".pmv-codex .pmv-hero-name-latin{font:italic 500 13px/1.2 ui-serif,serif;color:#8edcc1;margin-top:2px;}" +
+      ".pmv-codex .pmv-chip-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;}" +
+      ".pmv-codex .pmv-chip{background:rgba(0,245,160,0.15);border:1px solid rgba(0,245,160,0.35);border-radius:999px;padding:3px 10px;font:600 11px/1.4 ui-monospace,monospace;color:#daffee;}" +
+      ".pmv-codex .pmv-chip-fallback{font-size:42px;letter-spacing:8px;opacity:.5;}" +
+      ".pmv-codex .pmv-action-bar{display:flex;gap:10px;margin:0 12px 12px;flex-wrap:wrap;}" +
+      ".pmv-codex .pmv-action-bar button{all:unset;cursor:pointer;padding:10px 18px;border-radius:10px;font:700 13px/1 ui-monospace,monospace;}" +
+      ".pmv-codex .pmv-cinema{background:linear-gradient(135deg,#00f5a0,#00c280);color:#001b14;font-size:15px!important;padding:12px 22px!important;}" +
+      ".pmv-codex .pmv-secondary{background:rgba(0,245,160,.12);border:1px solid rgba(0,245,160,.35);color:#daffee;}" +
+      ".pmv-codex .pmv-back{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);color:#daffee;}" +
+      ".pmv-codex .pmv-section{margin:14px 12px;padding:12px;background:rgba(8,18,16,.55);border:1px solid rgba(0,245,160,.18);border-radius:12px;}" +
+      ".pmv-codex .pmv-section h3{margin:0 0 8px;font:700 13px/1.2 ui-monospace,monospace;letter-spacing:.06em;color:#00f5a0;}" +
+      ".pmv-codex .pmv-bio{font:500 14px/1.6 ui-serif,serif;color:#e6fff5;}" +
+      ".pmv-codex .pmv-timeline{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px;}" +
+      ".pmv-codex .pmv-event{flex:0 0 220px;background:rgba(0,245,160,.06);border:1px solid rgba(0,245,160,.2);border-radius:10px;padding:10px;}" +
+      ".pmv-codex .pmv-event-year{font:700 12px/1 ui-monospace,monospace;color:#00f5a0;}" +
+      ".pmv-codex .pmv-event-title{font:600 13px/1.3 ui-serif,serif;margin:4px 0;}" +
+      ".pmv-codex .pmv-event-impact{font:500 11px/1.4 ui-monospace,monospace;color:#bff5dc;}" +
+      ".pmv-codex .pmv-two-col{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 12px;}" +
+      ".pmv-codex .pmv-two-col .pmv-section{margin:0;}" +
+      ".pmv-codex .pmv-list{margin:0;padding-left:16px;font:500 13px/1.6 ui-serif,serif;color:#e6fff5;}" +
+      ".pmv-codex .pmv-assess{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;}" +
+      ".pmv-codex .pmv-assess-card{background:rgba(0,245,160,.06);border:1px solid rgba(0,245,160,.2);border-radius:10px;padding:10px;}" +
+      ".pmv-codex .pmv-assess-perspective{font:700 11px/1 ui-monospace,monospace;color:#00f5a0;letter-spacing:.08em;}" +
+      ".pmv-codex .pmv-assess-text{font:500 13px/1.5 ui-serif,serif;margin-top:6px;color:#e6fff5;}" +
+      ".pmv-codex .pmv-mv-tabs{display:flex;gap:8px;margin-bottom:8px;}" +
+      ".pmv-codex .pmv-mv-tab{padding:4px 10px;border-radius:999px;background:rgba(0,245,160,.08);border:1px solid rgba(0,245,160,.25);font:600 11px/1.3 ui-monospace,monospace;color:#daffee;cursor:pointer;}" +
+      ".pmv-codex .pmv-mv-tab.is-active{background:rgba(0,245,160,.7);color:#001b14;}" +
+      ".pmv-codex .pmv-mv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;}" +
+      ".pmv-codex .pmv-mv-card{aspect-ratio:16/9;background:rgba(0,0,0,.4);border:1px solid rgba(0,245,160,.2);border-radius:8px;cursor:pointer;display:flex;align-items:end;justify-content:center;padding:6px;font:600 11px/1.2 ui-monospace,monospace;color:#bff5dc;text-align:center;}" +
+      ".pmv-codex .pmv-empty-mv{text-align:center;padding:30px 12px;color:#9ad6c0;}" +
+      ".pmv-codex .pmv-mini-row{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;}" +
+      ".pmv-codex .pmv-mini{flex:0 0 130px;background:rgba(8,18,16,.55);border:1px solid rgba(0,245,160,.2);border-radius:10px;padding:8px;cursor:pointer;}" +
+      ".pmv-codex .pmv-mini-name{font:700 12px/1.2 ui-serif,serif;color:#daffee;}" +
+      ".pmv-codex .pmv-mini-meta{font:500 10px/1.3 ui-monospace,monospace;color:#9ad6c0;margin-top:4px;}" +
+      ".pmv-codex .pmv-skel{padding:30px;text-align:center;color:#9ad6c0;}" +
+      ".pmv-codex .pmv-influence-bar{height:6px;border-radius:3px;background:rgba(255,255,255,.08);margin-top:6px;overflow:hidden;}" +
+      ".pmv-codex .pmv-influence-fill{height:100%;background:linear-gradient(90deg,#00f5a0,#7dffce);}";
+    document.head.appendChild(s);
+  }
+
+  function escAttr(s){ return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
+  function escTxt(s){ return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+  async function openCodex(personId) {
+    if (!personId) return;
+    var pnl = ensurePanel();
+    pnl.classList.remove("hidden");
+    pnl.style.display = "";
+    pnl.style.pointerEvents = "";
+    ensureCodexStyles();
+    codexState.activeId = personId;
+    try { history.replaceState(null, "", "#person-mv/codex/" + encodeURIComponent(personId)); } catch (_e) {}
+
+    var body = pnl.querySelector(".panel-body");
+    if (!body) return;
+    // hide grid + toolbar; show codex
+    var toolbar = body.querySelector(".person-mv-toolbar");
+    var grid = body.querySelector(".person-mv-grid");
+    var createTip = body.querySelector(".person-mv-create-anybody");
+    if (toolbar) toolbar.style.display = "none";
+    if (grid) grid.style.display = "none";
+    if (createTip) createTip.style.display = "none";
+
+    var host = body.querySelector(".pmv-codex");
+    if (!host) {
+      host = document.createElement("div");
+      host.className = "pmv-codex";
+      body.appendChild(host);
+    }
+    host.style.display = "";
+    host.innerHTML = '<div class="pmv-skel">' + escTxt(tt("Loading codex…", "正在加载文明档案…")) + '</div>';
+
+    var refresh = false;
+    await renderCodex(host, personId, refresh);
+  }
+
+  function closeCodex() {
+    if (!panelEl) return;
+    var body = panelEl.querySelector(".panel-body");
+    if (!body) return;
+    var toolbar = body.querySelector(".person-mv-toolbar");
+    var grid = body.querySelector(".person-mv-grid");
+    var createTip = body.querySelector(".person-mv-create-anybody");
+    var host = body.querySelector(".pmv-codex");
+    if (toolbar) toolbar.style.display = "";
+    if (grid) grid.style.display = "";
+    if (createTip) createTip.style.display = "";
+    if (host) host.style.display = "none";
+    codexState.activeId = null;
+    try { history.replaceState(null, "", "#person-mv"); } catch (_e) {}
+  }
+
+  async function renderCodex(host, personId, refresh) {
+    try {
+      var url = "/api/person-mv/persons/" + encodeURIComponent(personId) + "/codex" + (refresh ? "?refresh=1" : "");
+      var res = await fetch(url, { credentials: "include", headers: { Accept: "application/json" } });
+      var json = await res.json().catch(function(){ return null; });
+      if (!json || !json.ok) {
+        host.innerHTML = '<div class="pmv-skel">' + escTxt(tt("Failed to load codex.", "档案加载失败。")) +
+          ' <button class="pmv-back">' + escTxt(tt("Back", "返回")) + '</button></div>';
+        wireBack(host);
+        return;
+      }
+      var data = json.data || {};
+      var p = data.person || {};
+      var lore = data.lore || {};
+      var portrait = data.portrait_url || "";
+      var symbols = (p.visual_symbols || []).join(" ");
+      var meta = [p.lifespan, p.civilization, p.era].filter(Boolean).join(" · ");
+      var influence = Math.max(0, Math.min(100, Number(p.influence_score || 0)));
+
+      var heroBg = portrait
+        ? '<img src="' + escAttr(portrait) + '" alt="" />'
+        : '<div class="pmv-chip-fallback" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">' + escTxt(symbols.slice(0, 16)) + '</div>';
+
+      var nameZh = p.name_zh || p.name_en || personId;
+      var nameNative = p.name_native && p.name_native !== nameZh ? p.name_native : "";
+      var nameLatin = p.name_latin || (p.name_en && p.name_en !== nameZh ? p.name_en : "");
+
+      var loreEmpty = !lore || (!lore.bio && !(Array.isArray(lore.events) && lore.events.length));
+
+      var h = "";
+      h += '<div class="pmv-hero">' + heroBg +
+        '<div class="pmv-hero-overlay">' +
+          '<div class="pmv-hero-name-zh">' + escTxt(nameZh) + '</div>' +
+          (nameNative ? '<div class="pmv-hero-name-native">' + escTxt(nameNative) + '</div>' : '') +
+          (nameLatin ? '<div class="pmv-hero-name-latin">' + escTxt(nameLatin) + '</div>' : '') +
+          '<div class="pmv-chip-row">' +
+            (meta ? '<span class="pmv-chip">' + escTxt(meta) + '</span>' : '') +
+            '<span class="pmv-chip">' + escTxt(tt("Influence", "影响力")) + ' · ' + influence + '</span>' +
+          '</div>' +
+          '<div class="pmv-influence-bar"><div class="pmv-influence-fill" style="width:' + influence + '%"></div></div>' +
+        '</div>' +
+      '</div>';
+
+      h += '<div class="pmv-action-bar">' +
+        '<button class="pmv-cinema">🎬 ' + escTxt(tt("Enter Cinema", "进入影院")) + '</button>' +
+        '<button class="pmv-secondary pmv-create-mv">✨ ' + escTxt(tt("Create New Version", "创作新版本")) + '</button>' +
+        '<button class="pmv-back">← ' + escTxt(tt("Back", "返回")) + '</button>' +
+      '</div>';
+
+      if (loreEmpty) {
+        h += '<div class="pmv-section"><div class="pmv-skel">' +
+          escTxt(tt("Codex is being generated.", "档案正在生成中。")) +
+          ' <button class="pmv-secondary pmv-retry">' + escTxt(tt("Retry", "重试")) + '</button></div></div>';
+      } else {
+        if (lore.bio) {
+          h += '<div class="pmv-section"><h3>' + escTxt(tt("Biography", "生平")) + '</h3>' +
+            '<div class="pmv-bio">' + escTxt(lore.bio) + '</div></div>';
+        }
+        if (Array.isArray(lore.events) && lore.events.length) {
+          h += '<div class="pmv-section"><h3>' + escTxt(tt("Timeline", "重要事件")) + '</h3>' +
+            '<div class="pmv-timeline">' +
+              lore.events.map(function(ev){
+                return '<div class="pmv-event">' +
+                  '<div class="pmv-event-year">' + escTxt(ev.year || "") + '</div>' +
+                  '<div class="pmv-event-title">' + escTxt(ev.title || "") + '</div>' +
+                  '<div class="pmv-event-impact">' + escTxt(ev.impact || "") + '</div>' +
+                '</div>';
+              }).join("") +
+            '</div></div>';
+        }
+        var contribs = Array.isArray(lore.contributions) ? lore.contributions : [];
+        var controv = Array.isArray(lore.controversies) ? lore.controversies : [];
+        if (contribs.length || controv.length) {
+          h += '<div class="pmv-two-col">' +
+            '<div class="pmv-section"><h3>🌟 ' + escTxt(tt("Contributions", "贡献")) + '</h3>' +
+              '<ul class="pmv-list">' + contribs.map(function(c){ return '<li>' + escTxt(c) + '</li>'; }).join("") + '</ul></div>' +
+            '<div class="pmv-section"><h3>⚠️ ' + escTxt(tt("Controversies", "争议")) + '</h3>' +
+              '<ul class="pmv-list">' + controv.map(function(c){ return '<li>' + escTxt(c) + '</li>'; }).join("") + '</ul></div>' +
+          '</div>';
+        }
+        if (Array.isArray(lore.assessments) && lore.assessments.length) {
+          h += '<div class="pmv-section"><h3>' + escTxt(tt("Assessments", "多视角评说")) + '</h3>' +
+            '<div class="pmv-assess">' +
+              lore.assessments.map(function(a){
+                return '<div class="pmv-assess-card">' +
+                  '<div class="pmv-assess-perspective">' + escTxt(a.perspective || "") + '</div>' +
+                  '<div class="pmv-assess-text">' + escTxt(a.text || "") + '</div>' +
+                '</div>';
+              }).join("") +
+            '</div></div>';
+        }
+      }
+
+      // MV gallery
+      var mvs = Array.isArray(data.mvs) ? data.mvs : [];
+      var totalCount = data.total_mv_count || mvs.length || 0;
+      var myCount = data.my_mv_count || 0;
+      h += '<div class="pmv-section"><h3>🎞 ' + escTxt(tt("MV Gallery", "MV 作品")) + '</h3>' +
+        '<div class="pmv-mv-tabs">' +
+          '<span class="pmv-mv-tab is-active" data-mv-tab="all">' + escTxt(tt("All", "全站")) + ' · ' + totalCount + '</span>' +
+          '<span class="pmv-mv-tab" data-mv-tab="mine">' + escTxt(tt("Mine", "我的")) + ' · ' + myCount + '</span>' +
+        '</div>';
+      if (!mvs.length) {
+        h += '<div class="pmv-empty-mv">' + escTxt(tt("No MV yet — be the first to create one?", "还没有人为TA创作 MV，做第一个？")) +
+          ' <button class="pmv-secondary pmv-create-mv">✨ ' + escTxt(tt("Create now", "立即创作")) + '</button></div>';
+      } else {
+        h += '<div class="pmv-mv-grid">' +
+          mvs.map(function(m){
+            return '<div class="pmv-mv-card" data-work-id="' + escAttr(m.work_id) + '">' +
+              escTxt((m.duration_secs || 0) + "s") + '</div>';
+          }).join("") +
+        '</div>';
+      }
+      h += '</div>';
+
+      // Contemporaries
+      var contemp = Array.isArray(data.contemporaries) ? data.contemporaries : [];
+      if (contemp.length) {
+        h += '<div class="pmv-section"><h3>🌐 ' + escTxt(tt("Contemporaries (other civilizations)", "同时代 · 异文明")) + '</h3>' +
+          '<div class="pmv-mini-row">' +
+            contemp.map(function(c){
+              return '<div class="pmv-mini" data-codex-jump="' + escAttr(c.person_id) + '">' +
+                '<div class="pmv-mini-name">' + escTxt(c.name_zh || c.name_en) + '</div>' +
+                '<div class="pmv-mini-meta">' + escTxt([c.civilization, c.era].filter(Boolean).join(" · ")) + '</div>' +
+              '</div>';
+            }).join("") +
+          '</div></div>';
+      }
+      // Lineage
+      var lineage = Array.isArray(data.lineage) ? data.lineage : [];
+      if (lineage.length) {
+        h += '<div class="pmv-section"><h3>🧬 ' + escTxt(tt("Same-civilization lineage", "同文明谱系")) + '</h3>' +
+          '<div class="pmv-mini-row">' +
+            lineage.map(function(c){
+              return '<div class="pmv-mini" data-codex-jump="' + escAttr(c.person_id) + '">' +
+                '<div class="pmv-mini-name">' + escTxt(c.name_zh || c.name_en) + '</div>' +
+                '<div class="pmv-mini-meta">' + escTxt([c.civilization, c.era].filter(Boolean).join(" · ")) + '</div>' +
+              '</div>';
+            }).join("") +
+          '</div></div>';
+      }
+
+      host.innerHTML = h;
+      wireBack(host);
+
+      // Cinema button
+      var cinemaBtn = host.querySelector(".pmv-cinema");
+      if (cinemaBtn) {
+        cinemaBtn.addEventListener("click", function(){
+          var queue = mvs.map(function(m){ return m.work_id; }).filter(Boolean);
+          var seed = buildSeed(p);
+          if (typeof globalThis.openMvPipelinePanel === "function") {
+            globalThis.openMvPipelinePanel({ cinema: true, queue: queue, personId: p.person_id, seed: seed });
+          }
+        });
+      }
+      // Create-new-version button(s)
+      host.querySelectorAll(".pmv-create-mv").forEach(function(btn){
+        btn.addEventListener("click", function(){ jumpIntoPipeline(p); });
+      });
+      // Retry
+      var retryBtn = host.querySelector(".pmv-retry");
+      if (retryBtn) {
+        retryBtn.addEventListener("click", function(){
+          host.innerHTML = '<div class="pmv-skel">' + escTxt(tt("Generating codex…", "正在生成档案…")) + '</div>';
+          renderCodex(host, personId, true);
+        });
+      }
+      // Mini cards → jump to that person's codex
+      host.querySelectorAll("[data-codex-jump]").forEach(function(el){
+        el.addEventListener("click", function(){
+          var pid = el.getAttribute("data-codex-jump");
+          if (pid) openCodex(pid);
+        });
+      });
+    } catch (err) {
+      console.warn("[person-mv] codex render failed", err);
+      host.innerHTML = '<div class="pmv-skel">' + escTxt(tt("Codex unavailable.", "档案暂不可用。")) +
+        ' <button class="pmv-back">' + escTxt(tt("Back", "返回")) + '</button></div>';
+      wireBack(host);
+    }
+  }
+
+  function wireBack(host) {
+    host.querySelectorAll(".pmv-back").forEach(function(btn){
+      btn.addEventListener("click", closeCodex);
+    });
+  }
+
+  // Deep-link: read hash on init
+  function maybeOpenFromHash() {
+    try {
+      var m = String(location.hash || "").match(/^#person-mv\/codex\/([^/?]+)/);
+      if (m && m[1]) {
+        setTimeout(function(){ openCodex(decodeURIComponent(m[1])); }, 300);
+      } else if (/^#person-mv/.test(String(location.hash || ""))) {
+        setTimeout(function(){ open(); }, 300);
+      }
+    } catch (_e) {}
+  }
+  // Defer to once panel module is ready
+  setTimeout(maybeOpenFromHash, 600);
+
+  globalThis.openPersonMvCodex = openCodex;
 
   function open() {
     var p = ensurePanel();

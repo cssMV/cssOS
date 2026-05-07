@@ -1212,6 +1212,16 @@
           surpriseBtn.disabled = false;
           surpriseBtn.textContent = orig;
         }
+        /* CSSOS_PHASE3_SURPRISE_AUTOSTART 20260507 — Jing
+         * "惊喜按钮，点击之后，就不要再让用户点击开始流程按钮，而是直接
+         *  触发开始流程按钮". Surprise → seed → immediately fire Start
+         * (the same handler #mvp-run uses). */
+        try {
+          const runBtn = panel.querySelector("#mvp-run");
+          if (runBtn && !runBtn.disabled) {
+            runBtn.click();
+          }
+        } catch (_e) { /* best-effort */ }
       });
     }
     // #147: #mvp-save button removed — auto-save runs from compose-done.

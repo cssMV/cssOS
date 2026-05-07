@@ -6825,44 +6825,28 @@ async function requestOpenAiCssmvSongSeed(
       timeoutMs + (attempt - 1) * 15000,
     );
     try {
-      const upstream = await fetch(
-        "https://api.openai.com/v1/chat/completions",
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model,
-            messages,
-            ...(responseFormat ? { response_format: responseFormat } : {}),
-          }),
-          signal: controller.signal,
-        },
-      );
-      const payload = await upstream.json().catch(() => null);
+      // CSSOS_LLM_ROUTER 20260506 — song-seed migrated to the unified
+      // router. Goes through Groq → Cerebras → OpenAI in order. The
+      // controller/abort-signal logic stays so a stuck provider can
+      // be cancelled at the call-site level.
+      const result = await callLlm({
+        messages,
+        ...(responseFormat ? { response_format: responseFormat } : {}),
+      });
       clearTimeout(timeout);
-      if (!upstream.ok) {
-        const errorBody =
-          payload && typeof payload === "object"
-            ? (payload.error as Record<string, unknown> | undefined)
-            : undefined;
+      if (!result.ok) {
         const failure = {
-          status: upstream.status,
-          code: String(
-            errorBody?.code || errorBody?.type || `http_${upstream.status}`,
-          ),
-          message: String(errorBody?.message || "OpenAI request failed"),
-          type: String(errorBody?.type || ""),
+          status: result.status,
+          code: `http_${result.status}`,
+          message: result.error || "LLM request failed",
+          type: "",
         };
         onFailure(failure);
-        console.warn("[cssmv.song_seed] OpenAI request failed", {
+        console.warn("[cssmv.song_seed] LLM request failed", {
           status: failure.status,
           code: failure.code,
-          type: failure.type,
           attempt,
-          model,
+          provider: result.provider,
           hasTitle: Boolean(String(input.title || "").trim()),
           language: String(input.language || "").trim() || "zh",
         });
@@ -6870,18 +6854,15 @@ async function requestOpenAiCssmvSongSeed(
           attempt < 3 &&
           (failure.status === 408 ||
             failure.status === 429 ||
-            failure.code === "request_timeout" ||
-            failure.code === "rate_limit_exceeded" ||
-            failure.type === "timeout")
+            failure.status === 502 ||
+            failure.status === 503)
         ) {
           await new Promise((resolve) => setTimeout(resolve, 900 * attempt));
           return requestPayload(responseFormat, attempt + 1);
         }
         return null;
       }
-      const content = String(
-        payload?.choices?.[0]?.message?.content || "",
-      ).trim();
+      const content = result.content.trim();
       if (!content) return null;
       try {
         return JSON.parse(content) as CssmvOpenAiSongSeedRaw;

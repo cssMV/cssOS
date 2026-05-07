@@ -2040,13 +2040,7 @@
       .map((entry) => `@font-face{font-family:"${entry.family.replace(/"/g, "\"")}";src:url("/${entry.src}") format("${entry.format}");font-display:swap;}`)
       .join("\n");
     document.head.appendChild(style);
-    console.info(
-      "[font-manifest] Loaded " + survivors.length + "/" + entries.length +
-      " fonts (pruned " + (entries.length - survivors.length) +
-      " missing src roots: " +
-      Object.keys(availableRoots).filter((r) => !availableRoots[r]).join(", ") +
-      ")"
-    );
+    // Silenced 20260506 — keep console clean (only the LOGO survives).
   }
 
   // Optimistic boot: if the cache says a root is available, inject those
@@ -2159,11 +2153,7 @@
         // wait for the next tick.
       }
     } catch (_e) {}
-    console.info(
-      "%c[font-manifest] Injected " + fonts.length +
-      " Google fancy fonts (mobile=" + isMobileViewport() + ")",
-      "color:#d2a; font-weight:bold"
-    );
+    // Silenced 20260506 — keep console clean.
   }
   // CSSOS_PHASE2_MOBILE_PAIN_RELIEF 20260505 — Jing
   // On mobile, defer Google Fonts injection until first user

@@ -13147,6 +13147,60 @@ app.get("/cssapi/v1/mv", async (req, res) => {
  * Authentication: optional. Guests get the same shape as logged-in
  * users; only the access flags differ.
  */
+/* CSSOS_PHASE3_KARAOKE_BULK 20260507 — Jing
+ * Admin-only "transcribe all stale works" sweep. Looks up every work
+ * that has audio_track_1 but no whisper_words yet and serially
+ * enqueues Whisper through Groq (free tier). Serial, not parallel:
+ * one work at a time, ~5s each, so we never hammer Groq's rate limit. */
+app.post("/api/admin/karaoke/transcribe-all", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const access = await resolveUserAccessProfile(user);
+    if (String(access.role || "").toLowerCase() !== "admin") {
+      return res.status(403).json({ ok: false, code: "ADMIN_ONLY" });
+    }
+    const stale = await withClient((c) =>
+      c.query<{ id: string }>(
+        `SELECT w.id
+           FROM user_works w
+           JOIN work_assets ata ON ata.work_id = w.id AND ata.asset_type = 'audio_track_1'
+          WHERE NOT EXISTS (
+                  SELECT 1 FROM work_assets ww
+                   WHERE ww.work_id = w.id AND ww.asset_type = 'whisper_words'
+                     AND COALESCE(ww.meta->>'word_count', '0')::int > 0
+                )
+          ORDER BY w.created_at DESC
+          LIMIT 1000`,
+      ),
+    );
+    const ids = stale.rows.map((r) => r.id);
+    // Fire-and-forget worker — serialise so we don't burst Groq.
+    setImmediate(async () => {
+      let ok = 0, fail = 0;
+      for (const id of ids) {
+        try {
+          await enqueueKaraokeTranscription(id);
+          ok += 1;
+        } catch (err) {
+          fail += 1;
+          console.warn("[karaoke-bulk] failed", id, (err as Error)?.message || err);
+        }
+        // Pace ourselves — one Groq call every ~5s = 12/min, well
+        // under the free-tier rate cap.
+        await new Promise((r) => setTimeout(r, 5000));
+      }
+      console.info("[karaoke-bulk] done — ok:%d fail:%d", ok, fail);
+    });
+    return res.json({ ok: true, data: { queued: ids.length, eta_seconds: ids.length * 5 } });
+  } catch (_err) {
+    return res.status(500).json({ ok: false, code: "BULK_FAILED" });
+  }
+});
+
 /* CSSOS_PHASE3_KARAOKE_MANUAL — explicit transcription trigger so the
  * frontend can request word timings on first play for works that
  * predate the auto-enqueue (and so admins can re-transcribe). */

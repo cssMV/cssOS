@@ -7995,12 +7995,16 @@ const LLM_PROVIDER_DEFAULTS = {
   // /v1beta/models/<model>:generateContent and the schema differs.
   // Adapter below translates messages → contents and choices → candidates.
   gemini:   { url: "https://generativelanguage.googleapis.com/v1beta/models",                       model: "gemini-2.0-flash",          keyEnv: "GEMINI_API_KEY",   dialect: "gemini" },
+  // DeepSeek-V3 — OpenAI-compatible endpoint, ~$0.14/1M tokens (≈ 1/30
+  // the cost of GPT-4). Sits ahead of OpenAI as the cheap-paid fallback
+  // when all free tiers are exhausted.
+  deepseek: { url: "https://api.deepseek.com/v1/chat/completions",                                   model: "deepseek-chat",             keyEnv: "DEEPSEEK_API_KEY", dialect: "openai" },
   openai:   { url: "https://api.openai.com/v1/chat/completions",                                     model: "gpt-4o-mini",               keyEnv: "OPENAI_API_KEY",   dialect: "openai" },
 } as const;
 type LlmProvider = keyof typeof LLM_PROVIDER_DEFAULTS;
 
 function llmProviderOrder(prefer?: string[]): LlmProvider[] {
-  const env = String(process.env.LLM_PROVIDER_ORDER || "groq,cerebras,gemini,openai")
+  const env = String(process.env.LLM_PROVIDER_ORDER || "groq,cerebras,gemini,deepseek,openai")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   const list = (prefer && prefer.length ? prefer : env)
     .filter((p): p is LlmProvider => p in LLM_PROVIDER_DEFAULTS);

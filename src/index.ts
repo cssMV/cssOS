@@ -13990,6 +13990,72 @@ app.get("/api/person-mv/persons/:id", async (req, res) => {
  * MV gallery + contemporaries + lineage for a single person. Lore
  * and portrait are generated on first request (best-effort) and
  * cached on the row. ?refresh=1 forces regeneration. */
+/* CSSOS_PHASE2_WIKI_FEEDER 20260507 — Wave 2.6 — Jing
+ * Fetches Wikipedia summary (zh first, en fallback) for a person profile.
+ * Used by the codex endpoint to ground the LLM's lore output in real facts
+ * and to source a real portrait image when one exists. Returns
+ * `{found:false}` on any error so callers fall through to the
+ * pure-LLM + AI-portrait path (which is the right behavior for ad-hoc
+ * Wave 3 persons that have no Wikipedia page).
+ */
+type WikiContext = {
+  found: boolean;
+  zh_extract?: string;
+  en_extract?: string;
+  zh_thumb?: string;
+  zh_original?: string;
+  en_thumb?: string;
+  en_original?: string;
+  zh_description?: string;
+  en_description?: string;
+};
+async function fetchWikipediaContext(person: any): Promise<WikiContext> {
+  const out: WikiContext = { found: false };
+  const ua = "cssOS/1.0 (https://cssmv.com)";
+  const fetchOne = async (lang: "zh" | "en", title: string) => {
+    if (!title) return null;
+    const url = `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 5000);
+    try {
+      const r = await fetch(url, {
+        headers: { "User-Agent": ua, Accept: "application/json" },
+        signal: ctrl.signal,
+      });
+      if (!r.ok) return null;
+      return (await r.json()) as any;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(t);
+    }
+  };
+  try {
+    const [zh, en] = await Promise.all([
+      fetchOne("zh", String(person.name_zh || "").trim()),
+      fetchOne("en", String(person.name_en || "").trim()),
+    ]);
+    if (zh && typeof zh === "object") {
+      if (zh.extract) out.zh_extract = String(zh.extract);
+      if (zh.description) out.zh_description = String(zh.description);
+      if (zh.thumbnail && zh.thumbnail.source) out.zh_thumb = String(zh.thumbnail.source);
+      if (zh.originalimage && zh.originalimage.source) out.zh_original = String(zh.originalimage.source);
+    }
+    if (en && typeof en === "object") {
+      if (en.extract) out.en_extract = String(en.extract);
+      if (en.description) out.en_description = String(en.description);
+      if (en.thumbnail && en.thumbnail.source) out.en_thumb = String(en.thumbnail.source);
+      if (en.originalimage && en.originalimage.source) out.en_original = String(en.originalimage.source);
+    }
+    if (out.zh_extract || out.en_extract || out.zh_original || out.en_original || out.zh_thumb || out.en_thumb) {
+      out.found = true;
+    }
+  } catch {
+    /* swallow → found:false */
+  }
+  return out;
+}
+
 app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
   noStore(res);
   try {
@@ -14002,6 +14068,11 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
     );
     let person: any = r.rows[0];
     if (!person) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+
+    // CSSOS_PHASE2_WIKI_FEEDER 20260507 — fetch wiki context up-front so
+    // both lore + portrait paths can use it. found:false → pure LLM + AI gen
+    // (the original Wave 2.5 behavior, preserved for ad-hoc Wave 3 persons).
+    const wiki = await fetchWikipediaContext(person);
 
     // Best-effort lore generation
     let lore: any = person.lore || {};
@@ -14016,21 +14087,34 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
           "contemporaries (array of string), lineage (array of string), " +
           "influenced (array of string)。要求多视角平衡, 不神化不黑化, 全部使用 zh-CN。" +
           "只返回 JSON 不要其他文字。";
-        const userPrompt = `人物: ${person.name_zh} (${person.name_en})\n` +
+        let userPrompt = `人物: ${person.name_zh} (${person.name_en})\n` +
           `文明: ${person.civilization}\n时代: ${person.era || ""}\n生卒: ${person.lifespan || ""}\n` +
           `主题: ${person.core_theme || ""}\n意象: ${(person.visual_symbols || []).join("、")}`;
+        if (wiki.found && (wiki.zh_extract || wiki.en_extract)) {
+          userPrompt =
+            "CONTEXT BLOCK (来自维基百科, 事实依据):\n" +
+            (wiki.zh_extract ? `[zh.wiki] ${wiki.zh_extract}\n` : "") +
+            (wiki.en_extract ? `[en.wiki] ${wiki.en_extract}\n` : "") +
+            "\n基于以下维基百科资料重组为我们的结构化 schema，事实从此处来，不得虚构。" +
+            "多视角部分（东方/西方/现代）由你独立分析。\n\n" +
+            userPrompt;
+        }
         const llm = await callLlm({
           messages: [
             { role: "system", content: sysPrompt },
             { role: "user", content: userPrompt },
           ],
-          temperature: 0.5,
+          temperature: wiki.found ? 0.3 : 0.5,
           max_tokens: 1500,
           response_format: { type: "json_object" },
         });
         if (llm.ok && llm.content) {
           const parsed = JSON.parse(llm.content);
-          lore = { ...parsed, generated_at: new Date().toISOString() };
+          lore = {
+            ...parsed,
+            source: wiki.found ? "wiki+llm" : "llm-only",
+            generated_at: new Date().toISOString(),
+          };
           await withClient((c) =>
             c.query(`UPDATE person_profiles SET lore = $1::jsonb, updated_at = now() WHERE person_id = $2`,
               [JSON.stringify(lore), id]),
@@ -14042,31 +14126,52 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
     }
 
     // Best-effort portrait generation
+    // Wiki originalimage > thumbnail > AI gen. Only call callImageGen when
+    // both wiki paths are missing — saves money + grounds the visual in
+    // real reference imagery when available.
     let portraitUrl: string | null = person.portrait_url || null;
     if (refresh || !portraitUrl) {
-      try {
-        const portraitPrompt = `Cinematic hero portrait of ${person.name_zh} (${person.name_en}), ` +
-          `${person.civilization} civilization, ${person.era || ""}, ` +
-          `${(person.visual_symbols || []).join(" ")}, painterly, dramatic lighting, no text, 16:9`;
-        const img = await callImageGen({ prompt: portraitPrompt, size: "1024x576" });
-        if (img.ok && img.image_url) {
-          portraitUrl = img.image_url;
+      const wikiPortrait =
+        wiki.zh_original || wiki.en_original || wiki.zh_thumb || wiki.en_thumb || null;
+      if (wikiPortrait) {
+        portraitUrl = wikiPortrait;
+        try {
           await withClient((c) =>
             c.query(`UPDATE person_profiles SET portrait_url = $1, portrait_generated_at = now() WHERE person_id = $2`,
               [portraitUrl, id]),
           );
+        } catch (_e) {}
+      } else {
+        try {
+          const portraitPrompt = `Cinematic hero portrait of ${person.name_zh} (${person.name_en}), ` +
+            `${person.civilization} civilization, ${person.era || ""}, ` +
+            `${(person.visual_symbols || []).join(" ")}, painterly, dramatic lighting, no text, 16:9`;
+          const img = await callImageGen({ prompt: portraitPrompt, size: "1024x576" });
+          if (img.ok && img.image_url) {
+            portraitUrl = img.image_url;
+            await withClient((c) =>
+              c.query(`UPDATE person_profiles SET portrait_url = $1, portrait_generated_at = now() WHERE person_id = $2`,
+                [portraitUrl, id]),
+            );
+          }
+        } catch (err) {
+          console.warn("[person-mv] codex portrait gen failed:", (err as Error)?.message || err);
         }
-      } catch (err) {
-        console.warn("[person-mv] codex portrait gen failed:", (err as Error)?.message || err);
       }
     }
 
     // MV gallery
+    // CSSOS_PHASE2_MV_CARD_POSTER 20260507 — Wave 2.6 polish — Jing
+    // LEFT JOIN user_works to surface cover_image for the gallery card.
+    // Frontend falls back to a gradient + emoji when this is null/empty.
     const mvsR = await withClient((c) =>
       c.query(
-        `SELECT mv_id, work_id, created_by_user_id, duration_secs, created_at
-           FROM person_mvs WHERE person_id = $1
-           ORDER BY created_at DESC LIMIT 100`,
+        `SELECT pm.mv_id, pm.work_id, pm.created_by_user_id, pm.duration_secs, pm.created_at,
+                w.cover_image, w.preview_image_url, w.title
+           FROM person_mvs pm
+           LEFT JOIN user_works w ON w.id = pm.work_id
+          WHERE pm.person_id = $1
+          ORDER BY pm.created_at DESC LIMIT 100`,
         [id],
       ),
     );

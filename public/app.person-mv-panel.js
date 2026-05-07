@@ -694,7 +694,11 @@
       ".pmv-codex .pmv-mv-tab{padding:4px 10px;border-radius:999px;background:rgba(0,245,160,.08);border:1px solid rgba(0,245,160,.25);font:600 11px/1.3 ui-monospace,monospace;color:#daffee;cursor:pointer;}" +
       ".pmv-codex .pmv-mv-tab.is-active{background:rgba(0,245,160,.7);color:#001b14;}" +
       ".pmv-codex .pmv-mv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;}" +
-      ".pmv-codex .pmv-mv-card{aspect-ratio:16/9;background:rgba(0,0,0,.4);border:1px solid rgba(0,245,160,.2);border-radius:8px;cursor:pointer;display:flex;align-items:end;justify-content:center;padding:6px;font:600 11px/1.2 ui-monospace,monospace;color:#bff5dc;text-align:center;}" +
+      ".pmv-codex .pmv-mv-card{aspect-ratio:16/9;background:rgba(0,0,0,.4);border:1px solid rgba(0,245,160,.2);border-radius:8px;cursor:pointer;position:relative;overflow:hidden;}" +
+      ".pmv-codex .pmv-mv-poster{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}" +
+      ".pmv-codex .pmv-mv-fallback{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:36px;background:linear-gradient(135deg,#012019,#003a2c);color:#bff5dc;}" +
+      ".pmv-codex .pmv-mv-meta{position:absolute;left:0;right:0;bottom:0;padding:4px 6px;background:linear-gradient(transparent,rgba(0,0,0,.7));font:600 11px/1.2 ui-monospace,monospace;color:#bff5dc;text-align:right;}" +
+      ".pmv-codex .pmv-source-chip{display:inline-block;margin-top:8px;padding:3px 9px;border-radius:999px;background:rgba(0,245,160,.10);border:1px solid rgba(0,245,160,.28);font:600 10px/1.4 ui-monospace,monospace;color:#9ad6c0;letter-spacing:.04em;}" +
       ".pmv-codex .pmv-empty-mv{text-align:center;padding:30px 12px;color:#9ad6c0;}" +
       ".pmv-codex .pmv-mini-row{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;}" +
       ".pmv-codex .pmv-mini{flex:0 0 130px;background:rgba(8,18,16,.55);border:1px solid rgba(0,245,160,.2);border-radius:10px;padding:8px;cursor:pointer;}" +
@@ -813,8 +817,17 @@
           ' <button class="pmv-secondary pmv-retry">' + escTxt(tt("Retry", "重试")) + '</button></div></div>';
       } else {
         if (lore.bio) {
+          // CSSOS_PHASE2_WIKI_FEEDER 20260507 — Wave 2.6 — Jing
+          // Source chip surfaces whether lore is grounded in Wikipedia or
+          // is pure-LLM (Wave 3 ad-hoc persons). Defaults to llm-only when
+          // the field is absent (older cached lore).
+          var loreSrc = String(lore.source || "llm-only");
+          var sourceChip = loreSrc === "wiki+llm"
+            ? '<div class="pmv-source-chip">📖 ' + escTxt(tt("Sources: Wikipedia + AI", "资料来源：维基百科 + AI")) + '</div>'
+            : '<div class="pmv-source-chip">✨ ' + escTxt(tt("Sources: AI-generated", "资料来源：AI 生成")) + '</div>';
           h += '<div class="pmv-section"><h3>' + escTxt(tt("Biography", "生平")) + '</h3>' +
-            '<div class="pmv-bio">' + escTxt(lore.bio) + '</div></div>';
+            '<div class="pmv-bio">' + escTxt(lore.bio) + '</div>' +
+            sourceChip + '</div>';
         }
         if (Array.isArray(lore.events) && lore.events.length) {
           h += '<div class="pmv-section"><h3>' + escTxt(tt("Timeline", "重要事件")) + '</h3>' +
@@ -864,10 +877,27 @@
         h += '<div class="pmv-empty-mv">' + escTxt(tt("No MV yet — be the first to create one?", "还没有人为TA创作 MV，做第一个？")) +
           ' <button class="pmv-secondary pmv-create-mv">✨ ' + escTxt(tt("Create now", "立即创作")) + '</button></div>';
       } else {
+        // CSSOS_PHASE2_MV_CARD_POSTER 20260507 — Wave 2.6 polish — Jing
+        // Use cover_image (canonical field across app.js) with
+        // preview_image_url fallback. On <img> error, swap to a gradient
+        // + emoji placeholder so a broken/missing asset never produces a
+        // blank card.
+        var personEmoji = (p && p.visual_symbols && p.visual_symbols[0]) || "🎞";
         h += '<div class="pmv-mv-grid">' +
           mvs.map(function(m){
+            var poster = m.cover_image || m.preview_image_url || "";
+            var inner;
+            if (poster) {
+              inner = '<img class="pmv-mv-poster" src="' + escAttr(poster) + '" alt="" ' +
+                'onerror="this.parentNode.innerHTML=\'<div class=&quot;pmv-mv-fallback&quot;>' +
+                escAttr(String(personEmoji)) + '</div>\';">' +
+                '<div class="pmv-mv-meta">' + escTxt((m.duration_secs || 0) + "s") + '</div>';
+            } else {
+              inner = '<div class="pmv-mv-fallback">' + escTxt(String(personEmoji)) + '</div>' +
+                '<div class="pmv-mv-meta">' + escTxt((m.duration_secs || 0) + "s") + '</div>';
+            }
             return '<div class="pmv-mv-card" data-work-id="' + escAttr(m.work_id) + '">' +
-              escTxt((m.duration_secs || 0) + "s") + '</div>';
+              inner + '</div>';
           }).join("") +
         '</div>';
       }

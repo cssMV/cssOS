@@ -5947,6 +5947,14 @@
                 formatUsd(res.total_engine_cost_cents),
                 res.dedup === true ? "yes" : "no"
               );
+              // CSSOS_PHASE2_RUN_FINISH 20260507 — Wave 2.6 polish — Jing
+              // Single canonical event so cinema mode (and any future
+              // listener) can react to a finished pipeline run.
+              try {
+                globalThis.dispatchEvent(new CustomEvent("cssmv:run-finish", {
+                  detail: { work_id: res.work_id, mv_id: composedMvId }
+                }));
+              } catch (_dispatchErr) {}
             }
           });
         } else {
@@ -6349,8 +6357,12 @@
           }
         } catch (_e) {}
       };
+      // CSSOS_PHASE2_RUN_FINISH 20260507 — Wave 2.6 polish — Jing
+      // Canonical event name: `cssmv:run-finish`. Dispatched from the
+      // autosave block (~line 5942) right after /api/mv/commit returns
+      // a work_id. Only one listener — the legacy mvPipelineRunFinish
+      // alias was never actually dispatched.
       globalThis.addEventListener("cssmv:run-finish", finishHandler, { once: true });
-      globalThis.addEventListener("mvPipelineRunFinish", finishHandler, { once: true });
     }
     return panel;
   }
@@ -6379,12 +6391,18 @@
     const strip = stage.querySelector(".cinema-strip");
     let videoUrl = null, title = "", creator = "";
     try {
-      const r = await fetch("/api/works/" + encodeURIComponent(wid), { credentials: "include" });
+      // CSSOS_PHASE2_CINEMA_RESOLVER 20260507 — Wave 2.6 polish — Jing
+      // /api/works/public/:id is the canonical public-readable work fetch.
+      // Primary video field is `final_mv_url` (returned at the row top
+      // level — see src/index.ts ~line 14323). Fallbacks kept for
+      // ad-hoc shapes (e.g. cached/legacy responses or assets nesting).
+      const r = await fetch("/api/works/public/" + encodeURIComponent(wid), { credentials: "include" });
       const j = await r.json().catch(function(){ return null; });
       const w = (j && (j.data || j.work || j)) || {};
-      videoUrl = w.video_url || w.url || (w.assets && (w.assets.video_url || w.assets.video)) || null;
+      videoUrl = w.final_mv_url || w.preview_video_url || w.video_url || w.url ||
+        (w.assets && (w.assets.video_url || w.assets.video || (w.assets.video && w.assets.video.url))) || null;
       title = w.title || w.name || "";
-      creator = w.creator || w.user_name || w.created_by || "";
+      creator = w.owner_name || w.creator || w.user_name || w.created_by || "";
     } catch (_e) {}
     if (!videoUrl) {
       // skip to next
@@ -6457,6 +6475,26 @@
           }).join("") +
         '</div>';
       teaser.hidden = false;
+      // CSSOS_PHASE2_TEASER_CLICK 20260507 — Wave 2.6 polish — Jing
+      // Click a teaser card → jump the queue to that work_id. If the
+      // target is already in the queue, just seek to its index; otherwise
+      // splice it in right after the current track and advance.
+      teaser.querySelectorAll(".cinema-teaser-card").forEach(function (card) {
+        card.addEventListener("click", function () {
+          if (!cinemaSt) return;
+          const wid = card.getAttribute("data-work-id");
+          if (!wid) return;
+          const existing = cinemaSt.queue.indexOf(wid);
+          if (existing >= 0) {
+            cinemaSt.idx = existing;
+          } else {
+            cinemaSt.queue.splice(cinemaSt.idx + 1, 0, wid);
+            cinemaSt.idx += 1;
+          }
+          teaser.hidden = true;
+          cinemaPlayCurrent();
+        });
+      });
     } catch (_e) {}
   }
   function ensureCinemaStyles() {

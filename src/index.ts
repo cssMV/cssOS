@@ -7102,71 +7102,44 @@ app.post("/api/cssmv/thumbnail", async (req, res) => {
         10,
       ) || 45000,
     );
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    let upstream;
-    let payload;
-    try {
-      upstream = await fetch("https://api.openai.com/v1/images/generations", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model,
-          prompt,
-          size,
-          quality,
-          output_format: outputFormat,
-          output_compression: outputCompression,
-          background,
-        }),
-        signal: controller.signal,
-      });
-      payload = await upstream.json().catch(() => null);
-    } finally {
-      clearTimeout(timeout);
-    }
-    if (!upstream.ok) {
-      // CSSOS_PHASE2_THUMBNAIL_NO_RED 20260504 — Jing
-      // "又是控制台报错". OpenAI image-gen rejecting the prompt
-      // (safety filter / size mismatch / etc.) used to bubble 400/4xx
-      // straight back to the browser, painting red lines in the
-      // network panel for what is really a graceful "no thumbnail
-      // available" outcome. Always return 200 with the empty-data
-      // envelope; the front-end already treats `generated: false` as
-      // "skip rendering, fall back to placeholder".
+    // CSSOS_IMAGE_ROUTER 20260506 — through the unified image router so
+    // we get fal.ai Flux schnell first (free/cheap, fast), OpenAI as
+    // fallback. Same response envelope; front-end is unchanged.
+    const result = await callImageGen({
+      prompt,
+      size,
+      quality,
+      output_format: outputFormat,
+      background,
+    });
+    if (!result.ok) {
       console.warn(
-        "[cssmv/thumbnail] upstream non-ok %d — soft-empty response",
-        upstream.status,
+        "[cssmv/thumbnail] image-router failed: %s — soft-empty response",
+        result.error,
       );
       return res.json(
         okEmpty(
           {
             generated: false,
-            model,
+            model: result.model || model,
             size,
             quality,
             output_format: outputFormat,
             output_compression: outputCompression,
             background,
-            upstream_status: upstream.status,
+            upstream_status: result.status,
           },
           "No data yet",
         ),
       );
     }
-
-    const first = payload?.data?.[0] || null;
-    const b64 = typeof first?.b64_json === "string" ? first.b64_json : "";
-    const imageUrl = typeof first?.url === "string" ? first.url : "";
-    if (b64) {
+    if (result.image_b64) {
       return res.json(
         okData({
           generated: true,
-          image_data_url: `data:image/${outputFormat};base64,${b64}`,
-          model,
+          image_data_url: `data:image/${outputFormat};base64,${result.image_b64}`,
+          model: result.model,
+          provider: result.provider,
           size,
           quality,
           output_format: outputFormat,
@@ -7175,12 +7148,13 @@ app.post("/api/cssmv/thumbnail", async (req, res) => {
         }),
       );
     }
-    if (imageUrl) {
+    if (result.image_url) {
       return res.json(
         okData({
           generated: true,
-          image_url: imageUrl,
-          model,
+          image_url: result.image_url,
+          model: result.model,
+          provider: result.provider,
           size,
           quality,
           output_format: outputFormat,
@@ -8095,6 +8069,139 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
     ok: false, status: lastStatus || 502,
     provider: "none", model: "", content: "",
     raw: null, error: lastErr,
+  };
+}
+
+/* ============================================================
+ * CSSOS_IMAGE_ROUTER 20260506 — fal.ai Flux schnell → OpenAI gpt-image-1
+ * ----------------------------------------------------------------
+ * Image generation router. fal.ai Flux schnell is ~10x faster +
+ * dramatically cheaper than DALL-E for cover/thumbnail use cases.
+ * Order configured via IMAGE_PROVIDER_ORDER (default "fal,openai").
+ *
+ * Provider responses are normalised to:
+ *   { ok, status, provider, model, image_url? | image_b64?, error? }
+ * Caller picks whichever field is present (b64 inlined into data: URL,
+ * url forwarded as-is). Both fal and openai can return either form.
+ * ============================================================ */
+type ImageGenRequest = {
+  prompt: string;
+  size?: string;        // "1024x1024" — translated per provider
+  quality?: string;     // "high" | "standard" — provider-specific
+  output_format?: string; // "png" | "jpeg" | "webp"
+  background?: string;  // openai-only
+  prefer?: string[];
+};
+type ImageGenResponse = {
+  ok: boolean;
+  status: number;
+  provider: string;
+  model: string;
+  image_url?: string;
+  image_b64?: string;
+  raw?: unknown;
+  error?: string;
+};
+
+function imageProviderOrder(prefer?: string[]): string[] {
+  const env = String(process.env.IMAGE_PROVIDER_ORDER || "fal,openai")
+    .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  return (prefer && prefer.length ? prefer : env).filter((p) => p === "fal" || p === "openai");
+}
+
+async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
+  const order = imageProviderOrder(req.prefer);
+  let lastErr = "no_providers_available";
+  let lastStatus = 0;
+  const sizeStr = req.size || "1024x1024";
+  const [w, h] = sizeStr.split("x").map((n) => Number.parseInt(n, 10) || 1024);
+  for (const provider of order) {
+    try {
+      if (provider === "fal") {
+        const apiKey = String(process.env.FAL_API_KEY || process.env.FAL_KEY || "").trim();
+        if (!apiKey) continue;
+        // fal.ai Flux schnell — sync endpoint takes prompt + image_size.
+        // image_size accepts a preset ("square_hd" = 1024x1024, "portrait_16_9", etc.)
+        // OR an object {width, height}. We pass the explicit object.
+        const upstream = await fetch("https://fal.run/fal-ai/flux/schnell", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Key ${apiKey}`,
+          },
+          body: JSON.stringify({
+            prompt: req.prompt,
+            image_size: { width: w, height: h },
+            num_inference_steps: 4, // schnell sweet-spot
+            num_images: 1,
+            enable_safety_checker: true,
+          }),
+        });
+        const json: any = await upstream.json().catch(() => null);
+        if (!upstream.ok) {
+          lastErr = String(json?.detail || json?.error || `fal_${upstream.status}`);
+          lastStatus = upstream.status;
+          console.warn(`[image-router] fal ${upstream.status}: ${lastErr.slice(0, 200)}`);
+          continue;
+        }
+        const url = json?.images?.[0]?.url;
+        if (!url) {
+          lastErr = "fal_no_image_in_response";
+          continue;
+        }
+        return {
+          ok: true, status: upstream.status,
+          provider: "fal", model: "flux-schnell",
+          image_url: url, raw: json,
+        };
+      }
+      if (provider === "openai") {
+        const apiKey = String(process.env.OPENAI_API_KEY || "").trim();
+        if (!apiKey) continue;
+        const model = String(process.env.OPENAI_IMAGE_MODEL || "gpt-image-1");
+        const body: Record<string, unknown> = {
+          model,
+          prompt: req.prompt,
+          size: sizeStr,
+        };
+        if (req.quality) body.quality = req.quality;
+        if (req.output_format) body.output_format = req.output_format;
+        if (req.background) body.background = req.background;
+        const upstream = await fetch("https://api.openai.com/v1/images/generations", {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify(body),
+        });
+        const json: any = await upstream.json().catch(() => null);
+        if (!upstream.ok) {
+          lastErr = String(json?.error?.message || `openai_${upstream.status}`);
+          lastStatus = upstream.status;
+          console.warn(`[image-router] openai ${upstream.status}: ${lastErr.slice(0, 200)}`);
+          continue;
+        }
+        const first = json?.data?.[0] || null;
+        const image_b64 = typeof first?.b64_json === "string" ? first.b64_json : undefined;
+        const image_url = typeof first?.url === "string" ? first.url : undefined;
+        if (!image_b64 && !image_url) {
+          lastErr = "openai_no_image_in_response";
+          continue;
+        }
+        return {
+          ok: true, status: upstream.status,
+          provider: "openai", model,
+          image_b64, image_url, raw: json,
+        };
+      }
+    } catch (err) {
+      lastErr = String((err as Error)?.message || err);
+      console.warn(`[image-router] ${provider} threw: ${lastErr}`);
+      continue;
+    }
+  }
+  return {
+    ok: false, status: lastStatus || 502,
+    provider: "none", model: "",
+    error: lastErr,
   };
 }
 

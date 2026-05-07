@@ -8374,7 +8374,90 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
         if (!lastErr) lastErr = "luma_poll_timeout";
         continue;
       }
-      // fal / replicate / runway / kling adapters land in next rounds.
+      if (provider === "kling") {
+        const ak = String(process.env.KLING_ACCESS_KEY || "").trim();
+        const sk = String(process.env.KLING_SECRET_KEY || "").trim();
+        if (!ak || !sk) continue;
+        // Kling auth — short-lived JWT (HS256) signed locally with the
+        // SecretKey, sent as Authorization: Bearer <jwt>. Token TTL 30
+        // minutes is well within the API's 30-min default expectation.
+        const jwt = await import("jsonwebtoken");
+        const now = Math.floor(Date.now() / 1000);
+        const token = jwt.default.sign(
+          { iss: ak, exp: now + 1800, nbf: now - 5 },
+          sk,
+          { algorithm: "HS256", header: { alg: "HS256", typ: "JWT" } },
+        );
+        const aspect = req.aspect_ratio === "9:16" ? "9:16"
+          : req.aspect_ratio === "1:1" ? "1:1"
+          : "16:9";
+        const dur = (req.duration_secs && req.duration_secs > 5) ? "10" : "5";
+        const body: Record<string, unknown> = {
+          model_name: "kling-v1",
+          prompt: req.prompt,
+          aspect_ratio: aspect,
+          duration: dur,
+          mode: "std",
+          cfg_scale: 0.5,
+        };
+        // Kling has separate text2video / image2video endpoints. Pick
+        // by whether the caller supplied a starting frame.
+        const path = req.image_url ? "image2video" : "text2video";
+        if (req.image_url) body.image = req.image_url;
+        const create = await fetch(
+          `https://api-singapore.klingai.com/v1/videos/${path}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify(body),
+          },
+        );
+        const createJson: any = await create.json().catch(() => null);
+        if (!create.ok || createJson?.code !== 0) {
+          lastErr = String(createJson?.message || `kling_${create.status}`);
+          console.warn(`[video-router] kling create ${create.status}: ${lastErr.slice(0, 200)}`);
+          continue;
+        }
+        const taskId = String(createJson?.data?.task_id || "").trim();
+        if (!taskId) {
+          lastErr = "kling_no_task_id";
+          continue;
+        }
+        // Kling video gen typically 60-180s. Poll up to 6 minutes.
+        const deadline = Date.now() + 360_000;
+        let videoUrl = "";
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 5000));
+          // Re-mint JWT each poll cycle so we don't expire mid-loop.
+          const nowP = Math.floor(Date.now() / 1000);
+          const tokenP = jwt.default.sign(
+            { iss: ak, exp: nowP + 1800, nbf: nowP - 5 },
+            sk,
+            { algorithm: "HS256", header: { alg: "HS256", typ: "JWT" } },
+          );
+          const st = await fetch(
+            `https://api-singapore.klingai.com/v1/videos/${path}/${encodeURIComponent(taskId)}`,
+            { headers: { Authorization: `Bearer ${tokenP}` } },
+          );
+          const sJson: any = await st.json().catch(() => null);
+          const status = String(sJson?.data?.task_status || "").toLowerCase();
+          if (status === "succeed") {
+            videoUrl = String(sJson?.data?.task_result?.videos?.[0]?.url || "");
+            break;
+          }
+          if (status === "failed") {
+            lastErr = "kling_failed: " + String(sJson?.data?.task_status_msg || "unknown");
+            break;
+          }
+        }
+        if (videoUrl) return { ok: true, provider: "kling", video_url: videoUrl };
+        if (!lastErr) lastErr = "kling_poll_timeout";
+        continue;
+      }
+      // fal / replicate / runway adapters land in next rounds.
     } catch (err) {
       lastErr = `${provider}_threw_${(err as Error)?.message || err}`;
       console.warn(`[video-router] ${provider} threw:`, lastErr.slice(0, 200));

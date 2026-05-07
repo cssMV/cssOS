@@ -434,14 +434,18 @@
       return person || null;
     }
     panelEl.addEventListener("pointerup", function (e) {
-      var p = cardCore(e); if (!p) return;
+      var p = cardCore(e);
+      console.warn("[person-mv] card pointerup target=", e.target, "matched=", !!p);
+      if (!p) return;
       var now = Date.now();
       if (now - cardLastFire < 400) return;
       cardLastFire = now;
       jumpIntoPipeline(p);
     }, true);
     panelEl.addEventListener("click", function (e) {
-      var p = cardCore(e); if (!p) return;
+      var p = cardCore(e);
+      console.warn("[person-mv] card click target=", e.target, "matched=", !!p);
+      if (!p) return;
       var now = Date.now();
       if (now - cardLastFire < 400) return;
       cardLastFire = now;
@@ -504,23 +508,36 @@
         '</div>';
       return;
     }
-    grid.innerHTML = state.persons.map(function (p) {
+    /* CSSOS_PERSON_MV_PER_CARD_LISTENER 20260507 — Jing
+     * Reverted from panel-level delegation to per-card direct onclick.
+     * The shared bridges (attachPanelDragBridge etc.) added document-
+     * level pointer listeners that were eating my delegated events.
+     * Each card gets its own onclick now — guaranteed to fire. */
+    grid.innerHTML = "";
+    state.persons.forEach(function (p) {
       var meta = [p.civilization, p.era].filter(Boolean).join(" · ");
       var primary = localizedName(p);
       var secondary = secondaryName(p);
-      return (
-        '<div class="person-mv-card" data-person-id="' + escapeAttr(p.person_id) + '">' +
-          '<div class="person-mv-name">' + escapeText(primary) + '</div>' +
-          (secondary ? '<div class="person-mv-name-en">' + escapeText(secondary) + '</div>' : '') +
-          '<div class="person-mv-meta">' + escapeText(meta) + '</div>' +
-          (p.core_theme ? '<div class="person-mv-theme">' + escapeText(p.core_theme) + '</div>' : '') +
-          '<div class="person-mv-counts">' +
-            '<span>' + tt("influence", "影响力") + ' · ' + (p.influence_score || 0) + '</span>' +
-            '<span>' + tt("MVs", "MV") + ' · ' + (p.mv_count || 0) + '</span>' +
-          '</div>' +
-        '</div>'
-      );
-    }).join("");
+      var card = document.createElement("div");
+      card.className = "person-mv-card";
+      card.setAttribute("data-person-id", p.person_id || "");
+      card.innerHTML =
+        '<div class="person-mv-name">' + escapeText(primary) + '</div>' +
+        (secondary ? '<div class="person-mv-name-en">' + escapeText(secondary) + '</div>' : '') +
+        '<div class="person-mv-meta">' + escapeText(meta) + '</div>' +
+        (p.core_theme ? '<div class="person-mv-theme">' + escapeText(p.core_theme) + '</div>' : '') +
+        '<div class="person-mv-counts">' +
+          '<span>' + tt("influence", "影响力") + ' · ' + (p.influence_score || 0) + '</span>' +
+          '<span>' + tt("MVs", "MV") + ' · ' + (p.mv_count || 0) + '</span>' +
+        '</div>';
+      // Direct listener — no delegation, no capture races.
+      card.onclick = function (e) {
+        console.warn("[person-mv] card.onclick", p.person_id);
+        if (e) { try { e.preventDefault(); e.stopPropagation(); } catch (_e) {} }
+        jumpIntoPipeline(p);
+      };
+      grid.appendChild(card);
+    });
   }
 
   /* CSSOS_PERSON_MV_WAVE2 20260507 — Jing

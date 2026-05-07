@@ -825,6 +825,436 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
   });
 });
 
+// CSSOS_PHASE2_MV_NEVER_FAIL 20260507 — Jing
+// "永不因一家余额空让用户看到 ❌" — apply the cover-handler pattern to every
+// MV pipeline stage. Each handler tries the Rust upstream first (which knows
+// about user-key/paid/trusted engines), and on any non-401 4xx/5xx falls back
+// through the TS-side free-provider router (callLlm/callMusicGen/callVideoGen),
+// finally synthesizing a placeholder so the pipeline never blocks.
+//
+// Shared upstream-proxy helper.
+async function _mvForwardUpstream(
+  req: express.Request,
+  bodyStr: string,
+): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer } | { error: string }> {
+  return new Promise((resolve) => {
+    const up = http.request(
+      {
+        hostname: RUST_MV_HOST,
+        port: RUST_MV_PORT,
+        path: req.originalUrl,
+        method: "POST",
+        headers: {
+          "content-type": (req.headers["content-type"] as string) || "application/json",
+          "content-length": Buffer.byteLength(bodyStr),
+          "x-cssos-internal-token": CSSOS_INTERNAL_TOKEN,
+          "x-cssos-user": String((req.session as any)?.user_id || ""),
+          "x-forwarded-for": String(
+            req.headers["x-forwarded-for"] || req.ip || req.socket.remoteAddress || "",
+          ),
+        },
+        timeout: MV_PROXY_TIMEOUT_MS,
+      },
+      (upRes) => {
+        const chunks: Buffer[] = [];
+        upRes.on("data", (c) => chunks.push(c));
+        upRes.on("end", () =>
+          resolve({
+            status: upRes.statusCode || 502,
+            headers: upRes.headers,
+            body: Buffer.concat(chunks),
+          }),
+        );
+      },
+    );
+    up.on("timeout", () => up.destroy(new Error("upstream_timeout")));
+    up.on("error", (err) => resolve({ error: err instanceof Error ? err.message : String(err) }));
+    if (bodyStr) up.write(bodyStr);
+    up.end();
+  });
+}
+
+function _mvParseUpstreamErr(
+  upstream: { status: number; body: Buffer } | null,
+  connectErr: string,
+): string {
+  if (!upstream) return connectErr || "upstream_unreachable";
+  try {
+    const j = JSON.parse(upstream.body.toString("utf8") || "{}");
+    return String(j?.error || j?.detail || j?.message || `upstream_${upstream.status}`);
+  } catch {
+    return `upstream_${upstream.status}`;
+  }
+}
+
+// /api/mv/lyrics — Rust LLM router → callLlm fallback → trivial stub.
+app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  if (!CSSOS_INTERNAL_TOKEN) {
+    return res.status(503).json({
+      ok: false,
+      error: "internal_token_not_configured",
+      hint: "set CSSOS_INTERNAL_TOKEN in /etc/cssos.env",
+    });
+  }
+
+  const body = (req.body && typeof req.body === "object") ? req.body : {};
+  const bodyStr = Object.keys(body).length > 0 ? JSON.stringify(body) : "";
+  const prompt = String((body as any).prompt || (body as any).title || "").trim();
+  const style = String((body as any).style || "").trim();
+  const language = String((body as any).language || "en").trim();
+
+  let result = await _mvForwardUpstream(req, bodyStr);
+  let upstream: { status: number; headers: http.IncomingHttpHeaders; body: Buffer } | null = null;
+  let upstreamErr = "";
+  if ("error" in result) {
+    upstreamErr = result.error;
+    console.warn("[mv-lyrics] upstream connect error, falling back:", upstreamErr);
+  } else {
+    upstream = result;
+  }
+
+  if (upstream && upstream.status >= 200 && upstream.status < 300) {
+    res.status(upstream.status);
+    for (const [k, v] of Object.entries(upstream.headers)) {
+      if (v === undefined) continue;
+      const lower = k.toLowerCase();
+      if (lower === "transfer-encoding" || lower === "connection" || lower === "keep-alive") continue;
+      try { res.setHeader(k, v as any); } catch {}
+    }
+    return res.end(upstream.body);
+  }
+  if (upstream && upstream.status === 401) {
+    res.status(401);
+    return res.end(upstream.body);
+  }
+
+  const upstreamDetail = _mvParseUpstreamErr(upstream, upstreamErr);
+  console.warn(
+    `[mv-lyrics] upstream failed (${upstream?.status ?? "no-response"}): ${upstreamDetail.slice(0, 200)}; falling back to free LLM router`,
+  );
+
+  let llm: Awaited<ReturnType<typeof callLlm>> | null = null;
+  let llmErr = "";
+  try {
+    llm = await callLlm({
+      messages: [
+        { role: "system", content: "You write concise, singable music-video lyrics. Reply with raw lyrics only — no commentary, no markdown headings." },
+        { role: "user", content: `Write short song lyrics in ${language}${style ? ` (${style} style)` : ""} for: ${prompt || "an evocative scene"}.` },
+      ],
+      max_tokens: 600,
+      temperature: 0.85,
+    });
+  } catch (err) {
+    llmErr = err instanceof Error ? err.message : String(err);
+    console.warn("[mv-lyrics] callLlm threw:", llmErr);
+  }
+
+  if (llm && llm.ok && llm.content && llm.content.trim()) {
+    return res.status(200).json({
+      ok: true,
+      task_id: `fallback-${llm.provider}-${Date.now()}`,
+      lyrics: llm.content.trim(),
+      derived_settings: {
+        title: prompt.slice(0, 80) || "Untitled",
+        music_style: style,
+      },
+      sections: null,
+      shot_scripts: null,
+      model: llm.model,
+      engine: llm.provider,
+      cost_cents: 0,
+      use_user_key: false,
+      fallback: true,
+      upstream_error: upstreamDetail,
+    });
+  }
+
+  // Last-resort stub lyrics so video stage can still compose.
+  const stubLine = (prompt || "a quiet moment in motion").replace(/\s+/g, " ").trim();
+  const stubLyrics = [
+    `[verse]\n${stubLine}\n${stubLine}`,
+    `[chorus]\n${stubLine}, ${stubLine}\n${stubLine}, ${stubLine}`,
+    `[verse]\n${stubLine}\n${stubLine}`,
+  ].join("\n\n");
+  console.warn(
+    `[mv-lyrics] all providers failed, returning stub. upstream=${upstreamDetail.slice(0, 80)} fallback=${(llm?.error || llmErr || "no_provider").slice(0, 80)}`,
+  );
+  return res.status(200).json({
+    ok: true,
+    task_id: `placeholder-${Date.now()}`,
+    lyrics: stubLyrics,
+    derived_settings: {
+      title: prompt.slice(0, 80) || "Untitled",
+      music_style: style,
+    },
+    sections: null,
+    shot_scripts: null,
+    model: "stub-lyrics-placeholder",
+    engine: "placeholder",
+    cost_cents: 0,
+    use_user_key: false,
+    fallback: true,
+    placeholder: true,
+    upstream_error: upstreamDetail,
+    fallback_error: llm?.error || llmErr || "no_provider_succeeded",
+  });
+});
+
+// /api/mv/music — Rust music router → callMusicGen fallback → silent WAV stub.
+app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  if (!CSSOS_INTERNAL_TOKEN) {
+    return res.status(503).json({
+      ok: false,
+      error: "internal_token_not_configured",
+      hint: "set CSSOS_INTERNAL_TOKEN in /etc/cssos.env",
+    });
+  }
+
+  const body = (req.body && typeof req.body === "object") ? req.body : {};
+  const bodyStr = Object.keys(body).length > 0 ? JSON.stringify(body) : "";
+  const prompt = String((body as any).prompt || (body as any).title || "").trim();
+  const duration = Number((body as any).duration_secs || (body as any).duration || 30) || 30;
+  const tags = Array.isArray((body as any).tags) ? (body as any).tags as string[] : [];
+
+  let result = await _mvForwardUpstream(req, bodyStr);
+  let upstream: { status: number; headers: http.IncomingHttpHeaders; body: Buffer } | null = null;
+  let upstreamErr = "";
+  if ("error" in result) {
+    upstreamErr = result.error;
+    console.warn("[mv-music] upstream connect error, falling back:", upstreamErr);
+  } else {
+    upstream = result;
+  }
+
+  if (upstream && upstream.status >= 200 && upstream.status < 300) {
+    res.status(upstream.status);
+    for (const [k, v] of Object.entries(upstream.headers)) {
+      if (v === undefined) continue;
+      const lower = k.toLowerCase();
+      if (lower === "transfer-encoding" || lower === "connection" || lower === "keep-alive") continue;
+      try { res.setHeader(k, v as any); } catch {}
+    }
+    return res.end(upstream.body);
+  }
+  if (upstream && upstream.status === 401) {
+    res.status(401);
+    return res.end(upstream.body);
+  }
+
+  const upstreamDetail = _mvParseUpstreamErr(upstream, upstreamErr);
+  console.warn(
+    `[mv-music] upstream failed (${upstream?.status ?? "no-response"}): ${upstreamDetail.slice(0, 200)}; falling back to free music router`,
+  );
+
+  let music: Awaited<ReturnType<typeof callMusicGen>> | null = null;
+  let musicErr = "";
+  try {
+    music = await callMusicGen({
+      prompt: prompt || "ambient cinematic instrumental",
+      duration_secs: duration,
+      tags,
+    });
+  } catch (err) {
+    musicErr = err instanceof Error ? err.message : String(err);
+    console.warn("[mv-music] callMusicGen threw:", musicErr);
+  }
+
+  if (music && music.ok) {
+    const audioUrl = music.audio_url
+      ? music.audio_url
+      : (music.audio_b64 ? `data:audio/mpeg;base64,${music.audio_b64}` : "");
+    if (audioUrl) {
+      return res.status(200).json({
+        ok: true,
+        task_id: `fallback-${music.provider}-${Date.now()}`,
+        audio_url: audioUrl,
+        engine: music.provider,
+        cost_cents: 0,
+        use_user_key: false,
+        fallback: true,
+        upstream_error: upstreamDetail,
+      });
+    }
+  }
+
+  // Last-resort: synthesize a silent WAV (PCM16 mono 8kHz) for `duration` secs.
+  const sampleRate = 8000;
+  const numSamples = Math.max(1, Math.min(120, Math.round(duration))) * sampleRate;
+  const dataSize = numSamples * 2;
+  const wav = Buffer.alloc(44 + dataSize);
+  wav.write("RIFF", 0);
+  wav.writeUInt32LE(36 + dataSize, 4);
+  wav.write("WAVE", 8);
+  wav.write("fmt ", 12);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(sampleRate, 24);
+  wav.writeUInt32LE(sampleRate * 2, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write("data", 36);
+  wav.writeUInt32LE(dataSize, 40);
+  // PCM samples already zeroed by Buffer.alloc (silence).
+  const silenceUrl = `data:audio/wav;base64,${wav.toString("base64")}`;
+  console.warn(
+    `[mv-music] all providers failed, returning silence. upstream=${upstreamDetail.slice(0, 80)} fallback=${(music?.error || musicErr || "no_provider").slice(0, 80)}`,
+  );
+  return res.status(200).json({
+    ok: true,
+    task_id: `placeholder-${Date.now()}`,
+    audio_url: silenceUrl,
+    engine: "placeholder",
+    cost_cents: 0,
+    use_user_key: false,
+    fallback: true,
+    placeholder: true,
+    duration_secs: Math.round(duration),
+    upstream_error: upstreamDetail,
+    fallback_error: music?.error || musicErr || "no_provider_succeeded",
+  });
+});
+
+// /api/mv/video — Rust video router → callVideoGen → still-image fallback.
+app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  if (!CSSOS_INTERNAL_TOKEN) {
+    return res.status(503).json({
+      ok: false,
+      error: "internal_token_not_configured",
+      hint: "set CSSOS_INTERNAL_TOKEN in /etc/cssos.env",
+    });
+  }
+
+  const body = (req.body && typeof req.body === "object") ? req.body : {};
+  const bodyStr = Object.keys(body).length > 0 ? JSON.stringify(body) : "";
+  const prompt = String((body as any).prompt || "").trim();
+  const aspectRaw = String((body as any).aspect_ratio || (body as any).ratio || "16:9").trim();
+  const aspect: "16:9" | "9:16" | "1:1" =
+    aspectRaw === "9:16" ? "9:16" : aspectRaw === "1:1" ? "1:1" : "16:9";
+  const duration = Number((body as any).duration_secs || (body as any).duration || 5) || 5;
+  const imageUrl = String((body as any).image_url || (body as any).cover_url || "").trim();
+
+  let result = await _mvForwardUpstream(req, bodyStr);
+  let upstream: { status: number; headers: http.IncomingHttpHeaders; body: Buffer } | null = null;
+  let upstreamErr = "";
+  if ("error" in result) {
+    upstreamErr = result.error;
+    console.warn("[mv-video] upstream connect error, falling back:", upstreamErr);
+  } else {
+    upstream = result;
+  }
+
+  if (upstream && upstream.status >= 200 && upstream.status < 300) {
+    res.status(upstream.status);
+    for (const [k, v] of Object.entries(upstream.headers)) {
+      if (v === undefined) continue;
+      const lower = k.toLowerCase();
+      if (lower === "transfer-encoding" || lower === "connection" || lower === "keep-alive") continue;
+      try { res.setHeader(k, v as any); } catch {}
+    }
+    return res.end(upstream.body);
+  }
+  if (upstream && upstream.status === 401) {
+    res.status(401);
+    return res.end(upstream.body);
+  }
+
+  const upstreamDetail = _mvParseUpstreamErr(upstream, upstreamErr);
+  console.warn(
+    `[mv-video] upstream failed (${upstream?.status ?? "no-response"}): ${upstreamDetail.slice(0, 200)}; falling back to free video router`,
+  );
+
+  let vid: Awaited<ReturnType<typeof callVideoGen>> | null = null;
+  let vidErr = "";
+  try {
+    vid = await callVideoGen({
+      prompt: prompt || "cinematic music video shot, slow camera motion",
+      duration_secs: duration,
+      aspect_ratio: aspect,
+      ...(imageUrl ? { image_url: imageUrl } : {}),
+    });
+  } catch (err) {
+    vidErr = err instanceof Error ? err.message : String(err);
+    console.warn("[mv-video] callVideoGen threw:", vidErr);
+  }
+
+  if (vid && vid.ok && (vid.video_url || vid.poll_url)) {
+    return res.status(200).json({
+      ok: true,
+      task_id: `fallback-${vid.provider}-${Date.now()}`,
+      video_url: vid.video_url || "",
+      poll_url: vid.poll_url || "",
+      engine: vid.provider,
+      cost_cents: 0,
+      use_user_key: false,
+      fallback: true,
+      upstream_error: upstreamDetail,
+    });
+  }
+
+  // Last-resort: per spec, no kenburns helper exists, so produce a still via
+  // callImageGen and let the frontend's hybrid mode ken-burns it client-side.
+  const sizeMap: Record<string, string> = { "16:9": "1024x576", "9:16": "576x1024", "1:1": "1024x1024" };
+  let still: Awaited<ReturnType<typeof callImageGen>> | null = null;
+  let stillErr = "";
+  try {
+    still = await callImageGen({
+      prompt: prompt || "cinematic music video still, dramatic lighting",
+      size: sizeMap[aspect] || "1024x576",
+    });
+  } catch (err) {
+    stillErr = err instanceof Error ? err.message : String(err);
+    console.warn("[mv-video] callImageGen threw:", stillErr);
+  }
+
+  let stillUrl = imageUrl;
+  if (still && still.ok) {
+    stillUrl = still.image_url
+      ? still.image_url
+      : (still.image_b64 ? `data:image/png;base64,${still.image_b64}` : stillUrl);
+  }
+  if (!stillUrl) {
+    // Synthesize an SVG gradient still as ultimate fallback.
+    let hue = 200;
+    for (let i = 0; i < prompt.length; i++) hue = (hue * 31 + prompt.charCodeAt(i)) % 360;
+    const [w, h] = (sizeMap[aspect] || "1024x576").split("x").map(Number);
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}">` +
+      `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">` +
+      `<stop offset="0%" stop-color="hsl(${hue},70%,32%)"/>` +
+      `<stop offset="100%" stop-color="hsl(${(hue + 60) % 360},75%,18%)"/>` +
+      `</linearGradient></defs><rect width="${w}" height="${h}" fill="url(#g)"/></svg>`;
+    stillUrl = `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
+  }
+
+  console.warn(
+    `[mv-video] all providers failed, returning still+ken-burns flag. upstream=${upstreamDetail.slice(0, 80)} fallback=${(vid?.error || vidErr || "no_provider").slice(0, 80)}`,
+  );
+  return res.status(200).json({
+    ok: true,
+    task_id: `placeholder-${Date.now()}`,
+    video_url: "",
+    image_url: stillUrl,
+    engine: "placeholder",
+    cost_cents: 0,
+    use_user_key: false,
+    fallback: true,
+    placeholder: true,
+    video_skipped: true,
+    aspect_ratio: aspect,
+    duration_secs: Math.round(duration),
+    upstream_error: upstreamDetail,
+    fallback_error: vid?.error || vidErr || "no_provider_succeeded",
+    still_error: still?.error || stillErr || "",
+  });
+});
+
 app.all(/^\/api\/mv\//, (req, res) => {
   const userId = (req.session as any)?.user_id;
   if (!userId) {

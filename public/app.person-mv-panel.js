@@ -572,9 +572,41 @@
     if (!state.persons.length) load();
   }
 
+  /* CSSOS_PERSON_MV_DOC_CAPTURE 20260507 — Jing
+   * Last-resort: listen on the document at capture phase. The
+   * dock dispatcher and any other handler lives on dock OR item,
+   * but document.capture is THE FIRST listener every event hits
+   * after the window. Whatever's intercepting on a deeper element
+   * can't beat us here. */
+  var docLastFire = 0;
+  function installDocumentCapture() {
+    if (globalThis.__cssosPersonMvDocBound) return;
+    globalThis.__cssosPersonMvDocBound = true;
+    function isMyDockItem(target) {
+      return target && typeof target.closest === "function" &&
+        target.closest('.dock-item[data-action="person-mv"]');
+    }
+    function dockFire(label, e) {
+      var now = Date.now();
+      if (now - docLastFire < 250) return;
+      docLastFire = now;
+      console.info("[person-mv] document capture fire via", label);
+      try { open(); } catch (err) { console.warn("[person-mv] open threw", err); }
+      try { e.preventDefault(); e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation(); } catch (_e) {}
+    }
+    document.addEventListener("pointerup", function (e) {
+      if (e.button && e.button !== 0) return;
+      if (isMyDockItem(e.target)) dockFire("doc.pointerup", e);
+    }, true);
+    document.addEventListener("click", function (e) {
+      if (isMyDockItem(e.target)) dockFire("doc.click", e);
+    }, true);
+  }
+
   function init() {
     ensureStyles();
     registerDockAction();
+    installDocumentCapture();
     pollDockInsertion();
   }
   if (document.readyState === "loading") {

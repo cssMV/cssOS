@@ -7989,14 +7989,18 @@ type LlmResponse = {
   error?: string;
 };
 const LLM_PROVIDER_DEFAULTS = {
-  groq:     { url: "https://api.groq.com/openai/v1/chat/completions",      model: "llama-3.3-70b-versatile",   keyEnv: "GROQ_API_KEY" },
-  cerebras: { url: "https://api.cerebras.ai/v1/chat/completions",          model: "llama-3.3-70b",             keyEnv: "CEREBRAS_API_KEY" },
-  openai:   { url: "https://api.openai.com/v1/chat/completions",           model: "gpt-4o-mini",               keyEnv: "OPENAI_API_KEY" },
+  groq:     { url: "https://api.groq.com/openai/v1/chat/completions",                                model: "llama-3.3-70b-versatile",   keyEnv: "GROQ_API_KEY",     dialect: "openai" },
+  cerebras: { url: "https://api.cerebras.ai/v1/chat/completions",                                    model: "llama-3.3-70b",             keyEnv: "CEREBRAS_API_KEY", dialect: "openai" },
+  // Gemini doesn't speak chat/completions — its endpoint is
+  // /v1beta/models/<model>:generateContent and the schema differs.
+  // Adapter below translates messages → contents and choices → candidates.
+  gemini:   { url: "https://generativelanguage.googleapis.com/v1beta/models",                       model: "gemini-2.0-flash",          keyEnv: "GEMINI_API_KEY",   dialect: "gemini" },
+  openai:   { url: "https://api.openai.com/v1/chat/completions",                                     model: "gpt-4o-mini",               keyEnv: "OPENAI_API_KEY",   dialect: "openai" },
 } as const;
 type LlmProvider = keyof typeof LLM_PROVIDER_DEFAULTS;
 
 function llmProviderOrder(prefer?: string[]): LlmProvider[] {
-  const env = String(process.env.LLM_PROVIDER_ORDER || "groq,cerebras,openai")
+  const env = String(process.env.LLM_PROVIDER_ORDER || "groq,cerebras,gemini,openai")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   const list = (prefer && prefer.length ? prefer : env)
     .filter((p): p is LlmProvider => p in LLM_PROVIDER_DEFAULTS);
@@ -8014,30 +8018,68 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
     const modelOverride = String(process.env[`LLM_MODEL_${provider.toUpperCase()}`] || "").trim();
     const model = modelOverride || cfg.model;
     try {
-      const body: Record<string, unknown> = {
-        model,
-        messages: req.messages,
-      };
-      if (req.temperature !== undefined) body.temperature = req.temperature;
-      if (req.max_tokens !== undefined) {
-        // OpenAI calls it max_completion_tokens; everyone else max_tokens.
-        if (provider === "openai") body.max_completion_tokens = req.max_tokens;
-        else body.max_tokens = req.max_tokens;
+      let upstream: Response;
+      let json: any;
+      let content = "";
+      if (cfg.dialect === "gemini") {
+        // Translate to Gemini schema:
+        //   messages[{role,content}] → { contents: [{role, parts:[{text}]}] }
+        //   role "system" → systemInstruction; "assistant" → "model"; "user" → "user"
+        const systemMsgs = req.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
+        const contents = req.messages
+          .filter((m) => m.role !== "system")
+          .map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
+        const generationConfig: Record<string, unknown> = {};
+        if (req.temperature !== undefined) generationConfig.temperature = req.temperature;
+        if (req.max_tokens !== undefined) generationConfig.maxOutputTokens = req.max_tokens;
+        if (req.response_format && (req.response_format as any).type === "json_object") {
+          generationConfig.responseMimeType = "application/json";
+        }
+        const body: Record<string, unknown> = { contents, generationConfig };
+        if (systemMsgs) body.systemInstruction = { parts: [{ text: systemMsgs }] };
+        const url = `${cfg.url}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        upstream = await fetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        json = await upstream.json().catch(() => null);
+        if (!upstream.ok) {
+          lastErr = String(json?.error?.message || `gemini_${upstream.status}`);
+          lastStatus = upstream.status;
+          console.warn(`[llm-router] gemini ${upstream.status}: ${lastErr.slice(0, 200)}`);
+          continue;
+        }
+        const parts = json?.candidates?.[0]?.content?.parts;
+        content = Array.isArray(parts)
+          ? parts.map((p: { text?: string }) => String(p?.text || "")).join("")
+          : "";
+      } else {
+        // OpenAI-compatible (Groq / Cerebras / OpenAI).
+        const body: Record<string, unknown> = {
+          model,
+          messages: req.messages,
+        };
+        if (req.temperature !== undefined) body.temperature = req.temperature;
+        if (req.max_tokens !== undefined) {
+          if (provider === "openai") body.max_completion_tokens = req.max_tokens;
+          else body.max_tokens = req.max_tokens;
+        }
+        if (req.response_format) body.response_format = req.response_format;
+        upstream = await fetch(cfg.url, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify(body),
+        });
+        json = await upstream.json().catch(() => null);
+        if (!upstream.ok) {
+          lastErr = String(json?.error?.message || `${provider}_${upstream.status}`);
+          lastStatus = upstream.status;
+          console.warn(`[llm-router] ${provider} ${upstream.status}: ${lastErr.slice(0, 200)}`);
+          continue;
+        }
+        content = String(json?.choices?.[0]?.message?.content || "");
       }
-      if (req.response_format) body.response_format = req.response_format;
-      const upstream = await fetch(cfg.url, {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify(body),
-      });
-      const json: any = await upstream.json().catch(() => null);
-      if (!upstream.ok) {
-        lastErr = String(json?.error?.message || `${provider}_${upstream.status}`);
-        lastStatus = upstream.status;
-        console.warn(`[llm-router] ${provider} ${upstream.status}: ${lastErr.slice(0, 200)}`);
-        continue;
-      }
-      const content = String(json?.choices?.[0]?.message?.content || "");
       return { ok: true, status: upstream.status, provider, model, content, raw: json };
     } catch (err) {
       lastErr = String((err as Error)?.message || err);

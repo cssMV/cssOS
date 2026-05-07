@@ -634,6 +634,172 @@ app.post("/api/mv/seed", express.json({ limit: "16kb" }), async (req, res) => {
   }
 });
 
+// CSSOS_PHASE2_COVER_FALLBACK 20260507 — Jing
+// Runway is the preferred cover engine (premium quality), but it returns
+// 400 / 402-style errors when the user's account is out of credits. The
+// upstream Rust handler doesn't know about our free image router
+// (callImageGen → fal/together/replicate/huggingface/openai), so a single
+// Runway hiccup used to fail the whole MV pipeline. We intercept the
+// cover proxy here: forward to Rust as before, but if Rust returns any
+// non-401 4xx/5xx, transparently fall back to callImageGen and synthesize
+// a Rust-shaped CoverResponse so the pipeline keeps moving.
+//
+// MUST come before the catch-all `/api/mv/*` proxy below.
+app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) {
+    return res.status(401).json({ ok: false, error: "sign_in_required" });
+  }
+  if (!CSSOS_INTERNAL_TOKEN) {
+    return res.status(503).json({
+      ok: false,
+      error: "internal_token_not_configured",
+      hint: "set CSSOS_INTERNAL_TOKEN in /etc/cssos.env",
+    });
+  }
+
+  const body = (req.body && typeof req.body === "object") ? req.body : {};
+  const bodyStr = Object.keys(body).length > 0 ? JSON.stringify(body) : "";
+  const prompt = String((body as any).prompt || "").trim();
+  const ratio = String((body as any).ratio || "").trim();
+  // Map Runway-style ratio (e.g. "1024:1024", "1920:1080") to a pixel size
+  // for our generic image router. Falls back to 1024x1024.
+  const ratioToSize = (r: string): string => {
+    if (!r) return "1024x1024";
+    const m = r.match(/^(\d+)\s*[:x]\s*(\d+)$/);
+    if (!m) return "1024x1024";
+    return `${m[1]}x${m[2]}`;
+  };
+  const fallbackSize = ratioToSize(ratio);
+
+  // Try Rust/Runway first.
+  const upstreamPromise = new Promise<{
+    status: number;
+    headers: http.IncomingHttpHeaders;
+    body: Buffer;
+  }>((resolve, reject) => {
+    const up = http.request(
+      {
+        hostname: RUST_MV_HOST,
+        port: RUST_MV_PORT,
+        path: req.originalUrl,
+        method: "POST",
+        headers: {
+          "content-type": (req.headers["content-type"] as string) || "application/json",
+          "content-length": Buffer.byteLength(bodyStr),
+          "x-cssos-internal-token": CSSOS_INTERNAL_TOKEN,
+          "x-cssos-user": String(userId),
+          "x-forwarded-for": String(
+            req.headers["x-forwarded-for"] || req.ip || req.socket.remoteAddress || "",
+          ),
+        },
+        timeout: MV_PROXY_TIMEOUT_MS,
+      },
+      (upRes) => {
+        const chunks: Buffer[] = [];
+        upRes.on("data", (c) => chunks.push(c));
+        upRes.on("end", () =>
+          resolve({
+            status: upRes.statusCode || 502,
+            headers: upRes.headers,
+            body: Buffer.concat(chunks),
+          }),
+        );
+      },
+    );
+    up.on("timeout", () => up.destroy(new Error("upstream_timeout")));
+    up.on("error", reject);
+    if (bodyStr) up.write(bodyStr);
+    up.end();
+  });
+
+  let upstream: { status: number; headers: http.IncomingHttpHeaders; body: Buffer } | null = null;
+  let upstreamErr = "";
+  try {
+    upstream = await upstreamPromise;
+  } catch (err) {
+    upstreamErr = err instanceof Error ? err.message : String(err);
+    console.warn("[mv-cover] upstream connect error, falling back:", upstreamErr);
+  }
+
+  // Success → forward verbatim.
+  if (upstream && upstream.status >= 200 && upstream.status < 300) {
+    res.status(upstream.status);
+    for (const [k, v] of Object.entries(upstream.headers)) {
+      if (v === undefined) continue;
+      const lower = k.toLowerCase();
+      if (lower === "transfer-encoding" || lower === "connection" || lower === "keep-alive") continue;
+      try { res.setHeader(k, v as any); } catch {}
+    }
+    return res.end(upstream.body);
+  }
+
+  // 401 from upstream = real auth issue, do not paper over with fallback.
+  if (upstream && upstream.status === 401) {
+    res.status(401);
+    return res.end(upstream.body);
+  }
+
+  // Runway 4xx/5xx (incl. credits/quota/payment errors) OR connect error
+  // → fall through to free providers via callImageGen.
+  let runwayDetail = upstreamErr;
+  if (upstream) {
+    try {
+      const j = JSON.parse(upstream.body.toString("utf8") || "{}");
+      runwayDetail = String(j?.error || j?.detail || j?.message || `runway_${upstream.status}`);
+    } catch {
+      runwayDetail = `runway_${upstream.status}`;
+    }
+  }
+  console.warn(
+    `[mv-cover] Runway failed (${upstream?.status ?? "no-response"}): ${runwayDetail.slice(0, 200)}; falling back to free image providers`,
+  );
+
+  try {
+    const img = await callImageGen({ prompt: prompt || "album cover, cinematic", size: fallbackSize });
+    if (!img.ok) {
+      return res.status(502).json({
+        ok: false,
+        error: "cover_all_providers_failed",
+        runway_error: runwayDetail,
+        fallback_error: img.error || "no_provider_succeeded",
+      });
+    }
+    // Build a data: URL if the provider returned base64 only.
+    const imageUrl = img.image_url
+      ? img.image_url
+      : (img.image_b64 ? `data:image/png;base64,${img.image_b64}` : "");
+    if (!imageUrl) {
+      return res.status(502).json({
+        ok: false,
+        error: "cover_fallback_no_url",
+        runway_error: runwayDetail,
+      });
+    }
+    // Synthesize a CoverResponse-shaped payload so the frontend pipeline
+    // panel handles it identically to a Runway success.
+    return res.status(200).json({
+      ok: true,
+      task_id: `fallback-${img.provider}-${Date.now()}`,
+      image_url: imageUrl,
+      model: img.model,
+      engine: img.provider,
+      version: img.model,
+      cost_cents: 0,
+      use_user_key: false,
+      fallback: true,
+      runway_error: runwayDetail,
+    });
+  } catch (err) {
+    return res.status(502).json({
+      ok: false,
+      error: "cover_fallback_threw",
+      runway_error: runwayDetail,
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
 app.all(/^\/api\/mv\//, (req, res) => {
   const userId = (req.session as any)?.user_id;
   if (!userId) {

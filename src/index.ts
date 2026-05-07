@@ -8457,7 +8457,90 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
         if (!lastErr) lastErr = "kling_poll_timeout";
         continue;
       }
-      // fal / replicate / runway adapters land in next rounds.
+      if (provider === "replicate") {
+        const apiKey = String(process.env.REPLICATE_API_KEY || process.env.REPLICATE_API_TOKEN || "").trim();
+        if (!apiKey) continue;
+        // Replicate models for video gen, in preference order:
+        //   image-to-video: wan-video/wan-2.2-i2v-a14b (Wan 2.2)
+        //   text-to-video : wan-video/wan-2.2-t2v-a14b
+        // Operator can override via REPLICATE_VIDEO_MODEL_I2V / _T2V.
+        const modelI2V = String(process.env.REPLICATE_VIDEO_MODEL_I2V || "wan-video/wan-2.2-i2v-a14b").trim();
+        const modelT2V = String(process.env.REPLICATE_VIDEO_MODEL_T2V || "wan-video/wan-2.2-t2v-a14b").trim();
+        const model = req.image_url ? modelI2V : modelT2V;
+        const aspect = req.aspect_ratio === "9:16" ? "9:16"
+          : req.aspect_ratio === "1:1" ? "1:1"
+          : "16:9";
+        const dur = req.duration_secs && req.duration_secs > 5 ? 9 : 5;
+        const input: Record<string, unknown> = {
+          prompt: req.prompt,
+          aspect_ratio: aspect,
+          duration: dur,
+        };
+        if (req.image_url) input.image = req.image_url;
+        // Replicate supports Prefer: wait=60 for sync; falls back to
+        // polling if the job exceeds 60s.
+        const create = await fetch(
+          `https://api.replicate.com/v1/models/${model}/predictions`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Token ${apiKey}`,
+              Prefer: "wait=60",
+            },
+            body: JSON.stringify({ input }),
+          },
+        );
+        const createJson: any = await create.json().catch(() => null);
+        if (!create.ok || !createJson) {
+          lastErr = String(createJson?.detail || createJson?.error || `replicate_${create.status}`);
+          console.warn(`[video-router] replicate create ${create.status}: ${lastErr.slice(0, 200)}`);
+          continue;
+        }
+        // First-shot success (Prefer: wait=60 returned the output).
+        const pickUrl = (out: any): string => {
+          if (!out) return "";
+          if (typeof out === "string") return out;
+          if (Array.isArray(out) && typeof out[0] === "string") return String(out[0]);
+          return "";
+        };
+        if (createJson.status === "succeeded") {
+          const u = pickUrl(createJson.output);
+          if (u) return { ok: true, provider: "replicate", video_url: u };
+        }
+        if (createJson.status === "failed") {
+          lastErr = "replicate_failed: " + String(createJson.error || "unknown");
+          continue;
+        }
+        // Poll urls.get up to 6 minutes.
+        const pollUrl = String(createJson?.urls?.get || "").trim();
+        if (!pollUrl) {
+          lastErr = "replicate_no_poll_url";
+          continue;
+        }
+        const deadline = Date.now() + 360_000;
+        let videoUrl = "";
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 4000));
+          const st = await fetch(pollUrl, {
+            headers: { Authorization: `Token ${apiKey}` },
+          });
+          const sJson: any = await st.json().catch(() => null);
+          const status = String(sJson?.status || "").toLowerCase();
+          if (status === "succeeded") {
+            videoUrl = pickUrl(sJson?.output);
+            break;
+          }
+          if (status === "failed" || status === "canceled") {
+            lastErr = "replicate_failed: " + String(sJson?.error || status);
+            break;
+          }
+        }
+        if (videoUrl) return { ok: true, provider: "replicate", video_url: videoUrl };
+        if (!lastErr) lastErr = "replicate_poll_timeout";
+        continue;
+      }
+      // fal / runway adapters land in next rounds.
     } catch (err) {
       lastErr = `${provider}_threw_${(err as Error)?.message || err}`;
       console.warn(`[video-router] ${provider} threw:`, lastErr.slice(0, 200));

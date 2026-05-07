@@ -8044,9 +8044,10 @@ async function enqueueKaraokeTranscription(workId: string): Promise<void> {
 }
 
 async function runWhisperWordTimings(audioUrl: string): Promise<WhisperWord[] | null> {
-  const apiKey = String(process.env.OPENAI_API_KEY || "").trim();
-  if (!apiKey) {
-    console.warn("[karaoke] OPENAI_API_KEY missing — skipping transcription");
+  const groqKey = String(process.env.GROQ_API_KEY || "").trim();
+  const openaiKey = String(process.env.OPENAI_API_KEY || "").trim();
+  if (!groqKey && !openaiKey) {
+    console.warn("[karaoke] no GROQ_API_KEY or OPENAI_API_KEY — skipping");
     return null;
   }
   // Fetch the audio bytes. URL is either an https:// or relative
@@ -8061,31 +8062,65 @@ async function runWhisperWordTimings(audioUrl: string): Promise<WhisperWord[] | 
     return null;
   }
   const audioBuf = Buffer.from(await audioRes.arrayBuffer());
-  // Build multipart form.
+  // Try Groq first (free tier, fast, OpenAI-compatible API).
+  if (groqKey) {
+    const w = await callWhisperEndpoint({
+      url: "https://api.groq.com/openai/v1/audio/transcriptions",
+      apiKey: groqKey,
+      model: "whisper-large-v3-turbo",
+      audioBuf,
+      provider: "groq",
+    });
+    if (w) return w;
+    console.info("[karaoke] groq failed, trying openai fallback");
+  }
+  // Fall back to OpenAI.
+  if (openaiKey) {
+    const w = await callWhisperEndpoint({
+      url: "https://api.openai.com/v1/audio/transcriptions",
+      apiKey: openaiKey,
+      model: "whisper-1",
+      audioBuf,
+      provider: "openai",
+    });
+    if (w) return w;
+  }
+  return null;
+}
+
+async function callWhisperEndpoint(opts: {
+  url: string;
+  apiKey: string;
+  model: string;
+  audioBuf: Buffer;
+  provider: string;
+}): Promise<WhisperWord[] | null> {
   const fd = new FormData();
-  fd.append("file", new Blob([audioBuf], { type: "audio/mpeg" }), "audio.mp3");
-  fd.append("model", "whisper-1");
+  fd.append("file", new Blob([new Uint8Array(opts.audioBuf)], { type: "audio/mpeg" }), "audio.mp3");
+  fd.append("model", opts.model);
   fd.append("response_format", "verbose_json");
   fd.append("timestamp_granularities[]", "word");
-  const upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+  const upstream = await fetch(opts.url, {
     method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}` },
+    headers: { Authorization: `Bearer ${opts.apiKey}` },
     body: fd,
   });
   if (!upstream.ok) {
     const txt = await upstream.text().catch(() => "");
-    console.warn("[karaoke] whisper API non-OK", upstream.status, txt.slice(0, 200));
+    console.warn(`[karaoke] ${opts.provider} non-OK`, upstream.status, txt.slice(0, 200));
     return null;
   }
   const json = await upstream.json().catch(() => null);
   const rawWords = (json && Array.isArray(json.words)) ? json.words : [];
-  return rawWords
+  const words = rawWords
     .map((w: { word?: string; start?: number; end?: number }) => ({
       text: String(w?.word || "").trim(),
       t_start: Number(w?.start || 0),
       t_end: Number(w?.end || 0),
     }))
     .filter((w: WhisperWord) => w.text && w.t_end > w.t_start);
+  console.info(`[karaoke] ${opts.provider} returned ${words.length} words`);
+  return words.length ? words : null;
 }
 
 function downgradeLosslessArtifactTarget(

@@ -755,49 +755,74 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
     `[mv-cover] Runway failed (${upstream?.status ?? "no-response"}): ${runwayDetail.slice(0, 200)}; falling back to free image providers`,
   );
 
+  // CSSOS_PHASE2_COVER_NEVER_FAIL 20260507 — Jing
+  // Pipeline must never block on cover. If Runway is out of credits AND every
+  // free provider also fails (no API keys, network down, etc.), synthesize a
+  // deterministic gradient placeholder PNG so the user sees their MV finish.
+  // The frontend logs the underlying engine error in `runway_error` /
+  // `fallback_error` for diagnostics but treats the response as a success.
+  let img: Awaited<ReturnType<typeof callImageGen>> | null = null;
+  let imgErr = "";
   try {
-    const img = await callImageGen({ prompt: prompt || "album cover, cinematic", size: fallbackSize });
-    if (!img.ok) {
-      return res.status(502).json({
-        ok: false,
-        error: "cover_all_providers_failed",
-        runway_error: runwayDetail,
-        fallback_error: img.error || "no_provider_succeeded",
-      });
-    }
-    // Build a data: URL if the provider returned base64 only.
+    img = await callImageGen({ prompt: prompt || "album cover, cinematic", size: fallbackSize });
+  } catch (err) {
+    imgErr = err instanceof Error ? err.message : String(err);
+    console.warn("[mv-cover] callImageGen threw:", imgErr);
+  }
+
+  if (img && img.ok) {
     const imageUrl = img.image_url
       ? img.image_url
       : (img.image_b64 ? `data:image/png;base64,${img.image_b64}` : "");
-    if (!imageUrl) {
-      return res.status(502).json({
-        ok: false,
-        error: "cover_fallback_no_url",
+    if (imageUrl) {
+      return res.status(200).json({
+        ok: true,
+        task_id: `fallback-${img.provider}-${Date.now()}`,
+        image_url: imageUrl,
+        model: img.model,
+        engine: img.provider,
+        version: img.model,
+        cost_cents: 0,
+        use_user_key: false,
+        fallback: true,
         runway_error: runwayDetail,
       });
     }
-    // Synthesize a CoverResponse-shaped payload so the frontend pipeline
-    // panel handles it identically to a Runway success.
-    return res.status(200).json({
-      ok: true,
-      task_id: `fallback-${img.provider}-${Date.now()}`,
-      image_url: imageUrl,
-      model: img.model,
-      engine: img.provider,
-      version: img.model,
-      cost_cents: 0,
-      use_user_key: false,
-      fallback: true,
-      runway_error: runwayDetail,
-    });
-  } catch (err) {
-    return res.status(502).json({
-      ok: false,
-      error: "cover_fallback_threw",
-      runway_error: runwayDetail,
-      detail: err instanceof Error ? err.message : String(err),
-    });
   }
+
+  // Last-resort placeholder: a 1024x1024 SVG gradient embedded as data URL.
+  // Picks a hue from the prompt hash so different MVs still feel distinct.
+  let hue = 180;
+  for (let i = 0; i < (prompt || "").length; i++) {
+    hue = (hue * 31 + prompt.charCodeAt(i)) % 360;
+  }
+  const placeholderSvg =
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">` +
+    `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">` +
+    `<stop offset="0%" stop-color="hsl(${hue},70%,32%)"/>` +
+    `<stop offset="100%" stop-color="hsl(${(hue + 60) % 360},75%,18%)"/>` +
+    `</linearGradient></defs>` +
+    `<rect width="1024" height="1024" fill="url(#g)"/>` +
+    `<circle cx="512" cy="512" r="180" fill="rgba(255,255,255,0.06)"/>` +
+    `</svg>`;
+  const placeholderUrl = `data:image/svg+xml;base64,${Buffer.from(placeholderSvg).toString("base64")}`;
+  console.warn(
+    `[mv-cover] all providers failed, returning placeholder. runway=${runwayDetail.slice(0, 80)} fallback=${(img?.error || imgErr || "no_provider").slice(0, 80)}`,
+  );
+  return res.status(200).json({
+    ok: true,
+    task_id: `placeholder-${Date.now()}`,
+    image_url: placeholderUrl,
+    model: "css-gradient-placeholder",
+    engine: "placeholder",
+    version: "1",
+    cost_cents: 0,
+    use_user_key: false,
+    fallback: true,
+    placeholder: true,
+    runway_error: runwayDetail,
+    fallback_error: img?.error || imgErr || "no_provider_succeeded",
+  });
 });
 
 app.all(/^\/api\/mv\//, (req, res) => {

@@ -8,6 +8,7 @@ import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import type { PoolClient, QueryResult } from "pg";
 import { createRemoteJWKSet, jwtVerify, SignJWT } from "jose";
+import Anthropic from "@anthropic-ai/sdk";
 import Stripe from "stripe";
 import dotenv from "dotenv";
 import { getDatabaseUrl, getPool, withClient } from "./db";
@@ -598,6 +599,7 @@ app.post("/api/mv/seed", express.json({ limit: "16kb" }), async (req, res) => {
       max_tokens: 200,
       temperature: 1.0, // maximise variation
       response_format: { type: "json_object" },
+      prefer: userPreferredOrder(req as unknown as { headers: Record<string, unknown>; cookies?: Record<string, string> }, "llm"),
     });
     if (!result.ok) {
       return res.status(result.status).json({
@@ -6731,6 +6733,7 @@ async function requestOpenAiCssmvSongSeed(
   model: string,
   timeoutMs: number,
   onFailure: (failure: CssmvOpenAiFailure) => void,
+  prefer?: string[],
 ) {
   const messages = [
     {
@@ -6832,6 +6835,7 @@ async function requestOpenAiCssmvSongSeed(
       const result = await callLlm({
         messages,
         ...(responseFormat ? { response_format: responseFormat } : {}),
+        ...(prefer && prefer.length ? { prefer } : {}),
       });
       clearTimeout(timeout);
       if (!result.ok) {
@@ -7999,6 +8003,24 @@ function llmProviderOrder(prefer?: string[]): LlmProvider[] {
   return list.length ? list : ["openai"];
 }
 
+/* Read user's preferred provider order from a cookie or header so a
+ * frontend picker can override the env default per-request. Caller
+ * still wins if it passes explicit `prefer:[]`. We don't add the
+ * cookie-parser dep — just split the Cookie header inline. */
+function userPreferredOrder(req: { headers: Record<string, unknown>; cookies?: Record<string, string> }, kind: string): string[] {
+  const headerKey = `x-cssos-${kind}-prefer`;
+  const cookieKey = `cssos_${kind}_prefer`;
+  let raw = String(req.headers?.[headerKey] || "").trim();
+  if (!raw && req.cookies?.[cookieKey]) raw = String(req.cookies[cookieKey]).trim();
+  if (!raw) {
+    const cookieHeader = String(req.headers?.["cookie"] || "");
+    const m = cookieHeader.split(";").map((s) => s.trim()).find((s) => s.startsWith(cookieKey + "="));
+    if (m) raw = decodeURIComponent(m.slice(cookieKey.length + 1));
+  }
+  if (!raw) return [];
+  return raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+}
+
 async function callLlm(req: LlmRequest): Promise<LlmResponse> {
   const order = llmProviderOrder(req.prefer);
   let lastErr = "no_providers_available";
@@ -8014,40 +8036,39 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
       let json: any;
       let content = "";
       if (cfg.dialect === "anthropic") {
-        // Anthropic /v1/messages — different shape:
-        //   - x-api-key header (not Bearer)
-        //   - max_tokens REQUIRED
-        //   - system messages → top-level `system` string
-        //   - messages = [{role:"user|assistant", content}]
-        //   - response: content[0].text
+        // Anthropic via the official SDK — auto-retry, typed errors,
+        // streaming-ready. Maintained by Anthropic so model migrations
+        // stay backwards-compatible.
+        const client = new Anthropic({ apiKey });
         const systemMsgs = req.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
         const messages = req.messages
           .filter((m) => m.role !== "system")
-          .map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content }));
-        const body: Record<string, unknown> = {
-          model,
-          messages,
-          max_tokens: req.max_tokens || 1024,
-        };
-        if (systemMsgs) body.system = systemMsgs;
-        if (req.temperature !== undefined) body.temperature = req.temperature;
-        upstream = await fetch(cfg.url, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-api-key": apiKey,
-            "anthropic-version": "2023-06-01",
-          },
-          body: JSON.stringify(body),
-        });
-        json = await upstream.json().catch(() => null);
-        if (!upstream.ok) {
-          lastErr = String(json?.error?.message || `anthropic_${upstream.status}`);
-          lastStatus = upstream.status;
-          console.warn(`[llm-router] anthropic ${upstream.status}: ${lastErr.slice(0, 200)}`);
+          .map((m) => ({
+            role: (m.role === "assistant" ? "assistant" : "user") as "user" | "assistant",
+            content: m.content,
+          }));
+        try {
+          const msg = await client.messages.create({
+            model,
+            messages,
+            max_tokens: req.max_tokens || 1024,
+            ...(systemMsgs ? { system: systemMsgs } : {}),
+            ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+          });
+          // Status-shaped pseudo-Response for the unified return below.
+          upstream = { ok: true, status: 200 } as Response;
+          json = msg;
+          content = (msg.content || [])
+            .filter((block): block is Anthropic.TextBlock => block.type === "text")
+            .map((block) => block.text)
+            .join("");
+        } catch (err) {
+          const apiErr = err as { message?: string; status?: number };
+          lastErr = String(apiErr?.message || err);
+          lastStatus = apiErr?.status || 500;
+          console.warn(`[llm-router] anthropic ${lastStatus}: ${lastErr.slice(0, 200)}`);
           continue;
         }
-        content = String(json?.content?.[0]?.text || "");
       } else if (cfg.dialect === "gemini") {
         // Translate to Gemini schema:
         //   messages[{role,content}] → { contents: [{role, parts:[{text}]}] }
@@ -8122,6 +8143,108 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
 }
 
 /* ============================================================
+ * CSSOS_MUSIC_ROUTER 20260506 (skeleton) — Jing
+ * ----------------------------------------------------------------
+ * Placeholder dispatcher for background-music generation. The
+ * existing Suno + ElevenLabs music paths are direct (each lives in
+ * its own module). When the long-form roadmap (短剧 → 电视剧 →
+ * 180min 3D) needs uniform "give me 60 seconds of <mood>" music,
+ * call this — it will route to whichever provider is configured.
+ * ============================================================ */
+type MusicGenRequest = {
+  prompt: string;
+  duration_secs?: number;
+  mood?: string;
+  prefer?: string[];
+};
+type MusicGenResponse = {
+  ok: boolean;
+  provider: string;
+  audio_url?: string;
+  audio_b64?: string;
+  error?: string;
+};
+const MUSIC_PROVIDERS = ["suno", "elevenlabs", "stability", "mubert"] as const;
+function musicProviderOrder(prefer?: string[]): string[] {
+  const env = String(process.env.MUSIC_PROVIDER_ORDER || "suno,elevenlabs,stability,mubert")
+    .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  return (prefer && prefer.length ? prefer : env).filter((p) =>
+    (MUSIC_PROVIDERS as readonly string[]).includes(p));
+}
+async function callMusicGen(_req: MusicGenRequest): Promise<MusicGenResponse> {
+  // TODO: each provider's adapter when its key + endpoint is wired.
+  // Skeleton in place so provider discovery + frontend picker work
+  // before adapters land.
+  return { ok: false, provider: "none", error: "music_router_not_implemented" };
+}
+
+/* ============================================================
+ * CSSOS_VIDEO_ROUTER 20260506 (skeleton) — Jing
+ * ----------------------------------------------------------------
+ * Short-clip video generation router (5-10s clips that get edited
+ * into long-form). Providers all do text-to-video / image-to-video
+ * but their schemas + polling models differ wildly — adapters land
+ * one-by-one as cssOS picks them up.
+ * ============================================================ */
+type VideoGenRequest = {
+  prompt: string;
+  duration_secs?: number;
+  aspect_ratio?: "16:9" | "9:16" | "1:1";
+  image_url?: string; // image-to-video starting frame
+  prefer?: string[];
+};
+type VideoGenResponse = {
+  ok: boolean;
+  provider: string;
+  video_url?: string;
+  poll_url?: string;
+  error?: string;
+};
+const VIDEO_PROVIDERS = ["fal", "replicate", "runway", "luma", "kling"] as const;
+function videoProviderOrder(prefer?: string[]): string[] {
+  const env = String(process.env.VIDEO_PROVIDER_ORDER || "fal,replicate,runway,luma,kling")
+    .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  return (prefer && prefer.length ? prefer : env).filter((p) =>
+    (VIDEO_PROVIDERS as readonly string[]).includes(p));
+}
+async function callVideoGen(_req: VideoGenRequest): Promise<VideoGenResponse> {
+  return { ok: false, provider: "none", error: "video_router_not_implemented" };
+}
+
+/* ============================================================
+ * CSSOS_TTS_ROUTER 20260506 (skeleton) — Jing
+ * ----------------------------------------------------------------
+ * Multi-character dialogue TTS for short-drama / TV roadmap.
+ * ElevenLabs already exists per-call in the platform; this router
+ * will let any callsite request "voice X says Y" with provider-side
+ * polling.
+ * ============================================================ */
+type TtsGenRequest = {
+  text: string;
+  voice?: string;
+  language?: string;
+  emotion?: string;
+  prefer?: string[];
+};
+type TtsGenResponse = {
+  ok: boolean;
+  provider: string;
+  audio_url?: string;
+  audio_b64?: string;
+  error?: string;
+};
+const TTS_PROVIDERS = ["elevenlabs", "azure", "openai", "play"] as const;
+function ttsProviderOrder(prefer?: string[]): string[] {
+  const env = String(process.env.TTS_PROVIDER_ORDER || "elevenlabs,azure,openai,play")
+    .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  return (prefer && prefer.length ? prefer : env).filter((p) =>
+    (TTS_PROVIDERS as readonly string[]).includes(p));
+}
+async function callTtsGen(_req: TtsGenRequest): Promise<TtsGenResponse> {
+  return { ok: false, provider: "none", error: "tts_router_not_implemented" };
+}
+
+/* ============================================================
  * CSSOS_PROVIDER_DISCOVERY 20260506 — Jing
  * Open-system contract: GET /api/llm/providers tells the frontend
  * which providers are configured + their default models so the user
@@ -8159,9 +8282,59 @@ function buildProvidersSnapshot() {
       free_tier: id === "fal" || id === "together" || id === "huggingface",
     };
   });
+  const music = (MUSIC_PROVIDERS as readonly string[]).map((id) => {
+    const env = id === "suno" ? "SUNO_API_KEY"
+      : id === "elevenlabs" ? "ELEVENLABS_API_KEY"
+      : id === "stability" ? "STABILITY_API_KEY"
+      : "MUBERT_API_KEY";
+    return {
+      id, kind: "music",
+      configured: !!String(process.env[env] || "").trim(),
+      default_model: id === "suno" ? "suno-v4"
+        : id === "elevenlabs" ? "music-v1"
+        : id === "stability" ? "stable-audio-2"
+        : "mubert-go",
+      free_tier: id === "mubert",
+    };
+  });
+  const video = (VIDEO_PROVIDERS as readonly string[]).map((id) => {
+    const env = id === "fal" ? "FAL_API_KEY"
+      : id === "replicate" ? "REPLICATE_API_KEY"
+      : id === "runway" ? "RUNWAY_API_KEY"
+      : id === "luma" ? "LUMA_API_KEY"
+      : "KLING_API_KEY";
+    return {
+      id, kind: "video",
+      configured: !!String(process.env[env] || "").trim(),
+      default_model: id === "fal" ? "fal-ai/luma-ray"
+        : id === "replicate" ? "wan-2.2-i2v"
+        : id === "runway" ? "gen-3-alpha"
+        : id === "luma" ? "ray-2"
+        : "kling-1.5",
+      free_tier: false,
+    };
+  });
+  const tts = (TTS_PROVIDERS as readonly string[]).map((id) => {
+    const env = id === "elevenlabs" ? "ELEVENLABS_API_KEY"
+      : id === "azure" ? "AZURE_SPEECH_KEY"
+      : id === "openai" ? "OPENAI_API_KEY"
+      : "PLAYHT_API_KEY";
+    return {
+      id, kind: "tts",
+      configured: !!String(process.env[env] || "").trim(),
+      default_model: id === "elevenlabs" ? "eleven_multilingual_v2"
+        : id === "azure" ? "neural-tts"
+        : id === "openai" ? "tts-1-hd"
+        : "playht-2.0",
+      free_tier: id === "azure", // 500k chars/month free
+    };
+  });
   return {
     llm: { providers: llm, default_order: llmProviderOrder() },
     image: { providers: image, default_order: imageProviderOrder() },
+    music: { providers: music, default_order: musicProviderOrder() },
+    video: { providers: video, default_order: videoProviderOrder() },
+    tts: { providers: tts, default_order: ttsProviderOrder() },
   };
 }
 

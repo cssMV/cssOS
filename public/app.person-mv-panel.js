@@ -681,8 +681,14 @@
       ".pmv-codex .pmv-action-bar{display:flex;gap:10px;margin:0 12px 12px;flex-wrap:wrap;}" +
       ".pmv-codex .pmv-action-bar button{all:unset;cursor:pointer;padding:10px 18px;border-radius:10px;font:700 13px/1 ui-monospace,monospace;}" +
       ".pmv-codex .pmv-cinema{background:linear-gradient(135deg,#00f5a0,#00c280);color:#001b14;font-size:15px!important;padding:12px 22px!important;}" +
-      ".pmv-codex .pmv-secondary{background:rgba(0,245,160,.12);border:1px solid rgba(0,245,160,.35);color:#daffee;}" +
-      ".pmv-codex .pmv-back{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);color:#daffee;}" +
+      /* CSSOS_PERSON_MV_BUG3 20260507 — Jing
+       * Theme-aware action-bar buttons. Previous rules used fixed light
+       * text on transparent backgrounds, which disappeared in light theme.
+       * Now use cssOS theme tokens (--text, --border) so contrast holds
+       * in both light and dark themes, with solid surface tints. */
+      ".pmv-codex .pmv-secondary{background:var(--green-soft,rgba(0,245,160,.18));border:1px solid var(--border,rgba(0,245,160,.4));color:var(--text);}" +
+      ".pmv-codex .pmv-back{background:var(--panel-strong,rgba(0,0,0,.45));border:1px solid var(--border,rgba(255,255,255,.2));color:var(--text);}" +
+      ".pmv-codex .pmv-secondary:hover,.pmv-codex .pmv-back:hover{filter:brightness(1.08);}" +
       ".pmv-codex .pmv-section{margin:14px 12px;padding:12px;background:rgba(8,18,16,.55);border:1px solid rgba(0,245,160,.18);border-radius:12px;}" +
       ".pmv-codex .pmv-section h3{margin:0 0 8px;font:700 13px/1.2 ui-monospace,monospace;letter-spacing:.06em;color:#00f5a0;}" +
       ".pmv-codex .pmv-bio{font:500 14px/1.6 ui-serif,serif;color:#e6fff5;}" +

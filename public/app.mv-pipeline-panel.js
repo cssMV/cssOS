@@ -6289,26 +6289,31 @@
       return null;
     }
     const panel = ensurePanel();
-    panel.classList.remove("hidden");
+    // CSSOS_PERSON_MV_CINEMA_FIRST_BUG1 20260507 — Jing
+    // Hide the MV PIPELINE panel ENTIRELY during cinema. Previous approach
+    // tried to hide chrome via descendant CSS rules — but stale caches +
+    // wrapper elements from togglePanelMaximize sometimes left chrome
+    // visible. Cinema overlay now mounts at the BODY level (independent
+    // of the panel) so the panel can be fully `display:none` and cinema
+    // still renders.
     panel.dataset.cinema = "true";
-    if (typeof globalThis.togglePanelMaximize === "function" && panel.dataset.maximized !== "true") {
-      try { globalThis.togglePanelMaximize(panel); } catch (_e) {}
-    }
+    panel.classList.add("hidden");
+    panel.style.display = "none";
     try { document.body.dataset.cinema = "true"; } catch (_e) {}
     ensureCinemaStyles();
 
-    // Build cinema overlay inside panel-body
-    const body = panel.querySelector(".panel-body") || panel;
-    let stage = panel.querySelector(".cinema-stage");
+    // Body-level cinema stage overlay (survives panel being hidden).
+    let stage = document.getElementById("cssos-cinema-stage");
     if (!stage) {
       stage = document.createElement("div");
-      stage.className = "cinema-stage";
+      stage.id = "cssos-cinema-stage";
+      stage.className = "cinema-fullscreen cinema-stage";
       stage.innerHTML =
         '<video class="cinema-video" playsinline></video>' +
         '<div class="cinema-strip"></div>' +
         '<div class="cinema-teaser" hidden></div>' +
         '<div class="cinema-loading" hidden></div>';
-      body.appendChild(stage);
+      document.body.appendChild(stage);
     }
     stage.style.display = "";
 
@@ -6399,13 +6404,13 @@
     const panel = cinemaSt.panel;
     if (panel) {
       delete panel.dataset.cinema;
-      // CSSOS_PERSON_MV_CINEMA_FIRST 20260507 — Jing
       // Codex flow never wants the user dumped into the MV PIPELINE editor
-      // after cinema exits. Hide the panel so they fall back to whatever
-      // was open underneath (typically the person codex page).
+      // after cinema exits. Keep the panel hidden so they fall back to
+      // whatever was open underneath (typically the person codex page).
       panel.classList.add("hidden");
+      panel.style.display = "none";
     }
-    const stage = cinemaSt.stage;
+    const stage = cinemaSt.stage || document.getElementById("cssos-cinema-stage");
     if (stage) {
       const v = stage.querySelector(".cinema-video");
       if (v) { try { v.pause(); v.removeAttribute("src"); v.load(); } catch (_e) {} }
@@ -6575,8 +6580,15 @@
     const s = document.createElement("style");
     s.id = "cssos-cinema-style";
     s.textContent =
-      /* Hide ALL pipeline chrome during cinema. The cinema-stage is the
-       * only descendant of .panel-body that should remain visible. */
+      /* CSSOS_PERSON_MV_CINEMA_FIRST_BUG1 20260507 — body-level overlay.
+       * The pipeline panel itself is set to display:none during cinema,
+       * so cinema cannot leak any chrome regardless of stale caches or
+       * wrapper elements. The overlay is positioned over everything. */
+      '#cssos-cinema-stage.cinema-fullscreen { position:fixed; inset:0; z-index:99999; background:#000; display:flex; align-items:center; justify-content:center; }' +
+      '.panel[data-cinema="true"] { display:none !important; }' +
+      /* Legacy panel-scoped rules kept as a defensive belt-and-braces
+       * in case some build caches an older enterCinemaMode that mounts
+       * the stage inside the panel-body. */
       '.panel[data-cinema="true"] .panel-bar,' +
       '.panel[data-cinema="true"] .mvp-action-bar,' +
       '.panel[data-cinema="true"] .mvp-settings,' +

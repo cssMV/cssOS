@@ -106,6 +106,8 @@
       "#person-mv-panel .person-mv-theme{font:400 11px/1.4 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.78);}" +
       "#person-mv-panel .person-mv-counts{display:flex;justify-content:space-between;align-items:center;font:500 10px/1 ui-monospace,monospace;color:rgba(218,255,238,0.55);margin-top:4px;}" +
       "#person-mv-panel .person-mv-empty{padding:60px 12px;text-align:center;color:rgba(218,255,238,0.55);}" +
+      "#person-mv-panel .person-mv-card *{pointer-events:none;}" +
+      "#person-mv-panel .panel-actions .icon-btn{pointer-events:auto !important;cursor:pointer;}" +
       "#person-mv-panel .person-mv-create-anybody{" +
         "margin:12px;padding:14px;border-radius:10px;" +
         "background:rgba(0,245,160,0.10);border:1px dashed rgba(0,245,160,0.45);" +
@@ -153,55 +155,29 @@
     item.innerHTML =
       '<div class="dock-icon">🏛</div>' +
       '<div class="dock-label">' + (tt("People MV", "人物MV")) + '</div>';
-    /* CSSOS_PERSON_MV_DOCK_DISPATCH 20260507 — Jing
-     * The dock's dispatcher (app.js:31665) attaches pointerdown +
-     * longpress + click handlers in a forEach that runs ONCE on
-     * boot. Items injected later (us) miss it — only dblclick was
-     * working because the browser fires the second click bubble even
-     * without the dock's machinery. Replicate the minimum the
-     * dispatcher needs so single-click reliably routes through
-     * handleDockAction. */
-    var pdAt = 0, pdX = 0, pdY = 0, longPressId = 0, suppressClick = false;
-    var SWIPE_PX = 14, LONGPRESS_MS = 500;
-    item.addEventListener("pointerdown", function (e) {
-      if (e.button && e.button !== 0) return;
-      pdAt = Date.now();
-      pdX = e.clientX; pdY = e.clientY;
-      suppressClick = false;
-      clearTimeout(longPressId);
-      longPressId = setTimeout(function () {
-        suppressClick = true;
-        if (typeof globalThis.handleDockAction === "function") {
-          globalThis.handleDockAction("person-mv", "longpress");
-        } else { open(); }
-      }, LONGPRESS_MS);
-    });
-    item.addEventListener("pointermove", function (e) {
-      var dx = Math.abs(e.clientX - pdX), dy = Math.abs(e.clientY - pdY);
-      if (Math.max(dx, dy) > SWIPE_PX) {
-        clearTimeout(longPressId);
-        suppressClick = true;
+    /* CSSOS_PERSON_MV_DIRECT 20260507 — Jing
+     * Strip all indirection. pointerup fires before click and
+     * isn't subject to dock's longpress suppression. Three direct
+     * listeners (pointerup + click + keydown) cover every input.
+     * Whatever calls open() first wins; the others bail. */
+    var openedOnce = 0;
+    function fireOpen(e) {
+      if (Date.now() - openedOnce < 300) return; // dedupe
+      openedOnce = Date.now();
+      if (e) {
+        try { e.preventDefault(); } catch (_e) {}
+        try { e.stopPropagation(); } catch (_e) {}
+        try { e.stopImmediatePropagation && e.stopImmediatePropagation(); } catch (_e) {}
       }
-    });
-    item.addEventListener("pointerup", function () {
-      clearTimeout(longPressId);
-    });
-    item.addEventListener("pointercancel", function () {
-      clearTimeout(longPressId);
-      suppressClick = true;
-    });
-    item.addEventListener("click", function (e) {
-      if (suppressClick) { suppressClick = false; return; }
-      e.preventDefault();
-      if (typeof globalThis.handleDockAction === "function") {
-        globalThis.handleDockAction("person-mv", "click");
-      } else { open(); }
-    });
-    item.addEventListener("dblclick", function (e) {
-      e.preventDefault();
-      if (typeof globalThis.handleDockAction === "function") {
-        globalThis.handleDockAction("person-mv", "dblclick");
-      } else { open(); }
+      open();
+    }
+    item.addEventListener("pointerup", function (e) {
+      if (e.button && e.button !== 0) return;
+      fireOpen(e);
+    }, true);
+    item.addEventListener("click", function (e) { fireOpen(e); }, true);
+    item.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") fireOpen(e);
     });
     // Insert just after MV PIPELINE (or at beginning).
     var anchor = dock.querySelector('.dock-item[data-action="mv-pipeline"]')
@@ -279,30 +255,40 @@
     var closeBtn = panelEl.querySelector('.icon-btn[aria-label="close"]');
     var minBtn = panelEl.querySelector('.icon-btn[aria-label="minimize"]');
     var maxBtn = panelEl.querySelector('.icon-btn[aria-label="maximize"]');
-    /* CSSOS_PERSON_MV_CHROME 20260507 — Jing
-     * Panel chrome buttons match other panels' canonical contract:
-     *   close   → minimizeToDockBridge (hidden + dock badge stays)
-     *   minimize→ togglePanelCollapse (hide body, keep title bar)
-     *   maximize→ togglePanelMaximize (full / floating toggle)
+    /* CSSOS_PERSON_MV_CHROME_DIRECT 20260507 — Jing
+     * Direct capture-phase listeners on each button. The shared
+     * panel-shell-actions handler is on the panel root with
+     * stopImmediatePropagation, so to win we must (a) listen on
+     * the button itself, (b) capture phase, (c) call the same
+     * three globals (togglePanelCollapse / togglePanelMaximize /
+     * minimizeToDockBridge) so behavior matches every other panel.
      */
-    if (closeBtn) closeBtn.addEventListener("click", function (e) {
-      e.preventDefault(); e.stopPropagation();
+    function wireChromeBtn(btn, fn) {
+      if (!btn) return;
+      var handler = function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+        try { fn(); } catch (err) { console.warn("[person-mv] chrome", err); }
+      };
+      btn.addEventListener("click", handler, true);
+      btn.addEventListener("pointerup", handler, true);
+    }
+    wireChromeBtn(closeBtn, function () {
       if (typeof globalThis.minimizeToDockBridge === "function") {
         globalThis.minimizeToDockBridge(panelEl);
       } else {
         panelEl.classList.add("hidden");
       }
     });
-    if (minBtn) minBtn.addEventListener("click", function (e) {
-      e.preventDefault(); e.stopPropagation();
+    wireChromeBtn(minBtn, function () {
       if (typeof globalThis.togglePanelCollapse === "function") {
         globalThis.togglePanelCollapse(panelEl);
       } else {
         panelEl.classList.toggle("panel-collapsed");
       }
     });
-    if (maxBtn) maxBtn.addEventListener("click", function (e) {
-      e.preventDefault(); e.stopPropagation();
+    wireChromeBtn(maxBtn, function () {
       if (typeof globalThis.togglePanelMaximize === "function") {
         globalThis.togglePanelMaximize(panelEl);
       }
@@ -351,28 +337,28 @@
         else alert(msg);
       });
     }
-    /* Card click — listen on the panel body in capture phase so
-     * any descendant click (image, label, etc.) routes through.
-     * The previous bubble-phase delegation may have been swallowed
-     * by intermediate elements with their own handlers. */
-    var bodyEl = panelEl.querySelector(".panel-body");
-    var cardClickHandler = function (e) {
+    /* Card open — pointerup capture on the whole panel so no
+     * descendant element can swallow it. Dedup with timestamp so
+     * pointerup + click + dblclick don't all fire jumpIntoPipeline. */
+    var cardLastFire = 0;
+    var cardHandler = function (e) {
       var card = e.target && typeof e.target.closest === "function"
         ? e.target.closest(".person-mv-card") : null;
       if (!card || !panelEl.contains(card)) return;
+      // Skip if the click was on a panel-bar button bubbled up.
+      if (e.target.closest(".panel-actions")) return;
       var pid = card.getAttribute("data-person-id");
       if (!pid) return;
+      if (Date.now() - cardLastFire < 400) return;
+      cardLastFire = Date.now();
       var person = state.persons.find(function (p) { return p.person_id === pid; });
       if (!person) return;
       e.preventDefault();
       e.stopPropagation();
       jumpIntoPipeline(person);
     };
-    if (bodyEl) {
-      bodyEl.addEventListener("click", cardClickHandler, true);
-    } else {
-      grid.addEventListener("click", cardClickHandler);
-    }
+    panelEl.addEventListener("pointerup", cardHandler, true);
+    panelEl.addEventListener("click", cardHandler, true);
   }
 
   async function load() {

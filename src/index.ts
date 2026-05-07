@@ -8627,6 +8627,7 @@ type LlmProvider = keyof typeof LLM_PROVIDER_DEFAULTS;
  */
 const PROVIDER_TIERS: Record<string, "free" | "cheap" | "standard" | "premium"> = {
   // image
+  pollinations: "free", // no-key, fully free, last-resort before SVG placeholder
   fal: "free",          // fal flux-schnell free tier
   huggingface: "free",  // also LLM free tier
   together: "cheap",    // also LLM cheap/free
@@ -9525,10 +9526,12 @@ type ImageGenResponse = {
   error?: string;
 };
 
-const IMAGE_PROVIDERS = ["fal", "together", "replicate", "huggingface", "openai"] as const;
+const IMAGE_PROVIDERS = ["fal", "huggingface", "together", "replicate", "openai", "pollinations"] as const;
 function imageProviderOrder(prefer?: string[]): string[] {
-  // Tier order: fal(free) → huggingface(free) → together(cheap) → replicate(cheap) → openai(premium)
-  const env = String(process.env.IMAGE_PROVIDER_ORDER || "fal,huggingface,together,replicate,openai")
+  // Tier order: fal(free) → huggingface(free) → together(cheap) → replicate(cheap) → openai(premium) → pollinations(free no-key, last-resort)
+  // pollinations is intentionally last so paid quality wins when configured;
+  // it kicks in only when every keyed provider is unavailable / out of credits.
+  const env = String(process.env.IMAGE_PROVIDER_ORDER || "fal,huggingface,together,replicate,openai,pollinations")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   const list = (prefer && prefer.length ? prefer : env).filter((p) =>
     (IMAGE_PROVIDERS as readonly string[]).includes(p));
@@ -9728,6 +9731,34 @@ async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
           ok: true, status: upstream.status,
           provider: "openai", model,
           image_b64, image_url, raw: json,
+        };
+      }
+      if (provider === "pollinations") {
+        // CSSOS_PHASE2_POLLINATIONS 20260507 — Jing
+        // No-key, fully free image gen. Returns JPEG bytes directly.
+        // Use as last-resort before the SVG placeholder so users always
+        // get an actual generated image even when every keyed provider
+        // is exhausted. https://pollinations.ai/
+        const seed = Math.floor(Math.random() * 1e9);
+        const url = "https://image.pollinations.ai/prompt/"
+          + encodeURIComponent(req.prompt || "abstract album cover")
+          + `?width=${w}&height=${h}&nologo=true&seed=${seed}`;
+        const upstream = await fetch(url, { method: "GET" });
+        if (!upstream.ok) {
+          lastErr = `pollinations_${upstream.status}`;
+          lastStatus = upstream.status;
+          console.warn(`[image-router] pollinations ${upstream.status}`);
+          continue;
+        }
+        const buf = Buffer.from(await upstream.arrayBuffer());
+        if (!buf.length) {
+          lastErr = "pollinations_empty_body";
+          continue;
+        }
+        return {
+          ok: true, status: upstream.status,
+          provider: "pollinations", model: "pollinations-flux",
+          image_b64: buf.toString("base64"),
         };
       }
     } catch (err) {

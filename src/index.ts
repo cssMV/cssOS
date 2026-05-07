@@ -13808,6 +13808,89 @@ app.post("/api/admin/engine/test", async (req, res) => {
   }
 });
 
+/* CSSOS_PIPELINE_DRYRUN 20260507 — Jing
+ * End-to-end demo without going through the full creation flow.
+ * Hits each engine in sequence so we can verify the whole chain
+ * works after a top-up:
+ *   1. Mubert  → 30s mp3   (music)
+ *   2. fal flux→ 1 image   (cover)
+ *   3. Kling   → 5s mp4    (video, image2video using cover)
+ *   4. Whisper → word JSON (subtitles, via Groq)
+ * Returns per-stage status + URLs + total elapsed.
+ * Admin only — costs real money on paid providers. */
+app.post("/api/admin/pipeline/dry-run", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const access = await resolveUserAccessProfile(user);
+    if (String(access.role || "").toLowerCase() !== "admin") {
+      return res.status(403).json({ ok: false, code: "ADMIN_ONLY" });
+    }
+    const prompt = String(req.body?.prompt || "calm cinematic mountain dawn, slow zoom").trim();
+    type Stage = { name: string; ok: boolean; ms: number; provider: string; url?: string; error?: string };
+    const stages: Stage[] = [];
+    const pushStage = (s: Stage) => {
+      const out: Stage = { name: s.name, ok: s.ok, ms: s.ms, provider: s.provider };
+      if (s.url) out.url = s.url;
+      if (s.error) out.error = s.error;
+      stages.push(out);
+    };
+    const t0 = Date.now();
+
+    // 1. Music — Mubert
+    let mt = Date.now();
+    const mus = await callMusicGen({ prompt, duration_secs: 30, tags: ["cinematic", "ambient"] });
+    pushStage({ name: "music", ok: mus.ok, ms: Date.now() - mt, provider: mus.provider, url: mus.audio_url, error: mus.error });
+
+    // 2. Cover — fal Flux
+    mt = Date.now();
+    const img = await callImageGen({ prompt, size: "1024x1024" });
+    pushStage({ name: "cover", ok: img.ok, ms: Date.now() - mt, provider: img.provider, url: img.image_url, error: img.error });
+
+    // 3. Video — Kling i2v if cover succeeded, else t2v
+    mt = Date.now();
+    const vidReq: VideoGenRequest = {
+      prompt,
+      duration_secs: 5,
+      aspect_ratio: "16:9",
+      prefer: ["kling"],
+    };
+    if (img.ok && img.image_url) vidReq.image_url = img.image_url;
+    const vid = await callVideoGen(vidReq);
+    pushStage({ name: "video", ok: vid.ok, ms: Date.now() - mt, provider: vid.provider, url: vid.video_url, error: vid.error });
+
+    // 4. Subtitles — Groq Whisper on the music URL (if got one)
+    mt = Date.now();
+    let subOk = false; let subProvider = "skipped"; let subErr = "";
+    let wordCount = 0;
+    if (mus.ok && mus.audio_url) {
+      const words = await runWhisperWordTimings(mus.audio_url);
+      if (words && words.length) {
+        subOk = true;
+        subProvider = "groq-whisper-large-v3-turbo";
+        wordCount = words.length;
+      } else {
+        subErr = "no_words_returned";
+      }
+    } else {
+      subErr = "no_audio_to_transcribe";
+    }
+    pushStage({ name: "subtitles", ok: subOk, ms: Date.now() - mt, provider: subProvider, error: subErr });
+
+    return res.json({
+      ok: stages.every((s) => s.ok),
+      data: {
+        stages,
+        word_count: wordCount,
+        elapsed_ms: Date.now() - t0,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "DRYRUN_FAILED", error: String((err as Error)?.message || err) });
+  }
+});
+
 app.post("/api/admin/karaoke/transcribe-all", async (req, res) => {
   noStore(res);
   try {

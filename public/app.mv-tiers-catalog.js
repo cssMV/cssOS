@@ -101,7 +101,7 @@
     state.catalog = {
       ok: false,
       tiers: FALLBACK_TIERS,
-      default_tier: "hybrid",
+      default_tier: "lite",
       classification: { lite_max: 5, hybrid_max: 60 },
     };
   }
@@ -162,10 +162,15 @@
   }
 
   function defaultTierId() {
+    // CSSOS_DEFAULT_LITE 20260507 — Jing
+    // Lite is the cheapest tier ($2.25 ≈ 4 views break-even). Default to it
+    // so casual creators don't unknowingly burn $$$ on Hybrid/Cinematic.
+    // Power users can still pick Hybrid/Cinematic in the tier selector,
+    // and that choice is stored per-user via writeSelection.
     if (state.catalog && typeof state.catalog.default_tier === "string" && state.catalog.default_tier) {
       return state.catalog.default_tier;
     }
-    return "hybrid";
+    return "lite";
   }
 
   function currentTierId() {
@@ -175,7 +180,7 @@
   }
 
   function currentTier() {
-    return findTier(currentTierId()) || findTier("hybrid") || getTiers()[0] || null;
+    return findTier(currentTierId()) || findTier("lite") || findTier("hybrid") || getTiers()[0] || null;
   }
 
   function setTier(id) {

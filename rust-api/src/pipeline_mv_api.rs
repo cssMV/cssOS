@@ -3917,7 +3917,7 @@ async fn tiers_catalog(
     let default_tier = std::env::var("CSSMV_DEFAULT_TIER")
         .ok()
         .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| "hybrid".into());
+        .unwrap_or_else(|| "lite".into());
 
     let mut body = serde_json::to_value(TiersCatalogResponse {
         ok: true,

@@ -92,6 +92,19 @@
         v.currentTime = Math.max(0, t - 0.001);
         v.currentTime = t;
       } catch (_e) {}
+      // Diagnostic for PiP regressions — log which API + element we're
+      // using so the user can paste back what they see in the console
+      // if PiP shows black again. Cheap, info-level only.
+      console.info("[cssos-pip] enter →", {
+        api: isSafari ? "webkitSetPresentationMode" : "requestPictureInPicture",
+        videoId: v.id,
+        readyState: v.readyState,
+        videoSize: v.videoWidth + "x" + v.videoHeight,
+        currentTime: v.currentTime,
+        paused: v.paused,
+        muted: v.muted,
+        srcLen: String(v.currentSrc || v.src || "").length,
+      });
       if (isSafari && typeof v.webkitSetPresentationMode === "function") {
         v.webkitSetPresentationMode("picture-in-picture");
         return;

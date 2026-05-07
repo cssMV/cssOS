@@ -51,36 +51,52 @@
     if (overlayEl && overlayEl.parentNode) overlayEl.parentNode.removeChild(overlayEl);
     overlayEl = document.createElement("div");
     overlayEl.id = "cssos-preview-paywall";
+    /* a11y — overlay is a modal dialog. */
+    overlayEl.setAttribute("role", "dialog");
+    overlayEl.setAttribute("aria-modal", "true");
+    overlayEl.setAttribute("aria-label", tt("Preview ended", "预览结束"));
+    overlayEl.tabIndex = -1;
     overlayEl.style.cssText =
       "position:absolute;inset:0;z-index:2147483646;display:flex;flex-direction:column;" +
-      "align-items:center;justify-content:center;gap:14px;" +
+      "align-items:center;justify-content:center;gap:14px;padding:20px;" +
       "background:radial-gradient(circle at 50% 40%,rgba(0,0,0,0.6),rgba(0,0,0,0.92));" +
       "color:#daffee;font:14px/1.4 -apple-system,system-ui,sans-serif;" +
       "backdrop-filter:blur(6px);" +
       // Critical — cinema chrome-hide CSS sets pointer-events:none on
       // hidden overlays. Force auto so the Sign in / Subscribe buttons
       // work even if the user is in cinema fullscreen.
-      "pointer-events:auto;";
+      "pointer-events:auto;box-sizing:border-box;overflow:auto;";
     var headline = document.createElement("div");
     headline.textContent = tt(
       "Preview ended — sign in or subscribe to keep watching.",
       "30 秒预览结束——登录或订阅即可观看完整版。"
     );
-    headline.style.cssText = "font:600 16px/1.3 -apple-system,system-ui,sans-serif;text-align:center;max-width:480px;";
+    headline.id = "cssos-paywall-headline";
+    overlayEl.setAttribute("aria-labelledby", "cssos-paywall-headline");
+    /* Responsive font-size — clamps from 13px on phones to 17px on
+     * desktop so the headline doesn't crowd the buttons on narrow
+     * portrait viewports. */
+    headline.style.cssText =
+      "font:600 clamp(13px,3vw,17px)/1.3 -apple-system,system-ui,sans-serif;" +
+      "text-align:center;max-width:min(480px,92vw);";
     overlayEl.appendChild(headline);
     var row = document.createElement("div");
-    row.style.cssText = "display:flex;gap:10px;";
+    /* Wrap on narrow viewports so 4 buttons (free user) stack cleanly
+     * on phone portrait instead of overflowing horizontally. */
+    row.style.cssText =
+      "display:flex;flex-wrap:wrap;justify-content:center;gap:8px 10px;max-width:92vw;";
     function pillBtn(label, fn) {
       var b = document.createElement("button");
       b.type = "button";
       b.textContent = label;
       b.style.cssText =
-        "padding:9px 18px;border-radius:999px;cursor:pointer;" +
-        "font:600 13px/1 -apple-system,system-ui,sans-serif;" +
+        "padding:9px 16px;border-radius:999px;cursor:pointer;" +
+        "font:600 clamp(11px,2.6vw,13px)/1 -apple-system,system-ui,sans-serif;" +
         "background:rgba(0,245,160,0.85);color:#001b14;border:0;" +
         // Same belt-and-suspenders as the overlay itself — chrome-hide
         // CSS occasionally flips pointer-events on descendants.
-        "pointer-events:auto;position:relative;z-index:1;";
+        "pointer-events:auto;position:relative;z-index:1;" +
+        "outline-offset:2px;";
       b.addEventListener("click", function (e) {
         e.preventDefault(); e.stopPropagation();
         fn && fn();
@@ -404,6 +420,44 @@
     var prevPos = getComputedStyle(frame).position;
     if (prevPos === "static") frame.style.position = "relative";
     frame.appendChild(overlayEl);
+
+    /* a11y — focus trap + Esc to dismiss. */
+    var prevActive = document.activeElement;
+    function focusables() {
+      return Array.from(overlayEl.querySelectorAll(
+        "button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex='-1'])"
+      ));
+    }
+    function trapKey(e) {
+      if (!overlayEl) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        stopCountdown("user");
+        if (overlayEl && overlayEl.parentNode) overlayEl.parentNode.removeChild(overlayEl);
+        overlayEl = null;
+        document.removeEventListener("keydown", trapKey, true);
+        try { if (prevActive && prevActive.focus) prevActive.focus(); } catch (_e) {}
+        return;
+      }
+      if (e.key === "Tab") {
+        var f = focusables();
+        if (!f.length) { e.preventDefault(); overlayEl.focus(); return; }
+        var first = f[0], last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault(); last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault(); first.focus();
+        }
+      }
+    }
+    document.addEventListener("keydown", trapKey, true);
+    // Initial focus on the first action button so screen-reader users
+    // jump straight to the choices.
+    setTimeout(function () {
+      var f = focusables();
+      if (f.length) try { f[0].focus(); } catch (_e) {}
+      else try { overlayEl.focus(); } catch (_e) {}
+    }, 0);
   }
 
   /* Try every reasonable surface for "play the next work" without

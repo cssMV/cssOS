@@ -604,10 +604,12 @@
   }
 
   function init() {
+    console.info("[person-mv] init starting");
     ensureStyles();
     registerDockAction();
     installDocumentCapture();
     pollDockInsertion();
+    console.info("[person-mv] init complete — try cssosPersonMvForce() to bypass dock");
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);
@@ -621,4 +623,36 @@
   }
 
   globalThis.openPersonMvPanel = open;
+
+  /* CSSOS_PERSON_MV_FORCE 20260507 — Jing
+   * Diagnostic: call from DevTools console to bypass every event
+   * path and force-open the panel. If THIS works but the dock click
+   * doesn't, the dock event chain is the problem. If THIS fails,
+   * ensurePanel/render is broken. */
+  globalThis.cssosPersonMvForce = function () {
+    console.info("[person-mv] force open() called");
+    try {
+      open();
+      var p = document.getElementById("person-mv-panel");
+      console.info("[person-mv] panel after force:", p, "hidden=", p && p.classList.contains("hidden"));
+      return p;
+    } catch (err) {
+      console.error("[person-mv] force open threw:", err);
+      return null;
+    }
+  };
+
+  /* Diagnose dock item presence + listener wiring. */
+  globalThis.cssosPersonMvDiag = function () {
+    var dock = document.querySelector(".dock");
+    var item = dock && dock.querySelector('.dock-item[data-action="person-mv"]');
+    console.info("[person-mv] diag", {
+      dock_exists: !!dock,
+      item_exists: !!item,
+      item_visible: item && getComputedStyle(item).display !== "none",
+      doc_bound: !!globalThis.__cssosPersonMvDocBound,
+      action_map_has: !!(globalThis.__cssosDockActionMap && globalThis.__cssosDockActionMap["person-mv"]),
+    });
+    return item;
+  };
 })();

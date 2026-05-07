@@ -6826,9 +6826,9 @@
        * Live pipeline progress block: per-stage chips + thin rainbow bar
        * + overall percent. Mounted inside .cinema-hero-block. */
       '.cinema-hero-status-line { margin-top:28px; font:600 13px/1.4 ui-monospace,monospace; color:rgba(218,255,238,.85); letter-spacing:.04em; text-align:center; }' +
-      '.cinema-hero-progress { margin:14px auto 0; max-width:480px; width:min(480px,86vw); display:flex; flex-direction:column; align-items:stretch; gap:8px; }' +
-      '.cinema-hero-progress-stages { display:flex; flex-wrap:wrap; gap:6px; justify-content:center; }' +
-      '.cinema-hero-progress-chip { font:600 11px/1 ui-monospace,monospace; padding:5px 8px; border-radius:999px; background:rgba(0,245,160,.06); border:1px solid rgba(0,245,160,.18); color:rgba(218,255,238,.55); letter-spacing:.04em; transition:background .25s,color .25s,border-color .25s; }' +
+      '.cinema-hero-progress { margin:14px auto 0; max-width:680px; width:min(680px,94vw); display:flex; flex-direction:column; align-items:stretch; gap:8px; }' +
+      '.cinema-hero-progress-stages { display:flex; flex-wrap:nowrap; gap:6px; justify-content:center; overflow:hidden; }' +
+      '.cinema-hero-progress-chip { font:600 11px/1 ui-monospace,monospace; padding:5px 8px; border-radius:999px; background:rgba(0,245,160,.06); border:1px solid rgba(0,245,160,.18); color:rgba(218,255,238,.55); letter-spacing:.04em; transition:background .25s,color .25s,border-color .25s; white-space:nowrap; flex:0 1 auto; min-width:0; }' +
       '.cinema-hero-progress-chip.active { background:rgba(0,245,160,.16); border-color:rgba(0,245,160,.55); color:#daffee; }' +
       '.cinema-hero-progress-chip.done { background:rgba(0,245,160,.28); border-color:rgba(0,245,160,.85); color:#001a10; }' +
       '.cinema-hero-progress-bar { position:relative; height:6px; border-radius:999px; background:rgba(255,255,255,.08); overflow:hidden; }' +

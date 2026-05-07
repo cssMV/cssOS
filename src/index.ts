@@ -8021,6 +8021,98 @@ function userPreferredOrder(req: { headers: Record<string, unknown>; cookies?: R
   return raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
 }
 
+/* CSSOS_USER_PREFERRED_MODEL 20260507 — Jing
+ * Read the cookie cssos_<kind>_<provider>_model so the engine-picker
+ * dropdown's choice flows through to the adapter call. Builds a
+ * provider→model map from all matching cookies in a single pass. */
+function userPreferredModelMap(
+  req: { headers: Record<string, unknown>; cookies?: Record<string, string> },
+  kind: string,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  const cookieHeader = String(req.headers?.["cookie"] || "");
+  const re = new RegExp("(?:^|;\\s*)cssos_" + kind + "_([a-z0-9-]+)_model=([^;]+)", "g");
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(cookieHeader))) {
+    out[m[1]!] = decodeURIComponent(m[2]!).trim();
+  }
+  // Direct cookies map fallback (e.g. when set via parsed middleware).
+  if (req.cookies) {
+    for (const k of Object.keys(req.cookies)) {
+      const mm = k.match(new RegExp("^cssos_" + kind + "_([a-z0-9-]+)_model$"));
+      if (mm) out[mm[1]!] = String(req.cookies[k] || "").trim();
+    }
+  }
+  return out;
+}
+
+/* CSSOS_SYSTEM_ENGINE_DEFAULTS 20260507 — Jing
+ * Admin-set defaults persist per (kind, provider) → model. Cached for
+ * 60s in-memory so adapters can call synchronously without hitting the
+ * DB on every request. Frontend admin → POST /api/admin/engine/default
+ * upserts the row + bumps the cache version (next read refetches). */
+type SysDefaultsCache = { fetchedAt: number; map: Record<string, string> };
+let systemDefaultsCache: SysDefaultsCache = { fetchedAt: 0, map: {} };
+const SYS_DEFAULTS_TTL_MS = 60_000;
+async function ensureSystemDefaultsTable(): Promise<void> {
+  await withClient((c) =>
+    c.query(`CREATE TABLE IF NOT EXISTS system_engine_defaults (
+      kind TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      model TEXT NOT NULL,
+      updated_by UUID,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (kind, provider)
+    )`),
+  );
+}
+async function getSystemDefaultsMap(): Promise<Record<string, string>> {
+  if (Date.now() - systemDefaultsCache.fetchedAt < SYS_DEFAULTS_TTL_MS) {
+    return systemDefaultsCache.map;
+  }
+  try {
+    await ensureSystemDefaultsTable();
+    const r = await withClient((c) =>
+      c.query<{ kind: string; provider: string; model: string }>(
+        `SELECT kind, provider, model FROM system_engine_defaults`,
+      ),
+    );
+    const map: Record<string, string> = {};
+    for (const row of r.rows) {
+      map[`${row.kind}.${row.provider}`] = row.model;
+    }
+    systemDefaultsCache = { fetchedAt: Date.now(), map };
+    return map;
+  } catch (err) {
+    console.warn("[system-defaults] read failed:", (err as Error)?.message || err);
+    return systemDefaultsCache.map;
+  }
+}
+function invalidateSystemDefaultsCache() {
+  systemDefaultsCache = { fetchedAt: 0, map: {} };
+}
+/* Resolve model for a (kind, provider) call. Precedence:
+ *   1. caller-supplied prefer_model[provider]   (request-scoped, user cookie)
+ *   2. system_engine_defaults row               (admin-set global)
+ *   3. env override XXX_MODEL                   (operator)
+ *   4. hardcoded default                        (fallback)
+ */
+async function resolveEngineModel(
+  kind: string,
+  provider: string,
+  caller: { prefer_model?: Record<string, string> } | undefined,
+  envOverride: string | undefined,
+  fallback: string,
+): Promise<string> {
+  const userPick = caller?.prefer_model?.[provider];
+  if (userPick && typeof userPick === "string") return userPick.trim();
+  const sysMap = await getSystemDefaultsMap();
+  const sysPick = sysMap[`${kind}.${provider}`];
+  if (sysPick) return sysPick;
+  if (envOverride && envOverride.trim()) return envOverride.trim();
+  return fallback;
+}
+
 async function callLlm(req: LlmRequest): Promise<LlmResponse> {
   const order = llmProviderOrder(req.prefer);
   let lastErr = "no_providers_available";
@@ -8157,6 +8249,9 @@ type MusicGenRequest = {
   mood?: string;
   tags?: string[];
   prefer?: string[];
+  /* Per-provider model override (from cookie `cssos_music_<provider>_model`
+   * filled in by the calling endpoint via userPreferredModelMap). */
+  prefer_model?: Record<string, string>;
 };
 type MusicGenResponse = {
   ok: boolean;
@@ -8286,6 +8381,8 @@ type VideoGenRequest = {
   aspect_ratio?: "16:9" | "9:16" | "1:1";
   image_url?: string; // image-to-video starting frame
   prefer?: string[];
+  /* Per-provider model override (from cookie cssos_video_<provider>_model). */
+  prefer_model?: Record<string, string>;
 };
 type VideoGenResponse = {
   ok: boolean;
@@ -8320,10 +8417,11 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
           : req.aspect_ratio === "1:1" ? "1:1"
           : "16:9";
         const dur = (req.duration_secs && req.duration_secs > 5) ? "9s" : "5s";
+        const lumaModel = await resolveEngineModel("video", "luma", req, process.env.LUMA_MODEL, "ray-2");
         const body: Record<string, unknown> = {
           prompt: req.prompt,
           aspect_ratio: aspect,
-          model: "ray-2",
+          model: lumaModel,
           duration: dur,
           resolution: "720p",
         };
@@ -8392,8 +8490,9 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
           : req.aspect_ratio === "1:1" ? "1:1"
           : "16:9";
         const dur = (req.duration_secs && req.duration_secs > 5) ? "10" : "5";
+        const klingModel = await resolveEngineModel("video", "kling", req, process.env.KLING_MODEL, "kling-v1");
         const body: Record<string, unknown> = {
-          model_name: "kling-v1",
+          model_name: klingModel,
           prompt: req.prompt,
           aspect_ratio: aspect,
           duration: dur,
@@ -8460,13 +8559,12 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
       if (provider === "replicate") {
         const apiKey = String(process.env.REPLICATE_API_KEY || process.env.REPLICATE_API_TOKEN || "").trim();
         if (!apiKey) continue;
-        // Replicate models for video gen, in preference order:
-        //   image-to-video: wan-video/wan-2.2-i2v-a14b (Wan 2.2)
-        //   text-to-video : wan-video/wan-2.2-t2v-a14b
-        // Operator can override via REPLICATE_VIDEO_MODEL_I2V / _T2V.
-        const modelI2V = String(process.env.REPLICATE_VIDEO_MODEL_I2V || "wan-video/wan-2.2-i2v-a14b").trim();
-        const modelT2V = String(process.env.REPLICATE_VIDEO_MODEL_T2V || "wan-video/wan-2.2-t2v-a14b").trim();
-        const model = req.image_url ? modelI2V : modelT2V;
+        // Resolve via the unified precedence chain. Image-to-video and
+        // text-to-video share the same picker — caller's chosen model
+        // takes precedence either way.
+        const fallback = req.image_url ? "wan-video/wan-2.2-i2v-a14b" : "wan-video/wan-2.2-t2v-a14b";
+        const envKey = req.image_url ? process.env.REPLICATE_VIDEO_MODEL_I2V : process.env.REPLICATE_VIDEO_MODEL_T2V;
+        const model = await resolveEngineModel("video", "replicate", req, envKey, fallback);
         const aspect = req.aspect_ratio === "9:16" ? "9:16"
           : req.aspect_ratio === "1:1" ? "1:1"
           : "16:9";
@@ -13575,6 +13673,55 @@ app.get("/cssapi/v1/mv", async (req, res) => {
  * that has audio_track_1 but no whisper_words yet and serially
  * enqueues Whisper through Groq (free tier). Serial, not parallel:
  * one work at a time, ~5s each, so we never hammer Groq's rate limit. */
+/* CSSOS_SYSTEM_DEFAULTS_API 20260507 — Jing
+ * Admin sets a (kind, provider) → model row and every user gets it
+ * unless they've picked their own per-cookie. Reading is open (so the
+ * picker can show what the system default is); writing is admin-only. */
+app.get("/api/admin/engine/defaults", async (_req, res) => {
+  noStore(res);
+  try {
+    await ensureSystemDefaultsTable();
+    const map = await getSystemDefaultsMap();
+    return res.json({ ok: true, data: { defaults: map } });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "SYS_DEFAULTS_READ_FAILED", error: String((err as Error)?.message || err) });
+  }
+});
+app.post("/api/admin/engine/default", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const access = await resolveUserAccessProfile(user);
+    if (String(access.role || "").toLowerCase() !== "admin") {
+      return res.status(403).json({ ok: false, code: "ADMIN_ONLY" });
+    }
+    const kind = String(req.body?.kind || "").trim().toLowerCase();
+    const provider = String(req.body?.provider || "").trim().toLowerCase();
+    const model = String(req.body?.model || "").trim();
+    if (!kind || !provider || !model) {
+      return res.status(400).json({ ok: false, code: "MISSING_FIELDS" });
+    }
+    if (!["llm", "image", "music", "video", "tts"].includes(kind)) {
+      return res.status(400).json({ ok: false, code: "INVALID_KIND" });
+    }
+    await ensureSystemDefaultsTable();
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO system_engine_defaults (kind, provider, model, updated_by)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (kind, provider)
+         DO UPDATE SET model = EXCLUDED.model, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+        [kind, provider, model, user.id],
+      ),
+    );
+    invalidateSystemDefaultsCache();
+    return res.json({ ok: true, data: { kind, provider, model } });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "SYS_DEFAULT_WRITE_FAILED", error: String((err as Error)?.message || err) });
+  }
+});
+
 /* CSSOS_ENGINE_TEST 20260507 — Jing
  * Admin-only "ping" endpoint per engine — proves a key works end-to-end
  * by actually generating a tiny artifact, returning its URL. The MV
@@ -13595,6 +13742,7 @@ app.post("/api/admin/engine/test", async (req, res) => {
         prompt: String(req.body?.prompt || "calm cinematic ambient piano"),
         duration_secs: 15,
         tags: ["cinematic", "ambient", "calm"],
+        prefer_model: userPreferredModelMap(req as any, "music"),
       };
       if (provider) musicReq.prefer = [provider];
       const result = await callMusicGen(musicReq);
@@ -13605,6 +13753,7 @@ app.post("/api/admin/engine/test", async (req, res) => {
         prompt: String(req.body?.prompt || "drifting clouds over mountains, cinematic, slow zoom"),
         duration_secs: 5,
         aspect_ratio: "16:9",
+        prefer_model: userPreferredModelMap(req as any, "video"),
       };
       if (provider) videoReq.prefer = [provider];
       const result = await callVideoGen(videoReq);

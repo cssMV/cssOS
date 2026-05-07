@@ -271,7 +271,20 @@
         openModelDropdown(name, kind, p, function (newModel) {
           chosenModel = newModel;
           nameText.textContent = p.id + " · " + chosenModel;
+          // Always remember in cookie so the user sees their pick stick
+          // (and the request-scoped path picks it up immediately).
           writeCookie(modelCookieKey, newModel);
+          // Admin → also persist as system default for everyone else.
+          if (viewerIsAdmin) {
+            try {
+              fetch("/api/admin/engine/default", {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json", Accept: "application/json" },
+                body: JSON.stringify({ kind: kind, provider: p.id, model: newModel }),
+              }).catch(function () {});
+            } catch (_e) {}
+          }
         });
       });
       li.appendChild(name);

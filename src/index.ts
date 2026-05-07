@@ -8301,8 +8301,87 @@ function videoProviderOrder(prefer?: string[]): string[] {
   return (prefer && prefer.length ? prefer : env).filter((p) =>
     (VIDEO_PROVIDERS as readonly string[]).includes(p));
 }
-async function callVideoGen(_req: VideoGenRequest): Promise<VideoGenResponse> {
-  return { ok: false, provider: "none", error: "video_router_not_implemented" };
+async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
+  const order = videoProviderOrder(req.prefer);
+  let lastErr = "";
+  for (const provider of order) {
+    try {
+      if (provider === "luma") {
+        const apiKey = String(process.env.LUMA_API_KEY || "").trim();
+        if (!apiKey) continue;
+        // Luma Dream Machine v1: POST /generations creates an async
+        // job, returns id + state="queued"|"dreaming". Poll the same
+        // resource until state="completed" (assets.video has the url)
+        // or state="failed" (failure_reason has the why).
+        // Defaults: ray-2 model, 5s duration. Aspect ratio mapped from
+        // VideoGenRequest's "16:9"/"9:16"/"1:1" → Luma's same-string
+        // values. duration_secs ≤ 5 → "5s", else "9s".
+        const aspect = req.aspect_ratio === "9:16" ? "9:16"
+          : req.aspect_ratio === "1:1" ? "1:1"
+          : "16:9";
+        const dur = (req.duration_secs && req.duration_secs > 5) ? "9s" : "5s";
+        const body: Record<string, unknown> = {
+          prompt: req.prompt,
+          aspect_ratio: aspect,
+          model: "ray-2",
+          duration: dur,
+          resolution: "720p",
+        };
+        if (req.image_url) {
+          body.keyframes = { frame0: { type: "image", url: req.image_url } };
+        }
+        const create = await fetch("https://api.lumalabs.ai/dream-machine/v1/generations", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+            Accept: "application/json",
+          },
+          body: JSON.stringify(body),
+        });
+        const createJson: any = await create.json().catch(() => null);
+        if (!create.ok || !createJson) {
+          lastErr = String(createJson?.detail || createJson?.message || `luma_${create.status}`);
+          console.warn(`[video-router] luma create ${create.status}: ${lastErr.slice(0, 200)}`);
+          continue;
+        }
+        const jobId: string = String(createJson?.id || "").trim();
+        if (!jobId) {
+          lastErr = "luma_no_job_id";
+          continue;
+        }
+        // Poll for up to 5 minutes (Luma jobs typically 60-180s).
+        const deadline = Date.now() + 300_000;
+        let videoUrl = "";
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 4000));
+          const st = await fetch(
+            `https://api.lumalabs.ai/dream-machine/v1/generations/${encodeURIComponent(jobId)}`,
+            { headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" } },
+          );
+          const sJson: any = await st.json().catch(() => null);
+          const state = String(sJson?.state || "").toLowerCase();
+          if (state === "completed") {
+            videoUrl = String(sJson?.assets?.video || "");
+            break;
+          }
+          if (state === "failed") {
+            lastErr = "luma_failed: " + String(sJson?.failure_reason || "unknown");
+            break;
+          }
+        }
+        if (videoUrl) return { ok: true, provider: "luma", video_url: videoUrl };
+        if (!lastErr) lastErr = "luma_poll_timeout";
+        continue;
+      }
+      // fal / replicate / runway / kling adapters land in next rounds.
+    } catch (err) {
+      lastErr = `${provider}_threw_${(err as Error)?.message || err}`;
+      console.warn(`[video-router] ${provider} threw:`, lastErr.slice(0, 200));
+      continue;
+    }
+  }
+  return { ok: false, provider: "none", error: lastErr || "no_video_provider_succeeded" };
 }
 
 /* ============================================================

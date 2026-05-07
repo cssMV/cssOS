@@ -167,15 +167,27 @@
     item.innerHTML =
       '<div class="dock-icon">🏛</div>' +
       '<div class="dock-label">' + (tt("People MV", "人物MV")) + '</div>';
-    /* If something flips draggable back on, flip it off again. */
-    new MutationObserver(function () {
+    /* Cancel native dragstart so even if some module sets
+     * draggable=true later, the OS won't initiate a drag. This is
+     * cheaper than a MutationObserver loop and can't recurse. */
+    item.addEventListener("dragstart", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }, true);
+    /* Periodically re-assert draggable=false (3s ticks for 60s)
+     * so dock-order can't permanently flip it. After 60s anything
+     * that wanted to re-enable has long since fired. */
+    var nodragTries = 0;
+    var nodragTimer = setInterval(function () {
       if (item.getAttribute("draggable") !== "false") {
         item.setAttribute("draggable", "false");
       }
-      if (item.style.webkitUserDrag !== "none") {
+      if (item.style && item.style.webkitUserDrag !== "none") {
         item.style.webkitUserDrag = "none";
       }
-    }).observe(item, { attributes: true, attributeFilter: ["draggable", "style"] });
+      nodragTries += 1;
+      if (nodragTries > 20) clearInterval(nodragTimer);
+    }, 3000);
     /* CSSOS_PERSON_MV_DIRECT_V2 20260507 — Jing
      * Bug from previous attempt: pointerup.preventDefault() told
      * the browser "don't generate click after this", which then
@@ -611,8 +623,8 @@
       var now = Date.now();
       if (now - docLastFire < 250) return;
       docLastFire = now;
-      console.info("[person-mv] document capture fire via", label);
-      try { open(); } catch (err) { console.warn("[person-mv] open threw", err); }
+      console.warn("[person-mv] document capture fire via", label);
+      try { open(); } catch (err) { console.error("[person-mv] open threw", err); }
       try { e.preventDefault(); e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation(); } catch (_e) {}
     }
     document.addEventListener("pointerup", function (e) {
@@ -625,12 +637,18 @@
   }
 
   function init() {
-    console.info("[person-mv] init starting");
-    ensureStyles();
-    registerDockAction();
-    installDocumentCapture();
-    pollDockInsertion();
-    console.info("[person-mv] init complete — try cssosPersonMvForce() to bypass dock");
+    /* Use console.warn so the message survives "Errors only" filter
+     * settings that hide console.info / console.log. */
+    console.warn("[person-mv] init starting");
+    try {
+      ensureStyles();
+      registerDockAction();
+      installDocumentCapture();
+      pollDockInsertion();
+      console.warn("[person-mv] init complete — try cssosPersonMvForce() to bypass dock");
+    } catch (err) {
+      console.error("[person-mv] init threw:", err);
+    }
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);

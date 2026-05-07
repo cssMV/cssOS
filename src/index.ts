@@ -8178,55 +8178,83 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
   for (const provider of order) {
     try {
       if (provider === "mubert") {
-        const companyId = String(process.env.MUBERT_COMPANY_ID || "").trim();
-        const licenseToken = String(process.env.MUBERT_LICENSE_TOKEN || process.env.MUBERT_API_KEY || "").trim();
-        if (!companyId || !licenseToken) continue;
-        // Mubert v3 — POST tracks/recommend with license auth. Returns
-        // an asynchronous task; we poll session_id until generation
-        // completes (typically 5-15s). On success the track URL is in
-        // data.tracks[0].url.
+        // Mubert v3 has two auth tiers:
+        //   service-side (company-id + license-token) → manages customers
+        //   public-side  (customer-id + access-token) → generates tracks
+        // The /tracks endpoint is public-side. We cache customer creds
+        // in env so we don't re-create customers per call. If they're
+        // missing, mint one from company creds and warn — operator
+        // should pin the returned values into /etc/cssos.env.
+        let customerId = String(process.env.MUBERT_CUSTOMER_ID || "").trim();
+        let accessToken = String(process.env.MUBERT_ACCESS_TOKEN || "").trim();
+        if (!customerId || !accessToken) {
+          const companyId = String(process.env.MUBERT_COMPANY_ID || "").trim();
+          const licenseToken = String(process.env.MUBERT_LICENSE_TOKEN || process.env.MUBERT_API_KEY || "").trim();
+          if (!companyId || !licenseToken) continue;
+          const reg = await fetch("https://music-api.mubert.com/api/v3/service/customers", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "company-id": companyId, "license-token": licenseToken },
+            body: JSON.stringify({ custom_id: "cssos-default" }),
+          });
+          const regJson: any = await reg.json().catch(() => null);
+          customerId = String(regJson?.data?.id || "").trim();
+          accessToken = String(regJson?.data?.access?.token || "").trim();
+          if (!customerId || !accessToken) {
+            lastErr = "mubert_customer_register_failed";
+            continue;
+          }
+          console.warn("[music-router] mubert auto-registered customer — pin to env: MUBERT_CUSTOMER_ID=" + customerId);
+        }
         const duration = Math.max(5, Math.min(180, Math.round(req.duration_secs || 30)));
-        const tags = (req.tags && req.tags.length ? req.tags : ["cinematic", "ambient"]).slice(0, 8);
-        const recommend = await fetch("https://music-api.mubert.com/api/v3/public/tracks/recommend", {
+        const headers = {
+          "Content-Type": "application/json",
+          "customer-id": customerId,
+          "access-token": accessToken,
+        };
+        const create = await fetch("https://music-api.mubert.com/api/v3/public/tracks", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify({
-            company_id: companyId,
-            license: licenseToken,
             duration,
-            tags,
+            prompt: String(req.prompt || (req.tags || []).join(", ") || "cinematic ambient"),
             mode: "track",
-            count: 1,
+            format: "mp3",
+            intensity: "medium",
           }),
         });
-        const recJson: any = await recommend.json().catch(() => null);
-        if (!recommend.ok || !recJson || recJson.error) {
-          lastErr = String(recJson?.error?.text || recJson?.error || `mubert_${recommend.status}`);
-          console.warn(`[music-router] mubert recommend ${recommend.status}: ${lastErr.slice(0, 200)}`);
+        const createJson: any = await create.json().catch(() => null);
+        if (!create.ok || !createJson) {
+          lastErr = String(createJson?.error?.text || createJson?.message || `mubert_${create.status}`);
+          console.warn(`[music-router] mubert create ${create.status}: ${lastErr.slice(0, 200)}`);
           continue;
         }
-        const sessionId: string = String(recJson?.data?.session_id || recJson?.session_id || "").trim();
-        const directUrl: string = String(recJson?.data?.tracks?.[0]?.url || "").trim();
-        if (directUrl) {
-          return { ok: true, provider: "mubert", audio_url: directUrl };
-        }
-        if (!sessionId) {
-          lastErr = "mubert_no_session_id";
+        const t = createJson?.data || {};
+        const trackId: string = String(t?.id || "").trim();
+        // Mubert returns generations[].url, not a top-level url. The
+        // first generation is the requested format ("mp3" by default).
+        const firstDone = (Array.isArray(t?.generations) ? t.generations : []).find(
+          (g: any) => g?.status === "done" && g?.url,
+        );
+        if (firstDone?.url) return { ok: true, provider: "mubert", audio_url: String(firstDone.url) };
+        if (!trackId) {
+          lastErr = "mubert_no_track_id";
           continue;
         }
-        // Poll status for up to 60s.
+        // Poll up to 60s for the generation to flip status="done".
         const deadline = Date.now() + 60_000;
         let pollUrl = "";
         while (Date.now() < deadline) {
           await new Promise((r) => setTimeout(r, 2500));
-          const status = await fetch("https://music-api.mubert.com/api/v3/public/tracks/status", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ company_id: companyId, license: licenseToken, session_id: sessionId }),
-          });
+          const status = await fetch(
+            `https://music-api.mubert.com/api/v3/public/tracks/${encodeURIComponent(trackId)}`,
+            { method: "GET", headers },
+          );
           const sJson: any = await status.json().catch(() => null);
-          const url = sJson?.data?.tracks?.[0]?.url || sJson?.tracks?.[0]?.url;
-          if (url) { pollUrl = String(url); break; }
+          const tt = sJson?.data || {};
+          const gen = (Array.isArray(tt?.generations) ? tt.generations : []).find(
+            (g: any) => g?.status === "done" && g?.url,
+          );
+          if (gen?.url) { pollUrl = String(gen.url); break; }
         }
         if (pollUrl) return { ok: true, provider: "mubert", audio_url: pollUrl };
         lastErr = "mubert_poll_timeout";

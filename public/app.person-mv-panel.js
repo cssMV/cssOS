@@ -14,11 +14,38 @@
   "use strict";
 
   function tt(en, zh) {
+    /* Prefer the runtime i18n translator when available so non-EN/
+     * non-ZH locales also flow through the LLM dict. Fall back to
+     * naive locale check for EN/ZH only. */
+    if (typeof globalThis.CSSOS_I18N?.tr === "function") {
+      try { return String(globalThis.CSSOS_I18N.tr(en)); } catch (_e) {}
+    }
     if (typeof globalThis.loginCopy === "function") {
       try { return globalThis.loginCopy(en, zh); } catch (_e) {}
     }
     var lang = (navigator.language || "en").toLowerCase();
     return lang.indexOf("zh") === 0 && zh ? zh : en;
+  }
+  function currentLocale() {
+    var c = String(globalThis.currentLocale || navigator.language || "en").toLowerCase();
+    return c;
+  }
+  /* Pick the user-locale-appropriate name. ZH locales → name_zh;
+   * everything else → name_en (or name_zh as last resort). Future
+   * Wave 4 will let users contribute name translations per locale. */
+  function localizedName(p) {
+    var loc = currentLocale();
+    if (loc.indexOf("zh") === 0) return p.name_zh || p.name_en || p.person_id;
+    return p.name_en || p.name_zh || p.person_id;
+  }
+  /* Secondary line — opposite of the primary line so the user sees
+   * both names but the localised one is emphasised. Empty if both
+   * primary and secondary collapse to the same string. */
+  function secondaryName(p) {
+    var loc = currentLocale();
+    var primary = localizedName(p);
+    var alt = loc.indexOf("zh") === 0 ? (p.name_en || "") : (p.name_zh || "");
+    return alt && alt !== primary ? alt : "";
   }
 
   var panelEl = null;
@@ -102,11 +129,18 @@
     item.innerHTML =
       '<div class="dock-icon">🏛</div>' +
       '<div class="dock-label">' + (tt("People MV", "人物MV")) + '</div>';
+    /* CSSOS_PERSON_MV_DOCK_FIX 20260507 — Jing
+     * The shared dock dispatcher in app.js maps data-action to a
+     * built-in panel registry; "person-mv" isn't registered there
+     * which produces a 404 on click. Win the race by listening in
+     * the capture phase + stopImmediatePropagation so the dispatcher
+     * never runs for our item. */
     item.addEventListener("click", function (e) {
       e.preventDefault();
       e.stopPropagation();
+      if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
       open();
-    });
+    }, true);
     // Insert just after MV PIPELINE (or at beginning).
     var anchor = dock.querySelector('.dock-item[data-action="mv-pipeline"]')
               || dock.querySelector('.dock-item[data-action="watch"]');
@@ -289,10 +323,12 @@
     }
     grid.innerHTML = state.persons.map(function (p) {
       var meta = [p.civilization, p.era].filter(Boolean).join(" · ");
+      var primary = localizedName(p);
+      var secondary = secondaryName(p);
       return (
         '<div class="person-mv-card" data-person-id="' + escapeAttr(p.person_id) + '">' +
-          '<div class="person-mv-name">' + escapeText(p.name_zh || p.name_en || p.person_id) + '</div>' +
-          '<div class="person-mv-name-en">' + escapeText(p.name_en || "") + '</div>' +
+          '<div class="person-mv-name">' + escapeText(primary) + '</div>' +
+          (secondary ? '<div class="person-mv-name-en">' + escapeText(secondary) + '</div>' : '') +
           '<div class="person-mv-meta">' + escapeText(meta) + '</div>' +
           (p.core_theme ? '<div class="person-mv-theme">' + escapeText(p.core_theme) + '</div>' : '') +
           '<div class="person-mv-counts">' +

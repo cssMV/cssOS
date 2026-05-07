@@ -362,6 +362,8 @@
       panelEl.style.pointerEvents = "none";
       // Also call the bridge so the dock-badge state still flips.
       try { globalThis.minimizeToDockBridge?.(panelEl); } catch (_e) {}
+      /* Clear hash so next reload doesn't restore a codex view. */
+      try { history.replaceState(null, "", "#"); } catch (_e) {}
     });
     wireChromeBtn(minBtn, function () {
       if (typeof globalThis.togglePanelCollapseBridge === "function") {
@@ -557,7 +559,7 @@
      *   line 1: {name_zh}
      *   line 2: [{intro}]   ← lore.bio first sentence > core_theme > roles
      */
-    var nameZh = p.name_zh || p.name_en || p.person_id;
+    var nameZh = localizedName(p);
     var intro = "";
     var bio = lore && typeof lore.bio === "string" ? lore.bio : "";
     if (bio) {
@@ -773,7 +775,7 @@
     if (createTip) createTip.style.display = "";
     if (host) host.style.display = "none";
     codexState.activeId = null;
-    try { history.replaceState(null, "", "#person-mv"); } catch (_e) {}
+    try { history.replaceState(null, "", "#"); } catch (_e) {}
   }
 
   async function renderCodex(host, personId, refresh) {
@@ -1018,19 +1020,12 @@
     });
   }
 
-  // Deep-link: read hash on init
-  function maybeOpenFromHash() {
-    try {
-      var m = String(location.hash || "").match(/^#person-mv\/codex\/([^/?]+)/);
-      if (m && m[1]) {
-        setTimeout(function(){ openCodex(decodeURIComponent(m[1])); }, 300);
-      } else if (/^#person-mv/.test(String(location.hash || ""))) {
-        setTimeout(function(){ open(); }, 300);
-      }
-    } catch (_e) {}
-  }
-  // Defer to once panel module is ready
-  setTimeout(maybeOpenFromHash, 600);
+  /* CSSOS_PERSON_MV_NO_AUTO_RESTORE 20260507 — Jing
+   * Removed the hash-on-init deep-link reader. It auto-popped the
+   * codex of the last-clicked person on every page load, which the
+   * user does NOT want. Hash WRITING in openCodex still keeps URLs
+   * shareable; closeCodex/closeBtn now wipe the hash so a manual
+   * reload starts clean. */
 
   globalThis.openPersonMvCodex = openCodex;
 

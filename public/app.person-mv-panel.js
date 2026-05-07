@@ -153,25 +153,56 @@
     item.innerHTML =
       '<div class="dock-icon">🏛</div>' +
       '<div class="dock-label">' + (tt("People MV", "人物MV")) + '</div>';
-    /* Capture-phase fallback in case __cssosDockActionMap registration
-     * is overridden later. handleDockAction is the canonical path. */
-    item.addEventListener("click", function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
-      if (typeof globalThis.handleDockAction === "function") {
-        try { globalThis.handleDockAction("person-mv", "click"); return; } catch (_err) {}
-      }
-      open();
-    }, true);
-    // Also wire pointerdown so phones/tablets that don't fire click
-    // reliably (Safari iPad gestures) still open the panel.
+    /* CSSOS_PERSON_MV_DOCK_DISPATCH 20260507 — Jing
+     * The dock's dispatcher (app.js:31665) attaches pointerdown +
+     * longpress + click handlers in a forEach that runs ONCE on
+     * boot. Items injected later (us) miss it — only dblclick was
+     * working because the browser fires the second click bubble even
+     * without the dock's machinery. Replicate the minimum the
+     * dispatcher needs so single-click reliably routes through
+     * handleDockAction. */
+    var pdAt = 0, pdX = 0, pdY = 0, longPressId = 0, suppressClick = false;
+    var SWIPE_PX = 14, LONGPRESS_MS = 500;
     item.addEventListener("pointerdown", function (e) {
-      // Only handle primary button + non-modifier; let the default
-      // long-press / drag flow continue if it's something else.
       if (e.button && e.button !== 0) return;
-      // We don't preventDefault here so the dock CSS hover styles run.
-    }, true);
+      pdAt = Date.now();
+      pdX = e.clientX; pdY = e.clientY;
+      suppressClick = false;
+      clearTimeout(longPressId);
+      longPressId = setTimeout(function () {
+        suppressClick = true;
+        if (typeof globalThis.handleDockAction === "function") {
+          globalThis.handleDockAction("person-mv", "longpress");
+        } else { open(); }
+      }, LONGPRESS_MS);
+    });
+    item.addEventListener("pointermove", function (e) {
+      var dx = Math.abs(e.clientX - pdX), dy = Math.abs(e.clientY - pdY);
+      if (Math.max(dx, dy) > SWIPE_PX) {
+        clearTimeout(longPressId);
+        suppressClick = true;
+      }
+    });
+    item.addEventListener("pointerup", function () {
+      clearTimeout(longPressId);
+    });
+    item.addEventListener("pointercancel", function () {
+      clearTimeout(longPressId);
+      suppressClick = true;
+    });
+    item.addEventListener("click", function (e) {
+      if (suppressClick) { suppressClick = false; return; }
+      e.preventDefault();
+      if (typeof globalThis.handleDockAction === "function") {
+        globalThis.handleDockAction("person-mv", "click");
+      } else { open(); }
+    });
+    item.addEventListener("dblclick", function (e) {
+      e.preventDefault();
+      if (typeof globalThis.handleDockAction === "function") {
+        globalThis.handleDockAction("person-mv", "dblclick");
+      } else { open(); }
+    });
     // Insert just after MV PIPELINE (or at beginning).
     var anchor = dock.querySelector('.dock-item[data-action="mv-pipeline"]')
               || dock.querySelector('.dock-item[data-action="watch"]');
@@ -240,18 +271,33 @@
     var closeBtn = panelEl.querySelector('.icon-btn[aria-label="close"]');
     var minBtn = panelEl.querySelector('.icon-btn[aria-label="minimize"]');
     var maxBtn = panelEl.querySelector('.icon-btn[aria-label="maximize"]');
+    /* CSSOS_PERSON_MV_CHROME 20260507 — Jing
+     * Panel chrome buttons match other panels' canonical contract:
+     *   close   → minimizeToDockBridge (hidden + dock badge stays)
+     *   minimize→ togglePanelCollapse (hide body, keep title bar)
+     *   maximize→ togglePanelMaximize (full / floating toggle)
+     */
     if (closeBtn) closeBtn.addEventListener("click", function (e) {
       e.preventDefault(); e.stopPropagation();
-      panelEl.classList.add("hidden");
+      if (typeof globalThis.minimizeToDockBridge === "function") {
+        globalThis.minimizeToDockBridge(panelEl);
+      } else {
+        panelEl.classList.add("hidden");
+      }
     });
     if (minBtn) minBtn.addEventListener("click", function (e) {
       e.preventDefault(); e.stopPropagation();
-      try { globalThis.minimizeToDockBridge?.(panelEl); }
-      catch (_e) { panelEl.classList.add("hidden"); }
+      if (typeof globalThis.togglePanelCollapse === "function") {
+        globalThis.togglePanelCollapse(panelEl);
+      } else {
+        panelEl.classList.toggle("panel-collapsed");
+      }
     });
     if (maxBtn) maxBtn.addEventListener("click", function (e) {
       e.preventDefault(); e.stopPropagation();
-      try { globalThis.togglePanelMaximize?.(panelEl); } catch (_e) {}
+      if (typeof globalThis.togglePanelMaximize === "function") {
+        globalThis.togglePanelMaximize(panelEl);
+      }
     });
     var debounceT = 0;
     if (searchEl) {
@@ -297,15 +343,28 @@
         else alert(msg);
       });
     }
-    grid.addEventListener("click", function (e) {
-      var card = e.target?.closest?.(".person-mv-card");
-      if (!card) return;
+    /* Card click — listen on the panel body in capture phase so
+     * any descendant click (image, label, etc.) routes through.
+     * The previous bubble-phase delegation may have been swallowed
+     * by intermediate elements with their own handlers. */
+    var bodyEl = panelEl.querySelector(".panel-body");
+    var cardClickHandler = function (e) {
+      var card = e.target && typeof e.target.closest === "function"
+        ? e.target.closest(".person-mv-card") : null;
+      if (!card || !panelEl.contains(card)) return;
       var pid = card.getAttribute("data-person-id");
       if (!pid) return;
       var person = state.persons.find(function (p) { return p.person_id === pid; });
       if (!person) return;
+      e.preventDefault();
+      e.stopPropagation();
       jumpIntoPipeline(person);
-    });
+    };
+    if (bodyEl) {
+      bodyEl.addEventListener("click", cardClickHandler, true);
+    } else {
+      grid.addEventListener("click", cardClickHandler);
+    }
   }
 
   async function load() {

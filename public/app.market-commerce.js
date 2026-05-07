@@ -1262,12 +1262,47 @@ function renderForyouMarketplace(options = {}) {
     return;
   }
   const pageWorks = works.slice(0, foryouMarketVisibleCount);
+  /* CSSOS_NO_REFLOW_PAGING 20260506 — Jing
+   * Same fix as works-center: avoid wiping list.innerHTML on every
+   * page-add (which scrolled the user back to the top). Detect a
+   * pure append (head matches by work-id) and only insert the new
+   * tail; full rebuild reserved for sort/filter changes. */
+  const prevRendered = Number(list.dataset.renderedCount || 0);
+  const resultsContainer = list.querySelector(".works-list-results");
+  const headMatches = (() => {
+    if (!resultsContainer || prevRendered <= 0) return false;
+    if (pageWorks.length <= prevRendered) return false;
+    const cards = resultsContainer.children;
+    if (cards.length !== prevRendered) return false;
+    for (let i = 0; i < Math.min(8, prevRendered); i++) {
+      const expected = String((pageWorks[i] && (pageWorks[i].id || pageWorks[i].work_id)) || "");
+      const actual = String((cards[i] && cards[i].dataset && cards[i].dataset.workId) || "");
+      if (expected && actual && expected !== actual) return false;
+    }
+    return true;
+  })();
+  if (headMatches && resultsContainer) {
+    const tail = pageWorks.slice(prevRendered);
+    const tmp = document.createElement("div");
+    tmp.innerHTML = buildMarketCardsMarkup(tail);
+    while (tmp.firstChild) resultsContainer.appendChild(tmp.firstChild);
+    const footerNote = list.querySelector(".works-list-footer .works-note");
+    if (footerNote) {
+      footerNote.textContent = loginCopy(`Showing ${pageWorks.length} of ${works.length} works`);
+    }
+    list.dataset.renderedCount = String(pageWorks.length);
+    void hydrateMarketCardThumbnails(list, tail);
+    bindMarketCardExpandToggle(resultsContainer);
+    bindMarketCardActionButtons(resultsContainer, tail);
+    return;
+  }
   list.innerHTML = `
     <div class="works-list-results">${buildMarketCardsMarkup(pageWorks)}</div>
     <div class="works-list-footer">
       <div class="works-note">${escapeHtml(loginCopy(`Showing ${pageWorks.length} of ${works.length} works`))}</div>
     </div>
   `;
+  list.dataset.renderedCount = String(pageWorks.length);
   void hydrateMarketCardThumbnails(list, pageWorks);
   bindMarketCardExpandToggle(list);
   bindMarketCardActionButtons(list, pageWorks);

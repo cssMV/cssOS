@@ -545,6 +545,68 @@ function finalizeWorksListRender(list, sortedWorks, context = {}) {
   const canEditAnyWorkSetting = context.canEditAnyWorkSetting === true;
   const allCount = Math.max(0, Number(context.allCount || sortedWorks.length) || sortedWorks.length);
   const visibleCount = Math.max(0, Number(context.visibleCount || sortedWorks.length) || sortedWorks.length);
+  /* CSSOS_NO_REFLOW_PAGING 20260506 — Jing
+   * "往下拖动…又刷新了一下，造成用户已经拖到下面了，刷新了一下，
+   *  用户又要从头滚动". Replacing list.innerHTML on every page-add
+   * blew away every card + thumbnail + scroll-position. New flow:
+   * snapshot prev count via list.dataset.renderedCount; if the new
+   * sortedWorks is a strict superset of what we already painted,
+   * append only the deltas to .works-list-results and update the
+   * footer in-place. Falls back to full rebuild for sort/filter
+   * changes (where order may have shuffled). */
+  const prevRendered = Number(list.dataset.renderedCount || 0);
+  const resultsContainer = list.querySelector(".works-list-results");
+  // Detect "pure append" — we have a previous render, the new list
+  // length grew, and the head matches what we already showed (by id).
+  const headMatches = (() => {
+    if (!resultsContainer || prevRendered <= 0) return false;
+    if (sortedWorks.length <= prevRendered) return false;
+    const cards = resultsContainer.children;
+    if (cards.length !== prevRendered) return false;
+    for (let i = 0; i < Math.min(8, prevRendered); i++) {
+      const expected = String((sortedWorks[i] && (sortedWorks[i].id || sortedWorks[i].work_id)) || "");
+      const actual = String((cards[i] && cards[i].dataset && cards[i].dataset.workId) || "");
+      if (expected && actual && expected !== actual) return false;
+    }
+    return true;
+  })();
+  if (headMatches && resultsContainer) {
+    // Pure append — render only the new tail.
+    const tail = sortedWorks.slice(prevRendered);
+    const tailHtml = buildWorksCardsMarkup(tail, {
+      usageEvents,
+      canEditWorkPrices,
+      canEditWorkVisibility,
+      canEditWorkType,
+      canWatchWorks,
+      canRegenerateThumbnail,
+      canRegeneratePreviewVideo
+    });
+    const tmp = document.createElement("div");
+    tmp.innerHTML = tailHtml;
+    while (tmp.firstChild) resultsContainer.appendChild(tmp.firstChild);
+    // Update footer count without disturbing scroll.
+    const footerNote = list.querySelector(".works-list-footer .works-note");
+    if (footerNote) {
+      footerNote.textContent = worksPanelCopyModule("showingCount", { visibleCount, allCount });
+    }
+    list.dataset.renderedCount = String(sortedWorks.length);
+    void hydrateWorksCardThumbnails(list, tail);
+    if (canEditAnyWorkSetting) bindInlineChipEditors(resultsContainer);
+    bindWorksCardExpandToggle(resultsContainer);
+    bindWorksCardActionButtons(resultsContainer, tail, {
+      canWatchWorks,
+      canRegenerateThumbnail,
+      canRegeneratePreviewVideo
+    });
+    bindWorksCardEditorControls(resultsContainer, {
+      canEditWorkType,
+      canEditWorkPrices,
+      canEditWorkVisibility
+    });
+    return;
+  }
+  // Full rebuild — first render OR sort/filter changed.
   const scoreOverviewMarkup = buildWorksScoreOverviewMarkupModule(sortedWorks);
   list.innerHTML = `
     ${scoreOverviewMarkup}
@@ -561,6 +623,7 @@ function finalizeWorksListRender(list, sortedWorks, context = {}) {
       <div class="works-note">${escapeHtml(worksPanelCopyModule("showingCount", { visibleCount, allCount }))}</div>
     </div>
   `;
+  list.dataset.renderedCount = String(sortedWorks.length);
   void hydrateWorksCardThumbnails(list, sortedWorks);
   globalThis.bindOperaScoreJumpTargetsModule?.(list);
   if (canEditAnyWorkSetting) bindInlineChipEditors(list);

@@ -8162,12 +8162,76 @@ const LLM_PROVIDER_DEFAULTS = {
 } as const;
 type LlmProvider = keyof typeof LLM_PROVIDER_DEFAULTS;
 
+/* CSSOS_UNIVERSAL_TIERED_FALLBACK 20260507 — Jing
+ * Universal principle: every engine router (image / video / music / LLM /
+ * TTS) routes free → cheap → standard → premium. A single provider's
+ * credits/quota/payment error MUST fall through to the next tier — never
+ * surface to the user. PROVIDER_TIERS encodes the cost-tier of each
+ * adapter; tierSortProviders() applies it to any provider list while
+ * preserving in-tier ordering (which encodes quality preference).
+ */
+const PROVIDER_TIERS: Record<string, "free" | "cheap" | "standard" | "premium"> = {
+  // image
+  fal: "free",          // fal flux-schnell free tier
+  huggingface: "free",  // also LLM free tier
+  together: "cheap",    // also LLM cheap/free
+  replicate: "cheap",
+  // image + LLM premium
+  openai: "premium",
+  runway: "premium",
+  // video
+  kling: "standard",
+  luma: "premium",
+  // music
+  mubert: "free",
+  elevenlabs: "premium",
+  stability: "standard",
+  suno: "premium",
+  // llm
+  groq: "free",
+  cerebras: "free",
+  mistral: "free",
+  openrouter: "free",   // ":free" model variants used by default
+  gemini: "free",       // generous free tier
+  deepseek: "cheap",
+  anthropic: "premium",
+  // tts
+  azure: "free",
+  play: "standard",
+};
+const TIER_ORDER = ["free", "cheap", "standard", "premium"] as const;
+function providerTier(p: string): (typeof TIER_ORDER)[number] {
+  return PROVIDER_TIERS[p] || "standard";
+}
+function tierSortProviders<T extends string>(providers: readonly T[]): T[] {
+  // Stable sort by tier index; in-tier order preserved (= caller's
+  // quality preference for that price-band).
+  const indexed = providers.map((p, i) => ({ p, i, t: TIER_ORDER.indexOf(providerTier(p)) }));
+  indexed.sort((a, b) => (a.t - b.t) || (a.i - b.i));
+  return indexed.map((x) => x.p);
+}
+/* Detect "this provider's wallet is empty" vs. real bug. Status 402 is
+ * always credits. 400/403 with credit/quota/balance/payment/insufficient
+ * keywords in the body is also credits. Any of these → continue to next
+ * provider rather than fail the user-facing op. 401 = auth error per
+ * provider; also fall through (others may work). */
+function isCreditsError(status: number, body: string): boolean {
+  if (status === 402) return true;
+  if (status !== 400 && status !== 403) return false;
+  const s = String(body || "").toLowerCase();
+  return /credit|balance|quota|insufficient|payment|exhausted|out of/.test(s);
+}
+
 function llmProviderOrder(prefer?: string[]): LlmProvider[] {
   const env = String(process.env.LLM_PROVIDER_ORDER || "groq,cerebras,gemini,together,mistral,huggingface,openrouter,deepseek,anthropic,openai")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   const list = (prefer && prefer.length ? prefer : env)
     .filter((p): p is LlmProvider => p in LLM_PROVIDER_DEFAULTS);
-  return list.length ? list : ["openai"];
+  // Caller-supplied prefer wins as-is (power-user override). Default
+  // env order is tier-sorted so the principle holds even if env is
+  // misconfigured.
+  const sorted = (prefer && prefer.length) ? list : tierSortProviders(list);
+  return sorted.length ? sorted : ["openai"];
 }
 
 /* Read user's preferred provider order from a cookie or header so a
@@ -8325,7 +8389,8 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
           const apiErr = err as { message?: string; status?: number };
           lastErr = String(apiErr?.message || err);
           lastStatus = apiErr?.status || 500;
-          console.warn(`[llm-router] anthropic ${lastStatus}: ${lastErr.slice(0, 200)}`);
+          if (isCreditsError(lastStatus, lastErr)) console.warn(`[llm-router] anthropic credits exhausted, falling through`);
+          else console.warn(`[llm-router] anthropic ${lastStatus}: ${lastErr.slice(0, 200)}`);
           continue;
         }
       } else if (cfg.dialect === "gemini") {
@@ -8354,7 +8419,8 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
         if (!upstream.ok) {
           lastErr = String(json?.error?.message || `gemini_${upstream.status}`);
           lastStatus = upstream.status;
-          console.warn(`[llm-router] gemini ${upstream.status}: ${lastErr.slice(0, 200)}`);
+          if (isCreditsError(lastStatus, JSON.stringify(json || {}) + " " + lastErr)) console.warn(`[llm-router] gemini credits exhausted, falling through`);
+          else console.warn(`[llm-router] gemini ${upstream.status}: ${lastErr.slice(0, 200)}`);
           continue;
         }
         const parts = json?.candidates?.[0]?.content?.parts;
@@ -8382,7 +8448,8 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
         if (!upstream.ok) {
           lastErr = String(json?.error?.message || `${provider}_${upstream.status}`);
           lastStatus = upstream.status;
-          console.warn(`[llm-router] ${provider} ${upstream.status}: ${lastErr.slice(0, 200)}`);
+          if (isCreditsError(lastStatus, JSON.stringify(json || {}) + " " + lastErr)) console.warn(`[llm-router] ${provider} credits exhausted, falling through`);
+          else console.warn(`[llm-router] ${provider} ${upstream.status}: ${lastErr.slice(0, 200)}`);
           continue;
         }
         content = String(json?.choices?.[0]?.message?.content || "");
@@ -8438,10 +8505,11 @@ const MUSIC_PROVIDERS = ["mubert", "elevenlabs", "stability", "suno"] as const;
  *   suno       — paid via kie.ai (highest quality, last because $$)
  */
 function musicProviderOrder(prefer?: string[]): string[] {
-  const env = String(process.env.MUSIC_PROVIDER_ORDER || "mubert,elevenlabs,stability,suno")
+  const env = String(process.env.MUSIC_PROVIDER_ORDER || "mubert,stability,elevenlabs,suno")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-  return (prefer && prefer.length ? prefer : env).filter((p) =>
+  const list = (prefer && prefer.length ? prefer : env).filter((p) =>
     (MUSIC_PROVIDERS as readonly string[]).includes(p));
+  return (prefer && prefer.length) ? list : tierSortProviders(list);
 }
 async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
   const order = musicProviderOrder(req.prefer);
@@ -8496,7 +8564,8 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
         const createJson: any = await create.json().catch(() => null);
         if (!create.ok || !createJson) {
           lastErr = String(createJson?.error?.text || createJson?.message || `mubert_${create.status}`);
-          console.warn(`[music-router] mubert create ${create.status}: ${lastErr.slice(0, 200)}`);
+          if (isCreditsError(create.status, JSON.stringify(createJson || {}) + " " + lastErr)) console.warn(`[music-router] mubert credits exhausted, falling through`);
+          else console.warn(`[music-router] mubert create ${create.status}: ${lastErr.slice(0, 200)}`);
           continue;
         }
         const t = createJson?.data || {};
@@ -8576,10 +8645,12 @@ const VIDEO_PROVIDERS = ["fal", "kling", "luma", "replicate", "runway"] as const
  *   runway   — premium, last because $$$
  */
 function videoProviderOrder(prefer?: string[]): string[] {
-  const env = String(process.env.VIDEO_PROVIDER_ORDER || "fal,kling,luma,replicate,runway")
+  // Tier order: fal(free) → replicate(cheap) → kling(standard) → luma(premium) → runway(premium)
+  const env = String(process.env.VIDEO_PROVIDER_ORDER || "fal,replicate,kling,luma,runway")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-  return (prefer && prefer.length ? prefer : env).filter((p) =>
+  const list = (prefer && prefer.length ? prefer : env).filter((p) =>
     (VIDEO_PROVIDERS as readonly string[]).includes(p));
+  return (prefer && prefer.length) ? list : tierSortProviders(list);
 }
 async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
   const order = videoProviderOrder(req.prefer);
@@ -8623,7 +8694,8 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
         const createJson: any = await create.json().catch(() => null);
         if (!create.ok || !createJson) {
           lastErr = String(createJson?.detail || createJson?.message || `luma_${create.status}`);
-          console.warn(`[video-router] luma create ${create.status}: ${lastErr.slice(0, 200)}`);
+          if (isCreditsError(create.status, JSON.stringify(createJson || {}) + " " + lastErr)) console.warn(`[video-router] luma credits exhausted, falling through`);
+          else console.warn(`[video-router] luma create ${create.status}: ${lastErr.slice(0, 200)}`);
           continue;
         }
         const jobId: string = String(createJson?.id || "").trim();
@@ -8700,7 +8772,8 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
         const createJson: any = await create.json().catch(() => null);
         if (!create.ok || createJson?.code !== 0) {
           lastErr = String(createJson?.message || `kling_${create.status}`);
-          console.warn(`[video-router] kling create ${create.status}: ${lastErr.slice(0, 200)}`);
+          if (isCreditsError(create.status, JSON.stringify(createJson || {}) + " " + lastErr)) console.warn(`[video-router] kling credits exhausted, falling through`);
+          else console.warn(`[video-router] kling create ${create.status}: ${lastErr.slice(0, 200)}`);
           continue;
         }
         const taskId = String(createJson?.data?.task_id || "").trim();
@@ -8778,7 +8851,8 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
         const createJson: any = await create.json().catch(() => null);
         if (!create.ok || !createJson) {
           lastErr = String(createJson?.detail || createJson?.error || `replicate_${create.status}`);
-          console.warn(`[video-router] replicate create ${create.status}: ${lastErr.slice(0, 200)}`);
+          if (isCreditsError(create.status, JSON.stringify(createJson || {}) + " " + lastErr)) console.warn(`[video-router] replicate credits exhausted, falling through`);
+          else console.warn(`[video-router] replicate create ${create.status}: ${lastErr.slice(0, 200)}`);
           continue;
         }
         // First-shot success (Prefer: wait=60 returned the output).
@@ -8860,10 +8934,12 @@ const TTS_PROVIDERS = ["azure", "elevenlabs", "play", "openai"] as const;
 /* azure free tier (500k chars/mo) → elevenlabs (paid premium voice
  * library) → play (free tier 5k chars) → openai (paid fallback). */
 function ttsProviderOrder(prefer?: string[]): string[] {
-  const env = String(process.env.TTS_PROVIDER_ORDER || "azure,elevenlabs,play,openai")
+  // Tier order: azure(free) → play(standard) → openai(premium) → elevenlabs(premium)
+  const env = String(process.env.TTS_PROVIDER_ORDER || "azure,play,openai,elevenlabs")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-  return (prefer && prefer.length ? prefer : env).filter((p) =>
+  const list = (prefer && prefer.length ? prefer : env).filter((p) =>
     (TTS_PROVIDERS as readonly string[]).includes(p));
+  return (prefer && prefer.length) ? list : tierSortProviders(list);
 }
 async function callTtsGen(_req: TtsGenRequest): Promise<TtsGenResponse> {
   return { ok: false, provider: "none", error: "tts_router_not_implemented" };
@@ -8996,10 +9072,12 @@ type ImageGenResponse = {
 
 const IMAGE_PROVIDERS = ["fal", "together", "replicate", "huggingface", "openai"] as const;
 function imageProviderOrder(prefer?: string[]): string[] {
-  const env = String(process.env.IMAGE_PROVIDER_ORDER || "fal,together,replicate,huggingface,openai")
+  // Tier order: fal(free) → huggingface(free) → together(cheap) → replicate(cheap) → openai(premium)
+  const env = String(process.env.IMAGE_PROVIDER_ORDER || "fal,huggingface,together,replicate,openai")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-  return (prefer && prefer.length ? prefer : env).filter((p) =>
+  const list = (prefer && prefer.length ? prefer : env).filter((p) =>
     (IMAGE_PROVIDERS as readonly string[]).includes(p));
+  return (prefer && prefer.length) ? list : tierSortProviders(list);
 }
 
 async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
@@ -9036,7 +9114,8 @@ async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
         if (!upstream.ok) {
           lastErr = String(json?.detail || json?.error || `fal_${upstream.status}`);
           lastStatus = upstream.status;
-          console.warn(`[image-router] fal ${upstream.status}: ${lastErr.slice(0, 200)}`);
+          if (isCreditsError(lastStatus, JSON.stringify(json || {}) + " " + lastErr)) console.warn(`[image-router] fal credits exhausted, falling through`);
+          else console.warn(`[image-router] fal ${upstream.status}: ${lastErr.slice(0, 200)}`);
           continue;
         }
         const url = json?.images?.[0]?.url;
@@ -9070,7 +9149,8 @@ async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
         if (!upstream.ok) {
           lastErr = String(json?.error?.message || `together_${upstream.status}`);
           lastStatus = upstream.status;
-          console.warn(`[image-router] together ${upstream.status}: ${lastErr.slice(0, 200)}`);
+          if (isCreditsError(lastStatus, JSON.stringify(json || {}) + " " + lastErr)) console.warn(`[image-router] together credits exhausted, falling through`);
+          else console.warn(`[image-router] together ${upstream.status}: ${lastErr.slice(0, 200)}`);
           continue;
         }
         const first = json?.data?.[0] || null;
@@ -9113,7 +9193,8 @@ async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
         if (!upstream.ok) {
           lastErr = String(json?.detail || json?.error || `replicate_${upstream.status}`);
           lastStatus = upstream.status;
-          console.warn(`[image-router] replicate ${upstream.status}: ${lastErr.slice(0, 200)}`);
+          if (isCreditsError(lastStatus, JSON.stringify(json || {}) + " " + lastErr)) console.warn(`[image-router] replicate credits exhausted, falling through`);
+          else console.warn(`[image-router] replicate ${upstream.status}: ${lastErr.slice(0, 200)}`);
           continue;
         }
         const out = json?.output;
@@ -9145,7 +9226,8 @@ async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
           const body = await upstream.text().catch(() => "");
           lastErr = body.slice(0, 200) || `huggingface_${upstream.status}`;
           lastStatus = upstream.status;
-          console.warn(`[image-router] huggingface ${upstream.status}: ${lastErr}`);
+          if (isCreditsError(lastStatus, body + " " + lastErr)) console.warn(`[image-router] huggingface credits exhausted, falling through`);
+          else console.warn(`[image-router] huggingface ${upstream.status}: ${lastErr}`);
           continue;
         }
         const buf = Buffer.from(await upstream.arrayBuffer());
@@ -9176,7 +9258,8 @@ async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
         if (!upstream.ok) {
           lastErr = String(json?.error?.message || `openai_${upstream.status}`);
           lastStatus = upstream.status;
-          console.warn(`[image-router] openai ${upstream.status}: ${lastErr.slice(0, 200)}`);
+          if (isCreditsError(lastStatus, JSON.stringify(json || {}) + " " + lastErr)) console.warn(`[image-router] openai credits exhausted, falling through`);
+          else console.warn(`[image-router] openai ${upstream.status}: ${lastErr.slice(0, 200)}`);
           continue;
         }
         const first = json?.data?.[0] || null;
@@ -19660,6 +19743,13 @@ async function start() {
   }
   app.listen(PORT, () => {
     console.log(`cssOS API running on http://localhost:${PORT}`);
+    // Tier-fallback sanity log — surfaces misconfigured order at boot.
+    const fmt = (ps: string[]) => ps.map((p) => `${p}(${providerTier(p)})`).join(" → ");
+    console.log(`[engines] image order: ${fmt(imageProviderOrder())}`);
+    console.log(`[engines] video order: ${fmt(videoProviderOrder())}`);
+    console.log(`[engines] music order: ${fmt(musicProviderOrder())}`);
+    console.log(`[engines] llm   order: ${fmt(llmProviderOrder() as string[])}`);
+    console.log(`[engines] tts   order: ${fmt(ttsProviderOrder())}`);
   });
 }
 

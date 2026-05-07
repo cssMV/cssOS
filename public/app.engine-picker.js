@@ -63,7 +63,7 @@
     "music.mubert":     ["mubert-go"],
     // Video
     "video.fal":       ["fal-ai/luma-ray", "fal-ai/kling-video", "fal-ai/runway-gen3"],
-    "video.replicate": ["wan-video/wan-2.2-i2v-a14b", "wan-video/wan-2.2-t2v-a14b", "tencent/hunyuan-video", "genmo/mochi-1"],
+    "video.replicate": ["minimax/video-01", "tencent/hunyuan-video", "lightricks/ltx-video", "ali-vilab/i2vgen-xl", "kwaivgi/kling-v1.6-pro", "luma/ray-2-720p"],
     "video.runway":    ["gen-3-alpha", "gen-3-alpha-turbo"],
     "video.luma":      ["ray-2", "ray-1.6"],
     "video.kling":     ["kling-v1", "kling-v1-5", "kling-v1-6"],

@@ -8562,7 +8562,10 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
         // Resolve via the unified precedence chain. Image-to-video and
         // text-to-video share the same picker — caller's chosen model
         // takes precedence either way.
-        const fallback = req.image_url ? "wan-video/wan-2.2-i2v-a14b" : "wan-video/wan-2.2-t2v-a14b";
+        // Real existing Replicate models (verified live 2026-05-07):
+        //   t2v: minimax/video-01, tencent/hunyuan-video, lightricks/ltx-video
+        //   i2v: ali-vilab/i2vgen-xl, kwaivgi/kling-v1.6-pro
+        const fallback = req.image_url ? "ali-vilab/i2vgen-xl" : "minimax/video-01";
         const envKey = req.image_url ? process.env.REPLICATE_VIDEO_MODEL_I2V : process.env.REPLICATE_VIDEO_MODEL_T2V;
         const model = await resolveEngineModel("video", "replicate", req, envKey, fallback);
         const aspect = req.aspect_ratio === "9:16" ? "9:16"

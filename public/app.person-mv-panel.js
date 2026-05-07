@@ -259,6 +259,14 @@
       '</div>';
     document.body.appendChild(panelEl);
     bindPanelEvents();
+    /* CSSOS_PERSON_MV_BAR_BIND 20260507 — Jing
+     * The shared panel-shell-actions binds .panel-actions buttons in
+     * a single forEach on init. Items appended later (us) miss it
+     * → close/min/max do nothing. Re-run the bridge so my panel gets
+     * the canonical wiring on top of my own fallback listeners. */
+    if (typeof globalThis.attachPanelBarActionsBridge === "function") {
+      try { globalThis.attachPanelBarActionsBridge(); } catch (_e) {}
+    }
     return panelEl;
   }
 
@@ -504,28 +512,44 @@
     var seed = buildSeed(person);
     applyCivHints(person.civilization);
     if (typeof globalThis.openMvPipelinePanel === "function") {
-      globalThis.openMvPipelinePanel({
-        seed: seed,
-        // No autoStart — let user inspect / tweak before clicking
-        // Start. They can hit Surprise to randomize a different
-        // angle on the same person, or Start to commit. Wave 4
-        // will optionally fast-track to autoStart for power users.
-        autoStart: false,
-      });
-      // Stash person_id so a future Wave 4 hook can attribute the
-      // saved work to this person record.
+      globalThis.openMvPipelinePanel({ seed: seed, autoStart: false });
+      /* CSSOS_PERSON_MV_FORCE_INPUTS 20260507 — Jing
+       * openMvPipelinePanel's seed-fill only writes when input is
+       * EMPTY. Defaults like "Pop" in style mean civ-aware hints
+       * never land. Force-overwrite the three inputs after the
+       * panel mounts so the user sees the per-civ values without
+       * having to clear "Pop" manually. */
+      setTimeout(function () {
+        var pipePanel = document.getElementById("mv-pipeline-panel");
+        if (!pipePanel) return;
+        var promptEl = pipePanel.querySelector("#mvp-prompt");
+        var styleEl = pipePanel.querySelector("#mvp-style");
+        var lyricsEl = pipePanel.querySelector("#mvp-lyrics");
+        if (promptEl && seed.prompt) {
+          promptEl.value = String(seed.prompt);
+          try { promptEl.dispatchEvent(new Event("input", { bubbles: true })); } catch (_e) {}
+        }
+        if (styleEl && seed.style) {
+          styleEl.value = String(seed.style);
+          try { styleEl.dispatchEvent(new Event("input", { bubbles: true })); } catch (_e) {}
+        }
+        if (lyricsEl) {
+          // Always start blank for person MVs so the LLM writes
+          // fresh lyrics targeted at this person + civilization.
+          lyricsEl.value = "";
+          try { lyricsEl.dispatchEvent(new Event("input", { bubbles: true })); } catch (_e) {}
+        }
+      }, 60);
       try {
         globalThis.__cssosPendingPersonId = person.person_id;
         globalThis.__cssosPendingPersonName = localizedName(person);
       } catch (_e) {}
-      // Toast the link so the user sees what's happening.
       if (typeof globalThis.showToast === "function") {
         globalThis.showToast(
           tt("Pipeline pre-filled for ", "已为以下人物预填管线：") + localizedName(person)
         );
       }
     } else {
-      // Fallback — surface the seed so user sees it didn't no-op.
       console.warn("[person-mv] openMvPipelinePanel not available", seed);
     }
   }

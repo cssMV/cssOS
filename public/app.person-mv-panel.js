@@ -118,34 +118,79 @@
     document.head.appendChild(s);
   }
 
+  /* Register our action with the external dock-action map BEFORE
+   * the dispatcher runs. handleDockAction(action, type) checks
+   * globalThis.__cssosDockActionMap first; built-in switch is
+   * fallback. Registering "person-mv" here lets the standard
+   * dispatch path open our panel without needing to win an event
+   * race. */
+  function registerDockAction() {
+    try {
+      globalThis.__cssosDockActionMap = globalThis.__cssosDockActionMap || {};
+      globalThis.__cssosDockActionMap["person-mv"] = {
+        click: function () { open(); },
+        dblclick: function () {
+          open();
+          var p = ensurePanel();
+          if (typeof globalThis.togglePanelMaximize === "function") {
+            try { globalThis.togglePanelMaximize(p); } catch (_e) {}
+          }
+        },
+        longpress: function () { open(); },
+      };
+    } catch (_e) {}
+  }
+
   function ensureDockItem() {
     var dock = document.querySelector(".dock");
-    if (!dock) return;
-    if (dock.querySelector('.dock-item[data-action="person-mv"]')) return;
+    if (!dock) return false;
+    if (dock.querySelector('.dock-item[data-action="person-mv"]')) return true;
     var item = document.createElement("div");
     item.className = "dock-item";
     item.setAttribute("data-action", "person-mv");
     item.setAttribute("data-actions", "click,dblclick,longpress");
+    item.tabIndex = 0;
     item.innerHTML =
       '<div class="dock-icon">🏛</div>' +
       '<div class="dock-label">' + (tt("People MV", "人物MV")) + '</div>';
-    /* CSSOS_PERSON_MV_DOCK_FIX 20260507 — Jing
-     * The shared dock dispatcher in app.js maps data-action to a
-     * built-in panel registry; "person-mv" isn't registered there
-     * which produces a 404 on click. Win the race by listening in
-     * the capture phase + stopImmediatePropagation so the dispatcher
-     * never runs for our item. */
+    /* Capture-phase fallback in case __cssosDockActionMap registration
+     * is overridden later. handleDockAction is the canonical path. */
     item.addEventListener("click", function (e) {
       e.preventDefault();
       e.stopPropagation();
       if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
+      if (typeof globalThis.handleDockAction === "function") {
+        try { globalThis.handleDockAction("person-mv", "click"); return; } catch (_err) {}
+      }
       open();
+    }, true);
+    // Also wire pointerdown so phones/tablets that don't fire click
+    // reliably (Safari iPad gestures) still open the panel.
+    item.addEventListener("pointerdown", function (e) {
+      // Only handle primary button + non-modifier; let the default
+      // long-press / drag flow continue if it's something else.
+      if (e.button && e.button !== 0) return;
+      // We don't preventDefault here so the dock CSS hover styles run.
     }, true);
     // Insert just after MV PIPELINE (or at beginning).
     var anchor = dock.querySelector('.dock-item[data-action="mv-pipeline"]')
               || dock.querySelector('.dock-item[data-action="watch"]');
     if (anchor && anchor.nextSibling) dock.insertBefore(item, anchor.nextSibling);
     else dock.appendChild(item);
+    return true;
+  }
+
+  /* Aggressively poll for first 12s so we catch the dock no matter
+   * when it lands. After that the MutationObserver fallback covers
+   * later mutations. */
+  function pollDockInsertion() {
+    var attempts = 0;
+    var tick = function () {
+      if (ensureDockItem()) return;
+      attempts += 1;
+      if (attempts < 60) setTimeout(tick, 200);
+    };
+    tick();
   }
 
   function ensurePanel() {
@@ -351,7 +396,8 @@
 
   function init() {
     ensureStyles();
-    ensureDockItem();
+    registerDockAction();
+    pollDockInsertion();
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);

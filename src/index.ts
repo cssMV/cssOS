@@ -763,66 +763,18 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
     }
   }
 
-  // Premium last-resort (or user-forced Runway): hit Rust/Runway.
-  const upstreamPromise = new Promise<{
-    status: number;
-    headers: http.IncomingHttpHeaders;
-    body: Buffer;
-  }>((resolve, reject) => {
-    const up = http.request(
-      {
-        hostname: RUST_MV_HOST,
-        port: RUST_MV_PORT,
-        path: req.originalUrl,
-        method: "POST",
-        headers: {
-          "content-type": (req.headers["content-type"] as string) || "application/json",
-          "content-length": Buffer.byteLength(bodyStr),
-          "x-cssos-internal-token": CSSOS_INTERNAL_TOKEN,
-          "x-cssos-user": String(userId),
-          "x-forwarded-for": String(
-            req.headers["x-forwarded-for"] || req.ip || req.socket.remoteAddress || "",
-          ),
-        },
-        timeout: MV_PROXY_TIMEOUT_MS,
-      },
-      (upRes) => {
-        const chunks: Buffer[] = [];
-        upRes.on("data", (c) => chunks.push(c));
-        upRes.on("end", () =>
-          resolve({
-            status: upRes.statusCode || 502,
-            headers: upRes.headers,
-            body: Buffer.concat(chunks),
-          }),
-        );
-      },
-    );
-    up.on("timeout", () => up.destroy(new Error("upstream_timeout")));
-    up.on("error", reject);
-    if (bodyStr) up.write(bodyStr);
-    up.end();
-  });
-
+  // Premium last-resort (or user-forced Runway): hit Rust/Runway via the
+  // shared streaming helper so chunked-transfer keepalive heartbeats reach
+  // nginx in real time (avoids 60s 502).
+  const result = await _mvForwardUpstream(req, res, bodyStr);
+  if ("streamed" in result && result.streamed) return; // already piped
   let upstream: { status: number; headers: http.IncomingHttpHeaders; body: Buffer } | null = null;
   let upstreamErr = "";
-  try {
-    upstream = await upstreamPromise;
-  } catch (err) {
-    upstreamErr = err instanceof Error ? err.message : String(err);
+  if ("error" in result) {
+    upstreamErr = result.error;
     console.warn("[mv-cover] upstream connect error, falling back:", upstreamErr);
-  }
-
-  // Success → forward verbatim.
-  if (upstream && upstream.status >= 200 && upstream.status < 300) {
-    res.status(upstream.status);
-    for (const [k, v] of Object.entries(upstream.headers)) {
-      if (v === undefined) continue;
-      const lower = k.toLowerCase();
-      if (lower === "transfer-encoding" || lower === "connection" || lower === "keep-alive") continue;
-      try { res.setHeader(k, v as any); } catch {}
-    }
-    return res.end(upstream.body);
+  } else {
+    upstream = result;
   }
 
   // 401 from upstream = real auth issue, do not paper over with fallback.
@@ -924,10 +876,23 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
 // finally synthesizing a placeholder so the pipeline never blocks.
 //
 // Shared upstream-proxy helper.
+//
+// CSSOS_MV_STREAM_2XX 20260507 — Jing
+// On 2xx we PIPE upstream straight to the Express response so the Rust
+// chunked-transfer keepalive heartbeats (single-space bytes) flow through
+// to nginx in real time. Buffering would swallow them and trigger nginx
+// 502/504 on slow Mubert/Runway/Eleven calls. Non-2xx is still buffered
+// so the fallback path can inspect the body.
+type MvUpstreamResult =
+  | { streamed: true; status: number; headers: http.IncomingHttpHeaders }
+  | { streamed: false; status: number; headers: http.IncomingHttpHeaders; body: Buffer }
+  | { error: string };
+
 async function _mvForwardUpstream(
   req: express.Request,
+  res: express.Response,
   bodyStr: string,
-): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer } | { error: string }> {
+): Promise<MvUpstreamResult> {
   return new Promise((resolve) => {
     const up = http.request(
       {
@@ -947,11 +912,28 @@ async function _mvForwardUpstream(
         timeout: MV_PROXY_TIMEOUT_MS,
       },
       (upRes) => {
+        const status = upRes.statusCode || 502;
+        if (status >= 200 && status < 300) {
+          // Happy path: pipe heartbeats + body straight to client.
+          res.status(status);
+          for (const [k, v] of Object.entries(upRes.headers)) {
+            if (v === undefined) continue;
+            const lower = k.toLowerCase();
+            if (lower === "transfer-encoding" || lower === "connection" || lower === "keep-alive") continue;
+            try { res.setHeader(k, v as any); } catch {}
+          }
+          upRes.pipe(res);
+          upRes.on("end", () => resolve({ streamed: true, status, headers: upRes.headers }));
+          upRes.on("error", (err) => resolve({ error: err instanceof Error ? err.message : String(err) }));
+          return;
+        }
+        // Non-2xx: buffer for inspection.
         const chunks: Buffer[] = [];
         upRes.on("data", (c) => chunks.push(c));
         upRes.on("end", () =>
           resolve({
-            status: upRes.statusCode || 502,
+            streamed: false,
+            status,
             headers: upRes.headers,
             body: Buffer.concat(chunks),
           }),
@@ -996,7 +978,8 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
   const style = String((body as any).style || "").trim();
   const language = String((body as any).language || "en").trim();
 
-  let result = await _mvForwardUpstream(req, bodyStr);
+  let result = await _mvForwardUpstream(req, res, bodyStr);
+  if ("streamed" in result && result.streamed) return; // already piped
   let upstream: { status: number; headers: http.IncomingHttpHeaders; body: Buffer } | null = null;
   let upstreamErr = "";
   if ("error" in result) {
@@ -1006,16 +989,6 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
     upstream = result;
   }
 
-  if (upstream && upstream.status >= 200 && upstream.status < 300) {
-    res.status(upstream.status);
-    for (const [k, v] of Object.entries(upstream.headers)) {
-      if (v === undefined) continue;
-      const lower = k.toLowerCase();
-      if (lower === "transfer-encoding" || lower === "connection" || lower === "keep-alive") continue;
-      try { res.setHeader(k, v as any); } catch {}
-    }
-    return res.end(upstream.body);
-  }
   if (upstream && upstream.status === 401) {
     res.status(401);
     return res.end(upstream.body);
@@ -1111,7 +1084,8 @@ app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
   const duration = Number((body as any).duration_secs || (body as any).duration || 30) || 30;
   const tags = Array.isArray((body as any).tags) ? (body as any).tags as string[] : [];
 
-  let result = await _mvForwardUpstream(req, bodyStr);
+  let result = await _mvForwardUpstream(req, res, bodyStr);
+  if ("streamed" in result && result.streamed) return; // already piped
   let upstream: { status: number; headers: http.IncomingHttpHeaders; body: Buffer } | null = null;
   let upstreamErr = "";
   if ("error" in result) {
@@ -1121,16 +1095,6 @@ app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
     upstream = result;
   }
 
-  if (upstream && upstream.status >= 200 && upstream.status < 300) {
-    res.status(upstream.status);
-    for (const [k, v] of Object.entries(upstream.headers)) {
-      if (v === undefined) continue;
-      const lower = k.toLowerCase();
-      if (lower === "transfer-encoding" || lower === "connection" || lower === "keep-alive") continue;
-      try { res.setHeader(k, v as any); } catch {}
-    }
-    return res.end(upstream.body);
-  }
   if (upstream && upstream.status === 401) {
     res.status(401);
     return res.end(upstream.body);
@@ -1231,7 +1195,8 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
   const duration = Number((body as any).duration_secs || (body as any).duration || 5) || 5;
   const imageUrl = String((body as any).image_url || (body as any).cover_url || "").trim();
 
-  let result = await _mvForwardUpstream(req, bodyStr);
+  let result = await _mvForwardUpstream(req, res, bodyStr);
+  if ("streamed" in result && result.streamed) return; // already piped
   let upstream: { status: number; headers: http.IncomingHttpHeaders; body: Buffer } | null = null;
   let upstreamErr = "";
   if ("error" in result) {
@@ -1241,16 +1206,6 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
     upstream = result;
   }
 
-  if (upstream && upstream.status >= 200 && upstream.status < 300) {
-    res.status(upstream.status);
-    for (const [k, v] of Object.entries(upstream.headers)) {
-      if (v === undefined) continue;
-      const lower = k.toLowerCase();
-      if (lower === "transfer-encoding" || lower === "connection" || lower === "keep-alive") continue;
-      try { res.setHeader(k, v as any); } catch {}
-    }
-    return res.end(upstream.body);
-  }
   if (upstream && upstream.status === 401) {
     res.status(401);
     return res.end(upstream.body);

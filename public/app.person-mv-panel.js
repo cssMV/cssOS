@@ -302,13 +302,9 @@
       if (!card) return;
       var pid = card.getAttribute("data-person-id");
       if (!pid) return;
-      // Wave 2 will jump into the MV PIPELINE pre-filled. Toast for now.
-      var msg = tt(
-        "Wave 2 will jump into MV PIPELINE for: ",
-        "Wave 2 将打开 MV PIPELINE 面板，主角："
-      ) + pid;
-      if (typeof globalThis.showToast === "function") globalThis.showToast(msg);
-      else console.info("[person-mv]", msg);
+      var person = state.persons.find(function (p) { return p.person_id === pid; });
+      if (!person) return;
+      jumpIntoPipeline(person);
     });
   }
 
@@ -383,6 +379,96 @@
         '</div>'
       );
     }).join("");
+  }
+
+  /* CSSOS_PERSON_MV_WAVE2 20260507 — Jing
+   * "文明智能联动" — turn a person profile into a fully-prepared
+   * MV pipeline seed:
+   *   prompt   = `name · core_theme · symbols`
+   *   style    = music_style_hint
+   *   lyrics   = empty (LLM writes from the rest)
+   * Plus civ-aware engine preferences via cssmvEngines.setSelection
+   * before opening the panel so the right LLM/music engine fires
+   * for that culture. No duration forced — pipeline LLM picks. */
+  function buildSeed(p) {
+    var name = localizedName(p);
+    var symbols = (p.visual_symbols || []).filter(Boolean).slice(0, 4).join("、");
+    var promptParts = [
+      name,
+      p.core_theme || "",
+      p.era ? "(" + p.era + ")" : "",
+      symbols ? tt("Visual symbols: ", "视觉意象：") + symbols : "",
+      p.tone ? tt("Tone: ", "情感基调：") + p.tone : "",
+    ].filter(Boolean);
+    return {
+      prompt: promptParts.join(" · "),
+      style: p.music_style_hint || "",
+      lyrics: "",
+      __personId: p.person_id,
+      __civilization: p.civilization,
+    };
+  }
+
+  /* Civilization → preferred LLM/music engine map. The mapping is
+   * intentionally soft: caller-set selections persist via
+   * cssmvEngines.setSelection so the user's manual gear-pick wins
+   * if they've touched it. We only set when the user hasn't. */
+  var CIV_ENGINE_HINTS = {
+    "中华文明":      { llm: "deepseek",  llm_alt: "cerebras",  music: "suno"     },
+    "古希腊文明":    { llm: "groq",      llm_alt: "anthropic", music: "elevenlabs" },
+    "古罗马文明":    { llm: "groq",      llm_alt: "anthropic", music: "elevenlabs" },
+    "印度文明":      { llm: "gemini",    llm_alt: "together",  music: "suno"     },
+    "现代印度":      { llm: "gemini",    llm_alt: "together",  music: "suno"     },
+    "文艺复兴欧洲":  { llm: "anthropic", llm_alt: "groq",      music: "elevenlabs" },
+    "欧洲文明":      { llm: "anthropic", llm_alt: "groq",      music: "elevenlabs" },
+    "近代欧洲":      { llm: "anthropic", llm_alt: "groq",      music: "elevenlabs" },
+    "近现代科学":    { llm: "anthropic", llm_alt: "openai",    music: "suno"     },
+  };
+  function applyCivHints(civ) {
+    var hints = CIV_ENGINE_HINTS[civ];
+    if (!hints) return;
+    try {
+      if (!globalThis.cssmvEngines || typeof globalThis.cssmvEngines.setSelection !== "function") return;
+      var sel = typeof globalThis.cssmvEngines.getSelections === "function"
+        ? globalThis.cssmvEngines.getSelections() : {};
+      // Only set when the user hasn't already picked something for that stage.
+      if (!sel.lyrics?.engine && hints.llm) {
+        globalThis.cssmvEngines.setSelection("lyrics", hints.llm, "default");
+      }
+      if (!sel.music?.engine && hints.music) {
+        globalThis.cssmvEngines.setSelection("music", hints.music, "default");
+      }
+    } catch (_e) {}
+  }
+
+  function jumpIntoPipeline(person) {
+    var seed = buildSeed(person);
+    applyCivHints(person.civilization);
+    if (typeof globalThis.openMvPipelinePanel === "function") {
+      globalThis.openMvPipelinePanel({
+        seed: seed,
+        // No autoStart — let user inspect / tweak before clicking
+        // Start. They can hit Surprise to randomize a different
+        // angle on the same person, or Start to commit. Wave 4
+        // will optionally fast-track to autoStart for power users.
+        autoStart: false,
+      });
+      // Stash person_id so a future Wave 4 hook can attribute the
+      // saved work to this person record.
+      try {
+        globalThis.__cssosPendingPersonId = person.person_id;
+        globalThis.__cssosPendingPersonName = localizedName(person);
+      } catch (_e) {}
+      // Toast the link so the user sees what's happening.
+      if (typeof globalThis.showToast === "function") {
+        globalThis.showToast(
+          tt("Pipeline pre-filled for ", "已为以下人物预填管线：") + localizedName(person)
+        );
+      }
+    } else {
+      // Fallback — surface the seed so user sees it didn't no-op.
+      console.warn("[person-mv] openMvPipelinePanel not available", seed);
+    }
   }
 
   function open() {

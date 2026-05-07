@@ -662,6 +662,7 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
   const bodyStr = Object.keys(body).length > 0 ? JSON.stringify(body) : "";
   const prompt = String((body as any).prompt || "").trim();
   const ratio = String((body as any).ratio || "").trim();
+  const explicitEngine = String((body as any).engine || "").trim().toLowerCase();
   // Map Runway-style ratio (e.g. "1024:1024", "1920:1080") to a pixel size
   // for our generic image router. Falls back to 1024x1024.
   const ratioToSize = (r: string): string => {
@@ -672,7 +673,46 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
   };
   const fallbackSize = ratioToSize(ratio);
 
-  // Try Rust/Runway first.
+  // CSSOS_PHASE2_COVER_TIER_FIRST 20260507 — Jing
+  // Routing principle: free → cheap → standard → premium, best-of-tier first.
+  // Runway is premium ($$$). UNLESS the user explicitly chose Runway via
+  // `body.engine="runway"`, sweep the free/cheap image router FIRST and only
+  // touch Runway as the premium last-resort. This makes "余额耗尽" impossible
+  // to reach because we exhaust 3 free providers before spending a cent.
+  const userForcedRunway = explicitEngine === "runway";
+  if (!userForcedRunway) {
+    try {
+      const img = await callImageGen({
+        prompt: prompt || "album cover, cinematic",
+        size: fallbackSize,
+      });
+      if (img.ok) {
+        const imageUrl = img.image_url
+          ? img.image_url
+          : (img.image_b64 ? `data:image/png;base64,${img.image_b64}` : "");
+        if (imageUrl) {
+          return res.status(200).json({
+            ok: true,
+            task_id: `tier-${img.provider}-${Date.now()}`,
+            image_url: imageUrl,
+            model: img.model,
+            engine: img.provider,
+            version: img.model,
+            cost_cents: 0,
+            use_user_key: false,
+            tier_sweep: true,
+          });
+        }
+      }
+      console.warn(
+        `[mv-cover] tier sweep exhausted (${img.error || "no_image"}); escalating to Runway premium`,
+      );
+    } catch (err) {
+      console.warn("[mv-cover] tier sweep threw:", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  // Premium last-resort (or user-forced Runway): hit Rust/Runway.
   const upstreamPromise = new Promise<{
     status: number;
     headers: http.IncomingHttpHeaders;

@@ -520,6 +520,8 @@ dependencies = [
  "dashmap",
  "dotenvy",
  "futures",
+ "hex",
+ "hmac",
  "http 1.4.0",
  "hyper 1.8.1",
  "image",

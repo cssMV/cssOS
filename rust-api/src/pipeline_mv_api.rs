@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 
 use axum::{
-    extract::{Query, State},
+    extract::{DefaultBodyLimit, Query, State},
     http::StatusCode,
     routing::{get, post},
     Json, Router,
@@ -59,13 +59,22 @@ pub fn router() -> Router<AppState> {
         .unwrap_or_else(|| crate::cover_webp::DEFAULT_OUTPUT_DIR.to_string());
     let cover_serve = tower_http::services::ServeDir::new(&cover_dir)
         .append_index_html_on_directories(false);
+    // CSSOS_PHASE2_COMPOSE_BODY_LIMIT 20260507 — Jing
+    // axum default body limit is 2 MiB. Compose requests can carry multi-segment
+    // plans with embedded image URLs / aligned-lyric arrays / SRT bodies that
+    // exceed that, especially for Cinematic tier with 12+ AI clips. Lift the
+    // limit to 32 MiB on /api/mv/compose specifically. Other routes keep the
+    // default so we don't open the whole surface to arbitrary uploads.
     Router::new()
         .route("/api/mv/cover", post(cover))
         .route("/api/mv/lyrics", post(lyrics))
         .route("/api/mv/music", post(music))
         .route("/api/mv/video", post(video))
         .route("/api/mv/subtitles", post(subtitles))
-        .route("/api/mv/compose", post(compose))
+        .route(
+            "/api/mv/compose",
+            post(compose).layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
+        )
         .route("/api/mv/commit", post(commit))
         .route("/api/mv/engines", get(engines_catalog))
         .route("/api/mv/tiers", get(tiers_catalog))

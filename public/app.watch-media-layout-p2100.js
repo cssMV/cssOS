@@ -1370,7 +1370,7 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
         if (t.closest("button,a,input,select,textarea,[role='button'],[contenteditable]")) return;
         if (t.closest("[data-no-frame-toggle]")) return;
       }
-      const v = document.getElementById("watch-video");
+      // `v` is already declared above (line 1351). Reuse, don't re-bind.
       const a = document.getElementById("watch-audio-preview");
       const primary =
         (v && v.src && v.readyState > 0) ? v :

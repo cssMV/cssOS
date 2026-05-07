@@ -1347,6 +1347,147 @@
           state.cinematicRes = sel.value;
         });
       }
+      /* CSSOS_PHASE3_DROPDOWN_SORT 20260507 — Jing
+       * Default order: time-limited > free > cheap > expensive,
+       * with anything OpenAI-branded forced to the bottom regardless
+       * of cost. User can toggle to "by usage count" for engines
+       * they've picked the most. Usage = local-counter incremented
+       * on each click pick (sticks in localStorage). */
+      const TIME_LIMITED_ENGINES = new Set([
+        "mubert", "kling", "luma", // 30-day / 1-year tokens — burn first
+      ]);
+      function readUseCount(stage, eng, ver) {
+        try { return Number(localStorage.getItem("cssos_engine_count_" + stage + "_" + eng + "_" + ver)) || 0; }
+        catch (_e) { return 0; }
+      }
+      function bumpUseCount(stage, eng, ver) {
+        try {
+          const k = "cssos_engine_count_" + stage + "_" + eng + "_" + ver;
+          localStorage.setItem(k, String(readUseCount(stage, eng, ver) + 1));
+        } catch (_e) {}
+      }
+      function readSortMode() {
+        try { return localStorage.getItem("cssos_engine_sort_mode") || "tier"; }
+        catch (_e) { return "tier"; }
+      }
+      function writeSortMode(m) {
+        try { localStorage.setItem("cssos_engine_sort_mode", m); } catch (_e) {}
+      }
+      function priceOf(eng) {
+        return Number(eng?.price?.base_price_usd ?? eng?.cost_cents ? Number(eng.cost_cents) / 100 : 0.99);
+      }
+      function tierRank(eng) {
+        const id = String(eng.engine || "").toLowerCase();
+        if (id.startsWith("openai")) return 99; // always bottom
+        if (TIME_LIMITED_ENGINES.has(id)) return 0; // burn first
+        const p = priceOf(eng);
+        if (p === 0) return 1;        // free tier
+        if (p < 0.05) return 2;       // cheap
+        if (p < 0.20) return 3;       // mid
+        return 4;                     // expensive
+      }
+      function sortEngines(list, mode) {
+        const arr = [...list];
+        if (mode === "usage") {
+          arr.sort(function (a, b) {
+            const ua = readUseCount(stageId, a.engine || a.id || "", a.version || "");
+            const ub = readUseCount(stageId, b.engine || b.id || "", b.version || "");
+            if (ub !== ua) return ub - ua;
+            return tierRank(a) - tierRank(b);
+          });
+        } else {
+          arr.sort(function (a, b) {
+            const ta = tierRank(a), tb = tierRank(b);
+            if (ta !== tb) return ta - tb;
+            return priceOf(a) - priceOf(b);
+          });
+        }
+        return arr;
+      }
+      const sortToggle = document.createElement("div");
+      sortToggle.style.cssText = "display:flex;justify-content:flex-end;padding:4px 8px 0;gap:8px;";
+      const sortLabel = document.createElement("button");
+      sortLabel.type = "button";
+      sortLabel.style.cssText = "all:unset;cursor:pointer;font:500 9px/1 ui-monospace,monospace;color:rgba(0,245,160,0.7);letter-spacing:.04em;";
+      function refreshSortLabel() {
+        sortLabel.textContent = readSortMode() === "usage"
+          ? copy("sort: ↑ usage", "排序：使用次数")
+          : copy("sort: free → paid", "排序：免费→付费");
+      }
+      refreshSortLabel();
+      sortLabel.addEventListener("click", function () {
+        writeSortMode(readSortMode() === "usage" ? "tier" : "usage");
+        refreshSortLabel();
+        // Reorder existing children — strip everything below the sortToggle
+        // and re-append in the new order.
+        const items = Array.from(dd.querySelectorAll("[data-engine-item]"));
+        items.forEach(function (n) { n.remove(); });
+        renderEngineItems();
+      });
+      sortToggle.appendChild(sortLabel);
+      dd.appendChild(sortToggle);
+      function renderEngineItems() {
+        const sorted = sortEngines(stageEntry.engines, readSortMode());
+        sorted.forEach(function (eng) { renderOne(eng); });
+      }
+      function renderOne(eng) {
+        const engineId = String(eng.engine || eng.id || eng.name || "?");
+        const versionId = String(eng.version || eng.default_version || "default");
+        const useCount = readUseCount(stageId, engineId, versionId);
+        const item = document.createElement("button");
+        item.type = "button";
+        item.dataset.engineItem = "1";
+        item.style.cssText =
+          "all:unset;cursor:pointer;padding:7px 10px;border-radius:6px;" +
+          "font:600 12px/1.1 ui-monospace,monospace;color:#daffee;" +
+          "display:flex;align-items:center;justify-content:space-between;gap:10px;";
+        const left = document.createElement("span");
+        left.textContent = engineId + " · " + versionId;
+        const right = document.createElement("span");
+        right.style.cssText = "font:500 10px/1 ui-monospace,monospace;color:rgba(0,245,160,0.55);min-width:32px;text-align:right;";
+        right.textContent = useCount > 0 ? ("× " + useCount) : "";
+        item.appendChild(left);
+        item.appendChild(right);
+        item.addEventListener("mouseenter", function () { item.style.background = "rgba(0,245,160,0.14)"; });
+        item.addEventListener("mouseleave", function () { item.style.background = ""; });
+        item.addEventListener("click", function () {
+          bumpUseCount(stageId, engineId, versionId);
+          try {
+            if (globalThis.cssmvEngines && typeof globalThis.cssmvEngines.setSelection === "function") {
+              globalThis.cssmvEngines.setSelection(stageId, engineId, versionId);
+            }
+          } catch (_e) {}
+          try {
+            const isAdmin = String((globalThis.authState?.tier || globalThis.authState?.role || "")).toLowerCase() === "admin";
+            if (isAdmin) {
+              fetch("/api/admin/engine/default", {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json", Accept: "application/json" },
+                body: JSON.stringify({ kind: stageId, provider: engineId, model: versionId }),
+              }).catch(function () {});
+            }
+          } catch (_e) {}
+          const lbl = panel.querySelector("[data-engine-for='" + stageId + "']");
+          if (lbl) lbl.textContent = engineId + "/" + versionId;
+          dd.remove();
+        });
+        dd.appendChild(item);
+      }
+      renderEngineItems();
+      // Skip the legacy un-sorted forEach below.
+      const SKIP_LEGACY_RENDER = true;
+      if (SKIP_LEGACY_RENDER) {
+        const closer2 = function (e) {
+          if (!dd.contains(e.target) && e.target !== gear) {
+            dd.remove();
+            document.removeEventListener("mousedown", closer2, true);
+          }
+        };
+        setTimeout(function () { document.addEventListener("mousedown", closer2, true); }, 0);
+        panel.appendChild(dd);
+        return;
+      }
       // Engine pick list — engines[] is a flat list of {engine, version}
       // pairs from the catalog. Real labels surface as "engine · version".
       stageEntry.engines.forEach(function (eng) {

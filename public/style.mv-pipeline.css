@@ -70,24 +70,77 @@
   box-shadow: 0 0 0 2px rgba(0, 245, 160, 0.18);
 }
 
+/* CSSOS_PHASE3_SEGMENTED_ACTIONS 20260507 — Jing
+   "请以后的tab们，让他们使用同一个框，然后用'/'分割，然后用背景色
+    来区分". Old: 4 separate cards (Start / Surprise / Clear / cost
+    pill) → new: ONE rounded container with segments separated by
+    "/" dividers, each segment background-tinted by role:
+      Start  → emerald (primary action)
+      Surprise → amber (playful)
+      Clear  → red-grey (destructive-ish)
+      Cost   → blue (info)
+    Visual: single pill bar instead of multiple buttons. */
 #mv-pipeline-panel .mvp-actions {
   display: flex;
-  gap: 8px;
+  gap: 0;                      /* no gaps — divider stripe handles separation */
   align-items: stretch;
   flex-wrap: wrap;
+  padding: 4px;
+  border-radius: 14px;
+  background: rgba(8, 18, 16, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  position: relative;
 }
 
-/* CSSOS_PHASE2_HORIZONTAL_BUTTONS 20260504 — Jing wanted the three
-   action buttons (Start Pipeline / Surprise me ✨ / Clear) on one row
-   to save vertical space. flex:1 makes them share the row equally;
-   on narrow viewports (≤520px) flex-wrap kicks in and stacks them. */
 #mv-pipeline-panel .mvp-actions > .cta {
   flex: 1 1 0;
   min-width: 120px;
+  border-radius: 10px;
+  position: relative;
+  border: 0;
+  background: transparent;
+  margin: 0;
 }
+
+/* "/" divider between segments — pseudo-element on every segment
+   except the first one. Vertical line, subtle dim grey. */
+#mv-pipeline-panel .mvp-actions > .cta + .cta::before,
+#mv-pipeline-panel .mvp-actions > .cta + .mvp-tier-label::before,
+#mv-pipeline-panel .mvp-actions > .mvp-tier-label + .cta::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 25%;
+  bottom: 25%;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Background tints per segment */
 #mv-pipeline-panel .mvp-actions > #mvp-run {
-  flex: 2 1 200px; /* primary action gets a bit more weight */
+  flex: 2 1 200px;
+  background: linear-gradient(135deg, rgba(0, 200, 130, 0.55), rgba(0, 245, 160, 0.85));
+  color: #001b14;
+  font-weight: 700;
 }
+#mv-pipeline-panel .mvp-actions > #mvp-run:hover {
+  background: linear-gradient(135deg, rgba(0, 220, 145, 0.7), rgba(20, 255, 175, 0.95));
+}
+#mv-pipeline-panel .mvp-actions > #mvp-surprise {
+  background: rgba(255, 200, 80, 0.16);
+  color: #ffe9b6;
+}
+#mv-pipeline-panel .mvp-actions > #mvp-surprise:hover {
+  background: rgba(255, 200, 80, 0.28);
+}
+#mv-pipeline-panel .mvp-actions > #mvp-clear {
+  background: rgba(255, 120, 120, 0.10);
+  color: #ffcdcd;
+}
+#mv-pipeline-panel .mvp-actions > #mvp-clear:hover {
+  background: rgba(255, 120, 120, 0.20);
+}
+
 #mv-pipeline-panel .mvp-actions .cta[disabled] {
   opacity: 0.45;
   cursor: not-allowed;
@@ -117,21 +170,27 @@
    a glance which bucket is active. Design principle (Jing 2026-04-19):
    一切可扩展 — server can add tiers without the pill needing new CSS. */
 
+/* CSSOS_PHASE3_SEGMENTED_ACTIONS — tier label is the 4th segment in
+   the unified bar, blue tinted (info role). Drop the auto-margin
+   that pushed it to its own row. */
 #mv-pipeline-panel .mvp-tier-label {
-  margin-left: auto;
+  flex: 1 1 200px;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 5px 10px;
-  border-radius: 999px;
+  padding: 9px 12px;
+  border-radius: 10px;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
-  color: rgba(232, 244, 236, 0.88);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #d1e8ff;
+  background: rgba(80, 140, 220, 0.14);
+  border: 0;
   cursor: pointer;
   user-select: none;
+  position: relative;
+  margin: 0;
   transition:
     border-color 0.18s ease,
     background 0.18s ease,

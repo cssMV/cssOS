@@ -108,6 +108,8 @@
       "#person-mv-panel .person-mv-empty{padding:60px 12px;text-align:center;color:rgba(218,255,238,0.55);}" +
       "#person-mv-panel .person-mv-card *{pointer-events:none;}" +
       "#person-mv-panel .panel-actions .icon-btn{pointer-events:auto !important;cursor:pointer;}" +
+      /* Bulletproof hide — when .hidden is on, no clicks. */
+      "#person-mv-panel.hidden{display:none !important;pointer-events:none !important;}" +
       "#person-mv-panel .person-mv-create-anybody{" +
         "margin:12px;padding:14px;border-radius:10px;" +
         "background:rgba(0,245,160,0.10);border:1px dashed rgba(0,245,160,0.45);" +
@@ -244,6 +246,14 @@
 
   function ensurePanel() {
     if (panelEl) return panelEl;
+    /* Stale panel from a previous load? Hide it before creating ours. */
+    var prev = document.getElementById("person-mv-panel");
+    if (prev) {
+      prev.classList.add("hidden");
+      prev.style.display = "none";
+      prev.style.pointerEvents = "none";
+      try { prev.remove(); } catch (_e) {}
+    }
     ensureStyles();
     panelEl = document.createElement("section");
     panelEl.className = "panel flow hidden";
@@ -324,11 +334,16 @@
       }, true);
     }
     wireChromeBtn(closeBtn, function () {
-      if (typeof globalThis.minimizeToDockBridge === "function") {
-        globalThis.minimizeToDockBridge(panelEl);
-      } else {
-        panelEl.classList.add("hidden");
-      }
+      /* CSSOS_PERSON_MV_TRUE_HIDE 20260507 — Jing
+       * minimizeToDockBridge keeps the panel in DOM with reduced
+       * opacity/scale, but in our case the .panel-front z-index:272
+       * stays in the click-intercept layer. Force a real hide so
+       * the dock under us reclaims pointer events. */
+      panelEl.classList.add("hidden");
+      panelEl.style.display = "none";
+      panelEl.style.pointerEvents = "none";
+      // Also call the bridge so the dock-badge state still flips.
+      try { globalThis.minimizeToDockBridge?.(panelEl); } catch (_e) {}
     });
     wireChromeBtn(minBtn, function () {
       if (typeof globalThis.togglePanelCollapse === "function") {
@@ -598,7 +613,10 @@
 
   function open() {
     var p = ensurePanel();
+    /* Reverse the close-time hide so re-opening fully reveals. */
     p.classList.remove("hidden");
+    p.style.display = "";
+    p.style.pointerEvents = "";
     if (typeof globalThis.bringPanelToFrontBridge === "function") {
       try { globalThis.bringPanelToFrontBridge(p, { repeatPasses: 3 }); } catch (_e) {}
     }

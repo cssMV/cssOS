@@ -181,10 +181,49 @@
     });
   }
 
+  /* CSSOS_PHASE3_KARAOKE_BRIDGE — pull per-word Whisper timings off
+   * the loaded work payload (server attaches `karaoke_words` to the
+   * /api/works/public/:id response when a Whisper pass has run). The
+   * bridge polls the work-sync global periodically + reacts on every
+   * src change so a queue-jump picks up the new song's words. */
+  var _transcribeRequestedFor = "";
+  function syncWordsFromWork() {
+    var w = globalThis.currentWatchPreviewWork || {};
+    var arr = (Array.isArray(w.karaoke_words) ? w.karaoke_words :
+               Array.isArray(w.whisper_words) ? w.whisper_words : null);
+    if (arr && arr.length) {
+      globalThis.cssosKaraokeWords = arr;
+      return;
+    }
+    // No transcription yet — fall back to Phase 1 even-distribution
+    // and request a server-side Whisper pass so the next time the user
+    // plays this work, exact word timings are ready.
+    globalThis.cssosKaraokeWords = null;
+    var workId = String(w.id || w.work_id || "").trim();
+    if (!workId || _transcribeRequestedFor === workId) return;
+    _transcribeRequestedFor = workId;
+    try {
+      fetch("/api/works/" + encodeURIComponent(workId) + "/karaoke/transcribe", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      }).catch(function () {});
+    } catch (_e) {}
+  }
+
   function init() {
     ensureStyles();
     bindObserver();
     bindMedia();
+    syncWordsFromWork();
+    // Every loadstart on either media element = potentially a new
+    // work — re-sync.
+    ["watch-video", "watch-audio-preview"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener("loadstart", syncWordsFromWork, { passive: true });
+      el.addEventListener("emptied", syncWordsFromWork, { passive: true });
+    });
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);

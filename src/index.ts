@@ -7974,6 +7974,118 @@ async function syncCanonicalWorkAssets(
       [workId, asset.assetType, asset.url, JSON.stringify(asset.meta || {})],
     );
   }
+  /* CSSOS_PHASE3_KARAOKE 20260506 — Jing
+   * After every canonical sync, kick a fire-and-forget Whisper pass.
+   * The audio asset doesn't land through this function (it's persisted
+   * elsewhere), so we look it up from work_assets by workId. Helper
+   * short-circuits if transcription already exists or audio missing. */
+  void enqueueKaraokeTranscription(workId).catch((err) => {
+    console.warn("[karaoke] transcription enqueue failed", workId, err?.message || err);
+  });
+}
+
+/* ============================================================
+ * CSSOS_PHASE3_KARAOKE — Whisper-based per-word timing
+ * ----------------------------------------------------------------
+ * Pipeline lands audio → we POST it to OpenAI's Whisper endpoint
+ * with timestamp_granularities[]=word → store
+ *   [{ text, t_start, t_end }, ...]
+ * into work_assets (asset_type='whisper_words', meta.words=...).
+ * The public works endpoint hydrates this onto the response so the
+ * frontend renderer (app.karaoke-active-word.js) can do exact-word
+ * karaoke instead of even-distribution estimates.
+ * ============================================================ */
+type WhisperWord = { text: string; t_start: number; t_end: number };
+
+async function enqueueKaraokeTranscription(workId: string): Promise<void> {
+  const lookup = await withClient((c) =>
+    c.query<{ audio_url: string | null; has_words: boolean }>(
+      `SELECT
+         (SELECT url FROM work_assets WHERE work_id = $1 AND asset_type = 'audio_track_1' LIMIT 1) AS audio_url,
+         EXISTS(
+           SELECT 1 FROM work_assets
+           WHERE work_id = $1 AND asset_type = 'whisper_words'
+             AND COALESCE(meta->>'word_count', '0')::int > 0
+         ) AS has_words`,
+      [workId],
+    ),
+  );
+  const audioUrl = String(lookup.rows[0]?.audio_url || "").trim();
+  if (!audioUrl) return;
+  if (lookup.rows[0]?.has_words) return;
+  // Fire-and-forget — we don't want to delay the asset commit.
+  setImmediate(async () => {
+    try {
+      const words = await runWhisperWordTimings(audioUrl);
+      if (!words || !words.length) return;
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO work_assets (work_id, asset_type, url, meta)
+           VALUES ($1, 'whisper_words', $2, $3::jsonb)
+           ON CONFLICT (work_id, asset_type)
+           DO UPDATE SET url = EXCLUDED.url, meta = EXCLUDED.meta`,
+          [
+            workId,
+            audioUrl,
+            JSON.stringify({
+              source: "openai-whisper-1",
+              word_count: words.length,
+              words,
+              transcribed_at: new Date().toISOString(),
+            }),
+          ],
+        ),
+      );
+      console.info("[karaoke] persisted", words.length, "words for", workId);
+    } catch (err) {
+      console.warn("[karaoke] whisper failed", workId, (err as Error)?.message || err);
+    }
+  });
+}
+
+async function runWhisperWordTimings(audioUrl: string): Promise<WhisperWord[] | null> {
+  const apiKey = String(process.env.OPENAI_API_KEY || "").trim();
+  if (!apiKey) {
+    console.warn("[karaoke] OPENAI_API_KEY missing — skipping transcription");
+    return null;
+  }
+  // Fetch the audio bytes. URL is either an https:// or relative
+  // /secure/artifacts/... path; convert relative to absolute against
+  // the server's own base.
+  const fullUrl = audioUrl.startsWith("http")
+    ? audioUrl
+    : `http://127.0.0.1:${process.env.PORT || 3000}${audioUrl.startsWith("/") ? "" : "/"}${audioUrl}`;
+  const audioRes = await fetch(fullUrl);
+  if (!audioRes.ok) {
+    console.warn("[karaoke] audio fetch failed", audioRes.status, fullUrl);
+    return null;
+  }
+  const audioBuf = Buffer.from(await audioRes.arrayBuffer());
+  // Build multipart form.
+  const fd = new FormData();
+  fd.append("file", new Blob([audioBuf], { type: "audio/mpeg" }), "audio.mp3");
+  fd.append("model", "whisper-1");
+  fd.append("response_format", "verbose_json");
+  fd.append("timestamp_granularities[]", "word");
+  const upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: fd,
+  });
+  if (!upstream.ok) {
+    const txt = await upstream.text().catch(() => "");
+    console.warn("[karaoke] whisper API non-OK", upstream.status, txt.slice(0, 200));
+    return null;
+  }
+  const json = await upstream.json().catch(() => null);
+  const rawWords = (json && Array.isArray(json.words)) ? json.words : [];
+  return rawWords
+    .map((w: { word?: string; start?: number; end?: number }) => ({
+      text: String(w?.word || "").trim(),
+      t_start: Number(w?.start || 0),
+      t_end: Number(w?.end || 0),
+    }))
+    .filter((w: WhisperWord) => w.text && w.t_end > w.t_start);
 }
 
 function downgradeLosslessArtifactTarget(
@@ -12404,6 +12516,23 @@ app.get("/cssapi/v1/mv", async (req, res) => {
  * Authentication: optional. Guests get the same shape as logged-in
  * users; only the access flags differ.
  */
+/* CSSOS_PHASE3_KARAOKE_MANUAL — explicit transcription trigger so the
+ * frontend can request word timings on first play for works that
+ * predate the auto-enqueue (and so admins can re-transcribe). */
+app.post("/api/works/:id/karaoke/transcribe", async (req, res) => {
+  noStore(res);
+  try {
+    const id = String(req.params.id || "").trim();
+    if (!/^[0-9a-fA-F-]{8,64}$/.test(id)) {
+      return res.status(400).json({ ok: false, code: "INVALID_WORK_ID" });
+    }
+    void enqueueKaraokeTranscription(id);
+    return res.json({ ok: true, data: { enqueued: true } });
+  } catch (_err) {
+    return res.status(500).json({ ok: false, code: "TRANSCRIBE_FAILED" });
+  }
+});
+
 app.get("/api/works/public/:id", async (req, res) => {
   noStore(res);
   try {
@@ -12452,6 +12581,7 @@ app.get("/api/works/public/:id", async (req, res) => {
            final_mv_asset.url AS final_mv_url,
            audio_track_1_asset.url AS audio_track_1_url,
            audio_track_2_asset.url AS audio_track_2_url,
+           whisper_words_asset.meta AS whisper_words_meta,
            COALESCE((final_mv_asset.meta->>'duration_secs')::float, NULL) AS duration_secs
          FROM user_works w
          JOIN users u ON u.id = w.user_id
@@ -12473,6 +12603,9 @@ app.get("/api/works/public/:id", async (req, res) => {
          LEFT JOIN work_assets audio_track_2_asset
            ON audio_track_2_asset.work_id = w.id
           AND audio_track_2_asset.asset_type = 'audio_track_2'
+         LEFT JOIN work_assets whisper_words_asset
+           ON whisper_words_asset.work_id = w.id
+          AND whisper_words_asset.asset_type = 'whisper_words'
          WHERE w.id = $1
          LIMIT 1`,
         [id],
@@ -12558,6 +12691,14 @@ app.get("/api/works/public/:id", async (req, res) => {
         preview_video_url: signedPreviewVideo,
         audio_track_1_url: fullAccess ? signedAudio1 : null,
         audio_track_2_url: fullAccess ? signedAudio2 : null,
+        // CSSOS_PHASE3_KARAOKE — per-word timings from a Whisper pass
+        // run when the audio asset first lands. Frontend renders these
+        // via app.karaoke-active-word.js for演出级 karaoke.
+        karaoke_words: (() => {
+          const meta = (row as { whisper_words_meta?: { words?: WhisperWord[] } | null }).whisper_words_meta;
+          const arr = meta && Array.isArray(meta.words) ? meta.words : null;
+          return arr && arr.length ? arr : null;
+        })(),
         // Tier flags for the front end (Phase B will render download UI).
         viewer_tier: viewerTier,
         is_free: isFree,

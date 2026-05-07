@@ -587,32 +587,25 @@ app.post("/api/mv/seed", express.json({ limit: "16kb" }), async (req, res) => {
       : "") +
     `Output JSON only.`;
   try {
-    const upstream = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${cfg.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: cfg.model || "gpt-4o-mini",
-        messages: [
-          { role: "system", content: sysMsg },
-          { role: "user", content: userMsg },
-        ],
-        max_completion_tokens: 200,
-        temperature: 1.0, // maximise variation
-        response_format: { type: "json_object" },
-      }),
+    // CSSOS_LLM_ROUTER 20260506 — go through the unified router so this
+    // hot-path prompt-seed call inherits Groq / Cerebras free tiers
+    // before falling back to OpenAI.
+    const result = await callLlm({
+      messages: [
+        { role: "system", content: sysMsg },
+        { role: "user", content: userMsg },
+      ],
+      max_tokens: 200,
+      temperature: 1.0, // maximise variation
+      response_format: { type: "json_object" },
     });
-    const payload: any = await upstream.json().catch(() => null);
-    if (!upstream.ok) {
-      return res.status(upstream.status).json({
-        ok: false,
-        error: "openai_upstream_error",
-        detail: payload?.error?.message || "",
+    if (!result.ok) {
+      return res.status(result.status).json({
+        ok: false, error: "llm_upstream_error",
+        detail: result.error || "",
       });
     }
-    const raw = String(payload?.choices?.[0]?.message?.content || "").trim();
+    const raw = result.content.trim();
     let parsed: any = null;
     try {
       parsed = JSON.parse(raw);
@@ -626,9 +619,9 @@ app.post("/api/mv/seed", express.json({ limit: "16kb" }), async (req, res) => {
     const prompt = String(parsed?.prompt || "").trim();
     const style = String(parsed?.style || "").trim();
     if (!prompt) {
-      return res.status(502).json({ ok: false, error: "openai_empty_prompt" });
+      return res.status(502).json({ ok: false, error: "llm_empty_prompt" });
     }
-    return res.json({ ok: true, prompt, style, source: "openai/gpt-4o-mini" });
+    return res.json({ ok: true, prompt, style, source: `${result.provider}/${result.model}` });
   } catch (err) {
     return res.status(502).json({
       ok: false,
@@ -7982,6 +7975,100 @@ async function syncCanonicalWorkAssets(
   void enqueueKaraokeTranscription(workId).catch((err) => {
     console.warn("[karaoke] transcription enqueue failed", workId, err?.message || err);
   });
+}
+
+/* ============================================================
+ * CSSOS_LLM_ROUTER 20260506 — unified chat-completions router
+ * ----------------------------------------------------------------
+ * Three providers all speak OpenAI-compatible chat-completions:
+ *   - Groq      (free, ~14k req/day, 5-10x faster than GPT)
+ *   - Cerebras  (free tier, 2200 tokens/s — fastest in market)
+ *   - OpenAI    (the trusted fallback)
+ * Provider order is configured via env LLM_PROVIDER_ORDER=
+ *   "groq,cerebras,openai" (default if unset). Each provider
+ * needs its respective API key in env. Failed requests fall
+ * through to the next. Same request schema as OpenAI's standard
+ * /v1/chat/completions — drop-in replacement for fetch().
+ * ============================================================ */
+type LlmRequest = {
+  messages: Array<{ role: string; content: string }>;
+  temperature?: number;
+  max_tokens?: number;
+  response_format?: unknown;
+  /** Override per-request preference (e.g. "openai" for trusted fallback) */
+  prefer?: string[];
+};
+type LlmResponse = {
+  ok: boolean;
+  status: number;
+  provider: string;
+  model: string;
+  content: string;
+  raw: unknown;
+  error?: string;
+};
+const LLM_PROVIDER_DEFAULTS = {
+  groq:     { url: "https://api.groq.com/openai/v1/chat/completions",      model: "llama-3.3-70b-versatile",   keyEnv: "GROQ_API_KEY" },
+  cerebras: { url: "https://api.cerebras.ai/v1/chat/completions",          model: "llama-3.3-70b",             keyEnv: "CEREBRAS_API_KEY" },
+  openai:   { url: "https://api.openai.com/v1/chat/completions",           model: "gpt-4o-mini",               keyEnv: "OPENAI_API_KEY" },
+} as const;
+type LlmProvider = keyof typeof LLM_PROVIDER_DEFAULTS;
+
+function llmProviderOrder(prefer?: string[]): LlmProvider[] {
+  const env = String(process.env.LLM_PROVIDER_ORDER || "groq,cerebras,openai")
+    .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  const list = (prefer && prefer.length ? prefer : env)
+    .filter((p): p is LlmProvider => p in LLM_PROVIDER_DEFAULTS);
+  return list.length ? list : ["openai"];
+}
+
+async function callLlm(req: LlmRequest): Promise<LlmResponse> {
+  const order = llmProviderOrder(req.prefer);
+  let lastErr = "no_providers_available";
+  let lastStatus = 0;
+  for (const provider of order) {
+    const cfg = LLM_PROVIDER_DEFAULTS[provider];
+    const apiKey = String(process.env[cfg.keyEnv] || "").trim();
+    if (!apiKey) continue;
+    const modelOverride = String(process.env[`LLM_MODEL_${provider.toUpperCase()}`] || "").trim();
+    const model = modelOverride || cfg.model;
+    try {
+      const body: Record<string, unknown> = {
+        model,
+        messages: req.messages,
+      };
+      if (req.temperature !== undefined) body.temperature = req.temperature;
+      if (req.max_tokens !== undefined) {
+        // OpenAI calls it max_completion_tokens; everyone else max_tokens.
+        if (provider === "openai") body.max_completion_tokens = req.max_tokens;
+        else body.max_tokens = req.max_tokens;
+      }
+      if (req.response_format) body.response_format = req.response_format;
+      const upstream = await fetch(cfg.url, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify(body),
+      });
+      const json: any = await upstream.json().catch(() => null);
+      if (!upstream.ok) {
+        lastErr = String(json?.error?.message || `${provider}_${upstream.status}`);
+        lastStatus = upstream.status;
+        console.warn(`[llm-router] ${provider} ${upstream.status}: ${lastErr.slice(0, 200)}`);
+        continue;
+      }
+      const content = String(json?.choices?.[0]?.message?.content || "");
+      return { ok: true, status: upstream.status, provider, model, content, raw: json };
+    } catch (err) {
+      lastErr = String((err as Error)?.message || err);
+      console.warn(`[llm-router] ${provider} threw: ${lastErr}`);
+      continue;
+    }
+  }
+  return {
+    ok: false, status: lastStatus || 502,
+    provider: "none", model: "", content: "",
+    raw: null, error: lastErr,
+  };
 }
 
 /* ============================================================

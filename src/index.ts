@@ -3,6 +3,7 @@ import path from "path";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
 import { spawn } from "node:child_process";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
@@ -634,6 +635,56 @@ app.post("/api/mv/seed", express.json({ limit: "16kb" }), async (req, res) => {
   }
 });
 
+// CSSOS_PHASE2_COVER_FALLBACK_DIR 20260507 — Jing
+// Directory where base64 cover fallbacks get persisted to a real file so
+// downstream stages (compose / Rust ffmpeg) can HTTP GET them. data: URLs
+// are not fetchable by curl/reqwest, which broke the compose stage.
+const MV_FALLBACK_ARTIFACTS_DIR =
+  process.env.MV_ARTIFACTS_DIR ||
+  (fs.existsSync("/srv/cssos") ? "/srv/cssos/artifacts/mv-fallback" : path.join(os.tmpdir(), "cssos-fallback"));
+try {
+  fs.mkdirSync(MV_FALLBACK_ARTIFACTS_DIR, { recursive: true });
+} catch (e) {
+  console.warn("[mv-cover-fallback] could not create dir %s: %s", MV_FALLBACK_ARTIFACTS_DIR, e);
+}
+
+/** Detect image MIME from raw bytes; returns {ext, mime}. */
+function sniffImageType(buf: Buffer): { ext: string; mime: string } {
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return { ext: "jpg", mime: "image/jpeg" };
+  if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return { ext: "png", mime: "image/png" };
+  if (buf.length >= 6 && buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return { ext: "gif", mime: "image/gif" };
+  if (buf.length >= 12 && buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 && buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return { ext: "webp", mime: "image/webp" };
+  return { ext: "png", mime: "image/png" };
+}
+
+/**
+ * Persist a base64 image to MV_FALLBACK_ARTIFACTS_DIR and return a public URL
+ * served by `/artifacts/mv-fallback`. On any failure, falls back to a data:
+ * URL with the correctly-sniffed MIME type so browser preview still works.
+ */
+function persistBase64Cover(b64: string, userId: unknown): string {
+  try {
+    const buf = Buffer.from(b64, "base64");
+    const { ext, mime } = sniffImageType(buf);
+    const userHash = crypto.createHash("sha1").update(String(userId)).digest("hex").slice(0, 8);
+    const rand = crypto.randomBytes(6).toString("hex");
+    const filename = `cover-${userHash}-${Date.now()}-${rand}.${ext}`;
+    const filePath = path.join(MV_FALLBACK_ARTIFACTS_DIR, filename);
+    fs.writeFileSync(filePath, buf, { mode: 0o644 });
+    try { fs.chmodSync(filePath, 0o644); } catch {}
+    return `/artifacts/mv-fallback/${filename}`;
+  } catch (e) {
+    console.warn("[mv-cover-fallback] persist failed, using data: URL:", e);
+    try {
+      const buf = Buffer.from(b64, "base64");
+      const { mime } = sniffImageType(buf);
+      return `data:${mime};base64,${b64}`;
+    } catch {
+      return `data:image/png;base64,${b64}`;
+    }
+  }
+}
+
 // CSSOS_PHASE2_COVER_FALLBACK 20260507 — Jing
 // Runway is the preferred cover engine (premium quality), but it returns
 // 400 / 402-style errors when the user's account is out of credits. The
@@ -689,7 +740,7 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
       if (img.ok) {
         const imageUrl = img.image_url
           ? img.image_url
-          : (img.image_b64 ? `data:image/png;base64,${img.image_b64}` : "");
+          : (img.image_b64 ? persistBase64Cover(img.image_b64, userId) : "");
         if (imageUrl) {
           return res.status(200).json({
             ok: true,
@@ -813,7 +864,7 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
   if (img && img.ok) {
     const imageUrl = img.image_url
       ? img.image_url
-      : (img.image_b64 ? `data:image/png;base64,${img.image_b64}` : "");
+      : (img.image_b64 ? persistBase64Cover(img.image_b64, userId) : "");
     if (imageUrl) {
       return res.status(200).json({
         ok: true,
@@ -1612,6 +1663,24 @@ app.use(
     },
   }),
 );
+
+// CSSOS_PHASE2_COVER_FALLBACK_MOUNT 20260507 — Jing
+// Static mount for base64 cover fallbacks persisted by /api/mv/cover.
+// Compose / Rust ffmpeg fetches these via plain HTTP; data: URLs were
+// not fetchable and broke the compose stage.
+try {
+  app.use(
+    "/artifacts/mv-fallback",
+    express.static(MV_FALLBACK_ARTIFACTS_DIR, {
+      setHeaders(res) {
+        res.setHeader("Cache-Control", "public, max-age=3600");
+      },
+    }),
+  );
+  console.log("[mv-cover-fallback] mounted /artifacts/mv-fallback -> %s", MV_FALLBACK_ARTIFACTS_DIR);
+} catch (e) {
+  console.warn("[mv-cover-fallback] mount failed:", e);
+}
 
 // CSSOS_PHASE2_PERSONALIZATION_TEMPLATES 20260502 #270 - Jing
 // Public mount for personalization template assets so the watch

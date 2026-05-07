@@ -8155,6 +8155,7 @@ type MusicGenRequest = {
   prompt: string;
   duration_secs?: number;
   mood?: string;
+  tags?: string[];
   prefer?: string[];
 };
 type MusicGenResponse = {
@@ -8171,11 +8172,76 @@ function musicProviderOrder(prefer?: string[]): string[] {
   return (prefer && prefer.length ? prefer : env).filter((p) =>
     (MUSIC_PROVIDERS as readonly string[]).includes(p));
 }
-async function callMusicGen(_req: MusicGenRequest): Promise<MusicGenResponse> {
-  // TODO: each provider's adapter when its key + endpoint is wired.
-  // Skeleton in place so provider discovery + frontend picker work
-  // before adapters land.
-  return { ok: false, provider: "none", error: "music_router_not_implemented" };
+async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
+  const order = musicProviderOrder(req.prefer);
+  let lastErr = "";
+  for (const provider of order) {
+    try {
+      if (provider === "mubert") {
+        const companyId = String(process.env.MUBERT_COMPANY_ID || "").trim();
+        const licenseToken = String(process.env.MUBERT_LICENSE_TOKEN || process.env.MUBERT_API_KEY || "").trim();
+        if (!companyId || !licenseToken) continue;
+        // Mubert v3 — POST tracks/recommend with license auth. Returns
+        // an asynchronous task; we poll session_id until generation
+        // completes (typically 5-15s). On success the track URL is in
+        // data.tracks[0].url.
+        const duration = Math.max(5, Math.min(180, Math.round(req.duration_secs || 30)));
+        const tags = (req.tags && req.tags.length ? req.tags : ["cinematic", "ambient"]).slice(0, 8);
+        const recommend = await fetch("https://music-api.mubert.com/api/v3/public/tracks/recommend", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            company_id: companyId,
+            license: licenseToken,
+            duration,
+            tags,
+            mode: "track",
+            count: 1,
+          }),
+        });
+        const recJson: any = await recommend.json().catch(() => null);
+        if (!recommend.ok || !recJson || recJson.error) {
+          lastErr = String(recJson?.error?.text || recJson?.error || `mubert_${recommend.status}`);
+          console.warn(`[music-router] mubert recommend ${recommend.status}: ${lastErr.slice(0, 200)}`);
+          continue;
+        }
+        const sessionId: string = String(recJson?.data?.session_id || recJson?.session_id || "").trim();
+        const directUrl: string = String(recJson?.data?.tracks?.[0]?.url || "").trim();
+        if (directUrl) {
+          return { ok: true, provider: "mubert", audio_url: directUrl };
+        }
+        if (!sessionId) {
+          lastErr = "mubert_no_session_id";
+          continue;
+        }
+        // Poll status for up to 60s.
+        const deadline = Date.now() + 60_000;
+        let pollUrl = "";
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 2500));
+          const status = await fetch("https://music-api.mubert.com/api/v3/public/tracks/status", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ company_id: companyId, license: licenseToken, session_id: sessionId }),
+          });
+          const sJson: any = await status.json().catch(() => null);
+          const url = sJson?.data?.tracks?.[0]?.url || sJson?.tracks?.[0]?.url;
+          if (url) { pollUrl = String(url); break; }
+        }
+        if (pollUrl) return { ok: true, provider: "mubert", audio_url: pollUrl };
+        lastErr = "mubert_poll_timeout";
+        continue;
+      }
+      // Other music providers (suno, elevenlabs, stability) — adapters
+      // land separately. Suno already runs through the existing
+      // suno-api sidecar; ElevenLabs Music has its own sidecar.
+    } catch (err) {
+      lastErr = `${provider}_threw_${(err as Error)?.message || err}`;
+      console.warn(`[music-router] ${provider} threw:`, lastErr.slice(0, 200));
+      continue;
+    }
+  }
+  return { ok: false, provider: "none", error: lastErr || "no_music_provider_succeeded" };
 }
 
 /* ============================================================
@@ -13236,6 +13302,47 @@ app.get("/cssapi/v1/mv", async (req, res) => {
  * that has audio_track_1 but no whisper_words yet and serially
  * enqueues Whisper through Groq (free tier). Serial, not parallel:
  * one work at a time, ~5s each, so we never hammer Groq's rate limit. */
+/* CSSOS_ENGINE_TEST 20260507 — Jing
+ * Admin-only "ping" endpoint per engine — proves a key works end-to-end
+ * by actually generating a tiny artifact, returning its URL. The MV
+ * Pipeline panel can call this to flip "configured → live" status. */
+app.post("/api/admin/engine/test", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const access = await resolveUserAccessProfile(user);
+    if (String(access.role || "").toLowerCase() !== "admin") {
+      return res.status(403).json({ ok: false, code: "ADMIN_ONLY" });
+    }
+    const kind = String(req.body?.kind || "").trim().toLowerCase();
+    const provider = String(req.body?.provider || "").trim().toLowerCase();
+    if (kind === "music") {
+      const musicReq: MusicGenRequest = {
+        prompt: String(req.body?.prompt || "calm cinematic ambient piano"),
+        duration_secs: 15,
+        tags: ["cinematic", "ambient", "calm"],
+      };
+      if (provider) musicReq.prefer = [provider];
+      const result = await callMusicGen(musicReq);
+      return res.json({ ok: result.ok, data: result });
+    }
+    if (kind === "video") {
+      const videoReq: VideoGenRequest = {
+        prompt: String(req.body?.prompt || "drifting clouds over mountains, cinematic, slow zoom"),
+        duration_secs: 5,
+        aspect_ratio: "16:9",
+      };
+      if (provider) videoReq.prefer = [provider];
+      const result = await callVideoGen(videoReq);
+      return res.json({ ok: result.ok, data: result });
+    }
+    return res.status(400).json({ ok: false, code: "INVALID_KIND" });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "TEST_FAILED", error: String((err as Error)?.message || err) });
+  }
+});
+
 app.post("/api/admin/karaoke/transcribe-all", async (req, res) => {
   noStore(res);
   try {

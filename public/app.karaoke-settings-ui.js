@@ -116,8 +116,26 @@
     return wrap;
   }
 
+  function pickMount() {
+    /* In fullscreen, the only visible content is descendants of
+     * document.fullscreenElement. Anything appended to body is hidden.
+     * Mount the panel inside the fullscreen element so it stays
+     * visible while the user is in cinema/Immersive mode. */
+    return document.fullscreenElement || document.webkitFullscreenElement || document.body;
+  }
+  function moveToCurrentMount() {
+    if (!panelEl) return;
+    var mount = pickMount();
+    if (panelEl.parentNode !== mount) {
+      mount.appendChild(panelEl);
+    }
+  }
+
   function buildPanel() {
-    if (panelEl) return panelEl;
+    if (panelEl) {
+      moveToCurrentMount();
+      return panelEl;
+    }
     ensureStyles();
     var cfg = (globalThis.cssosKaraokeWord && globalThis.cssosKaraokeWord.config()) || {};
     panelEl = document.createElement("div");
@@ -190,7 +208,21 @@
     doneBtn.addEventListener("click", hide);
     ftrow.appendChild(doneBtn);
     panelEl.appendChild(ftrow);
-    document.body.appendChild(panelEl);
+    /* Block any clicks inside the panel from bubbling out to the
+     * frame click-toggle (which would pause the media). All UI
+     * controls inside the panel call setConfig() on their own input
+     * events; we don't need clicks to escape. */
+    ["click", "pointerdown", "mousedown"].forEach(function (ev) {
+      panelEl.addEventListener(ev, function (e) { e.stopPropagation(); });
+    });
+    pickMount().appendChild(panelEl);
+    /* Re-parent on fullscreen change so the panel stays visible
+     * whether the user is in cinema mode or browsing normally. */
+    if (!panelEl.dataset.cssosFsBound) {
+      panelEl.dataset.cssosFsBound = "1";
+      document.addEventListener("fullscreenchange", moveToCurrentMount);
+      document.addEventListener("webkitfullscreenchange", moveToCurrentMount);
+    }
     return panelEl;
   }
 

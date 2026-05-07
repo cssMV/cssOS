@@ -947,36 +947,10 @@
           '<label>' + escapeHtml(lyricsLabel) + '</label>' +
           '<textarea id="mvp-lyrics" rows="3" placeholder="' + escapeHtml(lyricsPlaceholder) + '"></textarea>' +
           renderAspectRatioControls() +
-          /* CSSOS_PHASE3_PARAMS 20260507 — Jing
-           * Three new tier-level params:
-           *   1. Cover count (1-N, capped so total cost < Hybrid tier)
-           *   2. Hybrid mix slider (real-video % vs Lite slideshow)
-           *   3. Cinematic resolution (720p / 1080p / 4K / 8K)
-           * The wrapper toggles via data-tier-context on the panel — JS
-           * sets it after cssmvTiers.currentTierId() resolves so the
-           * relevant rows show only when their tier is active. */
-          '<div class="mvp-extra-params" id="mvp-extra-params">' +
-            '<div class="mvp-param-row" data-param-row="cover-count">' +
-              '<label for="mvp-cover-count">' + escapeHtml(copy("Cover images", "封面图数量")) + '</label>' +
-              '<input id="mvp-cover-count" type="number" min="1" max="8" step="1" value="1" />' +
-              '<span class="mvp-param-hint" id="mvp-cover-count-hint"></span>' +
-            '</div>' +
-            '<div class="mvp-param-row" data-param-row="hybrid-mix" data-show-when-tier="hybrid">' +
-              '<label for="mvp-hybrid-mix">' + escapeHtml(copy("Real video / Slideshow mix", "真视频 / 幻灯片比例")) + '</label>' +
-              '<input id="mvp-hybrid-mix" type="range" min="20" max="80" step="5" value="30" />' +
-              '<span class="mvp-param-hint" id="mvp-hybrid-mix-hint">30%</span>' +
-            '</div>' +
-            '<div class="mvp-param-row" data-param-row="cinematic-res" data-show-when-tier="cinematic">' +
-              '<label for="mvp-cinematic-res">' + escapeHtml(copy("Cinematic resolution", "影院级分辨率")) + '</label>' +
-              '<select id="mvp-cinematic-res">' +
-                '<option value="720p">720p</option>' +
-                '<option value="1080p" selected>1080p</option>' +
-                '<option value="4k">4K</option>' +
-                '<option value="8k">8K · ' + escapeHtml(copy("preview", "预览")) + '</option>' +
-              '</select>' +
-              '<span class="mvp-param-hint">' + escapeHtml(copy("Higher = more credits", "越高消耗越多")) + '</span>' +
-            '</div>' +
-          '</div>' +
+          /* CSSOS_PHASE3_PARAMS_INLINE 20260507 — extra params moved
+           * INTO stage gear dropdowns per Jing. cover gear hosts the
+           * count input; video gear hosts hybrid-mix + cinematic-res.
+           * Standalone rows removed. */
         '</div>' +
         '<div class="mvp-actions">' +
           '<button id="mvp-run" class="cta">' + escapeHtml(runLabel) + '</button>' +
@@ -1299,47 +1273,115 @@
         "border:1px solid rgba(0,245,160,0.35);" +
         "box-shadow:0 14px 32px rgba(0,0,0,0.55);" +
         "display:flex;flex-direction:column;gap:2px;";
-      stageEntry.engines.forEach(function (eng) {
-        const versions = Array.isArray(eng.versions) && eng.versions.length
-          ? eng.versions : [{ id: eng.default_version || "default", label: eng.default_version || "default" }];
-        versions.forEach(function (v) {
-          const item = document.createElement("button");
-          item.type = "button";
-          item.textContent = (eng.id || eng.name || "?") + " · " + (v.id || v.label || "default");
-          item.style.cssText =
-            "all:unset;cursor:pointer;padding:7px 10px;border-radius:6px;" +
-            "font:600 12px/1.1 ui-monospace,monospace;color:#daffee;text-align:left;";
-          item.addEventListener("mouseenter", function () { item.style.background = "rgba(0,245,160,0.14)"; });
-          item.addEventListener("mouseleave", function () { item.style.background = ""; });
-          item.addEventListener("click", function () {
-            // 1. User-level — write cookie + cssmvEngines selection so the
-            //    engine-picker module persists in localStorage too.
-            try {
-              if (globalThis.cssmvEngines && typeof globalThis.cssmvEngines.setSelection === "function") {
-                globalThis.cssmvEngines.setSelection(stageId, eng.id, v.id || v.label || "default");
-              }
-            } catch (_e) {}
-            // 2. Admin → also persist as system default for everyone else.
-            //    Viewer role read from window.authState — admin path POSTs
-            //    /api/admin/engine/default (server checks auth too).
-            try {
-              const isAdmin = String((globalThis.authState?.tier || globalThis.authState?.role || "")).toLowerCase() === "admin";
-              if (isAdmin) {
-                fetch("/api/admin/engine/default", {
-                  method: "POST",
-                  credentials: "include",
-                  headers: { "Content-Type": "application/json", Accept: "application/json" },
-                  body: JSON.stringify({ kind: stageId, provider: eng.id, model: v.id || v.label || "default" }),
-                }).catch(function () {});
-              }
-            } catch (_e) {}
-            // Refresh the engine label on the stage row.
-            const lbl = panel.querySelector("[data-engine-for='" + stageId + "']");
-            if (lbl) lbl.textContent = (eng.id || "?") + "/" + (v.id || v.label || "default");
-            dd.remove();
-          });
-          dd.appendChild(item);
+      /* CSSOS_PHASE3_PARAMS_INLINE 20260507 — Jing
+       * Move tier params INTO the stage gear dropdown:
+       *   cover gear  → cover-count input on top
+       *   video gear  → hybrid-mix slider + cinematic-res select on top
+       * Then the engine pick list below (separator between). */
+      function makeStageParam(html) {
+        const wrap = document.createElement("div");
+        wrap.style.cssText = "padding:8px 10px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid rgba(0,245,160,0.18);margin-bottom:4px;";
+        wrap.innerHTML = html;
+        return wrap;
+      }
+      if (stageId === "cover") {
+        const wrap = makeStageParam(
+          '<label style="font:500 10px/1 ui-monospace,monospace;color:rgba(218,255,238,0.65);letter-spacing:.04em;">' +
+          escapeHtml(copy("Cover images", "封面图数量")) + '</label>' +
+          '<div style="display:flex;align-items:center;gap:8px;">' +
+            '<input type="number" min="1" max="8" step="1" value="' +
+              ((globalThis.localStorage && localStorage.getItem("cssos_mvp_param_cover_count")) || "1") +
+              '" id="mvp-stage-cover-count-inline" style="background:rgba(8,18,16,0.55);border:1px solid rgba(0,245,160,0.18);border-radius:6px;padding:4px 8px;color:#daffee;font:600 12px/1 ui-monospace,monospace;width:72px;" />' +
+            '<span id="mvp-stage-cover-count-hint" style="font:500 10px/1 ui-monospace,monospace;color:rgba(0,245,160,0.7);">' +
+              escapeHtml(copy("max 8 · stays cheaper than Hybrid", "最多 8 张 · 总价低于 Hybrid")) +
+            '</span>' +
+          '</div>'
+        );
+        dd.appendChild(wrap);
+        const inp = wrap.querySelector("#mvp-stage-cover-count-inline");
+        inp.addEventListener("change", function () {
+          const v = Math.max(1, Math.min(Number(inp.max || 8), Number(inp.value) || 1));
+          inp.value = String(v);
+          try { localStorage.setItem("cssos_mvp_param_cover_count", String(v)); } catch (_e) {}
+          state.coverCount = v;
         });
+      }
+      if (stageId === "video") {
+        const wrap = makeStageParam(
+          '<label style="font:500 10px/1 ui-monospace,monospace;color:rgba(218,255,238,0.65);letter-spacing:.04em;">' +
+          escapeHtml(copy("Hybrid mix · real video %", "Hybrid 真视频比例")) + '</label>' +
+          '<div style="display:flex;align-items:center;gap:8px;">' +
+            '<input type="range" min="20" max="80" step="5" value="' +
+              ((globalThis.localStorage && localStorage.getItem("cssos_mvp_param_hybrid_mix_pct")) || "30") +
+              '" id="mvp-stage-hybrid-mix-inline" style="flex:1 1 auto;accent-color:#00f5a0;" />' +
+            '<span id="mvp-stage-hybrid-mix-hint" style="font:600 11px/1 ui-monospace,monospace;color:rgba(0,245,160,0.85);min-width:34px;text-align:right;">30%</span>' +
+          '</div>' +
+          '<label style="font:500 10px/1 ui-monospace,monospace;color:rgba(218,255,238,0.65);letter-spacing:.04em;margin-top:4px;">' +
+          escapeHtml(copy("Cinematic resolution", "影院级分辨率")) + '</label>' +
+          '<div style="display:flex;align-items:center;gap:8px;">' +
+            '<select id="mvp-stage-cinematic-res-inline" style="background:rgba(8,18,16,0.55);border:1px solid rgba(0,245,160,0.18);border-radius:6px;padding:4px 8px;color:#daffee;font:600 12px/1 ui-monospace,monospace;flex:0 0 auto;">' +
+              '<option value="720p">720p</option>' +
+              '<option value="1080p">1080p</option>' +
+              '<option value="4k">4K</option>' +
+              '<option value="8k">8K · ' + escapeHtml(copy("preview", "预览")) + '</option>' +
+            '</select>' +
+            '<span style="font:500 10px/1 ui-monospace,monospace;color:rgba(0,245,160,0.7);">' +
+              escapeHtml(copy("Higher = more credits", "越高消耗越多")) +
+            '</span>' +
+          '</div>'
+        );
+        dd.appendChild(wrap);
+        const slider = wrap.querySelector("#mvp-stage-hybrid-mix-inline");
+        const sliderHint = wrap.querySelector("#mvp-stage-hybrid-mix-hint");
+        sliderHint.textContent = slider.value + "%";
+        slider.addEventListener("input", function () {
+          const v = Math.max(20, Math.min(80, Number(slider.value) || 30));
+          sliderHint.textContent = v + "%";
+          try { localStorage.setItem("cssos_mvp_param_hybrid_mix_pct", String(v)); } catch (_e) {}
+          state.hybridMixPct = v;
+        });
+        const sel = wrap.querySelector("#mvp-stage-cinematic-res-inline");
+        try { sel.value = localStorage.getItem("cssos_mvp_param_cinematic_res") || "1080p"; } catch (_e) {}
+        sel.addEventListener("change", function () {
+          try { localStorage.setItem("cssos_mvp_param_cinematic_res", sel.value); } catch (_e) {}
+          state.cinematicRes = sel.value;
+        });
+      }
+      // Engine pick list — engines[] is a flat list of {engine, version}
+      // pairs from the catalog. Real labels surface as "engine · version".
+      stageEntry.engines.forEach(function (eng) {
+        const engineId = String(eng.engine || eng.id || eng.name || "?");
+        const versionId = String(eng.version || eng.default_version || "default");
+        const item = document.createElement("button");
+        item.type = "button";
+        item.textContent = engineId + " · " + versionId;
+        item.style.cssText =
+          "all:unset;cursor:pointer;padding:7px 10px;border-radius:6px;" +
+          "font:600 12px/1.1 ui-monospace,monospace;color:#daffee;text-align:left;";
+        item.addEventListener("mouseenter", function () { item.style.background = "rgba(0,245,160,0.14)"; });
+        item.addEventListener("mouseleave", function () { item.style.background = ""; });
+        item.addEventListener("click", function () {
+          try {
+            if (globalThis.cssmvEngines && typeof globalThis.cssmvEngines.setSelection === "function") {
+              globalThis.cssmvEngines.setSelection(stageId, engineId, versionId);
+            }
+          } catch (_e) {}
+          try {
+            const isAdmin = String((globalThis.authState?.tier || globalThis.authState?.role || "")).toLowerCase() === "admin";
+            if (isAdmin) {
+              fetch("/api/admin/engine/default", {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json", Accept: "application/json" },
+                body: JSON.stringify({ kind: stageId, provider: engineId, model: versionId }),
+              }).catch(function () {});
+            }
+          } catch (_e) {}
+          const lbl = panel.querySelector("[data-engine-for='" + stageId + "']");
+          if (lbl) lbl.textContent = engineId + "/" + versionId;
+          dd.remove();
+        });
+        dd.appendChild(item);
       });
       // Close on outside click.
       const closer = function (e) {
@@ -1352,89 +1394,15 @@
       panel.appendChild(dd);
     });
 
-    /* CSSOS_PHASE3_PARAMS — wire the cover-count / hybrid-mix /
-     * cinematic-res controls. Each persists to localStorage and
-     * exposes via state.* so runAll() reads it on next pipeline. */
-    function readParam(key, fallback) {
-      try {
-        const v = localStorage.getItem("cssos_mvp_param_" + key);
-        return v == null ? fallback : v;
-      } catch (_e) { return fallback; }
-    }
-    function writeParam(key, value) {
-      try { localStorage.setItem("cssos_mvp_param_" + key, String(value)); } catch (_e) {}
-    }
-    const coverCountInput = panel.querySelector("#mvp-cover-count");
-    const coverCountHint = panel.querySelector("#mvp-cover-count-hint");
-    if (coverCountInput) {
-      coverCountInput.value = readParam("cover_count", "1");
-      // Cost cap — N covers must stay below the Hybrid-tier price so the
-      // user doesn't accidentally pay more than just upgrading. Hint shown
-      // as "max N (≈$0.0X)". Refreshed after tiers catalog resolves.
-      function refreshCoverCap() {
-        try {
-          const tiers = globalThis.cssmvTiers && typeof globalThis.cssmvTiers.list === "function"
-            ? globalThis.cssmvTiers.list() : null;
-          const lite = tiers?.find?.((t) => String(t.id).toLowerCase() === "lite");
-          const hybrid = tiers?.find?.((t) => String(t.id).toLowerCase() === "hybrid");
-          const liteCovCents = Number(lite?.cover_cost_cents || 5);
-          const hybridTotalCents = Number(hybrid?.total_cost_cents || hybrid?.cost_cents || 250);
-          const maxAllowed = Math.max(1, Math.min(8, Math.floor((hybridTotalCents - 1) / Math.max(1, liteCovCents))));
-          coverCountInput.max = String(maxAllowed);
-          if (coverCountHint) {
-            coverCountHint.textContent = copy(
-              "max " + maxAllowed + " · stays cheaper than Hybrid",
-              "最多 " + maxAllowed + " 张 · 总价低于 Hybrid"
-            );
-          }
-        } catch (_e) {}
-      }
-      refreshCoverCap();
-      globalThis.addEventListener("cssmv:tiers-ready", refreshCoverCap);
-      coverCountInput.addEventListener("change", function () {
-        const v = Math.max(1, Math.min(Number(coverCountInput.max || 8), Number(coverCountInput.value) || 1));
-        coverCountInput.value = String(v);
-        writeParam("cover_count", v);
-        state.coverCount = v;
-      });
-      // Hydrate state.
-      state.coverCount = Number(coverCountInput.value) || 1;
-    }
-    const hybridMixInput = panel.querySelector("#mvp-hybrid-mix");
-    const hybridMixHint = panel.querySelector("#mvp-hybrid-mix-hint");
-    if (hybridMixInput) {
-      hybridMixInput.value = readParam("hybrid_mix_pct", "30");
-      if (hybridMixHint) hybridMixHint.textContent = hybridMixInput.value + "%";
-      hybridMixInput.addEventListener("input", function () {
-        const v = Math.max(20, Math.min(80, Number(hybridMixInput.value) || 30));
-        if (hybridMixHint) hybridMixHint.textContent = v + "%";
-        writeParam("hybrid_mix_pct", v);
-        state.hybridMixPct = v;
-      });
-      state.hybridMixPct = Number(hybridMixInput.value) || 30;
-    }
-    const cinematicResSelect = panel.querySelector("#mvp-cinematic-res");
-    if (cinematicResSelect) {
-      cinematicResSelect.value = readParam("cinematic_res", "1080p");
-      cinematicResSelect.addEventListener("change", function () {
-        writeParam("cinematic_res", cinematicResSelect.value);
-        state.cinematicRes = cinematicResSelect.value;
-      });
-      state.cinematicRes = cinematicResSelect.value;
-    }
-    /* Toggle visibility of tier-scoped param rows when the active tier
-     * changes. We stamp data-tier-context on #mvp-extra-params; CSS
-     * uses the attr to show/hide rows tagged with data-show-when-tier. */
-    function syncParamTierContext() {
-      try {
-        const tierId = String(globalThis.cssmvTiers?.currentTierId?.() || "lite").toLowerCase();
-        const wrap = panel.querySelector("#mvp-extra-params");
-        if (wrap) wrap.dataset.tierContext = tierId;
-      } catch (_e) {}
-    }
-    syncParamTierContext();
-    globalThis.addEventListener("cssmv:tier-changed", syncParamTierContext);
-    globalThis.addEventListener("cssmv:tiers-ready", syncParamTierContext);
+    /* CSSOS_PHASE3_PARAMS_INLINE 20260507 — params now live INSIDE the
+     * cover/video stage gear dropdowns (see hover ⚙ click handler).
+     * Hydrate state from localStorage on mount so runAll() sees them
+     * even if user never opens the gear. */
+    try {
+      state.coverCount = Number(localStorage.getItem("cssos_mvp_param_cover_count")) || 1;
+      state.hybridMixPct = Number(localStorage.getItem("cssos_mvp_param_hybrid_mix_pct")) || 30;
+      state.cinematicRes = localStorage.getItem("cssos_mvp_param_cinematic_res") || "1080p";
+    } catch (_e) {}
     // CSSOS_PHASE2_MV_PANEL_TIDY 20260505 — Jing
     // "进度条们，全部隐藏，留个按钮显示就行". Stages are hidden by
     // default; tap the summary banner to reveal the per-stage rows.

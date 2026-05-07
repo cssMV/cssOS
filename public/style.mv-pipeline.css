@@ -417,58 +417,6 @@
   color: rgba(232, 244, 236, 0.7);
 }
 
-/* CSSOS_PHASE3_PARAMS 20260507 — Jing's three new tier-level
-   params: cover count / hybrid mix slider / cinematic resolution.
-   The wrapper carries data-tier-context = "lite" | "hybrid" |
-   "cinematic" so we can hide rows that don't apply to the active
-   tier. Cover count always shows. */
-#mv-pipeline-panel .mvp-extra-params {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-top: 6px;
-}
-#mv-pipeline-panel .mvp-param-row {
-  display: grid;
-  grid-template-columns: minmax(120px, 1fr) auto auto;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: rgba(232, 244, 236, 0.8);
-}
-#mv-pipeline-panel .mvp-param-row label {
-  font-size: 11px;
-  letter-spacing: 0.02em;
-  color: rgba(218, 255, 238, 0.65);
-}
-#mv-pipeline-panel .mvp-param-row input[type="number"],
-#mv-pipeline-panel .mvp-param-row input[type="range"],
-#mv-pipeline-panel .mvp-param-row select {
-  background: rgba(8, 18, 16, 0.55);
-  border: 1px solid rgba(0, 245, 160, 0.18);
-  border-radius: 6px;
-  padding: 4px 8px;
-  color: #daffee;
-  font: 600 12px/1 ui-monospace, monospace;
-  width: 100%;
-  max-width: 160px;
-}
-#mv-pipeline-panel .mvp-param-row input[type="range"] {
-  padding: 0;
-  accent-color: #00f5a0;
-  max-width: 220px;
-}
-#mv-pipeline-panel .mvp-param-hint {
-  font-size: 10px;
-  color: rgba(0, 245, 160, 0.7);
-  font-variant-numeric: tabular-nums;
-}
-/* tier-scoped rows */
-#mv-pipeline-panel .mvp-extra-params:not([data-tier-context="hybrid"]) .mvp-param-row[data-show-when-tier="hybrid"],
-#mv-pipeline-panel .mvp-extra-params:not([data-tier-context="cinematic"]) .mvp-param-row[data-show-when-tier="cinematic"] {
-  display: none;
-}
-
 /* CSSOS_PHASE3_INLINE_PICKER 20260507 — hover-revealed gear icon
    per stage row. Click → inline dropdown picks model. Admin
    broadcasts globally; user persists locally. */

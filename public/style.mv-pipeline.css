@@ -417,6 +417,33 @@
   color: rgba(232, 244, 236, 0.7);
 }
 
+/* CSSOS_PHASE3_INLINE_PICKER 20260507 — hover-revealed gear icon
+   per stage row. Click → inline dropdown picks model. Admin
+   broadcasts globally; user persists locally. */
+#mv-pipeline-panel .mvp-stage-gear {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: rgba(0, 245, 160, 0.65);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease;
+  user-select: none;
+  padding: 0 4px;
+}
+#mv-pipeline-panel .mvp-stage:hover .mvp-stage-gear,
+#mv-pipeline-panel .mvp-stage:focus-within .mvp-stage-gear {
+  opacity: 1;
+}
+#mv-pipeline-panel .mvp-stage-gear:hover {
+  color: rgba(0, 245, 160, 0.95);
+  transform: rotate(20deg);
+}
+#mv-pipeline-panel { position: relative; } /* anchor for cssos-stage-pickdown */
+#mv-pipeline-panel .cssos-stage-pickdown button:focus-visible {
+  outline: 1px solid rgba(0, 245, 160, 0.6);
+  outline-offset: 0;
+}
+
 #mv-pipeline-panel .mvp-stage-detail {
   font-size: 11px;
   color: rgba(232, 244, 236, 0.62);

@@ -879,6 +879,10 @@
             '<span class="mvp-stage-dot" data-state="idle"></span>' +
             '<span class="mvp-stage-label">' + escapeHtml(stageLabel(s)) + '</span>' +
             '<span class="mvp-stage-engine" data-engine-for="' + s.id + '"></span>' +
+            /* CSSOS_PHASE3_INLINE_PICKER 20260507 — Jing
+             * "每个 stage 行直接 hover ⚙ 选 model → admin 写系统级 / 普通用户写自己". */
+            '<span class="mvp-stage-gear" data-stage-gear="' + s.id + '" title="' +
+              escapeHtml(copy("Pick engine model", "选择引擎模型")) + '">⚙</span>' +
             '<span class="mvp-stage-cost" data-cost-for="' + s.id + '">—</span>' +
           '</div>' +
           '<div class="mvp-stage-progress" data-progress-for="' + s.id + '" aria-hidden="true">' +
@@ -1226,6 +1230,97 @@
     }
     // #147: #mvp-save button removed — auto-save runs from compose-done.
     wireAspectRatioControls(panel);
+    // CSSOS_PHASE3_INLINE_PICKER 20260507 — gear click opens model
+    // dropdown for that stage. Admin → POST /api/admin/engine/default
+    // (system-wide); regular user → cookie cssos_<kind>_<provider>_model
+    // (personal). The cssosEnginePicker module already handles both
+    // — we just delegate to its dropdown opener.
+    panel.addEventListener("click", async function (ev) {
+      const gear = ev.target?.closest?.("[data-stage-gear]");
+      if (!gear) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const stageId = gear.getAttribute("data-stage-gear");
+      // Resolve current provider/model for this stage from /api/mv/engines
+      // catalog cache. cssmvEngines.getSelections() returns the current
+      // {engine, version} per stage (default merged with user override).
+      const cat = (globalThis.cssmvEngines && typeof globalThis.cssmvEngines.getCatalog === "function")
+        ? globalThis.cssmvEngines.getCatalog() : null;
+      const stageEntry = cat?.stages?.find?.((x) => x.stage === stageId);
+      if (!stageEntry || !Array.isArray(stageEntry.engines) || !stageEntry.engines.length) {
+        if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(copy("No alternate engines available for this stage", "该 stage 暂无备选引擎"));
+        }
+        return;
+      }
+      // Build a tiny inline dropdown anchored to the gear.
+      const existing = panel.querySelector(".cssos-stage-pickdown");
+      if (existing) existing.remove();
+      const dd = document.createElement("div");
+      dd.className = "cssos-stage-pickdown";
+      const rect = gear.getBoundingClientRect();
+      const panelRect = panel.getBoundingClientRect();
+      dd.style.cssText =
+        "position:absolute;z-index:50;" +
+        "top:" + (rect.bottom - panelRect.top + 4) + "px;" +
+        "left:" + Math.max(8, rect.left - panelRect.left - 80) + "px;" +
+        "min-width:220px;padding:6px;border-radius:10px;" +
+        "background:rgba(8,18,16,0.96);" +
+        "border:1px solid rgba(0,245,160,0.35);" +
+        "box-shadow:0 14px 32px rgba(0,0,0,0.55);" +
+        "display:flex;flex-direction:column;gap:2px;";
+      stageEntry.engines.forEach(function (eng) {
+        const versions = Array.isArray(eng.versions) && eng.versions.length
+          ? eng.versions : [{ id: eng.default_version || "default", label: eng.default_version || "default" }];
+        versions.forEach(function (v) {
+          const item = document.createElement("button");
+          item.type = "button";
+          item.textContent = (eng.id || eng.name || "?") + " · " + (v.id || v.label || "default");
+          item.style.cssText =
+            "all:unset;cursor:pointer;padding:7px 10px;border-radius:6px;" +
+            "font:600 12px/1.1 ui-monospace,monospace;color:#daffee;text-align:left;";
+          item.addEventListener("mouseenter", function () { item.style.background = "rgba(0,245,160,0.14)"; });
+          item.addEventListener("mouseleave", function () { item.style.background = ""; });
+          item.addEventListener("click", function () {
+            // 1. User-level — write cookie + cssmvEngines selection so the
+            //    engine-picker module persists in localStorage too.
+            try {
+              if (globalThis.cssmvEngines && typeof globalThis.cssmvEngines.setSelection === "function") {
+                globalThis.cssmvEngines.setSelection(stageId, eng.id, v.id || v.label || "default");
+              }
+            } catch (_e) {}
+            // 2. Admin → also persist as system default for everyone else.
+            //    Viewer role read from window.authState — admin path POSTs
+            //    /api/admin/engine/default (server checks auth too).
+            try {
+              const isAdmin = String((globalThis.authState?.tier || globalThis.authState?.role || "")).toLowerCase() === "admin";
+              if (isAdmin) {
+                fetch("/api/admin/engine/default", {
+                  method: "POST",
+                  credentials: "include",
+                  headers: { "Content-Type": "application/json", Accept: "application/json" },
+                  body: JSON.stringify({ kind: stageId, provider: eng.id, model: v.id || v.label || "default" }),
+                }).catch(function () {});
+              }
+            } catch (_e) {}
+            // Refresh the engine label on the stage row.
+            const lbl = panel.querySelector("[data-engine-for='" + stageId + "']");
+            if (lbl) lbl.textContent = (eng.id || "?") + "/" + (v.id || v.label || "default");
+            dd.remove();
+          });
+          dd.appendChild(item);
+        });
+      });
+      // Close on outside click.
+      const closer = function (e) {
+        if (!dd.contains(e.target) && e.target !== gear) {
+          dd.remove();
+          document.removeEventListener("mousedown", closer, true);
+        }
+      };
+      setTimeout(function () { document.addEventListener("mousedown", closer, true); }, 0);
+      panel.appendChild(dd);
+    });
     // CSSOS_PHASE2_MV_PANEL_TIDY 20260505 — Jing
     // "进度条们，全部隐藏，留个按钮显示就行". Stages are hidden by
     // default; tap the summary banner to reveal the per-stage rows.

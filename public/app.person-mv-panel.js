@@ -155,29 +155,38 @@
     item.innerHTML =
       '<div class="dock-icon">🏛</div>' +
       '<div class="dock-label">' + (tt("People MV", "人物MV")) + '</div>';
-    /* CSSOS_PERSON_MV_DIRECT 20260507 — Jing
-     * Strip all indirection. pointerup fires before click and
-     * isn't subject to dock's longpress suppression. Three direct
-     * listeners (pointerup + click + keydown) cover every input.
-     * Whatever calls open() first wins; the others bail. */
-    var openedOnce = 0;
-    function fireOpen(e) {
-      if (Date.now() - openedOnce < 300) return; // dedupe
-      openedOnce = Date.now();
-      if (e) {
-        try { e.preventDefault(); } catch (_e) {}
-        try { e.stopPropagation(); } catch (_e) {}
-        try { e.stopImmediatePropagation && e.stopImmediatePropagation(); } catch (_e) {}
-      }
-      open();
+    /* CSSOS_PERSON_MV_DIRECT_V2 20260507 — Jing
+     * Bug from previous attempt: pointerup.preventDefault() told
+     * the browser "don't generate click after this", which then
+     * silenced our own click listener too — locking the dock
+     * permanently. This version:
+     *   - pointerup: NO preventDefault (we just open + dedupe)
+     *   - click:    full open + stop everything else from racing
+     *   - keydown:  Enter/Space accessibility
+     * 250ms dedupe so the pointerup → click chain doesn't fire
+     * twice for the same tap.
+     */
+    var lastFire = 0;
+    function fireOpen(label, e) {
+      var now = Date.now();
+      if (now - lastFire < 250) return;
+      lastFire = now;
+      console.info("[person-mv] dock fire via", label);
+      try { open(); } catch (err) { console.warn("[person-mv] open threw", err); }
     }
     item.addEventListener("pointerup", function (e) {
       if (e.button && e.button !== 0) return;
-      fireOpen(e);
-    }, true);
-    item.addEventListener("click", function (e) { fireOpen(e); }, true);
+      fireOpen("pointerup");
+    }, false);
+    item.addEventListener("click", function (e) {
+      fireOpen("click", e);
+      try { e.preventDefault(); e.stopPropagation(); } catch (_e) {}
+    }, false);
     item.addEventListener("keydown", function (e) {
-      if (e.key === "Enter" || e.key === " ") fireOpen(e);
+      if (e.key === "Enter" || e.key === " ") {
+        fireOpen("keydown");
+        try { e.preventDefault(); } catch (_e) {}
+      }
     });
     // Insert just after MV PIPELINE (or at beginning).
     var anchor = dock.querySelector('.dock-item[data-action="mv-pipeline"]')
@@ -263,16 +272,23 @@
      * three globals (togglePanelCollapse / togglePanelMaximize /
      * minimizeToDockBridge) so behavior matches every other panel.
      */
+    /* Chrome buttons — only preventDefault on the click event, not
+     * pointerup (preventDefault on pointerup cancels the click). */
     function wireChromeBtn(btn, fn) {
       if (!btn) return;
-      var handler = function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+      var lastBtnFire = 0;
+      function fire() {
+        var now = Date.now();
+        if (now - lastBtnFire < 250) return;
+        lastBtnFire = now;
         try { fn(); } catch (err) { console.warn("[person-mv] chrome", err); }
-      };
-      btn.addEventListener("click", handler, true);
-      btn.addEventListener("pointerup", handler, true);
+      }
+      btn.addEventListener("pointerup", function () { fire(); }, true);
+      btn.addEventListener("click", function (e) {
+        fire();
+        try { e.preventDefault(); e.stopPropagation(); } catch (_e) {}
+        if (e.stopImmediatePropagation) try { e.stopImmediatePropagation(); } catch (_e) {}
+      }, true);
     }
     wireChromeBtn(closeBtn, function () {
       if (typeof globalThis.minimizeToDockBridge === "function") {
@@ -341,24 +357,31 @@
      * descendant element can swallow it. Dedup with timestamp so
      * pointerup + click + dblclick don't all fire jumpIntoPipeline. */
     var cardLastFire = 0;
-    var cardHandler = function (e) {
+    function cardCore(e) {
       var card = e.target && typeof e.target.closest === "function"
         ? e.target.closest(".person-mv-card") : null;
-      if (!card || !panelEl.contains(card)) return;
-      // Skip if the click was on a panel-bar button bubbled up.
-      if (e.target.closest(".panel-actions")) return;
+      if (!card || !panelEl.contains(card)) return null;
+      if (e.target.closest && e.target.closest(".panel-actions")) return null;
       var pid = card.getAttribute("data-person-id");
-      if (!pid) return;
-      if (Date.now() - cardLastFire < 400) return;
-      cardLastFire = Date.now();
+      if (!pid) return null;
       var person = state.persons.find(function (p) { return p.person_id === pid; });
-      if (!person) return;
-      e.preventDefault();
-      e.stopPropagation();
-      jumpIntoPipeline(person);
-    };
-    panelEl.addEventListener("pointerup", cardHandler, true);
-    panelEl.addEventListener("click", cardHandler, true);
+      return person || null;
+    }
+    panelEl.addEventListener("pointerup", function (e) {
+      var p = cardCore(e); if (!p) return;
+      var now = Date.now();
+      if (now - cardLastFire < 400) return;
+      cardLastFire = now;
+      jumpIntoPipeline(p);
+    }, true);
+    panelEl.addEventListener("click", function (e) {
+      var p = cardCore(e); if (!p) return;
+      var now = Date.now();
+      if (now - cardLastFire < 400) return;
+      cardLastFire = now;
+      jumpIntoPipeline(p);
+      try { e.preventDefault(); e.stopPropagation(); } catch (_e) {}
+    }, true);
   }
 
   async function load() {

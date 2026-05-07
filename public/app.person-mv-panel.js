@@ -963,6 +963,25 @@
         var queue = opts.forceNew
           ? []
           : mvs.map(function(m){ return m.work_id; }).filter(Boolean);
+        // CSSOS_PERSON_MV_CINEMA_INTRO 20260507 — Jing
+        // Build a short person intro for cinema's loading hero. Source
+        // priority: lore.bio first sentence > core_theme > roles join.
+        // Truncated to ~80 chars with ellipsis.
+        var personIntro = "";
+        try {
+          var bio = lore && typeof lore.bio === "string" ? lore.bio : "";
+          if (bio) {
+            var firstSent = bio.split(/[。.!?！？\n]/)[0];
+            if (firstSent) personIntro = firstSent.trim();
+          }
+          if (!personIntro && p.core_theme) personIntro = String(p.core_theme).trim();
+          if (!personIntro && Array.isArray(p.roles) && p.roles.length) {
+            personIntro = p.roles.filter(Boolean).join("·");
+          }
+          if (personIntro && personIntro.length > 80) {
+            personIntro = personIntro.slice(0, 79).replace(/\s+\S*$/, "") + "…";
+          }
+        } catch (_e) {}
         if (typeof globalThis.openMvPipelinePanel === "function") {
           globalThis.openMvPipelinePanel({
             cinema: true,
@@ -976,6 +995,7 @@
             personEra: p.era || "",
             personCiv: p.civilization || "",
             personPortrait: portrait || "",
+            personIntro: personIntro,
           });
         }
       }

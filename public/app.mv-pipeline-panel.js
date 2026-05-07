@@ -6310,6 +6310,7 @@
       stage.className = "cinema-fullscreen cinema-stage";
       stage.innerHTML =
         '<video class="cinema-video" playsinline></video>' +
+        '<div class="cinema-subs"><div class="cinema-subs-line" hidden></div></div>' +
         '<div class="cinema-strip"></div>' +
         '<div class="cinema-teaser" hidden></div>' +
         '<div class="cinema-loading" hidden></div>';
@@ -6334,6 +6335,7 @@
         era: opts.personEra || "",
         civ: opts.personCiv || "",
         portrait: opts.personPortrait || "",
+        intro: opts.personIntro || "",
       },
     };
 
@@ -6442,6 +6444,21 @@
         (w.assets && (w.assets.video_url || w.assets.video || (w.assets.video && w.assets.video.url))) || null;
       title = w.title || w.name || "";
       creator = w.owner_name || w.creator || w.user_name || w.created_by || "";
+      // CSSOS_PERSON_MV_CINEMA_SUBS 20260507 — Jing
+      // Resolve emotion-aligned subtitles. Priority: aligned_lyrics
+      // array (already parsed) > subtitle_srt_url (fetch + parse).
+      cinemaSt._aligned = null;
+      try {
+        if (Array.isArray(w.aligned_lyrics) && w.aligned_lyrics.length) {
+          cinemaSt._aligned = w.aligned_lyrics;
+        } else if (w.subtitle_srt_url && typeof globalThis.parseSrtToAlignedLyricsModule === "function") {
+          const sr = await fetch(w.subtitle_srt_url, { credentials: "include" });
+          if (sr.ok) {
+            const txt = await sr.text();
+            cinemaSt._aligned = globalThis.parseSrtToAlignedLyricsModule(txt) || null;
+          }
+        }
+      } catch (_e) {}
     } catch (_e) {}
     if (!videoUrl) {
       // skip to next
@@ -6458,12 +6475,41 @@
     }
     // Teaser: last 10s
     cinemaSt.teaserOn = false;
+    const subsLine = stage.querySelector(".cinema-subs-line");
+    if (subsLine) { subsLine.hidden = true; subsLine.textContent = ""; subsLine.className = "cinema-subs-line"; }
     video.ontimeupdate = function () {
       if (!cinemaSt) return;
       const dur = video.duration || 0;
       if (dur > 0 && (dur - video.currentTime) <= 10 && !cinemaSt.teaserOn) {
         cinemaSt.teaserOn = true;
         showCinemaTeaser();
+      }
+      // CSSOS_PERSON_MV_CINEMA_SUBS 20260507 — emotion karaoke ticker.
+      // Iterates aligned_lyrics rows {start_s,end_s,text,emotion?} and
+      // surfaces the active line. Emotion class drives color tints in
+      // CSS (matches watch-ui's `.is-{emotion}` convention).
+      if (subsLine && cinemaSt._aligned) {
+        const t = video.currentTime;
+        let active = null;
+        for (let i = 0; i < cinemaSt._aligned.length; i++) {
+          const row = cinemaSt._aligned[i];
+          const s = Number(row && (row.start_s || row.start || 0));
+          const e = Number(row && (row.end_s || row.end || 0));
+          if (t >= s && t <= e) { active = row; break; }
+        }
+        if (active) {
+          const txt = String(active.text || "").trim();
+          const emo = String(active.emotion || "").trim().toLowerCase();
+          if (txt) {
+            if (subsLine.textContent !== txt) subsLine.textContent = txt;
+            subsLine.className = "cinema-subs-line" + (emo ? " is-" + emo : "");
+            subsLine.hidden = false;
+          } else {
+            subsLine.hidden = true;
+          }
+        } else {
+          subsLine.hidden = true;
+        }
       }
     };
     video.onended = function () {
@@ -6556,10 +6602,28 @@
     const bgImg = person.portrait
       ? '<div class="cinema-hero-bg" style="background-image:url(\'' + String(person.portrait).replace(/'/g, "%27") + '\');"></div>'
       : '';
-    const subtitleTpl = (typeof globalThis.t === "function")
-      ? globalThis.t("Generating first MV for {name}…", "正在为 {name} 生成首支 MV…")
-      : "正在为 {name} 生成首支 MV…";
+    // CSSOS_PERSON_MV_CINEMA_I18N 20260507 — Jing
+    // Route the spinner copy through CSSOS_I18N.tr() (the canonical
+    // helper). Fall back to globalThis.t() and finally to the zh
+    // literal if neither is available. {name} is interpolated locally.
+    let subtitleTpl = "Generating the first MV for {name}…";
+    try {
+      const i18n = globalThis.CSSOS_I18N;
+      if (i18n && typeof i18n.tr === "function") {
+        subtitleTpl = String(i18n.tr("Generating the first MV for {name}…"));
+      } else if (typeof globalThis.t === "function") {
+        subtitleTpl = String(globalThis.t("Generating the first MV for {name}…", "正在为 {name} 生成首支 MV…"));
+      } else {
+        subtitleTpl = "正在为 {name} 生成首支 MV…";
+      }
+    } catch (_e) {
+      subtitleTpl = "正在为 {name} 生成首支 MV…";
+    }
     const subtitle = String(subtitleTpl).replace("{name}", name || "—");
+    // CSSOS_PERSON_MV_CINEMA_INTRO 20260507 — Jing
+    // Person intro line (lore.bio first sentence > core_theme > roles).
+    // Already truncated to ~80 chars upstream; clamp to 2 lines via CSS.
+    const intro = person.intro ? esc(person.intro) : "";
     loading.innerHTML =
       bgImg +
       '<div class="cinema-hero-block">' +
@@ -6571,6 +6635,7 @@
             '</div>'
           : '') +
         '<div class="cinema-hero-spinner"><span class="cinema-spin-ring"></span><span class="cinema-hero-status">' + esc(subtitle) + '</span></div>' +
+        (intro ? '<div class="cinema-hero-intro">' + intro + '</div>' : '') +
       '</div>';
     loading.hidden = false;
   }
@@ -6614,12 +6679,22 @@
       '.panel[data-cinema="true"] .cinema-teaser-label { font:700 11px/1 ui-monospace,monospace; color:#00f5a0; margin-bottom:6px; letter-spacing:.08em; }' +
       '.panel[data-cinema="true"] .cinema-teaser-row { display:flex; gap:8px; overflow-x:auto; }' +
       '.panel[data-cinema="true"] .cinema-teaser-card { flex:0 0 120px; aspect-ratio:16/9; background:rgba(255,255,255,.08); border:1px solid rgba(0,245,160,.3); border-radius:6px; display:flex; align-items:flex-end; justify-content:center; padding:4px; font:600 11px/1 ui-monospace,monospace; }' +
-      'body[data-cinema="true"] .floating-bottom-right,' +
-      'body[data-cinema="true"] .dock-floating,' +
       'body[data-cinema="true"] #cssos-help-bubble,' +
       'body[data-cinema="true"] .cssos-help-bubble,' +
       'body[data-cinema="true"] .floating-help,' +
-      'body[data-cinema="true"] .dock { opacity:0; pointer-events:none; transition:opacity .3s; }';
+      'body[data-cinema="true"] .dock { opacity:0; pointer-events:none; transition:opacity .3s; }' +
+      /* CSSOS_PERSON_MV_CINEMA_KARAOKE_CTRLS 20260507 — Jing
+       * Keep the random-font / karaoke fancy-effect controls visible
+       * during cinema. They control emotion karaoke subtitles and the
+       * user explicitly wants to tweak them while watching. Lift above
+       * the cinema overlay (z-index 99999). */
+      'body[data-cinema="true"] #cssos-karaoke-settings { opacity:1 !important; pointer-events:auto !important; z-index:100000 !important; }' +
+      /* Person-intro line under the spinner: small, fades, max 2 lines. */
+      '.cinema-hero-intro { margin:14px auto 0; max-width:min(640px,82vw); font:400 13px/1.5 ui-serif,serif; color:rgba(218,255,238,.7); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; text-align:center; }' +
+      /* CSSOS_PERSON_MV_CINEMA_SUBS 20260507 — Jing
+       * Emotion karaoke subtitle ticker overlay for cinema video. */
+      '#cssos-cinema-stage .cinema-subs { position:absolute; left:0; right:0; bottom:64px; padding:0 24px; text-align:center; pointer-events:none; z-index:5; }' +
+      '#cssos-cinema-stage .cinema-subs-line { display:inline-block; padding:8px 16px; border-radius:8px; background:rgba(0,0,0,.55); color:#fff; font:600 22px/1.4 ui-sans-serif,system-ui,sans-serif; text-shadow:0 2px 12px rgba(0,0,0,.7); max-width:min(960px,90vw); }';
     document.head.appendChild(s);
   }
 

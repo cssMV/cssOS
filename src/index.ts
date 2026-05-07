@@ -8614,6 +8614,17 @@ async function enqueueKaraokeTranscription(workId: string): Promise<void> {
     try {
       const words = await runWhisperWordTimings(audioUrl);
       if (!words || !words.length) return;
+      // CSSOS_PHASE3_KARAOKE_EMOTION 20260507 — Jing
+      // After Whisper produces {text,t_start,t_end}, send the full
+      // word list to a fast LLM (Groq Llama 3.3 70B free tier) and
+      // ask for a per-word emotion + weight (1-5). Frontend uses
+      // weight=5 to amplify the fancy effect (bigger scale, longer
+      // glow, explode). Failures here are non-fatal — we still
+      // persist the bare timings.
+      const enriched = await tagWordsWithEmotion(words);
+      const finalWords = enriched && enriched.length === words.length
+        ? enriched
+        : words;
       await withClient((c) =>
         c.query(
           `INSERT INTO work_assets (work_id, asset_type, url, meta)
@@ -8624,15 +8635,16 @@ async function enqueueKaraokeTranscription(workId: string): Promise<void> {
             workId,
             audioUrl,
             JSON.stringify({
-              source: "openai-whisper-1",
-              word_count: words.length,
-              words,
+              source: "groq-whisper-large-v3-turbo",
+              word_count: finalWords.length,
+              has_emotion: !!enriched,
+              words: finalWords,
               transcribed_at: new Date().toISOString(),
             }),
           ],
         ),
       );
-      console.info("[karaoke] persisted", words.length, "words for", workId);
+      console.info("[karaoke] persisted", finalWords.length, "words for", workId, enriched ? "(+emotion)" : "");
     } catch (err) {
       console.warn("[karaoke] whisper failed", workId, (err as Error)?.message || err);
     }
@@ -8682,6 +8694,78 @@ async function runWhisperWordTimings(audioUrl: string): Promise<WhisperWord[] | 
     if (w) return w;
   }
   return null;
+}
+
+/* Per-word emotion + weight via Groq Llama 3.3 70B (free, fast).
+ * Input: [{text,t_start,t_end}, ...]
+ * Output: same array shape with two extra fields per word —
+ *   emotion: "ignite" | "grief" | "joy" | "calm" | "intimate" | "resolve"
+ *   weight:  1-5 (5 = the line's emotional peak, deserves explode)
+ * Returns null on any failure so the caller can fall back to bare timings. */
+type WhisperWordTagged = WhisperWord & { emotion?: string; weight?: number };
+
+async function tagWordsWithEmotion(words: WhisperWord[]): Promise<WhisperWordTagged[] | null> {
+  const groqKey = String(process.env.GROQ_API_KEY || "").trim();
+  if (!groqKey) return null;
+  if (!words || !words.length) return null;
+  // Send only the text in order to keep token cost low. Reattach
+  // timings on the way out.
+  const lyrics = words.map((w, i) => `${i}\t${w.text}`).join("\n");
+  const prompt = `You are tagging karaoke words for emotional emphasis.\n\n` +
+    `Below is the full lyric word list, one per line, prefixed by index.\n` +
+    `For each word, output ONE LINE in this exact JSON-array form:\n` +
+    `[index, "emotion", weight]\n\n` +
+    `emotion ∈ ignite | grief | joy | calm | intimate | resolve\n` +
+    `weight  ∈ 1..5  (5 = song's emotional climax, only a few per song)\n\n` +
+    `Output ONLY the array lines, no prose, no markdown. One per word, in order.\n\n` +
+    `Words:\n${lyrics}`;
+  const upstream = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${groqKey}`,
+    },
+    body: JSON.stringify({
+      model: "llama-3.3-70b-versatile",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.4,
+      max_tokens: Math.min(8000, words.length * 18 + 200),
+    }),
+  });
+  if (!upstream.ok) {
+    const txt = await upstream.text().catch(() => "");
+    console.warn("[karaoke-emotion] groq non-OK", upstream.status, txt.slice(0, 200));
+    return null;
+  }
+  const json = await upstream.json().catch(() => null);
+  const text: string = String(json?.choices?.[0]?.message?.content || "").trim();
+  if (!text) return null;
+  // Parse "[idx, "emotion", weight]" lines.
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const tagByIdx = new Map<number, { emotion: string; weight: number }>();
+  for (const line of lines) {
+    const m = line.match(/\[\s*(\d+)\s*,\s*"([a-z]+)"\s*,\s*(\d+)\s*\]/i);
+    if (!m) continue;
+    const idx = Number(m[1]);
+    const emotion = String(m[2]).toLowerCase();
+    const weight = Math.max(1, Math.min(5, Number(m[3])));
+    if (
+      ["ignite", "grief", "joy", "calm", "intimate", "resolve"].includes(emotion) &&
+      Number.isInteger(idx) && idx >= 0 && idx < words.length
+    ) {
+      tagByIdx.set(idx, { emotion, weight });
+    }
+  }
+  if (tagByIdx.size === 0) {
+    console.warn("[karaoke-emotion] no parseable tags from groq response");
+    return null;
+  }
+  const tagged: WhisperWordTagged[] = words.map((w, i) => {
+    const tag = tagByIdx.get(i);
+    return tag ? { ...w, emotion: tag.emotion, weight: tag.weight } : { ...w };
+  });
+  console.info("[karaoke-emotion] tagged", tagByIdx.size, "/", words.length, "words");
+  return tagged;
 }
 
 async function callWhisperEndpoint(opts: {

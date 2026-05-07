@@ -105,7 +105,43 @@
         "0%  {transform:scale(var(--cssmv-kw-scale));filter:blur(0);}" +
         "50% {transform:scale(var(--cssmv-kw-scale-explode));filter:blur(0.6px);}" +
         "100%{transform:scale(1.0);filter:blur(0);}" +
-      "}";
+      "}" +
+      /* Emotion-tinted glow palettes (Groq-tagged) */
+      ".cssmv-word-hot.cssmv-emo-ignite{color:#fff !important;animation-name:cssmv-word-breath,cssmv-glow-ignite !important;}" +
+      ".cssmv-word-hot.cssmv-emo-grief {color:#e8f0ff !important;animation-name:cssmv-word-breath,cssmv-glow-grief !important;}" +
+      ".cssmv-word-hot.cssmv-emo-joy   {color:#fffbe0 !important;animation-name:cssmv-word-breath,cssmv-glow-joy !important;}" +
+      ".cssmv-word-hot.cssmv-emo-calm  {color:#e0fff7 !important;animation-name:cssmv-word-breath,cssmv-glow-calm !important;}" +
+      ".cssmv-word-hot.cssmv-emo-intimate{color:#ffe6f3 !important;animation-name:cssmv-word-breath,cssmv-glow-intimate !important;}" +
+      ".cssmv-word-hot.cssmv-emo-resolve{color:#f0e6ff !important;animation-name:cssmv-word-breath,cssmv-glow-resolve !important;}" +
+      "@keyframes cssmv-glow-ignite{" +
+        "0%  {text-shadow:0 0 8px rgba(255,80,40,1),0 0 22px rgba(255,200,40,0.85),0 0 36px rgba(255,40,40,0.7);}" +
+        "100%{text-shadow:0 0 14px rgba(255,40,80,1),0 0 28px rgba(255,140,20,0.9),0 0 44px rgba(255,80,200,0.7);}" +
+      "}" +
+      "@keyframes cssmv-glow-grief{" +
+        "0%  {text-shadow:0 0 6px rgba(80,140,255,0.95),0 0 18px rgba(120,180,255,0.7),0 0 30px rgba(40,80,180,0.55);}" +
+        "100%{text-shadow:0 0 10px rgba(180,200,255,0.95),0 0 22px rgba(80,120,220,0.7),0 0 34px rgba(60,40,120,0.55);}" +
+      "}" +
+      "@keyframes cssmv-glow-joy{" +
+        "0%  {text-shadow:0 0 6px rgba(255,255,80,1),0 0 18px rgba(255,200,80,0.8),0 0 30px rgba(255,140,40,0.6);}" +
+        "100%{text-shadow:0 0 10px rgba(255,200,40,1),0 0 22px rgba(255,80,80,0.8),0 0 34px rgba(255,160,200,0.6);}" +
+      "}" +
+      "@keyframes cssmv-glow-calm{" +
+        "0%  {text-shadow:0 0 6px rgba(120,255,200,0.9),0 0 18px rgba(80,200,200,0.65),0 0 28px rgba(40,160,180,0.45);}" +
+        "100%{text-shadow:0 0 10px rgba(180,240,255,0.9),0 0 20px rgba(120,200,220,0.65),0 0 30px rgba(80,140,180,0.45);}" +
+      "}" +
+      "@keyframes cssmv-glow-intimate{" +
+        "0%  {text-shadow:0 0 6px rgba(255,140,200,1),0 0 18px rgba(255,180,180,0.75),0 0 30px rgba(220,80,140,0.55);}" +
+        "100%{text-shadow:0 0 10px rgba(255,180,220,1),0 0 22px rgba(255,120,160,0.75),0 0 34px rgba(180,60,120,0.55);}" +
+      "}" +
+      "@keyframes cssmv-glow-resolve{" +
+        "0%  {text-shadow:0 0 6px rgba(180,140,255,1),0 0 18px rgba(140,80,220,0.75),0 0 30px rgba(80,40,160,0.55);}" +
+        "100%{text-shadow:0 0 10px rgba(220,180,255,1),0 0 22px rgba(180,140,255,0.75),0 0 34px rgba(120,80,200,0.55);}" +
+      "}" +
+      /* Weight tiers — multiplicatively boost scale for climax words */
+      ".cssmv-word-hot.cssmv-w-3{transform:scale(calc(var(--cssmv-kw-scale) * 1.05)) translateY(-3px);}" +
+      ".cssmv-word-hot.cssmv-w-4{transform:scale(calc(var(--cssmv-kw-scale) * 1.15)) translateY(-4px);}" +
+      ".cssmv-word-hot.cssmv-w-5{transform:scale(calc(var(--cssmv-kw-scale) * 1.30)) translateY(-6px);" +
+        "letter-spacing:calc(var(--cssmv-kw-letter-spacing) * 1.5);}";
     document.head.appendChild(s);
   }
 
@@ -227,10 +263,25 @@
     if (idx >= 0 && lineWords[idx]) {
       var hotEl = lineWords[idx].el;
       hotEl.classList.add("cssmv-word-hot");
-      // The renderer writes font-family inline (style="font-family:..."),
-      // which beats class-based CSS even with !important. Override by
-      // clearing the inline rule on the hot word so our class wins.
       try { hotEl.style.removeProperty("font-family"); } catch (_e) {}
+      /* CSSOS_PHASE3_EMOTION_APPLY 20260507 — Jing
+       * Apply per-word emotion class + weight boost from Groq's tag
+       * pass. Weight 5 = song's emotional climax → bigger scale +
+       * brighter glow. We piggyback on the same custom-property
+       * pipeline so user-tunable params still win. */
+      var arr = globalThis.cssosKaraokeWords;
+      var phase2idx = indexFromGlobalWords(Number(getActiveMedia() ? getActiveMedia().currentTime : 0) + getLookahead());
+      var tag = (arr && phase2idx >= 0 && arr[phase2idx]) ? arr[phase2idx] : null;
+      // Strip any prior emotion class so we don't accumulate.
+      ["ignite", "grief", "joy", "calm", "intimate", "resolve"].forEach(function (e) {
+        hotEl.classList.remove("cssmv-emo-" + e);
+      });
+      hotEl.classList.remove("cssmv-w-3", "cssmv-w-4", "cssmv-w-5");
+      if (tag && tag.emotion) hotEl.classList.add("cssmv-emo-" + tag.emotion);
+      if (tag && tag.weight) {
+        var w = Math.max(1, Math.min(5, Number(tag.weight) || 1));
+        if (w >= 3) hotEl.classList.add("cssmv-w-" + w);
+      }
     }
   }
   function tick() { applyHotByTime(); }

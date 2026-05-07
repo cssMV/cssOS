@@ -285,7 +285,14 @@
         '</div>' +
         '<div class="person-mv-grid"></div>' +
       '</div>';
-    document.body.appendChild(panelEl);
+    /* CSSOS_PERSON_MV_MAIN_MOUNT 20260507 — Jing
+     * All other panels (foryou-panel, watch-panel, mv-pipeline-panel,
+     * etc.) live inside <main class="stage">. Mounting outside main
+     * means dock-dispatcher / panel-stack / focus-manager loops that
+     * walk main's descendants never see us — events get routed to
+     * the wrong place. Hoist to main when present. */
+    var mainStage = document.querySelector("main.stage") || document.querySelector("main");
+    (mainStage || document.body).appendChild(panelEl);
     bindPanelEvents();
     /* CSSOS_PERSON_MV_BAR_BIND 20260507 — Jing
      * The shared panel-shell-actions binds .panel-actions buttons in

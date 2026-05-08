@@ -90,7 +90,41 @@ function buildUserAdminPanelMarkupModule() {
       <div class="section-title">${escapeHtml(loginCopy("Quick entrances"))}</div>
       ${shortcutCards}
     </div>
+    <!-- CSSOS_PERSON_MV_WAVE42 20260508 — Jing — multi-account switcher.
+         Inline on the user panel (use-it-where-it-changes) instead of a
+         buried Advanced Settings entry. -->
+    <div class="works-section" id="multi-account-section">
+      <div class="section-title">${escapeHtml(loginCopy("Switch account"))}</div>
+      <div class="works-note">${escapeHtml(loginCopy("All accounts you've signed in to from this browser. Click to switch, trash icon to forget."))}</div>
+      <div id="multi-account-list" class="works-list">
+        <div class="works-note">${escapeHtml(loginCopy("Loading…"))}</div>
+      </div>
+      <div class="work-actions" style="margin-top:8px;">
+        <button class="mini-btn" type="button" id="multi-account-add-btn">${escapeHtml(loginCopy("+ Add another account"))}</button>
+      </div>
+    </div>
     ${isAdmin ? `<div class="works-section"><div class="section-title">${escapeHtml(loginCopy("Admin extension"))}</div></div>` : ""}
+    <!-- CSSOS_PERSON_MV_WAVE41 20260508 — Jing — admin trends dashboard. -->
+    ${isAdmin ? `
+    <div class="works-section" id="admin-trends-section">
+      <div class="section-title">${escapeHtml(loginCopy("Trends dashboard"))}</div>
+      <div class="panel-search-row">
+        <select id="admin-trends-range" class="panel-search-select">
+          <option value="7">7d</option>
+          <option value="30">30d</option>
+          <option value="90">90d</option>
+        </select>
+        <button id="admin-trends-refresh" class="mini-btn" type="button">${escapeHtml(loginCopy("Refresh"))}</button>
+        <span id="admin-trends-status" class="works-note" style="margin-left:8px;"></span>
+      </div>
+      <div class="stat-grid" style="margin-top:10px;">
+        <div class="stat-card"><div class="stat-label">DAU</div><div class="stat-value" id="admin-trends-dau-now">—</div><svg id="admin-trends-dau-chart" width="100%" height="70" style="margin-top:6px;display:block;"></svg></div>
+        <div class="stat-card"><div class="stat-label">${escapeHtml(loginCopy("Engine costs"))}</div><div class="stat-value" id="admin-trends-cost-total">—</div><svg id="admin-trends-cost-chart" width="100%" height="70" style="margin-top:6px;display:block;"></svg></div>
+        <div class="stat-card"><div class="stat-label">${escapeHtml(loginCopy("Funnel"))}</div><div id="admin-trends-funnel">—</div></div>
+        <div class="stat-card"><div class="stat-label">${escapeHtml(loginCopy("Top persons"))}</div><div id="admin-trends-top">—</div></div>
+      </div>
+    </div>
+    ` : ""}
     ${isAdmin ? `
     <div class="works-section">
       <div class="section-title">${escapeHtml(loginCopy("User console"))}</div>
@@ -563,7 +597,208 @@ async function renderUserAdminPanelModule() {
   if (body.querySelector("#user-admin-action-ledger")) {
     renderUserAdminActionLedgerModule();
   }
+  // CSSOS_PERSON_MV_WAVE42 — multi-account switcher.
+  void renderMultiAccountListModule();
+  body.querySelector("#multi-account-add-btn")?.addEventListener("click", () => {
+    try {
+      const url = new URL(window.location.href);
+      url.hash = "";
+      url.searchParams.set("intent", "add");
+      window.location.href = url.toString().replace(/#.*$/, "") + "#login";
+    } catch {
+      window.location.hash = "#login";
+    }
+  });
+  // CSSOS_PERSON_MV_WAVE41 — admin trends dashboard.
+  if (body.querySelector("#admin-trends-section")) {
+    body.querySelector("#admin-trends-refresh")?.addEventListener("click", () => {
+      void refreshAdminTrendsModule();
+    });
+    body.querySelector("#admin-trends-range")?.addEventListener("change", () => {
+      void refreshAdminTrendsModule();
+    });
+    void refreshAdminTrendsModule();
+    if (!globalThis.__cssosAdminTrendsTimer) {
+      globalThis.__cssosAdminTrendsTimer = setInterval(() => {
+        if (document.getElementById("admin-trends-section")) {
+          void refreshAdminTrendsModule();
+        }
+      }, 5 * 60 * 1000);
+    }
+  }
   return true;
+}
+
+async function renderMultiAccountListModule() {
+  const list = document.getElementById("multi-account-list");
+  if (!(list instanceof HTMLElement)) return false;
+  try {
+    const res = await fetch("/api/auth/sessions", { credentials: "include" });
+    const data = await res.json();
+    const accounts = Array.isArray(data?.data?.accounts) ? data.data.accounts : [];
+    if (!accounts.length) {
+      list.innerHTML = `<div class="works-note">${escapeHtml(loginCopy("Only this account is signed in. Add another to switch quickly."))}</div>`;
+      return true;
+    }
+    list.innerHTML = accounts.map((a) => {
+      const name = String(a.display_name || a.email || a.user_id || "").trim() || "user";
+      const id = String(a.user_id || "").trim();
+      const cur = a.is_current ? " (current)" : "";
+      const btn = a.is_current
+        ? ""
+        : `<button class="mini-btn" type="button" data-multi-account-switch="${escapeHtml(id)}">${escapeHtml(loginCopy("Switch"))}</button>`;
+      return `
+        <article class="work-card">
+          <div class="work-cover">${escapeHtml(name.slice(0,2).toUpperCase())}</div>
+          <div class="work-info">
+            <div class="work-title">${escapeHtml(name)}${escapeHtml(cur)}</div>
+            <div class="works-note">${escapeHtml(String(a.email || ""))}</div>
+            <div class="work-actions">
+              ${btn}
+              <button class="mini-btn ghost tiny" type="button" data-multi-account-forget="${escapeHtml(id)}">🗑 ${escapeHtml(loginCopy("Forget"))}</button>
+            </div>
+          </div>
+        </article>`;
+    }).join("");
+    list.querySelectorAll("[data-multi-account-switch]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const uid = btn.getAttribute("data-multi-account-switch");
+        if (!uid) return;
+        try {
+          const r = await fetch("/api/auth/switch", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ user_id: uid }),
+          });
+          if (r.ok) { window.location.reload(); }
+          else {
+            const j = await r.json().catch(() => ({}));
+            alert(j?.code === "NEEDS_REAUTH" ? loginCopy("Please sign in to that account again first.") : (j?.code || "switch failed"));
+          }
+        } catch (e) { alert(String(e)); }
+      });
+    });
+    list.querySelectorAll("[data-multi-account-forget]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const uid = btn.getAttribute("data-multi-account-forget");
+        if (!uid) return;
+        try {
+          await fetch("/api/auth/sessions/forget", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ user_id: uid }),
+          });
+          void renderMultiAccountListModule();
+        } catch (e) { alert(String(e)); }
+      });
+    });
+    return true;
+  } catch (err) {
+    list.innerHTML = `<div class="works-note">${escapeHtml(String(err))}</div>`;
+    return false;
+  }
+}
+
+async function refreshAdminTrendsModule() {
+  const status = document.getElementById("admin-trends-status");
+  const rangeSel = document.getElementById("admin-trends-range");
+  const days = Number(rangeSel?.value || 7);
+  if (status) status.textContent = loginCopy("Loading…");
+  try {
+    const [dauR, costR, funR, topR] = await Promise.all([
+      fetch(`/api/admin/metrics/dau?days=${days}`, { credentials: "include" }).then((r) => r.json()),
+      fetch(`/api/admin/metrics/engine-costs?period=${days >= 30 ? "month" : "week"}`, { credentials: "include" }).then((r) => r.json()),
+      fetch(`/api/admin/metrics/funnel`, { credentials: "include" }).then((r) => r.json()),
+      fetch(`/api/admin/metrics/top-persons?limit=10&period=${days >= 30 ? "month" : "week"}`, { credentials: "include" }).then((r) => r.json()),
+    ]);
+    // DAU
+    const series = dauR?.data?.series || [];
+    const dauEl = document.getElementById("admin-trends-dau-now");
+    if (dauEl) dauEl.textContent = String(series.length ? series[series.length - 1].dau : 0);
+    drawSparkline("admin-trends-dau-chart", series.map((s) => s.dau));
+    // Costs
+    const engines = costR?.data?.engines || [];
+    const total = engines.reduce((acc, e) => acc + Number(e.cost_cents || 0), 0);
+    const costEl = document.getElementById("admin-trends-cost-total");
+    if (costEl) costEl.textContent = `$${(total / 100).toFixed(2)}`;
+    drawBars("admin-trends-cost-chart", engines.slice(0, 8).map((e) => ({ label: e.engine, value: e.cost_cents })));
+    // Funnel
+    const funEl = document.getElementById("admin-trends-funnel");
+    if (funEl && funR?.data) {
+      const f = funR.data;
+      funEl.innerHTML = `
+        <div class="works-note">visitors: <b>${f.visitors}</b></div>
+        <div class="works-note">signups: <b>${f.signups}</b> (${f.conversions?.visitor_to_signup_pct ?? 0}%)</div>
+        <div class="works-note">first MV: <b>${f.first_mv_creators}</b> (${f.conversions?.signup_to_first_creator_pct ?? 0}%)</div>
+        <div class="works-note">repeat (3+): <b>${f.repeat_creators}</b> (${f.conversions?.first_to_repeat_creator_pct ?? 0}%)</div>`;
+    }
+    // Top persons
+    const topEl = document.getElementById("admin-trends-top");
+    if (topEl) {
+      const persons = topR?.data?.persons || [];
+      topEl.innerHTML = persons.length
+        ? persons.slice(0, 10).map((p) => `<div class="works-note">${escapeHtml(String(p.name_zh || p.name_en || p.id))} · ${p.total_views} views · ${p.mv_count} MV</div>`).join("")
+        : `<div class="works-note">${escapeHtml(loginCopy("No data"))}</div>`;
+    }
+    if (status) status.textContent = `${loginCopy("Updated")} ${new Date().toLocaleTimeString()}`;
+  } catch (err) {
+    if (status) status.textContent = String(err);
+  }
+}
+
+function drawSparkline(id, values) {
+  const svg = document.getElementById(id);
+  if (!(svg instanceof SVGElement)) return;
+  const arr = (values || []).map((v) => Number(v) || 0);
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  if (!arr.length) return;
+  const w = svg.clientWidth || 200;
+  const h = 70;
+  const max = Math.max(1, ...arr);
+  const min = Math.min(0, ...arr);
+  const sx = (i) => (i / Math.max(1, arr.length - 1)) * w;
+  const sy = (v) => h - 4 - ((v - min) / Math.max(1, max - min)) * (h - 8);
+  const d = arr.map((v, i) => `${i === 0 ? "M" : "L"}${sx(i).toFixed(1)},${sy(v).toFixed(1)}`).join(" ");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", d);
+  path.setAttribute("fill", "none");
+  path.setAttribute("stroke", "currentColor");
+  path.setAttribute("stroke-width", "1.5");
+  svg.appendChild(path);
+}
+
+function drawBars(id, items) {
+  const svg = document.getElementById(id);
+  if (!(svg instanceof SVGElement)) return;
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  const arr = (items || []).filter(Boolean);
+  if (!arr.length) return;
+  const w = svg.clientWidth || 200;
+  const h = 70;
+  const max = Math.max(1, ...arr.map((x) => Number(x.value) || 0));
+  const bw = w / arr.length;
+  arr.forEach((it, i) => {
+    const v = Number(it.value) || 0;
+    const bh = (v / max) * (h - 14);
+    const r = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    r.setAttribute("x", String(i * bw + 1));
+    r.setAttribute("y", String(h - bh - 12));
+    r.setAttribute("width", String(Math.max(1, bw - 2)));
+    r.setAttribute("height", String(Math.max(1, bh)));
+    r.setAttribute("fill", "currentColor");
+    r.setAttribute("opacity", "0.65");
+    svg.appendChild(r);
+    const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    t.setAttribute("x", String(i * bw + bw / 2));
+    t.setAttribute("y", String(h - 2));
+    t.setAttribute("text-anchor", "middle");
+    t.setAttribute("font-size", "8");
+    t.setAttribute("fill", "currentColor");
+    t.textContent = String(it.label || "").slice(0, 8);
+    svg.appendChild(t);
+  });
 }
 
 function openUserAdminPanelModule() {
@@ -583,6 +818,8 @@ function openUserAdminPanelModule() {
 }
 
 Object.assign(globalThis, {
+  refreshAdminTrendsModule,
+  renderMultiAccountListModule,
   buildUserAdminPanelMarkupModule,
   applyUserAdminEntitlementGrantModule,
   applyUserAdminFreezePlaceholderModule,

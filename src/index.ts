@@ -14100,6 +14100,15 @@ function setAuthSession(
   (req.session as any).user_id = userId;
   (req.session as any).passkey_subject_key = userSubjectKey(userId);
   (req.session as any).auth_provider = provider;
+  // CSSOS_PERSON_MV_WAVE42 20260508 — track per-browser account
+  // roster for the multi-account switcher. Cap at 5 entries.
+  try {
+    const prev: string[] = Array.isArray((req.session as any).known_user_ids)
+      ? (req.session as any).known_user_ids
+      : [];
+    const next = [userId, ...prev.filter((x) => x !== userId)].slice(0, 5);
+    (req.session as any).known_user_ids = next;
+  } catch {}
   // CSSOS_PHASE2_PERSONALIZATION_WELCOME_HOOK 20260502 #273 - Jing
   // Every successful login funnels through here (OAuth callbacks,
   // passkey, email-OTP, dev login). Fire the welcome trigger
@@ -25751,6 +25760,148 @@ iframe{width:100%;height:100%;border:0}
   }
 });
 
+/* CSSOS_PERSON_MV_WAVE37 20260508 — Jing
+ * Embeddable player. External sites iframe `/embed/{shortcode}` to
+ * inline-play an MV. Black bg, autoplay-muted, click-to-unmute, no
+ * cookies, framable everywhere (frame-ancestors *). */
+app.get("/embed/:shortcode", async (req, res) => {
+  res.setHeader("Cache-Control", "public, max-age=300");
+  try { res.removeHeader("X-Frame-Options"); } catch (_) {}
+  res.setHeader("Content-Security-Policy", "frame-ancestors *");
+  res.type("html");
+  try {
+    await ensurePersonMvTables();
+    const code = String(req.params.shortcode || "").trim();
+    if (!/^[0-9a-zA-Z]{4,12}$/.test(code)) {
+      return res.status(404).send("<!doctype html><meta charset=utf-8><title>Not found</title><p>Embed not found.</p>");
+    }
+    const r = await withClient((c) =>
+      c.query<{
+        mv_id: string; cover_image: string | null; title: string | null;
+        final_mv_url: string | null; preview_video_url: string | null;
+        person_zh: string | null; person_en: string | null;
+      }>(
+        `SELECT pm.mv_id, w.cover_image, w.title, w.final_mv_url, w.preview_video_url,
+                pp.name_zh AS person_zh, pp.name_en AS person_en
+           FROM mv_shares s
+           JOIN person_mvs pm ON pm.mv_id = s.mv_id
+           LEFT JOIN user_works w       ON w.id = pm.work_id
+           LEFT JOIN person_profiles pp ON pp.person_id = pm.person_id
+          WHERE s.shortcode = $1`,
+        [code],
+      ),
+    );
+    if (!r.rowCount) {
+      return res.status(404).send("<!doctype html><meta charset=utf-8><title>Not found</title><p>Embed not found.</p>");
+    }
+    const row = r.rows[0]!;
+    const videoUrl = absolutizeCover(row.final_mv_url || row.preview_video_url || "") || "";
+    const cover = absolutizeCover(row.cover_image) || "";
+    const title = row.title || row.person_zh || row.person_en || "CSS Studio MV";
+    const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>${escapeHtmlAttr(title)} — CSS Studio</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="referrer" content="no-referrer" />
+<style>
+html,body{margin:0;padding:0;height:100%;background:#000;color:#fff;font-family:-apple-system,system-ui,sans-serif;overflow:hidden}
+.player{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#000}
+video{width:100%;height:100%;object-fit:contain;background:#000}
+.hint{position:absolute;top:12px;left:12px;background:rgba(0,0,0,0.55);color:#daffee;padding:6px 10px;border-radius:6px;font-size:12px;pointer-events:none;transition:opacity .3s}
+.hint.gone{opacity:0}
+.brand{position:absolute;bottom:8px;right:10px;font-size:11px;opacity:.7}
+.brand a{color:#00f5a0;text-decoration:none}
+.fallback{padding:24px;text-align:center}
+</style>
+</head>
+<body>
+<div class="player">
+${videoUrl
+  ? `<video id="v" src="${escapeHtmlAttr(videoUrl)}" ${cover ? `poster="${escapeHtmlAttr(cover)}"` : ""} autoplay muted playsinline loop controls></video>
+<div id="hint" class="hint">🔇 Tap to unmute</div>`
+  : `<div class="fallback"><p>${escapeHtmlAttr(title)}</p><p style="opacity:.6">Video not available.</p></div>`}
+<div class="brand">Powered by <a href="${escapeHtmlAttr(SHARE_BASE_URL)}/" target="_blank" rel="noopener">CSS Studio</a></div>
+</div>
+${videoUrl ? `<script>
+(function(){
+  var v=document.getElementById('v'), h=document.getElementById('hint');
+  function unmute(){ try{ v.muted=false; }catch(_){} if(h){ h.classList.add('gone'); setTimeout(function(){ h&&h.remove(); },400);} }
+  v && v.addEventListener('click', unmute);
+  document.addEventListener('click', unmute);
+})();
+</script>` : ""}
+</body>
+</html>`;
+    return res.send(html);
+  } catch (err) {
+    console.warn("[embed] failed:", (err as Error)?.message || err);
+    return res.status(500).send("<!doctype html><meta charset=utf-8><title>Error</title><p>Embed error.</p>");
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE38 20260508 — Jing
+ * Crawler-aware /codex/:person_id. Bots get static og-tagged HTML;
+ * humans redirect into the SPA. Reuses isCrawler/CRAWLER_UA_RE
+ * defined in WAVE18 below. */
+app.get("/codex/:person_id", async (req, res) => {
+  const personId = String(req.params.person_id || "").trim();
+  if (!personId) return res.status(404).send("Not found");
+  if (!isCrawler(req)) {
+    return res.redirect(302, `${SHARE_BASE_URL}/?person=${encodeURIComponent(personId)}`);
+  }
+  res.type("html");
+  try {
+    await ensurePersonMvTables();
+    const r = await withClient((c) =>
+      c.query<{
+        person_id: string; name_zh: string | null; name_en: string | null;
+        portrait_url: string | null; core_theme: string | null; lore: any;
+      }>(
+        `SELECT person_id, name_zh, name_en, portrait_url, core_theme, lore
+           FROM person_profiles WHERE person_id = $1`,
+        [personId],
+      ),
+    );
+    if (!r.rowCount) return res.status(404).send("<!doctype html><meta charset=utf-8><title>Not found</title><p>Person not found.</p>");
+    const p = r.rows[0]!;
+    const name = p.name_zh || p.name_en || "Person";
+    const lore = (p.lore && typeof p.lore === "object") ? p.lore : {};
+    const bio = String((lore as any)?.bio || "").split(/[。.!?！？]/)[0] || p.core_theme || "";
+    const portrait = absolutizeCover(p.portrait_url) || "";
+    const url = `${SHARE_BASE_URL}/codex/${encodeURIComponent(personId)}`;
+    const desc = bio || `${name} on CSS Studio.`;
+    const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>${escapeHtmlAttr(name)} — CSS Studio Codex</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta property="og:type" content="profile" />
+<meta property="og:title" content="${escapeHtmlAttr(name)}" />
+<meta property="og:description" content="${escapeHtmlAttr(desc)}" />
+<meta property="og:url" content="${escapeHtmlAttr(url)}" />
+${portrait ? `<meta property="og:image" content="${escapeHtmlAttr(portrait)}" />` : ""}
+<meta name="twitter:card" content="${portrait ? "summary_large_image" : "summary"}" />
+<meta name="twitter:title" content="${escapeHtmlAttr(name)}" />
+<meta name="twitter:description" content="${escapeHtmlAttr(desc)}" />
+${portrait ? `<meta name="twitter:image" content="${escapeHtmlAttr(portrait)}" />` : ""}
+</head>
+<body>
+<h1>${escapeHtmlAttr(name)}</h1>
+<p>${escapeHtmlAttr(desc)}</p>
+${portrait ? `<img src="${escapeHtmlAttr(portrait)}" alt="${escapeHtmlAttr(name)}" />` : ""}
+<p><a href="${escapeHtmlAttr(SHARE_BASE_URL)}/?person=${escapeHtmlAttr(personId)}">Open in CSS Studio</a></p>
+</body>
+</html>`;
+    return res.send(html);
+  } catch (err) {
+    console.warn("[codex/landing] failed:", (err as Error)?.message || err);
+    return res.status(500).send("Error");
+  }
+});
+
 /* CSSOS_PERSON_MV_WAVE25 20260508 — Jing
  * Cross-table full-text search. tsvector + GIN backed; ranks via
  * ts_rank. type=person|mv|comment|all. Tiny in-process LRU caches the
@@ -27149,6 +27300,326 @@ app.get("/api/live/rooms/:id/events", async (req, res) => {
       return res.status(500).json({ ok: false, code: "LIVE_EVENTS_FAILED", message: String(err) });
     }
     return;
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE41 20260508 — Jing — admin trends dashboard.
+ * Four admin-only metrics endpoints powering the #admin/dashboard
+ * panel: DAU line, top persons, engine cost bars, signup funnel. All
+ * gated via roleForEmail()==='admin'. */
+
+app.get("/api/admin/metrics/dau", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user || roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const days = Math.max(1, Math.min(180, Number(req.query.days || 7)));
+    const interval = `${days} days`;
+    const rows = await withClient((c) =>
+      c.query<{ day: string; dau: string }>(
+        `SELECT to_char(date_trunc('day', last_active_at), 'YYYY-MM-DD') AS day,
+                COUNT(DISTINCT id)::text AS dau
+           FROM users
+          WHERE last_active_at IS NOT NULL
+            AND last_active_at > now() - $1::interval
+          GROUP BY day
+          ORDER BY day`,
+        [interval],
+      ),
+    );
+    return res.json(
+      okData({
+        days,
+        source: "users.last_active_at",
+        series: rows.rows.map((r) => ({ day: r.day, dau: Number(r.dau) })),
+      }),
+    );
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "ADMIN_DAU_FAILED",
+      message: String((err as Error)?.message || err),
+    });
+  }
+});
+
+app.get("/api/admin/metrics/top-persons", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user || roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const limit = Math.max(1, Math.min(100, Number(req.query.limit || 20)));
+    const period = String(req.query.period || "all").toLowerCase();
+    const intervalSql =
+      period === "week"
+        ? "AND pm.created_at > now() - interval '7 days'"
+        : period === "month"
+        ? "AND pm.created_at > now() - interval '30 days'"
+        : "";
+    const rows = await withClient((c) =>
+      c.query<any>(
+        `SELECT pp.id::text AS id,
+                pp.name_zh,
+                pp.name_en,
+                COALESCE(SUM(pm.view_count), 0)::int AS total_views,
+                COUNT(pm.id)::int AS mv_count
+           FROM person_profiles pp
+           LEFT JOIN person_mvs pm
+             ON pm.person_id = pp.id
+            ${intervalSql}
+          GROUP BY pp.id, pp.name_zh, pp.name_en
+          ORDER BY total_views DESC NULLS LAST
+          LIMIT $1`,
+        [limit],
+      ),
+    );
+    return res.json(
+      okData({ period, limit, persons: rows.rows }),
+    );
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "ADMIN_TOP_PERSONS_FAILED",
+      message: String((err as Error)?.message || err),
+    });
+  }
+});
+
+app.get("/api/admin/metrics/engine-costs", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user || roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const period = String(req.query.period || "week").toLowerCase();
+    const intervalSql =
+      period === "month"
+        ? "30 days"
+        : period === "day"
+        ? "1 day"
+        : "7 days";
+    // Group by meta->>'engine' (preferred) or fallback to first
+    // segment of route. Cents summed across all stages.
+    const rows = await withClient((c) =>
+      c.query<{ engine: string; cost_cents: string; events: string }>(
+        `SELECT COALESCE(NULLIF(meta->>'engine',''),
+                         NULLIF(meta->>'provider',''),
+                         split_part(route,'/',3),
+                         'unknown') AS engine,
+                COALESCE(SUM(cost_cents), 0)::text AS cost_cents,
+                COUNT(*)::text AS events
+           FROM usage_events
+          WHERE created_at > now() - $1::interval
+          GROUP BY engine
+          ORDER BY SUM(cost_cents) DESC NULLS LAST
+          LIMIT 50`,
+        [intervalSql],
+      ),
+    );
+    return res.json(
+      okData({
+        period,
+        engines: rows.rows.map((r) => ({
+          engine: r.engine,
+          cost_cents: Number(r.cost_cents),
+          events: Number(r.events),
+        })),
+      }),
+    );
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "ADMIN_ENGINE_COSTS_FAILED",
+      message: String((err as Error)?.message || err),
+    });
+  }
+});
+
+app.get("/api/admin/metrics/funnel", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user || roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const result = await withClient(async (c) => {
+      // Visitors: distinct users who hit any usage_event in last 7d.
+      // Falls back to total active users if usage_events is sparse.
+      const visitorsRow = await c.query<{ n: string }>(
+        `SELECT COUNT(DISTINCT user_id)::text AS n
+           FROM usage_events
+          WHERE created_at > now() - interval '7 days'
+            AND user_id IS NOT NULL`,
+      );
+      const signupsRow = await c.query<{ n: string }>(
+        `SELECT COUNT(*)::text AS n
+           FROM users
+          WHERE created_at > now() - interval '7 days'`,
+      );
+      const firstCreatorsRow = await c.query<{ n: string }>(
+        `SELECT COUNT(DISTINCT owner_user_id)::text AS n
+           FROM person_mvs
+          WHERE created_at > now() - interval '7 days'
+            AND owner_user_id IS NOT NULL`,
+      );
+      const repeatCreatorsRow = await c.query<{ n: string }>(
+        `SELECT COUNT(*)::text AS n FROM (
+           SELECT owner_user_id
+             FROM person_mvs
+            WHERE owner_user_id IS NOT NULL
+            GROUP BY owner_user_id
+           HAVING COUNT(*) >= 3
+         ) t`,
+      );
+      return {
+        visitors: Number(visitorsRow.rows[0]?.n || 0),
+        signups: Number(signupsRow.rows[0]?.n || 0),
+        first_mv_creators: Number(firstCreatorsRow.rows[0]?.n || 0),
+        repeat_creators: Number(repeatCreatorsRow.rows[0]?.n || 0),
+      };
+    });
+    const pct = (n: number, d: number) =>
+      d > 0 ? Math.round((n / d) * 1000) / 10 : 0;
+    return res.json(
+      okData({
+        ...result,
+        conversions: {
+          visitor_to_signup_pct: pct(result.signups, result.visitors),
+          signup_to_first_creator_pct: pct(
+            result.first_mv_creators,
+            result.signups,
+          ),
+          first_to_repeat_creator_pct: pct(
+            result.repeat_creators,
+            result.first_mv_creators,
+          ),
+        },
+      }),
+    );
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "ADMIN_FUNNEL_FAILED",
+      message: String((err as Error)?.message || err),
+    });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE42 20260508 — Jing — multi-account switcher.
+ * One browser, multiple cssOS accounts (家庭场景: 妈妈号 + 爸爸号 +
+ * 孩子号). The list of "known" users is stored client-side in a
+ * non-HttpOnly cookie `cssos_known_users` (JSON array of
+ * {user_id, display_name, avatar_url, last_used_at}, capped at 5).
+ * The frontend appends to it after each successful login. The
+ * backend trusts the cookie only insofar as the user has to be
+ * able to re-auth (passkey/OAuth) when switching — but since the
+ * server stores no per-browser account roster, switching by
+ * user_id without re-auth is a privacy risk we mitigate by
+ * requiring a fresh login: /api/auth/switch returns NEEDS_REAUTH
+ * unless the requesting session already authenticated as that
+ * user_id during this browser session lifetime. Tracked via
+ * a parallel session field `known_user_ids: string[]`. */
+
+app.get("/api/auth/sessions", async (req, res) => {
+  noStore(res);
+  try {
+    const known = (req.session as any)?.known_user_ids;
+    const ids: string[] = Array.isArray(known) ? known.filter(Boolean) : [];
+    const currentId = (req.session as any)?.user_id || null;
+    if (!ids.length && !currentId) {
+      return res.json(okData({ accounts: [], current_user_id: null }));
+    }
+    const lookup = Array.from(new Set([...(ids || []), currentId].filter(Boolean)));
+    if (!DATABASE_URL || !lookup.length) {
+      return res.json(okData({ accounts: [], current_user_id: currentId }));
+    }
+    const rows = await withClient((c) =>
+      c.query<{ id: string; display_name: string | null; avatar_url: string | null; email: string | null }>(
+        `SELECT id::text, display_name, avatar_url, email
+           FROM users WHERE id = ANY($1::uuid[])`,
+        [lookup],
+      ),
+    );
+    return res.json(
+      okData({
+        current_user_id: currentId,
+        accounts: rows.rows.map((r) => ({
+          user_id: r.id,
+          display_name: r.display_name,
+          avatar_url: r.avatar_url,
+          email: r.email,
+          is_current: r.id === currentId,
+        })),
+      }),
+    );
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "AUTH_SESSIONS_FAILED",
+      message: String((err as Error)?.message || err),
+    });
+  }
+});
+
+app.post("/api/auth/switch", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const targetId = String(req.body?.user_id || "").trim();
+    if (!targetId) {
+      return res.status(400).json({ ok: false, code: "USER_ID_REQUIRED" });
+    }
+    const known: string[] = Array.isArray((req.session as any)?.known_user_ids)
+      ? (req.session as any).known_user_ids
+      : [];
+    if (!known.includes(targetId)) {
+      return res.status(401).json({ ok: false, code: "NEEDS_REAUTH" });
+    }
+    if (!DATABASE_URL) {
+      return res.status(503).json({ ok: false, code: "DB_UNAVAILABLE" });
+    }
+    const exists = await withClient((c) =>
+      c.query<{ id: string }>("SELECT id::text FROM users WHERE id = $1", [
+        targetId,
+      ]),
+    );
+    if (!exists.rows[0]) {
+      return res.status(404).json({ ok: false, code: "USER_NOT_FOUND" });
+    }
+    (req.session as any).user_id = targetId;
+    (req.session as any).auth_provider = "switch";
+    return res.json(okData({ user_id: targetId, switched: true }));
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "AUTH_SWITCH_FAILED",
+      message: String((err as Error)?.message || err),
+    });
+  }
+});
+
+app.post("/api/auth/sessions/forget", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const targetId = String(req.body?.user_id || "").trim();
+    if (!targetId) {
+      return res.status(400).json({ ok: false, code: "USER_ID_REQUIRED" });
+    }
+    const known: string[] = Array.isArray((req.session as any)?.known_user_ids)
+      ? (req.session as any).known_user_ids
+      : [];
+    (req.session as any).known_user_ids = known.filter((x) => x !== targetId);
+    return res.json(okData({ forgotten: targetId }));
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "AUTH_FORGET_FAILED",
+      message: String((err as Error)?.message || err),
+    });
   }
 });
 

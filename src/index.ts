@@ -20603,6 +20603,187 @@ async function bulkGeneratePersons(
   return summary;
 }
 
+/* CSSOS_PERSON_MV_WAVE93 20260508 — Jing
+ * Nightly LLM auto-expand toward 1000 persons. Fills tier diversity
+ * gaps by computing under-represented (civilization, era) pairs and
+ * asking the LLM for historically significant figures NOT already in
+ * DB, then routes each suggestion through llmGeneratePersonProfile +
+ * fetchPageviews and INSERTs with auto_generated=true. Idempotent
+ * (person_id collisions skipped). Hard cap at 1000 total persons. */
+type ExpandTier = "A" | "B" | "C";
+type ExpandSummary = {
+  tier: ExpandTier;
+  attempted: number;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+  gaps: Array<{ civilization: string; era: string; persons: number }>;
+};
+
+async function getPersonCount(): Promise<number> {
+  try {
+    const r = await withClient((c) =>
+      c.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM person_profiles`),
+    );
+    return Number(r.rows[0]?.n || 0);
+  } catch {
+    return 0;
+  }
+}
+
+async function expandTierWithLlm(opts: {
+  tier: ExpandTier;
+  count: number;
+}): Promise<ExpandSummary> {
+  const tier: ExpandTier = opts.tier;
+  const cap = Math.max(1, Math.min(100, Number(opts.count) || 0));
+  const summary: ExpandSummary = {
+    tier, attempted: 0, succeeded: 0, failed: 0, skipped: 0, gaps: [],
+  };
+  // Diversity gaps: under-represented (civ, era) pairs across S/A/B.
+  const GAP_THRESHOLD = tier === "B" ? 5 : tier === "A" ? 8 : 3;
+  const gapsRes = await withClient((c) =>
+    c.query<{ civilization: string; era: string; persons: string }>(
+      `SELECT civilization, era, COUNT(*)::text AS persons
+         FROM person_profiles
+         WHERE curation_tier IN ('S','A','B')
+           AND civilization IS NOT NULL AND civilization <> ''
+           AND era IS NOT NULL AND era <> ''
+         GROUP BY civilization, era
+         ORDER BY COUNT(*) ASC
+         LIMIT 20`,
+    ),
+  );
+  const gaps = gapsRes.rows
+    .map((r) => ({ civilization: r.civilization, era: r.era, persons: Number(r.persons) }))
+    .filter((g) => g.persons < GAP_THRESHOLD);
+  summary.gaps = gaps;
+  if (!gaps.length) return summary;
+  const perGap = Math.max(1, Math.ceil(cap / gaps.length));
+  let remaining = cap;
+  for (const gap of gaps) {
+    if (remaining <= 0) break;
+    const total = await getPersonCount();
+    if (total >= 1000) break;
+    const ask = Math.min(perGap, remaining);
+    // Existing names sample for this (civ, era) — to anti-dup the LLM.
+    const existingRes = await withClient((c) =>
+      c.query<{ name_zh: string; name_en: string }>(
+        `SELECT name_zh, name_en FROM person_profiles
+          WHERE civilization = $1 AND era = $2
+          ORDER BY influence_score DESC NULLS LAST LIMIT 30`,
+        [gap.civilization, gap.era],
+      ),
+    );
+    const existingSample = existingRes.rows
+      .map((r) => `${r.name_zh}/${r.name_en}`)
+      .join("; ") || "(none)";
+    const sys =
+      "You are a world-history curator. Output STRICT JSON only — an array, no commentary, no markdown fences.";
+    const user =
+      `List ${ask} historically significant figures from ${gap.civilization} civilization in ${gap.era} era, ` +
+      `who are NOT already among: ${existingSample}.\n` +
+      `For each: provide name_zh, name_en, lifespan, hint (one-sentence summary).\n` +
+      `Return strict JSON array of objects with keys: name_zh, name_en, lifespan, hint.`;
+    let suggestions: Array<{
+      name_zh: string; name_en: string; lifespan: string; hint: string;
+    }> = [];
+    try {
+      const r = await callLlm({
+        messages: [
+          { role: "system", content: sys },
+          { role: "user", content: user },
+        ],
+        response_format: { type: "json_object" },
+      });
+      if (!r.ok || !r.content) continue;
+      let parsed: any = null;
+      try { parsed = JSON.parse(r.content); } catch { parsed = null; }
+      // Some providers wrap in {items:[...]} or {results:[...]} — accept both.
+      const arr: any = Array.isArray(parsed)
+        ? parsed
+        : Array.isArray(parsed?.items)
+          ? parsed.items
+          : Array.isArray(parsed?.results)
+            ? parsed.results
+            : Array.isArray(parsed?.figures)
+              ? parsed.figures
+              : null;
+      if (!arr) continue;
+      suggestions = arr
+        .filter((x: any) => x && x.name_zh && x.name_en)
+        .slice(0, ask)
+        .map((x: any) => ({
+          name_zh: String(x.name_zh).slice(0, 80),
+          name_en: String(x.name_en).slice(0, 120),
+          lifespan: String(x.lifespan || "").slice(0, 40),
+          hint: String(x.hint || "").slice(0, 240),
+        }));
+    } catch (err) {
+      console.warn("[bulk-expand] llm gap call failed:", (err as Error)?.message || err);
+      continue;
+    }
+    for (const s of suggestions) {
+      if (remaining <= 0) break;
+      const cur = await getPersonCount();
+      if (cur >= 1000) { remaining = 0; break; }
+      summary.attempted += 1;
+      remaining -= 1;
+      const personId = slugifyPersonId(s.name_en, String(summary.attempted));
+      try {
+        const exists = await withClient((c) =>
+          c.query<{ person_id: string }>(
+            `SELECT person_id FROM person_profiles WHERE person_id = $1 LIMIT 1`,
+            [personId],
+          ),
+        );
+        if (exists.rows.length) { summary.skipped += 1; continue; }
+        const row: BulkCsvRow = {
+          tier: tier === "C" ? "B" : tier,
+          name_zh: s.name_zh, name_en: s.name_en,
+          civilization: gap.civilization, era: gap.era,
+          lifespan: s.lifespan, hint: s.hint,
+        };
+        const profile = await llmGeneratePersonProfile(row);
+        if (!profile) throw new Error("llm_profile_failed");
+        const pv = await fetchPageviews(s.name_zh, s.name_en, "en", 3);
+        const score = influenceFromPageviews(pv.monthly_avg, row.tier);
+        await withClient((c) =>
+          c.query(
+            `INSERT INTO person_profiles (
+                person_id, name_zh, name_en, name_native, name_latin,
+                civilization, era, lifespan,
+                roles, core_theme, visual_symbols, music_style_hint, tone,
+                influence_score, risk_notes, source_status,
+                curation_tier, pageviews_monthly, auto_generated
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'auto',$16,$17,true)
+             ON CONFLICT (person_id) DO NOTHING`,
+            [
+              personId, row.name_zh, row.name_en,
+              profile.name_native, profile.name_latin,
+              row.civilization, row.era, row.lifespan,
+              profile.roles, profile.core_theme, profile.visual_symbols,
+              profile.music_style_hint, profile.tone,
+              score, profile.risk_notes,
+              tier, pv.monthly_avg || null,
+            ],
+          ),
+        );
+        summary.succeeded += 1;
+      } catch (err) {
+        summary.failed += 1;
+        console.warn(
+          `[bulk-expand] insert failed person_id=${personId}:`,
+          (err as Error)?.message || err,
+        );
+      }
+      // 5 LLM calls/sec — keep batches gentle for free providers.
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  }
+  return summary;
+}
+
 app.post("/api/admin/person-mv/persons/bulk-generate",
   express.json({ limit: "1mb" }),
   async (req, res) => {
@@ -20618,8 +20799,23 @@ app.post("/api/admin/person-mv/persons/bulk-generate",
         if (user && roleForEmail(user.email) === "admin") authed = true;
       }
       if (!authed) return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+      const body = (req.body || {}) as {
+        csv?: string;
+        limit?: number;
+        expand_tier?: ExpandTier;
+        count?: number;
+      };
+      // Wave 93: LLM diversity-gap auto-expand mode.
+      if (body.expand_tier && (body.expand_tier === "A" || body.expand_tier === "B" || body.expand_tier === "C")) {
+        const total = await getPersonCount();
+        if (total >= 1000) {
+          return res.json({ ok: true, capped: true, total, attempted: 0, succeeded: 0 });
+        }
+        const count = Math.max(1, Math.min(100, Number(body.count) || 30));
+        const r = await expandTierWithLlm({ tier: body.expand_tier, count });
+        return res.json({ ok: true, ...r, total_before: total });
+      }
       let csvText = "";
-      const body = (req.body || {}) as { csv?: string; limit?: number };
       if (body.csv && typeof body.csv === "string") {
         csvText = body.csv;
       } else {
@@ -32350,6 +32546,53 @@ async function start() {
     );
   } else {
     console.log("[cron-samples] disabled (no DATABASE_URL — dev mode)");
+  }
+
+  /* CSSOS_PERSON_MV_WAVE93 20260508 — Jing
+   * Nightly LLM auto-expand toward 1000 persons. Fires at 04:00 UTC
+   * (one hour after sample-cron at 03:00 UTC so they don't collide).
+   * Each tick adds up to 30 B-tier persons via diversity-gap LLM.
+   * Stops once total persons >= 1000. */
+  if (process.env.DATABASE_URL) {
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    const expandTick = async () => {
+      try {
+        const total = await getPersonCount();
+        if (total >= 1000) {
+          console.log("[bulk-expand] cap reached:", total);
+          return;
+        }
+        const r = await expandTierWithLlm({ tier: "B", count: 30 });
+        console.log(
+          `[bulk-expand] added ${r.succeeded} of ${r.attempted} (skip=${r.skipped} fail=${r.failed} gaps=${r.gaps.length})`,
+        );
+      } catch (err) {
+        console.error(
+          "[bulk-expand] cron error:",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    };
+    const nowExp = new Date();
+    const nextExp = new Date(Date.UTC(
+      nowExp.getUTCFullYear(),
+      nowExp.getUTCMonth(),
+      nowExp.getUTCDate(),
+      4, 0, 0, 0,
+    ));
+    if (nextExp.getTime() <= nowExp.getTime()) {
+      nextExp.setUTCDate(nextExp.getUTCDate() + 1);
+    }
+    const expDelay = nextExp.getTime() - nowExp.getTime();
+    setTimeout(() => {
+      expandTick();
+      setInterval(expandTick, ONE_DAY_MS);
+    }, expDelay);
+    console.log(
+      `[bulk-expand] scheduled first run in ${Math.round(expDelay / 3600000)}h (next 04:00 UTC)`,
+    );
+  } else {
+    console.log("[bulk-expand] disabled (no DATABASE_URL — dev mode)");
   }
 
   /* CSSOS_PERSON_MV_WAVE20 20260508 — Jing

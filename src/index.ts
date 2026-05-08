@@ -24420,6 +24420,29 @@ async function start() {
   } else {
     console.log("[cron-samples] disabled (no DATABASE_URL — dev mode)");
   }
+
+  /* CSSOS_PERSON_MV_WAVE20 20260508 — Jing
+   * Notifications cap-cleanup: keep at most 1000 rows per user. Tick
+   * every 12h, no-op when DB is absent. */
+  if (process.env.DATABASE_URL) {
+    const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
+    const notifCleanupTick = async () => {
+      try {
+        const removed = await pruneOldNotifications(1000);
+        if (removed > 0) {
+          console.log(`[notifications] cleanup pruned ${removed} old row(s)`);
+        }
+      } catch (err) {
+        console.warn(
+          "[notifications] cleanup failed (non-fatal):",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    };
+    setTimeout(notifCleanupTick, 10 * 60 * 1000);
+    setInterval(notifCleanupTick, TWELVE_HOURS_MS);
+  }
+
   app.listen(PORT, () => {
     console.log(`cssOS API running on http://localhost:${PORT}`);
     // Tier-fallback sanity log — surfaces misconfigured order at boot.

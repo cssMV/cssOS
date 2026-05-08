@@ -145,6 +145,14 @@
             </header>
             <div class="cssos-discover-row" data-discover-row="person-mv-groups" id="person-mv-groups-row"></div>
           </section>
+          <!-- CSSOS_PERSON_MV_WAVE21 20260508 — 风格电台 style playlist shelf.
+               Hidden until /api/person-mv/playlists returns chips. -->
+          <section class="cssos-style-shelf" id="person-mv-style-shelf" data-shelf="person-mv-style" hidden>
+            <header class="cssos-style-header">
+              <h2 data-i18n="style.playlist.title">🎨 风格电台</h2>
+            </header>
+            <div class="cssos-style-row" id="person-mv-style-row"></div>
+          </section>
           <!-- CSSOS_PERSON_MV_WAVE15 20260508 — today-in-history shelf.
                Hidden until /api/person-mv/today-in-history returns rows. -->
           <section class="cssos-today-shelf" id="person-mv-today-shelf" data-shelf="person-mv-today" hidden>
@@ -2123,6 +2131,7 @@
     <script src="app.person-mv-discover-shelf.js?v=20260507-wave9"></script>
     <script src="app.person-mv-groups-shelf.js?v=20260508-wave16"></script>
     <script src="app.person-mv-today-shelf.js?v=20260508-wave15"></script>
+    <script src="app.person-mv-style-shelf.js?v=20260508-wave21"></script>
     <script src="app.person-mv-leaderboard.js?v=20260508-wave19"></script>
     <script src="app.user-homepage.js?v=20260508-wave11"></script>
     <script src="app.person-mv-comments-share.js?v=20260508-wave12"></script>
@@ -2183,6 +2192,7 @@
          to renderDeliveryDigestSummaryModule() must run after that fn is
          defined (delivery-digest-ui.js loads earlier in the file). -->
     <script src="app.cssmv-governance.js?v=20260505c-end"></script>
+    <script src="app.notifications-bell.js?v=20260508-wave20-bell"></script>
     <script src="app.boot.js?v=20260504-longpress-kill-legacy"></script>
     <!-- CSSOS_PHASE2_PANEL_3BTN_BULLETPROOF 20260505b — Jing
          Self-diagnosing version. Stamps the document so you can verify

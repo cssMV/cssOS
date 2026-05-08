@@ -12130,6 +12130,12 @@ async function ensurePersonMvTables() {
          || setweight(to_tsvector('simple', COALESCE(NEW.civilization, '')),  'B')
          || setweight(to_tsvector('simple', COALESCE(NEW.core_theme, '')),    'C')
          || setweight(to_tsvector('simple', COALESCE(NEW.lifespan, '')),      'D');
+        NEW.search_text_tokenized := cssos_cjk_tokenize(
+          COALESCE(NEW.name_zh, '') || ' ' ||
+          COALESCE(NEW.name_en, '') || ' ' ||
+          COALESCE(NEW.civilization, '') || ' ' ||
+          COALESCE(NEW.core_theme, '') || ' ' ||
+          COALESCE(NEW.lifespan, ''));
         RETURN NEW;
       END $fn$ LANGUAGE plpgsql;
       DROP TRIGGER IF EXISTS person_profiles_search_trigger ON person_profiles;
@@ -12141,6 +12147,7 @@ async function ensurePersonMvTables() {
       BEGIN
         NEW.search_vector :=
             setweight(to_tsvector('simple', COALESCE(NEW.scenario_seed, '')), 'A');
+        NEW.search_text_tokenized := cssos_cjk_tokenize(COALESCE(NEW.scenario_seed, ''));
         RETURN NEW;
       END $fn$ LANGUAGE plpgsql;
       DROP TRIGGER IF EXISTS person_mvs_search_trigger ON person_mvs;
@@ -12152,6 +12159,7 @@ async function ensurePersonMvTables() {
       BEGIN
         NEW.search_vector :=
             setweight(to_tsvector('simple', COALESCE(NEW.body, '')), 'A');
+        NEW.search_text_tokenized := cssos_cjk_tokenize(COALESCE(NEW.body, ''));
         RETURN NEW;
       END $fn$ LANGUAGE plpgsql;
       DROP TRIGGER IF EXISTS person_mv_comments_search_trigger ON person_mv_comments;
@@ -12172,6 +12180,16 @@ async function ensurePersonMvTables() {
   await withClient((c) =>
     c.query(`UPDATE person_mv_comments SET search_vector = NULL WHERE search_vector IS NULL;`),
   );
+  // CSSOS_PERSON_MV_WAVE70 — backfill tokenized column for pre-existing rows.
+  await withClient((c) =>
+    c.query(`UPDATE person_profiles    SET search_vector = search_vector WHERE search_text_tokenized IS NULL;`),
+  ).catch((err) => console.warn("[wave70] tokenized backfill (profiles) failed:", (err as Error)?.message || err));
+  await withClient((c) =>
+    c.query(`UPDATE person_mvs         SET search_vector = search_vector WHERE search_text_tokenized IS NULL;`),
+  ).catch((err) => console.warn("[wave70] tokenized backfill (mvs) failed:", (err as Error)?.message || err));
+  await withClient((c) =>
+    c.query(`UPDATE person_mv_comments SET search_vector = search_vector WHERE search_text_tokenized IS NULL;`),
+  ).catch((err) => console.warn("[wave70] tokenized backfill (comments) failed:", (err as Error)?.message || err));
 }
 
 /* CSSOS_PERSON_MV_WAVE20 20260508 — Jing
@@ -12770,18 +12788,8 @@ app.get("/api/dm/threads/:thread_id/messages", async (req, res) => {
     await ensurePersonMvTables();
     const tid = String(req.params.thread_id || "").trim();
     if (!/^[0-9a-fA-F-]{36}$/.test(tid)) return res.status(400).json({ ok: false, code: "INVALID_THREAD" });
-    const t = await withClient((c) =>
-      c.query<{ user_a_id: string; user_b_id: string }>(
-        `SELECT user_a_id::text AS user_a_id, user_b_id::text AS user_b_id
-           FROM dm_threads WHERE thread_id = $1::uuid`,
-        [tid],
-      ),
-    );
-    const row = t.rows[0];
-    if (!row) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
-    if (row.user_a_id !== user.id && row.user_b_id !== user.id) {
-      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
-    }
+    const acc = await dmThreadAccess(user.id, tid);
+    if (!acc) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
     const before = String(req.query.before || "").trim();
     const limit = Math.max(1, Math.min(100, Number(req.query.limit || 50) || 50));
     const params: Array<string | number> = [tid];
@@ -12832,21 +12840,20 @@ app.post("/api/dm/threads/:thread_id/messages", express.json({ limit: "16kb" }),
     if (!dmRateAllow(user.id)) {
       return res.status(429).json({ ok: false, code: "RATE_LIMITED" });
     }
-    const t = await withClient((c) =>
-      c.query<{ user_a_id: string; user_b_id: string }>(
-        `SELECT user_a_id::text AS user_a_id, user_b_id::text AS user_b_id
-           FROM dm_threads WHERE thread_id = $1::uuid`,
-        [tid],
-      ),
-    );
-    const row = t.rows[0];
-    if (!row) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
-    if (row.user_a_id !== user.id && row.user_b_id !== user.id) {
-      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
-    }
-    const otherId = row.user_a_id === user.id ? row.user_b_id : row.user_a_id;
-    if (await dmIsBlocked(user.id, otherId)) {
-      return res.status(403).json({ ok: false, code: "BLOCKED" });
+    const acc = await dmThreadAccess(user.id, tid);
+    if (!acc) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    // Pair: per-recipient block check. Group: skip block check (membership already gates access).
+    let recipients: string[] = [];
+    if (acc.kind === "pair") {
+      const otherId = acc.user_a_id === user.id ? acc.user_b_id! : acc.user_a_id!;
+      if (await dmIsBlocked(user.id, otherId)) {
+        return res.status(403).json({ ok: false, code: "BLOCKED" });
+      }
+      recipients = [otherId];
+    } else {
+      // CSSOS_PERSON_MV_WAVE67 — group fan-out: notify all members except sender.
+      const all = await dmGroupMemberIds(tid);
+      recipients = all.filter((u) => u !== user.id);
     }
     const ins = await withClient((c) =>
       c.query<{ message_id: string; created_at: string }>(
@@ -12856,18 +12863,31 @@ app.post("/api/dm/threads/:thread_id/messages", express.json({ limit: "16kb" }),
         [tid, user.id, body],
       ),
     );
-    const sideCol = row.user_a_id === user.id ? "a_last_read_at" : "b_last_read_at";
-    await withClient((c) =>
-      c.query(
-        `UPDATE dm_threads
-            SET last_message_at = now(), ${sideCol} = now()
-          WHERE thread_id = $1::uuid`,
-        [tid],
-      ),
-    );
+    if (acc.kind === "pair") {
+      const sideCol = acc.side === "a" ? "a_last_read_at" : "b_last_read_at";
+      await withClient((c) =>
+        c.query(
+          `UPDATE dm_threads
+              SET last_message_at = now(), ${sideCol} = now()
+            WHERE thread_id = $1::uuid`,
+          [tid],
+        ),
+      );
+    } else {
+      await withClient((c) =>
+        c.query(`UPDATE dm_threads SET last_message_at = now() WHERE thread_id = $1::uuid`, [tid]),
+      );
+      await withClient((c) =>
+        c.query(
+          `UPDATE dm_group_members SET last_read_at = now()
+            WHERE thread_id = $1::uuid AND user_id = $2::uuid`,
+          [tid, user.id],
+        ),
+      );
+    }
     const msg = ins.rows[0];
     if (!msg) return res.status(500).json({ ok: false, code: "DM_SEND_FAILED" });
-    // WebSocket fan-out — both parties may be subscribed to /ws/dm/:thread_id.
+    // WebSocket fan-out — subscribers on /ws/dm/:thread_id (pair: both; group: all members).
     try {
       (globalThis as any).__cssosWsPublish?.("dm", tid, {
         kind: "dm_message",
@@ -12878,14 +12898,16 @@ app.post("/api/dm/threads/:thread_id/messages", express.json({ limit: "16kb" }),
         created_at: msg.created_at,
       });
     } catch { /* ignore */ }
-    // Notification + webhook fan-out to recipient.
-    void enqueueNotification(otherId, "dm_received", {
-      actor_id: user.id,
-      actor_name: user.display_name || null,
-      thread_id: tid,
-      body: body.slice(0, 120),
-      title: "New message",
-    }).catch(() => {});
+    // Notification + webhook fan-out to all recipients.
+    for (const rid of recipients) {
+      void enqueueNotification(rid, "dm_received", {
+        actor_id: user.id,
+        actor_name: user.display_name || null,
+        thread_id: tid,
+        body: body.slice(0, 120),
+        title: acc.kind === "group" ? (acc.title || "New group message") : "New message",
+      }).catch(() => {});
+    }
     return res.json({
       ok: true,
       message: {
@@ -12908,25 +12930,25 @@ app.post("/api/dm/threads/:thread_id/read", async (req, res) => {
     await ensurePersonMvTables();
     const tid = String(req.params.thread_id || "").trim();
     if (!/^[0-9a-fA-F-]{36}$/.test(tid)) return res.status(400).json({ ok: false, code: "INVALID_THREAD" });
-    const t = await withClient((c) =>
-      c.query<{ user_a_id: string; user_b_id: string }>(
-        `SELECT user_a_id::text AS user_a_id, user_b_id::text AS user_b_id
-           FROM dm_threads WHERE thread_id = $1::uuid`,
-        [tid],
-      ),
-    );
-    const row = t.rows[0];
-    if (!row) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
-    if (row.user_a_id !== user.id && row.user_b_id !== user.id) {
-      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    const acc = await dmThreadAccess(user.id, tid);
+    if (!acc) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    if (acc.kind === "pair") {
+      const sideCol = acc.side === "a" ? "a_last_read_at" : "b_last_read_at";
+      await withClient((c) =>
+        c.query(
+          `UPDATE dm_threads SET ${sideCol} = now() WHERE thread_id = $1::uuid`,
+          [tid],
+        ),
+      );
+    } else {
+      await withClient((c) =>
+        c.query(
+          `UPDATE dm_group_members SET last_read_at = now()
+            WHERE thread_id = $1::uuid AND user_id = $2::uuid`,
+          [tid, user.id],
+        ),
+      );
     }
-    const sideCol = row.user_a_id === user.id ? "a_last_read_at" : "b_last_read_at";
-    await withClient((c) =>
-      c.query(
-        `UPDATE dm_threads SET ${sideCol} = now() WHERE thread_id = $1::uuid`,
-        [tid],
-      ),
-    );
     return res.json({ ok: true });
   } catch (err) {
     return res.status(500).json({ ok: false, code: "DM_READ_FAILED", message: String(err) });
@@ -12970,9 +12992,10 @@ app.get("/api/dm/unread-count", async (req, res) => {
     const user = await getSessionUser(req).catch(() => null);
     if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
     await ensurePersonMvTables();
+    // CSSOS_PERSON_MV_WAVE67 — pair + group unread aggregation.
     const r = await withClient((c) =>
       c.query<{ unread_count: number }>(
-        `SELECT COALESCE(SUM(cnt), 0)::int AS unread_count FROM (
+        `WITH pair_unread AS (
            SELECT (
              SELECT COUNT(*)::int FROM dm_messages m
               WHERE m.thread_id = t.thread_id
@@ -12984,8 +13007,21 @@ app.get("/api/dm/unread-count", async (req, res) => {
                 )
            ) AS cnt
              FROM dm_threads t
-            WHERE t.user_a_id = $1::uuid OR t.user_b_id = $1::uuid
-         ) s`,
+            WHERE t.kind = 'pair'
+              AND (t.user_a_id = $1::uuid OR t.user_b_id = $1::uuid)
+         ),
+         group_unread AS (
+           SELECT (
+             SELECT COUNT(*)::int FROM dm_messages m
+              WHERE m.thread_id = gm.thread_id
+                AND m.sender_id <> $1::uuid
+                AND (gm.last_read_at IS NULL OR m.created_at > gm.last_read_at)
+           ) AS cnt
+             FROM dm_group_members gm
+            WHERE gm.user_id = $1::uuid
+         )
+         SELECT COALESCE((SELECT SUM(cnt) FROM pair_unread), 0)::int
+              + COALESCE((SELECT SUM(cnt) FROM group_unread), 0)::int AS unread_count`,
         [user.id],
       ),
     );
@@ -12994,6 +13030,213 @@ app.get("/api/dm/unread-count", async (req, res) => {
     return res.status(500).json({ ok: false, code: "DM_UNREAD_FAILED", message: String(err) });
   }
 });
+
+/* CSSOS_PERSON_MV_WAVE67 20260508 — Jing — DM groups (Slack-thread style).
+ * Endpoints to create groups, invite/leave/transfer ownership. Owner is
+ * always also a member. Groups identified by dm_threads.kind = 'group'. */
+app.post("/api/dm/groups", express.json({ limit: "8kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const title = String((req.body && req.body.title) || "").trim().slice(0, 120);
+    const handles: string[] = Array.isArray(req.body?.member_handles) ? req.body.member_handles : [];
+    if (!title) return res.status(400).json({ ok: false, code: "INVALID_TITLE" });
+    // Resolve handles to user ids (skip self, dedupe).
+    const memberIds = new Set<string>([user.id]);
+    for (const h of handles.slice(0, 50)) {
+      const u = await resolveUserByUsernameOrId(String(h || "").trim());
+      if (u && u.id && u.id !== user.id) memberIds.add(u.id);
+    }
+    if (memberIds.size < 2) {
+      return res.status(400).json({ ok: false, code: "NEED_MEMBERS" });
+    }
+    // Create the thread.
+    const ins = await withClient((c) =>
+      c.query<{ thread_id: string }>(
+        `INSERT INTO dm_threads (kind, title, owner_id)
+           VALUES ('group', $1, $2::uuid)
+         RETURNING thread_id::text AS thread_id`,
+        [title, user.id],
+      ),
+    );
+    const tid = ins.rows[0]?.thread_id;
+    if (!tid) return res.status(500).json({ ok: false, code: "GROUP_CREATE_FAILED" });
+    // Insert members.
+    for (const uid of memberIds) {
+      const role = uid === user.id ? "owner" : "member";
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO dm_group_members (thread_id, user_id, role)
+             VALUES ($1::uuid, $2::uuid, $3)
+           ON CONFLICT (thread_id, user_id) DO NOTHING`,
+          [tid, uid, role],
+        ),
+      );
+    }
+    return res.json({ ok: true, thread_id: tid, kind: "group", title, member_count: memberIds.size });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "GROUP_CREATE_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/dm/groups/:thread_id/invite", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const tid = String(req.params.thread_id || "").trim();
+    if (!/^[0-9a-fA-F-]{36}$/.test(tid)) return res.status(400).json({ ok: false, code: "INVALID_THREAD" });
+    const acc = await dmThreadAccess(user.id, tid);
+    if (!acc || acc.kind !== "group") return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    if (acc.role !== "owner" && acc.role !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const handle = String((req.body && (req.body.handle || req.body.username)) || "").trim();
+    const target = await resolveUserByUsernameOrId(handle);
+    if (!target) return res.status(404).json({ ok: false, code: "USER_NOT_FOUND" });
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO dm_group_members (thread_id, user_id, role)
+           VALUES ($1::uuid, $2::uuid, 'member')
+         ON CONFLICT (thread_id, user_id) DO NOTHING`,
+        [tid, target.id],
+      ),
+    );
+    return res.json({
+      ok: true,
+      member: {
+        id: target.id,
+        username: target.username,
+        display_name: target.display_name || target.username,
+        avatar_url: target.avatar_url,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "GROUP_INVITE_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/dm/groups/:thread_id/leave", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const tid = String(req.params.thread_id || "").trim();
+    if (!/^[0-9a-fA-F-]{36}$/.test(tid)) return res.status(400).json({ ok: false, code: "INVALID_THREAD" });
+    const acc = await dmThreadAccess(user.id, tid);
+    if (!acc || acc.kind !== "group") return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    if (acc.role === "owner") {
+      return res.status(400).json({ ok: false, code: "OWNER_MUST_TRANSFER" });
+    }
+    await withClient((c) =>
+      c.query(
+        `DELETE FROM dm_group_members WHERE thread_id = $1::uuid AND user_id = $2::uuid`,
+        [tid, user.id],
+      ),
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "GROUP_LEAVE_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/dm/groups/:thread_id/transfer", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const tid = String(req.params.thread_id || "").trim();
+    if (!/^[0-9a-fA-F-]{36}$/.test(tid)) return res.status(400).json({ ok: false, code: "INVALID_THREAD" });
+    const acc = await dmThreadAccess(user.id, tid);
+    if (!acc || acc.kind !== "group") return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    if (acc.role !== "owner") return res.status(403).json({ ok: false, code: "OWNER_REQUIRED" });
+    const handle = String((req.body && (req.body.handle || req.body.username)) || "").trim();
+    const target = await resolveUserByUsernameOrId(handle);
+    if (!target) return res.status(404).json({ ok: false, code: "USER_NOT_FOUND" });
+    if (target.id === user.id) return res.status(400).json({ ok: false, code: "SAME_USER" });
+    // Target must already be a member.
+    const m = await withClient((c) =>
+      c.query<{ user_id: string }>(
+        `SELECT user_id::text AS user_id FROM dm_group_members
+          WHERE thread_id = $1::uuid AND user_id = $2::uuid`,
+        [tid, target.id],
+      ),
+    );
+    if (!m.rows[0]) return res.status(400).json({ ok: false, code: "NOT_A_MEMBER" });
+    await withClient((c) =>
+      c.query(
+        `UPDATE dm_group_members SET role = 'member'
+          WHERE thread_id = $1::uuid AND user_id = $2::uuid`,
+        [tid, user.id],
+      ),
+    );
+    await withClient((c) =>
+      c.query(
+        `UPDATE dm_group_members SET role = 'owner'
+          WHERE thread_id = $1::uuid AND user_id = $2::uuid`,
+        [tid, target.id],
+      ),
+    );
+    await withClient((c) =>
+      c.query(
+        `UPDATE dm_threads SET owner_id = $2::uuid WHERE thread_id = $1::uuid`,
+        [tid, target.id],
+      ),
+    );
+    return res.json({ ok: true, owner_id: target.id });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "GROUP_TRANSFER_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/dm/groups/:thread_id/members", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const tid = String(req.params.thread_id || "").trim();
+    if (!/^[0-9a-fA-F-]{36}$/.test(tid)) return res.status(400).json({ ok: false, code: "INVALID_THREAD" });
+    const acc = await dmThreadAccess(user.id, tid);
+    if (!acc || acc.kind !== "group") return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const r = await withClient((c) =>
+      c.query<{
+        user_id: string; role: string; username: string | null;
+        display_name: string | null; avatar_url: string | null;
+      }>(
+        `SELECT gm.user_id::text AS user_id, gm.role,
+                u.username, u.display_name, u.avatar_url
+           FROM dm_group_members gm
+           LEFT JOIN users u ON u.id = gm.user_id
+          WHERE gm.thread_id = $1::uuid
+          ORDER BY (gm.role = 'owner') DESC, (gm.role = 'admin') DESC, gm.joined_at ASC`,
+        [tid],
+      ),
+    );
+    return res.json({
+      ok: true,
+      kind: "group",
+      title: acc.title,
+      owner_id: acc.owner_id,
+      my_role: acc.role,
+      members: r.rows.map((m) => ({
+        id: m.user_id,
+        role: m.role,
+        username: m.username,
+        display_name: m.display_name || m.username,
+        avatar_url: m.avatar_url,
+      })),
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "GROUP_MEMBERS_FAILED", message: String(err) });
+  }
+});
+
 
 /* CSSOS_PERSON_MV_WAVE20 20260508 — Jing
  * Cap stored notifications per user at 1000. Run periodically to keep
@@ -18296,6 +18539,144 @@ app.post("/api/person-mv/ai-assistant", express.json({ limit: "8kb" }), async (r
   } catch (err) {
     console.warn("[person-mv] ai-assistant failed:", (err as Error)?.message || err);
     try { return res.status(500).json({ ok: false, code: "AI_ASSISTANT_FAILED" }); } catch { return; }
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE69 20260508 — Jing — Content plaza (TikTok-style feed).
+ * Vertical infinite-scroll feed of public MVs ranked by composite score:
+ *   score = 0.5*log10(view_count+1) + 0.3*log10(like_count+1)
+ *         + 0.2 * 1/(1 + days_since_created)
+ * Cursor-based pagination (score, mv_id). Optional ?style=<tag> filter
+ * (Wave 21 style_tags). Filters out MVs created by users the caller has
+ * blocked (Wave 40 user_blocks). 60s in-memory cache by cursor key. */
+type PlazaCacheEntry = { at: number; body: unknown };
+const __plazaCache: Map<string, PlazaCacheEntry> = new Map();
+const PLAZA_CACHE_TTL_MS = 60_000;
+app.get("/api/person-mv/plaza", async (req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const cursorRaw = String(req.query.cursor || "").trim();
+    const limit = Math.max(1, Math.min(20, Number(req.query.limit || 10) || 10));
+    const styleRaw = String(req.query.style || "").trim().toLowerCase();
+    const style = /^[a-z0-9_-]{1,32}$/.test(styleRaw) ? styleRaw : "";
+    let blockedFor = "";
+    try {
+      const me = await getSessionUser(req).catch(() => null);
+      if (me?.id) blockedFor = String(me.id);
+    } catch { /* anonymous ok */ }
+    const cacheKey = `${cursorRaw}|${limit}|${style}|${blockedFor}`;
+    const hit = __plazaCache.get(cacheKey);
+    if (hit && Date.now() - hit.at < PLAZA_CACHE_TTL_MS) {
+      return res.json({ ok: true, ...(hit.body as object), cached: true });
+    }
+    let cursorScore: number | null = null;
+    let cursorMvId: string | null = null;
+    if (cursorRaw) {
+      const m = cursorRaw.match(/^([0-9.eE+-]+)_([0-9a-fA-F-]{8,})$/);
+      if (m) {
+        cursorScore = Number(m[1]);
+        cursorMvId = m[2] || null;
+      }
+    }
+    const params: unknown[] = [];
+    let where = `pm.visibility = 'public' AND pm.approval_status = 'auto_published'`;
+    if (style) {
+      params.push(style);
+      where += ` AND $${params.length} = ANY(pm.style_tags)`;
+    }
+    if (blockedFor) {
+      params.push(blockedFor);
+      where += ` AND NOT EXISTS (SELECT 1 FROM user_blocks ub
+                 WHERE ub.blocker_id = $${params.length}::uuid
+                   AND ub.blocked_id = pm.created_by_user_id)`;
+    }
+    const scoreExpr = `(
+        0.5 * ln(GREATEST(pm.view_count, 0) + 1) / ln(10)
+      + 0.3 * ln(GREATEST(pm.like_count, 0) + 1) / ln(10)
+      + 0.2 * (1.0 / (1.0 + GREATEST(EXTRACT(EPOCH FROM (now() - pm.created_at)) / 86400.0, 0)))
+    )`;
+    let cursorClause = "";
+    if (cursorScore != null && cursorMvId) {
+      params.push(cursorScore);
+      const sIdx = params.length;
+      params.push(cursorMvId);
+      const idIdx = params.length;
+      cursorClause = ` AND (${scoreExpr} < $${sIdx}::float
+        OR (${scoreExpr} = $${sIdx}::float AND pm.mv_id::text < $${idIdx}))`;
+    }
+    params.push(limit);
+    const limIdx = params.length;
+    const sql = `
+      SELECT pm.mv_id::text AS mv_id,
+             pm.person_id,
+             pm.work_id,
+             pm.style_tags,
+             pm.view_count,
+             pm.like_count,
+             pm.created_at,
+             pm.created_by_user_id::text AS creator_user_id,
+             pp.name_zh,
+             pp.name_en,
+             pp.civilization,
+             pp.portrait_url,
+             u.handle           AS creator_handle,
+             u.display_name     AS creator_display_name,
+             w.title            AS work_title,
+             w.cover_image,
+             w.preview_image_url,
+             w.preview_video_url,
+             (SELECT wa.url FROM work_assets wa
+               WHERE wa.work_id = pm.work_id AND wa.asset_type = 'final_mv'
+               LIMIT 1) AS final_mv_url,
+             ${scoreExpr} AS plaza_score
+        FROM person_mvs pm
+        JOIN person_profiles pp ON pp.person_id = pm.person_id
+        LEFT JOIN user_works  w ON w.id = pm.work_id
+        LEFT JOIN users       u ON u.id = pm.created_by_user_id
+       WHERE ${where}${cursorClause}
+       ORDER BY ${scoreExpr} DESC, pm.mv_id::text DESC
+       LIMIT $${limIdx}::int`;
+    const r = await withClient((c) => c.query<any>(sql, params));
+    const items = r.rows.map((row) => ({
+      mv_id: row.mv_id,
+      person_id: row.person_id,
+      work_id: row.work_id,
+      style_tags: row.style_tags || [],
+      view_count: Number(row.view_count) || 0,
+      like_count: Number(row.like_count) || 0,
+      created_at: row.created_at,
+      score: Number(row.plaza_score) || 0,
+      cover_image: row.cover_image || row.preview_image_url || row.portrait_url || null,
+      final_mv_url: row.final_mv_url || row.preview_video_url || null,
+      title: row.work_title || null,
+      person: {
+        person_id: row.person_id,
+        name_zh: row.name_zh,
+        name_en: row.name_en,
+        civilization: row.civilization,
+        portrait_url: row.portrait_url,
+      },
+      creator: row.creator_user_id ? {
+        user_id: row.creator_user_id,
+        handle: row.creator_handle || null,
+        display_name: row.creator_display_name || null,
+      } : null,
+    }));
+    const last = items.length ? items[items.length - 1] : null;
+    const nextCursor = last && items.length === limit
+      ? `${last.score.toFixed(8)}_${last.mv_id}`
+      : null;
+    const body = { items, next_cursor: nextCursor };
+    __plazaCache.set(cacheKey, { at: Date.now(), body });
+    if (__plazaCache.size > 200) {
+      const oldest = __plazaCache.keys().next().value;
+      if (oldest) __plazaCache.delete(oldest);
+    }
+    return res.json({ ok: true, ...body });
+  } catch (err) {
+    console.warn("[person-mv] plaza failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "PLAZA_FAILED" });
   }
 });
 
@@ -28475,6 +28856,31 @@ function __searchCachePut(key: string, body: { results: SearchHit[] }) {
   }
   __searchCache.set(key, { at: Date.now(), body });
 }
+// CSSOS_PERSON_MV_WAVE70 20260508 — Jing — Chinese segmentation.
+// JS-side mirror of the plpgsql cssos_cjk_tokenize() helper. CJK queries
+// hit the search_text_tokenized column populated by the Wave 70 triggers.
+const CSSOS_CJK_RE = /[㐀-䶿一-鿿]/;
+function chineseTokenizeJs(text: string): string {
+  if (!text) return "";
+  const out: string[] = [];
+  let asciiBuf = "";
+  const flushAscii = () => { if (asciiBuf) { out.push(asciiBuf); asciiBuf = ""; } };
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charAt(i);
+    if (CSSOS_CJK_RE.test(ch)) {
+      flushAscii();
+      const nxt = text.charAt(i + 1);
+      if (nxt && CSSOS_CJK_RE.test(nxt)) out.push(ch + nxt);
+      out.push(ch);
+    } else if (/[A-Za-z0-9]/.test(ch)) {
+      asciiBuf += ch;
+    } else {
+      flushAscii();
+    }
+  }
+  flushAscii();
+  return out.join(" ");
+}
 app.get("/api/person-mv/search", async (req, res) => {
   noStore(res);
   try {
@@ -28491,7 +28897,28 @@ app.get("/api/person-mv/search", async (req, res) => {
     const wantMv      = type === "all" || type === "mv";
     const wantComment = type === "all" || type === "comment";
     const results: SearchHit[] = [];
+    const isCjk = CSSOS_CJK_RE.test(q);
+    const queryArg = isCjk ? chineseTokenizeJs(q) : q;
     const tsq = `websearch_to_tsquery('simple', $1)`;
+    // CJK uses tokenized column; English keeps the legacy search_vector path.
+    const ppMatch = isCjk
+      ? `to_tsvector('simple', COALESCE(pp.search_text_tokenized, '')) @@ ${tsq}`
+      : `pp.search_vector @@ ${tsq}`;
+    const ppRank = isCjk
+      ? `ts_rank(to_tsvector('simple', COALESCE(pp.search_text_tokenized, '')), ${tsq})::float`
+      : `ts_rank(pp.search_vector, ${tsq})::float`;
+    const pmMatch = isCjk
+      ? `to_tsvector('simple', COALESCE(pm.search_text_tokenized, '')) @@ ${tsq}`
+      : `pm.search_vector @@ ${tsq}`;
+    const pmRank = isCjk
+      ? `ts_rank(to_tsvector('simple', COALESCE(pm.search_text_tokenized, '')), ${tsq})::float`
+      : `ts_rank(pm.search_vector, ${tsq})::float`;
+    const cmMatch = isCjk
+      ? `to_tsvector('simple', COALESCE(cm.search_text_tokenized, '')) @@ ${tsq}`
+      : `cm.search_vector @@ ${tsq}`;
+    const cmRank = isCjk
+      ? `ts_rank(to_tsvector('simple', COALESCE(cm.search_text_tokenized, '')), ${tsq})::float`
+      : `ts_rank(cm.search_vector, ${tsq})::float`;
 
     if (wantPerson) {
       const r = await withClient((c) =>
@@ -28499,12 +28926,12 @@ app.get("/api/person-mv/search", async (req, res) => {
                   civilization: string | null; core_theme: string | null;
                   score: number; snippet: string }>(
           `SELECT pp.person_id, pp.name_zh, pp.name_en, pp.civilization, pp.core_theme,
-                  ts_rank(pp.search_vector, ${tsq})::float AS score,
+                  ${ppRank} AS score,
                   COALESCE(pp.core_theme, pp.civilization, '')::text AS snippet
              FROM person_profiles pp
-            WHERE pp.search_vector @@ ${tsq}
+            WHERE ${ppMatch}
             ORDER BY score DESC LIMIT $2`,
-          [q, limit],
+          [queryArg, limit],
         ),
       );
       for (const row of r.rows) {
@@ -28524,15 +28951,15 @@ app.get("/api/person-mv/search", async (req, res) => {
                   title: string | null; score: number; mv_url: string | null }>(
           `SELECT pm.mv_id::text AS mv_id, pm.person_id, pm.scenario_seed,
                   w.title,
-                  ts_rank(pm.search_vector, ${tsq})::float AS score,
+                  ${pmRank} AS score,
                   (SELECT url FROM work_assets wa
                     WHERE wa.work_id = pm.work_id AND wa.asset_type = 'final_mv'
                     LIMIT 1) AS mv_url
              FROM person_mvs pm
              LEFT JOIN user_works w ON w.id = pm.work_id
-            WHERE pm.search_vector @@ ${tsq}
+            WHERE ${pmMatch}
             ORDER BY score DESC LIMIT $2`,
-          [q, limit],
+          [queryArg, limit],
         ),
       );
       for (const row of r.rows) {
@@ -28552,14 +28979,14 @@ app.get("/api/person-mv/search", async (req, res) => {
         c.query<{ id: string; mv_id: string; body: string; score: number;
                   person_id: string | null }>(
           `SELECT cm.id::text AS id, cm.mv_id::text AS mv_id, cm.body,
-                  ts_rank(cm.search_vector, ${tsq})::float AS score,
+                  ${cmRank} AS score,
                   pm.person_id
              FROM person_mv_comments cm
              LEFT JOIN person_mvs pm ON pm.mv_id = cm.mv_id
-            WHERE cm.search_vector @@ ${tsq}
+            WHERE ${cmMatch}
               AND cm.deleted_at IS NULL
             ORDER BY score DESC LIMIT $2`,
-          [q, limit],
+          [queryArg, limit],
         ),
       );
       for (const row of r.rows) {
@@ -31558,7 +31985,12 @@ app.post("/api/contests/:id/submit", express.json({ limit: "2kb" }), async (req,
         [id, user.id, workId],
       ),
     );
-    return res.json({ ok: true, entry_id: ins.rows[0]?.entry_id || null, duplicate: !ins.rowCount });
+    const newEntryId = ins.rows[0]?.entry_id || null;
+    // CSSOS_PERSON_MV_WAVE68 — fire-and-forget LLM scoring.
+    if (newEntryId) {
+      void scoreContestEntryLlm(newEntryId).catch(() => {});
+    }
+    return res.json({ ok: true, entry_id: newEntryId, duplicate: !ins.rowCount });
   } catch (err) {
     return res.status(500).json({ ok: false, code: "SUBMIT_FAILED", message: String(err) });
   }
@@ -31626,17 +32058,30 @@ app.post("/api/admin/contests/:id/finalize", express.json({ limit: "1kb" }), asy
     const contest = cR.rows[0];
     if (!contest) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
     if (contest.status === "done") return res.status(400).json({ ok: false, code: "ALREADY_FINALIZED" });
-    const winR = await withClient((c) =>
+    // CSSOS_PERSON_MV_WAVE68 — combined ranking: 0.6 vote_share + 0.4 llm_overall/10.
+    const allR = await withClient((c) =>
       c.query<any>(
-        `SELECT entry_id::text, user_id::text, work_id::text, vote_count
-           FROM contest_entries
-          WHERE contest_id = $1
-          ORDER BY vote_count DESC, submitted_at ASC
-          LIMIT 1`,
+        `SELECT e.entry_id::text, e.user_id::text, e.work_id::text, e.vote_count, e.submitted_at,
+                s.overall AS llm_overall
+           FROM contest_entries e
+           LEFT JOIN contest_llm_scores s ON s.entry_id = e.entry_id
+          WHERE e.contest_id = $1`,
         [id],
       ),
     );
-    const winner = winR.rows[0];
+    const totalVotes = allR.rows.reduce((acc: number, x: any) => acc + Number(x.vote_count || 0), 0);
+    const denom = Math.max(1, totalVotes);
+    const ranked = allR.rows.map((x: any) => ({
+      entry_id: x.entry_id, user_id: x.user_id, work_id: x.work_id,
+      vote_count: Number(x.vote_count || 0),
+      submitted_at: x.submitted_at,
+      final_score: 0.6 * (Number(x.vote_count || 0) / denom)
+                 + 0.4 * (x.llm_overall == null ? 0 : Number(x.llm_overall) / 10),
+    })).sort((a: any, b: any) => {
+      if (b.final_score !== a.final_score) return b.final_score - a.final_score;
+      return new Date(a.submitted_at).getTime() - new Date(b.submitted_at).getTime();
+    });
+    const winner = ranked[0];
     if (!winner) return res.status(400).json({ ok: false, code: "NO_ENTRIES" });
     const prize = Number(contest.prize_credits || 0);
     if (prize > 0) {
@@ -31657,6 +32102,187 @@ app.post("/api/admin/contests/:id/finalize", express.json({ limit: "1kb" }), asy
     return res.status(500).json({ ok: false, code: "FINALIZE_FAILED", message: String(err) });
   }
 });
+
+/* CSSOS_PERSON_MV_WAVE68 20260508 — Jing — Contest LLM judge.
+ * Fire-and-forget LLM scoring (creativity / craft / relevance / overall)
+ * supplements human votes. Combined ranking weights:
+ *   final_score = 0.6 * vote_share + 0.4 * llm_overall_normalized
+ * where vote_share = entry.vote_count / max(1, sum of all votes), and
+ * llm_overall_normalized = overall / 10. */
+async function scoreContestEntryLlm(entryId: string): Promise<void> {
+  if (!DATABASE_URL) return;
+  try {
+    // Pull entry context: contest title/theme + linked MV metadata.
+    const ctxR = await withClient((c) =>
+      c.query<{
+        contest_id: string; title_en: string | null; title_zh: string | null;
+        description_en: string | null; description_zh: string | null;
+        theme: string | null; work_id: string;
+        scenario_seed: string | null;
+      }>(
+        `SELECT e.contest_id, c.title_en, c.title_zh, c.description_en, c.description_zh,
+                c.theme, e.work_id::text AS work_id,
+                (SELECT scenario_seed FROM person_mvs pm WHERE pm.work_id = e.work_id LIMIT 1) AS scenario_seed
+           FROM contest_entries e
+           JOIN contests c ON c.contest_id = e.contest_id
+          WHERE e.entry_id = $1::uuid`,
+        [entryId],
+      ),
+    );
+    const ctx = ctxR.rows[0];
+    if (!ctx) return;
+    const title = ctx.title_en || ctx.title_zh || ctx.contest_id;
+    const theme = ctx.theme || ctx.description_en || ctx.description_zh || "";
+    const scenario = (ctx.scenario_seed || "").slice(0, 1500);
+    const prompt = `Judge this MV entry for contest "${title}" (theme: ${theme}).
+
+Entry scenario:
+${scenario || "(no scenario provided)"}
+
+Score each dimension 0-10:
+- creativity (originality of concept)
+- craft (production quality, coherence)
+- relevance (matches contest theme)
+Return ONLY JSON: {"creativity": N, "craft": N, "relevance": N, "overall": avg, "reasoning": "<short>"}
+`;
+    const llm = await callLlm({
+      messages: [
+        { role: "system", content: "You are a strict contest judge. Output only valid JSON." },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.3,
+      max_tokens: 400,
+    });
+    if (!llm.ok || !llm.content) return;
+    const txt = String(llm.content || "").trim();
+    const m = txt.match(/\{[\s\S]*\}/);
+    if (!m) return;
+    let parsed: any = null;
+    try { parsed = JSON.parse(m[0]); } catch { return; }
+    const num = (v: unknown): number | null => {
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.max(0, Math.min(10, n)) : null;
+    };
+    const creativity = num(parsed.creativity);
+    const craft = num(parsed.craft);
+    const relevance = num(parsed.relevance);
+    const overall = num(parsed.overall) ?? (
+      (creativity != null && craft != null && relevance != null)
+        ? (creativity + craft + relevance) / 3
+        : null
+    );
+    if (overall == null) return;
+    const reasoning = String(parsed.reasoning || "").slice(0, 1000);
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO contest_llm_scores (entry_id, creativity, craft, relevance, overall, reasoning, model)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (entry_id) DO UPDATE
+           SET creativity = EXCLUDED.creativity,
+               craft      = EXCLUDED.craft,
+               relevance  = EXCLUDED.relevance,
+               overall    = EXCLUDED.overall,
+               reasoning  = EXCLUDED.reasoning,
+               model      = EXCLUDED.model,
+               scored_at  = now()`,
+        [entryId, creativity, craft, relevance, overall, reasoning, `${llm.provider}:${llm.model}`],
+      ),
+    );
+  } catch (err) {
+    console.warn("[contest-llm] scoring failed:", (err as Error)?.message || err);
+  }
+}
+
+app.get("/api/contests/:id/leaderboard", async (req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_INPUT" });
+    const r = await withClient((c) =>
+      c.query<{
+        entry_id: string; user_id: string; work_id: string; vote_count: number;
+        llm_overall: number | null; llm_creativity: number | null;
+        llm_craft: number | null; llm_relevance: number | null;
+      }>(
+        `SELECT e.entry_id::text, e.user_id::text, e.work_id::text, e.vote_count,
+                s.overall AS llm_overall, s.creativity AS llm_creativity,
+                s.craft AS llm_craft, s.relevance AS llm_relevance
+           FROM contest_entries e
+           LEFT JOIN contest_llm_scores s ON s.entry_id = e.entry_id
+          WHERE e.contest_id = $1`,
+        [id],
+      ),
+    );
+    const rows = r.rows;
+    const totalVotes = rows.reduce((acc, x) => acc + Number(x.vote_count || 0), 0);
+    const denom = Math.max(1, totalVotes);
+    const ranked = rows.map((x) => {
+      const voteShare = Number(x.vote_count || 0) / denom;
+      const llmNorm = x.llm_overall == null ? 0 : Number(x.llm_overall) / 10;
+      const finalScore = 0.6 * voteShare + 0.4 * llmNorm;
+      return {
+        entry_id: x.entry_id,
+        user_id: x.user_id,
+        work_id: x.work_id,
+        vote_count: Number(x.vote_count || 0),
+        llm_overall: x.llm_overall == null ? null : Number(x.llm_overall),
+        llm_creativity: x.llm_creativity == null ? null : Number(x.llm_creativity),
+        llm_craft: x.llm_craft == null ? null : Number(x.llm_craft),
+        llm_relevance: x.llm_relevance == null ? null : Number(x.llm_relevance),
+        vote_share: voteShare,
+        final_score: finalScore,
+      };
+    }).sort((a, b) => b.final_score - a.final_score);
+    return res.json({
+      ok: true,
+      contest_id: id,
+      total_votes: totalVotes,
+      formula: "0.6 * vote_share + 0.4 * (llm_overall / 10)",
+      leaderboard: ranked,
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "LEADERBOARD_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/contests/entries/:entry_id/score", async (req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const eid = String(req.params.entry_id || "").trim();
+    if (!/^[0-9a-fA-F-]{36}$/.test(eid)) return res.status(400).json({ ok: false, code: "INVALID_ENTRY" });
+    const r = await withClient((c) =>
+      c.query<{
+        creativity: number | null; craft: number | null; relevance: number | null;
+        overall: number | null; reasoning: string | null; model: string | null;
+        scored_at: string | null;
+      }>(
+        `SELECT creativity, craft, relevance, overall, reasoning, model, scored_at
+           FROM contest_llm_scores WHERE entry_id = $1::uuid`,
+        [eid],
+      ),
+    );
+    const row = r.rows[0];
+    if (!row) return res.json({ ok: true, score: null });
+    return res.json({
+      ok: true,
+      score: {
+        entry_id: eid,
+        creativity: row.creativity == null ? null : Number(row.creativity),
+        craft: row.craft == null ? null : Number(row.craft),
+        relevance: row.relevance == null ? null : Number(row.relevance),
+        overall: row.overall == null ? null : Number(row.overall),
+        reasoning: row.reasoning,
+        model: row.model,
+        scored_at: row.scored_at,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "SCORE_GET_FAILED", message: String(err) });
+  }
+});
+
 
 /* CSSOS_PERSON_MV_WAVE45 20260508 — Jing
  * Video upscale (1080p / 4K) — paid via credits.

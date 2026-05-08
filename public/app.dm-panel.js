@@ -148,6 +148,52 @@
         padding: 0 14px; font-size: 13px; font-weight: 600; cursor: pointer;
       }
       .cssos-dm-send:disabled { opacity: 0.4; cursor: not-allowed; }
+      .cssos-dm-newgroup-btn {
+        background: rgba(120,160,255,0.18); color: inherit; border: 0; border-radius: 6px;
+        font-size: 12px; padding: 4px 8px; cursor: pointer; margin-left: 8px;
+      }
+      .cssos-dm-newgroup-btn:hover { background: rgba(120,160,255,0.30); }
+      .cssos-dm-thread-icon {
+        width: 36px; height: 36px; border-radius: 8px; flex-shrink: 0;
+        background: rgba(120,160,255,0.18); display: flex; align-items: center;
+        justify-content: center; font-size: 16px;
+      }
+      .cssos-dm-modal {
+        position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 99995;
+        display: flex; align-items: center; justify-content: center;
+      }
+      .cssos-dm-modal[hidden] { display: none; }
+      .cssos-dm-modal-card {
+        width: min(420px, 92vw); background: var(--panel-bg, #14161c);
+        color: var(--panel-fg, #e8e8ec); border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px;
+      }
+      .cssos-dm-modal-card h3 { margin: 0 0 4px 0; font-size: 15px; }
+      .cssos-dm-modal-card label { font-size: 12px; opacity: 0.75; }
+      .cssos-dm-modal-card input {
+        background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10);
+        color: inherit; border-radius: 6px; padding: 8px 10px; font: inherit; font-size: 13px;
+      }
+      .cssos-dm-modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+      .cssos-dm-modal-actions button {
+        padding: 6px 12px; border-radius: 6px; border: 0; cursor: pointer;
+        font-size: 13px; font-weight: 600;
+      }
+      .cssos-dm-modal-actions .primary { background: #3a6cff; color: #fff; }
+      .cssos-dm-modal-actions .ghost   { background: rgba(255,255,255,0.08); color: inherit; }
+      .cssos-dm-pane-actions { margin-left: auto; display: flex; gap: 6px; }
+      .cssos-dm-pane-actions button {
+        background: rgba(255,255,255,0.08); color: inherit; border: 0; border-radius: 6px;
+        padding: 4px 8px; font-size: 12px; cursor: pointer;
+      }
+      html[data-theme="light"] .cssos-dm-newgroup-btn { background: rgba(0,160,100,0.18); color: #0f3a2a; }
+      html[data-theme="light"] .cssos-dm-newgroup-btn:hover { background: rgba(0,160,100,0.30); }
+      html[data-theme="light"] .cssos-dm-thread-icon { background: rgba(0,160,100,0.18); color: #0f3a2a; }
+      html[data-theme="light"] .cssos-dm-modal-card { background: #fff; color: #0f3a2a; border-color: rgba(0,0,0,0.12); }
+      html[data-theme="light"] .cssos-dm-modal-card input { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.12); color: #0f3a2a; }
+      html[data-theme="light"] .cssos-dm-modal-actions .primary { background: #00a060; color: #fff; }
+      html[data-theme="light"] .cssos-dm-modal-actions .ghost { background: rgba(0,160,100,0.10); color: #0f3a2a; }
+      html[data-theme="light"] .cssos-dm-pane-actions button { background: rgba(0,160,100,0.10); color: #0f3a2a; }
       @media (max-width: 720px) {
         .cssos-dm-shell { grid-template-columns: 1fr; }
         .cssos-dm-rail { display: var(--cssos-dm-rail-display, flex); }
@@ -247,7 +293,10 @@
         <aside class="cssos-dm-rail">
           <div class="cssos-dm-rail-head">
             <span>${T("Messages", "私信")}</span>
-            <button class="cssos-dm-close" type="button" aria-label="Close">✕</button>
+            <span style="display:flex;gap:6px;align-items:center;">
+              <button class="cssos-dm-newgroup-btn" type="button" title="${T("New group", "新建群组")}">+ ${T("New group", "新建群组")}</button>
+              <button class="cssos-dm-close" type="button" aria-label="Close">✕</button>
+            </span>
           </div>
           <div class="cssos-dm-threads"></div>
         </aside>
@@ -262,6 +311,8 @@
       </div>
     `;
     ov.querySelector(".cssos-dm-close").addEventListener("click", closePanel);
+    const ngBtn = ov.querySelector(".cssos-dm-newgroup-btn");
+    if (ngBtn) ngBtn.addEventListener("click", openNewGroupModal);
     ov.addEventListener("click", (e) => {
       if (e.target === ov) closePanel();
     });
@@ -285,15 +336,23 @@
       return;
     }
     list.innerHTML = j.threads.map((t) => {
-      const name = t.other.display_name || t.other.username || "user";
+      const isGroup = t.kind === "group";
+      const name = isGroup
+        ? (t.title || T("Group", "群组"))
+        : ((t.other && (t.other.display_name || t.other.username)) || "user");
       const unread = Number(t.unread_count || 0);
       const cls = "cssos-dm-thread" + (t.thread_id === activeThreadId ? " active" : "");
       const preview = t.last_body ? String(t.last_body).slice(0, 80) : T("No messages yet.", "暂无消息");
-      return `<div class="${cls}" data-tid="${safe(t.thread_id)}" data-other='${safe(JSON.stringify(t.other))}'>
-        ${avatarHtml(t.other)}
+      const icon = isGroup
+        ? `<div class="cssos-dm-thread-icon">👥</div>`
+        : avatarHtml(t.other || {});
+      const dataOther = isGroup ? "null" : safe(JSON.stringify(t.other || {}));
+      const memberSuffix = isGroup ? ` · ${Number(t.member_count || 0)}` : "";
+      return `<div class="${cls}" data-tid="${safe(t.thread_id)}" data-kind="${safe(t.kind || 'pair')}" data-title="${safe(t.title || '')}" data-other='${dataOther}'>
+        ${icon}
         <div class="cssos-dm-thread-meta">
           <div class="cssos-dm-thread-name">
-            <span>${safe(name)}</span>
+            <span>${safe(name)}${safe(memberSuffix)}</span>
             ${unread > 0 ? `<span class="cssos-dm-unread-pill">${unread > 99 ? "99+" : unread}</span>` : ""}
           </div>
           <div class="cssos-dm-thread-preview">${safe(preview)}</div>
@@ -303,9 +362,11 @@
     list.querySelectorAll(".cssos-dm-thread").forEach((el) => {
       el.addEventListener("click", () => {
         const tid = el.getAttribute("data-tid");
+        const kind = el.getAttribute("data-kind") || "pair";
+        const title = el.getAttribute("data-title") || "";
         let other = null;
         try { other = JSON.parse(el.getAttribute("data-other") || "null"); } catch (_e) {}
-        openThread(tid, other);
+        openThread(tid, other, { kind, title });
       });
     });
   }
@@ -399,14 +460,31 @@
     }
   }
 
-  async function openThread(tid, other) {
+  let activeThreadKind = "pair";
+  let activeThreadTitle = "";
+  async function openThread(tid, other, meta) {
     activeThreadId = tid;
     activeThreadOther = other || null;
+    activeThreadKind = (meta && meta.kind) || "pair";
+    activeThreadTitle = (meta && meta.title) || "";
     const ov = getOverlay();
     ov.querySelector(".cssos-dm-shell").classList.add("has-active");
     const head = ov.querySelector(".cssos-dm-pane-head");
-    const otherName = (other && (other.display_name || other.username)) || T("Conversation", "对话");
-    head.innerHTML = `${avatarHtml(other || {})}<span>${safe(otherName)}</span>`;
+    if (activeThreadKind === "group") {
+      const title = activeThreadTitle || T("Group", "群组");
+      head.innerHTML = `<div class="cssos-dm-thread-icon">👥</div><span>${safe(title)}</span>
+        <span class="cssos-dm-pane-actions">
+          <button class="cssos-dm-manage" type="button">${T("Manage", "管理")}</button>
+          <button class="cssos-dm-leave" type="button">${T("Leave", "离开")}</button>
+        </span>`;
+      const mg = head.querySelector(".cssos-dm-manage");
+      if (mg) mg.addEventListener("click", () => manageGroup(tid));
+      const lv = head.querySelector(".cssos-dm-leave");
+      if (lv) lv.addEventListener("click", () => leaveGroup(tid));
+    } else {
+      const otherName = (other && (other.display_name || other.username)) || T("Conversation", "对话");
+      head.innerHTML = `${avatarHtml(other || {})}<span>${safe(otherName)}</span>`;
+    }
     const list = ov.querySelector(".cssos-dm-msgs");
     list.innerHTML = `<div class="cssos-dm-empty">${T("Loading…", "加载中…")}</div>`;
     const input = ov.querySelector(".cssos-dm-input");
@@ -511,6 +589,75 @@
       }
       openThread(tid, other);
     }
+  }
+
+  function openNewGroupModal() {
+    const m = document.createElement("div");
+    m.className = "cssos-dm-modal";
+    m.innerHTML = `
+      <div class="cssos-dm-modal-card">
+        <h3>${T("New group", "新建群组")}</h3>
+        <label>${T("Group title", "群组名称")}</label>
+        <input class="ng-title" type="text" maxlength="120" placeholder="${T("Team chat", "群聊")}" />
+        <label>${T("Members (comma-separated handles)", "成员（用逗号分隔的用户名）")}</label>
+        <input class="ng-members" type="text" placeholder="alice, bob" />
+        <div class="cssos-dm-modal-actions">
+          <button class="ghost" type="button">${T("Cancel", "取消")}</button>
+          <button class="primary" type="button">${T("Create", "创建")}</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(m);
+    const close = () => m.remove();
+    m.querySelector(".ghost").addEventListener("click", close);
+    m.addEventListener("click", (e) => { if (e.target === m) close(); });
+    m.querySelector(".primary").addEventListener("click", async () => {
+      const title = m.querySelector(".ng-title").value.trim();
+      const members = m.querySelector(".ng-members").value.split(",").map((x) => x.trim()).filter(Boolean);
+      if (!title) { alert(T("Title required.", "请填写群名。")); return; }
+      if (members.length < 1) { alert(T("Add at least one member.", "至少添加一位成员。")); return; }
+      const j = await api("/api/dm/groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, member_handles: members }),
+      });
+      if (!j || !j.ok) { alert(T("Could not create group.", "无法创建群组。")); return; }
+      close();
+      await loadThreads();
+      openThread(j.thread_id, null, { kind: "group", title: j.title });
+    });
+  }
+  async function manageGroup(tid) {
+    const j = await api(`/api/dm/groups/${encodeURIComponent(tid)}/members`);
+    if (!j || !j.ok) { alert(T("Failed to load members.", "加载成员失败。")); return; }
+    const canInvite = j.my_role === "owner" || j.my_role === "admin";
+    const handle = canInvite
+      ? prompt(T("Invite a user (handle):", "邀请用户（用户名）："), "")
+      : null;
+    if (handle && handle.trim()) {
+      const r = await api(`/api/dm/groups/${encodeURIComponent(tid)}/invite`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handle: handle.trim() }),
+      });
+      if (!r || !r.ok) alert(T("Invite failed.", "邀请失败。"));
+      else loadThreads();
+    }
+  }
+  async function leaveGroup(tid) {
+    if (!confirm(T("Leave this group?", "确定要离开此群组？"))) return;
+    const r = await api(`/api/dm/groups/${encodeURIComponent(tid)}/leave`, { method: "POST" });
+    if (!r || !r.ok) {
+      if (r && r.code === "OWNER_MUST_TRANSFER") {
+        alert(T("Transfer ownership before leaving.", "请先转让群主再离开。"));
+      } else {
+        alert(T("Leave failed.", "退出失败。"));
+      }
+      return;
+    }
+    activeThreadId = null;
+    closePanel();
+    location.hash = "#dm";
+    await loadThreads();
   }
 
   function closePanel() {

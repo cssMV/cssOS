@@ -17401,6 +17401,19 @@ async function generatePersonSamplesBatch(
           throw err;
         }
       });
+      // CSSOS_PERSON_MV_WAVE26 — fan-out feed_new_mv to subscribers.
+      // Best-effort; failure here must not roll back the published MV.
+      try {
+        await fanoutFeedNewMv({
+          mv_id: workId,
+          person_id: row.person_id,
+          group_id: null,
+          creator_user_id: systemUserId,
+          title,
+        });
+      } catch (e) {
+        console.warn("[person-mv] feed fanout (sample) failed:", (e as Error)?.message || e);
+      }
       succeeded += 1;
       results.push({
         person_id: row.person_id,
@@ -24751,6 +24764,446 @@ iframe{width:100%;height:100%;border:0}
     return res.status(500).send("<!doctype html><meta charset=utf-8><title>Error</title><p>Share link error.</p>");
   }
 });
+
+/* CSSOS_PERSON_MV_WAVE25 20260508 — Jing
+ * Cross-table full-text search. tsvector + GIN backed; ranks via
+ * ts_rank. type=person|mv|comment|all. Tiny in-process LRU caches the
+ * 64 most recent queries for 5 minutes. */
+type SearchHit = {
+  type: "person" | "mv" | "comment";
+  id: string;
+  title: string;
+  snippet: string;
+  score: number;
+  person_id?: string | null;
+  mv_url?: string | null;
+};
+const __searchCache = new Map<string, { at: number; body: { results: SearchHit[] } }>();
+const __SEARCH_TTL_MS = 5 * 60 * 1000;
+function __searchCacheGet(key: string): { results: SearchHit[] } | null {
+  const e = __searchCache.get(key);
+  if (!e) return null;
+  if (Date.now() - e.at > __SEARCH_TTL_MS) { __searchCache.delete(key); return null; }
+  return e.body;
+}
+function __searchCachePut(key: string, body: { results: SearchHit[] }) {
+  if (__searchCache.size > 64) {
+    const oldest = __searchCache.keys().next().value;
+    if (oldest) __searchCache.delete(oldest);
+  }
+  __searchCache.set(key, { at: Date.now(), body });
+}
+app.get("/api/person-mv/search", async (req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const q = String(req.query.q || "").trim().slice(0, 200);
+    const type = String(req.query.type || "all").toLowerCase();
+    const limit = Math.max(1, Math.min(50, Number(req.query.limit || 20) | 0));
+    if (!q) return res.json({ ok: true, results: [] });
+    const cacheKey = `${type}|${limit}|${q}`;
+    const cached = __searchCacheGet(cacheKey);
+    if (cached) return res.json({ ok: true, ...cached, cached: true });
+
+    const wantPerson  = type === "all" || type === "person";
+    const wantMv      = type === "all" || type === "mv";
+    const wantComment = type === "all" || type === "comment";
+    const results: SearchHit[] = [];
+    const tsq = `websearch_to_tsquery('simple', $1)`;
+
+    if (wantPerson) {
+      const r = await withClient((c) =>
+        c.query<{ person_id: string; name_zh: string | null; name_en: string | null;
+                  civilization: string | null; core_theme: string | null;
+                  score: number; snippet: string }>(
+          `SELECT pp.person_id, pp.name_zh, pp.name_en, pp.civilization, pp.core_theme,
+                  ts_rank(pp.search_vector, ${tsq})::float AS score,
+                  COALESCE(pp.core_theme, pp.civilization, '')::text AS snippet
+             FROM person_profiles pp
+            WHERE pp.search_vector @@ ${tsq}
+            ORDER BY score DESC LIMIT $2`,
+          [q, limit],
+        ),
+      );
+      for (const row of r.rows) {
+        results.push({
+          type: "person",
+          id: row.person_id,
+          title: row.name_zh || row.name_en || row.person_id,
+          snippet: (row.snippet || "").slice(0, 240),
+          score: Number(row.score) || 0,
+          person_id: row.person_id,
+        });
+      }
+    }
+    if (wantMv) {
+      const r = await withClient((c) =>
+        c.query<{ mv_id: string; person_id: string; scenario_seed: string | null;
+                  title: string | null; score: number; mv_url: string | null }>(
+          `SELECT pm.mv_id::text AS mv_id, pm.person_id, pm.scenario_seed,
+                  w.title,
+                  ts_rank(pm.search_vector, ${tsq})::float AS score,
+                  (SELECT url FROM work_assets wa
+                    WHERE wa.work_id = pm.work_id AND wa.asset_type = 'final_mv'
+                    LIMIT 1) AS mv_url
+             FROM person_mvs pm
+             LEFT JOIN user_works w ON w.id = pm.work_id
+            WHERE pm.search_vector @@ ${tsq}
+            ORDER BY score DESC LIMIT $2`,
+          [q, limit],
+        ),
+      );
+      for (const row of r.rows) {
+        results.push({
+          type: "mv",
+          id: row.mv_id,
+          title: row.title || row.scenario_seed?.slice(0, 80) || row.mv_id,
+          snippet: (row.scenario_seed || "").slice(0, 240),
+          score: Number(row.score) || 0,
+          person_id: row.person_id,
+          mv_url: row.mv_url || null,
+        });
+      }
+    }
+    if (wantComment) {
+      const r = await withClient((c) =>
+        c.query<{ id: string; mv_id: string; body: string; score: number;
+                  person_id: string | null }>(
+          `SELECT cm.id::text AS id, cm.mv_id::text AS mv_id, cm.body,
+                  ts_rank(cm.search_vector, ${tsq})::float AS score,
+                  pm.person_id
+             FROM person_mv_comments cm
+             LEFT JOIN person_mvs pm ON pm.mv_id = cm.mv_id
+            WHERE cm.search_vector @@ ${tsq}
+              AND cm.deleted_at IS NULL
+            ORDER BY score DESC LIMIT $2`,
+          [q, limit],
+        ),
+      );
+      for (const row of r.rows) {
+        results.push({
+          type: "comment",
+          id: row.id,
+          title: (row.body || "").slice(0, 80),
+          snippet: (row.body || "").slice(0, 240),
+          score: Number(row.score) || 0,
+          person_id: row.person_id || null,
+          mv_url: null,
+        });
+      }
+    }
+    results.sort((a, b) => b.score - a.score);
+    const trimmed = results.slice(0, limit);
+    const body = { results: trimmed };
+    __searchCachePut(cacheKey, body);
+    return res.json({ ok: true, ...body });
+  } catch (err) {
+    console.warn("[person-mv] search failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "SEARCH_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE26 20260508 — Jing
+ * Subscriptions + feed + RSS. Users follow creators / persons / groups
+ * and pull a chronological feed of new MVs. RSS endpoint uses a
+ * per-user opaque token (lazy, generated on first /feed.rss hit). */
+function __cryptoToken(): string {
+  const b = crypto.randomBytes(24);
+  return b.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+async function __ensureRssToken(userId: string): Promise<string> {
+  const r = await withClient((c) =>
+    c.query<{ rss_token: string | null }>(
+      `SELECT rss_token FROM users WHERE id = $1`,
+      [userId],
+    ),
+  );
+  let tok = r.rows[0]?.rss_token || null;
+  if (tok) return tok;
+  for (let i = 0; i < 5; i++) {
+    const cand = __cryptoToken();
+    try {
+      await withClient((c) =>
+        c.query(
+          `UPDATE users SET rss_token = $1 WHERE id = $2 AND rss_token IS NULL`,
+          [cand, userId],
+        ),
+      );
+      const verify = await withClient((c) =>
+        c.query<{ rss_token: string | null }>(
+          `SELECT rss_token FROM users WHERE id = $1`,
+          [userId],
+        ),
+      );
+      tok = verify.rows[0]?.rss_token || null;
+      if (tok) return tok;
+    } catch (_e) { /* token collision; retry */ }
+  }
+  throw new Error("rss_token_assign_failed");
+}
+
+const __FEED_SQL = `
+  WITH subs AS (
+    SELECT target_kind, target_id FROM user_subscriptions WHERE user_id = $1
+  ),
+  hits AS (
+    SELECT pm.mv_id::text AS mv_id, pm.work_id::text AS work_id,
+           pm.person_id, pm.created_at,
+           pm.scenario_seed, w.title, w.cover_image,
+           'creator'::text AS source_kind,
+           pm.created_by_user_id::text AS source_id
+      FROM person_mvs pm
+      JOIN subs s ON s.target_kind = 'creator' AND s.target_id = pm.created_by_user_id::text
+      LEFT JOIN user_works w ON w.id = pm.work_id
+    UNION ALL
+    SELECT pm.mv_id::text, pm.work_id::text,
+           pm.person_id, pm.created_at,
+           pm.scenario_seed, w.title, w.cover_image,
+           'person'::text, pm.person_id
+      FROM person_mvs pm
+      JOIN subs s ON s.target_kind = 'person' AND s.target_id = pm.person_id
+      LEFT JOIN user_works w ON w.id = pm.work_id
+    UNION ALL
+    SELECT pgm.mv_id::text, pgm.work_id::text,
+           NULL::text AS person_id, pgm.created_at,
+           NULL::text AS scenario_seed, w.title, w.cover_image,
+           'group'::text, pgm.group_id
+      FROM person_group_mvs pgm
+      JOIN subs s ON s.target_kind = 'group' AND s.target_id = pgm.group_id
+      LEFT JOIN user_works w ON w.id = pgm.work_id
+  )
+  SELECT * FROM hits
+   WHERE ($3::timestamptz IS NULL OR created_at < $3)
+   ORDER BY created_at DESC
+   LIMIT $2
+`;
+
+app.post("/api/person-mv/subscribe", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const body = (req.body && typeof req.body === "object") ? req.body : {};
+    const kind = String((body as { target_kind?: unknown }).target_kind || "").trim();
+    const targetId = String((body as { target_id?: unknown }).target_id || "").trim();
+    if (!["creator", "person", "group"].includes(kind)) {
+      return res.status(400).json({ ok: false, code: "BAD_TARGET_KIND" });
+    }
+    if (!targetId || targetId.length > 200) {
+      return res.status(400).json({ ok: false, code: "BAD_TARGET_ID" });
+    }
+    const del = await withClient((c) =>
+      c.query(
+        `DELETE FROM user_subscriptions
+          WHERE user_id = $1 AND target_kind = $2 AND target_id = $3`,
+        [user.id, kind, targetId],
+      ),
+    );
+    if (del.rowCount && del.rowCount > 0) {
+      return res.json({ ok: true, subscribed: false });
+    }
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO user_subscriptions (user_id, target_kind, target_id)
+         VALUES ($1, $2, $3)
+         ON CONFLICT DO NOTHING`,
+        [user.id, kind, targetId],
+      ),
+    );
+    return res.json({ ok: true, subscribed: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "SUBSCRIBE_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/person-mv/subscriptions", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const r = await withClient((c) =>
+      c.query<{ target_kind: string; target_id: string; created_at: string }>(
+        `SELECT target_kind, target_id, created_at::text AS created_at
+           FROM user_subscriptions
+          WHERE user_id = $1
+          ORDER BY created_at DESC
+          LIMIT 500`,
+        [user.id],
+      ),
+    );
+    return res.json({ ok: true, subscriptions: r.rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "SUBS_LIST_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/person-mv/feed", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const limit = Math.max(1, Math.min(50, Number(req.query.limit || 50) | 0));
+    const beforeRaw = String(req.query.before || "").trim();
+    const before = beforeRaw ? beforeRaw : null;
+    const r = await withClient((c) =>
+      c.query<{ mv_id: string; work_id: string; person_id: string | null;
+                created_at: string; scenario_seed: string | null;
+                title: string | null; cover_image: string | null;
+                source_kind: string; source_id: string }>(
+        __FEED_SQL,
+        [user.id, limit, before],
+      ),
+    );
+    return res.json({
+      ok: true,
+      items: r.rows.map((row) => ({
+        mv_id: row.mv_id,
+        work_id: row.work_id,
+        person_id: row.person_id,
+        title: row.title || row.scenario_seed || "MV",
+        cover_image: absolutizeCover(row.cover_image),
+        source_kind: row.source_kind,
+        source_id: row.source_id,
+        created_at: row.created_at,
+      })),
+      next_before: r.rows.length === limit ? r.rows[r.rows.length - 1]!.created_at : null,
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "FEED_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/person-mv/feed.rss", async (req, res) => {
+  // RSS readers won't carry our session cookie, so this endpoint is
+  // primarily token-authenticated via ?token=... If a logged-in user
+  // hits it from a browser tab without a token, we mint one and hand
+  // it back as JSON so they can paste the URL into their reader.
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const tokenRaw = String(req.query.token || "").trim();
+    let userId: string | null = null;
+    if (tokenRaw) {
+      const r = await withClient((c) =>
+        c.query<{ id: string }>(
+          `SELECT id::text AS id FROM users WHERE rss_token = $1 LIMIT 1`,
+          [tokenRaw],
+        ),
+      );
+      userId = r.rows[0]?.id || null;
+    }
+    if (!userId) {
+      const user = await getSessionUser(req).catch(() => null);
+      const sid = user?.id ? String(user.id) : null;
+      if (sid) {
+        const tok = await __ensureRssToken(sid);
+        res.type("application/json");
+        return res.json({ ok: true, token: tok, rss_url: `/api/person-mv/feed.rss?token=${tok}` });
+      }
+    }
+    res.type("application/rss+xml; charset=utf-8");
+    if (!userId) {
+      res.status(401);
+      return res.send(`<?xml version="1.0" encoding="UTF-8"?>\n<error>auth_required</error>`);
+    }
+    const r = await withClient((c) =>
+      c.query<{ mv_id: string; work_id: string; person_id: string | null;
+                created_at: string; scenario_seed: string | null;
+                title: string | null; cover_image: string | null;
+                source_kind: string; source_id: string }>(
+        __FEED_SQL,
+        [userId, 50, null],
+      ),
+    );
+    const xmlEscape = (s: string): string =>
+      String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+    const items = r.rows.map((row) => {
+      const link = `${SHARE_BASE_URL}/m/${row.mv_id}`;
+      const cover = absolutizeCover(row.cover_image) || "";
+      const title = xmlEscape(row.title || row.scenario_seed || "MV");
+      const desc = xmlEscape(row.scenario_seed || row.title || "");
+      const pub = new Date(row.created_at).toUTCString();
+      const enclosure = cover
+        ? `\n      <enclosure url="${xmlEscape(cover)}" type="image/jpeg"/>` +
+          `\n      <media:thumbnail url="${xmlEscape(cover)}"/>`
+        : "";
+      return `    <item>
+      <title>${title}</title>
+      <link>${xmlEscape(link)}</link>
+      <guid isPermaLink="false">${xmlEscape(row.mv_id)}</guid>
+      <pubDate>${pub}</pubDate>
+      <description>${desc}</description>${enclosure}
+    </item>`;
+    }).join("\n");
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>${xmlEscape("CSS Studio · Following")}</title>
+    <link>${xmlEscape(SHARE_BASE_URL)}</link>
+    <description>${xmlEscape("New MVs from creators / persons / groups you follow.")}</description>
+    <language>en</language>
+    <atom:link href="${xmlEscape(SHARE_BASE_URL + req.originalUrl)}" rel="self" type="application/rss+xml"/>
+${items}
+  </channel>
+</rss>
+`;
+    return res.send(xml);
+  } catch (err) {
+    console.warn("[person-mv] feed.rss failed:", (err as Error)?.message || err);
+    res.type("application/rss+xml; charset=utf-8").status(500);
+    return res.send(`<?xml version="1.0" encoding="UTF-8"?>\n<error>feed_failed</error>`);
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE26 — fan-out helper. Best-effort: errors logged,
+ * never thrown. Wired into the admin sample-gen pipeline; future
+ * user-facing finalization should call this on insert. */
+async function fanoutFeedNewMv(args: {
+  mv_id: string;
+  person_id: string | null;
+  group_id?: string | null;
+  creator_user_id: string | null;
+  title?: string | null;
+}): Promise<void> {
+  if (!DATABASE_URL) return;
+  try {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    const push = (kind: string, value: string | null | undefined) => {
+      if (!value) return;
+      params.push(kind);
+      params.push(value);
+      conditions.push(`(target_kind = $${params.length - 1} AND target_id = $${params.length})`);
+    };
+    push("creator", args.creator_user_id);
+    push("person",  args.person_id);
+    push("group",   args.group_id);
+    if (!conditions.length) return;
+    const r = await withClient((c) =>
+      c.query<{ user_id: string }>(
+        `SELECT DISTINCT user_id::text AS user_id
+           FROM user_subscriptions
+          WHERE ${conditions.join(" OR ")}`,
+        params,
+      ),
+    );
+    for (const row of r.rows) {
+      await enqueueNotification(row.user_id, "feed_new_mv", {
+        mv_id: args.mv_id,
+        person_id: args.person_id,
+        group_id: args.group_id || null,
+        title: args.title || null,
+        actor_id: args.creator_user_id || null,
+      });
+    }
+  } catch (err) {
+    console.warn("[person-mv] feed fanout failed:", (err as Error)?.message || err);
+  }
+}
 
 app.get("/health", (_req, res) => {
   res.json({ status: "cssOS running 🚀" });

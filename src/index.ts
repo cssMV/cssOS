@@ -15966,6 +15966,260 @@ async function resolveSystemUserId(): Promise<string> {
   return String(created.rows[0]?.id || "");
 }
 
+/* CSSOS_PERSON_MV_WAVE13A 20260508 — Jing
+ * Server-side headless MV pipeline. Stitches the existing tier-first
+ * routers (callImageGen / callLlm / callMusicGen / callVideoGen) into
+ * cover→lyrics→music→[video skipped on Lite]→subtitles→ffmpeg-compose,
+ * with each stage timed and per-stage failures recorded but non-fatal.
+ *
+ * Outputs land in /artifacts/mv-fallback (already statically served)
+ * and rows are inserted into user_works + person_mvs as is_official_sample.
+ * SRT generation is a "fake-split" of the lyrics text — no whisper helper
+ * exists yet; subtitles are rough but timed to total duration. */
+type HeadlessStage = { name: string; ok: boolean; ms: number; error?: string | undefined; provider?: string | undefined };
+type HeadlessResult = {
+  ok: boolean;
+  work_id?: string | undefined;
+  mv_id?: string | undefined;
+  cover_url?: string | undefined;
+  audio_url?: string | undefined;
+  video_url?: string | undefined;
+  mv_url?: string | undefined;
+  video_skipped?: boolean | undefined;
+  stages: HeadlessStage[];
+  error?: string | undefined;
+};
+
+function persistBase64Audio(b64: string, tag: string): string | null {
+  try {
+    const buf = Buffer.from(b64, "base64");
+    const userHash = crypto.createHash("sha1").update(String(tag)).digest("hex").slice(0, 8);
+    const rand = crypto.randomBytes(6).toString("hex");
+    const filename = `audio-${userHash}-${Date.now()}-${rand}.mp3`;
+    const filePath = path.join(MV_FALLBACK_ARTIFACTS_DIR, filename);
+    fs.writeFileSync(filePath, buf, { mode: 0o644 });
+    return `/artifacts/mv-fallback/${filename}`;
+  } catch (e) {
+    console.warn("[headless-mv] persist audio failed:", e);
+    return null;
+  }
+}
+
+/** Resolve a public-style url ("/artifacts/...") to an absolute fs path; or
+ * download an https:// url to a temp file and return that path. Returns null
+ * on failure. */
+async function materializeToFile(url: string, suggestedExt: string): Promise<string | null> {
+  if (!url) return null;
+  if (url.startsWith("/artifacts/mv-fallback/")) {
+    const filename = url.slice("/artifacts/mv-fallback/".length);
+    const abs = path.join(MV_FALLBACK_ARTIFACTS_DIR, filename);
+    return fs.existsSync(abs) ? abs : null;
+  }
+  if (/^https?:\/\//i.test(url)) {
+    try {
+      const r = await fetch(url);
+      if (!r.ok) return null;
+      const buf = Buffer.from(await r.arrayBuffer());
+      const filename = `dl-${Date.now()}-${crypto.randomBytes(4).toString("hex")}.${suggestedExt}`;
+      const abs = path.join(MV_FALLBACK_ARTIFACTS_DIR, filename);
+      fs.writeFileSync(abs, buf, { mode: 0o644 });
+      return abs;
+    } catch (e) {
+      console.warn("[headless-mv] download failed:", url, e);
+      return null;
+    }
+  }
+  if (url.startsWith("data:")) {
+    const m = url.match(/^data:[^;]+;base64,(.*)$/);
+    if (!m || !m[1]) return null;
+    try {
+      const buf = Buffer.from(m[1], "base64");
+      const filename = `data-${Date.now()}-${crypto.randomBytes(4).toString("hex")}.${suggestedExt}`;
+      const abs = path.join(MV_FALLBACK_ARTIFACTS_DIR, filename);
+      fs.writeFileSync(abs, buf, { mode: 0o644 });
+      return abs;
+    } catch { return null; }
+  }
+  return null;
+}
+
+/** Format seconds → SRT timestamp "HH:MM:SS,mmm". */
+function srtTs(sec: number): string {
+  const ms = Math.max(0, Math.round(sec * 1000));
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  const mmm = ms % 1000;
+  const pad = (n: number, w = 2) => String(n).padStart(w, "0");
+  return `${pad(h)}:${pad(m)}:${pad(s)},${pad(mmm, 3)}`;
+}
+
+/** Naive 2-line chunked SRT, evenly distributed across `durationSec`. */
+function buildSrtFromLyrics(lyrics: string, durationSec: number): string {
+  const lines = lyrics
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !/^\[.*\]$/.test(l)); // strip section markers
+  if (lines.length === 0) return "";
+  const chunks: string[] = [];
+  for (let i = 0; i < lines.length; i += 2) {
+    chunks.push(lines.slice(i, i + 2).join("\n"));
+  }
+  const per = durationSec / chunks.length;
+  return chunks.map((text, i) => {
+    const start = i * per;
+    const end = Math.min(durationSec, (i + 1) * per - 0.05);
+    return `${i + 1}\n${srtTs(start)} --> ${srtTs(end)}\n${text}\n`;
+  }).join("\n");
+}
+
+async function runHeadlessPipeline(
+  person: {
+    person_id: string;
+    name_zh: string | null;
+    name_en: string | null;
+    core_theme: string | null;
+    music_style_hint: string | null;
+    tone: string | null;
+    lore: any;
+  },
+  opts: { systemUserId: string },
+): Promise<HeadlessResult> {
+  const stages: HeadlessStage[] = [];
+  const stage = async <T,>(name: string, fn: () => Promise<{ value: T; provider?: string }>): Promise<T | null> => {
+    const t0 = Date.now();
+    try {
+      const { value, provider } = await fn();
+      stages.push({ name, ok: true, ms: Date.now() - t0, provider });
+      return value;
+    } catch (err) {
+      stages.push({ name, ok: false, ms: Date.now() - t0, error: (err as Error)?.message || String(err) });
+      return null;
+    }
+  };
+
+  const name = String(person.name_zh || person.name_en || person.person_id);
+  const lore = person.lore && typeof person.lore === "object" ? person.lore : {};
+  const bio = String(lore?.bio || "").split(/[。.!?！？]/)[0] || person.core_theme || "";
+  const style = person.music_style_hint || "cinematic";
+  const styleHint = person.tone || "";
+  const coverPrompt =
+    `${name} · ${bio}` +
+    (styleHint ? ` · ${styleHint}` : "") +
+    ` · cinematic music video poster, dramatic lighting, 16:9`;
+
+  // 1) Cover
+  const coverUrl = await stage("cover", async () => {
+    const img = await callImageGen({ prompt: coverPrompt, size: "1024x576" });
+    if (!img.ok) throw new Error(img.error || "cover_failed");
+    const url = img.image_url
+      ? img.image_url
+      : (img.image_b64 ? persistBase64Cover(img.image_b64, opts.systemUserId) : "");
+    if (!url) throw new Error("cover_no_url");
+    return { value: url, provider: img.provider };
+  });
+
+  // 2) Lyrics
+  const lyrics = await stage("lyrics", async () => {
+    const llm = await callLlm({
+      messages: [
+        { role: "system", content: "You write short cinematic music-video lyrics in the same language as the subject. Output only the lyrics text, ~8-12 short lines, two verses, no preamble." },
+        { role: "user", content: `Subject: ${name}\nTheme: ${person.core_theme || ""}\nStyle: ${style}\nWrite lyrics now.` },
+      ],
+      temperature: 0.85,
+      max_tokens: 400,
+    });
+    if (!llm.ok) throw new Error(llm.error || "lyrics_failed");
+    const text = String(llm.content || "").trim();
+    if (!text) throw new Error("lyrics_empty");
+    return { value: text, provider: llm.provider };
+  });
+
+  const durationSec = 30;
+
+  // 3) Music
+  const audioUrl = await stage("music", async () => {
+    const firstVerse = String(lyrics || "").split(/\r?\n\r?\n/)[0] || String(lyrics || "").slice(0, 200);
+    const musicPrompt = `${person.core_theme || name} · ${firstVerse.replace(/\n/g, " ").slice(0, 200)}`;
+    const mus = await callMusicGen({
+      prompt: musicPrompt,
+      duration_secs: durationSec,
+      tags: [style, "cinematic"],
+    });
+    if (!mus.ok) throw new Error(mus.error || "music_failed");
+    let url = mus.audio_url || "";
+    if (!url && mus.audio_b64) {
+      const persisted = persistBase64Audio(mus.audio_b64, person.person_id);
+      if (persisted) url = persisted;
+    }
+    if (!url) throw new Error("music_no_url");
+    return { value: url, provider: mus.provider };
+  });
+
+  // 4) Video — Lite tier skips
+  let videoUrl: string | null = null;
+  const videoSkipped = true;
+  stages.push({ name: "video", ok: true, ms: 0, error: "skipped_lite_tier" });
+
+  // 5) Subtitles (fake-split SRT)
+  const srtPath = await stage("subtitles", async () => {
+    if (!lyrics) throw new Error("no_lyrics");
+    const srt = buildSrtFromLyrics(lyrics, durationSec);
+    if (!srt) throw new Error("srt_empty");
+    const filename = `srt-${person.person_id.slice(0, 8)}-${Date.now()}.srt`;
+    const abs = path.join(MV_FALLBACK_ARTIFACTS_DIR, filename);
+    fs.writeFileSync(abs, srt, { mode: 0o644 });
+    return { value: abs, provider: "fake-split" };
+  });
+
+  // 6) Compose via ffmpeg
+  let mvUrl: string | null = null;
+  if (coverUrl && audioUrl) {
+    mvUrl = await stage("compose", async () => {
+      const coverAbs = await materializeToFile(coverUrl, "png");
+      const audioAbs = await materializeToFile(audioUrl, "mp3");
+      if (!coverAbs) throw new Error("cover_materialize_failed");
+      if (!audioAbs) throw new Error("audio_materialize_failed");
+      const outName = `sample-${person.person_id.slice(0, 8)}-${Date.now()}.mp4`;
+      const outAbs = path.join(MV_FALLBACK_ARTIFACTS_DIR, outName);
+      const vfParts: string[] = [];
+      if (srtPath) vfParts.push(`subtitles='${srtPath.replace(/'/g, "\\'")}'`);
+      vfParts.push(`scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2`);
+      vfParts.push(`zoompan=z='min(zoom+0.0015,1.5)':d=${durationSec * 30}:s=1280x720`);
+      const args = [
+        "-y",
+        "-loop", "1",
+        "-i", coverAbs,
+        "-i", audioAbs,
+        "-vf", vfParts.join(","),
+        "-c:v", "libx264", "-tune", "stillimage", "-preset", "veryfast",
+        "-c:a", "aac", "-b:a", "192k",
+        "-pix_fmt", "yuv420p",
+        "-t", String(durationSec),
+        "-shortest",
+        outAbs,
+      ];
+      const r = await spawnFfmpeg(args);
+      if (r.code !== 0 || !fs.existsSync(outAbs)) {
+        throw new Error(`ffmpeg_failed code=${r.code} stderr=${(r.stderr || "").slice(0, 400)}`);
+      }
+      return { value: `/artifacts/mv-fallback/${outName}`, provider: "ffmpeg" };
+    });
+  } else {
+    stages.push({ name: "compose", ok: false, ms: 0, error: "missing_cover_or_audio" });
+  }
+
+  return {
+    ok: !!coverUrl,
+    cover_url: coverUrl || undefined,
+    audio_url: audioUrl || undefined,
+    video_url: videoUrl || undefined,
+    mv_url: mvUrl || undefined,
+    video_skipped: videoSkipped,
+    stages,
+  };
+}
+
 app.post("/api/admin/person-mv/generate-samples", express.json({ limit: "4kb" }), async (req, res) => {
   noStore(res);
   try {
@@ -15981,6 +16235,7 @@ app.post("/api/admin/person-mv/generate-samples", express.json({ limit: "4kb" })
     if (!authed) return res.status(403).json({ ok: false, code: "FORBIDDEN" });
 
     const limit = Math.max(1, Math.min(50, Number(req.query.limit || 5) || 5));
+    const force = String(req.query.force || "").trim() === "1";
     await seedPersonProfilesOnce();
 
     const systemUserId = await resolveSystemUserId();
@@ -15998,37 +16253,40 @@ app.post("/api/admin/person-mv/generate-samples", express.json({ limit: "4kb" })
         `SELECT pp.person_id, pp.name_zh, pp.name_en, pp.core_theme,
                 pp.music_style_hint, pp.tone, pp.lore
            FROM person_profiles pp
-          WHERE NOT EXISTS (
+          WHERE $2::bool = true
+             OR NOT EXISTS (
                   SELECT 1 FROM person_mvs pm
                    WHERE pm.person_id = pp.person_id
                      AND pm.is_official_sample = true
                 )
           ORDER BY pp.influence_score DESC NULLS LAST, pp.person_id
           LIMIT $1`,
-        [limit],
+        [limit, force],
       ),
     );
 
     const errors: Array<{ person_id: string; error: string }> = [];
+    const results: Array<{
+      person_id: string;
+      ok: boolean;
+      work_id?: string | undefined;
+      cover_url?: string | undefined;
+      mv_url?: string | undefined;
+      stages: HeadlessStage[];
+    }> = [];
     let succeeded = 0;
     let failed = 0;
 
     for (const row of candidates.rows) {
       try {
+        const result = await runHeadlessPipeline(row, { systemUserId });
         const name = String(row.name_zh || row.name_en || row.person_id);
-        const lore = row.lore && typeof row.lore === "object" ? row.lore : {};
-        const bio = String(lore?.bio || "").split(/[。.!?！？]/)[0] || row.core_theme || "";
         const style = row.music_style_hint || "cinematic";
-        const styleHint = row.tone || "";
-        const prompt =
-          `${name} · ${bio}` +
-          (styleHint ? ` · ${styleHint}` : "") +
-          ` · cinematic music video poster, dramatic lighting, 16:9`;
+        const scenarioSeed = String(row.core_theme || name).slice(0, 500);
 
-        const img = await callImageGen({ prompt, size: "1024x576" });
-        const coverImage = img.ok
-          ? (img.image_url || (img.image_b64 ? `data:image/png;base64,${img.image_b64}` : null))
-          : null;
+        if (!result.cover_url) {
+          throw new Error("cover_required_but_missing");
+        }
 
         const workId = crypto.randomUUID();
         const title = `${name} · ${style}`.slice(0, 200);
@@ -16039,15 +16297,34 @@ app.post("/api/admin/person-mv/generate-samples", express.json({ limit: "4kb" })
               `INSERT INTO user_works (
                  id, user_id, title, style, work_type, status, cover_image
                ) VALUES ($1::uuid, $2, $3, $4, 'mv', 'published', $5)`,
-              [workId, systemUserId, title, style, coverImage],
+              [workId, systemUserId, title, style, result.cover_url],
             );
+            // Persist final-mv + audio-track-1 via work_assets so the
+            // gallery / cinema queue resolves them via the standard
+            // final_mv_asset / audio_track_1_asset joins.
+            if (result.mv_url) {
+              await client.query(
+                `INSERT INTO work_assets (work_id, asset_type, url, meta)
+                   VALUES ($1::uuid, 'final_mv', $2, '{}'::jsonb)
+                 ON CONFLICT (work_id, asset_type) DO UPDATE SET url = EXCLUDED.url`,
+                [workId, result.mv_url],
+              );
+            }
+            if (result.audio_url) {
+              await client.query(
+                `INSERT INTO work_assets (work_id, asset_type, url, meta)
+                   VALUES ($1::uuid, 'audio_track_1', $2, '{}'::jsonb)
+                 ON CONFLICT (work_id, asset_type) DO UPDATE SET url = EXCLUDED.url`,
+                [workId, result.audio_url],
+              );
+            }
             await client.query(
               `INSERT INTO person_mvs (
                  person_id, work_id, created_by_user_id,
                  scenario_seed, duration_secs, approval_status, visibility,
                  is_official_sample
                ) VALUES ($1, $2::uuid, $3::uuid, $4, $5, 'auto_published', 'public', true)`,
-              [row.person_id, workId, systemUserId, prompt.slice(0, 500), 30],
+              [row.person_id, workId, systemUserId, scenarioSeed, 30],
             );
             await client.query("COMMIT");
           } catch (err) {
@@ -16056,12 +16333,21 @@ app.post("/api/admin/person-mv/generate-samples", express.json({ limit: "4kb" })
           }
         });
         succeeded += 1;
+        results.push({
+          person_id: row.person_id,
+          ok: true,
+          work_id: workId,
+          cover_url: result.cover_url,
+          mv_url: result.mv_url,
+          stages: result.stages,
+        });
       } catch (err) {
         failed += 1;
         errors.push({
           person_id: row.person_id,
           error: (err as Error)?.message || String(err),
         });
+        results.push({ person_id: row.person_id, ok: false, stages: [] });
         console.warn("[person-mv] sample gen failed for", row.person_id, err);
       }
       // Sequential pacing — 5s gap between persons.
@@ -16074,6 +16360,7 @@ app.post("/api/admin/person-mv/generate-samples", express.json({ limit: "4kb" })
       succeeded,
       failed,
       errors,
+      results,
     });
   } catch (err) {
     console.warn("[person-mv] generate-samples failed:", (err as Error)?.message || err);

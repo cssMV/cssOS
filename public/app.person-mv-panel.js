@@ -682,6 +682,8 @@
       var card = document.createElement("div");
       card.className = "person-mv-card";
       card.setAttribute("data-person-id", p.person_id || "");
+      // CSSOS_PERSON_MV_WAVE64C 20260508 — content rating badge hook.
+      if (p.content_rating) card.setAttribute("data-content-rating", String(p.content_rating));
       card.innerHTML =
         '<div class="person-mv-name">' + escapeText(primary) + '</div>' +
         (secondary ? '<div class="person-mv-name-en">' + escapeText(secondary) + '</div>' : '') +

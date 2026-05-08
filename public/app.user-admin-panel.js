@@ -122,6 +122,12 @@ function buildUserAdminPanelMarkupModule() {
         <div class="stat-card"><div class="stat-label">${escapeHtml(loginCopy("Engine costs"))}</div><div class="stat-value" id="admin-trends-cost-total">—</div><svg id="admin-trends-cost-chart" width="100%" height="70" style="margin-top:6px;display:block;"></svg></div>
         <div class="stat-card"><div class="stat-label">${escapeHtml(loginCopy("Funnel"))}</div><div id="admin-trends-funnel">—</div></div>
         <div class="stat-card"><div class="stat-label">${escapeHtml(loginCopy("Top persons"))}</div><div id="admin-trends-top">—</div></div>
+        <!-- CSSOS_PERSON_MV_WAVE64B 20260508 — engines live observability card. -->
+        <div class="stat-card" style="grid-column:1/-1;">
+          <div class="stat-label">🔥 ${escapeHtml(loginCopy("Engines"))}</div>
+          <div id="admin-trends-engines" class="works-note" style="margin-top:6px;">${escapeHtml(loginCopy("Loading…"))}</div>
+          <svg id="admin-trends-engines-drill" width="100%" height="80" style="margin-top:6px;display:none;"></svg>
+        </div>
       </div>
     </div>
     ` : ""}
@@ -743,9 +749,111 @@ async function refreshAdminTrendsModule() {
         : `<div class="works-note">${escapeHtml(loginCopy("No data"))}</div>`;
     }
     if (status) status.textContent = `${loginCopy("Updated")} ${new Date().toLocaleTimeString()}`;
+    // CSSOS_PERSON_MV_WAVE64B — engines live card.
+    void refreshAdminEnginesCard();
   } catch (err) {
     if (status) status.textContent = String(err);
   }
+}
+
+async function refreshAdminEnginesCard() {
+  const host = document.getElementById("admin-trends-engines");
+  if (!host) return;
+  try {
+    const [usageR, balR] = await Promise.all([
+      fetch("/api/admin/engine-usage", { credentials: "include" }).then((r) => r.json()).catch(() => null),
+      fetch("/api/admin/engine-balance", { credentials: "include" }).then((r) => r.json()).catch(() => null),
+    ]);
+    const engines = usageR?.data?.engines || [];
+    const balances = (balR?.data?.entries || []).reduce((acc, e) => {
+      acc[e.engine] = e;
+      return acc;
+    }, {});
+    if (!engines.length) {
+      host.textContent = loginCopy("No engine activity in the last 24h.");
+      return;
+    }
+    const rows = engines.map((e) => {
+      const fail = Number(e.failure_rate) || 0;
+      const color = fail > 50 ? "#b1311e" : fail > 5 ? "#c79100" : "#137a3b";
+      const callsMin = (Number(e.calls_5min) / 5).toFixed(1);
+      const bal = balances[e.engine];
+      let balTxt = "—";
+      if (bal) {
+        if (typeof bal.balance_usd === "number") balTxt = `$${bal.balance_usd.toFixed(2)}`;
+        else if (typeof bal.balance_credits === "number") balTxt = `${bal.balance_credits} cr`;
+        else if (bal.error) balTxt = bal.error;
+      }
+      return `<tr data-engine="${escapeHtml(e.engine)}" style="cursor:pointer;border-left:3px solid ${color};">
+        <td style="padding:2px 6px;">${escapeHtml(e.engine)}</td>
+        <td style="padding:2px 6px;">${escapeHtml(String(e.tier || ""))}</td>
+        <td style="padding:2px 6px;text-align:right;">${callsMin}</td>
+        <td style="padding:2px 6px;text-align:right;">${e.avg_latency_ms}ms</td>
+        <td style="padding:2px 6px;text-align:right;">${fail}%</td>
+        <td style="padding:2px 6px;text-align:right;">${escapeHtml(balTxt)}</td>
+      </tr>`;
+    }).join("");
+    host.innerHTML = `
+      <table style="width:100%;font-size:11px;border-collapse:collapse;">
+        <thead><tr style="opacity:0.7;text-align:left;">
+          <th style="padding:2px 6px;">${escapeHtml(loginCopy("engine"))}</th>
+          <th style="padding:2px 6px;">${escapeHtml(loginCopy("tier"))}</th>
+          <th style="padding:2px 6px;text-align:right;">${escapeHtml(loginCopy("calls/min"))}</th>
+          <th style="padding:2px 6px;text-align:right;">${escapeHtml(loginCopy("avg ms"))}</th>
+          <th style="padding:2px 6px;text-align:right;">${escapeHtml(loginCopy("failure %"))}</th>
+          <th style="padding:2px 6px;text-align:right;">${escapeHtml(loginCopy("balance"))}</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+    host.querySelectorAll("tr[data-engine]").forEach((row) => {
+      row.addEventListener("click", () => {
+        const eng = row.getAttribute("data-engine");
+        const e = engines.find((x) => x.engine === eng);
+        if (!e) return;
+        const svg = document.getElementById("admin-trends-engines-drill");
+        if (!(svg instanceof SVGElement)) return;
+        // Inline mini bars: 5min / 1h / 24h.
+        const data = [
+          { label: "5min", value: Number(e.calls_5min) || 0 },
+          { label: "1h",   value: Number(e.calls_1h)   || 0 },
+          { label: "24h",  value: Number(e.calls_24h)  || 0 },
+        ];
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+        svg.style.display = "block";
+        const w = svg.clientWidth || 300;
+        const h = 80;
+        const max = Math.max(1, ...data.map((d) => d.value));
+        data.forEach((d, i) => {
+          const bw = (w - 24) / data.length - 8;
+          const bx = 12 + i * ((w - 24) / data.length);
+          const bh = (d.value / max) * (h - 24);
+          const by = h - 18 - bh;
+          const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+          rect.setAttribute("x", String(bx)); rect.setAttribute("y", String(by));
+          rect.setAttribute("width", String(bw)); rect.setAttribute("height", String(bh));
+          rect.setAttribute("fill", "#0fa470");
+          svg.appendChild(rect);
+          const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          t.setAttribute("x", String(bx + bw / 2)); t.setAttribute("y", String(h - 4));
+          t.setAttribute("text-anchor", "middle"); t.setAttribute("font-size", "10");
+          t.setAttribute("fill", "#daffee");
+          t.textContent = `${d.label}: ${d.value}`;
+          svg.appendChild(t);
+        });
+      });
+    });
+  } catch (err) {
+    host.textContent = String(err);
+  }
+}
+
+// CSSOS_PERSON_MV_WAVE64B 20260508 — 30s auto-refresh for engines card.
+if (!globalThis.__cssosAdminEnginesTimer) {
+  globalThis.__cssosAdminEnginesTimer = setInterval(() => {
+    if (document.getElementById("admin-trends-engines")) {
+      void refreshAdminEnginesCard();
+    }
+  }, 30 * 1000);
 }
 
 function drawSparkline(id, values) {

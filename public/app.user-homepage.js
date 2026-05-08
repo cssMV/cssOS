@@ -244,14 +244,65 @@
       });
       exportRow.appendChild(exportBtn);
       exportRow.appendChild(exportStatus);
+      // CSSOS_PERSON_MV_WAVE64A 20260508 — link to creation timeline.
+      var historyBtn = el("button", { class: "uhp-export-btn", onclick: function () { location.hash = "#creation-timeline"; } }, [
+        "📜 " + tr("Creation history", "创作历史"),
+      ]);
+      exportRow.appendChild(historyBtn);
+      // CSSOS_PERSON_MV_WAVE64C 20260508 — birth-year input (locked after first submit).
+      var birthRow = el("div", { class: "uhp-export-row", style: "margin:6px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px;" }, []);
+      var birthLabel = el("span", {}, ["🎂 " + tr("Birth year (sets max content rating)", "出生年份（用于设定最高分级）") + ":"]);
+      var birthInput = el("input", { type: "number", min: "1900", max: String(new Date().getFullYear()), placeholder: "YYYY", style: "width:84px;" }, []);
+      var birthBtn = el("button", { class: "uhp-export-btn", onclick: function () {
+        var y = Number(birthInput.value);
+        if (!Number.isFinite(y) || y < 1900) { birthStatus.textContent = tr("Invalid year.", "年份无效。"); return; }
+        if (!confirm(tr("Birth year is locked once set. Continue?", "提交后年份将被锁定。是否继续？"))) return;
+        birthBtn.disabled = true;
+        fetch("/api/user/birth-year", {
+          method: "POST", credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ year: y }),
+        }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+          .then(function (rj) {
+            if (rj.ok && rj.j && rj.j.ok) {
+              birthStatus.textContent = tr("Saved (locked).", "已保存（已锁定）。");
+              birthInput.disabled = true;
+            } else if (rj.j && rj.j.code === "BIRTH_YEAR_LOCKED") {
+              birthStatus.textContent = tr("Already locked: ", "已锁定: ") + (rj.j.birth_year || "");
+              birthInput.disabled = true;
+            } else {
+              birthStatus.textContent = tr("Failed: ", "失败: ") + ((rj.j && rj.j.code) || "?");
+              birthBtn.disabled = false;
+            }
+          })
+          .catch(function () { birthStatus.textContent = tr("Network error.", "网络错误。"); birthBtn.disabled = false; });
+      } }, [tr("Save", "保存")]);
+      var birthStatus = el("span", { style: "opacity:0.8;" }, [""]);
+      // Pre-fill from /api/user/age-gate.
+      fetch("/api/user/age-gate", { credentials: "include" })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (j && j.ok && j.data && j.data.birth_year) {
+            birthInput.value = String(j.data.birth_year);
+            birthInput.disabled = true;
+            birthBtn.disabled = true;
+            birthStatus.textContent = tr("Locked.", "已锁定。");
+          }
+        })
+        .catch(function () {});
+      birthRow.appendChild(birthLabel);
+      birthRow.appendChild(birthInput);
+      birthRow.appendChild(birthBtn);
+      birthRow.appendChild(birthStatus);
       inner.appendChild(exportRow);
+      inner.appendChild(birthRow);
     }
 
     // Recent MVs
     inner.appendChild(el("h2", { class: "uhp-section" }, ["🔥 " + tr("Latest creations", "最新创作")]));
     var grid = el("div", { class: "uhp-mv-grid" }, []);
     (data.recent_mvs || []).forEach(function (mv) {
-      var card = el("div", { class: "uhp-mv-card", onclick: function () { openMv(mv.work_id); } }, [
+      var card = el("div", { class: "uhp-mv-card", "data-content-rating": (mv.content_rating || ""), onclick: function () { openMv(mv.work_id); } }, [
         mv.cover_image ? el("img", { src: mv.cover_image, alt: "" }) : null,
         el("div", { class: "uhp-mv-meta" }, [
           el("strong", {}, [mv.person_zh || mv.title || ""]),

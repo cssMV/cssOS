@@ -176,13 +176,76 @@
     hero.appendChild(heroText);
     inner.appendChild(hero);
 
+    var credits = data.credits || { balance: 0, lifetime_earned: 0 };
     inner.appendChild(el("div", { class: "uhp-stats" }, [
       el("span", {}, ["🎬 " + (st.total_mvs || 0) + " " + tr("MVs", "作品")]),
       el("span", {}, ["👁 " + (st.total_views || 0) + " " + tr("views", "观看")]),
       el("span", {}, ["❤️ " + (st.total_likes || 0) + " " + tr("likes", "点赞")]),
       el("span", {}, ["🏛 " + (st.persons_created || 0) + " " + tr("persons", "人物")]),
+      el("span", { title: tr("Earned " + (credits.lifetime_earned || 0) + " lifetime", "累计获得 " + (credits.lifetime_earned || 0)) },
+        ["💎 " + (credits.balance || 0) + " " + tr("credits", "积分")]),
       el("span", {}, ["👥 " + fc.followers + " " + tr("followers", "粉丝") + " · " + fc.following + " " + tr("following", "关注中")]),
     ]));
+
+    // CSSOS_PERSON_MV_WAVE33 — GDPR data export, only on the owner's
+    // own homepage. Kicks off /api/user/export and polls every 5s.
+    if (data.is_self) {
+      var exportRow = el("div", { class: "uhp-export-row", style: "margin:8px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;" }, []);
+      var exportBtn = el("button", { class: "uhp-export-btn" }, ["📦 " + tr("Download my data", "导出我的数据")]);
+      var exportStatus = el("span", { style: "font-size:12px;opacity:0.8" }, [""]);
+      var pollTimer = null;
+      function setExportStatus(text) { exportStatus.textContent = text; }
+      function pollJob(jobId) {
+        if (pollTimer) clearTimeout(pollTimer);
+        pollTimer = setTimeout(async function () {
+          try {
+            var res = await fetch("/api/user/export/" + encodeURIComponent(jobId), { credentials: "include" });
+            var j = await res.json();
+            var status = j && j.job && j.job.status;
+            if (status === "done" && j.job.download_url) {
+              setExportStatus("");
+              var link = el("a", {
+                href: j.job.download_url,
+                style: "color:#0f0;text-decoration:underline;",
+                download: "cssos-export.zip",
+              }, ["⬇ " + tr("Download ZIP", "下载 ZIP")]);
+              exportRow.appendChild(link);
+              exportBtn.disabled = false;
+            } else if (status === "failed") {
+              setExportStatus(tr("Export failed.", "导出失败。"));
+              exportBtn.disabled = false;
+            } else {
+              setExportStatus(tr("Building… (" + (status || "pending") + ")", "构建中…(" + (status || "pending") + ")"));
+              pollJob(jobId);
+            }
+          } catch (e) {
+            setExportStatus(tr("Status check failed.", "状态查询失败。"));
+            exportBtn.disabled = false;
+          }
+        }, 5000);
+      }
+      exportBtn.addEventListener("click", async function () {
+        exportBtn.disabled = true;
+        setExportStatus(tr("Starting…", "启动中…"));
+        try {
+          var res = await fetch("/api/user/export", { method: "POST", credentials: "include" });
+          var j = await res.json();
+          if (j && j.ok && j.job_id) {
+            setExportStatus(tr("Building your archive…", "正在构建你的数据包…"));
+            pollJob(j.job_id);
+          } else {
+            setExportStatus(tr("Could not start export.", "无法启动导出。"));
+            exportBtn.disabled = false;
+          }
+        } catch (e) {
+          setExportStatus(tr("Network error.", "网络错误。"));
+          exportBtn.disabled = false;
+        }
+      });
+      exportRow.appendChild(exportBtn);
+      exportRow.appendChild(exportStatus);
+      inner.appendChild(exportRow);
+    }
 
     // Recent MVs
     inner.appendChild(el("h2", { class: "uhp-section" }, ["🔥 " + tr("Latest creations", "最新创作")]));

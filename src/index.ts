@@ -23908,6 +23908,15 @@ app.get("/api/users/:username/profile", async (req, res) => {
       );
       viewerFollows = (f.rowCount || 0) > 0;
     }
+    // CSSOS_PERSON_MV_WAVE29 — surface credit balance on the user's
+    // homepage header so "💎 N credits" renders alongside MV/view stats.
+    const creditsR = await withClient((c) =>
+      c.query<{ balance: number; lifetime_earned: number }>(
+        `SELECT balance, lifetime_earned FROM user_credits WHERE user_id = $1`,
+        [u.id],
+      ),
+    );
+    const credits = creditsR.rows[0] || { balance: 0, lifetime_earned: 0 };
     return res.json({
       ok: true,
       user: {
@@ -23920,6 +23929,7 @@ app.get("/api/users/:username/profile", async (req, res) => {
       follow_counts: followCountsR.rows[0] || { followers: 0, following: 0 },
       viewer_follows: viewerFollows,
       is_self: !!(viewer && viewer.id === u.id),
+      credits: { balance: Number(credits.balance || 0), lifetime_earned: Number(credits.lifetime_earned || 0) },
     });
   } catch (err) {
     console.warn("[users/profile] failed:", (err as Error)?.message || err);
@@ -24697,6 +24707,386 @@ app.delete("/api/person-mv/templates/:id", async (req, res) => {
     return res.status(500).json({ ok: false, code: "TEMPLATE_DELETE_FAILED", message: String(err) });
   }
 });
+
+/* CSSOS_PERSON_MV_WAVE29 20260508 — Jing
+ * Credit ledger endpoints. /api/user/credits returns balance +
+ * lifetime totals + recent events. /api/user/credits/history pages the
+ * full event log. Auth required. */
+app.get("/api/user/credits", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const sumR = await withClient((c) =>
+      c.query<{ balance: number; lifetime_earned: number; lifetime_spent: number }>(
+        `SELECT balance, lifetime_earned, lifetime_spent FROM user_credits WHERE user_id = $1`,
+        [user.id],
+      ),
+    );
+    const sums = sumR.rows[0] || { balance: 0, lifetime_earned: 0, lifetime_spent: 0 };
+    const evR = await withClient((c) =>
+      c.query<any>(
+        `SELECT id, delta, reason, payload, created_at
+           FROM credit_events WHERE user_id = $1
+          ORDER BY created_at DESC LIMIT 20`,
+        [user.id],
+      ),
+    );
+    return res.json({
+      ok: true,
+      balance: Number(sums.balance || 0),
+      lifetime_earned: Number(sums.lifetime_earned || 0),
+      lifetime_spent: Number(sums.lifetime_spent || 0),
+      recent_events: evR.rows,
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "CREDITS_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/user/credits/history", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const limit = Math.max(1, Math.min(200, Number(req.query.limit || 50) || 50));
+    const before = String(req.query.before || "").trim();
+    const params: any[] = [user.id];
+    let where = "user_id = $1";
+    if (before) {
+      params.push(before);
+      where += ` AND created_at < $${params.length}`;
+    }
+    params.push(limit);
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT id, delta, reason, payload, created_at
+           FROM credit_events
+          WHERE ${where}
+          ORDER BY created_at DESC LIMIT $${params.length}`,
+        params,
+      ),
+    );
+    return res.json({ ok: true, events: r.rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "CREDITS_HISTORY_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE33 20260508 — Jing
+ * GDPR data export. POST /api/user/export kicks off an async worker
+ * that ZIPs profile + MVs + comments + likes + views + subscriptions
+ * + templates into artifacts/exports/{user_id}-{job_id}.zip and stores
+ * the download URL on the job row. Media bytes capped via env
+ * EXPORT_INCLUDE_MEDIA_BYTES_LIMIT (default 200MB) — past the cap, only
+ * URLs land in the JSON. Jobs expire after 7 days; daily cron purges
+ * expired ZIPs from disk. */
+const EXPORT_DIR_PROD = path.resolve("/srv/cssos/artifacts/exports");
+const EXPORT_DIR_LOCAL = path.resolve(process.cwd(), "artifacts", "exports");
+function exportRootDir(): string {
+  // Production hosts mount /srv; in dev fall back to repo-local artifacts/.
+  try {
+    if (fs.existsSync("/srv/cssos/artifacts")) return EXPORT_DIR_PROD;
+  } catch (_e) { /* ignore */ }
+  return EXPORT_DIR_LOCAL;
+}
+const EXPORT_MEDIA_LIMIT_BYTES = Math.max(
+  0,
+  Number(process.env.EXPORT_INCLUDE_MEDIA_BYTES_LIMIT || 200 * 1024 * 1024) || 0,
+);
+const EXPORT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+async function runUserExportJob(jobId: string, userId: string): Promise<void> {
+  const root = exportRootDir();
+  try { fs.mkdirSync(root, { recursive: true }); } catch (_e) { /* ignore */ }
+  const stage = fs.mkdtempSync(path.join(os.tmpdir(), `cssos-export-${userId.slice(0, 8)}-`));
+  const mvsDir = path.join(stage, "mvs");
+  try { fs.mkdirSync(mvsDir, { recursive: true }); } catch (_e) { /* ignore */ }
+  await withClient((c) =>
+    c.query(
+      `UPDATE user_export_jobs SET status = 'running', updated_at = now() WHERE job_id = $1`,
+      [jobId],
+    ),
+  );
+  try {
+    const profileR = await withClient((c) =>
+      c.query<any>(
+        `SELECT id, username, display_name, avatar_url, bio, created_at
+           FROM users WHERE id = $1`,
+        [userId],
+      ),
+    );
+    fs.writeFileSync(
+      path.join(stage, "profile.json"),
+      JSON.stringify(profileR.rows[0] || {}, null, 2),
+    );
+
+    const mvsR = await withClient((c) =>
+      c.query<any>(
+        `SELECT pm.*, w.cover_image, w.title, w.final_mv_url
+           FROM person_mvs pm
+           LEFT JOIN user_works w ON w.id = pm.work_id
+          WHERE pm.created_by_user_id = $1
+          ORDER BY pm.created_at DESC`,
+        [userId],
+      ),
+    );
+    let mediaBytesUsed = 0;
+    for (const mv of mvsR.rows) {
+      try {
+        const wid = String(mv.work_id || mv.mv_id);
+        fs.writeFileSync(
+          path.join(mvsDir, `${wid}.json`),
+          JSON.stringify(mv, null, 2),
+        );
+        // Try to copy cover if it's a local path under cwd & under the cap.
+        const cover = mv.cover_image ? String(mv.cover_image) : "";
+        if (cover && !/^https?:\/\//i.test(cover)) {
+          const localPath = path.resolve(process.cwd(), cover.replace(/^\//, ""));
+          if (fs.existsSync(localPath)) {
+            const sz = fs.statSync(localPath).size || 0;
+            if (mediaBytesUsed + sz <= EXPORT_MEDIA_LIMIT_BYTES) {
+              const subdir = path.join(mvsDir, wid);
+              try { fs.mkdirSync(subdir, { recursive: true }); } catch (_e) { /* ignore */ }
+              fs.copyFileSync(localPath, path.join(subdir, "cover" + path.extname(localPath)));
+              mediaBytesUsed += sz;
+            }
+          }
+        }
+      } catch (_e) { /* per-mv non-fatal */ }
+    }
+
+    const commentsR = await withClient((c) =>
+      c.query<any>(
+        `SELECT * FROM person_mv_comments WHERE user_id = $1 ORDER BY created_at DESC`,
+        [userId],
+      ),
+    );
+    fs.writeFileSync(path.join(stage, "comments.json"), JSON.stringify(commentsR.rows, null, 2));
+
+    const likesR = await withClient((c) =>
+      c.query<any>(
+        `SELECT mv_id, created_at FROM person_mv_likes WHERE user_id = $1 ORDER BY created_at DESC`,
+        [userId],
+      ),
+    );
+    const viewsR = await withClient((c) =>
+      c.query<any>(
+        `SELECT mv_id, viewed_at FROM person_mv_views WHERE user_id = $1 ORDER BY viewed_at DESC`,
+        [userId],
+      ),
+    );
+    fs.writeFileSync(
+      path.join(stage, "interactions.json"),
+      JSON.stringify({ likes: likesR.rows, views: viewsR.rows }, null, 2),
+    );
+
+    const subsR = await withClient((c) =>
+      c.query<any>(
+        `SELECT target_kind, target_id, created_at FROM user_subscriptions WHERE user_id = $1`,
+        [userId],
+      ),
+    );
+    fs.writeFileSync(path.join(stage, "subscriptions.json"), JSON.stringify(subsR.rows, null, 2));
+
+    const tplR = await withClient((c) =>
+      c.query<any>(
+        `SELECT * FROM person_mv_templates WHERE user_id = $1 ORDER BY created_at DESC`,
+        [userId],
+      ),
+    );
+    fs.writeFileSync(path.join(stage, "templates.json"), JSON.stringify(tplR.rows, null, 2));
+
+    // Credit ledger snapshot (wave 29 cross-include).
+    const creditsR = await withClient((c) =>
+      c.query<any>(
+        `SELECT balance, lifetime_earned, lifetime_spent, updated_at
+           FROM user_credits WHERE user_id = $1`,
+        [userId],
+      ),
+    );
+    const eventsR = await withClient((c) =>
+      c.query<any>(
+        `SELECT id, delta, reason, payload, created_at
+           FROM credit_events WHERE user_id = $1 ORDER BY created_at DESC`,
+        [userId],
+      ),
+    );
+    fs.writeFileSync(
+      path.join(stage, "credits.json"),
+      JSON.stringify({ summary: creditsR.rows[0] || null, events: eventsR.rows }, null, 2),
+    );
+
+    const readme =
+`# cssOS Data Export
+
+Generated: ${new Date().toISOString()}
+User: ${userId}
+
+## Files
+
+- profile.json         — your users-row (display name, avatar, bio, created_at).
+- mvs/{work_id}.json   — every personalized MV you created.
+- mvs/{work_id}/cover.* — cover image (local copies only; URLs in JSON).
+- comments.json        — comments you posted on any MV.
+- interactions.json    — your likes (likes[]) and views (views[]).
+- subscriptions.json   — RSS / feed subscriptions you set up (wave 26).
+- templates.json       — templates you published or forked (wave 28).
+- credits.json         — credit ledger summary + every credit_events row (wave 29).
+
+## Media policy
+
+Large media (final_mv_url, full-res videos) is referenced by URL in
+the JSON files rather than copied into this archive. The byte cap is
+EXPORT_INCLUDE_MEDIA_BYTES_LIMIT (default 200MB).
+
+This archive expires 7 days after creation. Re-request anytime via
+"Download my data" on your homepage.
+`;
+    fs.writeFileSync(path.join(stage, "README.md"), readme);
+
+    const outFile = path.join(root, `${userId}-${jobId}.zip`);
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn("zip", ["-r", "-q", outFile, "."], { cwd: stage });
+      child.on("error", reject);
+      child.on("exit", (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`zip exited ${code}`));
+      });
+    });
+
+    const downloadUrl = `/api/user/export/${jobId}/download`;
+    const expiresAt = new Date(Date.now() + EXPORT_TTL_MS).toISOString();
+    await withClient((c) =>
+      c.query(
+        `UPDATE user_export_jobs
+            SET status = 'done', download_url = $2, expires_at = $3::timestamptz, updated_at = now()
+          WHERE job_id = $1`,
+        [jobId, downloadUrl, expiresAt],
+      ),
+    );
+  } catch (err) {
+    const msg = (err as Error)?.message || String(err);
+    console.warn("[export] job failed:", msg);
+    await withClient((c) =>
+      c.query(
+        `UPDATE user_export_jobs SET status = 'failed', error = $2, updated_at = now() WHERE job_id = $1`,
+        [jobId, msg.slice(0, 1000)],
+      ),
+    );
+  } finally {
+    try { fs.rmSync(stage, { recursive: true, force: true }); } catch (_e) { /* ignore */ }
+  }
+}
+
+app.post("/api/user/export", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const r = await withClient((c) =>
+      c.query<{ job_id: string }>(
+        `INSERT INTO user_export_jobs (user_id, status) VALUES ($1, 'pending') RETURNING job_id`,
+        [user.id],
+      ),
+    );
+    const jobId = r.rows[0]?.job_id;
+    if (!jobId) return res.status(500).json({ ok: false, code: "EXPORT_INIT_FAILED" });
+    setTimeout(() => {
+      runUserExportJob(jobId, user.id).catch((err) => {
+        console.warn("[export] background failed:", (err as Error)?.message || err);
+      });
+    }, 50);
+    return res.json({ ok: true, job_id: jobId, status: "pending" });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "EXPORT_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/user/export/:job_id", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const id = String(req.params.job_id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT job_id, status, download_url, expires_at, error, created_at, updated_at
+           FROM user_export_jobs WHERE job_id = $1::uuid AND user_id = $2`,
+        [id, user.id],
+      ),
+    );
+    const job = r.rows[0];
+    if (!job) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    return res.json({ ok: true, job });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "EXPORT_STATUS_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/user/export/:job_id/download", async (req, res) => {
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const id = String(req.params.job_id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT user_id, status, expires_at FROM user_export_jobs WHERE job_id = $1::uuid`,
+        [id],
+      ),
+    );
+    const job = r.rows[0];
+    if (!job || job.user_id !== user.id) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    if (job.status !== "done") return res.status(409).json({ ok: false, code: "NOT_READY", status: job.status });
+    if (job.expires_at && new Date(job.expires_at).getTime() < Date.now()) {
+      return res.status(410).json({ ok: false, code: "EXPIRED" });
+    }
+    const file = path.join(exportRootDir(), `${user.id}-${id}.zip`);
+    if (!fs.existsSync(file)) return res.status(410).json({ ok: false, code: "FILE_MISSING" });
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="cssos-export-${id}.zip"`);
+    fs.createReadStream(file).pipe(res);
+    return;
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "EXPORT_DOWNLOAD_FAILED", message: String(err) });
+  }
+});
+
+async function pruneExpiredExports(): Promise<number> {
+  if (!DATABASE_URL) return 0;
+  try {
+    const r = await withClient((c) =>
+      c.query<{ job_id: string; user_id: string }>(
+        `SELECT job_id, user_id FROM user_export_jobs
+          WHERE expires_at IS NOT NULL AND expires_at < now() AND status = 'done'`,
+      ),
+    );
+    const root = exportRootDir();
+    let removed = 0;
+    for (const row of r.rows) {
+      const f = path.join(root, `${row.user_id}-${row.job_id}.zip`);
+      try { if (fs.existsSync(f)) { fs.unlinkSync(f); removed++; } } catch (_e) { /* ignore */ }
+      await withClient((c) =>
+        c.query(
+          `UPDATE user_export_jobs SET status = 'expired', download_url = NULL, updated_at = now()
+            WHERE job_id = $1`,
+          [row.job_id],
+        ),
+      );
+    }
+    return removed;
+  } catch (err) {
+    console.warn("[export] prune failed:", (err as Error)?.message || err);
+    return 0;
+  }
+}
 
 /* CSSOS_PERSON_MV_WAVE12 20260508 — Jing — comments + share. */
 function escapeHtmlBody(s: string): string {
@@ -26070,6 +26460,23 @@ async function start() {
     };
     setTimeout(notifCleanupTick, 10 * 60 * 1000);
     setInterval(notifCleanupTick, TWELVE_HOURS_MS);
+  }
+
+  /* CSSOS_PERSON_MV_WAVE33 20260508 — Jing
+   * Daily prune of expired GDPR export ZIPs (>7 days). Same-process
+   * scheduler — no external cron required. */
+  if (process.env.DATABASE_URL) {
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    const exportPruneTick = async () => {
+      try {
+        const removed = await pruneExpiredExports();
+        if (removed > 0) console.log(`[export] pruned ${removed} expired zip(s)`);
+      } catch (err) {
+        console.warn("[export] prune tick failed:", (err as Error)?.message || err);
+      }
+    };
+    setTimeout(exportPruneTick, 15 * 60 * 1000);
+    setInterval(exportPruneTick, ONE_DAY_MS);
   }
 
   app.listen(PORT, () => {

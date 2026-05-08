@@ -23887,8 +23887,13 @@ app.get("/auth/return", (req, res) => {
 app.get("/.well-known/apple-app-site-association", (_req, res) => {
   res.type("application/json");
   res.setHeader("Cache-Control", "public, max-age=3600");
+  /* CSSOS_AASA_DOTFILES_ALLOW 20260508 — Jing
+   * Express sendFile defaults to dotfiles:'ignore' which 404's any
+   * path under .well-known. Apple requires this exact URL — must
+   * allow dotfile subdirs. */
   return res.sendFile(
     path.join(PUBLIC_DIR, ".well-known", "apple-app-site-association"),
+    { dotfiles: "allow" },
   );
 });
 

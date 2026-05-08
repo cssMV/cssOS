@@ -27,12 +27,25 @@ export type SendEmailArgs = {
 export type SendEmailResult = { ok: true; provider: string } | { ok: false; error: string };
 
 function defaultFrom(): string {
-  return (process.env.EMAIL_FROM || "CSS Studio <digest@cssos.app>").trim();
+  // CSSOS_WAVE94 20260508 — fall back to Resend's auto-verified test
+  // domain when EMAIL_FROM is unset, so first-boot deploys don't fail
+  // the digest job with "domain not verified" before DNS is wired.
+  const explicit = (process.env.EMAIL_FROM || "").trim();
+  if (explicit) return explicit;
+  return "CSS Studio <onboarding@resend.dev>";
+}
+
+function fromDomain(addr: string): string {
+  const m = /<([^>]+)>/.exec(addr);
+  const email = ((m && m[1]) ? m[1] : addr).trim();
+  const at = email.lastIndexOf("@");
+  return at >= 0 ? email.slice(at + 1) : email;
 }
 
 export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
   const apiKey = (process.env.RESEND_API_KEY || "").trim();
   if (apiKey) {
+    const fromAddr = args.from || defaultFrom();
     try {
       const r = await fetch("https://api.resend.com/emails", {
         method: "POST",
@@ -41,7 +54,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          from: args.from || defaultFrom(),
+          from: fromAddr,
           to: [args.to],
           subject: args.subject,
           html: args.html,
@@ -50,7 +63,20 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
       });
       if (!r.ok) {
         const body = await r.text().catch(() => "");
-        return { ok: false, error: `resend ${r.status}: ${body.slice(0, 200)}` };
+        // CSSOS_WAVE94 20260508 — surface domain-not-verified as a
+        // CLEAR, actionable warning so admins know exactly what to do.
+        const looksDomain =
+          (r.status === 403 || r.status === 422) &&
+          /domain|verif/i.test(body);
+        if (looksDomain) {
+          const dom = fromDomain(fromAddr);
+          console.warn(
+            `[digest] Resend rejected: domain "${dom}" not verified.\n` +
+            `         Add DNS records at https://resend.com/domains, OR set\n` +
+            `         EMAIL_FROM=onboarding@resend.dev for testing.`,
+          );
+        }
+        return { ok: false, error: `resend ${r.status}: ${body.slice(0, 300)}` };
       }
       return { ok: true, provider: "resend" };
     } catch (err) {

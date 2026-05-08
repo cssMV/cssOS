@@ -18784,6 +18784,83 @@ app.post("/api/user/email-prefs", express.json({ limit: "2kb" }), async (req, re
   }
 });
 
+/* CSSOS_WAVE94 20260508 — Jing — health probe admin endpoints. */
+app.get("/api/admin/health/probes", async (req, res) => {
+  noStore(res);
+  try {
+    if (!(await isAdminRequest(req))) {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const limit = Math.min(Math.max(parseInt(String(req.query.limit || "50"), 10) || 50, 1), 500);
+    const kind = String(req.query.kind || "").trim();
+    const params: any[] = [limit];
+    let where = "";
+    if (kind) { where = `WHERE probe_kind = $2`; params.push(kind); }
+    const r = await withClient((c) =>
+      c.query(
+        `SELECT id, probe_kind, target, ok, duration_ms, status_code, detail, ts::text AS ts
+           FROM health_probe_log
+           ${where}
+           ORDER BY ts DESC
+           LIMIT $1`,
+        params,
+      ),
+    );
+    return res.json({ ok: true, rows: r.rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "HEALTH_PROBES_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/admin/health/summary", async (req, res) => {
+  noStore(res);
+  try {
+    if (!(await isAdminRequest(req))) {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const { loadHealthSummary24h } = await import("./lib/health-probes");
+    const summary = await loadHealthSummary24h();
+    return res.json({ ok: true, ...summary });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "HEALTH_SUMMARY_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_WAVE99 20260508 — Jing — daily OPS report admin endpoints. */
+app.get("/api/admin/ops/preview", async (req, res) => {
+  noStore(res);
+  try {
+    if (!(await isAdminRequest(req))) {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const { composeDailyOpsReport } = await import("./lib/daily-ops-report");
+    const composed = await composeDailyOpsReport();
+    return res.json({
+      ok: true,
+      subject: composed.subject,
+      html: composed.html,
+      text: composed.text,
+      metrics: composed.metrics,
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "OPS_PREVIEW_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/admin/ops/send-now", async (req, res) => {
+  noStore(res);
+  try {
+    if (!(await isAdminRequest(req))) {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const { sendDailyOpsReport } = await import("./lib/daily-ops-report");
+    const out = await sendDailyOpsReport();
+    return res.json({ ok: true, ...out });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "OPS_SEND_FAILED", message: String(err) });
+  }
+});
+
 app.post("/api/admin/digest/send-now", async (req, res) => {
   noStore(res);
   try {
@@ -20239,6 +20316,7 @@ async function runHeadlessPipeline(
       }
       // Wave 97: mirror final MV mp4 to R2 (fire-and-forget).
       uploadToR2Async(outAbs, `artifacts/mv-fallback/${outName}`, "video/mp4");
+      uploadToR2Async(outAbs, `artifacts/mv-fallback/${outName}`, "video/mp4");
       return { value: `/artifacts/mv-fallback/${outName}`, provider: "ffmpeg" };
     });
   } else {
@@ -21067,11 +21145,13 @@ async function runDialoguePipeline(
           }
           const r2 = await spawnFfmpeg(args);
           if (r2.code === 0 && fs.existsSync(outAbs)) {
+            uploadToR2Async(outAbs, `artifacts/mv-fallback/${outName}`, "video/mp4");
             return { value: `/artifacts/mv-fallback/${outName}`, provider: "ffmpeg-no-subs" };
           }
         }
         throw new Error(`ffmpeg_failed code=${r.code} stderr=${(r.stderr || "").slice(0, 400)}`);
       }
+      uploadToR2Async(outAbs, `artifacts/mv-fallback/${outName}`, "video/mp4");
       return { value: `/artifacts/mv-fallback/${outName}`, provider: "ffmpeg" };
     });
   } else {
@@ -21477,11 +21557,13 @@ async function runHeadlessGroupPipeline(
           }
           const r2 = await spawnFfmpeg(args);
           if (r2.code === 0 && fs.existsSync(outAbs)) {
+            uploadToR2Async(outAbs, `artifacts/mv-fallback/${outName}`, "video/mp4");
             return { value: `/artifacts/mv-fallback/${outName}`, provider: "ffmpeg-no-subs" };
           }
         }
         throw new Error(`ffmpeg_failed code=${r.code} stderr=${(r.stderr || "").slice(0, 400)}`);
       }
+      uploadToR2Async(outAbs, `artifacts/mv-fallback/${outName}`, "video/mp4");
       return { value: `/artifacts/mv-fallback/${outName}`, provider: "ffmpeg" };
     });
   } else {

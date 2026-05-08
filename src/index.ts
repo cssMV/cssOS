@@ -16652,6 +16652,331 @@ app.post("/api/admin/person-mv/generate-samples", express.json({ limit: "4kb" })
   }
 });
 
+/* CSSOS_PERSON_MV_WAVE14 20260508 — Jing
+ * Cross-person dialogue MV. Two persons "converse" in alternating verses
+ * with color-coded subtitles and a side-by-side cover. Re-uses the same
+ * helpers as the headless sample pipeline (Wave 13a) — callImageGen is
+ * NOT called for the cover; instead we hstack each person's portrait. */
+type DialogueMvUserBudget = { lastAt: number };
+const DIALOGUE_MV_BUDGETS = new Map<string, DialogueMvUserBudget>();
+
+async function composeDialogueCover(
+  portraitA: string | null,
+  portraitB: string | null,
+  outDir: string,
+): Promise<{ ok: true; abs: string; cmd: string } | { ok: false; error: string }> {
+  if (!portraitA || !portraitB) return { ok: false, error: "missing_portrait" };
+  const aAbs = await materializeToFile(portraitA, "png");
+  const bAbs = await materializeToFile(portraitB, "png");
+  if (!aAbs || !bAbs) return { ok: false, error: "portrait_materialize_failed" };
+  const outName = `dialogue-cover-${Date.now()}-${crypto.randomBytes(3).toString("hex")}.png`;
+  const outAbs = path.join(outDir, outName);
+  // Side-by-side 1280x720 with vertical white divider.
+  const filter =
+    "[0:v]scale=640:720:force_original_aspect_ratio=increase,crop=640:720[a];" +
+    "[1:v]scale=640:720:force_original_aspect_ratio=increase,crop=640:720[b];" +
+    "[a][b]hstack=inputs=2,drawbox=x=638:y=0:w=4:h=720:color=white@0.5:t=fill";
+  const args = ["-y", "-i", aAbs, "-i", bAbs, "-filter_complex", filter, "-frames:v", "1", outAbs];
+  const r = await spawnFfmpeg(args);
+  if (r.code !== 0 || !fs.existsSync(outAbs)) {
+    return { ok: false, error: `ffmpeg_cover_failed code=${r.code} ${(r.stderr || "").slice(0, 200)}` };
+  }
+  return { ok: true, abs: outAbs, cmd: `ffmpeg ${args.join(" ")}` };
+}
+
+/** Parse `[a] verse\nline\n\n[b] verse\nline...` into structured verses. */
+function parseDialogueLyrics(raw: string): Array<{ voice: "a" | "b"; text: string }> {
+  const out: Array<{ voice: "a" | "b"; text: string }> = [];
+  if (!raw) return out;
+  const lines = String(raw).split(/\r?\n/);
+  let cur: { voice: "a" | "b"; text: string } | null = null;
+  for (const line of lines) {
+    const m = line.match(/^\s*\[([abAB])\]\s*(.*)$/);
+    if (m && m[1]) {
+      if (cur && cur.text.trim()) out.push(cur);
+      cur = { voice: m[1].toLowerCase() as "a" | "b", text: m[2] || "" };
+    } else if (cur) {
+      cur.text += (cur.text ? "\n" : "") + line.trim();
+    }
+  }
+  if (cur && cur.text.trim()) out.push(cur);
+  return out
+    .map((v) => ({ voice: v.voice, text: v.text.replace(/\n+$/g, "").trim() }))
+    .filter((v) => v.text.length > 0);
+}
+
+/** Build SRT with libass-friendly <font color> tags so the burned-in
+ * subtitles filter renders alternating colors. Falls back to plain text
+ * if a rendering pipeline doesn't support font tags. */
+function buildDialogueSrt(verses: Array<{ voice: "a" | "b"; text: string }>, durationSec: number): string {
+  if (!verses.length) return "";
+  const per = durationSec / verses.length;
+  return verses.map((v, i) => {
+    const start = i * per;
+    const end = Math.min(durationSec, (i + 1) * per - 0.05);
+    const color = v.voice === "a" ? "#00ff88" : "#ff6699";
+    const text = `<font color="${color}">${v.text}</font>`;
+    return `${i + 1}\n${srtTs(start)} --> ${srtTs(end)}\n${text}\n`;
+  }).join("\n");
+}
+
+async function runDialoguePipeline(
+  a: { person_id: string; name_zh: string | null; name_en: string | null; core_theme: string | null; tone: string | null; music_style_hint: string | null; portrait_url: string | null; lore: any },
+  b: { person_id: string; name_zh: string | null; name_en: string | null; core_theme: string | null; tone: string | null; music_style_hint: string | null; portrait_url: string | null; lore: any },
+  _opts: { systemUserId: string },
+): Promise<HeadlessResult & { ffmpeg_cover_cmd?: string }> {
+  const stages: HeadlessStage[] = [];
+  let coverCmd = "";
+  const stage = async <T,>(name: string, fn: () => Promise<{ value: T; provider?: string }>): Promise<T | null> => {
+    const t0 = Date.now();
+    try {
+      const { value, provider } = await fn();
+      stages.push({ name, ok: true, ms: Date.now() - t0, provider });
+      return value;
+    } catch (err) {
+      stages.push({ name, ok: false, ms: Date.now() - t0, error: (err as Error)?.message || String(err) });
+      return null;
+    }
+  };
+
+  const aName = String(a.name_zh || a.name_en || a.person_id);
+  const bName = String(b.name_zh || b.name_en || b.person_id);
+  const durationSec = 36;
+
+  // 1) Cover — hstack portraits.
+  const coverUrl = await stage("cover", async () => {
+    const portraitA = a.portrait_url || (a.lore && a.lore.portrait_url) || null;
+    const portraitB = b.portrait_url || (b.lore && b.lore.portrait_url) || null;
+    const r = await composeDialogueCover(portraitA, portraitB, MV_FALLBACK_ARTIFACTS_DIR);
+    if (!r.ok) throw new Error(r.error);
+    coverCmd = r.cmd;
+    const filename = path.basename(r.abs);
+    return { value: `/artifacts/mv-fallback/${filename}`, provider: "ffmpeg-hstack" };
+  });
+
+  // 2) Lyrics — alternating dialogue with [a]/[b] markers.
+  const lyrics = await stage("lyrics", async () => {
+    const sys = "You write song lyrics as a dialogue between two thinkers. Output ONLY the lyrics. " +
+      "Mark each verse with [a] or [b]. 6 verses total, alternating, [a] first. Each verse 2-4 short lines. " +
+      "Capture each thinker's distinct voice. Use the same primary language as the subjects (Chinese if either name is Chinese, otherwise English).";
+    const user = `Person A: ${aName} (tone: ${a.tone || "—"}, theme: ${a.core_theme || "—"})\n` +
+      `Person B: ${bName} (tone: ${b.tone || "—"}, theme: ${b.core_theme || "—"})\n` +
+      `Write 6 verses now, alternating [a] and [b], starting with [a].`;
+    const llm = await callLlm({
+      messages: [{ role: "system", content: sys }, { role: "user", content: user }],
+      temperature: 0.85,
+      max_tokens: 700,
+    });
+    if (!llm.ok) throw new Error(llm.error || "lyrics_failed");
+    const text = String(llm.content || "").trim();
+    if (!text) throw new Error("lyrics_empty");
+    return { value: text, provider: llm.provider };
+  });
+
+  // 3) Music — blended themes.
+  const audioUrl = await stage("music", async () => {
+    const blendStyle = [a.music_style_hint, b.music_style_hint].filter(Boolean).join(" / ") || "cinematic";
+    const blendTheme = [a.core_theme, b.core_theme].filter(Boolean).join(" ↔ ") || `${aName} ↔ ${bName}`;
+    const mus = await callMusicGen({
+      prompt: `${blendTheme} — dialogue, two voices, call and response`,
+      duration_secs: durationSec,
+      tags: [blendStyle, "cinematic", "dialogue"],
+    });
+    if (!mus.ok) throw new Error(mus.error || "music_failed");
+    let url = mus.audio_url || "";
+    if (!url && mus.audio_b64) {
+      const persisted = persistBase64Audio(mus.audio_b64, `${a.person_id}-${b.person_id}`);
+      if (persisted) url = persisted;
+    }
+    if (!url) throw new Error("music_no_url");
+    return { value: url, provider: mus.provider };
+  });
+
+  // 4) Subtitles — color-coded alternating verses.
+  const srtPath = await stage("subtitles", async () => {
+    if (!lyrics) throw new Error("no_lyrics");
+    const verses = parseDialogueLyrics(lyrics);
+    if (!verses.length) throw new Error("verses_empty");
+    const srt = buildDialogueSrt(verses, durationSec);
+    if (!srt) throw new Error("srt_empty");
+    const filename = `srt-dlg-${a.person_id.slice(0, 6)}-${b.person_id.slice(0, 6)}-${Date.now()}.srt`;
+    const abs = path.join(MV_FALLBACK_ARTIFACTS_DIR, filename);
+    fs.writeFileSync(abs, srt, { mode: 0o644 });
+    return { value: abs, provider: "dialogue-srt-fontcolor" };
+  });
+
+  // 5) Compose — split portrait + audio + colored subs.
+  let mvUrl: string | null = null;
+  if (coverUrl && audioUrl) {
+    mvUrl = await stage("compose", async () => {
+      const coverAbs = await materializeToFile(coverUrl, "png");
+      const audioAbs = await materializeToFile(audioUrl, "mp3");
+      if (!coverAbs) throw new Error("cover_materialize_failed");
+      if (!audioAbs) throw new Error("audio_materialize_failed");
+      const outName = `dialogue-${a.person_id.slice(0, 6)}-${b.person_id.slice(0, 6)}-${Date.now()}.mp4`;
+      const outAbs = path.join(MV_FALLBACK_ARTIFACTS_DIR, outName);
+      const vfParts: string[] = [];
+      if (srtPath) vfParts.push(`subtitles='${srtPath.replace(/'/g, "\\'")}'`);
+      vfParts.push(`scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2`);
+      const args = [
+        "-y",
+        "-loop", "1",
+        "-i", coverAbs,
+        "-i", audioAbs,
+        "-vf", vfParts.join(","),
+        "-c:v", "libx264", "-tune", "stillimage", "-preset", "veryfast",
+        "-c:a", "aac", "-b:a", "192k",
+        "-pix_fmt", "yuv420p",
+        "-t", String(durationSec),
+        "-shortest",
+        outAbs,
+      ];
+      const r = await spawnFfmpeg(args);
+      if (r.code !== 0 || !fs.existsSync(outAbs)) {
+        // Retry without subtitles if libass-backed `subtitles` filter is
+        // unavailable in the deployed ffmpeg build.
+        if (srtPath && /No such filter|Unknown filter|subtitles/i.test(r.stderr || "")) {
+          const idx = args.indexOf("-vf");
+          if (idx >= 0 && args[idx + 1]) {
+            args[idx + 1] = String(args[idx + 1])
+              .split(",")
+              .filter((p) => !p.startsWith("subtitles="))
+              .join(",");
+          }
+          const r2 = await spawnFfmpeg(args);
+          if (r2.code === 0 && fs.existsSync(outAbs)) {
+            return { value: `/artifacts/mv-fallback/${outName}`, provider: "ffmpeg-no-subs" };
+          }
+        }
+        throw new Error(`ffmpeg_failed code=${r.code} stderr=${(r.stderr || "").slice(0, 400)}`);
+      }
+      return { value: `/artifacts/mv-fallback/${outName}`, provider: "ffmpeg" };
+    });
+  } else {
+    stages.push({ name: "compose", ok: false, ms: 0, error: "missing_cover_or_audio" });
+  }
+
+  return {
+    ok: !!coverUrl && !!mvUrl,
+    cover_url: coverUrl || undefined,
+    audio_url: audioUrl || undefined,
+    mv_url: mvUrl || undefined,
+    video_skipped: true,
+    stages,
+    ffmpeg_cover_cmd: coverCmd,
+  };
+}
+
+app.post("/api/person-mv/dialogue", express.json({ limit: "4kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const aId = String((req.body && req.body.person_a_id) || "").trim();
+    const bId = String((req.body && req.body.person_b_id) || "").trim();
+    if (!aId || !bId) return res.status(400).json({ ok: false, code: "MISSING_IDS" });
+    if (aId === bId) return res.status(400).json({ ok: false, code: "SAME_PERSON" });
+
+    // Single-flight per user — only one dialogue MV per minute (v1).
+    const now = Date.now();
+    const budget = DIALOGUE_MV_BUDGETS.get(String(user.id));
+    if (budget && now - budget.lastAt < 60_000) {
+      return res.status(429).json({ ok: false, code: "RATE_LIMITED", message: "Wait a minute before generating another dialogue MV." });
+    }
+    DIALOGUE_MV_BUDGETS.set(String(user.id), { lastAt: now });
+
+    await seedPersonProfilesOnce();
+
+    const { rows } = await withClient((c) =>
+      c.query<any>(
+        `SELECT person_id, name_zh, name_en, civilization, era, lifespan,
+                core_theme, music_style_hint, tone, lore, portrait_url, visual_symbols
+           FROM person_profiles
+          WHERE person_id = ANY($1::text[])`,
+        [[aId, bId]],
+      ),
+    );
+    const a = rows.find((r: any) => r.person_id === aId);
+    const b = rows.find((r: any) => r.person_id === bId);
+    if (!a || !b) return res.status(404).json({ ok: false, code: "PERSON_NOT_FOUND" });
+
+    // Heartbeat (chunked) so nginx keeps the long pipeline alive.
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("Transfer-Encoding", "chunked");
+    const hb = setInterval(() => { try { res.write(" "); } catch (_e) {} }, 8000);
+
+    const result = await runDialoguePipeline(a, b, { systemUserId: String(user.id) });
+    clearInterval(hb);
+
+    if (!result.cover_url || !result.mv_url) {
+      return res.end(JSON.stringify({ ok: false, code: "PIPELINE_FAILED", stages: result.stages, error: "cover_or_mv_missing" }));
+    }
+
+    const workId = crypto.randomUUID();
+    const aName = String(a.name_zh || a.name_en || a.person_id);
+    const bName = String(b.name_zh || b.name_en || b.person_id);
+    const title = `${aName} ↔ ${bName} · 对话 MV`.slice(0, 200);
+    const style = [a.music_style_hint, b.music_style_hint].filter(Boolean).join(" / ") || "cinematic";
+
+    let mvId = "";
+    try {
+      mvId = await withClient(async (client) => {
+        await client.query("BEGIN");
+        try {
+          await client.query(
+            `INSERT INTO user_works (id, user_id, title, style, work_type, status, cover_image)
+             VALUES ($1::uuid, $2, $3, $4, 'mv', 'published', $5)`,
+            [workId, String(user.id), title, style, result.cover_url],
+          );
+          if (result.mv_url) {
+            await client.query(
+              `INSERT INTO work_assets (work_id, asset_type, url, meta)
+                 VALUES ($1::uuid, 'final_mv', $2, '{}'::jsonb)
+               ON CONFLICT (work_id, asset_type) DO UPDATE SET url = EXCLUDED.url`,
+              [workId, result.mv_url],
+            );
+          }
+          if (result.audio_url) {
+            await client.query(
+              `INSERT INTO work_assets (work_id, asset_type, url, meta)
+                 VALUES ($1::uuid, 'audio_track_1', $2, '{}'::jsonb)
+               ON CONFLICT (work_id, asset_type) DO UPDATE SET url = EXCLUDED.url`,
+              [workId, result.audio_url],
+            );
+          }
+          const ins = await client.query<{ mv_id: string }>(
+            `INSERT INTO person_dialogue_mvs (work_id, person_a_id, person_b_id, created_by_user_id)
+             VALUES ($1::uuid, $2, $3, $4::uuid)
+             RETURNING mv_id`,
+            [workId, aId, bId, String(user.id)],
+          );
+          await client.query("COMMIT");
+          return ins.rows[0]?.mv_id || "";
+        } catch (err) {
+          await client.query("ROLLBACK");
+          throw err;
+        }
+      });
+    } catch (err) {
+      console.warn("[person-mv] dialogue insert failed:", (err as Error)?.message || err);
+      return res.end(JSON.stringify({ ok: false, code: "DB_INSERT_FAILED", error: (err as Error)?.message }));
+    }
+
+    return res.end(JSON.stringify({
+      ok: true,
+      work_id: workId,
+      mv_id: mvId,
+      mv_url: result.mv_url,
+      cover_url: result.cover_url,
+      stages: result.stages,
+    }));
+  } catch (err) {
+    console.warn("[person-mv] dialogue failed:", (err as Error)?.message || err);
+    try { return res.status(500).json({ ok: false, code: "DIALOGUE_FAILED" }); }
+    catch (_e) { try { return (res as any).end(JSON.stringify({ ok: false, code: "DIALOGUE_FAILED" })); } catch (__e) {} }
+  }
+});
+
 /* CSSOS_PERSON_MV_WAVE4_LEADERBOARD 20260507 — Jing
  * Top creators by MV count for a person. Joins users for
  * display_name + avatar_url so the gallery ribbon can render. */

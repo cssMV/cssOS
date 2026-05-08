@@ -1121,6 +1121,38 @@
       }
       h += '</div>';
 
+      /* CSSOS_PERSON_MV_WAVE14 20260508 — Jing
+       * Dialogue MV gallery — surfaced from EITHER person's codex.
+       * Each card shows the split portrait and links to the other person. */
+      var dialogueMvs = Array.isArray(data.dialogue_mvs) ? data.dialogue_mvs : [];
+      if (dialogueMvs.length) {
+        h += '<div class="pmv-section"><h3>⚔️ ' + escTxt(tt("Dialogue MVs", "对话 MV")) + '</h3>' +
+          '<div class="pmv-mv-grid">' +
+          dialogueMvs.map(function(d){
+            var poster = d.cover_image || "";
+            var aName = d.a_name_zh || d.a_name_en || "";
+            var bName = d.b_name_zh || d.b_name_en || "";
+            // Click jumps to the OTHER person's codex (whichever is not current).
+            var otherId = (d.person_a_id === p.person_id) ? d.person_b_id : d.person_a_id;
+            var statsBadge = '<div class="pmv-mv-stats">👁 ' + escTxt(fmtCount(d.view_count || 0)) +
+              ' · ❤️ ' + escTxt(fmtCount(d.like_count || 0)) + '</div>';
+            var ribbon = '<div class="pmv-mv-ribbon" style="background:linear-gradient(135deg,#00f5a0,#ff6699);color:#001b14;">⚔️ ' +
+              escTxt(tt("Dialogue", "对话")) + '</div>';
+            var meta = '<div class="pmv-mv-meta">' + escTxt(aName + " ↔ " + bName) + '</div>';
+            var inner;
+            if (poster) {
+              inner = '<img class="pmv-mv-poster" src="' + escAttr(poster) + '" alt="" ' +
+                'onerror="this.parentNode.innerHTML=\'<div class=&quot;pmv-mv-fallback&quot;>⚔️</div>\';">' +
+                statsBadge + ribbon + meta;
+            } else {
+              inner = '<div class="pmv-mv-fallback">⚔️</div>' + statsBadge + ribbon + meta;
+            }
+            return '<div class="pmv-mv-card" data-work-id="' + escAttr(d.work_id) +
+              '" data-codex-jump="' + escAttr(otherId) + '">' + inner + '</div>';
+          }).join("") +
+          '</div></div>';
+      }
+
       // Contemporaries
       var contemp = Array.isArray(data.contemporaries) ? data.contemporaries : [];
       if (contemp.length) {
@@ -1315,6 +1347,15 @@
           '<div class="pmv-compare-pane" data-pane="left">' + escTxt(tt("Loading…", "加载中…")) + '</div>' +
           '<div class="pmv-compare-pane" data-pane="right">' + escTxt(tt("Pick someone above to compare.", "在上方选择要对比的人物。")) + '</div>' +
         '</div>' +
+        /* CSSOS_PERSON_MV_WAVE14 20260508 — dialogue MV CTA */
+        '<div class="pmv-compare-dialogue" style="padding:10px 14px 16px;display:flex;flex-direction:column;align-items:center;gap:6px;border-top:1px solid rgba(0,245,160,.18);">' +
+          '<button class="pmv-compare-dialogue-btn" disabled style="cursor:not-allowed;opacity:.55;background:linear-gradient(135deg,#00f5a0,#ff6699);color:#001b14;border:0;border-radius:10px;padding:10px 22px;font:700 14px/1.2 ui-monospace,monospace;">' +
+            '🎬 ' + escTxt(tt("Generate dialogue MV", "生成对话 MV")) +
+          '</button>' +
+          '<div class="pmv-compare-dialogue-status" style="font:500 11px/1.3 ui-monospace,monospace;color:#9ad6c0;text-align:center;">' +
+            escTxt(tt("Pick the second person to enable.", "选择另一位人物以启用。")) +
+          '</div>' +
+        '</div>' +
       '</div>';
     document.body.appendChild(modal);
     modal.addEventListener("click", function(e){
@@ -1351,6 +1392,25 @@
     var rightPane = modal.querySelector('[data-pane="right"]');
     leftPane.innerHTML = paneHtml(leftData);
 
+    /* CSSOS_PERSON_MV_WAVE14 20260508 — track current pair so the
+     * dialogue MV button knows which two ids to POST. */
+    var dialogueBtn = modal.querySelector(".pmv-compare-dialogue-btn");
+    var dialogueStatus = modal.querySelector(".pmv-compare-dialogue-status");
+    var currentLeftId = leftPersonId;
+    var currentRightId = "";
+    function refreshDialogueBtn() {
+      if (!dialogueBtn) return;
+      var ready = !!(currentLeftId && currentRightId && currentLeftId !== currentRightId);
+      dialogueBtn.disabled = !ready;
+      dialogueBtn.style.cursor = ready ? "pointer" : "not-allowed";
+      dialogueBtn.style.opacity = ready ? "1" : ".55";
+      if (dialogueStatus) {
+        dialogueStatus.textContent = ready
+          ? tt("Ready — generates 6 alternating verses, takes ~60s.", "已就绪——生成 6 段交替诗节，约需 60 秒。")
+          : tt("Pick the second person to enable.", "选择另一位人物以启用。");
+      }
+    }
+
     async function loadAndRender(targetId, paneEl) {
       paneEl.innerHTML = escTxt(tt("Loading…", "加载中…"));
       try {
@@ -1364,6 +1424,9 @@
           return;
         }
         paneEl.innerHTML = paneHtml(j.data || {});
+        if (paneEl === leftPane) currentLeftId = targetId;
+        if (paneEl === rightPane) currentRightId = targetId;
+        refreshDialogueBtn();
       } catch (err) {
         paneEl.innerHTML = escTxt(tt("Failed.", "加载失败。"));
       }
@@ -1375,6 +1438,54 @@
         loadAndRender(swapLeft, leftPane);
       }
       loadAndRender(otherId, rightPane);
+    }
+
+    if (dialogueBtn) {
+      dialogueBtn.addEventListener("click", async function(){
+        if (dialogueBtn.disabled) return;
+        if (!currentLeftId || !currentRightId) return;
+        var origText = dialogueBtn.textContent;
+        dialogueBtn.disabled = true;
+        dialogueBtn.style.cursor = "wait";
+        dialogueBtn.textContent = "⏳ " + tt("Generating…", "生成中…");
+        if (dialogueStatus) dialogueStatus.textContent = tt("Pipeline running — cover, lyrics, music, compose.", "流水线运行中——封面 / 歌词 / 配乐 / 合成。");
+        try {
+          var r = await fetch("/api/person-mv/dialogue", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ person_a_id: currentLeftId, person_b_id: currentRightId }),
+          });
+          var raw = await r.text();
+          // Trim any heartbeat whitespace prefix the server flushed for keep-alive.
+          var firstBrace = raw.indexOf("{");
+          var j = null;
+          try { j = JSON.parse(firstBrace >= 0 ? raw.slice(firstBrace) : raw); } catch (_e) {}
+          if (!j || !j.ok) {
+            var msg = (j && j.message) || (j && j.code) || tt("Generation failed.", "生成失败。");
+            if (dialogueStatus) dialogueStatus.textContent = "❌ " + msg;
+            dialogueBtn.disabled = false;
+            dialogueBtn.style.cursor = "pointer";
+            dialogueBtn.textContent = origText;
+            return;
+          }
+          if (dialogueStatus) dialogueStatus.textContent = "✅ " + tt("Done — opening cinema…", "完成——进入影院…");
+          // Open cinema with the new work_id when available.
+          try {
+            if (j.work_id && typeof globalThis.openCinemaQueue === "function") {
+              globalThis.openCinemaQueue([j.work_id]);
+            } else if (j.mv_url) {
+              window.open(j.mv_url, "_blank");
+            }
+          } catch (_e) {}
+          setTimeout(function(){ try { modal.remove(); } catch (_e) {} }, 600);
+        } catch (err) {
+          if (dialogueStatus) dialogueStatus.textContent = "❌ " + tt("Network error.", "网络错误。");
+          dialogueBtn.disabled = false;
+          dialogueBtn.style.cursor = "pointer";
+          dialogueBtn.textContent = origText;
+        }
+      });
     }
 
     modal.querySelectorAll(".pmv-compare-preset").forEach(function(el){

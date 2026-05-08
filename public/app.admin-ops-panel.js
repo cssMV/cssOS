@@ -49,6 +49,15 @@
   text-align:left;padding:5px 8px;border-bottom:1px solid #1c2734;vertical-align:top;}
 #cssos-admin-ops-card th{color:#9fb1c8;font-weight:500;background:#0d141d;}
 #cssos-admin-ops-card .ao-fail{color:#fca5a5;font-weight:600;}
+#cssos-admin-ops-card .ao-q-fast{color:#86efac;}
+#cssos-admin-ops-card .ao-q-mid{color:#fde68a;}
+#cssos-admin-ops-card .ao-q-slow{color:#fca5a5;font-weight:600;}
+#cssos-admin-ops-card .ao-q-cell{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;
+  color:#cbd6e4;white-space:pre-wrap;word-break:break-all;max-width:520px;}
+html[data-theme="light"] #cssos-admin-ops-card .ao-q-fast{color:#1f7a3a;}
+html[data-theme="light"] #cssos-admin-ops-card .ao-q-mid{color:#8a6406;}
+html[data-theme="light"] #cssos-admin-ops-card .ao-q-slow{color:#a82424;}
+html[data-theme="light"] #cssos-admin-ops-card .ao-q-cell{color:#2c5435;}
 #cssos-admin-ops-card .ao-msg{font-family:ui-monospace,Menlo,monospace;color:#f5d6c6;
   white-space:pre-wrap;word-break:break-word;max-width:520px;}
 #cssos-admin-ops-card .ao-status{color:#9fb1c8;font-size:12px;}
@@ -115,12 +124,86 @@ html[data-theme="light"] #cssos-admin-ops-card .ao-fail{color:#a82424;}
       <table><thead><tr><th>${esc(tr("Engine", "引擎"))}</th><th align="right">${esc(tr("Calls", "调用"))}</th><th align="right">${esc(tr("Cost", "成本"))}</th><th align="right">${esc(tr("Fail %", "失败率"))}</th></tr></thead><tbody>${usageRows}</tbody></table>
       <h3>${esc(tr("Web vitals (p75)", "Web Vitals p75"))}</h3>
       <table><thead><tr><th>${esc(tr("Metric", "指标"))}</th><th align="right">p75</th><th align="right">${esc(tr("Samples", "采样"))}</th></tr></thead><tbody>${vitalsRows}</tbody></table>
+      <h3>${esc(tr("🐢 Slow queries (pg_stat_statements)", "🐢 慢查询 (pg_stat_statements)"))}
+        <button type="button" class="ao-mini" id="cssos-admin-slowq-load" style="margin-left:8px;">${esc(tr("Load", "加载"))}</button>
+        <button type="button" class="ao-mini" id="cssos-admin-slowq-reset" style="margin-left:4px;">${esc(tr("Reset stats", "重置统计"))}</button>
+        <span id="cssos-admin-slowq-status" class="ao-status" style="margin-left:8px;"></span>
+      </h3>
+      <div id="cssos-admin-slowq-body">
+        <div class="ao-status">${esc(tr("Click Load to fetch top-20 slow queries.", "点击「加载」获取前 20 条慢查询。"))}</div>
+      </div>
       <div class="ao-status" style="margin-top:12px;">
         ${esc(tr("DB rows ~", "数据库行数 ≈"))} ${(m.storage && m.storage.db_row_estimate || 0).toLocaleString()}
         · ${esc(tr("artifacts", "工件目录"))} ${esc(fmtBytes(m.storage && m.storage.artifact_dir_bytes))}
         · ${esc(tr("generated", "生成于"))} ${esc(m.generated_at || "")}
       </div>
     `;
+  }
+
+  function classifyMean(ms) {
+    if (ms < 50) return "ao-q-fast";
+    if (ms < 500) return "ao-q-mid";
+    return "ao-q-slow";
+  }
+
+  function renderSlowQueries(j) {
+    if (!j || !j.ok) {
+      return `<div class="ao-status">${esc(tr("Failed to load.", "加载失败。"))}</div>`;
+    }
+    if (!j.available) {
+      return `<div class="ao-status">${esc(tr("Extension not enabled: ", "扩展未启用："))}${esc(j.reason || "")}</div>`;
+    }
+    const rows = (j.rows || []);
+    if (!rows.length) {
+      return `<div class="ao-status">${esc(tr("No slow queries recorded yet.", "暂无慢查询记录。"))}</div>`;
+    }
+    const body = rows.map((r) => {
+      const q = String(r.query_truncated || "");
+      const short = q.length > 80 ? q.slice(0, 80) + "…" : q;
+      const cls = classifyMean(r.mean_ms || 0);
+      return `<tr>
+        <td class="ao-q-cell" title="${esc(q)}">${esc(short)}</td>
+        <td align="right">${r.calls || 0}</td>
+        <td align="right" class="${cls}">${(r.mean_ms || 0).toFixed(2)}</td>
+        <td align="right">${(r.total_ms || 0).toFixed(0)}</td>
+      </tr>`;
+    }).join("");
+    return `<table>
+      <thead><tr>
+        <th>${esc(tr("Query", "查询"))}</th>
+        <th align="right">${esc(tr("Calls", "调用"))}</th>
+        <th align="right">${esc(tr("Mean ms", "平均 ms"))}</th>
+        <th align="right">${esc(tr("Total ms", "总计 ms"))}</th>
+      </tr></thead><tbody>${body}</tbody></table>`;
+  }
+
+  async function loadSlowQueries() {
+    const body = document.getElementById("cssos-admin-slowq-body");
+    const status = document.getElementById("cssos-admin-slowq-status");
+    if (!body) return;
+    if (status) status.textContent = tr("Loading…", "加载中…");
+    try {
+      const r = await fetch("/api/admin/db/slow-queries?limit=20", { credentials: "include" });
+      const j = await r.json();
+      body.innerHTML = renderSlowQueries(j);
+      if (status) status.textContent = "";
+    } catch (err) {
+      body.innerHTML = `<div class="ao-status">${esc(tr("Failed to load.", "加载失败。"))} ${esc(String(err && err.message || err))}</div>`;
+      if (status) status.textContent = "";
+    }
+  }
+
+  async function resetSlowQueries() {
+    const status = document.getElementById("cssos-admin-slowq-status");
+    if (status) status.textContent = tr("Resetting…", "重置中…");
+    try {
+      const r = await fetch("/api/admin/db/reset-stats", { method: "POST", credentials: "include" });
+      const j = await r.json();
+      if (status) status.textContent = j && j.ok ? tr("Reset.", "已重置。") : tr("Reset failed", "重置失败");
+      if (j && j.ok) loadSlowQueries();
+    } catch {
+      if (status) status.textContent = tr("Reset failed", "重置失败");
+    }
   }
 
   async function load() {
@@ -143,6 +226,8 @@ html[data-theme="light"] #cssos-admin-ops-card .ao-fail{color:#a82424;}
       }
       body.innerHTML = renderMetrics(j.metrics || {});
       status.textContent = "";
+      document.getElementById("cssos-admin-slowq-load")?.addEventListener("click", loadSlowQueries);
+      document.getElementById("cssos-admin-slowq-reset")?.addEventListener("click", resetSlowQueries);
     } catch (err) {
       body.innerHTML = `<div class="ao-status">${esc(tr("Failed to load.", "加载失败。"))} ${esc(String(err && err.message || err))}</div>`;
       status.textContent = "";

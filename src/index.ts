@@ -19,6 +19,7 @@ import dotenv from "dotenv";
 import { WebSocketServer, WebSocket } from "ws";
 import { getDatabaseUrl, getPool, withClient } from "./db";
 import { runMigrations } from "./db/migrate";
+import { rateLimitCheck, rateLimitCleanup } from "./lib/rate-limit";
 import { optimizeAndUploadAsync } from "./storage/image-optimize";
 import { uploadToR2Async } from "./storage/r2";
 import {
@@ -12795,20 +12796,8 @@ app.post("/api/webhooks/:id/test", async (req, res) => {
  * lives client-side. Notifications + webhooks go through enqueueNotification. */
 const DM_BODY_MAX = 4000;
 const DM_RATE_PER_MIN = 30;
-const __dmRateBuckets = new Map<string, number[]>();
-function dmRateAllow(userId: string): boolean {
-  const now = Date.now();
-  const cutoff = now - 60_000;
-  const arr = __dmRateBuckets.get(userId) || [];
-  const recent = arr.filter((t) => t >= cutoff);
-  if (recent.length >= DM_RATE_PER_MIN) {
-    __dmRateBuckets.set(userId, recent);
-    return false;
-  }
-  recent.push(now);
-  __dmRateBuckets.set(userId, recent);
-  return true;
-}
+// CSSOS_WAVE103 20260508 — Jing — DM rate limit now goes through the unified
+// rateLimitCheck() helper (in-memory or DB-backed). Same effective limit.
 function dmCanonPair(a: string, b: string): { a: string; b: string } {
   return a < b ? { a, b } : { a: b, b: a };
 }
@@ -13045,8 +13034,17 @@ app.post("/api/dm/threads/:thread_id/messages", express.json({ limit: "16kb" }),
     if (body.length > DM_BODY_MAX) {
       return res.status(400).json({ ok: false, code: "BODY_TOO_LONG", max: DM_BODY_MAX });
     }
-    if (!dmRateAllow(user.id)) {
-      return res.status(429).json({ ok: false, code: "RATE_LIMITED" });
+    {
+      const rl = await rateLimitCheck({
+        key: `dm:${user.id}`,
+        windowMs: 60_000,
+        max: DM_RATE_PER_MIN,
+      });
+      if (!rl.ok) {
+        const retry = Math.max(1, Math.ceil((rl.retryAfterMs || 1000) / 1000));
+        res.setHeader("Retry-After", String(retry));
+        return res.status(429).json({ ok: false, code: "RATE_LIMITED", retry_after: retry });
+      }
     }
     // CSSOS_PERSON_MV_WAVE76 — daily DM cap (50/day) lifted for premium.
     const DM_DAILY_CAP = 50;
@@ -18858,6 +18856,65 @@ app.post("/api/admin/ops/send-now", async (req, res) => {
     return res.json({ ...out, ok: true });
   } catch (err) {
     return res.status(500).json({ ok: false, code: "OPS_SEND_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_WAVE100 20260508 — Jing — TLS / cert monitor admin endpoints. */
+app.get("/api/admin/tls/checks", async (req, res) => {
+  noStore(res);
+  try {
+    if (!(await isAdminRequest(req))) {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const limit = Math.max(1, Math.min(200, parseInt(String(req.query.limit || "20"), 10) || 20));
+    const { loadRecentTlsChecks, tlsHosts, TLS_ALERT_THRESHOLD_DAYS } = await import("./lib/tls-monitor");
+    const rows = await loadRecentTlsChecks(limit);
+    return res.json({ ok: true, hosts: tlsHosts(), threshold_days: TLS_ALERT_THRESHOLD_DAYS, rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "TLS_LIST_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/admin/tls/run-now", async (req, res) => {
+  noStore(res);
+  try {
+    if (!(await isAdminRequest(req))) {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const out = await tlsMonitorTick();
+    return res.json({ ok: true, ...out });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "TLS_RUN_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_WAVE101 20260508 — Jing — pg_stat_statements slow query trap. */
+app.get("/api/admin/db/slow-queries", async (req, res) => {
+  noStore(res);
+  try {
+    if (!(await isAdminRequest(req))) {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const limit = Math.max(1, Math.min(100, parseInt(String(req.query.limit || "20"), 10) || 20));
+    const { loadSlowQueries } = await import("./lib/slow-queries");
+    const out = await loadSlowQueries(limit);
+    return res.json(out);
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "SLOW_QUERIES_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/admin/db/reset-stats", async (req, res) => {
+  noStore(res);
+  try {
+    if (!(await isAdminRequest(req))) {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const { resetPgStatStatements } = await import("./lib/slow-queries");
+    const out = await resetPgStatStatements();
+    return res.json(out);
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "RESET_STATS_FAILED", message: String(err) });
   }
 });
 
@@ -29112,6 +29169,19 @@ app.post("/api/comments/:id/react", express.json({ limit: "1kb" }), async (req, 
     if (!isAllowedReactionEmoji(emoji)) {
       return res.status(400).json({ ok: false, code: "EMOJI_NOT_ALLOWED", allowed: COMMENT_REACTION_EMOJIS });
     }
+    // CSSOS_WAVE103 20260508 — Jing — unified rate-limit (10/min/user).
+    {
+      const rl = await rateLimitCheck({
+        key: `react:${user.id}`,
+        windowMs: 60_000,
+        max: 10,
+      });
+      if (!rl.ok) {
+        const retry = Math.max(1, Math.ceil((rl.retryAfterMs || 1000) / 1000));
+        res.setHeader("Retry-After", String(retry));
+        return res.status(429).json({ ok: false, code: "RATE_LIMITED", retry_after: retry });
+      }
+    }
     const exists = await withClient((c) =>
       c.query(
         `SELECT 1 FROM comment_reactions
@@ -31533,7 +31603,6 @@ app.get("/api/live/rooms/:id/events", async (req, res) => {
 const WATCH_PARTY_EVENT_KINDS = new Set([
   "play", "pause", "seek", "danmu", "join", "leave",
 ]);
-const __watchPartyDanmuLastAt = new Map<string, number>();
 
 app.post("/api/watch-parties", express.json({ limit: "1kb" }), async (req, res) => {
   noStore(res);
@@ -31635,18 +31704,16 @@ app.post("/api/watch-parties/:id/events", express.json({ limit: "4kb" }), async 
     const payloadIn = body.payload && typeof body.payload === "object" ? body.payload : {};
     let payload: Record<string, any> = {};
     if (kind === "danmu") {
-      // Wave 49: danmu rate-limit 1 msg/sec/user via in-memory map.
-      const key = `${id}:${user.id}`;
-      const now = Date.now();
-      const last = __watchPartyDanmuLastAt.get(key) || 0;
-      if (now - last < 1000) {
-        return res.status(429).json({ ok: false, code: "RATE_LIMITED" });
-      }
-      __watchPartyDanmuLastAt.set(key, now);
-      if (__watchPartyDanmuLastAt.size > 5000) {
-        for (const [k, v] of __watchPartyDanmuLastAt) {
-          if (now - v > 60_000) __watchPartyDanmuLastAt.delete(k);
-        }
+      // Wave 49 + Wave 103: danmu rate-limit (1/sec/user/party) now via unified helper.
+      const rl = await rateLimitCheck({
+        key: `danmu:${id}:${user.id}`,
+        windowMs: 1000,
+        max: 1,
+      });
+      if (!rl.ok) {
+        const retry = Math.max(1, Math.ceil((rl.retryAfterMs || 1000) / 1000));
+        res.setHeader("Retry-After", String(retry));
+        return res.status(429).json({ ok: false, code: "RATE_LIMITED", retry_after: retry });
       }
       const text = String(payloadIn.text || "").trim();
       if (!text) return res.status(400).json({ ok: false, code: "EMPTY_TEXT" });
@@ -33004,6 +33071,36 @@ async function start() {
     }, delayMs);
     console.log(
       `[ops-report] scheduled first run in ${Math.round(delayMs / (60 * 60 * 1000))}h (daily 09:00 UTC)`,
+    );
+  }
+
+  /* CSSOS_WAVE100 20260508 — Jing — daily TLS / cert monitor.
+   * Fires at 06:00 UTC. Fire-and-forget; logs results, alerts admins
+   * when any cert has <14 days remaining. */
+  if (process.env.DATABASE_URL) {
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    const tlsTick = async () => {
+      try {
+        const out = await tlsMonitorTick();
+        console.log(
+          `[tls-monitor] daily — checked=${out.checked} alerts=${out.alerts} expiring=${out.expiring.length}`,
+        );
+      } catch (err) {
+        console.warn("[tls-monitor] daily tick failed:", (err as Error)?.message || err);
+      }
+    };
+    const now = new Date();
+    const next = new Date(Date.UTC(
+      now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 6, 0, 0, 0,
+    ));
+    if (next.getTime() <= now.getTime()) next.setUTCDate(next.getUTCDate() + 1);
+    const delayMs = next.getTime() - now.getTime();
+    setTimeout(() => {
+      tlsTick();
+      setInterval(tlsTick, ONE_DAY_MS);
+    }, delayMs);
+    console.log(
+      `[tls-monitor] scheduled first run in ${Math.round(delayMs / (60 * 60 * 1000))}h (daily 06:00 UTC)`,
     );
   }
 
@@ -34731,6 +34828,66 @@ async function listAdminUserIds(): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+/* CSSOS_WAVE100 20260508 — Jing — TLS cert monitor tick.
+ * Runs all configured hostnames; for any cert with <14 days remaining,
+ * fan out a `system_alert` notification to admins + best-effort web push. */
+async function tlsMonitorTick(): Promise<{ checked: number; alerts: number; expiring: Array<{ hostname: string; days_remaining: number | null }> }> {
+  if (!DATABASE_URL) return { checked: 0, alerts: 0, expiring: [] };
+  let summary;
+  try {
+    const { runTlsChecks } = await import("./lib/tls-monitor");
+    summary = await runTlsChecks();
+  } catch (err) {
+    console.warn("[tls-monitor] tick failed:", (err as Error)?.message || err);
+    return { checked: 0, alerts: 0, expiring: [] };
+  }
+  const expiring = summary.expiring.map((r) => ({ hostname: r.hostname, days_remaining: r.days_remaining }));
+  if (!expiring.length) {
+    return { checked: summary.results.length, alerts: 0, expiring };
+  }
+  const adminIds = await listAdminUserIds();
+  let alerts = 0;
+  for (const e of summary.expiring) {
+    const title = e.days_remaining != null && e.days_remaining >= 0
+      ? `TLS cert expiring — ${e.hostname}`
+      : `TLS cert expired — ${e.hostname}`;
+    const body = e.days_remaining != null
+      ? `${e.hostname} cert has ${e.days_remaining} day(s) remaining`
+      : `${e.hostname} cert check failed: ${e.error || "unknown"}`;
+    for (const uid of adminIds) {
+      try {
+        await withClient((c) =>
+          c.query(
+            `INSERT INTO user_notifications (user_id, kind, payload)
+             VALUES ($1, 'system_alert', $2::jsonb)`,
+            [
+              uid,
+              JSON.stringify({
+                title,
+                body,
+                hostname: e.hostname,
+                days_remaining: e.days_remaining,
+                valid_to: e.valid_to,
+              }),
+            ],
+          ),
+        );
+        void sendWebPush(uid, {
+          kind: "system_alert",
+          title: "CSS Studio — TLS cert",
+          body,
+          payload: { hostname: e.hostname, days_remaining: e.days_remaining },
+        }).catch(() => {});
+        alerts += 1;
+      } catch (err) {
+        console.warn("[tls-monitor] notify failed:", (err as Error)?.message || err);
+      }
+    }
+    console.log(`[tls-monitor] alert hostname=${e.hostname} days=${e.days_remaining} admins=${adminIds.length}`);
+  }
+  return { checked: summary.results.length, alerts, expiring };
 }
 
 async function balanceAlertTick(): Promise<void> {

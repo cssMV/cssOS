@@ -74,6 +74,27 @@ test("cache pre-population skips done stages", async () => {
   assert.strictEqual(r.done.video, "v:cached");
 });
 
+test("cache pre-population emits onStageDone with meta.cached:true (wave 7a)", async () => {
+  // Mirrors the panel's wave-7a contract: when a stage is pre-populated via
+  // the cache, the executor still fires onStageDone so the caller can mirror
+  // the cached output into UI state — but meta.cached === true tells the
+  // caller to skip recordEngine + dispatchStageEvents (UX side-effects).
+  const seen = [];
+  const dag = cssmvDag.create()
+    .stage("cover", [],        async () => { throw new Error("should not run"); })
+    .stage("video", ["cover"], async ({ cover }) => "v:" + cover.image_url);
+  const r = await cssmvDag.run(dag, {
+    cache: { cover: { image_url: "cached.png", cost_cents: 0 } },
+    onStageDone: (id, output, meta) => { seen.push({ id, cached: !!(meta && meta.cached) }); }
+  });
+  // cover should appear with cached:true; video runs fresh (cached:false).
+  const coverEvt = seen.find(e => e.id === "cover");
+  const videoEvt = seen.find(e => e.id === "video");
+  assert.ok(coverEvt && coverEvt.cached === true, "cover onStageDone meta.cached === true");
+  assert.ok(videoEvt && videoEvt.cached === false, "video onStageDone meta.cached === false");
+  assert.strictEqual(r.done.video, "v:cached.png");
+});
+
 test("weighted progress + critical path reported", async () => {
   const dag = cssmvDag.create()
     .stage("a", [],    { weight: 10 }, async () => { await new Promise(r => setTimeout(r, 5));  return 1; })

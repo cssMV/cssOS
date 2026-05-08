@@ -3545,12 +3545,46 @@
       // stage failure, exactly like the original `await` chain did. We join
       // with Promise.allSettled then rethrow the first rejection so the outer
       // catch still resolves `failingStage` via findRunningStage().
+      // CSSOS_MV_DAG_WAVE_7A 20260508 — Jing
+      // Pure-function refactor skeleton. Stage helpers return plain output
+      // objects; state mutations and fire-and-forget UX dispatches are
+      // hoisted into applyStageOutput() / dispatchStageEvents() so the DAG
+      // closure sequences them deterministically. 7a wires up the cover
+      // branch only — lyrics/music/video/subs/compose still mutate inline
+      // and will be lifted in 7b–7f.
+      function applyStageOutput(state, stageId, output) {
+        if (!output) return;
+        if (stageId === "cover") {
+          if (output.image_url) state.coverUrl = output.image_url;
+        }
+        // Future waves (7b–7f) add: lyrics, music, video, subs, compose.
+      }
+      function dispatchStageEvents(state, stageId, output, meta) {
+        if (meta && meta.cached) return;
+        if (!output) return;
+        if (stageId === "cover" && output.image_url) {
+          // Face detect — fire-and-forget, non-blocking.
+          void detectCoverFaceFocusOnce(output.image_url).catch(() => {});
+          // Slideshow start — fire-and-forget UX enhancement.
+          try {
+            if (typeof globalThis.cssmvSetCoverSlides === "function") {
+              globalThis.cssmvSetCoverSlides([output.image_url]);
+            }
+            if (typeof globalThis.cssmvStartCoverSlideshow === "function") {
+              globalThis.cssmvStartCoverSlideshow({ mv: true, music: true });
+            }
+          } catch (_slideshowErr) { /* non-blocking UX; swallow */ }
+        }
+        // Future waves (7b–7f) add: lyrics, music, video, subs, compose.
+      }
+
       // Stage 1 — cover (+ 4 parallel variations for 5-image slideshow)
-      // CSSOS_MV_DAG_WAVE_2_7A 20260507 — Jing
-      // Cover stage body lifted into runCoverStage() so it can run via either
-      // the legacy imperative path OR the DAG executor (globalThis.cssmvDag).
-      // Behavior is identical between paths; setStage events live in the
-      // caller (legacy block or DAG callbacks) so they fire exactly once.
+      // CSSOS_MV_DAG_WAVE_7A 20260508 — Jing
+      // Pure helper: returns the cover output. No state mutation, no
+      // setStage, no recordEngine, no slideshow dispatch, no face-detect.
+      // Variations remain here as a TODO for wave 7b — they're already
+      // fire-and-forget so they don't taint the return contract, but they
+      // belong in dispatchStageEvents alongside the slideshow trigger.
       async function runCoverStage(state, _opts) {
         const coverSuffix = (globalThis.currentLocale === "zh")
           ? COVER_PROMPT_SUFFIX_ZH
@@ -3564,57 +3598,46 @@
               : null
           })
         );
-        // Face detect — fire-and-forget, non-blocking.
-        void detectCoverFaceFocusOnce(cover.image_url).catch(() => {});
-        // Slideshow + variations — fire-and-forget UX enhancement.
+        // TODO(wave 7b): lift variations into dispatchStageEvents("cover").
+        // CSSOS_MV_DAG_WAVE_2_7C_LITE_SKIP 20260507 — Jing
+        // Lite tier is image-only ken-burns over the primary cover; the 4
+        // variation calls feed the 5-image slideshow used by Hybrid +
+        // Cinematic. For Lite they're pure waste — skip them.
         try {
-          if (typeof globalThis.cssmvSetCoverSlides === "function") {
-            globalThis.cssmvSetCoverSlides([cover.image_url]);
-          }
-          if (typeof globalThis.cssmvStartCoverSlideshow === "function") {
-            globalThis.cssmvStartCoverSlideshow({ mv: true, music: true });
-          }
-          // CSSOS_MV_DAG_WAVE_2_7C_LITE_SKIP 20260507 — Jing
-          // Lite tier is image-only ken-burns over the primary cover. The
-          // 4 fire-and-forget variation calls (close-up / wide-angle /
-          // rim-light / soft-haze) feed the 5-image slideshow used by
-          // Hybrid + Cinematic. For Lite they're pure waste — skip them.
           let _coverTierId = "";
           try {
             if (globalThis.cssmvTiers && typeof globalThis.cssmvTiers.currentTierId === "function") {
               _coverTierId = String(globalThis.cssmvTiers.currentTierId() || "").toLowerCase();
             }
           } catch (_e) { /* ignore */ }
-          if (_coverTierId === "lite") {
+          if (_coverTierId !== "lite") {
+            const variationSuffixesZh = ["，特写", "，广角", "，侧光", "，柔雾"];
+            const variationSuffixesEn = [", close-up framing", ", wide-angle composition", ", rim light", ", soft haze"];
+            const variationSuffixes = (globalThis.currentLocale === "zh")
+              ? variationSuffixesZh
+              : variationSuffixesEn;
+            variationSuffixes.forEach(function (suffix) {
+              postJson(
+                "/api/mv/cover",
+                withEngine("cover", {
+                  prompt: state.prompt + coverSuffix + suffix,
+                  ratio: state.outputSpec && state.outputSpec.runwayImageRatio
+                    ? state.outputSpec.runwayImageRatio
+                    : null
+                })
+              )
+                .then(function (extra) {
+                  if (!extra || !extra.image_url) return;
+                  if (typeof globalThis.cssmvAddCoverSlide === "function") {
+                    globalThis.cssmvAddCoverSlide(extra.image_url);
+                  }
+                })
+                .catch(function (_err) { /* variation failures are non-fatal */ });
+            });
+          } else {
             console.info("[mv-pipeline][cover] Lite tier — skipping 4 variation calls");
-            return cover;
           }
-          const variationSuffixesZh = ["，特写", "，广角", "，侧光", "，柔雾"];
-          const variationSuffixesEn = [", close-up framing", ", wide-angle composition", ", rim light", ", soft haze"];
-          const variationSuffixes = (globalThis.currentLocale === "zh")
-            ? variationSuffixesZh
-            : variationSuffixesEn;
-          variationSuffixes.forEach(function (suffix) {
-            postJson(
-              "/api/mv/cover",
-              withEngine("cover", {
-                prompt: state.prompt + coverSuffix + suffix,
-                ratio: state.outputSpec && state.outputSpec.runwayImageRatio
-                  ? state.outputSpec.runwayImageRatio
-                  : null
-              })
-            )
-              .then(function (extra) {
-                if (!extra || !extra.image_url) return;
-                if (typeof globalThis.cssmvAddCoverSlide === "function") {
-                  globalThis.cssmvAddCoverSlide(extra.image_url);
-                }
-              })
-              .catch(function (_err) { /* variation failures are non-fatal */ });
-          });
-        } catch (_slideshowErr) {
-          // Non-blocking UX; swallow.
-        }
+        } catch (_variationsErr) { /* non-blocking UX; swallow */ }
         return cover;
       }
 
@@ -6253,9 +6276,16 @@
         .stage("cover", [], { weight: 10 }, async () => {
           if (STAGE_ORDER.indexOf("cover") < resumeStartIdx) return null;
           setStage("cover", "running", "");
+          // CSSOS_MV_DAG_WAVE_7A 20260508 — Jing
+          // Pure helper + apply/dispatch skeleton. Order matches the legacy
+          // imperative path byte-for-byte: state mutation → engine record →
+          // UX dispatch → setStage("done"). Cached pre-population is handled
+          // by the executor's onStageDone hook below (skips recordEngine and
+          // skips dispatchStageEvents because meta.cached === true).
           const cover = await runCoverStage(state, {});
-          state.coverUrl = cover.image_url;
+          applyStageOutput(state, "cover", cover);
           recordEngine("cover", cover);
+          dispatchStageEvents(state, "cover", cover, { cached: false });
           setStage("cover", "done", cover.image_url, cover.cost_cents);
           return cover;
         })

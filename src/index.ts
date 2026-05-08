@@ -27107,7 +27107,7 @@ app.get("/api/person-mv/mvs/:mv_id/comments", async (req, res) => {
     const r = await withClient((c) =>
       c.query(
         `SELECT c.id, c.mv_id, c.user_id, c.body, c.parent_id, c.created_at, c.deleted_at,
-                u.display_name, u.username, u.avatar_url
+                u.display_name, u.username, u.avatar_url, u.verified_at
            FROM person_mv_comments c
            LEFT JOIN users u ON u.id = c.user_id
           WHERE c.mv_id = $1
@@ -27129,6 +27129,7 @@ app.get("/api/person-mv/mvs/:mv_id/comments", async (req, res) => {
       display_name: row.display_name,
       username: row.username,
       avatar_url: row.avatar_url,
+      verified: !!row.verified_at,
       reactions: {} as Record<string, number>,
       my_reactions: [] as string[],
     }));

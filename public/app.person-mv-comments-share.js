@@ -40,6 +40,14 @@
       "#cssos-mv-comments .cmh-actions{margin-top:4px;font-size:11px;color:rgba(0,245,160,0.7);}",
       "#cssos-mv-comments .cmh-actions button{background:transparent;color:rgba(0,245,160,0.7);border:0;cursor:pointer;font-size:11px;padding:0 6px 0 0;}",
       "#cssos-mv-comments .cmh-empty{padding:30px 0;text-align:center;color:rgba(218,255,238,0.55);}",
+      /* CSSOS_PERSON_MV_WAVE61 — comment reaction bar (6 emojis). */
+      "#cssos-mv-comments .cmh-reactions{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;}",
+      "#cssos-mv-comments .cmh-rx{background:transparent;color:rgba(218,255,238,0.7);border:1px solid rgba(0,245,160,0.18);border-radius:999px;padding:1px 7px;font-size:12px;cursor:pointer;line-height:1.4;display:inline-flex;align-items:center;gap:3px;}",
+      "#cssos-mv-comments .cmh-rx:hover{border-color:rgba(0,245,160,0.45);}",
+      "#cssos-mv-comments .cmh-rx.is-mine{background:rgba(0,245,160,0.18);border-color:rgba(0,245,160,0.55);color:#daffee;}",
+      "#cssos-mv-comments .cmh-rx-count{font-size:11px;opacity:0.85;}",
+      /* CSSOS_PERSON_MV_WAVE62 — verified badge. */
+      ".cssos-verified{display:inline-block;margin-left:3px;color:#1d9bf0;font-size:0.95em;line-height:1;vertical-align:baseline;}",
       ".pmv-comments-summary{margin:0 0 14px;padding:10px 12px;border-radius:10px;background:linear-gradient(180deg,rgba(0,245,160,0.08),rgba(0,245,160,0.02));border:1px solid rgba(0,245,160,0.22);}",
       ".pmv-comments-summary .pmv-cs-head{display:flex;align-items:center;justify-content:space-between;font-size:12px;font-style:italic;color:rgba(0,245,160,0.85);margin-bottom:4px;}",
       ".pmv-comments-summary .pmv-cs-refresh{background:transparent;color:rgba(0,245,160,0.85);border:0;cursor:pointer;font-size:13px;padding:0 4px;}",
@@ -270,6 +278,56 @@
     return !!j.ok;
   }
 
+  /* CSSOS_PERSON_MV_WAVE61 — reaction bar (6 emojis). Hardcoded order. */
+  var COMMENT_REACTION_EMOJIS = ["👍", "❤️", "🔥", "😢", "😂", "🙏"];
+  async function toggleReaction(commentId, emoji, btn) {
+    btn.disabled = true;
+    try {
+      var r = await fetch("/api/comments/" + encodeURIComponent(commentId) + "/react", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emoji: emoji }),
+      });
+      var j = await r.json();
+      if (!j || !j.ok) { toast(tr("Reaction failed", "表态失败")); return; }
+      var bar = btn.parentNode;
+      if (!bar) return;
+      // Re-render the bar inline using returned counts/my.
+      bar.innerHTML = "";
+      buildReactionBar(commentId, j.counts || {}, j.my || []).childNodes.forEach(function (n) {
+        bar.appendChild(n);
+      });
+    } catch (_e) {
+      toast(tr("Reaction failed", "表态失败"));
+    } finally { btn.disabled = false; }
+  }
+  function buildReactionBar(commentId, counts, mine) {
+    var wrap = el("div", { class: "cmh-reactions" }, []);
+    var mineSet = {};
+    (mine || []).forEach(function (e) { mineSet[e] = true; });
+    COMMENT_REACTION_EMOJIS.forEach(function (em) {
+      var n = Number((counts || {})[em] || 0);
+      var b = el("button", {
+        class: "cmh-rx" + (mineSet[em] ? " is-mine" : ""),
+        title: em,
+        onclick: function () {
+          if (!(globalThis.CSSOS_CURRENT_USER && globalThis.CSSOS_CURRENT_USER.id)) {
+            toast(tr("Sign in to react", "请先登录")); return;
+          }
+          toggleReaction(commentId, em, b);
+        },
+      }, []);
+      b.appendChild(document.createTextNode(em));
+      if (n > 0) {
+        var cnt = el("span", { class: "cmh-rx-count" }, [String(n)]);
+        b.appendChild(cnt);
+      }
+      wrap.appendChild(b);
+    });
+    return wrap;
+  }
+
   function buildItem(c, currentUserId) {
     var item = el("div", { class: "cmh-item" + (c.parent_id ? " is-reply" : "") }, [
       el("img", { class: "cmh-avatar", src: c.avatar_url || defaultAvatar(), alt: "" }),
@@ -281,11 +339,13 @@
               if (c.username || c.user_id) location.hash = "#u/" + (c.username || c.user_id);
             },
           }, [c.display_name || c.username || tr("Anonymous", "匿名")]),
+          c.verified ? el("span", { class: "cssos-verified", title: tr("Verified creator", "认证创作者") }, ["✅"]) : null,
           el("span", { class: "cmh-time" }, [fmtTime(c.created_at)]),
         ]),
         c.deleted
           ? el("div", { class: "cmh-body", style: "font-style:italic;opacity:0.5" }, [tr("(deleted)", "(已删除)")])
           : el("div", { class: "cmh-body", innerHTML: renderMentions(c.body_html || "") }, []),
+        c.deleted ? null : buildReactionBar(c.id, c.reactions || {}, c.my_reactions || []),
         c.deleted ? null : el("div", { class: "cmh-actions" }, [
           el("button", { onclick: function () { setReplyTo(c); } }, [tr("Reply", "回复")]),
           (currentUserId && currentUserId === c.user_id)

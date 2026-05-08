@@ -1,0 +1,26 @@
+<!--
+  CSSOS_IOS_INFO_ADDITIONS 20260508 — Jing
+
+  These keys MUST be present in `mobile/ios/App/App/Info.plist` before
+  Xcode Archive / App Store Connect upload. Capacitor regenerates that
+  file on every `npx cap sync ios`, so we keep the canonical copy here
+  and merge after sync via mobile/scripts/post-sync.sh.
+
+  Copy the keys below into Info.plist just before </dict></plist>.
+-->
+<key>NSCameraUsageDescription</key>
+<string>CSS Studio uses the camera only when you record a personal moment to add to your music video.</string>
+<key>NSMicrophoneUsageDescription</key>
+<string>CSS Studio uses the microphone only when you choose to add narration or sing into your music video.</string>
+<key>NSPhotoLibraryUsageDescription</key>
+<string>CSS Studio reads your photo library only to import images into your music video.</string>
+<key>NSPhotoLibraryAddUsageDescription</key>
+<string>CSS Studio saves the music videos you generate to your photo library.</string>
+<key>NSAppleMusicUsageDescription</key>
+<string>CSS Studio accesses Apple Music to let you score your music video with songs you own.</string>
+<key>NSUserTrackingUsageDescription</key>
+<string>CSS Studio uses anonymous analytics to improve the app. No personal information is shared.</string>
+<key>NSLocationWhenInUseUsageDescription</key>
+<string>CSS Studio uses your location only to suggest local festivals and historical anniversaries near you.</string>
+<key>ITSAppUsesNonExemptEncryption</key>
+<false/>

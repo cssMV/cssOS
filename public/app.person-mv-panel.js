@@ -450,14 +450,39 @@
           ""
         );
         if (!name || !name.trim()) return;
-        // Wave 3 lands the actual ad-hoc creation flow. For now we
-        // scaffold a toast so the user sees their input was received.
-        var msg = tt(
-          "Wave 3 lands ad-hoc creation. Saved your name: ",
-          "Wave 3 即将上线临时人物创建。已保存你的输入："
-        ) + name.trim();
-        if (typeof globalThis.showToast === "function") globalThis.showToast(msg);
-        else alert(msg);
+        createAdhocPerson(name.trim());
+      });
+    }
+    var randomBtn = panelEl.querySelector(".person-mv-random-btn");
+    if (randomBtn) {
+      randomBtn.addEventListener("click", async function () {
+        randomBtn.disabled = true;
+        try {
+          var r = await fetch("/api/person-mv/persons/random", {
+            credentials: "include",
+            headers: { Accept: "application/json" },
+          });
+          var j = await r.json().catch(function(){ return null; });
+          var pid = j && j.ok && j.data && j.data.person_id;
+          if (pid) {
+            await openCodex(pid);
+            // Auto-fire cinema once codex finishes mounting.
+            setTimeout(function () {
+              try {
+                var btn = panelEl.querySelector(".pmv-cinema");
+                if (btn) btn.click();
+              } catch (_e) {}
+            }, 600);
+          } else {
+            if (typeof globalThis.showToast === "function") {
+              globalThis.showToast(tt("No person found.", "没找到人物。"));
+            }
+          }
+        } catch (err) {
+          console.warn("[person-mv] random failed", err);
+        } finally {
+          randomBtn.disabled = false;
+        }
       });
     }
     /* Card open — pointerup capture on the whole panel so no
@@ -538,15 +563,69 @@
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
+  async function createAdhocPerson(name) {
+    if (!name) return;
+    var ctaEl = panelEl && panelEl.querySelector(".person-mv-adhoc-cta");
+    if (ctaEl) {
+      ctaEl.classList.add("is-busy");
+      ctaEl.innerHTML = '⏳ ' + escapeText(tt("Creating profile for ", "正在为「") + name + tt("…", "」创建专页…"));
+    }
+    try {
+      var res = await fetch("/api/person-mv/persons", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ name: name }),
+      });
+      var json = await res.json().catch(function(){ return null; });
+      if (!json || !json.ok || !json.person_id) {
+        var code = (json && json.code) || ("HTTP_" + res.status);
+        if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(tt("Failed to create person: ", "创建失败：") + code);
+        }
+        if (ctaEl) {
+          ctaEl.classList.remove("is-busy");
+          ctaEl.innerHTML = '✨ ' + escapeText(tt("Create profile for ", "为「") + name + tt("", "」创建专页"));
+        }
+        return;
+      }
+      // Reload grid in background, then open codex for the new person.
+      load();
+      openCodex(json.person_id);
+    } catch (err) {
+      console.warn("[person-mv] adhoc create failed", err);
+      if (typeof globalThis.showToast === "function") {
+        globalThis.showToast(tt("Failed to create person.", "创建人物失败。"));
+      }
+      if (ctaEl) {
+        ctaEl.classList.remove("is-busy");
+      }
+    }
+  }
+
   function render() {
     if (!panelEl) return;
     var grid = panelEl.querySelector(".person-mv-grid");
     if (!grid) return;
     if (!state.persons.length) {
-      grid.innerHTML = '<div class="person-mv-empty">' +
+      var typed = String(state.search || "").trim();
+      var emptyHtml = '<div class="person-mv-empty">' +
         tt("No matching personalities yet — adjust filters or create one above.",
            "暂无匹配人物 —— 调整筛选条件，或在上方创建新人物。") +
         '</div>';
+      if (typed) {
+        emptyHtml += '<div class="person-mv-adhoc-cta" data-adhoc-name="' + escapeAttr(typed) + '">' +
+          '✨ ' + escapeText(tt("Create profile for ", "为「") + typed + tt("", "」创建专页")) +
+        '</div>';
+      }
+      grid.innerHTML = emptyHtml;
+      var cta = grid.querySelector(".person-mv-adhoc-cta");
+      if (cta) {
+        cta.addEventListener("click", function () {
+          var n = cta.getAttribute("data-adhoc-name") || typed;
+          if (n) createAdhocPerson(n);
+        });
+      }
       return;
     }
     /* CSSOS_PERSON_MV_PER_CARD_LISTENER 20260507 — Jing
@@ -861,6 +940,7 @@
       h += '<div class="pmv-action-bar">' +
         '<button class="pmv-cinema">🎬 ' + escTxt(tt("Enter Cinema", "进入影院")) + '</button>' +
         '<button class="pmv-secondary pmv-create-mv">✨ ' + escTxt(tt("Create New Version", "创作新版本")) + '</button>' +
+        '<button class="pmv-secondary pmv-compare">🔀 ' + escTxt(tt("Compare with another", "与他人对比")) + '</button>' +
         '<button class="pmv-back">← ' + escTxt(tt("Back", "返回")) + '</button>' +
       '</div>';
 
@@ -922,6 +1002,9 @@
       var totalCount = data.total_mv_count || mvs.length || 0;
       var myCount = data.my_mv_count || 0;
       h += '<div class="pmv-section"><h3>🎞 ' + escTxt(tt("MV Gallery", "MV 作品")) + '</h3>' +
+        '<div class="pmv-leaderboard" data-leaderboard-host="1">' +
+          '<span>🥇 ' + escTxt(tt("Top creators loading…", "榜首创作者加载中…")) + '</span>' +
+        '</div>' +
         '<div class="pmv-mv-tabs">' +
           '<span class="pmv-mv-tab is-active" data-mv-tab="all">' + escTxt(tt("All", "全站")) + ' · ' + totalCount + '</span>' +
           '<span class="pmv-mv-tab" data-mv-tab="mine">' + escTxt(tt("Mine", "我的")) + ' · ' + myCount + '</span>' +
@@ -939,14 +1022,22 @@
         h += '<div class="pmv-mv-grid">' +
           mvs.map(function(m){
             var poster = m.cover_image || m.preview_image_url || "";
+            var creatorName = m.creator_display_name || tt("Anon", "匿名");
+            var creatorAvatar = m.creator_avatar_url || "";
+            var creatorChip = '<div class="pmv-mv-creator">' +
+              '<span class="pmv-mv-creator-avatar"' + (creatorAvatar ? ' style="background-image:url(' + escAttr(creatorAvatar) + ')"' : '') + '></span>' +
+              '<span>' + escTxt(creatorName) + '</span>' +
+            '</div>';
             var inner;
             if (poster) {
               inner = '<img class="pmv-mv-poster" src="' + escAttr(poster) + '" alt="" ' +
                 'onerror="this.parentNode.innerHTML=\'<div class=&quot;pmv-mv-fallback&quot;>' +
                 escAttr(String(personEmoji)) + '</div>\';">' +
+                creatorChip +
                 '<div class="pmv-mv-meta">' + escTxt((m.duration_secs || 0) + "s") + '</div>';
             } else {
               inner = '<div class="pmv-mv-fallback">' + escTxt(String(personEmoji)) + '</div>' +
+                creatorChip +
                 '<div class="pmv-mv-meta">' + escTxt((m.duration_secs || 0) + "s") + '</div>';
             }
             return '<div class="pmv-mv-card" data-work-id="' + escAttr(m.work_id) + '">' +
@@ -1063,6 +1154,43 @@
           if (pid) openCodex(pid);
         });
       });
+      // Compare button → modal
+      var compareBtn = host.querySelector(".pmv-compare");
+      if (compareBtn) {
+        compareBtn.addEventListener("click", function () {
+          openCompareModal(p.person_id, data);
+        });
+      }
+      // Leaderboard ribbon — fetch top creators async, render into placeholder.
+      try {
+        var lbHost = host.querySelector('[data-leaderboard-host="1"]');
+        if (lbHost) {
+          fetch("/api/person-mv/persons/" + encodeURIComponent(personId) + "/leaderboard?limit=3", {
+            credentials: "include",
+            headers: { Accept: "application/json" },
+          }).then(function(r){ return r.json(); }).then(function(j){
+            if (!j || !j.ok || !j.data || !Array.isArray(j.data.creators) || !j.data.creators.length) {
+              lbHost.innerHTML = '<span>🥇 ' + escTxt(tt("Be the first creator!", "成为首位创作者！")) + '</span>';
+              return;
+            }
+            var creators = j.data.creators;
+            var top = creators[0];
+            var html = '<span>🥇 ' + escTxt(tt("Top creator: ", "榜首创作者：")) + '</span>';
+            html += creators.map(function(c, i){
+              var name = c.display_name || tt("Anon", "匿名");
+              var av = c.avatar_url || "";
+              var medal = i === 0 ? "🥇" : (i === 1 ? "🥈" : (i === 2 ? "🥉" : ""));
+              return '<span class="pmv-lb-creator">' +
+                '<span class="pmv-lb-avatar"' + (av ? ' style="background-image:url(' + escAttr(av) + ')"' : '') + '></span>' +
+                '<span>' + (medal ? medal + ' ' : '') + escTxt(name) + ' · ' + (c.mv_count || 0) + ' MV</span>' +
+              '</span>';
+            }).join("");
+            lbHost.innerHTML = html;
+          }).catch(function(){
+            lbHost.innerHTML = '';
+          });
+        }
+      } catch (_e) {}
     } catch (err) {
       console.warn("[person-mv] codex render failed", err);
       host.innerHTML = '<div class="pmv-skel">' + escTxt(tt("Codex unavailable.", "档案暂不可用。")) +
@@ -1074,6 +1202,149 @@
   function wireBack(host) {
     host.querySelectorAll(".pmv-back").forEach(function(btn){
       btn.addEventListener("click", closeCodex);
+    });
+  }
+
+  /* CSSOS_PERSON_MV_COMPARE 20260507 — Wave 4 — Jing
+   * Cross-person compare. Re-uses /codex twice, no new backend.
+   * User picks the "other" person via autocomplete or preset chip.
+   * Renders 贡献 / 争议 / 三视角 stacked side-by-side. */
+  var COMPARE_PRESETS = [
+    { left: "kongzi",       right: "socrates",  label: "孔子 ↔ 苏格拉底" },
+    { left: "qinshihuang",  right: "caesar",    label: "秦始皇 ↔ 凯撒" },
+    { left: "einstein",     right: "newton",    label: "爱因斯坦 ↔ 牛顿" },
+  ];
+  function openCompareModal(leftPersonId, leftData) {
+    var existing = document.querySelector(".pmv-compare-modal");
+    if (existing) try { existing.remove(); } catch (_e) {}
+    var modal = document.createElement("div");
+    modal.className = "pmv-compare-modal";
+    modal.innerHTML =
+      '<div class="pmv-compare-card">' +
+        '<div class="pmv-compare-head">' +
+          '<div>🔀 ' + escTxt(tt("Compare two people", "双人对比")) + '</div>' +
+          '<button class="pmv-compare-close">' + escTxt(tt("Close", "关闭")) + '</button>' +
+        '</div>' +
+        '<div style="padding:14px 14px 0">' +
+          '<div class="pmv-compare-presets">' +
+            COMPARE_PRESETS.map(function(p){
+              return '<span class="pmv-compare-preset" data-left="' + escAttr(p.left) + '" data-right="' + escAttr(p.right) + '">' + escTxt(p.label) + '</span>';
+            }).join("") +
+          '</div>' +
+          '<div class="pmv-compare-search">' +
+            '<input type="search" placeholder="' + escAttr(tt("Search the other person…", "搜索另一位人物…")) + '" />' +
+          '</div>' +
+          '<div class="pmv-compare-results"></div>' +
+        '</div>' +
+        '<div class="pmv-compare-body" data-compare-body="1">' +
+          '<div class="pmv-compare-pane" data-pane="left">' + escTxt(tt("Loading…", "加载中…")) + '</div>' +
+          '<div class="pmv-compare-pane" data-pane="right">' + escTxt(tt("Pick someone above to compare.", "在上方选择要对比的人物。")) + '</div>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(modal);
+    modal.addEventListener("click", function(e){
+      if (e.target === modal) try { modal.remove(); } catch (_e) {}
+    });
+    modal.querySelector(".pmv-compare-close").addEventListener("click", function(){
+      try { modal.remove(); } catch (_e) {}
+    });
+
+    function paneHtml(d) {
+      if (!d || !d.person) return escTxt(tt("Not found.", "未找到。"));
+      var pp = d.person;
+      var lore = d.lore || {};
+      var portrait = d.portrait_url || "";
+      var contribs = Array.isArray(lore.contributions) ? lore.contributions : [];
+      var controv = Array.isArray(lore.controversies) ? lore.controversies : [];
+      var assess = Array.isArray(lore.assessments) ? lore.assessments : [];
+      var nameMain = pp.name_zh || pp.name_en;
+      var nameAlt = pp.name_en && pp.name_en !== nameMain ? pp.name_en : "";
+      var head = (portrait
+        ? '<div style="width:100%;aspect-ratio:16/9;background:#012019 url(' + escAttr(portrait) + ') center/cover no-repeat;border-radius:8px;margin-bottom:8px;"></div>'
+        : '');
+      return head +
+        '<h4>' + escTxt(nameMain) + (nameAlt ? ' <span style="font:500 12px ui-monospace,monospace;color:#9ad6c0">(' + escTxt(nameAlt) + ')</span>' : '') + '</h4>' +
+        '<div style="font:500 11px ui-monospace,monospace;color:#9ad6c0">' + escTxt([pp.civilization, pp.era, pp.lifespan].filter(Boolean).join(" · ")) + '</div>' +
+        '<h5>🌟 ' + escTxt(tt("Contributions", "贡献")) + '</h5>' +
+        '<ul>' + contribs.map(function(c){ return '<li>' + escTxt(c) + '</li>'; }).join("") + '</ul>' +
+        '<h5>⚠️ ' + escTxt(tt("Controversies", "争议")) + '</h5>' +
+        '<ul>' + controv.map(function(c){ return '<li>' + escTxt(c) + '</li>'; }).join("") + '</ul>' +
+        '<h5>' + escTxt(tt("Assessments (3 perspectives)", "三视角评说")) + '</h5>' +
+        '<ul>' + assess.map(function(a){ return '<li><b>' + escTxt(a.perspective || "") + '</b> · ' + escTxt(a.text || "") + '</li>'; }).join("") + '</ul>';
+    }
+    var leftPane = modal.querySelector('[data-pane="left"]');
+    var rightPane = modal.querySelector('[data-pane="right"]');
+    leftPane.innerHTML = paneHtml(leftData);
+
+    async function loadAndRender(targetId, paneEl) {
+      paneEl.innerHTML = escTxt(tt("Loading…", "加载中…"));
+      try {
+        var r = await fetch("/api/person-mv/persons/" + encodeURIComponent(targetId) + "/codex", {
+          credentials: "include",
+          headers: { Accept: "application/json" },
+        });
+        var j = await r.json().catch(function(){ return null; });
+        if (!j || !j.ok) {
+          paneEl.innerHTML = escTxt(tt("Failed.", "加载失败。"));
+          return;
+        }
+        paneEl.innerHTML = paneHtml(j.data || {});
+      } catch (err) {
+        paneEl.innerHTML = escTxt(tt("Failed.", "加载失败。"));
+      }
+    }
+
+    function pickRight(otherId, swapLeft) {
+      if (swapLeft) {
+        // Preset specifies both — load both panes.
+        loadAndRender(swapLeft, leftPane);
+      }
+      loadAndRender(otherId, rightPane);
+    }
+
+    modal.querySelectorAll(".pmv-compare-preset").forEach(function(el){
+      el.addEventListener("click", function(){
+        var l = el.getAttribute("data-left");
+        var r = el.getAttribute("data-right");
+        if (!r) return;
+        // If user's current person matches preset.left, just load right.
+        if (l && l !== leftPersonId) pickRight(r, l);
+        else loadAndRender(r, rightPane);
+      });
+    });
+
+    var searchInput = modal.querySelector(".pmv-compare-search input");
+    var resultsEl = modal.querySelector(".pmv-compare-results");
+    var debT = 0;
+    searchInput.addEventListener("input", function(){
+      clearTimeout(debT);
+      var q = String(searchInput.value || "").trim();
+      if (!q) { resultsEl.innerHTML = ""; return; }
+      debT = setTimeout(async function(){
+        try {
+          var r = await fetch("/api/person-mv/persons?search=" + encodeURIComponent(q) + "&limit=12", {
+            credentials: "include",
+            headers: { Accept: "application/json" },
+          });
+          var j = await r.json().catch(function(){ return null; });
+          var rows = (j && j.data && j.data.persons) || [];
+          rows = rows.filter(function(x){ return x.person_id !== leftPersonId; });
+          resultsEl.innerHTML = rows.map(function(x){
+            return '<div class="pmv-compare-result" data-pid="' + escAttr(x.person_id) + '">' +
+              escTxt(x.name_zh || x.name_en) +
+              ' <span style="color:#9ad6c0;font:500 11px ui-monospace,monospace">· ' + escTxt(x.civilization || "") + '</span>' +
+            '</div>';
+          }).join("");
+          resultsEl.querySelectorAll(".pmv-compare-result").forEach(function(el){
+            el.addEventListener("click", function(){
+              var pid = el.getAttribute("data-pid");
+              if (pid) loadAndRender(pid, rightPane);
+            });
+          });
+        } catch (err) {
+          resultsEl.innerHTML = "";
+        }
+      }, 220);
     });
   }
 

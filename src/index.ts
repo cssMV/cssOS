@@ -30945,7 +30945,11 @@ async function fetchEngineBalances(): Promise<EngineBalance[]> {
       if (r.ok) {
         const j: any = await r.json().catch(() => null);
         const remaining = Number(j?.total_available || j?.total_granted || 0);
-        out.push({ engine: "openai", balance_usd: Number.isFinite(remaining) ? remaining : undefined });
+        if (Number.isFinite(remaining)) {
+          out.push({ engine: "openai", balance_usd: remaining });
+        } else {
+          out.push({ engine: "openai" });
+        }
       } else {
         out.push({ engine: "openai", error: `http_${r.status}` });
       }

@@ -1352,11 +1352,13 @@ let detectedCountry = localStorage.getItem(LANG_DETECTED_KEY) || "";
 
 const LANGS = [
   { code: "en", nameKey: "lang.en", flag: "🇺🇸", enabled: true },
-  { code: "zh", nameKey: "lang.zh", flag: "🇨🇳", enabled: false },
-  { code: "ja", nameKey: "lang.ja", flag: "🇯🇵", enabled: false },
-  { code: "ko", nameKey: "lang.ko", flag: "🇰🇷", enabled: false },
-  { code: "es", nameKey: "lang.es", flag: "🇪🇸", enabled: false },
-  { code: "fr", nameKey: "lang.fr", flag: "🇫🇷", enabled: false },
+  // CSSOS_I18N_WAVE22 20260508 — Jing — ja/ko/es/fr promoted to enabled now
+  // that translate-batch has seeded /i18n/generated/{locale}.json.
+  { code: "zh", nameKey: "lang.zh", flag: "🇨🇳", enabled: true },
+  { code: "ja", nameKey: "lang.ja", flag: "🇯🇵", enabled: true },
+  { code: "ko", nameKey: "lang.ko", flag: "🇰🇷", enabled: true },
+  { code: "es", nameKey: "lang.es", flag: "🇪🇸", enabled: true },
+  { code: "fr", nameKey: "lang.fr", flag: "🇫🇷", enabled: true },
   { code: "de", nameKey: "lang.de", flag: "🇩🇪", enabled: false },
   { code: "pt", nameKey: "lang.pt", flag: "🇵🇹", enabled: false },
   { code: "ru", nameKey: "lang.ru", flag: "🇷🇺", enabled: false },

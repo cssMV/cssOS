@@ -11350,6 +11350,33 @@ async function ensurePersonMvTables() {
       );
       CREATE INDEX IF NOT EXISTS mv_shares_mv_idx ON mv_shares (mv_id);
 
+      -- CSSOS_PERSON_MV_WAVE61 20260508 — Jing — multi-emoji comment reactions.
+      -- Six hardcoded emojis (👍 ❤️ 🔥 😢 😂 🙏); per-(comment,user,emoji) row,
+      -- toggle add/remove. Whitelist enforced server-side.
+      CREATE TABLE IF NOT EXISTS comment_reactions (
+        comment_id UUID NOT NULL REFERENCES person_mv_comments(id) ON DELETE CASCADE,
+        user_id    UUID NOT NULL,
+        emoji      TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (comment_id, user_id, emoji)
+      );
+      CREATE INDEX IF NOT EXISTS comment_reactions_comment_idx ON comment_reactions (comment_id);
+
+      -- CSSOS_PERSON_MV_WAVE62 20260508 — Jing — manual creator verification.
+      -- Admin-only; sets verified_at/reason/by. Audit log in creator_verifications.
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS verified_reason TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS verified_by UUID;
+      CREATE TABLE IF NOT EXISTS creator_verifications (
+        id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id    UUID NOT NULL,
+        action     TEXT NOT NULL,
+        reason     TEXT,
+        admin_id   UUID NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS creator_verifications_user_idx ON creator_verifications (user_id, created_at DESC);
+
       -- CSSOS_PERSON_MV_WAVE14 20260508 — Jing — cross-person dialogue MVs.
       -- Each row links a single user_works MV to TWO persons so codex pages
       -- of either side can surface the dialogue gallery.
@@ -11896,6 +11923,33 @@ async function ensurePersonMvTables() {
         ON creation_history (user_id, occurred_at DESC);
       CREATE INDEX IF NOT EXISTS creation_history_run_idx
         ON creation_history (run_id) WHERE run_id IS NOT NULL;
+
+      -- CSSOS_PERSON_MV_WAVE63 20260508 — Jing — 1v1 direct messages.
+      -- Mirrors migrations/041_direct_messages.sql so a fresh DB self-heals.
+      CREATE TABLE IF NOT EXISTS dm_threads (
+        thread_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_a_id        UUID NOT NULL,
+        user_b_id        UUID NOT NULL,
+        last_message_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        a_last_read_at   TIMESTAMPTZ,
+        b_last_read_at   TIMESTAMPTZ,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CHECK (user_a_id < user_b_id),
+        UNIQUE (user_a_id, user_b_id)
+      );
+      CREATE INDEX IF NOT EXISTS dm_threads_a_idx
+        ON dm_threads (user_a_id, last_message_at DESC);
+      CREATE INDEX IF NOT EXISTS dm_threads_b_idx
+        ON dm_threads (user_b_id, last_message_at DESC);
+      CREATE TABLE IF NOT EXISTS dm_messages (
+        message_id  BIGSERIAL PRIMARY KEY,
+        thread_id   UUID NOT NULL REFERENCES dm_threads(thread_id) ON DELETE CASCADE,
+        sender_id   UUID NOT NULL,
+        body        TEXT NOT NULL,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS dm_messages_thread_idx
+        ON dm_messages (thread_id, message_id DESC);
     `),
   );
 
@@ -11968,7 +12022,7 @@ async function ensurePersonMvTables() {
  * actor for defense-in-depth. */
 async function enqueueNotification(
   userId: string | null | undefined,
-  kind: "mv_like" | "mv_comment" | "comment_mention" | "follow" | "feed_new_mv" | "system",
+  kind: "mv_like" | "mv_comment" | "comment_mention" | "follow" | "feed_new_mv" | "system" | "dm_received",
   payload: Record<string, unknown>,
 ): Promise<void> {
   if (!DATABASE_URL || !userId) return;
@@ -11991,7 +12045,8 @@ async function enqueueNotification(
       kind === "mv_like"     ? "mv_liked"      :
       kind === "mv_comment"  ? "mv_commented"  :
       kind === "follow"      ? "follower_added":
-      kind === "feed_new_mv" ? "mv_created"    : null;
+      kind === "feed_new_mv" ? "mv_created"    :
+      kind === "dm_received" ? "dm_received"   : null;
     if (whKind) {
       void enqueueWebhook(userId, whKind, payload).catch(() => {});
     }
@@ -12007,6 +12062,8 @@ async function enqueueNotification(
  * 3 consecutive failures auto-disables the webhook. */
 const WEBHOOK_EVENT_KINDS = [
   "mv_created", "mv_liked", "mv_commented", "follower_added",
+  // CSSOS_PERSON_MV_WAVE63 — DM received.
+  "dm_received",
 ] as const;
 type WebhookEventKind = typeof WEBHOOK_EVENT_KINDS[number];
 
@@ -12343,6 +12400,362 @@ app.post("/api/webhooks/:id/test", async (req, res) => {
     return res.json({ ok: true, status: out.status, duration_ms: out.durationMs, snippet: out.snippet });
   } catch (err) {
     return res.status(500).json({ ok: false, code: "WEBHOOK_TEST_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE63 20260508 — Jing — 1v1 direct messages.
+ * Threads are pair-deduped via canonical user_a_id < user_b_id ordering.
+ * Block check (Wave 40 user_blocks) gates send. WebSocket fan-out via the
+ * shared hub at /ws/dm/:thread_id (added in Wave 43); 5s polling fallback
+ * lives client-side. Notifications + webhooks go through enqueueNotification. */
+const DM_BODY_MAX = 4000;
+const DM_RATE_PER_MIN = 30;
+const __dmRateBuckets = new Map<string, number[]>();
+function dmRateAllow(userId: string): boolean {
+  const now = Date.now();
+  const cutoff = now - 60_000;
+  const arr = __dmRateBuckets.get(userId) || [];
+  const recent = arr.filter((t) => t >= cutoff);
+  if (recent.length >= DM_RATE_PER_MIN) {
+    __dmRateBuckets.set(userId, recent);
+    return false;
+  }
+  recent.push(now);
+  __dmRateBuckets.set(userId, recent);
+  return true;
+}
+function dmCanonPair(a: string, b: string): { a: string; b: string } {
+  return a < b ? { a, b } : { a: b, b: a };
+}
+async function dmGetOrCreateThread(userA: string, userB: string): Promise<string | null> {
+  if (!DATABASE_URL || !userA || !userB || userA === userB) return null;
+  const { a, b } = dmCanonPair(userA, userB);
+  const r = await withClient((c) =>
+    c.query<{ thread_id: string }>(
+      `INSERT INTO dm_threads (user_a_id, user_b_id)
+         VALUES ($1::uuid, $2::uuid)
+         ON CONFLICT (user_a_id, user_b_id) DO UPDATE
+           SET user_a_id = dm_threads.user_a_id
+         RETURNING thread_id::text AS thread_id`,
+      [a, b],
+    ),
+  );
+  return r.rows[0]?.thread_id || null;
+}
+async function dmIsBlocked(userA: string, userB: string): Promise<boolean> {
+  if (!DATABASE_URL) return false;
+  const r = await withClient((c) =>
+    c.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM user_blocks
+        WHERE (blocker_id = $1::uuid AND blocked_id = $2::uuid)
+           OR (blocker_id = $2::uuid AND blocked_id = $1::uuid)`,
+      [userA, userB],
+    ),
+  );
+  return Number(r.rows[0]?.n || 0) > 0;
+}
+
+app.get("/api/dm/threads", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const limit = Math.max(1, Math.min(50, Number(req.query.limit || 20) || 20));
+    const r = await withClient((c) =>
+      c.query<{
+        thread_id: string; other_id: string; other_username: string | null;
+        other_display_name: string | null; other_avatar_url: string | null;
+        last_message_at: string; my_last_read_at: string | null;
+        last_body: string | null; last_sender_id: string | null;
+        unread_count: number;
+      }>(
+        `WITH my AS (
+           SELECT thread_id, user_a_id, user_b_id, last_message_at,
+                  CASE WHEN user_a_id = $1::uuid THEN user_b_id ELSE user_a_id END AS other_id,
+                  CASE WHEN user_a_id = $1::uuid THEN a_last_read_at ELSE b_last_read_at END AS my_last_read_at
+             FROM dm_threads
+            WHERE user_a_id = $1::uuid OR user_b_id = $1::uuid
+            ORDER BY last_message_at DESC
+            LIMIT $2
+         )
+         SELECT my.thread_id::text AS thread_id,
+                my.other_id::text AS other_id,
+                u.username AS other_username,
+                u.display_name AS other_display_name,
+                u.avatar_url AS other_avatar_url,
+                my.last_message_at,
+                my.my_last_read_at,
+                lm.body AS last_body,
+                lm.sender_id::text AS last_sender_id,
+                COALESCE((
+                  SELECT COUNT(*)::int FROM dm_messages m
+                   WHERE m.thread_id = my.thread_id
+                     AND m.sender_id <> $1::uuid
+                     AND (my.my_last_read_at IS NULL OR m.created_at > my.my_last_read_at)
+                ), 0) AS unread_count
+           FROM my
+           LEFT JOIN users u ON u.id = my.other_id
+           LEFT JOIN LATERAL (
+             SELECT body, sender_id FROM dm_messages
+              WHERE thread_id = my.thread_id
+              ORDER BY message_id DESC LIMIT 1
+           ) lm ON true
+          ORDER BY my.last_message_at DESC`,
+        [user.id, limit],
+      ),
+    );
+    return res.json({
+      ok: true,
+      threads: r.rows.map((row) => ({
+        thread_id: row.thread_id,
+        other: {
+          id: row.other_id,
+          username: row.other_username,
+          display_name: row.other_display_name || row.other_username,
+          avatar_url: row.other_avatar_url,
+        },
+        last_message_at: row.last_message_at,
+        last_body: row.last_body,
+        last_sender_id: row.last_sender_id,
+        unread_count: Number(row.unread_count || 0),
+      })),
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "DM_THREADS_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/dm/threads/:thread_id/messages", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const tid = String(req.params.thread_id || "").trim();
+    if (!/^[0-9a-fA-F-]{36}$/.test(tid)) return res.status(400).json({ ok: false, code: "INVALID_THREAD" });
+    const t = await withClient((c) =>
+      c.query<{ user_a_id: string; user_b_id: string }>(
+        `SELECT user_a_id::text AS user_a_id, user_b_id::text AS user_b_id
+           FROM dm_threads WHERE thread_id = $1::uuid`,
+        [tid],
+      ),
+    );
+    const row = t.rows[0];
+    if (!row) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    if (row.user_a_id !== user.id && row.user_b_id !== user.id) {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const before = String(req.query.before || "").trim();
+    const limit = Math.max(1, Math.min(100, Number(req.query.limit || 50) || 50));
+    const params: Array<string | number> = [tid];
+    let beforeClause = "";
+    if (before && /^\d+$/.test(before)) {
+      params.push(Number(before));
+      beforeClause = ` AND message_id < $${params.length}`;
+    }
+    params.push(limit);
+    const r = await withClient((c) =>
+      c.query<{ message_id: string; sender_id: string; body: string; created_at: string }>(
+        `SELECT message_id::text AS message_id, sender_id::text AS sender_id,
+                body, created_at
+           FROM dm_messages
+          WHERE thread_id = $1::uuid${beforeClause}
+          ORDER BY message_id DESC
+          LIMIT $${params.length}`,
+        params,
+      ),
+    );
+    return res.json({
+      ok: true,
+      messages: r.rows.reverse().map((m) => ({
+        message_id: m.message_id,
+        sender_id: m.sender_id,
+        body: m.body,
+        created_at: m.created_at,
+      })),
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "DM_MESSAGES_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/dm/threads/:thread_id/messages", express.json({ limit: "16kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const tid = String(req.params.thread_id || "").trim();
+    if (!/^[0-9a-fA-F-]{36}$/.test(tid)) return res.status(400).json({ ok: false, code: "INVALID_THREAD" });
+    const body = String((req.body && req.body.body) || "").trim();
+    if (!body) return res.status(400).json({ ok: false, code: "EMPTY_BODY" });
+    if (body.length > DM_BODY_MAX) {
+      return res.status(400).json({ ok: false, code: "BODY_TOO_LONG", max: DM_BODY_MAX });
+    }
+    if (!dmRateAllow(user.id)) {
+      return res.status(429).json({ ok: false, code: "RATE_LIMITED" });
+    }
+    const t = await withClient((c) =>
+      c.query<{ user_a_id: string; user_b_id: string }>(
+        `SELECT user_a_id::text AS user_a_id, user_b_id::text AS user_b_id
+           FROM dm_threads WHERE thread_id = $1::uuid`,
+        [tid],
+      ),
+    );
+    const row = t.rows[0];
+    if (!row) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    if (row.user_a_id !== user.id && row.user_b_id !== user.id) {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const otherId = row.user_a_id === user.id ? row.user_b_id : row.user_a_id;
+    if (await dmIsBlocked(user.id, otherId)) {
+      return res.status(403).json({ ok: false, code: "BLOCKED" });
+    }
+    const ins = await withClient((c) =>
+      c.query<{ message_id: string; created_at: string }>(
+        `INSERT INTO dm_messages (thread_id, sender_id, body)
+           VALUES ($1::uuid, $2::uuid, $3)
+         RETURNING message_id::text AS message_id, created_at`,
+        [tid, user.id, body],
+      ),
+    );
+    const sideCol = row.user_a_id === user.id ? "a_last_read_at" : "b_last_read_at";
+    await withClient((c) =>
+      c.query(
+        `UPDATE dm_threads
+            SET last_message_at = now(), ${sideCol} = now()
+          WHERE thread_id = $1::uuid`,
+        [tid],
+      ),
+    );
+    const msg = ins.rows[0];
+    if (!msg) return res.status(500).json({ ok: false, code: "DM_SEND_FAILED" });
+    // WebSocket fan-out — both parties may be subscribed to /ws/dm/:thread_id.
+    try {
+      (globalThis as any).__cssosWsPublish?.("dm", tid, {
+        kind: "dm_message",
+        thread_id: tid,
+        message_id: msg.message_id,
+        sender_id: user.id,
+        body,
+        created_at: msg.created_at,
+      });
+    } catch { /* ignore */ }
+    // Notification + webhook fan-out to recipient.
+    void enqueueNotification(otherId, "dm_received", {
+      actor_id: user.id,
+      actor_name: user.display_name || null,
+      thread_id: tid,
+      body: body.slice(0, 120),
+      title: "New message",
+    }).catch(() => {});
+    return res.json({
+      ok: true,
+      message: {
+        message_id: msg.message_id,
+        sender_id: user.id,
+        body,
+        created_at: msg.created_at,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "DM_SEND_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/dm/threads/:thread_id/read", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const tid = String(req.params.thread_id || "").trim();
+    if (!/^[0-9a-fA-F-]{36}$/.test(tid)) return res.status(400).json({ ok: false, code: "INVALID_THREAD" });
+    const t = await withClient((c) =>
+      c.query<{ user_a_id: string; user_b_id: string }>(
+        `SELECT user_a_id::text AS user_a_id, user_b_id::text AS user_b_id
+           FROM dm_threads WHERE thread_id = $1::uuid`,
+        [tid],
+      ),
+    );
+    const row = t.rows[0];
+    if (!row) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    if (row.user_a_id !== user.id && row.user_b_id !== user.id) {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const sideCol = row.user_a_id === user.id ? "a_last_read_at" : "b_last_read_at";
+    await withClient((c) =>
+      c.query(
+        `UPDATE dm_threads SET ${sideCol} = now() WHERE thread_id = $1::uuid`,
+        [tid],
+      ),
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "DM_READ_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/dm/start", express.json({ limit: "4kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const handle = String((req.body && (req.body.username || req.body.user_id)) || "").trim();
+    if (!handle) return res.status(400).json({ ok: false, code: "INVALID_USERNAME" });
+    const other = await resolveUserByUsernameOrId(handle);
+    if (!other) return res.status(404).json({ ok: false, code: "USER_NOT_FOUND" });
+    if (other.id === user.id) return res.status(400).json({ ok: false, code: "CANNOT_DM_SELF" });
+    if (await dmIsBlocked(user.id, other.id)) {
+      return res.status(403).json({ ok: false, code: "BLOCKED" });
+    }
+    const tid = await dmGetOrCreateThread(user.id, other.id);
+    if (!tid) return res.status(500).json({ ok: false, code: "DM_THREAD_FAILED" });
+    return res.json({
+      ok: true,
+      thread_id: tid,
+      other: {
+        id: other.id,
+        username: other.username,
+        display_name: other.display_name || other.username,
+        avatar_url: other.avatar_url,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "DM_START_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/dm/unread-count", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const r = await withClient((c) =>
+      c.query<{ unread_count: number }>(
+        `SELECT COALESCE(SUM(cnt), 0)::int AS unread_count FROM (
+           SELECT (
+             SELECT COUNT(*)::int FROM dm_messages m
+              WHERE m.thread_id = t.thread_id
+                AND m.sender_id <> $1::uuid
+                AND (
+                  (t.user_a_id = $1::uuid AND (t.a_last_read_at IS NULL OR m.created_at > t.a_last_read_at))
+                  OR
+                  (t.user_b_id = $1::uuid AND (t.b_last_read_at IS NULL OR m.created_at > t.b_last_read_at))
+                )
+           ) AS cnt
+             FROM dm_threads t
+            WHERE t.user_a_id = $1::uuid OR t.user_b_id = $1::uuid
+         ) s`,
+        [user.id],
+      ),
+    );
+    return res.json({ ok: true, unread_count: Number(r.rows[0]?.unread_count || 0) });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "DM_UNREAD_FAILED", message: String(err) });
   }
 });
 
@@ -25293,14 +25706,17 @@ app.post("/api/cinema/bookings", async (req, res) => {
 async function resolveUserByUsernameOrId(handle: string): Promise<{
   id: string; username: string | null; display_name: string | null;
   avatar_url: string | null; bio: string | null; created_at: string;
+  verified_at?: string | null;
 } | null> {
   if (!handle || !DATABASE_URL) return null;
   const r = await withClient((c) =>
     c.query<{
       id: string; username: string | null; display_name: string | null;
       avatar_url: string | null; bio: string | null; created_at: string;
+      verified_at: string | null;
     }>(
-      `SELECT id, username, display_name, avatar_url, bio, created_at
+      `SELECT id, username, display_name, avatar_url, bio, created_at,
+              verified_at
          FROM users
         WHERE (username IS NOT NULL AND lower(username) = lower($1))
            OR id::text = $1
@@ -25391,6 +25807,7 @@ app.get("/api/users/:username/profile", async (req, res) => {
       user: {
         id: u.id, username: u.username, display_name: u.display_name,
         avatar_url: u.avatar_url, bio: u.bio, created_at: u.created_at,
+        verified: !!u.verified_at,
       },
       stats,
       recent_mvs: recentR.rows,
@@ -26712,7 +27129,44 @@ app.get("/api/person-mv/mvs/:mv_id/comments", async (req, res) => {
       display_name: row.display_name,
       username: row.username,
       avatar_url: row.avatar_url,
+      reactions: {} as Record<string, number>,
+      my_reactions: [] as string[],
     }));
+    // CSSOS_PERSON_MV_WAVE61 — bulk-load reactions for all comments in one query.
+    if (items.length) {
+      const ids = items.map((it) => it.id);
+      try {
+        const rxR = await withClient((c) =>
+          c.query<{ comment_id: string; emoji: string; cnt: number }>(
+            `SELECT comment_id::text, emoji, COUNT(*)::int AS cnt
+               FROM comment_reactions
+              WHERE comment_id = ANY($1::uuid[])
+              GROUP BY comment_id, emoji`,
+            [ids],
+          ),
+        );
+        const byId: Record<string, Record<string, number>> = {};
+        for (const row of rxR.rows) {
+          (byId[row.comment_id] ||= {})[row.emoji] = row.cnt;
+        }
+        for (const it of items) it.reactions = byId[it.id] || {};
+        if (me && me.id) {
+          const myR = await withClient((c) =>
+            c.query<{ comment_id: string; emoji: string }>(
+              `SELECT comment_id::text, emoji
+                 FROM comment_reactions
+                WHERE comment_id = ANY($1::uuid[]) AND user_id = $2`,
+              [ids, me.id],
+            ),
+          );
+          const mineById: Record<string, string[]> = {};
+          for (const row of myR.rows) {
+            (mineById[row.comment_id] ||= []).push(row.emoji);
+          }
+          for (const it of items) it.my_reactions = mineById[it.id] || [];
+        }
+      } catch (_e) { /* non-fatal — table may not exist on cold boot */ }
+    }
     // CSSOS_PERSON_MV_WAVE17 — include cached summary so the drawer can pin it.
     const sumR = await withClient((c) =>
       c.query<{ comment_summary: string | null; comment_summary_count: number; comment_summary_at: string | null }>(
@@ -26895,6 +27349,181 @@ app.delete("/api/person-mv/comments/:cid", async (req, res) => {
     return res.json({ ok: true });
   } catch (err) {
     return res.status(500).json({ ok: false, code: "COMMENT_DELETE_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE61 20260508 — Jing — comment reactions (multi-emoji).
+ * Hardcoded 6-emoji whitelist. POST toggles, GET reports {counts, my}. */
+const COMMENT_REACTION_EMOJIS = ["👍", "❤️", "🔥", "😢", "😂", "🙏"] as const;
+type CommentReactionEmoji = typeof COMMENT_REACTION_EMOJIS[number];
+function isAllowedReactionEmoji(s: unknown): s is CommentReactionEmoji {
+  return typeof s === "string" && (COMMENT_REACTION_EMOJIS as readonly string[]).indexOf(s) >= 0;
+}
+
+app.post("/api/comments/:id/react", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const cid = String(req.params.id || "").trim();
+    if (!cid) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const emoji = (req.body || {}).emoji;
+    if (!isAllowedReactionEmoji(emoji)) {
+      return res.status(400).json({ ok: false, code: "EMOJI_NOT_ALLOWED", allowed: COMMENT_REACTION_EMOJIS });
+    }
+    const exists = await withClient((c) =>
+      c.query(
+        `SELECT 1 FROM comment_reactions
+          WHERE comment_id = $1::uuid AND user_id = $2 AND emoji = $3 LIMIT 1`,
+        [cid, user.id, emoji],
+      ),
+    );
+    let added = false;
+    if (exists.rowCount && exists.rowCount > 0) {
+      await withClient((c) =>
+        c.query(
+          `DELETE FROM comment_reactions
+            WHERE comment_id = $1::uuid AND user_id = $2 AND emoji = $3`,
+          [cid, user.id, emoji],
+        ),
+      );
+      added = false;
+    } else {
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO comment_reactions (comment_id, user_id, emoji)
+           VALUES ($1::uuid, $2, $3)
+           ON CONFLICT DO NOTHING`,
+          [cid, user.id, emoji],
+        ),
+      );
+      added = true;
+    }
+    const countsR = await withClient((c) =>
+      c.query<{ emoji: string; cnt: number }>(
+        `SELECT emoji, COUNT(*)::int AS cnt FROM comment_reactions
+          WHERE comment_id = $1::uuid GROUP BY emoji`,
+        [cid],
+      ),
+    );
+    const counts: Record<string, number> = {};
+    for (const row of countsR.rows) counts[row.emoji] = row.cnt;
+    const myR = await withClient((c) =>
+      c.query<{ emoji: string }>(
+        `SELECT emoji FROM comment_reactions
+          WHERE comment_id = $1::uuid AND user_id = $2`,
+        [cid, user.id],
+      ),
+    );
+    return res.json({
+      ok: true,
+      added,
+      emoji,
+      counts,
+      my: myR.rows.map((row) => row.emoji),
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "REACT_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/comments/:id/reactions", async (req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const cid = String(req.params.id || "").trim();
+    if (!cid) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const me = await getSessionUser(req).catch(() => null);
+    const countsR = await withClient((c) =>
+      c.query<{ emoji: string; cnt: number }>(
+        `SELECT emoji, COUNT(*)::int AS cnt FROM comment_reactions
+          WHERE comment_id = $1::uuid GROUP BY emoji`,
+        [cid],
+      ),
+    );
+    const counts: Record<string, number> = {};
+    for (const row of countsR.rows) counts[row.emoji] = row.cnt;
+    let mine: string[] = [];
+    if (me && me.id) {
+      const myR = await withClient((c) =>
+        c.query<{ emoji: string }>(
+          `SELECT emoji FROM comment_reactions
+            WHERE comment_id = $1::uuid AND user_id = $2`,
+          [cid, me.id],
+        ),
+      );
+      mine = myR.rows.map((r) => r.emoji);
+    }
+    return res.json({ ok: true, counts, my: mine, allowed: COMMENT_REACTION_EMOJIS });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "REACTIONS_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE62 20260508 — Jing — admin-only manual creator verification.
+ * Sets users.verified_at/reason/by + appends to creator_verifications audit log. */
+app.post("/api/admin/users/:username/verify", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const admin = await getSessionUser(req).catch(() => null);
+    if (!admin || roleForEmail(admin.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    await ensurePersonMvTables();
+    const handle = String(req.params.username || "").trim();
+    const target = await resolveUserByUsernameOrId(handle);
+    if (!target) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const reason = String((req.body || {}).reason || "").slice(0, 500) || null;
+    await withClient((c) =>
+      c.query(
+        `UPDATE users SET verified_at = now(), verified_reason = $2, verified_by = $3
+          WHERE id = $1`,
+        [target.id, reason, admin.id],
+      ),
+    );
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO creator_verifications (user_id, action, reason, admin_id)
+         VALUES ($1, 'verified', $2, $3)`,
+        [target.id, reason, admin.id],
+      ),
+    );
+    return res.json({ ok: true, user_id: target.id, verified: true, reason });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "VERIFY_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/admin/users/:username/unverify", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const admin = await getSessionUser(req).catch(() => null);
+    if (!admin || roleForEmail(admin.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    await ensurePersonMvTables();
+    const handle = String(req.params.username || "").trim();
+    const target = await resolveUserByUsernameOrId(handle);
+    if (!target) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const reason = String((req.body || {}).reason || "").slice(0, 500) || null;
+    await withClient((c) =>
+      c.query(
+        `UPDATE users SET verified_at = NULL, verified_reason = NULL, verified_by = NULL
+          WHERE id = $1`,
+        [target.id],
+      ),
+    );
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO creator_verifications (user_id, action, reason, admin_id)
+         VALUES ($1, 'unverified', $2, $3)`,
+        [target.id, reason, admin.id],
+      ),
+    );
+    return res.json({ ok: true, user_id: target.id, verified: false });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "UNVERIFY_FAILED", message: String(err) });
   }
 });
 
@@ -30107,9 +30736,10 @@ async function start() {
    * (live rooms, collab sessions, watch parties). Auth parses the
    * express-session cookie from the upgrade request and rejects
    * anonymous. Long-poll routes remain as fallback. */
-  type WsChannel = "live" | "collab" | "party";
+  // CSSOS_PERSON_MV_WAVE63 — added "dm" channel for /ws/dm/:thread_id.
+  type WsChannel = "live" | "collab" | "party" | "dm";
   const wsHubs: Record<WsChannel, Map<string, Set<WebSocket>>> = {
-    live: new Map(), collab: new Map(), party: new Map(),
+    live: new Map(), collab: new Map(), party: new Map(), dm: new Map(),
   };
   function wsPublish(channel: WsChannel, channelId: string, msg: unknown): void {
     try {
@@ -30132,7 +30762,7 @@ async function start() {
   httpServer.on("upgrade", (req, socket, head) => {
     try {
       const url = req.url || "";
-      const m = url.match(/^\/ws\/(live|collab|party)\/([A-Za-z0-9_\-]+)/);
+      const m = url.match(/^\/ws\/(live|collab|party|dm)\/([A-Za-z0-9_\-]+)/);
       if (!m) {
         socket.write("HTTP/1.1 404 Not Found\r\n\r\n"); socket.destroy(); return;
       }
@@ -30163,7 +30793,7 @@ async function start() {
 
   httpServer.listen(PORT, () => {
     console.log(`cssOS API running on http://localhost:${PORT}`);
-    console.log(`[ws] hub ready: /ws/{live|collab|party}/:id`);
+    console.log(`[ws] hub ready: /ws/{live|collab|party|dm}/:id`);
     // Tier-fallback sanity log — surfaces misconfigured order at boot.
     const fmt = (ps: string[]) => ps.map((p) => `${p}(${providerTier(p)})`).join(" → ");
     console.log(`[engines] image order: ${fmt(imageProviderOrder())}`);

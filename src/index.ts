@@ -15,6 +15,9 @@ import type { PoolClient, QueryResult } from "pg";
 import { createRemoteJWKSet, jwtVerify, SignJWT } from "jose";
 import Anthropic from "@anthropic-ai/sdk";
 import Stripe from "stripe";
+// CSSOS_PERSON_MV_WAVE104 20260508 — Alipay + WeChat Pay scaffolding.
+import * as cssosAlipay from "./payments/alipay";
+import * as cssosWechat from "./payments/wechat";
 import dotenv from "dotenv";
 import { WebSocketServer, WebSocket } from "ws";
 import { getDatabaseUrl, getPool, withClient } from "./db";
@@ -18888,6 +18891,49 @@ app.post("/api/admin/tls/run-now", async (req, res) => {
   }
 });
 
+/* CSSOS_WAVE102 20260508 — Jing — pg_dump → R2 backup admin endpoints. */
+app.get("/api/admin/db/backups", async (req, res) => {
+  noStore(res);
+  try {
+    if (!(await isAdminRequest(req))) {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const limit = Math.max(1, Math.min(200, parseInt(String(req.query.limit || "20"), 10) || 20));
+    const r = await withClient((c) =>
+      c.query(
+        `SELECT id, r2_key, size_bytes, sha256, duration_ms, status, error, created_at::text AS created_at
+           FROM db_backups ORDER BY created_at DESC LIMIT $1`,
+        [limit],
+      ),
+    );
+    return res.json({ ok: true, rows: r.rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "DB_BACKUPS_LIST_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/admin/db/backup-now", async (req, res) => {
+  noStore(res);
+  try {
+    if (!(await isAdminRequest(req))) {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const script = path.resolve(__dirname, "..", "scripts", "backup-postgres.mjs");
+    const child = spawn(process.execPath, [script], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: process.env,
+      detached: true,
+    });
+    child.unref();
+    let head = "";
+    child.stdout.on("data", (b) => { head += b.toString(); });
+    child.stderr.on("data", (b) => { head += b.toString(); });
+    return res.json({ ok: true, started: true, pid: child.pid });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "DB_BACKUP_TRIGGER_FAILED", message: String(err) });
+  }
+});
+
 /* CSSOS_WAVE101 20260508 — Jing — pg_stat_statements slow query trap. */
 app.get("/api/admin/db/slow-queries", async (req, res) => {
   noStore(res);
@@ -32848,6 +32894,45 @@ async function start() {
     );
   } else {
     console.log("[cron-samples] disabled (no DATABASE_URL — dev mode)");
+  }
+
+  /* CSSOS_WAVE102 20260508 — Jing
+   * Daily pg_dump → R2 backup at 02:00 UTC (one hour before sample-cron).
+   * Shells out to scripts/backup-postgres.mjs so the heavy work happens in
+   * a child process and a crashed dump can't take down the API server. */
+  if (process.env.DATABASE_URL && process.env.R2_BUCKET) {
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    const backupTick = () => {
+      try {
+        const script = path.resolve(__dirname, "..", "scripts", "backup-postgres.mjs");
+        const child = spawn(process.execPath, [script], {
+          stdio: ["ignore", "pipe", "pipe"],
+          env: process.env,
+        });
+        child.stdout.on("data", (b) => process.stdout.write(`[backup-cron] ${b}`));
+        child.stderr.on("data", (b) => process.stderr.write(`[backup-cron] ${b}`));
+        child.on("exit", (code) =>
+          console.log(`[backup-cron] child exit code=${code}`),
+        );
+      } catch (err) {
+        console.warn("[backup-cron] spawn failed:", err instanceof Error ? err.message : String(err));
+      }
+    };
+    const nowB = new Date();
+    const nextB = new Date(Date.UTC(
+      nowB.getUTCFullYear(), nowB.getUTCMonth(), nowB.getUTCDate(), 2, 0, 0, 0,
+    ));
+    if (nextB.getTime() <= nowB.getTime()) nextB.setUTCDate(nextB.getUTCDate() + 1);
+    const bDelay = nextB.getTime() - nowB.getTime();
+    setTimeout(() => {
+      backupTick();
+      setInterval(backupTick, ONE_DAY_MS);
+    }, bDelay);
+    console.log(
+      `[backup-cron] scheduled first run in ${Math.round(bDelay / 3600000)}h (next 02:00 UTC)`,
+    );
+  } else {
+    console.log("[backup-cron] disabled (DATABASE_URL or R2_BUCKET not set)");
   }
 
   /* CSSOS_PERSON_MV_WAVE93 20260508 — Jing

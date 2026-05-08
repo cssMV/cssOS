@@ -21,7 +21,9 @@
     "web:dev": "vite",
     "web:build": "vite build",
     "web:check": "tsc --noEmit -p web/tsconfig.json",
-    "web:preview": "vite preview"
+    "web:preview": "vite preview",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed"
   },
   "keywords": [],
   "author": "",
@@ -50,7 +52,8 @@
     "@types/web-push": "^3.6.4",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.9.3",
-    "vite": "^8.0.10"
+    "vite": "^8.0.10",
+    "@playwright/test": "^1.48.0"
   },
   "description": ""
 }

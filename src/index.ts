@@ -31554,6 +31554,88 @@ app.get("/api/admin/metrics/funnel", async (req, res) => {
   }
 });
 
+/* CSSOS_WAVE80 20260508 — Jing — web-vitals telemetry.
+ * POST /api/internal/webvitals  body {name,value,id,route}
+ * GET  /api/admin/metrics/web-vitals  → p50/p75/p95 LCP/CLS/INP, last 24h. */
+const WEB_VITAL_METRICS = new Set(["LCP", "CLS", "INP", "FID", "TTFB"]);
+app.post("/api/internal/webvitals", async (req, res) => {
+  noStore(res);
+  try {
+    const body = (req.body && typeof req.body === "object") ? req.body : {};
+    const name = String((body as any).name || "").toUpperCase().slice(0, 8);
+    const value = Number((body as any).value);
+    const route = String((body as any).route || "").slice(0, 200) || null;
+    if (!WEB_VITAL_METRICS.has(name) || !isFinite(value)) {
+      return res.status(204).end();
+    }
+    const ua = String(req.get("user-agent") || "").slice(0, 400) || null;
+    const userId = ((req as any).session && (req as any).session.user_id) || null;
+    try {
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO web_vitals_samples (route, metric, value, ua, user_id)
+           VALUES ($1, $2, $3, $4, $5::uuid)`,
+          [route, name, value, ua, userId],
+        ),
+      );
+    } catch (dbErr) {
+      // Table may not exist yet on a fresh deploy — degrade gracefully.
+      console.warn("[webvitals] insert failed:", String((dbErr as Error)?.message || dbErr));
+    }
+    if ((name === "LCP" && value > 4000) || (name === "INP" && value > 500)) {
+      sentryBreadcrumb({
+        category: "web-vitals",
+        message: `slow ${name} ${Math.round(value)}ms`,
+        data: { route, metric: name, value },
+      });
+    }
+    return res.status(204).end();
+  } catch {
+    return res.status(204).end();
+  }
+});
+
+app.get("/api/admin/metrics/web-vitals", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user || roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const rows = await withClient((c) =>
+      c.query<{ metric: string; p50: string; p75: string; p95: string; n: string }>(
+        `SELECT metric,
+                percentile_cont(0.50) WITHIN GROUP (ORDER BY value)::text AS p50,
+                percentile_cont(0.75) WITHIN GROUP (ORDER BY value)::text AS p75,
+                percentile_cont(0.95) WITHIN GROUP (ORDER BY value)::text AS p95,
+                COUNT(*)::text AS n
+           FROM web_vitals_samples
+          WHERE ts > now() - interval '24 hours'
+            AND metric IN ('LCP','CLS','INP')
+          GROUP BY metric`,
+      ),
+    );
+    return res.json(
+      okData({
+        window: "24h",
+        metrics: rows.rows.map((r) => ({
+          metric: r.metric,
+          p50: Number(r.p50),
+          p75: Number(r.p75),
+          p95: Number(r.p95),
+          samples: Number(r.n),
+        })),
+      }),
+    );
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "ADMIN_WEB_VITALS_FAILED",
+      message: String((err as Error)?.message || err),
+    });
+  }
+});
+
 /* CSSOS_PERSON_MV_WAVE42 20260508 — Jing — multi-account switcher.
  * One browser, multiple cssOS accounts (家庭场景: 妈妈号 + 爸爸号 +
  * 孩子号). The list of "known" users is stored client-side in a

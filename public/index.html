@@ -2644,5 +2644,26 @@
         });
       }
     </script>
+    <!-- CSSOS_WAVE80 20260508 — Jing: Sentry browser init (server injects
+         window.__cssosSentryDsn via SENTRY_DSN_PUBLIC) + web-vitals reporter.
+         Both are best-effort; missing DSN is a clean no-op. -->
+    <script>
+      (function () {
+        var dsn = window.__cssosSentryDsn || "";
+        if (!dsn) return;
+        var s = document.createElement("script");
+        s.src = "https://browser.sentry-cdn.com/7.119.0/bundle.min.js";
+        s.crossOrigin = "anonymous";
+        s.onload = function () {
+          try {
+            if (window.Sentry && typeof window.Sentry.init === "function") {
+              window.Sentry.init({ dsn: dsn, tracesSampleRate: 0.1 });
+            }
+          } catch (_e) {}
+        };
+        document.head.appendChild(s);
+      })();
+    </script>
+    <script src="/app.webvitals.js" defer></script>
   </body>
 </html>

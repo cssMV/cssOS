@@ -11254,6 +11254,12 @@ async function ensurePersonMvTables() {
       ALTER TABLE person_mvs ADD COLUMN IF NOT EXISTS comment_summary_count INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE person_mvs ADD COLUMN IF NOT EXISTS comment_summary_at TIMESTAMPTZ;
 
+      -- CSSOS_PERSON_MV_WAVE21 20260508 — Jing — style playlist tags.
+      -- Each MV is tagged with one or more style chips so the homepage
+      -- 🎨 风格电台 shelf can binge-play one curated style at a time.
+      ALTER TABLE person_mvs ADD COLUMN IF NOT EXISTS style_tags TEXT[] NOT NULL DEFAULT '{}';
+      CREATE INDEX IF NOT EXISTS person_mvs_style_tags_idx ON person_mvs USING GIN (style_tags);
+
       -- CSSOS_PERSON_MV_WAVE12 20260508 — Jing — comments + share.
       CREATE TABLE IF NOT EXISTS person_mv_comments (
         id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -11328,8 +11334,80 @@ async function ensurePersonMvTables() {
       );
       CREATE INDEX IF NOT EXISTS person_group_mvs_group_idx
         ON person_group_mvs (group_id, created_at DESC);
+
+      -- CSSOS_PERSON_MV_WAVE20 20260508 — Jing
+      -- Notifications fan-out for likes / comments / follows. Mirrors
+      -- migrations/021_user_notifications.sql so a fresh DB self-heals.
+      CREATE TABLE IF NOT EXISTS user_notifications (
+        id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id    UUID NOT NULL,
+        kind       TEXT NOT NULL,
+        payload    JSONB NOT NULL DEFAULT '{}'::jsonb,
+        read_at    TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS user_notifications_user_unread_idx
+        ON user_notifications (user_id, read_at) WHERE read_at IS NULL;
+      CREATE INDEX IF NOT EXISTS user_notifications_user_recent_idx
+        ON user_notifications (user_id, created_at DESC);
     `),
   );
+}
+
+/* CSSOS_PERSON_MV_WAVE20 20260508 — Jing
+ * Notification fan-out helper. Inserts a row keyed to the recipient
+ * with a JSONB payload describing actor + target. Caller is expected
+ * to skip self-actions; we still no-op if user_id is empty/equals
+ * actor for defense-in-depth. */
+async function enqueueNotification(
+  userId: string | null | undefined,
+  kind: "mv_like" | "mv_comment" | "follow" | "system",
+  payload: Record<string, unknown>,
+): Promise<void> {
+  if (!DATABASE_URL || !userId) return;
+  try {
+    const actorId = payload && typeof payload.actor_id === "string" ? payload.actor_id : "";
+    if (actorId && actorId === userId) return;
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO user_notifications (user_id, kind, payload)
+         VALUES ($1, $2, $3::jsonb)`,
+        [userId, kind, JSON.stringify(payload || {})],
+      ),
+    );
+  } catch (err) {
+    console.warn("[notifications] enqueue failed:", (err as Error)?.message || err);
+  }
+}
+
+/* CSSOS_PERSON_MV_WAVE20 20260508 — Jing
+ * Cap stored notifications per user at 1000. Run periodically to keep
+ * the table from growing unboundedly for power-users. */
+async function pruneOldNotifications(maxPerUser = 1000): Promise<number> {
+  if (!DATABASE_URL) return 0;
+  try {
+    const r = await withClient((c) =>
+      c.query<{ count: number }>(
+        `WITH ranked AS (
+           SELECT id,
+                  row_number() OVER (PARTITION BY user_id ORDER BY created_at DESC) AS rn
+             FROM user_notifications
+         ),
+         victims AS (
+           SELECT id FROM ranked WHERE rn > $1
+         ),
+         deleted AS (
+           DELETE FROM user_notifications WHERE id IN (SELECT id FROM victims) RETURNING 1
+         )
+         SELECT count(*)::int AS count FROM deleted`,
+        [maxPerUser],
+      ),
+    );
+    return Number(r.rows[0]?.count || 0);
+  } catch (err) {
+    console.warn("[notifications] prune failed:", (err as Error)?.message || err);
+    return 0;
+  }
 }
 
 // CSSOS_PERSON_MV_WAVE15 20260508 — Jing
@@ -15766,6 +15844,61 @@ app.get("/api/person-mv/today-in-history", async (req, res) => {
   }
 });
 
+// CSSOS_PERSON_MV_WAVE21 20260508 — Jing — style playlist endpoints.
+// /api/person-mv/playlists       → list all available style chips + counts
+// /api/person-mv/playlists/style/:tag?limit=20 → MVs for that chip, hottest first
+app.get("/api/person-mv/playlists", async (_req, res) => {
+  noStore(res);
+  try {
+    const r = await withClient((c) =>
+      c.query<{ tag: string; mv_count: number }>(
+        `SELECT t AS tag, COUNT(*)::int AS mv_count
+           FROM person_mvs pm, unnest(pm.style_tags) t
+          WHERE pm.visibility = 'public'
+            AND pm.approval_status = 'auto_published'
+          GROUP BY t
+          ORDER BY mv_count DESC, t`,
+      ),
+    );
+    return res.json({ ok: true, data: { playlists: r.rows } });
+  } catch (err) {
+    console.warn("[person-mv] playlists list failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "PLAYLISTS_FAILED" });
+  }
+});
+
+app.get("/api/person-mv/playlists/style/:tag", async (req, res) => {
+  noStore(res);
+  try {
+    const tag = String(req.params.tag || "").trim().toLowerCase();
+    if (!tag || !/^[a-z0-9_-]{1,32}$/.test(tag)) {
+      return res.status(400).json({ ok: false, code: "INVALID_TAG" });
+    }
+    const limit = Math.max(1, Math.min(50, Number(req.query.limit || 20) || 20));
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT pm.mv_id, pm.work_id, pm.person_id, pm.style_tags,
+                pm.view_count, pm.like_count,
+                pp.name_zh, pp.name_en, pp.civilization, pp.era, pp.portrait_url,
+                uw.title, uw.cover_image
+           FROM person_mvs pm
+           JOIN person_profiles pp ON pp.person_id = pm.person_id
+           LEFT JOIN user_works uw ON uw.id = pm.work_id
+          WHERE pm.visibility = 'public'
+            AND pm.approval_status = 'auto_published'
+            AND $1 = ANY(pm.style_tags)
+          ORDER BY pm.view_count DESC NULLS LAST, pm.created_at DESC
+          LIMIT $2`,
+        [tag, limit],
+      ),
+    );
+    return res.json({ ok: true, data: { tag, mvs: r.rows } });
+  } catch (err) {
+    console.warn("[person-mv] playlists/style failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "PLAYLIST_FAILED" });
+  }
+});
+
 app.get("/api/person-mv/persons/:id", async (req, res) => {
   noStore(res);
   try {
@@ -16571,6 +16704,38 @@ function buildSrtFromLyrics(lyrics: string, durationSec: number): string {
   }).join("\n");
 }
 
+// CSSOS_PERSON_MV_WAVE21 20260508 — Jing
+// Map a free-form style hint (music_style_hint / tone) into the canonical
+// 8-style chip set used by 风格电台 homepage shelf. Hits all 8 wave-6 keys.
+const STYLE_CHIP_KEYS = [
+  "tang",
+  "cyberpunk",
+  "lofi",
+  "rock",
+  "cinematic",
+  "jpop",
+  "epic",
+  "ambient",
+] as const;
+type StyleChip = typeof STYLE_CHIP_KEYS[number];
+function deriveStyleTags(...hints: Array<string | null | undefined>): StyleChip[] {
+  const text = hints.filter(Boolean).join(" ").toLowerCase();
+  if (!text) return [];
+  const out = new Set<StyleChip>();
+  const m: Array<[StyleChip, RegExp]> = [
+    ["tang", /(tang|gufeng|guzheng|guofeng|唐|古风|国风|汉|华夏)/],
+    ["cyberpunk", /(cyber|cyberpunk|neon|synthwave|synth-wave|赛博|霓虹)/],
+    ["lofi", /(lo-?fi|chill|chillhop|jazz-?hop|放松)/],
+    ["rock", /(rock|metal|punk|grunge|摇滚)/],
+    ["cinematic", /(cinema|cinematic|score|orchestr|trailer|film|电影|交响)/],
+    ["jpop", /(j-?pop|jpop|anime|japanese pop|日系|日式)/],
+    ["epic", /(epic|hero|battle|march|war|史诗|战歌)/],
+    ["ambient", /(ambient|drone|atmospher|meditat|空灵|氛围)/],
+  ];
+  for (const [chip, re] of m) if (re.test(text)) out.add(chip);
+  return Array.from(out);
+}
+
 async function runHeadlessPipeline(
   person: {
     person_id: string;
@@ -16837,13 +17002,14 @@ async function generatePersonSamplesBatch(
               [workId, result.audio_url],
             );
           }
+          const styleTags = deriveStyleTags(row.music_style_hint, row.tone, row.core_theme);
           await client.query(
             `INSERT INTO person_mvs (
                person_id, work_id, created_by_user_id,
                scenario_seed, duration_secs, approval_status, visibility,
-               is_official_sample
-             ) VALUES ($1, $2::uuid, $3::uuid, $4, $5, 'auto_published', 'public', true)`,
-            [row.person_id, workId, systemUserId, scenarioSeed, 30],
+               is_official_sample, style_tags
+             ) VALUES ($1, $2::uuid, $3::uuid, $4, $5, 'auto_published', 'public', true, $6::text[])`,
+            [row.person_id, workId, systemUserId, scenarioSeed, 30, styleTags],
           );
           await client.query("COMMIT");
         } catch (err) {
@@ -17682,6 +17848,105 @@ app.get("/api/person-mv/persons/:id/leaderboard", async (req, res) => {
   }
 });
 
+/* CSSOS_PERSON_MV_WAVE19 20260508 — Jing
+ * Wave 19: leaderboards (creators / persons / groups) × (week / month / all).
+ * Public endpoint, 10-minute in-memory cache keyed on scope+period to avoid
+ * SQL hammer. Returns top 20 entries with the metric column relevant to
+ * the scope (creators=total_views+mv_count, persons=total_views+mv_count,
+ * groups=total_views+mv_count via user_works.view_count). Empty scopes
+ * still return ok:true with rows:[] so the UI can show its CTA. */
+type LbScope = "creators" | "persons" | "groups";
+type LbPeriod = "week" | "month" | "all";
+type LbCacheEntry = { at: number; rows: any[] };
+const __personMvLbCache: Map<string, LbCacheEntry> = new Map();
+const PERSON_MV_LB_TTL_MS = 10 * 60 * 1000;
+function periodInterval(p: LbPeriod): string {
+  if (p === "week") return "7 days";
+  if (p === "month") return "30 days";
+  return "100 years"; // "all" — effectively unbounded for this dataset
+}
+async function personMvLeaderboardQuery(scope: LbScope, period: LbPeriod): Promise<any[]> {
+  const interval = periodInterval(period);
+  if (scope === "creators") {
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT u.id AS user_id, u.username, u.display_name, u.avatar_url,
+                COALESCE(SUM(pm.view_count), 0)::int AS total_views,
+                COUNT(DISTINCT pm.mv_id)::int AS mv_count
+           FROM users u
+           JOIN person_mvs pm ON pm.created_by_user_id = u.id
+          WHERE pm.created_at > now() - $1::interval
+          GROUP BY u.id, u.username, u.display_name, u.avatar_url
+         HAVING COUNT(DISTINCT pm.mv_id) > 0
+          ORDER BY total_views DESC, mv_count DESC, u.display_name NULLS LAST
+          LIMIT 20`,
+        [interval],
+      ),
+    );
+    return r.rows;
+  }
+  if (scope === "persons") {
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT pp.person_id, pp.name_zh, pp.name_en, pp.civilization, pp.portrait_url,
+                COALESCE(SUM(pm.view_count), 0)::int AS total_views,
+                COUNT(pm.mv_id)::int AS mv_count
+           FROM person_profiles pp
+           JOIN person_mvs pm ON pm.person_id = pp.person_id
+          WHERE pm.created_at > now() - $1::interval
+          GROUP BY pp.person_id, pp.name_zh, pp.name_en, pp.civilization, pp.portrait_url
+         HAVING COUNT(pm.mv_id) > 0
+          ORDER BY total_views DESC, mv_count DESC, pp.name_en
+          LIMIT 20`,
+        [interval],
+      ),
+    );
+    return r.rows;
+  }
+  // groups
+  const r = await withClient((c) =>
+    c.query<any>(
+      `SELECT pg.group_id, pg.name_zh, pg.name_en,
+              COALESCE(SUM(pm.view_count), 0)::int AS total_views,
+              COUNT(pgm.mv_id)::int AS mv_count
+         FROM person_groups pg
+         JOIN person_group_mvs pgm ON pgm.group_id = pg.group_id
+         LEFT JOIN person_mvs pm ON pm.work_id = pgm.work_id
+        WHERE pgm.created_at > now() - $1::interval
+        GROUP BY pg.group_id, pg.name_zh, pg.name_en
+       HAVING COUNT(pgm.mv_id) > 0
+        ORDER BY total_views DESC, mv_count DESC, pg.name_en
+        LIMIT 20`,
+      [interval],
+    ),
+  );
+  return r.rows;
+}
+app.get("/api/person-mv/leaderboards/:scope", async (req, res) => {
+  noStore(res);
+  try {
+    const scope = String(req.params.scope || "").trim() as LbScope;
+    if (scope !== "creators" && scope !== "persons" && scope !== "groups") {
+      return res.status(400).json({ ok: false, code: "INVALID_SCOPE" });
+    }
+    const periodRaw = String(req.query.period || "week").trim() as LbPeriod;
+    const period: LbPeriod = (periodRaw === "month" || periodRaw === "all" || periodRaw === "week")
+      ? periodRaw : "week";
+    const key = `${scope}:${period}`;
+    const now = Date.now();
+    const cached = __personMvLbCache.get(key);
+    if (cached && (now - cached.at) < PERSON_MV_LB_TTL_MS) {
+      return res.json({ ok: true, scope, period, data: { rows: cached.rows }, cached: true });
+    }
+    const rows = await personMvLeaderboardQuery(scope, period);
+    __personMvLbCache.set(key, { at: now, rows });
+    return res.json({ ok: true, scope, period, data: { rows }, cached: false });
+  } catch (err) {
+    console.warn("[person-mv] leaderboards failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "LEADERBOARDS_FAILED" });
+  }
+});
+
 /* CSSOS_PERSON_MV_WAVE5 20260507 — Jing
  * Wave 5: real view + like metrics. All three endpoints session-auth
  * gated. View dedup window = 5 minutes (re-watching after 5min counts
@@ -17804,6 +18069,32 @@ app.post("/api/person-mv/mvs/:mv_id/like", express.json({ limit: "1kb" }), async
       );
       likeCount = r.rows[0]?.like_count ?? 0;
       liked = true;
+      // CSSOS_PERSON_MV_WAVE20 — notify MV creator (skip self-likes).
+      try {
+        const ownerR = await withClient((c) =>
+          c.query<{ created_by_user_id: string; person_id: string }>(
+            `SELECT created_by_user_id, person_id FROM person_mvs WHERE mv_id = $1`,
+            [mvId],
+          ),
+        );
+        const owner = ownerR.rows[0];
+        if (owner && owner.created_by_user_id && owner.created_by_user_id !== user.id) {
+          const actorR = await withClient((c) =>
+            c.query<{ username: string | null; display_name: string | null }>(
+              `SELECT username, display_name FROM users WHERE id = $1`,
+              [user.id],
+            ),
+          );
+          const actor = actorR.rows[0] || { username: null, display_name: null };
+          await enqueueNotification(owner.created_by_user_id, "mv_like", {
+            actor_id: user.id,
+            actor_username: actor.username,
+            actor_name: actor.display_name || actor.username,
+            mv_id: mvId,
+            person_id: owner.person_id,
+          });
+        }
+      } catch (_e) { /* non-fatal */ }
     }
     return res.json({ ok: true, liked, like_count: likeCount });
   } catch (err) {
@@ -23054,6 +23345,21 @@ app.post("/api/users/:username/follow", express.json({ limit: "1kb" }), async (r
           [viewer.id, target.id],
         ),
       );
+      // CSSOS_PERSON_MV_WAVE20 — notify the followee.
+      try {
+        const actorR = await withClient((c) =>
+          c.query<{ username: string | null; display_name: string | null }>(
+            `SELECT username, display_name FROM users WHERE id = $1`,
+            [viewer.id],
+          ),
+        );
+        const actor = actorR.rows[0] || { username: null, display_name: null };
+        await enqueueNotification(target.id, "follow", {
+          actor_id: viewer.id,
+          actor_username: actor.username,
+          actor_name: actor.display_name || actor.username,
+        });
+      } catch (_e) { /* non-fatal */ }
       return res.json({ ok: true, following: true });
     }
   } catch (err) {
@@ -23099,6 +23405,107 @@ app.get("/api/users/:username/following", async (req, res) => {
     return res.json({ ok: true, items: rows });
   } catch (err) {
     return res.status(500).json({ ok: false, code: "FOLLOWING_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE20 20260508 — Jing — notification bell endpoints.
+ * Session-auth gated. List + mark-read + unread-count for a small fast
+ * polling loop; rows are populated by enqueueNotification() from the
+ * like / comment / follow handlers above. */
+app.get("/api/notifications", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit || "20"), 10) || 20));
+    const r = await withClient((c) =>
+      c.query(
+        `SELECT id, kind, payload, read_at, created_at
+           FROM user_notifications
+          WHERE user_id = $1
+          ORDER BY created_at DESC
+          LIMIT $2`,
+        [user.id, limit],
+      ),
+    );
+    const cR = await withClient((c) =>
+      c.query<{ count: number }>(
+        `SELECT count(*)::int AS count FROM user_notifications
+          WHERE user_id = $1 AND read_at IS NULL`,
+        [user.id],
+      ),
+    );
+    return res.json({
+      ok: true,
+      notifications: r.rows.map((row: any) => ({
+        id: row.id,
+        kind: row.kind,
+        payload: row.payload || {},
+        read: !!row.read_at,
+        created_at: row.created_at,
+      })),
+      unread_count: Number(cR.rows[0]?.count || 0),
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "NOTIFICATIONS_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/notifications/mark-read", express.json({ limit: "8kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const ids = Array.isArray((req.body || {}).ids) ? (req.body || {}).ids : null;
+    if (ids && ids.length) {
+      const safe = ids.map((s: unknown) => String(s)).filter(Boolean).slice(0, 200);
+      if (!safe.length) return res.json({ ok: true, updated: 0 });
+      const r = await withClient((c) =>
+        c.query<{ count: number }>(
+          `WITH upd AS (
+             UPDATE user_notifications SET read_at = now()
+              WHERE user_id = $1 AND read_at IS NULL AND id = ANY($2::uuid[])
+              RETURNING 1
+           ) SELECT count(*)::int AS count FROM upd`,
+          [user.id, safe],
+        ),
+      );
+      return res.json({ ok: true, updated: Number(r.rows[0]?.count || 0) });
+    }
+    const r = await withClient((c) =>
+      c.query<{ count: number }>(
+        `WITH upd AS (
+           UPDATE user_notifications SET read_at = now()
+            WHERE user_id = $1 AND read_at IS NULL
+            RETURNING 1
+         ) SELECT count(*)::int AS count FROM upd`,
+        [user.id],
+      ),
+    );
+    return res.json({ ok: true, updated: Number(r.rows[0]?.count || 0) });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "MARK_READ_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/notifications/unread-count", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const r = await withClient((c) =>
+      c.query<{ count: number }>(
+        `SELECT count(*)::int AS count FROM user_notifications
+          WHERE user_id = $1 AND read_at IS NULL`,
+        [user.id],
+      ),
+    );
+    return res.json({ ok: true, unread_count: Number(r.rows[0]?.count || 0) });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "UNREAD_COUNT_FAILED", message: String(err) });
   }
 });
 
@@ -23186,6 +23593,36 @@ app.post("/api/person-mv/mvs/:mv_id/comments", express.json({ limit: "8kb" }), a
     );
     const row = r.rows[0];
     if (!row) return res.status(500).json({ ok: false, code: "COMMENT_POST_FAILED" });
+    // CSSOS_PERSON_MV_WAVE20 — notify MV creator (skip self-comments).
+    (async () => {
+      try {
+        const ownerR = await withClient((c) =>
+          c.query<{ created_by_user_id: string; person_id: string }>(
+            `SELECT created_by_user_id, person_id FROM person_mvs WHERE mv_id = $1`,
+            [mvId],
+          ),
+        );
+        const owner = ownerR.rows[0];
+        if (owner && owner.created_by_user_id && owner.created_by_user_id !== user.id) {
+          const actorR = await withClient((c) =>
+            c.query<{ username: string | null; display_name: string | null }>(
+              `SELECT username, display_name FROM users WHERE id = $1`,
+              [user.id],
+            ),
+          );
+          const actor = actorR.rows[0] || { username: null, display_name: null };
+          await enqueueNotification(owner.created_by_user_id, "mv_comment", {
+            actor_id: user.id,
+            actor_username: actor.username,
+            actor_name: actor.display_name || actor.username,
+            mv_id: mvId,
+            person_id: owner.person_id,
+            comment_id: row.id,
+            comment_body: body.slice(0, 200),
+          });
+        }
+      } catch (_e) { /* non-fatal */ }
+    })();
     // CSSOS_PERSON_MV_WAVE17 — fire-and-forget summary regen when count crosses
     // a threshold (10/20/50/100/250/500/1000). No await — never blocks reply.
     (async () => {

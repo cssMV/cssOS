@@ -3576,7 +3576,32 @@
             state.engines["lyrics"] = output.engineRecord;
           }
         }
-        // Future waves (7c–7f) add: music, video, subs, compose.
+        // CSSOS_MV_DAG_WAVE_7C 20260508 — music state mutations lifted out
+        // of runMusicStage. Output contract:
+        //   { audioUrl, audioUrlBackendOnly?, duration, alignedLyrics?,
+        //     karaJson?, title?, _resp, cost_cents }
+        // Closure-bound DOM/dual-track state (altAudioUrl, tierCapSecs,
+        // _switchToTake, etc.) stays inside the helper because those
+        // mutations are produced by DOM closures we can't externalize
+        // cleanly without churn — they're idempotent UX state, not
+        // pipeline-correctness state.
+        if (stageId === "music") {
+          if (typeof output.audioUrl === "string") state.audioUrl = output.audioUrl;
+          if (Object.prototype.hasOwnProperty.call(output, "audioUrlBackendOnly")) {
+            state.audioUrlBackendOnly = output.audioUrlBackendOnly;
+          }
+          if (typeof output.duration === "number") state.duration = output.duration;
+          if (Object.prototype.hasOwnProperty.call(output, "alignedLyrics")) {
+            state.alignedLyrics = output.alignedLyrics;
+          }
+          if (Object.prototype.hasOwnProperty.call(output, "karaJson") && output.karaJson) {
+            state.karaJson = output.karaJson;
+          }
+          if (output.title && !String(state.title || "").trim()) {
+            state.title = output.title;
+          }
+        }
+        // Future waves (7d–7f) add: video, subs, compose.
       }
       function dispatchStageEvents(state, stageId, output, meta) {
         if (meta && meta.cached) return;
@@ -3628,7 +3653,16 @@
           }
           try { syncWatchOutputs(); } catch (_e) { /* non-fatal */ }
         }
-        // Future waves (7c–7f) add: music, video, subs, compose.
+        // CSSOS_MV_DAG_WAVE_7C 20260508 — music broadcast lifted out of
+        // runMusicStage. The kara_ready dispatch fires from compose (not
+        // music), so it isn't lifted here — the only music-stage broadcast
+        // is syncWatchOutputs(), which re-syncs Watch editors with the new
+        // title + duration. cssos:title_resolved stays inline because it's
+        // tightly coupled to runId resolution that lives inside the helper.
+        if (stageId === "music") {
+          try { syncWatchOutputs(); } catch (_e) { /* non-fatal */ }
+        }
+        // Future waves (7d–7f) add: video, subs, compose.
       }
 
       // Stage 1 — cover (+ 4 parallel variations for 5-image slideshow)
@@ -4267,9 +4301,30 @@
       // Stage 3 — music
       // CSSOS_MV_DAG_WAVE_2_7B 20260507 — body lifted into runMusicStage()
       // so both legacy IIFE path and DAG executor path can call it.
+      // CSSOS_MV_DAG_WAVE_7C 20260508 — pure-helper refactor:
+      //   • returns { audioUrl, audioUrlBackendOnly?, duration, alignedLyrics?,
+      //     karaJson?, title?, _resp, cost_cents } so caller can sequence
+      //     applyStageOutput + recordEngine + dispatchStageEvents +
+      //     setStage("done") deterministically.
+      //   • setStage / recordEngine / final syncWatchOutputs are owned by
+      //     the DAG callback.
+      //   • Helper still mutates state.audioUrl / duration / alignedLyrics
+      //     INLINE because downstream DOM closures inside the helper
+      //     (audio probe, audio prime, take-toggle injection, karaoke
+      //     timeline cache seed, take-2 dual-track block) all read these
+      //     fields synchronously. applyStageOutput re-applies the same
+      //     values from the envelope — idempotent.
+      //   • Closure-bound state mutations stay inline by design:
+      //       - state.targetDurationSecs (compose-stage fallback)
+      //       - state.altAudioUrl / altDuration (dual-track Take 2)
+      //       - state.tierCapSecs / userTier (cap-toast)
+      //       - state.currentTake / loopMode / _switchToTake / _cycleLoopMode
+      //         (closures reference each other)
+      //       - cssos:title_resolved (depends on activePipelineRunId)
+      //       - watchKaraokeTimelineCache seed (DOM-bound; produces karaJson
+      //         which we additionally surface in the return envelope)
       async function runMusicStage(state, _opts) {
       if (STAGE_ORDER.indexOf("music") >= resumeStartIdx) {
-      setStage("music", "running", "");
       // CSSOS_PHASE2_TARGET_DURATION 20260426 #148-C — Jing
       // "京典模板10节歌词，输出的音乐一般在5分钟左右，现在只有30秒。"
       //
@@ -4892,6 +4947,7 @@
       // music engine's per-line timing) OR from a synthetic even-divide
       // fallback over the music duration when the engine didn't emit
       // alignment (MusicGPT, ElevenLabs sync-binary path, etc.).
+      let _karaTimeline = null;
       try {
         const cache = globalThis.watchKaraokeTimelineCache;
         if (cache) {
@@ -4943,6 +4999,7 @@
             cache.data = timeline;
             cache.error = "";
             cache.pending = false;
+            _karaTimeline = timeline;
             console.info(
               "%c[mv-pipeline][karaoke-seed] seeded cache with %d cues spanning %.1fs",
               "color:#0a8;font-weight:bold",
@@ -4975,43 +5032,10 @@
           }));
         }
       } catch (_titleSyncErr) { /* non-fatal */ }
-      recordEngine("music", music);
-      // CSSOS_PHASE2_DUAL_TRACK_DURATION 20260430 #230 — Jing
-      // "심청가 · 148.4s,可以再显示第2首歌的时长吗?"
-      // Show both takes' durations side by side when Suno (or any
-      // dual-track engine) returns two clips. Falls back to single
-      // duration for single-track engines (ElevenLabs, MusicGPT).
-      // CSSOS_PHASE2_DURATION_MMSS 20260504 — Jing
-      // "182.8 秒，改为 3:03 秒" — humans read minutes:seconds.
-      // Format: ceil to whole seconds first so 182.8 → 183 → 3:03.
-      const _fmtDur = (secs) => {
-        const n = Math.round(Number(secs) || 0);
-        const m = Math.floor(n / 60);
-        const s = n % 60;
-        return `${m}:${String(s).padStart(2, "0")}`;
-      };
-      const _d1 = state.duration ? _fmtDur(state.duration) : null;
-      const _d2 = state.altDuration ? _fmtDur(state.altDuration) : null;
-      let _durationLabel = "";
-      if (_d1 && _d2) {
-        _durationLabel = ` · ♪1 ${_d1} · ♪2 ${_d2}`;
-      } else if (_d1) {
-        _durationLabel = ` · ${_d1}`;
-      }
-      // CSSOS_PHASE2_MUSIC_CARD_TITLE 20260504 — Jing wants the music
-      // card to show the extracted/short title, NOT the long prompt
-      // Suno sometimes echoes back. state.title is the heuristic-/
-      // LLM-derived title from earlier in the pipeline.
-      const _musicCardTitle =
-        String(state.title || music.title || "").trim() || "Track";
-      setStage(
-        "music",
-        "done",
-        _musicCardTitle + _durationLabel,
-        music.cost_cents
-      );
-      // P2-31: re-sync editors now that title + duration are known.
-      syncWatchOutputs();
+      // CSSOS_MV_DAG_WAVE_7C 20260508 — recordEngine + setStage("music","done")
+      // + final syncWatchOutputs lifted into the DAG callback so the
+      // helper is pure-output. The done-label is computed by the caller
+      // from state.title + state.duration + state.altDuration.
 
       // P2-34: preload <audio> for the music-tab fallback path.
       //
@@ -5034,7 +5058,23 @@
       } catch (_audioWarmErr) {
         console.warn("[mv-pipeline] music preload failed:", _audioWarmErr);
       }
+      // CSSOS_MV_DAG_WAVE_7C 20260508 — pure-helper return envelope.
+      // applyStageOutput re-applies these from state's perspective
+      // (idempotent — helper already wrote them inline so DOM closures
+      // above had access). Caller uses these for setStage("done") +
+      // recordEngine sequencing.
+      return {
+        audioUrl: state.audioUrl,
+        audioUrlBackendOnly: state.audioUrlBackendOnly,
+        duration: state.duration,
+        alignedLyrics: state.alignedLyrics,
+        karaJson: _karaTimeline,
+        title: state.title,
+        _resp: music,
+        cost_cents: Number(music.cost_cents || 0),
+      };
       } // end Stage 3 (music) resume guard
+      return null;
       } // end runMusicStage
 
       // Stage 4 — video
@@ -6322,7 +6362,38 @@
           return state.lyrics || null;
         })
         .stage("music", ["lyrics"], { weight: 35 }, async () => {
-          await runMusicStage(state, {});
+          if (STAGE_ORDER.indexOf("music") < resumeStartIdx) return null;
+          setStage("music", "running", "");
+          // CSSOS_MV_DAG_WAVE_7C 20260508 — pure helper. Helper returns
+          // an output envelope; we sequence applyStageOutput +
+          // recordEngine + dispatchStageEvents + setStage("done") here so
+          // the DAG owns side-effect ordering byte-for-byte with legacy.
+          const out = await runMusicStage(state, {});
+          if (!out) return null;
+          applyStageOutput(state, "music", out);
+          if (out._resp) recordEngine("music", out._resp);
+          dispatchStageEvents(state, "music", out, { cached: false });
+          // CSSOS_PHASE2_DUAL_TRACK_DURATION 20260430 #230 — done-label
+          // computed here (lifted from helper). Format ♪1 m:ss · ♪2 m:ss.
+          const _fmtDur = (secs) => {
+            const n = Math.round(Number(secs) || 0);
+            const m = Math.floor(n / 60);
+            const s = n % 60;
+            return `${m}:${String(s).padStart(2, "0")}`;
+          };
+          const _d1 = state.duration ? _fmtDur(state.duration) : null;
+          const _d2 = state.altDuration ? _fmtDur(state.altDuration) : null;
+          let _durationLabel = "";
+          if (_d1 && _d2) _durationLabel = ` · ♪1 ${_d1} · ♪2 ${_d2}`;
+          else if (_d1) _durationLabel = ` · ${_d1}`;
+          const _musicCardTitle =
+            String(state.title || (out._resp && out._resp.title) || "").trim() || "Track";
+          setStage(
+            "music",
+            "done",
+            _musicCardTitle + _durationLabel,
+            out._resp ? out._resp.cost_cents : 0
+          );
           return state.audioUrl || null;
         })
         .stage("video", ["cover", "music", "lyrics"], { weight: 35 }, async () => {

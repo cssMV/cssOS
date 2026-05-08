@@ -119,6 +119,38 @@ test("lyrics cache pre-population: callback can gate dispatchEvent on meta.cache
   assert.strictEqual(r.done.music, "m:cached lyrics body");
 });
 
+test("music cache pre-population: callback can gate kara_ready on meta.cached (wave 7c)", async () => {
+  // Wave 7c contract: when state.audioUrl + duration + alignedLyrics +
+  // karaJson are already populated (resume case), the panel pre-populates
+  // the DAG cache so the music engine call is skipped. The executor still
+  // fires onStageDone for music — but with meta.cached:true so the panel
+  // callback can skip dispatchStageEvents (i.e. skip re-firing
+  // syncWatchOutputs / cssos:kara_ready / cssos:title_resolved).
+  let karaReadyCount = 0;
+  const mockDispatch = (stageId, _output, meta) => {
+    if (meta && meta.cached) return; // wave 7a/7b/7c gate
+    if (stageId === "music") karaReadyCount += 1;
+  };
+  const dag = cssmvDag.create()
+    .stage("lyrics", [], async () => ({ lyrics: "L" }))
+    .stage("music",  ["lyrics"], async () => { throw new Error("should not run — cached"); })
+    .stage("video",  ["music"],  async ({ music }) => "v:" + music.audioUrl);
+  const r = await cssmvDag.run(dag, {
+    cache: {
+      music: {
+        audioUrl: "https://cached/audio.mp3",
+        duration: 183,
+        alignedLyrics: [{ start_s: 0, end_s: 3, text: "line 1" }],
+        karaJson: [{ start_s: 0, end_s: 3, text: "line 1" }],
+        cost_cents: 0,
+      }
+    },
+    onStageDone: (id, output, meta) => { mockDispatch(id, output, meta); }
+  });
+  assert.strictEqual(karaReadyCount, 0, "cached music stage must NOT trigger re-broadcast");
+  assert.strictEqual(r.done.video, "v:https://cached/audio.mp3");
+});
+
 test("weighted progress + critical path reported", async () => {
   const dag = cssmvDag.create()
     .stage("a", [],    { weight: 10 }, async () => { await new Promise(r => setTimeout(r, 5));  return 1; })

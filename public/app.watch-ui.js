@@ -6121,6 +6121,21 @@ function ensureCinemaAutoHideModule() {
   opacity: 0;
   transition: opacity 0.4s ease;
 }
+/* CSSOS_WAVE10 20260508 — mobile safe-area for cinema mode */
+@media (max-width: 480px) {
+  #watch-panel.cssmv-cinema {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  #watch-panel.cssmv-cinema #watch-karaoke-line {
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+  #watch-panel.cssmv-cinema .watch-toolbar button,
+  #watch-panel.cssmv-cinema .panel-toolbar button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
 `;
     document.head.appendChild(st);
   }

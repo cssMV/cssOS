@@ -132,6 +132,20 @@
         "font:700 14px/1.4 -apple-system,system-ui,sans-serif;" +
       "}" +
       "#person-mv-panel .person-mv-adhoc-cta:hover{background:rgba(0,245,160,0.18);}" +
+      /* CSSOS_PERSON_MV_LIGHT_THEME 20260508 — Jing
+       * Light-theme contrast pass. Pale teal #daffee on cream bg = invisible.
+       * Override to forest-green (#0f3a2a / #1a5040) so text stays legible
+       * on light surfaces. Backgrounds bumped from 0.08-0.55 to opaque
+       * teal-tint so cards/buttons read clearly in both themes. */
+      "html[data-theme=\"light\"] #person-mv-panel .person-mv-search,html[data-theme=\"light\"] #person-mv-panel .person-mv-civ-select{background:rgba(0,40,30,0.06);color:#0f3a2a;border-color:rgba(0,160,100,0.45);}" +
+      "html[data-theme=\"light\"] #person-mv-panel .person-mv-search::placeholder{color:rgba(15,58,42,0.55);}" +
+      "html[data-theme=\"light\"] #person-mv-panel .person-mv-tier-btn{background:rgba(0,160,100,0.10);color:#0f3a2a;border-color:rgba(0,160,100,0.45);}" +
+      "html[data-theme=\"light\"] #person-mv-panel .person-mv-tier-btn.is-active{background:#00a060;color:#fff;}" +
+      "html[data-theme=\"light\"] #person-mv-panel .person-mv-card{background:rgba(0,40,30,0.04);color:#0f3a2a;border-color:rgba(0,160,100,0.35);}" +
+      "html[data-theme=\"light\"] #person-mv-panel .person-mv-name-en,html[data-theme=\"light\"] #person-mv-panel .person-mv-theme,html[data-theme=\"light\"] #person-mv-panel .person-mv-counts,html[data-theme=\"light\"] #person-mv-panel .person-mv-empty{color:rgba(15,58,42,0.75);}" +
+      "html[data-theme=\"light\"] #person-mv-panel .person-mv-meta{color:#00a060;}" +
+      "html[data-theme=\"light\"] #person-mv-panel .person-mv-create-anybody,html[data-theme=\"light\"] #person-mv-panel .person-mv-adhoc-cta{background:rgba(0,160,100,0.08);color:#0f3a2a;border-color:rgba(0,160,100,0.55);}" +
+      "html[data-theme=\"light\"] #person-mv-panel .person-mv-random-btn{background:rgba(0,160,100,0.15);color:#0f3a2a;border-color:rgba(0,160,100,0.5);}" +
       "#person-mv-panel .person-mv-adhoc-cta.is-busy{opacity:.6;pointer-events:none;}" +
       ".pmv-leaderboard{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:8px 10px;margin-bottom:10px;border-radius:10px;background:rgba(0,245,160,.08);border:1px solid rgba(0,245,160,.22);font:600 12px/1.3 ui-monospace,monospace;color:#bff5dc;}" +
       ".pmv-leaderboard .pmv-lb-creator{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:999px;background:rgba(0,0,0,.25);}" +

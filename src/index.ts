@@ -34600,6 +34600,383 @@ app.get("/api/v1/works/:id", apiV1Read, async (req, res) => {
   }
 });
 
+/* CSSOS_PERSON_MV_WAVE72 20260508 — Jing
+ * Civilization + era discovery pages. 10-min in-memory cache. */
+type CivEraListRow = {
+  name: string;
+  era_count: number;
+  person_count: number;
+  mv_count: number;
+};
+const __civEraCache = new Map<string, { at: number; payload: unknown }>();
+function civEraCacheGet(key: string) {
+  const row = __civEraCache.get(key);
+  if (!row) return null;
+  if (Date.now() - row.at > 10 * 60 * 1000) { __civEraCache.delete(key); return null; }
+  return row.payload;
+}
+function civEraCacheSet(key: string, payload: unknown) {
+  __civEraCache.set(key, { at: Date.now(), payload });
+}
+
+app.get("/api/person-mv/civs", async (_req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const cached = civEraCacheGet("civs:list");
+    if (cached) return res.json({ ok: true, data: cached, cached: true });
+    const r = await withClient((c) =>
+      c.query<CivEraListRow>(
+        `SELECT pp.civilization AS name,
+                COUNT(DISTINCT pp.era) FILTER (WHERE pp.era IS NOT NULL AND pp.era <> '')::int AS era_count,
+                COUNT(DISTINCT pp.person_id)::int AS person_count,
+                COALESCE((SELECT COUNT(*)::int FROM person_mvs pm
+                            JOIN person_profiles pp2 ON pp2.person_id = pm.person_id
+                           WHERE pp2.civilization = pp.civilization
+                             AND pm.visibility = 'public'), 0) AS mv_count
+           FROM person_profiles pp
+          WHERE pp.civilization IS NOT NULL AND pp.civilization <> ''
+          GROUP BY pp.civilization
+          ORDER BY person_count DESC, pp.civilization`,
+      ),
+    );
+    const payload = { civs: r.rows };
+    civEraCacheSet("civs:list", payload);
+    return res.json({ ok: true, data: payload });
+  } catch (err) {
+    console.warn("[person-mv] civs list failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "CIVS_LIST_FAILED" });
+  }
+});
+
+app.get("/api/person-mv/civs/:civ", async (req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const civ = String(req.params.civ || "").trim();
+    if (!civ) return res.status(400).json({ ok: false, code: "CIV_REQUIRED" });
+    const key = `civ:${civ}`;
+    const cached = civEraCacheGet(key);
+    if (cached) return res.json({ ok: true, data: cached, cached: true });
+    const persons = await withClient((c) =>
+      c.query(
+        `SELECT person_id, name_zh, name_en, civilization, era, lifespan,
+                roles, core_theme, visual_symbols, music_style_hint, tone,
+                influence_score, portrait_url,
+                (SELECT COUNT(*)::int FROM person_mvs pm WHERE pm.person_id = pp.person_id) AS mv_count
+           FROM person_profiles pp
+          WHERE civilization = $1
+          ORDER BY influence_score DESC, name_en
+          LIMIT 20`,
+        [civ],
+      ),
+    );
+    const mvs = await withClient((c) =>
+      c.query(
+        `SELECT pm.mv_id, pm.person_id, pm.work_id, pm.scenario_seed,
+                pm.view_count, pm.like_count, pm.created_at,
+                pp.name_zh, pp.name_en
+           FROM person_mvs pm
+           JOIN person_profiles pp ON pp.person_id = pm.person_id
+          WHERE pp.civilization = $1
+            AND pm.visibility = 'public'
+            AND pm.approval_status = 'auto_published'
+          ORDER BY pm.view_count DESC, pm.created_at DESC
+          LIMIT 12`,
+        [civ],
+      ),
+    );
+    const payload = { civ, person_count: persons.rows.length, mv_count: mvs.rows.length, persons: persons.rows, mvs: mvs.rows };
+    civEraCacheSet(key, payload);
+    return res.json({ ok: true, data: payload });
+  } catch (err) {
+    console.warn("[person-mv] civ detail failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "CIV_DETAIL_FAILED" });
+  }
+});
+
+app.get("/api/person-mv/eras", async (_req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const cached = civEraCacheGet("eras:list");
+    if (cached) return res.json({ ok: true, data: cached, cached: true });
+    const r = await withClient((c) =>
+      c.query<CivEraListRow>(
+        `SELECT pp.era AS name,
+                1 AS era_count,
+                COUNT(DISTINCT pp.person_id)::int AS person_count,
+                COALESCE((SELECT COUNT(*)::int FROM person_mvs pm
+                            JOIN person_profiles pp2 ON pp2.person_id = pm.person_id
+                           WHERE pp2.era = pp.era
+                             AND pm.visibility = 'public'), 0) AS mv_count
+           FROM person_profiles pp
+          WHERE pp.era IS NOT NULL AND pp.era <> ''
+          GROUP BY pp.era
+          ORDER BY person_count DESC, pp.era`,
+      ),
+    );
+    const payload = { eras: r.rows };
+    civEraCacheSet("eras:list", payload);
+    return res.json({ ok: true, data: payload });
+  } catch (err) {
+    console.warn("[person-mv] eras list failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "ERAS_LIST_FAILED" });
+  }
+});
+
+app.get("/api/person-mv/eras/:era", async (req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const era = String(req.params.era || "").trim();
+    if (!era) return res.status(400).json({ ok: false, code: "ERA_REQUIRED" });
+    const key = `era:${era}`;
+    const cached = civEraCacheGet(key);
+    if (cached) return res.json({ ok: true, data: cached, cached: true });
+    const persons = await withClient((c) =>
+      c.query(
+        `SELECT person_id, name_zh, name_en, civilization, era, lifespan,
+                roles, core_theme, visual_symbols, music_style_hint, tone,
+                influence_score, portrait_url,
+                (SELECT COUNT(*)::int FROM person_mvs pm WHERE pm.person_id = pp.person_id) AS mv_count
+           FROM person_profiles pp
+          WHERE era = $1
+          ORDER BY influence_score DESC, name_en
+          LIMIT 20`,
+        [era],
+      ),
+    );
+    const mvs = await withClient((c) =>
+      c.query(
+        `SELECT pm.mv_id, pm.person_id, pm.work_id, pm.scenario_seed,
+                pm.view_count, pm.like_count, pm.created_at,
+                pp.name_zh, pp.name_en
+           FROM person_mvs pm
+           JOIN person_profiles pp ON pp.person_id = pm.person_id
+          WHERE pp.era = $1
+            AND pm.visibility = 'public'
+            AND pm.approval_status = 'auto_published'
+          ORDER BY pm.view_count DESC, pm.created_at DESC
+          LIMIT 12`,
+        [era],
+      ),
+    );
+    const payload = { era, person_count: persons.rows.length, mv_count: mvs.rows.length, persons: persons.rows, mvs: mvs.rows };
+    civEraCacheSet(key, payload);
+    return res.json({ ok: true, data: payload });
+  } catch (err) {
+    console.warn("[person-mv] era detail failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "ERA_DETAIL_FAILED" });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE74 20260508 — Jing
+ * Tutorial system. Markdown rendered via strict whitelist (no raw HTML). */
+function escapeTutorialHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+function renderTutorialMarkdown(md: string): string {
+  if (!md) return "";
+  const lines = String(md).replace(/\r\n/g, "\n").split("\n");
+  const out: string[] = [];
+  let inUl = false, inOl = false, inCode = false;
+  const closeLists = () => {
+    if (inUl) { out.push("</ul>"); inUl = false; }
+    if (inOl) { out.push("</ol>"); inOl = false; }
+  };
+  const inline = (raw: string): string => {
+    let s = escapeTutorialHtml(raw);
+    s = s.replace(/`([^`]+)`/g, (_m, p1) => `<code>${p1}</code>`);
+    s = s.replace(/\*\*([^*]+)\*\*/g, (_m, p1) => `<strong>${p1}</strong>`);
+    s = s.replace(/\*([^*]+)\*/g, (_m, p1) => `<em>${p1}</em>`);
+    s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, txt, href) => {
+      const safe = /^(https?:\/\/|mailto:|\/|#)/i.test(String(href));
+      if (!safe) return String(txt);
+      return `<a href="${href}" rel="noopener noreferrer" target="_blank">${txt}</a>`;
+    });
+    return s;
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const ln = lines[i] ?? "";
+    if (/^```/.test(ln)) {
+      if (inCode) { out.push("</code></pre>"); inCode = false; }
+      else { closeLists(); out.push("<pre><code>"); inCode = true; }
+      continue;
+    }
+    if (inCode) { out.push(escapeTutorialHtml(ln)); continue; }
+    const h = ln.match(/^(#{1,6})\s+(.+)$/);
+    if (h && h[1] && h[2] !== undefined) {
+      closeLists();
+      const lvl = h[1].length;
+      out.push(`<h${lvl}>${inline(h[2])}</h${lvl}>`);
+      continue;
+    }
+    const ul = ln.match(/^[-*]\s+(.+)$/);
+    if (ul && ul[1] !== undefined) {
+      if (inOl) { out.push("</ol>"); inOl = false; }
+      if (!inUl) { out.push("<ul>"); inUl = true; }
+      out.push(`<li>${inline(ul[1])}</li>`); continue;
+    }
+    const ol = ln.match(/^\d+\.\s+(.+)$/);
+    if (ol && ol[1] !== undefined) {
+      if (inUl) { out.push("</ul>"); inUl = false; }
+      if (!inOl) { out.push("<ol>"); inOl = true; }
+      out.push(`<li>${inline(ol[1])}</li>`); continue;
+    }
+    if (/^\s*$/.test(ln)) { closeLists(); continue; }
+    closeLists();
+    out.push(`<p>${inline(ln)}</p>`);
+  }
+  if (inCode) out.push("</code></pre>");
+  closeLists();
+  return out.join("\n");
+}
+
+async function tutorialAdminAuthed(req: import("express").Request): Promise<boolean> {
+  const adminToken = String(req.header("x-admin-token") || "").trim();
+  const expectedToken = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  if (expectedToken && adminToken && adminToken === expectedToken) return true;
+  const user = await getSessionUser(req).catch(() => null);
+  if (user && roleForEmail(user.email) === "admin") return true;
+  return false;
+}
+
+app.get("/api/tutorials", async (_req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const r = await withClient((c) =>
+      c.query(
+        `SELECT tutorial_id, title_zh, title_en, template_id, difficulty,
+                emoji, cover_image, view_count, published_at, created_at
+           FROM tutorials
+          WHERE published_at IS NOT NULL
+          ORDER BY published_at DESC
+          LIMIT 200`,
+      ),
+    );
+    return res.json({ ok: true, data: { tutorials: r.rows } });
+  } catch (err) {
+    console.warn("[tutorials] list failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "TUTORIAL_LIST_FAILED" });
+  }
+});
+
+app.get("/api/tutorials/:id", async (req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "ID_REQUIRED" });
+    const r = await withClient((c) =>
+      c.query<{
+        tutorial_id: string; title_zh: string; title_en: string;
+        body_md: string; body_en_md: string | null;
+        template_id: string | null; difficulty: string;
+        emoji: string | null; cover_image: string | null;
+        view_count: number; published_at: string | null;
+      }>(
+        `UPDATE tutorials SET view_count = view_count + 1
+          WHERE tutorial_id = $1::uuid AND published_at IS NOT NULL
+          RETURNING tutorial_id, title_zh, title_en, body_md, body_en_md,
+                    template_id, difficulty, emoji, cover_image,
+                    view_count, published_at`,
+        [id],
+      ),
+    );
+    if (!r.rows[0]) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const row = r.rows[0];
+    const body_html = renderTutorialMarkdown(row.body_md);
+    const body_en_html = row.body_en_md ? renderTutorialMarkdown(row.body_en_md) : null;
+    return res.json({ ok: true, data: { ...row, body_html, body_en_html } });
+  } catch (err) {
+    console.warn("[tutorials] detail failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "TUTORIAL_DETAIL_FAILED" });
+  }
+});
+
+app.post("/api/admin/tutorials", express.json({ limit: "256kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    if (!await tutorialAdminAuthed(req)) return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user?.id) return res.status(403).json({ ok: false, code: "NO_SESSION" });
+    const b = req.body || {};
+    const title_zh = String(b.title_zh || "").trim();
+    const title_en = String(b.title_en || "").trim();
+    const body_md = String(b.body_md || "").trim();
+    if (!title_zh || !title_en || !body_md) return res.status(400).json({ ok: false, code: "MISSING_FIELDS" });
+    const body_en_md = b.body_en_md ? String(b.body_en_md) : null;
+    const template_id = b.template_id ? String(b.template_id).trim() : null;
+    const difficulty = ["beginner", "intermediate", "advanced"].includes(String(b.difficulty)) ? String(b.difficulty) : "beginner";
+    const emoji = b.emoji ? String(b.emoji).slice(0, 8) : null;
+    const r = await withClient((c) =>
+      c.query<{ tutorial_id: string }>(
+        `INSERT INTO tutorials (title_zh, title_en, body_md, body_en_md,
+                                template_id, difficulty, emoji, created_by)
+         VALUES ($1,$2,$3,$4,$5::uuid,$6,$7,$8::uuid)
+         RETURNING tutorial_id`,
+        [title_zh, title_en, body_md, body_en_md, template_id, difficulty, emoji, user.id],
+      ),
+    );
+    return res.json({ ok: true, data: { tutorial_id: r.rows[0]?.tutorial_id } });
+  } catch (err) {
+    console.warn("[tutorials] create failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "TUTORIAL_CREATE_FAILED" });
+  }
+});
+
+app.patch("/api/admin/tutorials/:id", express.json({ limit: "256kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    if (!await tutorialAdminAuthed(req)) return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    const id = String(req.params.id || "").trim();
+    const b = req.body || {};
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    const push = (col: string, val: unknown) => { params.push(val); sets.push(`${col} = $${params.length}`); };
+    if (typeof b.title_zh === "string") push("title_zh", b.title_zh);
+    if (typeof b.title_en === "string") push("title_en", b.title_en);
+    if (typeof b.body_md === "string") push("body_md", b.body_md);
+    if (typeof b.body_en_md === "string") push("body_en_md", b.body_en_md);
+    if (typeof b.difficulty === "string" && ["beginner", "intermediate", "advanced"].includes(b.difficulty)) push("difficulty", b.difficulty);
+    if (typeof b.emoji === "string") push("emoji", b.emoji.slice(0, 8));
+    if (b.template_id !== undefined) {
+      params.push(b.template_id || null);
+      sets.push(`template_id = $${params.length}::uuid`);
+    }
+    if (!sets.length) return res.status(400).json({ ok: false, code: "NO_FIELDS" });
+    params.push(id);
+    await withClient((c) =>
+      c.query(`UPDATE tutorials SET ${sets.join(", ")} WHERE tutorial_id = $${params.length}::uuid`, params),
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    console.warn("[tutorials] patch failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "TUTORIAL_PATCH_FAILED" });
+  }
+});
+
+app.post("/api/admin/tutorials/:id/publish", async (req, res) => {
+  noStore(res);
+  try {
+    if (!await tutorialAdminAuthed(req)) return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    const id = String(req.params.id || "").trim();
+    await withClient((c) =>
+      c.query(
+        `UPDATE tutorials SET published_at = COALESCE(published_at, now())
+          WHERE tutorial_id = $1::uuid`,
+        [id],
+      ),
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    console.warn("[tutorials] publish failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "TUTORIAL_PUBLISH_FAILED" });
+  }
+});
+
 start().catch((err) => {
   console.error("Startup failed", err);
   process.exit(1);

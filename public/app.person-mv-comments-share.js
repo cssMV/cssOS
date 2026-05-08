@@ -40,6 +40,10 @@
       "#cssos-mv-comments .cmh-actions{margin-top:4px;font-size:11px;color:rgba(0,245,160,0.7);}",
       "#cssos-mv-comments .cmh-actions button{background:transparent;color:rgba(0,245,160,0.7);border:0;cursor:pointer;font-size:11px;padding:0 6px 0 0;}",
       "#cssos-mv-comments .cmh-empty{padding:30px 0;text-align:center;color:rgba(218,255,238,0.55);}",
+      ".pmv-comments-summary{margin:0 0 14px;padding:10px 12px;border-radius:10px;background:linear-gradient(180deg,rgba(0,245,160,0.08),rgba(0,245,160,0.02));border:1px solid rgba(0,245,160,0.22);}",
+      ".pmv-comments-summary .pmv-cs-head{display:flex;align-items:center;justify-content:space-between;font-size:12px;font-style:italic;color:rgba(0,245,160,0.85);margin-bottom:4px;}",
+      ".pmv-comments-summary .pmv-cs-refresh{background:transparent;color:rgba(0,245,160,0.85);border:0;cursor:pointer;font-size:13px;padding:0 4px;}",
+      ".pmv-comments-summary p{margin:0;font-size:13px;color:#daffee;}",
       ".cssos-toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%);background:rgba(0,245,160,0.95);color:#06100b;padding:8px 18px;border-radius:999px;font-weight:700;z-index:9500;box-shadow:0 6px 20px rgba(0,0,0,0.4);}",
     ].join("");
     document.head.appendChild(s);
@@ -87,7 +91,23 @@
   async function fetchComments(mvId) {
     var r = await fetch("/api/person-mv/mvs/" + encodeURIComponent(mvId) + "/comments?limit=50", { credentials: "include" });
     var j = await r.json();
-    return j.ok ? (j.items || []) : [];
+    return j.ok ? { items: j.items || [], summary: j.summary || null } : { items: [], summary: null };
+  }
+
+  async function refreshSummary(mvId) {
+    try {
+      var r = await fetch("/api/person-mv/mvs/" + encodeURIComponent(mvId) + "/comments/summarize", {
+        method: "POST", credentials: "include",
+      });
+      var j = await r.json();
+      if (j.ok) { toast(tr("Summary refreshed", "众议已刷新")); refresh(); }
+      else toast(tr("Refresh failed", "刷新失败"));
+    } catch (_e) { toast(tr("Refresh failed", "刷新失败")); }
+  }
+
+  function isAdminUser() {
+    var u = globalThis.CSSOS_CURRENT_USER || null;
+    return !!(u && (u.role === "admin" || u.is_admin));
   }
 
   async function postComment(mvId, body, parentId) {
@@ -155,7 +175,27 @@
     var list = document.querySelector("#cssos-mv-comments .cmh-list");
     if (!list || !currentMvId) return;
     list.innerHTML = "";
-    var items = await fetchComments(currentMvId);
+    var data = await fetchComments(currentMvId);
+    var items = data.items || [];
+    var summary = data.summary || null;
+    if (summary && summary.text) {
+      var head = el("div", { class: "pmv-cs-head" }, [
+        el("span", {}, ["💬 " + tr("Crowd take", "众议") + " · " + (summary.count || items.length) + " " + tr("comments", "条评论")]),
+      ]);
+      if (isAdminUser()) {
+        var btn = el("button", {
+          class: "pmv-cs-refresh",
+          title: tr("Regenerate summary", "重新生成"),
+          onclick: function () { refreshSummary(currentMvId); },
+        }, ["↻"]);
+        head.appendChild(btn);
+      }
+      var sumBox = el("div", { class: "pmv-comments-summary" }, [
+        head,
+        el("p", {}, [String(summary.text)]),
+      ]);
+      list.appendChild(sumBox);
+    }
     var me = (globalThis.CSSOS_CURRENT_USER && globalThis.CSSOS_CURRENT_USER.id) || null;
     if (!items.length) {
       list.appendChild(el("div", { class: "cmh-empty" }, [tr("Be the first to comment.", "抢沙发吧。")]));

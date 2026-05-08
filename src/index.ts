@@ -23220,6 +23220,178 @@ function buildOgMeta(work: ShareCoverWorkRow, requestUrl: string): string {
   return "\n    <!-- CSSOS_SHARE_OG_INJECT 20260506 — per-share OG meta -->\n    " + lines.join("\n    ") + "\n";
 }
 
+/* CSSOS_PERSON_MV_WAVE18 20260508 — Jing
+ * Crawler-friendly /u/:handle, sitemap.xml, robots.txt. Real browsers
+ * (Accept text/html, no obvious crawler UA) get a 302 to the SPA's
+ * ?u={handle}. Crawlers see full og:meta + noscript fallback. */
+const CRAWLER_UA_RE = /(bot|crawl|spider|slurp|facebookexternalhit|twitterbot|linkedinbot|telegrambot|discordbot|whatsapp|embedly|preview|pinterest|skype|vkshare)/i;
+function isCrawler(req: express.Request): boolean {
+  const ua = String(req.header("user-agent") || "");
+  return CRAWLER_UA_RE.test(ua);
+}
+function gradientForName(s: string): { a: string; b: string } {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  const h1 = h % 360;
+  const h2 = (h1 + 60 + (h % 80)) % 360;
+  return { a: `hsl(${h1},70%,45%)`, b: `hsl(${h2},70%,30%)` };
+}
+function initialsAvatarDataUrl(displayName: string): string {
+  const name = (displayName || "?").trim();
+  const letters = (name.match(/[A-Za-z一-鿿]/g) || []).slice(0, 2).join("").toUpperCase() || "?";
+  const { a, b } = gradientForName(name);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600">` +
+    `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs>` +
+    `<rect width="600" height="600" fill="url(#g)"/>` +
+    `<text x="50%" y="50%" dy=".35em" text-anchor="middle" font-family="-apple-system,system-ui,Helvetica,sans-serif" font-size="280" font-weight="700" fill="#fff">${escapeHtmlAttr(letters)}</text>` +
+    `</svg>`;
+  return "data:image/svg+xml;base64," + Buffer.from(svg, "utf8").toString("base64");
+}
+
+app.get("/u/:handle", async (req, res) => {
+  noStore(res);
+  res.type("html");
+  const handle = String(req.params.handle || "").trim();
+  if (!handle) return res.status(404).send("<!doctype html><meta charset=utf-8><title>Not found</title>");
+  const wantsSpa = String(req.query.spa || "") === "1";
+  const acceptsHtml = (req.header("accept") || "").includes("text/html");
+  if (!isCrawler(req) && acceptsHtml && !wantsSpa) {
+    return res.redirect(302, `/?u=${encodeURIComponent(handle)}`);
+  }
+  try {
+    await ensurePersonMvTables();
+    const u = await resolveUserByUsernameOrId(handle);
+    if (!u) {
+      return res.status(404).type("html").send(
+        `<!doctype html><meta charset=utf-8><title>Not found · cssOS</title>` +
+        `<p>User <code>${escapeHtmlAttr(handle)}</code> not found.</p>` +
+        `<p><a href="/">Go to cssOS →</a></p>`,
+      );
+    }
+    const statsR = await withClient((c) =>
+      c.query<{ total_mvs: number; total_views: number }>(
+        `SELECT
+           COALESCE((SELECT COUNT(*)::int FROM person_mvs WHERE created_by_user_id = $1), 0) AS total_mvs,
+           COALESCE((SELECT SUM(view_count)::int FROM person_mvs WHERE created_by_user_id = $1), 0) AS total_views`,
+        [u.id],
+      ),
+    );
+    const stats = statsR.rows[0] || { total_mvs: 0, total_views: 0 };
+    const displayName = u.display_name || u.username || "cssOS user";
+    const handleStr = u.username || u.id;
+    const desc = u.bio
+      ? String(u.bio).slice(0, 200)
+      : `Created ${stats.total_mvs} MVs · ${stats.total_views} total views on cssOS.`;
+    let ogImage = u.avatar_url ? String(u.avatar_url) : "";
+    if (ogImage && !/^https?:\/\//i.test(ogImage)) {
+      ogImage = SHARE_BASE_URL + (ogImage.startsWith("/") ? ogImage : "/" + ogImage);
+    }
+    if (!ogImage) ogImage = initialsAvatarDataUrl(displayName);
+    const url = `${SHARE_BASE_URL}/u/${encodeURIComponent(handleStr)}`;
+    const spaUrl = `/?u=${encodeURIComponent(handleStr)}`;
+    const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>${escapeHtmlAttr(displayName)} · cssOS</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="${escapeHtmlAttr(desc)}" />
+<meta property="og:type" content="profile" />
+<meta property="og:title" content="${escapeHtmlAttr(displayName)}" />
+<meta property="og:description" content="${escapeHtmlAttr(desc)}" />
+<meta property="og:image" content="${escapeHtmlAttr(ogImage)}" />
+<meta property="og:url" content="${escapeHtmlAttr(url)}" />
+<meta property="og:site_name" content="CSS Studio" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="${escapeHtmlAttr(displayName)}" />
+<meta name="twitter:description" content="${escapeHtmlAttr(desc)}" />
+<meta name="twitter:image" content="${escapeHtmlAttr(ogImage)}" />
+<link rel="canonical" href="${escapeHtmlAttr(url)}" />
+</head>
+<body>
+<script>location.replace(${JSON.stringify(spaUrl)});</script>
+<noscript>
+  <h1>${escapeHtmlAttr(displayName)}</h1>
+  <p>${escapeHtmlAttr(desc)}</p>
+  <p><a href="${escapeHtmlAttr(spaUrl)}">View profile on cssOS →</a></p>
+</noscript>
+</body>
+</html>`;
+    return res.send(html);
+  } catch (err) {
+    console.warn("[wave18 /u] failed:", (err as Error)?.message || err);
+    return res.redirect(302, `/?u=${encodeURIComponent(handle)}`);
+  }
+});
+
+let __cachedSitemap: { xml: string; at: number } | null = null;
+const SITEMAP_TTL_MS = 60 * 60 * 1000;
+app.get("/sitemap.xml", async (_req, res) => {
+  res.type("application/xml; charset=utf-8");
+  res.setHeader("Cache-Control", "public, max-age=3600");
+  try {
+    if (__cachedSitemap && Date.now() - __cachedSitemap.at < SITEMAP_TTL_MS) {
+      return res.send(__cachedSitemap.xml);
+    }
+    await ensurePersonMvTables();
+    const urls: { loc: string; lastmod?: string | undefined }[] = [];
+    const pushUrl = (loc: string, lastmod: string | null | undefined) => {
+      if (lastmod) urls.push({ loc, lastmod });
+      else urls.push({ loc });
+    };
+    urls.push({ loc: `${SHARE_BASE_URL}/` });
+    if (DATABASE_URL) {
+      const usersR = await withClient((c) =>
+        c.query<{ username: string | null; id: string; updated_at: string | null }>(
+          `SELECT username, id::text AS id, created_at::text AS updated_at
+             FROM users
+            WHERE username IS NOT NULL
+            LIMIT 5000`,
+        ),
+      );
+      for (const u of usersR.rows) {
+        if (!u.username) continue;
+        pushUrl(`${SHARE_BASE_URL}/u/${encodeURIComponent(u.username)}`, u.updated_at);
+      }
+      const personsR = await withClient((c) =>
+        c.query<{ person_id: string; updated_at: string | null }>(
+          `SELECT person_id, updated_at::text AS updated_at FROM person_profiles LIMIT 5000`,
+        ),
+      );
+      for (const p of personsR.rows) {
+        pushUrl(`${SHARE_BASE_URL}/?person=${encodeURIComponent(p.person_id)}`, p.updated_at);
+      }
+      const sharesR = await withClient((c) =>
+        c.query<{ shortcode: string; created_at: string }>(
+          `SELECT shortcode, created_at::text AS created_at FROM mv_shares LIMIT 10000`,
+        ),
+      );
+      for (const s of sharesR.rows) {
+        pushUrl(`${SHARE_BASE_URL}/m/${encodeURIComponent(s.shortcode)}`, s.created_at);
+      }
+    }
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n` +
+      `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
+      urls.map((u) =>
+        `  <url><loc>${escapeHtmlAttr(u.loc)}</loc>` +
+        (u.lastmod ? `<lastmod>${escapeHtmlAttr(u.lastmod.slice(0, 10))}</lastmod>` : "") +
+        `</url>`
+      ).join("\n") +
+      `\n</urlset>\n`;
+    __cachedSitemap = { xml, at: Date.now() };
+    return res.send(xml);
+  } catch (err) {
+    console.warn("[sitemap] failed:", (err as Error)?.message || err);
+    return res.send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${SHARE_BASE_URL}/</loc></url></urlset>`);
+  }
+});
+
+app.get("/robots.txt", (_req, res) => {
+  res.type("text/plain; charset=utf-8");
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.send(`User-agent: *\nAllow: /\nSitemap: ${SHARE_BASE_URL}/sitemap.xml\n`);
+});
+
 app.get("/", async (req, res) => {
   noStore(res);
   res.type("html");

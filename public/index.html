@@ -131,45 +131,45 @@
               <audio id="mic-capture-audio" class="mic-capture-audio" controls preload="metadata" hidden></audio>
             </div>
           </div>
-          <!-- CSSOS_PERSON_MV_WAVE23 20260508 — festival special shelf.
-               Hidden until /api/person-mv/festivals/today returns rows. -->
-          <section class="cssos-festival-shelf" id="person-mv-festival-shelf" data-shelf="person-mv-festival" hidden></section>
-          <!-- CSSOS_PERSON_MV_WAVE9 20260507 — homepage discovery shelf.
-               Hidden until /api/person-mv/discover/hot returns rows. -->
-          <section class="cssos-discover-shelf" id="person-mv-discover-shelf" data-shelf="person-mv" hidden>
-            <header class="cssos-discover-header">
-              <h2 data-i18n="discover.personMv.title">🏛 文明热门 MV</h2>
-              <a href="#person-mv" class="cssos-discover-all" id="person-mv-discover-all" data-i18n="discover.personMv.viewAll">查看全部 →</a>
-            </header>
-            <div class="cssos-discover-row" data-discover-row="person-mv" id="person-mv-discover-row"></div>
-          </section>
-          <!-- CSSOS_PERSON_MV_WAVE16 20260508 — schools/groups (流派/学派) shelf.
-               Hidden until /api/person-mv/groups returns rows. -->
-          <section class="cssos-discover-shelf" id="person-mv-groups-shelf" data-shelf="person-mv-groups" hidden>
-            <header class="cssos-discover-header">
-              <h2 data-i18n="discover.personMvGroups.title">🏛 文明流派</h2>
-            </header>
-            <div class="cssos-discover-row" data-discover-row="person-mv-groups" id="person-mv-groups-row"></div>
-          </section>
-          <!-- CSSOS_PERSON_MV_WAVE21 20260508 — 风格电台 style playlist shelf.
-               Hidden until /api/person-mv/playlists returns chips. -->
-          <section class="cssos-style-shelf" id="person-mv-style-shelf" data-shelf="person-mv-style" hidden>
-            <header class="cssos-style-header">
-              <h2 data-i18n="style.playlist.title">🎨 风格电台</h2>
-            </header>
-            <div class="cssos-style-row" id="person-mv-style-row"></div>
-          </section>
-          <!-- CSSOS_PERSON_MV_WAVE15 20260508 — today-in-history shelf.
-               Hidden until /api/person-mv/today-in-history returns rows. -->
-          <section class="cssos-today-shelf" id="person-mv-today-shelf" data-shelf="person-mv-today" hidden>
-            <header class="cssos-today-header">
-              <h2 data-i18n="today.personMv.title">📅 今日历史</h2>
-              <span class="cssos-today-sub" id="person-mv-today-sub"></span>
-            </header>
-            <div class="cssos-today-row" id="person-mv-today-row"></div>
-          </section>
         </div>
       </section>
+
+      <!-- CSSOS_PERSON_MV_HOME_SHELVES 20260508 — Jing
+           Discovery shelves moved OUT of #logo-panel into a body-level
+           container so they don't squish the fixed-width logo panel.
+           Renders BELOW the logo-panel (or above foryou-panel). Each shelf
+           hides itself when its API returns nothing, so empty rows = no
+           visual cost. Style: full viewport width, horizontal scroll inside
+           each shelf row. -->
+      <div id="cssos-home-shelves" class="cssos-home-shelves" style="position:relative; z-index:1; padding:0 12px; margin:16px auto; max-width:min(100vw,1280px); display:flex; flex-direction:column; gap:8px;">
+        <section class="cssos-festival-shelf" id="person-mv-festival-shelf" data-shelf="person-mv-festival" hidden></section>
+        <section class="cssos-discover-shelf" id="person-mv-discover-shelf" data-shelf="person-mv" hidden>
+          <header class="cssos-discover-header">
+            <h2 data-i18n="discover.personMv.title">🏛 文明热门 MV</h2>
+            <a href="#person-mv" class="cssos-discover-all" id="person-mv-discover-all" data-i18n="discover.personMv.viewAll">查看全部 →</a>
+          </header>
+          <div class="cssos-discover-row" data-discover-row="person-mv" id="person-mv-discover-row"></div>
+        </section>
+        <section class="cssos-discover-shelf" id="person-mv-groups-shelf" data-shelf="person-mv-groups" hidden>
+          <header class="cssos-discover-header">
+            <h2 data-i18n="discover.personMvGroups.title">🏛 文明流派</h2>
+          </header>
+          <div class="cssos-discover-row" data-discover-row="person-mv-groups" id="person-mv-groups-row"></div>
+        </section>
+        <section class="cssos-style-shelf" id="person-mv-style-shelf" data-shelf="person-mv-style" hidden>
+          <header class="cssos-style-header">
+            <h2 data-i18n="style.playlist.title">🎨 风格电台</h2>
+          </header>
+          <div class="cssos-style-row" id="person-mv-style-row"></div>
+        </section>
+        <section class="cssos-today-shelf" id="person-mv-today-shelf" data-shelf="person-mv-today" hidden>
+          <header class="cssos-today-header">
+            <h2 data-i18n="today.personMv.title">📅 今日历史</h2>
+            <span class="cssos-today-sub" id="person-mv-today-sub"></span>
+          </header>
+          <div class="cssos-today-row" id="person-mv-today-row"></div>
+        </section>
+      </div>
 
       <section class="panel flow hidden" id="foryou-panel">
         <div class="panel-bar">

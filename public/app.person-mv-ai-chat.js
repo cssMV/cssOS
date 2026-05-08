@@ -265,7 +265,13 @@
             ' <a data-open-pid="' + escapeHtml(pid) + '">' + escapeHtml(tr("Open cinema →", "进入影院 →")) + '</a>',
         });
         // Auto-launch the codex page (which auto-fires cinema).
-        location.hash = "#person-mv/" + encodeURIComponent(pid);
+        // CSSOS_AI_CHAT_CODEX_OPEN 20260508 — Jing
+        // The hash route stopped auto-opening codex (commit ea6a72f). Call
+        // the exposed globals directly: open panel first, then codex with
+        // autoCinema flag so user lands in cinema immediately.
+        try { globalThis.openPersonMvPanel?.(); } catch (_e) {}
+        try { globalThis.openPersonMvCodex?.(pid, { autoCinema: true }); } catch (_e) {}
+        try { history.replaceState(null, "", "#person-mv/codex/" + encodeURIComponent(pid)); } catch (_e) {}
       } catch (err) {
         appendMsg("ai", tr("Network error while creating.", "创建时网络出错。"));
       }
@@ -276,7 +282,9 @@
       if (!t) return;
       var openPid = t.getAttribute && t.getAttribute("data-open-pid");
       if (openPid) {
-        location.hash = "#person-mv/" + encodeURIComponent(openPid);
+        try { globalThis.openPersonMvPanel?.(); } catch (_e) {}
+        try { globalThis.openPersonMvCodex?.(openPid, { autoCinema: true }); } catch (_e) {}
+        try { history.replaceState(null, "", "#person-mv/codex/" + encodeURIComponent(openPid)); } catch (_e) {}
         return;
       }
       var search = t.getAttribute && t.getAttribute("data-search");

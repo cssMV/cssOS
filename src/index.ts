@@ -986,6 +986,18 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
   // (`body.engine` ∈ openai|anthropic) escalates to the Rust upstream.
   const userForcedPremiumLlm = ["openai", "anthropic"].includes(explicitEngine);
   if (!userForcedPremiumLlm) {
+    // CSSOS_PHASE2_LYRICS_KEEPALIVE 20260507 — Jing
+    // callLlm sweeps up to 10 providers; cumulative p99 can hit 60s+ which
+    // trips Safari's "Load failed" connection-reset and nginx 504. Write
+    // chunked-transfer heartbeats (single space) every 5s until the JSON
+    // response is ready, mirroring the Rust keepalive wrapper. JSON.parse
+    // tolerates leading whitespace so the existing client `postJson`
+    // (which already trims leading spaces) handles this transparently.
+    res.status(200);
+    res.setHeader("content-type", "application/json; charset=utf-8");
+    res.setHeader("transfer-encoding", "chunked");
+    res.flushHeaders?.();
+    const heartbeat = setInterval(() => { try { res.write(" "); } catch {} }, 5000);
     try {
       const tier = await callLlm({
         messages: [
@@ -995,9 +1007,10 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
         max_tokens: 600,
         temperature: 0.85,
       });
+      clearInterval(heartbeat);
       if (tier && tier.ok && tier.content && tier.content.trim()) {
         console.log(`[mv-lyrics] tier sweep WIN: provider=${tier.provider} model=${tier.model}`);
-        return res.status(200).json({
+        res.write(JSON.stringify({
           ok: true,
           task_id: `tier-${tier.provider}-${Date.now()}`,
           lyrics: tier.content.trim(),
@@ -1009,12 +1022,28 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
           cost_cents: 0,
           use_user_key: false,
           tier_sweep: true,
-        });
+        }));
+        return res.end();
       }
       console.warn(`[mv-lyrics] tier sweep exhausted (${tier?.error || "no_content"}); escalating to Rust premium`);
     } catch (err) {
+      clearInterval(heartbeat);
       console.warn("[mv-lyrics] tier sweep threw:", err instanceof Error ? err.message : String(err));
     }
+    // If we got here without returning, headers are sent — emit stub JSON
+    // and end. Don't try to fall through to Rust upstream; that path opens
+    // a fresh response.
+    const stubLine = (prompt || "a quiet moment in motion").replace(/\s+/g, " ").trim();
+    res.write(JSON.stringify({
+      ok: true,
+      task_id: `placeholder-${Date.now()}`,
+      lyrics: `[verse]\n${stubLine}\n${stubLine}\n\n[chorus]\n${stubLine}\n${stubLine}\n\n[verse]\n${stubLine}\n${stubLine}`,
+      derived_settings: { title: prompt.slice(0, 80) || "Untitled", music_style: style },
+      sections: null, shot_scripts: null,
+      model: "stub-lyrics-placeholder", engine: "placeholder",
+      cost_cents: 0, use_user_key: false, fallback: true, placeholder: true,
+    }));
+    return res.end();
   }
 
   let result = await _mvForwardUpstream(req, res, bodyStr);

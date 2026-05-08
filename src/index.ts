@@ -1,3 +1,7 @@
+// CSSOS_WAVE94 20260508 — Sentry must init BEFORE `import express` so
+// @sentry/node can monkey-patch express instrumentation. Keep this as
+// the FIRST import in the module — do not move below express.
+import "./observability-init";
 import express from "express";
 import path from "path";
 import crypto from "node:crypto";
@@ -15,12 +19,25 @@ import dotenv from "dotenv";
 import { WebSocketServer, WebSocket } from "ws";
 import { getDatabaseUrl, getPool, withClient } from "./db";
 import { runMigrations } from "./db/migrate";
+import { optimizeAndUploadAsync } from "./storage/image-optimize";
+import { uploadToR2Async } from "./storage/r2";
 import {
   inferStructureTreeFromSongSeed,
   normalizeStructuredWorkType,
   type StructurePlan,
 } from "./cssmv/schemas/structure-tree";
 import { SEED_PERSON_PROFILES } from "./person_mv_seed";
+// CSSOS_PERSON_MV_WAVE96 20260508 — Jing — Meilisearch primary search.
+import {
+  getMeili as __meiliClient,
+  isMeiliEnabled as __meiliEnabled,
+  searchAll as __meiliSearchAll,
+  indexPerson as __meiliIndexPerson,
+  indexMv as __meiliIndexMv,
+  indexComment as __meiliIndexComment,
+  configureIndexes as __meiliConfigure,
+  type MeiliSearchHit,
+} from "./search/meili";
 import { fetchPageviews, influenceFromPageviews } from "./wiki_pageviews";
 import { SEED_PERSON_GROUPS } from "./person_group_seed";
 import { SEED_FESTIVALS, type SeedFestival } from "./festival_seed";
@@ -33,8 +50,9 @@ import {
   logServerError,
 } from "./observability";
 
-// CSSOS_WAVE80 20260508 — boot Sentry as early as possible so subsequent
-// imports/handlers can capture exceptions. No-op when DSN is unset.
+// CSSOS_WAVE80/WAVE94 20260508 — Sentry now boots via the top-of-file
+// `import "./observability-init"` side-effect import (must run BEFORE
+// `import express`). initSentry() is idempotent so this is a safety net.
 initSentry();
 
 // CSSOS_WAVE82 20260508 — register server-error DB sink so logServerError()
@@ -725,6 +743,9 @@ function persistBase64Cover(b64: string, userId: unknown): string {
     const filePath = path.join(MV_FALLBACK_ARTIFACTS_DIR, filename);
     fs.writeFileSync(filePath, buf, { mode: 0o644 });
     try { fs.chmodSync(filePath, 0o644); } catch {}
+    // Wave 97: fire-and-forget mirror to R2 + WebP/thumb generation.
+    // No-op when R2 env unset; local file is still source of truth.
+    optimizeAndUploadAsync(filePath, "artifacts/mv-fallback");
     return `/artifacts/mv-fallback/${filename}`;
   } catch (e) {
     console.warn("[mv-cover-fallback] persist failed, using data: URL:", e);
@@ -19769,6 +19790,8 @@ function persistBase64Audio(b64: string, tag: string): string | null {
     const filename = `audio-${userHash}-${Date.now()}-${rand}.mp3`;
     const filePath = path.join(MV_FALLBACK_ARTIFACTS_DIR, filename);
     fs.writeFileSync(filePath, buf, { mode: 0o644 });
+    // Wave 97: mirror audio to R2.
+    uploadToR2Async(filePath, `artifacts/mv-fallback/${filename}`, "audio/mpeg");
     return `/artifacts/mv-fallback/${filename}`;
   } catch (e) {
     console.warn("[headless-mv] persist audio failed:", e);
@@ -20214,6 +20237,8 @@ async function runHeadlessPipeline(
       if (r.code !== 0 || !fs.existsSync(outAbs)) {
         throw new Error(`ffmpeg_failed code=${r.code} stderr=${(r.stderr || "").slice(0, 400)}`);
       }
+      // Wave 97: mirror final MV mp4 to R2 (fire-and-forget).
+      uploadToR2Async(outAbs, `artifacts/mv-fallback/${outName}`, "video/mp4");
       return { value: `/artifacts/mv-fallback/${outName}`, provider: "ffmpeg" };
     });
   } else {
@@ -29366,12 +29391,17 @@ app.get("/m/:shortcode", async (req, res) => {
         final_mv_url: string | null; preview_video_url: string | null;
         person_zh: string | null; person_en: string | null; core_theme: string | null;
       }>(
+        // CSSOS_WAVE94 20260508 — final_mv_url lives in work_assets
+        // (asset_type='final_mv'), not on user_works directly.
         `SELECT pm.mv_id, pm.work_id, w.cover_image, w.title, w.style,
-                w.lyrics_preview, w.final_mv_url, w.preview_video_url,
+                w.lyrics_preview,
+                fma.url AS final_mv_url,
+                w.preview_video_url,
                 pp.name_zh AS person_zh, pp.name_en AS person_en, pp.core_theme
            FROM mv_shares s
            JOIN person_mvs pm ON pm.mv_id = s.mv_id
            LEFT JOIN user_works w       ON w.id = pm.work_id
+           LEFT JOIN work_assets fma    ON fma.work_id = w.id AND fma.asset_type = 'final_mv'
            LEFT JOIN person_profiles pp ON pp.person_id = pm.person_id
           WHERE s.shortcode = $1`,
         [code],
@@ -29466,12 +29496,17 @@ app.get("/embed/:shortcode", async (req, res) => {
         person_zh: string | null; person_en: string | null;
         created_by_user_id: string | null;
       }>(
-        `SELECT pm.mv_id, w.cover_image, w.title, w.final_mv_url, w.preview_video_url,
+        // CSSOS_WAVE94 20260508 — final_mv_url lives in work_assets
+        // (asset_type='final_mv'), not on user_works directly.
+        `SELECT pm.mv_id, w.cover_image, w.title,
+                fma.url AS final_mv_url,
+                w.preview_video_url,
                 pp.name_zh AS person_zh, pp.name_en AS person_en,
                 pm.created_by_user_id::text AS created_by_user_id
            FROM mv_shares s
            JOIN person_mvs pm ON pm.mv_id = s.mv_id
            LEFT JOIN user_works w       ON w.id = pm.work_id
+           LEFT JOIN work_assets fma    ON fma.work_id = w.id AND fma.asset_type = 'final_mv'
            LEFT JOIN person_profiles pp ON pp.person_id = pm.person_id
           WHERE s.shortcode = $1`,
         [code],
@@ -29686,6 +29721,23 @@ app.get("/api/person-mv/search", async (req, res) => {
     const cached = __searchCacheGet(cacheKey);
     if (cached) return res.json({ ok: true, ...cached, cached: true });
 
+    // CSSOS_PERSON_MV_WAVE96 — try Meilisearch first; PG bigram is fallback.
+    if (__meiliEnabled()) {
+      try {
+        const meiliHits: MeiliSearchHit[] = await __meiliSearchAll(
+          q,
+          (type === "person" || type === "mv" || type === "comment") ? type : "all",
+          limit,
+        );
+        const body = { results: meiliHits as SearchHit[] };
+        __searchCachePut(cacheKey, body);
+        return res.json({ ok: true, ...body, engine: "meilisearch" });
+      } catch (err) {
+        console.log("[search] meili unavailable, falling back to PG", (err as Error)?.message || err);
+        // fall through to PG path below
+      }
+    }
+
     const wantPerson  = type === "all" || type === "person";
     const wantMv      = type === "all" || type === "mv";
     const wantComment = type === "all" || type === "comment";
@@ -29798,10 +29850,103 @@ app.get("/api/person-mv/search", async (req, res) => {
     const trimmed = results.slice(0, limit);
     const body = { results: trimmed };
     __searchCachePut(cacheKey, body);
-    return res.json({ ok: true, ...body });
+    return res.json({ ok: true, ...body, engine: "postgres" });
   } catch (err) {
     console.warn("[person-mv] search failed:", (err as Error)?.message || err);
     return res.status(500).json({ ok: false, code: "SEARCH_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE96 20260508 — Jing
+ * Admin reindex: bulk-load DB rows into Meilisearch indexes. Used after
+ * deploys or whenever an index drifts. kind = persons|mvs|comments|all. */
+app.post("/api/admin/search/reindex", async (req, res) => {
+  noStore(res);
+  try {
+    if (!(await isAdminRequest(req))) {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    if (!__meiliEnabled()) {
+      return res.status(503).json({ ok: false, code: "MEILI_DISABLED",
+        message: "MEILISEARCH_HOST not set" });
+    }
+    const kind = String(req.query.kind || "all").toLowerCase();
+    const counts: { persons: number; mvs: number; comments: number } = { persons: 0, mvs: 0, comments: 0 };
+    try { await __meiliConfigure(); } catch (err) {
+      console.warn("[meili] configure failed:", (err as Error)?.message || err);
+    }
+
+    if (kind === "persons" || kind === "all") {
+      const rows = await withClient((c) => c.query<{
+        person_id: string; name_zh: string | null; name_en: string | null;
+        name_native: string | null; civilization: string | null; era: string | null;
+        core_theme: string | null; tone: string | null; lore: any;
+      }>(`SELECT person_id, name_zh, name_en, name_native, civilization, era,
+                  core_theme, tone, lore
+             FROM person_profiles`));
+      for (const r of rows.rows) {
+        await __meiliIndexPerson({
+          person_id: r.person_id,
+          name_zh: r.name_zh, name_en: r.name_en, name_native: r.name_native,
+          civilization: r.civilization, era: r.era,
+          core_theme: r.core_theme, tone: r.tone,
+          lore_bio: r.lore && typeof r.lore === "object" ? String((r.lore as any).bio || "") : "",
+        });
+        counts.persons++;
+      }
+    }
+
+    if (kind === "mvs" || kind === "all") {
+      const rows = await withClient((c) => c.query<{
+        mv_id: string; person_id: string; scenario_seed: string | null;
+        title: string | null; mv_url: string | null; civilization: string | null;
+        person_name: string | null;
+      }>(`SELECT pm.mv_id::text AS mv_id, pm.person_id, pm.scenario_seed,
+                 w.title,
+                 (SELECT url FROM work_assets wa
+                   WHERE wa.work_id = pm.work_id AND wa.asset_type = 'final_mv'
+                   LIMIT 1) AS mv_url,
+                 pp.civilization,
+                 COALESCE(pp.name_zh, pp.name_en) AS person_name
+            FROM person_mvs pm
+            LEFT JOIN user_works w ON w.id = pm.work_id
+            LEFT JOIN person_profiles pp ON pp.person_id = pm.person_id`));
+      for (const r of rows.rows) {
+        await __meiliIndexMv({
+          mv_id: r.mv_id, person_id: r.person_id,
+          scenario_seed: r.scenario_seed, title: r.title, mv_url: r.mv_url,
+          person_name: r.person_name, civilization: r.civilization,
+        });
+        counts.mvs++;
+      }
+    }
+
+    if (kind === "comments" || kind === "all") {
+      const rows = await withClient((c) => c.query<{
+        id: string; mv_id: string; person_id: string | null; body: string;
+        author_name: string | null; mv_title: string | null;
+      }>(`SELECT cm.id::text AS id, cm.mv_id::text AS mv_id, pm.person_id,
+                 cm.body,
+                 u.display_name AS author_name,
+                 w.title AS mv_title
+            FROM person_mv_comments cm
+            LEFT JOIN person_mvs pm ON pm.mv_id = cm.mv_id
+            LEFT JOIN user_works w ON w.id = pm.work_id
+            LEFT JOIN users u ON u.id = cm.user_id
+           WHERE cm.deleted_at IS NULL`));
+      for (const r of rows.rows) {
+        await __meiliIndexComment({
+          id: r.id, mv_id: r.mv_id, person_id: r.person_id,
+          body: r.body, author_name: r.author_name, mv_title: r.mv_title,
+        });
+        counts.comments++;
+      }
+    }
+
+    return res.json({ ok: true, kind, counts });
+  } catch (err) {
+    console.warn("[admin/search/reindex] failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "REINDEX_FAILED", message: String(err) });
   }
 });
 

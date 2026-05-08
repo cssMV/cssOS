@@ -33,32 +33,35 @@
 
     /* Move shelves wrapper to body end (when dock-top) or start (else).
      * We anchor on a stable marker so multiple toggles don't churn. */
-    var marker = document.getElementById("cssos-home-shelves-end-marker");
-    if (!marker) {
-      marker = document.createElement("div");
-      marker.id = "cssos-home-shelves-end-marker";
-      marker.style.cssText = "height:0;width:0;";
-      document.body.appendChild(marker);
-    }
-
-    /* Wrapper styling: when dock at top, push shelves to bottom of
-     * viewport with auto top margin. When dock not at top, top
-     * placement uses default flow. */
+    /* CSSOS_HOME_SHELVES_ANCHOR_FIX 20260508 — Jing
+     * Earlier version moved shelves to BODY start which shoved them
+     * before the topbar. Anchor inside <main> instead so panels stay
+     * properly layered and shelves flow with the rest of the home
+     * surface. Also drop position:relative + z-index so cards don't
+     * overlay other panels' click areas. */
+    var anchor = document.querySelector("main") || document.body;
+    shelves.style.position = "static";
+    shelves.style.zIndex = "auto";
+    shelves.style.marginTop = "16px";
+    shelves.style.marginBottom = "16px";
     if (isDockTop) {
-      shelves.style.marginTop = "auto";
-      shelves.style.marginBottom = "16px";
-      /* Move wrapper just before the end marker so it lives at body
-       * end. parentNode.insertBefore is idempotent — no-op if already
-       * in correct slot. */
-      if (shelves.nextElementSibling !== marker) {
-        marker.parentNode.insertBefore(shelves, marker);
+      /* Dock at top: shelves go LAST inside main */
+      if (anchor.lastElementChild !== shelves) {
+        anchor.appendChild(shelves);
       }
     } else {
-      shelves.style.marginTop = "16px";
-      shelves.style.marginBottom = "auto";
-      /* Move to body start (before first child). */
-      if (document.body.firstElementChild !== shelves) {
-        document.body.insertBefore(shelves, document.body.firstElementChild);
+      /* Dock at bottom (default): shelves go FIRST inside main, after
+       * the logo-panel section (i.e. as second child if logo-panel is
+       * first). Find the logo-panel and insert just after it. */
+      var logoPanel = document.getElementById("logo-panel");
+      if (logoPanel && logoPanel.parentNode === anchor && logoPanel.nextElementSibling !== shelves) {
+        if (logoPanel.nextSibling) {
+          anchor.insertBefore(shelves, logoPanel.nextSibling);
+        } else {
+          anchor.appendChild(shelves);
+        }
+      } else if (anchor.firstElementChild !== shelves) {
+        anchor.insertBefore(shelves, anchor.firstElementChild);
       }
     }
 

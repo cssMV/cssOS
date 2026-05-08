@@ -9075,6 +9075,10 @@ const PROVIDER_TIERS: Record<string, "free" | "cheap" | "standard" | "premium"> 
   // tts
   azure: "free",
   play: "standard",
+  // asr (whisper)
+  whisper_hf: "free",
+  whisper_fal: "free",
+  whisper_openai: "premium",
 };
 const TIER_ORDER = ["free", "cheap", "standard", "premium"] as const;
 function providerTier(p: string): (typeof TIER_ORDER)[number] {
@@ -16220,6 +16224,157 @@ async function runHeadlessPipeline(
   };
 }
 
+/* CSSOS_PERSON_MV_WAVE13C 20260508 — Jing
+ * Reusable batch generator. Same logic the admin endpoint runs, but
+ * callable directly (e.g. from the nightly cron) without HTTP/auth
+ * plumbing. Returns the same summary the admin endpoint does. */
+type GenerateSamplesBatchOpts = {
+  limit: number;
+  force?: boolean;
+  source?: string;
+};
+type GenerateSamplesBatchResult = {
+  processed: number;
+  succeeded: number;
+  failed: number;
+  errors: Array<{ person_id: string; error: string }>;
+  results: Array<{
+    person_id: string;
+    ok: boolean;
+    work_id?: string | undefined;
+    cover_url?: string | undefined;
+    mv_url?: string | undefined;
+    stages: HeadlessStage[];
+  }>;
+};
+async function generatePersonSamplesBatch(
+  opts: GenerateSamplesBatchOpts,
+): Promise<GenerateSamplesBatchResult> {
+  const limit = Math.max(1, Math.min(50, Number(opts.limit) || 5));
+  const force = !!opts.force;
+  const source = String(opts.source || "admin");
+  const t0 = Date.now();
+  console.log(`[person-mv-batch] start source=${source} limit=${limit} force=${force}`);
+  await seedPersonProfilesOnce();
+
+  const systemUserId = await resolveSystemUserId();
+
+  const candidates = await withClient((c) =>
+    c.query<{
+      person_id: string;
+      name_zh: string | null;
+      name_en: string | null;
+      core_theme: string | null;
+      music_style_hint: string | null;
+      tone: string | null;
+      lore: any;
+    }>(
+      `SELECT pp.person_id, pp.name_zh, pp.name_en, pp.core_theme,
+              pp.music_style_hint, pp.tone, pp.lore
+         FROM person_profiles pp
+        WHERE $2::bool = true
+           OR NOT EXISTS (
+                SELECT 1 FROM person_mvs pm
+                 WHERE pm.person_id = pp.person_id
+                   AND pm.is_official_sample = true
+              )
+        ORDER BY pp.influence_score DESC NULLS LAST, pp.person_id
+        LIMIT $1`,
+      [limit, force],
+    ),
+  );
+
+  const errors: Array<{ person_id: string; error: string }> = [];
+  const results: GenerateSamplesBatchResult["results"] = [];
+  let succeeded = 0;
+  let failed = 0;
+
+  for (const row of candidates.rows) {
+    try {
+      const result = await runHeadlessPipeline(row, { systemUserId });
+      const name = String(row.name_zh || row.name_en || row.person_id);
+      const style = row.music_style_hint || "cinematic";
+      const scenarioSeed = String(row.core_theme || name).slice(0, 500);
+
+      if (!result.cover_url) {
+        throw new Error("cover_required_but_missing");
+      }
+
+      const workId = crypto.randomUUID();
+      const title = `${name} · ${style}`.slice(0, 200);
+      await withClient(async (client) => {
+        await client.query("BEGIN");
+        try {
+          await client.query(
+            `INSERT INTO user_works (
+               id, user_id, title, style, work_type, status, cover_image
+             ) VALUES ($1::uuid, $2, $3, $4, 'mv', 'published', $5)`,
+            [workId, systemUserId, title, style, result.cover_url],
+          );
+          if (result.mv_url) {
+            await client.query(
+              `INSERT INTO work_assets (work_id, asset_type, url, meta)
+                 VALUES ($1::uuid, 'final_mv', $2, '{}'::jsonb)
+               ON CONFLICT (work_id, asset_type) DO UPDATE SET url = EXCLUDED.url`,
+              [workId, result.mv_url],
+            );
+          }
+          if (result.audio_url) {
+            await client.query(
+              `INSERT INTO work_assets (work_id, asset_type, url, meta)
+                 VALUES ($1::uuid, 'audio_track_1', $2, '{}'::jsonb)
+               ON CONFLICT (work_id, asset_type) DO UPDATE SET url = EXCLUDED.url`,
+              [workId, result.audio_url],
+            );
+          }
+          await client.query(
+            `INSERT INTO person_mvs (
+               person_id, work_id, created_by_user_id,
+               scenario_seed, duration_secs, approval_status, visibility,
+               is_official_sample
+             ) VALUES ($1, $2::uuid, $3::uuid, $4, $5, 'auto_published', 'public', true)`,
+            [row.person_id, workId, systemUserId, scenarioSeed, 30],
+          );
+          await client.query("COMMIT");
+        } catch (err) {
+          await client.query("ROLLBACK");
+          throw err;
+        }
+      });
+      succeeded += 1;
+      results.push({
+        person_id: row.person_id,
+        ok: true,
+        work_id: workId,
+        cover_url: result.cover_url,
+        mv_url: result.mv_url,
+        stages: result.stages,
+      });
+    } catch (err) {
+      failed += 1;
+      errors.push({
+        person_id: row.person_id,
+        error: (err as Error)?.message || String(err),
+      });
+      results.push({ person_id: row.person_id, ok: false, stages: [] });
+      console.warn("[person-mv] sample gen failed for", row.person_id, err);
+    }
+    // Sequential pacing — 5s gap between persons.
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+  }
+
+  console.log(
+    `[person-mv-batch] done source=${source} processed=${candidates.rows.length} ok=${succeeded} fail=${failed} elapsed=${Date.now() - t0}ms`,
+  );
+  return {
+    processed: candidates.rows.length,
+    succeeded,
+    failed,
+    errors,
+    results,
+  };
+}
+
 app.post("/api/admin/person-mv/generate-samples", express.json({ limit: "4kb" }), async (req, res) => {
   noStore(res);
   try {
@@ -16236,132 +16391,8 @@ app.post("/api/admin/person-mv/generate-samples", express.json({ limit: "4kb" })
 
     const limit = Math.max(1, Math.min(50, Number(req.query.limit || 5) || 5));
     const force = String(req.query.force || "").trim() === "1";
-    await seedPersonProfilesOnce();
-
-    const systemUserId = await resolveSystemUserId();
-
-    const candidates = await withClient((c) =>
-      c.query<{
-        person_id: string;
-        name_zh: string | null;
-        name_en: string | null;
-        core_theme: string | null;
-        music_style_hint: string | null;
-        tone: string | null;
-        lore: any;
-      }>(
-        `SELECT pp.person_id, pp.name_zh, pp.name_en, pp.core_theme,
-                pp.music_style_hint, pp.tone, pp.lore
-           FROM person_profiles pp
-          WHERE $2::bool = true
-             OR NOT EXISTS (
-                  SELECT 1 FROM person_mvs pm
-                   WHERE pm.person_id = pp.person_id
-                     AND pm.is_official_sample = true
-                )
-          ORDER BY pp.influence_score DESC NULLS LAST, pp.person_id
-          LIMIT $1`,
-        [limit, force],
-      ),
-    );
-
-    const errors: Array<{ person_id: string; error: string }> = [];
-    const results: Array<{
-      person_id: string;
-      ok: boolean;
-      work_id?: string | undefined;
-      cover_url?: string | undefined;
-      mv_url?: string | undefined;
-      stages: HeadlessStage[];
-    }> = [];
-    let succeeded = 0;
-    let failed = 0;
-
-    for (const row of candidates.rows) {
-      try {
-        const result = await runHeadlessPipeline(row, { systemUserId });
-        const name = String(row.name_zh || row.name_en || row.person_id);
-        const style = row.music_style_hint || "cinematic";
-        const scenarioSeed = String(row.core_theme || name).slice(0, 500);
-
-        if (!result.cover_url) {
-          throw new Error("cover_required_but_missing");
-        }
-
-        const workId = crypto.randomUUID();
-        const title = `${name} · ${style}`.slice(0, 200);
-        await withClient(async (client) => {
-          await client.query("BEGIN");
-          try {
-            await client.query(
-              `INSERT INTO user_works (
-                 id, user_id, title, style, work_type, status, cover_image
-               ) VALUES ($1::uuid, $2, $3, $4, 'mv', 'published', $5)`,
-              [workId, systemUserId, title, style, result.cover_url],
-            );
-            // Persist final-mv + audio-track-1 via work_assets so the
-            // gallery / cinema queue resolves them via the standard
-            // final_mv_asset / audio_track_1_asset joins.
-            if (result.mv_url) {
-              await client.query(
-                `INSERT INTO work_assets (work_id, asset_type, url, meta)
-                   VALUES ($1::uuid, 'final_mv', $2, '{}'::jsonb)
-                 ON CONFLICT (work_id, asset_type) DO UPDATE SET url = EXCLUDED.url`,
-                [workId, result.mv_url],
-              );
-            }
-            if (result.audio_url) {
-              await client.query(
-                `INSERT INTO work_assets (work_id, asset_type, url, meta)
-                   VALUES ($1::uuid, 'audio_track_1', $2, '{}'::jsonb)
-                 ON CONFLICT (work_id, asset_type) DO UPDATE SET url = EXCLUDED.url`,
-                [workId, result.audio_url],
-              );
-            }
-            await client.query(
-              `INSERT INTO person_mvs (
-                 person_id, work_id, created_by_user_id,
-                 scenario_seed, duration_secs, approval_status, visibility,
-                 is_official_sample
-               ) VALUES ($1, $2::uuid, $3::uuid, $4, $5, 'auto_published', 'public', true)`,
-              [row.person_id, workId, systemUserId, scenarioSeed, 30],
-            );
-            await client.query("COMMIT");
-          } catch (err) {
-            await client.query("ROLLBACK");
-            throw err;
-          }
-        });
-        succeeded += 1;
-        results.push({
-          person_id: row.person_id,
-          ok: true,
-          work_id: workId,
-          cover_url: result.cover_url,
-          mv_url: result.mv_url,
-          stages: result.stages,
-        });
-      } catch (err) {
-        failed += 1;
-        errors.push({
-          person_id: row.person_id,
-          error: (err as Error)?.message || String(err),
-        });
-        results.push({ person_id: row.person_id, ok: false, stages: [] });
-        console.warn("[person-mv] sample gen failed for", row.person_id, err);
-      }
-      // Sequential pacing — 5s gap between persons.
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-    }
-
-    return res.json({
-      ok: true,
-      processed: candidates.rows.length,
-      succeeded,
-      failed,
-      errors,
-      results,
-    });
+    const summary = await generatePersonSamplesBatch({ limit, force, source: "admin" });
+    return res.json({ ok: true, ...summary });
   } catch (err) {
     console.warn("[person-mv] generate-samples failed:", (err as Error)?.message || err);
     return res.status(500).json({ ok: false, code: "GENERATE_SAMPLES_FAILED" });
@@ -22333,6 +22364,53 @@ async function start() {
       "[personalization] engine boot failed; continuing without gifts —",
       err,
     );
+  }
+
+  /* CSSOS_PERSON_MV_WAVE13C 20260508 — Jing
+   * Nightly auto sample-MV generator. Fires at 03:00 UTC daily so any
+   * newly seeded (or ad-hoc) person without an official sample picks one
+   * up overnight. Capped at 10/night so we don't burn engine credits in
+   * one go; the admin endpoint can still pass higher limits manually.
+   * Skipped in dev (no DATABASE_URL) so local boots don't hammer free
+   * tiers. Same-process scheduler — no external cron required. */
+  if (process.env.DATABASE_URL) {
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    const cronTick = async () => {
+      try {
+        const summary = await generatePersonSamplesBatch({
+          limit: 10,
+          source: "cron",
+        });
+        console.log(
+          `[cron-samples] tick ok — processed=${summary.processed} succeeded=${summary.succeeded} failed=${summary.failed}`,
+        );
+      } catch (err) {
+        console.warn(
+          "[cron-samples] tick failed:",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    };
+    const now = new Date();
+    const next = new Date(Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      3, 0, 0, 0,
+    ));
+    if (next.getTime() <= now.getTime()) {
+      next.setUTCDate(next.getUTCDate() + 1);
+    }
+    const delayMs = next.getTime() - now.getTime();
+    setTimeout(() => {
+      cronTick();
+      setInterval(cronTick, ONE_DAY_MS);
+    }, delayMs);
+    console.log(
+      `[cron-samples] scheduled first run in ${Math.round(delayMs / 3600000)}h (next 03:00 UTC)`,
+    );
+  } else {
+    console.log("[cron-samples] disabled (no DATABASE_URL — dev mode)");
   }
   app.listen(PORT, () => {
     console.log(`cssOS API running on http://localhost:${PORT}`);

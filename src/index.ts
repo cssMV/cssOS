@@ -11973,10 +11973,365 @@ async function enqueueNotification(
     // notification reaches the user even when the tab is closed.
     void sendWebPush(userId, { kind, payload, title: "CSS Studio", body: String(payload?.title || payload?.body || "") })
       .catch(() => {});
+    // CSSOS_PERSON_MV_WAVE57 — fan-out to user-registered webhooks.
+    const whKind =
+      kind === "mv_like"     ? "mv_liked"      :
+      kind === "mv_comment"  ? "mv_commented"  :
+      kind === "follow"      ? "follower_added":
+      kind === "feed_new_mv" ? "mv_created"    : null;
+    if (whKind) {
+      void enqueueWebhook(userId, whKind, payload).catch(() => {});
+    }
   } catch (err) {
     console.warn("[notifications] enqueue failed:", (err as Error)?.message || err);
   }
 }
+
+/* CSSOS_PERSON_MV_WAVE57 20260508 — Jing — outbound webhook system.
+ * HMAC-SHA256 signed deliveries; per-row plaintext secret used to sign
+ * the canonical JSON body. Header X-CssOS-Signature: sha256=<hex>.
+ * 5s timeout per attempt; 3 attempts with exp backoff (250/750/2250ms);
+ * 3 consecutive failures auto-disables the webhook. */
+const WEBHOOK_EVENT_KINDS = [
+  "mv_created", "mv_liked", "mv_commented", "follower_added",
+] as const;
+type WebhookEventKind = typeof WEBHOOK_EVENT_KINDS[number];
+
+function maskWebhookSecret(secret: string): string {
+  const s = String(secret || "");
+  if (s.length <= 4) return "••••";
+  return "••••" + s.slice(-4);
+}
+
+function signWebhookBody(secret: string, body: string): string {
+  return crypto.createHmac("sha256", secret).update(body, "utf8").digest("hex");
+}
+
+async function deliverWebhookOnce(
+  url: string, secret: string, kind: string, payload: Record<string, unknown>,
+  attempt: number,
+): Promise<{ status: number | null; snippet: string; durationMs: number }> {
+  const body = JSON.stringify({
+    event: kind,
+    delivered_at: new Date().toISOString(),
+    attempt,
+    payload: payload || {},
+  });
+  const sig = signWebhookBody(secret, body);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 5000);
+  const t0 = Date.now();
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "cssOS-Webhooks/1.0",
+        "X-CssOS-Event": kind,
+        "X-CssOS-Signature": `sha256=${sig}`,
+      },
+      body,
+      signal: ctrl.signal,
+    });
+    const text = await r.text().catch(() => "");
+    return { status: r.status, snippet: text.slice(0, 500), durationMs: Date.now() - t0 };
+  } catch (err) {
+    return { status: null, snippet: String((err as Error)?.message || err).slice(0, 500), durationMs: Date.now() - t0 };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function enqueueWebhook(
+  userId: string,
+  kind: WebhookEventKind | string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  if (!DATABASE_URL || !userId) return;
+  let rows: Array<{ webhook_id: string; url: string; secret: string }> = [];
+  try {
+    const r = await withClient((c) =>
+      c.query<{ webhook_id: string; url: string; secret: string }>(
+        `SELECT webhook_id::text AS webhook_id, url, secret
+           FROM user_webhooks
+          WHERE user_id = $1::uuid
+            AND enabled = true
+            AND $2 = ANY (event_kinds)`,
+        [userId, kind],
+      ),
+    );
+    rows = r.rows;
+  } catch (err) {
+    console.warn("[webhooks] lookup failed:", (err as Error)?.message || err);
+    return;
+  }
+  for (const row of rows) {
+    void (async () => {
+      const backoffs = [0, 250, 750, 2250];
+      let lastStatus: number | null = null;
+      let success = false;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        if (backoffs[attempt - 1]) {
+          await new Promise((res) => setTimeout(res, backoffs[attempt - 1]));
+        }
+        const out = await deliverWebhookOnce(row.url, row.secret, kind, payload, attempt);
+        lastStatus = out.status;
+        try {
+          await withClient((c) =>
+            c.query(
+              `INSERT INTO webhook_deliveries
+                 (webhook_id, event_kind, payload, status_code, response_snippet, duration_ms, attempt)
+               VALUES ($1::uuid, $2, $3::jsonb, $4, $5, $6, $7)`,
+              [row.webhook_id, kind, JSON.stringify(payload || {}),
+               out.status, out.snippet, out.durationMs, attempt],
+            ),
+          );
+        } catch (_) { /* best-effort */ }
+        if (out.status && out.status >= 200 && out.status < 300) { success = true; break; }
+      }
+      try {
+        if (success) {
+          await withClient((c) =>
+            c.query(
+              `UPDATE user_webhooks
+                  SET last_delivery_at = now(),
+                      last_status_code = $2,
+                      failure_count    = 0
+                WHERE webhook_id = $1::uuid`,
+              [row.webhook_id, lastStatus],
+            ),
+          );
+        } else {
+          const upd = await withClient((c) =>
+            c.query<{ failure_count: number }>(
+              `UPDATE user_webhooks
+                  SET last_delivery_at = now(),
+                      last_status_code = $2,
+                      failure_count    = failure_count + 1
+                WHERE webhook_id = $1::uuid
+                RETURNING failure_count`,
+              [row.webhook_id, lastStatus],
+            ),
+          );
+          const fc = Number(upd.rows[0]?.failure_count || 0);
+          if (fc >= 3) {
+            await withClient((c) =>
+              c.query(
+                `UPDATE user_webhooks SET enabled = false WHERE webhook_id = $1::uuid`,
+                [row.webhook_id],
+              ),
+            );
+          }
+        }
+      } catch (_) { /* swallow */ }
+    })().catch((err) => {
+      console.warn("[webhooks] delivery failed:", (err as Error)?.message || err);
+    });
+  }
+}
+
+function isValidWebhookUrl(u: string): boolean {
+  try {
+    const url = new URL(u);
+    if (url.protocol !== "https:") return false;
+    if (!url.hostname) return false;
+    return true;
+  } catch (_) { return false; }
+}
+
+function sanitizeWebhookKinds(input: unknown): string[] {
+  const arr = Array.isArray(input) ? input : [];
+  const out: string[] = [];
+  for (const v of arr) {
+    const s = String(v || "").trim();
+    if ((WEBHOOK_EVENT_KINDS as readonly string[]).includes(s) && !out.includes(s)) {
+      out.push(s);
+    }
+  }
+  return out;
+}
+
+app.get("/api/webhooks", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const r = await withClient((c) =>
+      c.query<{
+        webhook_id: string; url: string; event_kinds: string[]; secret: string;
+        enabled: boolean; last_delivery_at: string | null; last_status_code: number | null;
+        failure_count: number; created_at: string;
+      }>(
+        `SELECT webhook_id::text AS webhook_id, url, event_kinds, secret, enabled,
+                last_delivery_at, last_status_code, failure_count, created_at
+           FROM user_webhooks
+          WHERE user_id = $1::uuid
+          ORDER BY created_at DESC LIMIT 50`,
+        [user.id],
+      ),
+    );
+    return res.json({
+      ok: true,
+      available_kinds: WEBHOOK_EVENT_KINDS,
+      webhooks: r.rows.map((row) => ({
+        webhook_id: row.webhook_id,
+        url: row.url,
+        event_kinds: row.event_kinds || [],
+        secret_masked: maskWebhookSecret(row.secret),
+        enabled: row.enabled,
+        last_delivery_at: row.last_delivery_at,
+        last_status_code: row.last_status_code,
+        failure_count: row.failure_count,
+        created_at: row.created_at,
+      })),
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "WEBHOOKS_LIST_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/webhooks", express.json({ limit: "4kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const url = String(req.body?.url || "").trim();
+    if (!isValidWebhookUrl(url)) {
+      return res.status(400).json({ ok: false, code: "INVALID_URL", message: "https URL required" });
+    }
+    const kinds = sanitizeWebhookKinds(req.body?.event_kinds);
+    if (!kinds.length) {
+      return res.status(400).json({ ok: false, code: "INVALID_KINDS",
+        message: "event_kinds must include at least one of " + WEBHOOK_EVENT_KINDS.join(",") });
+    }
+    const cnt = await withClient((c) =>
+      c.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM user_webhooks WHERE user_id = $1::uuid`,
+        [user.id],
+      ),
+    );
+    if (Number(cnt.rows[0]?.n || 0) >= 20) {
+      return res.status(429).json({ ok: false, code: "WEBHOOK_LIMIT" });
+    }
+    const secret = crypto.randomBytes(32).toString("hex");
+    const ins = await withClient((c) =>
+      c.query<{ webhook_id: string; created_at: string }>(
+        `INSERT INTO user_webhooks (user_id, url, event_kinds, secret)
+         VALUES ($1::uuid, $2, $3::text[], $4)
+         RETURNING webhook_id::text AS webhook_id, created_at`,
+        [user.id, url, kinds, secret],
+      ),
+    );
+    return res.json({
+      ok: true,
+      webhook: {
+        webhook_id: ins.rows[0]?.webhook_id,
+        url, event_kinds: kinds,
+        secret, // returned plaintext exactly once on creation
+        secret_masked: maskWebhookSecret(secret),
+        enabled: true,
+        created_at: ins.rows[0]?.created_at,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "WEBHOOK_CREATE_FAILED", message: String(err) });
+  }
+});
+
+app.delete("/api/webhooks/:id", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!/^[0-9a-fA-F-]{36}$/.test(id)) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const r = await withClient((c) =>
+      c.query(
+        `DELETE FROM user_webhooks
+          WHERE webhook_id = $1::uuid AND user_id = $2::uuid`,
+        [id, user.id],
+      ),
+    );
+    if (!r.rowCount) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    await withClient((c) =>
+      c.query(`DELETE FROM webhook_deliveries WHERE webhook_id = $1::uuid`, [id]),
+    ).catch(() => {});
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "WEBHOOK_DELETE_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/webhooks/:id/deliveries", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!/^[0-9a-fA-F-]{36}$/.test(id)) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const own = await withClient((c) =>
+      c.query<{ webhook_id: string }>(
+        `SELECT webhook_id::text AS webhook_id FROM user_webhooks
+          WHERE webhook_id = $1::uuid AND user_id = $2::uuid`,
+        [id, user.id],
+      ),
+    );
+    if (!own.rowCount) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const limit = Math.max(1, Math.min(100, Number(req.query.limit || 20) | 0));
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT id, event_kind, status_code, response_snippet, duration_ms,
+                attempt, delivered_at
+           FROM webhook_deliveries
+          WHERE webhook_id = $1::uuid
+          ORDER BY delivered_at DESC LIMIT $2`,
+        [id, limit],
+      ),
+    );
+    return res.json({ ok: true, deliveries: r.rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "WEBHOOK_DELIVERIES_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/webhooks/:id/test", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!/^[0-9a-fA-F-]{36}$/.test(id)) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const r = await withClient((c) =>
+      c.query<{ url: string; secret: string }>(
+        `SELECT url, secret FROM user_webhooks
+          WHERE webhook_id = $1::uuid AND user_id = $2::uuid AND enabled = true`,
+        [id, user.id],
+      ),
+    );
+    const row = r.rows[0];
+    if (!row) return res.status(404).json({ ok: false, code: "NOT_FOUND_OR_DISABLED" });
+    const out = await deliverWebhookOnce(row.url, row.secret, "test", {
+      message: "cssOS webhook test",
+      sent_at: new Date().toISOString(),
+    }, 1);
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO webhook_deliveries
+           (webhook_id, event_kind, payload, status_code, response_snippet, duration_ms, attempt)
+         VALUES ($1::uuid, 'test', '{}'::jsonb, $2, $3, $4, 1)`,
+        [id, out.status, out.snippet, out.durationMs],
+      ),
+    ).catch(() => {});
+    return res.json({ ok: true, status: out.status, duration_ms: out.durationMs, snippet: out.snippet });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "WEBHOOK_TEST_FAILED", message: String(err) });
+  }
+});
 
 /* CSSOS_PERSON_MV_WAVE20 20260508 — Jing
  * Cap stored notifications per user at 1000. Run periodically to keep
@@ -16756,6 +17111,279 @@ async function saveAiChatMemory(
     console.warn("[wave47] saveAiChatMemory failed:", (e as Error)?.message || e);
   }
 }
+
+/* CSSOS_PERSON_MV_WAVE51 20260508 — Jing — creation timeline.
+ * Fire-and-forget logger for every meaningful action a user takes
+ * during MV creation. Never throws — DB hiccups must never break
+ * the creation flow. Optional run_id groups events for replay. */
+const CREATION_HISTORY_KINDS = new Set([
+  "stage_start",
+  "stage_done",
+  "engine_select",
+  "style_pick",
+  "person_pick",
+  "tier_change",
+  "edit_lyrics",
+  "submit",
+]);
+async function logCreationEvent(
+  userId: string,
+  kind: string,
+  payload: Record<string, any> = {},
+  opts: { run_id?: string | null; work_id?: string | null } = {},
+): Promise<void> {
+  if (!userId) return;
+  if (!CREATION_HISTORY_KINDS.has(kind)) return;
+  const runId = opts.run_id ? String(opts.run_id).slice(0, 80) : null;
+  const workId = opts.work_id ? String(opts.work_id).slice(0, 80) : null;
+  let body: Record<string, any> = {};
+  try {
+    body = payload && typeof payload === "object" ? payload : {};
+    const json = JSON.stringify(body);
+    if (json.length > 4000) body = { _truncated: true };
+  } catch { body = {}; }
+  try {
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO creation_history (user_id, work_id, run_id, event_kind, payload)
+         VALUES ($1::uuid, $2, $3, $4, $5::jsonb)`,
+        [userId, workId, runId, kind, JSON.stringify(body)],
+      ),
+    );
+  } catch (e) {
+    console.warn("[wave51] logCreationEvent failed:", (e as Error)?.message || e);
+  }
+}
+
+/* Wave 51 endpoints. Frontend POSTs `event` for click-driven kinds
+ * (engine_select, style_pick, person_pick, tier_change, edit_lyrics,
+ * submit). Pipeline-driven kinds (stage_start, stage_done) are logged
+ * server-side from inside runHeadlessPipeline. */
+app.post("/api/user/creation-history/event", express.json({ limit: "8kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const me = await getSessionUser(req).catch(() => null);
+    if (!me || !me.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const kind = String(req.body?.kind || "").trim();
+    if (!CREATION_HISTORY_KINDS.has(kind)) {
+      return res.status(400).json({ ok: false, code: "BAD_KIND" });
+    }
+    const runId = req.body?.run_id ? String(req.body.run_id).slice(0, 80) : null;
+    const workId = req.body?.work_id ? String(req.body.work_id).slice(0, 80) : null;
+    const payload = (req.body?.payload && typeof req.body.payload === "object") ? req.body.payload : {};
+    await logCreationEvent(me.id, kind, payload, { run_id: runId, work_id: workId });
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "LOG_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/user/creation-history", async (req, res) => {
+  noStore(res);
+  try {
+    const me = await getSessionUser(req).catch(() => null);
+    if (!me || !me.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const limit = Math.max(1, Math.min(500, Number(req.query.limit || 100) || 100));
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT id, work_id, run_id, event_kind, payload, occurred_at
+           FROM creation_history
+          WHERE user_id = $1::uuid
+          ORDER BY occurred_at DESC
+          LIMIT $2`,
+        [me.id, limit],
+      ),
+    );
+    return res.json({ ok: true, events: r.rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "HISTORY_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/user/creation-history/run/:run_id", async (req, res) => {
+  noStore(res);
+  try {
+    const me = await getSessionUser(req).catch(() => null);
+    if (!me || !me.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const runId = String(req.params.run_id || "").slice(0, 80);
+    if (!runId) return res.status(400).json({ ok: false, code: "BAD_RUN_ID" });
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT id, work_id, run_id, event_kind, payload, occurred_at
+           FROM creation_history
+          WHERE user_id = $1::uuid AND run_id = $2
+          ORDER BY occurred_at ASC`,
+        [me.id, runId],
+      ),
+    );
+    let seed: any = null;
+    for (const ev of r.rows) {
+      if (ev.event_kind === "submit" && ev.payload && typeof ev.payload === "object") {
+        seed = ev.payload;
+      }
+    }
+    return res.json({ ok: true, events: r.rows, seed });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "HISTORY_RUN_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE52 20260508 — Jing — smart recommendations.
+ * Combines Wave 47 chat memory (favorite_styles / favorite_persons)
+ * with Wave 51 creation history (recently created persons) and the
+ * existing person_mvs view aggregate as a "trending" proxy (no admin
+ * trends table yet exists). Cold start (no preferences AND no history)
+ * returns pure top-trending. Per-user cache 30 minutes. */
+type RecCandidate = {
+  person_id: string;
+  name_zh: string | null;
+  name_en: string | null;
+  portrait_url: string | null;
+  civilization: string | null;
+  era: string | null;
+  reason: string;
+  score: number;
+};
+const __recCache: Map<string, { at: number; rows: RecCandidate[] }> = new Map();
+const REC_CACHE_TTL_MS = 30 * 60 * 1000;
+
+async function buildUserRecommendations(userId: string, limit: number): Promise<RecCandidate[]> {
+  const cached = __recCache.get(userId);
+  if (cached && (Date.now() - cached.at) < REC_CACHE_TTL_MS && cached.rows.length >= limit) {
+    return cached.rows.slice(0, limit);
+  }
+
+  let mem: { preferences: AiChatPreferences; recent: AiChatTurn[] } = { preferences: {}, recent: [] };
+  try { mem = await loadAiChatMemory(userId); } catch { /* ignore */ }
+  const favStyles = (mem.preferences?.favorite_styles || []).map((s) => String(s).toLowerCase());
+  const favPersons = (mem.preferences?.favorite_persons || []).map((s) => String(s).toLowerCase());
+
+  let recentPersonIds: string[] = [];
+  try {
+    const r = await withClient((c) =>
+      c.query<{ person_id: string }>(
+        `SELECT DISTINCT pm.person_id
+           FROM person_mvs pm
+          WHERE pm.created_by_user_id = $1::uuid
+          LIMIT 50`,
+        [userId],
+      ),
+    );
+    recentPersonIds = r.rows.map((x) => x.person_id);
+  } catch { /* ignore */ }
+
+  const excludeIds = new Set(recentPersonIds);
+  const coldStart = favStyles.length === 0 && favPersons.length === 0 && recentPersonIds.length === 0;
+
+  const candidates = new Map<string, RecCandidate>();
+  const add = (row: any, reason: string, score: number) => {
+    if (!row || !row.person_id) return;
+    if (excludeIds.has(row.person_id)) return;
+    const prev = candidates.get(row.person_id);
+    if (prev && prev.score >= score) return;
+    candidates.set(row.person_id, {
+      person_id: row.person_id,
+      name_zh: row.name_zh || null,
+      name_en: row.name_en || null,
+      portrait_url: row.portrait_url || null,
+      civilization: row.civilization || null,
+      era: row.era || null,
+      reason,
+      score,
+    });
+  };
+
+  if (favPersons.length > 0) {
+    try {
+      const r = await withClient((c) =>
+        c.query<any>(
+          `SELECT person_id, name_zh, name_en, civilization, era, portrait_url
+             FROM person_profiles
+            WHERE lower(coalesce(name_zh, '')) = ANY($1)
+               OR lower(coalesce(name_en, '')) = ANY($1)`,
+          [favPersons],
+        ),
+      );
+      for (const row of r.rows) {
+        const reason = row.name_zh
+          ? `因为你喜欢 ${row.name_zh}`
+          : `Because you like ${row.name_en || row.person_id}`;
+        add(row, reason, 100);
+      }
+    } catch { /* ignore */ }
+  }
+
+  if (recentPersonIds.length > 0) {
+    try {
+      const r = await withClient((c) =>
+        c.query<any>(
+          `WITH recent AS (
+             SELECT DISTINCT civilization, name_zh
+               FROM person_profiles
+              WHERE person_id = ANY($1)
+                AND civilization IS NOT NULL
+           )
+           SELECT pp.person_id, pp.name_zh, pp.name_en, pp.civilization, pp.era, pp.portrait_url,
+                  r.name_zh AS sibling_of
+             FROM person_profiles pp
+             JOIN recent r ON r.civilization = pp.civilization
+            WHERE NOT (pp.person_id = ANY($1))
+            ORDER BY pp.influence_score DESC NULLS LAST
+            LIMIT 40`,
+          [recentPersonIds],
+        ),
+      );
+      for (const row of r.rows) {
+        const reason = row.sibling_of
+          ? `和你创作过的 ${row.sibling_of} 同时代`
+          : `Same era as your work`;
+        add(row, reason, 70);
+      }
+    } catch { /* ignore */ }
+  }
+
+  try {
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT pp.person_id, pp.name_zh, pp.name_en, pp.civilization, pp.era, pp.portrait_url,
+                COALESCE(SUM(pm.view_count), 0)::bigint AS total_views,
+                COUNT(pm.mv_id)::int AS mv_count
+           FROM person_profiles pp
+           LEFT JOIN person_mvs pm ON pm.person_id = pp.person_id
+          GROUP BY pp.person_id, pp.name_zh, pp.name_en, pp.civilization, pp.era, pp.portrait_url
+         HAVING COUNT(pm.mv_id) > 0
+          ORDER BY total_views DESC, mv_count DESC
+          LIMIT $1`,
+        [coldStart ? limit + 4 : 6],
+      ),
+    );
+    const trendingScore = coldStart ? 90 : 40;
+    for (const row of r.rows) {
+      add(row, "本周热门", trendingScore);
+    }
+  } catch { /* ignore */ }
+
+  const ranked = Array.from(candidates.values()).sort((a, b) => b.score - a.score).slice(0, limit);
+  __recCache.set(userId, { at: Date.now(), rows: ranked });
+  return ranked;
+}
+
+app.get("/api/user/recommendations", async (req, res) => {
+  noStore(res);
+  try {
+    const me = await getSessionUser(req).catch(() => null);
+    if (!me || !me.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const limit = Math.max(1, Math.min(20, Number(req.query.limit || 8) || 8));
+    const rows = await buildUserRecommendations(me.id, limit);
+    return res.json({ ok: true, recommendations: rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "RECS_FAILED", message: String(err) });
+  }
+});
 
 async function refreshPersonaSummary(
   userId: string,

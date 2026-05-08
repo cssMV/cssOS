@@ -237,11 +237,26 @@
     } catch (_e) {}
   }
 
+  // CSSOS_SUB_WATCHER_ADMIN_GATE 20260508 — Jing
+  // Hit /api/me once; only start polling if user has admin role. Avoids
+  // Safari "access control checks" log spam for guests/regular users.
+  async function isAdminUser() {
+    try {
+      const r = await fetch("/api/me", { credentials: "include" });
+      if (!r.ok) return false;
+      const me = await r.json();
+      const role = (me && (me.user?.role || me.role || me.user?.is_admin || me.is_admin));
+      return role === "admin" || role === true;
+    } catch (_e) { return false; }
+  }
+
   function start() {
     if (timer || stopped) return;
-    // Kick a poll on next tick so authState has time to populate.
-    setTimeout(() => { pollOnce(); }, 2000);
-    timer = setInterval(() => { pollOnce(); }, POLL_INTERVAL_MS);
+    isAdminUser().then((ok) => {
+      if (!ok || stopped) return;
+      setTimeout(() => { pollOnce(); }, 2000);
+      timer = setInterval(() => { pollOnce(); }, POLL_INTERVAL_MS);
+    });
   }
 
   function stop() {

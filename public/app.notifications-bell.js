@@ -298,14 +298,28 @@
     document.addEventListener("click", (e) => {
       if (!host.contains(e.target)) closePanel(host);
     });
-    // Initial + poll every 30s while visible.
-    refreshUnread(host);
-    setInterval(() => {
-      if (document.visibilityState === "visible") refreshUnread(host);
-    }, 30_000);
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") refreshUnread(host);
-    });
+    // CSSOS_NOTIF_AUTH_GATE 20260508 — Jing
+    // Skip polling for guests. Hits /api/me once; if no user, never poll.
+    // Safari logs "access control checks" warnings for 401 fetches even
+    // when caught — gating up-front silences the console noise + saves
+    // pointless network round-trips.
+    let __pollIv = 0;
+    (async () => {
+      try {
+        const r = await fetch("/api/me", { credentials: "include" });
+        if (!r.ok) return;
+        const me = await r.json();
+        const uid = me && (me.user?.id || me.id);
+        if (!uid) return;
+        refreshUnread(host);
+        __pollIv = setInterval(() => {
+          if (document.visibilityState === "visible") refreshUnread(host);
+        }, 30_000);
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible") refreshUnread(host);
+        });
+      } catch (_e) { /* guest mode — no bell polling */ }
+    })();
   }
 
   function tryMount() {

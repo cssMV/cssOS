@@ -88,10 +88,28 @@ function attachPanelDragBridge() {
       persistPanelLayout(panel);
     };
 
-    document.addEventListener("pointermove", onPointerMove);
-    document.addEventListener("pointerup", stopDrag);
-    document.addEventListener("pointercancel", stopDrag);
+    // Per-panel pointermove/up/cancel hooks were previously registered on
+    // `document` for every panel, racking up 3N document-level listeners and
+    // causing drag flakiness once several panels mounted. Route through a
+    // single shared dispatcher (installed once below) keyed off the active
+    // panel/handle.
+    panel.__panelDragMove = onPointerMove;
+    panel.__panelDragStop = stopDrag;
   });
+
+  if (!document.__panelDragBridgeShared) {
+    document.__panelDragBridgeShared = true;
+    const dispatch = (kind) => (event) => {
+      document.querySelectorAll(".panel").forEach((panel) => {
+        const fn =
+          kind === "move" ? panel.__panelDragMove : panel.__panelDragStop;
+        if (typeof fn === "function") fn(event);
+      });
+    };
+    document.addEventListener("pointermove", dispatch("move"));
+    document.addEventListener("pointerup", dispatch("stop"));
+    document.addEventListener("pointercancel", dispatch("stop"));
+  }
 }
 
 window.attachPanelDragBridge = attachPanelDragBridge;

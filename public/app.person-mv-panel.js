@@ -118,7 +118,42 @@
       "}" +
       "#person-mv-panel .person-mv-create-anybody:hover{" +
         "background:rgba(0,245,160,0.18);" +
-      "}";
+      "}" +
+      "#person-mv-panel .person-mv-random-btn{" +
+        "all:unset;cursor:pointer;padding:6px 10px;border-radius:8px;" +
+        "background:rgba(0,245,160,0.12);border:1px solid rgba(0,245,160,0.3);" +
+        "color:#daffee;font:600 14px/1 ui-monospace,monospace;" +
+      "}" +
+      "#person-mv-panel .person-mv-random-btn:hover{background:rgba(0,245,160,0.25);}" +
+      "#person-mv-panel .person-mv-adhoc-cta{" +
+        "margin:18px auto;max-width:460px;padding:18px;border-radius:12px;" +
+        "background:rgba(0,245,160,0.10);border:1px dashed rgba(0,245,160,0.55);" +
+        "text-align:center;cursor:pointer;color:#daffee;" +
+        "font:700 14px/1.4 -apple-system,system-ui,sans-serif;" +
+      "}" +
+      "#person-mv-panel .person-mv-adhoc-cta:hover{background:rgba(0,245,160,0.18);}" +
+      "#person-mv-panel .person-mv-adhoc-cta.is-busy{opacity:.6;pointer-events:none;}" +
+      ".pmv-leaderboard{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:8px 10px;margin-bottom:10px;border-radius:10px;background:rgba(0,245,160,.08);border:1px solid rgba(0,245,160,.22);font:600 12px/1.3 ui-monospace,monospace;color:#bff5dc;}" +
+      ".pmv-leaderboard .pmv-lb-creator{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:999px;background:rgba(0,0,0,.25);}" +
+      ".pmv-leaderboard .pmv-lb-avatar{width:20px;height:20px;border-radius:50%;background:#013b2c;background-size:cover;background-position:center;display:inline-block;}" +
+      ".pmv-codex .pmv-mv-creator{position:absolute;top:6px;left:6px;display:flex;align-items:center;gap:4px;padding:2px 6px;border-radius:999px;background:rgba(0,0,0,.55);font:600 10px/1.2 ui-monospace,monospace;color:#daffee;}" +
+      ".pmv-codex .pmv-mv-creator-avatar{width:16px;height:16px;border-radius:50%;background:#013b2c;background-size:cover;background-position:center;display:inline-block;}" +
+      ".pmv-compare-modal{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;padding:24px;}" +
+      ".pmv-compare-modal .pmv-compare-card{width:min(1100px,98vw);max-height:92vh;overflow:auto;background:#02100c;border:1px solid rgba(0,245,160,.4);border-radius:14px;color:#daffee;}" +
+      ".pmv-compare-modal .pmv-compare-head{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid rgba(0,245,160,.18);}" +
+      ".pmv-compare-modal .pmv-compare-body{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:14px;}" +
+      ".pmv-compare-modal .pmv-compare-pane{background:rgba(8,18,16,.55);border:1px solid rgba(0,245,160,.18);border-radius:10px;padding:12px;}" +
+      ".pmv-compare-modal .pmv-compare-pane h4{margin:0 0 6px;font:700 16px/1.2 ui-serif,serif;}" +
+      ".pmv-compare-modal .pmv-compare-pane h5{margin:10px 0 4px;font:700 11px/1 ui-monospace,monospace;color:#00f5a0;letter-spacing:.06em;}" +
+      ".pmv-compare-modal .pmv-compare-pane ul{margin:0;padding-left:16px;font:500 12px/1.5 ui-serif,serif;}" +
+      ".pmv-compare-modal .pmv-compare-search{display:flex;gap:8px;margin-bottom:10px;}" +
+      ".pmv-compare-modal .pmv-compare-search input{flex:1;background:rgba(8,18,16,.55);border:1px solid rgba(0,245,160,.18);border-radius:8px;padding:6px 10px;color:#daffee;font:500 12px/1.2 ui-monospace,monospace;}" +
+      ".pmv-compare-modal .pmv-compare-presets{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;}" +
+      ".pmv-compare-modal .pmv-compare-preset{cursor:pointer;padding:4px 10px;border-radius:999px;background:rgba(0,245,160,.1);border:1px solid rgba(0,245,160,.3);font:600 11px/1.2 ui-monospace,monospace;color:#daffee;}" +
+      ".pmv-compare-modal .pmv-compare-results{display:flex;flex-direction:column;gap:4px;max-height:240px;overflow:auto;}" +
+      ".pmv-compare-modal .pmv-compare-result{cursor:pointer;padding:6px 8px;border-radius:6px;background:rgba(0,245,160,.06);border:1px solid rgba(0,245,160,.15);}" +
+      ".pmv-compare-modal .pmv-compare-result:hover{background:rgba(0,245,160,.18);}" +
+      ".pmv-compare-modal .pmv-compare-close{cursor:pointer;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:4px 10px;color:#daffee;font:600 12px/1 ui-monospace,monospace;}";
     document.head.appendChild(s);
   }
 
@@ -278,6 +313,8 @@
             tt("Civilization", "文明") + '</button>' +
           '<select class="person-mv-civ-select"><option value="">' +
             tt("All civilizations", "全部文明") + '</option></select>' +
+          '<button class="person-mv-random-btn" title="' +
+            tt("Surprise me", "随机给我一个") + '">🎲</button>' +
         '</div>' +
         '<div class="person-mv-create-anybody">' +
           tt("+ Create an MV for any person — even Aunt Mary or yourself.",

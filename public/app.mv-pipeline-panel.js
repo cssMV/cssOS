@@ -1579,6 +1579,17 @@
         } catch (_e2) {}
         console.info("%c[mv-pipeline][resume] restored unfinished run for person " + personId,
           "color:#0a8;font-weight:bold");
+        // CSSOS_MV_DAG_WAVE_2_7C_RESUME_BANNER 20260507 — broadcast so the
+        // cinema/panel UI can show "已恢复 X 阶段进度，继续生成…".
+        try {
+          window.dispatchEvent(new CustomEvent("cssmv:resume-detected", {
+            detail: {
+              stages: state._resumeCompleted.slice(),
+              personId: personId,
+              runId: state.runId || ""
+            }
+          }));
+        } catch (_evtErr) { /* non-fatal */ }
       }
     } catch (_resumeErr) { /* non-fatal */ }
     // CSSOS_PHASE2_MV_PANEL_TIDY 20260505 — Jing
@@ -3563,6 +3574,21 @@
           if (typeof globalThis.cssmvStartCoverSlideshow === "function") {
             globalThis.cssmvStartCoverSlideshow({ mv: true, music: true });
           }
+          // CSSOS_MV_DAG_WAVE_2_7C_LITE_SKIP 20260507 — Jing
+          // Lite tier is image-only ken-burns over the primary cover. The
+          // 4 fire-and-forget variation calls (close-up / wide-angle /
+          // rim-light / soft-haze) feed the 5-image slideshow used by
+          // Hybrid + Cinematic. For Lite they're pure waste — skip them.
+          let _coverTierId = "";
+          try {
+            if (globalThis.cssmvTiers && typeof globalThis.cssmvTiers.currentTierId === "function") {
+              _coverTierId = String(globalThis.cssmvTiers.currentTierId() || "").toLowerCase();
+            }
+          } catch (_e) { /* ignore */ }
+          if (_coverTierId === "lite") {
+            console.info("[mv-pipeline][cover] Lite tier — skipping 4 variation calls");
+            return cover;
+          }
           const variationSuffixesZh = ["，特写", "，广角", "，侧光", "，柔雾"];
           const variationSuffixesEn = [", close-up framing", ", wide-angle composition", ", rim light", ", soft haze"];
           const variationSuffixes = (globalThis.currentLocale === "zh")
@@ -3601,14 +3627,22 @@
         console.info("[mv-pipeline] cover stage routed via DAG executor");
         const dag = globalThis.cssmvDag.create()
           .stage("cover", [], { weight: 10 }, async () => runCoverStage(state, {}));
+        // CSSOS_MV_DAG_WAVE_2_7C_RESUME 20260507 — if a prior run already
+        // produced a cover, hand it to the DAG as cache so the executor
+        // skips the API call and emits onStageDone with the cached value
+        // (which still routes through the same setStage/recordEngine).
+        const _coverCache = (state.coverUrl && (!state._resumeCompleted || state._resumeCompleted.indexOf("cover") >= 0))
+          ? { cover: { image_url: state.coverUrl, cost_cents: 0, cached: true } }
+          : {};
         const result = await globalThis.cssmvDag.run(dag, {
           ctx: { state: state },
+          cache: _coverCache,
           onStageStart: function (id) { setStage(id, "running", ""); },
-          onStageDone: function (id, output) {
+          onStageDone: function (id, output, meta) {
             if (id === "cover") {
-              state.coverUrl = output.image_url;
-              recordEngine("cover", output);
-              setStage("cover", "done", output.image_url, output.cost_cents);
+              state.coverUrl = (output && output.image_url) || state.coverUrl;
+              if (!(meta && meta.cached)) recordEngine("cover", output);
+              setStage("cover", "done", state.coverUrl, (output && output.cost_cents) || 0);
             }
           },
           onStageError: function (id, err) {

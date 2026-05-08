@@ -15602,9 +15602,12 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
     const mvsR = await withClient((c) =>
       c.query(
         `SELECT pm.mv_id, pm.work_id, pm.created_by_user_id, pm.duration_secs, pm.created_at,
-                w.cover_image, w.preview_image_url, w.title
+                w.cover_image, w.preview_image_url, w.title,
+                u.display_name AS creator_display_name,
+                u.avatar_url   AS creator_avatar_url
            FROM person_mvs pm
            LEFT JOIN user_works w ON w.id = pm.work_id
+           LEFT JOIN users u      ON u.id = pm.created_by_user_id
           WHERE pm.person_id = $1
           ORDER BY pm.created_at DESC LIMIT 100`,
         [id],
@@ -15657,6 +15660,224 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
   } catch (err) {
     console.warn("[person-mv] codex failed:", (err as Error)?.message || err);
     return res.status(500).json({ ok: false, code: "CODEX_FAILED" });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE3 20260507 — Jing
+ * Wave 3 — Ad-hoc person creation. User types any name, we derive a
+ * person_id slug, ask the LLM to fill the schema, INSERT with
+ * source_status='ad_hoc'. The codex codepath then handles lore +
+ * portrait identically to seeded persons (Wikipedia feeder returns
+ * found:false → pure-LLM lore, AI portrait gen). Heartbeats keep
+ * the response alive while the LLM call sweeps providers. */
+function slugifyPersonName(name: string): string {
+  const base = String(name || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 32);
+  const hash = crypto.createHash("sha1").update(String(name || "")).digest("hex").slice(0, 6);
+  const stem = base || "person";
+  return `adhoc-${stem}-${hash}`;
+}
+
+app.post("/api/person-mv/persons", express.json({ limit: "16kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const name = String((req.body as any)?.name || "").trim();
+    const hint = String((req.body as any)?.hint || "").trim();
+    if (!name) return res.status(400).json({ ok: false, code: "NAME_REQUIRED" });
+    if (name.length > 80) return res.status(400).json({ ok: false, code: "NAME_TOO_LONG" });
+    await seedPersonProfilesOnce();
+
+    const personId = slugifyPersonName(name);
+
+    // Heartbeat keepalive — the LLM call may sweep multiple providers (>60s
+    // p99) and nginx will 502 without bytes on the wire.
+    res.status(200);
+    res.setHeader("content-type", "application/json; charset=utf-8");
+    res.setHeader("transfer-encoding", "chunked");
+    res.flushHeaders?.();
+    const heartbeat = setInterval(() => { try { res.write(" "); } catch {} }, 5000);
+
+    const sysPrompt =
+      "你是文明人物档案生成器。返回严格 JSON, 键 (全部必填): " +
+      "name_zh (string), name_en (string), name_native (string|null), name_latin (string|null), " +
+      "civilization (string), era (string), lifespan (string|null), " +
+      "roles (array of string, 1-4 项), core_theme (string), " +
+      "visual_symbols (array of string, 2-5 项, emoji 优先), " +
+      "music_style_hint (string), tone (string), " +
+      "influence_score (integer 0-100), risk_notes (array of string, 0-3 项)。" +
+      "对当代普通人/虚构/亲属称谓也要给出合理 schema (civilization='当代', era='当代', influence_score 较低)。" +
+      "只返回 JSON, 不要其他文字。";
+    const userPrompt = `人物名: ${name}` + (hint ? `\n补充: ${hint}` : "");
+
+    let profile: any = null;
+    try {
+      const llm = await callLlm({
+        messages: [
+          { role: "system", content: sysPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.4,
+        max_tokens: 800,
+        response_format: { type: "json_object" },
+      });
+      if (llm.ok && llm.content) {
+        profile = JSON.parse(llm.content);
+      }
+    } catch (err) {
+      console.warn("[person-mv] adhoc llm threw:", (err as Error)?.message || err);
+    }
+    if (!profile || typeof profile !== "object") {
+      // Fall back to a minimal stub so the row still inserts.
+      profile = {
+        name_zh: name,
+        name_en: name,
+        civilization: "当代",
+        era: "当代",
+        lifespan: null,
+        roles: [],
+        core_theme: hint || "",
+        visual_symbols: [],
+        music_style_hint: "",
+        tone: "",
+        influence_score: 10,
+        risk_notes: [],
+      };
+    }
+
+    const row = {
+      person_id: personId,
+      name_zh: String(profile.name_zh || name).slice(0, 120),
+      name_en: String(profile.name_en || name).slice(0, 120),
+      name_native: profile.name_native ? String(profile.name_native).slice(0, 120) : null,
+      name_latin: profile.name_latin ? String(profile.name_latin).slice(0, 120) : null,
+      civilization: String(profile.civilization || "当代").slice(0, 80),
+      era: profile.era ? String(profile.era).slice(0, 80) : null,
+      lifespan: profile.lifespan ? String(profile.lifespan).slice(0, 80) : null,
+      roles: Array.isArray(profile.roles) ? profile.roles.map((r: any) => String(r).slice(0, 60)).slice(0, 8) : [],
+      core_theme: profile.core_theme ? String(profile.core_theme).slice(0, 280) : null,
+      visual_symbols: Array.isArray(profile.visual_symbols) ? profile.visual_symbols.map((r: any) => String(r).slice(0, 40)).slice(0, 8) : [],
+      music_style_hint: profile.music_style_hint ? String(profile.music_style_hint).slice(0, 120) : null,
+      tone: profile.tone ? String(profile.tone).slice(0, 120) : null,
+      influence_score: Math.max(0, Math.min(100, Number(profile.influence_score) || 10)),
+      risk_notes: Array.isArray(profile.risk_notes) ? profile.risk_notes.map((r: any) => String(r).slice(0, 200)).slice(0, 6) : [],
+    };
+
+    try {
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO person_profiles (
+              person_id, name_zh, name_en, name_native, name_latin,
+              civilization, era, lifespan,
+              roles, core_theme, visual_symbols, music_style_hint, tone,
+              influence_score, risk_notes, source_status, created_by_user_id
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'ad_hoc',$16)
+            ON CONFLICT (person_id) DO NOTHING`,
+          [
+            row.person_id, row.name_zh, row.name_en, row.name_native, row.name_latin,
+            row.civilization, row.era, row.lifespan,
+            row.roles, row.core_theme, row.visual_symbols, row.music_style_hint, row.tone,
+            row.influence_score, row.risk_notes, user.id,
+          ],
+        ),
+      );
+    } catch (err) {
+      clearInterval(heartbeat);
+      console.warn("[person-mv] adhoc insert failed:", (err as Error)?.message || err);
+      try {
+        res.write(JSON.stringify({ ok: false, code: "INSERT_FAILED" }));
+      } catch {}
+      return res.end();
+    }
+
+    clearInterval(heartbeat);
+    try {
+      res.write(JSON.stringify({ ok: true, person_id: row.person_id, profile: row }));
+    } catch {}
+    return res.end();
+  } catch (err) {
+    console.warn("[person-mv] adhoc failed:", (err as Error)?.message || err);
+    try { return res.status(500).json({ ok: false, code: "ADHOC_FAILED" }); } catch { return; }
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE4_LEADERBOARD 20260507 — Jing
+ * Top creators by MV count for a person. Joins users for
+ * display_name + avatar_url so the gallery ribbon can render. */
+app.get("/api/person-mv/persons/:id/leaderboard", async (req, res) => {
+  noStore(res);
+  try {
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const limit = Math.max(1, Math.min(20, Number(req.query.limit || 5) || 5));
+    const r = await withClient((c) =>
+      c.query<{ user_id: string; display_name: string | null; avatar_url: string | null; mv_count: number }>(
+        `SELECT pm.created_by_user_id AS user_id,
+                u.display_name, u.avatar_url,
+                COUNT(*)::int AS mv_count
+           FROM person_mvs pm
+           LEFT JOIN users u ON u.id = pm.created_by_user_id
+          WHERE pm.person_id = $1
+          GROUP BY pm.created_by_user_id, u.display_name, u.avatar_url
+          ORDER BY mv_count DESC, u.display_name NULLS LAST
+          LIMIT $2`,
+        [id, limit],
+      ),
+    );
+    return res.json({ ok: true, data: { creators: r.rows } });
+  } catch (err) {
+    console.warn("[person-mv] leaderboard failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "LEADERBOARD_FAILED" });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE_RANDOM 20260507 — Jing
+ * Random "Surprise me" — pick one person with non-empty lore. Caches
+ * last 3 ids per process to avoid immediate repeat across users on the
+ * same node. */
+const __personMvRandomRecent: string[] = [];
+app.get("/api/person-mv/persons/random", async (_req, res) => {
+  noStore(res);
+  try {
+    await seedPersonProfilesOnce();
+    const exclude = __personMvRandomRecent.slice();
+    const params: unknown[] = [];
+    let where = "WHERE lore IS NOT NULL AND lore::text <> '{}'";
+    if (exclude.length) {
+      params.push(exclude);
+      where += ` AND person_id <> ALL($${params.length}::text[])`;
+    }
+    const r = await withClient((c) =>
+      c.query<{ person_id: string }>(
+        `SELECT person_id FROM person_profiles ${where} ORDER BY random() LIMIT 1`,
+        params,
+      ),
+    );
+    let pid = r.rows[0]?.person_id || "";
+    if (!pid) {
+      // Fallback: any person at all (cold DB without lore yet).
+      const r2 = await withClient((c) =>
+        c.query<{ person_id: string }>(
+          `SELECT person_id FROM person_profiles ORDER BY random() LIMIT 1`,
+        ),
+      );
+      pid = r2.rows[0]?.person_id || "";
+    }
+    if (!pid) return res.status(404).json({ ok: false, code: "NO_PERSONS" });
+    __personMvRandomRecent.push(pid);
+    while (__personMvRandomRecent.length > 3) __personMvRandomRecent.shift();
+    return res.json({ ok: true, data: { person_id: pid } });
+  } catch (err) {
+    console.warn("[person-mv] random failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "RANDOM_FAILED" });
   }
 });
 
@@ -18499,8 +18720,11 @@ app.get("/api/billing/ledger", async (req, res) => {
 });
 
 app.get("/api/cssmv/commerce", async (req, res) => {
-  noStore(res);
   try {
+    noStore(res);
+    // Surface "we got the request" header early so upstream proxies (nginx)
+    // don't trip a 502 while the heavy parallel SQL fan-out runs.
+    res.setHeader("X-Commerce-Begin", "1");
     const user = await getSessionUser(req);
     if (!user) {
       return res.json(

@@ -141,9 +141,17 @@
       retriesLeft[stages[i].id] = (typeof retryCfg[stages[i].id] === "number") ? retryCfg[stages[i].id] : 0;
     }
 
-    // Pre-populate cache as done.
+    // Pre-populate cache as done. Emit onStageDone synchronously so the
+    // caller can mirror cached stages into UI state (setStage("done"),
+    // recordEngine, persistResume) without a special-case branch on the
+    // panel side. Done before the pump loop so dependents see deps as
+    // satisfied on the first readyIds() check.
     for (const k in cache) {
-      if (byId[k]) { done[k] = cache[k]; timing[k] = { start: 0, end: 0 }; }
+      if (byId[k]) {
+        done[k] = cache[k];
+        timing[k] = { start: 0, end: 0 };
+        try { onStageDone(k, cache[k], { weightedProgress: 0, durationMs: 0, cached: true }); } catch (_e) {}
+      }
     }
 
     const totalWeight = stages.reduce(function (a, s) { return a + s.weight; }, 0) || 1;

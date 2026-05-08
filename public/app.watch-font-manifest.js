@@ -2037,7 +2037,7 @@
     const style = document.createElement("style");
     style.id = styleId;
     style.textContent = survivors
-      .map((entry) => `@font-face{font-family:"${entry.family.replace(/"/g, "\"")}";src:url("/${entry.src}") format("${entry.format}");font-display:swap;}`)
+      .map((entry) => `@font-face{font-family:"${entry.family.replace(/"/g, "\"")}";src:url("/${encodeURI(entry.src)}") format("${entry.format}");font-display:swap;unicode-range:U+0000-024F,U+2E80-9FFF,U+3000-303F,U+3400-4DBF,U+F900-FAFF,U+FE30-FE4F,U+FF00-FFEF;}`)
       .join("\n");
     document.head.appendChild(style);
     // Silenced 20260506 — keep console clean (only the LOGO survives).

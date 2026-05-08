@@ -1,3 +1,4 @@
+// Anonymous-safe — runs without auth (CSSOS_WAVE84)
 import { test, expect } from "@playwright/test";
 
 test("today-in-history shelf cards are clickable when present", async ({ page }) => {

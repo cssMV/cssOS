@@ -1,4 +1,6 @@
-# CSSOS_WAVE79 20260508 — Playwright e2e against production + nightly cron.
+# CSSOS_WAVE84 20260508 — Playwright e2e CI with auth setup + secret wiring.
+# Anonymous-safe specs always run. Auth-gated specs (signed_in_tests/) run only
+# when E2E_TEST_EMAIL + E2E_TEST_PASSWORD secrets are configured; otherwise skipped.
 name: e2e
 
 on:
@@ -12,6 +14,12 @@ jobs:
   playwright:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      BASE_URL: ${{ secrets.E2E_BASE_URL || 'https://cssstudio.app' }}
+      E2E_BASE_URL: ${{ secrets.E2E_BASE_URL || 'https://cssstudio.app' }}
+      E2E_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
+      E2E_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
+      E2E_ADMIN_TOKEN: ${{ secrets.E2E_ADMIN_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,8 +29,6 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test
-        env:
-          BASE_URL: ${{ secrets.E2E_BASE_URL || 'https://cssstudio.app' }}
       - if: failure()
         uses: actions/upload-artifact@v4
         with:

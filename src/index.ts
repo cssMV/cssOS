@@ -29,11 +29,22 @@ import {
   attachSentryErrorHandler,
   publicSentryDsn,
   sentryBreadcrumb,
+  registerServerErrorSink,
+  logServerError,
 } from "./observability";
 
 // CSSOS_WAVE80 20260508 — boot Sentry as early as possible so subsequent
 // imports/handlers can capture exceptions. No-op when DSN is unset.
 initSentry();
+
+// CSSOS_WAVE82 20260508 — register server-error DB sink so logServerError()
+// can fire-and-forget INSERT into server_error_log. Falls back to noop if
+// DATABASE_URL is unset or pool not yet initialized.
+registerServerErrorSink(async (sql, params) => {
+  try {
+    await withClient((c) => c.query(sql, params));
+  } catch { /* swallow — never let the logger throw */ }
+});
 
 const ENV_CONFIG_PATHS = [
   "/srv/cssos.env",
@@ -12211,6 +12222,37 @@ async function ensurePersonMvTables() {
       );
       CREATE INDEX IF NOT EXISTS contest_llm_scores_overall_idx
         ON contest_llm_scores (overall DESC);
+
+      -- CSSOS_PERSON_MV_WAVE86 20260508 — Jing — remix lineage on user_works.
+      ALTER TABLE user_works
+        ADD COLUMN IF NOT EXISTS remix_of_work_id UUID;
+      ALTER TABLE user_works
+        ADD COLUMN IF NOT EXISTS remix_chain_root_id UUID;
+      CREATE INDEX IF NOT EXISTS user_works_remix_idx
+        ON user_works (remix_of_work_id) WHERE remix_of_work_id IS NOT NULL;
+
+      -- CSSOS_PERSON_MV_WAVE87 20260508 — Jing — collections / playlists.
+      CREATE TABLE IF NOT EXISTS collections (
+        collection_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        owner_id      UUID NOT NULL,
+        name          TEXT NOT NULL,
+        description   TEXT,
+        is_public     BOOLEAN NOT NULL DEFAULT true,
+        cover_work_id UUID,
+        created_at    TIMESTAMPTZ DEFAULT now(),
+        updated_at    TIMESTAMPTZ DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS collection_items (
+        collection_id UUID NOT NULL REFERENCES collections(collection_id) ON DELETE CASCADE,
+        work_id       UUID NOT NULL,
+        position      INTEGER NOT NULL,
+        added_at      TIMESTAMPTZ DEFAULT now(),
+        PRIMARY KEY (collection_id, work_id)
+      );
+      CREATE INDEX IF NOT EXISTS collections_owner_idx
+        ON collections (owner_id);
+      CREATE INDEX IF NOT EXISTS collection_items_position_idx
+        ON collection_items (collection_id, position);
     `),
   );
 
@@ -13444,7 +13486,8 @@ export type CreditReason =
   | "upscale_refund"
   | "product_click_reward"
   | "signup_bonus"
-  | "referral_commission";
+  | "referral_commission"
+  | "remix_received";
 
 async function awardCredit(
   userId: string | null | undefined,
@@ -31611,7 +31654,7 @@ app.get("/api/admin/metrics/web-vitals", async (req, res) => {
                 COUNT(*)::text AS n
            FROM web_vitals_samples
           WHERE ts > now() - interval '24 hours'
-            AND metric IN ('LCP','CLS','INP')
+            AND metric IN ('LCP','CLS','INP','FID','TTFB')
           GROUP BY metric`,
       ),
     );
@@ -31631,6 +31674,80 @@ app.get("/api/admin/metrics/web-vitals", async (req, res) => {
     return res.status(500).json({
       ok: false,
       code: "ADMIN_WEB_VITALS_FAILED",
+      message: String((err as Error)?.message || err),
+    });
+  }
+});
+
+/* CSSOS_WAVE82 20260508 — Jing — admin error log panel endpoints.
+ * GET  /api/admin/errors?source=&limit=50  → recent server errors.
+ * POST /api/admin/errors/:id/resolve       → mark resolved.
+ * Both gated by admin role. */
+const SERVER_ERROR_SOURCES = new Set(["pipeline", "auth", "payment", "engine", "http", "other"]);
+app.get("/api/admin/errors", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user || roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const sourceRaw = String(req.query.source || "").toLowerCase();
+    const source = SERVER_ERROR_SOURCES.has(sourceRaw) ? sourceRaw : null;
+    const limit = Math.max(1, Math.min(200, Number(req.query.limit) || 50));
+    type ErrRow = {
+      id: string; level: string; source: string; message: string;
+      stack_snippet: string | null; user_id: string | null;
+      request_path: string | null; occurred_at: string; resolved_at: string | null;
+    };
+    const rows = await withClient((c) =>
+      source
+        ? c.query<ErrRow>(
+            `SELECT id::text, level, source, message, stack_snippet,
+                    user_id::text, request_path,
+                    occurred_at::text, resolved_at::text
+               FROM server_error_log
+              WHERE source = $1
+              ORDER BY occurred_at DESC
+              LIMIT $2`,
+            [source, limit],
+          )
+        : c.query<ErrRow>(
+            `SELECT id::text, level, source, message, stack_snippet,
+                    user_id::text, request_path,
+                    occurred_at::text, resolved_at::text
+               FROM server_error_log
+              ORDER BY occurred_at DESC
+              LIMIT $1`,
+            [limit],
+          ),
+    );
+    return res.json(okData({ errors: rows.rows }));
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "ADMIN_ERRORS_FAILED",
+      message: String((err as Error)?.message || err),
+    });
+  }
+});
+
+app.post("/api/admin/errors/:id/resolve", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user || roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const id = String(req.params.id || "").replace(/[^0-9]/g, "");
+    if (!id) return res.status(400).json({ ok: false, code: "BAD_ID" });
+    await withClient((c) =>
+      c.query(`UPDATE server_error_log SET resolved_at = now() WHERE id = $1::bigint`, [id]),
+    );
+    return res.json(okData({ resolved: true, id }));
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "ADMIN_ERRORS_RESOLVE_FAILED",
       message: String((err as Error)?.message || err),
     });
   }
@@ -32367,6 +32484,25 @@ async function start() {
     } catch { /* ignore */ }
   }
   (globalThis as any).__cssosWsPublish = wsPublish;
+
+  // CSSOS_WAVE82 20260508 — global error handler logs to server_error_log
+  // before delegating to Sentry. Uses logServerError() which fire-and-forgets.
+  app.use((err: any, req: any, _res: any, next: any) => {
+    try {
+      const path = String(req?.originalUrl || req?.url || "").slice(0, 400);
+      const source: import("./observability").ServerErrorSource =
+        path.startsWith("/api/stripe") || path.includes("/payment") ? "payment"
+          : path.startsWith("/api/auth") ? "auth"
+          : path.startsWith("/api/engine") || path.includes("/engines/") ? "engine"
+          : path.startsWith("/api/mv") || path.includes("/pipeline") ? "pipeline"
+          : "http";
+      logServerError("error", source, err, {
+        user_id: (req?.session && req.session.user_id) || null,
+        request_path: path,
+      });
+    } catch { /* swallow */ }
+    next(err);
+  });
 
   // CSSOS_WAVE80 20260508 — Sentry express error handler (no-op when DSN unset).
   // Registered late so route handlers above can short-circuit normally and only

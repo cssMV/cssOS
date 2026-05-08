@@ -69,6 +69,11 @@
      * BEFORE the first shelf (top of stack). When dock at top, pill goes
      * AFTER the last shelf (bottom of stack). */
     if (pill) {
+      /* Pill is a flex child of a flex-column container — by default it
+       * stretches to full width. Constrain to inline-block sizing so it
+       * sits at its natural pill width (not banner-wide). */
+      pill.style.alignSelf = "flex-start";
+      pill.style.flex = "0 0 auto";
       if (isDockTop) {
         if (shelves.lastElementChild !== pill) {
           shelves.appendChild(pill);

@@ -95,11 +95,14 @@
 
   function openPerson(personId) {
     if (!personId) return;
+    /* CSSOS_DISCOVER_CARD_DIAG 20260508 — Jing: console trace so we can see
+     * whether clicks are firing in production. Remove once verified. */
+    try { console.info("[discover-shelf] openPerson", personId); } catch (_e) {}
     if (typeof globalThis.openPersonMvPanel === "function") {
       try { globalThis.openPersonMvPanel(); } catch (_e) {}
     }
     if (typeof globalThis.openPersonMvCodex === "function") {
-      try { globalThis.openPersonMvCodex(personId); return; } catch (_e) {}
+      try { globalThis.openPersonMvCodex(personId, { autoCinema: false }); return; } catch (_e) {}
     }
     try {
       document.dispatchEvent(new CustomEvent("cssos:open-person-codex", { detail: { person_id: personId } }));

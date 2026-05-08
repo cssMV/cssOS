@@ -1,3 +1,4 @@
+// Anonymous-safe — runs without auth (CSSOS_WAVE84)
 import { test, expect, devices } from "@playwright/test";
 
 test.use({ ...devices["iPhone 14"] });

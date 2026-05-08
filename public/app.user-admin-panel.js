@@ -128,6 +128,11 @@ function buildUserAdminPanelMarkupModule() {
           <div id="admin-trends-engines" class="works-note" style="margin-top:6px;">${escapeHtml(loginCopy("Loading…"))}</div>
           <svg id="admin-trends-engines-drill" width="100%" height="80" style="margin-top:6px;display:none;"></svg>
         </div>
+        <!-- CSSOS_WAVE83 20260508 — web vitals card. -->
+        <div class="stat-card" style="grid-column:1/-1;">
+          <div class="stat-label">📊 ${escapeHtml(loginCopy("Web Vitals"))}</div>
+          <div id="admin-trends-webvitals" class="works-note" style="margin-top:6px;">${escapeHtml(loginCopy("Loading…"))}</div>
+        </div>
       </div>
     </div>
     ` : ""}
@@ -751,6 +756,8 @@ async function refreshAdminTrendsModule() {
     if (status) status.textContent = `${loginCopy("Updated")} ${new Date().toLocaleTimeString()}`;
     // CSSOS_PERSON_MV_WAVE64B — engines live card.
     void refreshAdminEnginesCard();
+    // CSSOS_WAVE83 — web vitals card.
+    void refreshAdminWebVitalsCard();
   } catch (err) {
     if (status) status.textContent = String(err);
   }
@@ -873,6 +880,80 @@ if (!globalThis.__cssosAdminEnginesTimer) {
   globalThis.__cssosAdminEnginesTimer = setInterval(() => {
     if (document.getElementById("admin-trends-engines")) {
       void refreshAdminEnginesCard();
+    }
+  }, 30 * 1000);
+}
+
+// CSSOS_WAVE83 20260508 — Web Vitals card with Google threshold colour coding.
+// LCP: ≤2.5s green, ≤4s yellow, else red (ms)
+// INP / FID: ≤200ms green, ≤500ms yellow, else red
+// CLS: ≤0.1 green, ≤0.25 yellow, else red (unitless)
+// TTFB: ≤800ms green, ≤1.8s yellow, else red
+function classifyWebVital(metric, value) {
+  const v = Number(value);
+  if (!isFinite(v)) return "muted";
+  switch (metric) {
+    case "LCP":
+      return v <= 2500 ? "good" : v <= 4000 ? "warn" : "bad";
+    case "INP":
+    case "FID":
+      return v <= 200 ? "good" : v <= 500 ? "warn" : "bad";
+    case "CLS":
+      return v <= 0.1 ? "good" : v <= 0.25 ? "warn" : "bad";
+    case "TTFB":
+      return v <= 800 ? "good" : v <= 1800 ? "warn" : "bad";
+    default:
+      return "muted";
+  }
+}
+function formatWebVital(metric, value) {
+  const v = Number(value);
+  if (!isFinite(v)) return "—";
+  if (metric === "CLS") return v.toFixed(3);
+  return `${Math.round(v)}ms`;
+}
+async function refreshAdminWebVitalsCard() {
+  const host = document.getElementById("admin-trends-webvitals");
+  if (!host) return;
+  try {
+    const r = await fetch("/api/admin/metrics/web-vitals", { credentials: "include" }).then((res) => res.json());
+    const metrics = r?.data?.metrics || [];
+    const byName = Object.create(null);
+    for (const m of metrics) byName[m.metric] = m;
+    const order = ["LCP", "CLS", "FID", "INP", "TTFB"];
+    const colourFor = (cls) =>
+      cls === "good" ? "#34d399" : cls === "warn" ? "#fbbf24" : cls === "bad" ? "#f87171" : "#94a3b8";
+    const rows = order.map((name) => {
+      const m = byName[name];
+      if (!m) {
+        return `<div class="works-note" style="display:flex;gap:10px;align-items:center;">
+          <b style="min-width:48px;">${name}</b>
+          <span style="color:#94a3b8;">${escapeHtml(loginCopy("No data"))}</span>
+        </div>`;
+      }
+      const segs = ["p50", "p75", "p95"].map((k) => {
+        const cls = classifyWebVital(name, m[k]);
+        return `<span style="display:inline-flex;align-items:center;gap:4px;">
+          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${colourFor(cls)};"></span>
+          <span style="opacity:0.8;">${k}</span>
+          <b>${escapeHtml(formatWebVital(name, m[k]))}</b>
+        </span>`;
+      }).join("&nbsp;&nbsp;");
+      return `<div class="works-note" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <b style="min-width:48px;">${name}</b>
+        ${segs}
+        <span style="opacity:0.6;">· n=${Number(m.samples) || 0}</span>
+      </div>`;
+    }).join("");
+    host.innerHTML = rows || `<span class="works-note">${escapeHtml(loginCopy("No data"))}</span>`;
+  } catch (err) {
+    host.textContent = String(err);
+  }
+}
+if (!globalThis.__cssosAdminWebVitalsTimer) {
+  globalThis.__cssosAdminWebVitalsTimer = setInterval(() => {
+    if (document.getElementById("admin-trends-webvitals")) {
+      void refreshAdminWebVitalsCard();
     }
   }, 30 * 1000);
 }

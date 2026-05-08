@@ -1,3 +1,4 @@
+// Anonymous-safe — runs without auth (CSSOS_WAVE84)
 import { test, expect } from "@playwright/test";
 
 test("public codex API returns expected fields", async ({ request }) => {

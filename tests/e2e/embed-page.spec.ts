@@ -1,3 +1,4 @@
+// Anonymous-safe — runs without auth (CSSOS_WAVE84)
 import { test, expect } from "@playwright/test";
 
 test("embed page returns video tag and frame-friendly headers", async ({ request, page }) => {

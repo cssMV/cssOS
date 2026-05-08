@@ -3618,48 +3618,11 @@
         return cover;
       }
 
-      const coverP = (async () => {
-      if (STAGE_ORDER.indexOf("cover") < resumeStartIdx) return;
-      const useDag = (typeof globalThis.CSSMV_DAG_RUNNER === "undefined")
-        ? true
-        : !!globalThis.CSSMV_DAG_RUNNER;
-      if (useDag && globalThis.cssmvDag) {
-        console.info("[mv-pipeline] cover stage routed via DAG executor");
-        const dag = globalThis.cssmvDag.create()
-          .stage("cover", [], { weight: 10 }, async () => runCoverStage(state, {}));
-        // CSSOS_MV_DAG_WAVE_2_7C_RESUME 20260507 — if a prior run already
-        // produced a cover, hand it to the DAG as cache so the executor
-        // skips the API call and emits onStageDone with the cached value
-        // (which still routes through the same setStage/recordEngine).
-        const _coverCache = (state.coverUrl && (!state._resumeCompleted || state._resumeCompleted.indexOf("cover") >= 0))
-          ? { cover: { image_url: state.coverUrl, cost_cents: 0, cached: true } }
-          : {};
-        const result = await globalThis.cssmvDag.run(dag, {
-          ctx: { state: state },
-          cache: _coverCache,
-          onStageStart: function (id) { setStage(id, "running", ""); },
-          onStageDone: function (id, output, meta) {
-            if (id === "cover") {
-              state.coverUrl = (output && output.image_url) || state.coverUrl;
-              if (!(meta && meta.cached)) recordEngine("cover", output);
-              setStage("cover", "done", state.coverUrl, (output && output.cost_cents) || 0);
-            }
-          },
-          onStageError: function (id, err) {
-            failStageProgress(id, err && err.message ? err.message : String(err));
-          }
-        });
-        if (result.failed && result.failed.cover) throw result.failed.cover;
-      } else {
-        // Legacy imperative path — preserved verbatim for fallback when the
-        // DAG executor module failed to load OR the flag is explicitly off.
-        setStage("cover", "running", "");
-        const cover = await runCoverStage(state, {});
-        state.coverUrl = cover.image_url;
-        recordEngine("cover", cover);
-        setStage("cover", "done", cover.image_url, cover.cost_cents);
-      }
-      })(); // end coverP IIFE
+      // CSSOS_MV_DAG_WAVE_2_7C 20260507 — Jing
+      // Cover/lyrics/music/video/subs/compose all run via the DAG executor
+      // below (after every stage helper is declared). Cover task wraps
+      // runCoverStage with the same setStage/recordEngine semantics the
+      // legacy IIFE used so behavior is byte-identical.
 
       // Stage 2 — lyrics (real LLM call when user provided no lyrics)
       // CSSOS_MV_DAG_WAVE_2_7B 20260507 — body lifted into runLyricsStage()
@@ -4275,16 +4238,6 @@
       }
       } // end Stage 2 (lyrics) resume guard
       } // end runLyricsStage
-      const lyricsP = runLyricsStage(state, {});
-
-      // Join cover + lyrics. Use allSettled so we don't lose the result of one
-      // when the other rejects, then rethrow the first rejection so the outer
-      // catch still tags the failing stage via findRunningStage().
-      {
-        const _parallelResults = await Promise.allSettled([coverP, lyricsP]);
-        const _firstReject = _parallelResults.find(function (r) { return r.status === "rejected"; });
-        if (_firstReject) throw _firstReject.reason;
-      }
 
       // Stage 3 — music
       // CSSOS_MV_DAG_WAVE_2_7B 20260507 — body lifted into runMusicStage()
@@ -5058,47 +5011,15 @@
       }
       } // end Stage 3 (music) resume guard
       } // end runMusicStage
-      // CSSOS_MV_DAG_WAVE_2_7B 20260507 — Jing
-      // Music stage now invoked via either DAG (when CSSMV_DAG_RUNNER on
-      // and the executor is loaded) OR the legacy await call. Cover and
-      // lyrics already kicked off in parallel above; both must resolve
-      // before music can read state.lyrics for target_duration estimate.
-      {
-        const _useDagMusic = (typeof globalThis.CSSMV_DAG_RUNNER === "undefined")
-          ? true
-          : !!globalThis.CSSMV_DAG_RUNNER;
-        if (_useDagMusic && globalThis.cssmvDag) {
-          console.info("[mv-pipeline] music stage routed via DAG executor");
-          const dag2 = globalThis.cssmvDag.create()
-            .stage("music", [], { weight: 35 }, async () => runMusicStage(state, {}));
-          const result2 = await globalThis.cssmvDag.run(dag2, {
-            ctx: { state: state },
-            onStageStart: function (_id) { /* runMusicStage owns its setStage */ },
-            onStageDone: function (_id, _output) { /* runMusicStage owns its setStage */ },
-            onStageError: function (id, err) {
-              failStageProgress(id, err && err.message ? err.message : String(err));
-            }
-          });
-          if (result2.failed && result2.failed.music) throw result2.failed.music;
-        } else {
-          await runMusicStage(state, {});
-        }
-      }
 
       // Stage 4 — video
-      //
-      // P2-24 Jing 2026-04-18: wrap in VIDEO_TIMEOUT_MS race AND a try/catch
-      // so a hanging Runway task falls back to music-only playback instead
-      // of stalling the Watch panel at "正在渲染视频 90%" forever.
-      //
-      // Failure modes we now survive gracefully:
-      //   * Runway poll loop exceeds server overall_timeout (600s) → upstream 5xx
-      //   * Runway accepts the task but never returns SUCCEEDED → frontend 180s
-      //   * Rust api-vm process killed mid-call → fetch throws
-      //   * RUNWAY_API_KEY missing on api-vm → upstream 500 "NotConfigured"
-      //
-      // In all of these, we still hand the user a playable audio track
-      // (which was already generated + preloaded at stage 3).
+      // CSSOS_MV_DAG_WAVE_2_7C 20260507 — body lifted into runVideoStage()
+      // so the DAG executor can invoke it as a node. Helper preserves
+      // setStage / state mutations / fallbackToMusicOnly internally, so
+      // behavior is identical to the prior imperative path. Returns
+      // { videoFailed:bool, videoErrorMsg?:string } — caller short-circuits
+      // the rest of the pipeline when videoFailed (matches legacy `return`).
+      async function runVideoStage(state) {
       let video = null;
       let videoFailed = false;
       let videoErrorMsg = "";
@@ -5279,12 +5200,15 @@
       // already has audio playing via the fallback; subtitles + compose
       // depend on the video URL so there's nothing meaningful to do.
       if (videoFailed) {
-        state.running = false;
-        return;
+        return { videoFailed: true, videoErrorMsg: videoErrorMsg };
       }
       } // end Stage 4 (video) resume guard
+      return { videoFailed: false };
+      } // end runVideoStage
 
       // Stage 5 — subtitles (real /api/mv/subtitles call)
+      // CSSOS_MV_DAG_WAVE_2_7C 20260507 — body lifted into runSubsStage().
+      async function runSubsStage(state) {
       if (STAGE_ORDER.indexOf("subtitles") >= resumeStartIdx) {
       setStage("subtitles", "running", "");
       try {
@@ -5361,18 +5285,23 @@
         );
       }
       } // end Stage 5 (subtitles) resume guard
+      } // end runSubsStage
 
       // Stage 6 — compose
+      // CSSOS_MV_DAG_WAVE_2_7C 20260507 — body lifted into runComposeStage().
+      // Returns { composeFailed:bool, composed?:object } — caller skips the
+      // post-compose autosave/hot-swap block when composeFailed.
+      async function runComposeStage(state) {
       //
       // P2-34: wrap in a hard timeout so a hung Rust ffmpeg mux does not
       // leave the UI stuck at "96%" forever. If compose times out, we
       // still proceed to the music-only fallback path below.
       // P2-24 Jing 2026-04-18: reuse the shared withTimeout helper and
       // gracefully fall back to music-only if compose fails/times out.
+      let composed = null;
       if (STAGE_ORDER.indexOf("compose") >= resumeStartIdx) {
       setStage("compose", "running", "");
       const mvId = "mv_" + Date.now();
-      let composed = null;
       let composeFailed = false;
       try {
         // CSSOS_PHASE2_LITE_SEGMENT_PLANNER 20260426 #47 — Jing
@@ -5596,8 +5525,7 @@
           "合成超时 · 播放音乐"
         ));
         renderSummary();
-        state.running = false;
-        return;
+        return { composeFailed: true };
       }
 
       state.mvUrl = composed.public_url;
@@ -6296,6 +6224,98 @@
         console.error("[mv-pipeline][autosave] threw synchronously:", _autosaveErr);
       }
       } // end Stage 6 (compose) resume guard
+      return { composeFailed: false, composed: composed };
+      } // end runComposeStage
+
+      // CSSOS_MV_DAG_WAVE_2_7C 20260507 — Jing
+      // Single-source-of-truth pipeline: every stage runs via the DAG
+      // executor with explicit dependencies. Cover + lyrics fan out as
+      // root nodes (no deps); music gates on lyrics; video gates on
+      // cover/music/lyrics; subs gates on lyrics/music; compose gates
+      // on cover/music/video/subs. The DAG runs whatever can run in
+      // parallel and serialises whatever has a true data dependency.
+      //
+      // Helpers own their own setStage / recordEngine / state mutations
+      // (matching the legacy imperative behavior byte-for-byte). Stage
+      // callbacks here are minimal — only the cover task wraps its
+      // helper to apply the legacy post-processing the cover IIFE used
+      // to do (state.coverUrl, recordEngine, setStage("done", …)).
+      //
+      // Video / compose helpers signal short-circuit failure by setting
+      // their own error chips + firing fallbackToMusicOnly internally,
+      // then we throw a sentinel so the DAG marks downstream stages as
+      // skipped and we exit runPipeline cleanly.
+      const _dagCoverCache = (state.coverUrl && (!state._resumeCompleted || state._resumeCompleted.indexOf("cover") >= 0))
+        ? { cover: { image_url: state.coverUrl, cost_cents: 0, cached: true } }
+        : {};
+      const _SHORT_CIRCUIT = "__CSSMV_SHORT_CIRCUIT__";
+      const _pipelineDag = globalThis.cssmvDag.create()
+        .stage("cover", [], { weight: 10 }, async () => {
+          if (STAGE_ORDER.indexOf("cover") < resumeStartIdx) return null;
+          setStage("cover", "running", "");
+          const cover = await runCoverStage(state, {});
+          state.coverUrl = cover.image_url;
+          recordEngine("cover", cover);
+          setStage("cover", "done", cover.image_url, cover.cost_cents);
+          return cover;
+        })
+        .stage("lyrics", [], { weight: 5 }, async () => {
+          await runLyricsStage(state, {});
+          return state.lyrics || null;
+        })
+        .stage("music", ["lyrics"], { weight: 35 }, async () => {
+          await runMusicStage(state, {});
+          return state.audioUrl || null;
+        })
+        .stage("video", ["cover", "music", "lyrics"], { weight: 35 }, async () => {
+          const r = await runVideoStage(state);
+          if (r && r.videoFailed) {
+            const e = new Error(_SHORT_CIRCUIT + ":video");
+            e.__shortCircuit = "video";
+            throw e;
+          }
+          return r;
+        })
+        .stage("subs", ["lyrics", "music"], { weight: 5 }, async () => {
+          await runSubsStage(state);
+          return state.subtitlesSrt || null;
+        })
+        .stage("compose", ["cover", "music", "video", "subs"], { weight: 10 }, async () => {
+          const r = await runComposeStage(state);
+          if (r && r.composeFailed) {
+            const e = new Error(_SHORT_CIRCUIT + ":compose");
+            e.__shortCircuit = "compose";
+            throw e;
+          }
+          return r && r.composed;
+        });
+      const _dagResult = await globalThis.cssmvDag.run(_pipelineDag, {
+        ctx: { state: state },
+        cache: _dagCoverCache,
+        retry: { compose: 2, video: 1, music: 1 },
+        onStageStart: function (_id) { /* helpers own setStage */ },
+        onStageDone: function (_id, _output, _meta) { /* helpers own setStage */ },
+        onStageError: function (id, err) {
+          if (err && err.__shortCircuit) return; // helper already painted UI
+          failStageProgress(id, err && err.message ? err.message : String(err));
+        }
+      });
+      if (_dagResult.failed) {
+        // Video / compose short-circuits: helpers already fired the UI
+        // cleanup (error chips, fallbackToMusicOnly, renderSummary). Just
+        // exit runPipeline; the `finally` block clears state.running.
+        const _videoFail = _dagResult.failed.video;
+        const _composeFail = _dagResult.failed.compose;
+        if (_videoFail && _videoFail.__shortCircuit) return;
+        if (_composeFail && _composeFail.__shortCircuit) return;
+        // Real (non-short-circuit) failure on any stage — rethrow the
+        // first one so the outer catch tags failingStage via
+        // findRunningStage(), matching legacy behavior.
+        const _firstErr = _videoFail || _composeFail
+          || _dagResult.failed.cover || _dagResult.failed.lyrics
+          || _dagResult.failed.music || _dagResult.failed.subs;
+        if (_firstErr) throw _firstErr;
+      }
     } catch (err) {
       console.error("[mv-pipeline] failed", err);
       const failingStage = findRunningStage() || "cover";

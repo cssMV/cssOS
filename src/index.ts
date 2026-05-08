@@ -11570,6 +11570,54 @@ async function ensurePersonMvTables() {
       CREATE INDEX IF NOT EXISTS live_room_events_room_idx
         ON live_room_events (room_id, id);
 
+      -- CSSOS_PERSON_MV_WAVE46 20260508 — Jing — collab permission matrix
+      -- + per-stage locks. Mirrors migrations/037.
+      ALTER TABLE collab_session_members
+        ADD COLUMN IF NOT EXISTS permission TEXT NOT NULL DEFAULT 'editor';
+      ALTER TABLE collab_sessions
+        ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'invite';
+      CREATE TABLE IF NOT EXISTS collab_stage_locks (
+        session_id UUID NOT NULL REFERENCES collab_sessions(session_id) ON DELETE CASCADE,
+        stage_id   TEXT NOT NULL,
+        locked_by  UUID NOT NULL,
+        locked_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        expires_at TIMESTAMPTZ NOT NULL,
+        PRIMARY KEY (session_id, stage_id)
+      );
+      CREATE INDEX IF NOT EXISTS collab_stage_locks_expires_idx
+        ON collab_stage_locks (expires_at);
+      UPDATE collab_session_members m
+         SET permission = 'owner'
+        FROM collab_sessions s
+       WHERE s.session_id = m.session_id
+         AND s.creator_id = m.user_id
+         AND m.permission <> 'owner';
+
+      -- CSSOS_PERSON_MV_WAVE49 20260508 — Jing — synchronized watch parties.
+      -- Mirrors migrations/037.
+      CREATE TABLE IF NOT EXISTS watch_parties (
+        party_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        host_id         UUID NOT NULL,
+        work_id         UUID NOT NULL,
+        state           JSONB NOT NULL DEFAULT '{}'::jsonb,
+        spectator_count INTEGER NOT NULL DEFAULT 0,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS watch_parties_host_idx
+        ON watch_parties (host_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS watch_parties_created_idx
+        ON watch_parties (created_at DESC);
+      CREATE TABLE IF NOT EXISTS watch_party_events (
+        id         BIGSERIAL PRIMARY KEY,
+        party_id   UUID NOT NULL REFERENCES watch_parties(party_id) ON DELETE CASCADE,
+        kind       TEXT NOT NULL,
+        user_id    UUID,
+        payload    JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS watch_party_events_party_idx
+        ON watch_party_events (party_id, id);
+
       -- CSSOS_PERSON_MV_WAVE35 20260508 — Jing — credit shop tables.
       -- Mirrors migrations/032_credit_shop.sql.
       CREATE TABLE IF NOT EXISTS shop_items (
@@ -11679,6 +11727,57 @@ async function ensurePersonMvTables() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMPTZ;
       CREATE INDEX IF NOT EXISTS users_last_active_idx
         ON users (last_active_at DESC);
+
+      -- CSSOS_PERSON_MV_WAVE44 20260508 — Jing — LLM moderation verdicts.
+      ALTER TABLE content_reports ADD COLUMN IF NOT EXISTS llm_verdict TEXT;
+      ALTER TABLE content_reports ADD COLUMN IF NOT EXISTS llm_confidence NUMERIC;
+      ALTER TABLE content_reports ADD COLUMN IF NOT EXISTS llm_reasoning TEXT;
+      ALTER TABLE content_reports ADD COLUMN IF NOT EXISTS auto_resolved_at TIMESTAMPTZ;
+
+      -- CSSOS_PERSON_MV_WAVE47 20260508 — Jing — AI chat long-term memory.
+      CREATE TABLE IF NOT EXISTS ai_chat_memory (
+        user_id              UUID PRIMARY KEY,
+        preferences          JSONB NOT NULL DEFAULT '{}'::jsonb,
+        recent_conversations JSONB NOT NULL DEFAULT '[]'::jsonb,
+        last_updated         TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      -- CSSOS_PERSON_MV_WAVE45 20260508 — Jing — video upscale jobs (1080p / 4K).
+      ALTER TABLE user_works
+        ADD COLUMN IF NOT EXISTS upscale_jobs JSONB NOT NULL DEFAULT '[]'::jsonb;
+      CREATE TABLE IF NOT EXISTS upscale_jobs (
+        job_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        work_id UUID NOT NULL,
+        user_id UUID NOT NULL,
+        source_url TEXT NOT NULL,
+        target_resolution TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        output_url TEXT,
+        credits_spent INTEGER NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        completed_at TIMESTAMPTZ
+      );
+      CREATE INDEX IF NOT EXISTS upscale_jobs_user_idx
+        ON upscale_jobs (user_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS upscale_jobs_work_idx
+        ON upscale_jobs (work_id, created_at DESC);
+
+      -- CSSOS_PERSON_MV_WAVE48 20260508 — Jing — MV product attachments.
+      CREATE TABLE IF NOT EXISTS mv_product_attachments (
+        attachment_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        work_id UUID NOT NULL,
+        position INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        url TEXT NOT NULL,
+        image_url TEXT,
+        price_text TEXT,
+        timestamp_secs NUMERIC,
+        click_count INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (work_id, position)
+      );
+      CREATE INDEX IF NOT EXISTS mv_product_attachments_work_idx
+        ON mv_product_attachments (work_id);
     `),
   );
 
@@ -11815,7 +11914,10 @@ export type CreditReason =
   | "fork_received"
   | "use_received"
   | "spend"
-  | "manual";
+  | "manual"
+  | "upscale_spend"
+  | "upscale_refund"
+  | "product_click_reward";
 
 async function awardCredit(
   userId: string | null | undefined,
@@ -26794,7 +26896,7 @@ app.get("/api/collab/sessions/:id", async (req, res) => {
     if (!sessionRow) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
     const mR = await withClient((c) =>
       c.query<any>(
-        `SELECT m.user_id::text, m.role, m.joined_at::text,
+        `SELECT m.user_id::text, m.role, m.permission, m.joined_at::text,
                 u.username, u.display_name
            FROM collab_session_members m
            LEFT JOIN users u ON u.id = m.user_id
@@ -26811,11 +26913,20 @@ app.get("/api/collab/sessions/:id", async (req, res) => {
         [id],
       ),
     );
+    const lR = await withClient((c) =>
+      c.query<any>(
+        `SELECT stage_id, locked_by::text, locked_at::text, expires_at::text
+           FROM collab_stage_locks
+          WHERE session_id = $1::uuid AND expires_at > now()`,
+        [id],
+      ),
+    );
     return res.json({
       ok: true,
       session: sessionRow,
       members: mR.rows,
       stage_outputs: oR.rows,
+      stage_locks: lR.rows,
     });
   } catch (err) {
     return res.status(500).json({ ok: false, code: "COLLAB_DETAIL_FAILED", message: String(err) });
@@ -26887,16 +26998,39 @@ app.post("/api/collab/sessions/:id/stages/:stage_id", express.json({ limit: "256
     try { outputJson = JSON.stringify(output); } catch { return res.status(400).json({ ok: false, code: "BAD_OUTPUT" }); }
     if (outputJson.length > 200_000) return res.status(400).json({ ok: false, code: "OUTPUT_TOO_LARGE" });
     const mR = await withClient((c) =>
-      c.query<{ role: string }>(
-        `SELECT role FROM collab_session_members
+      c.query<{ role: string; permission: string }>(
+        `SELECT role, permission FROM collab_session_members
           WHERE session_id = $1::uuid AND user_id = $2::uuid`,
         [id, user.id],
       ),
     );
     const myRole = mR.rows[0]?.role;
+    const myPerm = mR.rows[0]?.permission || "editor";
     if (!myRole) return res.status(403).json({ ok: false, code: "NOT_A_MEMBER" });
-    if (myRole !== requiredRole && myRole !== "owner") {
+    // Wave 46: viewer can never write.
+    if (myPerm === "viewer") {
+      return res.status(403).json({ ok: false, code: "VIEWER_READONLY" });
+    }
+    if (myRole !== requiredRole && myRole !== "owner" && myPerm !== "owner") {
       return res.status(403).json({ ok: false, code: "WRONG_ROLE", required: requiredRole });
+    }
+    // Wave 46: stage-lock enforcement. If a non-expired lock is held by
+    // somebody else, the writer must acquire it first (returns 423).
+    const lockR = await withClient((c) =>
+      c.query<{ locked_by: string; locked_at: string; expires_at: string }>(
+        `SELECT locked_by::text, locked_at::text, expires_at::text
+           FROM collab_stage_locks
+          WHERE session_id = $1::uuid AND stage_id = $2 AND expires_at > now()`,
+        [id, stageId],
+      ),
+    );
+    if (lockR.rows[0] && lockR.rows[0].locked_by !== user.id && myPerm !== "owner") {
+      return res.status(423).json({
+        ok: false, code: "STAGE_LOCKED",
+        locked_by: lockR.rows[0].locked_by,
+        locked_at: lockR.rows[0].locked_at,
+        expires_at: lockR.rows[0].expires_at,
+      });
     }
     await withClient(async (c) => {
       await c.query(
@@ -26915,10 +27049,170 @@ app.post("/api/collab/sessions/:id/stages/:stage_id", express.json({ limit: "256
           WHERE session_id = $1::uuid`,
         [id],
       );
+      // Wave 46: auto-release the user's lock on submit.
+      await c.query(
+        `DELETE FROM collab_stage_locks
+          WHERE session_id = $1::uuid AND stage_id = $2 AND locked_by = $3::uuid`,
+        [id, stageId, user.id],
+      );
     });
     return res.json({ ok: true });
   } catch (err) {
     return res.status(500).json({ ok: false, code: "COLLAB_STAGE_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE46 20260508 — Jing — collab permission matrix
+ * + per-stage edit locks. Permissions: 'owner' | 'editor' | 'viewer'.
+ * - owner: all actions (invite, kick, finalize, set permissions).
+ * - editor: edit assigned stage(s), view all, comment.
+ * - viewer: read-only.
+ * Stage locks: editors POST /lock to acquire (5min TTL); concurrent
+ * editors are blocked with HTTP 423 until the lock expires or is
+ * released. Stale locks are pruned opportunistically on lock acquire. */
+const COLLAB_PERMISSIONS = new Set(["owner", "editor", "viewer"]);
+const COLLAB_LOCK_TTL_MS = 5 * 60 * 1000;
+
+app.post("/api/collab/sessions/:id/permissions", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const body = (req.body && typeof req.body === "object") ? req.body : {};
+    const targetUserId = String(body.user_id || "").trim();
+    const permission = String(body.permission || "").trim();
+    if (!targetUserId) return res.status(400).json({ ok: false, code: "MISSING_USER" });
+    if (!COLLAB_PERMISSIONS.has(permission)) {
+      return res.status(400).json({ ok: false, code: "INVALID_PERMISSION" });
+    }
+    const sR = await withClient((c) =>
+      c.query<{ creator_id: string }>(
+        `SELECT creator_id::text FROM collab_sessions WHERE session_id = $1::uuid`,
+        [id],
+      ),
+    );
+    if (!sR.rows[0]) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    if (sR.rows[0].creator_id !== user.id) {
+      return res.status(403).json({ ok: false, code: "NOT_OWNER" });
+    }
+    // Prevent demoting the session creator below 'owner'.
+    if (targetUserId === sR.rows[0].creator_id && permission !== "owner") {
+      return res.status(400).json({ ok: false, code: "CANNOT_DEMOTE_CREATOR" });
+    }
+    const upd = await withClient((c) =>
+      c.query(
+        `UPDATE collab_session_members SET permission = $3
+          WHERE session_id = $1::uuid AND user_id = $2::uuid`,
+        [id, targetUserId, permission],
+      ),
+    );
+    if (!upd.rowCount) return res.status(404).json({ ok: false, code: "NOT_A_MEMBER" });
+    return res.json({ ok: true, user_id: targetUserId, permission });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "COLLAB_PERMISSION_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/collab/sessions/:id/stages/:stage_id/lock", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    const stageId = String(req.params.stage_id || "").trim();
+    if (!id || !stageId) return res.status(400).json({ ok: false, code: "INVALID_PARAMS" });
+    const requiredRole = COLLAB_STAGE_TO_ROLE[stageId];
+    if (!requiredRole) return res.status(400).json({ ok: false, code: "INVALID_STAGE" });
+    const mR = await withClient((c) =>
+      c.query<{ role: string; permission: string }>(
+        `SELECT role, permission FROM collab_session_members
+          WHERE session_id = $1::uuid AND user_id = $2::uuid`,
+        [id, user.id],
+      ),
+    );
+    const myRole = mR.rows[0]?.role;
+    const myPerm = mR.rows[0]?.permission || "editor";
+    if (!myRole) return res.status(403).json({ ok: false, code: "NOT_A_MEMBER" });
+    if (myPerm === "viewer") return res.status(403).json({ ok: false, code: "VIEWER_READONLY" });
+    if (myRole !== requiredRole && myRole !== "owner" && myPerm !== "owner") {
+      return res.status(403).json({ ok: false, code: "WRONG_ROLE", required: requiredRole });
+    }
+    const expires = new Date(Date.now() + COLLAB_LOCK_TTL_MS).toISOString();
+    // Opportunistic stale-lock cleanup, then attempt insert.
+    const acquired = await withClient(async (c) => {
+      await c.query(
+        `DELETE FROM collab_stage_locks
+          WHERE session_id = $1::uuid AND stage_id = $2 AND expires_at <= now()`,
+        [id, stageId],
+      );
+      const r = await c.query<{ locked_by: string; locked_at: string; expires_at: string }>(
+        `INSERT INTO collab_stage_locks (session_id, stage_id, locked_by, expires_at)
+         VALUES ($1::uuid, $2, $3::uuid, $4::timestamptz)
+         ON CONFLICT (session_id, stage_id) DO UPDATE
+           SET locked_by = CASE
+                 WHEN collab_stage_locks.locked_by = EXCLUDED.locked_by
+                   THEN EXCLUDED.locked_by
+                 ELSE collab_stage_locks.locked_by
+               END,
+               expires_at = CASE
+                 WHEN collab_stage_locks.locked_by = EXCLUDED.locked_by
+                   THEN EXCLUDED.expires_at
+                 ELSE collab_stage_locks.expires_at
+               END
+         RETURNING locked_by::text, locked_at::text, expires_at::text`,
+        [id, stageId, user.id, expires],
+      );
+      return r.rows[0]!;
+    });
+    if (acquired.locked_by !== user.id) {
+      return res.status(423).json({
+        ok: false, code: "STAGE_LOCKED",
+        locked_by: acquired.locked_by,
+        locked_at: acquired.locked_at,
+        expires_at: acquired.expires_at,
+      });
+    }
+    return res.json({ ok: true, locked_by: acquired.locked_by, expires_at: acquired.expires_at });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "COLLAB_LOCK_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/collab/sessions/:id/stages/:stage_id/unlock", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    const stageId = String(req.params.stage_id || "").trim();
+    if (!id || !stageId) return res.status(400).json({ ok: false, code: "INVALID_PARAMS" });
+    const sR = await withClient((c) =>
+      c.query<{ creator_id: string }>(
+        `SELECT creator_id::text FROM collab_sessions WHERE session_id = $1::uuid`,
+        [id],
+      ),
+    );
+    if (!sR.rows[0]) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const isOwner = sR.rows[0].creator_id === user.id;
+    const del = await withClient((c) =>
+      c.query(
+        isOwner
+          ? `DELETE FROM collab_stage_locks
+              WHERE session_id = $1::uuid AND stage_id = $2`
+          : `DELETE FROM collab_stage_locks
+              WHERE session_id = $1::uuid AND stage_id = $2 AND locked_by = $3::uuid`,
+        isOwner ? [id, stageId] : [id, stageId, user.id],
+      ),
+    );
+    if (!del.rowCount) return res.status(404).json({ ok: false, code: "NO_LOCK" });
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "COLLAB_UNLOCK_FAILED", message: String(err) });
   }
 });
 
@@ -27315,6 +27609,288 @@ app.get("/api/live/rooms/:id/events", async (req, res) => {
   } catch (err) {
     if (!res.headersSent) {
       return res.status(500).json({ ok: false, code: "LIVE_EVENTS_FAILED", message: String(err) });
+    }
+    return;
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE49 20260508 — Jing — synchronized watch parties.
+ * Friends watch an MV together: host's play/pause/seek events stream
+ * to spectators via long-poll (same shape as Wave 31 live rooms).
+ * Spectators apply playback events to a local <video>; drift > 2s
+ * triggers a hard seek client-side. Optional 弹幕 (danmu) chat
+ * overlay, in-memory rate-limited to 1 msg/sec/user. */
+const WATCH_PARTY_EVENT_KINDS = new Set([
+  "play", "pause", "seek", "danmu", "join", "leave",
+]);
+const __watchPartyDanmuLastAt = new Map<string, number>();
+
+app.post("/api/watch-parties", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const body = (req.body && typeof req.body === "object") ? req.body : {};
+    const workId = String(body.work_id || "").trim();
+    if (!workId) return res.status(400).json({ ok: false, code: "MISSING_WORK_ID" });
+    const r = await withClient((c) =>
+      c.query<{ party_id: string }>(
+        `INSERT INTO watch_parties (host_id, work_id, state)
+         VALUES ($1::uuid, $2::uuid, $3::jsonb)
+         RETURNING party_id::text`,
+        [user.id, workId, JSON.stringify({ playing: false, currentTime: 0, lastUpdated: Date.now() })],
+      ),
+    );
+    return res.json({ ok: true, party_id: r.rows[0]?.party_id });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "WATCH_PARTY_CREATE_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/watch-parties/active", async (req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const limit = Math.max(1, Math.min(100, Number(req.query.limit || 20) || 20));
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT p.party_id::text, p.host_id::text, p.work_id::text,
+                p.state, p.spectator_count, p.created_at::text,
+                u.username, u.display_name
+           FROM watch_parties p
+           LEFT JOIN users u ON u.id = p.host_id
+          WHERE p.created_at > now() - interval '12 hours'
+          ORDER BY p.created_at DESC
+          LIMIT $1`,
+        [limit],
+      ),
+    );
+    return res.json({ ok: true, parties: r.rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "WATCH_PARTY_ACTIVE_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/watch-parties/:id", async (req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT p.party_id::text, p.host_id::text, p.work_id::text,
+                p.state, p.spectator_count, p.created_at::text,
+                u.username, u.display_name
+           FROM watch_parties p
+           LEFT JOIN users u ON u.id = p.host_id
+          WHERE p.party_id = $1::uuid`,
+        [id],
+      ),
+    );
+    const party = r.rows[0];
+    if (!party) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    return res.json({ ok: true, party });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "WATCH_PARTY_DETAIL_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/watch-parties/:id/events", express.json({ limit: "4kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const body = (req.body && typeof req.body === "object") ? req.body : {};
+    const kind = String(body.kind || "").trim();
+    if (!WATCH_PARTY_EVENT_KINDS.has(kind)) {
+      return res.status(400).json({ ok: false, code: "INVALID_KIND" });
+    }
+    const partyR = await withClient((c) =>
+      c.query<{ host_id: string }>(
+        `SELECT host_id::text FROM watch_parties WHERE party_id = $1::uuid`,
+        [id],
+      ),
+    );
+    if (!partyR.rows[0]) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const isHost = partyR.rows[0].host_id === user.id;
+    // Only the host can drive playback.
+    if ((kind === "play" || kind === "pause" || kind === "seek") && !isHost) {
+      return res.status(403).json({ ok: false, code: "NOT_HOST" });
+    }
+    const payloadIn = body.payload && typeof body.payload === "object" ? body.payload : {};
+    let payload: Record<string, any> = {};
+    if (kind === "danmu") {
+      // Wave 49: danmu rate-limit 1 msg/sec/user via in-memory map.
+      const key = `${id}:${user.id}`;
+      const now = Date.now();
+      const last = __watchPartyDanmuLastAt.get(key) || 0;
+      if (now - last < 1000) {
+        return res.status(429).json({ ok: false, code: "RATE_LIMITED" });
+      }
+      __watchPartyDanmuLastAt.set(key, now);
+      if (__watchPartyDanmuLastAt.size > 5000) {
+        for (const [k, v] of __watchPartyDanmuLastAt) {
+          if (now - v > 60_000) __watchPartyDanmuLastAt.delete(k);
+        }
+      }
+      const text = String(payloadIn.text || "").trim();
+      if (!text) return res.status(400).json({ ok: false, code: "EMPTY_TEXT" });
+      if (text.length > 50) return res.status(400).json({ ok: false, code: "TOO_LONG" });
+      payload = {
+        user_id: user.id,
+        text,
+        color: typeof payloadIn.color === "string" ? String(payloadIn.color).slice(0, 16) : undefined,
+        position: typeof payloadIn.position === "string" ? String(payloadIn.position).slice(0, 16) : undefined,
+      };
+    } else if (kind === "play" || kind === "pause" || kind === "seek") {
+      const ct = Number(payloadIn.currentTime);
+      payload = { currentTime: Number.isFinite(ct) ? ct : 0 };
+    } else {
+      payload = { user_id: user.id };
+    }
+    let payloadJson: string;
+    try { payloadJson = JSON.stringify(payload); } catch { payloadJson = "{}"; }
+    if (payloadJson.length > 3000) return res.status(400).json({ ok: false, code: "PAYLOAD_TOO_LARGE" });
+    const ev = await withClient((c) =>
+      c.query<{ id: string; created_at: string }>(
+        `INSERT INTO watch_party_events (party_id, kind, user_id, payload)
+         VALUES ($1::uuid, $2, $3::uuid, $4::jsonb)
+         RETURNING id::text, created_at::text`,
+        [id, kind, user.id, payloadJson],
+      ),
+    );
+    // Persist host playback state for late-joiners.
+    if (isHost && (kind === "play" || kind === "pause" || kind === "seek")) {
+      const playing = kind === "play";
+      await withClient((c) =>
+        c.query(
+          `UPDATE watch_parties
+              SET state = jsonb_build_object(
+                'playing', $2::boolean,
+                'currentTime', $3::numeric,
+                'lastUpdated', $4::bigint
+              )
+            WHERE party_id = $1::uuid`,
+          [id, kind === "seek" ? null : playing, payload.currentTime, Date.now()],
+        ),
+      );
+    }
+    if (kind === "join") {
+      await withClient((c) =>
+        c.query(
+          `UPDATE watch_parties SET spectator_count = spectator_count + 1
+            WHERE party_id = $1::uuid`,
+          [id],
+        ),
+      );
+    } else if (kind === "leave") {
+      await withClient((c) =>
+        c.query(
+          `UPDATE watch_parties
+              SET spectator_count = GREATEST(spectator_count - 1, 0)
+            WHERE party_id = $1::uuid`,
+          [id],
+        ),
+      );
+    }
+    return res.json({ ok: true, event_id: ev.rows[0]?.id });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "WATCH_PARTY_EVENT_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/watch-parties/:id/events", async (req, res) => {
+  // Long-poll mirroring /api/live/rooms/:id/events: hold up to 25s,
+  // chunked-transfer space heartbeats every 5s, 1.5s DB poll cadence.
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const since = Math.max(0, Number(req.query.since || 0) | 0);
+    const exists = await withClient((c) =>
+      c.query<{ party_id: string }>(
+        `SELECT party_id::text FROM watch_parties WHERE party_id = $1::uuid`,
+        [id],
+      ),
+    );
+    if (!exists.rows[0]) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+
+    const fetchSince = async (s: number) => {
+      const r = await withClient((c) =>
+        c.query<any>(
+          `SELECT id::text, kind, user_id::text, payload, created_at::text
+             FROM watch_party_events
+            WHERE party_id = $1::uuid AND id > $2
+            ORDER BY id ASC
+            LIMIT 200`,
+          [id, s],
+        ),
+      );
+      return r.rows;
+    };
+
+    const initialRows = await fetchSince(since);
+    if (initialRows.length > 0) {
+      return res.json({ ok: true, events: initialRows });
+    }
+
+    res.status(200);
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.setHeader("Transfer-Encoding", "chunked");
+    (res as any).flushHeaders?.();
+
+    const startedAt = Date.now();
+    const TIMEOUT_MS = 25_000;
+    const HEARTBEAT_MS = 5_000;
+    const POLL_INTERVAL_MS = 1500;
+    let finished = false;
+    let heartbeat: ReturnType<typeof setInterval> | null = null;
+    let nextTick: ReturnType<typeof setTimeout> | null = null;
+    const cleanup = () => {
+      if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
+      if (nextTick) { clearTimeout(nextTick); nextTick = null; }
+    };
+    const finish = (payload: any) => {
+      if (finished) return;
+      finished = true;
+      cleanup();
+      try { res.end(JSON.stringify(payload)); } catch { /* ignore */ }
+    };
+    heartbeat = setInterval(() => {
+      if (finished) return;
+      try { res.write(" "); } catch { /* client gone */ }
+    }, HEARTBEAT_MS);
+
+    const tick = async () => {
+      nextTick = null;
+      if (finished) return;
+      if (Date.now() - startedAt >= TIMEOUT_MS) {
+        return finish({ ok: true, events: [] });
+      }
+      try {
+        const fresh = await fetchSince(since);
+        if (fresh.length > 0) return finish({ ok: true, events: fresh });
+      } catch (err) {
+        return finish({ ok: false, code: "WATCH_PARTY_POLL_FAILED", message: String(err) });
+      }
+      if (!finished) nextTick = setTimeout(tick, POLL_INTERVAL_MS);
+    };
+    req.on("close", () => {
+      finished = true;
+      cleanup();
+    });
+    nextTick = setTimeout(tick, POLL_INTERVAL_MS);
+    return;
+  } catch (err) {
+    if (!res.headersSent) {
+      return res.status(500).json({ ok: false, code: "WATCH_PARTY_EVENTS_FAILED", message: String(err) });
     }
     return;
   }
@@ -27745,6 +28321,111 @@ app.get("/api/user/blocks", async (req, res) => {
 const VALID_REPORT_KINDS = new Set(["mv", "comment", "user", "person"]);
 const VALID_REASON_CODES = new Set(["spam", "harassment", "copyright", "nsfw", "factual_error", "other"]);
 
+// CSSOS_PERSON_MV_WAVE44 20260508 — Jing — LLM-assisted moderation.
+// Pulls a short snippet of the reported content for context, then asks an
+// LLM for a verdict. Fire-and-forget from the report POST handler.
+async function fetchReportContentSnippet(kind: string, id: string): Promise<string> {
+  try {
+    if (kind === "mv") {
+      const r = await withClient((c) =>
+        c.query<{ snippet: string | null }>(
+          `SELECT COALESCE(scenario_seed, '') AS snippet FROM person_mvs WHERE mv_id = $1::uuid`,
+          [id],
+        ),
+      );
+      return String(r.rows[0]?.snippet || "").slice(0, 800);
+    }
+    if (kind === "comment") {
+      const r = await withClient((c) =>
+        c.query<{ snippet: string | null }>(
+          `SELECT COALESCE(body, '') AS snippet FROM person_mv_comments WHERE id = $1::uuid`,
+          [id],
+        ),
+      );
+      return String(r.rows[0]?.snippet || "").slice(0, 800);
+    }
+    if (kind === "person") {
+      const r = await withClient((c) =>
+        c.query<{ snippet: string | null }>(
+          `SELECT COALESCE(name_zh, '') || ' ' || COALESCE(name_en, '') || ' ' || COALESCE(core_theme, '') AS snippet
+             FROM person_profiles WHERE person_id = $1`,
+          [id],
+        ),
+      );
+      return String(r.rows[0]?.snippet || "").slice(0, 800);
+    }
+  } catch (_e) { /* best-effort */ }
+  return "";
+}
+
+async function classifyReportLlm(
+  reportId: string,
+  reasonCode: string,
+  targetKind: string,
+  targetId: string,
+): Promise<void> {
+  try {
+    const snippet = await fetchReportContentSnippet(targetKind, targetId);
+    const prompt =
+      `Classify this content report. The reporter says: ${reasonCode}. ` +
+      `The reported content is: ${snippet || "(no snippet available)"}. ` +
+      `Output strict JSON: {"verdict":"clear_violation"|"borderline"|"no_violation","confidence":0-1,"reasoning":"short explanation"}`;
+    const llm = await callLlm({
+      messages: [
+        { role: "system", content: "You are a strict but fair content moderation classifier. Reply ONLY with the requested JSON." },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.2,
+      max_tokens: 200,
+      response_format: { type: "json_object" },
+    });
+    if (!llm.ok || !llm.content) return;
+    let parsed: any = null;
+    try { parsed = JSON.parse(llm.content); } catch { return; }
+    const verdict = ["clear_violation", "borderline", "no_violation"].includes(String(parsed?.verdict))
+      ? String(parsed.verdict) : null;
+    if (!verdict) return;
+    const confidence = Math.max(0, Math.min(1, Number(parsed.confidence) || 0));
+    const reasoning = String(parsed.reasoning || "").slice(0, 600);
+
+    await withClient((c) =>
+      c.query(
+        `UPDATE content_reports
+            SET llm_verdict = $1, llm_confidence = $2, llm_reasoning = $3
+          WHERE report_id = $4::uuid`,
+        [verdict, confidence, reasoning, reportId],
+      ),
+    );
+
+    // Auto-action obvious violations.
+    if (verdict === "clear_violation" && confidence > 0.8) {
+      try {
+        if (targetKind === "mv") {
+          await withClient((c) =>
+            c.query(`UPDATE user_works SET status = 'hidden_by_admin' WHERE work_id = $1::uuid`, [targetId]),
+          ).catch(() => {});
+        } else if (targetKind === "comment") {
+          await withClient((c) =>
+            c.query(`UPDATE person_mv_comments SET deleted_at = now() WHERE id = $1::uuid`, [targetId]),
+          ).catch(() => {});
+        }
+        await withClient((c) =>
+          c.query(
+            `UPDATE content_reports
+                SET status = 'resolved', auto_resolved_at = now()
+              WHERE report_id = $1::uuid`,
+            [reportId],
+          ),
+        );
+      } catch (e) {
+        console.warn("[wave44] auto-action failed:", (e as Error)?.message || e);
+      }
+    }
+  } catch (err) {
+    console.warn("[wave44] classifyReportLlm failed:", (err as Error)?.message || err);
+  }
+}
+
 app.post("/api/reports", express.json({ limit: "8kb" }), async (req, res) => {
   noStore(res);
   try {
@@ -27771,7 +28452,12 @@ app.post("/api/reports", express.json({ limit: "8kb" }), async (req, res) => {
           [me.id, target_kind, target_id, reason_code, details],
         ),
       );
-      return res.json({ ok: true, report_id: r.rows[0]?.report_id || null });
+      const reportId = r.rows[0]?.report_id || null;
+      // CSSOS_PERSON_MV_WAVE44 — fire-and-forget LLM classification.
+      if (reportId) {
+        void classifyReportLlm(reportId, reason_code, target_kind, target_id);
+      }
+      return res.json({ ok: true, report_id: reportId });
     } catch (e: any) {
       if (String(e?.code) === "23505") {
         return res.status(429).json({ ok: false, code: "ALREADY_REPORTED_TODAY" });
@@ -27795,7 +28481,9 @@ app.get("/api/admin/reports", async (req, res) => {
       c.query<any>(
         `SELECT report_id::text, reporter_id::text, target_kind, target_id, reason_code, details,
                 status, reviewed_by::text AS reviewed_by, reviewed_at::text AS reviewed_at,
-                created_at::text AS created_at
+                created_at::text AS created_at,
+                llm_verdict, llm_confidence, llm_reasoning,
+                auto_resolved_at::text AS auto_resolved_at
            FROM content_reports
           WHERE status = $1
           ORDER BY created_at DESC

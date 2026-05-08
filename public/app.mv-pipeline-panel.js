@@ -3325,78 +3325,96 @@
       // with Promise.allSettled then rethrow the first rejection so the outer
       // catch still resolves `failingStage` via findRunningStage().
       // Stage 1 — cover (+ 4 parallel variations for 5-image slideshow)
-      const coverP = (async () => {
-      if (STAGE_ORDER.indexOf("cover") >= resumeStartIdx) {
-      setStage("cover", "running", "");
-      const coverSuffix = (globalThis.currentLocale === "zh")
-        ? COVER_PROMPT_SUFFIX_ZH
-        : COVER_PROMPT_SUFFIX_EN;
-      const cover = await postJson(
-        "/api/mv/cover",
-        withEngine("cover", {
-          prompt: state.prompt + coverSuffix,
-          // P2-51: target ratio for cover image. Backend passes it through to
-          // Runway's `ratio` param; Runway generates at that ratio natively.
-          ratio: state.outputSpec && state.outputSpec.runwayImageRatio
-            ? state.outputSpec.runwayImageRatio
-            : null
-        })
-      );
-      state.coverUrl = cover.image_url;
-      recordEngine("cover", cover);
-      setStage("cover", "done", cover.image_url, cover.cost_cents);
-      // CSSOS_PHASE2_FACE_DETECT 20260430 #224b — Jing
-      // "下一步请前端面部检测，做完真正人脸感知."
-      // Detect face centroid in the cover image so the slideshow planner
-      // can pass focus_x/focus_y to ffmpeg's zoompan. Native Browser
-      // FaceDetector covers Chrome/Edge (~70% users); Safari/Firefox
-      // fall back to the server's (0.5, 0.4) rule-of-thirds default
-      // until a WASM library lands. This is fire-and-forget — we don't
-      // block the lyrics/music/video stages on it; planComposeSegments
-      // reads state.coverFocus when it's ready and keeps the existing
-      // default if it isn't.
-      void detectCoverFaceFocusOnce(cover.image_url).catch(() => {});
-      // Kick off slideshow with the first cover immediately, then spawn 4 parallel
-      // variation calls. Slideshow renders on Watch panel #watch-svg (MV tab) and
-      // #watch-music-art + #watch-music-disc (Music tab). Music tab persists;
-      // MV tab auto-hands-off to video when video.play fires.
-      try {
-        if (typeof globalThis.cssmvSetCoverSlides === "function") {
-          globalThis.cssmvSetCoverSlides([cover.image_url]);
+      // CSSOS_MV_DAG_WAVE_2_7A 20260507 — Jing
+      // Cover stage body lifted into runCoverStage() so it can run via either
+      // the legacy imperative path OR the DAG executor (globalThis.cssmvDag).
+      // Behavior is identical between paths; setStage events live in the
+      // caller (legacy block or DAG callbacks) so they fire exactly once.
+      async function runCoverStage(state, _opts) {
+        const coverSuffix = (globalThis.currentLocale === "zh")
+          ? COVER_PROMPT_SUFFIX_ZH
+          : COVER_PROMPT_SUFFIX_EN;
+        const cover = await postJson(
+          "/api/mv/cover",
+          withEngine("cover", {
+            prompt: state.prompt + coverSuffix,
+            ratio: state.outputSpec && state.outputSpec.runwayImageRatio
+              ? state.outputSpec.runwayImageRatio
+              : null
+          })
+        );
+        // Face detect — fire-and-forget, non-blocking.
+        void detectCoverFaceFocusOnce(cover.image_url).catch(() => {});
+        // Slideshow + variations — fire-and-forget UX enhancement.
+        try {
+          if (typeof globalThis.cssmvSetCoverSlides === "function") {
+            globalThis.cssmvSetCoverSlides([cover.image_url]);
+          }
+          if (typeof globalThis.cssmvStartCoverSlideshow === "function") {
+            globalThis.cssmvStartCoverSlideshow({ mv: true, music: true });
+          }
+          const variationSuffixesZh = ["，特写", "，广角", "，侧光", "，柔雾"];
+          const variationSuffixesEn = [", close-up framing", ", wide-angle composition", ", rim light", ", soft haze"];
+          const variationSuffixes = (globalThis.currentLocale === "zh")
+            ? variationSuffixesZh
+            : variationSuffixesEn;
+          variationSuffixes.forEach(function (suffix) {
+            postJson(
+              "/api/mv/cover",
+              withEngine("cover", {
+                prompt: state.prompt + coverSuffix + suffix,
+                ratio: state.outputSpec && state.outputSpec.runwayImageRatio
+                  ? state.outputSpec.runwayImageRatio
+                  : null
+              })
+            )
+              .then(function (extra) {
+                if (!extra || !extra.image_url) return;
+                if (typeof globalThis.cssmvAddCoverSlide === "function") {
+                  globalThis.cssmvAddCoverSlide(extra.image_url);
+                }
+              })
+              .catch(function (_err) { /* variation failures are non-fatal */ });
+          });
+        } catch (_slideshowErr) {
+          // Non-blocking UX; swallow.
         }
-        if (typeof globalThis.cssmvStartCoverSlideshow === "function") {
-          globalThis.cssmvStartCoverSlideshow({ mv: true, music: true });
-        }
-        const variationSuffixesZh = ["，特写", "，广角", "，侧光", "，柔雾"];
-        const variationSuffixesEn = [", close-up framing", ", wide-angle composition", ", rim light", ", soft haze"];
-        const variationSuffixes = (globalThis.currentLocale === "zh")
-          ? variationSuffixesZh
-          : variationSuffixesEn;
-        variationSuffixes.forEach(function (suffix) {
-          // Fire-and-forget — don't block the pipeline on variations.
-          postJson(
-            "/api/mv/cover",
-            withEngine("cover", {
-              prompt: state.prompt + coverSuffix + suffix,
-              // P2-51: variations must match the primary cover's aspect ratio
-              // so the slideshow stays visually cohesive inside the preview frame.
-              ratio: state.outputSpec && state.outputSpec.runwayImageRatio
-                ? state.outputSpec.runwayImageRatio
-                : null
-            })
-          )
-            .then(function (extra) {
-              if (!extra || !extra.image_url) return;
-              if (typeof globalThis.cssmvAddCoverSlide === "function") {
-                globalThis.cssmvAddCoverSlide(extra.image_url);
-              }
-            })
-            .catch(function (_err) { /* variation failures are non-fatal */ });
-        });
-      } catch (_slideshowErr) {
-        // Slideshow is a non-blocking UX enhancement; errors shouldn't fail the pipeline.
+        return cover;
       }
-      } // end Stage 1 (cover) resume guard
+
+      const coverP = (async () => {
+      if (STAGE_ORDER.indexOf("cover") < resumeStartIdx) return;
+      const useDag = (typeof globalThis.CSSMV_DAG_RUNNER === "undefined")
+        ? true
+        : !!globalThis.CSSMV_DAG_RUNNER;
+      if (useDag && globalThis.cssmvDag) {
+        console.info("[mv-pipeline] cover stage routed via DAG executor");
+        const dag = globalThis.cssmvDag.create()
+          .stage("cover", [], { weight: 10 }, async () => runCoverStage(state, {}));
+        const result = await globalThis.cssmvDag.run(dag, {
+          ctx: { state: state },
+          onStageStart: function (id) { setStage(id, "running", ""); },
+          onStageDone: function (id, output) {
+            if (id === "cover") {
+              state.coverUrl = output.image_url;
+              recordEngine("cover", output);
+              setStage("cover", "done", output.image_url, output.cost_cents);
+            }
+          },
+          onStageError: function (id, err) {
+            failStageProgress(id, err && err.message ? err.message : String(err));
+          }
+        });
+        if (result.failed && result.failed.cover) throw result.failed.cover;
+      } else {
+        // Legacy imperative path — preserved verbatim for fallback when the
+        // DAG executor module failed to load OR the flag is explicitly off.
+        setStage("cover", "running", "");
+        const cover = await runCoverStage(state, {});
+        state.coverUrl = cover.image_url;
+        recordEngine("cover", cover);
+        setStage("cover", "done", cover.image_url, cover.cost_cents);
+      }
       })(); // end coverP IIFE
 
       // Stage 2 — lyrics (real LLM call when user provided no lyrics)

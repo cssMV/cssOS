@@ -164,6 +164,65 @@
     setBadge(host, Number(j.unread_count || 0));
   }
 
+  // CSSOS_PERSON_MV_WAVE32 20260508 — Jing
+  // Web Push opt-in. Renders a banner inside the bell panel when
+  // Notification.permission === "default". On click, registers the
+  // service worker subscription with the server-provided VAPID key.
+  function urlBase64ToUint8Array(b64) {
+    const padding = "=".repeat((4 - b64.length % 4) % 4);
+    const base64 = (b64 + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const raw = atob(base64);
+    const out = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+  async function enablePushFlow() {
+    try {
+      if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+        alert(T("Push not supported in this browser.", "此浏览器不支持推送。"));
+        return false;
+      }
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") return false;
+      const reg = await navigator.serviceWorker.ready;
+      const keyResp = await api("/api/push/vapid-public-key");
+      const vapid = keyResp && keyResp.key;
+      if (!vapid) {
+        alert(T("Push not configured on server (VAPID key missing).", "服务器未配置 VAPID 公钥。"));
+        return false;
+      }
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapid),
+      });
+      const json = sub.toJSON();
+      await api("/api/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint: sub.endpoint, keys: json.keys }),
+      });
+      return true;
+    } catch (e) {
+      console.warn("[push] enable failed:", e && e.message);
+      return false;
+    }
+  }
+  function pushBannerHtml() {
+    if (typeof Notification === "undefined") return "";
+    if (Notification.permission !== "default") return "";
+    return `<div class="cssos-notif-push-banner" style="
+      padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.08);
+      display:flex;align-items:center;justify-content:space-between;gap:8px;
+      font-size:12px;background:rgba(120,160,255,0.06);">
+      <span>${T("Get notified even when CSS Studio is closed", "关闭页面也能收到推送通知")}</span>
+      <button class="cssos-notif-push-enable" type="button" style="
+        background:rgba(120,160,255,0.18);border:1px solid rgba(120,160,255,0.35);
+        color:inherit;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px;">
+        ${T("🔔 Enable", "🔔 开启")}
+      </button>
+    </div>`;
+  }
+
   async function openPanel(host) {
     const panel = host.querySelector(".cssos-notif-bell-panel");
     panel.hidden = false;
@@ -174,10 +233,11 @@
       return;
     }
     const items = j.notifications || [];
+    const banner = pushBannerHtml();
     if (!items.length) {
-      panel.innerHTML = `<div class="cssos-notif-empty">${T("No notifications yet.", "暂无通知。")}</div>`;
+      panel.innerHTML = banner + `<div class="cssos-notif-empty">${T("No notifications yet.", "暂无通知。")}</div>`;
     } else {
-      panel.innerHTML = items.map((n) => {
+      panel.innerHTML = banner + items.map((n) => {
         const line = payloadLine(n);
         const ts = fmtRel(n.created_at);
         const cls = n.read ? "cssos-notif-item" : "cssos-notif-item unread";
@@ -187,11 +247,26 @@
           <div class="meta">${safe(ts)}</div>
         </div>`;
       }).join("");
+      // (banner click handler wired below, after both branches)
       panel.querySelectorAll(".cssos-notif-item").forEach((el) => {
         el.addEventListener("click", () => {
           const href = el.getAttribute("data-href");
           if (href) window.location.href = href;
         });
+      });
+    }
+    const enableBtn = panel.querySelector(".cssos-notif-push-enable");
+    if (enableBtn) {
+      enableBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        enableBtn.disabled = true;
+        const ok = await enablePushFlow();
+        if (ok) {
+          const b = panel.querySelector(".cssos-notif-push-banner");
+          if (b) b.remove();
+        } else {
+          enableBtn.disabled = false;
+        }
       });
     }
     // Mark all as read on open.

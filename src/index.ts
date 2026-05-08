@@ -11445,6 +11445,102 @@ async function ensurePersonMvTables() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS rss_token TEXT;
       CREATE UNIQUE INDEX IF NOT EXISTS users_rss_token_idx
         ON users (rss_token) WHERE rss_token IS NOT NULL;
+
+      -- CSSOS_PERSON_MV_WAVE29 — creator credit ledger.
+      -- Mirrors migrations/028_user_credits.sql.
+      CREATE TABLE IF NOT EXISTS user_credits (
+        user_id          UUID PRIMARY KEY,
+        balance          BIGINT NOT NULL DEFAULT 0,
+        lifetime_earned  BIGINT NOT NULL DEFAULT 0,
+        lifetime_spent   BIGINT NOT NULL DEFAULT 0,
+        updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS credit_events (
+        id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id     UUID NOT NULL,
+        delta       BIGINT NOT NULL,
+        reason      TEXT NOT NULL,
+        payload     JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS credit_events_user_idx
+        ON credit_events (user_id, created_at DESC);
+      CREATE UNIQUE INDEX IF NOT EXISTS credit_events_view_threshold_uidx
+        ON credit_events (user_id, ((payload->>'mv_id')), ((payload->>'threshold')))
+       WHERE reason = 'mv_view_threshold';
+
+      -- CSSOS_PERSON_MV_WAVE33 — GDPR data export jobs.
+      -- Mirrors migrations/029_user_export_jobs.sql.
+      CREATE TABLE IF NOT EXISTS user_export_jobs (
+        job_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id       UUID NOT NULL,
+        status        TEXT NOT NULL DEFAULT 'pending',
+        download_url  TEXT,
+        expires_at    TIMESTAMPTZ,
+        error         TEXT,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS user_export_jobs_user_idx
+        ON user_export_jobs (user_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS user_export_jobs_expires_idx
+        ON user_export_jobs (expires_at) WHERE expires_at IS NOT NULL;
+
+      -- CSSOS_PERSON_MV_WAVE30 20260508 — Jing — team collab sessions.
+      -- Mirrors migrations/030_collab_and_live.sql so a fresh DB self-heals.
+      CREATE TABLE IF NOT EXISTS collab_sessions (
+        session_id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        person_id   TEXT,
+        creator_id  UUID NOT NULL,
+        state       JSONB NOT NULL DEFAULT '{}'::jsonb,
+        status      TEXT NOT NULL DEFAULT 'open',
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS collab_sessions_creator_idx
+        ON collab_sessions (creator_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS collab_sessions_status_idx
+        ON collab_sessions (status, created_at DESC);
+      CREATE TABLE IF NOT EXISTS collab_session_members (
+        session_id UUID NOT NULL REFERENCES collab_sessions(session_id) ON DELETE CASCADE,
+        user_id    UUID NOT NULL,
+        role       TEXT NOT NULL,
+        joined_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (session_id, user_id)
+      );
+      CREATE INDEX IF NOT EXISTS collab_session_members_user_idx
+        ON collab_session_members (user_id);
+      CREATE TABLE IF NOT EXISTS collab_stage_outputs (
+        session_id     UUID NOT NULL REFERENCES collab_sessions(session_id) ON DELETE CASCADE,
+        stage_id       TEXT NOT NULL,
+        contributor_id UUID NOT NULL,
+        output         JSONB NOT NULL,
+        submitted_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (session_id, stage_id)
+      );
+      CREATE INDEX IF NOT EXISTS collab_stage_outputs_session_idx
+        ON collab_stage_outputs (session_id, submitted_at DESC);
+
+      -- CSSOS_PERSON_MV_WAVE31 20260508 — Jing — live creation broadcast rooms.
+      CREATE TABLE IF NOT EXISTS live_creation_rooms (
+        room_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        creator_id       UUID NOT NULL,
+        person_id        TEXT,
+        status           TEXT NOT NULL DEFAULT 'waiting',
+        spectator_count  INTEGER NOT NULL DEFAULT 0,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS live_creation_rooms_status_idx
+        ON live_creation_rooms (status, created_at DESC);
+      CREATE TABLE IF NOT EXISTS live_room_events (
+        id         BIGSERIAL PRIMARY KEY,
+        room_id    UUID NOT NULL REFERENCES live_creation_rooms(room_id) ON DELETE CASCADE,
+        kind       TEXT NOT NULL,
+        payload    JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS live_room_events_room_idx
+        ON live_room_events (room_id, id);
     `),
   );
 
@@ -11526,6 +11622,10 @@ async function enqueueNotification(
         [userId, kind, JSON.stringify(payload || {})],
       ),
     );
+    // CSSOS_PERSON_MV_WAVE32 — fire-and-forget web push so the
+    // notification reaches the user even when the tab is closed.
+    void sendWebPush(userId, { kind, payload, title: "CSS Studio", body: String(payload?.title || payload?.body || "") })
+      .catch(() => {});
   } catch (err) {
     console.warn("[notifications] enqueue failed:", (err as Error)?.message || err);
   }
@@ -11559,6 +11659,92 @@ async function pruneOldNotifications(maxPerUser = 1000): Promise<number> {
     console.warn("[notifications] prune failed:", (err as Error)?.message || err);
     return 0;
   }
+}
+
+/* CSSOS_PERSON_MV_WAVE29 20260508 — Jing
+ * Creator credit ledger. awardCredit() inserts a credit_events row and
+ * upserts user_credits.balance + lifetime_earned/spent atomically. View-
+ * threshold awards collide on the unique partial index so re-firing the
+ * same threshold is a no-op (returns awarded=false). Also drops a
+ * `credit_awarded` notification so the bell surfaces it. */
+export type CreditReason =
+  | "mv_view_threshold"
+  | "fork_received"
+  | "use_received"
+  | "spend"
+  | "manual";
+
+async function awardCredit(
+  userId: string | null | undefined,
+  delta: number,
+  reason: CreditReason,
+  payload: Record<string, unknown> = {},
+): Promise<{ awarded: boolean; balance: number }> {
+  if (!DATABASE_URL || !userId || !Number.isFinite(delta) || delta === 0) {
+    return { awarded: false, balance: 0 };
+  }
+  try {
+    const ins = await withClient((c) =>
+      c.query<{ id: string }>(
+        `INSERT INTO credit_events (user_id, delta, reason, payload)
+         VALUES ($1, $2, $3, $4::jsonb)
+         ON CONFLICT ON CONSTRAINT credit_events_view_threshold_uidx DO NOTHING
+         RETURNING id`,
+        [userId, Math.trunc(delta), reason, JSON.stringify(payload || {})],
+      ),
+    );
+    if (!ins.rowCount) {
+      // Threshold dedup hit — already awarded.
+      const cur = await withClient((c) =>
+        c.query<{ balance: number }>(
+          `SELECT balance FROM user_credits WHERE user_id = $1`,
+          [userId],
+        ),
+      );
+      return { awarded: false, balance: Number(cur.rows[0]?.balance ?? 0) };
+    }
+    const earnedDelta = delta > 0 ? delta : 0;
+    const spentDelta = delta < 0 ? -delta : 0;
+    const upd = await withClient((c) =>
+      c.query<{ balance: number }>(
+        `INSERT INTO user_credits (user_id, balance, lifetime_earned, lifetime_spent, updated_at)
+         VALUES ($1, $2, $3, $4, now())
+         ON CONFLICT (user_id) DO UPDATE
+            SET balance = user_credits.balance + EXCLUDED.balance,
+                lifetime_earned = user_credits.lifetime_earned + EXCLUDED.lifetime_earned,
+                lifetime_spent = user_credits.lifetime_spent + EXCLUDED.lifetime_spent,
+                updated_at = now()
+         RETURNING balance`,
+        [userId, Math.trunc(delta), earnedDelta, spentDelta],
+      ),
+    );
+    const balance = Number(upd.rows[0]?.balance ?? 0);
+    if (delta > 0) {
+      await enqueueNotification(userId, "system", {
+        ...(payload || {}),
+        kind_subtype: "credit_awarded",
+        delta,
+        reason,
+        balance,
+      });
+    }
+    return { awarded: true, balance };
+  } catch (err) {
+    // Unique-violation on concurrent threshold = idempotent no-op.
+    const msg = (err as Error)?.message || String(err);
+    if (/duplicate key|unique/i.test(msg)) {
+      return { awarded: false, balance: 0 };
+    }
+    console.warn("[credits] award failed:", msg);
+    return { awarded: false, balance: 0 };
+  }
+}
+
+// View-threshold ladder for awarding creator credits. Crossing each
+// step awards +1 credit (idempotent via unique partial index).
+const CREDIT_VIEW_THRESHOLDS = [100, 500, 1000, 5000, 10000];
+function viewThresholdsCrossed(prev: number, next: number): number[] {
+  return CREDIT_VIEW_THRESHOLDS.filter((t) => prev < t && next >= t);
 }
 
 // CSSOS_PERSON_MV_WAVE15 20260508 — Jing
@@ -18410,6 +18596,30 @@ app.post("/api/person-mv/mvs/:mv_id/view", express.json({ limit: "1kb" }), async
         ),
       );
       viewerPosition = posR.rows[0]?.pos ?? null;
+      // CSSOS_PERSON_MV_WAVE29 — award creator credits on view-threshold
+      // crossings (100/500/1000/5000/10000). Skip self-views. Idempotent
+      // via unique partial index on credit_events.
+      try {
+        const prev = viewCount - 1;
+        const crossed = viewThresholdsCrossed(prev, viewCount);
+        if (crossed.length) {
+          const ownerR = await withClient((c) =>
+            c.query<{ created_by_user_id: string | null }>(
+              `SELECT created_by_user_id FROM person_mvs WHERE mv_id = $1`,
+              [mvId],
+            ),
+          );
+          const ownerId = ownerR.rows[0]?.created_by_user_id || null;
+          if (ownerId && ownerId !== user.id) {
+            for (const threshold of crossed) {
+              await awardCredit(ownerId, 1, "mv_view_threshold", {
+                mv_id: mvId,
+                threshold,
+              });
+            }
+          }
+        }
+      } catch (_e) { /* non-fatal */ }
     } else {
       // existing row, still within 5min window — no-op; just fetch count.
       const cur = await withClient((c) =>
@@ -23906,6 +24116,148 @@ app.get("/api/notifications/unread-count", async (req, res) => {
   }
 });
 
+/* CSSOS_PERSON_MV_WAVE32 20260508 — Jing
+ * Web Push subscription storage + delivery stub. Browsers ship a
+ * pushManager subscription containing an endpoint and p256dh/auth
+ * keys; we persist them per user_id so the server can fan out push
+ * notifications via VAPID-signed POSTs even when the tab is closed.
+ *
+ * Delivery requires the `web-push` npm package (which performs ECDH
+ * payload encryption + VAPID JWT signing). That dep is NOT currently
+ * installed; until it is, we ship the manifest, service worker, and
+ * subscription endpoints, and leave sendWebPush() as a no-op that
+ * silently skips. Drop in `web-push` + set VAPID_PUBLIC_KEY /
+ * VAPID_PRIVATE_KEY / VAPID_SUBJECT env vars to enable delivery. */
+async function ensureWebPushTables() {
+  if (!DATABASE_URL) return;
+  try {
+    await withClient((c) =>
+      c.query(
+        `CREATE TABLE IF NOT EXISTS web_push_subscriptions (
+           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+           user_id UUID NOT NULL,
+           endpoint TEXT NOT NULL,
+           keys JSONB NOT NULL,
+           created_at TIMESTAMPTZ DEFAULT now()
+         );
+         CREATE UNIQUE INDEX IF NOT EXISTS web_push_subs_endpoint_idx
+           ON web_push_subscriptions (endpoint);
+         CREATE INDEX IF NOT EXISTS web_push_subs_user_idx
+           ON web_push_subscriptions (user_id);`,
+      ),
+    );
+  } catch (err) {
+    console.warn("[web-push] ensure tables failed:", (err as Error)?.message || err);
+  }
+}
+
+let _webPushLib: any = null;
+let _webPushTried = false;
+function tryLoadWebPush(): any {
+  if (_webPushTried) return _webPushLib;
+  _webPushTried = true;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    _webPushLib = require("web-push");
+    const pub = process.env.VAPID_PUBLIC_KEY;
+    const priv = process.env.VAPID_PRIVATE_KEY;
+    const subj = process.env.VAPID_SUBJECT || "mailto:ops@cssstudio.local";
+    if (_webPushLib && pub && priv) {
+      _webPushLib.setVapidDetails(subj, pub, priv);
+    }
+  } catch (_e) {
+    _webPushLib = null;
+  }
+  return _webPushLib;
+}
+
+async function sendWebPush(
+  userId: string | null | undefined,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  if (!DATABASE_URL || !userId) return;
+  const lib = tryLoadWebPush();
+  if (!lib) return; // wave 32a deferred — `web-push` dep not installed.
+  try {
+    const r = await withClient((c) =>
+      c.query<{ id: string; endpoint: string; keys: any }>(
+        `SELECT id, endpoint, keys FROM web_push_subscriptions WHERE user_id = $1`,
+        [userId],
+      ),
+    );
+    const body = JSON.stringify(payload || {});
+    for (const row of r.rows) {
+      try {
+        await lib.sendNotification(
+          { endpoint: row.endpoint, keys: row.keys },
+          body,
+        );
+      } catch (err: any) {
+        const code = Number(err?.statusCode || 0);
+        if (code === 404 || code === 410) {
+          await withClient((c) =>
+            c.query(`DELETE FROM web_push_subscriptions WHERE id = $1`, [row.id]),
+          ).catch(() => {});
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[web-push] send failed:", (err as Error)?.message || err);
+  }
+}
+
+app.get("/api/push/vapid-public-key", async (_req, res) => {
+  noStore(res);
+  const key = process.env.VAPID_PUBLIC_KEY || "";
+  return res.json({ ok: true, key });
+});
+
+app.post("/api/push/subscribe", express.json({ limit: "8kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensureWebPushTables();
+    const body = (req.body || {}) as { endpoint?: unknown; keys?: unknown };
+    const endpoint = typeof body.endpoint === "string" ? body.endpoint.trim() : "";
+    const keys = body.keys && typeof body.keys === "object" ? body.keys : null;
+    if (!endpoint || !keys) {
+      return res.status(400).json({ ok: false, code: "INVALID_SUBSCRIPTION" });
+    }
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO web_push_subscriptions (user_id, endpoint, keys)
+         VALUES ($1, $2, $3::jsonb)
+         ON CONFLICT (endpoint) DO UPDATE SET user_id = EXCLUDED.user_id, keys = EXCLUDED.keys`,
+        [user.id, endpoint, JSON.stringify(keys)],
+      ),
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "SUBSCRIBE_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/push/unsubscribe", express.json({ limit: "4kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensureWebPushTables();
+    const endpoint = typeof (req.body || {}).endpoint === "string" ? String((req.body || {}).endpoint).trim() : "";
+    if (!endpoint) return res.status(400).json({ ok: false, code: "MISSING_ENDPOINT" });
+    await withClient((c) =>
+      c.query(
+        `DELETE FROM web_push_subscriptions WHERE endpoint = $1 AND user_id = $2`,
+        [endpoint, user.id],
+      ),
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "UNSUBSCRIBE_FAILED", message: String(err) });
+  }
+});
+
 /* CSSOS_PERSON_MV_WAVE27 20260508 — Jing
  * A/B experiment helpers + endpoints. Deterministic variant assignment:
  * sha256(`${user_id}:${experiment_id}`) → first 8 hex chars → uint32 →
@@ -24272,6 +24624,13 @@ app.post("/api/person-mv/templates/:id/fork", express.json({ limit: "1kb" }), as
         [id],
       ),
     );
+    // CSSOS_PERSON_MV_WAVE29 — credit template owner +5 per fork (skip self).
+    if (tpl.user_id && tpl.user_id !== user.id) {
+      await awardCredit(tpl.user_id, 5, "fork_received", {
+        template_id: id,
+        actor_id: user.id,
+      });
+    }
     return res.json({ ok: true, template_id: newRow.rows[0]?.template_id });
   } catch (err) {
     return res.status(500).json({ ok: false, code: "TEMPLATE_FORK_FAILED", message: String(err) });
@@ -24284,6 +24643,14 @@ app.post("/api/person-mv/templates/:id/use", express.json({ limit: "1kb" }), asy
     await ensurePersonMvTables();
     const id = String(req.params.id || "").trim();
     if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const viewer = await getSessionUser(req).catch(() => null);
+    const ownerR = await withClient((c) =>
+      c.query<{ user_id: string | null }>(
+        `SELECT user_id FROM person_mv_templates WHERE template_id = $1::uuid`,
+        [id],
+      ),
+    );
+    const ownerId = ownerR.rows[0]?.user_id || null;
     const r = await withClient((c) =>
       c.query<{ use_count: number }>(
         `UPDATE person_mv_templates SET use_count = use_count + 1
@@ -24293,6 +24660,13 @@ app.post("/api/person-mv/templates/:id/use", express.json({ limit: "1kb" }), asy
       ),
     );
     if (!r.rows[0]) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    // CSSOS_PERSON_MV_WAVE29 — credit owner +1 per use (skip self).
+    if (ownerId && (!viewer || viewer.id !== ownerId)) {
+      await awardCredit(ownerId, 1, "use_received", {
+        template_id: id,
+        actor_id: viewer?.id || null,
+      });
+    }
     return res.json({ ok: true, use_count: r.rows[0].use_count });
   } catch (err) {
     return res.status(500).json({ ok: false, code: "TEMPLATE_USE_FAILED", message: String(err) });

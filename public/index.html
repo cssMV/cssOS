@@ -13,6 +13,9 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="theme-color" content="#000000" />
+    <!-- CSSOS_PERSON_MV_WAVE32 20260508 — Jing: PWA manifest, maskable icons, SW registration. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <base href="/" />
     <title>CSS Studio</title>
     <script>
@@ -2608,5 +2611,15 @@
         min-height: 0 !important;
       }
     </style>
+    <!-- CSSOS_PERSON_MV_WAVE32 20260508 — Jing: register service worker for offline + push. -->
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", function () {
+          navigator.serviceWorker.register("/sw.js").catch(function (err) {
+            console.warn("[sw] register failed:", err && err.message);
+          });
+        });
+      }
+    </script>
   </body>
 </html>

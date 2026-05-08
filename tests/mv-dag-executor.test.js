@@ -95,6 +95,30 @@ test("cache pre-population emits onStageDone with meta.cached:true (wave 7a)", a
   assert.strictEqual(r.done.video, "v:cached.png");
 });
 
+test("lyrics cache pre-population: callback can gate dispatchEvent on meta.cached (wave 7b)", async () => {
+  // Wave 7b contract: when state.lyrics is already populated (resume case),
+  // the panel pre-populates the DAG cache so the LLM call is skipped. The
+  // executor still fires onStageDone for cover/lyrics — but with
+  // meta.cached:true so the panel callback can skip dispatchStageEvents
+  // (i.e. skip re-firing the cssmv:lyrics-updated CustomEvent).
+  // This test simulates the panel's gating logic with a mock dispatchEvent
+  // counter to assert the cached stage does NOT trigger a re-broadcast.
+  let dispatchCount = 0;
+  const mockDispatch = (stageId, _output, meta) => {
+    if (meta && meta.cached) return; // wave 7a/7b gate
+    if (stageId === "lyrics") dispatchCount += 1;
+  };
+  const dag = cssmvDag.create()
+    .stage("lyrics", [], async () => { throw new Error("should not run — cached"); })
+    .stage("music",  ["lyrics"], async ({ lyrics }) => "m:" + lyrics.lyrics);
+  const r = await cssmvDag.run(dag, {
+    cache: { lyrics: { lyrics: "cached lyrics body", cost_cents: 0 } },
+    onStageDone: (id, output, meta) => { mockDispatch(id, output, meta); }
+  });
+  assert.strictEqual(dispatchCount, 0, "cached lyrics stage must NOT trigger re-broadcast");
+  assert.strictEqual(r.done.music, "m:cached lyrics body");
+});
+
 test("weighted progress + critical path reported", async () => {
   const dag = cssmvDag.create()
     .stage("a", [],    { weight: 10 }, async () => { await new Promise(r => setTimeout(r, 5));  return 1; })

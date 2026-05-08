@@ -3557,7 +3557,26 @@
         if (stageId === "cover") {
           if (output.image_url) state.coverUrl = output.image_url;
         }
-        // Future waves (7b–7f) add: lyrics, music, video, subs, compose.
+        // CSSOS_MV_DAG_WAVE_7B 20260508 — lyrics state mutations lifted out
+        // of runLyricsStage. Output contract:
+        //   { lyrics, sections?, shotScripts?, title?, engineRecord, userProvided }
+        if (stageId === "lyrics") {
+          if (typeof output.lyrics === "string") state.lyrics = output.lyrics;
+          if (Object.prototype.hasOwnProperty.call(output, "sections")) {
+            state.lyricSections = output.sections;
+          }
+          if (Object.prototype.hasOwnProperty.call(output, "shotScripts")) {
+            state.shotScripts = output.shotScripts;
+          }
+          if (output.title && !String(state.title || "").trim()) {
+            state.title = output.title;
+          }
+          if (output.userProvided && output.engineRecord) {
+            state.engines = state.engines || {};
+            state.engines["lyrics"] = output.engineRecord;
+          }
+        }
+        // Future waves (7c–7f) add: music, video, subs, compose.
       }
       function dispatchStageEvents(state, stageId, output, meta) {
         if (meta && meta.cached) return;
@@ -3575,7 +3594,41 @@
             }
           } catch (_slideshowErr) { /* non-blocking UX; swallow */ }
         }
-        // Future waves (7b–7f) add: lyrics, music, video, subs, compose.
+        // CSSOS_MV_DAG_WAVE_7B 20260508 — lyrics broadcast lifted out of
+        // runLyricsStage. Mirrors the original P2-LYRICS_BROADCAST flow:
+        // fill empty target textareas + creationState + custom event +
+        // syncWatchOutputs. All idempotent (only writes empty fields).
+        if (stageId === "lyrics" && typeof output.lyrics === "string") {
+          try {
+            const fullLyrics = output.lyrics;
+            const targets = [
+              document.getElementById("custom-lyrics"),
+              document.getElementById("creation-lyrics-input"),
+              document.getElementById("watch-lyrics-editor"),
+              document.getElementById("song-seed-lyrics"),
+              document.getElementById("mvp-lyrics"),
+              document.querySelector("textarea[data-creation-field='lyrics']"),
+            ];
+            targets.forEach((el) => {
+              if (!(el instanceof HTMLTextAreaElement)) return;
+              if (!el.value.trim()) {
+                el.value = fullLyrics;
+                el.dispatchEvent(new Event("input", { bubbles: true }));
+                el.dispatchEvent(new Event("change", { bubbles: true }));
+              }
+            });
+            if (globalThis.creationState) {
+              globalThis.creationState.lyrics = fullLyrics;
+            }
+            document.dispatchEvent(new CustomEvent("cssmv:lyrics-updated", {
+              detail: { lyrics: fullLyrics, source: "mv-pipeline-panel" }
+            }));
+          } catch (_broadcastErr) {
+            console.warn("[mv-pipeline][lyrics-broadcast] failed:", _broadcastErr);
+          }
+          try { syncWatchOutputs(); } catch (_e) { /* non-fatal */ }
+        }
+        // Future waves (7c–7f) add: music, video, subs, compose.
       }
 
       // Stage 1 — cover (+ 4 parallel variations for 5-image slideshow)
@@ -3650,10 +3703,20 @@
       // Stage 2 — lyrics (real LLM call when user provided no lyrics)
       // CSSOS_MV_DAG_WAVE_2_7B 20260507 — body lifted into runLyricsStage()
       // so both legacy IIFE path and DAG executor path can call it.
+      // CSSOS_MV_DAG_WAVE_7B 20260508 — pure-helper refactor:
+      //   • returns { lyrics, sections, shotScripts, title, engineRecord,
+      //     userProvided, _resp } so caller can sequence applyStageOutput +
+      //     recordEngine + dispatchStageEvents deterministically.
+      //   • setStage / recordEngine / state mutations / lyrics-updated event
+      //     and syncWatchOutputs are owned by the DAG callback.
+      //   • Advanced-Settings writeDom block remains inline as a
+      //     fire-and-forget UX echo (idempotent fill-empty, not part of the
+      //     pipeline correctness contract). deriveSettingsForUserLyrics IIFE
+      //     also stays inline (already async/non-deterministic).
       async function runLyricsStage(state, _opts) {
-      if (STAGE_ORDER.indexOf("lyrics") >= resumeStartIdx) {
-      setStage("lyrics", "running", "");
-      if (!state.lyrics) {
+      if (!(STAGE_ORDER.indexOf("lyrics") >= resumeStartIdx)) return null;
+      const _userProvidedLyrics = !!state.lyrics;
+      if (!_userProvidedLyrics) {
         // P2-41 Jing 2026-04-18: pass language + civilization to LLM so the
         // lyrics come back in the intended locale and cultural frame. Without
         // this, the backend default prompt always produces EN/ZH lyrics.
@@ -3833,97 +3896,26 @@
         const _normLyrics = (typeof globalThis.cssosNormalizeLyricsText === "function")
           ? globalThis.cssosNormalizeLyricsText
           : (s) => String(s || "").trim();
-        state.lyrics = _normLyrics(lyricsResp.lyrics || "");
-        // CSSOS_PHASE2_LYRICS_TITLE_BACKFILL 20260505 — Jing
-        // "系统随机生成的prompt也要提炼标题". When the heuristic gave
-        // up (state.title === "") the lyrics LLM still emits a clean
-        // title in its response — adopt it so downstream stages
-        // (commit, watch overlay, queue items) have a real title
-        // instead of falling back to the raw prompt.
-        try {
-          const respTitle = String(lyricsResp.title || "").trim();
-          if (respTitle && !String(state.title || "").trim()) {
-            state.title = respTitle;
-            console.info(
-              "%c[mv-pipeline][title] adopted from lyrics LLM: %s",
-              "color:#0a8;font-weight:bold", respTitle
-            );
-          }
-        } catch (_titleErr) { /* non-fatal */ }
-        // CSSOS_PHASE2_LYRICS_BROADCAST 20260428 #167 — Jing
-        // "我手动输入的是完整的歌词，可是MY pipeline面板回灌（广播）给别的
-        //  相关的面板的歌词却是不完整的，有的面板甚至没有通知到，如高级
-        //  设置面板，歌词为空."
-        // Single-source-of-truth: dispatch a global event so every panel
-        // (Advanced Settings textarea, Watch lyrics editor, song-seed UI,
-        // creationState) can echo the full body. Listeners overlay only
-        // when their own field is empty so user-typed text is never lost.
-        try {
-          const fullLyrics = state.lyrics;
-          // Direct DOM write to known textareas (works even if listeners
-          // aren't installed yet).
-          const targets = [
-            document.getElementById("custom-lyrics"),
-            document.getElementById("creation-lyrics-input"),
-            document.getElementById("watch-lyrics-editor"),
-            document.getElementById("song-seed-lyrics"),
-            // CSSOS_PHASE2_LYRICS_BACKFILL_MVP 20260504 — Jing wants the
-            // generated lyrics to flow back into the MV Pipeline panel's
-            // own #mvp-lyrics textarea too (was missing from the
-            // broadcast list, which only hit the foreign panels).
-            document.getElementById("mvp-lyrics"),
-            document.querySelector("textarea[data-creation-field='lyrics']"),
-          ];
-          targets.forEach((el) => {
-            if (!(el instanceof HTMLTextAreaElement)) return;
-            // CSSOS_PHASE2_BROADCAST_NEVER_CLOBBER 20260429 #168.7c — Jing
-            // Only fill TRULY empty fields. Never overwrite user-typed
-            // content based on length heuristic — the user's Chinese
-            // 250 chars vs the LLM's English 600 chars triggered an
-            // overwrite that ate user's intentional input.
-            if (!el.value.trim()) {
-              el.value = fullLyrics;
-              el.dispatchEvent(new Event("input", { bubbles: true }));
-              el.dispatchEvent(new Event("change", { bubbles: true }));
-            }
-          });
-          if (globalThis.creationState) {
-            globalThis.creationState.lyrics = fullLyrics;
-          }
-          // Custom event for any listener that wants to react.
-          document.dispatchEvent(new CustomEvent("cssmv:lyrics-updated", {
-            detail: { lyrics: fullLyrics, source: "mv-pipeline-panel" }
-          }));
-          console.info(
-            "%c[mv-pipeline][lyrics-broadcast] echoed %d chars to %d targets",
-            "color:#0a8;font-weight:bold", fullLyrics.length, targets.filter(Boolean).length
-          );
-        } catch (_broadcastErr) {
-          console.warn("[mv-pipeline][lyrics-broadcast] failed:", _broadcastErr);
-        }
+        const _outLyrics = _normLyrics(lyricsResp.lyrics || "");
+        // CSSOS_PHASE2_LYRICS_TITLE_BACKFILL 20260505 — title only adopted
+        // by applyStageOutput when state.title is still empty.
+        const _outTitle = String(lyricsResp.title || "").trim() || null;
         // CSSOS_PHASE2_LYRIC_SECTIONS 20260426 #148-A2 + #148-B — Jing
         // Capture structured sections + shot scripts when LLM emitted them.
         // Both fields are optional in the response — when absent (older
         // models, transient runs) the pipeline falls back to single-clip
         // video and even-divide subtitles, preserving prior behavior.
-        state.lyricSections = Array.isArray(lyricsResp.sections) && lyricsResp.sections.length > 0
+        const _outSections = Array.isArray(lyricsResp.sections) && lyricsResp.sections.length > 0
           ? lyricsResp.sections
           : null;
-        state.shotScripts = Array.isArray(lyricsResp.shot_scripts) && lyricsResp.shot_scripts.length > 0
+        const _outShotScripts = Array.isArray(lyricsResp.shot_scripts) && lyricsResp.shot_scripts.length > 0
           ? lyricsResp.shot_scripts
           : null;
         console.info(
           "%c[mv-pipeline][lyrics] sections=%s shot_scripts=%s",
           "color:#0c0;font-weight:bold",
-          state.lyricSections ? state.lyricSections.length : "none",
-          state.shotScripts ? state.shotScripts.length : "none"
-        );
-        recordEngine("lyrics", lyricsResp);
-        setStage(
-          "lyrics",
-          "done",
-          state.lyrics.slice(0, 120) + (state.lyrics.length > 120 ? "…" : ""),
-          lyricsResp.cost_cents || 0
+          _outSections ? _outSections.length : "none",
+          _outShotScripts ? _outShotScripts.length : "none"
         );
         // CSSOS_PHASE2_CIV_DERIVED_SETTINGS 20260427 #160 — Jing
         // "所有 Advanced Settings 字段都由 lyrics 引擎根据 UI 主语言文明
@@ -4094,24 +4086,19 @@
         } catch (_derivedErr) {
           console.warn("[mv-pipeline][derived-settings] apply failed:", _derivedErr);
         }
-        // P2-31: push lyrics into Watch Lyrics/Script tabs (title prepended later after music stage).
-        syncWatchOutputs();
+        // P2-31: syncWatchOutputs lifted to dispatchStageEvents("lyrics").
+        return {
+          lyrics: _outLyrics,
+          sections: _outSections,
+          shotScripts: _outShotScripts,
+          title: _outTitle,
+          userProvided: false,
+          _resp: lyricsResp,
+          cost_cents: lyricsResp.cost_cents || 0,
+        };
       } else {
         // User-provided lyrics don't incur LLM cost; still record the stage.
-        state.engines["lyrics"] = {
-          engine: "user",
-          version: "manual",
-          provider_model: null,
-          cost_cents: 0,
-          input_tokens: null,
-          output_tokens: null
-        };
-        setStage(
-          "lyrics",
-          "done",
-          state.lyrics.slice(0, 120) + (state.lyrics.length > 120 ? "…" : ""),
-          0
-        );
+        // CSSOS_MV_DAG_WAVE_7B — engineRecord lifted into applyStageOutput.
         // CSSOS_PHASE2_DERIVE_FROM_USER_LYRICS 20260429 #178 — Jing
         // "标题没有回灌. 声线默认女声. 总视频提纲... 默认应该留空"
         // When user provides lyrics, we skip the lyrics LLM call entirely,
@@ -4256,10 +4243,25 @@
             console.warn("[mv-pipeline][derive-from-user-lyrics] LLM call failed (non-fatal):", _deriveErr);
           }
         })();
-        // P2-31: push user-provided lyrics into Watch tabs too.
-        syncWatchOutputs();
+        // P2-31: syncWatchOutputs lifted to dispatchStageEvents("lyrics").
+        return {
+          lyrics: state.lyrics,
+          // sections/shotScripts/title arrive async from the derive IIFE
+          // (preserved fire-and-forget behavior). Don't include them in the
+          // sync output — applyStageOutput would clobber the eventual async
+          // assignments otherwise.
+          userProvided: true,
+          engineRecord: {
+            engine: "user",
+            version: "manual",
+            provider_model: null,
+            cost_cents: 0,
+            input_tokens: null,
+            output_tokens: null,
+          },
+          cost_cents: 0,
+        };
       }
-      } // end Stage 2 (lyrics) resume guard
       } // end runLyricsStage
 
       // Stage 3 — music
@@ -6271,6 +6273,13 @@
       const _dagCoverCache = (state.coverUrl && (!state._resumeCompleted || state._resumeCompleted.indexOf("cover") >= 0))
         ? { cover: { image_url: state.coverUrl, cost_cents: 0, cached: true } }
         : {};
+      // CSSOS_MV_DAG_WAVE_7B 20260508 — NOTE: lyrics is not pre-populated
+      // into the DAG cache even when state.lyrics already exists, because
+      // the user-provided branch of runLyricsStage still needs to fire the
+      // deriveSettingsForUserLyrics LLM call (title + sections + shot
+      // scripts + Advanced-Settings derived envelope). Skipping the helper
+      // would silently drop those derivations. Resume of a fully-completed
+      // lyrics stage is already covered by STAGE_ORDER/resumeStartIdx.
       const _SHORT_CIRCUIT = "__CSSMV_SHORT_CIRCUIT__";
       const _pipelineDag = globalThis.cssmvDag.create()
         .stage("cover", [], { weight: 10 }, async () => {
@@ -6290,7 +6299,26 @@
           return cover;
         })
         .stage("lyrics", [], { weight: 5 }, async () => {
-          await runLyricsStage(state, {});
+          if (STAGE_ORDER.indexOf("lyrics") < resumeStartIdx) return null;
+          setStage("lyrics", "running", "");
+          // CSSOS_MV_DAG_WAVE_7B 20260508 — pure helper. Helper returns
+          // an output envelope; we sequence applyStageOutput +
+          // recordEngine + dispatchStageEvents + setStage("done") here so
+          // the DAG owns side-effect ordering byte-for-byte with legacy.
+          const out = await runLyricsStage(state, {});
+          if (!out) return null;
+          applyStageOutput(state, "lyrics", out);
+          if (!out.userProvided && out._resp) {
+            recordEngine("lyrics", out._resp);
+          }
+          dispatchStageEvents(state, "lyrics", out, { cached: false });
+          const _summary = String(state.lyrics || "");
+          setStage(
+            "lyrics",
+            "done",
+            _summary.slice(0, 120) + (_summary.length > 120 ? "…" : ""),
+            out.cost_cents || 0
+          );
           return state.lyrics || null;
         })
         .stage("music", ["lyrics"], { weight: 35 }, async () => {

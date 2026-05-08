@@ -269,6 +269,34 @@ if (useDatabaseSessionStore) {
 
 app.use(session(sessionConfig));
 
+/* CSSOS_PERSON_MV_WAVE41 20260508 — Jing — admin trends dashboard.
+ * Touch users.last_active_at on every authenticated request so the DAU
+ * chart has real data. Throttled to one update per 5 minutes per user
+ * via an in-memory map so write volume stays bounded. Failures are
+ * swallowed — never block the request on telemetry. */
+const __lastActiveTouchAt = new Map<string, number>();
+const LAST_ACTIVE_THROTTLE_MS = 5 * 60 * 1000;
+app.use((req, _res, next) => {
+  try {
+    const uid = (req.session as any)?.user_id as string | undefined;
+    if (uid && DATABASE_URL) {
+      const now = Date.now();
+      const prev = __lastActiveTouchAt.get(uid) || 0;
+      if (now - prev > LAST_ACTIVE_THROTTLE_MS) {
+        __lastActiveTouchAt.set(uid, now);
+        // Fire-and-forget; never await.
+        withClient((client) =>
+          client.query(
+            "UPDATE users SET last_active_at = now() WHERE id = $1",
+            [uid],
+          ),
+        ).catch(() => {});
+      }
+    }
+  } catch {}
+  next();
+});
+
 /* CSSOS_PHASE_C_MEDIA_SIGNING 20260506 — Jing
  * "Phase C: 签名 URL + 30 秒预览（媒体防爬）".
  *
@@ -11541,8 +11569,123 @@ async function ensurePersonMvTables() {
       );
       CREATE INDEX IF NOT EXISTS live_room_events_room_idx
         ON live_room_events (room_id, id);
+
+      -- CSSOS_PERSON_MV_WAVE35 20260508 — Jing — credit shop tables.
+      -- Mirrors migrations/032_credit_shop.sql.
+      CREATE TABLE IF NOT EXISTS shop_items (
+        item_id TEXT PRIMARY KEY,
+        name_zh TEXT NOT NULL,
+        name_en TEXT NOT NULL,
+        description_zh TEXT,
+        description_en TEXT,
+        price_credits INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+        active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS shop_items_active_idx
+        ON shop_items (active, created_at DESC);
+      CREATE TABLE IF NOT EXISTS user_purchases (
+        purchase_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL,
+        item_id TEXT NOT NULL,
+        credits_spent INTEGER NOT NULL,
+        payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+        status TEXT NOT NULL DEFAULT 'active',
+        expires_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS user_purchases_user_idx
+        ON user_purchases (user_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS user_purchases_active_idx
+        ON user_purchases (user_id, status, expires_at);
+
+      -- CSSOS_PERSON_MV_WAVE36 20260508 — Jing — monthly creation contests.
+      -- Mirrors migrations/033_monthly_contest.sql.
+      CREATE TABLE IF NOT EXISTS contests (
+        contest_id TEXT PRIMARY KEY,
+        title_zh TEXT NOT NULL,
+        title_en TEXT NOT NULL,
+        description_zh TEXT,
+        description_en TEXT,
+        theme TEXT,
+        person_id_required TEXT,
+        prize_credits INTEGER NOT NULL DEFAULT 100,
+        starts_at TIMESTAMPTZ NOT NULL,
+        ends_at TIMESTAMPTZ NOT NULL,
+        judge_user_ids UUID[] NOT NULL DEFAULT '{}',
+        winner_user_id UUID,
+        winner_work_id UUID,
+        status TEXT NOT NULL DEFAULT 'upcoming',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS contests_status_idx
+        ON contests (status, ends_at DESC);
+      CREATE TABLE IF NOT EXISTS contest_entries (
+        entry_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        contest_id TEXT NOT NULL,
+        user_id UUID NOT NULL,
+        work_id UUID NOT NULL,
+        vote_count INTEGER NOT NULL DEFAULT 0,
+        submitted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (contest_id, user_id, work_id)
+      );
+      CREATE INDEX IF NOT EXISTS contest_entries_contest_idx
+        ON contest_entries (contest_id, vote_count DESC);
+      CREATE TABLE IF NOT EXISTS contest_votes (
+        contest_id TEXT NOT NULL,
+        entry_id UUID NOT NULL,
+        voter_id UUID NOT NULL,
+        voted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (contest_id, voter_id)
+      );
+      CREATE INDEX IF NOT EXISTS contest_votes_entry_idx
+        ON contest_votes (entry_id);
+
+      -- CSSOS_PERSON_MV_WAVE40 20260508 — Jing — blocks + reports.
+      -- Mirrors migrations/034_blocks_and_reports.sql so a fresh DB self-heals.
+      CREATE TABLE IF NOT EXISTS user_blocks (
+        blocker_id UUID NOT NULL,
+        blocked_id UUID NOT NULL,
+        reason     TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (blocker_id, blocked_id)
+      );
+      CREATE INDEX IF NOT EXISTS user_blocks_blocked_idx ON user_blocks (blocked_id);
+
+      CREATE TABLE IF NOT EXISTS content_reports (
+        report_id    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        reporter_id  UUID NOT NULL,
+        target_kind  TEXT NOT NULL,
+        target_id    TEXT NOT NULL,
+        reason_code  TEXT NOT NULL,
+        details      TEXT,
+        status       TEXT NOT NULL DEFAULT 'open',
+        reviewed_by  UUID,
+        reviewed_at  TIMESTAMPTZ,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS content_reports_status_idx
+        ON content_reports (status, created_at DESC);
+      CREATE INDEX IF NOT EXISTS content_reports_target_idx
+        ON content_reports (target_kind, target_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS content_reports_dedupe_uidx
+        ON content_reports (reporter_id, target_kind, target_id, (date_trunc('day', created_at)));
+
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS banned_at TIMESTAMPTZ;
+
+      -- CSSOS_PERSON_MV_WAVE41 20260508 — admin trends dashboard.
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMPTZ;
+      CREATE INDEX IF NOT EXISTS users_last_active_idx
+        ON users (last_active_at DESC);
     `),
   );
+
+  // CSSOS_PERSON_MV_WAVE35 — seed shop items + WAVE36 — seed demo contest.
+  await seedShopAndContestOnce().catch((err) => {
+    console.warn("[wave35-36] seed failed (non-fatal):", (err as Error)?.message || err);
+  });
 
   // CSSOS_PERSON_MV_WAVE25 — install search-vector triggers in a
   // separate query (plpgsql function bodies use $$ delimiters which
@@ -11608,7 +11751,7 @@ async function ensurePersonMvTables() {
  * actor for defense-in-depth. */
 async function enqueueNotification(
   userId: string | null | undefined,
-  kind: "mv_like" | "mv_comment" | "follow" | "feed_new_mv" | "system",
+  kind: "mv_like" | "mv_comment" | "comment_mention" | "follow" | "feed_new_mv" | "system",
   payload: Record<string, unknown>,
 ): Promise<void> {
   if (!DATABASE_URL || !userId) return;
@@ -25088,6 +25231,19 @@ async function pruneExpiredExports(): Promise<number> {
   }
 }
 
+/* CSSOS_PERSON_MV_WAVE39 20260508 — Jing — @mention extractor.
+ * Pulls @username tokens from comment bodies. 2-32 chars,
+ * letters/digits/underscore/hyphen, deduped + lowercased. */
+function extractMentions(body: string): string[] {
+  const out = new Set<string>();
+  const re = /@([a-zA-Z0-9_-]{2,32})/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(String(body || ""))) !== null) {
+    out.add(m[1].toLowerCase());
+  }
+  return Array.from(out);
+}
+
 /* CSSOS_PERSON_MV_WAVE12 20260508 — Jing — comments + share. */
 function escapeHtmlBody(s: string): string {
   return String(s || "")
@@ -25198,6 +25354,52 @@ app.post("/api/person-mv/mvs/:mv_id/comments", express.json({ limit: "8kb" }), a
             person_id: owner.person_id,
             comment_id: row.id,
             comment_body: body.slice(0, 200),
+          });
+        }
+      } catch (_e) { /* non-fatal */ }
+    })();
+    // CSSOS_PERSON_MV_WAVE39 — @mention notifications. Skip self, blocked.
+    (async () => {
+      try {
+        const handles = extractMentions(body);
+        if (!handles.length) return;
+        const ownerR = await withClient((c) =>
+          c.query<{ created_by_user_id: string; person_id: string }>(
+            `SELECT created_by_user_id, person_id FROM person_mvs WHERE mv_id = $1`,
+            [mvId],
+          ),
+        );
+        const owner = ownerR.rows[0] || { created_by_user_id: "", person_id: "" };
+        const actorR = await withClient((c) =>
+          c.query<{ username: string | null; display_name: string | null }>(
+            `SELECT username, display_name FROM users WHERE id = $1`,
+            [user.id],
+          ),
+        );
+        const actor = actorR.rows[0] || { username: null, display_name: null };
+        const usersR = await withClient((c) =>
+          c.query<{ id: string; username: string }>(
+            `SELECT id, username FROM users WHERE lower(username) = ANY($1::text[])`,
+            [handles],
+          ),
+        );
+        for (const u of usersR.rows) {
+          if (!u.id || u.id === user.id) continue;
+          const blocked = await withClient((c) =>
+            c.query<{ x: number }>(
+              `SELECT 1 AS x FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2 LIMIT 1`,
+              [u.id, user.id],
+            ),
+          );
+          if (blocked.rowCount && blocked.rowCount > 0) continue;
+          await enqueueNotification(u.id, "comment_mention", {
+            actor_id: user.id,
+            actor_username: actor.username,
+            actor_name: actor.display_name || actor.username,
+            mv_id: mvId,
+            person_id: owner.person_id,
+            comment_id: row.id,
+            snippet: body.slice(0, 200),
           });
         }
       } catch (_e) { /* non-fatal */ }
@@ -25467,10 +25669,13 @@ app.get("/m/:shortcode", async (req, res) => {
     const r = await withClient((c) =>
       c.query<{
         mv_id: string; work_id: string; cover_image: string | null; title: string | null;
-        person_zh: string | null; person_en: string | null;
+        style: string | null; lyrics_preview: string | null;
+        final_mv_url: string | null; preview_video_url: string | null;
+        person_zh: string | null; person_en: string | null; core_theme: string | null;
       }>(
-        `SELECT pm.mv_id, pm.work_id, w.cover_image, w.title,
-                pp.name_zh AS person_zh, pp.name_en AS person_en
+        `SELECT pm.mv_id, pm.work_id, w.cover_image, w.title, w.style,
+                w.lyrics_preview, w.final_mv_url, w.preview_video_url,
+                pp.name_zh AS person_zh, pp.name_en AS person_en, pp.core_theme
            FROM mv_shares s
            JOIN person_mvs pm ON pm.mv_id = s.mv_id
            LEFT JOIN user_works w       ON w.id = pm.work_id
@@ -25484,12 +25689,19 @@ app.get("/m/:shortcode", async (req, res) => {
     }
     const row = r.rows[0]!;
     const cover = absolutizeCover(row.cover_image) || "";
-    const title = (row.title || row.person_zh || row.person_en || "CSS Studio MV") + "";
-    const desc = (row.person_zh || row.person_en)
-      ? `A Person MV of ${row.person_zh || row.person_en} on CSS Studio.`
-      : "A Person MV on CSS Studio.";
+    const personName = row.person_zh || row.person_en || "";
+    const styleHint = (row.style || "").trim();
+    const title = personName
+      ? `${personName} · ${styleHint || "Music Video"}`
+      : (row.title || "CSS Studio MV");
+    const firstLyric = (row.lyrics_preview || "")
+      .split(/\r?\n/).map((s) => s.trim()).find((s) => s && !/^\[/.test(s)) || "";
+    const desc = firstLyric || row.core_theme
+      || (personName ? `A Person MV of ${personName} on CSS Studio.` : "A Person MV on CSS Studio.");
     const url = `${SHARE_BASE_URL}/m/${code}`;
-    const embedSrc = `${SHARE_BASE_URL}/?cssMV=${encodeURIComponent(row.work_id)}`;
+    const embedSrc = `${SHARE_BASE_URL}/embed/${code}`;
+    const videoUrl = absolutizeCover(row.final_mv_url || row.preview_video_url || "") || "";
+    const twitterCard = videoUrl ? "player" : (cover ? "summary_large_image" : "summary");
     const html = `<!doctype html>
 <html lang="en">
 <head>
@@ -25501,10 +25713,20 @@ app.get("/m/:shortcode", async (req, res) => {
 <meta property="og:description" content="${escapeHtmlAttr(desc)}" />
 <meta property="og:url" content="${escapeHtmlAttr(url)}" />
 ${cover ? `<meta property="og:image" content="${escapeHtmlAttr(cover)}" />` : ""}
-<meta name="twitter:card" content="${cover ? "summary_large_image" : "summary"}" />
+${videoUrl ? `<meta property="og:video" content="${escapeHtmlAttr(videoUrl)}" />
+<meta property="og:video:secure_url" content="${escapeHtmlAttr(videoUrl)}" />
+<meta property="og:video:type" content="video/mp4" />
+<meta property="og:video:width" content="1280" />
+<meta property="og:video:height" content="720" />` : ""}
+<meta name="twitter:card" content="${twitterCard}" />
 <meta name="twitter:title" content="${escapeHtmlAttr(title)}" />
 <meta name="twitter:description" content="${escapeHtmlAttr(desc)}" />
 ${cover ? `<meta name="twitter:image" content="${escapeHtmlAttr(cover)}" />` : ""}
+${videoUrl ? `<meta name="twitter:player" content="${escapeHtmlAttr(embedSrc)}" />
+<meta name="twitter:player:width" content="640" />
+<meta name="twitter:player:height" content="360" />
+<meta name="twitter:player:stream" content="${escapeHtmlAttr(videoUrl)}" />
+<meta name="twitter:player:stream:content_type" content="video/mp4" />` : ""}
 <style>html,body{margin:0;background:#06100b;color:#daffee;font-family:-apple-system,system-ui,sans-serif}
 .wrap{max-width:920px;margin:0 auto;padding:24px}
 h1{font-size:20px;margin:0 0 8px}
@@ -26825,6 +27047,17 @@ app.get("/api/live/rooms/:id/events", async (req, res) => {
   // Emits chunked-transfer heartbeat (single space byte) every 5s
   // so proxies + clients don't time out the connection. Responds
   // as application/json once new events arrive (or [] on timeout).
+  // CSSOS_PERSON_MV_WAVE43 20260508 — WebSocket migration deferred:
+  //   `ws` lib not in package.json and there are no frontend
+  //   consumers of /api/live or /api/collab yet. Once a spectator
+  //   UI ships and `ws` is added to deps, swap this long-poll for
+  //   wss://.../ws/live/:room_id with an in-memory
+  //   Map<room_id, Set<WebSocket>> fan-out keyed off the existing
+  //   INSERT INTO live_room_events code path. Until then, the
+  //   lifecycle handling below is tightened for interim use:
+  //   `cleanup()` clears both heartbeat and pending tick on every
+  //   exit path so client disconnects no longer leak timers / DB
+  //   round-trips.
   noStore(res);
   try {
     await ensurePersonMvTables();
@@ -26867,40 +27100,49 @@ app.get("/api/live/rooms/:id/events", async (req, res) => {
     const startedAt = Date.now();
     const TIMEOUT_MS = 25_000;
     const HEARTBEAT_MS = 5_000;
+    const POLL_INTERVAL_MS = 1500;
     let finished = false;
+    let heartbeat: ReturnType<typeof setInterval> | null = null;
+    let nextTick: ReturnType<typeof setTimeout> | null = null;
+    const cleanup = () => {
+      if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
+      if (nextTick) { clearTimeout(nextTick); nextTick = null; }
+    };
     const finish = (payload: any) => {
       if (finished) return;
       finished = true;
+      cleanup();
       try { res.end(JSON.stringify(payload)); } catch { /* ignore */ }
     };
-    const heartbeat = setInterval(() => {
+    heartbeat = setInterval(() => {
       if (finished) return;
-      try { res.write(" "); } catch { /* ignore */ }
+      try { res.write(" "); } catch { /* client gone — close handler will cleanup */ }
     }, HEARTBEAT_MS);
 
     const tick = async () => {
+      nextTick = null;
       if (finished) return;
       if (Date.now() - startedAt >= TIMEOUT_MS) {
-        clearInterval(heartbeat);
         return finish({ ok: true, events: [] });
       }
       try {
         const fresh = await fetchSince(since);
         if (fresh.length > 0) {
-          clearInterval(heartbeat);
           return finish({ ok: true, events: fresh });
         }
       } catch (err) {
-        clearInterval(heartbeat);
         return finish({ ok: false, code: "LIVE_POLL_FAILED", message: String(err) });
       }
-      setTimeout(tick, 1500);
+      if (!finished) nextTick = setTimeout(tick, POLL_INTERVAL_MS);
     };
     req.on("close", () => {
+      // Client disconnected — abort poll loop and stop heartbeat
+      // immediately so we don't keep hitting the DB or writing to
+      // a closed socket.
       finished = true;
-      clearInterval(heartbeat);
+      cleanup();
     });
-    setTimeout(tick, 1500);
+    nextTick = setTimeout(tick, POLL_INTERVAL_MS);
     return;
   } catch (err) {
     if (!res.headersSent) {

@@ -11719,7 +11719,7 @@ async function ensurePersonMvTables() {
       CREATE INDEX IF NOT EXISTS content_reports_target_idx
         ON content_reports (target_kind, target_id);
       CREATE UNIQUE INDEX IF NOT EXISTS content_reports_dedupe_uidx
-        ON content_reports (reporter_id, target_kind, target_id, (date_trunc('day', created_at)));
+        ON content_reports (reporter_id, target_kind, target_id, ((created_at AT TIME ZONE 'UTC')::date));
 
       ALTER TABLE users ADD COLUMN IF NOT EXISTS banned_at TIMESTAMPTZ;
 

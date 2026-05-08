@@ -1002,7 +1002,7 @@
       var influence = Math.max(0, Math.min(100, Number(p.influence_score || 0)));
 
       var heroBg = portrait
-        ? '<img src="' + escAttr(portrait) + '" alt="" />'
+        ? '<img src="' + escAttr(portrait) + '" alt="" loading="lazy" decoding="async" />'
         : '<div class="pmv-chip-fallback" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">' + escTxt(symbols.slice(0, 16)) + '</div>';
 
       var nameZh = p.name_zh || p.name_en || personId;
@@ -1160,7 +1160,7 @@
             if (m.is_official_sample && !firstSample) firstSample = m;
             var inner;
             if (poster) {
-              inner = '<img class="pmv-mv-poster" src="' + escAttr(poster) + '" alt="" ' +
+              inner = '<img class="pmv-mv-poster" src="' + escAttr(poster) + '" alt="" loading="lazy" decoding="async" ' +
                 'onerror="this.parentNode.innerHTML=\'<div class=&quot;pmv-mv-fallback&quot;>' +
                 escAttr(String(personEmoji)) + '</div>\';">' +
                 creatorChip + statsBadge + ribbon + actions +
@@ -1203,7 +1203,7 @@
             var meta = '<div class="pmv-mv-meta">' + escTxt(aName + " ↔ " + bName) + '</div>';
             var inner;
             if (poster) {
-              inner = '<img class="pmv-mv-poster" src="' + escAttr(poster) + '" alt="" ' +
+              inner = '<img class="pmv-mv-poster" src="' + escAttr(poster) + '" alt="" loading="lazy" decoding="async" ' +
                 'onerror="this.parentNode.innerHTML=\'<div class=&quot;pmv-mv-fallback&quot;>⚔️</div>\';">' +
                 statsBadge + ribbon + meta;
             } else {
@@ -1682,7 +1682,7 @@
           if (m.final_mv_url) {
             h += '<video controls preload="metadata" style="width:100%;border-radius:10px;background:#000;" poster="' + escAttr(m.cover_image || "") + '" src="' + escAttr(m.final_mv_url) + '"></video>';
           } else if (m.cover_image) {
-            h += '<img src="' + escAttr(m.cover_image) + '" alt="" style="width:100%;border-radius:10px;" />';
+            h += '<img src="' + escAttr(m.cover_image) + '" alt="" loading="lazy" decoding="async" style="width:100%;border-radius:10px;" />';
           }
         });
         h += '</div>';
@@ -1700,7 +1700,7 @@
             var portrait = m.portrait_url || "";
             var roleChip = m.role ? ' · ' + m.role : '';
             return '<div class="pmv-mv-card" data-codex-jump="' + escAttr(m.person_id) + '">' +
-              (portrait ? '<img class="pmv-mv-poster" src="' + escAttr(portrait) + '" />' : '<div class="pmv-mv-fallback">🏛</div>') +
+              (portrait ? '<img class="pmv-mv-poster" src="' + escAttr(portrait) + '" loading="lazy" decoding="async" />' : '<div class="pmv-mv-fallback">🏛</div>') +
               '<div class="pmv-mv-meta">' + escTxt(name + roleChip) + '</div>' +
             '</div>';
           }).join("") +

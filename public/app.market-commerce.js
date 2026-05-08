@@ -2034,7 +2034,7 @@ function buildWorksHeroMarkup(options = {}) {
   const canRunThumbnailBackfill = getUserRole() === "admin";
   return `
     <div class="works-hero">
-      <div class="works-avatar">${avatarUrl ? `<img class="profile-avatar-image" src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(displayName)}" />` : escapeHtml(displayName.slice(0, 2).toUpperCase())}</div>
+      <div class="works-avatar">${avatarUrl ? `<img class="profile-avatar-image" src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(displayName)}" loading="lazy" decoding="async" />` : escapeHtml(displayName.slice(0, 2).toUpperCase())}</div>
       <div class="works-meta">
         <div class="works-name">${escapeHtml(displayName)}</div>
         <div class="works-role">${loginCopy("Logged in creator")}</div>

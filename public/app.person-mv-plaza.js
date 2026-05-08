@@ -162,7 +162,7 @@
       '<div class="plaza-card muted" data-mv-id="' + escHtml(it.mv_id) + '" data-creator-id="' + escHtml((it.creator && it.creator.user_id) || "") + '">',
       video
         ? '<video preload="metadata" playsinline muted loop poster="' + escHtml(poster) + '" src="' + escHtml(video) + '"></video>'
-        : (poster ? '<img class="poster" src="' + escHtml(poster) + '" alt="">' : ""),
+        : (poster ? '<img class="poster" src="' + escHtml(poster) + '" alt="" loading="lazy" decoding="async">' : ""),
       '<div class="scrim"></div>',
       '<div class="plaza-mute">🔇</div>',
       '<div class="plaza-overlay">',

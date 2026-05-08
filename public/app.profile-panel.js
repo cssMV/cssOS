@@ -4,7 +4,7 @@ function buildProfileAvatarMarkup(options = {}) {
   const canEditProfile = options.canEditProfile === true;
   return `
     <div class="profile-avatar-wrap">
-      ${avatarUrl ? `<img class="profile-avatar-image" src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(displayName)}" />` : `<div class="profile-avatar-fallback">${escapeHtml(displayName.slice(0, 2).toUpperCase())}</div>`}
+      ${avatarUrl ? `<img class="profile-avatar-image" src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(displayName)}" loading="lazy" decoding="async" />` : `<div class="profile-avatar-fallback">${escapeHtml(displayName.slice(0, 2).toUpperCase())}</div>`}
       <label class="cta tiny profile-avatar-cta" ${canEditProfile ? "" : "hidden"}>
         ${t("profile.changeAvatar")}
         <input id="profile-avatar-input" type="file" accept="image/*" hidden />

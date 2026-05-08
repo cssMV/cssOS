@@ -37,6 +37,7 @@
     "express": "^5.2.1",
     "express-session": "^1.18.0",
     "jose": "^5.10.0",
+    "@sentry/node": "^8.45.0",
     "jsonwebtoken": "^9.0.3",
     "pg": "^8.12.0",
     "stripe": "^18.5.0",

@@ -49,10 +49,13 @@
     var s = document.createElement("style");
     s.id = STYLE_ID;
     s.textContent = [
-      ".cssos-ai-chat-bubble{position:fixed;right:20px;bottom:20px;width:50px;height:50px;border-radius:50%;background:linear-gradient(135deg,#00f5a0,#00c280);color:#001b14;font-size:24px;line-height:50px;text-align:center;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,0.4);z-index:9998;border:none;transition:transform .15s ease;user-select:none;}",
+      /* CSSOS_AI_CHAT_DOCK_AVOID 20260508 — Jing
+       * Bubble + panel float above the dock (~bottom 0-100px).
+       * 120px clears most dock layouts. */
+      ".cssos-ai-chat-bubble{position:fixed;right:20px;bottom:120px;width:50px;height:50px;border-radius:50%;background:linear-gradient(135deg,#00f5a0,#00c280);color:#001b14;font-size:24px;line-height:50px;text-align:center;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,0.4);z-index:9998;border:none;transition:transform .15s ease;user-select:none;}",
       ".cssos-ai-chat-bubble:hover{transform:scale(1.08);}",
       ".cssos-ai-chat-bubble[data-open='1']{display:none;}",
-      ".cssos-ai-chat-panel{position:fixed;right:20px;bottom:20px;width:320px;height:500px;max-height:80vh;background:rgba(15,10,5,0.97);border:1px solid rgba(255,180,80,0.3);border-radius:14px;box-shadow:0 12px 36px rgba(0,0,0,0.5);display:flex;flex-direction:column;z-index:9999;overflow:hidden;color:#ffeccc;font:14px/1.4 -apple-system,system-ui,sans-serif;}",
+      ".cssos-ai-chat-panel{position:fixed;right:20px;bottom:120px;width:320px;height:500px;max-height:75vh;background:rgba(15,10,5,0.97);border:1px solid rgba(255,180,80,0.3);border-radius:14px;box-shadow:0 12px 36px rgba(0,0,0,0.5);display:flex;flex-direction:column;z-index:9999;overflow:hidden;color:#ffeccc;font:14px/1.4 -apple-system,system-ui,sans-serif;}",
       ".cssos-ai-chat-panel[hidden]{display:none;}",
       ".cssos-ai-chat-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(255,180,80,0.18);background:linear-gradient(135deg,rgba(0,245,160,0.12),transparent);}",
       ".cssos-ai-chat-head .title{font:700 14px/1.2 -apple-system,system-ui,sans-serif;}",

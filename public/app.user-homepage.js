@@ -303,6 +303,159 @@
       birthRow.appendChild(birthStatus);
       inner.appendChild(exportRow);
       inner.appendChild(birthRow);
+
+      // CSSOS_WAVE105 20260508 — Jing — Tax & Payouts (creator KYC).
+      inner.appendChild(el("h2", { class: "uhp-section" }, ["💰 " + tr("Tax & Payouts", "税务与支付")]));
+      var taxRoot = el("div", { class: "uhp-tax-root", style: "display:flex;flex-direction:column;gap:8px;font-size:12px;" }, []);
+      var taxStatus = el("div", { style: "opacity:0.85;" }, [tr("Loading…", "加载中…")]);
+      taxRoot.appendChild(taxStatus);
+      var taxForm = el("div", { style: "display:none;flex-wrap:wrap;gap:6px;align-items:center;" }, []);
+      function mkTaxField(name, ph, w) {
+        return el("input", { type: "text", placeholder: ph, "data-tax-field": name, style: "padding:4px 6px;background:rgba(0,0,0,0.4);color:#cfe;border:1px solid rgba(0,245,160,0.35);border-radius:4px;width:" + (w || 160) + "px;" }, []);
+      }
+      var fCountry = mkTaxField("country_code", "US/CN/JP", 80);
+      var fLegal   = mkTaxField("legal_name", tr("Legal name", "法定姓名"), 200);
+      var fTaxId   = mkTaxField("tax_id", tr("Tax ID (encrypted)", "税号（加密）"), 200);
+      var fTaxType = el("select", { "data-tax-field": "tax_id_type", style: "padding:4px;background:rgba(0,0,0,0.4);color:#cfe;border:1px solid rgba(0,245,160,0.35);border-radius:4px;" }, [
+        el("option", { value: "individual" }, ["individual"]),
+        el("option", { value: "ssn" }, ["ssn"]),
+        el("option", { value: "ein" }, ["ein"]),
+        el("option", { value: "vat" }, ["vat"]),
+        el("option", { value: "other" }, ["other"]),
+      ]);
+      var fLine1   = mkTaxField("address_line1", tr("Address line 1", "地址 1"), 240);
+      var fCity    = mkTaxField("city", tr("City", "城市"), 140);
+      var fState   = mkTaxField("state_region", tr("State/Region", "省/州"), 100);
+      var fPostal  = mkTaxField("postal_code", tr("Postal code", "邮编"), 100);
+      var fEmail   = mkTaxField("email_for_tax", tr("Tax email", "税务邮箱"), 220);
+      var fBusType = el("select", { "data-tax-field": "business_type", style: "padding:4px;background:rgba(0,0,0,0.4);color:#cfe;border:1px solid rgba(0,245,160,0.35);border-radius:4px;" }, [
+        el("option", { value: "individual" }, ["individual"]),
+        el("option", { value: "sole_proprietor" }, ["sole_proprietor"]),
+        el("option", { value: "llc" }, ["llc"]),
+        el("option", { value: "corp" }, ["corp"]),
+      ]);
+      var fCert    = el("input", { type: "checkbox" }, []);
+      var certLabel = el("label", { style: "display:flex;align-items:center;gap:4px;" }, [fCert, tr("I certify the above is correct.", "我确认上述信息真实准确。")]);
+      var saveBtn = el("button", { class: "uhp-export-btn" }, ["💾 " + tr("Save tax info", "保存税务信息")]);
+      var saveStatus = el("span", { style: "opacity:0.85;" }, [""]);
+      [fCountry, fLegal, fTaxId, fTaxType, fLine1, fCity, fState, fPostal, fEmail, fBusType, certLabel, saveBtn, saveStatus].forEach(function (n) { taxForm.appendChild(n); });
+      taxRoot.appendChild(taxForm);
+      var encNote = el("div", { style: "opacity:0.7;font-size:11px;" }, [
+        "🔒 " + tr("Your tax ID is encrypted at rest. We share with payment processor only when issuing payout.",
+                   "你的税号已加密存储，仅在发起支付时分享给支付处理方。"),
+      ]);
+      taxRoot.appendChild(encNote);
+      var payoutHost = el("div", { class: "uhp-payouts", style: "margin-top:6px;" }, []);
+      taxRoot.appendChild(payoutHost);
+      inner.appendChild(taxRoot);
+
+      function renderPayouts(rows) {
+        payoutHost.innerHTML = "";
+        payoutHost.appendChild(el("h3", { style: "font-size:13px;font-weight:700;margin:8px 0 4px;color:rgba(218,255,238,0.92);" }, [tr("Payout history", "支付历史")]));
+        if (!rows || !rows.length) {
+          payoutHost.appendChild(el("div", { style: "opacity:0.7;" }, [tr("No payouts yet.", "暂无支付记录。")]));
+          return;
+        }
+        var tbl = el("table", { style: "width:100%;font-size:11px;border-collapse:collapse;" }, []);
+        var thead = el("thead", {}, [el("tr", {}, [
+          el("th", { style: "text-align:left;padding:3px 4px;" }, [tr("Period", "周期")]),
+          el("th", { style: "text-align:right;padding:3px 4px;" }, [tr("Amount", "金额")]),
+          el("th", { style: "text-align:left;padding:3px 4px;" }, [tr("Source", "来源")]),
+          el("th", { style: "text-align:left;padding:3px 4px;" }, [tr("Status", "状态")]),
+        ])]);
+        tbl.appendChild(thead);
+        var tbody = el("tbody", {}, []);
+        rows.forEach(function (p) {
+          tbody.appendChild(el("tr", {}, [
+            el("td", { style: "padding:3px 4px;" }, [String(p.period_start || "").slice(0, 10) + " — " + String(p.period_end || "").slice(0, 10)]),
+            el("td", { style: "padding:3px 4px;text-align:right;" }, ["$" + (Number(p.amount_usd_cents || 0) / 100).toFixed(2)]),
+            el("td", { style: "padding:3px 4px;" }, [String(p.source || "")]),
+            el("td", { style: "padding:3px 4px;" }, [String(p.status || "")]),
+          ]));
+        });
+        tbl.appendChild(tbody);
+        payoutHost.appendChild(tbl);
+      }
+
+      function loadTax() {
+        fetch("/api/user/tax-info", { credentials: "include" })
+          .then(function (r) { return r.json(); })
+          .then(function (j) {
+            if (!j || !j.ok) {
+              taxStatus.textContent = tr("Could not load tax info.", "无法加载税务信息。");
+              return;
+            }
+            var ti = (j.data && j.data.tax_info) || null;
+            var required = !!(j.data && j.data.required);
+            taxStatus.textContent = ti
+              ? (tr("Tax info on file", "已登记税务信息") + (ti.certified_at ? " ✓" : "") + (ti.tax_id_masked ? " · " + ti.tax_id_masked : ""))
+              : (required
+                  ? tr("⚠️ Required: earnings exceed payout threshold. Fill below to release payouts.",
+                       "⚠️ 已超出免税务登记额度，请完善以下信息以解锁支付。")
+                  : tr("Not on file (optional until earnings exceed $20).",
+                       "未登记（收入超过 $20 后必填）。"));
+            taxForm.style.display = "flex";
+            if (ti) {
+              fCountry.value = ti.country_code || "";
+              fLegal.value = ti.legal_name || "";
+              if (ti.tax_id_type) fTaxType.value = ti.tax_id_type;
+              fLine1.value = ti.address_line1 || "";
+              fCity.value = ti.city || "";
+              fState.value = ti.state_region || "";
+              fPostal.value = ti.postal_code || "";
+              fEmail.value = ti.email_for_tax || "";
+              if (ti.business_type) fBusType.value = ti.business_type;
+            }
+          })
+          .catch(function () { taxStatus.textContent = tr("Network error.", "网络错误。"); });
+
+        fetch("/api/user/payouts", { credentials: "include" })
+          .then(function (r) { return r.json(); })
+          .then(function (j) { if (j && j.ok) renderPayouts((j.data && j.data.payouts) || []); })
+          .catch(function () {});
+      }
+      loadTax();
+
+      saveBtn.addEventListener("click", function () {
+        if (!fCert.checked) {
+          saveStatus.textContent = tr("Please certify first.", "请先勾选确认。");
+          return;
+        }
+        var body = {
+          country_code: fCountry.value,
+          legal_name: fLegal.value,
+          tax_id: fTaxId.value,
+          tax_id_type: fTaxType.value,
+          address_line1: fLine1.value,
+          city: fCity.value,
+          state_region: fState.value,
+          postal_code: fPostal.value,
+          email_for_tax: fEmail.value,
+          business_type: fBusType.value,
+          certified: true,
+        };
+        saveBtn.disabled = true;
+        saveStatus.textContent = tr("Saving…", "保存中…");
+        fetch("/api/user/tax-info", {
+          method: "POST", credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        })
+          .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+          .then(function (rj) {
+            saveBtn.disabled = false;
+            if (rj.ok && rj.j && rj.j.ok) {
+              saveStatus.textContent = tr("Saved (encrypted).", "已保存（加密）。");
+              fTaxId.value = "";
+              loadTax();
+            } else if (rj.j && rj.j.code === "KYC_KEY_MISSING") {
+              saveStatus.textContent = tr("Server missing KYC key — contact admin.", "服务器缺少 KYC 密钥，请联系管理员。");
+            } else {
+              saveStatus.textContent = tr("Failed: ", "失败: ") + ((rj.j && rj.j.code) || "?");
+            }
+          })
+          .catch(function () { saveBtn.disabled = false; saveStatus.textContent = tr("Network error.", "网络错误。"); });
+      });
     }
 
     // Recent MVs

@@ -36198,6 +36198,260 @@ app.delete("/api/collections/:id", async (req, res) => {
   }
 });
 
+/* ------------------------------------------------------------------------- *
+ * CSSOS_WAVE105 20260508 — Jing — creator KYC / tax records + payouts.
+ *
+ * tax_id is encrypted at rest via AES-256-GCM (node:crypto).
+ * Encoding: base64(iv|authTag|ciphertext). 12-byte iv, 16-byte tag.
+ * Key sourced from KYC_ENCRYPTION_KEY env (raw 32 bytes hex OR utf8 ≥32).
+ * If the env var is missing, the endpoint returns 503 KYC_KEY_MISSING.
+ * ------------------------------------------------------------------------- */
+function getKycKey(): Buffer | null {
+  const raw = String(process.env.KYC_ENCRYPTION_KEY || "").trim();
+  if (!raw) return null;
+  // hex form first, then utf8.
+  if (/^[0-9a-fA-F]{64}$/.test(raw)) return Buffer.from(raw, "hex");
+  const buf = Buffer.from(raw, "utf8");
+  if (buf.length < 32) return null;
+  return buf.subarray(0, 32);
+}
+function encryptKycField(plain: string): string {
+  const key = getKycKey();
+  if (!key) throw new Error("KYC_KEY_MISSING");
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const ct = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([iv, tag, ct]).toString("base64");
+}
+function decryptKycField(blob: string): string {
+  const key = getKycKey();
+  if (!key) throw new Error("KYC_KEY_MISSING");
+  const buf = Buffer.from(blob, "base64");
+  if (buf.length < 12 + 16 + 1) throw new Error("KYC_BAD_BLOB");
+  const iv = buf.subarray(0, 12);
+  const tag = buf.subarray(12, 28);
+  const ct = buf.subarray(28);
+  const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(ct), decipher.final()]).toString("utf8");
+}
+function maskTaxId(last4: string | null | undefined): string | null {
+  if (!last4) return null;
+  return `••••••${last4}`;
+}
+
+const KYC_PAYOUT_THRESHOLD_USD_CENTS = 20_00; // $20
+
+async function getReferralEarningsUsdCents(userId: string): Promise<number> {
+  // Wave 77 referral_rewards stores credits; treat 1 credit = 1 cent for KYC threshold.
+  try {
+    const r = await withClient((c) =>
+      c.query<{ total: string }>(
+        `SELECT COALESCE(SUM(amount_credits),0)::text AS total
+           FROM referral_rewards WHERE inviter_id = $1::uuid`,
+        [userId],
+      ),
+    );
+    return Number(r.rows[0]?.total || 0);
+  } catch { return 0; }
+}
+
+async function userHasCertifiedTaxInfo(userId: string): Promise<boolean> {
+  try {
+    const r = await withClient((c) =>
+      c.query(
+        `SELECT 1 FROM user_tax_info WHERE user_id = $1::uuid AND certified_at IS NOT NULL LIMIT 1`,
+        [userId],
+      ),
+    );
+    return !!r.rowCount;
+  } catch { return false; }
+}
+
+/** Used by future payout creation paths to gate releasing money until KYC done. */
+export async function shouldHoldPayoutForKyc(userId: string): Promise<boolean> {
+  const earnings = await getReferralEarningsUsdCents(userId);
+  if (earnings <= KYC_PAYOUT_THRESHOLD_USD_CENTS) return false;
+  return !(await userHasCertifiedTaxInfo(userId));
+}
+
+app.get("/api/user/tax-info", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT legal_name, country_code, tax_id_last4, tax_id_type,
+                address_line1, address_line2, city, state_region, postal_code,
+                email_for_tax, is_us_taxpayer, business_type,
+                certified_at, encryption_version, updated_at
+           FROM user_tax_info WHERE user_id = $1::uuid LIMIT 1`,
+        [user.id],
+      ),
+    );
+    const row = r.rows[0] || null;
+    const earnings = await getReferralEarningsUsdCents(user.id);
+    const required = earnings > KYC_PAYOUT_THRESHOLD_USD_CENTS;
+    return res.json(okData({
+      tax_info: row ? { ...row, tax_id_masked: maskTaxId(row.tax_id_last4) } : null,
+      required,
+      threshold_usd_cents: KYC_PAYOUT_THRESHOLD_USD_CENTS,
+      earnings_usd_cents: earnings,
+    }));
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "TAX_INFO_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/user/tax-info", express.json({ limit: "8kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    if (!getKycKey()) {
+      console.error("[kyc] KYC_ENCRYPTION_KEY env missing — POST /api/user/tax-info blocked");
+      return res.status(503).json({ ok: false, code: "KYC_KEY_MISSING" });
+    }
+    const b = (req.body && typeof req.body === "object") ? req.body : {};
+    const country = String(b.country_code || "").trim().toUpperCase();
+    if (!/^[A-Z]{2}$/.test(country)) return res.status(400).json({ ok: false, code: "BAD_COUNTRY" });
+    if (!b.certified) return res.status(400).json({ ok: false, code: "NOT_CERTIFIED" });
+    const taxIdRaw = String(b.tax_id || "").trim();
+    let taxIdEnc: string | null = null;
+    let taxIdLast4: string | null = null;
+    if (taxIdRaw) {
+      taxIdEnc = encryptKycField(taxIdRaw);
+      taxIdLast4 = taxIdRaw.replace(/\D/g, "").slice(-4) || taxIdRaw.slice(-4);
+    }
+    const ipRaw = String(req.headers["x-forwarded-for"] || (req.socket && req.socket.remoteAddress) || "");
+    const ip = (ipRaw.split(",")[0] || "").trim();
+    const fields = {
+      legal_name: b.legal_name ? String(b.legal_name).slice(0, 200) : null,
+      country_code: country,
+      tax_id: taxIdEnc,
+      tax_id_last4: taxIdLast4,
+      tax_id_type: b.tax_id_type ? String(b.tax_id_type).slice(0, 32) : null,
+      address_line1: b.address_line1 ? String(b.address_line1).slice(0, 200) : null,
+      address_line2: b.address_line2 ? String(b.address_line2).slice(0, 200) : null,
+      city: b.city ? String(b.city).slice(0, 100) : null,
+      state_region: b.state_region ? String(b.state_region).slice(0, 100) : null,
+      postal_code: b.postal_code ? String(b.postal_code).slice(0, 32) : null,
+      email_for_tax: b.email_for_tax ? String(b.email_for_tax).slice(0, 200) : null,
+      is_us_taxpayer: typeof b.is_us_taxpayer === "boolean" ? b.is_us_taxpayer : country === "US",
+      business_type: b.business_type ? String(b.business_type).slice(0, 32) : null,
+    };
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO user_tax_info
+           (user_id, legal_name, country_code, tax_id, tax_id_last4, tax_id_type,
+            address_line1, address_line2, city, state_region, postal_code,
+            email_for_tax, is_us_taxpayer, business_type,
+            certified_at, ip_at_certification, encryption_version, updated_at)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+                 now(), $15, 1, now())
+         ON CONFLICT (user_id) DO UPDATE SET
+           legal_name = EXCLUDED.legal_name,
+           country_code = EXCLUDED.country_code,
+           tax_id = COALESCE(EXCLUDED.tax_id, user_tax_info.tax_id),
+           tax_id_last4 = COALESCE(EXCLUDED.tax_id_last4, user_tax_info.tax_id_last4),
+           tax_id_type = EXCLUDED.tax_id_type,
+           address_line1 = EXCLUDED.address_line1,
+           address_line2 = EXCLUDED.address_line2,
+           city = EXCLUDED.city,
+           state_region = EXCLUDED.state_region,
+           postal_code = EXCLUDED.postal_code,
+           email_for_tax = EXCLUDED.email_for_tax,
+           is_us_taxpayer = EXCLUDED.is_us_taxpayer,
+           business_type = EXCLUDED.business_type,
+           certified_at = now(),
+           ip_at_certification = EXCLUDED.ip_at_certification,
+           updated_at = now()`,
+        [
+          user.id,
+          fields.legal_name, fields.country_code, fields.tax_id, fields.tax_id_last4, fields.tax_id_type,
+          fields.address_line1, fields.address_line2, fields.city, fields.state_region, fields.postal_code,
+          fields.email_for_tax, fields.is_us_taxpayer, fields.business_type,
+          ip || null,
+        ],
+      ),
+    );
+    return res.json(okData({ saved: true }));
+  } catch (err) {
+    if (String(err).includes("KYC_KEY_MISSING")) {
+      return res.status(503).json({ ok: false, code: "KYC_KEY_MISSING" });
+    }
+    return res.status(500).json({ ok: false, code: "TAX_INFO_SAVE_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/admin/users/:username/tax-info", async (req, res) => {
+  noStore(res);
+  if (!(await isAdminRequest(req))) {
+    return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+  }
+  if (!getKycKey()) {
+    console.error("[kyc] KYC_ENCRYPTION_KEY env missing — admin tax-info blocked");
+    return res.status(503).json({ ok: false, code: "KYC_KEY_MISSING" });
+  }
+  try {
+    const handle = String(req.params.username || "").trim().toLowerCase();
+    const u = await withClient((c) =>
+      c.query<{ id: string }>(`SELECT id::text FROM users WHERE lower(username) = $1 LIMIT 1`, [handle]),
+    );
+    const targetUser = u.rows[0];
+    if (!targetUser) return res.status(404).json({ ok: false, code: "USER_NOT_FOUND" });
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT * FROM user_tax_info WHERE user_id = $1::uuid LIMIT 1`,
+        [targetUser.id],
+      ),
+    );
+    const row = r.rows[0];
+    if (!row) return res.json(okData({ tax_info: null }));
+    let taxIdPlain: string | null = null;
+    if (row.tax_id) {
+      try { taxIdPlain = decryptKycField(String(row.tax_id)); }
+      catch (e) { taxIdPlain = null; }
+    }
+    return res.json(okData({
+      tax_info: {
+        ...row,
+        tax_id: undefined,                    // never expose ciphertext
+        tax_id_decrypted: taxIdPlain,
+      },
+    }));
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "ADMIN_TAX_INFO_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/user/payouts", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT payout_id::text, period_start, period_end, amount_usd_cents::text AS amount_usd_cents,
+                source, status, external_payout_id, paid_at, created_at
+           FROM payout_records
+          WHERE user_id = $1::uuid
+          ORDER BY created_at DESC
+          LIMIT 200`,
+        [user.id],
+      ),
+    );
+    return res.json(okData({ payouts: r.rows }));
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "PAYOUTS_FAILED", message: String(err) });
+  }
+});
+
+// CSSOS_WAVE103 20260508 — Jing — hourly cleanup of stale rate_limit_buckets rows.
+setInterval(() => { rateLimitCleanup().catch(() => {}); }, 60 * 60 * 1000).unref?.();
+
 start().catch((err) => {
   console.error("Startup failed", err);
   process.exit(1);

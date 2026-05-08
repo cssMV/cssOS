@@ -10,11 +10,14 @@
  *   NIHAOPAY_ENV                        — "sandbox" | "live" (default "sandbox")
  *   NIHAOPAY_PURCHASE_PLATFORM_BPS      — existing platform fee config (read elsewhere)
  *
- * Endpoints:
- *   sandbox: https://sandbox.nihaopay.com/api/v1.2/transactions/secure-pay
- *   live:    https://api.nihaopay.com/api/v1.2/transactions/secure-pay
+ * Endpoints (per NihaoPay docs):
+ *   sandbox: https://sandbox.nihaopay.com/v2.0/transactions/secure-pay
+ *   live:    https://api.nihaopay.com/v2.0/transactions/secure-pay
  *
- * Auth: HTTP Authorization: Bearer ${NIHAOPAY_API_KEY}
+ * Auth: HTTP Basic with token as username + empty password.
+ *       Authorization: Basic base64("${NIHAOPAY_API_KEY}:")
+ *       (NOT Bearer — earlier attempt got "label 92 reference field
+ *       is required" because NihaoPay didn't auth the body.)
  *
  * Webhook signature: HMAC-SHA256 over the form fields sorted
  * alphabetically as `key=value&key=value...` (excluding `signature`),
@@ -32,8 +35,15 @@ export function isNihaoPayConfigured(): boolean {
 function endpoint(): string {
   const env = (process.env.NIHAOPAY_ENV || "sandbox").toLowerCase();
   return env === "live" || env === "production"
-    ? "https://api.nihaopay.com/api/v1.2/transactions/secure-pay"
-    : "https://sandbox.nihaopay.com/api/v1.2/transactions/secure-pay";
+    ? "https://api.nihaopay.com/v2.0/transactions/secure-pay"
+    : "https://sandbox.nihaopay.com/v2.0/transactions/secure-pay";
+}
+
+function basicAuthHeader(): string {
+  const apiKey = String(process.env.NIHAOPAY_API_KEY || "");
+  /* NihaoPay HTTP Basic = token as username + empty password.
+   * `${apiKey}:` — note the trailing colon. */
+  return "Basic " + Buffer.from(`${apiKey}:`).toString("base64");
 }
 
 export interface NihaoCreateInput {
@@ -58,7 +68,6 @@ export async function createSecurePay(
 ): Promise<NihaoCreateResult | null> {
   if (!isNihaoPayConfigured()) return null;
   const merchantId = String(process.env.NIHAOPAY_MERCHANT_ID || "");
-  const apiKey = String(process.env.NIHAOPAY_API_KEY || "");
   const reference = `cssos_premium_${input.user_id.slice(0, 8)}_${Date.now()}`;
   const form = new URLSearchParams();
   form.set("merchant_id", merchantId);
@@ -74,14 +83,17 @@ export async function createSecurePay(
     const resp = await fetch(endpoint(), {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${apiKey}`,
+        "Authorization": basicAuthHeader(),
         "Content-Type": "application/x-www-form-urlencoded",
         "Accept": "text/html, application/json",
       },
       body: form.toString(),
     });
-    if (!resp.ok && resp.status >= 400 && resp.status < 500) {
-      // Surface 4xx as null — caller returns 503/UNKNOWN_PROVIDER.
+    if (!resp.ok) {
+      /* Surface non-2xx — log the body so admins can see NihaoPay's
+       * actual error (e.g. label/code/message/traceId JSON). */
+      const errBody = await resp.text().catch(() => "");
+      console.warn(`[nihaopay] ${resp.status} ${endpoint()} :: ${errBody.slice(0, 400)}`);
       return null;
     }
     // NihaoPay returns either an HTML form (auto-submit) or a JSON

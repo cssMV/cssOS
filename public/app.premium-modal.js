@@ -170,7 +170,11 @@
         ${isPremium
           ? `<div style="margin:8px 0 12px;font-size:13px;opacity:0.85">${T("You are premium until","您的高级会员有效期至")}: <b>${until ? new Date(until).toLocaleDateString() : "—"}</b></div>
              <button class="cssos-premium-secondary" id="cssos-premium-cancel">${T("Cancel subscription", "取消订阅")}</button>`
-          : `<button class="cssos-premium-cta" id="cssos-premium-subscribe">${T("Subscribe — $9.99/mo", "订阅 — $9.99/月")}</button>`}
+          : `<button class="cssos-premium-cta" id="cssos-premium-subscribe">${T("Subscribe — $9.99/mo", "订阅 — $9.99/月")}</button>
+             <!-- CSSOS_PERSON_MV_WAVE104 — Alipay + WeChat Pay scaffold buttons -->
+             <button class="cssos-premium-secondary" id="cssos-premium-alipay" style="margin-top:8px">${T("支付宝 Alipay — ¥69/mo", "支付宝 — ¥69/月")}</button>
+             <button class="cssos-premium-secondary" id="cssos-premium-wechat" style="margin-top:8px">${T("微信支付 WeChat Pay — ¥69/mo", "微信支付 — ¥69/月")}</button>
+             <div id="cssos-premium-wechat-qr" style="margin-top:10px;display:none;text-align:center;font-size:12px;opacity:0.85"></div>`}
         <button class="cssos-premium-secondary" id="cssos-premium-dismiss">${T("Close", "关闭")}</button>
       </div>
     `;
@@ -191,6 +195,79 @@
         const url = r?.data?.checkout_url;
         if (url) window.location.href = url;
         else { subBtn.disabled = false; subBtn.textContent = T("Subscribe — $9.99/mo", "订阅 — $9.99/月"); alert(T("Subscribe failed.", "订阅失败。")); }
+      });
+    }
+    // CSSOS_PERSON_MV_WAVE104 — wire Alipay + WeChat Pay buttons.
+    // When provider env is unset, server returns 503 *_NOT_CONFIGURED;
+    // we degrade the button to a disabled "Coming soon" state.
+    async function refreshCnButtons() {
+      const r = await api("/api/premium/providers");
+      const list = (r && r.ok && r.data && r.data.providers) || [];
+      const findP = (id) => list.find((p) => p && p.id === id) || null;
+      const aBtn = ov.querySelector("#cssos-premium-alipay");
+      const wBtn = ov.querySelector("#cssos-premium-wechat");
+      const a = findP("alipay"), w = findP("wechat");
+      if (aBtn && a && !a.enabled) {
+        aBtn.disabled = true;
+        aBtn.textContent = T("支付宝 Alipay — Coming soon", "支付宝 — 即将上线");
+      }
+      if (wBtn && w && !w.enabled) {
+        wBtn.disabled = true;
+        wBtn.textContent = T("微信支付 WeChat Pay — Coming soon", "微信支付 — 即将上线");
+      }
+    }
+    refreshCnButtons().catch(() => {});
+    const aliBtn = ov.querySelector("#cssos-premium-alipay");
+    if (aliBtn) {
+      aliBtn.addEventListener("click", async () => {
+        if (aliBtn.disabled) return;
+        aliBtn.disabled = true;
+        const original = aliBtn.textContent;
+        aliBtn.textContent = T("Opening Alipay…", "打开支付宝中…");
+        const r = await api("/api/premium/subscribe-cn?provider=alipay", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        const url = r && r.data && r.data.redirect_url;
+        if (url) {
+          // Alipay page.pay returns an HTML form payload OR a URL.
+          // If it looks like HTML, write into a new tab.
+          const w = window.open("", "_blank");
+          if (w && /<form/i.test(url)) { w.document.write(url); w.document.close(); }
+          else if (w) { w.location.href = url; }
+        } else {
+          aliBtn.disabled = false;
+          aliBtn.textContent = original;
+          alert(T("Alipay subscribe failed.", "支付宝订阅失败。"));
+        }
+      });
+    }
+    const wxBtn = ov.querySelector("#cssos-premium-wechat");
+    if (wxBtn) {
+      wxBtn.addEventListener("click", async () => {
+        if (wxBtn.disabled) return;
+        wxBtn.disabled = true;
+        const original = wxBtn.textContent;
+        wxBtn.textContent = T("Generating QR…", "生成二维码中…");
+        const r = await api("/api/premium/subscribe-cn?provider=wechat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        const codeUrl = r && r.data && r.data.qr_url;
+        const host = ov.querySelector("#cssos-premium-wechat-qr");
+        if (codeUrl && host) {
+          // Render QR via a public chart API (frontend-only scaffold).
+          const qr = "https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=" + encodeURIComponent(codeUrl);
+          host.style.display = "block";
+          host.innerHTML = `<img alt="WeChat QR" src="${qr}" style="border-radius:8px;background:#fff;padding:6px"/><div style="margin-top:6px">${T("Scan with WeChat to pay", "用微信扫一扫支付")}</div>`;
+          wxBtn.textContent = T("微信支付 — QR ready", "微信支付 — 二维码已生成");
+        } else {
+          wxBtn.disabled = false;
+          wxBtn.textContent = original;
+          alert(T("WeChat Pay subscribe failed.", "微信支付订阅失败。"));
+        }
       });
     }
     const cancelBtn = ov.querySelector("#cssos-premium-cancel");

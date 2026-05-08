@@ -35276,6 +35276,232 @@ app.post("/api/premium/cancel", async (req, res) => {
   }
 });
 
+/* CSSOS_PERSON_MV_WAVE104 20260508 — Jing
+ * Alipay + WeChat Pay subscription scaffolding. Adapters gracefully
+ * no-op when env keys are unset; endpoints return CN_PROVIDER_NOT_CONFIGURED
+ * so the frontend can render a "Coming soon" disabled button. Webhook
+ * routes are 200-OK on duplicate events via the
+ * payment_provider_events.external_event_id UNIQUE constraint. */
+const PREMIUM_PRICE_CNY_FEN = 6900; // ¥69.00/mo, ≈ $9.99 USD
+
+app.get("/api/premium/providers", async (_req, res) => {
+  noStore(res);
+  return res.json(okData({
+    providers: [
+      { id: "stripe", currency: "usd", price_cents: 999,           enabled: !!getStripeClient() },
+      { id: "alipay", currency: "cny", price_cents: PREMIUM_PRICE_CNY_FEN, enabled: cssosAlipay.isAlipayConfigured() },
+      { id: "wechat", currency: "cny", price_cents: PREMIUM_PRICE_CNY_FEN, enabled: cssosWechat.isWechatConfigured() },
+    ],
+  }));
+});
+
+async function logPaymentProviderEvent(args: {
+  provider: "alipay" | "wechat" | "stripe";
+  external_event_id: string;
+  event_kind: string;
+  user_id: string | null;
+  amount_cny_cents: number | null;
+  amount_usd_cents: number | null;
+  payload: unknown;
+}): Promise<{ duplicate: boolean }> {
+  if (!DATABASE_URL) return { duplicate: false };
+  const r = await withClient((c) =>
+    c.query(
+      `INSERT INTO payment_provider_events
+         (provider, external_event_id, event_kind, user_id,
+          amount_cny_cents, amount_usd_cents, payload)
+       VALUES ($1,$2,$3,$4::uuid,$5,$6,$7::jsonb)
+       ON CONFLICT (external_event_id) DO NOTHING
+       RETURNING id`,
+      [
+        args.provider,
+        args.external_event_id,
+        args.event_kind,
+        args.user_id,
+        args.amount_cny_cents,
+        args.amount_usd_cents,
+        JSON.stringify(args.payload || {}),
+      ],
+    ),
+  );
+  return { duplicate: r.rowCount === 0 };
+}
+
+async function applyCnPremiumExtension(userId: string, providerCol: string, subId: string | null): Promise<void> {
+  if (!DATABASE_URL) return;
+  const col = providerCol === "alipay" ? "alipay_subscription_id" : "wechat_subscription_id";
+  await withClient((c) =>
+    c.query(
+      `UPDATE users
+          SET premium_until = GREATEST(COALESCE(premium_until, now()), now()) + INTERVAL '30 days',
+              ${col} = COALESCE($2, ${col})
+        WHERE id = $1::uuid`,
+      [userId, subId],
+    ),
+  );
+}
+
+/* POST /api/premium/subscribe-cn?provider=alipay|wechat
+ * body: { return_url? } for alipay; ignored for wechat.
+ * Returns { redirect_url } (alipay) or { qr_url } (wechat). */
+app.post("/api/premium/subscribe-cn", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePremiumColumns();
+    const provider = String(req.query.provider || "").toLowerCase();
+    if (provider === "alipay") {
+      const returnUrl = String(req.body?.return_url || `${appBaseUrl(req)}/#premium?status=success&provider=alipay`).trim();
+      const notifyUrl = `${appBaseUrl(req)}/api/webhooks/alipay`;
+      const order = await cssosAlipay.createSubscriptionOrder({
+        user_id: user.id,
+        amount_cents: PREMIUM_PRICE_CNY_FEN,
+        return_url: returnUrl,
+        notify_url: notifyUrl,
+      });
+      if (!order) return res.status(503).json({ ok: false, code: "ALIPAY_NOT_CONFIGURED" });
+      return res.json(okData({
+        provider: "alipay",
+        redirect_url: order.redirect_url,
+        out_trade_no: order.out_trade_no,
+      }));
+    }
+    if (provider === "wechat") {
+      const order = await cssosWechat.createNativeOrder({
+        user_id: user.id,
+        amount_cents: PREMIUM_PRICE_CNY_FEN,
+      });
+      if (!order) return res.status(503).json({ ok: false, code: "WECHAT_NOT_CONFIGURED" });
+      return res.json(okData({
+        provider: "wechat",
+        qr_url: order.code_url,       // weixin:// URI; frontend renders QR
+        out_trade_no: order.out_trade_no,
+      }));
+    }
+    return res.status(400).json({ ok: false, code: "UNKNOWN_PROVIDER" });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "PREMIUM_SUBSCRIBE_CN_FAILED", message: String(err) });
+  }
+});
+
+/* POST /api/webhooks/alipay
+ * Alipay sends application/x-www-form-urlencoded callbacks. We verify
+ * the RSA2 signature, then on TRADE_SUCCESS extend premium_until +30d
+ * and log the event. Replay-safe via external_event_id (trade_no). */
+app.post(
+  "/api/webhooks/alipay",
+  express.urlencoded({ extended: false, limit: "16kb" }),
+  async (req, res) => {
+    try {
+      const body: Record<string, string> = {};
+      for (const [k, v] of Object.entries(req.body || {})) body[k] = String(v ?? "");
+      const ok = cssosAlipay.verifyWebhookSignature(body);
+      if (!ok) {
+        // 401 — Alipay will retry. Replays are still safe via dedupe.
+        return res.status(401).send("invalid_sign");
+      }
+      const tradeStatus = String(body["trade_status"] || "");
+      const outTradeNo = String(body["out_trade_no"] || "");
+      const tradeNo = String(body["trade_no"] || "");
+      const amountYuan = Number(body["total_amount"] || 0);
+      const userIdMatch = /^cssos_premium_([0-9a-f]{8})_\d+/.exec(outTradeNo);
+      const userIdShort = userIdMatch?.[1] || null;
+      // Resolve full UUID from short prefix.
+      let userId: string | null = null;
+      if (userIdShort && DATABASE_URL) {
+        const r = await withClient((c) =>
+          c.query<{ id: string }>(
+            `SELECT id::text AS id FROM users WHERE id::text LIKE $1 || '%' LIMIT 1`,
+            [userIdShort],
+          ),
+        );
+        userId = r.rows[0]?.id || null;
+      }
+      const eventKind = tradeStatus === "TRADE_SUCCESS" || tradeStatus === "TRADE_FINISHED"
+        ? "paid"
+        : tradeStatus === "TRADE_CLOSED" ? "cancelled" : "other";
+      const dedup = await logPaymentProviderEvent({
+        provider: "alipay",
+        external_event_id: tradeNo || outTradeNo,
+        event_kind: eventKind,
+        user_id: userId,
+        amount_cny_cents: Math.round(amountYuan * 100) || null,
+        amount_usd_cents: null,
+        payload: body,
+      });
+      if (!dedup.duplicate && eventKind === "paid" && userId) {
+        await applyCnPremiumExtension(userId, "alipay", outTradeNo || tradeNo);
+      }
+      // Alipay requires the literal string "success".
+      return res.status(200).send("success");
+    } catch (err) {
+      console.warn("[alipay-webhook] error", err);
+      return res.status(200).send("success");
+    }
+  },
+);
+
+/* POST /api/webhooks/wechat
+ * APIv3 webhook. Body is JSON with AES-GCM ciphertext under `resource`.
+ * Signature header is verified with the platform certificate. */
+app.post(
+  "/api/webhooks/wechat",
+  express.raw({ type: "*/*", limit: "32kb" }),
+  async (req, res) => {
+    try {
+      const raw = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : "";
+      const ok = cssosWechat.verifyWebhookSignature(raw, req.headers as Record<string, string | string[] | undefined>);
+      if (!ok) {
+        // APIv3 expects {code, message}. 401 => WeChat will retry.
+        return res.status(401).json({ code: "FAIL", message: "invalid_sign" });
+      }
+      const env = JSON.parse(raw || "{}") as {
+        id?: string; event_type?: string;
+        resource?: { ciphertext?: string; associated_data?: string; nonce?: string };
+      };
+      const decrypted = cssosWechat.decryptResource(env.resource || {}) as
+        | { trade_state?: string; out_trade_no?: string; transaction_id?: string; amount?: { total?: number; payer_total?: number } }
+        | null;
+      const eventId = env.id || decrypted?.transaction_id || decrypted?.out_trade_no || `wechat_${Date.now()}`;
+      const tradeState = String(decrypted?.trade_state || "");
+      const outTradeNo = String(decrypted?.out_trade_no || "");
+      const userIdMatch = /^cssos_premium_([0-9a-f]{8})_\d+/.exec(outTradeNo);
+      const userIdShort = userIdMatch?.[1] || null;
+      let userId: string | null = null;
+      if (userIdShort && DATABASE_URL) {
+        const r = await withClient((c) =>
+          c.query<{ id: string }>(
+            `SELECT id::text AS id FROM users WHERE id::text LIKE $1 || '%' LIMIT 1`,
+            [userIdShort],
+          ),
+        );
+        userId = r.rows[0]?.id || null;
+      }
+      const eventKind = tradeState === "SUCCESS" ? "paid"
+        : tradeState === "REFUND" ? "refunded"
+        : tradeState === "CLOSED" || tradeState === "REVOKED" ? "cancelled" : "other";
+      const dedup = await logPaymentProviderEvent({
+        provider: "wechat",
+        external_event_id: eventId,
+        event_kind: eventKind,
+        user_id: userId,
+        amount_cny_cents: typeof decrypted?.amount?.total === "number" ? decrypted.amount.total : null,
+        amount_usd_cents: null,
+        payload: { event: env, decrypted },
+      });
+      if (!dedup.duplicate && eventKind === "paid" && userId) {
+        await applyCnPremiumExtension(userId, "wechat", decrypted?.transaction_id || outTradeNo);
+      }
+      return res.status(200).json({ code: "SUCCESS", message: "OK" });
+    } catch (err) {
+      console.warn("[wechat-webhook] error", err);
+      // Still 200 to avoid retry storms on parse errors after sig OK.
+      return res.status(200).json({ code: "SUCCESS", message: "OK" });
+    }
+  },
+);
+
 /* CSSOS_PERSON_MV_WAVE77 20260508 — Jing — affiliate endpoints. */
 app.get("/api/user/referrals", async (req, res) => {
   noStore(res);

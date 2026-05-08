@@ -45,6 +45,8 @@
     "pg": "^8.12.0",
     "sharp": "^0.33.5",
     "stripe": "^18.5.0",
+    "alipay-sdk": "^4.0.0",
+    "wechatpay-axios-plugin": "^0.9.0",
     "web-push": "^3.6.0",
     "ws": "^8.20.0"
   },

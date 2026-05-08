@@ -17234,6 +17234,423 @@ app.post("/api/person-mv/dialogue", express.json({ limit: "4kb" }), async (req, 
   }
 });
 
+/* CSSOS_PERSON_MV_WAVE16 20260508 — Jing
+ * Schools / Groups (流派 / 学派). Persons grouped into intellectual
+ * movements with an admin-triggered collective MV. The collective
+ * pipeline reuses the same primitives as Wave 13a/14 (callLlm,
+ * callMusicGen, materializeToFile, ffmpeg compose) — only cover
+ * composition (xstack portrait grid) and lyrics prompt differ. */
+
+app.get("/api/person-mv/groups", async (_req, res) => {
+  noStore(res);
+  try {
+    await seedPersonProfilesOnce();
+    const r: any = await withClient((c) =>
+      c.query<any>(
+        `SELECT pg.group_id, pg.name_zh, pg.name_en, pg.description_zh, pg.description_en,
+                pg.era, pg.civilization, pg.visual_theme,
+                COALESCE(mc.member_count, 0)::int AS member_count,
+                COALESCE(vc.mv_count, 0)::int     AS mv_count
+           FROM person_groups pg
+           LEFT JOIN (
+             SELECT group_id, COUNT(*) AS member_count
+               FROM person_group_members GROUP BY group_id
+           ) mc ON mc.group_id = pg.group_id
+           LEFT JOIN (
+             SELECT group_id, COUNT(*) AS mv_count
+               FROM person_group_mvs GROUP BY group_id
+           ) vc ON vc.group_id = pg.group_id
+          ORDER BY pg.civilization NULLS LAST, pg.group_id`,
+      ),
+    );
+    return res.json({ ok: true, data: { groups: r.rows } });
+  } catch (err) {
+    console.warn("[person-mv] groups list failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "GROUPS_LIST_FAILED" });
+  }
+});
+
+app.get("/api/person-mv/groups/:group_id", async (req, res) => {
+  noStore(res);
+  try {
+    await seedPersonProfilesOnce();
+    const groupId = String(req.params.group_id || "").trim();
+    if (!groupId) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const gr = await withClient((c) =>
+      c.query<any>(`SELECT * FROM person_groups WHERE group_id = $1`, [groupId]),
+    );
+    const group = gr.rows[0];
+    if (!group) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+
+    const mr = await withClient((c) =>
+      c.query<any>(
+        `SELECT pp.person_id, pp.name_zh, pp.name_en, pp.civilization, pp.era,
+                pp.lifespan, pp.portrait_url, pp.influence_score,
+                pp.music_style_hint, pp.tone, pp.core_theme, pgm.role,
+                (SELECT COUNT(*)::int FROM person_mvs pm WHERE pm.person_id = pp.person_id) AS mv_count
+           FROM person_group_members pgm
+           JOIN person_profiles pp ON pp.person_id = pgm.person_id
+          WHERE pgm.group_id = $1
+          ORDER BY pp.influence_score DESC NULLS LAST, pp.person_id`,
+        [groupId],
+      ),
+    );
+
+    const cr = await withClient((c) =>
+      c.query<any>(
+        `SELECT pgm.mv_id, pgm.work_id, pgm.created_at,
+                w.title, w.cover_image,
+                wa.url AS final_mv_url
+           FROM person_group_mvs pgm
+           LEFT JOIN user_works w ON w.id = pgm.work_id
+           LEFT JOIN work_assets wa ON wa.work_id = pgm.work_id AND wa.asset_type = 'final_mv'
+          WHERE pgm.group_id = $1
+          ORDER BY pgm.created_at DESC`,
+        [groupId],
+      ),
+    );
+
+    const memberMvCount = mr.rows.reduce(
+      (acc: number, row: any) => acc + (Number(row.mv_count) || 0),
+      0,
+    );
+
+    return res.json({
+      ok: true,
+      data: {
+        group,
+        members: mr.rows,
+        collective_mvs: cr.rows,
+        member_mv_count: memberMvCount,
+      },
+    });
+  } catch (err) {
+    console.warn("[person-mv] group detail failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "GROUP_DETAIL_FAILED" });
+  }
+});
+
+async function composeGroupCover(
+  portraits: Array<string | null>,
+  outDir: string,
+): Promise<{ ok: true; abs: string; cmd: string } | { ok: false; error: string }> {
+  const valid: string[] = [];
+  for (const p of portraits) {
+    if (!p) continue;
+    const abs = await materializeToFile(p, "png");
+    if (abs) valid.push(abs);
+    if (valid.length >= 6) break;
+  }
+  if (valid.length < 2) return { ok: false, error: "not_enough_portraits" };
+
+  const n = valid.length;
+  const cols = n <= 2 ? 2 : n <= 4 ? 2 : 3;
+  const rows = Math.ceil(n / cols);
+  const cellW = Math.floor(1280 / cols);
+  const cellH = Math.floor(720 / rows);
+
+  const args: string[] = ["-y"];
+  for (const a of valid) args.push("-i", a);
+  const filters: string[] = [];
+  for (let i = 0; i < n; i++) {
+    filters.push(`[${i}:v]scale=${cellW}:${cellH}:force_original_aspect_ratio=increase,crop=${cellW}:${cellH}[v${i}]`);
+  }
+  const layoutCells: string[] = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const idx = r * cols + c;
+      if (idx < n) layoutCells.push(`${c * cellW}_${r * cellH}`);
+    }
+  }
+  const inputsRef = valid.map((_, i) => `[v${i}]`).join("");
+  filters.push(`${inputsRef}xstack=inputs=${n}:layout=${layoutCells.join("|")}:fill=black[xs]`);
+  filters.push(`[xs]pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black[out]`);
+
+  const outName = `group-cover-${Date.now()}-${crypto.randomBytes(3).toString("hex")}.png`;
+  const outAbs = path.join(outDir, outName);
+  args.push("-filter_complex", filters.join(";"), "-map", "[out]", "-frames:v", "1", outAbs);
+  const r = await spawnFfmpeg(args);
+  if (r.code !== 0 || !fs.existsSync(outAbs)) {
+    return { ok: false, error: `ffmpeg_cover_failed code=${r.code} ${(r.stderr || "").slice(0, 200)}` };
+  }
+  return { ok: true, abs: outAbs, cmd: `ffmpeg ${args.join(" ")}` };
+}
+
+type GroupMemberForPipeline = {
+  person_id: string;
+  name_zh: string | null;
+  name_en: string | null;
+  core_theme: string | null;
+  music_style_hint: string | null;
+  tone: string | null;
+  portrait_url: string | null;
+};
+type GroupForPipeline = {
+  group_id: string;
+  name_zh: string;
+  name_en: string;
+  description_zh: string | null;
+  description_en: string | null;
+  era: string | null;
+  civilization: string | null;
+};
+
+async function runHeadlessGroupPipeline(
+  group: GroupForPipeline,
+  members: GroupMemberForPipeline[],
+  _opts: { systemUserId: string },
+): Promise<HeadlessResult> {
+  const stages: HeadlessStage[] = [];
+  const stage = async <T,>(name: string, fn: () => Promise<{ value: T; provider?: string }>): Promise<T | null> => {
+    const t0 = Date.now();
+    try {
+      const { value, provider } = await fn();
+      stages.push({ name, ok: true, ms: Date.now() - t0, provider });
+      return value;
+    } catch (err) {
+      stages.push({ name, ok: false, ms: Date.now() - t0, error: (err as Error)?.message || String(err) });
+      return null;
+    }
+  };
+
+  const durationSec = 60;
+  const memberNames = members.map((m) => String(m.name_zh || m.name_en || m.person_id));
+  const memberStyles = members.map((m) => m.music_style_hint).filter(Boolean) as string[];
+
+  const coverUrl = await stage("cover", async () => {
+    const portraits = members.map((m) => m.portrait_url || null);
+    const r = await composeGroupCover(portraits, MV_FALLBACK_ARTIFACTS_DIR);
+    if (!r.ok) throw new Error(r.error);
+    const filename = path.basename(r.abs);
+    return { value: `/artifacts/mv-fallback/${filename}`, provider: "ffmpeg-xstack" };
+  });
+
+  const lyrics = await stage("lyrics", async () => {
+    const sys =
+      "You write song lyrics representing an intellectual movement. " +
+      "Output ONLY the lyrics text. Use the same language as the subjects (Chinese if any name is Chinese, otherwise English). " +
+      "Each verse is spoken by one named thinker — capture each thinker's distinct voice. 2-4 short lines per verse.";
+    const verseCount = Math.max(2, Math.min(6, members.length));
+    const user =
+      `Movement: ${group.name_zh} (${group.name_en})\n` +
+      (group.description_zh || group.description_en ? `Theme: ${group.description_zh || group.description_en}\n` : "") +
+      `Members: ${memberNames.join("、")}\n` +
+      `Write ${verseCount} verses, one per member, in this order: ${memberNames.slice(0, verseCount).join(" → ")}.`;
+    const llm = await callLlm({
+      messages: [{ role: "system", content: sys }, { role: "user", content: user }],
+      temperature: 0.85,
+      max_tokens: 800,
+    });
+    if (!llm.ok) throw new Error(llm.error || "lyrics_failed");
+    const text = String(llm.content || "").trim();
+    if (!text) throw new Error("lyrics_empty");
+    return { value: text, provider: llm.provider };
+  });
+
+  const audioUrl = await stage("music", async () => {
+    const blend = memberStyles.length ? memberStyles.join(", ") : "cinematic";
+    const prompt = `${group.name_en} ensemble, blending ${blend}, 60 seconds`;
+    const mus = await callMusicGen({
+      prompt,
+      duration_secs: durationSec,
+      tags: [group.name_en, "ensemble", "cinematic"],
+    });
+    if (!mus.ok) throw new Error(mus.error || "music_failed");
+    let url = mus.audio_url || "";
+    if (!url && mus.audio_b64) {
+      const persisted = persistBase64Audio(mus.audio_b64, group.group_id);
+      if (persisted) url = persisted;
+    }
+    if (!url) throw new Error("music_no_url");
+    return { value: url, provider: mus.provider };
+  });
+
+  const srtPath = await stage("subtitles", async () => {
+    if (!lyrics) throw new Error("no_lyrics");
+    const srt = buildSrtFromLyrics(lyrics, durationSec);
+    if (!srt) throw new Error("srt_empty");
+    const filename = `srt-grp-${group.group_id.slice(0, 12)}-${Date.now()}.srt`;
+    const abs = path.join(MV_FALLBACK_ARTIFACTS_DIR, filename);
+    fs.writeFileSync(abs, srt, { mode: 0o644 });
+    return { value: abs, provider: "fake-split" };
+  });
+
+  let mvUrl: string | null = null;
+  if (coverUrl && audioUrl) {
+    mvUrl = await stage("compose", async () => {
+      const coverAbs = await materializeToFile(coverUrl, "png");
+      const audioAbs = await materializeToFile(audioUrl, "mp3");
+      if (!coverAbs) throw new Error("cover_materialize_failed");
+      if (!audioAbs) throw new Error("audio_materialize_failed");
+      const outName = `group-${group.group_id.slice(0, 16)}-${Date.now()}.mp4`;
+      const outAbs = path.join(MV_FALLBACK_ARTIFACTS_DIR, outName);
+      const vfParts: string[] = [];
+      if (srtPath) vfParts.push(`subtitles='${srtPath.replace(/'/g, "\\'")}'`);
+      vfParts.push(`scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2`);
+      const args = [
+        "-y",
+        "-loop", "1",
+        "-i", coverAbs,
+        "-i", audioAbs,
+        "-vf", vfParts.join(","),
+        "-c:v", "libx264", "-tune", "stillimage", "-preset", "veryfast",
+        "-c:a", "aac", "-b:a", "192k",
+        "-pix_fmt", "yuv420p",
+        "-t", String(durationSec),
+        "-shortest",
+        outAbs,
+      ];
+      const r = await spawnFfmpeg(args);
+      if (r.code !== 0 || !fs.existsSync(outAbs)) {
+        if (srtPath && /No such filter|Unknown filter|subtitles/i.test(r.stderr || "")) {
+          const idx = args.indexOf("-vf");
+          if (idx >= 0 && args[idx + 1]) {
+            args[idx + 1] = String(args[idx + 1])
+              .split(",")
+              .filter((p) => !p.startsWith("subtitles="))
+              .join(",");
+          }
+          const r2 = await spawnFfmpeg(args);
+          if (r2.code === 0 && fs.existsSync(outAbs)) {
+            return { value: `/artifacts/mv-fallback/${outName}`, provider: "ffmpeg-no-subs" };
+          }
+        }
+        throw new Error(`ffmpeg_failed code=${r.code} stderr=${(r.stderr || "").slice(0, 400)}`);
+      }
+      return { value: `/artifacts/mv-fallback/${outName}`, provider: "ffmpeg" };
+    });
+  } else {
+    stages.push({ name: "compose", ok: false, ms: 0, error: "missing_cover_or_audio" });
+  }
+
+  return {
+    ok: !!coverUrl && !!mvUrl,
+    cover_url: coverUrl || undefined,
+    audio_url: audioUrl || undefined,
+    mv_url: mvUrl || undefined,
+    video_skipped: true,
+    stages,
+  };
+}
+
+app.post("/api/admin/person-mv/groups/:group_id/generate-collective-mv", express.json({ limit: "4kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const adminToken = String(req.header("x-admin-token") || "").trim();
+    const expectedToken = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+    let authed = false;
+    if (expectedToken && adminToken && adminToken === expectedToken) {
+      authed = true;
+    } else {
+      const user = await getSessionUser(req).catch(() => null);
+      if (user && roleForEmail(user.email) === "admin") authed = true;
+    }
+    if (!authed) return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+
+    const groupId = String(req.params.group_id || "").trim();
+    if (!groupId) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+
+    await seedPersonProfilesOnce();
+    const systemUserId = await resolveSystemUserId();
+
+    const gr = await withClient((c) =>
+      c.query<any>(`SELECT * FROM person_groups WHERE group_id = $1`, [groupId]),
+    );
+    const group = gr.rows[0];
+    if (!group) return res.status(404).json({ ok: false, code: "GROUP_NOT_FOUND" });
+
+    const mr = await withClient((c) =>
+      c.query<any>(
+        `SELECT pp.person_id, pp.name_zh, pp.name_en, pp.core_theme,
+                pp.music_style_hint, pp.tone, pp.portrait_url
+           FROM person_group_members pgm
+           JOIN person_profiles pp ON pp.person_id = pgm.person_id
+          WHERE pgm.group_id = $1
+          ORDER BY pp.influence_score DESC NULLS LAST, pp.person_id`,
+        [groupId],
+      ),
+    );
+    if (!mr.rows.length) return res.status(400).json({ ok: false, code: "NO_MEMBERS" });
+
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("Transfer-Encoding", "chunked");
+    const hb = setInterval(() => { try { res.write(" "); } catch (_e) {} }, 8000);
+
+    const result = await runHeadlessGroupPipeline(
+      group as GroupForPipeline,
+      mr.rows as GroupMemberForPipeline[],
+      { systemUserId },
+    );
+    clearInterval(hb);
+
+    if (!result.cover_url || !result.mv_url) {
+      return res.end(JSON.stringify({ ok: false, code: "PIPELINE_FAILED", stages: result.stages }));
+    }
+
+    const workId = crypto.randomUUID();
+    const title = `${group.name_zh} · 流派合奏 MV`.slice(0, 200);
+    const style = "ensemble";
+
+    let mvId = "";
+    try {
+      mvId = await withClient(async (client) => {
+        await client.query("BEGIN");
+        try {
+          await client.query(
+            `INSERT INTO user_works (id, user_id, title, style, work_type, status, cover_image)
+             VALUES ($1::uuid, $2, $3, $4, 'mv', 'published', $5)`,
+            [workId, systemUserId, title, style, result.cover_url],
+          );
+          if (result.mv_url) {
+            await client.query(
+              `INSERT INTO work_assets (work_id, asset_type, url, meta)
+                 VALUES ($1::uuid, 'final_mv', $2, '{}'::jsonb)
+               ON CONFLICT (work_id, asset_type) DO UPDATE SET url = EXCLUDED.url`,
+              [workId, result.mv_url],
+            );
+          }
+          if (result.audio_url) {
+            await client.query(
+              `INSERT INTO work_assets (work_id, asset_type, url, meta)
+                 VALUES ($1::uuid, 'audio_track_1', $2, '{}'::jsonb)
+               ON CONFLICT (work_id, asset_type) DO UPDATE SET url = EXCLUDED.url`,
+              [workId, result.audio_url],
+            );
+          }
+          const ins = await client.query<{ mv_id: string }>(
+            `INSERT INTO person_group_mvs (group_id, work_id)
+             VALUES ($1, $2::uuid)
+             RETURNING mv_id`,
+            [groupId, workId],
+          );
+          await client.query("COMMIT");
+          return ins.rows[0]?.mv_id || "";
+        } catch (err) {
+          await client.query("ROLLBACK");
+          throw err;
+        }
+      });
+    } catch (err) {
+      console.warn("[person-mv] group MV insert failed:", (err as Error)?.message || err);
+      return res.end(JSON.stringify({ ok: false, code: "DB_INSERT_FAILED", error: (err as Error)?.message }));
+    }
+
+    return res.end(JSON.stringify({
+      ok: true,
+      group_id: groupId,
+      work_id: workId,
+      mv_id: mvId,
+      mv_url: result.mv_url,
+      cover_url: result.cover_url,
+      stages: result.stages,
+    }));
+  } catch (err) {
+    console.warn("[person-mv] generate-collective-mv failed:", (err as Error)?.message || err);
+    try { return res.status(500).json({ ok: false, code: "GENERATE_COLLECTIVE_FAILED" }); }
+    catch (_e) { try { return (res as any).end(JSON.stringify({ ok: false, code: "GENERATE_COLLECTIVE_FAILED" })); } catch (__e) {} }
+  }
+});
+
 /* CSSOS_PERSON_MV_WAVE4_LEADERBOARD 20260507 — Jing
  * Top creators by MV count for a person. Joins users for
  * display_name + avatar_url so the gallery ribbon can render. */

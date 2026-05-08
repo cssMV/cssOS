@@ -137,6 +137,14 @@
             </header>
             <div class="cssos-discover-row" data-discover-row="person-mv" id="person-mv-discover-row"></div>
           </section>
+          <!-- CSSOS_PERSON_MV_WAVE16 20260508 — schools/groups (流派/学派) shelf.
+               Hidden until /api/person-mv/groups returns rows. -->
+          <section class="cssos-discover-shelf" id="person-mv-groups-shelf" data-shelf="person-mv-groups" hidden>
+            <header class="cssos-discover-header">
+              <h2 data-i18n="discover.personMvGroups.title">🏛 文明流派</h2>
+            </header>
+            <div class="cssos-discover-row" data-discover-row="person-mv-groups" id="person-mv-groups-row"></div>
+          </section>
           <!-- CSSOS_PERSON_MV_WAVE15 20260508 — today-in-history shelf.
                Hidden until /api/person-mv/today-in-history returns rows. -->
           <section class="cssos-today-shelf" id="person-mv-today-shelf" data-shelf="person-mv-today" hidden>
@@ -2113,6 +2121,7 @@
     <script src="app.mv-pipeline-panel.js?v=20260507-sort-usage"></script>
     <script src="app.person-mv-panel.js?v=20260507-percard"></script>
     <script src="app.person-mv-discover-shelf.js?v=20260507-wave9"></script>
+    <script src="app.person-mv-groups-shelf.js?v=20260508-wave16"></script>
     <script src="app.person-mv-today-shelf.js?v=20260508-wave15"></script>
     <script src="app.user-homepage.js?v=20260508-wave11"></script>
     <script src="app.person-mv-comments-share.js?v=20260508-wave12"></script>

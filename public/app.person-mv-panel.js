@@ -989,6 +989,19 @@
         '<button class="pmv-back">← ' + escTxt(tt("Back", "返回")) + '</button>' +
       '</div>';
 
+      // CSSOS_PERSON_MV_WAVE16 20260508 — Jing — schools/groups chips.
+      var groups = Array.isArray(data.groups) ? data.groups : [];
+      if (groups.length) {
+        h += '<div class="pmv-section"><h3>🏛 ' + escTxt(tt("Schools / Groups", "所属流派")) + '</h3>' +
+          '<div class="pmv-chip-row">' +
+            groups.map(function(g){
+              var icon = (g.visual_theme && g.visual_theme.icon) ? String(g.visual_theme.icon) + ' ' : '';
+              var label = icon + (g.name_zh || g.name_en || g.group_id) + (g.role ? ' · ' + g.role : '');
+              return '<span class="pmv-chip" data-group-id="' + escAttr(g.group_id) + '" style="cursor:pointer;">' + escTxt(label) + '</span>';
+            }).join("") +
+          '</div></div>';
+      }
+
       if (loreEmpty) {
         h += '<div class="pmv-section"><div class="pmv-skel">' +
           escTxt(tt("Codex is being generated.", "档案正在生成中。")) +
@@ -1258,6 +1271,15 @@
         el.addEventListener("click", function(){
           var pid = el.getAttribute("data-codex-jump");
           if (pid) openCodex(pid);
+        });
+      });
+      // CSSOS_PERSON_MV_WAVE16 20260508 — Jing — group chips → group page.
+      host.querySelectorAll("[data-group-id]").forEach(function(el){
+        el.addEventListener("click", function(){
+          var gid = el.getAttribute("data-group-id");
+          if (gid && typeof globalThis.openPersonMvGroup === "function") {
+            try { globalThis.openPersonMvGroup(gid); } catch (_e) {}
+          }
         });
       });
       // Compare button → modal
@@ -1542,6 +1564,115 @@
    * reload starts clean. */
 
   globalThis.openPersonMvCodex = openCodex;
+
+  // CSSOS_PERSON_MV_WAVE16 20260508 — Jing — group page render.
+  // Renders a flat group view inside the codex host (members grid +
+  // collective MV player). Reuses the same panel scaffolding as the
+  // codex, so closing returns the user to the persons grid.
+  async function openPersonMvGroup(groupId) {
+    if (!groupId) return;
+    open();
+    var host = document.getElementById("cssos-person-codex-host");
+    var grid = document.getElementById("cssos-person-mv-grid");
+    var createTip = document.getElementById("cssos-person-mv-create-tip");
+    if (!host) {
+      host = document.createElement("div");
+      host.id = "cssos-person-codex-host";
+      host.className = "pmv-codex";
+      var panelBody = document.querySelector("#cssos-person-mv-panel .panel-body") || document.querySelector("#cssos-person-mv-panel");
+      if (panelBody) panelBody.appendChild(host);
+    }
+    if (grid) grid.style.display = "none";
+    if (createTip) createTip.style.display = "none";
+    host.style.display = "";
+    host.innerHTML = '<div class="pmv-skel">' + escTxt(tt("Loading group…", "正在加载流派…")) + '</div>';
+    try {
+      var r = await fetch("/api/person-mv/groups/" + encodeURIComponent(groupId), {
+        credentials: "include", headers: { Accept: "application/json" },
+      });
+      var json = await r.json().catch(function(){ return null; });
+      if (!json || !json.ok) {
+        host.innerHTML = '<div class="pmv-skel">' + escTxt(tt("Failed to load group.", "流派加载失败。")) +
+          ' <button class="pmv-back">' + escTxt(tt("Back", "返回")) + '</button></div>';
+        wireBack(host); return;
+      }
+      var d = json.data || {};
+      var g = d.group || {};
+      var members = Array.isArray(d.members) ? d.members : [];
+      var mvs = Array.isArray(d.collective_mvs) ? d.collective_mvs : [];
+      var icon = (g.visual_theme && g.visual_theme.icon) ? String(g.visual_theme.icon) : "🏛";
+      var meta = [g.era, g.civilization].filter(Boolean).join(" · ");
+      var description = g.description_zh || g.description_en || "";
+      var color = (g.visual_theme && g.visual_theme.color) ? String(g.visual_theme.color) : "#00f5a0";
+
+      var h = '<div class="pmv-hero" style="background:linear-gradient(135deg,#012019,' + escAttr(color) + '22);">' +
+        '<div class="pmv-hero-overlay">' +
+          '<div class="pmv-hero-name-zh">' + escTxt(icon + " " + (g.name_zh || g.name_en || groupId)) + '</div>' +
+          (g.name_en && g.name_en !== g.name_zh ? '<div class="pmv-hero-name-latin">' + escTxt(g.name_en) + '</div>' : '') +
+          '<div class="pmv-chip-row">' +
+            (meta ? '<span class="pmv-chip">' + escTxt(meta) + '</span>' : '') +
+            '<span class="pmv-chip">' + escTxt(tt("Members", "成员")) + ' · ' + members.length + '</span>' +
+            '<span class="pmv-chip">' + escTxt(tt("Member MVs", "成员 MV")) + ' · ' + (d.member_mv_count || 0) + '</span>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+      h += '<div class="pmv-action-bar">' +
+        '<button class="pmv-back">← ' + escTxt(tt("Back", "返回")) + '</button>' +
+      '</div>';
+
+      if (description) {
+        h += '<div class="pmv-section"><h3>' + escTxt(tt("About", "简介")) + '</h3>' +
+          '<div class="pmv-bio">' + escTxt(description) + '</div></div>';
+      }
+
+      // Collective MV player(s)
+      if (mvs.length) {
+        h += '<div class="pmv-section"><h3>🎼 ' + escTxt(tt("Collective MV", "流派合奏 MV")) + '</h3>';
+        mvs.forEach(function(m){
+          if (m.final_mv_url) {
+            h += '<video controls preload="metadata" style="width:100%;border-radius:10px;background:#000;" poster="' + escAttr(m.cover_image || "") + '" src="' + escAttr(m.final_mv_url) + '"></video>';
+          } else if (m.cover_image) {
+            h += '<img src="' + escAttr(m.cover_image) + '" alt="" style="width:100%;border-radius:10px;" />';
+          }
+        });
+        h += '</div>';
+      } else {
+        h += '<div class="pmv-section"><div class="pmv-empty-mv">' +
+          escTxt(tt("No collective MV yet — admins can trigger generation.", "暂无流派合奏 MV — 管理员可触发生成。")) +
+          '</div></div>';
+      }
+
+      // Members grid
+      h += '<div class="pmv-section"><h3>👥 ' + escTxt(tt("Members", "成员")) + '</h3>' +
+        '<div class="pmv-mv-grid">' +
+          members.map(function(m){
+            var name = m.name_zh || m.name_en || m.person_id;
+            var portrait = m.portrait_url || "";
+            var roleChip = m.role ? ' · ' + m.role : '';
+            return '<div class="pmv-mv-card" data-codex-jump="' + escAttr(m.person_id) + '">' +
+              (portrait ? '<img class="pmv-mv-poster" src="' + escAttr(portrait) + '" />' : '<div class="pmv-mv-fallback">🏛</div>') +
+              '<div class="pmv-mv-meta">' + escTxt(name + roleChip) + '</div>' +
+            '</div>';
+          }).join("") +
+        '</div></div>';
+
+      host.innerHTML = h;
+      wireBack(host);
+      host.querySelectorAll("[data-codex-jump]").forEach(function(el){
+        el.addEventListener("click", function(){
+          var pid = el.getAttribute("data-codex-jump");
+          if (pid) openCodex(pid);
+        });
+      });
+    } catch (err) {
+      console.warn("[person-mv] group render failed", err);
+      host.innerHTML = '<div class="pmv-skel">' + escTxt(tt("Group unavailable.", "流派暂不可用。")) +
+        ' <button class="pmv-back">' + escTxt(tt("Back", "返回")) + '</button></div>';
+      wireBack(host);
+    }
+  }
+  globalThis.openPersonMvGroup = openPersonMvGroup;
 
   function open() {
     var p = ensurePanel();

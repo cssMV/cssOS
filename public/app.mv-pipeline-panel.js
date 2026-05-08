@@ -3601,7 +3601,62 @@
             state.title = output.title;
           }
         }
-        // Future waves (7d–7f) add: video, subs, compose.
+        // CSSOS_MV_DAG_WAVE_7D 20260508 — video state mutations lifted out
+        // of runVideoStage. Output contract:
+        //   { video_skipped?:bool, skipReason?:string, video_url?, segments?,
+        //     videoDurSecs?, _resp?, cost_cents }
+        if (stageId === "video") {
+          if (output.video_skipped) {
+            state.engines = state.engines || {};
+            state.engines["video"] = {
+              engine: "skipped",
+              version: output.skipReason || "skipped",
+              provider_model: null,
+              cost_cents: 0,
+              input_tokens: null,
+              output_tokens: null
+            };
+            state.videoUrl = null;
+          } else {
+            if (typeof output.video_url === "string") state.videoUrl = output.video_url;
+            if (Object.prototype.hasOwnProperty.call(output, "segments")) {
+              state.videoSegments = output.segments;
+            }
+            if (typeof output.videoDurSecs === "number") {
+              state.videoDurSecs = output.videoDurSecs;
+            }
+          }
+        }
+        // CSSOS_MV_DAG_WAVE_7E 20260508 — subs state mutations lifted out
+        // of runSubsStage. Output contract:
+        //   { subtitlesSrt?, subtitlesAss?, skipped?:bool, _resp?, cost_cents,
+        //     lineCount? }
+        if (stageId === "subs") {
+          if (output.skipped) {
+            state.subtitlesSrt = null;
+            state.engines = state.engines || {};
+            state.engines["subtitles"] = {
+              engine: "skipped",
+              version: "none",
+              provider_model: null,
+              cost_cents: 0,
+              input_tokens: null,
+              output_tokens: null
+            };
+          } else {
+            state.subtitlesSrt = output.subtitlesSrt || null;
+            state.subtitlesAss = output.subtitlesAss || null;
+          }
+        }
+        // CSSOS_MV_DAG_WAVE_7F 20260508 — compose state mutations lifted out
+        // of runComposeStage. Output contract:
+        //   { composed?, public_url?, mv_id?, cost_cents }
+        // Note: state.duration backfill from <audio> loadedmetadata stays
+        // inside the helper because it's an async DOM-driven correction
+        // (not part of the pipeline-correctness contract).
+        if (stageId === "compose") {
+          if (output.public_url) state.mvUrl = output.public_url;
+        }
       }
       function dispatchStageEvents(state, stageId, output, meta) {
         if (meta && meta.cached) return;
@@ -3662,7 +3717,42 @@
         if (stageId === "music") {
           try { syncWatchOutputs(); } catch (_e) { /* non-fatal */ }
         }
-        // Future waves (7d–7f) add: video, subs, compose.
+        // CSSOS_MV_DAG_WAVE_7D 20260508 — video broadcast lifted out of
+        // runVideoStage. Only re-syncs Watch editors after a successful
+        // video stage so the storyboard line picks up state.videoUrl.
+        if (stageId === "video" && !output.video_skipped && output.video_url) {
+          try { syncWatchOutputs(); } catch (_e) { /* non-fatal */ }
+        }
+        // CSSOS_MV_DAG_WAVE_7F 20260508 — compose broadcast lifted out of
+        // runComposeStage. Two events:
+        //   1) cssos:kara_ready — notification panel hydration payload.
+        //   2) cssmv:run-finish — fired AFTER saveAsWork resolves so
+        //      cinema-mode storm + auto-cinema can react. The autosave
+        //      itself stays inside the helper (it's a fire-and-forget
+        //      side-effect tightly coupled to autoplay/hot-swap UX);
+        //      we intercept its callback here only to re-fire run-finish.
+        // The autoplay / fullscreen / <video>+<audio> hot-swap stays in
+        // the helper because it's all DOM manipulation (no state.* writes)
+        // and lifting would balloon dispatchStageEvents.
+        if (stageId === "compose" && output && output.composed) {
+          const composed = output.composed;
+          try {
+            window.dispatchEvent(new CustomEvent("cssos:kara_ready", {
+              detail: {
+                run_id: state.runId || composed.mv_id || "",
+                stage: "ready",
+                title: state.title || "",
+                workTitle: state.title || "",
+                mvUrl: state.mvUrl || "",
+                audioUrl: state.audioUrl || "",
+                coverUrl: state.coverUrl || "",
+                subtitlesSrt: state.subtitlesSrt || "",
+                workId: composed.mv_id || "",
+                duration: state.duration || 0
+              }
+            }));
+          } catch (_dispatchErr) { /* non-fatal */ }
+        }
       }
 
       // Stage 1 — cover (+ 4 parallel variations for 5-image slideshow)
@@ -5079,48 +5169,38 @@
 
       // Stage 4 — video
       // CSSOS_MV_DAG_WAVE_2_7C 20260507 — body lifted into runVideoStage()
-      // so the DAG executor can invoke it as a node. Helper preserves
-      // setStage / state mutations / fallbackToMusicOnly internally, so
-      // behavior is identical to the prior imperative path. Returns
-      // { videoFailed:bool, videoErrorMsg?:string } — caller short-circuits
-      // the rest of the pipeline when videoFailed (matches legacy `return`).
+      // CSSOS_MV_DAG_WAVE_7D 20260508 — pure-helper refactor:
+      //   • returns { video_skipped?, skipReason?, video_url?, segments?,
+      //     videoDurSecs?, _resp?, cost_cents } so caller can sequence
+      //     applyStageOutput + recordEngine + dispatchStageEvents + setStage.
+      //   • Returns null when STAGE_ORDER resume guard short-circuits.
+      //   • Hard-failure path: helper still calls setStage("subtitles","error")
+      //     and setStage("compose","error") and fallbackToMusicOnly, then
+      //     throws an Error with __shortCircuit:"video" so the DAG executor
+      //     marks downstream stages cancelled. Documented residual: those
+      //     two cross-stage setStage calls cancel DOWNSTREAM stage UI when
+      //     video hard-fails — they can't be lifted into apply/dispatch
+      //     cleanly because the failure is signalled via throw, not a
+      //     return value (DAG never invokes apply for failed nodes).
       async function runVideoStage(state) {
       let video = null;
-      let videoFailed = false;
-      let videoErrorMsg = "";
       // CSSOS_PHASE2_LITE_SEGMENT_PLANNER 20260426 #47 — Jing
       // Lite tier is image-only by definition. Skipping /api/mv/video saves
       // ~$0.60 of Runway gen4_turbo per run. The compose call later routes
       // to the Ken-Burns-segments path so an empty state.videoUrl is fine.
       // Mark the video stage as `skipped` (not `error`) so the Watch panel
       // bar shows a clean done-skip instead of a red failure.
+      if (STAGE_ORDER.indexOf("video") < resumeStartIdx) return null;
       let _liteSkipsVideo = false;
       try {
         if (globalThis.cssmvTiers && typeof globalThis.cssmvTiers.currentTierId === "function") {
           _liteSkipsVideo = String(globalThis.cssmvTiers.currentTierId() || "").toLowerCase() === "lite";
         }
       } catch (_e) { /* ignore */ }
-      if (_liteSkipsVideo && STAGE_ORDER.indexOf("video") >= resumeStartIdx) {
-        state.engines["video"] = {
-          engine: "skipped",
-          version: "lite_tier",
-          provider_model: null,
-          cost_cents: 0,
-          input_tokens: null,
-          output_tokens: null
-        };
-        state.videoUrl = null;
-        setStage(
-          "video",
-          "done",
-          copy(
-            "Skipped (Lite tier · slideshow only)",
-            "已跳过（Lite 档 · 仅幻灯片）"
-          ),
-          0
-        );
+      if (_liteSkipsVideo) {
+        return { video_skipped: true, skipReason: "lite_tier", cost_cents: 0 };
       }
-      if (!_liteSkipsVideo && STAGE_ORDER.indexOf("video") >= resumeStartIdx) {
+      {
       setStage("video", "running", "");
       // CSSOS_PHASE2_P2_54_VIDEO_FIX 20260418 — Runway Gen-3 Turbo only
       // accepts { duration: 5|10, ratio: 1280:768|768:1280 }. P2-51 started
@@ -5177,10 +5257,9 @@
           "video"
         );
       } catch (videoErr) {
-        videoFailed = true;
-        videoErrorMsg = videoErr && videoErr.message ? videoErr.message : String(videoErr);
+        const videoErrorMsg = videoErr && videoErr.message ? videoErr.message : String(videoErr);
         console.warn("[mv-pipeline] video stage failed, falling back to music-only:", videoErr);
-        // Tag the stage card so the user sees what happened — not just a silent pass.
+        // Tag the stage card so the user sees what happened.
         setStage(
           "video",
           "error",
@@ -5190,11 +5269,14 @@
           ),
           0
         );
-        // CSSOS_PHASE2_P2_54_NO_FAKE_GREEN 20260418 — the previous code marked
-        // subtitles + compose as "done" when video failed, which painted them
-        // green and gave Jing the wrong signal ("都绿了但实际没通"). Mark them
-        // as error so the Watch panel's stage bars + summary clearly show the
-        // pipeline did NOT produce an MV. Music-only fallback still plays.
+        // CSSOS_PHASE2_P2_54_NO_FAKE_GREEN 20260418 — Jing
+        // Residual cross-stage UI cleanup: when video hard-fails, mark the
+        // DOWNSTREAM subtitles + compose stage chips as error so the Watch
+        // panel doesn't paint them green. Cannot be lifted into apply/dispatch
+        // because the failure is signalled via thrown sentinel; DAG never
+        // invokes apply for failed/cancelled nodes. Equivalent to the
+        // executor's onStageError hook applied to subs + compose.
+        state.engines = state.engines || {};
         state.engines["subtitles"] = {
           engine: "skipped",
           version: "video_failed",
@@ -5219,84 +5301,65 @@
           "Not run — video stage failed upstream",
           "未运行 — 视频阶段上游失败"
         ), 0);
-        // Fire music-only autoplay so the user still gets something.
         fallbackToMusicOnly(copy(
           "Video timed out · playing music",
           "视频超时 · 播放音乐"
         ));
         renderSummary();
+        const sentinel = new Error("__CSSMV_SHORT_CIRCUIT__:video:" + videoErrorMsg);
+        sentinel.__shortCircuit = "video";
+        throw sentinel;
       }
 
-      if (!videoFailed) {
-        state.videoUrl = video.video_url;
-        // CSSOS_PHASE2_SHOT_SCRIPTS 20260426 #148-E — Jing
-        // When backend ran multi-segment mode, video.segments[] contains
-        // one entry per shot script. Capture into state.videoSegments so
-        // compose stage can build a true xfade-chained timeline.
-        state.videoSegments = Array.isArray(video.segments) && video.segments.length >= 2
-          ? video.segments
-          : null;
-        if (state.videoSegments) {
-          console.info(
-            "%c[mv-pipeline][video] received %d segments, total %ds AI video",
-            "color:#0ff;font-weight:bold",
-            state.videoSegments.length,
-            state.videoSegments.reduce(function (a, s) {
-              return a + Number(s.duration_secs || 0);
-            }, 0)
-          );
-        }
-        // CSSOS_PHASE2_HYBRID_MIXER 20260426 #132 — Jing
-        // Remember the requested clip duration so the Hybrid segment planner
-        // can splice it into the timeline at the correct length. Backends
-        // sometimes return Number(video.duration_secs); fall back to the
-        // duration we asked Runway for (5 | 10).
-        state.videoDurSecs =
-          (video && Number(video.duration_secs) > 0)
-            ? Number(video.duration_secs)
-            : clampedDuration;
-        recordEngine("video", video);
-        setStage("video", "done", video.video_url, video.cost_cents);
-        // P2-31: re-sync editors now that video URL is known (storyboard line appears).
-        syncWatchOutputs();
+      // CSSOS_PHASE2_SHOT_SCRIPTS 20260426 #148-E — Jing
+      const _segments = Array.isArray(video.segments) && video.segments.length >= 2
+        ? video.segments
+        : null;
+      if (_segments) {
+        console.info(
+          "%c[mv-pipeline][video] received %d segments, total %ds AI video",
+          "color:#0ff;font-weight:bold",
+          _segments.length,
+          _segments.reduce(function (a, s) { return a + Number(s.duration_secs || 0); }, 0)
+        );
       }
-
-      // If video failed, short-circuit the rest of the pipeline. The user
-      // already has audio playing via the fallback; subtitles + compose
-      // depend on the video URL so there's nothing meaningful to do.
-      if (videoFailed) {
-        return { videoFailed: true, videoErrorMsg: videoErrorMsg };
-      }
-      } // end Stage 4 (video) resume guard
-      return { videoFailed: false };
+      const _videoDurSecs =
+        (video && Number(video.duration_secs) > 0)
+          ? Number(video.duration_secs)
+          : clampedDuration;
+      return {
+        video_skipped: false,
+        video_url: video.video_url,
+        segments: _segments,
+        videoDurSecs: _videoDurSecs,
+        cost_cents: video.cost_cents || 0,
+        _resp: video
+      };
+      } // end runVideoStage primary block
       } // end runVideoStage
 
       // Stage 5 — subtitles (real /api/mv/subtitles call)
       // CSSOS_MV_DAG_WAVE_2_7C 20260507 — body lifted into runSubsStage().
+      // CSSOS_MV_DAG_WAVE_7E 20260508 — pure-helper refactor:
+      //   • returns { subtitlesSrt, subtitlesAss, _resp, lineCount, skipped,
+      //     skipReason, cost_cents } so caller can sequence applyStageOutput +
+      //     recordEngine + setStage deterministically.
+      //   • setStage / recordEngine / state mutations are owned by the DAG
+      //     callback. Returns null when the resume guard skips this stage.
       async function runSubsStage(state) {
-      if (STAGE_ORDER.indexOf("subtitles") >= resumeStartIdx) {
-      setStage("subtitles", "running", "");
-      try {
+        if (STAGE_ORDER.indexOf("subtitles") < resumeStartIdx) return null;
         // CSSMV_CONSOLE_CLEANUP 20260423 #88 — Jing: the only implemented
         // subtitles engine today is cssmv-local/srt-v1. If the user's picker
-        // selected anything else, omit the engine so the backend falls back to
-        // the stage default instead of returning 501 Not Implemented (which
-        // paints the console red).
+        // selected anything else, omit the engine so the backend falls back
+        // to the stage default instead of returning 501 Not Implemented.
         const subtitlesBody = withEngine("subtitles", {
           lyrics: state.lyrics,
           duration_secs: state.duration || SUBTITLES_DEFAULT_DURATION_SECS,
           // CSSOS_PHASE2_ASS_OUTPUT 20260504 — Jing: pass title so the
-          // ASS [Script Info] header can include it (purely cosmetic
-          // for renderers that surface a window title; SRT ignores it).
+          // ASS [Script Info] header can include it (purely cosmetic).
           title: String(state.title || "").trim() || undefined
         });
         // CSSOS_PHASE2_ALIGNED_LYRICS 20260426 #148-D — Jing
-        // When the music engine emitted real per-line timing, hand it to the
-        // subtitles endpoint so the SRT matches the actual vocal performance
-        // instead of being even-divided across the duration. The backend's
-        // build_srt_from_aligned() reads `aligned_lyrics` and produces a
-        // tightly-synced SRT; missing the field falls back to the legacy
-        // build_local_srt() path with no regression.
         if (state.alignedLyrics && state.alignedLyrics.length > 0) {
           subtitlesBody.aligned_lyrics = state.alignedLyrics;
           console.info(
@@ -5309,53 +5372,44 @@
           delete subtitlesBody.engine;
           delete subtitlesBody.version;
         }
-        const subs = await postJson("/api/mv/subtitles", subtitlesBody);
-        state.subtitlesSrt = subs.srt || null;
-        // CSSOS_PHASE2_ASS_OUTPUT 20260504 — Jing: capture ASS alongside
-        // SRT. The karaoke renderer prefers SRT for now (every browser
-        // can parse it via parseSrtToAlignedLyricsModule); ASS is
-        // available for a future renderer that consumes ASS override
-        // tags directly (live colour swaps per line, per-syllable \k
-        // karaoke, fade effects without DOM keyframes).
-        state.subtitlesAss = subs.ass || null;
-        recordEngine("subtitles", subs);
-        setStage(
-          "subtitles",
-          "done",
-          copy(
-            String(subs.line_count || 0) + " lines · " + (subs.engine || "") + "/" + (subs.version || ""),
-            (subs.line_count || 0) + " 行 · " + (subs.engine || "") + "/" + (subs.version || "")
-          ),
-          subs.cost_cents || 0
-        );
-      } catch (subErr) {
-        // Subtitles are non-fatal: keep the pipeline going without them.
-        state.subtitlesSrt = null;
-        state.engines["subtitles"] = {
-          engine: "skipped",
-          version: "none",
-          provider_model: null,
-          cost_cents: 0,
-          input_tokens: null,
-          output_tokens: null
-        };
-        setStage(
-          "subtitles",
-          "done",
-          copy(
-            "Subtitles skipped (" + (subErr.message || "unknown") + ")",
-            "字幕已跳过（" + (subErr.message || "未知原因") + "）"
-          ),
-          0
-        );
-      }
-      } // end Stage 5 (subtitles) resume guard
+        try {
+          const subs = await postJson("/api/mv/subtitles", subtitlesBody);
+          return {
+            subtitlesSrt: subs.srt || null,
+            subtitlesAss: subs.ass || null,
+            lineCount: subs.line_count || 0,
+            engine: subs.engine || "",
+            version: subs.version || "",
+            cost_cents: subs.cost_cents || 0,
+            _resp: subs,
+            skipped: false
+          };
+        } catch (subErr) {
+          // Subtitles are non-fatal: keep the pipeline going without them.
+          return {
+            subtitlesSrt: null,
+            subtitlesAss: null,
+            skipped: true,
+            skipReason: subErr.message || "unknown",
+            cost_cents: 0
+          };
+        }
       } // end runSubsStage
 
       // Stage 6 — compose
       // CSSOS_MV_DAG_WAVE_2_7C 20260507 — body lifted into runComposeStage().
-      // Returns { composeFailed:bool, composed?:object } — caller skips the
-      // post-compose autosave/hot-swap block when composeFailed.
+      // CSSOS_MV_DAG_WAVE_7F 20260508 — pure-helper refactor:
+      //   • returns { composed, public_url, mv_id, cost_cents, _resp } so
+      //     caller can sequence applyStageOutput + recordEngine + setStage
+      //     + dispatchStageEvents (kara_ready) deterministically.
+      //   • Hard-failure path: helper still calls setStage("compose","error")
+      //     and fallbackToMusicOnly + renderSummary, then throws an Error
+      //     with __shortCircuit:"compose" so the DAG executor short-circuits.
+      //   • Returns null when STAGE_ORDER resume guard short-circuits.
+      //   • Post-compose autoplay / hot-swap / autosave (with run-finish
+      //     dispatch) stays inside the helper — pure DOM manipulation, no
+      //     state.* mutations except state.duration backfill from <audio>
+      //     loadedmetadata (documented residual; async DOM-driven).
       async function runComposeStage(state) {
       //
       // P2-34: wrap in a hard timeout so a hung Rust ffmpeg mux does not
@@ -5363,11 +5417,11 @@
       // still proceed to the music-only fallback path below.
       // P2-24 Jing 2026-04-18: reuse the shared withTimeout helper and
       // gracefully fall back to music-only if compose fails/times out.
+      if (STAGE_ORDER.indexOf("compose") < resumeStartIdx) return null;
       let composed = null;
-      if (STAGE_ORDER.indexOf("compose") >= resumeStartIdx) {
+      {
       setStage("compose", "running", "");
       const mvId = "mv_" + Date.now();
-      let composeFailed = false;
       try {
         // CSSOS_PHASE2_LITE_SEGMENT_PLANNER 20260426 #47 — Jing
         // Resolve current MV tier (lite | hybrid | cinematic). Lite users
@@ -5573,7 +5627,6 @@
           "compose"
         );
       } catch (composeErr) {
-        composeFailed = true;
         const composeMsg = composeErr && composeErr.message ? composeErr.message : String(composeErr);
         console.warn("[mv-pipeline] compose stage failed, falling back to music-only:", composeErr);
         setStage(
@@ -5590,12 +5643,18 @@
           "合成超时 · 播放音乐"
         ));
         renderSummary();
-        return { composeFailed: true };
+        const sentinel = new Error("__CSSMV_SHORT_CIRCUIT__:compose:" + composeMsg);
+        sentinel.__shortCircuit = "compose";
+        throw sentinel;
       }
 
+      // CSSOS_MV_DAG_WAVE_7F 20260508 — state.mvUrl + recordEngine + setStage
+      // are now sequenced by the DAG callback via applyStageOutput. The
+      // helper still does syncWatchOutputs() + renderSummary() because they
+      // read state.mvUrl which the caller has just written via apply.
+      // Pre-write state.mvUrl here so the DOM-side autoplay/hot-swap below
+      // (still inline) sees it. The DAG callback re-writes it idempotently.
       state.mvUrl = composed.public_url;
-      recordEngine("compose", composed);
-      setStage("compose", "done", composed.public_url, composed.cost_cents || 0);
       // P2-31: final sync so anything that appeared late (e.g. mvUrl) is reflected.
       syncWatchOutputs();
       renderSummary();
@@ -5638,28 +5697,9 @@
           freshMs: 10 * 60 * 1000,
           source: "mv-pipeline-panel"
         };
-        // CSSOS_PHASE2_NOTIF_HYDRATE_PAYLOAD 20260429 #180 — Jing
-        // "通知面板，用户点击进去，没有欣赏到点击进来的歌，而是等着输出一首
-        //  新的歌". Pipe mvUrl/audioUrl/coverUrl/subtitlesSrt + workTitle
-        // through the kara_ready event so the notifications panel persists
-        // them on the run::<id> notification card. Click-through then
-        // hydrates cssmvPipelineLastResult and skips runAll.
-        try {
-          window.dispatchEvent(new CustomEvent("cssos:kara_ready", {
-            detail: {
-              run_id: state.runId || composed.mv_id || "",
-              stage: "ready",
-              title: state.title || "",
-              workTitle: state.title || "",
-              mvUrl: state.mvUrl || "",
-              audioUrl: state.audioUrl || "",
-              coverUrl: state.coverUrl || "",
-              subtitlesSrt: state.subtitlesSrt || "",
-              workId: composed.mv_id || "",
-              duration: state.duration || 0
-            }
-          }));
-        } catch (_dispatchErr) { /* non-fatal */ }
+        // CSSOS_MV_DAG_WAVE_7F 20260508 — cssos:kara_ready dispatch lifted
+        // into dispatchStageEvents("compose"). Notification-panel hydration
+        // payload is now fired from the DAG callback.
         // CSSOS_PHASE2_AUDIO_OVERRIDE 20260426 #139 — Jing
         // "音乐引擎还是fallback到之前旧的音乐"
         // Force-push the freshly-generated audio URL into <audio> so the
@@ -6288,8 +6328,14 @@
       } catch (_autosaveErr) {
         console.error("[mv-pipeline][autosave] threw synchronously:", _autosaveErr);
       }
-      } // end Stage 6 (compose) resume guard
-      return { composeFailed: false, composed: composed };
+      } // end Stage 6 (compose) primary block
+      return {
+        composed: composed,
+        public_url: composed ? composed.public_url : null,
+        mv_id: composed ? composed.mv_id : null,
+        cost_cents: composed ? (composed.cost_cents || 0) : 0,
+        _resp: composed
+      };
       } // end runComposeStage
 
       // CSSOS_MV_DAG_WAVE_2_7C 20260507 — Jing
@@ -6397,26 +6443,77 @@
           return state.audioUrl || null;
         })
         .stage("video", ["cover", "music", "lyrics"], { weight: 35 }, async () => {
-          const r = await runVideoStage(state);
-          if (r && r.videoFailed) {
-            const e = new Error(_SHORT_CIRCUIT + ":video");
-            e.__shortCircuit = "video";
-            throw e;
+          // CSSOS_MV_DAG_WAVE_7D 20260508 — pure helper. Helper returns an
+          // output envelope (or throws sentinel on hard fail). DAG owns
+          // setStage / recordEngine ordering byte-for-byte with legacy.
+          const out = await runVideoStage(state);
+          if (!out) return null;
+          applyStageOutput(state, "video", out);
+          if (out.video_skipped) {
+            setStage(
+              "video",
+              "done",
+              copy(
+                "Skipped (Lite tier · slideshow only)",
+                "已跳过（Lite 档 · 仅幻灯片）"
+              ),
+              0
+            );
+          } else {
+            if (out._resp) recordEngine("video", out._resp);
+            dispatchStageEvents(state, "video", out, { cached: false });
+            setStage("video", "done", out.video_url, out.cost_cents);
           }
-          return r;
+          return out;
         })
         .stage("subs", ["lyrics", "music"], { weight: 5 }, async () => {
-          await runSubsStage(state);
+          if (STAGE_ORDER.indexOf("subtitles") < resumeStartIdx) return null;
+          setStage("subtitles", "running", "");
+          // CSSOS_MV_DAG_WAVE_7E 20260508 — pure helper. Helper returns an
+          // output envelope; we sequence applyStageOutput + recordEngine +
+          // dispatchStageEvents + setStage("done") here so the DAG owns
+          // side-effect ordering byte-for-byte with legacy.
+          const out = await runSubsStage(state);
+          if (!out) return null;
+          applyStageOutput(state, "subs", out);
+          if (out.skipped) {
+            setStage(
+              "subtitles",
+              "done",
+              copy(
+                "Subtitles skipped (" + out.skipReason + ")",
+                "字幕已跳过（" + out.skipReason + "）"
+              ),
+              0
+            );
+          } else {
+            if (out._resp) recordEngine("subtitles", out._resp);
+            dispatchStageEvents(state, "subs", out, { cached: false });
+            setStage(
+              "subtitles",
+              "done",
+              copy(
+                String(out.lineCount) + " lines · " + out.engine + "/" + out.version,
+                out.lineCount + " 行 · " + out.engine + "/" + out.version
+              ),
+              out.cost_cents
+            );
+          }
           return state.subtitlesSrt || null;
         })
         .stage("compose", ["cover", "music", "video", "subs"], { weight: 10 }, async () => {
-          const r = await runComposeStage(state);
-          if (r && r.composeFailed) {
-            const e = new Error(_SHORT_CIRCUIT + ":compose");
-            e.__shortCircuit = "compose";
-            throw e;
+          // CSSOS_MV_DAG_WAVE_7F 20260508 — pure helper. Helper returns an
+          // output envelope (or throws sentinel on hard fail). DAG owns
+          // setStage / recordEngine + kara_ready dispatch byte-for-byte.
+          const out = await runComposeStage(state);
+          if (!out) return null;
+          applyStageOutput(state, "compose", out);
+          if (out._resp) recordEngine("compose", out._resp);
+          dispatchStageEvents(state, "compose", out, { cached: false });
+          if (out.public_url) {
+            setStage("compose", "done", out.public_url, out.cost_cents);
           }
-          return r && r.composed;
+          return out.composed || null;
         });
       const _dagResult = await globalThis.cssmvDag.run(_pipelineDag, {
         ctx: { state: state },

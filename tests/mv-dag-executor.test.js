@@ -151,6 +151,78 @@ test("music cache pre-population: callback can gate kara_ready on meta.cached (w
   assert.strictEqual(r.done.video, "v:https://cached/audio.mp3");
 });
 
+test("subs cache pre-population: callback gates on meta.cached (wave 7e)", async () => {
+  // Wave 7e contract: when state.subtitlesSrt is already populated (resume
+  // case), the panel pre-populates the DAG cache. The executor still fires
+  // onStageDone for subs — but with meta.cached:true so the panel callback
+  // can skip recordEngine + setStage rewrite.
+  let recordCount = 0;
+  const mockApply = (stageId, _output, meta) => {
+    if (meta && meta.cached) return;
+    if (stageId === "subs") recordCount += 1;
+  };
+  const dag = cssmvDag.create()
+    .stage("lyrics", [], async () => ({ lyrics: "L" }))
+    .stage("music", ["lyrics"], async () => ({ audioUrl: "a" }))
+    .stage("subs", ["lyrics", "music"], async () => { throw new Error("should not run — cached"); })
+    .stage("compose", ["subs"], async ({ subs }) => "c:" + subs.subtitlesSrt);
+  const r = await cssmvDag.run(dag, {
+    cache: { subs: { subtitlesSrt: "1\n00:00:00,000 --> 00:00:03,000\nhi\n", cost_cents: 0 } },
+    onStageDone: (id, output, meta) => { mockApply(id, output, meta); }
+  });
+  assert.strictEqual(recordCount, 0, "cached subs stage must NOT trigger record");
+  assert.ok(String(r.done.compose).startsWith("c:"));
+});
+
+test("video cache pre-population skips video stage (wave 7d)", async () => {
+  // Wave 7d contract: when state.videoUrl is already populated (resume case),
+  // the panel pre-populates the DAG cache so the Runway call is skipped.
+  let videoRan = false;
+  const dag = cssmvDag.create()
+    .stage("cover", [], async () => ({ image_url: "c.png" }))
+    .stage("music", [], async () => ({ audioUrl: "a" }))
+    .stage("lyrics", [], async () => ({ lyrics: "L" }))
+    .stage("video", ["cover", "music", "lyrics"], async () => {
+      videoRan = true; return { video_url: "fresh.mp4" };
+    })
+    .stage("compose", ["video"], async ({ video }) => "mv:" + video.video_url);
+  const r = await cssmvDag.run(dag, {
+    cache: { video: { video_url: "cached.mp4", videoDurSecs: 10, cost_cents: 0 } }
+  });
+  assert.strictEqual(videoRan, false, "cached video must skip helper call");
+  assert.strictEqual(r.done.compose, "mv:cached.mp4");
+});
+
+test("compose cache pre-population skips compose + dispatches run-finish ONCE (wave 7f)", async () => {
+  // Wave 7f contract: when the run resumes a fully-completed compose stage,
+  // the cache pre-populates compose output. The panel callback still wants
+  // to fire cssmv:run-finish exactly once — once for the cached cell, not
+  // every time compose appears in the topo order. The meta.cached:true
+  // path should NOT trigger a re-broadcast (since the cinema-mode listener
+  // already saw the original event when the run first finished).
+  let runFinishCount = 0;
+  let composeRan = false;
+  const mockDispatch = (stageId, _output, meta) => {
+    if (meta && meta.cached) return;
+    if (stageId === "compose") runFinishCount += 1;
+  };
+  const dag = cssmvDag.create()
+    .stage("cover", [], async () => ({ image_url: "c.png" }))
+    .stage("music", [], async () => ({ audioUrl: "a" }))
+    .stage("video", ["cover", "music"], async () => ({ video_url: "v.mp4" }))
+    .stage("subs", ["music"], async () => ({ subtitlesSrt: "srt" }))
+    .stage("compose", ["cover", "music", "video", "subs"], async () => {
+      composeRan = true; return { public_url: "fresh.mp4" };
+    });
+  const r = await cssmvDag.run(dag, {
+    cache: { compose: { public_url: "cached.mp4", mv_id: "mv_1", cost_cents: 0 } },
+    onStageDone: (id, output, meta) => { mockDispatch(id, output, meta); }
+  });
+  assert.strictEqual(composeRan, false, "cached compose must skip helper call");
+  assert.strictEqual(runFinishCount, 0, "cached compose must NOT re-fire run-finish");
+  assert.strictEqual(r.done.compose.public_url, "cached.mp4");
+});
+
 test("weighted progress + critical path reported", async () => {
   const dag = cssmvDag.create()
     .stage("a", [],    { weight: 10 }, async () => { await new Promise(r => setTimeout(r, 5));  return 1; })

@@ -173,6 +173,13 @@
       });
       heroText.appendChild(followBtn);
     }
+    // CSSOS_PERSON_MV_WAVE71 20260508 — link to stats deep page.
+    var statsBtn = el("button", {
+      class: "uhp-follow",
+      style: "margin-left:8px;background:transparent;color:#00f5a0;border:1px solid #00f5a0;",
+      onclick: function () { location.hash = "#u/" + (u.username || u.id) + "/stats"; },
+    }, ["📊 " + tr("Stats", "数据")]);
+    heroText.appendChild(statsBtn);
     hero.appendChild(heroText);
     inner.appendChild(hero);
 
@@ -372,7 +379,14 @@
   }
 
   function maybeMount() {
-    var m = /^#u\/([^/?&]+)/.exec(location.hash || "");
+    var h = location.hash || "";
+    // CSSOS_PERSON_MV_WAVE71 — defer to stats deep page when path is #u/{handle}/stats.
+    if (/^#u\/[^/?&]+\/stats(?:[/?&].*)?$/.test(h)) {
+      var node0 = document.getElementById("cssos-user-homepage");
+      if (node0) node0.remove();
+      return;
+    }
+    var m = /^#u\/([^/?&]+)$/.exec(h);
     if (m && m[1]) {
       render(decodeURIComponent(m[1]));
     } else {

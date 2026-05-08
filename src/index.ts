@@ -9175,6 +9175,51 @@ function isCreditsError(status: number, body: string): boolean {
   return /credit|balance|quota|insufficient|payment|exhausted|out of/.test(s);
 }
 
+/* CSSOS_PERSON_MV_WAVE66 20260508 — Jing — routers honor engine_health.disabled_until.
+ * Wave 59 wrote disabled_until on 5+ consecutive failures but routers kept
+ * trying every provider. Now each router checks isEngineDisabled(provider)
+ * before invoking. 30s in-memory cache avoids hammering the DB on each call.
+ * On router success we opportunistically reset consecutive_failures=0. */
+const __engineDisabledCache = new Map<string, { at: number; disabled: boolean }>();
+async function isEngineDisabled(engineId: string): Promise<boolean> {
+  if (!DATABASE_URL) return false;
+  const now = Date.now();
+  const hit = __engineDisabledCache.get(engineId);
+  if (hit && now - hit.at < 30_000) return hit.disabled;
+  try {
+    const r = await withClient((c) =>
+      c.query<{ disabled_until: Date | null }>(
+        `SELECT disabled_until FROM engine_health
+          WHERE engine_id = $1 AND disabled_until IS NOT NULL AND disabled_until > now()
+          LIMIT 1`,
+        [engineId],
+      ),
+    );
+    const disabled = r.rowCount ? true : false;
+    __engineDisabledCache.set(engineId, { at: now, disabled });
+    if (disabled) {
+      const until = r.rows[0]?.disabled_until;
+      console.log(`[router] ${engineId} disabled until ${until?.toISOString?.() || until}`);
+    }
+    return disabled;
+  } catch {
+    return false;
+  }
+}
+async function resetEngineFailures(engineId: string): Promise<void> {
+  if (!DATABASE_URL) return;
+  try {
+    await withClient((c) =>
+      c.query(
+        `UPDATE engine_health SET consecutive_failures = 0, updated_at = now()
+          WHERE engine_id = $1 AND consecutive_failures > 0`,
+        [engineId],
+      ),
+    );
+    __engineDisabledCache.delete(engineId);
+  } catch {}
+}
+
 function llmProviderOrder(prefer?: string[]): LlmProvider[] {
   const env = String(process.env.LLM_PROVIDER_ORDER || "groq,cerebras,gemini,together,mistral,huggingface,openrouter,deepseek,anthropic,openai")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
@@ -9302,6 +9347,7 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
   let lastErr = "no_providers_available";
   let lastStatus = 0;
   for (const provider of order) {
+    if (await isEngineDisabled(provider)) continue;
     const cfg = LLM_PROVIDER_DEFAULTS[provider];
     const apiKey = String(process.env[cfg.keyEnv] || "").trim();
     if (!apiKey) continue;
@@ -9407,6 +9453,7 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
         }
         content = String(json?.choices?.[0]?.message?.content || "");
       }
+      void resetEngineFailures(provider);
       return { ok: true, status: upstream.status, provider, model, content, raw: json };
     } catch (err) {
       lastErr = String((err as Error)?.message || err);
@@ -9468,6 +9515,7 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
   const order = musicProviderOrder(req.prefer);
   let lastErr = "";
   for (const provider of order) {
+    if (await isEngineDisabled(provider)) continue;
     try {
       if (provider === "mubert") {
         // Mubert v3 has two auth tiers:
@@ -9528,7 +9576,7 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
         const firstDone = (Array.isArray(t?.generations) ? t.generations : []).find(
           (g: any) => g?.status === "done" && g?.url,
         );
-        if (firstDone?.url) return { ok: true, provider: "mubert", audio_url: String(firstDone.url) };
+        if (firstDone?.url) { void resetEngineFailures(provider); return { ok: true, provider: "mubert", audio_url: String(firstDone.url) }; }
         if (!trackId) {
           lastErr = "mubert_no_track_id";
           continue;
@@ -9549,7 +9597,7 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
           );
           if (gen?.url) { pollUrl = String(gen.url); break; }
         }
-        if (pollUrl) return { ok: true, provider: "mubert", audio_url: pollUrl };
+        if (pollUrl) { void resetEngineFailures(provider); return { ok: true, provider: "mubert", audio_url: pollUrl }; }
         lastErr = "mubert_poll_timeout";
         continue;
       }
@@ -9590,7 +9638,7 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
         const ab = await upstream.arrayBuffer();
         const b64 = Buffer.from(ab).toString("base64");
         if (!b64) { lastErr = "huggingface_music_empty_body"; continue; }
-        return { ok: true, provider: "huggingface_music", audio_b64: b64 };
+        { void resetEngineFailures(provider); return { ok: true, provider: "huggingface_music", audio_b64: b64 }; }
       }
       if (provider === "fal_music") {
         // fal-ai/musicgen-medium synchronous endpoint. Free with fal's
@@ -9616,7 +9664,7 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
         }
         const j: any = await upstream.json().catch(() => null);
         const url = String(j?.audio?.url || j?.audio_url || j?.audio_file?.url || "");
-        if (url) return { ok: true, provider: "fal_music", audio_url: url };
+        if (url) { void resetEngineFailures(provider); return { ok: true, provider: "fal_music", audio_url: url }; }
         lastErr = "fal_music_no_url";
         continue;
       }
@@ -9652,7 +9700,7 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
         }
         const out = j?.output;
         const url = typeof out === "string" ? out : (Array.isArray(out) && out.length ? String(out[0]) : "");
-        if (url) return { ok: true, provider: "replicate_music", audio_url: url };
+        if (url) { void resetEngineFailures(provider); return { ok: true, provider: "replicate_music", audio_url: url }; }
         // Status pending (sync wait timed out). Poll urls.get briefly.
         const getUrl = String(j?.urls?.get || "");
         if (getUrl) {
@@ -9664,7 +9712,7 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
             if (sj?.status === "succeeded") {
               const o = sj?.output;
               const u = typeof o === "string" ? o : (Array.isArray(o) && o.length ? String(o[0]) : "");
-              if (u) return { ok: true, provider: "replicate_music", audio_url: u };
+              if (u) { void resetEngineFailures(provider); return { ok: true, provider: "replicate_music", audio_url: u }; }
             }
             if (sj?.status === "failed" || sj?.status === "canceled") break;
           }
@@ -9698,14 +9746,14 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
         if (ct.includes("application/json")) {
           const j: any = await upstream.json().catch(() => null);
           const url = String(j?.audio_url || j?.url || j?.output?.url || "");
-          if (url) return { ok: true, provider: "deepinfra_music", audio_url: url };
+          if (url) { void resetEngineFailures(provider); return { ok: true, provider: "deepinfra_music", audio_url: url }; }
           // Some DeepInfra music endpoints return { audio: "data:audio/wav;base64,..." } or { audio: "<b64>" }.
           const audioField = j?.audio ?? j?.output ?? j?.audio_b64;
           if (typeof audioField === "string" && audioField.length > 0) {
             const b64 = audioField.startsWith("data:")
               ? audioField.split(",", 2)[1] || ""
               : audioField;
-            if (b64) return { ok: true, provider: "deepinfra_music", audio_b64: b64 };
+            if (b64) { void resetEngineFailures(provider); return { ok: true, provider: "deepinfra_music", audio_b64: b64 }; }
           }
           lastErr = "deepinfra_music_no_audio";
           continue;
@@ -9714,7 +9762,7 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
         const ab = await upstream.arrayBuffer();
         const b64 = Buffer.from(ab).toString("base64");
         if (!b64) { lastErr = "deepinfra_music_empty_body"; continue; }
-        return { ok: true, provider: "deepinfra_music", audio_b64: b64 };
+        { void resetEngineFailures(provider); return { ok: true, provider: "deepinfra_music", audio_b64: b64 }; }
       }
       // Other music providers (suno, elevenlabs, stability) — adapters
       // land separately. Suno already runs through the existing
@@ -9772,6 +9820,7 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
   const order = videoProviderOrder(req.prefer);
   let lastErr = "";
   for (const provider of order) {
+    if (await isEngineDisabled(provider)) continue;
     try {
       if (provider === "luma") {
         const apiKey = String(process.env.LUMA_API_KEY || "").trim();
@@ -9839,7 +9888,7 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
             break;
           }
         }
-        if (videoUrl) return { ok: true, provider: "luma", video_url: videoUrl };
+        if (videoUrl) { void resetEngineFailures(provider); return { ok: true, provider: "luma", video_url: videoUrl }; }
         if (!lastErr) lastErr = "luma_poll_timeout";
         continue;
       }
@@ -9924,7 +9973,7 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
             break;
           }
         }
-        if (videoUrl) return { ok: true, provider: "kling", video_url: videoUrl };
+        if (videoUrl) { void resetEngineFailures(provider); return { ok: true, provider: "kling", video_url: videoUrl }; }
         if (!lastErr) lastErr = "kling_poll_timeout";
         continue;
       }
@@ -9980,7 +10029,7 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
         };
         if (createJson.status === "succeeded") {
           const u = pickUrl(createJson.output);
-          if (u) return { ok: true, provider: "replicate", video_url: u };
+          if (u) { void resetEngineFailures(provider); return { ok: true, provider: "replicate", video_url: u }; }
         }
         if (createJson.status === "failed") {
           lastErr = "replicate_failed: " + String(createJson.error || "unknown");
@@ -10010,7 +10059,7 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
             break;
           }
         }
-        if (videoUrl) return { ok: true, provider: "replicate", video_url: videoUrl };
+        if (videoUrl) { void resetEngineFailures(provider); return { ok: true, provider: "replicate", video_url: videoUrl }; }
         if (!lastErr) lastErr = "replicate_poll_timeout";
         continue;
       }
@@ -10215,6 +10264,7 @@ async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
   const w = dims[0] || 1024;
   const h = dims[1] || 1024;
   for (const provider of order) {
+    if (await isEngineDisabled(provider)) continue;
     try {
       if (provider === "fal") {
         const apiKey = String(process.env.FAL_API_KEY || process.env.FAL_KEY || "").trim();
@@ -10249,6 +10299,7 @@ async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
           lastErr = "fal_no_image_in_response";
           continue;
         }
+        void resetEngineFailures(provider);
         return {
           ok: true, status: upstream.status,
           provider: "fal", model: "flux-schnell",
@@ -10286,6 +10337,7 @@ async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
           lastErr = "together_no_image_in_response";
           continue;
         }
+        void resetEngineFailures(provider);
         return {
           ok: true, status: upstream.status,
           provider: "together", model,
@@ -10329,6 +10381,7 @@ async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
           lastErr = "replicate_no_image_in_output";
           continue;
         }
+        void resetEngineFailures(provider);
         return {
           ok: true, status: upstream.status,
           provider: "replicate", model,
@@ -10360,6 +10413,7 @@ async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
           continue;
         }
         const buf = Buffer.from(await upstream.arrayBuffer());
+        void resetEngineFailures(provider);
         return {
           ok: true, status: upstream.status,
           provider: "fireworks", model: "flux-1-schnell-fp8",
@@ -10412,6 +10466,7 @@ async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
         };
         if (image_url) resp.image_url = image_url;
         if (image_b64) resp.image_b64 = image_b64;
+        void resetEngineFailures(provider);
         return resp;
       }
       if (provider === "stability_image") {
@@ -10437,6 +10492,7 @@ async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
           continue;
         }
         const buf = Buffer.from(await upstream.arrayBuffer());
+        void resetEngineFailures(provider);
         return {
           ok: true, status: upstream.status,
           provider: "stability_image", model: "stable-image-core",
@@ -10465,6 +10521,7 @@ async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
           continue;
         }
         const buf = Buffer.from(await upstream.arrayBuffer());
+        void resetEngineFailures(provider);
         return {
           ok: true, status: upstream.status,
           provider: "huggingface", model,
@@ -10503,6 +10560,7 @@ async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
           lastErr = "openai_no_image_in_response";
           continue;
         }
+        void resetEngineFailures(provider);
         return {
           ok: true, status: upstream.status,
           provider: "openai", model,
@@ -10531,6 +10589,7 @@ async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
           lastErr = "pollinations_empty_body";
           continue;
         }
+        void resetEngineFailures(provider);
         return {
           ok: true, status: upstream.status,
           provider: "pollinations", model: "pollinations-flux",
@@ -11526,6 +11585,23 @@ async function ensurePersonMvTables() {
       CREATE INDEX IF NOT EXISTS person_mv_comments_search_idx
         ON person_mv_comments USING GIN (search_vector);
 
+      -- CSSOS_PERSON_MV_WAVE70 20260508 — Jing — Chinese segmentation.
+      -- Additive tokenized column populated by triggers (CJK bigrams).
+      ALTER TABLE person_profiles    ADD COLUMN IF NOT EXISTS search_text_tokenized TEXT;
+      ALTER TABLE person_mvs         ADD COLUMN IF NOT EXISTS search_text_tokenized TEXT;
+      ALTER TABLE person_mv_comments ADD COLUMN IF NOT EXISTS search_text_tokenized TEXT;
+      CREATE INDEX IF NOT EXISTS person_profiles_tok_idx
+        ON person_profiles    USING GIN (to_tsvector('simple', COALESCE(search_text_tokenized, '')));
+      CREATE INDEX IF NOT EXISTS person_mvs_tok_idx
+        ON person_mvs         USING GIN (to_tsvector('simple', COALESCE(search_text_tokenized, '')));
+      CREATE INDEX IF NOT EXISTS person_mv_comments_tok_idx
+        ON person_mv_comments USING GIN (to_tsvector('simple', COALESCE(search_text_tokenized, '')));
+
+      -- CSSOS_PERSON_MV_WAVE69 20260508 — Jing — plaza ranking helper index.
+      CREATE INDEX IF NOT EXISTS person_mvs_plaza_idx
+        ON person_mvs (view_count DESC, created_at DESC)
+        WHERE visibility = 'public' AND approval_status = 'auto_published';
+
       -- CSSOS_PERSON_MV_WAVE26 20260508 — Jing — subscriptions + RSS.
       -- Mirrors migrations/027_user_subscriptions.sql.
       CREATE TABLE IF NOT EXISTS user_subscriptions (
@@ -11792,6 +11868,10 @@ async function ensurePersonMvTables() {
 
       ALTER TABLE users ADD COLUMN IF NOT EXISTS banned_at TIMESTAMPTZ;
 
+      -- CSSOS_PERSON_MV_WAVE71 20260508 — Jing — personal stats deep page.
+      -- Opt-out flag; when true, /api/users/:username/stats returns 403.
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS hide_stats BOOLEAN NOT NULL DEFAULT false;
+
       -- CSSOS_PERSON_MV_WAVE41 20260508 — admin trends dashboard.
       ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMPTZ;
       CREATE INDEX IF NOT EXISTS users_last_active_idx
@@ -11950,6 +12030,42 @@ async function ensurePersonMvTables() {
       );
       CREATE INDEX IF NOT EXISTS dm_messages_thread_idx
         ON dm_messages (thread_id, message_id DESC);
+
+      -- CSSOS_PERSON_MV_WAVE67 20260508 — Jing — DM groups extension.
+      -- Mirrors migrations/043_dm_groups_and_contest_llm_scores.sql.
+      ALTER TABLE dm_threads ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'pair';
+      ALTER TABLE dm_threads ADD COLUMN IF NOT EXISTS title TEXT;
+      ALTER TABLE dm_threads ADD COLUMN IF NOT EXISTS owner_id UUID;
+      ALTER TABLE dm_threads ALTER COLUMN user_a_id DROP NOT NULL;
+      ALTER TABLE dm_threads ALTER COLUMN user_b_id DROP NOT NULL;
+      ALTER TABLE dm_threads DROP CONSTRAINT IF EXISTS dm_threads_check;
+      CREATE TABLE IF NOT EXISTS dm_group_members (
+        thread_id UUID NOT NULL REFERENCES dm_threads(thread_id) ON DELETE CASCADE,
+        user_id   UUID NOT NULL,
+        role      TEXT NOT NULL DEFAULT 'member',
+        joined_at TIMESTAMPTZ DEFAULT now(),
+        last_read_at TIMESTAMPTZ,
+        PRIMARY KEY (thread_id, user_id)
+      );
+      CREATE INDEX IF NOT EXISTS dm_group_members_user_idx
+        ON dm_group_members (user_id);
+      CREATE INDEX IF NOT EXISTS dm_group_members_thread_idx
+        ON dm_group_members (thread_id);
+
+      -- CSSOS_PERSON_MV_WAVE68 20260508 — Jing — Contest LLM judge.
+      CREATE TABLE IF NOT EXISTS contest_llm_scores (
+        entry_id   UUID NOT NULL REFERENCES contest_entries(entry_id) ON DELETE CASCADE,
+        creativity NUMERIC,
+        craft      NUMERIC,
+        relevance  NUMERIC,
+        overall    NUMERIC,
+        reasoning  TEXT,
+        model      TEXT,
+        scored_at  TIMESTAMPTZ DEFAULT now(),
+        PRIMARY KEY (entry_id)
+      );
+      CREATE INDEX IF NOT EXISTS contest_llm_scores_overall_idx
+        ON contest_llm_scores (overall DESC);
     `),
   );
 
@@ -11963,6 +12079,49 @@ async function ensurePersonMvTables() {
   // would clash with the multi-statement string above).
   await withClient((c) =>
     c.query(`
+      -- CSSOS_PERSON_MV_WAVE70 20260508 — Jing — CJK bigram tokenizer.
+      CREATE OR REPLACE FUNCTION cssos_cjk_tokenize(t TEXT) RETURNS TEXT AS $fn$
+      DECLARE
+        out  TEXT := '';
+        i    INT;
+        len  INT;
+        ch   TEXT;
+        nxt  TEXT;
+        ascii_buf TEXT := '';
+      BEGIN
+        IF t IS NULL OR length(t) = 0 THEN RETURN ''; END IF;
+        len := char_length(t);
+        i := 1;
+        WHILE i <= len LOOP
+          ch := substr(t, i, 1);
+          IF ch ~ '[一-鿿㐀-䶿]' THEN
+            IF ascii_buf <> '' THEN
+              out := out || ' ' || ascii_buf;
+              ascii_buf := '';
+            END IF;
+            IF i < len THEN
+              nxt := substr(t, i + 1, 1);
+              IF nxt ~ '[一-鿿㐀-䶿]' THEN
+                out := out || ' ' || ch || nxt;
+              END IF;
+            END IF;
+            out := out || ' ' || ch;
+          ELSIF ch ~ '[A-Za-z0-9]' THEN
+            ascii_buf := ascii_buf || ch;
+          ELSE
+            IF ascii_buf <> '' THEN
+              out := out || ' ' || ascii_buf;
+              ascii_buf := '';
+            END IF;
+          END IF;
+          i := i + 1;
+        END LOOP;
+        IF ascii_buf <> '' THEN
+          out := out || ' ' || ascii_buf;
+        END IF;
+        RETURN out;
+      END $fn$ LANGUAGE plpgsql IMMUTABLE;
+
       CREATE OR REPLACE FUNCTION person_profiles_search_update() RETURNS trigger AS $fn$
       BEGIN
         NEW.search_vector :=
@@ -12442,6 +12601,66 @@ async function dmGetOrCreateThread(userA: string, userB: string): Promise<string
   );
   return r.rows[0]?.thread_id || null;
 }
+
+/* CSSOS_PERSON_MV_WAVE67 20260508 — Jing — DM groups access helper.
+ * Resolves access for either pair or group threads. Returns null if no access. */
+type DmThreadAccess = {
+  thread_id: string;
+  kind: "pair" | "group";
+  title: string | null;
+  owner_id: string | null;
+  user_a_id: string | null;
+  user_b_id: string | null;
+  side: "a" | "b" | null;
+  role: "owner" | "admin" | "member" | null;
+};
+async function dmThreadAccess(userId: string, tid: string): Promise<DmThreadAccess | null> {
+  if (!DATABASE_URL) return null;
+  const r = await withClient((c) =>
+    c.query<{
+      thread_id: string; kind: string; title: string | null; owner_id: string | null;
+      user_a_id: string | null; user_b_id: string | null;
+    }>(
+      `SELECT thread_id::text AS thread_id, kind, title, owner_id::text AS owner_id,
+              user_a_id::text AS user_a_id, user_b_id::text AS user_b_id
+         FROM dm_threads WHERE thread_id = $1::uuid`,
+      [tid],
+    ),
+  );
+  const row = r.rows[0];
+  if (!row) return null;
+  if (row.kind === "group") {
+    const m = await withClient((c) =>
+      c.query<{ role: string }>(
+        `SELECT role FROM dm_group_members WHERE thread_id = $1::uuid AND user_id = $2::uuid`,
+        [tid, userId],
+      ),
+    );
+    if (!m.rows[0]) return null;
+    return {
+      thread_id: row.thread_id, kind: "group", title: row.title,
+      owner_id: row.owner_id, user_a_id: null, user_b_id: null,
+      side: null, role: m.rows[0].role as "owner" | "admin" | "member",
+    };
+  }
+  if (row.user_a_id !== userId && row.user_b_id !== userId) return null;
+  return {
+    thread_id: row.thread_id, kind: "pair", title: null, owner_id: null,
+    user_a_id: row.user_a_id, user_b_id: row.user_b_id,
+    side: row.user_a_id === userId ? "a" : "b", role: null,
+  };
+}
+async function dmGroupMemberIds(tid: string): Promise<string[]> {
+  if (!DATABASE_URL) return [];
+  const r = await withClient((c) =>
+    c.query<{ user_id: string }>(
+      `SELECT user_id::text AS user_id FROM dm_group_members WHERE thread_id = $1::uuid`,
+      [tid],
+    ),
+  );
+  return r.rows.map((x) => x.user_id);
+}
+
 async function dmIsBlocked(userA: string, userB: string): Promise<boolean> {
   if (!DATABASE_URL) return false;
   const r = await withClient((c) =>
@@ -12462,28 +12681,42 @@ app.get("/api/dm/threads", async (req, res) => {
     if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
     await ensurePersonMvTables();
     const limit = Math.max(1, Math.min(50, Number(req.query.limit || 20) || 20));
+    // CSSOS_PERSON_MV_WAVE67 — UNION pair (user_a_id/user_b_id) + group (dm_group_members).
     const r = await withClient((c) =>
       c.query<{
-        thread_id: string; other_id: string; other_username: string | null;
+        thread_id: string; kind: string; title: string | null;
+        other_id: string | null; other_username: string | null;
         other_display_name: string | null; other_avatar_url: string | null;
+        member_count: number;
         last_message_at: string; my_last_read_at: string | null;
         last_body: string | null; last_sender_id: string | null;
         unread_count: number;
       }>(
         `WITH my AS (
-           SELECT thread_id, user_a_id, user_b_id, last_message_at,
-                  CASE WHEN user_a_id = $1::uuid THEN user_b_id ELSE user_a_id END AS other_id,
-                  CASE WHEN user_a_id = $1::uuid THEN a_last_read_at ELSE b_last_read_at END AS my_last_read_at
-             FROM dm_threads
-            WHERE user_a_id = $1::uuid OR user_b_id = $1::uuid
-            ORDER BY last_message_at DESC
+           SELECT t.thread_id, t.kind, t.title, t.last_message_at,
+                  CASE WHEN t.kind = 'pair' THEN
+                    CASE WHEN t.user_a_id = $1::uuid THEN t.user_b_id ELSE t.user_a_id END
+                  END AS other_id,
+                  CASE WHEN t.kind = 'pair' THEN
+                    CASE WHEN t.user_a_id = $1::uuid THEN t.a_last_read_at ELSE t.b_last_read_at END
+                    ELSE gm.last_read_at
+                  END AS my_last_read_at
+             FROM dm_threads t
+             LEFT JOIN dm_group_members gm
+                    ON gm.thread_id = t.thread_id AND gm.user_id = $1::uuid
+            WHERE (t.kind = 'pair' AND (t.user_a_id = $1::uuid OR t.user_b_id = $1::uuid))
+               OR (t.kind = 'group' AND gm.user_id = $1::uuid)
+            ORDER BY t.last_message_at DESC
             LIMIT $2
          )
          SELECT my.thread_id::text AS thread_id,
+                my.kind, my.title,
                 my.other_id::text AS other_id,
                 u.username AS other_username,
                 u.display_name AS other_display_name,
                 u.avatar_url AS other_avatar_url,
+                COALESCE((SELECT COUNT(*)::int FROM dm_group_members gm2
+                            WHERE gm2.thread_id = my.thread_id), 0) AS member_count,
                 my.last_message_at,
                 my.my_last_read_at,
                 lm.body AS last_body,
@@ -12509,7 +12742,10 @@ app.get("/api/dm/threads", async (req, res) => {
       ok: true,
       threads: r.rows.map((row) => ({
         thread_id: row.thread_id,
-        other: {
+        kind: row.kind || "pair",
+        title: row.title,
+        member_count: Number(row.member_count || 0),
+        other: row.kind === "group" ? null : {
           id: row.other_id,
           username: row.other_username,
           display_name: row.other_display_name || row.other_username,
@@ -18820,6 +19056,7 @@ async function callWhisperGen(req: WhisperGenRequest): Promise<WhisperGenRespons
   let lastErr = "";
   let lastStatus = 0;
   for (const provider of order) {
+    if (await isEngineDisabled(provider)) continue;
     try {
       if (provider === "whisper_hf") {
         const key = String(process.env.HUGGINGFACE_API_KEY || process.env.HF_API_KEY || "").trim();
@@ -18839,7 +19076,7 @@ async function callWhisperGen(req: WhisperGenRequest): Promise<WhisperGenRespons
         try { raw = JSON.parse(bodyText); } catch { lastErr = "hf_parse"; continue; }
         const chunks = normalizeHfChunks(raw);
         if (!chunks.length) { lastErr = "hf_no_chunks"; continue; }
-        return { ok: true, status: r.status, provider, model: "openai/whisper-large-v3", text: String(raw?.text || ""), chunks, srt: chunksToSrt(chunks) };
+        { void resetEngineFailures(provider); return { ok: true, status: r.status, provider, model: "openai/whisper-large-v3", text: String(raw?.text || ""), chunks, srt: chunksToSrt(chunks) }; }
       }
       if (provider === "whisper_fal") {
         const key = String(process.env.FAL_API_KEY || process.env.FAL_KEY || "").trim();
@@ -18862,7 +19099,7 @@ async function callWhisperGen(req: WhisperGenRequest): Promise<WhisperGenRespons
         try { raw = JSON.parse(bodyText); } catch { lastErr = "fal_parse"; continue; }
         const chunks = normalizeHfChunks(raw);
         if (!chunks.length) { lastErr = "fal_no_chunks"; continue; }
-        return { ok: true, status: r.status, provider, model: "fal-ai/whisper", text: String(raw?.text || ""), chunks, srt: chunksToSrt(chunks) };
+        { void resetEngineFailures(provider); return { ok: true, status: r.status, provider, model: "fal-ai/whisper", text: String(raw?.text || ""), chunks, srt: chunksToSrt(chunks) }; }
       }
       if (provider === "whisper_openai") {
         const key = String(process.env.OPENAI_API_KEY || "").trim();
@@ -18894,7 +19131,7 @@ async function callWhisperGen(req: WhisperGenRequest): Promise<WhisperGenRespons
         try { raw = JSON.parse(bodyText); } catch { lastErr = "openai_parse"; continue; }
         const chunks = normalizeOpenAiWords(raw);
         if (!chunks.length) { lastErr = "openai_no_chunks"; continue; }
-        return { ok: true, status: r.status, provider, model: "whisper-1", text: String(raw?.text || ""), chunks, srt: chunksToSrt(chunks) };
+        { void resetEngineFailures(provider); return { ok: true, status: r.status, provider, model: "whisper-1", text: String(raw?.text || ""), chunks, srt: chunksToSrt(chunks) }; }
       }
     } catch (e) {
       lastErr = `${provider}_throw: ${(e as Error)?.message || String(e)}`;
@@ -25707,6 +25944,7 @@ async function resolveUserByUsernameOrId(handle: string): Promise<{
   id: string; username: string | null; display_name: string | null;
   avatar_url: string | null; bio: string | null; created_at: string;
   verified_at?: string | null;
+  hide_stats?: boolean | null;
 } | null> {
   if (!handle || !DATABASE_URL) return null;
   const r = await withClient((c) =>
@@ -25714,9 +25952,11 @@ async function resolveUserByUsernameOrId(handle: string): Promise<{
       id: string; username: string | null; display_name: string | null;
       avatar_url: string | null; bio: string | null; created_at: string;
       verified_at: string | null;
+      hide_stats: boolean | null;
     }>(
       `SELECT id, username, display_name, avatar_url, bio, created_at,
-              verified_at
+              verified_at,
+              COALESCE(hide_stats, false) AS hide_stats
          FROM users
         WHERE (username IS NOT NULL AND lower(username) = lower($1))
            OR id::text = $1
@@ -25822,6 +26062,225 @@ app.get("/api/users/:username/profile", async (req, res) => {
     return res.status(500).json({ ok: false, code: "PROFILE_FAILED" });
   }
 });
+
+// CSSOS_PERSON_MV_WAVE71 20260508 — Jing — personal stats deep page.
+// Public endpoint (Twitter-analytics style). Aggregates totals, favorite
+// styles/persons/civilizations, 7×24 active-hours heatmap, creation
+// streak, and 30d growth. 5-minute in-memory cache, busted on writes.
+const __wave71StatsCache: Map<string, { at: number; payload: unknown }> = new Map();
+const WAVE71_TTL_MS = 5 * 60 * 1000;
+function wave71Bust(userId: string) { __wave71StatsCache.delete(userId); }
+app.get("/api/users/:username/stats", async (req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const handle = String(req.params.username || "").trim();
+    if (!handle) return res.status(400).json({ ok: false, code: "INVALID_USERNAME" });
+    const u = await resolveUserByUsernameOrId(handle);
+    if (!u) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    if ((u as { hide_stats?: boolean }).hide_stats) {
+      return res.status(403).json({ ok: false, code: "STATS_HIDDEN" });
+    }
+    const cached = __wave71StatsCache.get(u.id);
+    if (cached && Date.now() - cached.at < WAVE71_TTL_MS) {
+      return res.json(cached.payload);
+    }
+    // Totals — single round-trip aggregation.
+    const totalsR = await withClient((c) =>
+      c.query<{
+        mvs_created: number; total_views: number; total_likes: number;
+        total_comments_received: number; persons_explored: number;
+      }>(
+        `SELECT
+           COALESCE((SELECT COUNT(*)::int FROM person_mvs WHERE created_by_user_id = $1), 0) AS mvs_created,
+           COALESCE((SELECT SUM(view_count)::int FROM person_mvs WHERE created_by_user_id = $1), 0) AS total_views,
+           COALESCE((SELECT SUM(like_count)::int FROM person_mvs WHERE created_by_user_id = $1), 0) AS total_likes,
+           COALESCE((SELECT COUNT(*)::int FROM person_mv_comments c
+                       JOIN person_mvs pm ON pm.mv_id = c.mv_id
+                      WHERE pm.created_by_user_id = $1 AND c.deleted_at IS NULL
+                        AND c.user_id <> $1), 0) AS total_comments_received,
+           COALESCE((SELECT COUNT(DISTINCT person_id)::int FROM person_mvs WHERE created_by_user_id = $1), 0) AS persons_explored`,
+        [u.id],
+      ),
+    );
+    const totals = totalsR.rows[0] || {
+      mvs_created: 0, total_views: 0, total_likes: 0, total_comments_received: 0, persons_explored: 0,
+    };
+    const creditsR = await withClient((c) =>
+      c.query<{ lifetime_earned: number }>(
+        `SELECT lifetime_earned FROM user_credits WHERE user_id = $1`, [u.id],
+      ),
+    );
+    const credits_earned = Number(creditsR.rows[0]?.lifetime_earned || 0);
+
+    // Favorite styles — unnest style_tags across user's MVs, top 5.
+    const stylesR = await withClient((c) =>
+      c.query<{ style: string; count: number }>(
+        `SELECT s AS style, COUNT(*)::int AS count
+           FROM person_mvs pm, UNNEST(pm.style_tags) AS s
+          WHERE pm.created_by_user_id = $1 AND s IS NOT NULL AND s <> ''
+          GROUP BY s
+          ORDER BY count DESC
+          LIMIT 5`,
+        [u.id],
+      ),
+    );
+    const totalStyleHits = stylesR.rows.reduce((a, r) => a + Number(r.count || 0), 0) || 1;
+    const favorite_styles = stylesR.rows.map((r) => ({
+      style: r.style,
+      count: Number(r.count || 0),
+      percentage: Math.round((Number(r.count || 0) / totalStyleHits) * 100),
+    }));
+
+    // Favorite persons — top 5 by MV count.
+    const personsR = await withClient((c) =>
+      c.query<{ person_id: string; name_zh: string; name_en: string | null; mv_count: number }>(
+        `SELECT pp.person_id, pp.name_zh, pp.name_en, COUNT(pm.mv_id)::int AS mv_count
+           FROM person_mvs pm
+           JOIN person_profiles pp ON pp.person_id = pm.person_id
+          WHERE pm.created_by_user_id = $1
+          GROUP BY pp.person_id
+          ORDER BY mv_count DESC
+          LIMIT 5`,
+        [u.id],
+      ),
+    );
+
+    // Favorite civilizations — count of MVs whose person belongs to civ.
+    const civsR = await withClient((c) =>
+      c.query<{ civ: string; count: number }>(
+        `SELECT pp.civilization AS civ, COUNT(pm.mv_id)::int AS count
+           FROM person_mvs pm
+           JOIN person_profiles pp ON pp.person_id = pm.person_id
+          WHERE pm.created_by_user_id = $1 AND pp.civilization IS NOT NULL AND pp.civilization <> ''
+          GROUP BY pp.civilization
+          ORDER BY count DESC
+          LIMIT 5`,
+        [u.id],
+      ),
+    );
+
+    // Active hours heatmap — 7×24 grid built from creation_history.
+    // Day-of-week 0=Sunday … 6=Saturday (Postgres EXTRACT(DOW)).
+    const heatR = await withClient((c) =>
+      c.query<{ dow: number; hod: number; count: number }>(
+        `SELECT EXTRACT(DOW FROM occurred_at)::int AS dow,
+                EXTRACT(HOUR FROM occurred_at)::int AS hod,
+                COUNT(*)::int AS count
+           FROM creation_history
+          WHERE user_id = $1
+          GROUP BY dow, hod`,
+        [u.id],
+      ),
+    );
+    const active_hours_heatmap: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0) as number[]);
+    for (const r of heatR.rows) {
+      const d = Math.max(0, Math.min(6, Number(r.dow || 0)));
+      const h = Math.max(0, Math.min(23, Number(r.hod || 0)));
+      const row = active_hours_heatmap[d];
+      if (row) row[h] = Number(r.count || 0);
+    }
+
+    // Creation streak — distinct days in a row, ending on most recent
+    // creation day (UTC). Algorithm: pull distinct creation dates desc,
+    // walk backward counting consecutive days; longest = scan full set.
+    const daysR = await withClient((c) =>
+      c.query<{ d: string }>(
+        `SELECT DISTINCT (created_at AT TIME ZONE 'UTC')::date::text AS d
+           FROM person_mvs
+          WHERE created_by_user_id = $1
+          ORDER BY d DESC`,
+        [u.id],
+      ),
+    );
+    const days: string[] = daysR.rows
+      .map((r) => r.d)
+      .filter((x): x is string => typeof x === "string" && !!x);
+    let current = 0; let longest = 0; let lastCreation: string | null = null;
+    const first = days[0];
+    if (first) {
+      lastCreation = first;
+      const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+      const last = new Date(first + "T00:00:00Z");
+      const diffDays = Math.round((today.getTime() - last.getTime()) / 86400000);
+      if (diffDays <= 1) {
+        current = 1;
+        for (let i = 1; i < days.length; i++) {
+          const prev = days[i - 1]; const cur = days[i];
+          if (!prev || !cur) break;
+          const a = new Date(prev + "T00:00:00Z");
+          const b = new Date(cur + "T00:00:00Z");
+          if (Math.round((a.getTime() - b.getTime()) / 86400000) === 1) current++;
+          else break;
+        }
+      }
+      // Longest run anywhere in the history.
+      let run = 1; longest = 1;
+      for (let i = 1; i < days.length; i++) {
+        const prev = days[i - 1]; const cur = days[i];
+        if (!prev || !cur) { run = 1; continue; }
+        const a = new Date(prev + "T00:00:00Z");
+        const b = new Date(cur + "T00:00:00Z");
+        if (Math.round((a.getTime() - b.getTime()) / 86400000) === 1) {
+          run++; if (run > longest) longest = run;
+        } else { run = 1; }
+      }
+    }
+
+    // 30-day growth — daily mvs/views added.
+    const growthR = await withClient((c) =>
+      c.query<{ d: string; mvs_added: number; views_added: number }>(
+        `WITH d AS (
+           SELECT generate_series((CURRENT_DATE - INTERVAL '29 days')::date, CURRENT_DATE, INTERVAL '1 day')::date AS day
+         )
+         SELECT d.day::text AS d,
+                COALESCE(COUNT(pm.mv_id), 0)::int AS mvs_added,
+                COALESCE(SUM(pm.view_count), 0)::int AS views_added
+           FROM d
+           LEFT JOIN person_mvs pm
+             ON pm.created_by_user_id = $1
+            AND (pm.created_at AT TIME ZONE 'UTC')::date = d.day
+          GROUP BY d.day
+          ORDER BY d.day ASC`,
+        [u.id],
+      ),
+    );
+
+    const payload = {
+      ok: true,
+      user: {
+        id: u.id, username: u.username, display_name: u.display_name,
+        avatar_url: u.avatar_url, verified: !!u.verified_at, created_at: u.created_at,
+      },
+      totals: {
+        mvs_created: Number(totals.mvs_created || 0),
+        total_views: Number(totals.total_views || 0),
+        total_likes: Number(totals.total_likes || 0),
+        total_comments_received: Number(totals.total_comments_received || 0),
+        persons_explored: Number(totals.persons_explored || 0),
+        credits_earned,
+      },
+      favorite_styles,
+      favorite_persons: personsR.rows.map((r) => ({
+        person_id: r.person_id, name_zh: r.name_zh, name_en: r.name_en, mv_count: Number(r.mv_count || 0),
+      })),
+      favorite_civilizations: civsR.rows.map((r) => ({ civ: r.civ, count: Number(r.count || 0) })),
+      active_hours_heatmap,
+      streak: { current, longest, last_creation_date: lastCreation },
+      growth: growthR.rows.map((r) => ({
+        date: r.d, mvs_added: Number(r.mvs_added || 0), views_added: Number(r.views_added || 0),
+      })),
+    };
+    __wave71StatsCache.set(u.id, { at: Date.now(), payload });
+    return res.json(payload);
+  } catch (err) {
+    console.warn("[users/stats] failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "STATS_FAILED" });
+  }
+});
+// Re-export bust hook so other write paths can call it (we leave manual
+// invocation off for now — 5-minute TTL is acceptable freshness).
+void wave71Bust;
 
 app.post("/api/users/:username/follow", express.json({ limit: "1kb" }), async (req, res) => {
   noStore(res);

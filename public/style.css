@@ -9919,3 +9919,14 @@ html, body {
 body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen {
   padding: 0 !important;
 }
+
+/* CSSOS_PERSON_MV_WAVE66 20260508 — Jing — engines admin balance column colour code.
+ * Dark base (pale teal) + light theme (forest green) overrides. */
+.cssos-engine-bal-green { color: #22c55e; font-weight: 600; }
+.cssos-engine-bal-yellow { color: #eab308; font-weight: 600; }
+.cssos-engine-bal-red { color: #ef4444; font-weight: 700; }
+.cssos-engine-bal-na { color: rgba(218, 255, 238, 0.45); }
+html[data-theme="light"] .cssos-engine-bal-green { color: #00a060; }
+html[data-theme="light"] .cssos-engine-bal-yellow { color: #b58100; }
+html[data-theme="light"] .cssos-engine-bal-red { color: #b1311e; }
+html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }

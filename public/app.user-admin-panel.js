@@ -760,15 +760,24 @@ async function refreshAdminEnginesCard() {
   const host = document.getElementById("admin-trends-engines");
   if (!host) return;
   try {
-    const [usageR, balR] = await Promise.all([
+    const [usageR, balR, alertsR] = await Promise.all([
       fetch("/api/admin/engine-usage", { credentials: "include" }).then((r) => r.json()).catch(() => null),
       fetch("/api/admin/engine-balance", { credentials: "include" }).then((r) => r.json()).catch(() => null),
+      fetch("/api/admin/engine-balance/alerts", { credentials: "include" }).then((r) => r.json()).catch(() => null),
     ]);
     const engines = usageR?.data?.engines || [];
     const balances = (balR?.data?.entries || []).reduce((acc, e) => {
       acc[e.engine] = e;
       return acc;
     }, {});
+    // CSSOS_PERSON_MV_WAVE66 — thresholds + 24h alert lookup for colour code.
+    const thresholds = alertsR?.data?.thresholds || {};
+    const alertCutoff = Date.now() - 24 * 3600 * 1000;
+    const alerted = new Set(
+      (alertsR?.data?.entries || [])
+        .filter((a) => new Date(a.alerted_at).getTime() > alertCutoff)
+        .map((a) => a.engine_id),
+    );
     if (!engines.length) {
       host.textContent = loginCopy("No engine activity in the last 24h.");
       return;
@@ -779,10 +788,22 @@ async function refreshAdminEnginesCard() {
       const callsMin = (Number(e.calls_5min) / 5).toFixed(1);
       const bal = balances[e.engine];
       let balTxt = "—";
+      let balValue = null;
+      let balMetric = null;
       if (bal) {
-        if (typeof bal.balance_usd === "number") balTxt = `$${bal.balance_usd.toFixed(2)}`;
-        else if (typeof bal.balance_credits === "number") balTxt = `${bal.balance_credits} cr`;
+        if (typeof bal.balance_usd === "number") { balTxt = `$${bal.balance_usd.toFixed(2)}`; balValue = bal.balance_usd; balMetric = "usd"; }
+        else if (typeof bal.balance_credits === "number") { balTxt = `${bal.balance_credits} cr`; balValue = bal.balance_credits; balMetric = "credits"; }
         else if (bal.error) balTxt = bal.error;
+      }
+      // CSSOS_PERSON_MV_WAVE66 — green/yellow/red based on threshold + 24h alerts.
+      let balClass = "cssos-engine-bal-na";
+      const cfg = thresholds[bal?.engine] || thresholds[e.engine];
+      if (alerted.has(e.engine)) {
+        balClass = "cssos-engine-bal-red";
+      } else if (cfg && balValue !== null && balMetric === cfg.metric) {
+        if (balValue < cfg.value) balClass = "cssos-engine-bal-red";
+        else if (balValue < cfg.value * 2) balClass = "cssos-engine-bal-yellow";
+        else balClass = "cssos-engine-bal-green";
       }
       return `<tr data-engine="${escapeHtml(e.engine)}" style="cursor:pointer;border-left:3px solid ${color};">
         <td style="padding:2px 6px;">${escapeHtml(e.engine)}</td>
@@ -790,7 +811,7 @@ async function refreshAdminEnginesCard() {
         <td style="padding:2px 6px;text-align:right;">${callsMin}</td>
         <td style="padding:2px 6px;text-align:right;">${e.avg_latency_ms}ms</td>
         <td style="padding:2px 6px;text-align:right;">${fail}%</td>
-        <td style="padding:2px 6px;text-align:right;">${escapeHtml(balTxt)}</td>
+        <td class="${balClass}" style="padding:2px 6px;text-align:right;">${escapeHtml(balTxt)}</td>
       </tr>`;
     }).join("");
     host.innerHTML = `

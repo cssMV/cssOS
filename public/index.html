@@ -137,6 +137,15 @@
             </header>
             <div class="cssos-discover-row" data-discover-row="person-mv" id="person-mv-discover-row"></div>
           </section>
+          <!-- CSSOS_PERSON_MV_WAVE15 20260508 — today-in-history shelf.
+               Hidden until /api/person-mv/today-in-history returns rows. -->
+          <section class="cssos-today-shelf" id="person-mv-today-shelf" data-shelf="person-mv-today" hidden>
+            <header class="cssos-today-header">
+              <h2 data-i18n="today.personMv.title">📅 今日历史</h2>
+              <span class="cssos-today-sub" id="person-mv-today-sub"></span>
+            </header>
+            <div class="cssos-today-row" id="person-mv-today-row"></div>
+          </section>
         </div>
       </section>
 
@@ -2104,6 +2113,7 @@
     <script src="app.mv-pipeline-panel.js?v=20260507-sort-usage"></script>
     <script src="app.person-mv-panel.js?v=20260507-percard"></script>
     <script src="app.person-mv-discover-shelf.js?v=20260507-wave9"></script>
+    <script src="app.person-mv-today-shelf.js?v=20260508-wave15"></script>
     <script src="app.user-homepage.js?v=20260508-wave11"></script>
     <script src="app.person-mv-comments-share.js?v=20260508-wave12"></script>
     <script src="app.cover-slideshow.js?v=20260430-slideshow-intensity-200"></script>

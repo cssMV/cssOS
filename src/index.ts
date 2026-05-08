@@ -11865,6 +11865,24 @@ async function ensurePersonMvTables() {
       );
       CREATE INDEX IF NOT EXISTS webhook_deliveries_webhook_idx
         ON webhook_deliveries (webhook_id, delivered_at DESC);
+
+      -- CSSOS_PERSON_MV_WAVE51 20260508 — Jing — creation timeline.
+      -- Append-only event log of every user action during MV creation
+      -- so users can replay their own decisions. Indexed by user (for
+      -- the recent-events feed) and run_id (for per-run replay).
+      CREATE TABLE IF NOT EXISTS creation_history (
+        id BIGSERIAL PRIMARY KEY,
+        user_id UUID NOT NULL,
+        work_id UUID,
+        run_id TEXT,
+        event_kind TEXT NOT NULL,
+        payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+        occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS creation_history_user_idx
+        ON creation_history (user_id, occurred_at DESC);
+      CREATE INDEX IF NOT EXISTS creation_history_run_idx
+        ON creation_history (run_id) WHERE run_id IS NOT NULL;
     `),
   );
 
@@ -30029,6 +30047,187 @@ app.post("/api/works/:id/products/:attachment_id/click", async (req, res) => {
     return res.json({ ok: true, click_count: clicks });
   } catch (err) {
     return res.status(500).json({ ok: false, code: "PRODUCT_CLICK_FAILED", message: String(err) });
+  }
+});
+
+
+
+/* CSSOS_PERSON_MV_WAVE53 20260508 — Jing
+ * Cinema-mode bilingual subtitle translation. Cache lookup keyed by
+ * (work_id, target_lang); on miss we fetch source SRT from
+ * work_assets.subtitle_srt, chunk-translate via callLlm preserving
+ * timing markers, persist + return inline SRT. */
+async function ensureSubtitleTranslationTables() {
+  if (!DATABASE_URL) return;
+  try {
+    await withClient((c) =>
+      c.query(
+        `CREATE TABLE IF NOT EXISTS subtitle_translations (
+           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+           work_id UUID NOT NULL,
+           source_lang TEXT NOT NULL,
+           target_lang TEXT NOT NULL,
+           srt_url TEXT,
+           srt_inline TEXT,
+           created_at TIMESTAMPTZ DEFAULT now(),
+           UNIQUE (work_id, target_lang)
+         );
+         CREATE INDEX IF NOT EXISTS subtitle_translations_work_idx
+           ON subtitle_translations (work_id);`,
+      ),
+    );
+  } catch (err) {
+    console.warn("[subs-translate] ensure tables failed:", (err as Error)?.message || err);
+  }
+}
+
+const SUBS_LANG_NAMES: Record<string, string> = {
+  zh: "Simplified Chinese",
+  en: "English",
+  ja: "Japanese",
+  ko: "Korean",
+  es: "Spanish",
+  fr: "French",
+};
+
+function chunkSrtForLlm(srt: string, maxChars = 4000): string[] {
+  const cues = srt.replace(/\r\n/g, "\n").split(/\n\n+/).map((c) => c.trim()).filter(Boolean);
+  const out: string[] = [];
+  let buf = "";
+  for (const cue of cues) {
+    const candidate = buf ? buf + "\n\n" + cue : cue;
+    if (candidate.length > maxChars && buf) {
+      out.push(buf);
+      buf = cue;
+    } else {
+      buf = candidate;
+    }
+  }
+  if (buf) out.push(buf);
+  return out;
+}
+
+app.post(
+  "/api/works/:id/translate-subs",
+  express.json({ limit: "16kb" }),
+  async (req, res) => {
+    noStore(res);
+    try {
+      const user = await getSessionUser(req).catch(() => null);
+      if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+      const workId = String(req.params.id || "").trim();
+      const target = String((req.body || {}).target_lang || "").trim().toLowerCase();
+      if (!workId) return res.status(400).json({ ok: false, code: "MISSING_WORK_ID" });
+      if (!SUBS_LANG_NAMES[target]) {
+        return res.status(400).json({ ok: false, code: "UNSUPPORTED_LANG" });
+      }
+      await ensureSubtitleTranslationTables();
+      const cached = await withClient((c) =>
+        c.query<{ srt_inline: string | null; srt_url: string | null }>(
+          `SELECT srt_inline, srt_url FROM subtitle_translations
+            WHERE work_id = $1::uuid AND target_lang = $2 LIMIT 1`,
+          [workId, target],
+        ),
+      );
+      if (cached.rows[0] && (cached.rows[0].srt_inline || cached.rows[0].srt_url)) {
+        return res.json({
+          ok: true,
+          cached: true,
+          target_lang: target,
+          srt: cached.rows[0].srt_inline || "",
+          srt_url: cached.rows[0].srt_url || null,
+        });
+      }
+      const assetR = await withClient((c) =>
+        c.query<{ url: string | null; meta: any }>(
+          `SELECT url, meta FROM work_assets
+            WHERE work_id = $1::uuid AND asset_type = 'subtitle_srt'
+            ORDER BY created_at DESC NULLS LAST LIMIT 1`,
+          [workId],
+        ),
+      );
+      const asset = assetR.rows[0];
+      if (!asset) return res.status(404).json({ ok: false, code: "NO_SOURCE_SUBS" });
+      let srtText = "";
+      if (asset.meta && typeof asset.meta.text === "string") {
+        srtText = String(asset.meta.text);
+      } else if (asset.url) {
+        try {
+          const ac = new AbortController();
+          const t = setTimeout(() => ac.abort(), 10000);
+          const r = await fetch(asset.url, { signal: ac.signal });
+          clearTimeout(t);
+          if (r.ok) srtText = await r.text();
+        } catch (_e) { /* fall through */ }
+      }
+      if (!srtText.trim()) {
+        return res.status(404).json({ ok: false, code: "EMPTY_SOURCE_SUBS" });
+      }
+      const chunks = chunkSrtForLlm(srtText, 4000);
+      const translated: string[] = [];
+      const langName = SUBS_LANG_NAMES[target];
+      for (const chunk of chunks) {
+        const llm = await callLlm({
+          messages: [
+            {
+              role: "system",
+              content:
+                `You are a subtitle translator. Translate the user's SRT cues into ${langName}. ` +
+                `Preserve cue numbers and timing markers (HH:MM:SS,mmm --> HH:MM:SS,mmm) EXACTLY. ` +
+                `Translate only the spoken text lines. Output the same SRT format and nothing else — no prose, no code fences.`,
+            },
+            { role: "user", content: chunk },
+          ],
+          temperature: 0.2,
+          max_tokens: 2000,
+        });
+        const out = (llm?.content || "").trim();
+        if (!out) {
+          return res.status(502).json({ ok: false, code: "LLM_EMPTY" });
+        }
+        translated.push(out);
+      }
+      const finalSrt = translated.join("\n\n");
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO subtitle_translations (work_id, source_lang, target_lang, srt_inline)
+           VALUES ($1::uuid, $2, $3, $4)
+           ON CONFLICT (work_id, target_lang)
+           DO UPDATE SET srt_inline = EXCLUDED.srt_inline, created_at = now()`,
+          [workId, "auto", target, finalSrt],
+        ),
+      );
+      return res.json({ ok: true, cached: false, target_lang: target, srt: finalSrt, srt_url: null });
+    } catch (err) {
+      console.warn("[subs-translate] failed:", (err as Error)?.message || err);
+      return res.status(500).json({ ok: false, code: "TRANSLATE_FAILED", message: String(err) });
+    }
+  },
+);
+
+app.get("/api/works/:id/translations", async (req, res) => {
+  noStore(res);
+  try {
+    const workId = String(req.params.id || "").trim();
+    if (!workId) return res.status(400).json({ ok: false, code: "MISSING_WORK_ID" });
+    await ensureSubtitleTranslationTables();
+    const r = await withClient((c) =>
+      c.query<{ target_lang: string; created_at: string }>(
+        `SELECT target_lang, created_at FROM subtitle_translations
+          WHERE work_id = $1::uuid ORDER BY created_at DESC`,
+        [workId],
+      ),
+    );
+    return res.json({
+      ok: true,
+      translations: r.rows.map((row) => ({
+        target_lang: row.target_lang,
+        lang_name: SUBS_LANG_NAMES[row.target_lang] || row.target_lang,
+        created_at: row.created_at,
+      })),
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "LIST_TRANSLATIONS_FAILED", message: String(err) });
   }
 });
 

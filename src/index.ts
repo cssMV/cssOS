@@ -26293,6 +26293,623 @@ app.get("/", async (req, res) => {
   }
 });
 
+/* CSSOS_PERSON_MV_WAVE30 20260508 — Jing — team collab MV creation.
+ * Multi-user share a creation session: User A handles lyrics, User B
+ * handles cover, etc. Stage assignments per user. Polling-based for
+ * v1 — clients poll every 3s. Roles: owner, lyrics, cover, music,
+ * video, subs, compose, viewer. Stage submission validates the
+ * caller's role for the stage. Finalize gathers stage outputs and
+ * runs the canonical headless pipeline (skipped stages fall through
+ * to the standard tier-sweep router via runHeadlessPipeline). */
+const COLLAB_ROLES = new Set([
+  "owner", "lyrics", "cover", "music", "video", "subs", "compose", "viewer",
+]);
+const COLLAB_STAGE_TO_ROLE: Record<string, string> = {
+  lyrics: "lyrics",
+  cover: "cover",
+  music: "music",
+  video: "video",
+  subtitles: "subs",
+  subs: "subs",
+  compose: "compose",
+};
+
+app.post("/api/collab/sessions", express.json({ limit: "16kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const body = (req.body && typeof req.body === "object") ? req.body : {};
+    const personId = body.person_id == null ? null : String(body.person_id).slice(0, 200) || null;
+    const assignmentsRaw = (body.role_assignments && typeof body.role_assignments === "object")
+      ? body.role_assignments as Record<string, unknown>
+      : {};
+    const created = await withClient(async (c) => {
+      const r = await c.query<{ session_id: string }>(
+        `INSERT INTO collab_sessions (person_id, creator_id, status)
+         VALUES ($1, $2, 'open') RETURNING session_id`,
+        [personId, user.id],
+      );
+      const sid = r.rows[0]!.session_id;
+      await c.query(
+        `INSERT INTO collab_session_members (session_id, user_id, role)
+         VALUES ($1, $2, 'owner')
+         ON CONFLICT (session_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
+        [sid, user.id],
+      );
+      for (const [uid, roleRaw] of Object.entries(assignmentsRaw)) {
+        const role = String(roleRaw || "").trim();
+        if (!COLLAB_ROLES.has(role)) continue;
+        if (typeof uid !== "string" || !uid) continue;
+        try {
+          await c.query(
+            `INSERT INTO collab_session_members (session_id, user_id, role)
+             VALUES ($1, $2::uuid, $3)
+             ON CONFLICT (session_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
+            [sid, uid, role],
+          );
+        } catch (_e) { /* skip invalid uuids */ }
+      }
+      return sid;
+    });
+    return res.json({ ok: true, session_id: created });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "COLLAB_CREATE_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/collab/sessions", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const r = await withClient((c) =>
+      c.query<{ session_id: string; person_id: string | null; creator_id: string;
+                status: string; created_at: string; my_role: string }>(
+        `SELECT s.session_id::text, s.person_id, s.creator_id::text,
+                s.status, s.created_at::text, m.role AS my_role
+           FROM collab_sessions s
+           JOIN collab_session_members m
+             ON m.session_id = s.session_id AND m.user_id = $1
+          ORDER BY s.created_at DESC
+          LIMIT 100`,
+        [user.id],
+      ),
+    );
+    return res.json({ ok: true, sessions: r.rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "COLLAB_LIST_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/collab/sessions/:id", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const sR = await withClient((c) =>
+      c.query<any>(
+        `SELECT session_id::text, person_id, creator_id::text, state, status,
+                created_at::text, updated_at::text
+           FROM collab_sessions WHERE session_id = $1::uuid`,
+        [id],
+      ),
+    );
+    const sessionRow = sR.rows[0];
+    if (!sessionRow) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const mR = await withClient((c) =>
+      c.query<any>(
+        `SELECT m.user_id::text, m.role, m.joined_at::text,
+                u.username, u.display_name
+           FROM collab_session_members m
+           LEFT JOIN users u ON u.id = m.user_id
+          WHERE m.session_id = $1::uuid
+          ORDER BY m.joined_at ASC`,
+        [id],
+      ),
+    );
+    const oR = await withClient((c) =>
+      c.query<any>(
+        `SELECT stage_id, contributor_id::text, output, submitted_at::text
+           FROM collab_stage_outputs WHERE session_id = $1::uuid
+          ORDER BY submitted_at ASC`,
+        [id],
+      ),
+    );
+    return res.json({
+      ok: true,
+      session: sessionRow,
+      members: mR.rows,
+      stage_outputs: oR.rows,
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "COLLAB_DETAIL_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/collab/sessions/:id/join", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const role = String((req.body || {}).role || "viewer").trim();
+    if (!COLLAB_ROLES.has(role) || role === "owner") {
+      return res.status(400).json({ ok: false, code: "INVALID_ROLE" });
+    }
+    const sR = await withClient((c) =>
+      c.query<{ status: string }>(
+        `SELECT status FROM collab_sessions WHERE session_id = $1::uuid`,
+        [id],
+      ),
+    );
+    if (!sR.rows[0]) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    if (sR.rows[0].status !== "open" && sR.rows[0].status !== "in_progress") {
+      return res.status(400).json({ ok: false, code: "SESSION_CLOSED" });
+    }
+    if (role !== "viewer") {
+      const claimed = await withClient((c) =>
+        c.query<{ user_id: string }>(
+          `SELECT user_id::text FROM collab_session_members
+            WHERE session_id = $1::uuid AND role = $2 AND user_id <> $3::uuid`,
+          [id, role, user.id],
+        ),
+      );
+      if (claimed.rows.length > 0) {
+        return res.status(409).json({ ok: false, code: "ROLE_TAKEN" });
+      }
+    }
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO collab_session_members (session_id, user_id, role)
+         VALUES ($1::uuid, $2, $3)
+         ON CONFLICT (session_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
+        [id, user.id, role],
+      ),
+    );
+    return res.json({ ok: true, role });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "COLLAB_JOIN_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/collab/sessions/:id/stages/:stage_id", express.json({ limit: "256kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    const stageId = String(req.params.stage_id || "").trim();
+    if (!id || !stageId) return res.status(400).json({ ok: false, code: "INVALID_PARAMS" });
+    const requiredRole = COLLAB_STAGE_TO_ROLE[stageId];
+    if (!requiredRole) return res.status(400).json({ ok: false, code: "INVALID_STAGE" });
+    const output = (req.body || {}).output;
+    if (output == null) return res.status(400).json({ ok: false, code: "MISSING_OUTPUT" });
+    let outputJson: string;
+    try { outputJson = JSON.stringify(output); } catch { return res.status(400).json({ ok: false, code: "BAD_OUTPUT" }); }
+    if (outputJson.length > 200_000) return res.status(400).json({ ok: false, code: "OUTPUT_TOO_LARGE" });
+    const mR = await withClient((c) =>
+      c.query<{ role: string }>(
+        `SELECT role FROM collab_session_members
+          WHERE session_id = $1::uuid AND user_id = $2::uuid`,
+        [id, user.id],
+      ),
+    );
+    const myRole = mR.rows[0]?.role;
+    if (!myRole) return res.status(403).json({ ok: false, code: "NOT_A_MEMBER" });
+    if (myRole !== requiredRole && myRole !== "owner") {
+      return res.status(403).json({ ok: false, code: "WRONG_ROLE", required: requiredRole });
+    }
+    await withClient(async (c) => {
+      await c.query(
+        `INSERT INTO collab_stage_outputs (session_id, stage_id, contributor_id, output)
+         VALUES ($1::uuid, $2, $3::uuid, $4::jsonb)
+         ON CONFLICT (session_id, stage_id)
+         DO UPDATE SET contributor_id = EXCLUDED.contributor_id,
+                       output = EXCLUDED.output,
+                       submitted_at = now()`,
+        [id, stageId, user.id, outputJson],
+      );
+      await c.query(
+        `UPDATE collab_sessions
+            SET status = CASE WHEN status = 'open' THEN 'in_progress' ELSE status END,
+                updated_at = now()
+          WHERE session_id = $1::uuid`,
+        [id],
+      );
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "COLLAB_STAGE_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/collab/sessions/:id/finalize", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const sR = await withClient((c) =>
+      c.query<{ creator_id: string; person_id: string | null; status: string }>(
+        `SELECT creator_id::text, person_id, status
+           FROM collab_sessions WHERE session_id = $1::uuid`,
+        [id],
+      ),
+    );
+    const sessionRow = sR.rows[0];
+    if (!sessionRow) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    if (sessionRow.creator_id !== user.id) return res.status(403).json({ ok: false, code: "NOT_OWNER" });
+    if (sessionRow.status === "done") return res.status(400).json({ ok: false, code: "ALREADY_DONE" });
+    const oR = await withClient((c) =>
+      c.query<{ stage_id: string; output: any }>(
+        `SELECT stage_id, output FROM collab_stage_outputs WHERE session_id = $1::uuid`,
+        [id],
+      ),
+    );
+    if (oR.rows.length < 3) {
+      return res.status(400).json({ ok: false, code: "NEED_MORE_STAGES", have: oR.rows.length });
+    }
+    await withClient((c) =>
+      c.query(
+        `UPDATE collab_sessions SET status = 'in_progress', updated_at = now()
+          WHERE session_id = $1::uuid`,
+        [id],
+      ),
+    );
+    let personRow: any = null;
+    if (sessionRow.person_id) {
+      const pR = await withClient((c) =>
+        c.query<any>(
+          `SELECT person_id, name_zh, name_en, core_theme, music_style_hint, tone, lore
+             FROM person_profiles WHERE person_id = $1`,
+          [sessionRow.person_id],
+        ),
+      );
+      personRow = pR.rows[0] || null;
+    }
+    if (!personRow) {
+      personRow = {
+        person_id: sessionRow.person_id || `collab-${id.slice(0, 8)}`,
+        name_zh: null, name_en: "Collab MV", core_theme: null,
+        music_style_hint: null, tone: null, lore: {},
+      };
+    }
+    const systemUserId = await resolveSystemUserId();
+    const stageMap: Record<string, any> = {};
+    for (const row of oR.rows) stageMap[row.stage_id] = row.output;
+    await withClient((c) =>
+      c.query(
+        `UPDATE collab_sessions SET state = $2::jsonb, updated_at = now()
+          WHERE session_id = $1::uuid`,
+        [id, JSON.stringify({ contributed_stages: stageMap })],
+      ),
+    );
+    let pipelineResult: any = null;
+    try {
+      pipelineResult = await runHeadlessPipeline(personRow, { systemUserId });
+    } catch (e) {
+      await withClient((c) =>
+        c.query(
+          `UPDATE collab_sessions SET status = 'open', updated_at = now()
+            WHERE session_id = $1::uuid`,
+          [id],
+        ),
+      );
+      return res.status(500).json({ ok: false, code: "PIPELINE_FAILED", message: String(e) });
+    }
+    await withClient((c) =>
+      c.query(
+        `UPDATE collab_sessions SET status = 'done', updated_at = now()
+          WHERE session_id = $1::uuid`,
+        [id],
+      ),
+    );
+    return res.json({
+      ok: true,
+      session_id: id,
+      contributed_stages: Object.keys(stageMap),
+      pipeline: pipelineResult ? {
+        ok: pipelineResult.ok,
+        cover_url: pipelineResult.cover_url,
+        audio_url: pipelineResult.audio_url,
+        mv_url: pipelineResult.mv_url,
+        stages: pipelineResult.stages,
+      } : null,
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "COLLAB_FINALIZE_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE31 20260508 — Jing — live creation broadcast.
+ * Host opens a creation studio room; spectators long-poll the event
+ * feed to see pipeline progress + chat in real time. Long-poll
+ * holds up to 25s and emits a chunked-transfer heartbeat (single
+ * space byte) every 5s so proxies + clients don't time out the
+ * connection. WebSocket deferred. Chat: ≤200 chars, rate-limited
+ * to 1 msg / sec / user. */
+const __liveChatLastAt = new Map<string, number>();
+
+app.post("/api/live/rooms", express.json({ limit: "4kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const body = (req.body && typeof req.body === "object") ? req.body : {};
+    const personId = body.person_id == null ? null : String(body.person_id).slice(0, 200) || null;
+    const r = await withClient((c) =>
+      c.query<{ room_id: string }>(
+        `INSERT INTO live_creation_rooms (creator_id, person_id, status)
+         VALUES ($1, $2, 'waiting') RETURNING room_id`,
+        [user.id, personId],
+      ),
+    );
+    return res.json({ ok: true, room_id: r.rows[0]?.room_id });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "LIVE_CREATE_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/live/rooms/active", async (req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const limit = Math.max(1, Math.min(100, Number(req.query.limit || 20) || 20));
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT r.room_id::text, r.creator_id::text, r.person_id, r.status,
+                r.spectator_count, r.created_at::text,
+                u.username, u.display_name
+           FROM live_creation_rooms r
+           LEFT JOIN users u ON u.id = r.creator_id
+          WHERE r.status IN ('waiting', 'running')
+          ORDER BY r.created_at DESC
+          LIMIT $1`,
+        [limit],
+      ),
+    );
+    return res.json({ ok: true, rooms: r.rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "LIVE_ACTIVE_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/live/rooms/:id", async (req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT r.room_id::text, r.creator_id::text, r.person_id, r.status,
+                r.spectator_count, r.created_at::text,
+                u.username, u.display_name
+           FROM live_creation_rooms r
+           LEFT JOIN users u ON u.id = r.creator_id
+          WHERE r.room_id = $1::uuid`,
+        [id],
+      ),
+    );
+    const room = r.rows[0];
+    if (!room) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    return res.json({ ok: true, room });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "LIVE_DETAIL_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/live/rooms/:id/events", express.json({ limit: "32kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const body = (req.body && typeof req.body === "object") ? req.body : {};
+    const kind = String(body.kind || "").trim();
+    const allowedKinds = new Set(["stage_progress", "join", "leave"]);
+    if (!allowedKinds.has(kind)) return res.status(400).json({ ok: false, code: "INVALID_KIND" });
+    const ownerR = await withClient((c) =>
+      c.query<{ creator_id: string }>(
+        `SELECT creator_id::text FROM live_creation_rooms WHERE room_id = $1::uuid`,
+        [id],
+      ),
+    );
+    if (!ownerR.rows[0]) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    if (kind === "stage_progress" && ownerR.rows[0].creator_id !== user.id) {
+      return res.status(403).json({ ok: false, code: "NOT_OWNER" });
+    }
+    const payload = body.payload && typeof body.payload === "object" ? body.payload : {};
+    let payloadJson: string;
+    try { payloadJson = JSON.stringify(payload); } catch { payloadJson = "{}"; }
+    if (payloadJson.length > 24_000) return res.status(400).json({ ok: false, code: "PAYLOAD_TOO_LARGE" });
+    const ev = await withClient((c) =>
+      c.query<{ id: string; created_at: string }>(
+        `INSERT INTO live_room_events (room_id, kind, payload)
+         VALUES ($1::uuid, $2, $3::jsonb)
+         RETURNING id::text, created_at::text`,
+        [id, kind, payloadJson],
+      ),
+    );
+    if (kind === "stage_progress") {
+      await withClient((c) =>
+        c.query(
+          `UPDATE live_creation_rooms SET status = 'running'
+            WHERE room_id = $1::uuid AND status = 'waiting'`,
+          [id],
+        ),
+      );
+    }
+    if (kind === "join") {
+      await withClient((c) =>
+        c.query(
+          `UPDATE live_creation_rooms SET spectator_count = spectator_count + 1
+            WHERE room_id = $1::uuid`,
+          [id],
+        ),
+      );
+    } else if (kind === "leave") {
+      await withClient((c) =>
+        c.query(
+          `UPDATE live_creation_rooms
+              SET spectator_count = GREATEST(spectator_count - 1, 0)
+            WHERE room_id = $1::uuid`,
+          [id],
+        ),
+      );
+    }
+    return res.json({ ok: true, event_id: ev.rows[0]?.id });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "LIVE_EVENT_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/live/rooms/:id/chat", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const text = String((req.body || {}).text || "").trim();
+    if (!text) return res.status(400).json({ ok: false, code: "EMPTY_TEXT" });
+    if (text.length > 200) return res.status(400).json({ ok: false, code: "TOO_LONG" });
+    const key = `${user.id}`;
+    const now = Date.now();
+    const last = __liveChatLastAt.get(key) || 0;
+    if (now - last < 1000) return res.status(429).json({ ok: false, code: "RATE_LIMITED" });
+    __liveChatLastAt.set(key, now);
+    if (__liveChatLastAt.size > 5000) {
+      for (const [k, v] of __liveChatLastAt) {
+        if (now - v > 60_000) __liveChatLastAt.delete(k);
+      }
+    }
+    const exists = await withClient((c) =>
+      c.query<{ room_id: string }>(
+        `SELECT room_id::text FROM live_creation_rooms WHERE room_id = $1::uuid`,
+        [id],
+      ),
+    );
+    if (!exists.rows[0]) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const ev = await withClient((c) =>
+      c.query<{ id: string }>(
+        `INSERT INTO live_room_events (room_id, kind, payload)
+         VALUES ($1::uuid, 'chat', $2::jsonb)
+         RETURNING id::text`,
+        [id, JSON.stringify({ user_id: user.id, text })],
+      ),
+    );
+    return res.json({ ok: true, event_id: ev.rows[0]?.id });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "LIVE_CHAT_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/live/rooms/:id/events", async (req, res) => {
+  // Long-poll: hold up to 25s waiting for new events past `since`.
+  // Emits chunked-transfer heartbeat (single space byte) every 5s
+  // so proxies + clients don't time out the connection. Responds
+  // as application/json once new events arrive (or [] on timeout).
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const since = Math.max(0, Number(req.query.since || 0) | 0);
+    const exists = await withClient((c) =>
+      c.query<{ room_id: string }>(
+        `SELECT room_id::text FROM live_creation_rooms WHERE room_id = $1::uuid`,
+        [id],
+      ),
+    );
+    if (!exists.rows[0]) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+
+    const fetchSince = async (s: number) => {
+      const r = await withClient((c) =>
+        c.query<any>(
+          `SELECT id::text, kind, payload, created_at::text
+             FROM live_room_events
+            WHERE room_id = $1::uuid AND id > $2
+            ORDER BY id ASC
+            LIMIT 200`,
+          [id, s],
+        ),
+      );
+      return r.rows;
+    };
+
+    const initialRows = await fetchSince(since);
+    if (initialRows.length > 0) {
+      return res.json({ ok: true, events: initialRows });
+    }
+
+    res.status(200);
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.setHeader("Transfer-Encoding", "chunked");
+    (res as any).flushHeaders?.();
+
+    const startedAt = Date.now();
+    const TIMEOUT_MS = 25_000;
+    const HEARTBEAT_MS = 5_000;
+    let finished = false;
+    const finish = (payload: any) => {
+      if (finished) return;
+      finished = true;
+      try { res.end(JSON.stringify(payload)); } catch { /* ignore */ }
+    };
+    const heartbeat = setInterval(() => {
+      if (finished) return;
+      try { res.write(" "); } catch { /* ignore */ }
+    }, HEARTBEAT_MS);
+
+    const tick = async () => {
+      if (finished) return;
+      if (Date.now() - startedAt >= TIMEOUT_MS) {
+        clearInterval(heartbeat);
+        return finish({ ok: true, events: [] });
+      }
+      try {
+        const fresh = await fetchSince(since);
+        if (fresh.length > 0) {
+          clearInterval(heartbeat);
+          return finish({ ok: true, events: fresh });
+        }
+      } catch (err) {
+        clearInterval(heartbeat);
+        return finish({ ok: false, code: "LIVE_POLL_FAILED", message: String(err) });
+      }
+      setTimeout(tick, 1500);
+    };
+    req.on("close", () => {
+      finished = true;
+      clearInterval(heartbeat);
+    });
+    setTimeout(tick, 1500);
+    return;
+  } catch (err) {
+    if (!res.headersSent) {
+      return res.status(500).json({ ok: false, code: "LIVE_EVENTS_FAILED", message: String(err) });
+    }
+    return;
+  }
+});
+
 async function start() {
   const openAiRuntime = getOpenAiRuntimeConfig();
   console.info("[startup.openai]", {

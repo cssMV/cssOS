@@ -9057,8 +9057,10 @@ const PROVIDER_TIERS: Record<string, "free" | "cheap" | "standard" | "premium"> 
   luma: "premium",
   // music
   huggingface_music: "free", // facebook/musicgen-small via HF Inference (uses HUGGINGFACE_API_KEY)
+  fal_music: "free",         // fal-ai/musicgen-medium serverless (uses FAL_API_KEY); fal grants free credits
   mubert: "free",
   replicate_music: "cheap",  // meta/musicgen on Replicate (uses REPLICATE_API_KEY)
+  deepinfra_music: "cheap",  // facebook/musicgen-medium on DeepInfra (uses DEEPINFRA_API_KEY)
   elevenlabs: "premium",
   stability: "standard",
   suno: "premium",
@@ -9369,7 +9371,7 @@ type MusicGenResponse = {
   audio_b64?: string;
   error?: string;
 };
-const MUSIC_PROVIDERS = ["huggingface_music", "mubert", "replicate_music", "elevenlabs", "stability", "suno"] as const;
+const MUSIC_PROVIDERS = ["huggingface_music", "fal_music", "mubert", "replicate_music", "deepinfra_music", "elevenlabs", "stability", "suno"] as const;
 /* CSSOS_PROVIDER_PRIORITY 20260507 — Jing
  * "第三方引擎，优者优先（有时效限制者特别优先），免费档次，其他档
  * 次以此类推，openAI兜底."
@@ -9380,7 +9382,7 @@ const MUSIC_PROVIDERS = ["huggingface_music", "mubert", "replicate_music", "elev
  *   suno       — paid via kie.ai (highest quality, last because $$)
  */
 function musicProviderOrder(prefer?: string[]): string[] {
-  const env = String(process.env.MUSIC_PROVIDER_ORDER || "huggingface_music,mubert,replicate_music,stability,elevenlabs,suno")
+  const env = String(process.env.MUSIC_PROVIDER_ORDER || "huggingface_music,fal_music,mubert,replicate_music,deepinfra_music,stability,elevenlabs,suno")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   const list = (prefer && prefer.length ? prefer : env).filter((p) =>
     (MUSIC_PROVIDERS as readonly string[]).includes(p));
@@ -9514,6 +9516,34 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
         if (!b64) { lastErr = "huggingface_music_empty_body"; continue; }
         return { ok: true, provider: "huggingface_music", audio_b64: b64 };
       }
+      if (provider === "fal_music") {
+        // fal-ai/musicgen-medium synchronous endpoint. Free with fal's
+        // starter credits (FAL_API_KEY). Returns JSON { audio: { url } }.
+        const falKey = String(process.env.FAL_API_KEY || "").trim();
+        if (!falKey) continue;
+        const dur = Math.max(5, Math.min(60, Math.round(req.duration_secs || 30)));
+        const prompt = String(req.prompt || (req.tags || []).join(", ") || "cinematic ambient");
+        const upstream = await fetch("https://fal.run/fal-ai/musicgen-medium", {
+          method: "POST",
+          headers: {
+            Authorization: `Key ${falKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ prompt, duration: dur }),
+        });
+        if (!upstream.ok) {
+          const body = await upstream.text().catch(() => "");
+          lastErr = `fal_music_${upstream.status}: ${body.slice(0, 200)}`;
+          if (isCreditsError(upstream.status, body)) console.warn(`[music-router] fal_music credits exhausted, falling through`);
+          else console.warn(`[music-router] fal_music ${upstream.status}: ${body.slice(0, 200)}`);
+          continue;
+        }
+        const j: any = await upstream.json().catch(() => null);
+        const url = String(j?.audio?.url || j?.audio_url || j?.audio_file?.url || "");
+        if (url) return { ok: true, provider: "fal_music", audio_url: url };
+        lastErr = "fal_music_no_url";
+        continue;
+      }
       if (provider === "replicate_music") {
         const repKey = String(process.env.REPLICATE_API_KEY || process.env.REPLICATE_API_TOKEN || "").trim();
         if (!repKey) continue;
@@ -9565,6 +9595,50 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
         }
         lastErr = "replicate_music_poll_timeout";
         continue;
+      }
+      if (provider === "deepinfra_music") {
+        // facebook/musicgen-medium on DeepInfra. Cheap pay-as-you-go.
+        // Response may be binary audio, JSON with audio_url, or base64.
+        const diKey = String(process.env.DEEPINFRA_API_KEY || "").trim();
+        if (!diKey) continue;
+        const dur = Math.max(5, Math.min(60, Math.round(req.duration_secs || 30)));
+        const prompt = String(req.prompt || (req.tags || []).join(", ") || "cinematic ambient");
+        const upstream = await fetch("https://api.deepinfra.com/v1/inference/facebook/musicgen-medium", {
+          method: "POST",
+          headers: {
+            Authorization: `bearer ${diKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ inputs: prompt, duration: dur }),
+        });
+        if (!upstream.ok) {
+          const body = await upstream.text().catch(() => "");
+          lastErr = `deepinfra_music_${upstream.status}: ${body.slice(0, 200)}`;
+          if (isCreditsError(upstream.status, body)) console.warn(`[music-router] deepinfra_music credits exhausted, falling through`);
+          else console.warn(`[music-router] deepinfra_music ${upstream.status}: ${body.slice(0, 200)}`);
+          continue;
+        }
+        const ct = String(upstream.headers.get("content-type") || "").toLowerCase();
+        if (ct.includes("application/json")) {
+          const j: any = await upstream.json().catch(() => null);
+          const url = String(j?.audio_url || j?.url || j?.output?.url || "");
+          if (url) return { ok: true, provider: "deepinfra_music", audio_url: url };
+          // Some DeepInfra music endpoints return { audio: "data:audio/wav;base64,..." } or { audio: "<b64>" }.
+          const audioField = j?.audio ?? j?.output ?? j?.audio_b64;
+          if (typeof audioField === "string" && audioField.length > 0) {
+            const b64 = audioField.startsWith("data:")
+              ? audioField.split(",", 2)[1] || ""
+              : audioField;
+            if (b64) return { ok: true, provider: "deepinfra_music", audio_b64: b64 };
+          }
+          lastErr = "deepinfra_music_no_audio";
+          continue;
+        }
+        // Binary audio response.
+        const ab = await upstream.arrayBuffer();
+        const b64 = Buffer.from(ab).toString("base64");
+        if (!b64) { lastErr = "deepinfra_music_empty_body"; continue; }
+        return { ok: true, provider: "deepinfra_music", audio_b64: b64 };
       }
       // Other music providers (suno, elevenlabs, stability) — adapters
       // land separately. Suno already runs through the existing
@@ -9953,6 +10027,10 @@ function buildProvidersSnapshot() {
     const env = id === "suno" ? "SUNO_API_KEY"
       : id === "elevenlabs" ? "ELEVENLABS_API_KEY"
       : id === "stability" ? "STABILITY_API_KEY"
+      : id === "huggingface_music" ? "HUGGINGFACE_API_KEY"
+      : id === "replicate_music" ? "REPLICATE_API_KEY"
+      : id === "fal_music" ? "FAL_API_KEY"
+      : id === "deepinfra_music" ? "DEEPINFRA_API_KEY"
       : "MUBERT_API_KEY";
     return {
       id, kind: "music",
@@ -9960,8 +10038,12 @@ function buildProvidersSnapshot() {
       default_model: id === "suno" ? "suno-v4"
         : id === "elevenlabs" ? "music-v1"
         : id === "stability" ? "stable-audio-2"
+        : id === "huggingface_music" ? "facebook/musicgen-small"
+        : id === "replicate_music" ? "meta/musicgen"
+        : id === "fal_music" ? "fal-ai/musicgen-medium"
+        : id === "deepinfra_music" ? "facebook/musicgen-medium"
         : "mubert-go",
-      free_tier: id === "mubert",
+      free_tier: id === "mubert" || id === "huggingface_music" || id === "fal_music",
     };
   });
   const video = (VIDEO_PROVIDERS as readonly string[]).map((id) => {

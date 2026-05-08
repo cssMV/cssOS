@@ -11222,6 +11222,40 @@ async function ensurePersonMvTables() {
         liked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         PRIMARY KEY (mv_id, user_id)
       );
+
+      -- CSSOS_PERSON_MV_WAVE11 20260508 — Jing
+      -- User homepage: optional username + bio for public /u/{username} pages.
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_uidx
+        ON users (lower(username)) WHERE username IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS user_follows (
+        follower_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        followee_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (follower_id, followee_id)
+      );
+      CREATE INDEX IF NOT EXISTS user_follows_followee_idx ON user_follows (followee_id);
+
+      -- CSSOS_PERSON_MV_WAVE12 20260508 — Jing — comments + share.
+      CREATE TABLE IF NOT EXISTS person_mv_comments (
+        id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        mv_id      UUID NOT NULL REFERENCES person_mvs(mv_id) ON DELETE CASCADE,
+        user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        body       TEXT,
+        parent_id  UUID NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        deleted_at TIMESTAMPTZ NULL
+      );
+      CREATE INDEX IF NOT EXISTS person_mv_comments_mv_idx ON person_mv_comments (mv_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS mv_shares (
+        shortcode  TEXT PRIMARY KEY,
+        mv_id      UUID NOT NULL REFERENCES person_mvs(mv_id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS mv_shares_mv_idx ON mv_shares (mv_id);
     `),
   );
 }
@@ -21148,6 +21182,456 @@ app.post("/api/cinema/bookings", async (req, res) => {
       code: "CINEMA_BOOKING_CREATE_FAILED",
       message: String(err),
     });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE11 20260508 — Jing
+ * User homepage: GET /api/users/:username/profile + follow toggle +
+ * follower/following lists. `users.username` is nullable; when missing
+ * we fall back to resolving the path-segment as a UUID id. Display
+ * name + avatar are sourced from `users` (existing columns). Stats
+ * are computed via aggregates over person_mvs/person_mv_likes/
+ * person_profiles. */
+async function resolveUserByUsernameOrId(handle: string): Promise<{
+  id: string; username: string | null; display_name: string | null;
+  avatar_url: string | null; bio: string | null; created_at: string;
+} | null> {
+  if (!handle || !DATABASE_URL) return null;
+  const r = await withClient((c) =>
+    c.query<{
+      id: string; username: string | null; display_name: string | null;
+      avatar_url: string | null; bio: string | null; created_at: string;
+    }>(
+      `SELECT id, username, display_name, avatar_url, bio, created_at
+         FROM users
+        WHERE (username IS NOT NULL AND lower(username) = lower($1))
+           OR id::text = $1
+        LIMIT 1`,
+      [handle],
+    ),
+  );
+  return r.rows[0] || null;
+}
+
+app.get("/api/users/:username/profile", async (req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const handle = String(req.params.username || "").trim();
+    if (!handle) return res.status(400).json({ ok: false, code: "INVALID_USERNAME" });
+    const u = await resolveUserByUsernameOrId(handle);
+    if (!u) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const statsR = await withClient((c) =>
+      c.query<{
+        total_mvs: number; total_views: number; total_likes: number; persons_created: number;
+      }>(
+        `SELECT
+           COALESCE((SELECT COUNT(*)::int FROM person_mvs WHERE created_by_user_id = $1), 0) AS total_mvs,
+           COALESCE((SELECT SUM(view_count)::int FROM person_mvs WHERE created_by_user_id = $1), 0) AS total_views,
+           COALESCE((SELECT SUM(like_count)::int FROM person_mvs WHERE created_by_user_id = $1), 0) AS total_likes,
+           COALESCE((SELECT COUNT(*)::int FROM person_profiles WHERE created_by_user_id = $1), 0) AS persons_created`,
+        [u.id],
+      ),
+    );
+    const stats = statsR.rows[0] || { total_mvs: 0, total_views: 0, total_likes: 0, persons_created: 0 };
+    const recentR = await withClient((c) =>
+      c.query(
+        `SELECT pm.mv_id, pm.work_id, pm.person_id, pm.view_count, pm.like_count, pm.created_at,
+                w.cover_image, w.title, pp.name_zh AS person_zh, pp.name_en AS person_en
+           FROM person_mvs pm
+           LEFT JOIN user_works w     ON w.id = pm.work_id
+           LEFT JOIN person_profiles pp ON pp.person_id = pm.person_id
+          WHERE pm.created_by_user_id = $1
+          ORDER BY pm.created_at DESC LIMIT 10`,
+        [u.id],
+      ),
+    );
+    const topPersonsR = await withClient((c) =>
+      c.query(
+        `SELECT pp.person_id, pp.name_zh, pp.name_en, pp.civilization, pp.portrait_url,
+                COALESCE(SUM(pm.view_count),0)::int AS combined_views,
+                COUNT(pm.mv_id)::int AS mv_count
+           FROM person_profiles pp
+           JOIN person_mvs pm ON pm.person_id = pp.person_id
+          WHERE pm.created_by_user_id = $1
+          GROUP BY pp.person_id
+          ORDER BY combined_views DESC, mv_count DESC
+          LIMIT 5`,
+        [u.id],
+      ),
+    );
+    const followCountsR = await withClient((c) =>
+      c.query<{ followers: number; following: number }>(
+        `SELECT
+           (SELECT COUNT(*)::int FROM user_follows WHERE followee_id = $1) AS followers,
+           (SELECT COUNT(*)::int FROM user_follows WHERE follower_id = $1) AS following`,
+        [u.id],
+      ),
+    );
+    const viewer = await getSessionUser(req).catch(() => null);
+    let viewerFollows = false;
+    if (viewer && viewer.id && viewer.id !== u.id) {
+      const f = await withClient((c) =>
+        c.query(
+          `SELECT 1 FROM user_follows WHERE follower_id = $1 AND followee_id = $2`,
+          [viewer.id, u.id],
+        ),
+      );
+      viewerFollows = (f.rowCount || 0) > 0;
+    }
+    return res.json({
+      ok: true,
+      user: {
+        id: u.id, username: u.username, display_name: u.display_name,
+        avatar_url: u.avatar_url, bio: u.bio, created_at: u.created_at,
+      },
+      stats,
+      recent_mvs: recentR.rows,
+      top_persons: topPersonsR.rows,
+      follow_counts: followCountsR.rows[0] || { followers: 0, following: 0 },
+      viewer_follows: viewerFollows,
+      is_self: !!(viewer && viewer.id === u.id),
+    });
+  } catch (err) {
+    console.warn("[users/profile] failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "PROFILE_FAILED" });
+  }
+});
+
+app.post("/api/users/:username/follow", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const viewer = await getSessionUser(req).catch(() => null);
+    if (!viewer || !viewer.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const target = await resolveUserByUsernameOrId(String(req.params.username || "").trim());
+    if (!target) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    if (target.id === viewer.id) return res.status(400).json({ ok: false, code: "CANNOT_FOLLOW_SELF" });
+    const existing = await withClient((c) =>
+      c.query(`SELECT 1 FROM user_follows WHERE follower_id = $1 AND followee_id = $2`, [viewer.id, target.id]),
+    );
+    if (existing.rowCount && existing.rowCount > 0) {
+      await withClient((c) =>
+        c.query(`DELETE FROM user_follows WHERE follower_id = $1 AND followee_id = $2`, [viewer.id, target.id]),
+      );
+      return res.json({ ok: true, following: false });
+    } else {
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO user_follows (follower_id, followee_id) VALUES ($1, $2)
+            ON CONFLICT DO NOTHING`,
+          [viewer.id, target.id],
+        ),
+      );
+      return res.json({ ok: true, following: true });
+    }
+  } catch (err) {
+    console.warn("[users/follow] failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "FOLLOW_FAILED" });
+  }
+});
+
+async function listFollows(handle: string, dir: "followers" | "following", limit: number) {
+  const u = await resolveUserByUsernameOrId(handle);
+  if (!u) return null;
+  const sql = dir === "followers"
+    ? `SELECT u.id, u.username, u.display_name, u.avatar_url, f.created_at
+         FROM user_follows f JOIN users u ON u.id = f.follower_id
+        WHERE f.followee_id = $1 ORDER BY f.created_at DESC LIMIT $2`
+    : `SELECT u.id, u.username, u.display_name, u.avatar_url, f.created_at
+         FROM user_follows f JOIN users u ON u.id = f.followee_id
+        WHERE f.follower_id = $1 ORDER BY f.created_at DESC LIMIT $2`;
+  const r = await withClient((c) => c.query(sql, [u.id, limit]));
+  return r.rows;
+}
+
+app.get("/api/users/:username/followers", async (req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit || "20"), 10) || 20));
+    const rows = await listFollows(String(req.params.username || "").trim(), "followers", limit);
+    if (!rows) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    return res.json({ ok: true, items: rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "FOLLOWERS_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/users/:username/following", async (req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit || "20"), 10) || 20));
+    const rows = await listFollows(String(req.params.username || "").trim(), "following", limit);
+    if (!rows) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    return res.json({ ok: true, items: rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "FOLLOWING_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE12 20260508 — Jing — comments + share. */
+function escapeHtmlBody(s: string): string {
+  return String(s || "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+app.get("/api/person-mv/mvs/:mv_id/comments", async (req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const raw = String(req.params.mv_id || "").trim();
+    const mvId = await resolvePersonMvId(raw);
+    if (!mvId) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit || "50"), 10) || 50));
+    const r = await withClient((c) =>
+      c.query(
+        `SELECT c.id, c.mv_id, c.user_id, c.body, c.parent_id, c.created_at, c.deleted_at,
+                u.display_name, u.username, u.avatar_url
+           FROM person_mv_comments c
+           LEFT JOIN users u ON u.id = c.user_id
+          WHERE c.mv_id = $1
+          ORDER BY c.created_at ASC
+          LIMIT $2`,
+        [mvId, limit],
+      ),
+    );
+    const items = r.rows.map((row: any) => ({
+      id: row.id,
+      mv_id: row.mv_id,
+      user_id: row.user_id,
+      parent_id: row.parent_id,
+      created_at: row.created_at,
+      deleted: !!row.deleted_at,
+      body_html: row.deleted_at ? null : (row.body ? escapeHtmlBody(row.body) : null),
+      display_name: row.display_name,
+      username: row.username,
+      avatar_url: row.avatar_url,
+    }));
+    return res.json({ ok: true, items });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "COMMENTS_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/person-mv/mvs/:mv_id/comments", express.json({ limit: "8kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const mvId = await resolvePersonMvId(String(req.params.mv_id || "").trim());
+    if (!mvId) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const body = String((req.body || {}).body || "").trim();
+    if (!body) return res.status(400).json({ ok: false, code: "EMPTY_BODY" });
+    if (body.length > 500) return res.status(400).json({ ok: false, code: "TOO_LONG" });
+    const parentId = (req.body || {}).parent_id ? String((req.body || {}).parent_id) : null;
+    const r = await withClient((c) =>
+      c.query<{ id: string; created_at: string }>(
+        `INSERT INTO person_mv_comments (mv_id, user_id, body, parent_id)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, created_at`,
+        [mvId, user.id, body, parentId],
+      ),
+    );
+    const row = r.rows[0];
+    if (!row) return res.status(500).json({ ok: false, code: "COMMENT_POST_FAILED" });
+    return res.json({
+      ok: true,
+      comment: {
+        id: row.id,
+        mv_id: mvId,
+        user_id: user.id,
+        parent_id: parentId,
+        created_at: row.created_at,
+        body_html: escapeHtmlBody(body),
+        display_name: user.display_name,
+        avatar_url: user.avatar_url,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "COMMENT_POST_FAILED", message: String(err) });
+  }
+});
+
+app.delete("/api/person-mv/comments/:cid", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const cid = String(req.params.cid || "").trim();
+    if (!cid) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const r = await withClient((c) =>
+      c.query(
+        `UPDATE person_mv_comments
+            SET body = NULL, deleted_at = now()
+          WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+          RETURNING id`,
+        [cid, user.id],
+      ),
+    );
+    if (!r.rowCount) return res.status(404).json({ ok: false, code: "NOT_FOUND_OR_FORBIDDEN" });
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "COMMENT_DELETE_FAILED", message: String(err) });
+  }
+});
+
+const SHARE_BASE_URL = (process.env.CSSOS_SHARE_BASE_URL || "https://cssstudio.app").replace(/\/+$/, "");
+function generateShortcode(): string {
+  const chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  let out = "";
+  for (let i = 0; i < 6; i++) out += chars[Math.floor(Math.random() * chars.length)];
+  return out;
+}
+function absolutizeCover(cover: string | null | undefined): string | null {
+  if (!cover) return null;
+  const s = String(cover).trim();
+  if (!s) return null;
+  if (/^https?:\/\//i.test(s)) return s;
+  return SHARE_BASE_URL + (s.startsWith("/") ? s : "/" + s);
+}
+
+app.get("/api/person-mv/mvs/:mv_id/share", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const mvId = await resolvePersonMvId(String(req.params.mv_id || "").trim());
+    if (!mvId) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const existing = await withClient((c) =>
+      c.query<{ shortcode: string }>(
+        `SELECT shortcode FROM mv_shares WHERE mv_id = $1 ORDER BY created_at ASC LIMIT 1`,
+        [mvId],
+      ),
+    );
+    let shortcode = existing.rows[0]?.shortcode || null;
+    if (!shortcode) {
+      for (let attempt = 0; attempt < 5 && !shortcode; attempt++) {
+        const candidate = generateShortcode();
+        try {
+          await withClient((c) =>
+            c.query(
+              `INSERT INTO mv_shares (shortcode, mv_id) VALUES ($1, $2)
+                ON CONFLICT (shortcode) DO NOTHING`,
+              [candidate, mvId],
+            ),
+          );
+          const check = await withClient((c) =>
+            c.query<{ shortcode: string }>(
+              `SELECT shortcode FROM mv_shares WHERE shortcode = $1 AND mv_id = $2`,
+              [candidate, mvId],
+            ),
+          );
+          if (check.rowCount) shortcode = candidate;
+        } catch (_e) { /* retry */ }
+      }
+    }
+    if (!shortcode) return res.status(500).json({ ok: false, code: "SHORTCODE_FAILED" });
+    const meta = await withClient((c) =>
+      c.query<{ cover_image: string | null; title: string | null; person_zh: string | null; person_en: string | null }>(
+        `SELECT w.cover_image, w.title, pp.name_zh AS person_zh, pp.name_en AS person_en
+           FROM person_mvs pm
+           LEFT JOIN user_works w       ON w.id = pm.work_id
+           LEFT JOIN person_profiles pp ON pp.person_id = pm.person_id
+          WHERE pm.mv_id = $1`,
+        [mvId],
+      ),
+    );
+    const m: { cover_image?: string | null; title?: string | null; person_zh?: string | null; person_en?: string | null } = meta.rows[0] || {};
+    const ogTitle = (m.title || m.person_zh || m.person_en || "CSS Studio MV") + "";
+    const ogDesc = (m.person_zh || m.person_en)
+      ? `A Person MV of ${m.person_zh || m.person_en} on CSS Studio.`
+      : "A Person MV on CSS Studio.";
+    return res.json({
+      ok: true,
+      share_url: `${SHARE_BASE_URL}/m/${shortcode}`,
+      og_image: absolutizeCover(m.cover_image),
+      og_title: ogTitle,
+      og_description: ogDesc,
+      shortcode,
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "SHARE_FAILED", message: String(err) });
+  }
+});
+
+// Public share landing — server-rendered HTML w/ og meta + iframe embed.
+app.get("/m/:shortcode", async (req, res) => {
+  noStore(res);
+  res.type("html");
+  try {
+    await ensurePersonMvTables();
+    const code = String(req.params.shortcode || "").trim();
+    if (!/^[0-9a-zA-Z]{4,12}$/.test(code)) {
+      return res.status(404).send("<!doctype html><meta charset=utf-8><title>Not found</title><p>Share link not found.</p>");
+    }
+    const r = await withClient((c) =>
+      c.query<{
+        mv_id: string; work_id: string; cover_image: string | null; title: string | null;
+        person_zh: string | null; person_en: string | null;
+      }>(
+        `SELECT pm.mv_id, pm.work_id, w.cover_image, w.title,
+                pp.name_zh AS person_zh, pp.name_en AS person_en
+           FROM mv_shares s
+           JOIN person_mvs pm ON pm.mv_id = s.mv_id
+           LEFT JOIN user_works w       ON w.id = pm.work_id
+           LEFT JOIN person_profiles pp ON pp.person_id = pm.person_id
+          WHERE s.shortcode = $1`,
+        [code],
+      ),
+    );
+    if (!r.rowCount) {
+      return res.status(404).send("<!doctype html><meta charset=utf-8><title>Not found</title><p>Share link not found.</p>");
+    }
+    const row = r.rows[0]!;
+    const cover = absolutizeCover(row.cover_image) || "";
+    const title = (row.title || row.person_zh || row.person_en || "CSS Studio MV") + "";
+    const desc = (row.person_zh || row.person_en)
+      ? `A Person MV of ${row.person_zh || row.person_en} on CSS Studio.`
+      : "A Person MV on CSS Studio.";
+    const url = `${SHARE_BASE_URL}/m/${code}`;
+    const embedSrc = `${SHARE_BASE_URL}/?cssMV=${encodeURIComponent(row.work_id)}`;
+    const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>${escapeHtmlAttr(title)} — CSS Studio</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta property="og:type" content="video.other" />
+<meta property="og:title" content="${escapeHtmlAttr(title)}" />
+<meta property="og:description" content="${escapeHtmlAttr(desc)}" />
+<meta property="og:url" content="${escapeHtmlAttr(url)}" />
+${cover ? `<meta property="og:image" content="${escapeHtmlAttr(cover)}" />` : ""}
+<meta name="twitter:card" content="${cover ? "summary_large_image" : "summary"}" />
+<meta name="twitter:title" content="${escapeHtmlAttr(title)}" />
+<meta name="twitter:description" content="${escapeHtmlAttr(desc)}" />
+${cover ? `<meta name="twitter:image" content="${escapeHtmlAttr(cover)}" />` : ""}
+<style>html,body{margin:0;background:#06100b;color:#daffee;font-family:-apple-system,system-ui,sans-serif}
+.wrap{max-width:920px;margin:0 auto;padding:24px}
+h1{font-size:20px;margin:0 0 8px}
+.frame{position:relative;width:100%;aspect-ratio:16/9;border:1px solid rgba(0,245,160,0.25);border-radius:12px;overflow:hidden;background:#000}
+iframe{width:100%;height:100%;border:0}
+.cta{margin-top:16px;text-align:center}
+.cta a{color:#00f5a0;text-decoration:none;font-weight:600}</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>${escapeHtmlAttr(title)}</h1>
+  <p>${escapeHtmlAttr(desc)}</p>
+  <div class="frame"><iframe src="${escapeHtmlAttr(embedSrc)}" allow="autoplay; fullscreen" allowfullscreen></iframe></div>
+  <div class="cta"><a href="${escapeHtmlAttr(SHARE_BASE_URL)}/">Open CSS Studio →</a></div>
+</div>
+</body>
+</html>`;
+    return res.send(html);
+  } catch (err) {
+    console.warn("[share/landing] failed:", (err as Error)?.message || err);
+    return res.status(500).send("<!doctype html><meta charset=utf-8><title>Error</title><p>Share link error.</p>");
   }
 });
 

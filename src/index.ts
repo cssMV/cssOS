@@ -732,17 +732,25 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
   // to reach because we exhaust 3 free providers before spending a cent.
   const userForcedRunway = explicitEngine === "runway";
   if (!userForcedRunway) {
+    // Heartbeat keepalive — see /api/mv/lyrics for rationale (Safari "Load
+    // failed" / nginx 504 when callImageGen sweeps 9 providers silently).
+    res.status(200);
+    res.setHeader("content-type", "application/json; charset=utf-8");
+    res.setHeader("transfer-encoding", "chunked");
+    res.flushHeaders?.();
+    const heartbeat = setInterval(() => { try { res.write(" "); } catch {} }, 5000);
     try {
       const img = await callImageGen({
         prompt: prompt || "album cover, cinematic",
         size: fallbackSize,
       });
+      clearInterval(heartbeat);
       if (img.ok) {
         const imageUrl = img.image_url
           ? img.image_url
           : (img.image_b64 ? persistBase64Cover(img.image_b64, userId) : "");
         if (imageUrl) {
-          return res.status(200).json({
+          res.write(JSON.stringify({
             ok: true,
             task_id: `tier-${img.provider}-${Date.now()}`,
             image_url: imageUrl,
@@ -752,15 +760,35 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
             cost_cents: 0,
             use_user_key: false,
             tier_sweep: true,
-          });
+          }));
+          return res.end();
         }
       }
       console.warn(
         `[mv-cover] tier sweep exhausted (${img.error || "no_image"}); escalating to Runway premium`,
       );
     } catch (err) {
+      clearInterval(heartbeat);
       console.warn("[mv-cover] tier sweep threw:", err instanceof Error ? err.message : String(err));
     }
+    // Headers already sent — emit SVG placeholder inline rather than falling
+    // through to the Runway upstream path (which opens a fresh response).
+    let hue = 180;
+    for (let i = 0; i < (prompt || "").length; i++) hue = (hue * 31 + prompt.charCodeAt(i)) % 360;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="hsl(${hue},70%,32%)"/><stop offset="100%" stop-color="hsl(${(hue + 60) % 360},75%,18%)"/></linearGradient></defs><rect width="1024" height="1024" fill="url(#g)"/></svg>`;
+    res.write(JSON.stringify({
+      ok: true,
+      task_id: `placeholder-${Date.now()}`,
+      image_url: `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`,
+      model: "css-gradient-placeholder",
+      engine: "placeholder",
+      version: "1",
+      cost_cents: 0,
+      use_user_key: false,
+      fallback: true,
+      placeholder: true,
+    }));
+    return res.end();
   }
 
   // Premium last-resort (or user-forced Runway): hit Rust/Runway via the
@@ -1158,19 +1186,26 @@ app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
   // Only premium engine names skip the sweep and hit Rust directly.
   const userForcedPremiumMusic = ["elevenlabs", "suno"].includes(explicitEngine);
   if (!userForcedPremiumMusic) {
+    // Heartbeat keepalive (see lyrics handler).
+    res.status(200);
+    res.setHeader("content-type", "application/json; charset=utf-8");
+    res.setHeader("transfer-encoding", "chunked");
+    res.flushHeaders?.();
+    const heartbeat = setInterval(() => { try { res.write(" "); } catch {} }, 5000);
     try {
       const tier = await callMusicGen({
         prompt: prompt || "ambient cinematic instrumental",
         duration_secs: duration,
         tags,
       });
+      clearInterval(heartbeat);
       if (tier && tier.ok) {
         const audioUrl = tier.audio_url
           ? tier.audio_url
           : (tier.audio_b64 ? `data:audio/mpeg;base64,${tier.audio_b64}` : "");
         if (audioUrl) {
           console.log(`[mv-music] tier sweep WIN: provider=${tier.provider}`);
-          return res.status(200).json({
+          res.write(JSON.stringify({
             ok: true,
             task_id: `tier-${tier.provider}-${Date.now()}`,
             audio_url: audioUrl,
@@ -1178,13 +1213,46 @@ app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
             cost_cents: 0,
             use_user_key: false,
             tier_sweep: true,
-          });
+          }));
+          return res.end();
         }
       }
-      console.warn(`[mv-music] tier sweep exhausted (${tier?.error || "no_audio"}); escalating to Rust premium`);
+      console.warn(`[mv-music] tier sweep exhausted (${tier?.error || "no_audio"}); emitting silent placeholder`);
     } catch (err) {
+      clearInterval(heartbeat);
       console.warn("[mv-music] tier sweep threw:", err instanceof Error ? err.message : String(err));
     }
+    // Headers already sent — emit silent WAV inline (cannot fall through
+    // to Rust upstream which would open a fresh response).
+    const sampleRateP = 8000;
+    const numSamplesP = Math.max(1, Math.min(120, Math.round(duration))) * sampleRateP;
+    const dataSizeP = numSamplesP * 2;
+    const wavP = Buffer.alloc(44 + dataSizeP);
+    wavP.write("RIFF", 0);
+    wavP.writeUInt32LE(36 + dataSizeP, 4);
+    wavP.write("WAVE", 8);
+    wavP.write("fmt ", 12);
+    wavP.writeUInt32LE(16, 16);
+    wavP.writeUInt16LE(1, 20);
+    wavP.writeUInt16LE(1, 22);
+    wavP.writeUInt32LE(sampleRateP, 24);
+    wavP.writeUInt32LE(sampleRateP * 2, 28);
+    wavP.writeUInt16LE(2, 32);
+    wavP.writeUInt16LE(16, 34);
+    wavP.write("data", 36);
+    wavP.writeUInt32LE(dataSizeP, 40);
+    res.write(JSON.stringify({
+      ok: true,
+      task_id: `placeholder-${Date.now()}`,
+      audio_url: `data:audio/wav;base64,${wavP.toString("base64")}`,
+      engine: "placeholder",
+      cost_cents: 0,
+      use_user_key: false,
+      fallback: true,
+      placeholder: true,
+      duration_secs: Math.round(duration),
+    }));
+    return res.end();
   }
 
   let result = await _mvForwardUpstream(req, res, bodyStr);
@@ -1307,6 +1375,19 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
   // Only `body.engine="runway"` or other explicit premium escalates to Rust.
   const userForcedPremiumVideo = ["runway", "luma"].includes(explicitEngine);
   if (!userForcedPremiumVideo) {
+    // Heartbeat keepalive (see lyrics handler). Lite path may invoke
+    // callImageGen for a still; hybrid/cinematic invokes callVideoGen
+    // which can take 60s+ per provider.
+    res.status(200);
+    res.setHeader("content-type", "application/json; charset=utf-8");
+    res.setHeader("transfer-encoding", "chunked");
+    res.flushHeaders?.();
+    const heartbeat = setInterval(() => { try { res.write(" "); } catch {} }, 5000);
+    const sendJson = (payload: unknown) => {
+      clearInterval(heartbeat);
+      try { res.write(JSON.stringify(payload)); } catch {}
+      try { res.end(); } catch {}
+    };
     if (tier === "lite") {
       console.log(`[mv-video] tier=lite — skipping AI video, returning still+ken-burns flag`);
       const sizeMap: Record<string, string> = { "16:9": "1024x576", "9:16": "576x1024", "1:1": "1024x1024" };
@@ -1336,7 +1417,7 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
           `</linearGradient></defs><rect width="${w}" height="${h}" fill="url(#g)"/></svg>`;
         stillUrl = `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
       }
-      return res.status(200).json({
+      return sendJson({
         ok: true,
         task_id: `tier-lite-${Date.now()}`,
         video_url: "",
@@ -1360,7 +1441,7 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
       });
       if (tierVid && tierVid.ok && (tierVid.video_url || tierVid.poll_url)) {
         console.log(`[mv-video] tier sweep WIN: provider=${tierVid.provider}`);
-        return res.status(200).json({
+        return sendJson({
           ok: true,
           task_id: `tier-${tierVid.provider}-${Date.now()}`,
           video_url: tierVid.video_url || "",
@@ -1371,10 +1452,25 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
           tier_sweep: true,
         });
       }
-      console.warn(`[mv-video] tier sweep exhausted (${tierVid?.error || "no_video"}); escalating to Rust premium`);
+      console.warn(`[mv-video] tier sweep exhausted (${tierVid?.error || "no_video"}); emitting still placeholder`);
     } catch (err) {
       console.warn("[mv-video] tier sweep threw:", err instanceof Error ? err.message : String(err));
     }
+    // Headers already sent — emit still+ken-burns placeholder inline.
+    return sendJson({
+      ok: true,
+      task_id: `placeholder-${Date.now()}`,
+      video_url: "",
+      image_url: imageUrl || "",
+      engine: "placeholder",
+      cost_cents: 0,
+      use_user_key: false,
+      fallback: true,
+      placeholder: true,
+      video_skipped: true,
+      aspect_ratio: aspect,
+      duration_secs: Math.round(duration),
+    });
   }
 
   let result = await _mvForwardUpstream(req, res, bodyStr);

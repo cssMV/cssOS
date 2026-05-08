@@ -1,78 +1,116 @@
-# Payments Setup — Alipay (支付宝) + WeChat Pay (微信支付)
+# Payments Setup — NihaoPay (Alipay + WeChat Pay aggregator)
 
-Wave 104 scaffolding. Stripe (Wave 76) continues to handle USD subscriptions; this guide covers the two CN providers wired in alongside it.
+**Wave 104b** supersedes the direct Alipay/WeChat Pay scaffolds from
+wave 104. We now route both vendors through **NihaoPay**
+(<https://nihaopay.com>), a payment aggregator that covers Alipay,
+WeChat Pay, and UnionPay through a single merchant account.
 
-## 1. Alipay (支付宝)
+Stripe (wave 76) continues to handle USD card subscriptions for the
+non-CN audience. NihaoPay handles the CN audience.
 
-### Register a merchant app
-1. Sign up as a 商户 at <https://open.alipay.com/>.
-2. Create an application of type **网页&移动应用** (Web & Mobile).
-3. Enable the **当面付 / 电脑网站支付** (Web Page Payment) product.
-4. Generate an **RSA2** keypair via the Alipay 开放平台助手 tool. You upload the application public key to Alipay; Alipay returns the **Alipay public key** which you store as `ALIPAY_PUBLIC_KEY`.
-5. Configure your webhook (异步通知) URL: `https://<your-domain>/api/webhooks/alipay`.
+## Why NihaoPay (vs. direct Alipay + WeChat)
 
-### Env vars
+- **One merchant**, one onboarding, one signed contract.
+- **No ICP filing required** — NihaoPay is the merchant of record on
+  the CN side and handles cross-border compliance.
+- **One webhook**, one signature scheme — HMAC-SHA256, no RSA key
+  management.
+- **USD pricing** — we charge in USD; NihaoPay shows the user the
+  CNY-converted amount on the hosted checkout page.
+
+The direct `src/payments/alipay.ts` and `src/payments/wechat.ts`
+adapters from wave 104 are kept in-tree but marked
+`CSSOS_DEPRECATED` and are no longer reachable from the frontend.
+
+## 1. NihaoPay merchant onboarding
+
+1. Sign up at <https://nihaopay.com/>.
+2. Submit business documents — NihaoPay handles CN entity setup.
+3. After approval you receive:
+   - `merchant_id` (e.g. `MBET102230`)
+   - `api_key` — 32-byte hex secret used for **both** Bearer auth and
+     HMAC-SHA256 webhook signature verification.
+4. Choose vendors to enable: **Alipay**, **WeChat Pay**,
+   optionally UnionPay.
+5. Configure your IPN (webhook) URL: `https://cssstudio.app/api/webhooks/nihaopay`.
+6. Configure your callback URL (browser return): `https://cssstudio.app/premium/return?provider=nihaopay`.
+
+## 2. Env vars
+
+Add these to `/etc/cssos.env` (already provisioned in prod):
+
 ```
-ALIPAY_APP_ID=2021000000000000
-ALIPAY_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
-ALIPAY_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"
-ALIPAY_GATEWAY_URL=https://openapi.alipay.com/gateway.do   # optional; sandbox uses openapi.alipaydev.com
+NIHAOPAY_MERCHANT_ID=MBET102230
+NIHAOPAY_API_KEY=cc4ee13...                # 32-byte hex secret
+NIHAOPAY_ENV=sandbox                       # or "live"
+NIHAOPAY_PURCHASE_PLATFORM_BPS=1000        # platform fee, basis points (10%)
 ```
 
-### Webhook signature
-Alipay POSTs `application/x-www-form-urlencoded` callbacks signed with **RSA2 (SHA256withRSA)**. The SDK's `checkNotifySign(body)` performs the canonical-form sort + verify against `ALIPAY_PUBLIC_KEY`. Replay safety is enforced by `payment_provider_events.external_event_id UNIQUE` — we use the Alipay `trade_no` as the dedupe key. Server must respond with the literal string `success` to ack.
+## 3. API endpoints used
 
-## 2. WeChat Pay (微信支付)
+- **Sandbox:** `https://sandbox.nihaopay.com/api/v1.2/transactions/secure-pay`
+- **Live:**    `https://api.nihaopay.com/api/v1.2/transactions/secure-pay`
 
-### Register a merchant
-1. Sign up as a 商户 at <https://pay.weixin.qq.com/>. Requires a Chinese business license (营业执照).
-2. Bind your AppID — typically a **公众号** (Official Account), **小程序** (Mini Program), or **开放平台账号** (Open Platform / Native app).
-3. Download the merchant private key (`apiclient_key.pem`) and certificate serial number from the merchant portal (商户平台 → 账户中心 → API 安全).
-4. Set the **APIv3 key** (32 chars) in the merchant portal.
-5. Configure your callback URL: `https://<your-domain>/api/webhooks/wechat` (HTTPS required).
+Auth: HTTP `Authorization: Bearer ${NIHAOPAY_API_KEY}`.
 
-### Env vars
+Form-encoded POST body:
+
 ```
-WECHAT_MCH_ID=1900000000
-WECHAT_APP_ID=wx0000000000000000
-WECHAT_API_KEY_V3=32-char-aes-gcm-key
-WECHAT_CERT_SERIAL=hex-serial-of-merchant-cert
-WECHAT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
-WECHAT_NOTIFY_URL=https://<your-domain>/api/webhooks/wechat
-WECHAT_PLATFORM_CERT_PEM="-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"
+merchant_id=MBET102230
+vendor=alipay         (or "wechatpay" / "unionpay")
+currency=USD
+amount=999            (cents — $9.99 = 999)
+reference=cssos_premium_<userId>_<ts>
+ipn_url=https://cssstudio.app/api/webhooks/nihaopay
+callback_url=https://cssstudio.app/premium/return?provider=nihaopay
+note=CSS Studio Premium Monthly Subscription
 ```
 
-`WECHAT_PLATFORM_CERT_PEM` is the WeChat Pay platform certificate (downloaded periodically from `/v3/certificates`) used to verify webhook signatures.
+Response is either an HTML auto-submit form (rendered into a popup tab)
+or JSON `{ url: "..." }` (browser is redirected). The user completes
+payment on NihaoPay's hosted checkout.
 
-### Webhook signature
-APIv3 webhooks include four headers:
-- `Wechatpay-Timestamp`
-- `Wechatpay-Nonce`
-- `Wechatpay-Signature`
-- `Wechatpay-Serial`
+## 4. Webhook (IPN) — `POST /api/webhooks/nihaopay`
 
-The signed string is `${timestamp}\n${nonce}\n${rawBody}\n`, verified with **RSA-SHA256** against the platform certificate. The body's `resource` field is **AES-GCM** encrypted with `WECHAT_API_KEY_V3`; we decrypt to extract `trade_state`, `out_trade_no`, `transaction_id`, `amount`. Replay safety: `external_event_id` UNIQUE, keyed on the WeChat event `id` (or `transaction_id` fallback). Ack with HTTP 200 and JSON `{"code":"SUCCESS","message":"OK"}`.
+Body is `application/x-www-form-urlencoded`. Fields used:
+`transaction_id`, `reference`, `status`, `vendor`, `amount`,
+`currency`, `signature`.
 
-## 3. ICP filing (中国大陆 ICP 备案)
+**Signature verification:**
 
-**Both providers require ICP filing** for any domain that serves traffic from inside mainland China:
-- The notify_url / return_url domains must be ICP-filed (备案) with your hosting provider (Aliyun, Tencent Cloud, etc.).
-- Without ICP, Alipay merchant review will reject your application; WeChat Pay's domain whitelist setup will fail.
-- ICP filing typically takes 2–4 weeks and requires a Chinese business entity + RMB-payable bank account.
-- For initial scaffolding/testing without a CN-hosted domain, use Alipay's **sandbox** (`openapi.alipaydev.com`) and WeChat's sandbox merchant; the adapters here both honor the gateway env override.
+```
+canonical = sorted(keys, alphabetical, excluding "signature")
+            joined as "k1=v1&k2=v2&..."
+expected  = HMAC_SHA256_HEX(canonical, NIHAOPAY_API_KEY)
+verify    = timingSafeEqual(expected, body.signature)
+```
 
-## 4. Pricing
+On `status=success` (or `paid`):
+- parse `reference` → extract user_id prefix
+- `users.premium_until = greatest(now(), premium_until) + interval '30 days'`
+- insert `payment_provider_events (provider='nihaopay', external_event_id=transaction_id)` — the UNIQUE constraint makes the handler idempotent.
 
-- USD: $9.99/mo (Stripe).
-- CNY: ¥69.00/mo (`PREMIUM_PRICE_CNY_FEN = 6900`) — roughly equivalent to USD $9.99 at typical exchange rates.
+Reply with HTTP 200 and the literal body `OK` to acknowledge.
 
-## 5. Database
+## 5. Frontend wiring
 
-Wave 104 migration `migrations/055_alipay_wechat_payments.sql`:
-- Adds `users.alipay_subscription_id`, `users.wechat_subscription_id`.
-- Creates `payment_provider_events` (replay-safe via `external_event_id UNIQUE`).
-- `users.premium_until` remains the source of truth regardless of provider.
+The Premium dialog (`public/app.premium-modal.js`) shows two NihaoPay
+buttons:
 
-## 6. Frontend
+- 支付宝 / Alipay (¥69/mo via NihaoPay)
+- 微信支付 / WeChat (¥69/mo via NihaoPay)
 
-`public/app.premium-modal.js` queries `/api/premium/providers` on open and degrades each CN button to a disabled "Coming soon" state when the corresponding env vars are unset on the server.
+Both call `POST /api/premium/subscribe?provider=nihaopay&vendor=alipay|wechatpay`,
+follow the returned `redirect_url`, and rely on the IPN to credit
+premium. No QR rendering needed — NihaoPay's hosted page handles the
+WeChat scan flow.
+
+## 6. Notes
+
+- Currency: USD recommended for cross-border — NihaoPay handles CNY
+  conversion on the user side at the official rate.
+- ICP filing not needed (NihaoPay is the merchant of record on the
+  CN side).
+- All `payment_provider_events` rows for nihaopay use
+  `provider='nihaopay'`; the schema is unchanged from wave 104 (no
+  migration required).

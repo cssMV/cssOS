@@ -16,8 +16,11 @@ import { createRemoteJWKSet, jwtVerify, SignJWT } from "jose";
 import Anthropic from "@anthropic-ai/sdk";
 import Stripe from "stripe";
 // CSSOS_PERSON_MV_WAVE104 20260508 — Alipay + WeChat Pay scaffolding.
+// CSSOS_DEPRECATED wave 104b: direct Alipay/WeChat adapters superseded by
+// NihaoPay aggregator. Kept behind feature flag for fallback only.
 import * as cssosAlipay from "./payments/alipay";
 import * as cssosWechat from "./payments/wechat";
+import * as cssosNihao from "./payments/nihaopay";
 import dotenv from "dotenv";
 import { WebSocketServer, WebSocket } from "ws";
 import { getDatabaseUrl, getPool, withClient } from "./db";
@@ -35208,6 +35211,32 @@ app.post("/api/premium/subscribe", express.json({ limit: "2kb" }), async (req, r
     const user = await getSessionUser(req).catch(() => null);
     if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
     await ensurePremiumColumns();
+    // CSSOS_PERSON_MV_WAVE104B — NihaoPay aggregator branch.
+    const provider = String(req.query.provider || "stripe").toLowerCase();
+    if (provider === "nihaopay") {
+      const vendorRaw = String(req.query.vendor || "alipay").toLowerCase();
+      const vendor: cssosNihao.NihaoVendor =
+        vendorRaw === "wechatpay" || vendorRaw === "wechat" ? "wechatpay"
+        : vendorRaw === "unionpay" ? "unionpay"
+        : "alipay";
+      const callbackUrl = `${appBaseUrl(req)}/premium/return?provider=nihaopay`;
+      const ipnUrl = `${appBaseUrl(req)}/api/webhooks/nihaopay`;
+      const order = await cssosNihao.createSecurePay({
+        user_id: user.id,
+        vendor,
+        amount_cents: PREMIUM_PRICE_CENTS,
+        currency: "USD",
+        callback_url: callbackUrl,
+        ipn_url: ipnUrl,
+      });
+      if (!order) return res.status(503).json({ ok: false, code: "NIHAOPAY_NOT_CONFIGURED" });
+      return res.json(okData({
+        provider: "nihaopay",
+        vendor,
+        redirect_url: order.redirect_url,
+        reference: order.reference,
+      }));
+    }
     const stripe = getStripeClient();
     if (!stripe) return res.status(503).json({ ok: false, code: "STRIPE_NOT_CONFIGURED" });
     const customer = await ensureStripeCustomer({
@@ -35291,12 +35320,14 @@ app.get("/api/premium/providers", async (_req, res) => {
       { id: "stripe", currency: "usd", price_cents: 999,           enabled: !!getStripeClient() },
       { id: "alipay", currency: "cny", price_cents: PREMIUM_PRICE_CNY_FEN, enabled: cssosAlipay.isAlipayConfigured() },
       { id: "wechat", currency: "cny", price_cents: PREMIUM_PRICE_CNY_FEN, enabled: cssosWechat.isWechatConfigured() },
+      // CSSOS_PERSON_MV_WAVE104B — NihaoPay aggregator (Alipay+WeChat via single MID).
+      { id: "nihaopay", currency: "usd", price_cents: PREMIUM_PRICE_CENTS, enabled: cssosNihao.isNihaoPayConfigured() },
     ],
   }));
 });
 
 async function logPaymentProviderEvent(args: {
-  provider: "alipay" | "wechat" | "stripe";
+  provider: "alipay" | "wechat" | "stripe" | "nihaopay";
   external_event_id: string;
   event_kind: string;
   user_id: string | null;
@@ -35329,6 +35360,18 @@ async function logPaymentProviderEvent(args: {
 
 async function applyCnPremiumExtension(userId: string, providerCol: string, subId: string | null): Promise<void> {
   if (!DATABASE_URL) return;
+  if (providerCol === "nihaopay") {
+    // CSSOS_PERSON_MV_WAVE104B — aggregator; no per-vendor sub column.
+    await withClient((c) =>
+      c.query(
+        `UPDATE users
+            SET premium_until = GREATEST(COALESCE(premium_until, now()), now()) + INTERVAL '30 days'
+          WHERE id = $1::uuid`,
+        [userId],
+      ),
+    );
+    return;
+  }
   const col = providerCol === "alipay" ? "alipay_subscription_id" : "wechat_subscription_id";
   await withClient((c) =>
     c.query(
@@ -35498,6 +35541,60 @@ app.post(
       console.warn("[wechat-webhook] error", err);
       // Still 200 to avoid retry storms on parse errors after sig OK.
       return res.status(200).json({ code: "SUCCESS", message: "OK" });
+    }
+  },
+);
+
+/* CSSOS_PERSON_MV_WAVE104B 20260508 — Jing
+ * NihaoPay IPN webhook. Form-encoded POST. Verify HMAC-SHA256 over
+ * sorted key=value fields (excluding `signature`). On status=paid|success
+ * extend premium_until +30d. NihaoPay expects literal "OK" 200. */
+app.post(
+  "/api/webhooks/nihaopay",
+  express.urlencoded({ extended: false, limit: "16kb" }),
+  async (req, res) => {
+    try {
+      const body: Record<string, string> = {};
+      for (const [k, v] of Object.entries(req.body || {})) body[k] = String(v ?? "");
+      const ok = cssosNihao.verifyWebhookSignature(body);
+      if (!ok) return res.status(401).send("invalid_sign");
+      const status = String(body.status || "").toLowerCase();
+      const reference = String(body.reference || "");
+      const transactionId = String(body.transaction_id || "");
+      const amountCents = Number(body.amount || 0);
+      const currency = String(body.currency || "USD").toUpperCase();
+      const userIdMatch = /^cssos_premium_([0-9a-f]{8})_\d+/.exec(reference);
+      const userIdShort = userIdMatch?.[1] || null;
+      let userId: string | null = null;
+      if (userIdShort && DATABASE_URL) {
+        const r = await withClient((c) =>
+          c.query<{ id: string }>(
+            `SELECT id::text AS id FROM users WHERE id::text LIKE $1 || '%' LIMIT 1`,
+            [userIdShort],
+          ),
+        );
+        userId = r.rows[0]?.id || null;
+      }
+      const eventKind = status === "success" || status === "paid" ? "paid"
+        : status === "refunded" ? "refunded"
+        : status === "cancelled" || status === "canceled" || status === "closed" ? "cancelled"
+        : "other";
+      const dedup = await logPaymentProviderEvent({
+        provider: "nihaopay",
+        external_event_id: transactionId || reference || `nihao_${Date.now()}`,
+        event_kind: eventKind,
+        user_id: userId,
+        amount_cny_cents: currency === "CNY" ? Math.round(amountCents) : null,
+        amount_usd_cents: currency === "USD" ? Math.round(amountCents) : null,
+        payload: body,
+      });
+      if (!dedup.duplicate && eventKind === "paid" && userId) {
+        await applyCnPremiumExtension(userId, "nihaopay", transactionId || reference);
+      }
+      return res.status(200).send("OK");
+    } catch (err) {
+      console.warn("[nihaopay-webhook] error", err);
+      return res.status(200).send("OK");
     }
   },
 );

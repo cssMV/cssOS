@@ -128,6 +128,15 @@
               <audio id="mic-capture-audio" class="mic-capture-audio" controls preload="metadata" hidden></audio>
             </div>
           </div>
+          <!-- CSSOS_PERSON_MV_WAVE9 20260507 — homepage discovery shelf.
+               Hidden until /api/person-mv/discover/hot returns rows. -->
+          <section class="cssos-discover-shelf" id="person-mv-discover-shelf" data-shelf="person-mv" hidden>
+            <header class="cssos-discover-header">
+              <h2 data-i18n="discover.personMv.title">🏛 文明热门 MV</h2>
+              <a href="#person-mv" class="cssos-discover-all" id="person-mv-discover-all" data-i18n="discover.personMv.viewAll">查看全部 →</a>
+            </header>
+            <div class="cssos-discover-row" data-discover-row="person-mv" id="person-mv-discover-row"></div>
+          </section>
         </div>
       </section>
 
@@ -2094,6 +2103,7 @@
     <script src="app.mv-dag-executor.js?v=20260507-dag-1"></script>
     <script src="app.mv-pipeline-panel.js?v=20260507-sort-usage"></script>
     <script src="app.person-mv-panel.js?v=20260507-percard"></script>
+    <script src="app.person-mv-discover-shelf.js?v=20260507-wave9"></script>
     <script src="app.cover-slideshow.js?v=20260430-slideshow-intensity-200"></script>
     <script src="app.watch-stage-bars.js?v=20260420-p2-78-kill-waiting-dot-1"></script>
     <script src="app.watch-music-ring.js?v=20260420-shared-arc-end-burst-1"></script>

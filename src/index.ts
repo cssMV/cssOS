@@ -15415,6 +15415,61 @@ app.get("/api/person-mv/persons", async (req, res) => {
   }
 });
 
+/* CSSOS_PERSON_MV_WAVE9 20260507 — Jing
+ * Wave 9: homepage discovery shelf. Returns top 8 persons by total MV
+ * view_count (sum across all their MVs), each with a preview cover image
+ * from the most-viewed MV. Cached 5 minutes in-memory. Public — feeds the
+ * #person-mv-discover-shelf on the logo panel so the module is visible
+ * without dock click-through. */
+type PersonMvHotRow = {
+  person_id: string;
+  name_zh: string;
+  name_en: string;
+  civilization: string;
+  era: string | null;
+  portrait_url: string | null;
+  total_views: number;
+  mv_count: number;
+  top_cover: string | null;
+};
+let __personMvHotCache: { at: number; limit: number; rows: PersonMvHotRow[] } | null = null;
+app.get("/api/person-mv/discover/hot", async (req, res) => {
+  noStore(res);
+  try {
+    await seedPersonProfilesOnce();
+    const limit = Math.max(1, Math.min(20, Number(req.query.limit || 8) || 8));
+    const now = Date.now();
+    if (__personMvHotCache && __personMvHotCache.limit === limit && (now - __personMvHotCache.at) < 5 * 60 * 1000) {
+      return res.json({ ok: true, data: { persons: __personMvHotCache.rows }, cached: true });
+    }
+    const r = await withClient((c) =>
+      c.query<PersonMvHotRow>(
+        `SELECT pp.person_id, pp.name_zh, pp.name_en, pp.civilization, pp.era, pp.portrait_url,
+                COALESCE(SUM(pm.view_count), 0)::int AS total_views,
+                COUNT(pm.mv_id)::int AS mv_count,
+                (SELECT uw.cover_image
+                   FROM person_mvs pm2
+                   JOIN user_works uw ON uw.work_id = pm2.work_id
+                  WHERE pm2.person_id = pp.person_id
+                  ORDER BY pm2.view_count DESC NULLS LAST
+                  LIMIT 1) AS top_cover
+           FROM person_profiles pp
+           LEFT JOIN person_mvs pm ON pm.person_id = pp.person_id
+          GROUP BY pp.person_id, pp.name_zh, pp.name_en, pp.civilization, pp.era, pp.portrait_url
+         HAVING COUNT(pm.mv_id) > 0
+          ORDER BY total_views DESC, mv_count DESC, pp.name_en
+          LIMIT $1`,
+        [limit],
+      ),
+    );
+    __personMvHotCache = { at: now, limit, rows: r.rows };
+    return res.json({ ok: true, data: { persons: r.rows }, cached: false });
+  } catch (err) {
+    console.warn("[person-mv] discover/hot failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "DISCOVER_HOT_FAILED" });
+  }
+});
+
 app.get("/api/person-mv/persons/:id", async (req, res) => {
   noStore(res);
   try {

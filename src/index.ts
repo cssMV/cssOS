@@ -29305,6 +29305,436 @@ app.post("/api/admin/contests/:id/finalize", express.json({ limit: "1kb" }), asy
   }
 });
 
+/* CSSOS_PERSON_MV_WAVE45 20260508 — Jing
+ * Video upscale (1080p / 4K) — paid via credits.
+ *   720p->1080p: 30 | 720p->4K: 100 | 1080p->4K: 60.
+ * Engine: fal-ai/topaz/upscale/video when FAL_KEY present; otherwise
+ * deferred (job stays pending; admin/cron worker picks it up). On
+ * engine attempt-failure we refund credits via upscale_refund. */
+const UPSCALE_COSTS: Record<string, Record<string, number>> = {
+  "720p": { "1080p": 30, "4k": 100 },
+  "1080p": { "4k": 60 },
+};
+
+function normalizeUpscaleResolution(value: unknown): "1080p" | "4k" | null {
+  const v = String(value || "").trim().toLowerCase();
+  if (v === "1080p" || v === "1080") return "1080p";
+  if (v === "4k" || v === "2160p") return "4k";
+  return null;
+}
+
+async function callVideoUpscale(opts: {
+  source_url: string;
+  target_resolution: "1080p" | "4k";
+}): Promise<{ output_url: string | null; engine: string | null }> {
+  const falKey = process.env.FAL_KEY || process.env.FAL_AI_KEY || "";
+  if (!falKey || !opts.source_url) return { output_url: null, engine: null };
+  try {
+    const upstream = await fetch("https://fal.run/fal-ai/topaz/upscale/video", {
+      method: "POST",
+      headers: {
+        Authorization: `Key ${falKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        video_url: opts.source_url,
+        target_resolution: opts.target_resolution === "4k" ? "4k" : "1080p",
+      }),
+    });
+    if (!upstream.ok) return { output_url: null, engine: "fal-ai/topaz" };
+    const json: any = await upstream.json().catch(() => null);
+    const url = json?.video?.url || json?.output?.url || json?.url || null;
+    return {
+      output_url: typeof url === "string" ? url : null,
+      engine: "fal-ai/topaz",
+    };
+  } catch {
+    return { output_url: null, engine: "fal-ai/topaz" };
+  }
+}
+
+app.post("/api/works/:id/upscale", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!/^[0-9a-fA-F-]{8,64}$/.test(id)) {
+      return res.status(400).json({ ok: false, code: "INVALID_WORK_ID" });
+    }
+    const target = normalizeUpscaleResolution(req.body?.target_resolution);
+    if (!target) return res.status(400).json({ ok: false, code: "INVALID_RESOLUTION" });
+    const sourceRes = String(req.body?.source_resolution || "720p").trim().toLowerCase();
+    const cost = UPSCALE_COSTS[sourceRes]?.[target];
+    if (!cost) return res.status(400).json({ ok: false, code: "UNSUPPORTED_UPGRADE" });
+
+    const ownerRes = await withClient((c) =>
+      c.query<{ user_id: string }>(
+        `SELECT user_id::text FROM user_works WHERE id = $1::uuid LIMIT 1`,
+        [id],
+      ),
+    );
+    const owner = ownerRes.rows[0];
+    if (!owner) return res.status(404).json({ ok: false, code: "WORK_NOT_FOUND" });
+    if (owner.user_id !== user.id) return res.status(403).json({ ok: false, code: "NOT_OWNER" });
+
+    const srcRes = await withClient((c) =>
+      c.query<{ url: string | null }>(
+        `SELECT url FROM work_assets
+          WHERE work_id = $1::uuid AND asset_type = 'final_mv'
+          ORDER BY created_at DESC LIMIT 1`,
+        [id],
+      ),
+    );
+    const sourceUrl = srcRes.rows[0]?.url || "";
+    if (!sourceUrl) return res.status(409).json({ ok: false, code: "NO_SOURCE_VIDEO" });
+
+    const balRes = await withClient((c) =>
+      c.query<{ balance: number }>(
+        `SELECT balance FROM user_credits WHERE user_id = $1::uuid LIMIT 1`,
+        [user.id],
+      ),
+    );
+    const balance = Number(balRes.rows[0]?.balance ?? 0);
+    if (balance < cost) {
+      return res.status(402).json({ ok: false, code: "INSUFFICIENT_CREDITS", required: cost, balance });
+    }
+
+    const jobRow = await withClient(async (c) => {
+      await c.query("BEGIN");
+      try {
+        const ev = await c.query(
+          `INSERT INTO credit_events (user_id, delta, reason, payload)
+           VALUES ($1::uuid, $2, 'upscale_spend', $3::jsonb)
+           RETURNING id`,
+          [user.id, -cost, JSON.stringify({ work_id: id, target_resolution: target })],
+        );
+        if (!ev.rowCount) throw new Error("credit_event_insert_failed");
+        await c.query(
+          `INSERT INTO user_credits (user_id, balance, lifetime_earned, lifetime_spent, updated_at)
+           VALUES ($1::uuid, $2, 0, $3, now())
+           ON CONFLICT (user_id) DO UPDATE
+              SET balance = user_credits.balance + EXCLUDED.balance,
+                  lifetime_spent = user_credits.lifetime_spent + EXCLUDED.lifetime_spent,
+                  updated_at = now()`,
+          [user.id, -cost, cost],
+        );
+        const ins = await c.query<{ job_id: string }>(
+          `INSERT INTO upscale_jobs (work_id, user_id, source_url, target_resolution, status, credits_spent)
+           VALUES ($1::uuid, $2::uuid, $3, $4, 'pending', $5)
+           RETURNING job_id::text`,
+          [id, user.id, sourceUrl, target, cost],
+        );
+        await c.query("COMMIT");
+        return ins.rows[0]!;
+      } catch (err) {
+        await c.query("ROLLBACK").catch(() => {});
+        throw err;
+      }
+    });
+
+    const jobId = jobRow.job_id;
+    void (async () => {
+      try {
+        const out = await callVideoUpscale({ source_url: sourceUrl, target_resolution: target });
+        if (out.output_url) {
+          await withClient((c) =>
+            c.query(
+              `UPDATE upscale_jobs
+                  SET status = 'done', output_url = $2, completed_at = now()
+                WHERE job_id = $1::uuid`,
+              [jobId, out.output_url],
+            ),
+          );
+          await withClient((c) =>
+            c.query(
+              `UPDATE user_works
+                  SET upscale_jobs = COALESCE(upscale_jobs, '[]'::jsonb) || $2::jsonb
+                WHERE id = $1::uuid`,
+              [
+                id,
+                JSON.stringify([
+                  {
+                    job_id: jobId,
+                    target_resolution: target,
+                    status: "done",
+                    output_url: out.output_url,
+                    completed_at: new Date().toISOString(),
+                    credits_spent: cost,
+                  },
+                ]),
+              ],
+            ),
+          );
+        } else if (out.engine) {
+          await withClient((c) =>
+            c.query(
+              `UPDATE upscale_jobs SET status = 'failed', completed_at = now()
+                WHERE job_id = $1::uuid AND status = 'pending'`,
+              [jobId],
+            ),
+          );
+          await awardCredit(user.id, cost, "upscale_refund", { job_id: jobId, work_id: id });
+        }
+      } catch (err) {
+        console.warn("[upscale] async run failed:", (err as Error)?.message || err);
+      }
+    })();
+
+    return res.json({
+      ok: true,
+      job_id: jobId,
+      target_resolution: target,
+      credits_spent: cost,
+      balance: balance - cost,
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "UPSCALE_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/works/:id/upscale-jobs", async (req, res) => {
+  noStore(res);
+  try {
+    const id = String(req.params.id || "").trim();
+    if (!/^[0-9a-fA-F-]{8,64}$/.test(id)) {
+      return res.status(400).json({ ok: false, code: "INVALID_WORK_ID" });
+    }
+    await ensurePersonMvTables();
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT job_id::text, target_resolution, status, output_url, credits_spent,
+                created_at, completed_at
+           FROM upscale_jobs
+          WHERE work_id = $1::uuid
+          ORDER BY created_at DESC
+          LIMIT 50`,
+        [id],
+      ),
+    );
+    return res.json({ ok: true, jobs: r.rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "LIST_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/upscale-jobs/:job_id", async (req, res) => {
+  noStore(res);
+  try {
+    const jid = String(req.params.job_id || "").trim();
+    if (!/^[0-9a-fA-F-]{8,64}$/.test(jid)) {
+      return res.status(400).json({ ok: false, code: "INVALID_JOB_ID" });
+    }
+    await ensurePersonMvTables();
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT job_id::text, work_id::text, target_resolution, status, output_url,
+                credits_spent, created_at, completed_at
+           FROM upscale_jobs WHERE job_id = $1::uuid LIMIT 1`,
+        [jid],
+      ),
+    );
+    if (!r.rows.length) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    return res.json({ ok: true, job: r.rows[0] });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "GET_JOB_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE48 20260508 — Jing
+ * MV product attachments (1-3 per work). Owner manages, public reads,
+ * clicks tracked. Threshold reward: every 100 clicks -> +1 credit to
+ * the work owner via product_click_reward. */
+function sanitizeProductUrl(value: unknown): string | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  if (!/^https?:\/\//i.test(raw)) return null;
+  if (raw.length > 2048) return null;
+  return raw;
+}
+
+app.post("/api/works/:id/products", express.json({ limit: "4kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!/^[0-9a-fA-F-]{8,64}$/.test(id)) {
+      return res.status(400).json({ ok: false, code: "INVALID_WORK_ID" });
+    }
+    const ownerRes = await withClient((c) =>
+      c.query<{ user_id: string }>(
+        `SELECT user_id::text FROM user_works WHERE id = $1::uuid LIMIT 1`,
+        [id],
+      ),
+    );
+    const owner = ownerRes.rows[0];
+    if (!owner) return res.status(404).json({ ok: false, code: "WORK_NOT_FOUND" });
+    if (owner.user_id !== user.id) return res.status(403).json({ ok: false, code: "NOT_OWNER" });
+
+    const position = Number.parseInt(String(req.body?.position || "0"), 10) || 0;
+    if (![1, 2, 3].includes(position)) {
+      return res.status(400).json({ ok: false, code: "INVALID_POSITION" });
+    }
+    const title = String(req.body?.title || "").trim().slice(0, 200);
+    const url = sanitizeProductUrl(req.body?.url);
+    if (!title || !url) return res.status(400).json({ ok: false, code: "MISSING_FIELDS" });
+    const imageUrl = sanitizeProductUrl(req.body?.image_url);
+    const priceText = req.body?.price_text ? String(req.body.price_text).trim().slice(0, 64) : null;
+    const tsRaw = req.body?.timestamp_secs;
+    const tsSecs =
+      tsRaw === undefined || tsRaw === null || tsRaw === "" ? null : Number(tsRaw);
+
+    const countRes = await withClient((c) =>
+      c.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM mv_product_attachments WHERE work_id = $1::uuid`,
+        [id],
+      ),
+    );
+    if ((countRes.rows[0]?.n ?? 0) >= 3) {
+      const slotRes = await withClient((c) =>
+        c.query<{ exists: boolean }>(
+          `SELECT EXISTS(SELECT 1 FROM mv_product_attachments WHERE work_id = $1::uuid AND position = $2) AS exists`,
+          [id, position],
+        ),
+      );
+      if (!slotRes.rows[0]?.exists) {
+        return res.status(409).json({ ok: false, code: "MAX_PRODUCTS" });
+      }
+    }
+
+    const ins = await withClient((c) =>
+      c.query<any>(
+        `INSERT INTO mv_product_attachments
+           (work_id, position, title, url, image_url, price_text, timestamp_secs)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (work_id, position) DO UPDATE
+            SET title = EXCLUDED.title,
+                url = EXCLUDED.url,
+                image_url = EXCLUDED.image_url,
+                price_text = EXCLUDED.price_text,
+                timestamp_secs = EXCLUDED.timestamp_secs
+         RETURNING attachment_id::text, position, title, url, image_url, price_text, timestamp_secs, click_count`,
+        [
+          id,
+          position,
+          title,
+          url,
+          imageUrl,
+          priceText,
+          Number.isFinite(tsSecs as number) ? tsSecs : null,
+        ],
+      ),
+    );
+    return res.json({ ok: true, attachment: ins.rows[0] });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "PRODUCT_SAVE_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/works/:id/products", async (req, res) => {
+  noStore(res);
+  try {
+    const id = String(req.params.id || "").trim();
+    if (!/^[0-9a-fA-F-]{8,64}$/.test(id)) {
+      return res.status(400).json({ ok: false, code: "INVALID_WORK_ID" });
+    }
+    await ensurePersonMvTables();
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT attachment_id::text, position, title, url, image_url, price_text,
+                timestamp_secs, click_count, created_at
+           FROM mv_product_attachments
+          WHERE work_id = $1::uuid
+          ORDER BY position ASC`,
+        [id],
+      ),
+    );
+    return res.json({ ok: true, products: r.rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "PRODUCT_LIST_FAILED", message: String(err) });
+  }
+});
+
+app.delete("/api/works/:id/products/:attachment_id", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    const aid = String(req.params.attachment_id || "").trim();
+    if (!/^[0-9a-fA-F-]{8,64}$/.test(id) || !/^[0-9a-fA-F-]{8,64}$/.test(aid)) {
+      return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    }
+    const ownerRes = await withClient((c) =>
+      c.query<{ user_id: string }>(
+        `SELECT user_id::text FROM user_works WHERE id = $1::uuid LIMIT 1`,
+        [id],
+      ),
+    );
+    if (!ownerRes.rows[0]) return res.status(404).json({ ok: false, code: "WORK_NOT_FOUND" });
+    if (ownerRes.rows[0].user_id !== user.id) return res.status(403).json({ ok: false, code: "NOT_OWNER" });
+    const del = await withClient((c) =>
+      c.query(
+        `DELETE FROM mv_product_attachments
+           WHERE work_id = $1::uuid AND attachment_id = $2::uuid`,
+        [id, aid],
+      ),
+    );
+    return res.json({ ok: true, deleted: del.rowCount ?? 0 });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "PRODUCT_DELETE_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/works/:id/products/:attachment_id/click", async (req, res) => {
+  noStore(res);
+  try {
+    const id = String(req.params.id || "").trim();
+    const aid = String(req.params.attachment_id || "").trim();
+    if (!/^[0-9a-fA-F-]{8,64}$/.test(id) || !/^[0-9a-fA-F-]{8,64}$/.test(aid)) {
+      return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    }
+    await ensurePersonMvTables();
+    const upd = await withClient((c) =>
+      c.query<{ click_count: number }>(
+        `UPDATE mv_product_attachments
+            SET click_count = click_count + 1
+          WHERE work_id = $1::uuid AND attachment_id = $2::uuid
+          RETURNING click_count`,
+        [id, aid],
+      ),
+    );
+    if (!upd.rows.length) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const clicks = Number(upd.rows[0]?.click_count || 0);
+    if (clicks > 0 && clicks % 100 === 0) {
+      try {
+        const ownerRes = await withClient((c) =>
+          c.query<{ user_id: string }>(
+            `SELECT user_id::text FROM user_works WHERE id = $1::uuid LIMIT 1`,
+            [id],
+          ),
+        );
+        const ownerId = ownerRes.rows[0]?.user_id;
+        if (ownerId) {
+          await awardCredit(ownerId, 1, "product_click_reward", {
+            work_id: id,
+            attachment_id: aid,
+            clicks,
+          });
+        }
+      } catch {}
+    }
+    return res.json({ ok: true, click_count: clicks });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "PRODUCT_CLICK_FAILED", message: String(err) });
+  }
+});
+
+
 start().catch((err) => {
   console.error("Startup failed", err);
   process.exit(1);

@@ -841,6 +841,16 @@
       ".pmv-codex .pmv-influence-fill{height:100%;background:linear-gradient(90deg,#00f5a0,#7dffce);}" +
       /* CSSOS_PERSON_MV_WAVE5 20260507 — view+like badge + wave 8 hero attribution */
       ".pmv-codex .pmv-mv-stats{position:absolute;right:6px;bottom:18px;padding:2px 6px;border-radius:4px;background:rgba(0,0,0,.55);font:600 10px/1.2 ui-monospace,monospace;color:#daffee;letter-spacing:.02em;}" +
+      /* CSSOS_PERSON_MV_WAVE12B 20260508 — comments + share overlay icons on each card. */
+      ".pmv-codex .pmv-mv-card .pmv-mv-actions{position:absolute;right:6px;bottom:6px;display:flex;gap:4px;z-index:2;}" +
+      ".pmv-codex .pmv-mv-card .pmv-mv-icon{all:unset;cursor:pointer;padding:4px 8px;border-radius:999px;background:rgba(0,0,0,.5);color:#daffee;font:600 11px/1 ui-monospace,monospace;}" +
+      ".pmv-codex .pmv-mv-card .pmv-mv-icon:hover{background:rgba(0,245,160,.3);}" +
+      /* CSSOS_PERSON_MV_WAVE13 20260508 — official sample ribbon + create-my-version CTA. */
+      ".pmv-codex .pmv-mv-card .pmv-mv-ribbon{position:absolute;left:6px;top:6px;z-index:2;padding:3px 8px;border-radius:999px;background:linear-gradient(135deg,#ffd700,#ff9f1c);color:#1a0f00;font:700 10px/1.2 ui-monospace,monospace;letter-spacing:.04em;}" +
+      ".pmv-codex .pmv-mv-card.is-official-sample{border-color:rgba(255,215,0,.55);box-shadow:0 0 0 1px rgba(255,215,0,.25),0 4px 12px rgba(255,159,28,.15);}" +
+      ".pmv-codex .pmv-sample-cta{margin:8px 0 0;display:flex;justify-content:center;}" +
+      ".pmv-codex .pmv-sample-cta button{background:linear-gradient(135deg,#00f5a0,#00c280);color:#001b14;border:0;border-radius:999px;padding:8px 18px;font:700 13px/1 ui-monospace,monospace;cursor:pointer;}" +
+      ".pmv-codex .pmv-sample-cta button:hover{filter:brightness(1.08);}" +
       ".pmv-codex .pmv-hero-attribution{position:absolute;right:8px;bottom:8px;font:500 9px/1 ui-monospace,monospace;color:rgba(218,255,238,.55);background:rgba(0,0,0,.45);padding:3px 6px;border-radius:4px;}" +
       /* CSSOS_PERSON_MV_WAVE10 20260508 — mobile polish: safe-area, responsive hero, tap targets */
       "@media (max-width:480px){" +
@@ -1054,6 +1064,15 @@
         // + emoji placeholder so a broken/missing asset never produces a
         // blank card.
         var personEmoji = (p && p.visual_symbols && p.visual_symbols[0]) || "🎞";
+        // CSSOS_PERSON_MV_WAVE13 20260508 — official samples float to the front
+        // so brand-new visitors see a curated reference MV before user-made ones.
+        mvs = mvs.slice().sort(function(a, b){
+          var ao = a && a.is_official_sample ? 1 : 0;
+          var bo = b && b.is_official_sample ? 1 : 0;
+          if (ao !== bo) return bo - ao;
+          return 0;
+        });
+        var firstSample = null;
         h += '<div class="pmv-mv-grid">' +
           mvs.map(function(m){
             var poster = m.cover_image || m.preview_image_url || "";
@@ -1066,22 +1085,39 @@
             // CSSOS_PERSON_MV_WAVE5 20260507 — view+like badge bottom-right
             var statsBadge = '<div class="pmv-mv-stats">👁 ' + escTxt(fmtCount(m.view_count)) +
               ' · ❤️ ' + escTxt(fmtCount(m.like_count)) + '</div>';
+            // CSSOS_PERSON_MV_WAVE12B 20260508 — comments + share buttons; the
+            // app.person-mv-comments-share.js decorator listens via data-cssos-mv-* attrs.
+            var mvId = String(m.mv_id || "");
+            var actions = '<div class="pmv-mv-actions">' +
+              '<button class="pmv-mv-icon" data-cssos-mv-comments="' + escAttr(mvId) + '" aria-label="Comments">💬 ' + escTxt(fmtCount(m.comment_count || 0)) + '</button>' +
+              '<button class="pmv-mv-icon" data-cssos-mv-share="' + escAttr(mvId) + '" aria-label="Share">🔗</button>' +
+            '</div>';
+            var ribbon = m.is_official_sample
+              ? '<div class="pmv-mv-ribbon">🌟 ' + escTxt(tt("Official sample · beat it", "官方示例 · 一键超越")) + '</div>'
+              : "";
+            if (m.is_official_sample && !firstSample) firstSample = m;
             var inner;
             if (poster) {
               inner = '<img class="pmv-mv-poster" src="' + escAttr(poster) + '" alt="" ' +
                 'onerror="this.parentNode.innerHTML=\'<div class=&quot;pmv-mv-fallback&quot;>' +
                 escAttr(String(personEmoji)) + '</div>\';">' +
-                creatorChip + statsBadge +
+                creatorChip + statsBadge + ribbon + actions +
                 '<div class="pmv-mv-meta">' + escTxt((m.duration_secs || 0) + "s") + '</div>';
             } else {
               inner = '<div class="pmv-mv-fallback">' + escTxt(String(personEmoji)) + '</div>' +
-                creatorChip + statsBadge +
+                creatorChip + statsBadge + ribbon + actions +
                 '<div class="pmv-mv-meta">' + escTxt((m.duration_secs || 0) + "s") + '</div>';
             }
-            return '<div class="pmv-mv-card" data-work-id="' + escAttr(m.work_id) + '">' +
+            var cardCls = "pmv-mv-card" + (m.is_official_sample ? " is-official-sample" : "");
+            return '<div class="' + cardCls + '" data-work-id="' + escAttr(m.work_id) + '">' +
               inner + '</div>';
           }).join("") +
         '</div>';
+        if (firstSample) {
+          h += '<div class="pmv-sample-cta">' +
+            '<button class="pmv-create-mv">✨ ' + escTxt(tt("Create my version", "创作我的版本")) + '</button>' +
+          '</div>';
+        }
       }
       h += '</div>';
 

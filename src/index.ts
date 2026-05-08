@@ -12,6 +12,7 @@ import { createRemoteJWKSet, jwtVerify, SignJWT } from "jose";
 import Anthropic from "@anthropic-ai/sdk";
 import Stripe from "stripe";
 import dotenv from "dotenv";
+import { WebSocketServer, WebSocket } from "ws";
 import { getDatabaseUrl, getPool, withClient } from "./db";
 import { runMigrations } from "./db/migrate";
 import {
@@ -769,12 +770,14 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
     res.setHeader("transfer-encoding", "chunked");
     res.flushHeaders?.();
     const heartbeat = setInterval(() => { try { res.write(" "); } catch {} }, 5000);
+    const __coverT0 = Date.now();
     try {
       const img = await callImageGen({
         prompt: prompt || "album cover, cinematic",
         size: fallbackSize,
       });
       clearInterval(heartbeat);
+      recordEngineCall(img.provider || "image-router", Date.now() - __coverT0, 0, !!img.ok);
       if (img.ok) {
         const imageUrl = img.image_url
           ? img.image_url
@@ -1056,6 +1059,7 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
     res.setHeader("transfer-encoding", "chunked");
     res.flushHeaders?.();
     const heartbeat = setInterval(() => { try { res.write(" "); } catch {} }, 5000);
+    const __lyricsT0 = Date.now();
     try {
       const tier = await callLlm({
         messages: [
@@ -1066,6 +1070,7 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
         temperature: 0.85,
       });
       clearInterval(heartbeat);
+      recordEngineCall(tier?.provider || "llm-router", Date.now() - __lyricsT0, 0, !!(tier && tier.ok && tier.content));
       if (tier && tier.ok && tier.content && tier.content.trim()) {
         console.log(`[mv-lyrics] tier sweep WIN: provider=${tier.provider} model=${tier.model}`);
         res.write(JSON.stringify({
@@ -1222,6 +1227,7 @@ app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
     res.setHeader("transfer-encoding", "chunked");
     res.flushHeaders?.();
     const heartbeat = setInterval(() => { try { res.write(" "); } catch {} }, 5000);
+    const __musicT0 = Date.now();
     try {
       const tier = await callMusicGen({
         prompt: prompt || "ambient cinematic instrumental",
@@ -1229,6 +1235,7 @@ app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
         tags,
       });
       clearInterval(heartbeat);
+      recordEngineCall(tier?.provider || "music-router", Date.now() - __musicT0, 0, !!(tier && tier.ok));
       if (tier && tier.ok) {
         const audioUrl = tier.audio_url
           ? tier.audio_url
@@ -1462,6 +1469,7 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
       });
     }
     // hybrid/cinematic: try free→cheap video router first
+    const __videoT0 = Date.now();
     try {
       const tierVid = await callVideoGen({
         prompt: prompt || "cinematic music video shot, slow camera motion",
@@ -1469,6 +1477,7 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
         aspect_ratio: aspect,
         ...(imageUrl ? { image_url: imageUrl } : {}),
       });
+      recordEngineCall(tierVid?.provider || "video-router", Date.now() - __videoT0, 0, !!(tierVid && tierVid.ok && (tierVid.video_url || tierVid.poll_url)));
       if (tierVid && tierVid.ok && (tierVid.video_url || tierVid.poll_url)) {
         console.log(`[mv-video] tier sweep WIN: provider=${tierVid.provider}`);
         return sendJson({
@@ -2060,6 +2069,38 @@ try {
 
 function noStore(res: express.Response) {
   res.setHeader("Cache-Control", "no-store");
+}
+
+/* CSSOS_PERSON_MV_WAVE54 20260508 — Jing — engine usage observability.
+ * Rolling in-memory window of engine calls (capped 1000/engine FIFO).
+ * Powers GET /api/admin/engine-usage live counters. */
+type EngineUsageRecord = {
+  ts: number;
+  ms: number;
+  cost_cents: number;
+  success: boolean;
+};
+const ENGINE_USAGE_WINDOW_MAX = 1000;
+const engineUsageWindow: Map<string, EngineUsageRecord[]> = new Map();
+function recordEngineCall(
+  engine: string | null | undefined,
+  ms: number,
+  cost_cents: number,
+  success: boolean,
+) {
+  const key = String(engine || "").trim().toLowerCase();
+  if (!key || key === "placeholder" || key === "none") return;
+  const arr = engineUsageWindow.get(key) || [];
+  arr.push({
+    ts: Date.now(),
+    ms: Math.max(0, ms | 0),
+    cost_cents: Math.max(0, cost_cents | 0),
+    success: !!success,
+  });
+  if (arr.length > ENGINE_USAGE_WINDOW_MAX) {
+    arr.splice(0, arr.length - ENGINE_USAGE_WINDOW_MAX);
+  }
+  engineUsageWindow.set(key, arr);
 }
 
 async function getGceAccessToken() {
@@ -11778,6 +11819,52 @@ async function ensurePersonMvTables() {
       );
       CREATE INDEX IF NOT EXISTS mv_product_attachments_work_idx
         ON mv_product_attachments (work_id);
+
+      -- CSSOS_PERSON_MV_WAVE55 20260508 — Jing — content rating + birth year.
+      ALTER TABLE person_profiles
+        ADD COLUMN IF NOT EXISTS content_rating TEXT NOT NULL DEFAULT 'PG';
+      ALTER TABLE person_mvs
+        ADD COLUMN IF NOT EXISTS content_rating TEXT NOT NULL DEFAULT 'PG';
+      ALTER TABLE user_works
+        ADD COLUMN IF NOT EXISTS content_rating TEXT NOT NULL DEFAULT 'PG';
+      ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS birth_year INTEGER;
+      CREATE INDEX IF NOT EXISTS person_profiles_rating_idx
+        ON person_profiles (content_rating);
+      CREATE INDEX IF NOT EXISTS person_mvs_rating_idx
+        ON person_mvs (content_rating);
+
+      -- CSSOS_PERSON_MV_WAVE57 20260508 — Jing — outbound webhooks.
+      -- Mirrors migrations/038_embed_credit_and_webhooks.sql.
+      CREATE TABLE IF NOT EXISTS user_webhooks (
+        webhook_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id          UUID NOT NULL,
+        url              TEXT NOT NULL,
+        event_kinds      TEXT[] NOT NULL DEFAULT '{}',
+        secret           TEXT NOT NULL,
+        enabled          BOOLEAN NOT NULL DEFAULT true,
+        last_delivery_at TIMESTAMPTZ,
+        last_status_code INTEGER,
+        failure_count    INTEGER NOT NULL DEFAULT 0,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS user_webhooks_user_idx
+        ON user_webhooks (user_id);
+      CREATE INDEX IF NOT EXISTS user_webhooks_kinds_idx
+        ON user_webhooks USING GIN (event_kinds);
+      CREATE TABLE IF NOT EXISTS webhook_deliveries (
+        id               BIGSERIAL PRIMARY KEY,
+        webhook_id       UUID NOT NULL,
+        event_kind       TEXT NOT NULL,
+        payload          JSONB NOT NULL,
+        status_code      INTEGER,
+        response_snippet TEXT,
+        duration_ms      INTEGER,
+        attempt          INTEGER NOT NULL DEFAULT 1,
+        delivered_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS webhook_deliveries_webhook_idx
+        ON webhook_deliveries (webhook_id, delivered_at DESC);
     `),
   );
 
@@ -24611,24 +24698,105 @@ async function ensureWebPushTables() {
   }
 }
 
+/* CSSOS_PERSON_MV_WAVE50 20260508 — Jing
+ * Wave 50 closes the loop on Wave 32: `web-push` is now a real dep
+ * (see package.json). We eagerly initialize VAPID at boot — if either
+ * env key is missing we log a single warning and leave sendWebPush as
+ * a no-op (still safe: the bell/SSE path keeps working). On send we
+ * wrap each push in an 8s timeout and prune 404/410 subs. */
 let _webPushLib: any = null;
-let _webPushTried = false;
-function tryLoadWebPush(): any {
-  if (_webPushTried) return _webPushLib;
-  _webPushTried = true;
+let _webPushReady = false;
+function initWebPush(): void {
+  if (_webPushReady) return;
+  _webPushReady = true;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     _webPushLib = require("web-push");
-    const pub = process.env.VAPID_PUBLIC_KEY;
-    const priv = process.env.VAPID_PRIVATE_KEY;
-    const subj = process.env.VAPID_SUBJECT || "mailto:ops@cssstudio.local";
-    if (_webPushLib && pub && priv) {
-      _webPushLib.setVapidDetails(subj, pub, priv);
-    }
   } catch (_e) {
     _webPushLib = null;
+    console.warn("[web-push] dep not installed — push delivery disabled");
+    return;
   }
-  return _webPushLib;
+  const pub = process.env.VAPID_PUBLIC_KEY;
+  const priv = process.env.VAPID_PRIVATE_KEY;
+  const subj = process.env.VAPID_SUBJECT || "mailto:admin@cssstudio.app";
+  if (!pub || !priv) {
+    console.warn("[web-push] VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY not set — push delivery disabled");
+    _webPushLib = null;
+    return;
+  }
+  try {
+    _webPushLib.setVapidDetails(subj, pub, priv);
+    console.log("[web-push] VAPID configured, push delivery enabled");
+  } catch (err) {
+    console.warn("[web-push] setVapidDetails failed:", (err as Error)?.message || err);
+    _webPushLib = null;
+  }
+}
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("push_timeout")), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); },
+           (e) => { clearTimeout(t); reject(e); });
+  });
+}
+
+/* CSSOS_PERSON_MV_WAVE50 — compose per-kind push title/body so the SW
+ * shows something readable instead of generic "CSS Studio". The SW
+ * (registered in Wave 32) reads {title, body, url, icon} — keep that
+ * shape. */
+function composePushPayload(
+  kind: string,
+  payload: Record<string, unknown>,
+): { title: string; body: string; url: string; icon: string } {
+  const actor = String(
+    (payload as any)?.actor_name ||
+    (payload as any)?.actor_username ||
+    "Someone",
+  );
+  const mvId = String((payload as any)?.mv_id || "");
+  const personId = String((payload as any)?.person_id || "");
+  let title = "CSS Studio";
+  let body = String((payload as any)?.title || (payload as any)?.body || "");
+  let url = "/";
+  if (mvId) url = `/mv/${mvId}`;
+  else if (personId) url = `/person/${personId}`;
+  switch (kind) {
+    case "mv_like":
+      title = "🤍 New like";
+      body = `${actor} liked your MV`;
+      break;
+    case "mv_comment": {
+      const snippet = String((payload as any)?.text || (payload as any)?.snippet || "").slice(0, 80);
+      title = "💬 New comment";
+      body = `${actor}: ${snippet}`;
+      break;
+    }
+    case "comment_mention":
+      title = "💬 You were mentioned";
+      body = `@${actor} mentioned you`;
+      break;
+    case "follow":
+      title = "👋 New follower";
+      body = `${actor} started following you`;
+      break;
+    case "feed_new_mv":
+      title = "📡 New MV in your feed";
+      body = String((payload as any)?.work_title || actor);
+      break;
+    case "system": {
+      const sub = String((payload as any)?.kind_subtype || "");
+      if (sub === "credit_awarded") {
+        const n = Number((payload as any)?.amount || 0);
+        title = "💎 Credits earned";
+        body = `+${n} credits earned`;
+        url = "/credits";
+      }
+      break;
+    }
+  }
+  return { title, body, url, icon: "/favicon.ico" };
 }
 
 async function sendWebPush(
@@ -24636,8 +24804,9 @@ async function sendWebPush(
   payload: Record<string, unknown>,
 ): Promise<void> {
   if (!DATABASE_URL || !userId) return;
-  const lib = tryLoadWebPush();
-  if (!lib) return; // wave 32a deferred — `web-push` dep not installed.
+  initWebPush();
+  const lib = _webPushLib;
+  if (!lib) return;
   try {
     const r = await withClient((c) =>
       c.query<{ id: string; endpoint: string; keys: any }>(
@@ -24645,12 +24814,15 @@ async function sendWebPush(
         [userId],
       ),
     );
-    const body = JSON.stringify(payload || {});
+    const kind = String((payload as any)?.kind || "system");
+    const inner = ((payload as any)?.payload || {}) as Record<string, unknown>;
+    const composed = composePushPayload(kind, inner);
+    const body = JSON.stringify(composed);
     for (const row of r.rows) {
       try {
-        await lib.sendNotification(
-          { endpoint: row.endpoint, keys: row.keys },
-          body,
+        await withTimeout(
+          lib.sendNotification({ endpoint: row.endpoint, keys: row.keys }, body),
+          8000,
         );
       } catch (err: any) {
         const code = Number(err?.statusCode || 0);
@@ -24658,6 +24830,8 @@ async function sendWebPush(
           await withClient((c) =>
             c.query(`DELETE FROM web_push_subscriptions WHERE id = $1`, [row.id]),
           ).catch(() => {});
+        } else {
+          console.warn("[web-push] send error:", code || err?.message || err);
         }
       }
     }
@@ -26095,9 +26269,11 @@ app.get("/embed/:shortcode", async (req, res) => {
         mv_id: string; cover_image: string | null; title: string | null;
         final_mv_url: string | null; preview_video_url: string | null;
         person_zh: string | null; person_en: string | null;
+        created_by_user_id: string | null;
       }>(
         `SELECT pm.mv_id, w.cover_image, w.title, w.final_mv_url, w.preview_video_url,
-                pp.name_zh AS person_zh, pp.name_en AS person_en
+                pp.name_zh AS person_zh, pp.name_en AS person_en,
+                pm.created_by_user_id::text AS created_by_user_id
            FROM mv_shares s
            JOIN person_mvs pm ON pm.mv_id = s.mv_id
            LEFT JOIN user_works w       ON w.id = pm.work_id
@@ -26113,6 +26289,35 @@ app.get("/embed/:shortcode", async (req, res) => {
     const videoUrl = absolutizeCover(row.final_mv_url || row.preview_video_url || "") || "";
     const cover = absolutizeCover(row.cover_image) || "";
     const title = row.title || row.person_zh || row.person_en || "CSS Studio MV";
+    // CSSOS_PERSON_MV_WAVE56 20260508 — Jing — show "Made with CSS Studio"
+    // overlay by default. Suppress if creator owns an active
+    // `embed_credit_off` purchase, OR the embedder passes ?nocredit=1
+    // AND the creator owns the unlock (paid removal honored on either
+    // signal). Honest external usage keeps the badge.
+    const wantsNoCredit = String((req.query as any)?.nocredit || "") === "1";
+    let creditOff = false;
+    if (row.created_by_user_id) {
+      try {
+        const pr = await withClient((c) =>
+          c.query<{ has: boolean }>(
+            `SELECT EXISTS(
+                SELECT 1 FROM user_purchases p
+                  JOIN shop_items i ON i.item_id = p.item_id
+                 WHERE p.user_id = $1::uuid
+                   AND p.status = 'active'
+                   AND (p.expires_at IS NULL OR p.expires_at > now())
+                   AND i.kind = 'embed_credit_off'
+              ) AS has`,
+            [row.created_by_user_id],
+          ),
+        );
+        creditOff = !!pr.rows[0]?.has;
+      } catch (_) { creditOff = false; }
+    }
+    // Strip if creator unlocked, OR ?nocredit=1 AND creator unlocked.
+    void wantsNoCredit; // creditOff alone is sufficient by spec
+    const showCredit = !creditOff;
+    const creditHref = `${SHARE_BASE_URL}/m/${escapeHtmlAttr(code)}`;
     const html = `<!doctype html>
 <html lang="en">
 <head>
@@ -26128,6 +26333,10 @@ video{width:100%;height:100%;object-fit:contain;background:#000}
 .hint.gone{opacity:0}
 .brand{position:absolute;bottom:8px;right:10px;font-size:11px;opacity:.7}
 .brand a{color:#00f5a0;text-decoration:none}
+.cssos-embed-credit{position:absolute;right:8px;bottom:8px;font-size:11px;line-height:1.2;background:rgba(0,0,0,0.55);color:#daffee;padding:4px 8px;border-radius:6px;opacity:.7;transition:opacity .25s ease;pointer-events:auto;z-index:5}
+.cssos-embed-credit:hover{opacity:1}
+.cssos-embed-credit a{color:inherit;text-decoration:none}
+.cssos-embed-credit strong{color:#00f5a0;font-weight:600}
 .fallback{padding:24px;text-align:center}
 </style>
 </head>
@@ -26137,7 +26346,7 @@ ${videoUrl
   ? `<video id="v" src="${escapeHtmlAttr(videoUrl)}" ${cover ? `poster="${escapeHtmlAttr(cover)}"` : ""} autoplay muted playsinline loop controls></video>
 <div id="hint" class="hint">🔇 Tap to unmute</div>`
   : `<div class="fallback"><p>${escapeHtmlAttr(title)}</p><p style="opacity:.6">Video not available.</p></div>`}
-<div class="brand">Powered by <a href="${escapeHtmlAttr(SHARE_BASE_URL)}/" target="_blank" rel="noopener">CSS Studio</a></div>
+${showCredit ? `<div class="cssos-embed-credit"><a href="${escapeHtmlAttr(creditHref)}" target="_blank" rel="noopener">Made with ✨ <strong>CSS Studio</strong></a></div>` : ""}
 </div>
 ${videoUrl ? `<script>
 (function(){
@@ -27252,6 +27461,12 @@ app.post("/api/collab/sessions/:id/stages/:stage_id", express.json({ limit: "256
         [id, stageId, user.id],
       );
     });
+    // Wave 43: WS fan-out (best-effort).
+    try {
+      (globalThis as any).__cssosWsPublish?.("collab", id, {
+        kind: "stage_submit", stage_id: stageId, contributor_id: user.id,
+      });
+    } catch { /* ignore */ }
     return res.json({ ok: true });
   } catch (err) {
     return res.status(500).json({ ok: false, code: "COLLAB_STAGE_FAILED", message: String(err) });
@@ -27625,6 +27840,12 @@ app.post("/api/live/rooms/:id/events", express.json({ limit: "32kb" }), async (r
         [id, kind, payloadJson],
       ),
     );
+    // Wave 43: WS fan-out (best-effort).
+    try {
+      (globalThis as any).__cssosWsPublish?.("live", id, {
+        id: ev.rows[0]?.id, kind, payload, created_at: ev.rows[0]?.created_at,
+      });
+    } catch { /* ignore */ }
     if (kind === "stage_progress") {
       await withClient((c) =>
         c.query(
@@ -27694,6 +27915,12 @@ app.post("/api/live/rooms/:id/chat", express.json({ limit: "2kb" }), async (req,
         [id, JSON.stringify({ user_id: user.id, text })],
       ),
     );
+    // Wave 43: WS fan-out (best-effort).
+    try {
+      (globalThis as any).__cssosWsPublish?.("live", id, {
+        id: ev.rows[0]?.id, kind: "chat", payload: { user_id: user.id, text },
+      });
+    } catch { /* ignore */ }
     return res.json({ ok: true, event_id: ev.rows[0]?.id });
   } catch (err) {
     return res.status(500).json({ ok: false, code: "LIVE_CHAT_FAILED", message: String(err) });
@@ -27960,6 +28187,12 @@ app.post("/api/watch-parties/:id/events", express.json({ limit: "4kb" }), async 
         [id, kind, user.id, payloadJson],
       ),
     );
+    // Wave 43: WS fan-out (best-effort).
+    try {
+      (globalThis as any).__cssosWsPublish?.("party", id, {
+        id: ev.rows[0]?.id, kind, user_id: user.id, payload, created_at: ev.rows[0]?.created_at,
+      });
+    } catch { /* ignore */ }
     // Persist host playback state for late-joiners.
     if (isHost && (kind === "play" || kind === "pause" || kind === "seek")) {
       const playing = kind === "play";
@@ -28937,8 +29170,68 @@ async function start() {
     setInterval(exportPruneTick, ONE_DAY_MS);
   }
 
-  app.listen(PORT, () => {
+  /* CSSOS_PERSON_MV_WAVE43 20260508 — Jing — WebSocket migration.
+   * Boot a WebSocketServer on the same HTTP server. Three channels
+   * (live rooms, collab sessions, watch parties). Auth parses the
+   * express-session cookie from the upgrade request and rejects
+   * anonymous. Long-poll routes remain as fallback. */
+  type WsChannel = "live" | "collab" | "party";
+  const wsHubs: Record<WsChannel, Map<string, Set<WebSocket>>> = {
+    live: new Map(), collab: new Map(), party: new Map(),
+  };
+  function wsPublish(channel: WsChannel, channelId: string, msg: unknown): void {
+    try {
+      const set = wsHubs[channel].get(channelId);
+      if (!set || set.size === 0) return;
+      const data = typeof msg === "string" ? msg : JSON.stringify(msg);
+      for (const sock of set) {
+        if (sock.readyState === WebSocket.OPEN) {
+          try { sock.send(data); } catch { /* ignore */ }
+        }
+      }
+    } catch { /* ignore */ }
+  }
+  (globalThis as any).__cssosWsPublish = wsPublish;
+
+  const httpServer = http.createServer(app);
+  const wss = new WebSocketServer({ noServer: true });
+  const sessionMw = session(sessionConfig);
+
+  httpServer.on("upgrade", (req, socket, head) => {
+    try {
+      const url = req.url || "";
+      const m = url.match(/^\/ws\/(live|collab|party)\/([A-Za-z0-9_\-]+)/);
+      if (!m) {
+        socket.write("HTTP/1.1 404 Not Found\r\n\r\n"); socket.destroy(); return;
+      }
+      const channel = m[1] as WsChannel;
+      const channelId = String(m[2] || "");
+      const fakeRes: any = { on() {}, end() {}, setHeader() {}, getHeader() {}, writeHead() {} };
+      sessionMw(req as any, fakeRes, () => {
+        const uid = ((req as any).session && (req as any).session.user_id) || null;
+        if (!uid) {
+          socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n"); socket.destroy(); return;
+        }
+        wss.handleUpgrade(req, socket as any, head, (ws) => {
+          let set = wsHubs[channel].get(channelId);
+          if (!set) { set = new Set(); wsHubs[channel].set(channelId, set); }
+          set.add(ws);
+          try { ws.send(JSON.stringify({ ok: true, channel, channel_id: channelId })); } catch {}
+          ws.on("close", () => {
+            const s = wsHubs[channel].get(channelId);
+            if (s) { s.delete(ws); if (s.size === 0) wsHubs[channel].delete(channelId); }
+          });
+          ws.on("error", () => { /* ignore */ });
+        });
+      });
+    } catch {
+      try { socket.destroy(); } catch {}
+    }
+  });
+
+  httpServer.listen(PORT, () => {
     console.log(`cssOS API running on http://localhost:${PORT}`);
+    console.log(`[ws] hub ready: /ws/{live|collab|party}/:id`);
     // Tier-fallback sanity log — surfaces misconfigured order at boot.
     const fmt = (ps: string[]) => ps.map((p) => `${p}(${providerTier(p)})`).join(" → ");
     console.log(`[engines] image order: ${fmt(imageProviderOrder())}`);
@@ -28979,6 +29272,11 @@ async function seedShopAndContestOnce(): Promise<void> {
     { item_id: "skin_dark_gold", name_zh: "暗金主题皮肤", name_en: "Dark Gold UI skin",
       description_zh: "切换到限定的暗金主题外观", description_en: "Unlock the Dark Gold UI theme",
       price: 80, kind: "skin", payload: { skin: "dark_gold" } },
+    // CSSOS_PERSON_MV_WAVE56 20260508 — Jing — paid removal of embed credit overlay.
+    { item_id: "embed_no_credit", name_zh: "去除嵌入水印", name_en: "Remove embed credit",
+      description_zh: "购买后,你的所有 /embed/ 嵌入将不再显示 \"Made with CSS Studio\" 角标(有效期 1 年)",
+      description_en: "Hides the \"Made with CSS Studio\" badge on all your /embed/ iframes (1 year)",
+      price: 200, kind: "embed_credit_off", payload: { duration_months: 12, duration_days: 365 } },
   ];
   for (const it of items) {
     await withClient((c) =>

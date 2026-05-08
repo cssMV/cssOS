@@ -1009,6 +1009,22 @@ async fn download_to(url: &str, path: &Path) -> Result<()> {
             .with_context(|| format!("copy local path {} -> {:?}", trimmed, path))?;
         return Ok(());
     }
+    // CSSOS_PHASE2_ARTIFACTS_URL 20260508 — Jing
+    // Express mounts /artifacts/* on /srv/cssos/artifacts/. When the cover/
+    // music TS routes return image_url='/artifacts/mv-fallback/cover-xxx.jpg'
+    // the URL is relative — reqwest fails on it ("GET /artifacts/..."). Map
+    // /artifacts/<rel> -> /srv/cssos/artifacts/<rel> when the file exists.
+    if let Some(rel) = trimmed.strip_prefix("/artifacts/") {
+        let artifacts_root = std::env::var("CSSOS_ARTIFACTS_DIR")
+            .unwrap_or_else(|_| "/srv/cssos/artifacts".into());
+        let local = std::path::Path::new(&artifacts_root).join(rel);
+        if tokio::fs::metadata(&local).await.is_ok() {
+            tokio::fs::copy(&local, path)
+                .await
+                .with_context(|| format!("copy artifacts URL {} -> {:?}", trimmed, path))?;
+            return Ok(());
+        }
+    }
     let resp = reqwest::get(url)
         .await
         .with_context(|| format!("GET {}", url))?;

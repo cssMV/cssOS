@@ -12432,6 +12432,9 @@ async function enqueueNotification(
     // notification reaches the user even when the tab is closed.
     void sendWebPush(userId, { kind, payload, title: "CSS Studio", body: String(payload?.title || payload?.body || "") })
       .catch(() => {});
+    // CSSOS_PERSON_MV_WAVE98B — parallel native APNs fan-out for the
+    // Capacitor iOS shell. Both run async; in-app bell remains primary.
+    void sendApnsPush(userId, { kind, payload }).catch(() => {});
     // CSSOS_PERSON_MV_WAVE57 — fan-out to user-registered webhooks.
     const whKind =
       kind === "mv_like"     ? "mv_liked"      :
@@ -27993,6 +27996,340 @@ app.post("/api/push/unsubscribe", express.json({ limit: "4kb" }), async (req, re
   }
 });
 
+/* CSSOS_PERSON_MV_WAVE98B 20260508 — Jing
+ * Native iOS APNs push (token-based, ES256 JWT over HTTP/2).
+ *
+ * Web Push (Wave 32 + 50 + 89) handles browsers via VAPID. The
+ * Capacitor iOS shell, however, registers an APNs device token that
+ * Apple's push service expects to be addressed directly over HTTP/2 at
+ * api.push.apple.com. This block adds:
+ *
+ *   - ensureApnsTables(): mirrors migration 056 (additive, idempotent).
+ *   - subscribeApnsToken / disableApnsToken endpoints (auth-required).
+ *   - sendApnsPush(userId, payload): fan-out helper hooked into
+ *     enqueueNotification alongside sendWebPush.
+ *   - apnsJwt(): cached ES256-signed JWT (header {alg,kid}; payload
+ *     {iss,iat}); refreshed every ~50 min (Apple rejects > 60 min).
+ *   - HTTP/2 session pooling: one persistent http2 session, recycled on
+ *     close or after ~30 min, so each push is a cheap stream.
+ *   - 410 + 400 BadDeviceToken/Unregistered → set enabled=false (token
+ *     revoked by Apple).
+ *
+ * No-ops gracefully when APPLE_TEAM_ID / APNS_KEY_ID / APNS_KEY_PATH /
+ * APNS_TOPIC env vars are missing (mirrors web-push pattern). */
+async function ensureApnsTables(): Promise<void> {
+  if (!DATABASE_URL) return;
+  try {
+    await withClient((c) =>
+      c.query(
+        `CREATE TABLE IF NOT EXISTS apns_tokens (
+           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+           user_id UUID NOT NULL,
+           device_token TEXT NOT NULL,
+           bundle_id TEXT NOT NULL,
+           platform TEXT NOT NULL DEFAULT 'ios',
+           app_version TEXT,
+           device_model TEXT,
+           enabled BOOLEAN NOT NULL DEFAULT true,
+           last_used_at TIMESTAMPTZ,
+           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+           UNIQUE (user_id, device_token)
+         );
+         CREATE INDEX IF NOT EXISTS apns_tokens_user_idx
+           ON apns_tokens (user_id) WHERE enabled = true;`,
+      ),
+    );
+  } catch (err) {
+    console.warn("[apns] ensure tables failed:", (err as Error)?.message || err);
+  }
+}
+
+let _apnsKeyPem: string | null = null;
+let _apnsKeyTried = false;
+function loadApnsKey(): string | null {
+  if (_apnsKeyTried) return _apnsKeyPem;
+  _apnsKeyTried = true;
+  const keyPath = process.env.APNS_KEY_PATH || "";
+  if (!keyPath) return null;
+  try {
+    _apnsKeyPem = fs.readFileSync(keyPath, "utf8");
+    return _apnsKeyPem;
+  } catch (err) {
+    console.warn("[apns] key read failed:", (err as Error)?.message || err);
+    _apnsKeyPem = null;
+    return null;
+  }
+}
+
+let _apnsJwt: string | null = null;
+let _apnsJwtIssuedAt = 0;
+const APNS_JWT_TTL_MS = 50 * 60 * 1000; // refresh every ~50 min (Apple max 60)
+async function apnsJwt(): Promise<string | null> {
+  const now = Date.now();
+  if (_apnsJwt && now - _apnsJwtIssuedAt < APNS_JWT_TTL_MS) return _apnsJwt;
+  const teamId = process.env.APPLE_TEAM_ID || "";
+  const keyId = process.env.APNS_KEY_ID || "";
+  const pem = loadApnsKey();
+  if (!teamId || !keyId || !pem) return null;
+  try {
+    const iat = Math.floor(now / 1000);
+    const jwt = await new SignJWT({})
+      .setProtectedHeader({ alg: "ES256", kid: keyId })
+      .setIssuer(teamId)
+      .setIssuedAt(iat)
+      .sign(crypto.createPrivateKey(pem));
+    _apnsJwt = jwt;
+    _apnsJwtIssuedAt = now;
+    return _apnsJwt;
+  } catch (err) {
+    console.warn("[apns] JWT sign failed:", (err as Error)?.message || err);
+    return null;
+  }
+}
+
+let _apnsSession: import("node:http2").ClientHttp2Session | null = null;
+let _apnsSessionAt = 0;
+const APNS_SESSION_TTL_MS = 30 * 60 * 1000;
+function getApnsSession(): import("node:http2").ClientHttp2Session | null {
+  const now = Date.now();
+  if (_apnsSession && !_apnsSession.closed && !_apnsSession.destroyed
+      && now - _apnsSessionAt < APNS_SESSION_TTL_MS) {
+    return _apnsSession;
+  }
+  try {
+    if (_apnsSession && !_apnsSession.destroyed) {
+      try { _apnsSession.close(); } catch { /* ignore */ }
+    }
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const http2 = require("node:http2") as typeof import("node:http2");
+    const s = http2.connect("https://api.push.apple.com:443");
+    s.on("error", (err) => {
+      console.warn("[apns] session error:", (err as Error)?.message || err);
+    });
+    s.on("close", () => {
+      if (_apnsSession === s) _apnsSession = null;
+    });
+    _apnsSession = s;
+    _apnsSessionAt = now;
+    return s;
+  } catch (err) {
+    console.warn("[apns] connect failed:", (err as Error)?.message || err);
+    return null;
+  }
+}
+
+type ApnsSendResult = { status: number; reason?: string | undefined };
+async function apnsSendOne(
+  deviceToken: string,
+  bodyJson: string,
+  jwt: string,
+  topic: string,
+): Promise<ApnsSendResult> {
+  const session = getApnsSession();
+  if (!session) return { status: 0, reason: "no_session" };
+  return new Promise<ApnsSendResult>((resolve) => {
+    let settled = false;
+    const finish = (r: ApnsSendResult) => { if (!settled) { settled = true; resolve(r); } };
+    let req: import("node:http2").ClientHttp2Stream;
+    try {
+      req = session.request({
+        ":method": "POST",
+        ":path": `/3/device/${deviceToken}`,
+        "authorization": `bearer ${jwt}`,
+        "apns-topic": topic,
+        "apns-priority": "10",
+        "apns-push-type": "alert",
+        "content-type": "application/json",
+        "content-length": Buffer.byteLength(bodyJson).toString(),
+      });
+    } catch (err) {
+      return finish({ status: 0, reason: (err as Error)?.message || "request_failed" });
+    }
+    let status = 0;
+    let chunks = "";
+    const t = setTimeout(() => {
+      try { req.close(); } catch { /* ignore */ }
+      finish({ status: 0, reason: "timeout" });
+    }, 8000);
+    req.on("response", (headers) => {
+      status = Number(headers[":status"] || 0);
+    });
+    req.on("data", (c: Buffer) => { chunks += c.toString("utf8"); });
+    req.on("end", () => {
+      clearTimeout(t);
+      let reason: string | undefined;
+      if (chunks) {
+        try { reason = JSON.parse(chunks)?.reason; } catch { /* ignore */ }
+      }
+      finish({ status, reason });
+    });
+    req.on("error", (err) => {
+      clearTimeout(t);
+      finish({ status: 0, reason: (err as Error)?.message || "stream_error" });
+    });
+    req.end(bodyJson);
+  });
+}
+
+async function sendApnsPush(
+  userId: string | null | undefined,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  if (!DATABASE_URL || !userId) return;
+  const topic = process.env.APNS_TOPIC || "";
+  if (!topic) return;
+  const jwt = await apnsJwt();
+  if (!jwt) return;
+  try {
+    const r = await withClient((c) =>
+      c.query<{ id: string; device_token: string }>(
+        `SELECT id, device_token FROM apns_tokens
+          WHERE user_id = $1 AND enabled = true`,
+        [userId],
+      ),
+    );
+    if (!r.rows.length) return;
+    const kind = String((payload as any)?.kind || "system");
+    const inner = ((payload as any)?.payload || {}) as Record<string, unknown>;
+    const composed = composePushPayload(kind, inner);
+    const apsPayload = {
+      aps: {
+        alert: { title: composed.title, body: composed.body },
+        badge: 1,
+        sound: "default",
+        "mutable-content": 1,
+      },
+      url: composed.url,
+      kind,
+    };
+    const bodyJson = JSON.stringify(apsPayload);
+    for (const row of r.rows) {
+      try {
+        const result = await apnsSendOne(row.device_token, bodyJson, jwt, topic);
+        if (result.status === 200) {
+          await withClient((c) =>
+            c.query(`UPDATE apns_tokens SET last_used_at = now() WHERE id = $1`, [row.id]),
+          ).catch(() => {});
+        } else if (
+          result.status === 410 ||
+          (result.status === 400 &&
+            (result.reason === "BadDeviceToken" || result.reason === "Unregistered"))
+        ) {
+          await withClient((c) =>
+            c.query(`UPDATE apns_tokens SET enabled = false WHERE id = $1`, [row.id]),
+          ).catch(() => {});
+        } else if (result.status !== 0) {
+          console.warn("[apns] send non-200:", result.status, result.reason || "");
+        }
+      } catch (err) {
+        console.warn("[apns] send error:", (err as Error)?.message || err);
+      }
+    }
+  } catch (err) {
+    console.warn("[apns] send failed:", (err as Error)?.message || err);
+  }
+}
+
+app.post("/api/push/subscribe-native", express.json({ limit: "4kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensureApnsTables();
+    const body = (req.body || {}) as {
+      device_token?: unknown; bundle_id?: unknown; platform?: unknown;
+      app_version?: unknown; device_model?: unknown;
+    };
+    const deviceToken = typeof body.device_token === "string" ? body.device_token.trim() : "";
+    const bundleId = typeof body.bundle_id === "string" ? body.bundle_id.trim() : "";
+    const platform = typeof body.platform === "string" && body.platform === "mac" ? "mac" : "ios";
+    const appVersion = typeof body.app_version === "string" ? body.app_version.trim().slice(0, 64) : null;
+    const deviceModel = typeof body.device_model === "string" ? body.device_model.trim().slice(0, 128) : null;
+    if (!deviceToken || !/^[a-fA-F0-9]{32,200}$/.test(deviceToken)) {
+      return res.status(400).json({ ok: false, code: "INVALID_DEVICE_TOKEN" });
+    }
+    if (!bundleId) return res.status(400).json({ ok: false, code: "MISSING_BUNDLE_ID" });
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO apns_tokens
+           (user_id, device_token, bundle_id, platform, app_version, device_model, enabled, last_used_at)
+         VALUES ($1, $2, $3, $4, $5, $6, true, now())
+         ON CONFLICT (user_id, device_token) DO UPDATE SET
+           bundle_id = EXCLUDED.bundle_id,
+           platform = EXCLUDED.platform,
+           app_version = EXCLUDED.app_version,
+           device_model = EXCLUDED.device_model,
+           enabled = true,
+           last_used_at = now()`,
+        [user.id, deviceToken, bundleId, platform, appVersion, deviceModel],
+      ),
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "SUBSCRIBE_FAILED", message: String(err) });
+  }
+});
+
+app.delete("/api/push/subscribe-native", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensureApnsTables();
+    const deviceToken = typeof (req.body || {}).device_token === "string"
+      ? String((req.body || {}).device_token).trim() : "";
+    if (!deviceToken) return res.status(400).json({ ok: false, code: "MISSING_DEVICE_TOKEN" });
+    await withClient((c) =>
+      c.query(
+        `UPDATE apns_tokens SET enabled = false
+          WHERE user_id = $1 AND device_token = $2`,
+        [user.id, deviceToken],
+      ),
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "UNSUBSCRIBE_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/admin/push/test-native", async (req, res) => {
+  noStore(res);
+  try {
+    const adminToken = String(req.header("x-admin-token") || "").trim();
+    const expectedToken = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+    if (!expectedToken || adminToken !== expectedToken) {
+      return res.status(401).json({ ok: false, code: "ADMIN_TOKEN_REQUIRED" });
+    }
+    const userId = String(req.query.user_id || "").trim();
+    if (!userId) return res.status(400).json({ ok: false, code: "MISSING_USER_ID" });
+    const body = String(req.query.body || "Test push from CSS Studio");
+    await sendApnsPush(userId, {
+      kind: "system",
+      payload: { title: "CSS Studio test", body, kind_subtype: "admin_test" },
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "TEST_FAILED", message: String(err) });
+  }
+});
+
+async function pruneDisabledApnsTokens(): Promise<number> {
+  if (!DATABASE_URL) return 0;
+  try {
+    const r = await withClient((c) =>
+      c.query(
+        `DELETE FROM apns_tokens
+          WHERE enabled = false
+            AND created_at < now() - INTERVAL '90 days'`,
+      ),
+    );
+    return r.rowCount || 0;
+  } catch (err) {
+    console.warn("[apns] prune failed:", (err as Error)?.message || err);
+    return 0;
+  }
+}
+
 /* CSSOS_PERSON_MV_WAVE27 20260508 — Jing
  * A/B experiment helpers + endpoints. Deterministic variant assignment:
  * sha256(`${user_id}:${experiment_id}`) → first 8 hex chars → uint32 →
@@ -32936,6 +33273,27 @@ async function start() {
     );
   } else {
     console.log("[backup-cron] disabled (DATABASE_URL or R2_BUCKET not set)");
+  }
+
+  /* CSSOS_PERSON_MV_WAVE98B 20260508 — Jing
+   * Daily prune of disabled APNs tokens older than 90 days. Tokens are
+   * disabled (not deleted) on Apple 410/BadDeviceToken so we keep some
+   * diagnostic history; this cron clears the long tail. */
+  if (process.env.DATABASE_URL) {
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    const apnsPruneTick = async () => {
+      try {
+        const removed = await pruneDisabledApnsTokens();
+        if (removed > 0) console.log(`[apns] pruned ${removed} disabled token(s) >90d`);
+      } catch (err) {
+        console.warn(
+          "[apns] prune failed (non-fatal):",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    };
+    setTimeout(apnsPruneTick, 30 * 60 * 1000);
+    setInterval(apnsPruneTick, ONE_DAY_MS);
   }
 
   /* CSSOS_PERSON_MV_WAVE93 20260508 — Jing

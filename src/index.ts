@@ -30732,6 +30732,39 @@ async function start() {
     setInterval(exportPruneTick, ONE_DAY_MS);
   }
 
+  /* CSSOS_PERSON_MV_WAVE59 20260508 — Jing — engine health probe scheduler.
+   * Probes ~10 engines (image/llm/music classes) every 30 minutes.
+   * First run is delayed 2 minutes after boot so the DB pool is warm. */
+  if (process.env.DATABASE_URL) {
+    const THIRTY_MIN_MS = 30 * 60 * 1000;
+    const healthTick = async () => {
+      try {
+        await engineHealthProbeTick();
+      } catch (err) {
+        console.warn("[engine-health] tick failed:", (err as Error)?.message || err);
+      }
+    };
+    setTimeout(healthTick, 2 * 60 * 1000);
+    setInterval(healthTick, THIRTY_MIN_MS);
+  }
+
+  /* CSSOS_PERSON_MV_WAVE60 20260508 — Jing — balance alert scheduler.
+   * Polls /api/admin/engine-balance internals every 6h, alerting admin
+   * users by notification + web push when an engine balance drops below
+   * its threshold (deduped to once per 24h per engine). */
+  if (process.env.DATABASE_URL) {
+    const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+    const balanceTick = async () => {
+      try {
+        await balanceAlertTick();
+      } catch (err) {
+        console.warn("[balance-alerts] tick failed:", (err as Error)?.message || err);
+      }
+    };
+    setTimeout(balanceTick, 5 * 60 * 1000);
+    setInterval(balanceTick, SIX_HOURS_MS);
+  }
+
   /* CSSOS_PERSON_MV_WAVE43 20260508 — Jing — WebSocket migration.
    * Boot a WebSocketServer on the same HTTP server. Three channels
    * (live rooms, collab sessions, watch parties). Auth parses the
@@ -31909,6 +31942,415 @@ app.get("/api/admin/engine-balance", async (req, res) => {
     return res.status(500).json({
       ok: false,
       code: "ENGINE_BALANCE_FAILED",
+      message: String((err as Error)?.message || err),
+    });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE59 20260508 — Jing — engine health probes.
+ * Records last_status / latency / consecutive_failures per engine. After
+ * 5 consecutive failures we set disabled_until = now()+1h so other code
+ * can short-circuit. Probe budget is intentionally tiny (smallest possible
+ * call per engine class). Video + Whisper are skipped — too expensive
+ * to probe on a tick. Auto endpoint update consults FALLBACK_MODELS and,
+ * on a probe success against a fallback, persists model_override so the
+ * router can pick it up without code change. */
+type EngineProbeStatus = "ok" | "404" | "403_balance" | "5xx" | "timeout" | "auth";
+type EngineHealthRow = {
+  engine_id: string;
+  last_check_at: Date | null;
+  last_status: EngineProbeStatus | null;
+  last_latency_ms: number | null;
+  consecutive_failures: number;
+  model_override: string | null;
+  disabled_until: Date | null;
+  last_error_snippet: string | null;
+  updated_at: Date;
+};
+
+const FALLBACK_MODELS: Record<string, string[]> = {
+  huggingface_music: ["facebook/musicgen-medium", "facebook/musicgen-large"],
+  fal_music: ["fal-ai/musicgen-stereo", "fal-ai/musicgen-large"],
+  together_image: ["black-forest-labs/FLUX.1-schnell", "black-forest-labs/FLUX.1-dev"],
+  fal_image: ["fal-ai/flux/schnell", "fal-ai/flux/dev"],
+  huggingface: ["meta-llama/Llama-3.3-70B-Instruct", "meta-llama/Meta-Llama-3.1-8B-Instruct"],
+};
+
+function classifyHttpStatus(status: number, body: string): EngineProbeStatus {
+  if (status === 200 || status === 201) return "ok";
+  if (status === 404) return "404";
+  if (status === 401) return "auth";
+  if (status === 403) {
+    if (/balance|quota|exceeded|insufficient|exhausted/i.test(body)) return "403_balance";
+    return "auth";
+  }
+  if (status >= 500 && status <= 599) return "5xx";
+  return "5xx";
+}
+
+async function probeEngine(engineId: string): Promise<{
+  status: EngineProbeStatus;
+  latency_ms: number;
+  error_snippet: string;
+  worked_model?: string;
+}> {
+  const t0 = Date.now();
+  const tEnv = (s: string | null | undefined) => String(s || "").trim();
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const probeUrl = async (url: string, headers: Record<string, string>) => {
+      const r = await fetch(url, { headers, signal: ctrl.signal });
+      const body = await r.text().catch(() => "");
+      const status = classifyHttpStatus(r.status, body);
+      return { status, latency_ms: Date.now() - t0, error_snippet: status === "ok" ? "" : body.slice(0, 200) };
+    };
+    if (engineId === "openai") {
+      const k = tEnv(process.env.OPENAI_API_KEY);
+      if (!k) return { status: "auth", latency_ms: 0, error_snippet: "missing_key" };
+      return probeUrl("https://api.openai.com/v1/models", { authorization: `Bearer ${k}` });
+    }
+    if (engineId === "huggingface" || engineId === "huggingface_music") {
+      const k = tEnv(process.env.HUGGINGFACE_API_KEY);
+      if (!k) return { status: "auth", latency_ms: 0, error_snippet: "missing_key" };
+      return probeUrl("https://huggingface.co/api/whoami-v2", { authorization: `Bearer ${k}` });
+    }
+    if (engineId === "fal" || engineId === "fal_music" || engineId === "fal_image") {
+      const k = tEnv(process.env.FAL_KEY) || tEnv(process.env.FAL_API_KEY);
+      if (!k) return { status: "auth", latency_ms: 0, error_snippet: "missing_key" };
+      return probeUrl("https://rest.alpha.fal.ai/users/me", { authorization: `Key ${k}` });
+    }
+    if (engineId === "together" || engineId === "together_image") {
+      const k = tEnv(process.env.TOGETHER_API_KEY);
+      if (!k) return { status: "auth", latency_ms: 0, error_snippet: "missing_key" };
+      return probeUrl("https://api.together.xyz/v1/models", { authorization: `Bearer ${k}` });
+    }
+    if (engineId === "replicate" || engineId === "replicate_music") {
+      const k = tEnv(process.env.REPLICATE_API_TOKEN) || tEnv(process.env.REPLICATE_API_KEY);
+      if (!k) return { status: "auth", latency_ms: 0, error_snippet: "missing_key" };
+      return probeUrl("https://api.replicate.com/v1/account", { authorization: `Token ${k}` });
+    }
+    if (engineId === "groq") {
+      const k = tEnv(process.env.GROQ_API_KEY);
+      if (!k) return { status: "auth", latency_ms: 0, error_snippet: "missing_key" };
+      return probeUrl("https://api.groq.com/openai/v1/models", { authorization: `Bearer ${k}` });
+    }
+    if (engineId === "elevenlabs") {
+      const k = tEnv(process.env.ELEVENLABS_API_KEY);
+      if (!k) return { status: "auth", latency_ms: 0, error_snippet: "missing_key" };
+      return probeUrl("https://api.elevenlabs.io/v1/user", { "xi-api-key": k });
+    }
+    return { status: "ok", latency_ms: 0, error_snippet: "unknown_engine_skipped" };
+  } catch (err: any) {
+    const msg = String(err?.message || err);
+    const isAbort = err?.name === "AbortError";
+    return {
+      status: isAbort ? "timeout" : "5xx",
+      latency_ms: Date.now() - t0,
+      error_snippet: msg.slice(0, 200),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+const HEALTH_PROBE_ENGINES = [
+  "openai",
+  "groq",
+  "huggingface",
+  "huggingface_music",
+  "fal",
+  "fal_music",
+  "together",
+  "replicate",
+  "replicate_music",
+  "elevenlabs",
+] as const;
+
+async function recordEngineHealth(
+  engineId: string,
+  probe: { status: EngineProbeStatus; latency_ms: number; error_snippet: string; worked_model?: string },
+): Promise<void> {
+  if (!DATABASE_URL) return;
+  try {
+    const isOk = probe.status === "ok";
+    if (isOk) {
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO engine_health
+             (engine_id, last_check_at, last_status, last_latency_ms,
+              consecutive_failures, last_error_snippet, model_override, updated_at)
+           VALUES ($1, now(), $2, $3, 0, '', $4, now())
+           ON CONFLICT (engine_id) DO UPDATE SET
+             last_check_at = now(),
+             last_status = EXCLUDED.last_status,
+             last_latency_ms = EXCLUDED.last_latency_ms,
+             consecutive_failures = 0,
+             last_error_snippet = '',
+             disabled_until = NULL,
+             model_override = COALESCE(EXCLUDED.model_override, engine_health.model_override),
+             updated_at = now()`,
+          [engineId, probe.status, probe.latency_ms, probe.worked_model || null],
+        ),
+      );
+    } else {
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO engine_health
+             (engine_id, last_check_at, last_status, last_latency_ms,
+              consecutive_failures, last_error_snippet, updated_at)
+           VALUES ($1, now(), $2, $3, 1, $4, now())
+           ON CONFLICT (engine_id) DO UPDATE SET
+             last_check_at = now(),
+             last_status = EXCLUDED.last_status,
+             last_latency_ms = EXCLUDED.last_latency_ms,
+             consecutive_failures = engine_health.consecutive_failures + 1,
+             last_error_snippet = EXCLUDED.last_error_snippet,
+             disabled_until = CASE
+               WHEN engine_health.consecutive_failures + 1 >= 5
+                 THEN now() + interval '1 hour'
+               ELSE engine_health.disabled_until
+             END,
+             updated_at = now()`,
+          [engineId, probe.status, probe.latency_ms, probe.error_snippet],
+        ),
+      );
+    }
+  } catch (err) {
+    console.warn("[engine-health] record failed:", (err as Error)?.message || err);
+  }
+}
+
+async function engineHealthProbeTick(): Promise<void> {
+  if (!DATABASE_URL) return;
+  for (const engineId of HEALTH_PROBE_ENGINES) {
+    try {
+      const probe = await probeEngine(engineId);
+      const fb = FALLBACK_MODELS[engineId];
+      if (probe.status === "404" && fb && fb.length > 0) {
+        probe.worked_model = fb[0]!;
+      }
+      await recordEngineHealth(engineId, probe);
+    } catch (err) {
+      console.warn(`[engine-health] probe ${engineId} failed:`, (err as Error)?.message || err);
+    }
+  }
+}
+
+async function fetchEngineHealth(): Promise<EngineHealthRow[]> {
+  if (!DATABASE_URL) return [];
+  try {
+    const r = await withClient((c) =>
+      c.query<EngineHealthRow>(
+        `SELECT engine_id, last_check_at, last_status, last_latency_ms,
+                consecutive_failures, model_override, disabled_until,
+                last_error_snippet, updated_at
+           FROM engine_health
+           ORDER BY engine_id ASC`,
+      ),
+    );
+    return r.rows;
+  } catch {
+    return [];
+  }
+}
+
+app.get("/api/admin/engine-health", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const rows = await fetchEngineHealth();
+    return res.json(okData({ entries: rows, probed_engines: HEALTH_PROBE_ENGINES }));
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "ENGINE_HEALTH_FAILED",
+      message: String((err as Error)?.message || err),
+    });
+  }
+});
+
+app.post("/api/admin/engine-health/probe", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const engineId = String(req.query.engine || "").trim();
+    if (engineId) {
+      const probe = await probeEngine(engineId);
+      await recordEngineHealth(engineId, probe);
+      return res.json(okData({ engine: engineId, probe }));
+    }
+    void engineHealthProbeTick();
+    return res.json(okData({ scheduled: true, engines: HEALTH_PROBE_ENGINES }));
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "ENGINE_HEALTH_PROBE_FAILED",
+      message: String((err as Error)?.message || err),
+    });
+  }
+});
+
+app.post("/api/admin/engine-health/clear-disable", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const engineId = String(req.query.engine || "").trim();
+    if (!engineId) return res.status(400).json({ ok: false, code: "ENGINE_REQUIRED" });
+    if (!DATABASE_URL) return res.json(okData({ engine: engineId, cleared: false }));
+    await withClient((c) =>
+      c.query(
+        `UPDATE engine_health
+            SET disabled_until = NULL, consecutive_failures = 0, updated_at = now()
+          WHERE engine_id = $1`,
+        [engineId],
+      ),
+    );
+    return res.json(okData({ engine: engineId, cleared: true }));
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "ENGINE_HEALTH_CLEAR_FAILED",
+      message: String((err as Error)?.message || err),
+    });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE60 20260508 — Jing — balance alerts.
+ * Every 6h check fal/openai/elevenlabs/replicate balances vs. thresholds.
+ * If a balance crosses below threshold, fan out a `system_alert`
+ * notification to every admin user (by email match). De-duped via
+ * engine_balance_alerts: max 1 alert per engine per 24h. */
+const BALANCE_THRESHOLDS: Record<string, { metric: "usd" | "credits"; value: number }> = {
+  fal: { metric: "usd", value: 5 },
+  openai: { metric: "usd", value: 10 },
+  replicate: { metric: "usd", value: 5 },
+  elevenlabs: { metric: "credits", value: 100 },
+};
+
+async function listAdminUserIds(): Promise<string[]> {
+  if (!DATABASE_URL) return [];
+  try {
+    const emails = Array.from(adminEmailSet());
+    const r = await withClient((c) =>
+      c.query<{ id: string }>(
+        `SELECT id FROM users
+          WHERE lower(email) = ANY($1::text[])
+             OR lower(email) LIKE '%@cssstudio.app'`,
+        [emails],
+      ),
+    );
+    return r.rows.map((row) => row.id);
+  } catch {
+    return [];
+  }
+}
+
+async function balanceAlertTick(): Promise<void> {
+  if (!DATABASE_URL) return;
+  let entries: EngineBalance[];
+  try {
+    entries = await fetchEngineBalances();
+  } catch (err) {
+    console.warn("[balance-alerts] fetch failed:", (err as Error)?.message || err);
+    return;
+  }
+  const triggered: Array<{ engine: string; balance: number; threshold: number }> = [];
+  for (const e of entries) {
+    const cfg = BALANCE_THRESHOLDS[e.engine];
+    if (!cfg) continue;
+    const balance =
+      cfg.metric === "usd" ? Number(e.balance_usd) : Number(e.balance_credits);
+    if (!Number.isFinite(balance)) continue;
+    if (balance >= cfg.value) continue;
+    const dup = await withClient((c) =>
+      c.query<{ id: number }>(
+        `SELECT id FROM engine_balance_alerts
+          WHERE engine_id = $1 AND alerted_at > now() - interval '24 hours'
+          LIMIT 1`,
+        [e.engine],
+      ),
+    ).catch(() => ({ rows: [] as Array<{ id: number }> }));
+    if (dup.rows.length) continue;
+    try {
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO engine_balance_alerts (engine_id, balance_at_alert, threshold)
+           VALUES ($1, $2, $3)`,
+          [e.engine, balance, cfg.value],
+        ),
+      );
+    } catch (err) {
+      console.warn("[balance-alerts] insert failed:", (err as Error)?.message || err);
+      continue;
+    }
+    triggered.push({ engine: e.engine, balance, threshold: cfg.value });
+  }
+  if (!triggered.length) return;
+  const adminIds = await listAdminUserIds();
+  for (const t of triggered) {
+    for (const uid of adminIds) {
+      try {
+        await withClient((c) =>
+          c.query(
+            `INSERT INTO user_notifications (user_id, kind, payload)
+             VALUES ($1, 'system_alert', $2::jsonb)`,
+            [
+              uid,
+              JSON.stringify({
+                title: `Low balance — ${t.engine}`,
+                body: `${t.engine} balance ${t.balance} below threshold ${t.threshold}`,
+                engine: t.engine,
+                balance: t.balance,
+                threshold: t.threshold,
+              }),
+            ],
+          ),
+        );
+        void sendWebPush(uid, {
+          kind: "system_alert",
+          title: "CSS Studio — engine balance",
+          body: `${t.engine} balance ${t.balance} < ${t.threshold}`,
+          payload: t,
+        }).catch(() => {});
+      } catch (err) {
+        console.warn("[balance-alerts] notify failed:", (err as Error)?.message || err);
+      }
+    }
+    console.log(`[balance-alerts] fired engine=${t.engine} balance=${t.balance} threshold=${t.threshold} admins=${adminIds.length}`);
+  }
+}
+
+app.get("/api/admin/engine-balance/alerts", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    if (!DATABASE_URL) return res.json(okData({ entries: [], thresholds: BALANCE_THRESHOLDS }));
+    const r = await withClient((c) =>
+      c.query(
+        `SELECT id, engine_id, balance_at_alert, threshold, alerted_at
+           FROM engine_balance_alerts
+          ORDER BY alerted_at DESC
+          LIMIT 100`,
+      ),
+    );
+    return res.json(okData({ entries: r.rows, thresholds: BALANCE_THRESHOLDS }));
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "ENGINE_BALANCE_ALERTS_FAILED",
       message: String((err as Error)?.message || err),
     });
   }

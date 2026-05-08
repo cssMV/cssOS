@@ -24,6 +24,16 @@ import { SEED_PERSON_PROFILES } from "./person_mv_seed";
 import { fetchPageviews, influenceFromPageviews } from "./wiki_pageviews";
 import { SEED_PERSON_GROUPS } from "./person_group_seed";
 import { SEED_FESTIVALS, type SeedFestival } from "./festival_seed";
+import {
+  initSentry,
+  attachSentryErrorHandler,
+  publicSentryDsn,
+  sentryBreadcrumb,
+} from "./observability";
+
+// CSSOS_WAVE80 20260508 — boot Sentry as early as possible so subsequent
+// imports/handlers can capture exceptions. No-op when DSN is unset.
+initSentry();
 
 const ENV_CONFIG_PATHS = [
   "/srv/cssos.env",
@@ -11222,6 +11232,15 @@ async function upsertOAuthIdentity(args: {
          ON CONFLICT (provider, provider_user_id) DO NOTHING`,
         [userId, provider, providerUserId],
       );
+      // CSSOS_PERSON_MV_WAVE76 — OAuth providers verify email upstream;
+      // mark the new user as email-verified (required for referral payouts).
+      try {
+        await client.query(
+          `UPDATE users SET email_verified_at = COALESCE(email_verified_at, now())
+            WHERE id = $1::uuid AND email IS NOT NULL`,
+          [userId],
+        );
+      } catch { /* non-fatal: column may not exist yet pre-migration */ }
       await client.query("COMMIT");
       return userId;
     } catch (e) {
@@ -11229,6 +11248,92 @@ async function upsertOAuthIdentity(args: {
       throw e;
     }
   });
+}
+
+/* CSSOS_PERSON_MV_WAVE77 20260508 — Jing
+ * Referral attribution. Reads `cssos_ref` cookie (set by frontend when
+ * `?ref=<username>` lands on any page) and, on first signup of that
+ * user, links them to the inviter and awards 50 credits (signup_bonus).
+ *
+ * Anti-fraud:
+ *   • Inviter must have ≤100 successful referrals (cap).
+ *   • Invitee must have email_verified_at set (OAuth callbacks mark
+ *     this; password/passkey flows would need their own verify step).
+ *   • Idempotent via partial unique index on referral_rewards
+ *     (inviter_id, invitee_id) WHERE reward_kind='signup_bonus'.
+ *   • Self-referral and re-referral (already has referred_by_id) are
+ *     rejected. */
+async function applyPendingReferral(
+  req: express.Request,
+  userId: string,
+): Promise<void> {
+  if (!DATABASE_URL || !userId) return;
+  try {
+    const cookieRef = String(req.cookies?.cssos_ref || "").trim().toLowerCase();
+    if (!cookieRef) return;
+    if (!/^[a-z0-9_\-]{2,40}$/.test(cookieRef)) return;
+    await ensurePremiumColumns();
+    // Already attributed? Skip.
+    const me = await withClient((c) =>
+      c.query<{ referred_by_id: string | null; email_verified_at: string | null; display_name: string | null }>(
+        `SELECT referred_by_id::text AS referred_by_id,
+                email_verified_at,
+                display_name
+           FROM users WHERE id = $1::uuid LIMIT 1`,
+        [userId],
+      ),
+    );
+    const meRow = me.rows[0];
+    if (!meRow || meRow.referred_by_id) return;
+    if (!meRow.email_verified_at) return;
+    // Lookup inviter by display_name (treated as username here).
+    const inv = await withClient((c) =>
+      c.query<{ id: string }>(
+        `SELECT id::text AS id FROM users
+          WHERE lower(display_name) = $1 LIMIT 1`,
+        [cookieRef],
+      ),
+    );
+    const inviterId = inv.rows[0]?.id;
+    if (!inviterId || inviterId === userId) return;
+    // Cap 100 referrals per inviter.
+    const refCount = await withClient((c) =>
+      c.query<{ n: string }>(
+        `SELECT COUNT(*) AS n FROM users WHERE referred_by_id = $1::uuid`,
+        [inviterId],
+      ),
+    );
+    if (Number(refCount.rows[0]?.n || 0) >= 100) return;
+    // Attribute.
+    await withClient((c) =>
+      c.query(
+        `UPDATE users SET referred_by_id = $2::uuid, referred_at = now()
+          WHERE id = $1::uuid AND referred_by_id IS NULL`,
+        [userId, inviterId],
+      ),
+    );
+    // Insert signup_bonus reward (idempotent via unique partial index).
+    const ins = await withClient((c) =>
+      c.query<{ id: string }>(
+        `INSERT INTO referral_rewards (inviter_id, invitee_id, reward_kind, amount_credits)
+         VALUES ($1::uuid, $2::uuid, 'signup_bonus', 50)
+         ON CONFLICT (inviter_id, invitee_id) WHERE reward_kind = 'signup_bonus'
+         DO NOTHING
+         RETURNING id`,
+        [inviterId, userId],
+      ),
+    );
+    if (ins.rowCount) {
+      await awardCredit(inviterId, 50, "signup_bonus", {
+        invitee_id: userId,
+        kind_subtype: "referral_signup_bonus",
+      });
+    }
+    // Clear ref cookie.
+    try { (req as any).res?.clearCookie?.("cssos_ref"); } catch { /* ignore */ }
+  } catch (e) {
+    console.warn("[referral] apply failed:", (e as Error)?.message || e);
+  }
 }
 
 async function listLinkedProviders(userId: string) {
@@ -11572,6 +11677,26 @@ async function ensurePersonMvTables() {
       CREATE INDEX IF NOT EXISTS person_mv_templates_use_count_idx
         ON person_mv_templates (use_count DESC);
 
+      -- CSSOS_PERSON_MV_WAVE73 20260508 — Jing — parameterized templates.
+      ALTER TABLE person_mv_templates
+        ADD COLUMN IF NOT EXISTS parameters JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+      -- CSSOS_PERSON_MV_WAVE75 20260508 — Jing — developer API keys.
+      CREATE TABLE IF NOT EXISTS api_keys (
+        key_id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id             UUID NOT NULL,
+        key_prefix          TEXT NOT NULL,
+        key_hash            TEXT NOT NULL,
+        name                TEXT NOT NULL,
+        scopes              TEXT[] NOT NULL DEFAULT '{read}',
+        rate_limit_per_min  INTEGER NOT NULL DEFAULT 60,
+        last_used_at        TIMESTAMPTZ,
+        enabled             BOOLEAN NOT NULL DEFAULT true,
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS api_keys_user_idx   ON api_keys (user_id);
+      CREATE INDEX IF NOT EXISTS api_keys_prefix_idx ON api_keys (key_prefix);
+
       -- CSSOS_PERSON_MV_WAVE25 20260508 — Jing — full-text search.
       -- Mirrors migrations/026_person_mv_search.sql. Triggers below
       -- (separate query, $$ scoping). Backfill is idempotent.
@@ -11601,6 +11726,26 @@ async function ensurePersonMvTables() {
       CREATE INDEX IF NOT EXISTS person_mvs_plaza_idx
         ON person_mvs (view_count DESC, created_at DESC)
         WHERE visibility = 'public' AND approval_status = 'auto_published';
+
+      -- CSSOS_PERSON_MV_WAVE74 20260508 — Jing — creation tutorials.
+      -- Mirrors migrations/044_tutorials.sql. Admin-authored, public read.
+      CREATE TABLE IF NOT EXISTS tutorials (
+        tutorial_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        title_zh      TEXT NOT NULL,
+        title_en      TEXT NOT NULL,
+        body_md       TEXT NOT NULL,
+        body_en_md    TEXT,
+        template_id   UUID REFERENCES person_mv_templates(template_id),
+        difficulty    TEXT NOT NULL DEFAULT 'beginner',
+        emoji         TEXT,
+        cover_image   TEXT,
+        view_count    INTEGER NOT NULL DEFAULT 0,
+        published_at  TIMESTAMPTZ,
+        created_by    UUID NOT NULL,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS tutorials_published_idx
+        ON tutorials (published_at DESC) WHERE published_at IS NOT NULL;
 
       -- CSSOS_PERSON_MV_WAVE26 20260508 — Jing — subscriptions + RSS.
       -- Mirrors migrations/027_user_subscriptions.sql.
@@ -12840,6 +12985,21 @@ app.post("/api/dm/threads/:thread_id/messages", express.json({ limit: "16kb" }),
     if (!dmRateAllow(user.id)) {
       return res.status(429).json({ ok: false, code: "RATE_LIMITED" });
     }
+    // CSSOS_PERSON_MV_WAVE76 — daily DM cap (50/day) lifted for premium.
+    const DM_DAILY_CAP = 50;
+    const premium = await isPremium(user.id);
+    if (!premium) {
+      const sentToday = await withClient((c) =>
+        c.query<{ n: string }>(
+          `SELECT COUNT(*) AS n FROM dm_messages
+            WHERE sender_id = $1::uuid AND created_at > now() - interval '24 hours'`,
+          [user.id],
+        ),
+      );
+      if (Number(sentToday.rows[0]?.n || 0) >= DM_DAILY_CAP) {
+        return res.status(429).json({ ok: false, code: "DAILY_DM_CAP", cap: DM_DAILY_CAP, premium_required: true });
+      }
+    }
     const acc = await dmThreadAccess(user.id, tid);
     if (!acc) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
     // Pair: per-recipient block check. Group: skip block check (membership already gates access).
@@ -13282,7 +13442,9 @@ export type CreditReason =
   | "manual"
   | "upscale_spend"
   | "upscale_refund"
-  | "product_click_reward";
+  | "product_click_reward"
+  | "signup_bonus"
+  | "referral_commission";
 
 async function awardCredit(
   userId: string | null | undefined,
@@ -15261,8 +15423,190 @@ async function processStripeWebhookEvent(event: Stripe.Event) {
           [userId],
         ),
       );
+      // CSSOS_PERSON_MV_WAVE76 — also clear premium_until on cancel.
+      await applyPremiumSubscriptionEvent(event, "cancelled").catch((e) =>
+        console.warn("[premium] sub.deleted apply failed:", e),
+      );
     }
     return;
+  }
+
+  // CSSOS_PERSON_MV_WAVE76 — premium subscription lifecycle.
+  if (
+    event.type === "customer.subscription.created" ||
+    event.type === "customer.subscription.updated"
+  ) {
+    const sub = event.data.object as Stripe.Subscription;
+    const isPremium =
+      String(sub.metadata?.plan_kind || "") === "premium_monthly";
+    if (isPremium) {
+      const kind = sub.status === "active" || sub.status === "trialing"
+        ? (event.type === "customer.subscription.created" ? "subscribed" : "renewed")
+        : "failed_payment";
+      await applyPremiumSubscriptionEvent(event, kind).catch((e) =>
+        console.warn("[premium] sub event apply failed:", e),
+      );
+    }
+    return;
+  }
+  if (event.type === "invoice.payment_failed") {
+    await applyPremiumSubscriptionEvent(event, "failed_payment").catch((e) =>
+      console.warn("[premium] invoice.failed apply failed:", e),
+    );
+    return;
+  }
+}
+
+/* CSSOS_PERSON_MV_WAVE76 20260508 — Jing
+ * Premium subscription helpers ($9.99/mo). users.premium_until is the
+ * source of truth; subscription_events is the audit log. Webhook
+ * signature verification is done upstream in /api/stripe/webhook via
+ * stripe.webhooks.constructEvent — by the time we get here the event
+ * is cryptographically authenticated. */
+async function ensurePremiumColumns(): Promise<void> {
+  if (!DATABASE_URL) return;
+  await withClient((c) =>
+    c.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS premium_until TIMESTAMPTZ;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_id UUID;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_at TIMESTAMPTZ;
+      CREATE TABLE IF NOT EXISTS subscription_events (
+        id BIGSERIAL PRIMARY KEY,
+        user_id UUID NOT NULL,
+        event_kind TEXT NOT NULL,
+        stripe_event_id TEXT UNIQUE,
+        amount_usd NUMERIC,
+        payload JSONB,
+        occurred_at TIMESTAMPTZ DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS subscription_events_user_idx
+        ON subscription_events (user_id, occurred_at DESC);
+      CREATE TABLE IF NOT EXISTS referral_rewards (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        inviter_id UUID NOT NULL,
+        invitee_id UUID NOT NULL,
+        reward_kind TEXT NOT NULL,
+        amount_credits BIGINT NOT NULL,
+        awarded_at TIMESTAMPTZ DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS referral_rewards_inviter_idx
+        ON referral_rewards (inviter_id, awarded_at DESC);
+      CREATE UNIQUE INDEX IF NOT EXISTS referral_rewards_signup_uniq
+        ON referral_rewards (inviter_id, invitee_id)
+        WHERE reward_kind = 'signup_bonus';
+    `),
+  );
+}
+
+async function isPremium(userId: string | null | undefined): Promise<boolean> {
+  if (!DATABASE_URL || !userId) return false;
+  try {
+    const r = await withClient((c) =>
+      c.query<{ ok: boolean }>(
+        `SELECT (premium_until IS NOT NULL AND premium_until > now()) AS ok
+           FROM users WHERE id = $1::uuid LIMIT 1`,
+        [userId],
+      ),
+    );
+    return Boolean(r.rows[0]?.ok);
+  } catch {
+    return false;
+  }
+}
+
+async function applyPremiumSubscriptionEvent(
+  event: Stripe.Event,
+  kind: string,
+): Promise<void> {
+  await ensurePremiumColumns();
+  const sub = event.data.object as Stripe.Subscription;
+  const userId =
+    String(sub.metadata?.buyer_user_id || "").trim() ||
+    String((event.data.object as any)?.metadata?.buyer_user_id || "").trim() ||
+    null;
+  if (!userId) return;
+  // Compute new premium_until from current_period_end (active) or null.
+  let until: Date | null = null;
+  const status = String(sub.status || "");
+  if (status === "active" || status === "trialing") {
+    const cpe = Number((sub as any).current_period_end || 0);
+    if (cpe > 0) until = new Date(cpe * 1000);
+  }
+  if (kind === "cancelled" || kind === "expired") {
+    until = null;
+  }
+  await withClient((c) =>
+    c.query(
+      `UPDATE users
+         SET premium_until = $2,
+             stripe_customer_id = COALESCE($3, stripe_customer_id),
+             stripe_subscription_id = COALESCE($4, stripe_subscription_id)
+       WHERE id = $1::uuid`,
+      [
+        userId,
+        until,
+        typeof sub.customer === "string" ? sub.customer : sub.customer?.id || null,
+        sub.id || null,
+      ],
+    ),
+  );
+  let amountUsd: number | null = null;
+  try {
+    const item: any = sub.items?.data?.[0];
+    const cents = Number(item?.price?.unit_amount || 0);
+    if (cents > 0) amountUsd = cents / 100;
+  } catch { /* ignore */ }
+  await withClient((c) =>
+    c.query(
+      `INSERT INTO subscription_events (user_id, event_kind, stripe_event_id, amount_usd, payload)
+       VALUES ($1::uuid, $2, $3, $4, $5::jsonb)
+       ON CONFLICT (stripe_event_id) DO NOTHING`,
+      [userId, kind, event.id, amountUsd, JSON.stringify({ subscription_id: sub.id, status })],
+    ),
+  );
+}
+
+/* CSSOS_PERSON_MV_WAVE77 — referral commission hook. Awards 10% of
+ * spend (in credits) to the inviter when a referred buyer is within
+ * their 30-day commission window. credits ≈ cents. */
+async function applyReferralCommission(args: {
+  buyerUserId: string;
+  amountCredits: number;
+  source: string;
+  ref?: Record<string, unknown>;
+}): Promise<void> {
+  if (!DATABASE_URL || !args.buyerUserId || !(args.amountCredits > 0)) return;
+  try {
+    await ensurePremiumColumns();
+    const r = await withClient((c) =>
+      c.query<{ inviter_id: string | null; within_window: boolean }>(
+        `SELECT referred_by_id::text AS inviter_id,
+                (referred_at IS NOT NULL AND referred_at > now() - interval '30 days') AS within_window
+           FROM users WHERE id = $1::uuid LIMIT 1`,
+        [args.buyerUserId],
+      ),
+    );
+    const row = r.rows[0];
+    if (!row || !row.inviter_id || !row.within_window) return;
+    const commission = Math.max(1, Math.floor(args.amountCredits * 0.1));
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO referral_rewards (inviter_id, invitee_id, reward_kind, amount_credits)
+         VALUES ($1::uuid, $2::uuid, 'commission', $3)`,
+        [row.inviter_id, args.buyerUserId, commission],
+      ),
+    );
+    await awardCredit(row.inviter_id, commission, "referral_commission", {
+      invitee_id: args.buyerUserId,
+      source: args.source,
+      basis_credits: args.amountCredits,
+      ...(args.ref || {}),
+    });
+  } catch (e) {
+    console.warn("[referral] commission failed:", (e as Error)?.message || e);
   }
 }
 
@@ -15644,6 +15988,7 @@ app.get("/api/dev/login", async (req, res) => {
       String(req.query.name || "Local Dev").trim() || "Local Dev";
     const userId = await ensureDevLoginUser(email, displayName);
     setAuthSession(req, userId, "dev_local");
+    await applyPendingReferral(req, userId).catch(() => {});
     return req.session.save((err) => {
       if (err) {
         return res.status(500).json({
@@ -18327,6 +18672,113 @@ app.get("/api/user/recommendations", async (req, res) => {
     return res.json({ ok: true, recommendations: rows });
   } catch (err) {
     return res.status(500).json({ ok: false, code: "RECS_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE78 20260508 — Jing — weekly email digest endpoints.
+ * GET/POST /api/user/email-prefs toggle the digest opt-in. The cron
+ * tick lives in the boot scheduler block; admin can manually trigger
+ * a single-user send via /api/admin/digest/send-now for QA. The
+ * unsubscribe link in every email hits /unsubscribe?token=... and
+ * sets email_digest_enabled=false after HMAC verification (no auth
+ * required so it works straight from a mailbox click). */
+app.get("/api/user/email-prefs", async (req, res) => {
+  noStore(res);
+  try {
+    const me = await getSessionUser(req).catch(() => null);
+    if (!me || !me.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const r = await withClient((c) =>
+      c.query<{ email_digest_enabled: boolean; email_digest_last_sent_at: string | null }>(
+        `SELECT email_digest_enabled, email_digest_last_sent_at FROM users WHERE id = $1`,
+        [me.id],
+      ),
+    );
+    const row = r.rows[0] || { email_digest_enabled: true, email_digest_last_sent_at: null };
+    return res.json({
+      ok: true,
+      email_digest_enabled: !!row.email_digest_enabled,
+      email_digest_last_sent_at: row.email_digest_last_sent_at,
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "PREFS_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/user/email-prefs", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const me = await getSessionUser(req).catch(() => null);
+    if (!me || !me.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const body = (req.body || {}) as { email_digest_enabled?: unknown };
+    const enabled = !!body.email_digest_enabled;
+    await withClient((c) =>
+      c.query(`UPDATE users SET email_digest_enabled = $2 WHERE id = $1`, [me.id, enabled]),
+    );
+    return res.json({ ok: true, email_digest_enabled: enabled });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "PREFS_UPDATE_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/admin/digest/send-now", async (req, res) => {
+  noStore(res);
+  try {
+    if (!(await isAdminRequest(req))) {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const userId = String(req.query.user_id || "").trim();
+    if (!userId) return res.status(400).json({ ok: false, code: "MISSING_USER_ID" });
+    const r = await withClient((c) =>
+      c.query<{ id: string; email: string | null; locale: string | null }>(
+        `SELECT id::text, email, locale FROM users WHERE id = $1`,
+        [userId],
+      ),
+    );
+    const u = r.rows[0];
+    if (!u || !u.email) return res.status(404).json({ ok: false, code: "USER_OR_EMAIL_MISSING" });
+    const { sendDigestForUser } = await import("./lib/weekly-digest");
+    const APP_BASE = (process.env.APP_BASE_URL || appBaseUrl(req)).replace(/\/+$/, "");
+    const status = await sendDigestForUser(
+      { id: u.id, email: u.email, locale: u.locale },
+      APP_BASE,
+    );
+    return res.json({ ok: true, status });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "SEND_FAILED", message: String(err) });
+  }
+});
+
+app.get("/unsubscribe", async (req, res) => {
+  noStore(res);
+  try {
+    const token = String(req.query.token || "").trim();
+    if (!token) {
+      res.status(400).type("html").send("<h1>Invalid link</h1>");
+      return;
+    }
+    const { verifyUnsubscribeToken } = await import("./lib/weekly-digest");
+    const userId = verifyUnsubscribeToken(token);
+    if (!userId) {
+      res.status(400).type("html").send("<h1>Invalid or expired link</h1>");
+      return;
+    }
+    await withClient((c) =>
+      c.query(`UPDATE users SET email_digest_enabled = false WHERE id = $1`, [userId]),
+    );
+    res.type("html").send(
+      `<!doctype html><html><head><meta charset="utf-8"><title>Unsubscribed</title>
+      <style>
+        body { font-family:-apple-system,Segoe UI,Roboto,sans-serif; padding:48px; background:#f6f7f9; color:#111; }
+        @media (prefers-color-scheme: dark) { body { background:#0c0c0d; color:#eaeaea; } }
+        .card { max-width:480px; margin:0 auto; background:#fff; border-radius:12px; padding:32px; box-shadow:0 1px 3px rgba(0,0,0,0.06); }
+        @media (prefers-color-scheme: dark) { .card { background:#16171a; } }
+      </style></head><body><div class="card">
+      <h1 style="margin-top:0;">Unsubscribed</h1>
+      <p>You will no longer receive the weekly digest. You can re-enable it any time from your account settings.</p>
+      </div></body></html>`,
+    );
+  } catch (err) {
+    res.status(500).type("html").send(`<h1>Error</h1><pre>${String(err)}</pre>`);
   }
 });
 
@@ -22867,6 +23319,7 @@ async function handleAppleCallback(
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
     setAuthSession(req, userId, "apple");
+    await applyPendingReferral(req, userId).catch(() => {});
     return res.redirect(302, "/");
   } catch (err) {
     auditAuthFailure("apple", "oauth", "INTERNAL_ERROR");
@@ -23033,6 +23486,7 @@ app.get("/auth/google/callback", async (req, res) => {
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
     setAuthSession(req, userId, "google");
+    await applyPendingReferral(req, userId).catch(() => {});
     return res.redirect(302, "/");
   } catch (err) {
     auditAuthFailure("google", "oauth", "INTERNAL_ERROR");
@@ -23248,6 +23702,7 @@ app.get("/auth/github/callback", async (req, res) => {
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
     setAuthSession(req, userId, "github");
+    await applyPendingReferral(req, userId).catch(() => {});
     return res.redirect(302, "/");
   } catch (err) {
     auditAuthFailure("github", "oauth", "INTERNAL_ERROR");
@@ -23415,6 +23870,7 @@ app.get("/auth/x/callback", async (req, res) => {
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
     setAuthSession(req, userId, "x");
+    await applyPendingReferral(req, userId).catch(() => {});
     return res.redirect(302, "/");
   } catch (err) {
     auditAuthFailure("x", "oauth", "INTERNAL_ERROR");
@@ -23515,6 +23971,7 @@ app.get("/auth/facebook/callback", async (req, res) => {
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
     setAuthSession(req, userId, "facebook");
+    await applyPendingReferral(req, userId).catch(() => {});
     return res.redirect(302, "/");
   } catch (err) {
     auditAuthFailure("facebook", "oauth", "INTERNAL_ERROR");
@@ -23593,6 +24050,7 @@ app.get("/auth/wechat/callback", async (req, res) => {
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
     setAuthSession(req, userId, "wechat");
+    await applyPendingReferral(req, userId).catch(() => {});
     return res.redirect(302, "/");
   } catch (err) {
     auditAuthFailure("wechat", "oauth", "INTERNAL_ERROR");
@@ -23672,6 +24130,7 @@ app.get("/auth/bsky", async (req, res) => {
     auditAuthLogin(req, "bsky", userId, "app_password");
     await migrateGuestPasskeysToUser(req.sessionID, userId);
     setAuthSession(req, userId, "bsky");
+    await applyPendingReferral(req, userId).catch(() => {});
     return res.redirect(302, "/");
   } catch {
     auditAuthFailure("bsky", "app_password", "INTERNAL_ERROR");
@@ -23724,6 +24183,7 @@ app.get("/auth/bsky/callback", async (req, res) => {
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
     setAuthSession(req, userId, "bsky");
+    await applyPendingReferral(req, userId).catch(() => {});
     return res.redirect(302, "/");
   } catch (err) {
     auditAuthFailure("bsky", "oauth", "INTERNAL_ERROR");
@@ -23906,6 +24366,7 @@ for (const pid of genericProviders) {
       });
       await migrateGuestPasskeysToUser(req.sessionID, userId);
       setAuthSession(req, userId, pid);
+    await applyPendingReferral(req, userId).catch(() => {});
       return res.redirect(302, "/");
     } catch {
       auditAuthFailure(pid, "oauth", "INTERNAL_ERROR");
@@ -27312,6 +27773,60 @@ function sanitizeTemplateSeed(raw: any): any {
   try { return JSON.parse(s); } catch { return null; }
 }
 
+/* CSSOS_PERSON_MV_WAVE73 20260508 — Jing
+ * Parameter spec for templates. Each entry:
+ *   { key, label_zh, label_en, type:'text'|'select'|'number',
+ *     default?: any, options?: string[] }
+ * Reject anything else. Cap at 16 params. */
+function sanitizeTemplateParameters(raw: any): any[] {
+  if (!Array.isArray(raw)) return [];
+  const out: any[] = [];
+  for (const p of raw.slice(0, 16)) {
+    if (!p || typeof p !== "object") continue;
+    const key = String(p.key || "").trim().slice(0, 32);
+    if (!/^[a-zA-Z_][\w]*$/.test(key)) continue;
+    const type = ["text", "select", "number"].includes(p.type) ? p.type : "text";
+    const entry: any = {
+      key,
+      label_zh: String(p.label_zh || key).slice(0, 60),
+      label_en: String(p.label_en || key).slice(0, 60),
+      type,
+    };
+    if (p.default !== undefined) entry.default = String(p.default).slice(0, 200);
+    if (type === "select" && Array.isArray(p.options)) {
+      entry.options = p.options.slice(0, 24).map((o: any) => String(o).slice(0, 80));
+    }
+    out.push(entry);
+  }
+  return out;
+}
+
+/* Walks a JSON object and replaces {{key}} placeholders inside any string
+ * leaf using values keyed by paramDefs. Missing values fall back to the
+ * param's default; unknown keys remain literal so the user can spot typos. */
+function applyTemplateParams(seed: any, paramDefs: any[], values: Record<string, any>): any {
+  const map = new Map<string, string>();
+  for (const p of Array.isArray(paramDefs) ? paramDefs : []) {
+    const v = values && Object.prototype.hasOwnProperty.call(values, p.key)
+      ? values[p.key]
+      : p.default;
+    if (v != null) map.set(p.key, String(v));
+  }
+  const subst = (s: string) =>
+    s.replace(/\{\{(\w+)\}\}/g, (m, k) => (map.has(k) ? (map.get(k) as string) : m));
+  const walk = (v: any): any => {
+    if (typeof v === "string") return subst(v);
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === "object") {
+      const out: any = {};
+      for (const k of Object.keys(v)) out[k] = walk(v[k]);
+      return out;
+    }
+    return v;
+  };
+  return walk(seed);
+}
+
 app.post("/api/person-mv/templates", express.json({ limit: "64kb" }), async (req, res) => {
   noStore(res);
   try {
@@ -27326,12 +27841,14 @@ app.post("/api/person-mv/templates", express.json({ limit: "64kb" }), async (req
     const seed = sanitizeTemplateSeed(body.seed);
     if (!name) return res.status(400).json({ ok: false, code: "INVALID_NAME" });
     if (!seed) return res.status(400).json({ ok: false, code: "INVALID_SEED" });
+    // CSSOS_PERSON_MV_WAVE73 — sanitize parameters[] (key/label/type/default/options).
+    const parameters = sanitizeTemplateParameters(body.parameters);
     const r = await withClient((c) =>
       c.query<{ template_id: string }>(
-        `INSERT INTO person_mv_templates (user_id, name, description, seed, visibility)
-         VALUES ($1, $2, $3, $4::jsonb, $5)
+        `INSERT INTO person_mv_templates (user_id, name, description, seed, visibility, parameters)
+         VALUES ($1, $2, $3, $4::jsonb, $5, $6::jsonb)
          RETURNING template_id`,
-        [user.id, name, description, JSON.stringify(seed), visibility],
+        [user.id, name, description, JSON.stringify(seed), visibility, JSON.stringify(parameters)],
       ),
     );
     return res.json({ ok: true, template_id: r.rows[0]?.template_id });
@@ -27368,6 +27885,7 @@ app.get("/api/person-mv/templates", async (req, res) => {
       c.query<any>(
         `SELECT t.template_id, t.user_id, t.name, t.description, t.seed,
                 t.visibility, t.fork_count, t.use_count, t.created_at,
+                t.parameters,
                 u.username, u.display_name
            FROM person_mv_templates t
       LEFT JOIN users u ON u.id = t.user_id
@@ -27393,6 +27911,7 @@ app.get("/api/person-mv/templates/:id", async (req, res) => {
       c.query<any>(
         `SELECT t.template_id, t.user_id, t.name, t.description, t.seed,
                 t.visibility, t.fork_count, t.use_count, t.created_at,
+                t.parameters,
                 u.username, u.display_name
            FROM person_mv_templates t
       LEFT JOIN users u ON u.id = t.user_id
@@ -27493,6 +28012,41 @@ app.post("/api/person-mv/templates/:id/use", express.json({ limit: "1kb" }), asy
     return res.json({ ok: true, use_count: r.rows[0].use_count });
   } catch (err) {
     return res.status(500).json({ ok: false, code: "TEMPLATE_USE_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE73 20260508 — Jing
+ * Resolve a parameterized template into a concrete seed without firing
+ * the pipeline. Caller (UI / API) then routes the resolved seed to
+ * /api/mv/cover or wherever. This keeps the substitution algorithm
+ * server-side and idempotent. */
+app.post("/api/person-mv/templates/:id/instantiate", express.json({ limit: "8kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const tpl = await withClient((c) =>
+      c.query<{ seed: any; parameters: any; visibility: string; user_id: string | null }>(
+        `SELECT seed, parameters, visibility, user_id
+           FROM person_mv_templates WHERE template_id = $1::uuid`,
+        [id],
+      ),
+    );
+    const row = tpl.rows[0];
+    if (!row) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    if (row.visibility !== "public") {
+      const user = await getSessionUser(req).catch(() => null);
+      if (!user || user.id !== row.user_id) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    }
+    const values =
+      req.body && typeof req.body.values === "object" && !Array.isArray(req.body.values)
+        ? req.body.values
+        : {};
+    const resolved = applyTemplateParams(row.seed, row.parameters || [], values);
+    return res.json({ ok: true, seed: resolved });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "TEMPLATE_INSTANTIATE_FAILED", message: String(err) });
   }
 });
 
@@ -29610,31 +30164,51 @@ app.get("/robots.txt", (_req, res) => {
   res.send(`User-agent: *\nAllow: /\nSitemap: ${SHARE_BASE_URL}/sitemap.xml\n`);
 });
 
+// CSSOS_WAVE80 20260508 — inject window.__cssosSentryDsn into <head>.
+function buildSentryDsnBlock(): string {
+  const dsn = publicSentryDsn();
+  if (!dsn) return "";
+  return `<script>window.__cssosSentryDsn=${JSON.stringify(dsn)};</script>`;
+}
+function injectIntoHead(html: string, block: string): string {
+  if (!block) return html;
+  const idx = html.search(/<\/head>/i);
+  if (idx < 0) return html;
+  return html.slice(0, idx) + block + html.slice(idx);
+}
+
 app.get("/", async (req, res) => {
   noStore(res);
   res.type("html");
   const cssMV = String(req.query.cssMV || "").trim();
+  const dsnBlock = buildSentryDsnBlock();
+  const sendWithDsn = () => {
+    if (!dsnBlock) {
+      return res.sendFile(path.join(PUBLIC_DIR, "index.html"));
+    }
+    try {
+      const html = readIndexHtml().toString("utf8");
+      return res.send(injectIntoHead(html, dsnBlock));
+    } catch {
+      return res.sendFile(path.join(PUBLIC_DIR, "index.html"));
+    }
+  };
   if (!cssMV) {
-    return res.sendFile(path.join(PUBLIC_DIR, "index.html"));
+    return sendWithDsn();
   }
   try {
     const work = await fetchShareWork(cssMV);
     if (!work) {
-      return res.sendFile(path.join(PUBLIC_DIR, "index.html"));
+      return sendWithDsn();
     }
     const html = readIndexHtml().toString("utf8");
     const requestUrl = `https://${req.get("host") || "cssstudio.app"}${req.originalUrl}`;
     const ogBlock = buildOgMeta(work, requestUrl);
-    // Inject right before </head>. Case-insensitive, first match.
-    const idx = html.search(/<\/head>/i);
-    if (idx < 0) {
-      return res.sendFile(path.join(PUBLIC_DIR, "index.html"));
-    }
-    const out = html.slice(0, idx) + ogBlock + html.slice(idx);
+    const out = injectIntoHead(injectIntoHead(html, ogBlock), dsnBlock);
     return res.send(out);
   } catch (err) {
     console.warn("[share-og] inject failed, falling back to raw:", err);
-    return res.sendFile(path.join(PUBLIC_DIR, "index.html"));
+    return sendWithDsn();
   }
 });
 
@@ -31651,6 +32225,43 @@ async function start() {
     setInterval(balanceTick, SIX_HOURS_MS);
   }
 
+  /* CSSOS_PERSON_MV_WAVE78 20260508 — Jing — weekly email digest.
+   * Same-process scheduler; fires every Monday 09:00 UTC. Each tick
+   * pulls users with email_digest_enabled=true, verified email, and
+   * email_digest_last_sent_at older than 6 days, then sends at 10/sec
+   * to avoid SMTP/Resend throttle. */
+  if (process.env.DATABASE_URL) {
+    const { weeklyDigestTick } = await import("./lib/weekly-digest");
+    const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+    const ONE_HOUR_MS = 60 * 60 * 1000;
+    const APP_BASE = (process.env.APP_BASE_URL || "https://cssos.app").replace(/\/+$/, "");
+    const digestTick = async () => {
+      try {
+        const summary = await weeklyDigestTick(APP_BASE);
+        console.log(
+          `[digest] weekly tick — considered=${summary.considered} sent=${summary.sent} failed=${summary.failed} skipped=${summary.skipped}`,
+        );
+      } catch (err) {
+        console.warn("[digest] weekly tick failed:", (err as Error)?.message || err);
+      }
+    };
+    const now = new Date();
+    const next = new Date(Date.UTC(
+      now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 9, 0, 0, 0,
+    ));
+    const dayDelta = (1 - next.getUTCDay() + 7) % 7;
+    next.setUTCDate(next.getUTCDate() + dayDelta);
+    if (next.getTime() <= now.getTime()) next.setUTCDate(next.getUTCDate() + 7);
+    const delayMs = next.getTime() - now.getTime();
+    setTimeout(() => {
+      digestTick();
+      setInterval(digestTick, ONE_WEEK_MS);
+    }, delayMs);
+    console.log(
+      `[digest] scheduled first run in ${Math.round(delayMs / ONE_HOUR_MS)}h (next Mon 09:00 UTC)`,
+    );
+  }
+
   /* CSSOS_PERSON_MV_WAVE43 20260508 — Jing — WebSocket migration.
    * Boot a WebSocketServer on the same HTTP server. Three channels
    * (live rooms, collab sessions, watch parties). Auth parses the
@@ -31674,6 +32285,11 @@ async function start() {
     } catch { /* ignore */ }
   }
   (globalThis as any).__cssosWsPublish = wsPublish;
+
+  // CSSOS_WAVE80 20260508 — Sentry express error handler (no-op when DSN unset).
+  // Registered late so route handlers above can short-circuit normally and only
+  // *unhandled* errors flow into Sentry.
+  attachSentryErrorHandler(app);
 
   const httpServer = http.createServer(app);
   const wss = new WebSocketServer({ noServer: true });
@@ -31870,6 +32486,14 @@ app.post("/api/shop/purchase", express.json({ limit: "2kb" }), async (req, res) 
         [user.id, -price, JSON.stringify({ item_id: item.item_id, kind: item.kind, purchase_id: ins.rows[0]?.purchase_id })],
       ),
     );
+    // CSSOS_PERSON_MV_WAVE77 — referral commission (10% of credits spent,
+    // if buyer was referred ≤30 days ago). Awarded as credits to inviter.
+    void applyReferralCommission({
+      buyerUserId: user.id,
+      amountCredits: price,
+      source: "shop_purchase",
+      ref: { item_id: item.item_id, purchase_id: ins.rows[0]?.purchase_id },
+    });
     return res.json({ ok: true, purchase_id: ins.rows[0]?.purchase_id, balance, expires_at: expiresAt });
   } catch (err) {
     return res.status(500).json({ ok: false, code: "PURCHASE_FAILED", message: String(err) });
@@ -32369,6 +32993,9 @@ app.post("/api/works/:id/upscale", express.json({ limit: "2kb" }), async (req, r
     const sourceUrl = srcRes.rows[0]?.url || "";
     if (!sourceUrl) return res.status(409).json({ ok: false, code: "NO_SOURCE_VIDEO" });
 
+    // CSSOS_PERSON_MV_WAVE76 — Premium: 4K upscale free, no credit deduction.
+    const premium = await isPremium(user.id);
+    const effectiveCost = premium ? 0 : cost;
     const balRes = await withClient((c) =>
       c.query<{ balance: number }>(
         `SELECT balance FROM user_credits WHERE user_id = $1::uuid LIMIT 1`,
@@ -32376,34 +33003,36 @@ app.post("/api/works/:id/upscale", express.json({ limit: "2kb" }), async (req, r
       ),
     );
     const balance = Number(balRes.rows[0]?.balance ?? 0);
-    if (balance < cost) {
-      return res.status(402).json({ ok: false, code: "INSUFFICIENT_CREDITS", required: cost, balance });
+    if (!premium && balance < effectiveCost) {
+      return res.status(402).json({ ok: false, code: "INSUFFICIENT_CREDITS", required: effectiveCost, balance });
     }
 
     const jobRow = await withClient(async (c) => {
       await c.query("BEGIN");
       try {
-        const ev = await c.query(
-          `INSERT INTO credit_events (user_id, delta, reason, payload)
-           VALUES ($1::uuid, $2, 'upscale_spend', $3::jsonb)
-           RETURNING id`,
-          [user.id, -cost, JSON.stringify({ work_id: id, target_resolution: target })],
-        );
-        if (!ev.rowCount) throw new Error("credit_event_insert_failed");
-        await c.query(
-          `INSERT INTO user_credits (user_id, balance, lifetime_earned, lifetime_spent, updated_at)
-           VALUES ($1::uuid, $2, 0, $3, now())
-           ON CONFLICT (user_id) DO UPDATE
-              SET balance = user_credits.balance + EXCLUDED.balance,
-                  lifetime_spent = user_credits.lifetime_spent + EXCLUDED.lifetime_spent,
-                  updated_at = now()`,
-          [user.id, -cost, cost],
-        );
+        if (effectiveCost > 0) {
+          const ev = await c.query(
+            `INSERT INTO credit_events (user_id, delta, reason, payload)
+             VALUES ($1::uuid, $2, 'upscale_spend', $3::jsonb)
+             RETURNING id`,
+            [user.id, -effectiveCost, JSON.stringify({ work_id: id, target_resolution: target })],
+          );
+          if (!ev.rowCount) throw new Error("credit_event_insert_failed");
+          await c.query(
+            `INSERT INTO user_credits (user_id, balance, lifetime_earned, lifetime_spent, updated_at)
+             VALUES ($1::uuid, $2, 0, $3, now())
+             ON CONFLICT (user_id) DO UPDATE
+                SET balance = user_credits.balance + EXCLUDED.balance,
+                    lifetime_spent = user_credits.lifetime_spent + EXCLUDED.lifetime_spent,
+                    updated_at = now()`,
+            [user.id, -effectiveCost, effectiveCost],
+          );
+        }
         const ins = await c.query<{ job_id: string }>(
           `INSERT INTO upscale_jobs (work_id, user_id, source_url, target_resolution, status, credits_spent)
            VALUES ($1::uuid, $2::uuid, $3, $4, 'pending', $5)
            RETURNING job_id::text`,
-          [id, user.id, sourceUrl, target, cost],
+          [id, user.id, sourceUrl, target, effectiveCost],
         );
         await c.query("COMMIT");
         return ins.rows[0]!;

@@ -23797,6 +23797,101 @@ app.post("/api/auth/apple/callback", (req, res) => {
   res.redirect(307, "/auth/apple/callback");
 });
 
+/* CSSOS_WAVE_98C_NATIVE_APPLE 20260508 — Jing
+ * iOS Capacitor app uses @capacitor-community/apple-sign-in which
+ * returns an `identityToken` (JWT) directly. We verify the JWT
+ * against Apple's JWKS with audience = iOS Bundle ID
+ * (`app.cssstudio.app`, falls back to APPLE_NATIVE_CLIENT_ID env if
+ * set). On success we set the session cookie just like the web
+ * callback. The web Service ID flow above is untouched. */
+app.post("/api/auth/apple/native", express.json(), async (req, res) => {
+  noStore(res);
+  try {
+    const body = (req.body || {}) as {
+      identityToken?: string;
+      email?: string | null;
+      fullName?: { givenName?: string; familyName?: string } | null;
+    };
+    const idToken = String(body.identityToken || "").trim();
+    if (!idToken) {
+      auditAuthFailure("apple", "native", "MISSING_TOKEN");
+      return res.status(400).json({ ok: false, error: "missing_token" });
+    }
+    const nativeAud =
+      String(process.env.APPLE_NATIVE_CLIENT_ID || "").trim() ||
+      "app.cssstudio.app";
+    const { payload } = await jwtVerify(idToken, appleJwks, {
+      issuer: "https://appleid.apple.com",
+      audience: nativeAud,
+    });
+    const sub = String((payload as any).sub || "");
+    if (!sub) {
+      auditAuthFailure("apple", "native", "SUB_MISSING");
+      return res.status(400).json({ ok: false, error: "sub_missing" });
+    }
+    const tokenEmail = (payload as any).email
+      ? String((payload as any).email)
+      : null;
+    const email = normalizeEmail(tokenEmail || body.email || null);
+    const displayName =
+      [body.fullName?.givenName, body.fullName?.familyName]
+        .filter(Boolean)
+        .join(" ")
+        .trim() || null;
+    const userId = await upsertOAuthIdentity({
+      provider: "apple",
+      providerUserId: sub,
+      email,
+      displayName,
+    });
+    await migrateGuestPasskeysToUser(req.sessionID, userId);
+    setAuthSession(req, userId, "apple");
+    await applyPendingReferral(req, userId).catch(() => {});
+    return res.json({ ok: true, user_id: userId });
+  } catch (err) {
+    auditAuthFailure("apple", "native", "VERIFY_FAILED");
+    console.error("apple_native_failed", err);
+    return res
+      .status(400)
+      .json({ ok: false, error: "verify_failed" });
+  }
+});
+
+/* CSSOS_WAVE_98C_AUTH_RETURN 20260508 — Jing
+ * Universal Link landing for iOS Capacitor app. After OAuth completes
+ * in SFSafariViewController (system Safari), the provider redirects
+ * to `/auth/return?...` on cssstudio.app. iOS routes the matching
+ * Universal Link straight into the installed app, where Capacitor's
+ * appUrlOpen listener forwards the URL to the WebView. The HTML
+ * shipped here is a fallback for the case where the app is NOT
+ * installed (or the link was opened in the browser instead) — in
+ * that case we just bounce into `/` so the existing web session
+ * cookie takes over. */
+app.get("/auth/return", (req, res) => {
+  noStore(res);
+  res.type("html");
+  const qs = req.url.includes("?")
+    ? req.url.slice(req.url.indexOf("?"))
+    : "";
+  const safe = qs.replace(/[<>"']/g, "");
+  res.send(
+    `<!doctype html><html><head><meta charset="utf-8"><title>Signing you in…</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{background:#000;color:#fff;font:14px -apple-system,system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}@media(prefers-color-scheme:light){body{background:#fff;color:#111}}</style></head><body><div>Signing you in…</div><script>(function(){try{var dest='/'+${JSON.stringify(safe)};setTimeout(function(){location.replace(dest);},150);}catch(e){location.replace('/');}})();</script></body></html>`,
+  );
+});
+
+/* CSSOS_WAVE_98C_AASA 20260508 — Jing
+ * Serve Apple App Site Association so iOS validates Universal Links
+ * for app.cssstudio.app. The file MUST be served at the exact path
+ * `/.well-known/apple-app-site-association`, with
+ * Content-Type: application/json, no redirects, no auth challenge. */
+app.get("/.well-known/apple-app-site-association", (_req, res) => {
+  res.type("application/json");
+  res.setHeader("Cache-Control", "public, max-age=3600");
+  return res.sendFile(
+    path.join(PUBLIC_DIR, ".well-known", "apple-app-site-association"),
+  );
+});
+
 function oauthCallbackUrl(req: express.Request, providerId: string) {
   const normalized = String(providerId || "")
     .trim()

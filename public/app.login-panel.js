@@ -15,6 +15,104 @@ const loginPanelHasPanelPermission =
     : () => true;
 const loginPanelRequiredPanelIds =
   globalThis.loginPanelRequiredPanelIds instanceof Set ? globalThis.loginPanelRequiredPanelIds : new Set();
+/* CSSOS_WAVE_98C_IOS_NATIVE_OAUTH 20260508 — Jing
+ * Helpers used by the login card click handler when the page is
+ * running inside the iOS Capacitor app (WKWebView). Web browser
+ * users hit none of these — they fall through to the existing
+ * `window.location.href = platform.url` redirect. */
+function isIosNativeAppModule() {
+  try {
+    const cap = globalThis.Capacitor;
+    if (!cap) return false;
+    const isNative =
+      typeof cap.isNativePlatform === "function"
+        ? cap.isNativePlatform()
+        : Boolean(cap.isNative);
+    const platform =
+      typeof cap.getPlatform === "function" ? cap.getPlatform() : "";
+    return Boolean(isNative) && platform === "ios";
+  } catch (_) {
+    return false;
+  }
+}
+
+async function iosNativeAppleSignInModule() {
+  try {
+    const cap = globalThis.Capacitor;
+    if (!cap || typeof cap.Plugins !== "object") return false;
+    const plugin = cap.Plugins.SignInWithApple;
+    if (!plugin || typeof plugin.authorize !== "function") {
+      console.warn("[ios-apple] SignInWithApple plugin missing");
+      return false;
+    }
+    const result = await plugin.authorize({
+      clientId: "app.cssstudio.app",
+      redirectURI: "https://cssstudio.app/auth/apple/callback",
+      scopes: "email name",
+      state: Math.random().toString(36).slice(2),
+    });
+    const resp = result && (result.response || result);
+    const idToken = resp && resp.identityToken;
+    if (!idToken) {
+      console.warn("[ios-apple] no identityToken in response", result);
+      showToast(loginPanelLoginCopy("Apple sign-in returned no token.", "Apple 登录未返回令牌。"));
+      return false;
+    }
+    const r = await fetch("/auth/apple/native", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        identityToken: idToken,
+        email: resp.email || null,
+        fullName: resp.fullName || null,
+      }),
+    });
+    const j = await r.json().catch(() => null);
+    if (!r.ok || !j || j.ok !== true) {
+      console.warn("[ios-apple] backend rejected token", j);
+      showToast(loginPanelLoginCopy("Apple sign-in failed. Please try again.", "Apple 登录失败，请稍后重试。"));
+      return false;
+    }
+    // Refresh app session so the rest of the UI picks up the new user
+    try {
+      window.location.replace("/");
+    } catch (_) {
+      window.location.href = "/";
+    }
+    return true;
+  } catch (err) {
+    // User-cancelled errors are normal — silently fall through.
+    const msg = String(err && (err.message || err)).toLowerCase();
+    if (msg.includes("cancel")) return true;
+    console.warn("[ios-apple] sign-in error", err);
+    return false;
+  }
+}
+
+async function iosOpenSystemBrowserModule(url) {
+  try {
+    const cap = globalThis.Capacitor;
+    if (!cap || typeof cap.Plugins !== "object") return false;
+    const browser = cap.Plugins.Browser;
+    if (!browser || typeof browser.open !== "function") return false;
+    // Tag the request so the backend (or our own callback page) can
+    // route the success redirect to /auth/return — a Universal Link
+    // that iOS hands straight back to the installed app.
+    const sep = url.includes("?") ? "&" : "?";
+    const tagged = `${url}${sep}intent=ios-app`;
+    await browser.open({
+      url: tagged,
+      presentationStyle: "popover",
+      windowName: "_self",
+    });
+    return true;
+  } catch (err) {
+    console.warn("[ios-oauth] Browser.open failed", err);
+    return false;
+  }
+}
+
 function getPlatformLabelModule(platformId) {
   const locale = PLATFORM_LABELS[currentLocale] ? currentLocale : DEFAULT_LOCALE;
   return getPlatformLabelFromMap(locale, platformId);
@@ -232,6 +330,22 @@ function renderLoginPlatformsModule() {
           return;
         }
         if (platform.url) {
+          // CSSOS_WAVE_98C_IOS_NATIVE_OAUTH 20260508 — Jing
+          // Inside the iOS Capacitor WebView, Google (and others) block
+          // OAuth on UA-detected WKWebViews and cookies aren't shared
+          // with system Safari, so a plain `location.href = ...` flow
+          // breaks. Route Apple through the native ASAuthorization API
+          // and everything else through SFSafariViewController, which
+          // returns to the app via a Universal Link.
+          if (isIosNativeAppModule()) {
+            if (platform.id === "apple") {
+              const ok = await iosNativeAppleSignInModule();
+              if (ok) return;
+              // fall through to web flow if native sign-in failed
+            }
+            const opened = await iosOpenSystemBrowserModule(platform.url);
+            if (opened) return;
+          }
           window.location.href = platform.url;
         }
       });

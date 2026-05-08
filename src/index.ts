@@ -977,6 +977,45 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
   const prompt = String((body as any).prompt || (body as any).title || "").trim();
   const style = String((body as any).style || "").trim();
   const language = String((body as any).language || "en").trim();
+  const explicitEngine = String((body as any).engine || "").trim().toLowerCase();
+
+  // CSSOS_PHASE2_LYRICS_TIER_FIRST 20260507 — Jing
+  // Mirror /api/mv/cover: free → cheap → standard first via callLlm
+  // (groq/cerebras/mistral/openrouter/gemini/huggingface/deepseek/together
+  // before openai/anthropic). Only the user's explicit premium choice
+  // (`body.engine` ∈ openai|anthropic) escalates to the Rust upstream.
+  const userForcedPremiumLlm = ["openai", "anthropic"].includes(explicitEngine);
+  if (!userForcedPremiumLlm) {
+    try {
+      const tier = await callLlm({
+        messages: [
+          { role: "system", content: "You write concise, singable music-video lyrics. Reply with raw lyrics only — no commentary, no markdown headings." },
+          { role: "user", content: `Write short song lyrics in ${language}${style ? ` (${style} style)` : ""} for: ${prompt || "an evocative scene"}.` },
+        ],
+        max_tokens: 600,
+        temperature: 0.85,
+      });
+      if (tier && tier.ok && tier.content && tier.content.trim()) {
+        console.log(`[mv-lyrics] tier sweep WIN: provider=${tier.provider} model=${tier.model}`);
+        return res.status(200).json({
+          ok: true,
+          task_id: `tier-${tier.provider}-${Date.now()}`,
+          lyrics: tier.content.trim(),
+          derived_settings: { title: prompt.slice(0, 80) || "Untitled", music_style: style },
+          sections: null,
+          shot_scripts: null,
+          model: tier.model,
+          engine: tier.provider,
+          cost_cents: 0,
+          use_user_key: false,
+          tier_sweep: true,
+        });
+      }
+      console.warn(`[mv-lyrics] tier sweep exhausted (${tier?.error || "no_content"}); escalating to Rust premium`);
+    } catch (err) {
+      console.warn("[mv-lyrics] tier sweep threw:", err instanceof Error ? err.message : String(err));
+    }
+  }
 
   let result = await _mvForwardUpstream(req, res, bodyStr);
   if ("streamed" in result && result.streamed) return; // already piped
@@ -1083,6 +1122,41 @@ app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
   const prompt = String((body as any).prompt || (body as any).title || "").trim();
   const duration = Number((body as any).duration_secs || (body as any).duration || 30) || 30;
   const tags = Array.isArray((body as any).tags) ? (body as any).tags as string[] : [];
+  const explicitEngine = String((body as any).engine || "").trim().toLowerCase();
+
+  // CSSOS_PHASE2_MUSIC_TIER_FIRST 20260507 — Jing
+  // Free → cheap (mubert/stability) before paid (suno/elevenlabs).
+  // Only premium engine names skip the sweep and hit Rust directly.
+  const userForcedPremiumMusic = ["elevenlabs", "suno"].includes(explicitEngine);
+  if (!userForcedPremiumMusic) {
+    try {
+      const tier = await callMusicGen({
+        prompt: prompt || "ambient cinematic instrumental",
+        duration_secs: duration,
+        tags,
+      });
+      if (tier && tier.ok) {
+        const audioUrl = tier.audio_url
+          ? tier.audio_url
+          : (tier.audio_b64 ? `data:audio/mpeg;base64,${tier.audio_b64}` : "");
+        if (audioUrl) {
+          console.log(`[mv-music] tier sweep WIN: provider=${tier.provider}`);
+          return res.status(200).json({
+            ok: true,
+            task_id: `tier-${tier.provider}-${Date.now()}`,
+            audio_url: audioUrl,
+            engine: tier.provider,
+            cost_cents: 0,
+            use_user_key: false,
+            tier_sweep: true,
+          });
+        }
+      }
+      console.warn(`[mv-music] tier sweep exhausted (${tier?.error || "no_audio"}); escalating to Rust premium`);
+    } catch (err) {
+      console.warn("[mv-music] tier sweep threw:", err instanceof Error ? err.message : String(err));
+    }
+  }
 
   let result = await _mvForwardUpstream(req, res, bodyStr);
   if ("streamed" in result && result.streamed) return; // already piped
@@ -1194,6 +1268,85 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
     aspectRaw === "9:16" ? "9:16" : aspectRaw === "1:1" ? "1:1" : "16:9";
   const duration = Number((body as any).duration_secs || (body as any).duration || 5) || 5;
   const imageUrl = String((body as any).image_url || (body as any).cover_url || "").trim();
+  const explicitEngine = String((body as any).engine || "").trim().toLowerCase();
+  const tier = String((body as any).tier || "lite").trim().toLowerCase();
+
+  // CSSOS_PHASE2_VIDEO_TIER_FIRST 20260507 — Jing
+  // Routing principle:
+  //   tier="lite" (default) → no AI video at all; frontend ken-burns the cover.
+  //   tier="hybrid"|"cinematic" → free → cheap (fal/replicate/kling/luma) before runway.
+  // Only `body.engine="runway"` or other explicit premium escalates to Rust.
+  const userForcedPremiumVideo = ["runway", "luma"].includes(explicitEngine);
+  if (!userForcedPremiumVideo) {
+    if (tier === "lite") {
+      console.log(`[mv-video] tier=lite — skipping AI video, returning still+ken-burns flag`);
+      const sizeMap: Record<string, string> = { "16:9": "1024x576", "9:16": "576x1024", "1:1": "1024x1024" };
+      let stillUrl = imageUrl;
+      if (!stillUrl) {
+        try {
+          const still = await callImageGen({
+            prompt: prompt || "cinematic music video still, dramatic lighting",
+            size: sizeMap[aspect] || "1024x576",
+          });
+          if (still.ok) {
+            stillUrl = still.image_url
+              ? still.image_url
+              : (still.image_b64 ? `data:image/png;base64,${still.image_b64}` : "");
+          }
+        } catch { /* fall through to svg */ }
+      }
+      if (!stillUrl) {
+        let hue = 200;
+        for (let i = 0; i < prompt.length; i++) hue = (hue * 31 + prompt.charCodeAt(i)) % 360;
+        const [w, h] = (sizeMap[aspect] || "1024x576").split("x").map(Number);
+        const svg =
+          `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}">` +
+          `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">` +
+          `<stop offset="0%" stop-color="hsl(${hue},70%,32%)"/>` +
+          `<stop offset="100%" stop-color="hsl(${(hue + 60) % 360},75%,18%)"/>` +
+          `</linearGradient></defs><rect width="${w}" height="${h}" fill="url(#g)"/></svg>`;
+        stillUrl = `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
+      }
+      return res.status(200).json({
+        ok: true,
+        task_id: `tier-lite-${Date.now()}`,
+        video_url: "",
+        image_url: stillUrl,
+        engine: "tier-lite",
+        cost_cents: 0,
+        use_user_key: false,
+        tier_sweep: true,
+        video_skipped: true,
+        aspect_ratio: aspect,
+        duration_secs: Math.round(duration),
+      });
+    }
+    // hybrid/cinematic: try free→cheap video router first
+    try {
+      const tierVid = await callVideoGen({
+        prompt: prompt || "cinematic music video shot, slow camera motion",
+        duration_secs: duration,
+        aspect_ratio: aspect,
+        ...(imageUrl ? { image_url: imageUrl } : {}),
+      });
+      if (tierVid && tierVid.ok && (tierVid.video_url || tierVid.poll_url)) {
+        console.log(`[mv-video] tier sweep WIN: provider=${tierVid.provider}`);
+        return res.status(200).json({
+          ok: true,
+          task_id: `tier-${tierVid.provider}-${Date.now()}`,
+          video_url: tierVid.video_url || "",
+          poll_url: tierVid.poll_url || "",
+          engine: tierVid.provider,
+          cost_cents: 0,
+          use_user_key: false,
+          tier_sweep: true,
+        });
+      }
+      console.warn(`[mv-video] tier sweep exhausted (${tierVid?.error || "no_video"}); escalating to Rust premium`);
+    } catch (err) {
+      console.warn("[mv-video] tier sweep threw:", err instanceof Error ? err.message : String(err));
+    }
+  }
 
   let result = await _mvForwardUpstream(req, res, bodyStr);
   if ("streamed" in result && result.streamed) return; // already piped
@@ -1301,6 +1454,11 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
   });
 });
 
+// CSSOS_TIER_FIRST_SUBTITLES 20260507 — Jing
+// /api/mv/subtitles is already free: Rust uses the local `srt-v1` engine
+// (offline, lyrics+duration → SRT/ASS via even-divide or aligned-words from
+// the music engine). No paid API in the path → no tier-sweep needed.
+// /api/mv/compose is pure ffmpeg, also free. Both fall through this catch-all.
 app.all(/^\/api\/mv\//, (req, res) => {
   const userId = (req.session as any)?.user_id;
   if (!userId) {

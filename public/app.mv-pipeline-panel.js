@@ -963,6 +963,10 @@
           // placeholder text. Click to cycle tiers as a v0 picker.
           '<span id="mvp-tier-label" class="mvp-tier-label" role="button" tabindex="0" data-tier-id=""></span>' +
         '</div>' +
+        // CSSOS_MV_DAG_WAVE_2_7B 20260507 — ordinary-MV overall progress
+        // block (same 5 chips + rainbow bar as cinema hero). Mounted via
+        // mountMvOverallProgress() on first run; hidden when not running.
+        '<div class="mvp-overall-progress" id="mvp-overall-progress" hidden></div>' +
         '<div class="mvp-stages">' + stagesHtml + '</div>' +
         '<div class="mvp-summary" id="mvp-summary"></div>' +
       '</div>'
@@ -1544,6 +1548,39 @@
       state.hybridMixPct = Number(localStorage.getItem("cssos_mvp_param_hybrid_mix_pct")) || 30;
       state.cinematicRes = localStorage.getItem("cssos_mvp_param_cinematic_res") || "1080p";
     } catch (_e) {}
+    // CSSOS_MV_DAG_WAVE_2_7B_RESUME 20260507 — try restoring an unfinished
+    // run for the active person (cinema mode) so a refresh picks up where
+    // it left off without forcing the user to re-enter everything.
+    try {
+      const personId = globalThis.cssmvCurrentPersonId
+        || (globalThis.cinemaSt && globalThis.cinemaSt.personId)
+        || null;
+      const saved = personId ? loadResumeState(personId) : null;
+      if (saved) {
+        state.runId = saved.runId || state.runId;
+        state.mvId = saved.mvId || state.mvId;
+        if (saved.prompt && !state.prompt) state.prompt = saved.prompt;
+        if (saved.style && !state.style) state.style = saved.style;
+        if (saved.title && !state.title) state.title = saved.title;
+        if (saved.lyrics && !state.lyrics) state.lyrics = saved.lyrics;
+        if (saved.coverUrl) state.coverUrl = saved.coverUrl;
+        if (saved.audioUrl) state.audioUrl = saved.audioUrl;
+        if (saved.videoUrl) state.videoUrl = saved.videoUrl;
+        if (saved.subtitlesSrt) state.subtitlesSrt = saved.subtitlesSrt;
+        if (saved.shotScripts) state.shotScripts = saved.shotScripts;
+        if (saved.duration) state.duration = saved.duration;
+        if (saved.personId) state.personId = saved.personId;
+        state._resumeCompleted = Array.isArray(saved.completedStages) ? saved.completedStages.slice() : [];
+        // Mark prior stages as done so the UI reflects restored progress.
+        try {
+          state._resumeCompleted.forEach(function (sid) {
+            if (state.stageState) state.stageState[sid] = "done";
+          });
+        } catch (_e2) {}
+        console.info("%c[mv-pipeline][resume] restored unfinished run for person " + personId,
+          "color:#0a8;font-weight:bold");
+      }
+    } catch (_resumeErr) { /* non-fatal */ }
     // CSSOS_PHASE2_MV_PANEL_TIDY 20260505 — Jing
     // "进度条们，全部隐藏，留个按钮显示就行". Stages are hidden by
     // default; tap the summary banner to reveal the per-stage rows.
@@ -1685,6 +1722,168 @@
     return id;
   }
 
+  // CSSOS_MV_DAG_WAVE_2_7B_RESUME 20260507 — Jing
+  // "6流程如果因为某些因素而退出/中断/刷新，请保存进度". Persist key
+  // pipeline state to localStorage after each stage so that a refresh
+  // before compose finishes can pick up where it left off.
+  const RESUME_TTL_MS = 24 * 60 * 60 * 1000;
+  function resumeKey(state) {
+    if (!state) return "";
+    if (state.personId) return "cssos_mvp_resume_person_" + String(state.personId);
+    const id = state.runId || state.mvId || state.taskId || "default";
+    return "cssos_mvp_resume_" + String(id);
+  }
+  function persistResumeState(state, justCompletedStage) {
+    try {
+      const key = resumeKey(state);
+      if (!key) return;
+      const completed = Array.isArray(state._resumeCompleted)
+        ? state._resumeCompleted.slice()
+        : [];
+      if (justCompletedStage && completed.indexOf(justCompletedStage) < 0) {
+        completed.push(justCompletedStage);
+      }
+      state._resumeCompleted = completed;
+      const payload = {
+        runId: state.runId || null,
+        mvId: state.mvId || null,
+        prompt: state.prompt || "",
+        style: state.style || "",
+        title: state.title || "",
+        lyrics: state.lyrics || "",
+        coverUrl: state.coverUrl || "",
+        audioUrl: state.audioUrl || "",
+        videoUrl: state.videoUrl || "",
+        subtitlesSrt: state.subtitlesSrt || "",
+        shotScripts: state.shotScripts || null,
+        duration: state.duration || 0,
+        personId: state.personId || null,
+        completedStages: completed,
+        savedAt: Date.now()
+      };
+      localStorage.setItem(key, JSON.stringify(payload));
+    } catch (_e) { /* non-fatal */ }
+  }
+  function clearResumeState(state) {
+    try {
+      const key = resumeKey(state);
+      if (key) localStorage.removeItem(key);
+      if (state) state._resumeCompleted = [];
+    } catch (_e) {}
+  }
+  function loadResumeState(personId) {
+    try {
+      const key = personId
+        ? "cssos_mvp_resume_person_" + String(personId)
+        : null;
+      if (!key) return null;
+      const raw = localStorage.getItem(key);
+      if (!raw) return null;
+      const obj = JSON.parse(raw);
+      if (!obj || typeof obj !== "object") return null;
+      if (!obj.savedAt || (Date.now() - Number(obj.savedAt)) > RESUME_TTL_MS) {
+        try { localStorage.removeItem(key); } catch (_e) {}
+        return null;
+      }
+      const done = Array.isArray(obj.completedStages) ? obj.completedStages : [];
+      if (done.indexOf("compose") >= 0) {
+        try { localStorage.removeItem(key); } catch (_e) {}
+        return null;
+      }
+      return obj;
+    } catch (_e) { return null; }
+  }
+  try {
+    globalThis.cssmvLoadResume = loadResumeState;
+    globalThis.cssmvClearResume = clearResumeState;
+  } catch (_e) {}
+
+  // CSSOS_MV_DAG_WAVE_2_7B 20260507 — Jing
+  // Shared MV-progress block: 5 stage chips + rainbow bar + percentage,
+  // listening to `cssos:run_progress`. Used by both the ordinary MV
+  // PIPELINE panel and (in the future) cinema mode. Today cinema still
+  // owns its own copy in renderCinemaHeroLoading() — see migration TODO.
+  function mountMvOverallProgress(host) {
+    if (!host) return;
+    if (host.dataset && host.dataset.cssosOverallMounted) return;
+    if (host.dataset) host.dataset.cssosOverallMounted = "1";
+    const STAGE_META = [
+      { id: "lyrics",   weight: 5,  icon: "✍️", label: "Lyrics" },
+      { id: "music",    weight: 35, icon: "🎵", label: "Music" },
+      { id: "cover",    weight: 10, icon: "🖼️", label: "Cover" },
+      { id: "video",    weight: 40, icon: "🎬", label: "Video" },
+      { id: "compose",  weight: 10, icon: "🎞️", label: "Compose" }
+    ];
+    host.innerHTML =
+      '<div class="cinema-hero-progress" data-mvp-progress>' +
+        '<div class="cinema-hero-progress-stages" data-mvp-progress-stages></div>' +
+        '<div class="cinema-hero-progress-bar"><div class="cinema-hero-progress-fill" data-mvp-progress-fill></div></div>' +
+        '<div class="cinema-hero-progress-pct" data-mvp-progress-pct>0%</div>' +
+      '</div>';
+    const stagesEl = host.querySelector("[data-mvp-progress-stages]");
+    const fillEl = host.querySelector("[data-mvp-progress-fill]");
+    const pctEl = host.querySelector("[data-mvp-progress-pct]");
+    let lastPcts = { lyrics: 0, music: 0, cover: 0, video: 0, compose: 0 };
+    const renderChips = function (pcts) {
+      if (!stagesEl) return;
+      stagesEl.innerHTML = STAGE_META.map(function (s) {
+        const p = Math.max(0, Math.min(100, Math.round(pcts[s.id] || 0)));
+        const tag = p >= 100 ? "✓" : (p > 0 ? (p + "%") : "…");
+        const cls = p >= 100 ? "done" : (p > 0 ? "active" : "pending");
+        return '<span class="cinema-hero-progress-chip ' + cls + '">' +
+          s.icon + " " + s.label + " " + tag + "</span>";
+      }).join("");
+      try {
+        const a = stagesEl.querySelector(".cinema-hero-progress-chip.active");
+        if (a && typeof a.scrollIntoView === "function") {
+          a.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+        }
+      } catch (_e) {}
+    };
+    const compute = function (pcts) {
+      let total = 0, denom = 0;
+      for (let i = 0; i < STAGE_META.length; i++) {
+        const s = STAGE_META[i];
+        const p = Math.max(0, Math.min(100, Number(pcts[s.id] || 0)));
+        total += (p / 100) * s.weight;
+        denom += s.weight;
+      }
+      return denom ? Math.round((total / denom) * 100) : 0;
+    };
+    const onProgress = function (ev) {
+      try {
+        const pr = ev && ev.detail && ev.detail.progress;
+        if (!pr) return;
+        const composePct = (pr.compose != null) ? pr.compose : (pr.subtitles != null ? pr.subtitles : (pr.kara || 0));
+        lastPcts = {
+          lyrics: Number(pr.lyrics || 0),
+          music: Number(pr.music || 0),
+          cover: Number(pr.cover || 0),
+          video: Number(pr.video || 0),
+          compose: Number(composePct || 0),
+        };
+        const overall = compute(lastPcts);
+        if (fillEl) fillEl.style.width = overall + "%";
+        if (pctEl) pctEl.textContent = overall + "%";
+        renderChips(lastPcts);
+      } catch (_e) {}
+    };
+    try { window.addEventListener("cssos:run_progress", onProgress); } catch (_e) {}
+    renderChips(lastPcts);
+  }
+  // Expose for cinema migration / external callers.
+  try { globalThis.cssmvMountOverallProgress = mountMvOverallProgress; } catch (_e) {}
+
+  function showMvOverallProgress(visible) {
+    try {
+      const panel = document.getElementById(PANEL_ID);
+      const host = panel && panel.querySelector("#mvp-overall-progress");
+      if (!host) return;
+      host.hidden = !visible;
+      if (visible) mountMvOverallProgress(host);
+    } catch (_e) {}
+  }
+
   function setStage(id, newState, detail, costCents) {
     const panel = document.getElementById(PANEL_ID);
     if (!panel) return;
@@ -1715,6 +1914,14 @@
     else if (newState === "done") completeStageProgress(id);
     else if (newState === "error") failStageProgress(id, detail);
     else if (newState === "idle") resetStageProgress(id);
+    // CSSOS_MV_DAG_WAVE_2_7B_RESUME — persist on each stage completion
+    // so a mid-run refresh can resume. Compose-done clears the key.
+    try {
+      if (newState === "done") {
+        if (id === "compose") clearResumeState(state);
+        else persistResumeState(state, id);
+      }
+    } catch (_e) { /* non-fatal */ }
     renderSummary();
     // CSSOS_PHASE2_NOTIF_PROGRESS_BROADCAST 20260429 #168.6 — Jing
     // "通知面板进度条卡死 — mv-pipeline 状态没 sync 到 notifications panel"
@@ -3202,6 +3409,9 @@
       refreshStageBadges();
     }
     state.running = true;
+    // CSSOS_MV_DAG_WAVE_2_7B 20260507 — show overall-progress block on the
+    // ordinary MV PIPELINE panel for the duration of the run.
+    try { showMvOverallProgress(true); } catch (_e) {}
     // CSSOS_PHASE2_PIN_RUN_ID 20260429 #170 — Jing
     // "我只点击一次，应该生成一首歌。可是通知面板...一下在出现48个作品"
     //
@@ -3418,7 +3628,9 @@
       })(); // end coverP IIFE
 
       // Stage 2 — lyrics (real LLM call when user provided no lyrics)
-      const lyricsP = (async () => {
+      // CSSOS_MV_DAG_WAVE_2_7B 20260507 — body lifted into runLyricsStage()
+      // so both legacy IIFE path and DAG executor path can call it.
+      async function runLyricsStage(state, _opts) {
       if (STAGE_ORDER.indexOf("lyrics") >= resumeStartIdx) {
       setStage("lyrics", "running", "");
       if (!state.lyrics) {
@@ -4028,7 +4240,8 @@
         syncWatchOutputs();
       }
       } // end Stage 2 (lyrics) resume guard
-      })(); // end lyricsP IIFE
+      } // end runLyricsStage
+      const lyricsP = runLyricsStage(state, {});
 
       // Join cover + lyrics. Use allSettled so we don't lose the result of one
       // when the other rejects, then rethrow the first rejection so the outer
@@ -4040,6 +4253,9 @@
       }
 
       // Stage 3 — music
+      // CSSOS_MV_DAG_WAVE_2_7B 20260507 — body lifted into runMusicStage()
+      // so both legacy IIFE path and DAG executor path can call it.
+      async function runMusicStage(state, _opts) {
       if (STAGE_ORDER.indexOf("music") >= resumeStartIdx) {
       setStage("music", "running", "");
       // CSSOS_PHASE2_TARGET_DURATION 20260426 #148-C — Jing
@@ -4807,6 +5023,33 @@
         console.warn("[mv-pipeline] music preload failed:", _audioWarmErr);
       }
       } // end Stage 3 (music) resume guard
+      } // end runMusicStage
+      // CSSOS_MV_DAG_WAVE_2_7B 20260507 — Jing
+      // Music stage now invoked via either DAG (when CSSMV_DAG_RUNNER on
+      // and the executor is loaded) OR the legacy await call. Cover and
+      // lyrics already kicked off in parallel above; both must resolve
+      // before music can read state.lyrics for target_duration estimate.
+      {
+        const _useDagMusic = (typeof globalThis.CSSMV_DAG_RUNNER === "undefined")
+          ? true
+          : !!globalThis.CSSMV_DAG_RUNNER;
+        if (_useDagMusic && globalThis.cssmvDag) {
+          console.info("[mv-pipeline] music stage routed via DAG executor");
+          const dag2 = globalThis.cssmvDag.create()
+            .stage("music", [], { weight: 35 }, async () => runMusicStage(state, {}));
+          const result2 = await globalThis.cssmvDag.run(dag2, {
+            ctx: { state: state },
+            onStageStart: function (_id) { /* runMusicStage owns its setStage */ },
+            onStageDone: function (_id, _output) { /* runMusicStage owns its setStage */ },
+            onStageError: function (id, err) {
+              failStageProgress(id, err && err.message ? err.message : String(err));
+            }
+          });
+          if (result2.failed && result2.failed.music) throw result2.failed.music;
+        } else {
+          await runMusicStage(state, {});
+        }
+      }
 
       // Stage 4 — video
       //
@@ -6045,6 +6288,7 @@
       }
     } finally {
       state.running = false;
+      try { showMvOverallProgress(false); } catch (_e) {}
     }
   }
 
@@ -6741,6 +6985,14 @@
         return '<span class="cinema-hero-progress-chip ' + cls + '">' +
           s.icon + " " + esc(trI18n(s.en, s.zh)) + " " + tag + "</span>";
       }).join("");
+      // CSSOS_MV_DAG_WAVE_2_7B — auto-scroll the active chip into view so
+      // the running stage stays visible when chips overflow horizontally.
+      try {
+        const activeChip = stagesEl.querySelector(".cinema-hero-progress-chip.active");
+        if (activeChip && typeof activeChip.scrollIntoView === "function") {
+          activeChip.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+        }
+      } catch (_e) { /* non-fatal */ }
     };
     const computeOverall = function (pcts) {
       let total = 0, denom = 0;
@@ -6872,8 +7124,14 @@
        * + overall percent. Mounted inside .cinema-hero-block. */
       '.cinema-hero-status-line { margin-top:28px; font:600 13px/1.4 ui-monospace,monospace; color:rgba(218,255,238,.85); letter-spacing:.04em; text-align:center; }' +
       '.cinema-hero-progress { margin:14px auto 0; max-width:680px; width:min(680px,94vw); display:flex; flex-direction:column; align-items:stretch; gap:8px; }' +
-      '.cinema-hero-progress-stages { display:flex; flex-wrap:nowrap; gap:6px; justify-content:center; overflow:hidden; }' +
-      '.cinema-hero-progress-chip { font:600 11px/1 ui-monospace,monospace; padding:5px 8px; border-radius:999px; background:rgba(0,245,160,.06); border:1px solid rgba(0,245,160,.18); color:rgba(218,255,238,.55); letter-spacing:.04em; transition:background .25s,color .25s,border-color .25s; white-space:nowrap; flex:0 1 auto; min-width:0; }' +
+      /* CSSOS_MV_DAG_WAVE_2_7B 20260507 — Jing
+       * Chip polish: pending=neutral gray (was faint green), labels never
+       * overflow (min-width:max-content + flex:0 0 auto), container
+       * scrolls horizontally with hidden scrollbar, active chip auto-
+       * scrolls into view via JS scrollIntoView. */
+      '.cinema-hero-progress-stages { display:flex; flex-wrap:nowrap; gap:6px; justify-content:flex-start; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding:2px 4px; }' +
+      '.cinema-hero-progress-stages::-webkit-scrollbar { display:none; }' +
+      '.cinema-hero-progress-chip { font:600 11px/1 ui-monospace,monospace; padding:5px 8px; border-radius:999px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.12); color:rgba(255,255,255,.45); letter-spacing:.04em; transition:background .25s,color .25s,border-color .25s; white-space:nowrap; flex:0 0 auto; min-width:max-content; scroll-snap-align:center; }' +
       '.cinema-hero-progress-chip.active { background:rgba(0,245,160,.16); border-color:rgba(0,245,160,.55); color:#daffee; }' +
       '.cinema-hero-progress-chip.done { background:rgba(0,245,160,.28); border-color:rgba(0,245,160,.85); color:#001a10; }' +
       '.cinema-hero-progress-bar { position:relative; height:6px; border-radius:999px; background:rgba(255,255,255,.08); overflow:hidden; }' +

@@ -23,7 +23,7 @@ npx cap open android             # Android Studio
 ## App Store submission checklist (iOS)
 
 - [ ] **Apple Developer account** ($99/year) — https://developer.apple.com
-- [ ] **Bundle ID** `app.cssstudio.css` registered:
+- [ ] **Bundle ID** `app.cssstudio.app` registered:
       https://developer.apple.com/account/resources/identifiers/list
       — enable **Push Notifications** capability
 - [ ] In Xcode → **Signing & Capabilities**:

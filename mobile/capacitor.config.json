@@ -1,6 +1,6 @@
 {
-  "appId": "app.cssstudio.css",
-  "appName": "CSS Studio",
+  "appId": "app.cssstudio.app",
+  "appName": "cssOS",
   "webDir": "../public",
   "server": {
     "url": "https://cssstudio.app",

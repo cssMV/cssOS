@@ -103,8 +103,12 @@
     panel.innerHTML =
       '<div class="cssos-ai-chat-head">' +
         '<div class="title">✨ ' + escapeHtml(tr("AI Creator", "AI 创作助手")) + '</div>' +
-        '<button class="close" type="button" aria-label="' + escapeHtml(tr("Close", "关闭")) + '">×</button>' +
+        '<div style="display:flex;gap:6px;align-items:center;">' +
+          '<button class="memclear" type="button" title="' + escapeHtml(tr("Clear my memory", "清空记忆")) + '" aria-label="' + escapeHtml(tr("Clear my memory", "清空记忆")) + '" style="background:none;border:none;color:rgba(255,236,200,0.7);font-size:14px;cursor:pointer;padding:4px 6px;">⚙</button>' +
+          '<button class="close" type="button" aria-label="' + escapeHtml(tr("Close", "关闭")) + '">×</button>' +
+        '</div>' +
       '</div>' +
+      '<div class="cssos-ai-chat-memory" id="cssos-ai-chat-memory" style="font-size:11px;padding:6px 14px;color:rgba(255,236,200,0.55);border-bottom:1px solid rgba(255,180,80,0.10);display:none;"></div>' +
       '<div class="cssos-ai-chat-body" id="cssos-ai-chat-body"></div>' +
       '<div class="cssos-ai-chat-suggestions" id="cssos-ai-chat-suggestions"></div>' +
       '<form class="cssos-ai-chat-foot" id="cssos-ai-chat-form">' +
@@ -119,6 +123,58 @@
     var sendBtn = form.querySelector("button");
     var suggestionsEl = panel.querySelector("#cssos-ai-chat-suggestions");
     var closeBtn = panel.querySelector(".close");
+    var memBtn = panel.querySelector(".memclear");
+    var memEl = panel.querySelector("#cssos-ai-chat-memory");
+    // CSSOS_PERSON_MV_WAVE47 — memory state for placeholder + banner.
+    var memState = { preferences: null, recent_conversations: [] };
+
+    async function loadMemory() {
+      try {
+        var r = await fetch("/api/ai-chat/memory", { credentials: "include" });
+        if (r.status === 401) { memEl.style.display = "none"; return; }
+        var j = await r.json();
+        if (!j || !j.ok) return;
+        memState = j.data || memState;
+        var p = (memState && memState.preferences) || {};
+        var bits = [];
+        if (p.favorite_styles && p.favorite_styles.length) bits.push(tr("you like ", "你喜欢 ") + p.favorite_styles.slice(0, 3).join("、"));
+        if (p.favorite_persons && p.favorite_persons.length) bits.push(tr("often create for ", "常为 ") + p.favorite_persons.slice(0, 3).join("、") + tr("", " 创作"));
+        if (p.language_pref) bits.push(tr("prefer ", "偏好 ") + (p.language_pref === "zh" ? tr("Chinese", "中文") : "English"));
+        if (bits.length) {
+          memEl.innerHTML = "🧠 " + escapeHtml(tr("I remember: ", "我记得:") + bits.join(" · "));
+          memEl.style.display = "block";
+        } else {
+          memEl.style.display = "none";
+        }
+        // Reflect last topic in input placeholder.
+        var rc = memState.recent_conversations || [];
+        for (var i = rc.length - 1; i >= 0; i--) {
+          var t = rc[i];
+          if (t && t.role === "user" && t.content) {
+            var hit = (p.favorite_persons || []).find(function (n) { return t.content.indexOf(n) !== -1; });
+            if (hit) {
+              input.placeholder = tr("Continue your last topic about " + hit + " ✨", "继续聊聊「" + hit + "」 ✨");
+              break;
+            }
+          }
+        }
+      } catch (_e) {}
+    }
+
+    if (memBtn) {
+      memBtn.addEventListener("click", async function () {
+        if (!confirm(tr("Clear all AI chat memory? This cannot be undone.", "清空 AI 记忆?此操作不可恢复。"))) return;
+        try {
+          var r = await fetch("/api/ai-chat/memory/clear", { method: "POST", credentials: "include" });
+          if (r.ok) {
+            memEl.style.display = "none";
+            memState = { preferences: null, recent_conversations: [] };
+            input.placeholder = tr("Tell me who & how…", "想为谁做一支 MV?");
+            appendMsg("ai", tr("Memory cleared. Fresh start ✨", "记忆已清空,重新开始 ✨"));
+          }
+        } catch (_e) {}
+      });
+    }
 
     function rerender() {
       var hist = loadHistory();
@@ -160,6 +216,7 @@
       panel.hidden = false;
       renderSuggestions();
       rerender();
+      loadMemory();
       setTimeout(function () { input.focus(); }, 50);
     }
     function close() {

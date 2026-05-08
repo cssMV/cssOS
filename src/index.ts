@@ -16595,10 +16595,145 @@ app.get("/api/person-mv/festivals/:festival_id", async (req, res) => {
   }
 });
 
+// CSSOS_PERSON_MV_WAVE47 20260508 — Jing — AI chat long-term memory.
+type AiChatTurn = { role: "user" | "assistant"; content: string; ts: number };
+type AiChatPreferences = {
+  favorite_styles?: string[];
+  favorite_persons?: string[];
+  language_pref?: string | null;
+  persona_summary?: string | null;
+};
+const AI_CHAT_MEMORY_TURN_CAP = 20;
+const AI_CHAT_PREFERENCE_CAP = 10;
+const AI_CHAT_PERSONA_REFRESH_EVERY = 5;
+
+async function loadAiChatMemory(userId: string): Promise<{ preferences: AiChatPreferences; recent: AiChatTurn[] }> {
+  try {
+    const r = await withClient((c) =>
+      c.query<{ preferences: any; recent_conversations: any }>(
+        `SELECT preferences, recent_conversations FROM ai_chat_memory WHERE user_id = $1::uuid`,
+        [userId],
+      ),
+    );
+    const row = r.rows[0];
+    return {
+      preferences: (row?.preferences && typeof row.preferences === "object") ? row.preferences : {},
+      recent: Array.isArray(row?.recent_conversations) ? row.recent_conversations : [],
+    };
+  } catch { return { preferences: {}, recent: [] }; }
+}
+
+async function saveAiChatMemory(
+  userId: string,
+  preferences: AiChatPreferences,
+  recent: AiChatTurn[],
+): Promise<void> {
+  const trimmedRecent = recent.slice(-AI_CHAT_MEMORY_TURN_CAP);
+  const prefs: AiChatPreferences = {
+    favorite_styles: (preferences.favorite_styles || []).slice(-AI_CHAT_PREFERENCE_CAP),
+    favorite_persons: (preferences.favorite_persons || []).slice(-AI_CHAT_PREFERENCE_CAP),
+    language_pref: preferences.language_pref || null,
+    persona_summary: preferences.persona_summary || null,
+  };
+  try {
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO ai_chat_memory (user_id, preferences, recent_conversations, last_updated)
+         VALUES ($1::uuid, $2::jsonb, $3::jsonb, now())
+         ON CONFLICT (user_id) DO UPDATE
+            SET preferences = EXCLUDED.preferences,
+                recent_conversations = EXCLUDED.recent_conversations,
+                last_updated = now()`,
+        [userId, JSON.stringify(prefs), JSON.stringify(trimmedRecent)],
+      ),
+    );
+  } catch (e) {
+    console.warn("[wave47] saveAiChatMemory failed:", (e as Error)?.message || e);
+  }
+}
+
+async function refreshPersonaSummary(
+  userId: string,
+  recent: AiChatTurn[],
+  prefs: AiChatPreferences,
+): Promise<void> {
+  try {
+    const transcript = recent.slice(-10).map((t) => `${t.role}: ${t.content}`).join("\n").slice(0, 2400);
+    const llm = await callLlm({
+      messages: [
+        {
+          role: "system",
+          content:
+            "You analyze a user's recent chat with a music-video creation assistant. Reply ONLY with JSON: " +
+            `{"persona_summary":"one-sentence summary of this user's interests",` +
+            `"favorite_styles":["..."],"favorite_persons":["..."]}. ` +
+            "Cap each array at 10. Pull style names (赛博朋克, lofi, 古风, …) and person names mentioned.",
+        },
+        { role: "user", content: transcript || "(empty)" },
+      ],
+      temperature: 0.2,
+      max_tokens: 240,
+      response_format: { type: "json_object" },
+    });
+    if (!llm.ok || !llm.content) return;
+    let parsed: any = null;
+    try { parsed = JSON.parse(llm.content); } catch { return; }
+    const next: AiChatPreferences = {
+      favorite_styles: Array.isArray(parsed.favorite_styles)
+        ? parsed.favorite_styles.map((s: any) => String(s).slice(0, 60)).slice(0, AI_CHAT_PREFERENCE_CAP)
+        : prefs.favorite_styles || [],
+      favorite_persons: Array.isArray(parsed.favorite_persons)
+        ? parsed.favorite_persons.map((s: any) => String(s).slice(0, 60)).slice(0, AI_CHAT_PREFERENCE_CAP)
+        : prefs.favorite_persons || [],
+      language_pref: prefs.language_pref || null,
+      persona_summary: parsed.persona_summary
+        ? String(parsed.persona_summary).slice(0, 240)
+        : prefs.persona_summary || null,
+    };
+    await saveAiChatMemory(userId, next, recent);
+  } catch (err) {
+    console.warn("[wave47] refreshPersonaSummary failed:", (err as Error)?.message || err);
+  }
+}
+
+app.get("/api/ai-chat/memory", async (req, res) => {
+  noStore(res);
+  try {
+    const me = await getSessionUser(req).catch(() => null);
+    if (!me || !me.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const mem = await loadAiChatMemory(me.id);
+    return res.json({
+      ok: true,
+      data: {
+        preferences: mem.preferences,
+        recent_conversations: mem.recent,
+        summary: mem.preferences?.persona_summary || null,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "MEMORY_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/ai-chat/memory/clear", async (req, res) => {
+  noStore(res);
+  try {
+    const me = await getSessionUser(req).catch(() => null);
+    if (!me || !me.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await withClient((c) =>
+      c.query(`DELETE FROM ai_chat_memory WHERE user_id = $1::uuid`, [me.id]),
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "MEMORY_CLEAR_FAILED", message: String(err) });
+  }
+});
+
 /* CSSOS_PERSON_MV_WAVE24 20260508 — Jing — AI creator chat.
  * Single-shot intent extraction; chunked-transfer heartbeats during LLM
  * latency. Does NOT auto-execute irreversible actions; frontend triggers
- * person creation + cinema after receiving action="create_mv". */
+ * person creation + cinema after receiving action="create_mv".
+ * CSSOS_PERSON_MV_WAVE47 — long-term memory layered on top. */
 app.post("/api/person-mv/ai-assistant", express.json({ limit: "8kb" }), async (req, res) => {
   noStore(res);
   try {
@@ -16606,13 +16741,32 @@ app.post("/api/person-mv/ai-assistant", express.json({ limit: "8kb" }), async (r
     if (!message) return res.status(400).json({ ok: false, code: "MESSAGE_REQUIRED" });
     if (message.length > 600) return res.status(400).json({ ok: false, code: "MESSAGE_TOO_LONG" });
 
+    // CSSOS_PERSON_MV_WAVE47 — load memory if signed in.
+    const me = await getSessionUser(req).catch(() => null);
+    const mem = (me && me.id)
+      ? await loadAiChatMemory(me.id)
+      : { preferences: {} as AiChatPreferences, recent: [] as AiChatTurn[] };
+    const memPrefs: AiChatPreferences = mem.preferences || {};
+    const memRecent: AiChatTurn[] = mem.recent || [];
+
     res.status(200);
     res.setHeader("content-type", "application/json; charset=utf-8");
     res.setHeader("transfer-encoding", "chunked");
     res.flushHeaders?.();
     const heartbeat = setInterval(() => { try { res.write(" "); } catch {} }, 5000);
 
-    const sysPrompt =
+    const memoryContext = (me && me.id) ? (
+      "\n--- User profile context ---\n" +
+      `User favorite styles: ${(memPrefs.favorite_styles || []).join(", ") || "(none yet)"}\n` +
+      `User favorite persons: ${(memPrefs.favorite_persons || []).join(", ") || "(none yet)"}\n` +
+      `User language: ${memPrefs.language_pref || "auto-detect"}\n` +
+      `Persona summary: ${memPrefs.persona_summary || "(unknown)"}\n` +
+      `Recent context (last ${Math.min(memRecent.length, 6)} turns):\n` +
+      memRecent.slice(-6).map((t) => `${t.role}: ${t.content}`).join("\n") +
+      "\n--- end context ---\n"
+    ) : "";
+
+    const sysPrompt = memoryContext +
       "You are a music video creation assistant for CSS Studio. " +
       "Extract user intent and respond ONLY with strict JSON (no prose) matching: " +
       "{\"action\":\"create_mv\"|\"search_person\"|\"chat\", " +
@@ -16661,7 +16815,49 @@ app.post("/api/person-mv/ai-assistant", express.json({ limit: "8kb" }), async (r
 
     clearInterval(heartbeat);
     try { res.write(JSON.stringify({ ok: true, data: out })); } catch {}
-    return res.end();
+    res.end();
+
+    // CSSOS_PERSON_MV_WAVE47 — persist this turn + maybe refresh persona.
+    if (me && me.id) {
+      try {
+        const aiReply = out.message || (out.action === "create_mv"
+          ? `creating MV for ${out.target_name || ""}` : (out.action === "search_person"
+            ? `opening codex for ${out.target_name || ""}` : ""));
+        const now = Date.now();
+        const updatedRecent: AiChatTurn[] = [
+          ...memRecent,
+          { role: "user" as const, content: message.slice(0, 600), ts: now },
+          { role: "assistant" as const, content: String(aiReply).slice(0, 600), ts: now + 1 },
+        ].slice(-AI_CHAT_MEMORY_TURN_CAP);
+
+        // Best-effort language pref detect.
+        const isZh = /[一-鿿]/.test(message);
+        const updatedPrefs: AiChatPreferences = {
+          ...memPrefs,
+          language_pref: memPrefs.language_pref || (isZh ? "zh" : "en"),
+        };
+        // Inline favorite tracking from current intent.
+        if (out.style_hint) {
+          const styles = Array.from(new Set([...(memPrefs.favorite_styles || []), out.style_hint]));
+          updatedPrefs.favorite_styles = styles.slice(-AI_CHAT_PREFERENCE_CAP);
+        }
+        if (out.target_name) {
+          const persons = Array.from(new Set([...(memPrefs.favorite_persons || []), out.target_name]));
+          updatedPrefs.favorite_persons = persons.slice(-AI_CHAT_PREFERENCE_CAP);
+        }
+
+        await saveAiChatMemory(me.id, updatedPrefs, updatedRecent);
+
+        // Every Nth user-turn, refresh persona summary in background.
+        const userTurns = updatedRecent.filter((t) => t.role === "user").length;
+        if (userTurns > 0 && userTurns % AI_CHAT_PERSONA_REFRESH_EVERY === 0) {
+          void refreshPersonaSummary(me.id, updatedRecent, updatedPrefs);
+        }
+      } catch (e) {
+        console.warn("[wave47] persist turn failed:", (e as Error)?.message || e);
+      }
+    }
+    return;
   } catch (err) {
     console.warn("[person-mv] ai-assistant failed:", (err as Error)?.message || err);
     try { return res.status(500).json({ ok: false, code: "AI_ASSISTANT_FAILED" }); } catch { return; }

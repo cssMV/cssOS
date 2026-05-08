@@ -16849,6 +16849,29 @@ app.get("/api/person-mv/persons", async (req, res) => {
         `OR lower(civilization) LIKE $${params.length} OR lower(core_theme) LIKE $${params.length})`,
       );
     }
+    // CSSOS_PERSON_MV_WAVE55 — age gate. `max_rating` query param overrides
+    // the user's own gate (admin/preview); otherwise infer from session.
+    let userMaxRating: ContentRating = "13+";
+    try {
+      const me = await getSessionUser(req).catch(() => null);
+      if (me?.id) {
+        const ru = await withClient((c) =>
+          c.query<{ birth_year: number | null }>(
+            `SELECT birth_year FROM users WHERE id = $1::uuid LIMIT 1`,
+            [me.id],
+          ),
+        );
+        userMaxRating = maxRatingForBirthYear(ru.rows[0]?.birth_year ?? null);
+      }
+    } catch {}
+    const reqMax = String(req.query.max_rating || "").trim();
+    const effectiveMax: ContentRating = reqMax ? normalizeRating(reqMax) : userMaxRating;
+    const allowed: string[] =
+      effectiveMax === "PG"  ? ["PG"] :
+      effectiveMax === "13+" ? ["PG", "13+"] :
+                               ["PG", "13+", "18+"];
+    params.push(allowed);
+    where.push(`content_rating = ANY($${params.length}::text[])`);
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
     // Tier 1 = influence_score DESC; Tier 2 = civilization, then influence.
     const orderSql = tier === 2
@@ -16914,7 +16937,7 @@ app.get("/api/person-mv/discover/hot", async (req, res) => {
                 COUNT(pm.mv_id)::int AS mv_count,
                 (SELECT uw.cover_image
                    FROM person_mvs pm2
-                   JOIN user_works uw ON uw.work_id = pm2.work_id
+                   JOIN user_works uw ON uw.id = pm2.work_id
                   WHERE pm2.person_id = pp.person_id
                   ORDER BY pm2.view_count DESC NULLS LAST
                   LIMIT 1) AS top_cover
@@ -30859,6 +30882,232 @@ app.get("/api/works/:id/translations", async (req, res) => {
   }
 });
 
+
+/* CSSOS_PERSON_MV_WAVE54 20260508 — Jing — engine usage observability.
+ * Admin-only live counters from the in-memory rolling window populated
+ * by recordEngineCall(...) hooks across the /api/mv/* tier sweeps. */
+app.get("/api/admin/engine-usage", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const now = Date.now();
+    const FIVE_MIN = 5 * 60_000;
+    const ONE_HOUR = 60 * 60_000;
+    const ONE_DAY = 24 * 60 * 60_000;
+    const engines: Array<Record<string, unknown>> = [];
+    for (const [engine, arr] of engineUsageWindow.entries()) {
+      const last24 = arr.filter((r) => now - r.ts <= ONE_DAY);
+      const lastH = last24.filter((r) => now - r.ts <= ONE_HOUR);
+      const last5 = last24.filter((r) => now - r.ts <= FIVE_MIN);
+      const totalMs = last24.reduce((a, r) => a + r.ms, 0);
+      const failures = last24.filter((r) => !r.success).length;
+      const totalCost = last24.reduce((a, r) => a + r.cost_cents, 0);
+      engines.push({
+        engine,
+        calls_5min: last5.length,
+        calls_1h: lastH.length,
+        calls_24h: last24.length,
+        avg_latency_ms: last24.length ? Math.round(totalMs / last24.length) : 0,
+        failure_rate: last24.length ? Math.round((failures / last24.length) * 1000) / 10 : 0,
+        total_cost_cents: totalCost,
+      });
+    }
+    engines.sort((a, b) => Number(b.calls_24h) - Number(a.calls_24h));
+    return res.json(okData({ window_size: ENGINE_USAGE_WINDOW_MAX, engines }));
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "ENGINE_USAGE_FAILED",
+      message: String((err as Error)?.message || err),
+    });
+  }
+});
+
+type EngineBalance = {
+  engine: string;
+  balance_usd?: number;
+  balance_credits?: number;
+  error?: string;
+};
+let __engineBalanceCache: { at: number; entries: EngineBalance[] } | null = null;
+async function fetchEngineBalances(): Promise<EngineBalance[]> {
+  const out: EngineBalance[] = [];
+  const t = (s: string | null | undefined) => String(s || "").trim();
+  const openaiKey = t(process.env.OPENAI_API_KEY);
+  if (openaiKey) {
+    try {
+      const r = await fetch("https://api.openai.com/v1/dashboard/billing/credit_grants", {
+        headers: { authorization: `Bearer ${openaiKey}` },
+      });
+      if (r.ok) {
+        const j: any = await r.json().catch(() => null);
+        const remaining = Number(j?.total_available || j?.total_granted || 0);
+        out.push({ engine: "openai", balance_usd: Number.isFinite(remaining) ? remaining : undefined });
+      } else {
+        out.push({ engine: "openai", error: `http_${r.status}` });
+      }
+    } catch (err) {
+      out.push({ engine: "openai", error: String((err as Error)?.message || err) });
+    }
+  }
+  const replicateKey = t(process.env.REPLICATE_API_TOKEN);
+  if (replicateKey) {
+    try {
+      const r = await fetch("https://api.replicate.com/v1/account", {
+        headers: { authorization: `Token ${replicateKey}` },
+      });
+      out.push({ engine: "replicate", error: r.ok ? "balance_not_exposed" : `http_${r.status}` });
+    } catch (err) {
+      out.push({ engine: "replicate", error: String((err as Error)?.message || err) });
+    }
+  }
+  const elevenKey = t(process.env.ELEVENLABS_API_KEY);
+  if (elevenKey) {
+    try {
+      const r = await fetch("https://api.elevenlabs.io/v1/user/subscription", {
+        headers: { "xi-api-key": elevenKey },
+      });
+      if (r.ok) {
+        const j: any = await r.json().catch(() => null);
+        const used = Number(j?.character_count || 0);
+        const limit = Number(j?.character_limit || 0);
+        out.push({ engine: "elevenlabs", balance_credits: Math.max(0, limit - used) });
+      } else {
+        out.push({ engine: "elevenlabs", error: `http_${r.status}` });
+      }
+    } catch (err) {
+      out.push({ engine: "elevenlabs", error: String((err as Error)?.message || err) });
+    }
+  }
+  if (t(process.env.FAL_KEY) || t(process.env.FAL_API_KEY)) {
+    out.push({ engine: "fal", error: "balance_not_exposed" });
+  }
+  if (t(process.env.RUNWAY_API_KEY)) {
+    out.push({ engine: "runway", error: "balance_not_exposed" });
+  }
+  if (t(process.env.MUBERT_API_KEY) || t(process.env.MUBERT_PAT_TOKEN)) {
+    out.push({ engine: "mubert", error: "balance_not_exposed" });
+  }
+  return out;
+}
+app.get("/api/admin/engine-balance", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const now = Date.now();
+    if (__engineBalanceCache && now - __engineBalanceCache.at < 5 * 60_000) {
+      return res.json(okData({ entries: __engineBalanceCache.entries, cached: true }));
+    }
+    const entries = await fetchEngineBalances();
+    __engineBalanceCache = { at: now, entries };
+    return res.json(okData({ entries, cached: false }));
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "ENGINE_BALANCE_FAILED",
+      message: String((err as Error)?.message || err),
+    });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE55 20260508 — Jing — content rating + age gate.
+ * Persons + MVs marked PG / 13+ / 18+. Underage users blocked from
+ * higher tiers. Birth year set once, then locked. */
+type ContentRating = "PG" | "13+" | "18+";
+function normalizeRating(input: any): ContentRating {
+  const s = String(input || "").trim().toUpperCase().replace(/\s+/g, "");
+  if (s === "18+" || s === "18") return "18+";
+  if (s === "13+" || s === "13") return "13+";
+  return "PG";
+}
+function maxRatingForBirthYear(year: number | null | undefined): ContentRating {
+  if (year == null || !Number.isFinite(Number(year))) return "13+";
+  const age = new Date().getUTCFullYear() - Number(year);
+  if (age < 13) return "PG";
+  if (age < 18) return "13+";
+  return "18+";
+}
+
+app.post("/api/user/birth-year", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const year = Number((req.body as any)?.year);
+    const currentYear = new Date().getUTCFullYear();
+    if (!Number.isFinite(year) || year < 1900 || year > currentYear) {
+      return res.status(400).json({ ok: false, code: "INVALID_YEAR" });
+    }
+    const existing = await withClient((c) =>
+      c.query<{ birth_year: number | null }>(
+        `SELECT birth_year FROM users WHERE id = $1::uuid LIMIT 1`,
+        [user.id],
+      ),
+    );
+    if (existing.rows[0]?.birth_year != null) {
+      return res.status(409).json({ ok: false, code: "BIRTH_YEAR_LOCKED", birth_year: existing.rows[0].birth_year });
+    }
+    await withClient((c) =>
+      c.query(`UPDATE users SET birth_year = $1 WHERE id = $2::uuid`, [year, user.id]),
+    );
+    return res.json(okData({ birth_year: year, max_rating: maxRatingForBirthYear(year) }));
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "BIRTH_YEAR_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/admin/person-mv/persons/:id/rating", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "ID_REQUIRED" });
+    const rating = normalizeRating((req.body as any)?.rating);
+    await withClient((c) =>
+      c.query(`UPDATE person_profiles SET content_rating = $1 WHERE person_id = $2`, [rating, id]),
+    );
+    await withClient((c) =>
+      c.query(
+        `UPDATE person_mvs SET content_rating = $1
+           WHERE person_id = $2 AND content_rating = 'PG'`,
+        [rating, id],
+      ),
+    );
+    return res.json(okData({ person_id: id, content_rating: rating }));
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "RATING_UPDATE_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/user/age-gate", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    let birthYear: number | null = null;
+    if (user?.id) {
+      const r = await withClient((c) =>
+        c.query<{ birth_year: number | null }>(
+          `SELECT birth_year FROM users WHERE id = $1::uuid LIMIT 1`,
+          [user.id],
+        ),
+      );
+      birthYear = r.rows[0]?.birth_year ?? null;
+    }
+    const max = maxRatingForBirthYear(birthYear);
+    return res.json(okData({ birth_year: birthYear, max_rating: max, locked: birthYear != null }));
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "AGE_GATE_FAILED", message: String(err) });
+  }
+});
 
 start().catch((err) => {
   console.error("Startup failed", err);

@@ -821,6 +821,12 @@
       ".pmv-codex .pmv-secondary{background:var(--green-soft,rgba(0,245,160,.18));border:1px solid var(--border,rgba(0,245,160,.4));color:var(--text);}" +
       ".pmv-codex .pmv-back{background:var(--panel-strong,rgba(0,0,0,.45));border:1px solid var(--border,rgba(255,255,255,.2));color:var(--text);}" +
       ".pmv-codex .pmv-secondary:hover,.pmv-codex .pmv-back:hover{filter:brightness(1.08);}" +
+      /* CSSOS_PERSON_MV_CODEX_LIGHT 20260508 — Jing
+       * Light-theme overrides for action bar — var(--text) defaults to a
+       * pale teal in dark theme that disappears on cream bg in light. */
+      "html[data-theme=\"light\"] .pmv-codex .pmv-secondary{background:rgba(0,160,100,0.14);border:1px solid rgba(0,160,100,0.55);color:#0f3a2a;}" +
+      "html[data-theme=\"light\"] .pmv-codex .pmv-back{background:rgba(0,40,30,0.05);border:1px solid rgba(0,160,100,0.45);color:#0f3a2a;}" +
+      "html[data-theme=\"light\"] .pmv-codex .pmv-action-bar button{font-weight:800;}" +
       ".pmv-codex .pmv-section{margin:14px 12px;padding:12px;background:rgba(8,18,16,.55);border:1px solid rgba(0,245,160,.18);border-radius:12px;}" +
       ".pmv-codex .pmv-section h3{margin:0 0 8px;font:700 13px/1.2 ui-monospace,monospace;letter-spacing:.06em;color:#00f5a0;}" +
       ".pmv-codex .pmv-bio{font:500 14px/1.6 ui-serif,serif;color:#e6fff5;}" +
@@ -1688,7 +1694,41 @@
   }
   globalThis.openPersonMvGroup = openPersonMvGroup;
 
-  function open() {
+  /* CSSOS_PERSON_MV_AUTH_GATE 20260508 — Jing
+   * Person MV panel requires sign-in. Prompt anonymous users to log in
+   * before mounting the codex/grid. Detection: existing session check
+   * via /api/auth/me (cssOS pattern); if 401 / no user, route to login. */
+  async function ensureSignedIn() {
+    try {
+      var r = await fetch("/api/auth/me", { credentials: "same-origin" });
+      if (r.ok) {
+        var j = await r.json().catch(function () { return null; });
+        if (j && (j.user || j.user_id || j.id)) return true;
+      }
+    } catch (_e) {}
+    return false;
+  }
+  function promptSignIn() {
+    var msg = tt(
+      "Sign in to use People MV — your creations, likes & comments live in your account.",
+      "请先登录使用「人物 MV 宇宙」—— 创作、点赞、评论需要绑定账号。"
+    );
+    try {
+      if (typeof globalThis.openLoginPanel === "function") {
+        globalThis.openLoginPanel({ reason: "person-mv", note: msg });
+        return;
+      }
+    } catch (_e) {}
+    /* Fallback: hash route to login + alert */
+    try { location.hash = "#login?return=person-mv"; } catch (_e) {}
+    try { alert(msg); } catch (_e) {}
+  }
+  async function open() {
+    var signedIn = await ensureSignedIn();
+    if (!signedIn) {
+      promptSignIn();
+      return;
+    }
     var p = ensurePanel();
     /* Reverse the close-time hide so re-opening fully reveals. */
     p.classList.remove("hidden");

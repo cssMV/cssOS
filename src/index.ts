@@ -34245,6 +34245,361 @@ app.get("/api/user/age-gate", async (req, res) => {
   }
 });
 
+
+/* CSSOS_PERSON_MV_WAVE76 20260508 — Jing
+ * Premium subscription endpoints ($9.99/mo). Webhook signature
+ * verification is enforced upstream in /api/stripe/webhook via
+ * stripe.webhooks.constructEvent. */
+const PREMIUM_PRICE_CENTS = 999;
+
+app.get("/api/premium/status", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePremiumColumns();
+    const r = await withClient((c) =>
+      c.query<{ premium_until: string | null; stripe_subscription_id: string | null }>(
+        `SELECT premium_until, stripe_subscription_id FROM users WHERE id = $1::uuid LIMIT 1`,
+        [user.id],
+      ),
+    );
+    const row = r.rows[0];
+    const isActive = !!(row?.premium_until && new Date(row.premium_until).getTime() > Date.now());
+    return res.json(okData({
+      is_premium: isActive,
+      premium_until: row?.premium_until || null,
+      stripe_subscription_id: row?.stripe_subscription_id || null,
+      price_cents: PREMIUM_PRICE_CENTS,
+      currency: "usd",
+    }));
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "PREMIUM_STATUS_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/premium/subscribe", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePremiumColumns();
+    const stripe = getStripeClient();
+    if (!stripe) return res.status(503).json({ ok: false, code: "STRIPE_NOT_CONFIGURED" });
+    const customer = await ensureStripeCustomer({
+      userId: user.id,
+      email: normalizeEmail(user.email),
+      name: user.display_name || null,
+    });
+    const successUrl = String(req.body?.success_url || `${appBaseUrl(req)}/#premium?status=success`).trim();
+    const cancelUrl = String(req.body?.cancel_url || `${appBaseUrl(req)}/#premium?status=cancel`).trim();
+    const session = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      customer: String(customer?.stripe_customer_id || ""),
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      client_reference_id: user.id,
+      subscription_data: {
+        metadata: { plan_kind: "premium_monthly", buyer_user_id: user.id },
+      },
+      metadata: { plan_kind: "premium_monthly", buyer_user_id: user.id },
+      line_items: [{
+        quantity: 1,
+        price_data: {
+          currency: "usd",
+          unit_amount: PREMIUM_PRICE_CENTS,
+          recurring: { interval: "month" },
+          product_data: {
+            name: "cssstudio Premium — Monthly",
+            metadata: { plan_kind: "premium_monthly" },
+          },
+        },
+      }],
+    });
+    return res.json(okData({
+      checkout_session_id: session.id,
+      checkout_url: session.url,
+    }));
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "PREMIUM_SUBSCRIBE_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/premium/cancel", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePremiumColumns();
+    const stripe = getStripeClient();
+    if (!stripe) return res.status(503).json({ ok: false, code: "STRIPE_NOT_CONFIGURED" });
+    const r = await withClient((c) =>
+      c.query<{ stripe_subscription_id: string | null }>(
+        `SELECT stripe_subscription_id FROM users WHERE id = $1::uuid LIMIT 1`,
+        [user.id],
+      ),
+    );
+    const subId = r.rows[0]?.stripe_subscription_id;
+    if (!subId) return res.status(404).json({ ok: false, code: "NO_ACTIVE_SUBSCRIPTION" });
+    const updated = await stripe.subscriptions.update(subId, { cancel_at_period_end: true });
+    return res.json(okData({
+      stripe_subscription_id: subId,
+      cancel_at_period_end: true,
+      current_period_end: (updated as any).current_period_end || null,
+    }));
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "PREMIUM_CANCEL_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE77 20260508 — Jing — affiliate endpoints. */
+app.get("/api/user/referrals", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePremiumColumns();
+    const refs = await withClient((c) =>
+      c.query<{ id: string; display_name: string | null; referred_at: string }>(
+        `SELECT id::text AS id, display_name, referred_at
+           FROM users
+          WHERE referred_by_id = $1::uuid
+          ORDER BY referred_at DESC
+          LIMIT 200`,
+        [user.id],
+      ),
+    );
+    const totals = await withClient((c) =>
+      c.query<{ total: string; signup_total: string; commission_total: string }>(
+        `SELECT COALESCE(SUM(amount_credits),0)::text AS total,
+                COALESCE(SUM(CASE WHEN reward_kind='signup_bonus' THEN amount_credits ELSE 0 END),0)::text AS signup_total,
+                COALESCE(SUM(CASE WHEN reward_kind='commission' THEN amount_credits ELSE 0 END),0)::text AS commission_total
+           FROM referral_rewards WHERE inviter_id = $1::uuid`,
+        [user.id],
+      ),
+    );
+    const t = totals.rows[0] || { total: "0", signup_total: "0", commission_total: "0" };
+    return res.json(okData({
+      invite_username: user.display_name || null,
+      invite_url: user.display_name
+        ? `${appBaseUrl(req)}/?ref=${encodeURIComponent(user.display_name)}`
+        : null,
+      referrals: refs.rows,
+      total_referrals: refs.rowCount || 0,
+      total_earned_credits: Number(t.total),
+      signup_bonus_credits: Number(t.signup_total),
+      commission_credits: Number(t.commission_total),
+      cap: 100,
+    }));
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "REFERRALS_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/referral/track", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const ref = String(req.body?.ref || "").trim().toLowerCase();
+    if (!/^[a-z0-9_\-]{2,40}$/.test(ref)) {
+      return res.status(400).json({ ok: false, code: "INVALID_REF" });
+    }
+    res.cookie("cssos_ref", ref, {
+      maxAge: 30 * 24 * 3600 * 1000,
+      httpOnly: false,
+      sameSite: "lax",
+      path: "/",
+    });
+    return res.json(okData({ ref }));
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "REF_TRACK_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE75 20260508 — Jing — developer API + rate-limit. */
+function hashApiKey(plain: string): string {
+  return crypto.createHash("sha256").update(plain).digest("hex");
+}
+type ApiKeyRow = { key_id: string; user_id: string; scopes: string[]; rate_limit_per_min: number; enabled: boolean };
+const apiKeyBuckets = new Map<string, { tokens: number; updated: number; cap: number }>();
+function takeRateToken(keyId: string, perMin: number): { ok: boolean; retryAfter: number } {
+  const now = Date.now();
+  const cap = Math.max(1, perMin || 60);
+  const refillPerMs = cap / 60_000;
+  let b = apiKeyBuckets.get(keyId);
+  if (!b) { b = { tokens: cap, updated: now, cap }; apiKeyBuckets.set(keyId, b); }
+  b.cap = cap;
+  b.tokens = Math.min(cap, b.tokens + (now - b.updated) * refillPerMs);
+  b.updated = now;
+  if (b.tokens < 1) {
+    const need = 1 - b.tokens;
+    return { ok: false, retryAfter: Math.ceil(need / refillPerMs / 1000) };
+  }
+  b.tokens -= 1;
+  return { ok: true, retryAfter: 0 };
+}
+async function lookupApiKey(plain: string): Promise<ApiKeyRow | null> {
+  if (!plain || !plain.startsWith("cssos_")) return null;
+  const prefix = plain.slice(0, 8);
+  const hash = hashApiKey(plain);
+  const r = await withClient((c) =>
+    c.query<ApiKeyRow>(
+      `SELECT key_id, user_id, scopes, rate_limit_per_min, enabled
+         FROM api_keys WHERE key_prefix = $1 AND key_hash = $2 AND enabled = true LIMIT 1`,
+      [prefix, hash],
+    ),
+  );
+  return r.rows[0] || null;
+}
+function requireApiKey(scope: "read" | "write" | "admin"): express.RequestHandler {
+  return async (req, res, next) => {
+    noStore(res);
+    try {
+      const auth = String(req.headers.authorization || "");
+      const m = /^Bearer\s+(\S+)/i.exec(auth);
+      if (!m) { res.status(401).json({ ok: false, code: "API_KEY_REQUIRED" }); return; }
+      const row = await lookupApiKey(String(m[1] || ""));
+      if (!row) { res.status(401).json({ ok: false, code: "INVALID_API_KEY" }); return; }
+      if (!row.scopes.includes(scope) && !row.scopes.includes("admin")) {
+        res.status(403).json({ ok: false, code: "SCOPE_FORBIDDEN", required: scope });
+        return;
+      }
+      const r = takeRateToken(row.key_id, row.rate_limit_per_min);
+      if (!r.ok) {
+        res.setHeader("Retry-After", String(r.retryAfter));
+        res.status(429).json({ ok: false, code: "RATE_LIMIT", retry_after: r.retryAfter });
+        return;
+      }
+      withClient((c) => c.query(`UPDATE api_keys SET last_used_at = now() WHERE key_id = $1::uuid`, [row.key_id])).catch(() => {});
+      (req as any).cssosApiKey = row;
+      (req as any).cssosApiUser = { id: row.user_id };
+      next();
+    } catch (err) {
+      res.status(500).json({ ok: false, code: "API_AUTH_FAILED", message: String(err) });
+    }
+  };
+}
+app.post("/api/dev/keys", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const body = req.body || {};
+    const name = String(body.name || "").trim().slice(0, 80) || "default";
+    const scopesIn = Array.isArray(body.scopes) ? body.scopes : ["read"];
+    const scopes = scopesIn.map((s: any) => String(s).toLowerCase()).filter((s: string) => ["read", "write", "admin"].includes(s));
+    const safeScopes = scopes.length ? scopes : ["read"];
+    const plain = `cssos_${crypto.randomBytes(16).toString("hex")}`;
+    const prefix = plain.slice(0, 8);
+    const hash = hashApiKey(plain);
+    const r = await withClient((c) =>
+      c.query<{ key_id: string }>(
+        `INSERT INTO api_keys (user_id, key_prefix, key_hash, name, scopes)
+         VALUES ($1, $2, $3, $4, $5) RETURNING key_id`,
+        [user.id, prefix, hash, name, safeScopes],
+      ),
+    );
+    return res.json({ ok: true, key_id: r.rows[0]?.key_id, key: plain, prefix, scopes: safeScopes });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "DEV_KEY_CREATE_FAILED", message: String(err) });
+  }
+});
+app.get("/api/dev/keys", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT key_id, key_prefix, name, scopes, rate_limit_per_min, last_used_at, enabled, created_at
+           FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC`,
+        [user.id],
+      ),
+    );
+    return res.json({ ok: true, keys: r.rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "DEV_KEY_LIST_FAILED", message: String(err) });
+  }
+});
+app.delete("/api/dev/keys/:id", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const r = await withClient((c) =>
+      c.query<{ count: number }>(
+        `WITH del AS (DELETE FROM api_keys WHERE key_id = $1::uuid AND user_id = $2 RETURNING 1)
+         SELECT count(*)::int AS count FROM del`,
+        [id, user.id],
+      ),
+    );
+    if (!Number(r.rows[0]?.count || 0)) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "DEV_KEY_DELETE_FAILED", message: String(err) });
+  }
+});
+const apiV1Read = requireApiKey("read");
+app.get("/api/v1/persons", apiV1Read, async (req, res) => {
+  try {
+    const limit = Math.max(1, Math.min(100, Number(req.query.limit || 20) || 20));
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT person_id, name_en, name_zh, era, summary, tier, created_at
+           FROM person_profiles ORDER BY created_at DESC LIMIT $1`,
+        [limit],
+      ),
+    );
+    return res.json({ ok: true, persons: r.rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "V1_PERSONS_LIST_FAILED", message: String(err) });
+  }
+});
+app.get("/api/v1/persons/:id", apiV1Read, async (req, res) => {
+  try {
+    const id = String(req.params.id || "").trim();
+    const r = await withClient((c) => c.query<any>(`SELECT * FROM person_profiles WHERE person_id = $1::uuid`, [id]));
+    if (!r.rows[0]) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    return res.json({ ok: true, person: r.rows[0] });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "V1_PERSON_FAILED", message: String(err) });
+  }
+});
+app.get("/api/v1/persons/:id/codex", apiV1Read, async (req, res) => {
+  try {
+    const id = String(req.params.id || "").trim();
+    const r = await withClient((c) => c.query<any>(`SELECT codex FROM person_profiles WHERE person_id = $1::uuid`, [id]));
+    if (!r.rows[0]) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    return res.json({ ok: true, codex: r.rows[0].codex || null });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "V1_CODEX_FAILED", message: String(err) });
+  }
+});
+app.get("/api/v1/mvs/:id", apiV1Read, async (req, res) => {
+  try {
+    const id = String(req.params.id || "").trim();
+    const r = await withClient((c) => c.query<any>(`SELECT * FROM person_mvs WHERE mv_id = $1::uuid`, [id]));
+    if (!r.rows[0]) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    return res.json({ ok: true, mv: r.rows[0] });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "V1_MV_FAILED", message: String(err) });
+  }
+});
+app.get("/api/v1/works/:id", apiV1Read, async (req, res) => {
+  try {
+    const id = String(req.params.id || "").trim();
+    const r = await withClient((c) => c.query<any>(`SELECT * FROM works WHERE id = $1`, [id]));
+    if (!r.rows[0]) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    return res.json({ ok: true, work: r.rows[0] });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "V1_WORK_FAILED", message: String(err) });
+  }
+});
+
 start().catch((err) => {
   console.error("Startup failed", err);
   process.exit(1);

@@ -6634,6 +6634,21 @@
   // for the same person as a teaser strip. Empty queue auto-triggers
   // a normal pipeline run and pushes the result into the queue.
   let cinemaSt = null;
+  /* CSSOS_PERSON_MV_WAVE5_8 20260507 — module-scope cover cache + count fmt
+   * shared by teaser posters + view-count toast. Keyed by work_id. */
+  const __cinemaWorkCache = new Map();
+  function __fmtCinemaCount(n){ var x=Number(n||0); if (x>=1e6) return (x/1e6).toFixed(1).replace(/\.0$/,'')+"M"; if (x>=1e3) return (x/1e3).toFixed(1).replace(/\.0$/,'')+"k"; return String(x); }
+  async function __fetchWorkPublic(wid){
+    if (!wid) return null;
+    if (__cinemaWorkCache.has(wid)) return __cinemaWorkCache.get(wid);
+    try {
+      const r = await fetch("/api/works/public/" + encodeURIComponent(wid), { credentials: "include" });
+      const j = await r.json().catch(function(){ return null; });
+      const w = (j && (j.data || j.work || j)) || null;
+      __cinemaWorkCache.set(wid, w);
+      return w;
+    } catch (_e) { return null; }
+  }
   function enterCinemaMode(opts) {
     if (!isMvPipelineAllowedForCurrentUser()) {
       routeGuestToLogin();
@@ -6826,8 +6841,65 @@
     video.autoplay = true;
     try { await video.play(); } catch (_e) {}
     if (strip) {
-      strip.textContent = (title || "untitled") + (creator ? " · " + creator : "") +
+      // CSSOS_PERSON_MV_WAVE5 20260507 — strip now hosts title/idx + a Like button.
+      const titleStr = (title || "untitled") + (creator ? " · " + creator : "") +
         " · " + (cinemaSt.idx + 1) + "/" + cinemaSt.queue.length;
+      strip.innerHTML = '<span class="cinema-strip-title"></span>' +
+        ' <button class="cinema-like-btn" type="button" title="Like" style="all:unset;cursor:pointer;margin-left:10px;padding:3px 10px;border-radius:999px;background:rgba(0,0,0,.55);border:1px solid rgba(0,245,160,.4);font:600 12px/1.2 ui-monospace,monospace;color:#daffee;">🤍 0</button>';
+      const titleEl = strip.querySelector(".cinema-strip-title");
+      if (titleEl) titleEl.textContent = titleStr;
+      const likeBtn = strip.querySelector(".cinema-like-btn");
+      cinemaSt._currentWid = wid;
+      cinemaSt._likedByMe = false;
+      // Initial stats fetch (also works for non-person_mvs entries — silently 404).
+      try {
+        const sR = await fetch("/api/person-mv/mvs/" + encodeURIComponent(wid) + "/stats", { credentials: "include" });
+        if (sR.ok) {
+          const sJ = await sR.json().catch(function(){ return null; });
+          if (sJ && sJ.ok && likeBtn) {
+            likeBtn.textContent = "🤍 " + __fmtCinemaCount(sJ.like_count);
+          }
+        }
+      } catch (_e) {}
+      if (likeBtn) {
+        likeBtn.onclick = async function () {
+          try {
+            const lr = await fetch("/api/person-mv/mvs/" + encodeURIComponent(wid) + "/like",
+              { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: "{}" });
+            const lj = await lr.json().catch(function(){ return null; });
+            if (lj && lj.ok) {
+              cinemaSt._likedByMe = !!lj.liked;
+              likeBtn.textContent = (lj.liked ? "❤️ " : "🤍 ") + __fmtCinemaCount(lj.like_count);
+            }
+          } catch (_e) {}
+        };
+      }
+    }
+    // CSSOS_PERSON_MV_WAVE5 20260507 — record a view as soon as the track plays.
+    // Fires once per track-load (clearing old onplay). Toast surfaces position
+    // + view_count when the row was newly-counted (not within the 5min dedup window).
+    const __viewedKey = "_viewed_" + wid;
+    if (!cinemaSt[__viewedKey]) {
+      const onPlayOnce = async function () {
+        if (!cinemaSt || cinemaSt[__viewedKey]) return;
+        cinemaSt[__viewedKey] = true;
+        try {
+          const vr = await fetch("/api/person-mv/mvs/" + encodeURIComponent(wid) + "/view",
+            { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: "{}" });
+          const vj = await vr.json().catch(function(){ return null; });
+          if (vj && vj.ok && vj.was_new_view && vj.viewer_position) {
+            try {
+              const t = document.createElement("div");
+              t.className = "cinema-view-toast";
+              t.style.cssText = "position:absolute;top:18px;left:50%;transform:translateX(-50%);padding:8px 16px;border-radius:999px;background:rgba(0,0,0,.7);border:1px solid rgba(0,245,160,.45);color:#daffee;font:600 13px/1.2 ui-monospace,monospace;z-index:9999;backdrop-filter:blur(8px);";
+              t.textContent = "👁 第 " + vj.viewer_position + " 位观众 · 已 " + __fmtCinemaCount(vj.view_count) + " 次播放";
+              stage.appendChild(t);
+              setTimeout(function(){ try { t.remove(); } catch (_e) {} }, 4000);
+            } catch (_e) {}
+          }
+        } catch (_e) {}
+      };
+      video.addEventListener("play", onPlayOnce, { once: true });
     }
     // Teaser: last 10s
     cinemaSt.teaserOn = false;
@@ -6908,14 +6980,37 @@
         return m.work_id && m.work_id !== cinemaSt.queue[cinemaSt.idx];
       }).slice(0, 8);
       if (!mvs.length) return;
+      // CSSOS_PERSON_MV_WAVE8 20260507 — teaser posters via /api/works/public.
+      // Limit to 8 cards (already enforced by .slice(0,8) above) and pull
+      // cover_image lazily through __cinemaWorkCache to avoid request storm.
       teaser.innerHTML = '<div class="cinema-teaser-label">同人物 · 其他版本</div>' +
         '<div class="cinema-teaser-row">' +
           mvs.map(function(m){
-            return '<div class="cinema-teaser-card" data-work-id="' + String(m.work_id || "").replace(/"/g,"&quot;") + '">' +
-              ((m.duration_secs || 0) + "s") + '</div>';
+            const wid = String(m.work_id || "").replace(/"/g,"&quot;");
+            const dur = (m.duration_secs || 0) + "s";
+            return '<div class="cinema-teaser-card" data-work-id="' + wid + '" style="position:relative;overflow:hidden;background:linear-gradient(135deg,#012019,#003a2c);">' +
+              '<span class="cinema-teaser-cap" style="position:relative;z-index:1;background:rgba(0,0,0,.55);padding:1px 5px;border-radius:3px;">' + dur + '</span>' +
+            '</div>';
           }).join("") +
         '</div>';
       teaser.hidden = false;
+      // Lazy-fetch cover_image per card; capped at 8 by the slice above.
+      mvs.forEach(function (m) {
+        if (!m.work_id) return;
+        const card = teaser.querySelector('.cinema-teaser-card[data-work-id="' + String(m.work_id).replace(/"/g,'&quot;') + '"]');
+        if (!card) return;
+        // If gallery already gave us cover_image (codex MV row carries it), use directly.
+        const direct = m.cover_image || m.preview_image_url || null;
+        if (direct) {
+          card.style.background = "url('" + String(direct).replace(/'/g,"%27") + "') center/cover, linear-gradient(135deg,#012019,#003a2c)";
+          return;
+        }
+        __fetchWorkPublic(m.work_id).then(function (w) {
+          if (!w) return;
+          const img = w.cover_image || w.preview_image_url || w.poster_url || null;
+          if (img) card.style.background = "url('" + String(img).replace(/'/g,"%27") + "') center/cover, linear-gradient(135deg,#012019,#003a2c)";
+        });
+      });
       // CSSOS_PHASE2_TEASER_CLICK 20260507 — Wave 2.6 polish — Jing
       // Click a teaser card → jump the queue to that work_id. If the
       // target is already in the queue, just seek to its index; otherwise

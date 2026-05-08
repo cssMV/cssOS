@@ -838,12 +838,17 @@
       ".pmv-codex .pmv-mini-meta{font:500 10px/1.3 ui-monospace,monospace;color:#9ad6c0;margin-top:4px;}" +
       ".pmv-codex .pmv-skel{padding:30px;text-align:center;color:#9ad6c0;}" +
       ".pmv-codex .pmv-influence-bar{height:6px;border-radius:3px;background:rgba(255,255,255,.08);margin-top:6px;overflow:hidden;}" +
-      ".pmv-codex .pmv-influence-fill{height:100%;background:linear-gradient(90deg,#00f5a0,#7dffce);}";
+      ".pmv-codex .pmv-influence-fill{height:100%;background:linear-gradient(90deg,#00f5a0,#7dffce);}" +
+      /* CSSOS_PERSON_MV_WAVE5 20260507 — view+like badge + wave 8 hero attribution */
+      ".pmv-codex .pmv-mv-stats{position:absolute;right:6px;bottom:18px;padding:2px 6px;border-radius:4px;background:rgba(0,0,0,.55);font:600 10px/1.2 ui-monospace,monospace;color:#daffee;letter-spacing:.02em;}" +
+      ".pmv-codex .pmv-hero-attribution{position:absolute;right:8px;bottom:8px;font:500 9px/1 ui-monospace,monospace;color:rgba(218,255,238,.55);background:rgba(0,0,0,.45);padding:3px 6px;border-radius:4px;}";
     document.head.appendChild(s);
   }
 
   function escAttr(s){ return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
   function escTxt(s){ return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+  /* CSSOS_PERSON_MV_WAVE5 20260507 — compact count formatter (1.2k / 1.2M) */
+  function fmtCount(n){ var x = Number(n||0); if (x >= 1e6) return (x/1e6).toFixed(1).replace(/\.0$/,'')+"M"; if (x >= 1e3) return (x/1e3).toFixed(1).replace(/\.0$/,'')+"k"; return String(x); }
 
   async function openCodex(personId) {
     if (!personId) return;
@@ -924,6 +929,11 @@
       var loreEmpty = !lore || (!lore.bio && !(Array.isArray(lore.events) && lore.events.length));
 
       var h = "";
+      // CSSOS_PERSON_MV_WAVE8 20260507 — Wikipedia image attribution when
+      // lore was grounded in wiki (portrait often is too — wiki originalimage).
+      var heroAttr = (lore && String(lore.source||"") === "wiki+llm")
+        ? '<div class="pmv-hero-attribution">' + escTxt(tt("Image: Wikipedia / CC-BY-SA", "图源：Wikipedia / CC-BY-SA")) + '</div>'
+        : '';
       h += '<div class="pmv-hero">' + heroBg +
         '<div class="pmv-hero-overlay">' +
           '<div class="pmv-hero-name-zh">' + escTxt(nameZh) + '</div>' +
@@ -935,6 +945,7 @@
           '</div>' +
           '<div class="pmv-influence-bar"><div class="pmv-influence-fill" style="width:' + influence + '%"></div></div>' +
         '</div>' +
+        heroAttr +
       '</div>';
 
       h += '<div class="pmv-action-bar">' +
@@ -1003,7 +1014,7 @@
       var myCount = data.my_mv_count || 0;
       h += '<div class="pmv-section"><h3>🎞 ' + escTxt(tt("MV Gallery", "MV 作品")) + '</h3>' +
         '<div class="pmv-leaderboard" data-leaderboard-host="1">' +
-          '<span>🥇 ' + escTxt(tt("Top creators loading…", "榜首创作者加载中…")) + '</span>' +
+          '<span>🏆 ' + escTxt(tt("Top creators loading…", "榜单加载中…")) + '</span>' +
         '</div>' +
         '<div class="pmv-mv-tabs">' +
           '<span class="pmv-mv-tab is-active" data-mv-tab="all">' + escTxt(tt("All", "全站")) + ' · ' + totalCount + '</span>' +
@@ -1028,16 +1039,19 @@
               '<span class="pmv-mv-creator-avatar"' + (creatorAvatar ? ' style="background-image:url(' + escAttr(creatorAvatar) + ')"' : '') + '></span>' +
               '<span>' + escTxt(creatorName) + '</span>' +
             '</div>';
+            // CSSOS_PERSON_MV_WAVE5 20260507 — view+like badge bottom-right
+            var statsBadge = '<div class="pmv-mv-stats">👁 ' + escTxt(fmtCount(m.view_count)) +
+              ' · ❤️ ' + escTxt(fmtCount(m.like_count)) + '</div>';
             var inner;
             if (poster) {
               inner = '<img class="pmv-mv-poster" src="' + escAttr(poster) + '" alt="" ' +
                 'onerror="this.parentNode.innerHTML=\'<div class=&quot;pmv-mv-fallback&quot;>' +
                 escAttr(String(personEmoji)) + '</div>\';">' +
-                creatorChip +
+                creatorChip + statsBadge +
                 '<div class="pmv-mv-meta">' + escTxt((m.duration_secs || 0) + "s") + '</div>';
             } else {
               inner = '<div class="pmv-mv-fallback">' + escTxt(String(personEmoji)) + '</div>' +
-                creatorChip +
+                creatorChip + statsBadge +
                 '<div class="pmv-mv-meta">' + escTxt((m.duration_secs || 0) + "s") + '</div>';
             }
             return '<div class="pmv-mv-card" data-work-id="' + escAttr(m.work_id) + '">' +
@@ -1170,19 +1184,20 @@
             headers: { Accept: "application/json" },
           }).then(function(r){ return r.json(); }).then(function(j){
             if (!j || !j.ok || !j.data || !Array.isArray(j.data.creators) || !j.data.creators.length) {
-              lbHost.innerHTML = '<span>🥇 ' + escTxt(tt("Be the first creator!", "成为首位创作者！")) + '</span>';
+              lbHost.innerHTML = '<span>🏆 ' + escTxt(tt("Be the first creator!", "成为首位创作者！")) + '</span>';
               return;
             }
             var creators = j.data.creators;
-            var top = creators[0];
-            var html = '<span>🥇 ' + escTxt(tt("Top creator: ", "榜首创作者：")) + '</span>';
+            // CSSOS_PERSON_MV_WAVE5 20260507 — show total_view_count under name
+            var html = '<span>🏆 ' + escTxt(tt("Top creators", "榜单")) + '</span>';
             html += creators.map(function(c, i){
               var name = c.display_name || tt("Anon", "匿名");
               var av = c.avatar_url || "";
               var medal = i === 0 ? "🥇" : (i === 1 ? "🥈" : (i === 2 ? "🥉" : ""));
+              var views = fmtCount(c.total_view_count || 0);
               return '<span class="pmv-lb-creator">' +
                 '<span class="pmv-lb-avatar"' + (av ? ' style="background-image:url(' + escAttr(av) + ')"' : '') + '></span>' +
-                '<span>' + (medal ? medal + ' ' : '') + escTxt(name) + ' · ' + (c.mv_count || 0) + ' MV</span>' +
+                '<span>' + (medal ? medal + ' ' : '') + escTxt(name) + ' · 👁 ' + views + ' · ' + (c.mv_count || 0) + ' MV</span>' +
               '</span>';
             }).join("");
             lbHost.innerHTML = html;

@@ -11201,6 +11201,27 @@ async function ensurePersonMvTables() {
       ALTER TABLE person_profiles ADD COLUMN IF NOT EXISTS lore JSONB NOT NULL DEFAULT '{}'::jsonb;
       ALTER TABLE person_profiles ADD COLUMN IF NOT EXISTS portrait_url TEXT;
       ALTER TABLE person_profiles ADD COLUMN IF NOT EXISTS portrait_generated_at TIMESTAMPTZ;
+
+      -- CSSOS_PERSON_MV_WAVE5 20260507 — Jing
+      -- View counts + likes (additive). person_mv_views/likes provide
+      -- per-user dedup so reload spam doesn't inflate counts.
+      ALTER TABLE person_mvs ADD COLUMN IF NOT EXISTS view_count INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE person_mvs ADD COLUMN IF NOT EXISTS like_count INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE person_mvs ADD COLUMN IF NOT EXISTS last_viewed_at TIMESTAMPTZ;
+      CREATE INDEX IF NOT EXISTS person_mvs_view_count_idx ON person_mvs (view_count DESC);
+
+      CREATE TABLE IF NOT EXISTS person_mv_views (
+        mv_id     UUID NOT NULL REFERENCES person_mvs(mv_id) ON DELETE CASCADE,
+        user_id   UUID NOT NULL,
+        viewed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (mv_id, user_id)
+      );
+      CREATE TABLE IF NOT EXISTS person_mv_likes (
+        mv_id    UUID NOT NULL REFERENCES person_mvs(mv_id) ON DELETE CASCADE,
+        user_id  UUID NOT NULL,
+        liked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (mv_id, user_id)
+      );
     `),
   );
 }
@@ -15602,6 +15623,7 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
     const mvsR = await withClient((c) =>
       c.query(
         `SELECT pm.mv_id, pm.work_id, pm.created_by_user_id, pm.duration_secs, pm.created_at,
+                pm.view_count, pm.like_count,
                 w.cover_image, w.preview_image_url, w.title,
                 u.display_name AS creator_display_name,
                 u.avatar_url   AS creator_avatar_url
@@ -15819,15 +15841,16 @@ app.get("/api/person-mv/persons/:id/leaderboard", async (req, res) => {
     if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
     const limit = Math.max(1, Math.min(20, Number(req.query.limit || 5) || 5));
     const r = await withClient((c) =>
-      c.query<{ user_id: string; display_name: string | null; avatar_url: string | null; mv_count: number }>(
+      c.query<{ user_id: string; display_name: string | null; avatar_url: string | null; mv_count: number; total_view_count: number }>(
         `SELECT pm.created_by_user_id AS user_id,
                 u.display_name, u.avatar_url,
-                COUNT(*)::int AS mv_count
+                COUNT(*)::int AS mv_count,
+                COALESCE(SUM(pm.view_count),0)::int AS total_view_count
            FROM person_mvs pm
            LEFT JOIN users u ON u.id = pm.created_by_user_id
           WHERE pm.person_id = $1
           GROUP BY pm.created_by_user_id, u.display_name, u.avatar_url
-          ORDER BY mv_count DESC, u.display_name NULLS LAST
+          ORDER BY total_view_count DESC, mv_count DESC, u.display_name NULLS LAST
           LIMIT $2`,
         [id, limit],
       ),
@@ -15836,6 +15859,179 @@ app.get("/api/person-mv/persons/:id/leaderboard", async (req, res) => {
   } catch (err) {
     console.warn("[person-mv] leaderboard failed:", (err as Error)?.message || err);
     return res.status(500).json({ ok: false, code: "LEADERBOARD_FAILED" });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE5 20260507 — Jing
+ * Wave 5: real view + like metrics. All three endpoints session-auth
+ * gated. View dedup window = 5 minutes (re-watching after 5min counts
+ * as a fresh view). Like is a toggle. Stats endpoint exposes
+ * viewer_position (number of distinct viewers ahead of you). */
+// Resolve a person_mvs row by either mv_id (UUID) or work_id (UUID).
+// Cinema queue carries work_ids, gallery cards carry mv_ids — accept both.
+async function resolvePersonMvId(idOrWork: string): Promise<string | null> {
+  if (!idOrWork) return null;
+  const r = await withClient((c) =>
+    c.query<{ mv_id: string }>(
+      `SELECT mv_id FROM person_mvs WHERE mv_id::text = $1 OR work_id::text = $1
+        ORDER BY created_at DESC LIMIT 1`,
+      [idOrWork],
+    ),
+  );
+  return r.rows[0]?.mv_id || null;
+}
+
+app.post("/api/person-mv/mvs/:mv_id/view", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const raw = String(req.params.mv_id || "").trim();
+    if (!raw) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    await ensurePersonMvTables();
+    const mvId = await resolvePersonMvId(raw);
+    if (!mvId) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    // Insert dedup row; if already-present row is older than 5 minutes,
+    // bump viewed_at. RETURNING xmax = 0 marks an actual INSERT (Postgres
+    // idiom) — but we also need the "stale-update" branch, so we check
+    // the resulting viewed_at >= now() - 1s.
+    const r = await withClient((c) =>
+      c.query<{ inserted: boolean; viewed_at: string }>(
+        `INSERT INTO person_mv_views (mv_id, user_id, viewed_at)
+         VALUES ($1, $2, now())
+         ON CONFLICT (mv_id, user_id) DO UPDATE
+            SET viewed_at = now()
+            WHERE person_mv_views.viewed_at < now() - interval '5 minutes'
+         RETURNING (xmax = 0) AS inserted, viewed_at`,
+        [mvId, user.id],
+      ),
+    );
+    let wasNew = false;
+    let viewCount = 0;
+    let viewerPosition: number | null = null;
+    if (r.rowCount && r.rows[0]) {
+      // either INSERT or post-5min UPDATE — both count.
+      wasNew = true;
+      const u = await withClient((c) =>
+        c.query<{ view_count: number }>(
+          `UPDATE person_mvs SET view_count = view_count + 1, last_viewed_at = now()
+            WHERE mv_id = $1 RETURNING view_count`,
+          [mvId],
+        ),
+      );
+      viewCount = u.rows[0]?.view_count ?? 0;
+      // viewer_position = distinct viewers (count of person_mv_views rows for this mv)
+      const posR = await withClient((c) =>
+        c.query<{ pos: number }>(
+          `SELECT COUNT(*)::int AS pos FROM person_mv_views WHERE mv_id = $1`,
+          [mvId],
+        ),
+      );
+      viewerPosition = posR.rows[0]?.pos ?? null;
+    } else {
+      // existing row, still within 5min window — no-op; just fetch count.
+      const cur = await withClient((c) =>
+        c.query<{ view_count: number }>(`SELECT view_count FROM person_mvs WHERE mv_id = $1`, [mvId]),
+      );
+      viewCount = cur.rows[0]?.view_count ?? 0;
+    }
+    return res.json({ ok: true, view_count: viewCount, was_new_view: wasNew, viewer_position: viewerPosition });
+  } catch (err) {
+    console.warn("[person-mv] view failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "VIEW_FAILED" });
+  }
+});
+
+app.post("/api/person-mv/mvs/:mv_id/like", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const raw = String(req.params.mv_id || "").trim();
+    if (!raw) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    await ensurePersonMvTables();
+    const mvId = await resolvePersonMvId(raw);
+    if (!mvId) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const existing = await withClient((c) =>
+      c.query(`SELECT 1 FROM person_mv_likes WHERE mv_id = $1 AND user_id = $2`, [mvId, user.id]),
+    );
+    let liked: boolean;
+    let likeCount = 0;
+    if (existing.rowCount && existing.rowCount > 0) {
+      await withClient((c) =>
+        c.query(`DELETE FROM person_mv_likes WHERE mv_id = $1 AND user_id = $2`, [mvId, user.id]),
+      );
+      const r = await withClient((c) =>
+        c.query<{ like_count: number }>(
+          `UPDATE person_mvs SET like_count = GREATEST(0, like_count - 1)
+            WHERE mv_id = $1 RETURNING like_count`,
+          [mvId],
+        ),
+      );
+      likeCount = r.rows[0]?.like_count ?? 0;
+      liked = false;
+    } else {
+      await withClient((c) =>
+        c.query(`INSERT INTO person_mv_likes (mv_id, user_id) VALUES ($1, $2)
+                  ON CONFLICT DO NOTHING`, [mvId, user.id]),
+      );
+      const r = await withClient((c) =>
+        c.query<{ like_count: number }>(
+          `UPDATE person_mvs SET like_count = like_count + 1
+            WHERE mv_id = $1 RETURNING like_count`,
+          [mvId],
+        ),
+      );
+      likeCount = r.rows[0]?.like_count ?? 0;
+      liked = true;
+    }
+    return res.json({ ok: true, liked, like_count: likeCount });
+  } catch (err) {
+    console.warn("[person-mv] like failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "LIKE_FAILED" });
+  }
+});
+
+app.get("/api/person-mv/mvs/:mv_id/stats", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const raw = String(req.params.mv_id || "").trim();
+    if (!raw) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    await ensurePersonMvTables();
+    const mvId = await resolvePersonMvId(raw);
+    if (!mvId) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const r = await withClient((c) =>
+      c.query<{ view_count: number; like_count: number }>(
+        `SELECT view_count, like_count FROM person_mvs WHERE mv_id = $1`,
+        [mvId],
+      ),
+    );
+    if (!r.rowCount) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    // viewer_position = number of distinct viewers who watched before this user.
+    // null if user has never watched.
+    const posR = await withClient((c) =>
+      c.query<{ position: number | null }>(
+        `WITH me AS (
+           SELECT viewed_at FROM person_mv_views WHERE mv_id = $1 AND user_id = $2
+         )
+         SELECT CASE WHEN (SELECT viewed_at FROM me) IS NULL THEN NULL
+                ELSE (SELECT COUNT(*)::int FROM person_mv_views v
+                       WHERE v.mv_id = $1 AND v.viewed_at < (SELECT viewed_at FROM me))
+                END AS position`,
+        [mvId, user.id],
+      ),
+    );
+    return res.json({
+      ok: true,
+      view_count: r.rows[0]?.view_count ?? 0,
+      like_count: r.rows[0]?.like_count ?? 0,
+      viewer_position: posR.rows[0]?.position ?? null,
+    });
+  } catch (err) {
+    console.warn("[person-mv] stats failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "STATS_FAILED" });
   }
 });
 

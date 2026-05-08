@@ -51,6 +51,7 @@
   var panelEl = null;
   var state = {
     tier: 1,             // 1 = influence; 2 = civilization
+    curationTier: "S",   // Wave 58: S | A | B | all
     civ: "",
     search: "",
     persons: [],
@@ -325,6 +326,17 @@
             tt("Influence", "影响力") + '</button>' +
           '<button class="person-mv-tier-btn" data-tier="2">' +
             tt("Civilization", "文明") + '</button>' +
+          /* CSSOS_PERSON_MV_WAVE58 — S/A/B curation-tier filter chips. */
+          '<span class="person-mv-curation-tier" style="display:inline-flex;gap:4px;margin-left:6px;">' +
+            '<button class="person-mv-ctier-btn is-active" data-ctier="S" title="' +
+              tt("Global consensus", "全球公认") + '">S</button>' +
+            '<button class="person-mv-ctier-btn" data-ctier="A" title="' +
+              tt("Civilization rep", "文明代表") + '">A</button>' +
+            '<button class="person-mv-ctier-btn" data-ctier="B" title="' +
+              tt("Domain rep", "领域代表") + '">B</button>' +
+            '<button class="person-mv-ctier-btn" data-ctier="all" title="' +
+              tt("All tiers", "全部") + '">' + tt("All", "全") + '</button>' +
+          '</span>' +
           '<select class="person-mv-civ-select"><option value="">' +
             tt("All civilizations", "全部文明") + '</option></select>' +
           '<button class="person-mv-random-btn" title="' +
@@ -454,6 +466,16 @@
         load();
       });
     });
+    /* Wave 58 — S/A/B curation tier filter. */
+    var ctierBtns = panelEl.querySelectorAll(".person-mv-ctier-btn");
+    ctierBtns.forEach(function (b) {
+      b.addEventListener("click", function () {
+        ctierBtns.forEach(function (x) { x.classList.remove("is-active"); });
+        b.classList.add("is-active");
+        state.curationTier = String(b.getAttribute("data-ctier") || "S");
+        load();
+      });
+    });
     if (createBtn) {
       createBtn.addEventListener("click", function () {
         var name = window.prompt(
@@ -540,6 +562,11 @@
     try {
       var qs = new URLSearchParams();
       qs.set("tier", String(state.tier));
+      if (state.curationTier && state.curationTier !== "all") {
+        qs.set("curation_tier", state.curationTier);
+      } else if (state.curationTier === "all") {
+        qs.set("curation_tier", "all");
+      }
       if (state.civ) qs.set("civ", state.civ);
       if (state.search) qs.set("search", state.search);
       qs.set("limit", "200");

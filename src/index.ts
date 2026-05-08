@@ -21,6 +21,7 @@ import {
   type StructurePlan,
 } from "./cssmv/schemas/structure-tree";
 import { SEED_PERSON_PROFILES } from "./person_mv_seed";
+import { fetchPageviews, influenceFromPageviews } from "./wiki_pageviews";
 import { SEED_PERSON_GROUPS } from "./person_group_seed";
 import { SEED_FESTIVALS, type SeedFestival } from "./festival_seed";
 
@@ -11820,6 +11821,18 @@ async function ensurePersonMvTables() {
       CREATE INDEX IF NOT EXISTS mv_product_attachments_work_idx
         ON mv_product_attachments (work_id);
 
+      -- CSSOS_PERSON_MV_WAVE58 20260508 — Jing — S/A/B curation tiers.
+      ALTER TABLE person_profiles
+        ADD COLUMN IF NOT EXISTS curation_tier TEXT NOT NULL DEFAULT 'S';
+      ALTER TABLE person_profiles
+        ADD COLUMN IF NOT EXISTS pageviews_monthly INTEGER;
+      ALTER TABLE person_profiles
+        ADD COLUMN IF NOT EXISTS academic_citations INTEGER;
+      ALTER TABLE person_profiles
+        ADD COLUMN IF NOT EXISTS auto_generated BOOLEAN NOT NULL DEFAULT false;
+      CREATE INDEX IF NOT EXISTS person_profiles_tier_idx
+        ON person_profiles (curation_tier, influence_score DESC);
+
       -- CSSOS_PERSON_MV_WAVE55 20260508 — Jing — content rating + birth year.
       ALTER TABLE person_profiles
         ADD COLUMN IF NOT EXISTS content_rating TEXT NOT NULL DEFAULT 'PG';
@@ -16835,13 +16848,30 @@ app.get("/api/person-mv/persons", async (req, res) => {
     await seedPersonProfilesOnce();
     const civ = String(req.query.civ || "").trim();
     const search = String(req.query.search || "").trim().toLowerCase();
-    const tier = Number(req.query.tier || 1);
+    // Wave 58: `tier` doubles as sort mode (1=influence, 2=civ) AND
+    // curation_tier filter (S/A/B/all). Strings filter; numbers sort.
+    const tierRaw = String(req.query.tier ?? "1").trim();
+    const tierUpper = tierRaw.toUpperCase();
+    // Wave 58: `tier` param accepts numeric (1=influence, 2=civ sort) OR
+    // an S/A/B/all curation-tier filter. A dedicated `curation_tier` query
+    // param also works and takes precedence so callers can combine both.
+    const explicitCuration = String(req.query.curation_tier ?? "").trim().toUpperCase();
+    const curationTier =
+      explicitCuration === "S" || explicitCuration === "A" || explicitCuration === "B"
+        ? explicitCuration
+        : explicitCuration === "ALL"
+        ? null
+        : tierUpper === "S" || tierUpper === "A" || tierUpper === "B"
+        ? tierUpper
+        : null;
+    const tier = /^[12]$/.test(tierRaw) ? Number(tierRaw) : 1;
     const page = Math.max(1, Number(req.query.page || 1) || 1);
     const limit = Math.max(10, Math.min(200, Number(req.query.limit || 60) || 60));
     const offset = (page - 1) * limit;
     const where: string[] = [];
     const params: unknown[] = [];
     if (civ) { params.push(civ); where.push(`civilization = $${params.length}`); }
+    if (curationTier) { params.push(curationTier); where.push(`curation_tier = $${params.length}`); }
     if (search) {
       params.push(`%${search}%`);
       where.push(
@@ -18720,15 +18750,18 @@ async function generatePersonSamplesBatch(
       tone: string | null;
       lore: any;
     }>(
+      // CSSOS_PERSON_MV_WAVE58 — only pre-generate sample MVs for S-tier
+      // persons. A/B tiers get sample-on-demand to save engine cost.
       `SELECT pp.person_id, pp.name_zh, pp.name_en, pp.core_theme,
               pp.music_style_hint, pp.tone, pp.lore
          FROM person_profiles pp
-        WHERE $2::bool = true
+        WHERE pp.curation_tier = 'S'
+          AND ($2::bool = true
            OR NOT EXISTS (
                 SELECT 1 FROM person_mvs pm
                  WHERE pm.person_id = pp.person_id
                    AND pm.is_official_sample = true
-              )
+              ))
         ORDER BY pp.influence_score DESC NULLS LAST, pp.person_id
         LIMIT $1`,
       [limit, force],
@@ -18863,6 +18896,236 @@ app.post("/api/admin/person-mv/generate-samples", express.json({ limit: "4kb" })
     return res.status(500).json({ ok: false, code: "GENERATE_SAMPLES_FAILED" });
   }
 });
+
+/* CSSOS_PERSON_MV_WAVE58 20260508 — Jing
+ * Bulk seed expansion: read a CSV of (tier, name_zh, name_en,
+ * civilization, era, lifespan, hint), call the LLM to fill out the
+ * full person_profile schema, fetch wiki pageviews to compute
+ * influence_score, and INSERT with auto_generated=true. Resumable
+ * (skips persons already in DB by slugified name_en). Rate-limited:
+ * 5 LLM calls/sec, 1 wiki fetch/sec.
+ */
+type BulkCsvRow = {
+  tier: "S" | "A" | "B";
+  name_zh: string;
+  name_en: string;
+  civilization: string;
+  era: string;
+  lifespan: string;
+  hint: string;
+};
+
+function parseBulkCsv(text: string): BulkCsvRow[] {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (!lines.length) return [];
+  const header = (lines[0] || "").toLowerCase();
+  const start = header.includes("tier") && header.includes("name_zh") ? 1 : 0;
+  const out: BulkCsvRow[] = [];
+  for (let i = start; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
+    const cols = line.split(",").map((s) => s.trim());
+    if (cols.length < 7) continue;
+    const tier = (cols[0] || "S").toUpperCase();
+    if (tier !== "S" && tier !== "A" && tier !== "B") continue;
+    out.push({
+      tier: tier as "S" | "A" | "B",
+      name_zh: cols[1] || "",
+      name_en: cols[2] || "",
+      civilization: cols[3] || "",
+      era: cols[4] || "",
+      lifespan: cols[5] || "",
+      hint: cols.slice(6).join(",").trim(),
+    });
+  }
+  return out;
+}
+
+function slugifyPersonId(name_en: string, fallback: string): string {
+  const slug = String(name_en || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || `person-${fallback}`;
+}
+
+async function llmGeneratePersonProfile(row: BulkCsvRow): Promise<{
+  roles: string[];
+  core_theme: string;
+  visual_symbols: string[];
+  music_style_hint: string;
+  tone: string;
+  risk_notes: string[];
+  name_native: string | null;
+  name_latin: string | null;
+} | null> {
+  const sys =
+    "You are a cultural curator. Output STRICT JSON only — no commentary, no markdown fences.";
+  const user =
+    `Build a concise creative-direction profile for: ${row.name_zh} (${row.name_en}).\n` +
+    `Civilization: ${row.civilization}. Era: ${row.era}. Lifespan: ${row.lifespan}.\n` +
+    `Hint: ${row.hint}\n\n` +
+    `Return JSON with keys:\n` +
+    `  roles: string[] (2-4 short labels in Chinese)\n` +
+    `  core_theme: string (one Chinese sentence, <=40 chars)\n` +
+    `  visual_symbols: string[] (3-5 iconic visual motifs in Chinese)\n` +
+    `  music_style_hint: string (e.g. cinematic, choral, guqin)\n` +
+    `  tone: string (e.g. solemn, playful, heroic)\n` +
+    `  risk_notes: string[] (sensitivity flags; empty array if none)\n` +
+    `  name_native: string | null (native-script name)\n` +
+    `  name_latin: string | null (Latin transliteration)\n`;
+  try {
+    const r = await callLlm({
+      messages: [
+        { role: "system", content: sys },
+        { role: "user", content: user },
+      ],
+      response_format: { type: "json_object" },
+    });
+    if (!r.ok || !r.content) return null;
+    let parsed: any = null;
+    try { parsed = JSON.parse(r.content); } catch { return null; }
+    if (!parsed || typeof parsed !== "object") return null;
+    return {
+      roles: Array.isArray(parsed.roles) ? parsed.roles.map(String).slice(0, 6) : [],
+      core_theme: String(parsed.core_theme || "").slice(0, 200),
+      visual_symbols: Array.isArray(parsed.visual_symbols)
+        ? parsed.visual_symbols.map(String).slice(0, 8)
+        : [],
+      music_style_hint: String(parsed.music_style_hint || "cinematic").slice(0, 80),
+      tone: String(parsed.tone || "").slice(0, 80),
+      risk_notes: Array.isArray(parsed.risk_notes) ? parsed.risk_notes.map(String).slice(0, 6) : [],
+      name_native: parsed.name_native ? String(parsed.name_native).slice(0, 80) : null,
+      name_latin: parsed.name_latin ? String(parsed.name_latin).slice(0, 120) : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+type BulkGenSummary = {
+  processed: number;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+  errors: Array<{ person_id: string; error: string }>;
+  results: Array<{ person_id: string; ok: boolean; influence_score?: number; pageviews?: number }>;
+};
+
+async function bulkGeneratePersons(
+  rows: BulkCsvRow[],
+  limit: number,
+): Promise<BulkGenSummary> {
+  const summary: BulkGenSummary = {
+    processed: 0, succeeded: 0, failed: 0, skipped: 0, errors: [], results: [],
+  };
+  const slice = rows.slice(0, Math.max(1, limit));
+  // 5 LLM calls/sec → 200ms gap. Wiki helper is self-throttled at 1s/req.
+  const llmGapMs = 200;
+  for (const row of slice) {
+    summary.processed += 1;
+    const personId = slugifyPersonId(row.name_en, String(summary.processed));
+    try {
+      const exists = await withClient((c) =>
+        c.query<{ person_id: string }>(
+          `SELECT person_id FROM person_profiles WHERE person_id = $1 LIMIT 1`,
+          [personId],
+        ),
+      );
+      if (exists.rows.length) {
+        summary.skipped += 1;
+        summary.results.push({ person_id: personId, ok: true });
+        continue;
+      }
+      const profile = await llmGeneratePersonProfile(row);
+      if (!profile) throw new Error("llm_profile_failed");
+      const pv = await fetchPageviews(row.name_zh, row.name_en, "en", 3);
+      const score = influenceFromPageviews(pv.monthly_avg, row.tier);
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO person_profiles (
+              person_id, name_zh, name_en, name_native, name_latin,
+              civilization, era, lifespan,
+              roles, core_theme, visual_symbols, music_style_hint, tone,
+              influence_score, risk_notes, source_status,
+              curation_tier, pageviews_monthly, auto_generated
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'auto',$16,$17,true)
+           ON CONFLICT (person_id) DO NOTHING`,
+          [
+            personId, row.name_zh, row.name_en,
+            profile.name_native, profile.name_latin,
+            row.civilization, row.era, row.lifespan,
+            profile.roles, profile.core_theme, profile.visual_symbols,
+            profile.music_style_hint, profile.tone,
+            score, profile.risk_notes,
+            row.tier, pv.monthly_avg || null,
+          ],
+        ),
+      );
+      summary.succeeded += 1;
+      summary.results.push({
+        person_id: personId, ok: true,
+        influence_score: score, pageviews: pv.monthly_avg,
+      });
+    } catch (err) {
+      summary.failed += 1;
+      summary.errors.push({ person_id: personId, error: (err as Error)?.message || String(err) });
+      summary.results.push({ person_id: personId, ok: false });
+    }
+    await new Promise((r) => setTimeout(r, llmGapMs));
+  }
+  return summary;
+}
+
+app.post("/api/admin/person-mv/persons/bulk-generate",
+  express.json({ limit: "1mb" }),
+  async (req, res) => {
+    noStore(res);
+    try {
+      const adminToken = String(req.header("x-admin-token") || "").trim();
+      const expectedToken = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+      let authed = false;
+      if (expectedToken && adminToken && adminToken === expectedToken) {
+        authed = true;
+      } else {
+        const user = await getSessionUser(req).catch(() => null);
+        if (user && roleForEmail(user.email) === "admin") authed = true;
+      }
+      if (!authed) return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+      let csvText = "";
+      const body = (req.body || {}) as { csv?: string; limit?: number };
+      if (body.csv && typeof body.csv === "string") {
+        csvText = body.csv;
+      } else {
+        const csvPath = path.join(process.cwd(), "data", "person-candidates.csv");
+        try {
+          csvText = fs.readFileSync(csvPath, "utf8");
+        } catch (err) {
+          return res.status(404).json({ ok: false, code: "CSV_NOT_FOUND", message: (err as Error)?.message });
+        }
+      }
+      const rows = parseBulkCsv(csvText);
+      if (!rows.length) return res.status(400).json({ ok: false, code: "CSV_EMPTY" });
+      const limit = Math.max(1, Math.min(1000, Number(body.limit) || rows.length));
+      // Fire-and-forget for large batches; respond immediately with the
+      // claimed work + run a foreground-bounded slice so the caller still
+      // gets useful telemetry on small batches.
+      if (limit > 25) {
+        bulkGeneratePersons(rows, limit).then((s) => {
+          console.log(`[person-mv-bulk] background done: ok=${s.succeeded} fail=${s.failed} skip=${s.skipped}`);
+        }).catch((e) => {
+          console.warn("[person-mv-bulk] background failed:", (e as Error)?.message || e);
+        });
+        return res.json({ ok: true, started: true, total: rows.length, limit });
+      }
+      const summary = await bulkGeneratePersons(rows, limit);
+      return res.json({ ok: true, ...summary });
+    } catch (err) {
+      console.warn("[person-mv] bulk-generate failed:", (err as Error)?.message || err);
+      return res.status(500).json({ ok: false, code: "BULK_GENERATE_FAILED" });
+    }
+  },
+);
 
 /* CSSOS_PERSON_MV_WAVE14 20260508 — Jing
  * Cross-person dialogue MV. Two persons "converse" in alternating verses

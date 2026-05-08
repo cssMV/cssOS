@@ -8989,7 +8989,9 @@ const PROVIDER_TIERS: Record<string, "free" | "cheap" | "standard" | "premium"> 
   kling: "standard",
   luma: "premium",
   // music
+  huggingface_music: "free", // facebook/musicgen-small via HF Inference (uses HUGGINGFACE_API_KEY)
   mubert: "free",
+  replicate_music: "cheap",  // meta/musicgen on Replicate (uses REPLICATE_API_KEY)
   elevenlabs: "premium",
   stability: "standard",
   suno: "premium",
@@ -9300,7 +9302,7 @@ type MusicGenResponse = {
   audio_b64?: string;
   error?: string;
 };
-const MUSIC_PROVIDERS = ["mubert", "elevenlabs", "stability", "suno"] as const;
+const MUSIC_PROVIDERS = ["huggingface_music", "mubert", "replicate_music", "elevenlabs", "stability", "suno"] as const;
 /* CSSOS_PROVIDER_PRIORITY 20260507 — Jing
  * "第三方引擎，优者优先（有时效限制者特别优先），免费档次，其他档
  * 次以此类推，openAI兜底."
@@ -9311,7 +9313,7 @@ const MUSIC_PROVIDERS = ["mubert", "elevenlabs", "stability", "suno"] as const;
  *   suno       — paid via kie.ai (highest quality, last because $$)
  */
 function musicProviderOrder(prefer?: string[]): string[] {
-  const env = String(process.env.MUSIC_PROVIDER_ORDER || "mubert,stability,elevenlabs,suno")
+  const env = String(process.env.MUSIC_PROVIDER_ORDER || "huggingface_music,mubert,replicate_music,stability,elevenlabs,suno")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   const list = (prefer && prefer.length ? prefer : env).filter((p) =>
     (MUSIC_PROVIDERS as readonly string[]).includes(p));
@@ -9404,6 +9406,97 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
         }
         if (pollUrl) return { ok: true, provider: "mubert", audio_url: pollUrl };
         lastErr = "mubert_poll_timeout";
+        continue;
+      }
+      if (provider === "huggingface_music") {
+        // facebook/musicgen-small via HF Inference API. Free with HF
+        // token. Returns binary WAV bytes. Cold-start (503 +
+        // estimated_time) → fall through rather than wait.
+        const hfKey = String(process.env.HUGGINGFACE_API_KEY || process.env.HF_API_KEY || "").trim();
+        if (!hfKey) continue;
+        const dur = Math.max(5, Math.min(60, Math.round(req.duration_secs || 30)));
+        // musicgen-small ≈ 256 tokens / 10s @ 32kHz; cap to ~30s worth.
+        const maxNewTokens = Math.min(1536, Math.round(dur * 25.6));
+        const prompt = String(req.prompt || (req.tags || []).join(", ") || "cinematic ambient");
+        const upstream = await fetch("https://api-inference.huggingface.co/models/facebook/musicgen-small", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${hfKey}`,
+            "Content-Type": "application/json",
+            Accept: "audio/wav",
+          },
+          body: JSON.stringify({ inputs: prompt, parameters: { max_new_tokens: maxNewTokens } }),
+        });
+        if (upstream.status === 503) {
+          const txt = await upstream.text().catch(() => "");
+          let est = "";
+          try { const j = JSON.parse(txt); est = String(j?.estimated_time || ""); } catch {}
+          console.warn(`[music-router] huggingface_music cold-start 503 (est=${est}s) — falling through`);
+          lastErr = `huggingface_music_cold_start_${est}`;
+          continue;
+        }
+        if (!upstream.ok) {
+          const body = await upstream.text().catch(() => "");
+          lastErr = `huggingface_music_${upstream.status}: ${body.slice(0, 200)}`;
+          if (isCreditsError(upstream.status, body)) console.warn(`[music-router] huggingface_music credits/quota, falling through`);
+          else console.warn(`[music-router] huggingface_music ${upstream.status}: ${body.slice(0, 200)}`);
+          continue;
+        }
+        const ab = await upstream.arrayBuffer();
+        const b64 = Buffer.from(ab).toString("base64");
+        if (!b64) { lastErr = "huggingface_music_empty_body"; continue; }
+        return { ok: true, provider: "huggingface_music", audio_b64: b64 };
+      }
+      if (provider === "replicate_music") {
+        const repKey = String(process.env.REPLICATE_API_KEY || process.env.REPLICATE_API_TOKEN || "").trim();
+        if (!repKey) continue;
+        const dur = Math.max(5, Math.min(60, Math.round(req.duration_secs || 30)));
+        const prompt = String(req.prompt || (req.tags || []).join(", ") || "cinematic ambient");
+        const upstream = await fetch("https://api.replicate.com/v1/models/meta/musicgen/predictions", {
+          method: "POST",
+          headers: {
+            Authorization: `Token ${repKey}`,
+            "Content-Type": "application/json",
+            Prefer: "wait=60",
+          },
+          body: JSON.stringify({
+            input: {
+              model_version: "stereo-large",
+              prompt,
+              duration: dur,
+              output_format: "mp3",
+              normalization_strategy: "peak",
+            },
+          }),
+        });
+        const j: any = await upstream.json().catch(() => null);
+        if (!upstream.ok || !j) {
+          const bodyStr = JSON.stringify(j || {});
+          lastErr = `replicate_music_${upstream.status}: ${bodyStr.slice(0, 200)}`;
+          if (isCreditsError(upstream.status, bodyStr)) console.warn(`[music-router] replicate_music credits exhausted, falling through`);
+          else console.warn(`[music-router] replicate_music ${upstream.status}: ${bodyStr.slice(0, 200)}`);
+          continue;
+        }
+        const out = j?.output;
+        const url = typeof out === "string" ? out : (Array.isArray(out) && out.length ? String(out[0]) : "");
+        if (url) return { ok: true, provider: "replicate_music", audio_url: url };
+        // Status pending (sync wait timed out). Poll urls.get briefly.
+        const getUrl = String(j?.urls?.get || "");
+        if (getUrl) {
+          const deadline = Date.now() + 60_000;
+          while (Date.now() < deadline) {
+            await new Promise((r) => setTimeout(r, 2500));
+            const st = await fetch(getUrl, { headers: { Authorization: `Token ${repKey}` } });
+            const sj: any = await st.json().catch(() => null);
+            if (sj?.status === "succeeded") {
+              const o = sj?.output;
+              const u = typeof o === "string" ? o : (Array.isArray(o) && o.length ? String(o[0]) : "");
+              if (u) return { ok: true, provider: "replicate_music", audio_url: u };
+            }
+            if (sj?.status === "failed" || sj?.status === "canceled") break;
+          }
+        }
+        lastErr = "replicate_music_poll_timeout";
         continue;
       }
       // Other music providers (suno, elevenlabs, stability) — adapters

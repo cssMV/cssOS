@@ -1811,6 +1811,73 @@ app.all(/^\/api\/payments\//, (req, res) => {
   upstream.end();
 });
 
+// CSSOS_PHASE2_SETTINGS_ENGINE_KEYS_PROXY 20260507 — Jing
+// Frontend (app.engine-accounts.js) hits /api/settings/engine-keys/* for BYOK
+// management; the Rust API exposes these routes (see rust-api/src/
+// engine_credentials/api.rs) but Express had no proxy → 404. Mirror the
+// /api/payments/* proxy pattern.
+app.all(/^\/api\/settings\//, (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) {
+    return res.status(401).json({ ok: false, error: "sign_in_required" });
+  }
+  if (!CSSOS_INTERNAL_TOKEN) {
+    return res.status(503).json({
+      ok: false,
+      error: "internal_token_not_configured",
+      hint: "set CSSOS_INTERNAL_TOKEN in /etc/cssos.env",
+    });
+  }
+  const bodyStr =
+    req.body && typeof req.body === "object" && Object.keys(req.body).length > 0
+      ? JSON.stringify(req.body)
+      : "";
+  const upstream = http.request(
+    {
+      hostname: RUST_MV_HOST,
+      port: RUST_MV_PORT,
+      path: req.originalUrl,
+      method: req.method,
+      headers: {
+        "content-type":
+          (req.headers["content-type"] as string) || "application/json",
+        "content-length": Buffer.byteLength(bodyStr),
+        "x-cssos-internal-token": CSSOS_INTERNAL_TOKEN,
+        "x-cssos-user": String(userId),
+        "x-forwarded-for": String(
+          req.headers["x-forwarded-for"] || req.ip || req.socket.remoteAddress || "",
+        ),
+      },
+      timeout: 60000,
+    },
+    (upstreamRes) => {
+      res.status(upstreamRes.statusCode || 502);
+      for (const [k, v] of Object.entries(upstreamRes.headers)) {
+        if (v === undefined) continue;
+        const lower = k.toLowerCase();
+        if (lower === "transfer-encoding" || lower === "connection" || lower === "keep-alive") continue;
+        try { res.setHeader(k, v as any); } catch {}
+      }
+      upstreamRes.pipe(res);
+    },
+  );
+  upstream.on("timeout", () => upstream.destroy(new Error("upstream_timeout")));
+  upstream.on("error", (err) => {
+    console.error("[settings-proxy] upstream error", req.method, req.originalUrl, (err as any)?.message || err);
+    if (!res.headersSent) {
+      res.status(502).json({
+        ok: false,
+        error: "settings_upstream_error",
+        detail: (err as any)?.message || String(err),
+      });
+    } else {
+      try { res.end(); } catch {}
+    }
+  });
+  if (bodyStr) upstream.write(bodyStr);
+  upstream.end();
+});
+
 app.get("/version.json", (_req, res) => {
   noStore(res);
   try {

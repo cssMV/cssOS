@@ -21,6 +21,7 @@ import {
 } from "./cssmv/schemas/structure-tree";
 import { SEED_PERSON_PROFILES } from "./person_mv_seed";
 import { SEED_PERSON_GROUPS } from "./person_group_seed";
+import { SEED_FESTIVALS, type SeedFestival } from "./festival_seed";
 
 const ENV_CONFIG_PATHS = [
   "/srv/cssos.env",
@@ -11350,7 +11351,157 @@ async function ensurePersonMvTables() {
         ON user_notifications (user_id, read_at) WHERE read_at IS NULL;
       CREATE INDEX IF NOT EXISTS user_notifications_user_recent_idx
         ON user_notifications (user_id, created_at DESC);
+
+      -- CSSOS_PERSON_MV_WAVE23 20260508 — Jing — festival roster.
+      -- Mirrors migrations/022_festivals.sql so a fresh DB self-heals.
+      CREATE TABLE IF NOT EXISTS festivals (
+        festival_id      TEXT PRIMARY KEY,
+        name_zh          TEXT NOT NULL,
+        name_en          TEXT NOT NULL,
+        description_zh   TEXT,
+        description_en   TEXT,
+        date_rule        TEXT NOT NULL,
+        emoji            TEXT,
+        theme_color      TEXT,
+        featured_persons TEXT[] NOT NULL DEFAULT '{}',
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS festivals_rule_idx ON festivals (date_rule);
+
+      -- CSSOS_PERSON_MV_WAVE27 20260508 — Jing
+      -- A/B experiments: deterministic per-user assignment + event log.
+      -- Mirrors migrations/024_ab_experiments.sql.
+      CREATE TABLE IF NOT EXISTS ab_experiments (
+        experiment_id   TEXT PRIMARY KEY,
+        name            TEXT NOT NULL,
+        variants        TEXT[] NOT NULL,
+        traffic_split   JSONB NOT NULL,
+        active          BOOLEAN NOT NULL DEFAULT true,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS ab_assignments (
+        user_id         UUID NOT NULL,
+        experiment_id   TEXT NOT NULL,
+        variant         TEXT NOT NULL,
+        assigned_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (user_id, experiment_id)
+      );
+      CREATE TABLE IF NOT EXISTS ab_events (
+        id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id         UUID NOT NULL,
+        experiment_id   TEXT NOT NULL,
+        variant         TEXT NOT NULL,
+        event_kind      TEXT NOT NULL,
+        payload         JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS ab_events_exp_idx
+        ON ab_events (experiment_id, event_kind, created_at);
+
+      -- CSSOS_PERSON_MV_WAVE28 20260508 — Jing
+      -- Creation template market. Mirrors migrations/025_person_mv_templates.sql.
+      CREATE TABLE IF NOT EXISTS person_mv_templates (
+        template_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id         UUID NOT NULL,
+        name            TEXT NOT NULL,
+        description     TEXT,
+        seed            JSONB NOT NULL,
+        visibility      TEXT NOT NULL DEFAULT 'public',
+        fork_count      INTEGER NOT NULL DEFAULT 0,
+        use_count       INTEGER NOT NULL DEFAULT 0,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS person_mv_templates_user_idx
+        ON person_mv_templates (user_id);
+      CREATE INDEX IF NOT EXISTS person_mv_templates_use_count_idx
+        ON person_mv_templates (use_count DESC);
+
+      -- CSSOS_PERSON_MV_WAVE25 20260508 — Jing — full-text search.
+      -- Mirrors migrations/026_person_mv_search.sql. Triggers below
+      -- (separate query, $$ scoping). Backfill is idempotent.
+      ALTER TABLE person_profiles    ADD COLUMN IF NOT EXISTS search_vector tsvector;
+      ALTER TABLE person_mvs         ADD COLUMN IF NOT EXISTS search_vector tsvector;
+      ALTER TABLE person_mv_comments ADD COLUMN IF NOT EXISTS search_vector tsvector;
+      CREATE INDEX IF NOT EXISTS person_profiles_search_idx
+        ON person_profiles    USING GIN (search_vector);
+      CREATE INDEX IF NOT EXISTS person_mvs_search_idx
+        ON person_mvs         USING GIN (search_vector);
+      CREATE INDEX IF NOT EXISTS person_mv_comments_search_idx
+        ON person_mv_comments USING GIN (search_vector);
+
+      -- CSSOS_PERSON_MV_WAVE26 20260508 — Jing — subscriptions + RSS.
+      -- Mirrors migrations/027_user_subscriptions.sql.
+      CREATE TABLE IF NOT EXISTS user_subscriptions (
+        user_id      UUID NOT NULL,
+        target_kind  TEXT NOT NULL CHECK (target_kind IN ('creator','person','group')),
+        target_id    TEXT NOT NULL,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (user_id, target_kind, target_id)
+      );
+      CREATE INDEX IF NOT EXISTS user_subs_target_idx
+        ON user_subscriptions (target_kind, target_id);
+      CREATE INDEX IF NOT EXISTS user_subs_user_idx
+        ON user_subscriptions (user_id, created_at DESC);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS rss_token TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS users_rss_token_idx
+        ON users (rss_token) WHERE rss_token IS NOT NULL;
     `),
+  );
+
+  // CSSOS_PERSON_MV_WAVE25 — install search-vector triggers in a
+  // separate query (plpgsql function bodies use $$ delimiters which
+  // would clash with the multi-statement string above).
+  await withClient((c) =>
+    c.query(`
+      CREATE OR REPLACE FUNCTION person_profiles_search_update() RETURNS trigger AS $fn$
+      BEGIN
+        NEW.search_vector :=
+            setweight(to_tsvector('simple', COALESCE(NEW.name_zh, '')),       'A')
+         || setweight(to_tsvector('simple', COALESCE(NEW.name_en, '')),       'A')
+         || setweight(to_tsvector('simple', COALESCE(NEW.civilization, '')),  'B')
+         || setweight(to_tsvector('simple', COALESCE(NEW.core_theme, '')),    'C')
+         || setweight(to_tsvector('simple', COALESCE(NEW.lifespan, '')),      'D');
+        RETURN NEW;
+      END $fn$ LANGUAGE plpgsql;
+      DROP TRIGGER IF EXISTS person_profiles_search_trigger ON person_profiles;
+      CREATE TRIGGER person_profiles_search_trigger
+        BEFORE INSERT OR UPDATE ON person_profiles
+        FOR EACH ROW EXECUTE FUNCTION person_profiles_search_update();
+
+      CREATE OR REPLACE FUNCTION person_mvs_search_update() RETURNS trigger AS $fn$
+      BEGIN
+        NEW.search_vector :=
+            setweight(to_tsvector('simple', COALESCE(NEW.scenario_seed, '')), 'A');
+        RETURN NEW;
+      END $fn$ LANGUAGE plpgsql;
+      DROP TRIGGER IF EXISTS person_mvs_search_trigger ON person_mvs;
+      CREATE TRIGGER person_mvs_search_trigger
+        BEFORE INSERT OR UPDATE ON person_mvs
+        FOR EACH ROW EXECUTE FUNCTION person_mvs_search_update();
+
+      CREATE OR REPLACE FUNCTION person_mv_comments_search_update() RETURNS trigger AS $fn$
+      BEGIN
+        NEW.search_vector :=
+            setweight(to_tsvector('simple', COALESCE(NEW.body, '')), 'A');
+        RETURN NEW;
+      END $fn$ LANGUAGE plpgsql;
+      DROP TRIGGER IF EXISTS person_mv_comments_search_trigger ON person_mv_comments;
+      CREATE TRIGGER person_mv_comments_search_trigger
+        BEFORE INSERT OR UPDATE ON person_mv_comments
+        FOR EACH ROW EXECUTE FUNCTION person_mv_comments_search_update();
+    `),
+  );
+
+  // Idempotent backfill — trigger fires on UPDATE so existing rows get
+  // populated. WHERE search_vector IS NULL keeps it cheap on re-run.
+  await withClient((c) =>
+    c.query(`UPDATE person_profiles    SET search_vector = NULL WHERE search_vector IS NULL;`),
+  );
+  await withClient((c) =>
+    c.query(`UPDATE person_mvs         SET search_vector = NULL WHERE search_vector IS NULL;`),
+  );
+  await withClient((c) =>
+    c.query(`UPDATE person_mv_comments SET search_vector = NULL WHERE search_vector IS NULL;`),
   );
 }
 
@@ -11361,7 +11512,7 @@ async function ensurePersonMvTables() {
  * actor for defense-in-depth. */
 async function enqueueNotification(
   userId: string | null | undefined,
-  kind: "mv_like" | "mv_comment" | "follow" | "system",
+  kind: "mv_like" | "mv_comment" | "follow" | "feed_new_mv" | "system",
   payload: Record<string, unknown>,
 ): Promise<void> {
   if (!DATABASE_URL || !userId) return;
@@ -11524,6 +11675,10 @@ async function seedPersonProfilesOnce() {
   seedPersonGroupsOnce().catch((err) => {
     console.warn("[person-mv] groups seed failed (non-fatal):", (err as Error)?.message || err);
   });
+  // CSSOS_PERSON_MV_WAVE23 — festival seed.
+  seedFestivalsOnce().catch((err) => {
+    console.warn("[person-mv] festivals seed failed (non-fatal):", (err as Error)?.message || err);
+  });
 }
 
 let personGroupsSeedLoaded = false;
@@ -11581,6 +11736,89 @@ async function seedPersonGroupsOnce() {
   }
   personGroupsSeedLoaded = true;
   console.info("[person-mv] groups seed loaded — inserted=%d skipped=%d", inserted, skipped);
+}
+
+/* CSSOS_PERSON_MV_WAVE23 20260508 — Jing
+ * Lunar→Gregorian date map for festival "today" lookups. We don't depend
+ * on lunar-javascript; only 春节/端午/中秋 across 2024-2030 are needed for
+ * the current festival roster. Format: "YYYY" → { "lunar:M-D": "MM-DD" }.
+ */
+const LUNAR_DATES: Record<string, Record<string, string>> = {
+  "2024": { "lunar:1-1": "02-10", "lunar:5-5": "06-10", "lunar:8-15": "09-17" },
+  "2025": { "lunar:1-1": "01-29", "lunar:5-5": "05-31", "lunar:8-15": "10-06" },
+  "2026": { "lunar:1-1": "02-17", "lunar:5-5": "06-19", "lunar:8-15": "09-25" },
+  "2027": { "lunar:1-1": "02-06", "lunar:5-5": "06-09", "lunar:8-15": "09-15" },
+  "2028": { "lunar:1-1": "01-26", "lunar:5-5": "05-28", "lunar:8-15": "10-03" },
+  "2029": { "lunar:1-1": "02-13", "lunar:5-5": "06-16", "lunar:8-15": "09-22" },
+  "2030": { "lunar:1-1": "02-03", "lunar:5-5": "06-05", "lunar:8-15": "09-12" },
+};
+
+/** Resolve a festival's date_rule to today's MM-DD if it lands today.
+ * Returns null otherwise. `today` is a Date in UTC. */
+function festivalLandsOn(rule: string, today: Date): string | null {
+  const mm = String(today.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(today.getUTCDate()).padStart(2, "0");
+  const todayMD = `${mm}-${dd}`;
+  if (rule.startsWith("gregorian:")) {
+    const body = rule.slice("gregorian:".length);
+    const m = body.match(/^(\d{1,2})-(\d{1,2})$/);
+    if (!m) return null;
+    const ruleMD = `${String(m[1]).padStart(2, "0")}-${String(m[2]).padStart(2, "0")}`;
+    return ruleMD === todayMD ? ruleMD : null;
+  }
+  if (rule.startsWith("lunar:")) {
+    const yr = String(today.getUTCFullYear());
+    const mapped = LUNAR_DATES[yr]?.[rule];
+    if (!mapped) return null;
+    return mapped === todayMD ? mapped : null;
+  }
+  return null;
+}
+
+let festivalsSeedLoaded = false;
+async function seedFestivalsOnce() {
+  if (festivalsSeedLoaded || !DATABASE_URL) return;
+  const presentIds = new Set(SEED_PERSON_PROFILES.map((p) => p.person_id));
+  let inserted = 0;
+  let skipped = 0;
+  for (const f of SEED_FESTIVALS) {
+    const allPresent = f.featured_persons.every((id) => presentIds.has(id));
+    if (!allPresent) {
+      skipped += 1;
+      console.info(
+        "[person-mv] festival %s skipped — missing: %s",
+        f.festival_id,
+        f.featured_persons.filter((id) => !presentIds.has(id)).join(","),
+      );
+      continue;
+    }
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO festivals (
+            festival_id, name_zh, name_en, description_zh, description_en,
+            date_rule, emoji, theme_color, featured_persons
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         ON CONFLICT (festival_id) DO UPDATE SET
+            name_zh = EXCLUDED.name_zh,
+            name_en = EXCLUDED.name_en,
+            description_zh = EXCLUDED.description_zh,
+            description_en = EXCLUDED.description_en,
+            date_rule = EXCLUDED.date_rule,
+            emoji = EXCLUDED.emoji,
+            theme_color = EXCLUDED.theme_color,
+            featured_persons = EXCLUDED.featured_persons`,
+        [
+          f.festival_id, f.name_zh, f.name_en,
+          f.description_zh || null, f.description_en || null,
+          f.date_rule, f.emoji || null, f.theme_color || null,
+          f.featured_persons,
+        ],
+      ),
+    );
+    inserted += 1;
+  }
+  festivalsSeedLoaded = true;
+  console.info("[person-mv] festivals seed loaded — inserted=%d skipped=%d", inserted, skipped);
 }
 
 async function ensureAdminUserActionsTable() {
@@ -15841,6 +16079,152 @@ app.get("/api/person-mv/today-in-history", async (req, res) => {
   } catch (err) {
     console.warn("[person-mv] today-in-history failed:", (err as Error)?.message || err);
     return res.status(500).json({ ok: false, code: "TODAY_IN_HISTORY_FAILED" });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE23 20260508 — Jing — festival endpoints. */
+app.get("/api/person-mv/festivals/today", async (_req, res) => {
+  noStore(res);
+  try {
+    await seedPersonProfilesOnce();
+    await seedFestivalsOnce();
+    const r: { rows: any[] } = await withClient((c) =>
+      c.query<any>(
+        `SELECT festival_id, name_zh, name_en, description_zh, description_en,
+                date_rule, emoji, theme_color, featured_persons
+           FROM festivals`,
+      ),
+    ) as any;
+    const today = new Date();
+    const active = (r.rows || []).filter((row: any) => festivalLandsOn(String(row.date_rule), today) != null);
+    return res.json({ ok: true, data: { festivals: active } });
+  } catch (err) {
+    console.warn("[person-mv] festivals/today failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "FESTIVALS_TODAY_FAILED" });
+  }
+});
+
+app.get("/api/person-mv/festivals/:festival_id", async (req, res) => {
+  noStore(res);
+  try {
+    await seedPersonProfilesOnce();
+    await seedFestivalsOnce();
+    const fid = String(req.params.festival_id || "").trim();
+    if (!fid) return res.status(400).json({ ok: false, code: "FESTIVAL_ID_REQUIRED" });
+    const fr = await withClient((c) =>
+      c.query<any>(
+        `SELECT festival_id, name_zh, name_en, description_zh, description_en,
+                date_rule, emoji, theme_color, featured_persons
+           FROM festivals WHERE festival_id = $1`,
+        [fid],
+      ),
+    );
+    const f = fr.rows?.[0];
+    if (!f) return res.status(404).json({ ok: false, code: "FESTIVAL_NOT_FOUND" });
+    const ids: string[] = Array.isArray(f.featured_persons) ? f.featured_persons : [];
+    const persons = ids.length === 0 ? [] : (await withClient((c) =>
+      c.query<any>(
+        `SELECT pp.person_id, pp.name_zh, pp.name_en, pp.civilization, pp.era,
+                pp.lifespan, pp.portrait_url, pp.influence_score,
+                (SELECT pm.work_id FROM person_mvs pm
+                  WHERE pm.person_id = pp.person_id AND pm.is_official_sample
+                  LIMIT 1) AS sample_work_id
+           FROM person_profiles pp
+          WHERE pp.person_id = ANY($1)
+          ORDER BY pp.influence_score DESC NULLS LAST`,
+        [ids],
+      ),
+    )).rows;
+    const mvs = ids.length === 0 ? [] : (await withClient((c) =>
+      c.query<any>(
+        `SELECT pm.mv_id, pm.person_id, pm.work_id, pm.created_at,
+                pm.view_count, pm.like_count
+           FROM person_mvs pm
+          WHERE pm.person_id = ANY($1)
+            AND pm.visibility = 'public'
+            AND pm.approval_status = 'auto_published'
+          ORDER BY pm.view_count DESC, pm.created_at DESC
+          LIMIT 60`,
+        [ids],
+      ),
+    )).rows;
+    return res.json({ ok: true, data: { festival: f, persons, mvs } });
+  } catch (err) {
+    console.warn("[person-mv] festivals/:id failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "FESTIVAL_DETAIL_FAILED" });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE24 20260508 — Jing — AI creator chat.
+ * Single-shot intent extraction; chunked-transfer heartbeats during LLM
+ * latency. Does NOT auto-execute irreversible actions; frontend triggers
+ * person creation + cinema after receiving action="create_mv". */
+app.post("/api/person-mv/ai-assistant", express.json({ limit: "8kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const message = String((req.body as any)?.message || "").trim();
+    if (!message) return res.status(400).json({ ok: false, code: "MESSAGE_REQUIRED" });
+    if (message.length > 600) return res.status(400).json({ ok: false, code: "MESSAGE_TOO_LONG" });
+
+    res.status(200);
+    res.setHeader("content-type", "application/json; charset=utf-8");
+    res.setHeader("transfer-encoding", "chunked");
+    res.flushHeaders?.();
+    const heartbeat = setInterval(() => { try { res.write(" "); } catch {} }, 5000);
+
+    const sysPrompt =
+      "You are a music video creation assistant for CSS Studio. " +
+      "Extract user intent and respond ONLY with strict JSON (no prose) matching: " +
+      "{\"action\":\"create_mv\"|\"search_person\"|\"chat\", " +
+      "\"target_name\":string|null, \"occasion\":string|null, " +
+      "\"style_hint\":string|null, \"message\":string|null}. " +
+      "Rules: " +
+      "(1) action='create_mv' when user wants to MAKE an MV for a specific person/relative " +
+      "(e.g. '为我妈做支60大寿MV','送给苏格拉底的赛博朋克版'). target_name MUST be filled. " +
+      "(2) action='search_person' when they ask to explore an existing figure without making one. " +
+      "(3) action='chat' for everything else; fill `message` with a short warm reply " +
+      "(zh if user wrote zh, else en, ≤80 chars). " +
+      "(4) `occasion` captures festival/birthday/anniversary if mentioned. " +
+      "(5) `style_hint` captures genre/mood (cyberpunk, 古风, lofi, etc).";
+
+    let parsed: any = null;
+    try {
+      const llm = await callLlm({
+        messages: [
+          { role: "system", content: sysPrompt },
+          { role: "user", content: message },
+        ],
+        temperature: 0.3,
+        max_tokens: 220,
+        response_format: { type: "json_object" },
+      });
+      if (llm.ok && llm.content) {
+        try { parsed = JSON.parse(llm.content); } catch { parsed = null; }
+      }
+    } catch (err) {
+      console.warn("[person-mv] ai-assistant llm threw:", (err as Error)?.message || err);
+    }
+
+    if (!parsed || typeof parsed !== "object") {
+      parsed = { action: "chat", target_name: null, occasion: null, style_hint: null, message: "我在,告诉我你想为谁做一支 MV。" };
+    }
+    const action = ["create_mv", "search_person", "chat"].includes(String(parsed.action))
+      ? String(parsed.action)
+      : "chat";
+    const out = {
+      action,
+      target_name: parsed.target_name ? String(parsed.target_name).slice(0, 80) : null,
+      occasion: parsed.occasion ? String(parsed.occasion).slice(0, 80) : null,
+      style_hint: parsed.style_hint ? String(parsed.style_hint).slice(0, 120) : null,
+      message: parsed.message ? String(parsed.message).slice(0, 240) : null,
+    };
+
+    clearInterval(heartbeat);
+    try { res.write(JSON.stringify({ ok: true, data: out })); } catch {}
+    return res.end();
+  } catch (err) {
+    console.warn("[person-mv] ai-assistant failed:", (err as Error)?.message || err);
+    try { return res.status(500).json({ ok: false, code: "AI_ASSISTANT_FAILED" }); } catch { return; }
   }
 });
 
@@ -23506,6 +23890,424 @@ app.get("/api/notifications/unread-count", async (req, res) => {
     return res.json({ ok: true, unread_count: Number(r.rows[0]?.count || 0) });
   } catch (err) {
     return res.status(500).json({ ok: false, code: "UNREAD_COUNT_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE27 20260508 — Jing
+ * A/B experiment helpers + endpoints. Deterministic variant assignment:
+ * sha256(`${user_id}:${experiment_id}`) → first 8 hex chars → uint32 →
+ * mod 10000 → walk traffic_split buckets in declared variant order.
+ * Same user + experiment = same variant forever; once persisted in
+ * ab_assignments, reweighting traffic_split won't reshuffle existing
+ * users (the row wins). */
+type AbExperiment = {
+  experiment_id: string;
+  name: string;
+  variants: string[];
+  traffic_split: Record<string, number>;
+  active: boolean;
+};
+
+function pickAbVariantDeterministic(
+  userId: string,
+  experiment: AbExperiment,
+): string {
+  const variants = experiment.variants || [];
+  if (!variants.length) return "control";
+  const split = experiment.traffic_split || {};
+  let total = 0;
+  for (const v of variants) total += Math.max(0, Number(split[v]) || 0);
+  const hashHex = crypto
+    .createHash("sha256")
+    .update(`${userId}:${experiment.experiment_id}`)
+    .digest("hex")
+    .slice(0, 8);
+  const h = parseInt(hashHex, 16);
+  if (total <= 0) return variants[Math.abs(h) % variants.length]!;
+  const bucket = h % 10000;
+  const scale = 10000 / total;
+  let acc = 0;
+  for (const v of variants) {
+    acc += (Math.max(0, Number(split[v]) || 0)) * scale;
+    if (bucket < acc) return v;
+  }
+  return variants[variants.length - 1]!;
+}
+
+const __abExperimentCache = new Map<string, { exp: AbExperiment | null; ts: number }>();
+async function getAbExperiment(experimentId: string): Promise<AbExperiment | null> {
+  const cached = __abExperimentCache.get(experimentId);
+  if (cached && Date.now() - cached.ts < 60_000) return cached.exp;
+  if (!DATABASE_URL) return null;
+  try {
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT experiment_id, name, variants, traffic_split, active
+           FROM ab_experiments WHERE experiment_id = $1`,
+        [experimentId],
+      ),
+    );
+    const row = r.rows[0];
+    const exp: AbExperiment | null = row
+      ? {
+          experiment_id: row.experiment_id,
+          name: row.name,
+          variants: row.variants || [],
+          traffic_split: row.traffic_split || {},
+          active: !!row.active,
+        }
+      : null;
+    __abExperimentCache.set(experimentId, { exp, ts: Date.now() });
+    return exp;
+  } catch (err) {
+    console.warn("[ab] load experiment failed:", (err as Error)?.message || err);
+    return null;
+  }
+}
+
+const __abAssignCache = new Map<string, string>();
+async function getUserVariant(userId: string, experimentId: string): Promise<string | null> {
+  if (!userId || !experimentId) return null;
+  const key = `${userId}:${experimentId}`;
+  const hit = __abAssignCache.get(key);
+  if (hit) return hit;
+  if (!DATABASE_URL) return null;
+  await ensurePersonMvTables();
+  const existing = await withClient((c) =>
+    c.query<{ variant: string }>(
+      `SELECT variant FROM ab_assignments WHERE user_id = $1 AND experiment_id = $2`,
+      [userId, experimentId],
+    ),
+  );
+  if (existing.rows[0]?.variant) {
+    __abAssignCache.set(key, existing.rows[0].variant);
+    return existing.rows[0].variant;
+  }
+  const exp = await getAbExperiment(experimentId);
+  if (!exp || !exp.active) return null;
+  const variant = pickAbVariantDeterministic(userId, exp);
+  await withClient((c) =>
+    c.query(
+      `INSERT INTO ab_assignments (user_id, experiment_id, variant)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, experiment_id) DO NOTHING`,
+      [userId, experimentId, variant],
+    ),
+  );
+  __abAssignCache.set(key, variant);
+  return variant;
+}
+
+app.get("/api/ab/assignment/:experiment_id", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const experimentId = String(req.params.experiment_id || "").trim();
+    if (!experimentId || !/^[a-zA-Z0-9_\-]{1,64}$/.test(experimentId)) {
+      return res.status(400).json({ ok: false, code: "INVALID_EXPERIMENT_ID" });
+    }
+    const variant = await getUserVariant(user.id, experimentId);
+    if (!variant) return res.status(404).json({ ok: false, code: "EXPERIMENT_INACTIVE" });
+    try {
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO ab_events (user_id, experiment_id, variant, event_kind, payload)
+           VALUES ($1, $2, $3, 'exposure', '{}'::jsonb)`,
+          [user.id, experimentId, variant],
+        ),
+      );
+    } catch {}
+    return res.json({ ok: true, experiment_id: experimentId, variant });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "AB_ASSIGNMENT_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/ab/event", express.json({ limit: "16kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const body = req.body || {};
+    const experimentId = String(body.experiment_id || "").trim();
+    const eventKind = String(body.event_kind || "").trim();
+    if (!experimentId || !eventKind) {
+      return res.status(400).json({ ok: false, code: "INVALID_EVENT" });
+    }
+    if (!/^[a-zA-Z0-9_\-]{1,64}$/.test(experimentId) || !/^[a-z_]{1,32}$/.test(eventKind)) {
+      return res.status(400).json({ ok: false, code: "INVALID_EVENT" });
+    }
+    const variant = await getUserVariant(user.id, experimentId);
+    if (!variant) return res.status(404).json({ ok: false, code: "EXPERIMENT_INACTIVE" });
+    const payload = (body.payload && typeof body.payload === "object") ? body.payload : {};
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO ab_events (user_id, experiment_id, variant, event_kind, payload)
+         VALUES ($1, $2, $3, $4, $5::jsonb)`,
+        [user.id, experimentId, variant, eventKind, JSON.stringify(payload)],
+      ),
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "AB_EVENT_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/admin/ab/results/:experiment_id", async (req, res) => {
+  noStore(res);
+  try {
+    const adminToken = String(req.header("x-admin-token") || "").trim();
+    const expectedToken = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+    let authed = false;
+    if (expectedToken && adminToken && adminToken === expectedToken) {
+      authed = true;
+    } else {
+      const user = await getSessionUser(req).catch(() => null);
+      if (user && roleForEmail(user.email) === "admin") authed = true;
+    }
+    if (!authed) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const experimentId = String(req.params.experiment_id || "").trim();
+    if (!experimentId) return res.status(400).json({ ok: false, code: "INVALID_EXPERIMENT_ID" });
+    await ensurePersonMvTables();
+    const r = await withClient((c) =>
+      c.query<{ variant: string; event_kind: string; n: number }>(
+        `SELECT variant, event_kind, count(DISTINCT user_id)::int AS n
+           FROM ab_events
+          WHERE experiment_id = $1
+          GROUP BY variant, event_kind`,
+        [experimentId],
+      ),
+    );
+    const byVariant: Record<string, { exposure: number; conversion: number; error: number }> = {};
+    for (const row of r.rows) {
+      const v = row.variant;
+      if (!byVariant[v]) byVariant[v] = { exposure: 0, conversion: 0, error: 0 };
+      const k = row.event_kind as "exposure" | "conversion" | "error";
+      if (k === "exposure" || k === "conversion" || k === "error") {
+        byVariant[v]![k] = Number(row.n) || 0;
+      }
+    }
+    const results = Object.keys(byVariant).map((v) => {
+      const b = byVariant[v]!;
+      const rate = b.exposure > 0 ? b.conversion / b.exposure : 0;
+      return {
+        variant: v,
+        exposures: b.exposure,
+        conversions: b.conversion,
+        errors: b.error,
+        conversion_rate: rate,
+      };
+    });
+    return res.json({
+      ok: true,
+      experiment_id: experimentId,
+      results,
+      chi_square: { p_value: null, note: "placeholder — wire stats lib here" },
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "AB_RESULTS_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE28 20260508 — Jing
+ * Creation template market. Public-by-default seeds others can fork
+ * (private copy, fork_count++) or use (use_count++ when seed loads
+ * into the pipeline). Owners can DELETE their own templates. Forks
+ * land private so the forking user can iterate without polluting the
+ * public market until they explicitly republish later. */
+function sanitizeTemplateSeed(raw: any): any {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  let s: string;
+  try { s = JSON.stringify(raw); } catch { return null; }
+  if (!s || s.length > 32_768) return null;
+  try { return JSON.parse(s); } catch { return null; }
+}
+
+app.post("/api/person-mv/templates", express.json({ limit: "64kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const body = req.body || {};
+    const name = String(body.name || "").trim().slice(0, 120);
+    const description = body.description == null ? null : String(body.description).slice(0, 1000);
+    const visibilityRaw = String(body.visibility || "public").trim();
+    const visibility = visibilityRaw === "private" ? "private" : "public";
+    const seed = sanitizeTemplateSeed(body.seed);
+    if (!name) return res.status(400).json({ ok: false, code: "INVALID_NAME" });
+    if (!seed) return res.status(400).json({ ok: false, code: "INVALID_SEED" });
+    const r = await withClient((c) =>
+      c.query<{ template_id: string }>(
+        `INSERT INTO person_mv_templates (user_id, name, description, seed, visibility)
+         VALUES ($1, $2, $3, $4::jsonb, $5)
+         RETURNING template_id`,
+        [user.id, name, description, JSON.stringify(seed), visibility],
+      ),
+    );
+    return res.json({ ok: true, template_id: r.rows[0]?.template_id });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "TEMPLATE_CREATE_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/person-mv/templates", async (req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const sort = String(req.query.sort || "hot").trim();
+    const limit = Math.max(1, Math.min(100, Number(req.query.limit || 20) || 20));
+    const userIdFilter = String(req.query.user_id || "").trim();
+    let order = "use_count DESC, created_at DESC";
+    let where = "visibility = 'public'";
+    const params: any[] = [];
+    if (sort === "new") {
+      order = "created_at DESC";
+    } else if (sort === "my") {
+      const user = await getSessionUser(req).catch(() => null);
+      if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+      params.push(user.id);
+      where = `user_id = $${params.length}`;
+      order = "created_at DESC";
+    } else if (userIdFilter) {
+      params.push(userIdFilter);
+      where = `user_id = $${params.length}::uuid AND visibility = 'public'`;
+      order = "created_at DESC";
+    }
+    params.push(limit);
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT t.template_id, t.user_id, t.name, t.description, t.seed,
+                t.visibility, t.fork_count, t.use_count, t.created_at,
+                u.username, u.display_name
+           FROM person_mv_templates t
+      LEFT JOIN users u ON u.id = t.user_id
+          WHERE ${where}
+          ORDER BY ${order}
+          LIMIT $${params.length}`,
+        params,
+      ),
+    );
+    return res.json({ ok: true, templates: r.rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "TEMPLATE_LIST_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/person-mv/templates/:id", async (req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT t.template_id, t.user_id, t.name, t.description, t.seed,
+                t.visibility, t.fork_count, t.use_count, t.created_at,
+                u.username, u.display_name
+           FROM person_mv_templates t
+      LEFT JOIN users u ON u.id = t.user_id
+          WHERE t.template_id = $1::uuid`,
+        [id],
+      ),
+    );
+    const row = r.rows[0];
+    if (!row) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    if (row.visibility !== "public") {
+      const user = await getSessionUser(req).catch(() => null);
+      if (!user || user.id !== row.user_id) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    }
+    return res.json({ ok: true, template: row });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "TEMPLATE_DETAIL_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/person-mv/templates/:id/fork", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const src = await withClient((c) =>
+      c.query<any>(
+        `SELECT name, description, seed, visibility, user_id
+           FROM person_mv_templates WHERE template_id = $1::uuid`,
+        [id],
+      ),
+    );
+    const tpl = src.rows[0];
+    if (!tpl) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    if (tpl.visibility !== "public" && tpl.user_id !== user.id) {
+      return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    }
+    const newRow = await withClient((c) =>
+      c.query<{ template_id: string }>(
+        `INSERT INTO person_mv_templates (user_id, name, description, seed, visibility)
+         VALUES ($1, $2, $3, $4::jsonb, 'private')
+         RETURNING template_id`,
+        [user.id, `${tpl.name} (fork)`, tpl.description, JSON.stringify(tpl.seed)],
+      ),
+    );
+    await withClient((c) =>
+      c.query(
+        `UPDATE person_mv_templates SET fork_count = fork_count + 1
+          WHERE template_id = $1::uuid`,
+        [id],
+      ),
+    );
+    return res.json({ ok: true, template_id: newRow.rows[0]?.template_id });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "TEMPLATE_FORK_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/person-mv/templates/:id/use", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const r = await withClient((c) =>
+      c.query<{ use_count: number }>(
+        `UPDATE person_mv_templates SET use_count = use_count + 1
+          WHERE template_id = $1::uuid
+          RETURNING use_count`,
+        [id],
+      ),
+    );
+    if (!r.rows[0]) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    return res.json({ ok: true, use_count: r.rows[0].use_count });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "TEMPLATE_USE_FAILED", message: String(err) });
+  }
+});
+
+app.delete("/api/person-mv/templates/:id", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const r = await withClient((c) =>
+      c.query<{ count: number }>(
+        `WITH del AS (
+           DELETE FROM person_mv_templates
+            WHERE template_id = $1::uuid AND user_id = $2
+           RETURNING 1
+         ) SELECT count(*)::int AS count FROM del`,
+        [id, user.id],
+      ),
+    );
+    if (!Number(r.rows[0]?.count || 0)) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "TEMPLATE_DELETE_FAILED", message: String(err) });
   }
 });
 

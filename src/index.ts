@@ -28408,6 +28408,260 @@ app.post("/api/admin/push/test-native", async (req, res) => {
   }
 });
 
+/* ───────────────────────────────────────────────────────────────────────────
+ * CSSOS Phase 2 Module 1 — iOS Live Activity push (cinema MV pipeline).
+ *
+ * Live Activities use the SAME APNs HTTP/2 + ES256 JWT infra as native
+ * push (Wave 98b) but with a different topic suffix and payload shape:
+ *   topic:  <bundle-id>.push-type.liveactivity
+ *   header: apns-push-type: liveactivity
+ *   body:   { aps: { timestamp, event: "update"|"end", content-state: {...} } }
+ *
+ * Tokens are issued per-Activity by the iOS plugin (see
+ * mobile/ios/App/App/CssosLiveActivity.swift) and POSTed up via
+ * /api/push/live-activity-token. The cinema flow then calls
+ * sendLiveActivityUpdate() on each pipeline stage tick.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+async function ensureLiveActivityTables(): Promise<void> {
+  if (!DATABASE_URL) return;
+  try {
+    await withClient((c) =>
+      c.query(
+        `CREATE TABLE IF NOT EXISTS live_activity_tokens (
+           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+           user_id UUID NOT NULL,
+           run_id TEXT NOT NULL,
+           push_token TEXT NOT NULL,
+           bundle_id TEXT,
+           enabled BOOLEAN NOT NULL DEFAULT true,
+           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+           ended_at TIMESTAMPTZ,
+           UNIQUE (user_id, run_id, push_token)
+         );
+         CREATE INDEX IF NOT EXISTS live_activity_tokens_run_idx
+           ON live_activity_tokens (run_id) WHERE enabled = true;
+         CREATE INDEX IF NOT EXISTS live_activity_tokens_user_idx
+           ON live_activity_tokens (user_id) WHERE enabled = true;`,
+      ),
+    );
+  } catch (err) {
+    console.warn("[live-activity] ensure tables failed:", (err as Error)?.message || err);
+  }
+}
+
+function liveActivityTopic(): string {
+  // APNs requires the Live Activity topic to be `<bundle-id>.push-type.liveactivity`.
+  // Reuse APNS_TOPIC (the host bundle id) and append the suffix.
+  const base = (process.env.APNS_TOPIC || "").trim();
+  if (!base) return "";
+  if (base.endsWith(".push-type.liveactivity")) return base;
+  return `${base}.push-type.liveactivity`;
+}
+
+async function apnsSendLiveActivity(
+  pushToken: string,
+  bodyJson: string,
+  jwt: string,
+  topic: string,
+  event: "update" | "end",
+): Promise<ApnsSendResult> {
+  const session = getApnsSession();
+  if (!session) return { status: 0, reason: "no_session" };
+  return new Promise<ApnsSendResult>((resolve) => {
+    let settled = false;
+    const finish = (r: ApnsSendResult) => { if (!settled) { settled = true; resolve(r); } };
+    let req: import("node:http2").ClientHttp2Stream;
+    try {
+      req = session.request({
+        ":method": "POST",
+        ":path": `/3/device/${pushToken}`,
+        "authorization": `bearer ${jwt}`,
+        "apns-topic": topic,
+        "apns-push-type": "liveactivity",
+        "apns-priority": event === "end" ? "10" : "5",
+        "content-type": "application/json",
+        "content-length": Buffer.byteLength(bodyJson).toString(),
+      });
+    } catch (err) {
+      return finish({ status: 0, reason: (err as Error)?.message || "request_failed" });
+    }
+    let status = 0;
+    let chunks = "";
+    const t = setTimeout(() => {
+      try { req.close(); } catch { /* ignore */ }
+      finish({ status: 0, reason: "timeout" });
+    }, 8000);
+    req.on("response", (headers) => { status = Number(headers[":status"] || 0); });
+    req.on("data", (c: Buffer) => { chunks += c.toString("utf8"); });
+    req.on("end", () => {
+      clearTimeout(t);
+      let reason: string | undefined;
+      if (chunks) {
+        try { reason = JSON.parse(chunks)?.reason; } catch { /* ignore */ }
+      }
+      finish({ status, reason });
+    });
+    req.on("error", (err) => {
+      clearTimeout(t);
+      finish({ status: 0, reason: (err as Error)?.message || "stream_error" });
+    });
+    req.end(bodyJson);
+  });
+}
+
+interface LiveActivityContentState {
+  stage: "cover" | "lyrics" | "music" | "video" | "compose" | string;
+  pct: number;
+  etaSecs: number;
+}
+
+async function sendLiveActivityUpdate(
+  runId: string,
+  state: LiveActivityContentState,
+  opts: { event?: "update" | "end" } = {},
+): Promise<void> {
+  if (!DATABASE_URL || !runId) return;
+  const topic = liveActivityTopic();
+  if (!topic) return;
+  const jwt = await apnsJwt();
+  if (!jwt) return;
+  const event = opts.event || "update";
+  try {
+    const r = await withClient((c) =>
+      c.query<{ id: string; push_token: string }>(
+        `SELECT id, push_token FROM live_activity_tokens
+          WHERE run_id = $1 AND enabled = true`,
+        [runId],
+      ),
+    );
+    if (!r.rows.length) return;
+    const body = {
+      aps: {
+        timestamp: Math.floor(Date.now() / 1000),
+        event,
+        "content-state": {
+          stage: String(state.stage || "cover"),
+          pct: Math.max(0, Math.min(100, Math.round(Number(state.pct) || 0))),
+          etaSecs: Math.max(0, Math.round(Number(state.etaSecs) || 0)),
+        },
+      },
+    };
+    const bodyJson = JSON.stringify(body);
+    for (const row of r.rows) {
+      try {
+        const result = await apnsSendLiveActivity(row.push_token, bodyJson, jwt, topic, event);
+        if (result.status === 200) {
+          if (event === "end") {
+            await withClient((c) =>
+              c.query(
+                `UPDATE live_activity_tokens
+                    SET enabled = false, ended_at = now()
+                  WHERE id = $1`,
+                [row.id],
+              ),
+            ).catch(() => {});
+          }
+        } else if (
+          result.status === 410 ||
+          (result.status === 400 &&
+            (result.reason === "BadDeviceToken" || result.reason === "Unregistered"))
+        ) {
+          await withClient((c) =>
+            c.query(
+              `UPDATE live_activity_tokens
+                  SET enabled = false, ended_at = now()
+                WHERE id = $1`,
+              [row.id],
+            ),
+          ).catch(() => {});
+        } else if (result.status !== 0) {
+          console.warn("[live-activity] send non-200:", result.status, result.reason || "");
+        }
+      } catch (err) {
+        console.warn("[live-activity] send error:", (err as Error)?.message || err);
+      }
+    }
+  } catch (err) {
+    console.warn("[live-activity] send failed:", (err as Error)?.message || err);
+  }
+}
+
+app.post("/api/push/live-activity-token", express.json({ limit: "4kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensureLiveActivityTables();
+    const body = (req.body || {}) as {
+      run_id?: unknown; push_token?: unknown; bundle_id?: unknown;
+    };
+    const runId = typeof body.run_id === "string" ? body.run_id.trim().slice(0, 128) : "";
+    const pushToken = typeof body.push_token === "string" ? body.push_token.trim() : "";
+    const bundleId = typeof body.bundle_id === "string" ? body.bundle_id.trim().slice(0, 128) : null;
+    if (!runId) return res.status(400).json({ ok: false, code: "MISSING_RUN_ID" });
+    if (!pushToken || !/^[a-fA-F0-9]{32,400}$/.test(pushToken)) {
+      return res.status(400).json({ ok: false, code: "INVALID_PUSH_TOKEN" });
+    }
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO live_activity_tokens
+           (user_id, run_id, push_token, bundle_id, enabled)
+         VALUES ($1, $2, $3, $4, true)
+         ON CONFLICT (user_id, run_id, push_token) DO UPDATE SET
+           bundle_id = EXCLUDED.bundle_id,
+           enabled = true,
+           ended_at = NULL`,
+        [user.id, runId, pushToken, bundleId],
+      ),
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "REGISTER_FAILED", message: String(err) });
+  }
+});
+
+app.delete("/api/push/live-activity-token", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensureLiveActivityTables();
+    const runId = typeof (req.body || {}).run_id === "string"
+      ? String((req.body || {}).run_id).trim() : "";
+    if (!runId) return res.status(400).json({ ok: false, code: "MISSING_RUN_ID" });
+    await withClient((c) =>
+      c.query(
+        `UPDATE live_activity_tokens
+            SET enabled = false, ended_at = now()
+          WHERE user_id = $1 AND run_id = $2`,
+        [user.id, runId],
+      ),
+    );
+    // Best-effort end push so the activity dismisses on lock screen.
+    await sendLiveActivityUpdate(runId, { stage: "compose", pct: 100, etaSecs: 0 }, { event: "end" });
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "UNREGISTER_FAILED", message: String(err) });
+  }
+});
+
+/**
+ * Public hook: anywhere the cinema MV pipeline emits a stage tick, call
+ * this so registered Live Activities for the run get an APNs push. Safe
+ * no-op when env vars are missing or no tokens registered.
+ */
+async function notifyRunProgress(
+  runId: string,
+  state: LiveActivityContentState,
+): Promise<void> {
+  if (!runId) return;
+  await sendLiveActivityUpdate(runId, state).catch(() => {});
+}
+// Exported via module scope for in-process callers (cinema pipeline emitter).
+(globalThis as unknown as { __cssosNotifyRunProgress?: typeof notifyRunProgress })
+  .__cssosNotifyRunProgress = notifyRunProgress;
+
 async function pruneDisabledApnsTokens(): Promise<number> {
   if (!DATABASE_URL) return 0;
   try {

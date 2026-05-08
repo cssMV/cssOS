@@ -6792,6 +6792,19 @@
     if (typeof cinemaSt._cleanup === "function") {
       try { cinemaSt._cleanup(); } catch (_e) {}
     }
+    // CSSOS_PHASE2_MV_WAVE6 20260507 — Jing
+    // Tear down end-of-MV CTAs overlay + storm grid + bound key handlers.
+    if (cinemaSt._w6KeyHandler) {
+      try { document.removeEventListener("keydown", cinemaSt._w6KeyHandler, true); } catch (_e) {}
+    }
+    if (cinemaSt._w6Timer) { try { clearInterval(cinemaSt._w6Timer); } catch (_e) {} }
+    if (cinemaSt._stormKeyHandler) {
+      try { document.removeEventListener("keydown", cinemaSt._stormKeyHandler, true); } catch (_e) {}
+    }
+    if (cinemaSt._storm && cinemaSt._storm.runFinishHandler) {
+      try { globalThis.removeEventListener("cssmv:run-finish", cinemaSt._storm.runFinishHandler); } catch (_e) {}
+      cinemaSt._storm.cancelled = true;
+    }
     cinemaSt = null;
   }
   async function cinemaPlayCurrent() {
@@ -6943,7 +6956,8 @@
     video.onended = function () {
       const teaser = stage.querySelector(".cinema-teaser");
       if (teaser) teaser.hidden = true;
-      cinemaSkip(+1);
+      // CSSOS_PHASE2_MV_WAVE6 20260507 — End-of-MV CTAs overlay (5s).
+      try { showEndOfMvCtas(stage); } catch (_e) { cinemaSkip(+1); }
     };
   }
   function cinemaSkip(delta) {
@@ -7412,6 +7426,387 @@
   // Exposed so callers that have already mounted the panel (e.g. advanced
   // settings "apply render" button) can start the pipeline without re-opening.
   globalThis.cssmvRunPipeline = function (opts) { return runAll(opts || {}); };
+
+  /* CSSOS_PHASE2_MV_WAVE6 20260507 — End-of-MV replay CTAs + style picker + Storm fan-out
+   *
+   * Three features layered on top of cinema mode:
+   *  A. End-of-MV CTAs — 5s overlay shown when <video> finishes. Default
+   *     highlight 再来一首; keys Space/S/F/Esc; auto-dismiss to next track.
+   *  B. Style picker — 4×2 grid of preset style hints, click reruns the
+   *     current seed with styleHint merged into seed.style.
+   *  C. Storm mode — fans out 5 sequential fire-and-forget runs (each with
+   *     a different style preset). True parallel was deferred — the existing
+   *     runAll() pipeline guards against re-entry via state.running and shares
+   *     panel-level inputs, so isolating per-run state slices was deemed too
+   *     invasive for one wave. Sequential fan-out still gives the user the
+   *     "5 versions to pick from" UX; ETA is ~5× a single run rather than 1×.
+   */
+  const WAVE6_STYLE_PRESETS = [
+    { key: "tang",      icon: "🏯", label_zh: "唐风",     hint: "tang dynasty, guzheng, pipa, painterly" },
+    { key: "cyber",     icon: "🌃", label_zh: "赛博朋克", hint: "cyberpunk neon, synthwave, neo-tokyo" },
+    { key: "lofi",      icon: "🎷", label_zh: "Lo-fi",    hint: "lofi hip-hop, jazz piano, mellow" },
+    { key: "rock",      icon: "🎸", label_zh: "摇滚",     hint: "indie rock, electric guitar, punchy drums" },
+    { key: "cinematic", icon: "🎬", label_zh: "电影感",   hint: "cinematic orchestral, hans zimmer, dramatic" },
+    { key: "jpop",      icon: "🌸", label_zh: "J-Pop",    hint: "j-pop, sparkling synth, anime vibes" },
+    { key: "epic",      icon: "🔥", label_zh: "史诗",     hint: "epic orchestral, choir, taiko drums" },
+    { key: "ambient",   icon: "🌊", label_zh: "氛围",     hint: "ambient, sparse pads, minimal" },
+  ];
+
+  function ensureWave6Styles() {
+    if (document.getElementById("cssos-mv-wave6-style")) return;
+    const s = document.createElement("style");
+    s.id = "cssos-mv-wave6-style";
+    s.textContent =
+      ".w6-overlay{position:absolute;inset:0;background:rgba(0,0,0,.78);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:5;color:#daffee;padding:24px;}" +
+      ".w6-cta-row{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:18px;}" +
+      ".w6-btn{all:unset;cursor:pointer;padding:12px 22px;border-radius:10px;border:1px solid rgba(0,245,160,.35);background:rgba(0,245,160,.08);font:700 14px/1 ui-monospace,monospace;color:#daffee;letter-spacing:.04em;}" +
+      ".w6-btn.is-default{background:rgba(0,245,160,.22);border-color:#00f5a0;box-shadow:0 0 22px rgba(0,245,160,.35);}" +
+      ".w6-btn:hover{background:rgba(0,245,160,.18);}" +
+      ".w6-hint{margin-top:14px;font:500 11px/1.4 ui-monospace,monospace;color:rgba(218,255,238,.55);letter-spacing:.06em;}" +
+      ".w6-countdown{font:800 48px/1 ui-monospace,monospace;color:#00f5a0;text-shadow:0 0 24px rgba(0,245,160,.5);margin-bottom:8px;}" +
+      ".w6-style-grid{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:12px;max-width:min(720px,92vw);}" +
+      ".w6-style-chip{all:unset;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 8px;border-radius:10px;background:rgba(0,245,160,.08);border:1px solid rgba(0,245,160,.32);font:700 13px/1.2 ui-monospace,monospace;color:#daffee;text-align:center;}" +
+      ".w6-style-chip:hover{background:rgba(0,245,160,.2);transform:translateY(-1px);}" +
+      ".w6-style-icon{font-size:28px;line-height:1;}" +
+      ".cinema-storm-grid{position:absolute;inset:0;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr);gap:8px;padding:12px;background:#000;z-index:4;}" +
+      ".cinema-storm-cell{position:relative;background:rgba(0,40,30,.7);border:1px solid rgba(0,245,160,.28);border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:14px;color:#daffee;font:600 12px/1.3 ui-monospace,monospace;overflow:hidden;}" +
+      ".cinema-storm-cell.is-done{cursor:pointer;border-color:#00f5a0;background:rgba(0,80,55,.85);}" +
+      ".cinema-storm-cell.is-done:hover{box-shadow:0 0 18px rgba(0,245,160,.45);}" +
+      ".cinema-storm-cell.is-fail{border-color:#ff6464;color:#ffa8a8;}" +
+      ".cinema-storm-cell.cinema-storm-info{grid-column:span 1;justify-content:flex-start;text-align:center;background:rgba(0,0,0,.55);}" +
+      ".cinema-storm-cell-title{font-weight:800;font-size:14px;margin-bottom:6px;}" +
+      ".cinema-storm-cell-status{font-size:11px;color:rgba(218,255,238,.7);}";
+    document.head.appendChild(s);
+  }
+
+  function w6Esc(s) {
+    return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  function clearW6Overlay(stage) {
+    if (!stage) return;
+    const ex = stage.querySelector(".w6-overlay");
+    if (ex && ex.parentNode) ex.parentNode.removeChild(ex);
+    if (cinemaSt && cinemaSt._w6KeyHandler) {
+      document.removeEventListener("keydown", cinemaSt._w6KeyHandler, true);
+      cinemaSt._w6KeyHandler = null;
+    }
+    if (cinemaSt && cinemaSt._w6Timer) { clearInterval(cinemaSt._w6Timer); cinemaSt._w6Timer = null; }
+  }
+
+  function showEndOfMvCtas(stage) {
+    if (!cinemaSt || !stage) { return; }
+    ensureWave6Styles();
+    clearW6Overlay(stage);
+    const overlay = document.createElement("div");
+    overlay.className = "w6-overlay";
+    overlay.innerHTML =
+      '<div class="w6-countdown" data-w6-count>5</div>' +
+      '<div style="font:600 14px/1.3 ui-monospace,monospace;color:rgba(218,255,238,.85);">本片已播完</div>' +
+      '<div class="w6-cta-row">' +
+        '<button class="w6-btn is-default" data-w6-act="replay">🔄 再来一首</button>' +
+        '<button class="w6-btn" data-w6-act="style">🎲 换风格</button>' +
+        '<button class="w6-btn" data-w6-act="storm">🔥 风暴模式</button>' +
+        '<button class="w6-btn" data-w6-act="exit">← 退出</button>' +
+      '</div>' +
+      '<div class="w6-hint">Space=再来一首 · S=换风格 · F=风暴 · Esc=退出</div>';
+    stage.appendChild(overlay);
+
+    let userInteracted = false;
+    let secs = 5;
+    const countEl = overlay.querySelector("[data-w6-count]");
+    const start = Date.now();
+    cinemaSt._w6Timer = setInterval(function () {
+      if (userInteracted) return;
+      const elapsed = (Date.now() - start) / 1000;
+      const remaining = Math.max(0, 5 - Math.floor(elapsed));
+      if (countEl) countEl.textContent = String(remaining);
+      if (remaining <= 0) {
+        clearW6Overlay(stage);
+        doW6Action("replay");
+      }
+    }, 200);
+
+    function doW6Action(act) {
+      clearW6Overlay(stage);
+      if (act === "replay") {
+        wave6ReplayCurrent({ randomStyle: true });
+      } else if (act === "style") {
+        showStylePicker(stage);
+      } else if (act === "storm") {
+        enterStormMode();
+      } else if (act === "exit") {
+        exitCinemaMode();
+      }
+    }
+
+    overlay.querySelectorAll("[data-w6-act]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        userInteracted = true;
+        doW6Action(btn.getAttribute("data-w6-act"));
+      });
+    });
+
+    cinemaSt._w6KeyHandler = function (e) {
+      if (e.key === " ") { userInteracted = true; e.preventDefault(); e.stopPropagation(); doW6Action("replay"); }
+      else if (e.key === "s" || e.key === "S") { userInteracted = true; e.preventDefault(); e.stopPropagation(); doW6Action("style"); }
+      else if (e.key === "f" || e.key === "F") { userInteracted = true; e.preventDefault(); e.stopPropagation(); doW6Action("storm"); }
+      else if (e.key === "Escape") { userInteracted = true; e.preventDefault(); e.stopPropagation(); doW6Action("exit"); }
+    };
+    document.addEventListener("keydown", cinemaSt._w6KeyHandler, true);
+
+    // Auto-dismiss within 1s of any keypress/click on the page.
+    const dismissOnAct = function () {
+      if (Date.now() - start < 1000) {
+        userInteracted = true;
+        clearW6Overlay(stage);
+        cinemaSkip(+1);
+      }
+    };
+    setTimeout(function () {
+      document.removeEventListener("keydown", dismissOnAct, true);
+      document.removeEventListener("click", dismissOnAct, true);
+    }, 1000);
+    document.addEventListener("keydown", dismissOnAct, true);
+    document.addEventListener("click", dismissOnAct, true);
+  }
+
+  function pickRandomStyleHint() {
+    const i = Math.floor(Math.random() * WAVE6_STYLE_PRESETS.length);
+    return WAVE6_STYLE_PRESETS[i];
+  }
+
+  function wave6ReplayCurrent(opts) {
+    if (!cinemaSt) return;
+    opts = opts || {};
+    const baseSeed = cinemaSt.seed || {};
+    let styleHint = opts.styleHint || (opts.randomStyle ? pickRandomStyleHint().hint : "");
+    const newSeed = Object.assign({}, baseSeed, {
+      style: styleHint || baseSeed.style || "",
+      styleHint: styleHint || null,
+    });
+    cinemaSt.seed = newSeed;
+    cinemaSt.forceNew = true;
+    // Clear queue and show hero loading; the existing run-finish listener
+    // will push the new work_id and play.
+    cinemaSt.queue = [];
+    cinemaSt.idx = 0;
+    const stage = cinemaSt.stage;
+    if (stage) {
+      const v = stage.querySelector(".cinema-video");
+      if (v) { try { v.pause(); v.removeAttribute("src"); v.load(); } catch (_e) {} }
+      const loading = stage.querySelector(".cinema-loading");
+      if (loading) loading.hidden = false;
+      try { renderCinemaHeroLoading(stage, cinemaSt.person); } catch (_e) {}
+      // Show style chip on hero for instant feedback.
+      try {
+        const chips = stage.querySelector(".cinema-hero-chips");
+        if (chips && styleHint) {
+          chips.insertAdjacentHTML("beforeend", '<span class="cinema-hero-chip">🎨 ' + w6Esc(styleHint.split(",")[0]) + '</span>');
+        }
+      } catch (_e) {}
+    }
+    try {
+      if (typeof globalThis.cssmvRunPipeline === "function") {
+        globalThis.cssmvRunPipeline({ seed: newSeed, fresh: true });
+      }
+    } catch (_e) {}
+    const finishHandler = function (ev) {
+      try {
+        const wid = ev && ev.detail && (ev.detail.work_id || ev.detail.workId);
+        if (wid && cinemaSt) {
+          cinemaSt.queue.push(wid);
+          const loading = stage && stage.querySelector(".cinema-loading");
+          if (loading) loading.hidden = true;
+          cinemaPlayCurrent();
+        }
+      } catch (_e) {}
+    };
+    globalThis.addEventListener("cssmv:run-finish", finishHandler, { once: true });
+  }
+
+  function showStylePicker(stage) {
+    if (!cinemaSt || !stage) return;
+    ensureWave6Styles();
+    clearW6Overlay(stage);
+    const overlay = document.createElement("div");
+    overlay.className = "w6-overlay";
+    overlay.innerHTML =
+      '<div style="font:800 22px/1.2 ui-monospace,monospace;color:#daffee;margin-bottom:18px;">🎲 选一种风格</div>' +
+      '<div class="w6-style-grid">' +
+        WAVE6_STYLE_PRESETS.map(function (p) {
+          return '<button class="w6-style-chip" data-w6-style="' + w6Esc(p.key) + '">' +
+            '<span class="w6-style-icon">' + p.icon + '</span>' +
+            '<span>' + w6Esc(p.label_zh) + '</span>' +
+          '</button>';
+        }).join("") +
+      '</div>' +
+      '<div class="w6-hint" style="margin-top:18px;">Esc 返回</div>';
+    stage.appendChild(overlay);
+    overlay.querySelectorAll("[data-w6-style]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const k = btn.getAttribute("data-w6-style");
+        const preset = WAVE6_STYLE_PRESETS.find(function (p) { return p.key === k; });
+        clearW6Overlay(stage);
+        if (preset) wave6ReplayCurrent({ styleHint: preset.hint });
+      });
+    });
+    cinemaSt._w6KeyHandler = function (e) {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); clearW6Overlay(stage); cinemaSkip(+1); }
+    };
+    document.addEventListener("keydown", cinemaSt._w6KeyHandler, true);
+  }
+
+  /* Storm mode — fan-out 5 runs with different style presets.
+   * Sequential fire-and-forget through the existing pipeline (state.running
+   * gates re-entry, so we serialize). Each completed run is captured via the
+   * canonical cssmv:run-finish event and rendered in its grid cell. */
+  function enterStormMode() {
+    if (!cinemaSt) return;
+    ensureWave6Styles();
+    const stage = cinemaSt.stage;
+    if (!stage) return;
+    clearW6Overlay(stage);
+    // Drop existing queue.
+    const v = stage.querySelector(".cinema-video");
+    if (v) { try { v.pause(); v.removeAttribute("src"); v.load(); } catch (_e) {} }
+    cinemaSt.queue = [];
+    cinemaSt.idx = 0;
+    // Pick 5 unique random presets.
+    const pool = WAVE6_STYLE_PRESETS.slice();
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = pool[i]; pool[i] = pool[j]; pool[j] = tmp;
+    }
+    const picks = pool.slice(0, 5);
+    // Build grid (3 cols × 2 rows; cell #6 = info/hint).
+    let grid = stage.querySelector(".cinema-storm-grid");
+    if (grid && grid.parentNode) grid.parentNode.removeChild(grid);
+    grid = document.createElement("div");
+    grid.className = "cinema-storm-grid";
+    grid.innerHTML =
+      picks.map(function (p, i) {
+        return '<div class="cinema-storm-cell" data-storm-cell="' + i + '">' +
+          '<div class="cinema-storm-cell-title">' + p.icon + ' ' + w6Esc(p.label_zh) + '</div>' +
+          '<div class="cinema-storm-cell-status" data-storm-status>排队中…</div>' +
+        '</div>';
+      }).join("") +
+      '<div class="cinema-storm-cell cinema-storm-info">' +
+        '<div class="cinema-storm-cell-title">🔥 风暴模式</div>' +
+        '<div class="cinema-storm-cell-status">5 个版本顺序生成中<br>完成后点击任意版本播放<br><br>Esc 取消风暴</div>' +
+      '</div>';
+    stage.appendChild(grid);
+    // Hide hero loading if visible.
+    const loading = stage.querySelector(".cinema-loading");
+    if (loading) loading.hidden = true;
+
+    const stormState = {
+      picks: picks,
+      results: new Array(5).fill(null), // { wid, status: 'pending'|'running'|'done'|'fail' }
+      currentIdx: -1,
+      cancelled: false,
+      runFinishHandler: null,
+    };
+    cinemaSt._storm = stormState;
+
+    function setCellStatus(i, text, klass) {
+      const cell = grid.querySelector('[data-storm-cell="' + i + '"]');
+      if (!cell) return;
+      const st = cell.querySelector("[data-storm-status]");
+      if (st) st.innerHTML = text;
+      if (klass) cell.classList.add(klass);
+    }
+
+    function runNext() {
+      if (stormState.cancelled) return;
+      stormState.currentIdx += 1;
+      if (stormState.currentIdx >= stormState.picks.length) {
+        // All done.
+        return;
+      }
+      const i = stormState.currentIdx;
+      const preset = stormState.picks[i];
+      setCellStatus(i, "生成中…");
+      const seed = Object.assign({}, cinemaSt.seed || {}, { style: preset.hint, styleHint: preset.hint });
+      const handler = function (ev) {
+        if (stormState.cancelled) return;
+        const wid = ev && ev.detail && (ev.detail.work_id || ev.detail.workId);
+        if (wid) {
+          stormState.results[i] = { wid: wid, status: "done" };
+          setCellStatus(i, "✓ 完成 · 点击播放", "is-done");
+          const cell = grid.querySelector('[data-storm-cell="' + i + '"]');
+          if (cell) {
+            cell.addEventListener("click", function () {
+              if (stormState.cancelled) return;
+              // Tear down storm grid; play this work in cinema.
+              tearDownStorm();
+              cinemaSt.queue = [wid];
+              cinemaSt.idx = 0;
+              cinemaPlayCurrent();
+            });
+            // Try to fetch cover for thumbnail.
+            try {
+              __fetchWorkPublic(wid).then(function (w) {
+                if (!w) return;
+                const img = w.cover_image || w.preview_image_url || w.poster_url;
+                if (img) cell.style.background = "linear-gradient(rgba(0,80,55,.6),rgba(0,80,55,.6)), url('" + String(img).replace(/'/g, "%27") + "') center/cover";
+              });
+            } catch (_e) {}
+          }
+        } else {
+          stormState.results[i] = { wid: null, status: "fail" };
+          setCellStatus(i, "✗ 失败", "is-fail");
+        }
+        runNext();
+      };
+      stormState.runFinishHandler = handler;
+      globalThis.addEventListener("cssmv:run-finish", handler, { once: true });
+      try {
+        if (typeof globalThis.cssmvRunPipeline === "function") {
+          globalThis.cssmvRunPipeline({ seed: seed, fresh: true });
+        }
+      } catch (_e) {
+        setCellStatus(i, "✗ 启动失败", "is-fail");
+        runNext();
+      }
+    }
+
+    function tearDownStorm() {
+      stormState.cancelled = true;
+      if (stormState.runFinishHandler) {
+        try { globalThis.removeEventListener("cssmv:run-finish", stormState.runFinishHandler); } catch (_e) {}
+      }
+      const g = stage.querySelector(".cinema-storm-grid");
+      if (g && g.parentNode) g.parentNode.removeChild(g);
+      if (cinemaSt) cinemaSt._storm = null;
+      if (cinemaSt && cinemaSt._stormKeyHandler) {
+        document.removeEventListener("keydown", cinemaSt._stormKeyHandler, true);
+        cinemaSt._stormKeyHandler = null;
+      }
+    }
+
+    cinemaSt._stormKeyHandler = function (e) {
+      if (e.key === "Escape") {
+        e.preventDefault(); e.stopPropagation();
+        tearDownStorm();
+        // Fall back to hero loading if no queue.
+        if (cinemaSt && cinemaSt.queue.length) cinemaPlayCurrent();
+        else if (cinemaSt) renderCinemaHeroLoading(stage, cinemaSt.person);
+      }
+    };
+    document.addEventListener("keydown", cinemaSt._stormKeyHandler, true);
+
+    runNext();
+  }
+
+  // Expose for tests / external callers.
+  globalThis.cssmvWave6 = {
+    presets: WAVE6_STYLE_PRESETS,
+    showEndOfMvCtas: showEndOfMvCtas,
+    showStylePicker: showStylePicker,
+    enterStormMode: enterStormMode,
+    replayCurrent: wave6ReplayCurrent,
+  };
 
   // Listen for engine-selection changes (fired by the advanced-settings panel
   // when a user picks a different engine). Refreshes the badge column so the

@@ -18855,7 +18855,7 @@ app.post("/api/admin/ops/send-now", async (req, res) => {
     }
     const { sendDailyOpsReport } = await import("./lib/daily-ops-report");
     const out = await sendDailyOpsReport();
-    return res.json({ ok: true, ...out });
+    return res.json({ ...out, ok: true });
   } catch (err) {
     return res.status(500).json({ ok: false, code: "OPS_SEND_FAILED", message: String(err) });
   }
@@ -20315,7 +20315,6 @@ async function runHeadlessPipeline(
         throw new Error(`ffmpeg_failed code=${r.code} stderr=${(r.stderr || "").slice(0, 400)}`);
       }
       // Wave 97: mirror final MV mp4 to R2 (fire-and-forget).
-      uploadToR2Async(outAbs, `artifacts/mv-fallback/${outName}`, "video/mp4");
       uploadToR2Async(outAbs, `artifacts/mv-fallback/${outName}`, "video/mp4");
       return { value: `/artifacts/mv-fallback/${outName}`, provider: "ffmpeg" };
     });
@@ -32937,6 +32936,74 @@ async function start() {
     }, delayMs);
     console.log(
       `[digest] scheduled first run in ${Math.round(delayMs / ONE_HOUR_MS)}h (next Mon 09:00 UTC)`,
+    );
+  }
+
+  /* CSSOS_WAVE94 20260508 — Jing — synthetic site-health probes.
+   * HTTP + DB probes every 15 min; canary MV every 6 hours. All
+   * fire-and-forget; errors swallowed in lib via logProbe(). */
+  if (process.env.DATABASE_URL) {
+    const FIFTEEN_MIN_MS = 15 * 60 * 1000;
+    const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+    const fastTick = async () => {
+      try {
+        const { runHttpHealthProbes, runDbQueryProbes } = await import("./lib/health-probes");
+        await Promise.allSettled([runHttpHealthProbes(), runDbQueryProbes()]);
+      } catch (err) {
+        console.warn("[health-probe] fast tick failed:", (err as Error)?.message || err);
+      }
+    };
+    const canaryTick = async () => {
+      try {
+        if (process.env.CSSOS_DISABLE_CANARY_MV === "1") return;
+        const { runCanaryMv } = await import("./lib/health-probes");
+        const systemUserId = await resolveSystemUserId();
+        await runCanaryMv(
+          async (person, opts) => {
+            const r = await runHeadlessPipeline(person, opts);
+            return { ok: !!r.ok, stages: r.stages, error: r.error };
+          },
+          systemUserId,
+        );
+      } catch (err) {
+        console.warn("[canary-mv] tick failed:", (err as Error)?.message || err);
+      }
+    };
+    setTimeout(fastTick, 90 * 1000);
+    setInterval(fastTick, FIFTEEN_MIN_MS);
+    setTimeout(canaryTick, 10 * 60 * 1000);
+    setInterval(canaryTick, SIX_HOURS_MS);
+    console.log("[health-probe] schedulers armed (HTTP+DB 15m, canary 6h)");
+  }
+
+  /* CSSOS_WAVE99 20260508 — Jing — daily OPS report.
+   * Fires daily at 09:00 UTC (same cadence as digest). Skips when no
+   * email transport is configured. */
+  if (process.env.DATABASE_URL) {
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    const opsTick = async () => {
+      try {
+        const { sendDailyOpsReport } = await import("./lib/daily-ops-report");
+        const out = await sendDailyOpsReport();
+        console.log(
+          `[ops-report] daily — sent=${out.sent} skipped=${out.skipped} errors=${out.errors.length}${out.reason ? " reason=" + out.reason : ""}`,
+        );
+      } catch (err) {
+        console.warn("[ops-report] daily tick failed:", (err as Error)?.message || err);
+      }
+    };
+    const now = new Date();
+    const next = new Date(Date.UTC(
+      now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 9, 0, 0, 0,
+    ));
+    if (next.getTime() <= now.getTime()) next.setUTCDate(next.getUTCDate() + 1);
+    const delayMs = next.getTime() - now.getTime();
+    setTimeout(() => {
+      opsTick();
+      setInterval(opsTick, ONE_DAY_MS);
+    }, delayMs);
+    console.log(
+      `[ops-report] scheduled first run in ${Math.round(delayMs / (60 * 60 * 1000))}h (daily 09:00 UTC)`,
     );
   }
 

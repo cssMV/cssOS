@@ -162,8 +162,8 @@ const CANARY_PERSON_IDS = ["confucius", "mozart", "shakespeare"];
 
 export type CanaryRunner = (person: any, opts: { systemUserId: string }) => Promise<{
   ok: boolean;
-  stages: Array<{ name: string; ok: boolean; ms: number; error?: string }>;
-  error?: string;
+  stages: Array<{ name: string; ok: boolean; ms: number; error?: string | undefined }>;
+  error?: string | undefined;
 }>;
 
 export async function runCanaryMv(runner: CanaryRunner, systemUserId: string): Promise<ProbeResult> {

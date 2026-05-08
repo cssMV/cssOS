@@ -1,0 +1,74 @@
+<!doctype html>
+<!-- CSSOS_PERSON_MV_WAVE75 20260508 — Jing — developer API docs. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>cssOS Developer API</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { color-scheme: dark; }
+    body { background:#0b0b0b; color:#eaeaea; font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; margin:0; padding:32px; }
+    html[data-theme="light"] body { background:#daffee; color:#0f3a2a; }
+    main { max-width:880px; margin:0 auto; }
+    h1 { font-size:24px; margin:0 0 6px; }
+    h2 { font-size:18px; margin:32px 0 8px; border-bottom:1px solid #2a2a2a; padding-bottom:4px; }
+    html[data-theme="light"] h2 { border-bottom-color:#0f3a2a33; }
+    code, pre { font-family:ui-monospace,Menlo,Consolas,monospace; }
+    pre { background:#161616; border:1px solid #2a2a2a; border-radius:8px; padding:12px; overflow-x:auto; }
+    html[data-theme="light"] pre { background:#caf0dd; border-color:#0f3a2a33; color:#0f3a2a; }
+    .endpoint { display:inline-block; padding:2px 8px; border-radius:4px; background:#1a4a2a; color:#fff; font-family:ui-monospace,monospace; }
+    html[data-theme="light"] .endpoint { background:#00a060; }
+    .muted { color:#888; }
+    html[data-theme="light"] .muted { color:#0f3a2a99; }
+    a { color:#7ab; }
+    html[data-theme="light"] a { color:#0f3a2a; }
+  </style>
+</head>
+<body>
+<main>
+  <h1 id="dev-title">cssOS Developer API</h1>
+  <p class="muted" id="dev-sub">Public read-only HTTP surface, scoped API keys, per-key rate limit.</p>
+
+  <h2>Auth</h2>
+  <p>Generate an API key from the dashboard (or <code>POST /api/dev/keys</code> while signed in). Keys look like <code>cssos_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</code> and are returned <strong>once</strong>.</p>
+  <pre>curl https://cssos.app/api/v1/persons \
+  -H "Authorization: Bearer cssos_xxxxxxxx..."</pre>
+
+  <h2>Rate limit</h2>
+  <p>Default <strong>60 requests / minute</strong> per key (token bucket). When exceeded the API returns <code>429</code> with a <code>Retry-After</code> header.</p>
+
+  <h2>Endpoints</h2>
+  <p><span class="endpoint">GET /api/v1/persons</span> — list recent person profiles. Query: <code>limit</code> (1–100).</p>
+  <p><span class="endpoint">GET /api/v1/persons/:id</span> — full profile.</p>
+  <p><span class="endpoint">GET /api/v1/persons/:id/codex</span> — codex object.</p>
+  <p><span class="endpoint">GET /api/v1/mvs/:id</span> — MV row.</p>
+  <p><span class="endpoint">GET /api/v1/works/:id</span> — work row.</p>
+
+  <h2>Key management</h2>
+  <p><span class="endpoint">POST /api/dev/keys</span> — body <code>{name, scopes?: ["read"|"write"|"admin"]}</code>. Returns plaintext <code>key</code> once.</p>
+  <p><span class="endpoint">GET /api/dev/keys</span> — list your keys (masked).</p>
+  <p><span class="endpoint">DELETE /api/dev/keys/:id</span> — revoke.</p>
+
+  <h2>Errors</h2>
+  <pre>{ "ok": false, "code": "API_KEY_REQUIRED" }
+{ "ok": false, "code": "INVALID_API_KEY" }
+{ "ok": false, "code": "SCOPE_FORBIDDEN", "required": "read" }
+{ "ok": false, "code": "RATE_LIMIT", "retry_after": 12 }</pre>
+</main>
+<script>
+  // CSSOS_I18N — minimal locale swap.
+  (function () {
+    var zh = /^zh/i.test(navigator.language || "en");
+    if (!zh) return;
+    var map = {
+      "dev-title": "cssOS 开发者 API",
+      "dev-sub": "只读 HTTP 接口、按 Key 限速、按 scope 隔离权限。",
+    };
+    Object.keys(map).forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.textContent = map[id];
+    });
+  })();
+</script>
+</body>
+</html>

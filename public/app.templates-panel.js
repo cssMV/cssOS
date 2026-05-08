@@ -98,10 +98,23 @@
     const creator = tpl.username
       ? `<a href="/u/${encodeURIComponent(tpl.username)}" style="color:#7ab">@${escapeHtml(tpl.username)}</a>`
       : escapeHtml(tpl.display_name || T("anonymous", "匿名"));
+    // CSSOS_PERSON_MV_WAVE73 — green chip = parameter slot, yellow = default.
+    const params = Array.isArray(tpl.parameters) ? tpl.parameters : [];
+    const chips = params.length
+      ? `<div class="cssos-tpl-chips" style="display:flex;flex-wrap:wrap;gap:4px;">` +
+        params.map((p) => {
+          const filled = p.default != null && p.default !== "";
+          const bg = filled ? "#5a4a1a" : "#1a4a2a";
+          const bd = filled ? "#aa8c2a" : "#3a8a4a";
+          const label = ZH ? (p.label_zh || p.key) : (p.label_en || p.key);
+          return `<span style="font-size:11px;background:${bg};border:1px solid ${bd};color:#fff;padding:2px 6px;border-radius:4px;">{{${escapeHtml(p.key)}}}<span style="opacity:.7;"> · ${escapeHtml(label)}</span></span>`;
+        }).join("") + `</div>`
+      : "";
     return `
       <div class="cssos-tpl-card" data-tpl-id="${escapeHtml(tpl.template_id)}">
         <h4>${escapeHtml(tpl.name)}</h4>
         <div class="desc">${escapeHtml(tpl.description || "")}</div>
+        ${chips}
         <div class="meta">
           <span>${creator}</span>
           <span>🔁 ${tpl.fork_count || 0} · 📈 ${tpl.use_count || 0}</span>
@@ -136,7 +149,22 @@
         if (act === "use") {
           const detail = await api(`/api/person-mv/templates/${encodeURIComponent(id)}`);
           if (!detail || !detail.ok) { alert(T("Template not available.", "模板不可用。")); return; }
-          if (applySeedToPipeline(detail.template.seed)) {
+          // CSSOS_PERSON_MV_WAVE73 — parameterized templates: prompt the
+          // user, then call /instantiate to substitute {{key}} into the seed.
+          const paramDefs = Array.isArray(detail.template.parameters) ? detail.template.parameters : [];
+          let seedToLoad = detail.template.seed;
+          if (paramDefs.length) {
+            const values = await openParamsDialog(paramDefs);
+            if (!values) return;
+            const inst = await api(`/api/person-mv/templates/${encodeURIComponent(id)}/instantiate`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ values }),
+            });
+            if (!inst || !inst.ok) { alert(T("Could not resolve template.", "模板解析失败。")); return; }
+            seedToLoad = inst.seed;
+          }
+          if (applySeedToPipeline(seedToLoad)) {
             await api(`/api/person-mv/templates/${encodeURIComponent(id)}/use`, { method: "POST" });
             alert(T("Loaded into MV PIPELINE.", "已载入 MV 创作流。"));
           }
@@ -191,17 +219,79 @@
     return panel;
   }
 
+  // ─── CSSOS_PERSON_MV_WAVE73 — parameter dialogs ─────────────────────
+  function openParamsDialog(paramDefs) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+      overlay.className = "cssos-tpl-dialog";
+      const rows = paramDefs.map((p) => {
+        const label = ZH ? (p.label_zh || p.key) : (p.label_en || p.key);
+        const def = p.default == null ? "" : escapeHtml(String(p.default));
+        if (p.type === "select" && Array.isArray(p.options)) {
+          const opts = p.options.map((o) => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join("");
+          return `<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#bbb;">${escapeHtml(label)} <span style="color:#888;">{{${escapeHtml(p.key)}}}</span>
+            <select data-pkey="${escapeHtml(p.key)}">${opts}</select></label>`;
+        }
+        const inputType = p.type === "number" ? "number" : "text";
+        return `<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#bbb;">${escapeHtml(label)} <span style="color:#888;">{{${escapeHtml(p.key)}}}</span>
+          <input type="${inputType}" data-pkey="${escapeHtml(p.key)}" value="${def}" /></label>`;
+      }).join("");
+      overlay.innerHTML = `
+        <div class="box">
+          <h3 style="margin:0;">${T("Fill template parameters", "填写模板参数")}</h3>
+          ${rows}
+          <div class="row">
+            <button data-act="cancel">${T("Cancel", "取消")}</button>
+            <button class="primary" data-act="ok">${T("Continue", "继续")}</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+      overlay.addEventListener("click", (ev) => {
+        const btn = ev.target && ev.target.closest("button");
+        if (!btn) { if (ev.target === overlay) { overlay.remove(); resolve(null); } return; }
+        const act = btn.getAttribute("data-act");
+        if (act === "cancel") { overlay.remove(); resolve(null); return; }
+        if (act === "ok") {
+          const values = {};
+          overlay.querySelectorAll("[data-pkey]").forEach((el) => {
+            values[el.getAttribute("data-pkey")] = el.value;
+          });
+          overlay.remove();
+          resolve(values);
+        }
+      });
+    });
+  }
+
   // ─── save dialog ─────────────────────────────────────────────────────
   function openSaveDialog() {
     const seed = gatherCurrentSeed();
     const overlay = document.createElement("div");
     overlay.className = "cssos-tpl-dialog";
+    // CSSOS_PERSON_MV_WAVE73 — parameter editor inline.
+    const params = [];
+    function paramRowHtml(p, idx) {
+      return `<div data-pidx="${idx}" style="display:grid;grid-template-columns:1fr 1fr 80px 80px auto;gap:4px;align-items:center;font-size:12px;">
+        <input data-pf="key" placeholder="key" value="${escapeHtml(p.key || "")}" />
+        <input data-pf="label_en" placeholder="${T("Label (EN)", "英文标签")}" value="${escapeHtml(p.label_en || "")}" />
+        <select data-pf="type">
+          <option value="text" ${p.type === "text" ? "selected" : ""}>text</option>
+          <option value="number" ${p.type === "number" ? "selected" : ""}>number</option>
+          <option value="select" ${p.type === "select" ? "selected" : ""}>select</option>
+        </select>
+        <input data-pf="default" placeholder="${T("default", "默认")}" value="${escapeHtml(p.default || "")}" />
+        <button data-pf="remove" type="button">✕</button>
+      </div>`;
+    }
     overlay.innerHTML = `
-      <div class="box">
+      <div class="box" style="width:min(640px,92vw);">
         <h3 style="margin:0;">${T("💾 Save as template", "💾 存为模板")}</h3>
         <input id="tpl-name" placeholder="${T("Template name", "模板名称")}" maxlength="120" />
         <textarea id="tpl-desc" placeholder="${T("Optional description", "描述(可选)")}" maxlength="1000"></textarea>
-        <textarea id="tpl-seed" placeholder='${T("Seed JSON", "种子 JSON")}'>${seed ? escapeHtml(JSON.stringify(seed, null, 2)) : ""}</textarea>
+        <textarea id="tpl-seed" placeholder='${T("Seed JSON — use {{key}} placeholders", "种子 JSON — 用 {{key}} 占位")}'>${seed ? escapeHtml(JSON.stringify(seed, null, 2)) : ""}</textarea>
+        <div style="font-size:12px;color:#bbb;">${T("Parameters (others fill {{key}} placeholders)", "参数(他人将填入 {{key}})")}</div>
+        <div id="tpl-params-rows" style="display:flex;flex-direction:column;gap:4px;"></div>
+        <button type="button" id="tpl-params-add" style="align-self:flex-start;font-size:12px;padding:4px 10px;">${T("+ Add parameter", "+ 新增参数")}</button>
         <label style="font-size:12px; color:#aaa;">
           <input type="checkbox" id="tpl-public" checked /> ${T("Publish publicly", "公开发布")}
         </label>
@@ -211,6 +301,21 @@
         </div>
       </div>`;
     document.body.appendChild(overlay);
+    const rowsHost = overlay.querySelector("#tpl-params-rows");
+    function renderParamRows() {
+      rowsHost.innerHTML = params.map(paramRowHtml).join("");
+    }
+    overlay.querySelector("#tpl-params-add").addEventListener("click", () => {
+      params.push({ key: "", label_en: "", label_zh: "", type: "text", default: "" });
+      renderParamRows();
+    });
+    rowsHost.addEventListener("click", (ev) => {
+      const btn = ev.target && ev.target.closest("[data-pf=remove]");
+      if (!btn) return;
+      const idx = Number(btn.parentElement.getAttribute("data-pidx"));
+      params.splice(idx, 1);
+      renderParamRows();
+    });
     overlay.addEventListener("click", async (ev) => {
       const btn = ev.target && ev.target.closest("button");
       if (!btn) {
@@ -229,6 +334,20 @@
         try { parsed = JSON.parse(seedText); } catch {
           alert(T("Seed JSON is invalid.", "种子 JSON 无效。")); return;
         }
+        // Collect parameter rows from DOM.
+        const collected = [];
+        rowsHost.querySelectorAll("[data-pidx]").forEach((row) => {
+          const get = (f) => row.querySelector(`[data-pf="${f}"]`).value.trim();
+          const key = get("key");
+          if (!key) return;
+          collected.push({
+            key,
+            label_en: get("label_en") || key,
+            label_zh: get("label_en") || key,
+            type: get("type") || "text",
+            default: get("default") || undefined,
+          });
+        });
         const r = await api("/api/person-mv/templates", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -237,6 +356,7 @@
             description: desc || null,
             seed: parsed,
             visibility: isPublic ? "public" : "private",
+            parameters: collected,
           }),
         });
         if (r && r.ok) { overlay.remove(); alert(T("Saved.", "已保存。")); }

@@ -32099,6 +32099,15 @@ app.get("/api/users/autocomplete", async (req, res) => {
 /* CSSOS_PERSON_MV_WAVE40 — block / report endpoints + admin queue. */
 async function isAdminRequest(req: any): Promise<boolean> {
   try {
+    /* CSSOS_ADMIN_TOKEN_HEADER 20260508 — Jing
+     * Honor X-Admin-Token header so curl-from-cron / SSH ops can hit
+     * admin endpoints without a session cookie. Mirrors the pattern in
+     * /api/admin/person-mv/generate-samples (Wave 13a). */
+    const expectedToken = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+    if (expectedToken) {
+      const provided = String(req.headers["x-admin-token"] || "").trim();
+      if (provided && provided === expectedToken) return true;
+    }
     const user = await getSessionUser(req).catch(() => null);
     if (!user || !user.email) return false;
     return roleForEmail(user.email) === "admin";

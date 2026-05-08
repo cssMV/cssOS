@@ -122,6 +122,10 @@
       const body = String(p.comment_body || "").slice(0, 50);
       return T(`💬 ${handle}: ${body}`, `💬 ${handle}: ${body}`);
     }
+    if (n.kind === "comment_mention") {
+      const snip = String(p.snippet || "").slice(0, 60);
+      return T(`💬 ${handle} mentioned you: ${snip}`, `💬 ${handle} 提到你：${snip}`);
+    }
     if (n.kind === "follow") {
       return T(`👋 ${handle} followed you`, `👋 ${handle} 关注了你`);
     }
@@ -133,7 +137,7 @@
     if (n.kind === "follow") {
       return p.actor_username ? `/u/${p.actor_username}` : null;
     }
-    if (n.kind === "mv_like" || n.kind === "mv_comment") {
+    if (n.kind === "mv_like" || n.kind === "mv_comment" || n.kind === "comment_mention") {
       if (p.mv_id) return `/mv/${p.mv_id}`;
     }
     return null;

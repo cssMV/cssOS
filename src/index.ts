@@ -25248,7 +25248,8 @@ function extractMentions(body: string): string[] {
   const re = /@([a-zA-Z0-9_-]{2,32})/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(String(body || ""))) !== null) {
-    out.add(m[1].toLowerCase());
+    const handle: string | undefined = m[1];
+    if (handle) out.add(handle.toLowerCase());
   }
   return Array.from(out);
 }
@@ -25268,6 +25269,20 @@ app.get("/api/person-mv/mvs/:mv_id/comments", async (req, res) => {
     const mvId = await resolvePersonMvId(raw);
     if (!mvId) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
     const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit || "50"), 10) || 50));
+    // CSSOS_PERSON_MV_WAVE40 — pull caller's blocklist so we can mask blocked authors.
+    const me = await getSessionUser(req).catch(() => null);
+    let blockedSet: Set<string> = new Set();
+    if (me && me.id) {
+      try {
+        const br = await withClient((c) =>
+          c.query<{ blocked_id: string }>(
+            `SELECT blocked_id::text AS blocked_id FROM user_blocks WHERE blocker_id = $1`,
+            [me.id],
+          ),
+        );
+        blockedSet = new Set(br.rows.map((row) => row.blocked_id));
+      } catch (_e) { /* non-fatal */ }
+    }
     const r = await withClient((c) =>
       c.query(
         `SELECT c.id, c.mv_id, c.user_id, c.body, c.parent_id, c.created_at, c.deleted_at,
@@ -25280,7 +25295,9 @@ app.get("/api/person-mv/mvs/:mv_id/comments", async (req, res) => {
         [mvId, limit],
       ),
     );
-    const items = r.rows.map((row: any) => ({
+    const items = r.rows
+      .filter((row: any) => !blockedSet.has(String(row.user_id)))
+      .map((row: any) => ({
       id: row.id,
       mv_id: row.mv_id,
       user_id: row.user_id,
@@ -27623,6 +27640,233 @@ app.post("/api/auth/sessions/forget", express.json({ limit: "1kb" }), async (req
   }
 });
 
+/* CSSOS_PERSON_MV_WAVE39 — username autocomplete (for @mention). */
+app.get("/api/users/autocomplete", async (req, res) => {
+  noStore(res);
+  try {
+    const q = String(req.query.q || "").trim().toLowerCase();
+    if (!q || q.length < 1) return res.json({ ok: true, items: [] });
+    if (!/^[a-z0-9_-]{1,32}$/.test(q)) return res.json({ ok: true, items: [] });
+    const limit = Math.max(1, Math.min(10, parseInt(String(req.query.limit || "10"), 10) || 10));
+    const r = await withClient((c) =>
+      c.query<{ id: string; username: string; display_name: string | null; avatar_url: string | null }>(
+        `SELECT id::text, username, display_name, avatar_url
+           FROM users
+          WHERE username IS NOT NULL
+            AND lower(username) LIKE $1
+            AND banned_at IS NULL
+          ORDER BY lower(username) ASC
+          LIMIT $2`,
+        [q + "%", limit],
+      ),
+    );
+    return res.json({
+      ok: true,
+      items: r.rows.map((u) => ({
+        id: u.id,
+        username: u.username,
+        display_name: u.display_name || u.username,
+        avatar_url: u.avatar_url,
+      })),
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "AUTOCOMPLETE_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE40 — block / report endpoints + admin queue. */
+async function isAdminRequest(req: any): Promise<boolean> {
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.email) return false;
+    return roleForEmail(user.email) === "admin";
+  } catch { return false; }
+}
+
+app.post("/api/users/:username/block", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const me = await getSessionUser(req).catch(() => null);
+    if (!me || !me.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const handle = String(req.params.username || "").trim().toLowerCase();
+    if (!handle) return res.status(400).json({ ok: false, code: "BAD_USERNAME" });
+    const r = await withClient((c) =>
+      c.query<{ id: string }>(`SELECT id::text FROM users WHERE lower(username) = $1 LIMIT 1`, [handle]),
+    );
+    const target = r.rows[0];
+    if (!target || !target.id) return res.status(404).json({ ok: false, code: "USER_NOT_FOUND" });
+    if (target.id === me.id) return res.status(400).json({ ok: false, code: "CANNOT_BLOCK_SELF" });
+    const reason = String((req.body || {}).reason || "").slice(0, 500) || null;
+    const existing = await withClient((c) =>
+      c.query(`SELECT 1 FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2`, [me.id, target.id]),
+    );
+    if (existing.rowCount && existing.rowCount > 0) {
+      await withClient((c) =>
+        c.query(`DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2`, [me.id, target.id]),
+      );
+      return res.json({ ok: true, blocked: false });
+    }
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO user_blocks (blocker_id, blocked_id, reason) VALUES ($1, $2, $3)
+         ON CONFLICT DO NOTHING`,
+        [me.id, target.id, reason],
+      ),
+    );
+    return res.json({ ok: true, blocked: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "BLOCK_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/user/blocks", async (req, res) => {
+  noStore(res);
+  try {
+    const me = await getSessionUser(req).catch(() => null);
+    if (!me || !me.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const r = await withClient((c) =>
+      c.query<{ blocked_id: string; username: string | null; display_name: string | null; avatar_url: string | null; reason: string | null; created_at: string }>(
+        `SELECT b.blocked_id::text AS blocked_id, u.username, u.display_name, u.avatar_url,
+                b.reason, b.created_at::text AS created_at
+           FROM user_blocks b
+           LEFT JOIN users u ON u.id = b.blocked_id
+          WHERE b.blocker_id = $1
+          ORDER BY b.created_at DESC
+          LIMIT 500`,
+        [me.id],
+      ),
+    );
+    return res.json({ ok: true, items: r.rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "LIST_BLOCKS_FAILED", message: String(err) });
+  }
+});
+
+const VALID_REPORT_KINDS = new Set(["mv", "comment", "user", "person"]);
+const VALID_REASON_CODES = new Set(["spam", "harassment", "copyright", "nsfw", "factual_error", "other"]);
+
+app.post("/api/reports", express.json({ limit: "8kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const me = await getSessionUser(req).catch(() => null);
+    if (!me || !me.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const body = req.body || {};
+    const target_kind = String(body.target_kind || "").trim();
+    const target_id = String(body.target_id || "").trim();
+    const reason_code = String(body.reason_code || "").trim();
+    const details = String(body.details || "").trim().slice(0, 2000) || null;
+    if (!VALID_REPORT_KINDS.has(target_kind)) {
+      return res.status(400).json({ ok: false, code: "BAD_TARGET_KIND" });
+    }
+    if (!target_id) return res.status(400).json({ ok: false, code: "BAD_TARGET_ID" });
+    if (!VALID_REASON_CODES.has(reason_code)) {
+      return res.status(400).json({ ok: false, code: "BAD_REASON" });
+    }
+    try {
+      const r = await withClient((c) =>
+        c.query<{ report_id: string }>(
+          `INSERT INTO content_reports (reporter_id, target_kind, target_id, reason_code, details)
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING report_id::text`,
+          [me.id, target_kind, target_id, reason_code, details],
+        ),
+      );
+      return res.json({ ok: true, report_id: r.rows[0]?.report_id || null });
+    } catch (e: any) {
+      if (String(e?.code) === "23505") {
+        return res.status(429).json({ ok: false, code: "ALREADY_REPORTED_TODAY" });
+      }
+      throw e;
+    }
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "REPORT_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/admin/reports", async (req, res) => {
+  noStore(res);
+  if (!(await isAdminRequest(req))) {
+    return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+  }
+  try {
+    const status = String(req.query.status || "open");
+    const limit = Math.max(1, Math.min(200, parseInt(String(req.query.limit || "50"), 10) || 50));
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT report_id::text, reporter_id::text, target_kind, target_id, reason_code, details,
+                status, reviewed_by::text AS reviewed_by, reviewed_at::text AS reviewed_at,
+                created_at::text AS created_at
+           FROM content_reports
+          WHERE status = $1
+          ORDER BY created_at DESC
+          LIMIT $2`,
+        [status, limit],
+      ),
+    );
+    return res.json({ ok: true, items: r.rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "ADMIN_REPORTS_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/admin/reports/:id/resolve", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  if (!(await isAdminRequest(req))) {
+    return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+  }
+  try {
+    const me = await getSessionUser(req).catch(() => null);
+    if (!me || !me.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const id = String(req.params.id || "").trim();
+    const action = String((req.body || {}).action || "").trim();
+    if (!["dismiss", "hide", "ban"].includes(action)) {
+      return res.status(400).json({ ok: false, code: "BAD_ACTION" });
+    }
+    const repR = await withClient((c) =>
+      c.query<{ target_kind: string; target_id: string }>(
+        `SELECT target_kind, target_id FROM content_reports WHERE report_id = $1::uuid`,
+        [id],
+      ),
+    );
+    const rep = repR.rows[0];
+    if (!rep) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+
+    if (action === "hide") {
+      try {
+        if (rep.target_kind === "mv") {
+          await withClient((c) =>
+            c.query(`UPDATE user_works SET status = 'hidden_by_admin' WHERE work_id = $1::uuid`, [rep.target_id]),
+          ).catch(() => {});
+        } else if (rep.target_kind === "comment") {
+          await withClient((c) =>
+            c.query(`UPDATE person_mv_comments SET deleted_at = now() WHERE id = $1::uuid`, [rep.target_id]),
+          ).catch(() => {});
+        }
+      } catch (_e) { /* best-effort */ }
+    } else if (action === "ban") {
+      try {
+        if (rep.target_kind === "user") {
+          await withClient((c) =>
+            c.query(`UPDATE users SET banned_at = now() WHERE id = $1::uuid`, [rep.target_id]),
+          ).catch(() => {});
+        }
+      } catch (_e) { /* best-effort */ }
+    }
+
+    const newStatus = action === "dismiss" ? "dismissed" : "resolved";
+    await withClient((c) =>
+      c.query(
+        `UPDATE content_reports SET status = $1, reviewed_by = $2, reviewed_at = now()
+          WHERE report_id = $3::uuid`,
+        [newStatus, me.id, id],
+      ),
+    );
+    return res.json({ ok: true, status: newStatus });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "RESOLVE_FAILED", message: String(err) });
+  }
+});
+
 async function start() {
   const openAiRuntime = getOpenAiRuntimeConfig();
   console.info("[startup.openai]", {
@@ -27820,6 +28064,362 @@ async function start() {
     console.log(`[engines] tts   order: ${fmt(ttsProviderOrder())}`);
   });
 }
+
+/* CSSOS_PERSON_MV_WAVE35 20260508 — Jing
+ * Seed credit shop catalog (idempotent — ON CONFLICT DO NOTHING)
+ * and the demo monthly contest. Runs after ensurePersonMvTables. */
+let __wave35_36_seeded = false;
+async function seedShopAndContestOnce(): Promise<void> {
+  if (__wave35_36_seeded || !DATABASE_URL) return;
+  __wave35_36_seeded = true;
+  const items: Array<{
+    item_id: string; name_zh: string; name_en: string;
+    description_zh: string; description_en: string;
+    price: number; kind: string; payload: Record<string, unknown>;
+  }> = [
+    { item_id: "engine_runway_50", name_zh: "Runway Gen-4 视频额度 +50", name_en: "Runway Gen-4 quota +50",
+      description_zh: "为 MV 封面/视频生成增加 50 次 Runway Gen-4 额度", description_en: "+50 Runway Gen-4 cover renders",
+      price: 200, kind: "engine_quota", payload: { engine: "runway", quota: 50 } },
+    { item_id: "engine_openai_100", name_zh: "OpenAI gpt-image-1 额度 +100", name_en: "OpenAI gpt-image-1 quota +100",
+      description_zh: "为封面生成增加 100 次 OpenAI 图像额度", description_en: "+100 gpt-image-1 cover renders",
+      price: 150, kind: "engine_quota", payload: { engine: "openai", quota: 100 } },
+    { item_id: "style_unlock_premium_pack", name_zh: "解锁高级风格包", name_en: "Premium style pack",
+      description_zh: "解锁 5 个额外的高级 MV 风格 chip", description_en: "Unlock 5 extra premium style chips",
+      price: 100, kind: "style_unlock", payload: { pack: "premium_pack_v1" } },
+    { item_id: "custom_domain_year", name_zh: "自定义域名 1 年", name_en: "Custom domain (1 year)",
+      description_zh: "将你的 cssOS 主页绑定到自定义域名,有效期 1 年", description_en: "Bind a custom domain to your cssOS home for 1 year",
+      price: 1000, kind: "custom_domain", payload: { duration_days: 365 } },
+    { item_id: "ad_free_month", name_zh: "免广告 1 个月", name_en: "Ad-free month",
+      description_zh: "1 个月内全站免广告体验", description_en: "No ads for 30 days",
+      price: 50, kind: "ad_free_month", payload: { duration_days: 30 } },
+    { item_id: "skin_dark_gold", name_zh: "暗金主题皮肤", name_en: "Dark Gold UI skin",
+      description_zh: "切换到限定的暗金主题外观", description_en: "Unlock the Dark Gold UI theme",
+      price: 80, kind: "skin", payload: { skin: "dark_gold" } },
+  ];
+  for (const it of items) {
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO shop_items (item_id, name_zh, name_en, description_zh, description_en, price_credits, kind, payload, active)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb, true)
+         ON CONFLICT (item_id) DO NOTHING`,
+        [it.item_id, it.name_zh, it.name_en, it.description_zh, it.description_en, it.price, it.kind, JSON.stringify(it.payload)],
+      ),
+    );
+  }
+  const now = new Date();
+  const ends = new Date(now.getTime() + 30 * 24 * 3600 * 1000);
+  await withClient((c) =>
+    c.query(
+      `INSERT INTO contests (contest_id, title_zh, title_en, description_zh, description_en, theme, person_id_required, prize_credits, starts_at, ends_at, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active')
+       ON CONFLICT (contest_id) DO NOTHING`,
+      [
+        "fathers_day_confucius_2026_05",
+        "用孔子做支父亲节 MV",
+        "Father's Day MV with Confucius",
+        "本月主题:为父亲节制作一支以孔子为主角的 MV,获胜者获得 500 学分。",
+        "Make a Father's Day MV starring Confucius — winner takes 500 credits.",
+        "fathers_day_with_confucius",
+        "confucius",
+        500,
+        now.toISOString(),
+        ends.toISOString(),
+      ],
+    ),
+  );
+}
+
+/* CSSOS_PERSON_MV_WAVE35 20260508 — Jing — credit shop API. */
+app.get("/api/shop/items", async (req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const activeOnly = String(req.query.active || "true") !== "false";
+    const r: any = await withClient((c) =>
+      c.query<any>(
+        `SELECT item_id, name_zh, name_en, description_zh, description_en,
+                price_credits, kind, payload, active, created_at
+           FROM shop_items
+          ${activeOnly ? "WHERE active = true" : ""}
+          ORDER BY price_credits ASC, item_id ASC`,
+      ),
+    );
+    return res.json({ ok: true, items: r.rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "SHOP_LIST_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/shop/purchase", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const itemId = String(req.body?.item_id || "").trim();
+    if (!itemId) return res.status(400).json({ ok: false, code: "INVALID_ITEM" });
+    const itemR = await withClient((c) =>
+      c.query<any>(
+        `SELECT item_id, price_credits, kind, payload, active FROM shop_items WHERE item_id = $1`,
+        [itemId],
+      ),
+    );
+    const item = itemR.rows[0];
+    if (!item || !item.active) return res.status(404).json({ ok: false, code: "ITEM_NOT_FOUND" });
+    const price = Number(item.price_credits);
+    if (!Number.isFinite(price) || price <= 0) return res.status(400).json({ ok: false, code: "BAD_PRICE" });
+
+    const upd = await withClient((c) =>
+      c.query<{ balance: number }>(
+        `UPDATE user_credits
+            SET balance = balance - $2,
+                lifetime_spent = lifetime_spent + $2,
+                updated_at = now()
+          WHERE user_id = $1 AND balance >= $2
+          RETURNING balance`,
+        [user.id, price],
+      ),
+    );
+    if (!upd.rowCount) {
+      const curR = await withClient((c) =>
+        c.query<{ balance: number }>(`SELECT COALESCE(balance,0) AS balance FROM user_credits WHERE user_id = $1`, [user.id]),
+      );
+      const have = Number(curR.rows[0]?.balance || 0);
+      return res.status(402).json({ ok: false, code: "INSUFFICIENT_CREDITS", balance: have, need: price });
+    }
+    const balance = Number(upd.rows[0]?.balance || 0);
+    const dur = Number((item.payload || {}).duration_days || 0);
+    const expiresAt = dur > 0 ? new Date(Date.now() + dur * 24 * 3600 * 1000).toISOString() : null;
+
+    const ins = await withClient((c) =>
+      c.query<{ purchase_id: string }>(
+        `INSERT INTO user_purchases (user_id, item_id, credits_spent, payload, status, expires_at)
+         VALUES ($1,$2,$3,$4::jsonb,'active',$5)
+         RETURNING purchase_id`,
+        [user.id, item.item_id, price, JSON.stringify(item.payload || {}), expiresAt],
+      ),
+    );
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO credit_events (user_id, delta, reason, payload)
+         VALUES ($1, $2, 'spend', $3::jsonb)`,
+        [user.id, -price, JSON.stringify({ item_id: item.item_id, kind: item.kind, purchase_id: ins.rows[0]?.purchase_id })],
+      ),
+    );
+    return res.json({ ok: true, purchase_id: ins.rows[0]?.purchase_id, balance, expires_at: expiresAt });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "PURCHASE_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/user/purchases", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT p.purchase_id, p.item_id, p.credits_spent, p.payload, p.status, p.expires_at, p.created_at,
+                i.name_zh, i.name_en, i.kind
+           FROM user_purchases p
+           LEFT JOIN shop_items i ON i.item_id = p.item_id
+          WHERE p.user_id = $1
+          ORDER BY p.created_at DESC LIMIT 100`,
+        [user.id],
+      ),
+    );
+    return res.json({ ok: true, purchases: r.rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "PURCHASES_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE36 20260508 — Jing — monthly contest API. */
+app.get("/api/contests/active", async (_req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const r: any = await withClient((c) =>
+      c.query<any>(
+        `SELECT contest_id, title_zh, title_en, description_zh, description_en, theme,
+                person_id_required, prize_credits, starts_at, ends_at, status,
+                winner_user_id, winner_work_id
+           FROM contests
+          WHERE status IN ('active','upcoming')
+          ORDER BY starts_at ASC`,
+      ),
+    );
+    return res.json({ ok: true, contests: r.rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "CONTESTS_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/contests/:id", async (req, res) => {
+  noStore(res);
+  try {
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const cR = await withClient((c) =>
+      c.query<any>(
+        `SELECT contest_id, title_zh, title_en, description_zh, description_en, theme,
+                person_id_required, prize_credits, starts_at, ends_at, status,
+                winner_user_id, winner_work_id
+           FROM contests WHERE contest_id = $1`,
+        [id],
+      ),
+    );
+    const contest = cR.rows[0];
+    if (!contest) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const eR = await withClient((c) =>
+      c.query<any>(
+        `SELECT entry_id::text, contest_id, user_id::text, work_id::text, vote_count, submitted_at
+           FROM contest_entries
+          WHERE contest_id = $1
+          ORDER BY vote_count DESC, submitted_at ASC
+          LIMIT 200`,
+        [id],
+      ),
+    );
+    return res.json({ ok: true, contest, entries: eR.rows, leaderboard: eR.rows.slice(0, 10) });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "CONTEST_GET_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/contests/:id/submit", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    const workId = String(req.body?.work_id || "").trim();
+    if (!id || !workId) return res.status(400).json({ ok: false, code: "INVALID_INPUT" });
+    const cR = await withClient((c) =>
+      c.query<any>(
+        `SELECT contest_id, status, starts_at, ends_at FROM contests WHERE contest_id = $1`,
+        [id],
+      ),
+    );
+    const contest = cR.rows[0];
+    if (!contest) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const now = Date.now();
+    const startsAt = new Date(contest.starts_at).getTime();
+    const endsAt = new Date(contest.ends_at).getTime();
+    if (contest.status !== "active" || now < startsAt || now > endsAt) {
+      return res.status(400).json({ ok: false, code: "CONTEST_INACTIVE" });
+    }
+    const ins = await withClient((c) =>
+      c.query<{ entry_id: string }>(
+        `INSERT INTO contest_entries (contest_id, user_id, work_id)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (contest_id, user_id, work_id) DO NOTHING
+         RETURNING entry_id::text`,
+        [id, user.id, workId],
+      ),
+    );
+    return res.json({ ok: true, entry_id: ins.rows[0]?.entry_id || null, duplicate: !ins.rowCount });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "SUBMIT_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/contests/:id/vote", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    const entryId = String(req.body?.entry_id || "").trim();
+    if (!id || !entryId) return res.status(400).json({ ok: false, code: "INVALID_INPUT" });
+
+    // Toggle: one vote per (contest, voter) — PK enforces uniqueness.
+    const existing = await withClient((c) =>
+      c.query<{ entry_id: string }>(
+        `SELECT entry_id::text FROM contest_votes WHERE contest_id = $1 AND voter_id = $2`,
+        [id, user.id],
+      ),
+    );
+    if (existing.rows[0]) {
+      const prev = existing.rows[0].entry_id;
+      await withClient((c) =>
+        c.query(`DELETE FROM contest_votes WHERE contest_id = $1 AND voter_id = $2`, [id, user.id]),
+      );
+      await withClient((c) =>
+        c.query(`UPDATE contest_entries SET vote_count = GREATEST(0, vote_count - 1) WHERE entry_id = $1::uuid`, [prev]),
+      );
+      if (prev === entryId) {
+        return res.json({ ok: true, voted: false });
+      }
+    }
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO contest_votes (contest_id, entry_id, voter_id)
+         VALUES ($1, $2::uuid, $3)
+         ON CONFLICT (contest_id, voter_id) DO NOTHING`,
+        [id, entryId, user.id],
+      ),
+    );
+    await withClient((c) =>
+      c.query(`UPDATE contest_entries SET vote_count = vote_count + 1 WHERE entry_id = $1::uuid AND contest_id = $2`, [entryId, id]),
+    );
+    return res.json({ ok: true, voted: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "VOTE_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/admin/contests/:id/finalize", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    if (!(user as any).is_admin && !(user as any).admin) {
+      return res.status(403).json({ ok: false, code: "ADMIN_REQUIRED" });
+    }
+    await ensurePersonMvTables();
+    const id = String(req.params.id || "").trim();
+    const cR = await withClient((c) =>
+      c.query<any>(`SELECT contest_id, prize_credits, status FROM contests WHERE contest_id = $1`, [id]),
+    );
+    const contest = cR.rows[0];
+    if (!contest) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    if (contest.status === "done") return res.status(400).json({ ok: false, code: "ALREADY_FINALIZED" });
+    const winR = await withClient((c) =>
+      c.query<any>(
+        `SELECT entry_id::text, user_id::text, work_id::text, vote_count
+           FROM contest_entries
+          WHERE contest_id = $1
+          ORDER BY vote_count DESC, submitted_at ASC
+          LIMIT 1`,
+        [id],
+      ),
+    );
+    const winner = winR.rows[0];
+    if (!winner) return res.status(400).json({ ok: false, code: "NO_ENTRIES" });
+    const prize = Number(contest.prize_credits || 0);
+    if (prize > 0) {
+      await awardCredit(winner.user_id, prize, "manual", { contest_id: id, work_id: winner.work_id, kind_subtype: "contest_prize" });
+    }
+    await withClient((c) =>
+      c.query(
+        `UPDATE contests
+            SET status = 'done',
+                winner_user_id = $2::uuid,
+                winner_work_id = $3::uuid
+          WHERE contest_id = $1`,
+        [id, winner.user_id, winner.work_id],
+      ),
+    );
+    return res.json({ ok: true, winner_user_id: winner.user_id, winner_work_id: winner.work_id, prize_credits: prize });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "FINALIZE_FAILED", message: String(err) });
+  }
+});
 
 start().catch((err) => {
   console.error("Startup failed", err);

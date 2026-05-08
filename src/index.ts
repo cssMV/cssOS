@@ -11266,6 +11266,22 @@ async function ensurePersonMvTables() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
       CREATE INDEX IF NOT EXISTS mv_shares_mv_idx ON mv_shares (mv_id);
+
+      -- CSSOS_PERSON_MV_WAVE14 20260508 — Jing — cross-person dialogue MVs.
+      -- Each row links a single user_works MV to TWO persons so codex pages
+      -- of either side can surface the dialogue gallery.
+      CREATE TABLE IF NOT EXISTS person_dialogue_mvs (
+        mv_id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        work_id            UUID NOT NULL,
+        person_a_id        TEXT NOT NULL REFERENCES person_profiles(person_id) ON DELETE CASCADE,
+        person_b_id        TEXT NOT NULL REFERENCES person_profiles(person_id) ON DELETE CASCADE,
+        created_by_user_id UUID NOT NULL,
+        created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+        view_count         INTEGER NOT NULL DEFAULT 0,
+        like_count         INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS person_dialogue_mvs_a_idx ON person_dialogue_mvs (person_a_id);
+      CREATE INDEX IF NOT EXISTS person_dialogue_mvs_b_idx ON person_dialogue_mvs (person_b_id);
     `),
   );
 }
@@ -15767,6 +15783,35 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
       ),
     );
 
+    // CSSOS_PERSON_MV_WAVE14 20260508 — Jing
+    // Dialogue MVs visible from EITHER person's codex.
+    let dialogueMvs: any[] = [];
+    try {
+      const dr = await withClient((c) =>
+        c.query(
+          `SELECT dm.mv_id, dm.work_id, dm.created_by_user_id, dm.created_at,
+                  dm.view_count, dm.like_count,
+                  dm.person_a_id, dm.person_b_id,
+                  pa.name_zh AS a_name_zh, pa.name_en AS a_name_en, pa.portrait_url AS a_portrait,
+                  pb.name_zh AS b_name_zh, pb.name_en AS b_name_en, pb.portrait_url AS b_portrait,
+                  w.cover_image, w.title,
+                  u.display_name AS creator_display_name,
+                  u.avatar_url   AS creator_avatar_url
+             FROM person_dialogue_mvs dm
+             LEFT JOIN person_profiles pa ON pa.person_id = dm.person_a_id
+             LEFT JOIN person_profiles pb ON pb.person_id = dm.person_b_id
+             LEFT JOIN user_works w       ON w.id = dm.work_id
+             LEFT JOIN users u            ON u.id = dm.created_by_user_id
+            WHERE dm.person_a_id = $1 OR dm.person_b_id = $1
+            ORDER BY dm.created_at DESC LIMIT 50`,
+          [id],
+        ),
+      );
+      dialogueMvs = dr.rows;
+    } catch (err) {
+      console.warn("[person-mv] codex dialogue list failed:", (err as Error)?.message || err);
+    }
+
     return res.json({
       ok: true,
       data: {
@@ -15774,6 +15819,7 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
         lore: lore || {},
         portrait_url: portraitUrl,
         mvs: mvsR.rows,
+        dialogue_mvs: dialogueMvs,
         contemporaries: contemR.rows,
         lineage: linR.rows,
         total_mv_count: totalMvCount,
@@ -16058,6 +16104,197 @@ function srtTs(sec: number): string {
   return `${pad(h)}:${pad(m)}:${pad(s)},${pad(mmm, 3)}`;
 }
 
+/* ---------------------------------------------------------------------------
+ * Whisper ASR router (wave 13b) — produce word-level SRT from an audio URL.
+ * Provider sweep: HuggingFace whisper-large-v3 (free) → fal-ai/whisper (free)
+ * → OpenAI whisper-1 (premium fallback). Returns standardized chunks plus a
+ * pre-built SRT batched 2-3 words per cue for a smooth subtitle ticker. */
+type WhisperChunk = { start: number; end: number; text: string };
+type WhisperGenRequest = { audio_url: string; language?: string; prefer?: string[] };
+type WhisperGenResponse = {
+  ok: boolean;
+  status: number;
+  provider: string;
+  model: string;
+  text?: string;
+  srt?: string;
+  chunks?: WhisperChunk[];
+  error?: string;
+};
+const WHISPER_PROVIDERS = ["whisper_hf", "whisper_fal", "whisper_openai"] as const;
+function whisperProviderOrder(prefer?: string[]): string[] {
+  const env = String(process.env.WHISPER_PROVIDER_ORDER || "whisper_hf,whisper_fal,whisper_openai")
+    .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  const list = (prefer && prefer.length ? prefer : env).filter((p) =>
+    (WHISPER_PROVIDERS as readonly string[]).includes(p));
+  return (prefer && prefer.length) ? list : tierSortProviders(list);
+}
+
+/** Group word-level chunks into 2-3 word cues and emit SRT. */
+function chunksToSrt(chunks: WhisperChunk[], maxLineLength = 42): string {
+  if (!chunks || chunks.length === 0) return "";
+  const cues: WhisperChunk[] = [];
+  let buf: WhisperChunk[] = [];
+  const flush = () => {
+    if (!buf.length) return;
+    const text = buf.map((c) => c.text.trim()).filter(Boolean).join(" ");
+    cues.push({ start: buf[0]!.start, end: buf[buf.length - 1]!.end, text });
+    buf = [];
+  };
+  for (const c of chunks) {
+    if (!c || !isFinite(c.start) || !isFinite(c.end)) continue;
+    buf.push(c);
+    const joined = buf.map((x) => x.text.trim()).join(" ");
+    if (buf.length >= 3 || joined.length >= maxLineLength) flush();
+  }
+  flush();
+  return cues.map((c, i) => `${i + 1}\n${srtTs(c.start)} --> ${srtTs(Math.max(c.start + 0.05, c.end))}\n${c.text}\n`).join("\n");
+}
+
+async function fetchAudioBytes(audioUrl: string): Promise<{ buf: Buffer; contentType: string } | null> {
+  try {
+    if (/^https?:\/\//i.test(audioUrl)) {
+      const r = await fetch(audioUrl);
+      if (!r.ok) return null;
+      const ct = r.headers.get("content-type") || "audio/mpeg";
+      return { buf: Buffer.from(await r.arrayBuffer()), contentType: ct };
+    }
+    if (audioUrl.startsWith("/artifacts/mv-fallback/")) {
+      const filename = audioUrl.slice("/artifacts/mv-fallback/".length);
+      const abs = path.join(MV_FALLBACK_ARTIFACTS_DIR, filename);
+      if (!fs.existsSync(abs)) return null;
+      const ext = (filename.split(".").pop() || "mp3").toLowerCase();
+      const ct = ext === "wav" ? "audio/wav" : ext === "ogg" ? "audio/ogg" : "audio/mpeg";
+      return { buf: fs.readFileSync(abs), contentType: ct };
+    }
+  } catch (e) {
+    console.warn("[whisper] fetchAudioBytes failed:", e);
+  }
+  return null;
+}
+
+function normalizeHfChunks(raw: any): WhisperChunk[] {
+  const arr = Array.isArray(raw?.chunks) ? raw.chunks : [];
+  const out: WhisperChunk[] = [];
+  for (const c of arr) {
+    const ts = c?.timestamp;
+    const start = Number(Array.isArray(ts) ? ts[0] : c?.start);
+    const end = Number(Array.isArray(ts) ? ts[1] : c?.end);
+    const text = String(c?.text || "").trim();
+    if (text && isFinite(start) && isFinite(end)) out.push({ start, end, text });
+  }
+  return out;
+}
+
+function normalizeOpenAiWords(raw: any): WhisperChunk[] {
+  const words = Array.isArray(raw?.words) ? raw.words : [];
+  const out: WhisperChunk[] = [];
+  for (const w of words) {
+    const start = Number(w?.start);
+    const end = Number(w?.end);
+    const text = String(w?.word || w?.text || "").trim();
+    if (text && isFinite(start) && isFinite(end)) out.push({ start, end, text });
+  }
+  if (out.length) return out;
+  const segs = Array.isArray(raw?.segments) ? raw.segments : [];
+  for (const s of segs) {
+    const start = Number(s?.start);
+    const end = Number(s?.end);
+    const text = String(s?.text || "").trim();
+    if (text && isFinite(start) && isFinite(end)) out.push({ start, end, text });
+  }
+  return out;
+}
+
+async function callWhisperGen(req: WhisperGenRequest): Promise<WhisperGenResponse> {
+  const order = whisperProviderOrder(req.prefer);
+  let lastErr = "";
+  let lastStatus = 0;
+  for (const provider of order) {
+    try {
+      if (provider === "whisper_hf") {
+        const key = String(process.env.HUGGINGFACE_API_KEY || process.env.HF_API_KEY || "").trim();
+        if (!key) { lastErr = "hf_no_key"; continue; }
+        const audio = await fetchAudioBytes(req.audio_url);
+        if (!audio) { lastErr = "hf_audio_unreachable"; continue; }
+        const r = await fetch("https://api-inference.huggingface.co/models/openai/whisper-large-v3", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${key}`, "Content-Type": audio.contentType, Accept: "application/json", "x-wait-for-model": "true" },
+          body: audio.buf as any,
+        });
+        lastStatus = r.status;
+        const bodyText = await r.text();
+        if (r.status === 503) { console.warn("[whisper] hf 503 model loading — falling through"); lastErr = "hf_model_loading"; continue; }
+        if (!r.ok) { lastErr = `hf_${r.status}: ${bodyText.slice(0, 200)}`; console.warn("[whisper]", lastErr); continue; }
+        let raw: any = null;
+        try { raw = JSON.parse(bodyText); } catch { lastErr = "hf_parse"; continue; }
+        const chunks = normalizeHfChunks(raw);
+        if (!chunks.length) { lastErr = "hf_no_chunks"; continue; }
+        return { ok: true, status: r.status, provider, model: "openai/whisper-large-v3", text: String(raw?.text || ""), chunks, srt: chunksToSrt(chunks) };
+      }
+      if (provider === "whisper_fal") {
+        const key = String(process.env.FAL_API_KEY || process.env.FAL_KEY || "").trim();
+        if (!key) { lastErr = "fal_no_key"; continue; }
+        let audioUrl = req.audio_url;
+        if (!/^https?:\/\//i.test(audioUrl)) {
+          const audio = await fetchAudioBytes(audioUrl);
+          if (!audio) { lastErr = "fal_audio_unreachable"; continue; }
+          audioUrl = `data:${audio.contentType};base64,${audio.buf.toString("base64")}`;
+        }
+        const r = await fetch("https://fal.run/fal-ai/whisper", {
+          method: "POST",
+          headers: { Authorization: `Key ${key}`, "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ audio_url: audioUrl, task: "transcribe", chunk_level: "word", ...(req.language ? { language: req.language } : {}) }),
+        });
+        lastStatus = r.status;
+        const bodyText = await r.text();
+        if (!r.ok) { lastErr = `fal_${r.status}: ${bodyText.slice(0, 200)}`; console.warn("[whisper]", lastErr); continue; }
+        let raw: any = null;
+        try { raw = JSON.parse(bodyText); } catch { lastErr = "fal_parse"; continue; }
+        const chunks = normalizeHfChunks(raw);
+        if (!chunks.length) { lastErr = "fal_no_chunks"; continue; }
+        return { ok: true, status: r.status, provider, model: "fal-ai/whisper", text: String(raw?.text || ""), chunks, srt: chunksToSrt(chunks) };
+      }
+      if (provider === "whisper_openai") {
+        const key = String(process.env.OPENAI_API_KEY || "").trim();
+        if (!key) { lastErr = "openai_no_key"; continue; }
+        const audio = await fetchAudioBytes(req.audio_url);
+        if (!audio) { lastErr = "openai_audio_unreachable"; continue; }
+        const boundary = "----cssos" + crypto.randomBytes(8).toString("hex");
+        const ext = audio.contentType.includes("wav") ? "wav" : audio.contentType.includes("ogg") ? "ogg" : "mp3";
+        const parts: Buffer[] = [];
+        const push = (s: string) => parts.push(Buffer.from(s, "utf8"));
+        push(`--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\nwhisper-1\r\n`);
+        push(`--${boundary}\r\nContent-Disposition: form-data; name="response_format"\r\n\r\nverbose_json\r\n`);
+        push(`--${boundary}\r\nContent-Disposition: form-data; name="timestamp_granularities[]"\r\n\r\nword\r\n`);
+        push(`--${boundary}\r\nContent-Disposition: form-data; name="timestamp_granularities[]"\r\n\r\nsegment\r\n`);
+        if (req.language) push(`--${boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\n${req.language}\r\n`);
+        push(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.${ext}"\r\nContent-Type: ${audio.contentType}\r\n\r\n`);
+        parts.push(audio.buf);
+        push(`\r\n--${boundary}--\r\n`);
+        const body = Buffer.concat(parts);
+        const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${key}`, "Content-Type": `multipart/form-data; boundary=${boundary}` },
+          body: body as any,
+        });
+        lastStatus = r.status;
+        const bodyText = await r.text();
+        if (!r.ok) { lastErr = `openai_${r.status}: ${bodyText.slice(0, 200)}`; console.warn("[whisper]", lastErr); continue; }
+        let raw: any = null;
+        try { raw = JSON.parse(bodyText); } catch { lastErr = "openai_parse"; continue; }
+        const chunks = normalizeOpenAiWords(raw);
+        if (!chunks.length) { lastErr = "openai_no_chunks"; continue; }
+        return { ok: true, status: r.status, provider, model: "whisper-1", text: String(raw?.text || ""), chunks, srt: chunksToSrt(chunks) };
+      }
+    } catch (e) {
+      lastErr = `${provider}_throw: ${(e as Error)?.message || String(e)}`;
+      console.warn("[whisper]", lastErr);
+    }
+  }
+  return { ok: false, status: lastStatus || 0, provider: "none", model: "", error: lastErr || "all_providers_failed" };
+}
+
 /** Naive 2-line chunked SRT, evenly distributed across `durationSec`. */
 function buildSrtFromLyrics(lyrics: string, durationSec: number): string {
   const lines = lyrics
@@ -16165,15 +16402,31 @@ async function runHeadlessPipeline(
   const videoSkipped = true;
   stages.push({ name: "video", ok: true, ms: 0, error: "skipped_lite_tier" });
 
-  // 5) Subtitles (fake-split SRT)
+  // 5) Subtitles — real Whisper ASR over the music output, falling back to
+  // the legacy fake-split SRT only if every ASR provider fails.
   const srtPath = await stage("subtitles", async () => {
     if (!lyrics) throw new Error("no_lyrics");
-    const srt = buildSrtFromLyrics(lyrics, durationSec);
+    let srt = "";
+    let providerLabel = "fake-split";
+    if (audioUrl) {
+      try {
+        const asr = await callWhisperGen({ audio_url: audioUrl });
+        if (asr.ok && asr.srt) {
+          srt = asr.srt;
+          providerLabel = asr.provider;
+        } else {
+          console.warn("[headless-mv] whisper failed, using lyrics fallback:", asr.error);
+        }
+      } catch (e) {
+        console.warn("[headless-mv] whisper threw:", (e as Error)?.message || e);
+      }
+    }
+    if (!srt) srt = buildSrtFromLyrics(lyrics, durationSec);
     if (!srt) throw new Error("srt_empty");
     const filename = `srt-${person.person_id.slice(0, 8)}-${Date.now()}.srt`;
     const abs = path.join(MV_FALLBACK_ARTIFACTS_DIR, filename);
     fs.writeFileSync(abs, srt, { mode: 0o644 });
-    return { value: abs, provider: "fake-split" };
+    return { value: abs, provider: providerLabel };
   });
 
   // 6) Compose via ffmpeg

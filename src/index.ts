@@ -12386,7 +12386,7 @@ async function ensurePersonMvTables() {
  * actor for defense-in-depth. */
 async function enqueueNotification(
   userId: string | null | undefined,
-  kind: "mv_like" | "mv_comment" | "comment_mention" | "follow" | "feed_new_mv" | "system" | "dm_received",
+  kind: "mv_like" | "mv_comment" | "comment_mention" | "follow" | "feed_new_mv" | "system" | "dm_received" | "remix_received",
   payload: Record<string, unknown>,
 ): Promise<void> {
   if (!DATABASE_URL || !userId) return;
@@ -35110,6 +35110,388 @@ app.post("/api/admin/tutorials/:id/publish", async (req, res) => {
   } catch (err) {
     console.warn("[tutorials] publish failed:", (err as Error)?.message || err);
     return res.status(500).json({ ok: false, code: "TUTORIAL_PUBLISH_FAILED" });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE86 20260508 — Jing — remix system.
+ * Fork an existing MV's seed → tweak → publish. Original creator
+ * gets 5💎 on remix publish (skip if remixer == original creator).
+ * Idempotency: credit dedup keyed on (recipient, reason, remix_work_id)
+ * via credit_events.payload. */
+app.post("/api/works/:work_id/remix", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const origId = String(req.params.work_id || "").trim();
+    if (!origId) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const orig = await withClient((c) =>
+      c.query<{
+        id: string; user_id: string; title: string | null; style: string | null;
+        cover_image: string | null; remix_chain_root_id: string | null;
+      }>(
+        `SELECT id::text, user_id::text, title, style, cover_image, remix_chain_root_id::text
+           FROM user_works WHERE id = $1::uuid`,
+        [origId],
+      ),
+    );
+    const o = orig.rows[0];
+    if (!o) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const newId = crypto.randomUUID();
+    const root = o.remix_chain_root_id || o.id;
+    const newTitle = `Remix of ${(o.title || "MV").slice(0, 180)}`;
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO user_works (
+           id, user_id, title, style, work_type, status, cover_image,
+           remix_of_work_id, remix_chain_root_id
+         ) VALUES ($1::uuid, $2, $3, $4, 'mv', 'draft', $5, $6::uuid, $7::uuid)`,
+        [newId, user.id, newTitle, o.style || "cinematic", o.cover_image, o.id, root],
+      ),
+    );
+    return res.json({ ok: true, draft_id: newId, remix_of: o.id, root_id: root });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "REMIX_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/works/:work_id/remixes", async (req, res) => {
+  noStore(res);
+  try {
+    const id = String(req.params.work_id || "").trim();
+    const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit || "20"), 10) || 20));
+    const r = await withClient((c) =>
+      c.query<{
+        id: string; title: string | null; cover_image: string | null;
+        user_id: string; created_at: string;
+      }>(
+        `SELECT w.id::text, w.title, w.cover_image, w.user_id::text, w.created_at
+           FROM user_works w
+          WHERE w.remix_of_work_id = $1::uuid
+          ORDER BY w.created_at DESC
+          LIMIT $2`,
+        [id, limit],
+      ),
+    );
+    return res.json({ ok: true, items: r.rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "REMIX_LIST_FAILED", message: String(err) });
+  }
+});
+
+/* Called when a remix work finishes the pipeline (status published).
+ * Awards 5💎 to original creator once. Idempotent: re-calling is no-op. */
+app.post("/api/works/:work_id/remix/finalize", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const remixId = String(req.params.work_id || "").trim();
+    const r = await withClient((c) =>
+      c.query<{ remix_of_work_id: string | null; user_id: string }>(
+        `SELECT remix_of_work_id::text, user_id::text FROM user_works WHERE id = $1::uuid`,
+        [remixId],
+      ),
+    );
+    const row = r.rows[0];
+    if (!row || !row.remix_of_work_id) return res.status(404).json({ ok: false, code: "NOT_REMIX" });
+    if (row.user_id !== user.id) return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    const origR = await withClient((c) =>
+      c.query<{ user_id: string }>(
+        `SELECT user_id::text FROM user_works WHERE id = $1::uuid`,
+        [row.remix_of_work_id],
+      ),
+    );
+    const origCreator = origR.rows[0]?.user_id;
+    if (!origCreator || origCreator === user.id) return res.json({ ok: true, awarded: false });
+    const dup = await withClient((c) =>
+      c.query<{ x: number }>(
+        `SELECT 1 AS x FROM credit_events
+          WHERE user_id = $1 AND reason = 'remix_received'
+            AND payload->>'remix_work_id' = $2 LIMIT 1`,
+        [origCreator, remixId],
+      ),
+    );
+    if (dup.rowCount) return res.json({ ok: true, awarded: false });
+    await awardCredit(origCreator, 5, "remix_received", {
+      remix_work_id: remixId,
+      remixer_id: user.id,
+      original_work_id: row.remix_of_work_id,
+    });
+    await enqueueNotification(origCreator, "remix_received", {
+      actor_id: user.id,
+      remix_work_id: remixId,
+      original_work_id: row.remix_of_work_id,
+    }).catch(() => {});
+    return res.json({ ok: true, awarded: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "REMIX_FINALIZE_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_PERSON_MV_WAVE87 20260508 — Jing — collections / playlists. */
+async function ensureSavedCollection(ownerId: string): Promise<string> {
+  const existing = await withClient((c) =>
+    c.query<{ collection_id: string }>(
+      `SELECT collection_id::text FROM collections
+        WHERE owner_id = $1 AND name = 'Saved' LIMIT 1`,
+      [ownerId],
+    ),
+  );
+  if (existing.rowCount && existing.rows[0]) return existing.rows[0].collection_id;
+  const ins = await withClient((c) =>
+    c.query<{ collection_id: string }>(
+      `INSERT INTO collections (owner_id, name, is_public)
+       VALUES ($1, 'Saved', false)
+       RETURNING collection_id::text`,
+      [ownerId],
+    ),
+  );
+  return ins.rows[0]!.collection_id;
+}
+
+app.post("/api/collections", express.json({ limit: "4kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const b = req.body || {};
+    const name = String(b.name || "").trim().slice(0, 120);
+    if (!name) return res.status(400).json({ ok: false, code: "EMPTY_NAME" });
+    const description = b.description ? String(b.description).slice(0, 600) : null;
+    const isPublic = b.is_public === false ? false : true;
+    const r = await withClient((c) =>
+      c.query<{ collection_id: string }>(
+        `INSERT INTO collections (owner_id, name, description, is_public)
+         VALUES ($1, $2, $3, $4)
+         RETURNING collection_id::text`,
+        [user.id, name, description, isPublic],
+      ),
+    );
+    return res.json({ ok: true, collection_id: r.rows[0]!.collection_id });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "COLLECTION_CREATE_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/collections", async (req, res) => {
+  noStore(res);
+  try {
+    const ownerHandle = String(req.query.owner || "").trim();
+    const publicOnly = String(req.query.public_only || "true") !== "false";
+    const me = await getSessionUser(req).catch(() => null);
+    let ownerId: string | null = null;
+    if (ownerHandle) {
+      const ur = await withClient((c) =>
+        c.query<{ id: string }>(
+          `SELECT id::text FROM users WHERE lower(username) = lower($1) LIMIT 1`,
+          [ownerHandle],
+        ),
+      );
+      ownerId = ur.rows[0]?.id || null;
+      if (!ownerId) return res.json({ ok: true, items: [] });
+    } else if (me && me.id) {
+      ownerId = me.id;
+    } else {
+      return res.status(400).json({ ok: false, code: "OWNER_REQUIRED" });
+    }
+    const showPrivate = !!(me && me.id === ownerId && !publicOnly);
+    const r = await withClient((c) =>
+      c.query(
+        `SELECT collection_id::text, owner_id::text, name, description, is_public,
+                cover_work_id::text, created_at, updated_at,
+                (SELECT COUNT(*)::int FROM collection_items ci
+                  WHERE ci.collection_id = c.collection_id) AS item_count
+           FROM collections c
+          WHERE owner_id = $1::uuid
+            AND ($2::bool = true OR is_public = true)
+          ORDER BY updated_at DESC
+          LIMIT 100`,
+        [ownerId, showPrivate],
+      ),
+    );
+    return res.json({ ok: true, items: r.rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "COLLECTIONS_LIST_FAILED", message: String(err) });
+  }
+});
+
+app.get("/api/collections/:id", async (req, res) => {
+  noStore(res);
+  try {
+    const id = String(req.params.id || "").trim();
+    const me = await getSessionUser(req).catch(() => null);
+    const cr = await withClient((c) =>
+      c.query<any>(
+        `SELECT c.collection_id::text, c.owner_id::text, c.name, c.description,
+                c.is_public, c.cover_work_id::text, c.created_at, c.updated_at,
+                u.username AS owner_username, u.display_name AS owner_display_name
+           FROM collections c
+           LEFT JOIN users u ON u.id = c.owner_id
+          WHERE c.collection_id = $1::uuid`,
+        [id],
+      ),
+    );
+    const c0 = cr.rows[0];
+    if (!c0) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    if (!c0.is_public && (!me || me.id !== c0.owner_id)) {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const items = await withClient((c) =>
+      c.query(
+        `SELECT ci.work_id::text, ci.position, ci.added_at,
+                w.title, w.cover_image, w.user_id::text AS creator_id
+           FROM collection_items ci
+           LEFT JOIN user_works w ON w.id = ci.work_id
+          WHERE ci.collection_id = $1::uuid
+          ORDER BY ci.position ASC`,
+        [id],
+      ),
+    );
+    return res.json({ ok: true, collection: c0, items: items.rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "COLLECTION_GET_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/collections/:id/items", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const id = String(req.params.id || "").trim();
+    const workId = String((req.body || {}).work_id || "").trim();
+    if (!workId) return res.status(400).json({ ok: false, code: "WORK_ID_REQUIRED" });
+    let collectionId = id;
+    if (id === "saved" || id === "default") {
+      collectionId = await ensureSavedCollection(user.id);
+    } else {
+      const own = await withClient((c) =>
+        c.query<{ x: number }>(
+          `SELECT 1 AS x FROM collections WHERE collection_id = $1::uuid AND owner_id = $2 LIMIT 1`,
+          [collectionId, user.id],
+        ),
+      );
+      if (!own.rowCount) return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    const posR = await withClient((c) =>
+      c.query<{ next_pos: number }>(
+        `SELECT COALESCE(MAX(position), -1) + 1 AS next_pos
+           FROM collection_items WHERE collection_id = $1::uuid`,
+        [collectionId],
+      ),
+    );
+    const pos = Number(posR.rows[0]?.next_pos || 0);
+    try {
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO collection_items (collection_id, work_id, position)
+           VALUES ($1::uuid, $2::uuid, $3)`,
+          [collectionId, workId, pos],
+        ),
+      );
+    } catch (e) {
+      const msg = String((e as Error)?.message || e);
+      if (/duplicate key|unique/i.test(msg)) {
+        return res.status(409).json({ ok: false, code: "ALREADY_IN_COLLECTION" });
+      }
+      throw e;
+    }
+    await withClient((c) =>
+      c.query(
+        `UPDATE collections SET updated_at = now() WHERE collection_id = $1::uuid`,
+        [collectionId],
+      ),
+    );
+    return res.json({ ok: true, collection_id: collectionId, position: pos });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "COLLECTION_ADD_FAILED", message: String(err) });
+  }
+});
+
+app.delete("/api/collections/:id/items/:work_id", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const id = String(req.params.id || "").trim();
+    const workId = String(req.params.work_id || "").trim();
+    const own = await withClient((c) =>
+      c.query<{ x: number }>(
+        `SELECT 1 AS x FROM collections WHERE collection_id = $1::uuid AND owner_id = $2 LIMIT 1`,
+        [id, user.id],
+      ),
+    );
+    if (!own.rowCount) return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    await withClient((c) =>
+      c.query(
+        `DELETE FROM collection_items WHERE collection_id = $1::uuid AND work_id = $2::uuid`,
+        [id, workId],
+      ),
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "COLLECTION_DEL_ITEM_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/collections/:id/reorder", express.json({ limit: "8kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const id = String(req.params.id || "").trim();
+    const ids = Array.isArray((req.body || {}).work_ids) ? (req.body as any).work_ids.map(String) : null;
+    if (!ids) return res.status(400).json({ ok: false, code: "WORK_IDS_REQUIRED" });
+    const own = await withClient((c) =>
+      c.query<{ x: number }>(
+        `SELECT 1 AS x FROM collections WHERE collection_id = $1::uuid AND owner_id = $2 LIMIT 1`,
+        [id, user.id],
+      ),
+    );
+    if (!own.rowCount) return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    await withClient(async (c) => {
+      await c.query("BEGIN");
+      try {
+        for (let i = 0; i < ids.length; i++) {
+          await c.query(
+            `UPDATE collection_items SET position = $3
+              WHERE collection_id = $1::uuid AND work_id = $2::uuid`,
+            [id, ids[i], i],
+          );
+        }
+        await c.query(
+          `UPDATE collections SET updated_at = now() WHERE collection_id = $1::uuid`,
+          [id],
+        );
+        await c.query("COMMIT");
+      } catch (e) {
+        await c.query("ROLLBACK");
+        throw e;
+      }
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "COLLECTION_REORDER_FAILED", message: String(err) });
+  }
+});
+
+app.delete("/api/collections/:id", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const id = String(req.params.id || "").trim();
+    const r = await withClient((c) =>
+      c.query(
+        `DELETE FROM collections WHERE collection_id = $1::uuid AND owner_id = $2 RETURNING collection_id`,
+        [id, user.id],
+      ),
+    );
+    if (!r.rowCount) return res.status(404).json({ ok: false, code: "NOT_FOUND_OR_FORBIDDEN" });
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "COLLECTION_DELETE_FAILED", message: String(err) });
   }
 });
 

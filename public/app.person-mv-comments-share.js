@@ -32,7 +32,15 @@
       "#cssos-mv-comments .cmh-input button:disabled{opacity:0.5;cursor:default;}",
       "#cssos-mv-comments .cmh-list{flex:1;overflow-y:auto;padding:10px 12px;}",
       "#cssos-mv-comments .cmh-item{display:flex;gap:10px;margin-bottom:14px;}",
-      "#cssos-mv-comments .cmh-item.is-reply{margin-left:32px;}",
+      /* CSSOS_PERSON_MV_WAVE88 — nested replies indent up to depth 3. */
+      "#cssos-mv-comments .cmh-item[data-depth='1']{margin-left:24px;}",
+      "#cssos-mv-comments .cmh-item[data-depth='2']{margin-left:48px;}",
+      "#cssos-mv-comments .cmh-item[data-depth='3']{margin-left:72px;}",
+      "#cssos-mv-comments .cmh-toggle{background:transparent;color:rgba(0,245,160,0.85);border:0;cursor:pointer;font-size:11px;padding:2px 0;margin-left:38px;display:block;}",
+      "html[data-theme='light'] #cssos-mv-comments{background:rgba(252,255,253,0.97);color:#0a1f14;border-left:1px solid rgba(0,140,90,0.25);}",
+      "html[data-theme='light'] #cssos-mv-comments .cmh-name{color:#0a1f14;}",
+      "html[data-theme='light'] #cssos-mv-comments .cmh-body{color:rgba(10,31,20,0.9);}",
+      "html[data-theme='light'] #cssos-mv-comments .cmh-input textarea{background:#fff;color:#0a1f14;border-color:rgba(0,140,90,0.25);}",
       "#cssos-mv-comments .cmh-avatar{width:28px;height:28px;border-radius:50%;background:#0c1d16;object-fit:cover;flex-shrink:0;}",
       "#cssos-mv-comments .cmh-name{font-weight:600;color:#fff;font-size:13px;cursor:pointer;}",
       "#cssos-mv-comments .cmh-time{font-size:11px;color:rgba(218,255,238,0.5);margin-left:6px;}",
@@ -328,8 +336,9 @@
     return wrap;
   }
 
-  function buildItem(c, currentUserId) {
-    var item = el("div", { class: "cmh-item" + (c.parent_id ? " is-reply" : "") }, [
+  function buildItem(c, currentUserId, depth) {
+    var d = Math.min(3, Math.max(0, depth | 0));
+    var item = el("div", { class: "cmh-item", "data-depth": String(d) }, [
       el("img", { class: "cmh-avatar", src: c.avatar_url || defaultAvatar(), alt: "" }),
       el("div", { style: "flex:1;min-width:0" }, [
         el("div", {}, [
@@ -411,7 +420,36 @@
       list.appendChild(el("div", { class: "cmh-empty" }, [tr("Be the first to comment.", "抢沙发吧。")]));
       return;
     }
-    items.forEach(function (c) { list.appendChild(buildItem(c, me)); });
+    /* CSSOS_PERSON_MV_WAVE88 — build reply tree from flat parent_id list.
+     * Top-level first; cap visual indent at depth 3 to avoid runaway. */
+    var byId = {};
+    var roots = [];
+    items.forEach(function (c) { byId[c.id] = { c: c, children: [] }; });
+    items.forEach(function (c) {
+      var node = byId[c.id];
+      if (c.parent_id && byId[c.parent_id]) byId[c.parent_id].children.push(node);
+      else roots.push(node);
+    });
+    function walk(node, depth) {
+      list.appendChild(buildItem(node.c, me, depth));
+      if (!node.children.length) return;
+      var collapsed = node.children.length > 3 && depth >= 1;
+      var visible = collapsed ? node.children.slice(0, 0) : node.children;
+      var rendered = [];
+      visible.forEach(function (ch) { walk(ch, depth + 1); });
+      if (collapsed) {
+        var btn = el("button", {
+          class: "cmh-toggle",
+          onclick: function () {
+            btn.remove();
+            node.children.forEach(function (ch) { walk(ch, depth + 1); });
+          },
+        }, [tr(node.children.length + " replies", node.children.length + " 条回复")]);
+        list.appendChild(btn);
+      }
+      void rendered;
+    }
+    roots.forEach(function (n) { walk(n, 0); });
   }
 
   function close() {

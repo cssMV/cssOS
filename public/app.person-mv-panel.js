@@ -388,22 +388,26 @@
     panelEl = document.createElement("section");
     panelEl.className = "panel flow hidden";
     panelEl.id = "person-mv-panel";
+    /* CSSOS_WAVE_109D 20260509 — Jing
+     * Panel constitution compliance:
+     *  - 3 buttons each carry data-action so app.panel-shell-actions.js
+     *    binds them correctly (without the explicit data-action, the
+     *    fallback-by-index treats button[0] as "panel.settings" — wrong).
+     *  - 8-way resize handles get injected by ensureEightWayResizeHandles
+     *    after panel creation (see end of ensurePanel()), so the old
+     *    .resize-handle / .resize-handle-left chevrons are no longer
+     *    needed and have been removed.
+     */
     panelEl.innerHTML =
       '<div class="panel-bar">' +
         '<div class="panel-icon">🏛</div>' +
         '<div class="panel-title">' + (tt("People MV · Civilization Universe", "人物 MV · 文明宇宙")) + '</div>' +
         '<div class="panel-actions">' +
-          '<button class="icon-btn" aria-label="minimize">—</button>' +
-          '<button class="icon-btn" aria-label="maximize">⤢</button>' +
-          '<button class="icon-btn" aria-label="close">×</button>' +
+          '<button class="icon-btn" type="button" data-action="panel.minimize" aria-label="minimize" title="' + escapeAttr(tt("Collapse / Restore", "收起 / 还原")) + '">—</button>' +
+          '<button class="icon-btn" type="button" data-action="panel.maximize" aria-label="maximize" title="' + escapeAttr(tt("Maximize / Restore", "最大化 / 还原")) + '">⤢</button>' +
+          '<button class="icon-btn" type="button" data-action="panel.close" aria-label="close" title="' + escapeAttr(tt("Send to Dock", "收到 Dock")) + '">×</button>' +
         '</div>' +
       '</div>' +
-      /* CSSOS_WAVE_109C 20260509 — resize handles so user can stretch
-       * the panel wider/narrower. attachResizeBridge picks them up. */
-      '<div class="resize-handle resize-handle-right" data-resize-dir="e" aria-hidden="true"></div>' +
-      '<div class="resize-handle resize-handle-bottom" data-resize-dir="s" aria-hidden="true"></div>' +
-      '<div class="resize-handle resize-handle-corner" data-resize-dir="se" aria-hidden="true"></div>' +
-      '<div class="resize-handle-left" data-resize-dir="w" aria-hidden="true"></div>' +
       '<div class="panel-body">' +
         '<div class="person-mv-toolbar">' +
           '<input class="person-mv-search" type="search" placeholder="' +
@@ -462,6 +466,20 @@
         if (typeof globalThis[fn] === "function") globalThis[fn]();
       } catch (err) { console.warn("[person-mv]", fn, "threw", err); }
     });
+    /* CSSOS_WAVE_109D 20260509 — Jing
+     * Belt-and-suspenders: explicitly ensure the 8 resize handles
+     * exist on this panel even if attachResizeBridge ran before
+     * we mounted. ensureEightWayResizeHandles is idempotent. */
+    try {
+      if (typeof globalThis.ensureEightWayResizeHandles === "function") {
+        globalThis.ensureEightWayResizeHandles(panelEl);
+        /* Re-run attachResizeBridge so the freshly-injected handles
+         * pick up their bindEightWay listeners. */
+        if (typeof globalThis.attachResizeBridge === "function") {
+          globalThis.attachResizeBridge();
+        }
+      }
+    } catch (err) { console.warn("[person-mv] 8-way handle inject failed", err); }
     return panelEl;
   }
 

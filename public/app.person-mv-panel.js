@@ -1729,7 +1729,7 @@
    * via /api/auth/me (cssOS pattern); if 401 / no user, route to login. */
   async function ensureSignedIn() {
     try {
-      var r = await fetch("/api/auth/me", { credentials: "same-origin" });
+      var r = await fetch("/api/me", { credentials: "same-origin" });
       if (r.ok) {
         var j = await r.json().catch(function () { return null; });
         if (j && (j.user || j.user_id || j.id)) return true;

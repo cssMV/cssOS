@@ -20040,6 +20040,48 @@ app.post("/api/person-mv/persons", express.json({ limit: "16kb" }), async (req, 
     if (name.length > 80) return res.status(400).json({ ok: false, code: "NAME_TOO_LONG" });
     await seedPersonProfilesOnce();
 
+    /* CSSOS_WAVE_109H 20260509 — Jing
+     * Deduplicate user-created persons. If "孔子" already exists,
+     * a second user typing "孔子" should be redirected to the
+     * existing entry instead of spawning a parallel profile.
+     *
+     * Escape hatch: if the user typed a parenthetical marker —
+     * e.g. "孔子（同名）", "孔子(homonym)", "Confucius (modern)" —
+     * we treat it as an intentional same-name distinction and
+     * allow the new profile to be created. The parenthetical is
+     * stripped from the lookup key but kept in the stored name.
+     *
+     * Lookup order:
+     *   1. exact name_zh match (case-folded, whitespace-trimmed)
+     *   2. exact name_en match
+     *   3. derived person_id slug (catches old links)
+     */
+    const hasParentheticalMarker = /[(（][^)）]+[)）]/.test(name);
+    if (!hasParentheticalMarker) {
+      const lookup = name.toLowerCase().replace(/\s+/g, "");
+      const existing = await withClient((c) =>
+        c.query<{ person_id: string; name_zh: string; name_en: string }>(
+          `SELECT person_id, name_zh, name_en
+             FROM person_profiles
+            WHERE lower(regexp_replace(name_zh, '\\s+', '', 'g')) = $1
+               OR lower(regexp_replace(name_en, '\\s+', '', 'g')) = $1
+            ORDER BY (source_status = 'curated') DESC, created_at ASC
+            LIMIT 1`,
+          [lookup],
+        ),
+      );
+      const found = existing.rows[0];
+      if (found) {
+        return res.json({
+          ok: true,
+          person_id: found.person_id,
+          existing: true,
+          name_zh: found.name_zh,
+          name_en: found.name_en,
+        });
+      }
+    }
+
     const personId = slugifyPersonName(name);
 
     // Heartbeat keepalive — the LLM call may sweep multiple providers (>60s

@@ -768,6 +768,18 @@
         }
         return;
       }
+      /* CSSOS_WAVE_109H 20260509 — Jing
+       * If the backend dedupe matched an existing entry, surface a
+       * brief toast so the user knows we routed them to the
+       * canonical record instead of spawning a parallel one. */
+      if (json.existing && typeof globalThis.showToast === "function") {
+        var displayName = json.name_zh || json.name_en || name;
+        globalThis.showToast(tt(
+          'Found existing entry: ' + displayName + ' — opening it. ' +
+            'To create a same-name person on purpose, retry with "(同名)" suffix.',
+          '已存在「' + displayName + '」，已为你打开。如需另开一位同名人物，请加后缀「（同名）」重试。'
+        ));
+      }
       // Reload grid in background, then open codex for the new person.
       load();
       openCodex(json.person_id);

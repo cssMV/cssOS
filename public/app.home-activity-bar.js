@@ -115,12 +115,13 @@
       "  -webkit-backdrop-filter: blur(22px) saturate(145%);",
       "  border:1px solid rgba(255,255,255,0.10);",
       "  box-shadow:0 8px 28px rgba(0,0,0,0.45);",
-      /* CSSOS_WAVE_108G 20260509 — Jing
-       * Bar AND schools row both forced to the SAME width via
-       * explicit `width` (max-width alone collapses the row when
-       * content is shorter than the cap). The flex container is
-       * still horizontally scrollable for overflow content. */
-      "  width:min(720px, calc(100vw - 16px));",
+      /* CSSOS_WAVE_108H 20260509 — Jing
+       * Width = sum of 6 school cards laid out side by side.
+       * 6 × 160px (card) + 5 × 8px (gap) + 2 × 8px (container
+       * padding) = 1016px. Bar AND schools row share this exact
+       * width so they're identically aligned center-to-center.
+       * Clamp to viewport on narrow screens. */
+      "  width:min(calc(6 * 160px + 5 * 8px + 16px), calc(100vw - 16px));",
       "  box-sizing:border-box;",
       "  overflow-x:auto;",
       "  scroll-behavior:smooth;",
@@ -186,10 +187,8 @@
       "  display:flex;",
       "  gap:8px;",
       "  padding:4px 8px;",
-      /* CSSOS_WAVE_108G 20260509 — Jing
-       * Same explicit `width` as the bar so they're center-to-
-       * center identical. Cards horizontally scroll within. */
-      "  width:min(720px, calc(100vw - 16px));",
+      /* CSSOS_WAVE_108H 20260509 — same calc as the bar. */
+      "  width:min(calc(6 * 160px + 5 * 8px + 16px), calc(100vw - 16px));",
       "  box-sizing:border-box;",
       "  overflow-x:auto;",
       "  -webkit-overflow-scrolling: touch;",

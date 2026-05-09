@@ -62,7 +62,7 @@ async function iosNativeAppleSignInModule() {
       showToast(loginPanelLoginCopy("Apple sign-in returned no token.", "Apple 登录未返回令牌。"));
       return false;
     }
-    const r = await fetch("/auth/apple/native", {
+    const r = await fetch("/api/auth/apple/native", {
       method: "POST",
       credentials: "include",
       headers: { "content-type": "application/json" },

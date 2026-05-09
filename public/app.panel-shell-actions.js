@@ -276,9 +276,36 @@ function attachResizeBridge() {
       }
       nextHeight = clampedHeight;
 
-      // Keep inside the viewport
-      nextLeft = Math.max(0, Math.min(window.innerWidth - 40, nextLeft));
-      nextTop = Math.max(0, Math.min(window.innerHeight - 40, nextTop));
+      /* CSSOS_WAVE_109E 20260509 — Jing
+       * Panel constitution: panel must NEVER extend beyond the
+       * viewport (the previous 40px-visible guard let users push
+       * the right/bottom edges entirely off-screen, which made the
+       * resize handles unreachable). Two clamps:
+       *   1. left/top  ≥ 0
+       *   2. right/bottom edge stays inside viewport — done by
+       *      shrinking the proposed width/height when needed.
+       * Width/height respect the size minimums even after this
+       * clamp; if a panel can't fit at minimum size in the current
+       * viewport, position is preferred over size. */
+      nextLeft = Math.max(0, nextLeft);
+      nextTop = Math.max(0, nextTop);
+      var maxRightEdge = window.innerWidth;
+      var maxBottomEdge = window.innerHeight;
+      if (nextLeft + nextWidth > maxRightEdge) {
+        nextWidth = Math.max(sizeLimits.minWidth, maxRightEdge - nextLeft);
+      }
+      if (nextTop + nextHeight > maxBottomEdge) {
+        nextHeight = Math.max(sizeLimits.minHeight, maxBottomEdge - nextTop);
+      }
+      /* If the size minimum still pushes the right/bottom off the
+       * viewport (panel too big for current window), nudge nextLeft/
+       * nextTop back so the panel stays visible. */
+      if (nextLeft + nextWidth > maxRightEdge) {
+        nextLeft = Math.max(0, maxRightEdge - nextWidth);
+      }
+      if (nextTop + nextHeight > maxBottomEdge) {
+        nextTop = Math.max(0, maxBottomEdge - nextHeight);
+      }
 
       if (edges.left || edges.right) {
         panel.style.width = `${Math.round(nextWidth)}px`;
@@ -390,3 +417,60 @@ window.togglePanelLockBridge = togglePanelLockBridge;
 window.togglePanelCollapseBridge = togglePanelCollapseBridge;
 window.normalizePanelActionButtons = normalizePanelActionButtons;
 window.ensureEightWayResizeHandles = ensureEightWayResizeHandles;
+
+/* CSSOS_WAVE_109E 20260509 — Jing
+ * Panel constitution: panels must NEVER live outside the viewport.
+ * When the user resizes the browser window smaller, any panel
+ * positioned outside the new bounds gets nudged back in. Drag
+ * already clamps via setPanelPosition; resize clamps via the
+ * pointermove handler; this is the third leg — ambient viewport
+ * resize. */
+function clampAllPanelsToViewport() {
+  if (typeof globalThis.setPanelPosition !== "function") return;
+  document.querySelectorAll(".panel").forEach(function (panel) {
+    if (!(panel instanceof HTMLElement)) return;
+    if (panel.id === "logo-panel") return;
+    if (panel.dataset.maximized === "true") return;
+    if (panel.classList.contains("hidden")) return;
+    var rect = panel.getBoundingClientRect();
+    var vw = window.innerWidth;
+    var vh = window.innerHeight;
+    /* If panel is wider than viewport, shrink width first so it can
+     * fit at all. Same for height. */
+    var newWidth = Math.min(rect.width, vw);
+    var newHeight = Math.min(rect.height, vh);
+    if (newWidth !== rect.width) {
+      panel.style.width = Math.round(newWidth) + "px";
+      panel.dataset.panelWidth = String(Math.round(newWidth));
+    }
+    if (newHeight !== rect.height) {
+      panel.style.height = Math.round(newHeight) + "px";
+      panel.dataset.panelHeight = String(Math.round(newHeight));
+    }
+    /* Now clamp position so panel stays fully on-screen. */
+    var nextLeft = Math.max(0, Math.min(rect.left, vw - newWidth));
+    var nextTop  = Math.max(0, Math.min(rect.top,  vh - newHeight));
+    if (nextLeft !== rect.left || nextTop !== rect.top) {
+      try { globalThis.setPanelPosition(panel, nextLeft, nextTop); }
+      catch (_) {
+        panel.style.left = nextLeft + "px";
+        panel.style.top = nextTop + "px";
+      }
+    }
+  });
+}
+window.clampAllPanelsToViewport = clampAllPanelsToViewport;
+/* Re-clamp on every viewport resize, throttled via rAF. */
+(function bindViewportClamp() {
+  var queued = false;
+  window.addEventListener("resize", function () {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(function () {
+      queued = false;
+      try { clampAllPanelsToViewport(); } catch (err) {
+        try { console.warn("[panel-clamp] failed", err); } catch (_) {}
+      }
+    });
+  });
+})();

@@ -785,27 +785,43 @@
       return;
     }
 
-    /* CSSOS_WAVE_109C 20260509 — Jing
-     * Five buckets so contemporary public figures (Trump/Musk) and
-     * personal ad-hoc creations (Grandma/Aunt Mary) don't sit
-     * shoulder-to-shoulder with the historical greats:
+    /* CSSOS_WAVE_109F 20260509 — Jing
+     * Refined bucketing — Trump/Musk are real public figures even
+     * though they're ad-hoc, so they land in Contemporary by their
+     * roles, NOT in Personal/Test. Personal/Test is reserved for
+     * truly private/test entries (Grandma, Jing Du) and moves to
+     * the END of the page.
      *
-     *   ⭐ hall      — curated, S, historical
-     *   🎴 notable   — curated, A, historical
-     *   🌐 modern    — curated, era ∈ {当代/现代/20世纪/21世纪/contemporary}
-     *   👤 personal  — created_by_user_id !== null  (or source_status !== curated)
-     *   📜 comp      — everything else (B/C historical text-row long tail)
+     *   ⭐ hall       — S, historical, public
+     *   🎴 notable    — A, historical, public
+     *   🌐 modern     — curated OR ad-hoc-with-real-roles, modern era
+     *   📜 comp       — B/C historical text long-tail
+     *   👤 testpersonal — ad-hoc with private/test roles only (LAST)
      */
-    var hall = [], notable = [], modern = [], personal = [], comp = [];
+    var TEST_ROLE_RE = /家庭成员|长辈|普通人|测试|test\b|placeholder|adhoc/i;
+    function isTestPerson(p) {
+      if (!p.created_by_user_id) return false;
+      var roles = Array.isArray(p.roles) ? p.roles.join(" ") : String(p.roles || "");
+      // No roles at all + ad-hoc → likely test
+      if (!roles.trim()) return true;
+      // Roles match test/family-only signal → test
+      if (TEST_ROLE_RE.test(roles)) {
+        // Unless ALSO has a "real" public-figure role; check for political/business/creative role keywords
+        var realRoleRe = /政治家|总统|国王|首相|主席|领袖|企业家|工程师|发明家|科学家|物理学家|化学家|哲学家|艺术家|音乐家|作家|演员|导演/i;
+        if (realRoleRe.test(roles)) return false;
+        return true;
+      }
+      return false;
+    }
+
+    var hall = [], notable = [], modern = [], testPersonal = [], comp = [];
     state.persons.forEach(function (p) {
       var t = String(p.curation_tier || "B").toUpperCase();
       var era = String(p.era || "").trim();
-      var src = String(p.source_status || "").toLowerCase();
-      var isAdhoc = !!p.created_by_user_id || (src && src !== "curated");
       var isContemporary =
         /当代|现代|20\s*世纪|21\s*世纪|contemporary|modern/i.test(era);
 
-      if (isAdhoc) { personal.push(p); return; }
+      if (isTestPerson(p)) { testPersonal.push(p); return; }
       if (isContemporary) { modern.push(p); return; }
       if (t === "S") { hall.push(p); return; }
       if (t === "A") { notable.push(p); return; }
@@ -824,48 +840,116 @@
     } else if (single === "b") {
       grid.appendChild(renderCompendiumSection(comp));
     } else {
-      if (hall.length)     grid.appendChild(renderHallSection(hall));
-      if (notable.length)  grid.appendChild(renderNotableSection(notable));
-      if (modern.length)   grid.appendChild(renderModernSection(modern));
-      if (personal.length) grid.appendChild(renderPersonalSection(personal));
-      if (comp.length)     grid.appendChild(renderCompendiumSection(comp));
+      /* Order per Jing 109F: Personal/Test goes LAST. */
+      if (hall.length)         grid.appendChild(renderHallSection(hall));
+      if (notable.length)      grid.appendChild(renderNotableSection(notable));
+      if (modern.length)       grid.appendChild(renderModernSection(modern));
+      if (comp.length)         grid.appendChild(renderCompendiumSection(comp));
+      if (testPersonal.length) grid.appendChild(renderPersonalSection(testPersonal));
     }
   }
 
-  /* CSSOS_WAVE_109C 20260509 — Jing
-   * Contemporary public figures (Trump, Musk, Mahatma Gandhi-modern,
-   * etc.). Same card chrome as Notable, but their own section so
-   * they don't share a row with Confucius / Newton / da Vinci. */
+  /* CSSOS_WAVE_109F 20260509 — Jing
+   * Contemporary section is now split into role-based sub-sections:
+   *   🏛 Political Leaders  — politicians, activists, civil-rights leaders
+   *   🚀 Innovators & Tech  — entrepreneurs, engineers, inventors
+   *   🔬 Scientists         — physicists, chemists, biologists
+   *   🎨 Arts & Culture     — artists, musicians, writers, directors
+   *   🌐 Other Contemporary — modern figures whose roles don't match
+   *
+   * Each sub-section gets its own header so Trump and Musk don't
+   * sit shoulder-to-shoulder, and so famous artists don't sit
+   * shoulder-to-shoulder with politicians. */
+  var MODERN_GROUPS = [
+    {
+      key: "political",
+      icon: "🏛",
+      en: "Political Leaders",
+      zh: "政治领袖",
+      re: /政治家|总统|国王|首相|主席|总理|民族解放领袖|民族领袖|民权领袖|社会活动家|抗议者|公众演说家/i,
+    },
+    {
+      key: "tech",
+      icon: "🚀",
+      en: "Innovators & Tech",
+      zh: "科技创新",
+      re: /企业家|工程师|发明家|商人|投资者|实业家|科技领袖|程序员/i,
+    },
+    {
+      key: "science",
+      icon: "🔬",
+      en: "Scientists",
+      zh: "科学家",
+      re: /科学家|物理学家|化学家|生物学家|数学家|天文学家|医生|医学家/i,
+    },
+    {
+      key: "arts",
+      icon: "🎨",
+      en: "Arts & Culture",
+      zh: "文艺",
+      re: /艺术家|音乐家|画家|作家|诗人|演员|导演|歌手|舞者|设计师/i,
+    },
+  ];
+
+  function classifyModern(p) {
+    var roles = Array.isArray(p.roles) ? p.roles.join(" ") : String(p.roles || "");
+    if (!roles.trim()) return "other";
+    /* First match wins — order in MODERN_GROUPS sets priority. */
+    for (var i = 0; i < MODERN_GROUPS.length; i += 1) {
+      if (MODERN_GROUPS[i].re.test(roles)) return MODERN_GROUPS[i].key;
+    }
+    return "other";
+  }
+
   function renderModernSection(persons) {
-    var section = document.createElement("section");
-    section.className = "pmv-tier-section pmv-tier-modern";
-    var head = document.createElement("div");
-    head.className = "pmv-tier-head";
-    head.innerHTML =
-      '<div class="pmv-tier-title">🌐 ' + escapeText(tt("Contemporary Figures", "当代人物")) + '</div>' +
-      '<div class="pmv-tier-count">' + persons.length + '</div>';
-    section.appendChild(head);
+    var buckets = { other: [] };
+    MODERN_GROUPS.forEach(function (g) { buckets[g.key] = []; });
+    persons.forEach(function (p) { buckets[classifyModern(p)].push(p); });
 
-    var withPortrait = [], withoutPortrait = [];
-    persons.forEach(function (p) {
-      if (p.portrait_url || p.cover_image_url) withPortrait.push(p);
-      else withoutPortrait.push(p);
+    var wrap = document.createDocumentFragment();
+    function renderBucket(label, icon, list) {
+      if (!list.length) return;
+      var sec = document.createElement("section");
+      sec.className = "pmv-tier-section pmv-tier-modern";
+      var head = document.createElement("div");
+      head.className = "pmv-tier-head";
+      head.innerHTML =
+        '<div class="pmv-tier-title">' + escapeText(icon + " " + label) + '</div>' +
+        '<div class="pmv-tier-count">' + list.length + '</div>';
+      sec.appendChild(head);
+      var withPortrait = [], withoutPortrait = [];
+      list.forEach(function (p) {
+        if (p.portrait_url || p.cover_image_url) withPortrait.push(p);
+        else withoutPortrait.push(p);
+      });
+      if (withPortrait.length) {
+        var g = document.createElement("div");
+        g.className = "pmv-notable-grid";
+        withPortrait.forEach(function (p) { g.appendChild(buildPortraitCard(p)); });
+        sec.appendChild(g);
+      }
+      if (withoutPortrait.length) {
+        var g2 = document.createElement("div");
+        g2.className = "person-mv-grid";
+        g2.style.padding = withPortrait.length ? "12px 0 0 0" : "0";
+        withoutPortrait.forEach(function (p) { g2.appendChild(buildNotableTextCard(p)); });
+        sec.appendChild(g2);
+      }
+      wrap.appendChild(sec);
+    }
+
+    MODERN_GROUPS.forEach(function (g) {
+      var locale = (globalThis.CSSOS_I18N && globalThis.CSSOS_I18N.getCurrentLocale && globalThis.CSSOS_I18N.getCurrentLocale()) || "en";
+      var label = /^zh/i.test(String(locale)) ? g.zh : g.en;
+      renderBucket(label, g.icon, buckets[g.key]);
     });
+    /* Other modern figures last in this cluster. */
+    renderBucket(tt("Other Contemporary", "其他当代"), "🌐", buckets.other);
 
-    if (withPortrait.length) {
-      var g = document.createElement("div");
-      g.className = "pmv-notable-grid";
-      withPortrait.forEach(function (p) { g.appendChild(buildPortraitCard(p)); });
-      section.appendChild(g);
-    }
-    if (withoutPortrait.length) {
-      var g2 = document.createElement("div");
-      g2.className = "person-mv-grid";
-      g2.style.padding = withPortrait.length ? "12px 0 0 0" : "0";
-      withoutPortrait.forEach(function (p) { g2.appendChild(buildNotableTextCard(p)); });
-      section.appendChild(g2);
-    }
-    return section;
+    var holder = document.createElement("section");
+    holder.className = "pmv-tier-cluster";
+    holder.appendChild(wrap);
+    return holder;
   }
 
   /* CSSOS_WAVE_109C 20260509 — Jing
@@ -879,7 +963,7 @@
     var head = document.createElement("div");
     head.className = "pmv-tier-head";
     head.innerHTML =
-      '<div class="pmv-tier-title">👤 ' + escapeText(tt("Personal Creations", "个人创作")) + '</div>' +
+      '<div class="pmv-tier-title">👤 ' + escapeText(tt("Personal & Test", "个人 & 测试")) + '</div>' +
       '<div class="pmv-tier-count">' + persons.length + '</div>';
     section.appendChild(head);
 

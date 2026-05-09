@@ -115,13 +115,10 @@
       "  -webkit-backdrop-filter: blur(22px) saturate(145%);",
       "  border:1px solid rgba(255,255,255,0.10);",
       "  box-shadow:0 8px 28px rgba(0,0,0,0.45);",
-      /* CSSOS_WAVE_108H 20260509 — Jing
-       * Width = sum of 6 school cards laid out side by side.
-       * 6 × 160px (card) + 5 × 8px (gap) + 2 × 8px (container
-       * padding) = 1016px. Bar AND schools row share this exact
-       * width so they're identically aligned center-to-center.
-       * Clamp to viewport on narrow screens. */
-      "  width:min(calc(6 * 160px + 5 * 8px + 16px), calc(100vw - 16px));",
+      /* width is set via inline JS (refreshPosition) so we win
+       * against any conflicting CSS reliably. Defaults here just
+       * in case JS hasn't run yet. */
+      "  width:1016px;",
       "  box-sizing:border-box;",
       "  overflow-x:auto;",
       "  scroll-behavior:smooth;",
@@ -187,8 +184,7 @@
       "  display:flex;",
       "  gap:8px;",
       "  padding:4px 8px;",
-      /* CSSOS_WAVE_108H 20260509 — same calc as the bar. */
-      "  width:min(calc(6 * 160px + 5 * 8px + 16px), calc(100vw - 16px));",
+      "  width:1016px;",
       "  box-sizing:border-box;",
       "  overflow-x:auto;",
       "  -webkit-overflow-scrolling: touch;",
@@ -579,6 +575,16 @@
     /* Anchor is OPPOSITE to dock. For left/right docks we still pin
      * the bar to top (more natural reading position). */
     var anchor = dockSide === "top" ? "bottom" : "top";
+
+    /* CSSOS_WAVE_108I 20260509 — Jing
+     * Width = exactly 6 cards laid out side by side + gaps + padding.
+     * 6 × 160 + 5 × 8 + 2 × 8 = 1016px. Apply as inline style so
+     * NO competing CSS rule can override us (the prior calc()-based
+     * approach was getting stomped on this user's setup, leaving
+     * tabs spread across the full viewport instead of clustering). */
+    var WIDTH = Math.min(1016, (window.innerWidth || 1200) - 16);
+    if (state.bar) state.bar.style.width = WIDTH + "px";
+    if (state.schools) state.schools.style.width = WIDTH + "px";
 
     var BAR_HEIGHT = 48;          /* approximate bar height incl padding */
     var GAP_BAR_TO_SCHOOLS = 14;

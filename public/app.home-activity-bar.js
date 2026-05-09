@@ -69,6 +69,7 @@
 
   var BAR_ID = "cssos-activity-bar";
   var SCHOOLS_ID = "cssos-schools-row";
+  var CLOSE_ID = "cssos-schools-close";
   var STYLE_ID = "cssos-activity-bar-style";
   var TOOLTIP_ID = "cssos-activity-bar-tooltip";
   var FIRST_VISIT_KEY = "cssos:wave108:activityBarSeen";
@@ -84,6 +85,14 @@
     lastInteraction: 0,
     bar: null,
     schools: null,
+    closeBtn: null,
+    /* CSSOS_WAVE_108K 20260509 — Jing
+     * User-dismissed flag. When the small × button on the schools
+     * row is clicked, the entire bar+schools+close cluster goes
+     * away for the rest of the page session — bumpActivity stops
+     * showing it. Reload to bring it back. Avoids the row fighting
+     * other panels for screen real estate. */
+    userDismissed: false,
   };
 
   function injectStyle() {
@@ -257,6 +266,38 @@
       "  margin-top:5px;",
       "}",
       ".cssos-school-card *{ pointer-events:none; }",
+
+      /* CSSOS_WAVE_108K 20260509 — small close × on the schools
+       * row. Sits at the top-right corner of the row's bbox, just
+       * outside the cards so it never sits on top of one. Clicking
+       * dismisses the bar+schools for the rest of the session. */
+      "#" + CLOSE_ID + "{",
+      "  position:fixed;",
+      "  z-index:56;",
+      "  width:24px;",
+      "  height:24px;",
+      "  display:flex;",
+      "  align-items:center;",
+      "  justify-content:center;",
+      "  border-radius:50%;",
+      "  background:rgba(8,18,14,0.85);",
+      "  backdrop-filter: blur(14px) saturate(140%);",
+      "  -webkit-backdrop-filter: blur(14px) saturate(140%);",
+      "  border:1px solid rgba(255,255,255,0.18);",
+      "  color:rgba(255,255,255,0.78);",
+      "  font:600 13px/1 -apple-system,system-ui,sans-serif;",
+      "  cursor:pointer;",
+      "  user-select:none;",
+      "  -webkit-user-select:none;",
+      "  transition: opacity 220ms ease, transform 220ms ease, color 180ms ease, border-color 180ms ease;",
+      "  pointer-events:auto;",
+      "}",
+      "#" + CLOSE_ID + ":hover{",
+      "  color:#fff;",
+      "  border-color:rgba(255,255,255,0.5);",
+      "  transform:scale(1.08);",
+      "}",
+      "#" + CLOSE_ID + "[data-hidden='1']{ opacity:0; pointer-events:none; }",
 
       /* Tooltip for first-visit reveal */
       "#" + TOOLTIP_ID + "{",
@@ -516,16 +557,21 @@
   /* --- Auto-hide --- */
   function show() {
     if (!state.bar) return;
+    if (state.userDismissed) return; /* user closed it for this session */
     state.bar.setAttribute("data-hidden", "0");
     if (state.schools) state.schools.setAttribute("data-hidden", "0");
+    if (state.closeBtn) state.closeBtn.setAttribute("data-hidden", "0");
     state.visible = true;
     state.lastInteraction = Date.now();
     armHideTimer();
+    /* Keep close button position in sync with schools row. */
+    refreshPosition();
   }
   function hide() {
     if (!state.bar) return;
     state.bar.setAttribute("data-hidden", "1");
     if (state.schools) state.schools.setAttribute("data-hidden", "1");
+    if (state.closeBtn) state.closeBtn.setAttribute("data-hidden", "1");
     state.visible = false;
   }
   function armHideTimer() {
@@ -535,6 +581,7 @@
     }, IDLE_HIDE_MS);
   }
   function bumpActivity() {
+    if (state.userDismissed) return; /* respect explicit dismiss */
     state.lastInteraction = Date.now();
     if (!state.visible) show();
     else armHideTimer();
@@ -677,6 +724,18 @@
     if (state.schools) state.schools.setAttribute("data-anchor", anchor);
     var tip = document.getElementById(TOOLTIP_ID);
     if (tip) tip.setAttribute("data-anchor", anchor);
+
+    /* Position the close × at the top-right corner of the schools
+     * row's actual rendered bbox. We can't put it INSIDE the row
+     * (its overflow:auto would clip it), so it lives as a sibling
+     * fixed element and we sync its position here. */
+    if (state.closeBtn && state.schools) {
+      var sr = state.schools.getBoundingClientRect();
+      if (sr.width && sr.height) {
+        state.closeBtn.style.left = Math.round(sr.right - 28) + "px";
+        state.closeBtn.style.top = Math.round(sr.top - 8) + "px";
+      }
+    }
   }
 
   function showFirstVisitTooltip() {
@@ -735,6 +794,30 @@
     state.schools.setAttribute("data-hidden", "1");
     state.schools.setAttribute("aria-label", tr("Schools of thought", "文明流派"));
     document.body.appendChild(state.schools);
+
+    /* CSSOS_WAVE_108K 20260509 — small × at the top-right of the
+     * schools row to dismiss the entire bar+schools cluster when
+     * the user opens another panel and our row would otherwise
+     * fight for the same screen real estate. */
+    state.closeBtn = document.createElement("button");
+    state.closeBtn.id = CLOSE_ID;
+    state.closeBtn.type = "button";
+    state.closeBtn.setAttribute("data-hidden", "1");
+    state.closeBtn.setAttribute("aria-label", tr("Hide activity bar and schools", "隐藏活动栏和流派"));
+    state.closeBtn.setAttribute("title", tr("Hide for this session", "本次浏览隐藏"));
+    state.closeBtn.textContent = "×";
+    document.body.appendChild(state.closeBtn);
+    if (globalThis.cssosTapGuard && typeof globalThis.cssosTapGuard.bind === "function") {
+      globalThis.cssosTapGuard.bind(state.closeBtn, function () {
+        state.userDismissed = true;
+        hide();
+      });
+    } else {
+      state.closeBtn.addEventListener("click", function () {
+        state.userDismissed = true;
+        hide();
+      });
+    }
 
     /* Initial placement using actual dock geometry. */
     refreshPosition();

@@ -2238,6 +2238,10 @@
     <script src="app.premium-modal.js?v=20260508-wave76-77"></script>
     <script src="app.ab.js?v=20260508-wave27-ab"></script>
     <script src="app.templates-panel.js?v=20260508-wave28-templates"></script>
+    <!-- CSSOS_WAVE_107 20260509 — iOS native OAuth handoff listener.
+         Must load before app.boot.js so the appUrlOpen listener is
+         armed before any first-frame work begins. -->
+    <script src="app.ios-handoff.js?v=20260509-wave107"></script>
     <script src="app.boot.js?v=20260504-longpress-kill-legacy"></script>
     <!-- CSSOS_PHASE2_PANEL_3BTN_BULLETPROOF 20260505b — Jing
          Self-diagnosing version. Stamps the document so you can verify

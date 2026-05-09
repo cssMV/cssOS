@@ -4979,7 +4979,8 @@ async function handleGitHubAuthStart(
     if (!clientId || !clientSecret)
       return res.status(503).send("github_not_configured");
     const state = randomHex(16);
-    setOAuthState(req, "github", { state, createdAt: Date.now() });
+    const intent = readOAuthIntent(req);
+    setOAuthState(req, "github", { state, createdAt: Date.now(), intent });
     const q = new URLSearchParams({
       client_id: clientId,
       scope: "read:user user:email",
@@ -5004,6 +5005,11 @@ type OAuthSessionState = {
   codeVerifier?: string;
   userId?: string;
   createdAt: number;
+  // CSSOS_WAVE_107_IOS_OAUTH_HANDOFF 20260509 — Jing
+  // Captured from `?intent=` query at start time. When "ios-app",
+  // the callback issues a one-shot handoff token and redirects to
+  // /auth/return so the Universal Link bounces back into the app.
+  intent?: string | undefined;
 };
 
 function setOAuthState(
@@ -16020,6 +16026,114 @@ function setAuthSession(
   }
 }
 
+/* CSSOS_WAVE_107_IOS_OAUTH_HANDOFF 20260509 — Jing
+ * One-shot handoff tokens for iOS-native OAuth.
+ *
+ * Why: SFSafariViewController and the Capacitor WKWebView do not
+ * share cookies reliably across iOS versions. After OAuth lands in
+ * Safari, we mint a short-lived (90s) random token bound to the
+ * authenticated user_id and send the user (via Universal Link) into
+ * the app. The app posts the token back to /api/auth/handoff/exchange
+ * which sets the session cookie on THAT request — landing inside the
+ * WebView's cookie jar.
+ *
+ * Replay-safe: redemption is atomic (UPDATE ... RETURNING with
+ * used_at IS NULL AND expires_at > now()). Second exchange returns 401.
+ */
+const HANDOFF_TTL_SECONDS = 90;
+
+async function issueHandoffToken(
+  userId: string,
+  provider: string,
+): Promise<string> {
+  const token = crypto.randomBytes(32).toString("base64url");
+  await withClient(async (client) => {
+    await client.query(
+      `INSERT INTO oauth_handoff_tokens (token, user_id, provider, expires_at)
+       VALUES ($1, $2, $3, now() + ($4 || ' seconds')::interval)`,
+      [token, userId, provider, String(HANDOFF_TTL_SECONDS)],
+    );
+  });
+  return token;
+}
+
+async function redeemHandoffToken(
+  token: string,
+): Promise<{ user_id: string; provider: string } | null> {
+  return withClient(async (client) => {
+    const r = await client.query<{ user_id: string; provider: string }>(
+      `UPDATE oauth_handoff_tokens
+          SET used_at = now()
+        WHERE token = $1
+          AND used_at IS NULL
+          AND expires_at > now()
+       RETURNING user_id, provider`,
+      [token],
+    );
+    return r.rows[0] || null;
+  });
+}
+
+function readOAuthIntent(req: express.Request): string | undefined {
+  const v = String(req.query.intent || "").trim().toLowerCase();
+  if (v === "ios-app" || v === "android-app") return v;
+  return undefined;
+}
+
+/* CSSOS_WAVE_107_HANDOFF_GC 20260509 — Jing
+ * Hourly purge of expired/used handoff tokens. They're tiny and
+ * self-expire, but keeping the table small helps the PK lookup
+ * stay snappy and limits forensic blast radius. */
+let __handoffGcTimer: ReturnType<typeof setInterval> | null = null;
+function startHandoffGcLoop() {
+  if (__handoffGcTimer) return;
+  const tick = async () => {
+    try {
+      await withClient(async (client) => {
+        await client.query(
+          `DELETE FROM oauth_handoff_tokens
+            WHERE expires_at < now() - interval '1 day'`,
+        );
+      });
+    } catch (err) {
+      console.warn("[handoff-gc] purge failed (non-fatal)", err);
+    }
+  };
+  // Run once after 30s warmup, then every hour.
+  setTimeout(tick, 30_000);
+  __handoffGcTimer = setInterval(tick, 60 * 60 * 1000);
+}
+
+/* CSSOS_WAVE_107 20260509 — Jing
+ * Final step of an OAuth callback. For native-app intents we MUST NOT
+ * setAuthSession here (the cookie would land in SFSafariViewController's
+ * jar, not the WebView's). Instead we mint a handoff token and bounce
+ * via the Universal Link at /auth/return. The app's appUrlOpen handler
+ * exchanges it for a real session cookie inside its own jar. */
+async function finishOAuthLogin(
+  req: express.Request,
+  res: express.Response,
+  userId: string,
+  provider: string,
+  intent: string | undefined,
+  fallbackDest = "/",
+) {
+  if (intent === "ios-app" || intent === "android-app") {
+    try {
+      const tok = await issueHandoffToken(userId, provider);
+      return res.redirect(
+        302,
+        `/auth/return?handoff=${encodeURIComponent(tok)}&intent=${encodeURIComponent(intent)}`,
+      );
+    } catch (err) {
+      console.error("[oauth-handoff] issue failed, falling back to web flow", err);
+      // fall through to web flow (still better than auth_failed)
+    }
+  }
+  setAuthSession(req, userId, provider);
+  return res.redirect(302, fallbackDest);
+}
+
 function isLocalDevRequest(req: express.Request) {
   const host = String(req.hostname || "").toLowerCase();
   return !IS_PROD && (host === "localhost" || host === "127.0.0.1");
@@ -23857,6 +23971,35 @@ app.post("/api/auth/apple/native", express.json(), async (req, res) => {
   }
 });
 
+/* CSSOS_WAVE_107_HANDOFF_EXCHANGE 20260509 — Jing
+ * The Capacitor app's appUrlOpen listener catches Universal Link
+ * `/auth/return?handoff=<token>`, parses the token, and POSTs it
+ * here from inside the WKWebView's cookie jar. We atomically
+ * redeem the token (single-use, 90s TTL) and call setAuthSession
+ * on THIS request — that Set-Cookie lands in the WebView's jar.
+ * Replay returns 401. */
+app.post("/api/auth/handoff/exchange", express.json({ limit: "1kb" }), async (req, res) => {
+  try {
+    const handoff = String((req.body && (req.body as any).handoff) || "").trim();
+    if (!handoff) {
+      return res.status(400).json({ ok: false, error: "missing_handoff" });
+    }
+    const result = await redeemHandoffToken(handoff);
+    if (!result) {
+      return res.status(401).json({ ok: false, error: "invalid_or_expired" });
+    }
+    setAuthSession(req, result.user_id, result.provider);
+    return res.json({
+      ok: true,
+      user_id: result.user_id,
+      provider: result.provider,
+    });
+  } catch (err) {
+    console.error("[handoff/exchange] failed", err);
+    return res.status(500).json({ ok: false, error: "internal" });
+  }
+});
+
 /* CSSOS_WAVE_98C_AUTH_RETURN 20260508 — Jing
  * Universal Link landing for iOS Capacitor app. After OAuth completes
  * in SFSafariViewController (system Safari), the provider redirects
@@ -23916,7 +24059,8 @@ app.get("/auth/google", async (req, res) => {
       return res.status(503).send("google_not_configured");
     const state = randomHex(16);
     const nonce = randomHex(16);
-    setOAuthState(req, "google", { state, nonce, createdAt: Date.now() });
+    const intent = readOAuthIntent(req);
+    setOAuthState(req, "google", { state, nonce, createdAt: Date.now(), intent });
     const redirectUri = oauthCallbackUrl(req, "google");
     const q = new URLSearchParams({
       client_id: clientId,
@@ -24039,9 +24183,8 @@ app.get("/auth/google/callback", async (req, res) => {
       avatarUrl: picture,
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
-    setAuthSession(req, userId, "google");
     await applyPendingReferral(req, userId).catch(() => {});
-    return res.redirect(302, "/");
+    return finishOAuthLogin(req, res, userId, "google", saved?.intent);
   } catch (err) {
     auditAuthFailure("google", "oauth", "INTERNAL_ERROR");
     console.error("google_callback_failed", err);
@@ -24255,9 +24398,8 @@ app.get("/auth/github/callback", async (req, res) => {
       displayName: me.json?.name ? String(me.json.name) : null,
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
-    setAuthSession(req, userId, "github");
     await applyPendingReferral(req, userId).catch(() => {});
-    return res.redirect(302, "/");
+    return finishOAuthLogin(req, res, userId, "github", saved.intent);
   } catch (err) {
     auditAuthFailure("github", "oauth", "INTERNAL_ERROR");
     console.error("github_callback_failed", err);
@@ -24298,6 +24440,7 @@ app.get("/auth/x", async (req, res) => {
       state,
       codeVerifier: verifier,
       createdAt: Date.now(),
+      intent: readOAuthIntent(req),
     });
     const redirectUri = oauthCallbackUrl(req, "x");
     const q = new URLSearchParams({
@@ -24423,9 +24566,8 @@ app.get("/auth/x/callback", async (req, res) => {
       displayName: me.json?.data?.name ? String(me.json.data.name) : null,
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
-    setAuthSession(req, userId, "x");
     await applyPendingReferral(req, userId).catch(() => {});
-    return res.redirect(302, "/");
+    return finishOAuthLogin(req, res, userId, "x", saved.intent);
   } catch (err) {
     auditAuthFailure("x", "oauth", "INTERNAL_ERROR");
     console.error("x_callback_failed", err);
@@ -24458,7 +24600,7 @@ app.get("/auth/facebook", async (req, res) => {
       });
     }
     const state = randomHex(16);
-    setOAuthState(req, "facebook", { state, createdAt: Date.now() });
+    setOAuthState(req, "facebook", { state, createdAt: Date.now(), intent: readOAuthIntent(req) });
     const redirectUri = oauthCallbackUrl(req, "facebook");
     const q = new URLSearchParams({
       client_id: clientId,
@@ -24524,9 +24666,8 @@ app.get("/auth/facebook/callback", async (req, res) => {
       displayName: me.json?.name ? String(me.json.name) : null,
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
-    setAuthSession(req, userId, "facebook");
     await applyPendingReferral(req, userId).catch(() => {});
-    return res.redirect(302, "/");
+    return finishOAuthLogin(req, res, userId, "facebook", saved.intent);
   } catch (err) {
     auditAuthFailure("facebook", "oauth", "INTERNAL_ERROR");
     console.error("facebook_callback_failed", err);
@@ -24551,7 +24692,7 @@ app.get("/auth/wechat", async (req, res) => {
       });
     }
     const state = randomHex(8);
-    setOAuthState(req, "wechat", { state, createdAt: Date.now() });
+    setOAuthState(req, "wechat", { state, createdAt: Date.now(), intent: readOAuthIntent(req) });
     const redirectUri = oauthCallbackUrl(req, "wechat");
     const url = `https://open.weixin.qq.com/connect/qrconnect?appid=${encodeURIComponent(appid)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=snsapi_login&state=${encodeURIComponent(state)}#wechat_redirect`;
     return res.redirect(302, url);
@@ -24603,9 +24744,8 @@ app.get("/auth/wechat/callback", async (req, res) => {
       displayName: me.json?.nickname ? String(me.json.nickname) : null,
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
-    setAuthSession(req, userId, "wechat");
     await applyPendingReferral(req, userId).catch(() => {});
-    return res.redirect(302, "/");
+    return finishOAuthLogin(req, res, userId, "wechat", saved.intent);
   } catch (err) {
     auditAuthFailure("wechat", "oauth", "INTERNAL_ERROR");
     console.error("wechat_callback_failed", err);
@@ -24633,6 +24773,7 @@ app.get("/auth/bsky", async (req, res) => {
         state,
         codeVerifier: verifier,
         createdAt: Date.now(),
+        intent: readOAuthIntent(req),
       });
       const redirectUri = `${appBaseUrl(req)}/auth/bsky/callback`;
       const q = new URLSearchParams({
@@ -24736,9 +24877,8 @@ app.get("/auth/bsky/callback", async (req, res) => {
       displayName: null,
     });
     await migrateGuestPasskeysToUser(req.sessionID, userId);
-    setAuthSession(req, userId, "bsky");
     await applyPendingReferral(req, userId).catch(() => {});
-    return res.redirect(302, "/");
+    return finishOAuthLogin(req, res, userId, "bsky", saved.intent);
   } catch (err) {
     auditAuthFailure("bsky", "oauth", "INTERNAL_ERROR");
     console.error("bsky_callback_failed", err);
@@ -33991,6 +34131,10 @@ async function start() {
   httpServer.listen(PORT, () => {
     console.log(`cssOS API running on http://localhost:${PORT}`);
     console.log(`[ws] hub ready: /ws/{live|collab|party|dm}/:id`);
+    // CSSOS_WAVE_107 20260509 — start hourly GC for OAuth handoff tokens
+    try { startHandoffGcLoop(); } catch (err) {
+      console.warn("[handoff-gc] failed to start loop:", err);
+    }
     // Tier-fallback sanity log — surfaces misconfigured order at boot.
     const fmt = (ps: string[]) => ps.map((p) => `${p}(${providerTier(p)})`).join(" → ");
     console.log(`[engines] image order: ${fmt(imageProviderOrder())}`);

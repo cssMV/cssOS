@@ -42,7 +42,11 @@ async function iosNativeAppleSignInModule() {
     if (!cap || typeof cap.Plugins !== "object") return false;
     const plugin = cap.Plugins.SignInWithApple;
     if (!plugin || typeof plugin.authorize !== "function") {
-      console.warn("[ios-apple] SignInWithApple plugin missing");
+      console.warn("[ios-apple] SignInWithApple plugin missing — run `npx cap sync ios`");
+      showToast(loginPanelLoginCopy(
+        "Apple sign-in plugin missing (run cap sync).",
+        "Apple 登录插件缺失（需运行 cap sync）。",
+      ));
       return false;
     }
     const result = await plugin.authorize({
@@ -70,8 +74,12 @@ async function iosNativeAppleSignInModule() {
     });
     const j = await r.json().catch(() => null);
     if (!r.ok || !j || j.ok !== true) {
-      console.warn("[ios-apple] backend rejected token", j);
-      showToast(loginPanelLoginCopy("Apple sign-in failed. Please try again.", "Apple 登录失败，请稍后重试。"));
+      console.warn("[ios-apple] backend rejected token", { status: r.status, body: j });
+      const detail = (j && (j.error || j.code)) || `http_${r.status}`;
+      showToast(loginPanelLoginCopy(
+        `Apple sign-in failed: ${detail}`,
+        `Apple 登录失败：${detail}`,
+      ));
       return false;
     }
     // Refresh app session so the rest of the UI picks up the new user
@@ -86,6 +94,11 @@ async function iosNativeAppleSignInModule() {
     const msg = String(err && (err.message || err)).toLowerCase();
     if (msg.includes("cancel")) return true;
     console.warn("[ios-apple] sign-in error", err);
+    const m = String(err && (err.message || err)).slice(0, 80);
+    showToast(loginPanelLoginCopy(
+      `Apple sign-in error: ${m}`,
+      `Apple 登录错误：${m}`,
+    ));
     return false;
   }
 }

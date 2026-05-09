@@ -19898,6 +19898,135 @@ function slugifyPersonName(name: string): string {
   return `adhoc-${stem}-${hash}`;
 }
 
+/* CSSOS_WAVE_109G 20260509 — Jing
+ * Edit + delete endpoints for user-created persons.
+ *
+ * Authorization rule: only the creator (created_by_user_id matches
+ * session user) OR an admin may mutate. Curated/auto-seeded entries
+ * (source_status === "curated" || "auto") are protected — those need
+ * separate admin tooling. This keeps "Personal & Test" / "User
+ * Creations" tier safe for free editing without exposing the
+ * curated catalog. */
+app.delete("/api/person-mv/persons/:id", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const personId = String(req.params.id || "").trim();
+    if (!personId) return res.status(400).json({ ok: false, code: "ID_REQUIRED" });
+    const isAdmin = roleForEmail(user.email) === "admin";
+    const result = await withClient((c) =>
+      c.query<{ source_status: string; created_by_user_id: string | null }>(
+        `SELECT source_status, created_by_user_id::text AS created_by_user_id
+           FROM person_profiles WHERE person_id = $1 LIMIT 1`,
+        [personId],
+      ),
+    );
+    const row = result.rows[0];
+    if (!row) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const source = String(row.source_status || "").toLowerCase();
+    const ownedBy = String(row.created_by_user_id || "");
+    const owns = ownedBy && ownedBy === String(user.id);
+    /* Curated/auto entries can only be deleted by admins. Ad-hoc
+     * entries can be deleted by their creator (or by admins). */
+    if (!owns && !isAdmin) {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    if ((source === "curated" || source === "auto") && !isAdmin) {
+      return res.status(403).json({ ok: false, code: "PROTECTED_PROFILE" });
+    }
+    await withClient(async (c) => {
+      await c.query(`DELETE FROM person_profiles WHERE person_id = $1`, [personId]);
+      /* Best-effort cascade for related rows. Tables that don't exist
+       * just no-op via the IF EXISTS table check. */
+      const cascadeTables = [
+        "person_mvs",
+        "person_mv_views",
+        "person_mv_likes",
+        "person_mv_comments",
+        "person_dialogue_mvs",
+      ];
+      for (const t of cascadeTables) {
+        try {
+          await c.query(`DELETE FROM ${t} WHERE person_id = $1`, [personId]);
+        } catch { /* table may not exist or have person_id col */ }
+      }
+    });
+    return res.json({ ok: true, person_id: personId });
+  } catch (err) {
+    console.error("[person-mv] delete failed", err);
+    return res.status(500).json({ ok: false, code: "INTERNAL" });
+  }
+});
+
+app.patch("/api/person-mv/persons/:id", express.json({ limit: "8kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const personId = String(req.params.id || "").trim();
+    if (!personId) return res.status(400).json({ ok: false, code: "ID_REQUIRED" });
+    const body = (req.body || {}) as Record<string, unknown>;
+    /* Whitelisted fields a creator may edit. */
+    const editable: Record<string, string> = {
+      name_zh: "TEXT",
+      name_en: "TEXT",
+      civilization: "TEXT",
+      era: "TEXT",
+      lifespan: "TEXT",
+      core_theme: "TEXT",
+      music_style_hint: "TEXT",
+      tone: "TEXT",
+    };
+    const isAdmin = roleForEmail(user.email) === "admin";
+    const result = await withClient((c) =>
+      c.query<{ source_status: string; created_by_user_id: string | null }>(
+        `SELECT source_status, created_by_user_id::text AS created_by_user_id
+           FROM person_profiles WHERE person_id = $1 LIMIT 1`,
+        [personId],
+      ),
+    );
+    const row = result.rows[0];
+    if (!row) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const source = String(row.source_status || "").toLowerCase();
+    const ownedBy = String(row.created_by_user_id || "");
+    const owns = ownedBy && ownedBy === String(user.id);
+    if (!owns && !isAdmin) {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    if ((source === "curated" || source === "auto") && !isAdmin) {
+      return res.status(403).json({ ok: false, code: "PROTECTED_PROFILE" });
+    }
+    const setParts: string[] = [];
+    const params: unknown[] = [];
+    Object.keys(editable).forEach((key) => {
+      if (Object.prototype.hasOwnProperty.call(body, key) && body[key] !== undefined) {
+        const v = body[key] === null ? null : String(body[key]).slice(0, 200);
+        params.push(v);
+        setParts.push(`${key} = $${params.length}`);
+      }
+    });
+    if (!setParts.length) return res.status(400).json({ ok: false, code: "NO_FIELDS" });
+    params.push(personId);
+    await withClient((c) =>
+      c.query(
+        `UPDATE person_profiles
+            SET ${setParts.join(", ")}, updated_at = now()
+          WHERE person_id = $${params.length}`,
+        params,
+      ),
+    );
+    return res.json({ ok: true, person_id: personId });
+  } catch (err) {
+    console.error("[person-mv] patch failed", err);
+    return res.status(500).json({ ok: false, code: "INTERNAL" });
+  }
+});
+
 app.post("/api/person-mv/persons", express.json({ limit: "16kb" }), async (req, res) => {
   noStore(res);
   try {

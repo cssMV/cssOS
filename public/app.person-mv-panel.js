@@ -182,6 +182,35 @@
       "#person-mv-panel .pmv-compendium-row .row-meta{font:500 10px/1.2 ui-monospace,monospace;color:rgba(0,245,160,0.7);}" +
       "#person-mv-panel .pmv-compendium-row *{pointer-events:none;}" +
       "#person-mv-panel .pmv-compendium-skel{padding:24px;text-align:center;color:rgba(218,255,238,0.5);font:500 12px/1.4 -apple-system,system-ui,sans-serif;}" +
+
+      /* CSSOS_WAVE_109G 20260509 — Jing
+       * Edit/delete actions for user-created cards. Sits at the
+       * top-right of the card, above the cover. Stops click
+       * propagation so it doesn't trigger card.onclick (codex open). */
+      "#person-mv-panel .pmv-user-actions{" +
+        "position:absolute;top:8px;right:8px;display:flex;gap:6px;z-index:5;" +
+      "}" +
+      "#person-mv-panel .pmv-user-action-btn{" +
+        "width:28px;height:28px;border-radius:50%;" +
+        "background:rgba(8,18,14,0.78);" +
+        "backdrop-filter:blur(8px) saturate(140%);" +
+        "-webkit-backdrop-filter:blur(8px) saturate(140%);" +
+        "border:1px solid rgba(255,255,255,0.18);" +
+        "color:rgba(255,255,255,0.85);" +
+        "font:500 13px/1 -apple-system,system-ui,sans-serif;" +
+        "cursor:pointer;display:flex;align-items:center;justify-content:center;" +
+        "transition: border-color .15s ease, background .15s ease, transform .15s ease;" +
+        "pointer-events:auto;" +
+      "}" +
+      "#person-mv-panel .pmv-user-action-btn:hover{" +
+        "border-color:rgba(255,255,255,0.55);background:rgba(8,30,20,0.92);transform:scale(1.06);" +
+      "}" +
+      "#person-mv-panel .pmv-user-action-btn.danger:hover{" +
+        "border-color:rgba(255,80,80,0.7);background:rgba(60,10,10,0.85);" +
+      "}" +
+      /* On text cards, give space at top-right so the buttons don't
+       * sit on top of the name. */
+      "#person-mv-panel .person-mv-card.has-user-actions{padding-top:36px;}" +
       "#person-mv-panel .panel-actions .icon-btn{pointer-events:auto !important;cursor:pointer;}" +
       /* Bulletproof hide — when .hidden is on, no clicks. */
       "#person-mv-panel.hidden{display:none !important;pointer-events:none !important;}" +
@@ -963,7 +992,7 @@
     var head = document.createElement("div");
     head.className = "pmv-tier-head";
     head.innerHTML =
-      '<div class="pmv-tier-title">👤 ' + escapeText(tt("Personal & Test", "个人 & 测试")) + '</div>' +
+      '<div class="pmv-tier-title">👤 ' + escapeText(tt("User Creations", "用户自定义人物")) + '</div>' +
       '<div class="pmv-tier-count">' + persons.length + '</div>';
     section.appendChild(head);
 
@@ -976,17 +1005,141 @@
     if (withPortrait.length) {
       var g = document.createElement("div");
       g.className = "pmv-notable-grid";
-      withPortrait.forEach(function (p) { g.appendChild(buildPortraitCard(p)); });
+      withPortrait.forEach(function (p) {
+        var card = buildPortraitCard(p);
+        attachUserActions(card, p);
+        g.appendChild(card);
+      });
       section.appendChild(g);
     }
     if (withoutPortrait.length) {
       var g2 = document.createElement("div");
       g2.className = "person-mv-grid";
       g2.style.padding = withPortrait.length ? "12px 0 0 0" : "0";
-      withoutPortrait.forEach(function (p) { g2.appendChild(buildNotableTextCard(p)); });
+      withoutPortrait.forEach(function (p) {
+        var card = buildNotableTextCard(p);
+        card.classList.add("has-user-actions");
+        attachUserActions(card, p);
+        g2.appendChild(card);
+      });
       section.appendChild(g2);
     }
     return section;
+  }
+
+  /* CSSOS_WAVE_109G 20260509 — Jing
+   * Attach edit/delete action buttons to a user-created person card.
+   * Buttons stop propagation so clicking them never opens the codex. */
+  function attachUserActions(card, person) {
+    if (!card || !person) return;
+    var actions = document.createElement("div");
+    actions.className = "pmv-user-actions";
+    actions.innerHTML =
+      '<button type="button" class="pmv-user-action-btn" data-act="edit" ' +
+        'aria-label="' + escapeAttr(tt("Edit", "编辑")) + '" ' +
+        'title="' + escapeAttr(tt("Edit", "编辑")) + '">✎</button>' +
+      '<button type="button" class="pmv-user-action-btn danger" data-act="delete" ' +
+        'aria-label="' + escapeAttr(tt("Delete", "删除")) + '" ' +
+        'title="' + escapeAttr(tt("Delete", "删除")) + '">🗑</button>';
+    /* Block bubbling so the card's onclick doesn't fire. */
+    actions.addEventListener("click", function (e) { e.stopPropagation(); });
+    actions.addEventListener("pointerdown", function (e) { e.stopPropagation(); });
+    actions.addEventListener("pointerup", function (e) { e.stopPropagation(); });
+    actions.querySelectorAll("[data-act]").forEach(function (btn) {
+      btn.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        var act = btn.getAttribute("data-act");
+        if (act === "edit") openEditDialog(person);
+        else if (act === "delete") confirmDelete(person);
+      });
+    });
+    card.appendChild(actions);
+  }
+
+  function confirmDelete(person) {
+    var name = localizedName(person);
+    var msg = tt(
+      "Delete \"" + name + "\"? This removes the profile and any related MVs.",
+      "确认删除「" + name + "」？将同时移除其档案和相关 MV。",
+    );
+    if (!window.confirm(msg)) return;
+    fetch("/api/person-mv/persons/" + encodeURIComponent(person.person_id), {
+      method: "DELETE",
+      credentials: "include",
+      headers: { Accept: "application/json" },
+    })
+      .then(function (r) { return r.json().catch(function () { return null; }); })
+      .then(function (j) {
+        if (j && j.ok) {
+          if (typeof globalThis.showToast === "function") {
+            globalThis.showToast(tt("Deleted: " + name, "已删除：" + name));
+          }
+          load(); /* refresh grid */
+          return;
+        }
+        var code = (j && j.code) || "INTERNAL";
+        if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(tt("Delete failed: ", "删除失败：") + code);
+        }
+      })
+      .catch(function (err) {
+        console.warn("[person-mv] delete failed", err);
+        if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(tt("Delete failed (network).", "删除失败（网络）。"));
+        }
+      });
+  }
+
+  function openEditDialog(person) {
+    /* Lightweight edit using window.prompt for now — a richer modal
+     * can replace this in a follow-up. Each field gets its own
+     * prompt so users can edit selectively (cancel any prompt to
+     * skip that field). */
+    function ask(label, current) {
+      var v = window.prompt(label, current || "");
+      if (v === null) return undefined; /* user cancelled */
+      return String(v).slice(0, 200);
+    }
+    var patch = {};
+    var nameZh = ask(tt("中文名 (cancel to skip)", "中文名（取消跳过）"), person.name_zh);
+    if (nameZh !== undefined) patch.name_zh = nameZh;
+    var nameEn = ask(tt("English name (cancel to skip)", "英文名（取消跳过）"), person.name_en);
+    if (nameEn !== undefined) patch.name_en = nameEn;
+    var civ = ask(tt("Civilization (cancel to skip)", "文明（取消跳过）"), person.civilization);
+    if (civ !== undefined) patch.civilization = civ;
+    var era = ask(tt("Era (cancel to skip)", "时代（取消跳过）"), person.era);
+    if (era !== undefined) patch.era = era;
+    var theme = ask(tt("Core theme (cancel to skip)", "核心主题（取消跳过）"), person.core_theme);
+    if (theme !== undefined) patch.core_theme = theme;
+
+    if (!Object.keys(patch).length) return; /* nothing to save */
+    fetch("/api/person-mv/persons/" + encodeURIComponent(person.person_id), {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(patch),
+    })
+      .then(function (r) { return r.json().catch(function () { return null; }); })
+      .then(function (j) {
+        if (j && j.ok) {
+          if (typeof globalThis.showToast === "function") {
+            globalThis.showToast(tt("Saved.", "已保存。"));
+          }
+          load();
+          return;
+        }
+        var code = (j && j.code) || "INTERNAL";
+        if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(tt("Save failed: ", "保存失败：") + code);
+        }
+      })
+      .catch(function (err) {
+        console.warn("[person-mv] patch failed", err);
+        if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(tt("Save failed (network).", "保存失败（网络）。"));
+        }
+      });
   }
 
   function renderHallSection(persons) {

@@ -477,7 +477,8 @@
       });
     });
     if (createBtn) {
-      createBtn.addEventListener("click", function () {
+      createBtn.addEventListener("click", async function () {
+        if (!(await requireSignedInForAction("create"))) return;
         var name = window.prompt(
           tt(
             "Enter a person's name (anyone — historical or someone you know):",
@@ -1297,13 +1298,15 @@
       }
       var cinemaBtn = host.querySelector(".pmv-cinema");
       if (cinemaBtn) {
-        cinemaBtn.addEventListener("click", function(){
+        cinemaBtn.addEventListener("click", async function(){
+          if (!(await requireSignedInForAction("cinema"))) return;
           enterCinemaForPerson({ forceNew: false });
         });
       }
       // Create-new-version button(s) — also enter cinema, force fresh gen.
       host.querySelectorAll(".pmv-create-mv").forEach(function(btn){
-        btn.addEventListener("click", function(){
+        btn.addEventListener("click", async function(){
+          if (!(await requireSignedInForAction("create"))) return;
           enterCinemaForPerson({ forceNew: true });
         });
       });
@@ -1334,7 +1337,8 @@
       // Compare button → modal
       var compareBtn = host.querySelector(".pmv-compare");
       if (compareBtn) {
-        compareBtn.addEventListener("click", function () {
+        compareBtn.addEventListener("click", async function () {
+          if (!(await requireSignedInForAction("compare"))) return;
           openCompareModal(p.person_id, data);
         });
       }
@@ -1737,8 +1741,8 @@
     } catch (_e) {}
     return false;
   }
-  function promptSignIn() {
-    var msg = tt(
+  function promptSignIn(customMsg) {
+    var msg = customMsg || tt(
       "Sign in to use People MV — your creations, likes & comments live in your account.",
       "请先登录使用「人物 MV 宇宙」—— 创作、点赞、评论需要绑定账号。"
     );
@@ -1752,12 +1756,47 @@
     try { location.hash = "#login?return=person-mv"; } catch (_e) {}
     try { alert(msg); } catch (_e) {}
   }
-  async function open() {
+
+  /* CSSOS_WAVE_108_AUTH_GATE 20260509 — Jing
+   * Per-action sign-in gate. Browsing is free; creating / opening
+   * cinema / comparing requires a signed-in account. Returns true
+   * if the user is signed in and the caller should proceed; returns
+   * false (and shows the login panel) otherwise. */
+  async function requireSignedInForAction(actionLabel) {
     var signedIn = await ensureSignedIn();
-    if (!signedIn) {
-      promptSignIn();
-      return;
+    if (signedIn) return true;
+    var msg;
+    if (actionLabel === "cinema") {
+      msg = tt(
+        "Sign in to enter the cinema — playback, watch parties and history are tied to your account.",
+        "请先登录后进入影院——播放记录、放映厅和历史记录都需要账号。",
+      );
+    } else if (actionLabel === "create") {
+      msg = tt(
+        "Sign in to create — free accounts get 3 generations to start.",
+        "请先登录开始创作——免费账号有 3 次生成额度。",
+      );
+    } else if (actionLabel === "compare") {
+      msg = tt(
+        "Sign in to compare — saved comparisons live in your account.",
+        "请先登录后对比——对比记录会保存到你的账号。",
+      );
+    } else {
+      msg = tt(
+        "Sign in to continue — guests can browse, but actions need an account.",
+        "请先登录继续——游客可浏览，互动需要账号。",
+      );
     }
+    promptSignIn(msg);
+    return false;
+  }
+  async function open() {
+    /* CSSOS_WAVE_108_GUEST_BROWSE 20260509 — Jing
+     * Person MV panel is now open to everyone, including guests.
+     * Login is gated at the action layer instead (appreciate / enter
+     * cinema / create). The auth check below is a no-op for the
+     * landing view; guard rails live in the click handlers per
+     * action. */
     var p = ensurePanel();
     /* Reverse the close-time hide so re-opening fully reveals. */
     p.classList.remove("hidden");

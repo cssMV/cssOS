@@ -554,19 +554,34 @@
    *      the opposite side (handled in CSS via [data-anchor=...]).
    */
   function detectDockSide() {
+    /* CSSOS_WAVE_108J 20260509 — Jing
+     * Prefer the panel-behavior SETTING over a geometry measurement.
+     * When the user toggles dock_position in the settings panel, the
+     * setting fires `cssos:panel-behavior-changed` synchronously,
+     * but the .dock element's CSS top/bottom may not have settled
+     * by the time we read it via getBoundingClientRect — so we'd
+     * read the OLD position and anchor the bar wrongly. The setting
+     * tells us user intent immediately. */
+    try {
+      var pb = globalThis.readPanelBehaviorSettingsLocal &&
+        globalThis.readPanelBehaviorSettingsLocal();
+      var pos = pb && pb.dock && pb.dock.dock_position;
+      if (pos === "top" || pos === "bottom" || pos === "left" || pos === "right") {
+        return pos;
+      }
+    } catch (_) {}
+    /* Fallback: measure live dock geometry. */
     var dock = document.querySelector(".dock");
-    if (!dock) return "bottom"; /* no dock visible → assume bottom */
+    if (!dock) return "bottom";
     var rect = dock.getBoundingClientRect();
     var vw = window.innerWidth || document.documentElement.clientWidth || 0;
     var vh = window.innerHeight || document.documentElement.clientHeight || 0;
     if (!rect.width || !rect.height) return "bottom";
     var midY = rect.top + rect.height / 2;
     var midX = rect.left + rect.width / 2;
-    /* Vertical dock? */
     if (rect.height > rect.width * 1.5) {
       return midX < vw / 2 ? "left" : "right";
     }
-    /* Horizontal dock — top or bottom by midpoint. */
     return midY < vh / 2 ? "top" : "bottom";
   }
 
@@ -576,13 +591,26 @@
      * the bar to top (more natural reading position). */
     var anchor = dockSide === "top" ? "bottom" : "top";
 
-    /* CSSOS_WAVE_108I 20260509 — Jing
-     * Width = exactly 6 cards laid out side by side + gaps + padding.
-     * 6 × 160 + 5 × 8 + 2 × 8 = 1016px. Apply as inline style so
-     * NO competing CSS rule can override us (the prior calc()-based
-     * approach was getting stomped on this user's setup, leaving
-     * tabs spread across the full viewport instead of clustering). */
-    var WIDTH = Math.min(1016, (window.innerWidth || 1200) - 16);
+    /* CSSOS_WAVE_108J 20260509 — Jing
+     * Width grows with content so future additions of schools/tabs
+     * stay visible without forcing horizontal scroll until really
+     * necessary. Floor stays at 1016px (= 6 cards baseline) for
+     * visual consistency on day-1; ceiling = viewport - 16px.
+     *
+     *   width = clamp(1016, naturalContentWidth, viewport - 16)
+     *
+     * Apply both natural sizes (schools cards: 160 each + 8 gap;
+     * bar tabs: variable but we just match schools so they line up).
+     */
+    var CARD_W = 160, GAP = 8, PADDING = 16;
+    var schoolCount = (state.schools && state.schools.children.length) || 6;
+    var naturalSchools = schoolCount > 0
+      ? schoolCount * CARD_W + Math.max(0, schoolCount - 1) * GAP + PADDING
+      : 1016;
+    var FLOOR = 6 * CARD_W + 5 * GAP + PADDING; /* = 1016 */
+    var CAP = (window.innerWidth || 1200) - 16;
+    var WIDTH = Math.max(FLOOR, naturalSchools);
+    WIDTH = Math.min(WIDTH, CAP);
     if (state.bar) state.bar.style.width = WIDTH + "px";
     if (state.schools) state.schools.style.width = WIDTH + "px";
 
@@ -763,8 +791,14 @@
 
     bindReshowZone();
 
-    /* Listen for dock-position changes to re-flip our position. */
-    document.addEventListener("cssos:panel-behavior-changed", refreshPosition);
+    /* CSSOS_WAVE_108J 20260509 — Jing
+     * Listen for dock-position changes; refresh once immediately
+     * (uses the setting) and once after the next frame (catches
+     * any geometry-based fallback after CSS has settled). */
+    document.addEventListener("cssos:panel-behavior-changed", function () {
+      refreshPosition();
+      requestAnimationFrame(refreshPosition);
+    });
     window.addEventListener("storage", function (e) {
       if (e.key && e.key.indexOf("panel-behavior") !== -1) refreshPosition();
     });

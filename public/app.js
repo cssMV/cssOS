@@ -31668,7 +31668,35 @@ function attachDockEvents() {
   // P2-40: horizontal/vertical finger travel above this (px) is a swipe,
   // not a tap — suppress the click so Tesla/phone gestures don't accidentally
   // activate a dock item.
-  const DOCK_SWIPE_THRESHOLD_PX = 14;
+  // CSSOS_WAVE_107B 20260509 — Jing: bumped 14→26 (still reported false-fires
+  // on trackpad lateral motion). Plus we now watch wheel events globally and
+  // arm a short suppress window when the wheel happens over the dock.
+  const DOCK_SWIPE_THRESHOLD_PX = 26;
+  // Min press duration (ms) to count as a tap. Anything quicker is a brush.
+  const DOCK_MIN_TAP_MS = 60;
+
+  // CSSOS_WAVE_107B 20260509 — Jing: trackpad two-finger lateral pan over
+  // the dock dispatched wheel events that our pointer logic never saw. The
+  // tail end of the gesture often resolved as a synthetic click. Listen
+  // globally for wheel events whose target is inside the dock and arm a
+  // 220ms suppress window — long enough to swallow the click that the
+  // browser emits at the end of the inertia.
+  document.addEventListener(
+    "wheel",
+    (event) => {
+      try {
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        if (!target.closest(".dock, .dock-item")) return;
+        // Only treat clearly lateral motion as "swipe over dock" — a normal
+        // vertical page scroll passing under the dock should not block taps
+        // a moment later.
+        if (Math.abs(event.deltaX) < 4 && Math.abs(event.deltaY) < 4) return;
+        dockSuppressUntil = Math.max(dockSuppressUntil, Date.now() + 220);
+      } catch (_) {}
+    },
+    { passive: true, capture: true },
+  );
   dock.querySelectorAll(".dock-item").forEach((item) => {
     const action = item.dataset.action;
     item.tabIndex = 0;
@@ -31732,6 +31760,11 @@ function attachDockEvents() {
       // swipe threshold at any point during this pointer cycle, treat this as
       // a swipe and skip triggering an action.
       if (pointerMaxDist >= DOCK_SWIPE_THRESHOLD_PX) {
+        suppressClick = true;
+      }
+      // CSSOS_WAVE_107B 20260509 — Jing: a press shorter than DOCK_MIN_TAP_MS
+      // is almost always a finger brushing past during a swipe. Reject.
+      if (pointerDownAt && Date.now() - pointerDownAt < DOCK_MIN_TAP_MS) {
         suppressClick = true;
       }
       const heldLongEnough = action === "mic" && pointerDownAt && Date.now() - pointerDownAt >= LONGPRESS_MS;

@@ -108,6 +108,53 @@
       "#person-mv-panel .person-mv-counts{display:flex;justify-content:space-between;align-items:center;font:500 10px/1 ui-monospace,monospace;color:rgba(218,255,238,0.55);margin-top:4px;}" +
       "#person-mv-panel .person-mv-empty{padding:60px 12px;text-align:center;color:rgba(218,255,238,0.55);}" +
       "#person-mv-panel .person-mv-card *{pointer-events:none;}" +
+
+      /* CSSOS_WAVE_109_THREE_TIER 20260509 — Jing
+       * Three-tier display: Hall of Fame (S) → Notable (A) → Compendium (B/C). */
+      "#person-mv-panel .pmv-tier-section{padding:0 12px 14px;}" +
+      "#person-mv-panel .pmv-tier-head{" +
+        "display:flex;align-items:baseline;justify-content:space-between;" +
+        "padding:14px 4px 8px;" +
+        "border-bottom:1px solid rgba(0,245,160,0.12);margin-bottom:10px;" +
+      "}" +
+      "#person-mv-panel .pmv-tier-title{font:700 14px/1.2 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.95);letter-spacing:.04em;}" +
+      "#person-mv-panel .pmv-tier-count{font:500 11px/1 ui-monospace,monospace;color:rgba(0,245,160,0.7);}" +
+
+      /* Tier 1 — Hall of Fame: 180×240 hero image cards (album style). */
+      "#person-mv-panel .pmv-hall-grid{" +
+        "display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));" +
+        "gap:12px;" +
+      "}" +
+      "#person-mv-panel .pmv-hall-card{" +
+        "position:relative;height:240px;border-radius:14px;overflow:hidden;" +
+        "background:rgba(8,18,14,0.6);border:1px solid rgba(0,245,160,0.22);" +
+        "cursor:pointer;transition:transform .15s ease, border-color .15s ease;" +
+      "}" +
+      "#person-mv-panel .pmv-hall-card:hover{transform:translateY(-3px);border-color:rgba(0,245,160,0.6);}" +
+      "#person-mv-panel .pmv-hall-card .cover{position:absolute;inset:0;background-size:cover;background-position:center top;}" +
+      "#person-mv-panel .pmv-hall-card .cover.fallback{display:flex;align-items:center;justify-content:center;font-size:64px;}" +
+      "#person-mv-panel .pmv-hall-card .cover::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0) 35%,rgba(0,0,0,0.85) 100%);}" +
+      "#person-mv-panel .pmv-hall-card .info{position:absolute;left:12px;right:12px;bottom:10px;color:#daffee;text-shadow:0 1px 4px rgba(0,0,0,0.85);}" +
+      "#person-mv-panel .pmv-hall-card .name{font:700 16px/1.2 -apple-system,system-ui,sans-serif;}" +
+      "#person-mv-panel .pmv-hall-card .name-en{font:500 11px/1.2 ui-monospace,monospace;color:rgba(218,255,238,0.7);margin-top:1px;}" +
+      "#person-mv-panel .pmv-hall-card .meta{font:500 10px/1.3 ui-monospace,monospace;color:rgba(0,245,160,0.85);letter-spacing:.04em;margin-top:4px;}" +
+      "#person-mv-panel .pmv-hall-card *{pointer-events:none;}" +
+
+      /* Tier 3 — Compendium: compact rows in a 4-column responsive grid. */
+      "#person-mv-panel .pmv-compendium-grid{" +
+        "display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px 14px;" +
+      "}" +
+      "#person-mv-panel .pmv-compendium-row{" +
+        "padding:8px 10px;border-radius:8px;cursor:pointer;" +
+        "background:rgba(8,18,14,0.4);border:1px solid rgba(0,245,160,0.10);" +
+        "color:#daffee;display:flex;flex-direction:column;gap:2px;" +
+        "transition:border-color .12s ease, background .12s ease;" +
+      "}" +
+      "#person-mv-panel .pmv-compendium-row:hover{background:rgba(8,28,20,0.6);border-color:rgba(0,245,160,0.4);}" +
+      "#person-mv-panel .pmv-compendium-row .row-name{font:600 13px/1.2 -apple-system,system-ui,sans-serif;}" +
+      "#person-mv-panel .pmv-compendium-row .row-meta{font:500 10px/1.2 ui-monospace,monospace;color:rgba(0,245,160,0.7);}" +
+      "#person-mv-panel .pmv-compendium-row *{pointer-events:none;}" +
+      "#person-mv-panel .pmv-compendium-skel{padding:24px;text-align:center;color:rgba(218,255,238,0.5);font:500 12px/1.4 -apple-system,system-ui,sans-serif;}" +
       "#person-mv-panel .panel-actions .icon-btn{pointer-events:auto !important;cursor:pointer;}" +
       /* Bulletproof hide — when .hidden is on, no clicks. */
       "#person-mv-panel.hidden{display:none !important;pointer-events:none !important;}" +
@@ -570,7 +617,11 @@
       }
       if (state.civ) qs.set("civ", state.civ);
       if (state.search) qs.set("search", state.search);
-      qs.set("limit", "200");
+      /* CSSOS_WAVE_109 20260509 — bumped from 200 → 1200 to fit the
+       * full compendium (DB has up to ~1000 curated personalities).
+       * Compendium section is lazy-rendered so initial DOM cost is
+       * still small. */
+      qs.set("limit", "1200");
       var res = await fetch("/api/person-mv/persons?" + qs.toString(), {
         credentials: "include",
         headers: { Accept: "application/json" },
@@ -645,6 +696,12 @@
     }
   }
 
+  /* CSSOS_WAVE_109_THREE_TIER 20260509 — Jing
+   * Three-tier display: Hall of Fame (S) → Notable (A) → Compendium (B/C).
+   * Search/filter applies across all three tiers; the API returns
+   * everyone matching the filters in one shot, we bucket client-side
+   * by curation_tier. The Compendium section uses IntersectionObserver
+   * to defer rendering its rows until scrolled near. */
   function render() {
     if (!panelEl) return;
     var grid = panelEl.querySelector(".person-mv-grid");
@@ -661,47 +718,202 @@
         '</div>';
       }
       grid.innerHTML = emptyHtml;
-      var cta = grid.querySelector(".person-mv-adhoc-cta");
-      if (cta) {
-        cta.addEventListener("click", function () {
-          var n = cta.getAttribute("data-adhoc-name") || typed;
+      var ctaEl0 = grid.querySelector(".person-mv-adhoc-cta");
+      if (ctaEl0) {
+        ctaEl0.addEventListener("click", function () {
+          var n = ctaEl0.getAttribute("data-adhoc-name") || typed;
           if (n) createAdhocPerson(n);
         });
       }
       return;
     }
-    /* CSSOS_PERSON_MV_PER_CARD_LISTENER 20260507 — Jing
-     * Reverted from panel-level delegation to per-card direct onclick.
-     * The shared bridges (attachPanelDragBridge etc.) added document-
-     * level pointer listeners that were eating my delegated events.
-     * Each card gets its own onclick now — guaranteed to fire. */
-    grid.innerHTML = "";
+
+    /* Bucket by curation_tier. Default unknown → "B". */
+    var hall = [];   /* S */
+    var notable = []; /* A */
+    var comp = [];    /* B / C / lower */
     state.persons.forEach(function (p) {
-      var meta = [p.civilization, p.era].filter(Boolean).join(" · ");
-      var primary = localizedName(p);
-      var secondary = secondaryName(p);
-      var card = document.createElement("div");
-      card.className = "person-mv-card";
-      card.setAttribute("data-person-id", p.person_id || "");
-      // CSSOS_PERSON_MV_WAVE64C 20260508 — content rating badge hook.
-      if (p.content_rating) card.setAttribute("data-content-rating", String(p.content_rating));
-      card.innerHTML =
-        '<div class="person-mv-name">' + escapeText(primary) + '</div>' +
-        (secondary ? '<div class="person-mv-name-en">' + escapeText(secondary) + '</div>' : '') +
-        '<div class="person-mv-meta">' + escapeText(meta) + '</div>' +
-        (p.core_theme ? '<div class="person-mv-theme">' + escapeText(p.core_theme) + '</div>' : '') +
-        '<div class="person-mv-counts">' +
-          '<span>' + tt("influence", "影响力") + ' · ' + (p.influence_score || 0) + '</span>' +
-          '<span>' + tt("MVs", "MV") + ' · ' + (p.mv_count || 0) + '</span>' +
-        '</div>';
-      // Direct listener — no delegation, no capture races.
-      card.onclick = function (e) {
-        console.warn("[person-mv] card.onclick", p.person_id);
-        if (e) { try { e.preventDefault(); e.stopPropagation(); } catch (_e) {} }
-        openCodex(p.person_id);
-      };
-      grid.appendChild(card);
+      var t = String(p.curation_tier || "B").toUpperCase();
+      if (t === "S") hall.push(p);
+      else if (t === "A") notable.push(p);
+      else comp.push(p);
     });
+
+    /* If user has filtered to a single tier (S/A/B), render only that
+     * tier expanded. Otherwise show the full three-section layout. */
+    var single = String(state.curationTier || "all").toLowerCase();
+    grid.innerHTML = "";
+
+    if (single === "s") {
+      grid.appendChild(renderHallSection(hall));
+    } else if (single === "a") {
+      grid.appendChild(renderNotableSection(notable));
+    } else if (single === "b") {
+      grid.appendChild(renderCompendiumSection(comp));
+    } else {
+      if (hall.length) grid.appendChild(renderHallSection(hall));
+      if (notable.length) grid.appendChild(renderNotableSection(notable));
+      if (comp.length) grid.appendChild(renderCompendiumSection(comp));
+    }
+  }
+
+  function renderHallSection(persons) {
+    var section = document.createElement("section");
+    section.className = "pmv-tier-section pmv-tier-hall";
+    var head = document.createElement("div");
+    head.className = "pmv-tier-head";
+    head.innerHTML =
+      '<div class="pmv-tier-title">⭐ ' + escapeText(tt("Hall of Fame", "传奇殿堂")) + '</div>' +
+      '<div class="pmv-tier-count">' + persons.length + '</div>';
+    section.appendChild(head);
+    var grid = document.createElement("div");
+    grid.className = "pmv-hall-grid";
+    persons.forEach(function (p) {
+      grid.appendChild(buildHallCard(p));
+    });
+    section.appendChild(grid);
+    return section;
+  }
+
+  function buildHallCard(p) {
+    var primary = localizedName(p);
+    var secondary = secondaryName(p);
+    var meta = [p.civilization, p.era].filter(Boolean).join(" · ");
+    var portrait = p.portrait_url || p.cover_image_url || "";
+    var card = document.createElement("article");
+    card.className = "pmv-hall-card";
+    card.setAttribute("data-person-id", p.person_id || "");
+    if (p.content_rating) card.setAttribute("data-content-rating", String(p.content_rating));
+    var coverHtml;
+    if (portrait) {
+      coverHtml = '<div class="cover" style="background-image:url(' + escapeAttr(portrait) + ');"></div>';
+    } else {
+      /* Fallback: emoji or first character on gradient. */
+      var glyph = (primary || "?").trim().charAt(0).toUpperCase();
+      coverHtml = '<div class="cover fallback" style="background:linear-gradient(135deg,#012019,rgba(0,245,160,0.25));">' +
+        escapeText(glyph) + '</div>';
+    }
+    card.innerHTML = coverHtml +
+      '<div class="info">' +
+        '<div class="name">' + escapeText(primary) + '</div>' +
+        (secondary ? '<div class="name-en">' + escapeText(secondary) + '</div>' : '') +
+        (meta ? '<div class="meta">' + escapeText(meta) + '</div>' : '') +
+      '</div>';
+    card.onclick = function (e) {
+      if (e) { try { e.preventDefault(); e.stopPropagation(); } catch (_e) {} }
+      openCodex(p.person_id);
+    };
+    return card;
+  }
+
+  function renderNotableSection(persons) {
+    var section = document.createElement("section");
+    section.className = "pmv-tier-section pmv-tier-notable";
+    var head = document.createElement("div");
+    head.className = "pmv-tier-head";
+    head.innerHTML =
+      '<div class="pmv-tier-title">🎴 ' + escapeText(tt("Notable", "知名人物")) + '</div>' +
+      '<div class="pmv-tier-count">' + persons.length + '</div>';
+    section.appendChild(head);
+    /* Reuse existing .person-mv-grid + .person-mv-card styling. */
+    var grid = document.createElement("div");
+    grid.className = "person-mv-grid";
+    grid.style.padding = "0";
+    persons.forEach(function (p) { grid.appendChild(buildNotableCard(p)); });
+    section.appendChild(grid);
+    return section;
+  }
+
+  function buildNotableCard(p) {
+    var meta = [p.civilization, p.era].filter(Boolean).join(" · ");
+    var primary = localizedName(p);
+    var secondary = secondaryName(p);
+    var card = document.createElement("div");
+    card.className = "person-mv-card";
+    card.setAttribute("data-person-id", p.person_id || "");
+    if (p.content_rating) card.setAttribute("data-content-rating", String(p.content_rating));
+    card.innerHTML =
+      '<div class="person-mv-name">' + escapeText(primary) + '</div>' +
+      (secondary ? '<div class="person-mv-name-en">' + escapeText(secondary) + '</div>' : '') +
+      '<div class="person-mv-meta">' + escapeText(meta) + '</div>' +
+      (p.core_theme ? '<div class="person-mv-theme">' + escapeText(p.core_theme) + '</div>' : '') +
+      '<div class="person-mv-counts">' +
+        '<span>' + tt("influence", "影响力") + ' · ' + (p.influence_score || 0) + '</span>' +
+        '<span>' + tt("MVs", "MV") + ' · ' + (p.mv_count || 0) + '</span>' +
+      '</div>';
+    card.onclick = function (e) {
+      if (e) { try { e.preventDefault(); e.stopPropagation(); } catch (_e) {} }
+      openCodex(p.person_id);
+    };
+    return card;
+  }
+
+  /* CSSOS_WAVE_109 20260509 — Jing
+   * Compendium uses IntersectionObserver to defer the heavy DOM
+   * tree until the user actually scrolls near. With ~800+ rows
+   * this saves a lot of layout work on initial render. */
+  function renderCompendiumSection(persons) {
+    var section = document.createElement("section");
+    section.className = "pmv-tier-section pmv-tier-compendium";
+    var head = document.createElement("div");
+    head.className = "pmv-tier-head";
+    head.innerHTML =
+      '<div class="pmv-tier-title">📜 ' + escapeText(tt("Compendium", "百科全录")) + '</div>' +
+      '<div class="pmv-tier-count">' + persons.length + '</div>';
+    section.appendChild(head);
+
+    var holder = document.createElement("div");
+    holder.className = "pmv-compendium-grid";
+    /* Skeleton placeholder until visible. */
+    var skel = document.createElement("div");
+    skel.className = "pmv-compendium-skel";
+    skel.textContent = tt(
+      "Scroll down to load the full compendium…",
+      "滚动到这里加载完整名录…",
+    );
+    holder.appendChild(skel);
+    section.appendChild(holder);
+
+    var hydrated = false;
+    function hydrate() {
+      if (hydrated) return;
+      hydrated = true;
+      holder.innerHTML = "";
+      persons.forEach(function (p) { holder.appendChild(buildCompendiumRow(p)); });
+    }
+
+    if ("IntersectionObserver" in window) {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) { hydrate(); io.disconnect(); }
+        });
+      }, { rootMargin: "300px" });
+      io.observe(section);
+      /* Failsafe: hydrate after 4s regardless. */
+      setTimeout(hydrate, 4000);
+    } else {
+      hydrate();
+    }
+    return section;
+  }
+
+  function buildCompendiumRow(p) {
+    var primary = localizedName(p);
+    var secondary = secondaryName(p);
+    var meta = [p.civilization, p.era].filter(Boolean).join(" · ");
+    var row = document.createElement("div");
+    row.className = "pmv-compendium-row";
+    row.setAttribute("data-person-id", p.person_id || "");
+    if (p.content_rating) row.setAttribute("data-content-rating", String(p.content_rating));
+    var label = primary + (secondary ? "  " + secondary : "");
+    row.innerHTML =
+      '<div class="row-name">' + escapeText(label) + '</div>' +
+      (meta ? '<div class="row-meta">' + escapeText(meta) + '</div>' : '');
+    row.onclick = function (e) {
+      if (e) { try { e.preventDefault(); e.stopPropagation(); } catch (_e) {} }
+      openCodex(p.person_id);
+    };
+    return row;
   }
 
   /* CSSOS_PERSON_MV_WAVE2 20260507 — Jing

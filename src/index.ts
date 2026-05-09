@@ -18288,7 +18288,11 @@ app.get("/api/person-mv/persons", async (req, res) => {
         : null;
     const tier = /^[12]$/.test(tierRaw) ? Number(tierRaw) : 1;
     const page = Math.max(1, Number(req.query.page || 1) || 1);
-    const limit = Math.max(10, Math.min(200, Number(req.query.limit || 60) || 60));
+    /* CSSOS_WAVE_109 20260509 — Jing
+     * Cap raised 200 → 1500 to support the three-tier panel pulling
+     * the full S/A/B/C compendium in one shot. The Compendium
+     * section is lazy-rendered client-side via IntersectionObserver. */
+    const limit = Math.max(10, Math.min(1500, Number(req.query.limit || 60) || 60));
     const offset = (page - 1) * limit;
     const where: string[] = [];
     const params: unknown[] = [];

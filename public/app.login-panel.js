@@ -350,6 +350,15 @@ function renderLoginPlatformsModule() {
           // breaks. Route Apple through the native ASAuthorization API
           // and everything else through SFSafariViewController, which
           // returns to the app via a Universal Link.
+          // CSSOS_DIAG_IOS_NATIVE 20260508 — Jing
+          const cap = globalThis.Capacitor;
+          console.log("[ios-diag] platform=" + platform.id, {
+            hasCapacitor: !!cap,
+            isNative: cap && typeof cap.isNativePlatform === "function" ? cap.isNativePlatform() : null,
+            getPlatform: cap && typeof cap.getPlatform === "function" ? cap.getPlatform() : null,
+            plugins: cap && cap.Plugins ? Object.keys(cap.Plugins) : null,
+            isIosNative: isIosNativeAppModule(),
+          });
           if (isIosNativeAppModule()) {
             if (platform.id === "apple") {
               const ok = await iosNativeAppleSignInModule();

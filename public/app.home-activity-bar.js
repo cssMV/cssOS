@@ -106,6 +106,7 @@
       "  z-index:55;",                          /* above logo (z=1), below dock (z=70) */
       "  display:flex;",
       "  align-items:center;",
+      "  justify-content:center;",
       /* CSSOS_WAVE_108F 20260509 — gap replaces the "/" separator. */
       "  gap:8px;",
       "  padding:8px 14px;",
@@ -114,7 +115,13 @@
       "  -webkit-backdrop-filter: blur(22px) saturate(145%);",
       "  border:1px solid rgba(255,255,255,0.10);",
       "  box-shadow:0 8px 28px rgba(0,0,0,0.45);",
-      "  max-width:min(720px, calc(100vw - 16px));",
+      /* CSSOS_WAVE_108G 20260509 — Jing
+       * Bar AND schools row both forced to the SAME width via
+       * explicit `width` (max-width alone collapses the row when
+       * content is shorter than the cap). The flex container is
+       * still horizontally scrollable for overflow content. */
+      "  width:min(720px, calc(100vw - 16px));",
+      "  box-sizing:border-box;",
       "  overflow-x:auto;",
       "  scroll-behavior:smooth;",
       "  scrollbar-width:none;",
@@ -179,10 +186,11 @@
       "  display:flex;",
       "  gap:8px;",
       "  padding:4px 8px;",
-      /* CSSOS_WAVE_108F 20260509 — Jing wants schools row to match
-       * the notch bar's width exactly (was 960px). Same clamp
-       * formula as the bar so they line up center-to-center. */
-      "  max-width:min(720px, calc(100vw - 16px));",
+      /* CSSOS_WAVE_108G 20260509 — Jing
+       * Same explicit `width` as the bar so they're center-to-
+       * center identical. Cards horizontally scroll within. */
+      "  width:min(720px, calc(100vw - 16px));",
+      "  box-sizing:border-box;",
       "  overflow-x:auto;",
       "  -webkit-overflow-scrolling: touch;",
       "  scroll-snap-type:x proximity;",

@@ -2431,15 +2431,33 @@
    * Person MV panel requires sign-in. Prompt anonymous users to log in
    * before mounting the codex/grid. Detection: existing session check
    * via /api/auth/me (cssOS pattern); if 401 / no user, route to login. */
+  /* CSSOS_WAVE_109I 20260509 — Jing
+   * /api/me wraps in okData/okEmpty — payload lives at j.data, not
+   * the top level. The previous check looked for j.user / j.id and
+   * thus ALWAYS returned false (even for admins), which is why the
+   * action gates kept firing despite Jing being signed in.
+   *
+   * Correct shape:
+   *   authenticated:   { ok: true, data: { authenticated: true,  user: {...} } }
+   *   unauthenticated: { ok: true, data: { authenticated: false, user: null  } }
+   *
+   * Cache the result for 30s so a flurry of action clicks doesn't
+   * spam the endpoint. */
+  var ensureSignedInCache = { at: 0, value: false };
   async function ensureSignedIn() {
+    var now = Date.now();
+    if (now - ensureSignedInCache.at < 30000) return ensureSignedInCache.value;
+    var ok = false;
     try {
-      var r = await fetch("/api/me", { credentials: "same-origin" });
+      var r = await fetch("/api/me", { credentials: "include" });
       if (r.ok) {
         var j = await r.json().catch(function () { return null; });
-        if (j && (j.user || j.user_id || j.id)) return true;
+        var d = j && j.data ? j.data : j;
+        if (d && (d.authenticated === true || d.user)) ok = true;
       }
     } catch (_e) {}
-    return false;
+    ensureSignedInCache = { at: now, value: ok };
+    return ok;
   }
   function promptSignIn(customMsg) {
     var msg = customMsg || tt(

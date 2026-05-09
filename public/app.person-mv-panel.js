@@ -185,6 +185,12 @@
       "#person-mv-panel .panel-actions .icon-btn{pointer-events:auto !important;cursor:pointer;}" +
       /* Bulletproof hide — when .hidden is on, no clicks. */
       "#person-mv-panel.hidden{display:none !important;pointer-events:none !important;}" +
+      /* CSSOS_WAVE_109C 20260509 — Jing
+       * Default the panel wider so the multi-column tier grids
+       * actually have room to flow. Resize handles can shrink it
+       * back if the user wants. min-width prevents collapse below
+       * a 3-column comfortable width. */
+      "#person-mv-panel{width:min(92vw, 1280px) !important; min-width:min(92vw, 720px);}" +
       "#person-mv-panel .person-mv-create-anybody{" +
         "margin:12px;padding:14px;border-radius:10px;" +
         "background:rgba(0,245,160,0.10);border:1px dashed rgba(0,245,160,0.45);" +
@@ -392,6 +398,12 @@
           '<button class="icon-btn" aria-label="close">×</button>' +
         '</div>' +
       '</div>' +
+      /* CSSOS_WAVE_109C 20260509 — resize handles so user can stretch
+       * the panel wider/narrower. attachResizeBridge picks them up. */
+      '<div class="resize-handle resize-handle-right" data-resize-dir="e" aria-hidden="true"></div>' +
+      '<div class="resize-handle resize-handle-bottom" data-resize-dir="s" aria-hidden="true"></div>' +
+      '<div class="resize-handle resize-handle-corner" data-resize-dir="se" aria-hidden="true"></div>' +
+      '<div class="resize-handle-left" data-resize-dir="w" aria-hidden="true"></div>' +
       '<div class="panel-body">' +
         '<div class="person-mv-toolbar">' +
           '<input class="person-mv-search" type="search" placeholder="' +
@@ -755,19 +767,35 @@
       return;
     }
 
-    /* Bucket by curation_tier. Default unknown → "B". */
-    var hall = [];   /* S */
-    var notable = []; /* A */
-    var comp = [];    /* B / C / lower */
+    /* CSSOS_WAVE_109C 20260509 — Jing
+     * Five buckets so contemporary public figures (Trump/Musk) and
+     * personal ad-hoc creations (Grandma/Aunt Mary) don't sit
+     * shoulder-to-shoulder with the historical greats:
+     *
+     *   ⭐ hall      — curated, S, historical
+     *   🎴 notable   — curated, A, historical
+     *   🌐 modern    — curated, era ∈ {当代/现代/20世纪/21世纪/contemporary}
+     *   👤 personal  — created_by_user_id !== null  (or source_status !== curated)
+     *   📜 comp      — everything else (B/C historical text-row long tail)
+     */
+    var hall = [], notable = [], modern = [], personal = [], comp = [];
     state.persons.forEach(function (p) {
       var t = String(p.curation_tier || "B").toUpperCase();
-      if (t === "S") hall.push(p);
-      else if (t === "A") notable.push(p);
-      else comp.push(p);
+      var era = String(p.era || "").trim();
+      var src = String(p.source_status || "").toLowerCase();
+      var isAdhoc = !!p.created_by_user_id || (src && src !== "curated");
+      var isContemporary =
+        /当代|现代|20\s*世纪|21\s*世纪|contemporary|modern/i.test(era);
+
+      if (isAdhoc) { personal.push(p); return; }
+      if (isContemporary) { modern.push(p); return; }
+      if (t === "S") { hall.push(p); return; }
+      if (t === "A") { notable.push(p); return; }
+      comp.push(p);
     });
 
     /* If user has filtered to a single tier (S/A/B), render only that
-     * tier expanded. Otherwise show the full three-section layout. */
+     * tier expanded. Otherwise show the full layered layout. */
     var single = String(state.curationTier || "all").toLowerCase();
     grid.innerHTML = "";
 
@@ -778,28 +806,135 @@
     } else if (single === "b") {
       grid.appendChild(renderCompendiumSection(comp));
     } else {
-      if (hall.length) grid.appendChild(renderHallSection(hall));
-      if (notable.length) grid.appendChild(renderNotableSection(notable));
-      if (comp.length) grid.appendChild(renderCompendiumSection(comp));
+      if (hall.length)     grid.appendChild(renderHallSection(hall));
+      if (notable.length)  grid.appendChild(renderNotableSection(notable));
+      if (modern.length)   grid.appendChild(renderModernSection(modern));
+      if (personal.length) grid.appendChild(renderPersonalSection(personal));
+      if (comp.length)     grid.appendChild(renderCompendiumSection(comp));
     }
   }
 
-  function renderHallSection(persons) {
+  /* CSSOS_WAVE_109C 20260509 — Jing
+   * Contemporary public figures (Trump, Musk, Mahatma Gandhi-modern,
+   * etc.). Same card chrome as Notable, but their own section so
+   * they don't share a row with Confucius / Newton / da Vinci. */
+  function renderModernSection(persons) {
     var section = document.createElement("section");
-    section.className = "pmv-tier-section pmv-tier-hall";
+    section.className = "pmv-tier-section pmv-tier-modern";
     var head = document.createElement("div");
     head.className = "pmv-tier-head";
     head.innerHTML =
-      '<div class="pmv-tier-title">⭐ ' + escapeText(tt("Hall of Fame", "传奇殿堂")) + '</div>' +
+      '<div class="pmv-tier-title">🌐 ' + escapeText(tt("Contemporary Figures", "当代人物")) + '</div>' +
       '<div class="pmv-tier-count">' + persons.length + '</div>';
     section.appendChild(head);
-    var grid = document.createElement("div");
-    grid.className = "pmv-hall-grid";
+
+    var withPortrait = [], withoutPortrait = [];
     persons.forEach(function (p) {
-      grid.appendChild(buildHallCard(p));
+      if (p.portrait_url || p.cover_image_url) withPortrait.push(p);
+      else withoutPortrait.push(p);
     });
-    section.appendChild(grid);
+
+    if (withPortrait.length) {
+      var g = document.createElement("div");
+      g.className = "pmv-notable-grid";
+      withPortrait.forEach(function (p) { g.appendChild(buildPortraitCard(p)); });
+      section.appendChild(g);
+    }
+    if (withoutPortrait.length) {
+      var g2 = document.createElement("div");
+      g2.className = "person-mv-grid";
+      g2.style.padding = withPortrait.length ? "12px 0 0 0" : "0";
+      withoutPortrait.forEach(function (p) { g2.appendChild(buildNotableTextCard(p)); });
+      section.appendChild(g2);
+    }
     return section;
+  }
+
+  /* CSSOS_WAVE_109C 20260509 — Jing
+   * Personal creations: ad-hoc people the user (or any user) added
+   * via "+ Create an MV for any person". These sit in their own
+   * section with a friendlier label so seeing "Grandma" next to
+   * "Aristotle" doesn't feel jarring. */
+  function renderPersonalSection(persons) {
+    var section = document.createElement("section");
+    section.className = "pmv-tier-section pmv-tier-personal";
+    var head = document.createElement("div");
+    head.className = "pmv-tier-head";
+    head.innerHTML =
+      '<div class="pmv-tier-title">👤 ' + escapeText(tt("Personal Creations", "个人创作")) + '</div>' +
+      '<div class="pmv-tier-count">' + persons.length + '</div>';
+    section.appendChild(head);
+
+    var withPortrait = [], withoutPortrait = [];
+    persons.forEach(function (p) {
+      if (p.portrait_url || p.cover_image_url) withPortrait.push(p);
+      else withoutPortrait.push(p);
+    });
+
+    if (withPortrait.length) {
+      var g = document.createElement("div");
+      g.className = "pmv-notable-grid";
+      withPortrait.forEach(function (p) { g.appendChild(buildPortraitCard(p)); });
+      section.appendChild(g);
+    }
+    if (withoutPortrait.length) {
+      var g2 = document.createElement("div");
+      g2.className = "person-mv-grid";
+      g2.style.padding = withPortrait.length ? "12px 0 0 0" : "0";
+      withoutPortrait.forEach(function (p) { g2.appendChild(buildNotableTextCard(p)); });
+      section.appendChild(g2);
+    }
+    return section;
+  }
+
+  function renderHallSection(persons) {
+    var withPortrait = [], withoutPortrait = [];
+    persons.forEach(function (p) {
+      if (p.portrait_url || p.cover_image_url) withPortrait.push(p);
+      else withoutPortrait.push(p);
+    });
+    /* Wrapper holds two distinct sections — "Hall of Fame" for the
+     * fully-illustrated greats, and "Hall — pending portraits" for
+     * S-tier persons whose hero image hasn't been generated yet.
+     * Per Jing: image cards and text cards under different headers. */
+    var wrap = document.createDocumentFragment();
+    if (withPortrait.length) {
+      var imgSec = document.createElement("section");
+      imgSec.className = "pmv-tier-section pmv-tier-hall";
+      var h = document.createElement("div");
+      h.className = "pmv-tier-head";
+      h.innerHTML =
+        '<div class="pmv-tier-title">⭐ ' + escapeText(tt("Hall of Fame", "传奇殿堂")) + '</div>' +
+        '<div class="pmv-tier-count">' + withPortrait.length + '</div>';
+      imgSec.appendChild(h);
+      var grid = document.createElement("div");
+      grid.className = "pmv-hall-grid";
+      withPortrait.forEach(function (p) { grid.appendChild(buildHallCard(p)); });
+      imgSec.appendChild(grid);
+      wrap.appendChild(imgSec);
+    }
+    if (withoutPortrait.length) {
+      var txtSec = document.createElement("section");
+      txtSec.className = "pmv-tier-section pmv-tier-hall-pending";
+      var h2 = document.createElement("div");
+      h2.className = "pmv-tier-head";
+      h2.innerHTML =
+        '<div class="pmv-tier-title">📝 ' + escapeText(tt("Hall — Pending Portraits", "传奇 · 待补图")) + '</div>' +
+        '<div class="pmv-tier-count">' + withoutPortrait.length + '</div>';
+      txtSec.appendChild(h2);
+      var g = document.createElement("div");
+      g.className = "person-mv-grid";
+      g.style.padding = "0";
+      withoutPortrait.forEach(function (p) { g.appendChild(buildNotableTextCard(p)); });
+      txtSec.appendChild(g);
+      wrap.appendChild(txtSec);
+    }
+    /* Wrap the fragment in a section so render() can appendChild a
+     * single node. */
+    var holder = document.createElement("section");
+    holder.className = "pmv-tier-cluster";
+    holder.appendChild(wrap);
+    return holder;
   }
 
   function buildHallCard(p) {
@@ -840,36 +975,47 @@
    * Image cards come first, then text cards, all under one section
    * heading. */
   function renderNotableSection(persons) {
-    var section = document.createElement("section");
-    section.className = "pmv-tier-section pmv-tier-notable";
-    var head = document.createElement("div");
-    head.className = "pmv-tier-head";
-    head.innerHTML =
-      '<div class="pmv-tier-title">🎴 ' + escapeText(tt("Notable", "知名人物")) + '</div>' +
-      '<div class="pmv-tier-count">' + persons.length + '</div>';
-    section.appendChild(head);
-
-    var withPortrait = [];
-    var withoutPortrait = [];
+    var withPortrait = [], withoutPortrait = [];
     persons.forEach(function (p) {
       if (p.portrait_url || p.cover_image_url) withPortrait.push(p);
       else withoutPortrait.push(p);
     });
-
+    var wrap = document.createDocumentFragment();
     if (withPortrait.length) {
-      var portraitGrid = document.createElement("div");
-      portraitGrid.className = "pmv-notable-grid";
-      withPortrait.forEach(function (p) { portraitGrid.appendChild(buildPortraitCard(p)); });
-      section.appendChild(portraitGrid);
+      var imgSec = document.createElement("section");
+      imgSec.className = "pmv-tier-section pmv-tier-notable";
+      var h = document.createElement("div");
+      h.className = "pmv-tier-head";
+      h.innerHTML =
+        '<div class="pmv-tier-title">🎴 ' + escapeText(tt("Notable", "知名人物")) + '</div>' +
+        '<div class="pmv-tier-count">' + withPortrait.length + '</div>';
+      imgSec.appendChild(h);
+      var g = document.createElement("div");
+      g.className = "pmv-notable-grid";
+      withPortrait.forEach(function (p) { g.appendChild(buildPortraitCard(p)); });
+      imgSec.appendChild(g);
+      wrap.appendChild(imgSec);
     }
     if (withoutPortrait.length) {
-      var textGrid = document.createElement("div");
-      textGrid.className = "person-mv-grid";
-      textGrid.style.padding = withPortrait.length ? "12px 0 0 0" : "0";
-      withoutPortrait.forEach(function (p) { textGrid.appendChild(buildNotableTextCard(p)); });
-      section.appendChild(textGrid);
+      var txtSec = document.createElement("section");
+      txtSec.className = "pmv-tier-section pmv-tier-notable-pending";
+      var h2 = document.createElement("div");
+      h2.className = "pmv-tier-head";
+      h2.innerHTML =
+        '<div class="pmv-tier-title">📝 ' + escapeText(tt("Notable — Pending Portraits", "知名 · 待补图")) + '</div>' +
+        '<div class="pmv-tier-count">' + withoutPortrait.length + '</div>';
+      txtSec.appendChild(h2);
+      var g2 = document.createElement("div");
+      g2.className = "person-mv-grid";
+      g2.style.padding = "0";
+      withoutPortrait.forEach(function (p) { g2.appendChild(buildNotableTextCard(p)); });
+      txtSec.appendChild(g2);
+      wrap.appendChild(txtSec);
     }
-    return section;
+    var holder = document.createElement("section");
+    holder.className = "pmv-tier-cluster";
+    holder.appendChild(wrap);
+    return holder;
   }
 
   function buildPortraitCard(p) {

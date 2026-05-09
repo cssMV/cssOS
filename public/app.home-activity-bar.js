@@ -93,6 +93,12 @@
     s.textContent = [
       /* The bar is fixed-position; transitions on opacity/transform.
        * `pointer-events:none` while hidden so it never eats clicks. */
+      /* CSSOS_WAVE_108D 20260509 — Jing
+       * Bar is now a "notch" — flush with the screen edge it's
+       * anchored to, with only the OPPOSITE side rounded. Looks
+       * like the iPhone notch when at top, or an inverted notch
+       * when at bottom. Padding asymmetric so content doesn't
+       * crowd the flush edge. */
       "#" + BAR_ID + "{",
       "  position:fixed;",
       "  left:50%;",
@@ -101,28 +107,43 @@
       "  display:flex;",
       "  align-items:center;",
       "  gap:0;",
-      "  padding:6px 10px;",
-      "  border-radius:999px;",
-      "  background:rgba(8, 18, 14, 0.72);",
-      "  backdrop-filter: blur(20px) saturate(140%);",
-      "  -webkit-backdrop-filter: blur(20px) saturate(140%);",
+      "  padding:8px 14px;",
+      "  background:rgba(8, 18, 14, 0.78);",
+      "  backdrop-filter: blur(22px) saturate(145%);",
+      "  -webkit-backdrop-filter: blur(22px) saturate(145%);",
       "  border:1px solid rgba(255,255,255,0.10);",
-      "  box-shadow:0 8px 28px rgba(0,0,0,0.35);",
-      "  max-width:min(720px, calc(100vw - 64px));",
+      "  box-shadow:0 8px 28px rgba(0,0,0,0.45);",
+      "  max-width:min(720px, calc(100vw - 16px));",
       "  overflow-x:auto;",
       "  scroll-behavior:smooth;",
-      "  scrollbar-width:none;",                /* Firefox */
-      "  -ms-overflow-style:none;",             /* IE/Edge */
+      "  scrollbar-width:none;",
+      "  -ms-overflow-style:none;",
       "  contain: layout paint;",
       "  will-change: opacity, transform;",
       "  transition: opacity 280ms ease, transform 280ms ease;",
       "}",
-      "#" + BAR_ID + "::-webkit-scrollbar{display:none;}",  /* WebKit */
-      "#" + BAR_ID + "[data-anchor='top']{ top: var(--cssos-bar-top, 24px); bottom:auto; }",
-      "#" + BAR_ID + "[data-anchor='bottom']{ bottom: var(--cssos-bar-bottom, 110px); top:auto; }",
+      "#" + BAR_ID + "::-webkit-scrollbar{display:none;}",
+      /* Notch shape — flush with anchor edge, rounded only on the
+       * opposite side. Border-top-width zero on top-anchor (so the
+       * bar appears to "extend" from the edge) and analogously for
+       * bottom-anchor. */
+      "#" + BAR_ID + "[data-anchor='top']{",
+      "  top:0;",
+      "  bottom:auto;",
+      "  border-radius:0 0 28px 28px;",
+      "  border-top:none;",
+      "  padding-top:max(8px, env(safe-area-inset-top));",
+      "}",
+      "#" + BAR_ID + "[data-anchor='bottom']{",
+      "  bottom:0;",
+      "  top:auto;",
+      "  border-radius:28px 28px 0 0;",
+      "  border-bottom:none;",
+      "  padding-bottom:max(8px, env(safe-area-inset-bottom));",
+      "}",
       "#" + BAR_ID + "[data-hidden='1']{ opacity:0; pointer-events:none; }",
-      "#" + BAR_ID + "[data-hidden='1'][data-anchor='top']{ transform:translateX(-50%) translateY(-12px); }",
-      "#" + BAR_ID + "[data-hidden='1'][data-anchor='bottom']{ transform:translateX(-50%) translateY(12px); }",
+      "#" + BAR_ID + "[data-hidden='1'][data-anchor='top']{ transform:translateX(-50%) translateY(-100%); }",
+      "#" + BAR_ID + "[data-hidden='1'][data-anchor='bottom']{ transform:translateX(-50%) translateY(100%); }",
       ".cssos-act-tab{",
       "  flex:0 0 auto;",
       "  display:inline-flex;",
@@ -510,46 +531,88 @@
     else armHideTimer();
   }
 
-  /* CSSOS_WAVE_108C 20260509 — Jing
-   * Place bar + schools row using ACTUAL measured dock geometry,
-   * not just the dock_position setting. The setting can drift from
-   * what's actually rendered (e.g., dataset.dockPosition not yet
-   * applied to CSS), so we measure where the dock IS on screen and
-   * place the bar/schools on the opposite side with ≥24px clearance.
-   * Stored on CSS custom properties so the existing data-anchor
-   * rules pick them up. */
-  function refreshPosition() {
+  /* CSSOS_WAVE_108D 20260509 — Jing
+   * Hard rules:
+   *   1. Schools row + bar are ALWAYS on the side OPPOSITE the dock.
+   *      Dock at bottom → bar+schools at top. Dock at top → at bottom.
+   *      Horizontal docks (left/right) → bar+schools at top by default.
+   *   2. Schools row never overlaps the LOGO panel's magic mirror.
+   *      We measure .logo-panel (or fallback to .title) and clamp the
+   *      schools-row offset so its bottom edge stays ≥16px above the
+   *      logo's top (when at top anchor) or its top edge stays ≥16px
+   *      below the logo's bottom (when at bottom anchor).
+   *   3. Bar is a notch — flush with the anchored edge, rounded on
+   *      the opposite side (handled in CSS via [data-anchor=...]).
+   */
+  function detectDockSide() {
     var dock = document.querySelector(".dock");
-    var anchor = "top"; /* default — bar sits at top */
-    var SAFE_GAP = 28;  /* px between dock and bar/schools */
-    var BAR_HEIGHT = 44;
+    if (!dock) return "bottom"; /* no dock visible → assume bottom */
+    var rect = dock.getBoundingClientRect();
+    var vw = window.innerWidth || document.documentElement.clientWidth || 0;
+    var vh = window.innerHeight || document.documentElement.clientHeight || 0;
+    if (!rect.width || !rect.height) return "bottom";
+    var midY = rect.top + rect.height / 2;
+    var midX = rect.left + rect.width / 2;
+    /* Vertical dock? */
+    if (rect.height > rect.width * 1.5) {
+      return midX < vw / 2 ? "left" : "right";
+    }
+    /* Horizontal dock — top or bottom by midpoint. */
+    return midY < vh / 2 ? "top" : "bottom";
+  }
+
+  function refreshPosition() {
+    var dockSide = detectDockSide();
+    /* Anchor is OPPOSITE to dock. For left/right docks we still pin
+     * the bar to top (more natural reading position). */
+    var anchor = dockSide === "top" ? "bottom" : "top";
+
+    var BAR_HEIGHT = 48;        /* approximate bar height incl padding */
+    var GAP_BAR_TO_SCHOOLS = 14;
+    var GAP_LOGO_GUARD = 16;    /* min distance between schools and logo */
     var SCHOOLS_HEIGHT = 96;
 
-    if (dock) {
-      var rect = dock.getBoundingClientRect();
-      var vh = window.innerHeight || document.documentElement.clientHeight || 0;
-      /* Decide anchor: if dock is in the upper third → bar at bottom;
-       * otherwise (dock at bottom/left/right or hidden) → bar at top. */
-      var dockMidY = rect.top + rect.height / 2;
-      anchor = dockMidY < vh / 2 ? "bottom" : "top";
+    /* Bar sits flush with edge (top:0 / bottom:0) — bar offset vars
+     * are set to 0 here. Schools row offset is computed from bar
+     * height + gap, then clamped so it doesn't overlap the logo. */
+    var schoolsOffset;
+    if (anchor === "top") {
+      document.documentElement.style.setProperty("--cssos-bar-top", "0px");
+      schoolsOffset = BAR_HEIGHT + GAP_BAR_TO_SCHOOLS;
+    } else {
+      document.documentElement.style.setProperty("--cssos-bar-bottom", "0px");
+      schoolsOffset = BAR_HEIGHT + GAP_BAR_TO_SCHOOLS;
+    }
 
+    /* Clamp against logo. */
+    var logo = document.querySelector(".logo-panel") || document.querySelector(".title");
+    if (logo) {
+      var lr = logo.getBoundingClientRect();
+      var vh = window.innerHeight || 0;
       if (anchor === "top") {
-        /* Bar at top — place above any potential top-dock area. */
-        var topOffset = 24;
-        if (rect.bottom > 0 && rect.top < 80) {
-          topOffset = Math.ceil(rect.bottom + SAFE_GAP);
-        }
-        document.documentElement.style.setProperty("--cssos-bar-top", topOffset + "px");
-        document.documentElement.style.setProperty("--cssos-schools-top",
-          (topOffset + BAR_HEIGHT + 12) + "px");
+        /* Schools occupies [schoolsOffset .. schoolsOffset+SCHOOLS_HEIGHT].
+         * Logo top is at lr.top. We need schoolsOffset+SCHOOLS_HEIGHT < lr.top - GAP. */
+        var maxTop = Math.max(BAR_HEIGHT + GAP_BAR_TO_SCHOOLS,
+          Math.floor(lr.top - GAP_LOGO_GUARD - SCHOOLS_HEIGHT));
+        schoolsOffset = Math.min(schoolsOffset, maxTop);
+        if (schoolsOffset < BAR_HEIGHT + 4) schoolsOffset = BAR_HEIGHT + 4;
+        document.documentElement.style.setProperty("--cssos-schools-top", schoolsOffset + "px");
       } else {
-        /* Bar at bottom — sit ABOVE the dock with safe gap. */
-        var dockTop = vh - rect.top;            // distance from viewport bottom to dock TOP
-        if (rect.bottom > vh) dockTop = 0;       // dock fully off-screen → ignore
-        var bottomOffset = Math.max(80, Math.ceil(dockTop + SAFE_GAP));
-        document.documentElement.style.setProperty("--cssos-bar-bottom", bottomOffset + "px");
-        document.documentElement.style.setProperty("--cssos-schools-bottom",
-          (bottomOffset + BAR_HEIGHT + 12) + "px");
+        /* Bottom anchor: schools sits schoolsOffset px from bottom edge.
+         * Its top edge is at vh - schoolsOffset - SCHOOLS_HEIGHT. We
+         * need that >= lr.bottom + GAP. So schoolsOffset <= vh - lr.bottom - GAP - SCHOOLS_HEIGHT. */
+        var maxBottom = Math.max(BAR_HEIGHT + GAP_BAR_TO_SCHOOLS,
+          Math.floor(vh - lr.bottom - GAP_LOGO_GUARD - SCHOOLS_HEIGHT));
+        schoolsOffset = Math.min(schoolsOffset, maxBottom);
+        if (schoolsOffset < BAR_HEIGHT + 4) schoolsOffset = BAR_HEIGHT + 4;
+        document.documentElement.style.setProperty("--cssos-schools-bottom", schoolsOffset + "px");
+      }
+    } else {
+      /* No logo measurement — use raw offsets. */
+      if (anchor === "top") {
+        document.documentElement.style.setProperty("--cssos-schools-top", schoolsOffset + "px");
+      } else {
+        document.documentElement.style.setProperty("--cssos-schools-bottom", schoolsOffset + "px");
       }
     }
 

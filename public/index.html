@@ -2254,7 +2254,17 @@
          delegate via cssosTapGuard.bindDelegated. Other panels can
          opt-in to the same swipe immunity at any time. -->
     <script src="app.tap-guard.js?v=20260509-wave108"></script>
-    <script src="app.home-activity-bar.js?v=20260509-wave108"></script>
+    <!-- CSSOS_WAVE_108B 20260509 — playback staging.
+         "Don't yank the user out of what they're watching" — taps
+         during playback are queued and fired on `ended`. Must load
+         BEFORE the activity bar so the bar can route through it. -->
+    <script src="app.playback-stage.js?v=20260509-wave108b"></script>
+    <script src="app.home-activity-bar.js?v=20260509-wave108b"></script>
+    <!-- CSSOS_WAVE_108B 20260509 — pin MV Pipeline + Person MV
+         to dock positions 1 and 2 (per Jing — they were getting
+         clipped at the back). Loaded after app.boot.js below so
+         the dynamic Person-MV injector has a chance to run first. -->
+    <script src="app.dock-priority-order.js?v=20260509-wave108b" defer></script>
     <script src="app.boot.js?v=20260504-longpress-kill-legacy"></script>
     <!-- CSSOS_PHASE2_PANEL_3BTN_BULLETPROOF 20260505b — Jing
          Self-diagnosing version. Stamps the document so you can verify

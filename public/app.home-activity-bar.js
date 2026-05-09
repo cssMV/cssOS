@@ -292,6 +292,32 @@
         b.classList.toggle("active", b.getAttribute("data-tab") === tabId);
       });
     }
+    /* CSSOS_WAVE_108B 20260509 — Jing
+     * If media is currently playing, stage the action instead of
+     * yanking the user out of what they're watching. The staged
+     * runner fires when the current MV ends, OR when the user
+     * clicks "立即播放" on the floating pill. Re-tapping a different
+     * tab during playback simply replaces the staged action. */
+    var label = labelForTab(tabId);
+    var runner = function () { runTabAction(tabId); };
+    if (globalThis.cssosPlaybackStage && typeof globalThis.cssosPlaybackStage.run === "function") {
+      globalThis.cssosPlaybackStage.run("tab:" + tabId, runner, label);
+      return;
+    }
+    runner();
+  }
+
+  function labelForTab(tabId) {
+    var tabs = buildTabs();
+    var locale = (globalThis.CSSOS_I18N && globalThis.CSSOS_I18N.getCurrentLocale && globalThis.CSSOS_I18N.getCurrentLocale()) || "en";
+    var isZh = /^zh/i.test(String(locale));
+    for (var i = 0; i < tabs.length; i += 1) {
+      if (tabs[i].id === tabId) return isZh ? tabs[i].zh : tabs[i].en;
+    }
+    return tabId;
+  }
+
+  function runTabAction(tabId) {
     /* Dispatch */
     if (tabId === "leaderboard") {
       try {
@@ -304,10 +330,6 @@
       return;
     }
     if (tabId === "festival") {
-      /* Festival → open Person-MV panel scoped by the active festival.
-       * Since we don't have a dedicated openFestival API, fall back to
-       * opening the Person-MV panel; the festival-shelf hot persons
-       * will surface there. */
       try {
         if (typeof globalThis.openPersonMvCodex === "function" && state.festivals.length) {
           var f = state.festivals[0];
@@ -320,9 +342,7 @@
       } catch (_) {}
       return;
     }
-    /* Style tabs → call the existing style-shelf playlist enterer.
-     * The shelf module exposes its enterPlaylist via a CustomEvent
-     * we dispatch; falling back to a direct fetch path. */
+    /* Style tabs */
     var tag = tabId;
     try {
       document.dispatchEvent(new CustomEvent("cssos:enter-style-playlist", { detail: { tag: tag } }));

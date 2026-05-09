@@ -351,14 +351,33 @@ function renderLoginPlatformsModule() {
           // and everything else through SFSafariViewController, which
           // returns to the app via a Universal Link.
           // CSSOS_DIAG_IOS_NATIVE 20260508 — Jing
+          // On-screen badge so we can debug without Web Inspector.
           const cap = globalThis.Capacitor;
-          console.log("[ios-diag] platform=" + platform.id, {
-            hasCapacitor: !!cap,
-            isNative: cap && typeof cap.isNativePlatform === "function" ? cap.isNativePlatform() : null,
-            getPlatform: cap && typeof cap.getPlatform === "function" ? cap.getPlatform() : null,
-            plugins: cap && cap.Plugins ? Object.keys(cap.Plugins) : null,
+          const diag = {
+            hasCap: !!cap,
+            isNative: cap && typeof cap.isNativePlatform === "function" ? cap.isNativePlatform() : "?",
+            platform: cap && typeof cap.getPlatform === "function" ? cap.getPlatform() : "?",
+            plugins: cap && cap.Plugins ? Object.keys(cap.Plugins).join(",") : "?",
             isIosNative: isIosNativeAppModule(),
-          });
+          };
+          console.log("[ios-diag]", platform.id, diag);
+          try {
+            const old = document.getElementById("__ios_diag_badge");
+            if (old) old.remove();
+            const badge = document.createElement("div");
+            badge.id = "__ios_diag_badge";
+            badge.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:99999;background:#000;color:#0f0;font:12px/1.4 monospace;padding:8px;white-space:pre-wrap;word-break:break-all;max-height:50vh;overflow:auto;border-bottom:2px solid #0f0;";
+            badge.textContent =
+              "tap=" + platform.id +
+              "\nhasCap=" + diag.hasCap +
+              "\nisNative=" + diag.isNative +
+              "\nplatform=" + diag.platform +
+              "\nisIosNative=" + diag.isIosNative +
+              "\nplugins=" + diag.plugins +
+              "\nUA=" + navigator.userAgent;
+            badge.addEventListener("click", () => badge.remove());
+            document.body.appendChild(badge);
+          } catch (_) {}
           if (isIosNativeAppModule()) {
             if (platform.id === "apple") {
               const ok = await iosNativeAppleSignInModule();

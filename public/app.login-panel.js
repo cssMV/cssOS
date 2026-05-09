@@ -321,7 +321,13 @@ function renderLoginPlatformsModule() {
     const enabled = Boolean(platform.enabled);
     const canSwitchProvider = loginPanelHasPanelPermission("login.provider.switch");
     const canUnlinkProvider = loginPanelHasPanelPermission("login.provider.unlink");
-    const isClickableLink = enabled && !authState.user && !!platform.url;
+    // CSSOS_FIX_IOS_NATIVE_LINK 20260508 — Jing
+    // Inside the iOS Capacitor app we MUST go through the click
+    // handler (which routes Apple → ASAuthorization, others →
+    // SFSafariViewController). A bare <a href> bypasses all of
+    // that and just navigates the WebView to appleid.apple.com,
+    // which then bounces to external Safari with auth_failed.
+    const isClickableLink = enabled && !authState.user && !!platform.url && !isIosNativeAppModule();
     const card = document.createElement(isClickableLink ? "a" : "div");
     const stateClass = platform.linked ? "linked" : enabled ? "enabled" : "disabled";
     if (isClickableLink) {
@@ -350,34 +356,6 @@ function renderLoginPlatformsModule() {
           // breaks. Route Apple through the native ASAuthorization API
           // and everything else through SFSafariViewController, which
           // returns to the app via a Universal Link.
-          // CSSOS_DIAG_IOS_NATIVE 20260508 — Jing
-          // On-screen badge so we can debug without Web Inspector.
-          const cap = globalThis.Capacitor;
-          const diag = {
-            hasCap: !!cap,
-            isNative: cap && typeof cap.isNativePlatform === "function" ? cap.isNativePlatform() : "?",
-            platform: cap && typeof cap.getPlatform === "function" ? cap.getPlatform() : "?",
-            plugins: cap && cap.Plugins ? Object.keys(cap.Plugins).join(",") : "?",
-            isIosNative: isIosNativeAppModule(),
-          };
-          console.log("[ios-diag]", platform.id, diag);
-          try {
-            const old = document.getElementById("__ios_diag_badge");
-            if (old) old.remove();
-            const badge = document.createElement("div");
-            badge.id = "__ios_diag_badge";
-            badge.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:99999;background:#000;color:#0f0;font:12px/1.4 monospace;padding:8px;white-space:pre-wrap;word-break:break-all;max-height:50vh;overflow:auto;border-bottom:2px solid #0f0;";
-            badge.textContent =
-              "tap=" + platform.id +
-              "\nhasCap=" + diag.hasCap +
-              "\nisNative=" + diag.isNative +
-              "\nplatform=" + diag.platform +
-              "\nisIosNative=" + diag.isIosNative +
-              "\nplugins=" + diag.plugins +
-              "\nUA=" + navigator.userAgent;
-            badge.addEventListener("click", () => badge.remove());
-            document.body.appendChild(badge);
-          } catch (_) {}
           if (isIosNativeAppModule()) {
             if (platform.id === "apple") {
               const ok = await iosNativeAppleSignInModule();

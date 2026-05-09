@@ -141,7 +141,14 @@
            hides itself when its API returns nothing, so empty rows = no
            visual cost. Style: full viewport width, horizontal scroll inside
            each shelf row. -->
-      <div id="cssos-home-shelves" class="cssos-home-shelves" style="position:relative; z-index:1; padding:0 12px; margin:16px auto; max-width:min(100vw,1280px); display:flex; flex-direction:column; gap:8px;">
+      <!-- CSSOS_WAVE_108 20260509 — Jing
+           The 5-shelf stack is replaced by the compact activity bar
+           (#cssos-activity-bar) and schools row (#cssos-schools-row),
+           both injected into <body> by app.home-activity-bar.js.
+           Container kept (display:none) so the shelf modules can
+           still mount their data layer, in case a deep link or
+           future feature needs them. -->
+      <div id="cssos-home-shelves" class="cssos-home-shelves" data-wave108-hidden="1" style="position:relative; z-index:1; padding:0 12px; margin:16px auto; max-width:min(100vw,1280px); display:none; flex-direction:column; gap:8px;">
         <section class="cssos-festival-shelf" id="person-mv-festival-shelf" data-shelf="person-mv-festival" hidden></section>
         <section class="cssos-discover-shelf" id="person-mv-discover-shelf" data-shelf="person-mv" hidden>
           <header class="cssos-discover-header">
@@ -2063,7 +2070,7 @@
     <script src="app.face-safe-overlay.js?v=20260506-face-safe"></script>
     <script src="app.karaoke-active-word.js?v=20260507-emotion"></script>
     <script src="app.karaoke-settings-ui.js?v=20260507-fs-panel"></script>
-    <script src="app.js?v=20260509-wave107b-dock-tap"></script>
+    <script src="app.js?v=20260509-wave108-panel-behavior-event"></script>
     <!-- CSSOS_MV_FLOW_RESTORE 20260505 — block moved further down
          (just before app.boot.js) so app.cssmv-governance.js's top-level
          renderDeliveryDigestSummaryModule() call sees the function defined
@@ -2242,6 +2249,12 @@
          Must load before app.boot.js so the appUrlOpen listener is
          armed before any first-frame work begins. -->
     <script src="app.ios-handoff.js?v=20260509-wave107"></script>
+    <!-- CSSOS_WAVE_108 20260509 — global tap-vs-swipe guard.
+         Must load BEFORE app.home-activity-bar.js so the bar can
+         delegate via cssosTapGuard.bindDelegated. Other panels can
+         opt-in to the same swipe immunity at any time. -->
+    <script src="app.tap-guard.js?v=20260509-wave108"></script>
+    <script src="app.home-activity-bar.js?v=20260509-wave108"></script>
     <script src="app.boot.js?v=20260504-longpress-kill-legacy"></script>
     <!-- CSSOS_PHASE2_PANEL_3BTN_BULLETPROOF 20260505b — Jing
          Self-diagnosing version. Stamps the document so you can verify

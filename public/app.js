@@ -5819,6 +5819,13 @@ function applyPanelBehaviorSettings(settings) {
   }
   writePanelBehaviorSettingsLocal(next);
   if (creationSetDefaults) creationSetDefaults.hidden = getUserRole() !== "admin";
+  // CSSOS_WAVE_108 20260509 — broadcast so listeners (activity bar,
+  // future panels) can react to dock-position / theme / etc. changes.
+  try {
+    document.dispatchEvent(new CustomEvent("cssos:panel-behavior-changed", {
+      detail: { dock_position: DOCK_POSITION, theme_mode: next.appearance.theme_mode }
+    }));
+  } catch (_) {}
   return next;
 }
 

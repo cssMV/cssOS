@@ -120,25 +120,52 @@
       "#person-mv-panel .pmv-tier-title{font:700 14px/1.2 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.95);letter-spacing:.04em;}" +
       "#person-mv-panel .pmv-tier-count{font:500 11px/1 ui-monospace,monospace;color:rgba(0,245,160,0.7);}" +
 
-      /* Tier 1 — Hall of Fame: 180×240 hero image cards (album style). */
+      /* CSSOS_WAVE_109B 20260509 — Jing
+       * Vertical portrait cards for both Hall (180×240) AND Notable
+       * (160×220) when a portrait_url is available. Only Notable
+       * persons WITHOUT a portrait fall back to the text-only
+       * .person-mv-card style. */
       "#person-mv-panel .pmv-hall-grid{" +
         "display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));" +
         "gap:12px;" +
       "}" +
-      "#person-mv-panel .pmv-hall-card{" +
-        "position:relative;height:240px;border-radius:14px;overflow:hidden;" +
+      "#person-mv-panel .pmv-notable-grid{" +
+        "display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));" +
+        "gap:10px;" +
+      "}" +
+      /* Shared card chrome — both .pmv-hall-card and .pmv-portrait-card use it. */
+      "#person-mv-panel .pmv-hall-card,#person-mv-panel .pmv-portrait-card{" +
+        "position:relative;border-radius:14px;overflow:hidden;" +
         "background:rgba(8,18,14,0.6);border:1px solid rgba(0,245,160,0.22);" +
         "cursor:pointer;transition:transform .15s ease, border-color .15s ease;" +
       "}" +
-      "#person-mv-panel .pmv-hall-card:hover{transform:translateY(-3px);border-color:rgba(0,245,160,0.6);}" +
-      "#person-mv-panel .pmv-hall-card .cover{position:absolute;inset:0;background-size:cover;background-position:center top;}" +
-      "#person-mv-panel .pmv-hall-card .cover.fallback{display:flex;align-items:center;justify-content:center;font-size:64px;}" +
-      "#person-mv-panel .pmv-hall-card .cover::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0) 35%,rgba(0,0,0,0.85) 100%);}" +
-      "#person-mv-panel .pmv-hall-card .info{position:absolute;left:12px;right:12px;bottom:10px;color:#daffee;text-shadow:0 1px 4px rgba(0,0,0,0.85);}" +
+      "#person-mv-panel .pmv-hall-card{height:240px;}" +
+      "#person-mv-panel .pmv-portrait-card{height:220px;}" +
+      "#person-mv-panel .pmv-hall-card:hover,#person-mv-panel .pmv-portrait-card:hover{transform:translateY(-3px);border-color:rgba(0,245,160,0.6);}" +
+      /* CSSOS_WAVE_109B_NO_DISTORT 20260509 — Jing
+       * NEVER distort portraits. `background-size: cover` only crops,
+       * never stretches. `background-position: center 28%` biases the
+       * crop toward the upper portion where faces typically sit (and
+       * if source is wider than 3:4, the sides crop equally — face
+       * stays centered). Do not switch to `fill` or to `<img>` with
+       * `object-fit: fill` — both would squash the figure. */
+      "#person-mv-panel .pmv-hall-card .cover,#person-mv-panel .pmv-portrait-card .cover{" +
+        "position:absolute;inset:0;background-size:cover;background-position:center 28%;background-repeat:no-repeat;" +
+      "}" +
+      "#person-mv-panel .pmv-hall-card .cover.fallback,#person-mv-panel .pmv-portrait-card .cover.fallback{" +
+        "display:flex;align-items:center;justify-content:center;font-size:54px;" +
+      "}" +
+      "#person-mv-panel .pmv-hall-card .cover::after,#person-mv-panel .pmv-portrait-card .cover::after{" +
+        "content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0) 35%,rgba(0,0,0,0.85) 100%);" +
+      "}" +
+      "#person-mv-panel .pmv-hall-card .info,#person-mv-panel .pmv-portrait-card .info{" +
+        "position:absolute;left:12px;right:12px;bottom:10px;color:#daffee;text-shadow:0 1px 4px rgba(0,0,0,0.85);" +
+      "}" +
       "#person-mv-panel .pmv-hall-card .name{font:700 16px/1.2 -apple-system,system-ui,sans-serif;}" +
-      "#person-mv-panel .pmv-hall-card .name-en{font:500 11px/1.2 ui-monospace,monospace;color:rgba(218,255,238,0.7);margin-top:1px;}" +
-      "#person-mv-panel .pmv-hall-card .meta{font:500 10px/1.3 ui-monospace,monospace;color:rgba(0,245,160,0.85);letter-spacing:.04em;margin-top:4px;}" +
-      "#person-mv-panel .pmv-hall-card *{pointer-events:none;}" +
+      "#person-mv-panel .pmv-portrait-card .name{font:700 14px/1.2 -apple-system,system-ui,sans-serif;}" +
+      "#person-mv-panel .pmv-hall-card .name-en,#person-mv-panel .pmv-portrait-card .name-en{font:500 11px/1.2 ui-monospace,monospace;color:rgba(218,255,238,0.7);margin-top:1px;}" +
+      "#person-mv-panel .pmv-hall-card .meta,#person-mv-panel .pmv-portrait-card .meta{font:500 10px/1.3 ui-monospace,monospace;color:rgba(0,245,160,0.85);letter-spacing:.04em;margin-top:4px;}" +
+      "#person-mv-panel .pmv-hall-card *,#person-mv-panel .pmv-portrait-card *{pointer-events:none;}" +
 
       /* Tier 3 — Compendium: compact rows in a 4-column responsive grid. */
       "#person-mv-panel .pmv-compendium-grid{" +
@@ -806,6 +833,12 @@
     return card;
   }
 
+  /* CSSOS_WAVE_109B 20260509 — Jing
+   * Notable section now splits into two sub-grids:
+   *   - With portrait: vertical 160×220 image cards (.pmv-portrait-card)
+   *   - Without portrait: existing text-only .person-mv-card
+   * Image cards come first, then text cards, all under one section
+   * heading. */
   function renderNotableSection(persons) {
     var section = document.createElement("section");
     section.className = "pmv-tier-section pmv-tier-notable";
@@ -815,16 +848,58 @@
       '<div class="pmv-tier-title">🎴 ' + escapeText(tt("Notable", "知名人物")) + '</div>' +
       '<div class="pmv-tier-count">' + persons.length + '</div>';
     section.appendChild(head);
-    /* Reuse existing .person-mv-grid + .person-mv-card styling. */
-    var grid = document.createElement("div");
-    grid.className = "person-mv-grid";
-    grid.style.padding = "0";
-    persons.forEach(function (p) { grid.appendChild(buildNotableCard(p)); });
-    section.appendChild(grid);
+
+    var withPortrait = [];
+    var withoutPortrait = [];
+    persons.forEach(function (p) {
+      if (p.portrait_url || p.cover_image_url) withPortrait.push(p);
+      else withoutPortrait.push(p);
+    });
+
+    if (withPortrait.length) {
+      var portraitGrid = document.createElement("div");
+      portraitGrid.className = "pmv-notable-grid";
+      withPortrait.forEach(function (p) { portraitGrid.appendChild(buildPortraitCard(p)); });
+      section.appendChild(portraitGrid);
+    }
+    if (withoutPortrait.length) {
+      var textGrid = document.createElement("div");
+      textGrid.className = "person-mv-grid";
+      textGrid.style.padding = withPortrait.length ? "12px 0 0 0" : "0";
+      withoutPortrait.forEach(function (p) { textGrid.appendChild(buildNotableTextCard(p)); });
+      section.appendChild(textGrid);
+    }
     return section;
   }
 
-  function buildNotableCard(p) {
+  function buildPortraitCard(p) {
+    /* Compact 160×220 portrait card — same chrome as Hall but smaller.
+     * Used for Notable persons that have a portrait_url. */
+    var primary = localizedName(p);
+    var secondary = secondaryName(p);
+    var meta = [p.civilization, p.era].filter(Boolean).join(" · ");
+    var portrait = p.portrait_url || p.cover_image_url || "";
+    var card = document.createElement("article");
+    card.className = "pmv-portrait-card";
+    card.setAttribute("data-person-id", p.person_id || "");
+    if (p.content_rating) card.setAttribute("data-content-rating", String(p.content_rating));
+    card.innerHTML =
+      '<div class="cover" style="background-image:url(' + escapeAttr(portrait) + ');"></div>' +
+      '<div class="info">' +
+        '<div class="name">' + escapeText(primary) + '</div>' +
+        (secondary ? '<div class="name-en">' + escapeText(secondary) + '</div>' : '') +
+        (meta ? '<div class="meta">' + escapeText(meta) + '</div>' : '') +
+      '</div>';
+    card.onclick = function (e) {
+      if (e) { try { e.preventDefault(); e.stopPropagation(); } catch (_e) {} }
+      openCodex(p.person_id);
+    };
+    return card;
+  }
+
+  function buildNotableTextCard(p) {
+    /* Original text-only card for A-tier persons that haven't yet
+     * had a portrait generated. */
     var meta = [p.civilization, p.era].filter(Boolean).join(" · ");
     var primary = localizedName(p);
     var secondary = secondaryName(p);

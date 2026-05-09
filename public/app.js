@@ -5611,12 +5611,17 @@ function updatePanelBehaviorSettings(mutator) {
 }
 
 function resolveEffectiveThemeMode(themeMode) {
+  // CSSOS_FIX_THEME_RECURSION 20260508 — Jing
+  // Previously called back into getEffectiveThemeModeFromSettings,
+  // which re-called resolveEffectiveThemeMode → RangeError. For
+  // "system" / unknown, resolve via matchMedia like the canonical
+  // impl in app.panel-behavior-core.js.
   if (themeMode === "light" || themeMode === "dark") return themeMode;
-  return getEffectiveThemeModeFromSettings({
-    appearance: {
-      theme_mode: String(themeMode || "system")
-    }
-  });
+  try {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  } catch {
+    return "dark";
+  }
 }
 
 function getEffectiveThemeModeFromSettings(settings = null) {

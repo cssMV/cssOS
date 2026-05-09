@@ -106,7 +106,8 @@
       "  z-index:55;",                          /* above logo (z=1), below dock (z=70) */
       "  display:flex;",
       "  align-items:center;",
-      "  gap:0;",
+      /* CSSOS_WAVE_108F 20260509 — gap replaces the "/" separator. */
+      "  gap:8px;",
       "  padding:8px 14px;",
       "  background:rgba(8, 18, 14, 0.78);",
       "  backdrop-filter: blur(22px) saturate(145%);",
@@ -163,13 +164,6 @@
       ".cssos-act-tab:hover{ filter:brightness(1.18); border-color:rgba(255,255,255,0.22); }",
       ".cssos-act-tab.active{ filter:brightness(1.25); border-color:rgba(255,255,255,0.45); box-shadow:0 0 0 1px rgba(0,245,160,0.55) inset; }",
       ".cssos-act-tab .cssos-act-icon{ font-size:13px; line-height:1; }",
-      ".cssos-act-sep{",
-      "  flex:0 0 auto;",
-      "  padding:0 4px;",
-      "  font:500 13px/1 ui-monospace,monospace;",
-      "  color:rgba(255,255,255,0.30);",
-      "  user-select:none;",
-      "}",
 
       /* Schools row — picture cards (album style), horizontal scroll.
        * CSSOS_WAVE_108C 20260509 — Jing: restored album cards (was
@@ -185,7 +179,10 @@
       "  display:flex;",
       "  gap:8px;",
       "  padding:4px 8px;",
-      "  max-width:min(960px, calc(100vw - 48px));",
+      /* CSSOS_WAVE_108F 20260509 — Jing wants schools row to match
+       * the notch bar's width exactly (was 960px). Same clamp
+       * formula as the bar so they line up center-to-center. */
+      "  max-width:min(720px, calc(100vw - 16px));",
       "  overflow-x:auto;",
       "  -webkit-overflow-scrolling: touch;",
       "  scroll-snap-type:x proximity;",
@@ -335,9 +332,12 @@
   function renderBar() {
     if (!state.bar) return;
     var tabs = buildTabs();
+    /* CSSOS_WAVE_108F 20260509 — Jing
+     * Removed "/" separators — each tab is already its own colored
+     * pill so the slash just added noise. The flex `gap` on the bar
+     * is now what visually spaces them. */
     var html = "";
-    tabs.forEach(function (t, i) {
-      if (i > 0) html += '<span class="cssos-act-sep">/</span>';
+    tabs.forEach(function (t) {
       var label = /^zh/i.test(String((globalThis.CSSOS_I18N && globalThis.CSSOS_I18N.getCurrentLocale && globalThis.CSSOS_I18N.getCurrentLocale()) || "en"))
         ? t.zh : t.en;
       var color = TAB_PALETTE[t.id] || "rgba(255,255,255,0.05)";

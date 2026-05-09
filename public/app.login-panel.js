@@ -165,7 +165,6 @@ function logoSlugForModule(platformId) {
     twitch: "twitch",
     wechat: "wechat",
     weibo: "sinaweibo",
-    whatsapp: "whatsapp",
     x: "x"
   };
   return map[platformId] || platformId;
@@ -234,21 +233,39 @@ function renderLoginPlatformsModule() {
     const iconHtml = logo
       ? `<img src="${logo}" alt="${platform.id}" class="login-logo" />`
       : providerLogoHtmlModule(platform.id, record?.icon || platform.icon);
+    // CSSOS_WAVE_107C 20260509 — Jing
+    // Platforms flagged comingSoon in i18n/platforms.js (Instagram /
+    // TikTok / Weibo) are rendered as a non-clickable "Coming soon"
+    // pill regardless of what /api/auth/providers says, so we never
+    // route a tap into a flow that's known to fail.
+    const isComingSoon = Boolean(platform.comingSoon);
+    const recordEnabled = isComingSoon ? false : Boolean(record?.enabled);
     const actionLabel = authState.user
       ? isLinked
         ? loginPanelLoginCopy("Linked", "已绑定")
-        : loginPanelLoginCopy("Switch account", "切换账号")
-      : record?.enabled
+        : recordEnabled
+          ? loginPanelLoginCopy("Switch account", "切换账号")
+          : isComingSoon
+            ? loginPanelLoginCopy("Coming soon", "即将上线")
+            : loginPanelLoginCopy("Unavailable", "未开放")
+      : recordEnabled
         ? loginPanelLoginCopy("Sign in", "登录")
-        : loginPanelLoginCopy("Unavailable", "未开放");
+        : isComingSoon
+          ? loginPanelLoginCopy("Coming soon", "即将上线")
+          : loginPanelLoginCopy("Unavailable", "未开放");
     return {
       id: platform.id,
       icon: iconHtml,
-      enabled: record?.enabled ?? isSocialEnabledModule(platform.id),
-      url: record?.url || (record?.enabled ? `/auth/${platform.id}` : ""),
+      enabled: isComingSoon
+        ? false
+        : (record?.enabled ?? isSocialEnabledModule(platform.id)),
+      url: isComingSoon
+        ? ""
+        : (record?.url || (record?.enabled ? `/auth/${platform.id}` : "")),
       linked: isLinked,
       active: authState.loginProvider === platform.id,
-      actionLabel
+      actionLabel,
+      comingSoon: isComingSoon
     };
   });
 

@@ -1,4 +1,10 @@
 (function () {
+  // CSSOS_WAVE_107C 20260509 — Jing
+  // - WhatsApp removed entirely: it has no OAuth flow and never will.
+  //   See docs/SOCIAL_LOGIN_PROVIDER_REGISTRATION.md (Tier 3).
+  // - instagram/tiktok/weibo flagged comingSoon: true. The login panel
+  //   renders these as a non-clickable "Coming soon" pill so users
+  //   don't tap them and hit auth_failed.
   const socialPlatforms = [
   { id: "apple", icon: "A" },
   { id: "behance", icon: "Be" },
@@ -8,7 +14,7 @@
   { id: "github", icon: "GH" },
   { id: "gitlab", icon: "GL" },
   { id: "google", icon: "G" },
-  { id: "instagram", icon: "Ig" },
+  { id: "instagram", icon: "Ig", comingSoon: true },
   { id: "kakaotalk", icon: "Ka" },
   { id: "line", icon: "Li" },
   { id: "linkedin", icon: "In" },
@@ -18,11 +24,10 @@
   { id: "slack", icon: "Sl" },
   { id: "stackoverflow", icon: "SO" },
   { id: "telegram", icon: "Te" },
-  { id: "tiktok", icon: "Tk" },
+  { id: "tiktok", icon: "Tk", comingSoon: true },
   { id: "twitch", icon: "Tw" },
   { id: "wechat", icon: "We" },
-  { id: "weibo", icon: "Wb" },
-  { id: "whatsapp", icon: "Wa" },
+  { id: "weibo", icon: "Wb", comingSoon: true },
   { id: "x", icon: "X" }
 ];
   const PLATFORM_LABELS = {
@@ -49,7 +54,6 @@
     twitch: "Twitch",
     wechat: "WeChat",
     weibo: "Weibo",
-    whatsapp: "WhatsApp",
     x: "X"
   },
   zh: {
@@ -75,7 +79,6 @@
     twitch: "Twitch",
     wechat: "微信",
     weibo: "微博",
-    whatsapp: "WhatsApp",
     x: "X"
   }
 };

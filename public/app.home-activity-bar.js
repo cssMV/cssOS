@@ -118,11 +118,11 @@
       "  transition: opacity 280ms ease, transform 280ms ease;",
       "}",
       "#" + BAR_ID + "::-webkit-scrollbar{display:none;}",  /* WebKit */
-      "#" + BAR_ID + "[data-position='top']{ top:60px; }",
-      "#" + BAR_ID + "[data-position='bottom']{ bottom:80px; }",
+      "#" + BAR_ID + "[data-anchor='top']{ top: var(--cssos-bar-top, 24px); bottom:auto; }",
+      "#" + BAR_ID + "[data-anchor='bottom']{ bottom: var(--cssos-bar-bottom, 110px); top:auto; }",
       "#" + BAR_ID + "[data-hidden='1']{ opacity:0; pointer-events:none; }",
-      "#" + BAR_ID + "[data-hidden='1'][data-position='top']{ transform:translateX(-50%) translateY(-12px); }",
-      "#" + BAR_ID + "[data-hidden='1'][data-position='bottom']{ transform:translateX(-50%) translateY(12px); }",
+      "#" + BAR_ID + "[data-hidden='1'][data-anchor='top']{ transform:translateX(-50%) translateY(-12px); }",
+      "#" + BAR_ID + "[data-hidden='1'][data-anchor='bottom']{ transform:translateX(-50%) translateY(12px); }",
       ".cssos-act-tab{",
       "  flex:0 0 auto;",
       "  display:inline-flex;",
@@ -150,40 +150,88 @@
       "  user-select:none;",
       "}",
 
-      /* Schools row — sits adjacent to the bar (above when bar at bottom). */
+      /* Schools row — picture cards (album style), horizontal scroll.
+       * CSSOS_WAVE_108C 20260509 — Jing: restored album cards (was
+       * text pills); position is now dynamically computed against
+       * the actual <footer.dock> bounding box so they never collide.
+       * `--cssos-schools-top` and `--cssos-schools-bottom` are set
+       * by placeBarsAndSchools() at runtime. */
       "#" + SCHOOLS_ID + "{",
       "  position:fixed;",
       "  left:50%;",
       "  transform:translateX(-50%);",
       "  z-index:54;",
       "  display:flex;",
-      "  gap:6px;",
+      "  gap:8px;",
       "  padding:4px 8px;",
-      "  max-width:min(820px, calc(100vw - 64px));",
+      "  max-width:min(960px, calc(100vw - 48px));",
       "  overflow-x:auto;",
+      "  -webkit-overflow-scrolling: touch;",
+      "  scroll-snap-type:x proximity;",
       "  scrollbar-width:none;",
+      "  contain: layout paint;",
       "  transition: opacity 280ms ease, transform 280ms ease;",
       "}",
       "#" + SCHOOLS_ID + "::-webkit-scrollbar{display:none;}",
-      "#" + SCHOOLS_ID + "[data-position='top']{ top:108px; }",
-      "#" + SCHOOLS_ID + "[data-position='bottom']{ bottom:128px; }",
+      "#" + SCHOOLS_ID + "[data-anchor='top']{ top: var(--cssos-schools-top, 108px); bottom:auto; }",
+      "#" + SCHOOLS_ID + "[data-anchor='bottom']{ bottom: var(--cssos-schools-bottom, 200px); top:auto; }",
       "#" + SCHOOLS_ID + "[data-hidden='1']{ opacity:0; pointer-events:none; }",
-      ".cssos-school-pill{",
-      "  flex:0 0 auto;",
-      "  padding:5px 11px;",
-      "  border-radius:999px;",
-      "  background:rgba(8, 18, 14, 0.72);",
-      "  backdrop-filter: blur(14px) saturate(130%);",
-      "  -webkit-backdrop-filter: blur(14px) saturate(130%);",
-      "  border:1px solid rgba(0,245,160,0.22);",
-      "  color:#daffee;",
-      "  font:600 12px/1.2 -apple-system,system-ui,sans-serif;",
+
+      /* Album-style school card — compact (140 × 88). */
+      ".cssos-school-card{",
+      "  flex:0 0 140px;",
+      "  height:88px;",
+      "  border-radius:12px;",
+      "  position:relative;",
+      "  overflow:hidden;",
       "  cursor:pointer;",
+      "  scroll-snap-align:start;",
+      "  background:rgba(8,18,14,0.6);",
+      "  border:1px solid rgba(0,245,160,0.22);",
+      "  transition: transform 160ms ease, border-color 160ms ease;",
       "  user-select:none;",
-      "  white-space:nowrap;",
-      "  transition: border-color 180ms ease, background 180ms ease;",
+      "  -webkit-user-select:none;",
       "}",
-      ".cssos-school-pill:hover{ border-color:rgba(0,245,160,0.5); background:rgba(8,28,22,0.8); }",
+      ".cssos-school-card:hover{ transform:translateY(-2px); border-color:rgba(0,245,160,0.6); }",
+      ".cssos-school-card .cover{",
+      "  position:absolute;",
+      "  inset:0;",
+      "  display:flex;",
+      "  align-items:center;",
+      "  justify-content:center;",
+      "  font-size:36px;",
+      "}",
+      ".cssos-school-card .cover::after{",
+      "  content:'';",
+      "  position:absolute;",
+      "  inset:0;",
+      "  background:linear-gradient(180deg, rgba(0,0,0,0) 35%, rgba(0,0,0,0.78) 100%);",
+      "}",
+      ".cssos-school-card .info{",
+      "  position:absolute;",
+      "  left:8px;",
+      "  right:8px;",
+      "  bottom:6px;",
+      "  color:#daffee;",
+      "  text-shadow:0 1px 4px rgba(0,0,0,0.85);",
+      "  pointer-events:none;",
+      "}",
+      ".cssos-school-card .name{",
+      "  font:700 12.5px/1.15 -apple-system,system-ui,sans-serif;",
+      "  white-space:nowrap;",
+      "  overflow:hidden;",
+      "  text-overflow:ellipsis;",
+      "}",
+      ".cssos-school-card .meta{",
+      "  font:500 9px/1.2 ui-monospace,monospace;",
+      "  color:rgba(0,245,160,0.85);",
+      "  letter-spacing:.04em;",
+      "  margin-top:2px;",
+      "  white-space:nowrap;",
+      "  overflow:hidden;",
+      "  text-overflow:ellipsis;",
+      "}",
+      ".cssos-school-card *{ pointer-events:none; }",
 
       /* Tooltip for first-visit reveal */
       "#" + TOOLTIP_ID + "{",
@@ -201,8 +249,8 @@
       "  transition:opacity 320ms ease;",
       "}",
       "#" + TOOLTIP_ID + ".visible{ opacity:1; }",
-      "#" + TOOLTIP_ID + "[data-position='top']{ top:104px; }",
-      "#" + TOOLTIP_ID + "[data-position='bottom']{ bottom:124px; }",
+      "#" + TOOLTIP_ID + "[data-anchor='top']{ top: calc(var(--cssos-bar-top, 24px) + 56px); bottom:auto; }",
+      "#" + TOOLTIP_ID + "[data-anchor='bottom']{ bottom: calc(var(--cssos-bar-bottom, 110px) + 56px); top:auto; }",
 
       /* Honor reduced motion */
       "@media (prefers-reduced-motion: reduce) {",
@@ -388,11 +436,25 @@
     if (!state.schools) return;
     var locale = (globalThis.CSSOS_I18N && globalThis.CSSOS_I18N.getCurrentLocale && globalThis.CSSOS_I18N.getCurrentLocale()) || "en";
     var isZh = /^zh/i.test(String(locale));
+    /* Album-style cards (cover gradient + emoji + name overlay) —
+     * mirror the original .cssos-discover-card layout per Jing's
+     * Wave 108C ask to keep the picture-card aesthetic. */
     var html = (groups || []).map(function (g) {
-      var icon = (g.visual_theme && g.visual_theme.icon) ? String(g.visual_theme.icon) + " " : "🏛 ";
+      var icon = (g.visual_theme && g.visual_theme.icon) ? String(g.visual_theme.icon) : "🏛";
+      var color = (g.visual_theme && g.visual_theme.color) ? String(g.visual_theme.color) : "#00f5a0";
       var name = isZh ? (g.name_zh || g.name_en || g.group_id) : (g.name_en || g.name_zh || g.group_id);
-      return '<button type="button" class="cssos-school-pill" data-group-id="' + escapeHtml(g.group_id || "") + '">' +
-        escapeHtml(icon + name) + '</button>';
+      var meta = [g.era, g.civilization].filter(Boolean).join(" · ");
+      var coverStyle = "background:linear-gradient(135deg,#012019," + color + "55);";
+      return (
+        '<article class="cssos-school-card" data-group-id="' + escapeHtml(g.group_id || "") +
+          '" tabindex="0" role="button" aria-label="' + escapeHtml(name) + '">' +
+          '<div class="cover" style="' + coverStyle + '">' + escapeHtml(icon) + '</div>' +
+          '<div class="info">' +
+            '<div class="name">' + escapeHtml(name) + '</div>' +
+            (meta ? '<div class="meta">' + escapeHtml(meta) + '</div>' : '') +
+          '</div>' +
+        '</article>'
+      );
     }).join("");
     state.schools.innerHTML = html;
   }
@@ -448,13 +510,53 @@
     else armHideTimer();
   }
 
-  /* Re-position when dock setting changes */
+  /* CSSOS_WAVE_108C 20260509 — Jing
+   * Place bar + schools row using ACTUAL measured dock geometry,
+   * not just the dock_position setting. The setting can drift from
+   * what's actually rendered (e.g., dataset.dockPosition not yet
+   * applied to CSS), so we measure where the dock IS on screen and
+   * place the bar/schools on the opposite side with ≥24px clearance.
+   * Stored on CSS custom properties so the existing data-anchor
+   * rules pick them up. */
   function refreshPosition() {
-    var pos = effectiveBarPosition();
-    if (state.bar) state.bar.setAttribute("data-position", pos);
-    if (state.schools) state.schools.setAttribute("data-position", pos);
+    var dock = document.querySelector(".dock");
+    var anchor = "top"; /* default — bar sits at top */
+    var SAFE_GAP = 28;  /* px between dock and bar/schools */
+    var BAR_HEIGHT = 44;
+    var SCHOOLS_HEIGHT = 96;
+
+    if (dock) {
+      var rect = dock.getBoundingClientRect();
+      var vh = window.innerHeight || document.documentElement.clientHeight || 0;
+      /* Decide anchor: if dock is in the upper third → bar at bottom;
+       * otherwise (dock at bottom/left/right or hidden) → bar at top. */
+      var dockMidY = rect.top + rect.height / 2;
+      anchor = dockMidY < vh / 2 ? "bottom" : "top";
+
+      if (anchor === "top") {
+        /* Bar at top — place above any potential top-dock area. */
+        var topOffset = 24;
+        if (rect.bottom > 0 && rect.top < 80) {
+          topOffset = Math.ceil(rect.bottom + SAFE_GAP);
+        }
+        document.documentElement.style.setProperty("--cssos-bar-top", topOffset + "px");
+        document.documentElement.style.setProperty("--cssos-schools-top",
+          (topOffset + BAR_HEIGHT + 12) + "px");
+      } else {
+        /* Bar at bottom — sit ABOVE the dock with safe gap. */
+        var dockTop = vh - rect.top;            // distance from viewport bottom to dock TOP
+        if (rect.bottom > vh) dockTop = 0;       // dock fully off-screen → ignore
+        var bottomOffset = Math.max(80, Math.ceil(dockTop + SAFE_GAP));
+        document.documentElement.style.setProperty("--cssos-bar-bottom", bottomOffset + "px");
+        document.documentElement.style.setProperty("--cssos-schools-bottom",
+          (bottomOffset + BAR_HEIGHT + 12) + "px");
+      }
+    }
+
+    if (state.bar) state.bar.setAttribute("data-anchor", anchor);
+    if (state.schools) state.schools.setAttribute("data-anchor", anchor);
     var tip = document.getElementById(TOOLTIP_ID);
-    if (tip) tip.setAttribute("data-position", pos);
+    if (tip) tip.setAttribute("data-anchor", anchor);
   }
 
   function showFirstVisitTooltip() {
@@ -464,7 +566,7 @@
     } catch (_) {}
     var tip = document.createElement("div");
     tip.id = TOOLTIP_ID;
-    tip.setAttribute("data-position", effectiveBarPosition());
+    tip.setAttribute("data-anchor", state.bar ? state.bar.getAttribute("data-anchor") || "top" : "top");
     tip.textContent = tr(
       "Move here to see top picks & style stations · auto-hides after 10s",
       "鼠标移到这里查看排行榜与风格电台 · 10 秒无操作自动隐藏",
@@ -494,7 +596,7 @@
 
     state.bar = document.createElement("div");
     state.bar.id = BAR_ID;
-    state.bar.setAttribute("data-position", effectiveBarPosition());
+    state.bar.setAttribute("data-anchor", "top");
     state.bar.setAttribute("data-hidden", "1");
     state.bar.setAttribute("aria-label", tr("Activity bar", "活动栏"));
     state.bar.setAttribute("role", "tablist");
@@ -502,10 +604,26 @@
 
     state.schools = document.createElement("div");
     state.schools.id = SCHOOLS_ID;
-    state.schools.setAttribute("data-position", effectiveBarPosition());
+    state.schools.setAttribute("data-anchor", "top");
     state.schools.setAttribute("data-hidden", "1");
     state.schools.setAttribute("aria-label", tr("Schools of thought", "文明流派"));
     document.body.appendChild(state.schools);
+
+    /* Initial placement using actual dock geometry. */
+    refreshPosition();
+    /* Re-place on viewport resize and on dock resize (CSS scale,
+     * label visibility toggle, etc.). */
+    window.addEventListener("resize", refreshPosition, { passive: true });
+    try {
+      var dockEl = document.querySelector(".dock");
+      if (dockEl && typeof ResizeObserver === "function") {
+        var ro = new ResizeObserver(refreshPosition);
+        ro.observe(dockEl);
+      }
+      /* Periodic re-check for late dock injectors (Person MV item
+       * lands ~0.4-2s after load). */
+      [400, 1500, 4000].forEach(function (ms) { setTimeout(refreshPosition, ms); });
+    } catch (_) {}
 
     /* Wire up taps via the global guard so swipes never trigger. */
     if (globalThis.cssosTapGuard && typeof globalThis.cssosTapGuard.bindDelegated === "function") {

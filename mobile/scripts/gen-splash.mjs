@@ -21,7 +21,12 @@ import sharp from "sharp";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
-const SRC = path.join(ROOT, "icon-source-1024.png");
+/* Prefer the un-polished original (no corner glow) for splash —
+ * the corner lights look great on the app icon but distracting on
+ * the launch screen. Falls back to the polished file if no backup. */
+const ORIG = path.join(ROOT, "icon-source-1024.original.png");
+const POLISHED = path.join(ROOT, "icon-source-1024.png");
+const SRC = fs.existsSync(ORIG) ? ORIG : POLISHED;
 const OUT_DIR = path.join(
   ROOT,
   "ios/App/App/Assets.xcassets/Splash.imageset",
@@ -37,7 +42,7 @@ if (!fs.existsSync(OUT_DIR)) {
 }
 
 const SIZE = 2732;
-const LOGO_FRAC = 0.38;        // logo fills 38% of canvas height
+const LOGO_FRAC = 0.33;        // logo fills 1/3 of canvas (per Jing 20260508)
 const LOGO_PX = Math.round(SIZE * LOGO_FRAC);
 
 async function main() {

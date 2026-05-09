@@ -198,11 +198,16 @@
       "#" + SCHOOLS_ID + "[data-anchor='bottom']{ bottom: var(--cssos-schools-bottom, 200px); top:auto; }",
       "#" + SCHOOLS_ID + "[data-hidden='1']{ opacity:0; pointer-events:none; }",
 
-      /* Album-style school card — compact (140 × 88). */
+      /* CSSOS_WAVE_108E 20260509 — Jing
+       * Album-style school cards bumped to 160 × 220 (~2.5×
+       * taller than the 108D compact pill). Matches the original
+       * 180×240 ViewWall design while staying narrow enough that
+       * 6+ cards fit in the horizontal scroll without crowding the
+       * notch or the logo. Stats row added back for parity. */
       ".cssos-school-card{",
-      "  flex:0 0 140px;",
-      "  height:88px;",
-      "  border-radius:12px;",
+      "  flex:0 0 160px;",
+      "  height:220px;",
+      "  border-radius:14px;",
       "  position:relative;",
       "  overflow:hidden;",
       "  cursor:pointer;",
@@ -213,44 +218,43 @@
       "  user-select:none;",
       "  -webkit-user-select:none;",
       "}",
-      ".cssos-school-card:hover{ transform:translateY(-2px); border-color:rgba(0,245,160,0.6); }",
+      ".cssos-school-card:hover{ transform:translateY(-3px); border-color:rgba(0,245,160,0.6); }",
       ".cssos-school-card .cover{",
       "  position:absolute;",
       "  inset:0;",
       "  display:flex;",
       "  align-items:center;",
       "  justify-content:center;",
-      "  font-size:36px;",
+      "  font-size:64px;",
       "}",
       ".cssos-school-card .cover::after{",
       "  content:'';",
       "  position:absolute;",
       "  inset:0;",
-      "  background:linear-gradient(180deg, rgba(0,0,0,0) 35%, rgba(0,0,0,0.78) 100%);",
+      "  background:linear-gradient(180deg, rgba(0,0,0,0) 30%, rgba(0,0,0,0.82) 100%);",
       "}",
       ".cssos-school-card .info{",
       "  position:absolute;",
-      "  left:8px;",
-      "  right:8px;",
-      "  bottom:6px;",
+      "  left:10px;",
+      "  right:10px;",
+      "  bottom:10px;",
       "  color:#daffee;",
       "  text-shadow:0 1px 4px rgba(0,0,0,0.85);",
       "  pointer-events:none;",
       "}",
       ".cssos-school-card .name{",
-      "  font:700 12.5px/1.15 -apple-system,system-ui,sans-serif;",
-      "  white-space:nowrap;",
-      "  overflow:hidden;",
-      "  text-overflow:ellipsis;",
+      "  font:700 15px/1.2 -apple-system,system-ui,sans-serif;",
       "}",
       ".cssos-school-card .meta{",
-      "  font:500 9px/1.2 ui-monospace,monospace;",
+      "  font:500 10px/1.3 ui-monospace,monospace;",
       "  color:rgba(0,245,160,0.85);",
       "  letter-spacing:.04em;",
-      "  margin-top:2px;",
-      "  white-space:nowrap;",
-      "  overflow:hidden;",
-      "  text-overflow:ellipsis;",
+      "  margin-top:3px;",
+      "}",
+      ".cssos-school-card .stats{",
+      "  font:500 10px/1 ui-monospace,monospace;",
+      "  color:rgba(218,255,238,0.7);",
+      "  margin-top:5px;",
       "}",
       ".cssos-school-card *{ pointer-events:none; }",
 
@@ -465,6 +469,7 @@
       var color = (g.visual_theme && g.visual_theme.color) ? String(g.visual_theme.color) : "#00f5a0";
       var name = isZh ? (g.name_zh || g.name_en || g.group_id) : (g.name_en || g.name_zh || g.group_id);
       var meta = [g.era, g.civilization].filter(Boolean).join(" · ");
+      var stats = "👥 " + (g.member_count || 0) + " · 🎼 " + (g.mv_count || 0);
       var coverStyle = "background:linear-gradient(135deg,#012019," + color + "55);";
       return (
         '<article class="cssos-school-card" data-group-id="' + escapeHtml(g.group_id || "") +
@@ -473,6 +478,7 @@
           '<div class="info">' +
             '<div class="name">' + escapeHtml(name) + '</div>' +
             (meta ? '<div class="meta">' + escapeHtml(meta) + '</div>' : '') +
+            '<div class="stats">' + escapeHtml(stats) + '</div>' +
           '</div>' +
         '</article>'
       );
@@ -567,10 +573,17 @@
      * the bar to top (more natural reading position). */
     var anchor = dockSide === "top" ? "bottom" : "top";
 
-    var BAR_HEIGHT = 48;        /* approximate bar height incl padding */
+    var BAR_HEIGHT = 48;          /* approximate bar height incl padding */
     var GAP_BAR_TO_SCHOOLS = 14;
-    var GAP_LOGO_GUARD = 16;    /* min distance between schools and logo */
-    var SCHOOLS_HEIGHT = 96;
+    /* CSSOS_WAVE_108E 20260509 — Jing wants schools cards close to
+     * the magic mirror's pointed corners. Reduced guard from 16→0
+     * and we measure against the visible mirror-glow box (.logo-mirror
+     * if available) rather than the full .logo-panel which also
+     * includes the slogan + spacing. The cards may now visually
+     * graze the very tips of the outer crystals — exactly Jing's
+     * intent. */
+    var GAP_LOGO_GUARD = 0;
+    var SCHOOLS_HEIGHT = 220;     /* matches .cssos-school-card height */
 
     /* Bar sits flush with edge (top:0 / bottom:0) — bar offset vars
      * are set to 0 here. Schools row offset is computed from bar
@@ -584,8 +597,11 @@
       schoolsOffset = BAR_HEIGHT + GAP_BAR_TO_SCHOOLS;
     }
 
-    /* Clamp against logo. */
-    var logo = document.querySelector(".logo-panel") || document.querySelector(".title");
+    /* Clamp against logo. Prefer the inner mirror element so cards
+     * can graze the outer crystal points. */
+    var logo = document.querySelector(".logo-mirror")
+            || document.querySelector(".logo-panel")
+            || document.querySelector(".title");
     if (logo) {
       var lr = logo.getBoundingClientRect();
       var vh = window.innerHeight || 0;
@@ -640,17 +656,24 @@
     setTimeout(function () { try { tip.remove(); } catch (_) {} }, 5200);
   }
 
+  /* CSSOS_WAVE_108E 20260509 — Jing
+   * Global activity tracking: ANY pointer move / touch / key /
+   * scroll anywhere in the document counts as "user is here" and
+   * keeps the bar+schools visible. After 10s of total stillness
+   * everywhere, the auto-hide timer fires. Mirrors Dock's pattern. */
   function bindReshowZone() {
-    /* Edge-detection re-show: cursor near the bar's expected location
-     * brings it back. Threshold is 80px from screen edge on the bar's
-     * side. */
-    document.addEventListener("pointermove", function (event) {
-      var pos = effectiveBarPosition();
-      var near = pos === "top"
-        ? event.clientY <= 120
-        : event.clientY >= window.innerHeight - 140;
-      if (near) bumpActivity();
-    }, { passive: true });
+    var throttle = 0;
+    function onActivity() {
+      var now = Date.now();
+      if (now - throttle < 80) return; /* cheap throttle for pointermove */
+      throttle = now;
+      bumpActivity();
+    }
+    document.addEventListener("pointermove", onActivity, { passive: true, capture: true });
+    document.addEventListener("touchstart", onActivity, { passive: true, capture: true });
+    document.addEventListener("keydown", onActivity, { capture: true });
+    document.addEventListener("wheel", onActivity, { passive: true, capture: true });
+    document.addEventListener("scroll", onActivity, { passive: true, capture: true });
   }
 
   function init() {

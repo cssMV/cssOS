@@ -213,9 +213,84 @@ If the LLM output is still title-monotonous, add explicit instruction: "Generate
 ## Sequencing / prioritization
 
 1. **110A** ✅ — items 3 + 5-hero-name; plan
-2. **110B** — items 1 (default-all + tier filter strict), 2 (subtitle copy: "first" → "new"), title diversification, cover slideshow plan, cinema "playback queue" pricing dock
-3. **110C** — multi-cover slideshow backend + pipeline
-4. **110D** — i18n full audit (item 4 + 8)
+2. **110B** ✅ — items 1 (default-all + tier filter strict), 2 (subtitle copy: "first" → "new"), title diversification, cover slideshow plan
+3. **110B2** ✅ — nginx 900s + frontend 502 retry (compose timeout)
+4. **110B3** ✅ — cinema panel-toggle button + storm Pro+ gate
+5. **110B4** ✅ — person-MV end-of-playback navigator (contemporaries + lineage cards, 10s countdown)
+6. **110C** — multi-cover slideshow backend + pipeline
+7. **110D** — Take 2 produces SECOND MV (different cover + audio) — see below
+8. **110E** — i18n full audit + multi-language name display (Wikidata-style)
+
+---
+
+## Wave 110D plan (Jing 20260510 — "Take 2 should make its own MV")
+
+> "Suno 输出的第二首音乐，岂不就是白白浪费了？"
+
+**Current architecture**:
+
+- One pipeline run → Suno returns Take 1 + Take 2 (different audio variants)
+- Cover stage runs ONCE → 1 cover image
+- Compose stage runs ONCE → 1 MV
+- Take 2 saved as `state.altAudioUrl` → user can switch audio mid-play
+- Same video, two audio tracks
+
+**Jing's correction**: each run should produce TWO DISTINCT MVs:
+- Different cover (2 cover seeds)
+- Different audio (Take 1 vs Take 2)
+- Different composed video
+
+**Implementation**:
+
+- [ ] Cover stage: request 2 takes (already supported by some image engines via `n=2`; for others, fire 2 sequential requests with different seeds)
+- [ ] Compose stage: when 2 takes are present, run TWICE in parallel:
+  - MV-A = Cover-1 + Take-1-audio
+  - MV-B = Cover-2 + Take-2-audio
+- [ ] Persist both as separate works under the same person_id
+- [ ] Codex shows BOTH cards
+- [ ] Cinema queue cycles through both
+- [ ] Cost: ~$0 extra on music (Suno already produced both takes); +1 cover request (~$0); +compose 2× (local ffmpeg, ~free)
+- [ ] Save: doubles the storage but cheap
+
+**Risk**: compose 2× doubles render time. Mitigate by running them in parallel ffmpeg processes (we have CPU headroom on the api-vm).
+
+---
+
+## Wave 110E plan (Jing 20260510 — "Wikipedia-style multi-language names")
+
+> "wiki那里显示多少种语言，我们就显示多少种"
+
+**Current**: hero shows current-locale name + native name + latin transliteration.
+
+**Target**: show ALL language variants Wikipedia/Wikidata has for that person:
+
+```
+                    Confucius       ← user's UI locale (English)
+                    孔子            ← native (Chinese, mother tongue)
+                  孔丘 · Kǒng Qiū   ← additional Chinese names + pinyin
+        공자 (KO) · 孔子 (JA) · Конфуций (RU)
+        Konfuzius (DE) · Confucio (ES) · Kongzi (PY)
+```
+
+**Schema**:
+
+- New JSONB column on `person_profiles`: `name_variants JSONB DEFAULT '{}'`
+- Shape: `{ "en": "Confucius", "zh": "孔子", "zh-tw": "孔子", "ko": "공자", "ja": "孔子", "ru": "Конфуций", "de": "Konfuzius", "es": "Confucio", ... }`
+- Hero shows up to 6 non-empty variants (overflow → "+ more" tooltip)
+
+**Source**:
+
+- Wikidata Q-IDs: most figures have one (Confucius = Q4604). Q5 entity → labels in 100+ languages
+- Backfill task: query Wikidata API once per person, store name_variants
+- Future ad-hoc persons: LLM call returns `name_variants` directly
+
+**i18n audit (continuation of 110A)**:
+
+- [ ] grep `app.person-mv-panel.js` for hardcoded strings → wrap in `tr()`
+- [ ] grep `app.mv-pipeline-panel.js` (Storm cells, end-of-MV CTAs all currently zh-only)
+- [ ] grep `app.watch-ui.js` cinema strings
+- [ ] Server-side error messages localize via `Accept-Language` (lower priority)
+- [ ] Lyrics LLM prompt: output in user's UI locale, not person's mother tongue (current bias)
 3. **110C** — item 4 + 8 (i18n audit pass on person-mv-panel + watch-ui — biggest single win)
 4. **110D** — 1000-figure seed file (data work, slow but boring)
 5. **110E** — item 6 (cinema border progress + auto-hide + era-aware up-next)

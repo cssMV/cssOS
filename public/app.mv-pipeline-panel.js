@@ -7837,6 +7837,18 @@
     s.id = "cssos-mv-wave6-style";
     s.textContent =
       ".w6-overlay{position:absolute;inset:0;background:rgba(0,0,0,.78);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:5;color:#daffee;padding:24px;}" +
+      /* CSSOS_WAVE_110B4 20260510 — person navigator cards. */
+      ".w6-pp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;max-width:min(900px,92vw);width:100%;}" +
+      ".w6-pp-card{all:unset;cursor:pointer;position:relative;display:flex;flex-direction:column;height:220px;border-radius:12px;overflow:hidden;background:rgba(8,18,14,0.65);border:1px solid rgba(0,245,160,0.25);transition:transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;}" +
+      ".w6-pp-card:hover{transform:translateY(-3px);border-color:rgba(0,245,160,0.7);box-shadow:0 6px 24px rgba(0,245,160,0.22);}" +
+      ".w6-pp-cover{flex:1;background-size:cover;background-position:center 28%;background-repeat:no-repeat;background-color:#012019;}" +
+      ".w6-pp-cover-fallback{display:flex;align-items:center;justify-content:center;font:800 48px/1 ui-serif,serif;color:rgba(0,245,160,0.55);background:linear-gradient(135deg,#012019,#003a2c);}" +
+      ".w6-pp-info{padding:8px 10px 6px;background:linear-gradient(rgba(0,0,0,0) 0%,rgba(0,0,0,0.55) 60%,rgba(0,0,0,0.85) 100%);position:absolute;left:0;right:0;bottom:0;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,0.85);}" +
+      ".w6-pp-name{font:700 13.5px/1.2 -apple-system,system-ui,sans-serif;}" +
+      ".w6-pp-native{font:500 10.5px/1.2 ui-monospace,monospace;color:rgba(218,255,238,0.78);margin-top:2px;}" +
+      ".w6-pp-meta{font:500 10px/1.2 ui-monospace,monospace;color:rgba(0,245,160,0.85);margin-top:3px;letter-spacing:.04em;}" +
+      ".w6-pp-tag{position:absolute;top:6px;left:6px;padding:2px 7px;border-radius:999px;font:600 9.5px/1.2 ui-monospace,monospace;background:rgba(0,0,0,0.55);color:#daffee;backdrop-filter:blur(8px);}" +
+      ".w6-person-overlay{justify-content:flex-start;padding-top:48px;overflow-y:auto;}" +
       ".w6-cta-row{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:18px;}" +
       ".w6-btn{all:unset;cursor:pointer;padding:12px 22px;border-radius:10px;border:1px solid rgba(0,245,160,.35);background:rgba(0,245,160,.08);font:700 14px/1 ui-monospace,monospace;color:#daffee;letter-spacing:.04em;}" +
       ".w6-btn.is-default{background:rgba(0,245,160,.22);border-color:#00f5a0;box-shadow:0 0 22px rgba(0,245,160,.35);}" +
@@ -7873,10 +7885,169 @@
     if (cinemaSt && cinemaSt._w6Timer) { clearInterval(cinemaSt._w6Timer); cinemaSt._w6Timer = null; }
   }
 
+  /* CSSOS_WAVE_110B4 20260510 — Jing
+   * Person-MV end-of-playback navigator. When the cinema is in
+   * person-MV mode (cinemaSt.personId set), instead of "再来一首"
+   * CTAs we surface the person's CONTEMPORARIES (other-civilization
+   * peers from the same era) and LINEAGE (same-civilization
+   * teachers/students/successors) as clickable cards. User picks
+   * one within the countdown → that person's cinema starts. No
+   * pick → fall through to the regular replay overlay so behaviour
+   * is preserved when contemporaries data is missing.
+   *
+   * Wikidata-style multi-language naming will land in 110E. */
   function showEndOfMvCtas(stage) {
     if (!cinemaSt || !stage) { return; }
     ensureWave6Styles();
     clearW6Overlay(stage);
+    if (cinemaSt.personId) {
+      // Try the person navigator; on failure fall through to the
+      // generic CTAs.
+      showPersonEndOfMvCtas(stage).catch(function () {
+        showGenericEndOfMvCtas(stage);
+      });
+      return;
+    }
+    showGenericEndOfMvCtas(stage);
+  }
+
+  async function showPersonEndOfMvCtas(stage) {
+    if (!cinemaSt || !cinemaSt.personId) throw new Error("no-person");
+    let codex = null;
+    try {
+      const r = await fetch(
+        "/api/person-mv/persons/" + encodeURIComponent(cinemaSt.personId) + "/codex",
+        { credentials: "same-origin" },
+      );
+      if (r.ok) {
+        const j = await r.json();
+        codex = (j && (j.data || j)) || null;
+      }
+    } catch (_e) {}
+    const contemporaries = (codex && Array.isArray(codex.contemporaries)) ? codex.contemporaries : [];
+    const lineage = (codex && Array.isArray(codex.lineage)) ? codex.lineage : [];
+    if (!contemporaries.length && !lineage.length) {
+      // No data → fall back to generic CTAs.
+      showGenericEndOfMvCtas(stage);
+      return;
+    }
+    /* Trim each list — TODO 110E: read from panelBehavior.cinema.peer_count.
+     * Until then default 4 contemporaries + 4 lineage = 8 cards total. */
+    const PEERS_PER_GROUP = 4;
+    const COUNTDOWN_SECS = 10;
+    const peers = [];
+    contemporaries.slice(0, PEERS_PER_GROUP).forEach(function (p) {
+      if (p && p.person_id) peers.push({ ...p, _group: "contemporary" });
+    });
+    lineage.slice(0, PEERS_PER_GROUP).forEach(function (p) {
+      if (p && p.person_id) peers.push({ ...p, _group: "lineage" });
+    });
+    if (!peers.length) { showGenericEndOfMvCtas(stage); return; }
+
+    const isZh = (function () {
+      try {
+        const loc = (globalThis.CSSOS_I18N && globalThis.CSSOS_I18N.getCurrentLocale && globalThis.CSSOS_I18N.getCurrentLocale()) || "en";
+        return /^zh/i.test(String(loc));
+      } catch (_e) { return false; }
+    })();
+    function localizedNm(p) {
+      if (isZh) return p.name_zh || p.name_en || p.person_id;
+      return p.name_en || p.name_zh || p.person_id;
+    }
+    function nativeNm(p) {
+      const primary = localizedNm(p);
+      const alt = isZh ? (p.name_en || "") : (p.name_zh || "");
+      return alt && alt !== primary ? alt : "";
+    }
+
+    const overlay = document.createElement("div");
+    overlay.className = "w6-overlay w6-person-overlay";
+    const title = isZh ? "本片已播完 · 选择下一位" : "Up next · pick a person";
+    const groupLabel = function (g) {
+      if (g === "contemporary") return isZh ? "🌐 同时代他文明" : "🌐 Contemporaries (other civs)";
+      return isZh ? "🌳 同文明传承" : "🌳 Same-civilization lineage";
+    };
+    const cardHtml = peers.map(function (p, i) {
+      const portrait = p.portrait_url || "";
+      const cover = portrait
+        ? '<div class="w6-pp-cover" style="background-image:url(\'' + String(portrait).replace(/'/g, "%27") + '\');"></div>'
+        : '<div class="w6-pp-cover w6-pp-cover-fallback">' + w6Esc((localizedNm(p) || "?").charAt(0)) + '</div>';
+      return '<button class="w6-pp-card" data-w6-peer="' + w6Esc(p.person_id) + '" data-w6-group="' + p._group + '">' +
+        cover +
+        '<div class="w6-pp-info">' +
+          '<div class="w6-pp-name">' + w6Esc(localizedNm(p)) + '</div>' +
+          (nativeNm(p) ? '<div class="w6-pp-native">' + w6Esc(nativeNm(p)) + '</div>' : '') +
+          '<div class="w6-pp-meta">' + w6Esc([p.civilization, p.era].filter(Boolean).join(" · ")) + '</div>' +
+        '</div>' +
+        '<div class="w6-pp-tag">' + groupLabel(p._group) + '</div>' +
+      '</button>';
+    }).join("");
+    overlay.innerHTML =
+      '<div class="w6-countdown" data-w6-count>' + COUNTDOWN_SECS + '</div>' +
+      '<div style="font:600 14px/1.3 ui-monospace,monospace;color:rgba(218,255,238,.85);margin-bottom:10px;">' + w6Esc(title) + '</div>' +
+      '<div class="w6-pp-grid">' + cardHtml + '</div>' +
+      '<div class="w6-cta-row" style="margin-top:18px;">' +
+        '<button class="w6-btn" data-w6-act="replay">🔄 ' + (isZh ? "再来一首" : "Replay") + '</button>' +
+        '<button class="w6-btn" data-w6-act="exit">← ' + (isZh ? "退出" : "Exit") + '</button>' +
+      '</div>' +
+      '<div class="w6-hint">' + (isZh ? "点卡片切换人物 · Esc 退出 · 倒计时结束自动再来一首" : "Click a card to switch · Esc to exit · timeout = replay") + '</div>';
+    stage.appendChild(overlay);
+
+    let userInteracted = false;
+    let secs = COUNTDOWN_SECS;
+    const countEl = overlay.querySelector("[data-w6-count]");
+    const start = Date.now();
+    cinemaSt._w6Timer = setInterval(function () {
+      if (userInteracted) return;
+      const elapsed = (Date.now() - start) / 1000;
+      const remaining = Math.max(0, COUNTDOWN_SECS - Math.floor(elapsed));
+      if (countEl) countEl.textContent = String(remaining);
+      if (remaining <= 0) {
+        clearW6Overlay(stage);
+        wave6ReplayCurrent({ randomStyle: true });
+      }
+    }, 200);
+
+    overlay.querySelectorAll("[data-w6-peer]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        userInteracted = true;
+        const pid = btn.getAttribute("data-w6-peer");
+        clearW6Overlay(stage);
+        try {
+          if (typeof globalThis.openPersonMvCodex === "function") {
+            // Switch out of cinema, into the new person's codex (or
+            // straight to cinema with autoCinema=true).
+            globalThis.openPersonMvCodex(pid, { autoCinema: true });
+            // Tear down the current cinema so the codex panel can take over.
+            try { exitCinemaMode(); } catch (_e) {}
+            return;
+          }
+        } catch (_e) {}
+        // Fallback: dispatch event for any other listener.
+        try {
+          document.dispatchEvent(new CustomEvent("cssos:open-person-codex", {
+            detail: { person_id: pid, autoCinema: true },
+          }));
+        } catch (_e) {}
+      });
+    });
+    overlay.querySelectorAll("[data-w6-act]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        userInteracted = true;
+        const act = btn.getAttribute("data-w6-act");
+        clearW6Overlay(stage);
+        if (act === "exit") exitCinemaMode();
+        else wave6ReplayCurrent({ randomStyle: true });
+      });
+    });
+    cinemaSt._w6KeyHandler = function (e) {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); userInteracted = true; clearW6Overlay(stage); exitCinemaMode(); }
+      else if (e.key === " ") { e.preventDefault(); e.stopPropagation(); userInteracted = true; clearW6Overlay(stage); wave6ReplayCurrent({ randomStyle: true }); }
+    };
+    document.addEventListener("keydown", cinemaSt._w6KeyHandler, true);
+  }
+
+  function showGenericEndOfMvCtas(stage) {
     const overlay = document.createElement("div");
     overlay.className = "w6-overlay";
     overlay.innerHTML =

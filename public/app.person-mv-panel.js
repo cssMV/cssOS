@@ -1534,9 +1534,19 @@
       ".pmv-codex .pmv-hero{position:relative;height:280px;border-radius:12px;overflow:hidden;margin:12px;background:linear-gradient(135deg,#012019,#003a2c);}" +
       ".pmv-codex .pmv-hero img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.55;}" +
       ".pmv-codex .pmv-hero-overlay{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-end;padding:18px;background:linear-gradient(transparent,rgba(0,0,0,.65));}" +
-      ".pmv-codex .pmv-hero-name-zh{font:800 32px/1.1 ui-serif,serif;color:#fff;letter-spacing:.04em;}" +
-      ".pmv-codex .pmv-hero-name-native{font:600 18px/1.2 ui-serif,serif;color:#bff5dc;margin-top:4px;}" +
-      ".pmv-codex .pmv-hero-name-latin{font:italic 500 13px/1.2 ui-serif,serif;color:#8edcc1;margin-top:2px;}" +
+      /* CSSOS_WAVE_110_CINEMA_CONTRAST 20260510 — Jing
+       * Bump native + latin name contrast — previous teal tints
+       * (#bff5dc / #8edcc1) read as washed-out grey on the gradient
+       * cinema background. New values still feel green-tinted but
+       * pass WCAG AA on dark backdrops. Includes a text-shadow so
+       * the names stay legible even on bright portrait sections. */
+      ".pmv-codex .pmv-hero-name-zh{font:800 32px/1.1 ui-serif,serif;color:#ffffff;letter-spacing:.04em;text-shadow:0 2px 8px rgba(0,0,0,0.7);}" +
+      ".pmv-codex .pmv-hero-name-native{font:600 18px/1.2 ui-serif,serif;color:#e6fff2;margin-top:4px;text-shadow:0 1px 6px rgba(0,0,0,0.65);}" +
+      ".pmv-codex .pmv-hero-name-latin{font:italic 500 13px/1.2 ui-serif,serif;color:#c8f0de;margin-top:2px;text-shadow:0 1px 4px rgba(0,0,0,0.55);}" +
+      /* Light theme: dark text on the (still-darkened) hero overlay. */
+      "html[data-theme=\"light\"] .pmv-codex .pmv-hero-name-zh{color:#ffffff;text-shadow:0 2px 10px rgba(0,0,0,0.85);}" +
+      "html[data-theme=\"light\"] .pmv-codex .pmv-hero-name-native{color:#f0fff7;text-shadow:0 1px 8px rgba(0,0,0,0.8);}" +
+      "html[data-theme=\"light\"] .pmv-codex .pmv-hero-name-latin{color:#daffe9;text-shadow:0 1px 6px rgba(0,0,0,0.75);}" +
       ".pmv-codex .pmv-chip-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;}" +
       ".pmv-codex .pmv-chip{background:rgba(0,245,160,0.15);border:1px solid rgba(0,245,160,0.35);border-radius:999px;padding:3px 10px;font:600 11px/1.4 ui-monospace,monospace;color:#daffee;}" +
       ".pmv-codex .pmv-chip-fallback{font-size:42px;letter-spacing:8px;opacity:.5;}" +
@@ -1706,9 +1716,25 @@
         ? '<img src="' + escAttr(portrait) + '" alt="" loading="lazy" decoding="async" />'
         : '<div class="pmv-chip-fallback" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">' + escTxt(symbols.slice(0, 16)) + '</div>';
 
-      var nameZh = p.name_zh || p.name_en || personId;
-      var nameNative = p.name_native && p.name_native !== nameZh ? p.name_native : "";
-      var nameLatin = p.name_latin || (p.name_en && p.name_en !== nameZh ? p.name_en : "");
+      /* CSSOS_WAVE_110_HERO_LOCALE 20260510 — Jing
+       * Big hero name = the user's CURRENT UI locale (English UI →
+       * "Confucius", Chinese UI → "孔子", etc.). The subtitle shows
+       * the person's MOTHER-TONGUE name (always native, regardless
+       * of UI), so a Japanese visitor still sees "孔子" beneath
+       * "Confucius". The third line (Latin/pinyin) is the romanised
+       * transliteration when distinct from both. */
+      var primaryHeroName = localizedName(p);
+      var nativeName = p.name_zh || p.name_en || personId;
+      var nameNative = (nativeName && nativeName !== primaryHeroName) ? nativeName : "";
+      // Treat name_native as a deeper-native string (e.g. Sanskrit) when
+      // it's different from both displayed names.
+      if (p.name_native && p.name_native !== primaryHeroName && p.name_native !== nameNative) {
+        nameNative = nameNative ? (nameNative + " · " + p.name_native) : p.name_native;
+      }
+      var nameLatin = p.name_latin
+        || (p.name_en && p.name_en !== primaryHeroName && p.name_en !== nameNative ? p.name_en : "");
+      // Backwards-compatible alias used by the original markup string.
+      var nameZh = primaryHeroName;
 
       var loreEmpty = !lore || (!lore.bio && !(Array.isArray(lore.events) && lore.events.length));
 

@@ -1011,13 +1011,33 @@ async fn download_to(url: &str, path: &Path) -> Result<()> {
     }
     // CSSOS_PHASE2_ARTIFACTS_URL 20260508 — Jing
     // Express mounts /artifacts/* on /srv/cssos/artifacts/. When the cover/
-    // music TS routes return image_url='/artifacts/mv-fallback/cover-xxx.jpg'
-    // the URL is relative — reqwest fails on it ("GET /artifacts/..."). Map
-    // /artifacts/<rel> -> /srv/cssos/artifacts/<rel> when the file exists.
-    if let Some(rel) = trimmed.strip_prefix("/artifacts/") {
+    // music TS routes return image_url='/artifacts/mv-fallback/cover-xxx.webp'
+    // (relative) OR 'https://cssstudio.app/artifacts/...' (absolute), the
+    // file is local — short-circuit to fs::copy instead of going out and
+    // back through nginx/reqwest. Map /artifacts/<rel> -> /srv/cssos/artifacts/<rel>
+    // when the file exists.
+    //
+    // CSSOS_WAVE_110 20260510 — Jing — also recognize the absolute form
+    // (https://cssstudio.app/artifacts/... / http://localhost:.../artifacts/...).
+    let artifacts_rel: Option<&str> = trimmed
+        .strip_prefix("/artifacts/")
+        .or_else(|| {
+            // Match any scheme://host[:port]/artifacts/<rel>
+            if let Some(idx) = trimmed.find("://") {
+                let after = &trimmed[idx + 3..];
+                if let Some(slash) = after.find('/') {
+                    let path_part = &after[slash..];
+                    return path_part.strip_prefix("/artifacts/");
+                }
+            }
+            None
+        });
+    if let Some(rel) = artifacts_rel {
         let artifacts_root = std::env::var("CSSOS_ARTIFACTS_DIR")
             .unwrap_or_else(|_| "/srv/cssos/artifacts".into());
-        let local = std::path::Path::new(&artifacts_root).join(rel);
+        // Strip any query string before joining the path.
+        let rel_clean = rel.split('?').next().unwrap_or(rel);
+        let local = std::path::Path::new(&artifacts_root).join(rel_clean);
         if tokio::fs::metadata(&local).await.is_ok() {
             tokio::fs::copy(&local, path)
                 .await

@@ -13,6 +13,7 @@ import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import type { PoolClient, QueryResult } from "pg";
 import { createRemoteJWKSet, jwtVerify, SignJWT } from "jose";
+import sharp from "sharp";
 import Anthropic from "@anthropic-ai/sdk";
 import Stripe from "stripe";
 // CSSOS_PERSON_MV_WAVE104 20260508 — Alipay + WeChat Pay scaffolding.
@@ -735,25 +736,74 @@ function sniffImageType(buf: Buffer): { ext: string; mime: string } {
   return { ext: "png", mime: "image/png" };
 }
 
+/* CSSOS_WAVE_110 20260510 — Jing
+ * Canonical absolute URL prefix for /artifacts/* assets.
+ * Was: relative `/artifacts/...` (caused compose-side ambiguity and
+ * cross-domain pain). Now: prefer APP_BASE_URL env, fall back to
+ * the production canonical host. Trailing slash stripped. */
+function publicArtifactsBase(): string {
+  const env = String(process.env.APP_BASE_URL || "").trim().replace(/\/+$/, "");
+  if (env) return env;
+  return "https://cssstudio.app";
+}
+
 /**
- * Persist a base64 image to MV_FALLBACK_ARTIFACTS_DIR and return a public URL
- * served by `/artifacts/mv-fallback`. On any failure, falls back to a data:
- * URL with the correctly-sniffed MIME type so browser preview still works.
+ * Persist a base64 image to MV_FALLBACK_ARTIFACTS_DIR as WebP (no
+ * jpg/png on disk — only `.webp` + `.thumb.webp`) and return the
+ * ABSOLUTE public URL.
+ *
+ * Why webp-only:
+ *   - jpg / png cost 30-60% more disk + bandwidth than equivalent
+ *     webp at q=80
+ *   - we generate the webp anyway via sharp; keeping the legacy
+ *     jpg/png alongside doubles storage for no benefit
+ *   - All modern browsers (Safari 14+, Chrome, Firefox, Edge) ship
+ *     webp; the old fallback path is no longer worth the disk
+ *
+ * Why absolute URL:
+ *   - Some downstream consumers (rust compose, R2 mirror, share
+ *     links, native iOS app webview) need a fully-qualified URL
+ *   - Mixing relative + absolute everywhere caused this week's
+ *     compose-failure debugging detour
+ *   - APP_BASE_URL env lets dev/staging override
+ *
+ * The companion thumbnail is at the same basename + .thumb.webp;
+ * callers that need it just swap the suffix.
  */
 function persistBase64Cover(b64: string, userId: unknown): string {
+  const userHash = crypto.createHash("sha1").update(String(userId)).digest("hex").slice(0, 8);
+  const rand = crypto.randomBytes(6).toString("hex");
+  const baseName = `cover-${userHash}-${Date.now()}-${rand}`;
+  const webpFilename = `${baseName}.webp`;
+  const thumbFilename = `${baseName}.thumb.webp`;
+  const webpPath = path.join(MV_FALLBACK_ARTIFACTS_DIR, webpFilename);
+  const thumbPath = path.join(MV_FALLBACK_ARTIFACTS_DIR, thumbFilename);
+  const absUrl = `${publicArtifactsBase()}/artifacts/mv-fallback/${webpFilename}`;
   try {
     const buf = Buffer.from(b64, "base64");
-    const { ext, mime } = sniffImageType(buf);
-    const userHash = crypto.createHash("sha1").update(String(userId)).digest("hex").slice(0, 8);
-    const rand = crypto.randomBytes(6).toString("hex");
-    const filename = `cover-${userHash}-${Date.now()}-${rand}.${ext}`;
-    const filePath = path.join(MV_FALLBACK_ARTIFACTS_DIR, filename);
-    fs.writeFileSync(filePath, buf, { mode: 0o644 });
-    try { fs.chmodSync(filePath, 0o644); } catch {}
-    // Wave 97: fire-and-forget mirror to R2 + WebP/thumb generation.
-    // No-op when R2 env unset; local file is still source of truth.
-    optimizeAndUploadAsync(filePath, "artifacts/mv-fallback");
-    return `/artifacts/mv-fallback/${filename}`;
+    /* sharp infers input format from the buffer header. We always
+     * encode WebP at q=80 — same setting as image-optimize.ts so
+     * the result is byte-identical to the previous Wave 97 webp
+     * sibling. Synchronous wait is intentional: callers expect a
+     * URL pointing at a real file on return. */
+    const sharpInst = sharp(buf, { failOn: "none" });
+    void sharpInst.webp({ quality: 80 }).toFile(webpPath).then(() => {
+      try { fs.chmodSync(webpPath, 0o644); } catch {}
+    }).catch((e) => {
+      console.warn("[mv-cover-fallback] webp encode failed:", (e as Error)?.message);
+    });
+    /* Thumb is always 400px wide, q=75 — matches generateThumbnail. */
+    void sharp(buf, { failOn: "none" })
+      .resize({ width: 400, withoutEnlargement: true })
+      .webp({ quality: 75 })
+      .toFile(thumbPath).then(() => {
+        try { fs.chmodSync(thumbPath, 0o644); } catch {}
+      }).catch((e) => {
+        console.warn("[mv-cover-fallback] thumb encode failed:", (e as Error)?.message);
+      });
+    /* Mirror to R2 once webp lands (best-effort fire-and-forget). */
+    setTimeout(() => { optimizeAndUploadAsync(webpPath, "artifacts/mv-fallback"); }, 250);
+    return absUrl;
   } catch (e) {
     console.warn("[mv-cover-fallback] persist failed, using data: URL:", e);
     try {

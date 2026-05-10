@@ -3955,9 +3955,39 @@
         // what they meant 99% of the time. They can still override by
         // explicitly writing English lyrics into the lyrics box for the
         // run; the user-typed lyrics path bypasses this LLM call entirely.
+        /* CSSOS_WAVE_110C 20260510 — Jing
+         * Person-MV mode: UI locale ALWAYS wins. The title is the
+         * person's mother-tongue name (e.g. "孔子" / "ベートーヴェン"),
+         * but the user is browsing in their UI language and wants
+         * lyrics in THAT language — Confucius MV in English UI →
+         * English lyrics, not Chinese. Title-script-wins rule only
+         * applies to AD-HOC MVs where the user typed the non-Latin
+         * content themselves.
+         *
+         * Priority for person MV:
+         *   1. user explicit pick (language panel touched)
+         *   2. UI locale module
+         *   3. html lang attribute
+         *   4. fallback "en"
+         *
+         * Priority for ad-hoc MV (unchanged):
+         *   1. non-Latin title-script (user typed → must match)
+         *   2. user explicit pick
+         *   3. title-script Latin
+         *   4. html lang / UI module
+         *   5. fallback "en"
+         */
+        const isPersonMv = !!state.personId;
         const nonLatinScripts = new Set(["zh", "ja", "ko", "ru"]);
         let resolvedLang;
-        if (tryTitleScript && nonLatinScripts.has(tryTitleScript)) {
+        if (isPersonMv) {
+          resolvedLang =
+            tryStateExplicit ||
+            tryCreationExplicit ||
+            tryUiModule ||
+            tryHtmlLang ||
+            "en";
+        } else if (tryTitleScript && nonLatinScripts.has(tryTitleScript)) {
           // Hard override — user typed non-Latin content, lyrics MUST match.
           resolvedLang = tryTitleScript;
         } else {

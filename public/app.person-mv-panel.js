@@ -1598,7 +1598,16 @@
       ".pmv-codex .pmv-chip-fallback{font-size:42px;letter-spacing:8px;opacity:.5;}" +
       ".pmv-codex .pmv-action-bar{display:flex;gap:10px;margin:0 12px 12px;flex-wrap:wrap;}" +
       ".pmv-codex .pmv-action-bar button{all:unset;cursor:pointer;padding:10px 18px;border-radius:10px;font:700 13px/1 ui-monospace,monospace;}" +
-      ".pmv-codex .pmv-cinema{background:linear-gradient(135deg,#00f5a0,#00c280);color:#001b14;font-size:15px!important;padding:12px 22px!important;}" +
+      /* CSSOS_WAVE_110C 20260510 — Jing
+       * Cinema CTA needs HIGH contrast — was #001b14 on #00f5a0
+       * (legibility ~3.8:1, fails AA on small text). New mix:
+       *   dark theme: deep-black text on bright green = ~10:1
+       *   light theme: keep dark text but bump contrast via shadow
+       * Bold weight + crisp shadow keeps the icon-and-label readable
+       * on every background. */
+      ".pmv-codex .pmv-cinema{background:linear-gradient(135deg,#00f5a0,#00c280);color:#001008;font-weight:800!important;font-size:15px!important;padding:12px 22px!important;text-shadow:0 1px 0 rgba(255,255,255,0.35);box-shadow:0 4px 12px rgba(0,245,160,0.35);}" +
+      ".pmv-codex .pmv-cinema:hover{filter:brightness(1.08);box-shadow:0 6px 18px rgba(0,245,160,0.5);}" +
+      "html[data-theme=\"light\"] .pmv-codex .pmv-cinema{color:#001008;text-shadow:0 1px 1px rgba(255,255,255,0.55);}" +
       /* CSSOS_PERSON_MV_BUG3 20260507 — Jing
        * Theme-aware action-bar buttons. Previous rules used fixed light
        * text on transparent backgrounds, which disappeared in light theme.

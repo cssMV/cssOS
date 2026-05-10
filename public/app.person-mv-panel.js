@@ -2130,6 +2130,8 @@
             personPortrait: portrait || "",
             personIntro: personIntro,
             coverPool: coverPool,
+            // CSSOS_WAVE_110E 20260510 — Jing — era-aware style chips.
+            personMusicStyleHint: p.music_style_hint || "",
           });
         }
       }

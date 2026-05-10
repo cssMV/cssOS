@@ -7173,6 +7173,8 @@
       person: {
         name: opts.personName || "",
         nameEn: opts.personNameEn || "",
+        // CSSOS_WAVE_110E 20260510 — era-aware style picker reads this.
+        musicStyleHint: opts.personMusicStyleHint || (opts.seed && opts.seed.style) || "",
         nameNative: opts.personNameNative || "",
         era: opts.personEra || "",
         civ: opts.personCiv || "",
@@ -8049,6 +8051,11 @@
       ".w6-countdown{font:800 48px/1 ui-monospace,monospace;color:#00f5a0;text-shadow:0 0 24px rgba(0,245,160,.5);margin-bottom:8px;}" +
       ".w6-style-grid{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:12px;max-width:min(720px,92vw);}" +
       ".w6-style-chip{all:unset;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 8px;border-radius:10px;background:rgba(0,245,160,.08);border:1px solid rgba(0,245,160,.32);font:700 13px/1.2 ui-monospace,monospace;color:#daffee;text-align:center;}" +
+      /* CSSOS_WAVE_110E 20260510 — Jing — era-aware chips glow gold to
+       * signal "this style fits this person's era better than the
+       * generic pool below." */
+      ".w6-style-chip.is-era-aware{background:linear-gradient(135deg,rgba(255,215,0,0.15),rgba(255,170,0,0.10));border-color:rgba(255,215,0,0.55);box-shadow:0 0 14px rgba(255,215,0,0.25);}" +
+      ".w6-style-chip.is-era-aware:hover{box-shadow:0 0 22px rgba(255,215,0,0.45);}" +
       ".w6-style-chip:hover{background:rgba(0,245,160,.2);transform:translateY(-1px);}" +
       ".w6-style-icon{font-size:28px;line-height:1;}" +
       ".cinema-storm-grid{position:absolute;inset:0;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr);gap:8px;padding:12px;background:#000;z-index:4;}" +
@@ -8398,28 +8405,73 @@
     globalThis.addEventListener("cssmv:run-finish", finishHandler, { once: true });
   }
 
+  /* CSSOS_WAVE_110E 20260510 — Jing
+   * Era-aware style picker. When the cinema is in person-MV mode,
+   * the picker FIRST surfaces styles drawn from the person's own
+   * music_style_hint field (which the LLM populated at seed/adhoc
+   * time with era-appropriate genres like "古风史诗 / 编钟与弦乐"
+   * for Confucius). The fixed 8-genre pool follows below as a
+   * fallback so the user can still pick anything. */
+  function buildEraAwareStyles() {
+    const personHint = (cinemaSt && cinemaSt.person && (
+      cinemaSt.seed && cinemaSt.seed.style ||
+      cinemaSt.person.musicStyleHint ||
+      ""
+    )) || "";
+    const hintParts = String(personHint || "")
+      .split(/[\/／·,，;；\n]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!hintParts.length) return [];
+    /* Each part becomes a chip with a synthesized icon. We don't
+     * have a curated icon-per-genre map for arbitrary LLM output,
+     * so use a generic 🎼 musical-score glyph for era-aware chips. */
+    return hintParts.slice(0, 5).map((p, i) => ({
+      key: "era-" + i + "-" + p.replace(/\s+/g, "_"),
+      icon: "🎼",
+      label_zh: p,
+      hint: p,
+      __eraAware: true,
+    }));
+  }
+
   function showStylePicker(stage) {
     if (!cinemaSt || !stage) return;
     ensureWave6Styles();
     clearW6Overlay(stage);
+    const eraStyles = buildEraAwareStyles();
+    const allChips = eraStyles.concat(WAVE6_STYLE_PRESETS);
     const overlay = document.createElement("div");
     overlay.className = "w6-overlay";
+    function tr(en) {
+      try {
+        const fn = globalThis.CSSOS_I18N && globalThis.CSSOS_I18N.tr;
+        if (typeof fn === "function") {
+          const t = fn(en);
+          if (typeof t === "string" && t) return t;
+        }
+      } catch (_e) {}
+      return en;
+    }
+    const headerLabel = eraStyles.length
+      ? tr("🎲 Pick a style · era-aware first")
+      : tr("🎲 Pick a style");
     overlay.innerHTML =
-      '<div style="font:800 22px/1.2 ui-monospace,monospace;color:#daffee;margin-bottom:18px;">🎲 选一种风格</div>' +
+      '<div style="font:800 22px/1.2 ui-monospace,monospace;color:#daffee;margin-bottom:18px;">' + headerLabel + '</div>' +
       '<div class="w6-style-grid">' +
-        WAVE6_STYLE_PRESETS.map(function (p) {
-          return '<button class="w6-style-chip" data-w6-style="' + w6Esc(p.key) + '">' +
+        allChips.map(function (p) {
+          return '<button class="w6-style-chip' + (p.__eraAware ? ' is-era-aware' : '') + '" data-w6-style="' + w6Esc(p.key) + '">' +
             '<span class="w6-style-icon">' + p.icon + '</span>' +
             '<span>' + w6Esc(p.label_zh) + '</span>' +
           '</button>';
         }).join("") +
       '</div>' +
-      '<div class="w6-hint" style="margin-top:18px;">Esc 返回</div>';
+      '<div class="w6-hint" style="margin-top:18px;">Esc ' + tr("back") + '</div>';
     stage.appendChild(overlay);
     overlay.querySelectorAll("[data-w6-style]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         const k = btn.getAttribute("data-w6-style");
-        const preset = WAVE6_STYLE_PRESETS.find(function (p) { return p.key === k; });
+        const preset = allChips.find(function (p) { return p.key === k; });
         clearW6Overlay(stage);
         if (preset) wave6ReplayCurrent({ styleHint: preset.hint });
       });

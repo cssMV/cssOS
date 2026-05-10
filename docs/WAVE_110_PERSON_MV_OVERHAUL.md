@@ -210,6 +210,47 @@ If the LLM output is still title-monotonous, add explicit instruction: "Generate
 
 ---
 
+## Wave 111 PREVIEW — Advanced Settings · Custom Lyrics / Music Source Uploads
+
+(Per Jing 20260510 — flagged as the BIG next bone after Person MV
+panel wraps. Brief sketch only; full plan when we get there.)
+
+The panel surface already has 5 input slots:
+  - Reference Audio (`.mp3` / `.wav` / `.flac`)
+  - MIDI Sketch (`.mid`)
+  - MusicXML Score (`.musicxml` / `.xml`)
+  - Score Image (`.png` / `.jpg`, OMR target)
+  - Numbered Notation / Staff Notation (text or image)
+
+Each slot today shows "Choose File" + placeholder ("After upload,
+this slot will show parse mode and extraction focus" / "...next
+parser shell"). The parsers themselves are NOT built yet.
+
+What it needs to become:
+
+  1. Audio parser → key/tempo/melody contour/structural form
+     - Use librosa or essentia in a small Python sidecar
+     - Output → enrich the music-engine prompt
+  2. MIDI parser → notes/chord progression/tempo map (mido/mid2hum)
+  3. MusicXML parser → music21 structural read
+  4. Score image OMR → Audiveris (Java) or oemer (Python)
+  5. Numbered/staff notation → custom rules + LLM fallback
+
+  Then the parsed musical structure becomes a STRONG condition
+  fed to the lyrics LLM ("write lyrics that fit THIS melody and
+  THIS chord progression"), the music engine (Suno-as-arranger
+  / ElevenLabs sync-binary with reference), and the cover/video
+  engines (use detected mood + tempo for visual pacing).
+
+Architectural note: this is the bridge between "user has musical
+ideas" and "AI fills in the gaps." Currently cssOS goes
+text → AI music. Wave 111 makes it (text + music sketch) → AI
+music that respects the user's input.
+
+Estimated effort: 2-3 sessions. Starts after Person MV closes.
+
+---
+
 ## Sequencing / prioritization
 
 1. **110A** ✅ — items 3 + 5-hero-name; plan

@@ -2460,8 +2460,21 @@
       }
     } catch (_progErr) { /* non-fatal */ }
 
-    // If we don't have an audio URL yet we can't play anything — give up.
-    if (!state.audioUrl) return false;
+    /* CSSOS_WAVE_110C 20260510 — Jing
+     * If the user's own music isn't ready, don't return silence
+     * (which feels like a horror movie). Fall back to a curated
+     * demo song from /assets/examples/. Each call picks randomly
+     * so the same fallback isn't always the same track. */
+    if (!state.audioUrl) {
+      var demos = [
+        "/assets/examples/Brothers.Sacred.Song.我替你挡住世界.mp3",
+        "/assets/examples/Cai.Wei.采薇.mp3",
+      ];
+      state.audioUrl = demos[Math.floor(Math.random() * demos.length)];
+      try {
+        console.warn("[mv-pipeline] no user audio — falling back to demo:", state.audioUrl);
+      } catch (_) {}
+    }
 
     try {
       // Make sure the <audio> element has the src loaded. The preload block

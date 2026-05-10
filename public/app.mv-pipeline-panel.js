@@ -6952,12 +6952,25 @@
       stage = document.createElement("div");
       stage.id = "cssos-cinema-stage";
       stage.className = "cinema-fullscreen cinema-stage";
+      /* CSSOS_WAVE_110B3 20260510 — Jing
+       * Top-right "switch to panel view" button — escape hatch from
+       * cinema fullscreen to the regular MV pipeline panel WITHOUT
+       * stopping the running pipeline. State is preserved (state.running,
+       * stage progress, generated assets) — only the rendering target
+       * changes.
+       *
+       * Also adds an "exit" button (×) and minimize (—) so cinema
+       * has the same panel-constitution affordances as any other panel. */
       stage.innerHTML =
         '<video class="cinema-video" playsinline></video>' +
         '<div class="cinema-subs"><div class="cinema-subs-line" hidden></div></div>' +
         '<div class="cinema-strip"></div>' +
         '<div class="cinema-teaser" hidden></div>' +
-        '<div class="cinema-loading" hidden></div>';
+        '<div class="cinema-loading" hidden></div>' +
+        '<div class="cinema-topbar">' +
+          '<button class="cinema-topbtn cinema-to-panel" type="button" aria-label="switch to panel" title="切换到面板视图 / Switch to panel view">⇘</button>' +
+          '<button class="cinema-topbtn cinema-exit" type="button" aria-label="exit cinema" title="退出影院 / Exit cinema">×</button>' +
+        '</div>';
       document.body.appendChild(stage);
     }
     stage.style.display = "";
@@ -6983,6 +6996,26 @@
       },
     };
 
+    // CSSOS_WAVE_110B3 20260510 — Jing
+    // Wire topbar buttons. cinema-to-panel keeps the running pipeline
+    // alive; only the rendering target switches from fullscreen
+    // overlay to the floating panel. The user can come back to cinema
+    // any time via the dock or the codex CTA.
+    const toPanelBtn = stage.querySelector(".cinema-to-panel");
+    if (toPanelBtn) {
+      toPanelBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        cinemaToPanelView();
+      });
+    }
+    const exitBtn = stage.querySelector(".cinema-exit");
+    if (exitBtn) {
+      exitBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        exitCinemaMode();
+      });
+    }
+
     // Bind keys
     cinemaSt.keyHandler = function (e) {
       if (!document.body.dataset.cinema) return;
@@ -6991,6 +7024,8 @@
       else if (e.key === "ArrowUp") { cinemaSkip(-1); e.preventDefault(); }
       else if (e.key === " ") { cinemaTogglePause(); e.preventDefault(); }
       else if (e.key === "m" || e.key === "M") { cinemaToggleMute(); e.preventDefault(); }
+      // CSSOS_WAVE_110B3 — P key: switch to panel view (preserves run)
+      else if (e.key === "p" || e.key === "P") { cinemaToPanelView(); e.preventDefault(); }
     };
     document.addEventListener("keydown", cinemaSt.keyHandler, true);
 
@@ -7044,6 +7079,63 @@
     }
     return panel;
   }
+  /* CSSOS_WAVE_110B3 20260510 — Jing
+   * Switch from full-screen cinema view to the regular MV pipeline
+   * panel WITHOUT stopping anything that's running. The pipeline
+   * state (state.running, stage progress, cssos:run_progress events,
+   * generated assets) is module-level and survives the rendering
+   * target swap. We just:
+   *   1. Hide the cinema body-level stage overlay
+   *   2. Drop body[data-cinema] so panel chrome rules apply again
+   *   3. Reveal the MV pipeline panel + maximize it
+   *   4. Detach the cinema key handler so its shortcuts don't fight
+   *      the panel's own ones
+   *
+   * Esc / × from the panel closes as usual; the user can re-enter
+   * cinema via the dock or codex CTA at any time. */
+  function cinemaToPanelView() {
+    if (!cinemaSt) return;
+    const panel = cinemaSt.panel || document.getElementById(PANEL_ID);
+    const stage = cinemaSt.stage || document.getElementById("cssos-cinema-stage");
+    try {
+      // Pause the cinema <video> — the panel has its own preview
+      // surface, no need to keep two playbacks running.
+      if (stage) {
+        const v = stage.querySelector(".cinema-video");
+        if (v) { try { v.pause(); } catch (_e) {} }
+        stage.style.display = "none";
+      }
+    } catch (_e) {}
+    try { delete document.body.dataset.cinema; } catch (_e) {}
+    if (panel) {
+      delete panel.dataset.cinema;
+      panel.classList.remove("hidden");
+      panel.style.display = "";
+      try {
+        if (panel.dataset.maximized !== "true" &&
+            !panel.classList.contains("panel-collapsed") &&
+            typeof globalThis.togglePanelMaximize === "function") {
+          globalThis.togglePanelMaximize(panel);
+        }
+      } catch (_e) {}
+      try {
+        if (typeof globalThis.focusPanel === "function") globalThis.focusPanel(panel);
+      } catch (_e) {}
+    }
+    // Detach cinema key handler — let the panel's own keys win.
+    if (cinemaSt.keyHandler) {
+      try { document.removeEventListener("keydown", cinemaSt.keyHandler, true); } catch (_e) {}
+      cinemaSt.keyHandler = null;
+    }
+    // Toast so the user knows the run is still alive.
+    try {
+      if (typeof globalThis.showToast === "function") {
+        globalThis.showToast("Switched to panel view · pipeline still running / 已切换到面板视图，生成继续");
+      }
+    } catch (_e) {}
+    // Don't null out cinemaSt — re-entering cinema later restores it.
+  }
+
   function exitCinemaMode() {
     try { delete document.body.dataset.cinema; } catch (_e) {}
     if (!cinemaSt) return;
@@ -7523,6 +7615,11 @@
        * so cinema cannot leak any chrome regardless of stale caches or
        * wrapper elements. The overlay is positioned over everything. */
       '#cssos-cinema-stage.cinema-fullscreen { position:fixed; inset:0; z-index:99999; background:#000; display:flex; align-items:center; justify-content:center; }' +
+      /* CSSOS_WAVE_110B3 20260510 — top-right cinema controls. */
+      '#cssos-cinema-stage .cinema-topbar { position:absolute; top:env(safe-area-inset-top, 12px); right:env(safe-area-inset-right, 12px); z-index:100; display:flex; gap:8px; pointer-events:none; }' +
+      '#cssos-cinema-stage .cinema-topbtn { pointer-events:auto; width:36px; height:36px; border-radius:50%; background:rgba(255,255,255,0.10); border:1px solid rgba(255,255,255,0.22); color:#fff; font:600 16px/1 -apple-system,system-ui,sans-serif; cursor:pointer; backdrop-filter:blur(14px) saturate(140%); -webkit-backdrop-filter:blur(14px) saturate(140%); transition:background 160ms ease, border-color 160ms ease, transform 160ms ease; user-select:none; }' +
+      '#cssos-cinema-stage .cinema-topbtn:hover { background:rgba(255,255,255,0.20); border-color:rgba(255,255,255,0.55); transform:scale(1.05); }' +
+      '#cssos-cinema-stage .cinema-topbtn.cinema-exit:hover { background:rgba(220,40,60,0.45); border-color:rgba(220,40,60,0.85); }' +
       '.panel[data-cinema="true"] { display:none !important; }' +
       /* Legacy panel-scoped rules kept as a defensive belt-and-braces
        * in case some build caches an older enterCinemaMode that mounts
@@ -7816,7 +7913,11 @@
       } else if (act === "style") {
         showStylePicker(stage);
       } else if (act === "storm") {
-        enterStormMode();
+        /* CSSOS_WAVE_110B3 20260510 — Jing
+         * Storm mode is expensive (~$0.50 per session). Gated to
+         * Pro+ subscribers only — free users see a paywall toast
+         * with a CTA to upgrade. */
+        gateStormForPremium();
       } else if (act === "exit") {
         exitCinemaMode();
       }
@@ -7937,6 +8038,44 @@
       if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); clearW6Overlay(stage); cinemaSkip(+1); }
     };
     document.addEventListener("keydown", cinemaSt._w6KeyHandler, true);
+  }
+
+  /* CSSOS_WAVE_110B3 20260510 — Jing
+   * Pro+ gate for Storm Mode. Each storm session costs ~$0.50 in
+   * music-engine spend (5 × Suno @ $0.08 + 5 × Lyrics LLM @ $0.02).
+   * Free / trial users see a one-line toast that opens the premium
+   * modal so they can upgrade. Caches the result for 30s so the
+   * end-of-MV overlay doesn't roundtrip every time. */
+  let _stormPremiumCache = { at: 0, isPremium: false };
+  async function gateStormForPremium() {
+    const now = Date.now();
+    let isPremium = _stormPremiumCache.isPremium;
+    if (now - _stormPremiumCache.at > 30000) {
+      try {
+        const r = await fetch("/api/premium/status", { credentials: "include" });
+        if (r.ok) {
+          const j = await r.json().catch(function () { return null; });
+          isPremium = !!(j && j.ok && j.data && j.data.is_premium);
+        }
+      } catch (_e) { /* network blip → assume not premium so we don't expose feature */ }
+      _stormPremiumCache = { at: now, isPremium: isPremium };
+    }
+    if (!isPremium) {
+      try {
+        if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(
+            "🔥 Storm mode is a Pro+ feature · ~$0.50 per session / 风暴模式仅限 Pro+ · 单次约 $0.50"
+          );
+        }
+        if (typeof globalThis.openPremiumModal === "function") {
+          globalThis.openPremiumModal();
+        } else {
+          location.hash = "#premium";
+        }
+      } catch (_e) {}
+      return;
+    }
+    enterStormMode();
   }
 
   /* Storm mode — fan-out 5 runs with different style presets.

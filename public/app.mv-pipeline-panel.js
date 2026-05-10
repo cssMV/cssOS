@@ -125,10 +125,67 @@
     "atmospheric trap",
     "dream trance"
   ];
-  // Cover prompt suffix — was hardcoded English-only inline. Now i18n +
-  // overridable via env/catalog if we ever want a different visual style.
-  const COVER_PROMPT_SUFFIX_EN = " — album cover, cinematic, high detail";
-  const COVER_PROMPT_SUFFIX_ZH = " ——专辑封面，电影感，高细节";
+  /* CSSOS_WAVE_110E4 20260510 — Jing
+   * Cover prompt suffix — strengthened to match the default
+   * cinematic music style and to actively suppress AI-image
+   * distortion artefacts (warped faces, extra limbs, melted
+   * hands). Per Jing: "默认输出是电影风格，封面图也要电影风格，
+   * 不要变形".
+   *
+   * Cinematic directives: anamorphic widescreen aspect, dramatic
+   * key + rim lighting, shallow depth of field, film grain,
+   * 35mm photographic look, color-graded.
+   *
+   * Anti-distortion: anatomically accurate, balanced composition,
+   * no deformities, no extra fingers/limbs, photorealistic,
+   * sharp focus.
+   *
+   * Style-aware override: when state.style explicitly mentions
+   * a non-cinematic genre (rock, jpop, lofi, etc.) the visual
+   * idiom flexes — see deriveCoverStyleSuffix() below. */
+  const COVER_PROMPT_SUFFIX_CINEMATIC_EN =
+    " — cinematic still, anamorphic widescreen, dramatic key + rim lighting, " +
+    "shallow depth of field, film grain, 35mm photographic, color-graded; " +
+    "anatomically accurate, balanced composition, no deformities, no extra limbs, " +
+    "no warped faces, photorealistic, sharp focus, high detail";
+  const COVER_PROMPT_SUFFIX_CINEMATIC_ZH =
+    " ——电影感剧照，宽银幕变形镜头，主光+轮廓光戏剧化，浅景深，胶片颗粒，35mm 摄影感，调色精致；" +
+    "解剖准确，构图平衡，无畸形，无多余四肢，无变形面孔，高度写实，焦点锐利，细节丰富";
+  /* Backwards-compat aliases — older code paths still reference
+   * COVER_PROMPT_SUFFIX_EN/ZH; point them at the new cinematic
+   * suffix so every cover request gets the upgrade. */
+  const COVER_PROMPT_SUFFIX_EN = COVER_PROMPT_SUFFIX_CINEMATIC_EN;
+  const COVER_PROMPT_SUFFIX_ZH = COVER_PROMPT_SUFFIX_CINEMATIC_ZH;
+
+  /* Translate music-style hints into matching visual language for
+   * the cover. Returns an additional suffix appended after the
+   * cinematic base (which always runs to suppress distortion). */
+  function deriveCoverStyleSuffix(style, isZh) {
+    const s = String(style || "").toLowerCase();
+    if (!s) return "";
+    if (/cyber|赛博|synthwave|neon/i.test(s)) {
+      return isZh ? "，赛博朋克霓虹，未来主义" : ", cyberpunk neon, futurism, neo-tokyo palette";
+    }
+    if (/rock|punk|摇滚/i.test(s)) {
+      return isZh ? "，摇滚现场氛围，强对比" : ", rock-concert atmosphere, high contrast";
+    }
+    if (/lofi|lo-fi|chill/i.test(s)) {
+      return isZh ? "，慵懒柔光，复古胶片" : ", soft lo-fi mood, retro film stock";
+    }
+    if (/jpop|j-pop|anime/i.test(s)) {
+      return isZh ? "，日系动漫光影，闪亮配色" : ", anime-style lighting, sparkling palette";
+    }
+    if (/tang|唐|guzheng|pipa/i.test(s)) {
+      return isZh ? "，唐风工笔重彩，丹青气韵" : ", Tang-dynasty painterly, ink-wash atmosphere";
+    }
+    if (/古风|guofeng|chinese-classical/i.test(s)) {
+      return isZh ? "，中国古典水墨意境" : ", Chinese classical ink-wash mood";
+    }
+    if (/baroque|巴洛克|classical/i.test(s)) {
+      return isZh ? "，巴洛克明暗对比，油画质感" : ", baroque chiaroscuro, oil-painting texture";
+    }
+    return "";  // unknown style → cinematic baseline only
+  }
   // Default video duration when music stage hasn't resolved yet. Video
   // providers typically charge by seconds so we keep the default conservative.
   const VIDEO_DEFAULT_DURATION_SECS = 8;
@@ -3795,13 +3852,20 @@
       // fire-and-forget so they don't taint the return contract, but they
       // belong in dispatchStageEvents alongside the slideshow trigger.
       async function runCoverStage(state, _opts) {
-        const coverSuffix = (globalThis.currentLocale === "zh")
-          ? COVER_PROMPT_SUFFIX_ZH
-          : COVER_PROMPT_SUFFIX_EN;
+        /* CSSOS_WAVE_110E4 20260510 — Jing
+         * Always start with the cinematic + anti-distortion baseline,
+         * then layer a style-derived visual idiom on top so the cover
+         * matches the music genre (rock-concert atmosphere for rock,
+         * Tang-painterly for tang, etc.). When state.style is empty
+         * the cinematic baseline alone gives a film-still look that
+         * matches the default cinematic music output. */
+        const isZh = globalThis.currentLocale === "zh";
+        const coverSuffix = isZh ? COVER_PROMPT_SUFFIX_ZH : COVER_PROMPT_SUFFIX_EN;
+        const styleSuffix = deriveCoverStyleSuffix(state.style, isZh);
         const cover = await postJson(
           "/api/mv/cover",
           withEngine("cover", {
-            prompt: state.prompt + coverSuffix,
+            prompt: state.prompt + coverSuffix + styleSuffix,
             ratio: state.outputSpec && state.outputSpec.runwayImageRatio
               ? state.outputSpec.runwayImageRatio
               : null
@@ -3829,7 +3893,7 @@
               postJson(
                 "/api/mv/cover",
                 withEngine("cover", {
-                  prompt: state.prompt + coverSuffix + suffix,
+                  prompt: state.prompt + coverSuffix + styleSuffix + suffix,
                   ratio: state.outputSpec && state.outputSpec.runwayImageRatio
                     ? state.outputSpec.runwayImageRatio
                     : null

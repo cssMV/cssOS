@@ -1044,6 +1044,41 @@ async fn download_to(url: &str, path: &Path) -> Result<()> {
                 .with_context(|| format!("copy artifacts URL {} -> {:?}", trimmed, path))?;
             return Ok(());
         }
+        // CSSOS_WAVE_110B 20260510 — Jing
+        // Wave 110 deleted legacy .jpg/.png in favor of .webp+.thumb.webp.
+        // Old DB rows still reference .jpg URLs. Auto-fallback to the
+        // .webp companion when the original raster doesn't exist —
+        // this lets stale frontend state and old MV records compose
+        // cleanly without forcing a DB migration of every row.
+        let lower = rel_clean.to_ascii_lowercase();
+        let webp_candidate: Option<String> = if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+            Some(format!(
+                "{}.webp",
+                &rel_clean[..rel_clean.len() - (if lower.ends_with(".jpeg") { 5 } else { 4 })]
+            ))
+        } else if lower.ends_with(".png") {
+            Some(format!("{}.webp", &rel_clean[..rel_clean.len() - 4]))
+        } else {
+            None
+        };
+        if let Some(alt) = webp_candidate {
+            let alt_local = std::path::Path::new(&artifacts_root).join(&alt);
+            if tokio::fs::metadata(&alt_local).await.is_ok() {
+                tokio::fs::copy(&alt_local, path).await.with_context(|| {
+                    format!(
+                        "copy artifacts webp fallback {} -> {:?}",
+                        alt_local.display(),
+                        path
+                    )
+                })?;
+                tracing::info!(
+                    target = "mv_compose",
+                    "auto-fellback to webp companion for legacy URL {}",
+                    trimmed
+                );
+                return Ok(());
+            }
+        }
     }
     let resp = reqwest::get(url)
         .await

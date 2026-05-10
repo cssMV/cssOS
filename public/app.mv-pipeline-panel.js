@@ -589,6 +589,27 @@
   function planComposeSegments(opts) {
     const tierId = String(opts.tierId || "").toLowerCase();
     const coverUrl = opts.coverUrl;
+    /* CSSOS_WAVE_110C 20260510 — Jing
+     * coverPool: array of additional cover URLs (from this person's
+     * past MVs across all users) that the lite slideshow can rotate
+     * through. When pool is non-empty, each kenburns segment uses a
+     * different image — the slideshow becomes a visual gallery
+     * accumulating over time. When empty, fall back to single
+     * coverUrl per segment (original behaviour). */
+    const coverPool = Array.isArray(opts.coverPool) ? opts.coverPool.filter(Boolean) : [];
+    /* Pool may not include the current run's coverUrl yet (that gets
+     * added after the run lands). Prepend it so this run shows the
+     * fresh cover too. Dedupe. */
+    const segmentCovers = (function () {
+      const all = [];
+      if (coverUrl) all.push(coverUrl);
+      coverPool.forEach((u) => { if (u && all.indexOf(u) === -1) all.push(u); });
+      return all;
+    })();
+    function pickCover(i) {
+      if (segmentCovers.length === 0) return coverUrl;
+      return segmentCovers[i % segmentCovers.length];
+    }
     // CSSOS_PHASE2_LITE_FALLBACK 20260429 #176 — Jing
     // Was 60s default → cut every long song to a 1-min slideshow. Bump
     // to 200s so even when caller can't supply a duration estimate the
@@ -704,22 +725,20 @@
     const safeT = Math.min(t, Math.max(0.4, each * 0.4));
     const segments = [];
     for (let i = 0; i < N; i++) {
+      const segCover = pickCover(i);
       segments.push({
         kind: "kenburns_image",
-        source_url: coverUrl,
+        source_url: segCover,
         duration_secs: Number(each.toFixed(3)),
         effect: effects[i % effects.length],
         transition: "fade",
         transition_duration_secs: Number(safeT.toFixed(3)),
-        // CSSOS_PHASE2_FACE_DETECT 20260430 #224b — Jing
-        // Lite slideshow uses one cover for every segment. If face
-        // detection landed on this cover, every Ken Burns segment
-        // orbits that focus point. Each segment's effect (zoom_in,
-        // pan_left, etc.) interacts with the focus differently — the
-        // backend's render_kenburns picks the right combo so the face
-        // stays in the visible viewport throughout the song.
-        ...(focusX != null ? { focus_x: focusX } : {}),
-        ...(focusY != null ? { focus_y: focusY } : {})
+        /* CSSOS_PHASE2_FACE_DETECT 20260430 #224b — focus only valid
+         * when the segment uses the freshly-detected cover. When the
+         * pool rotates through other covers (Wave 110C), drop focus
+         * so the backend uses its rule-of-thirds default per-image. */
+        ...(focusX != null && segCover === coverUrl ? { focus_x: focusX } : {}),
+        ...(focusY != null && segCover === coverUrl ? { focus_y: focusY } : {})
       });
     }
     return {
@@ -5494,7 +5513,10 @@
           // and its duration so Hybrid/Cinematic can splice it into the
           // timeline instead of leaving it on the cutting-room floor.
           aiVideoUrl: state.videoUrl,
-          aiVideoDurSecs: state.videoDurSecs
+          aiVideoDurSecs: state.videoDurSecs,
+          // CSSOS_WAVE_110C 20260510 — Jing — accumulated cover gallery
+          // for this person, supplied at cinema-entry from the codex API.
+          coverPool: Array.isArray(state.coverPool) ? state.coverPool : []
         });
         const _composeBase = {
           mv_id: mvId,
@@ -6853,6 +6875,33 @@
       // Mark this mv_id committed so subsequent runs (e.g. resumed from
       // history, or compose-done firing twice) become no-ops.
       if (targetMvId) state.committedMvId = targetMvId;
+      /* CSSOS_WAVE_110D 20260510 — Jing
+       * Take 2 → its own MV (background fire-and-forget).
+       * Suno generates 2 audio variants per call; the old behaviour
+       * kept Take 2 as an A/B switch backup, wasting half the engine
+       * spend. Now: after Work A commits, if altAudioUrl exists AND
+       * state.coverPool has at least 2 entries (so we have a distinct
+       * second cover), spawn an async compose + commit for Take 2.
+       * Fire-and-forget — user doesn't wait, errors logged but not
+       * surfaced. The Codex grid picks up Work B on next refresh. */
+      try {
+        if (state.altAudioUrl && !state.altAudioUrl.startsWith("file://")) {
+          spawnTake2Mv({
+            personId: state.personId,
+            altAudioUrl: state.altAudioUrl,
+            altDuration: state.altDuration,
+            primaryCoverUrl: state.coverUrl,
+            coverPool: Array.isArray(state.coverPool) ? state.coverPool : [],
+            seedTitle: state.title,
+            style: state.style,
+            lyrics: state.lyrics,
+            engineCosts: engineCosts,
+            engineMeta: engineMeta,
+          });
+        }
+      } catch (take2Err) {
+        try { console.warn("[mv-pipeline][take2] spawn failed (non-fatal)", take2Err); } catch (_e) {}
+      }
       const savedMsg = copy(
         "Saved as work · ",
         "已保存为作品 · "
@@ -6873,6 +6922,112 @@
         globalThis.showToast(failMsg);
       }
       return null;
+    }
+  }
+
+  /* CSSOS_WAVE_110D 20260510 — Jing
+   * Background spawner for the Take-2 sibling MV. Builds a fresh
+   * compose request with:
+   *   - alt_audio_url (Take 2 from Suno)
+   *   - kenburns segments using a DIFFERENT cover from coverPool
+   *     when one exists; otherwise falls back to the primary cover
+   *     (will read identical to Work A — better than wasting the
+   *     audio entirely)
+   * Then commits as a separate work_id with a "Take 2" suffix on the
+   * title so the codex shows two distinct entries.
+   *
+   * Fire-and-forget: never blocks UI, never surfaces errors directly.
+   * If the user closes the tab the request still completes server-side
+   * (compose endpoint is request-driven; commit needs the response so
+   * the user must stay until ~2-3min after primary commit for full
+   * Work B persistence). Acceptable trade — Take 1 already saved. */
+  async function spawnTake2Mv(args) {
+    const altUrl = args.altAudioUrl;
+    if (!altUrl) return;
+    /* Pick a different cover from the pool. The pool that the planner
+     * received is from BEFORE this run committed Work A, so the
+     * primary cover URL may not be in it. Pick the first entry that
+     * is NOT primaryCoverUrl. If pool is empty or only contains the
+     * primary, reuse primary (visual sameness is fine — audio differs). */
+    let altCover = args.primaryCoverUrl;
+    const distinctPool = (args.coverPool || []).filter(
+      (u) => u && u !== args.primaryCoverUrl
+    );
+    if (distinctPool.length) {
+      altCover = distinctPool[Math.floor(Math.random() * distinctPool.length)];
+    }
+    /* Build kenburns segments using the alt cover as primary, with
+     * the rest of the pool rotating in if available. Same plan shape
+     * as the main compose used. */
+    let altPlan;
+    try {
+      altPlan = planComposeSegments({
+        tierId: "lite",
+        coverUrl: altCover,
+        durationSecs: Number(args.altDuration) > 1
+          ? Number(args.altDuration)
+          : (Number(state.targetDurationSecs) || 200),
+        coverPool: distinctPool.length ? distinctPool : [],
+      });
+    } catch (planErr) {
+      try { console.warn("[mv-pipeline][take2] planCompose threw", planErr); } catch (_e) {}
+      return;
+    }
+    if (!altPlan || !altPlan.segments || !altPlan.segments.length) return;
+    /* New mv_id for the sibling; reuse a deterministic-ish prefix so
+     * support can correlate sibling runs in logs. */
+    const altMvId = "take2-" + (state.mvId || Date.now()) + "-" + Math.random().toString(36).slice(2, 8);
+    const altComposeBody = {
+      mv_id: altMvId,
+      audio_url: altUrl,
+      segments: altPlan.segments,
+      width: 1920,
+      height: 1080,
+      fps: 24,
+      output_dir: "/srv/cssos/artifacts/mv",
+      public_prefix: "/artifacts/mv",
+    };
+    let composedB;
+    try {
+      composedB = await postJson("/api/mv/compose", withEngine("compose", altComposeBody));
+    } catch (composeErr) {
+      try { console.warn("[mv-pipeline][take2] compose failed (non-fatal)", composeErr); } catch (_e) {}
+      return;
+    }
+    if (!composedB || !composedB.mv_url) return;
+    /* Commit as a separate work. Title gets a "Take 2" suffix so the
+     * codex grid + works center clearly shows the variant. */
+    const titleBase = String(args.seedTitle || "Untitled MV").trim();
+    const altTitle = titleBase + " · Take 2";
+    try {
+      await postJson("/api/mv/commit", {
+        title: altTitle.slice(0, 120),
+        style: args.style || null,
+        lyrics_preview: args.lyrics ? args.lyrics.slice(0, 8000) : null,
+        lyrics_full: args.lyrics || null,
+        duration_secs: Number(args.altDuration || 0) || null,
+        cover_image_url: altCover,
+        preview_image_url: altCover,
+        preview_video_url: composedB.mv_url,
+        final_mv_url: composedB.mv_url,
+        audio_url: altUrl,
+        alt_audio_url: null,
+        alt_duration_secs: null,
+        source_run_id: altMvId,
+        engine_costs_cents: args.engineCosts || [],
+        engine_meta: args.engineMeta || [],
+        // Tag so admin/UX can identify these without parsing title
+        is_take2: true,
+      });
+      try { console.info("[mv-pipeline][take2] sibling MV committed:", composedB.mv_url); } catch (_e) {}
+      /* Dispatch run-finish so the codex grid can refresh. */
+      try {
+        globalThis.dispatchEvent(new CustomEvent("cssmv:run-finish", {
+          detail: { mv_url: composedB.mv_url, take: 2, person_id: args.personId || null },
+        }));
+      } catch (_e) {}
+    } catch (commitErr) {
+      try { console.warn("[mv-pipeline][take2] commit failed (non-fatal)", commitErr); } catch (_e) {}
     }
   }
 
@@ -7798,6 +7953,13 @@
       }, 0);
     }
     refreshStageBadges();
+    /* CSSOS_WAVE_110C 20260510 — Jing
+     * Stash personId + coverPool on the pipeline state so downstream
+     * stages (lyrics language resolver, lite-tier slideshow planner)
+     * can find them. coverPool is the codex's accumulated cover
+     * gallery — passed through from enterCinemaForPerson. */
+    if (opts.personId) state.personId = opts.personId;
+    if (Array.isArray(opts.coverPool)) state.coverPool = opts.coverPool;
     // Pre-fill inputs from seed so the user can see (and edit) the values
     // that are about to be rendered. Empty fields stay empty — runAll()
     // synthesises from the seed bank when still blank.
@@ -7974,6 +8136,17 @@
     });
     if (!peers.length) { showGenericEndOfMvCtas(stage); return; }
 
+    /* CSSOS_WAVE_110E 20260510 — i18n via tr(). */
+    function trI18n(en) {
+      try {
+        const fn = globalThis.CSSOS_I18N && globalThis.CSSOS_I18N.tr;
+        if (typeof fn === "function") {
+          const t = fn(en);
+          if (typeof t === "string" && t) return t;
+        }
+      } catch (_e) {}
+      return en;
+    }
     const isZh = (function () {
       try {
         const loc = (globalThis.CSSOS_I18N && globalThis.CSSOS_I18N.getCurrentLocale && globalThis.CSSOS_I18N.getCurrentLocale()) || "en";
@@ -7992,10 +8165,10 @@
 
     const overlay = document.createElement("div");
     overlay.className = "w6-overlay w6-person-overlay";
-    const title = isZh ? "本片已播完 · 选择下一位" : "Up next · pick a person";
+    const title = trI18n("This MV finished · pick another person");
     const groupLabel = function (g) {
-      if (g === "contemporary") return isZh ? "🌐 同时代他文明" : "🌐 Contemporaries (other civs)";
-      return isZh ? "🌳 同文明传承" : "🌳 Same-civilization lineage";
+      if (g === "contemporary") return trI18n("🌐 Contemporaries (other civs)");
+      return trI18n("🌳 Same-civilization lineage");
     };
     const cardHtml = peers.map(function (p, i) {
       const portrait = p.portrait_url || "";
@@ -8017,10 +8190,10 @@
       '<div style="font:600 14px/1.3 ui-monospace,monospace;color:rgba(218,255,238,.85);margin-bottom:10px;">' + w6Esc(title) + '</div>' +
       '<div class="w6-pp-grid">' + cardHtml + '</div>' +
       '<div class="w6-cta-row" style="margin-top:18px;">' +
-        '<button class="w6-btn" data-w6-act="replay">🔄 ' + (isZh ? "再来一首" : "Replay") + '</button>' +
-        '<button class="w6-btn" data-w6-act="exit">← ' + (isZh ? "退出" : "Exit") + '</button>' +
+        '<button class="w6-btn" data-w6-act="replay">🔄 ' + trI18n("Play again") + '</button>' +
+        '<button class="w6-btn" data-w6-act="exit">← ' + trI18n("Exit") + '</button>' +
       '</div>' +
-      '<div class="w6-hint">' + (isZh ? "点卡片切换人物 · Esc 退出 · 倒计时结束自动再来一首" : "Click a card to switch · Esc to exit · timeout = replay") + '</div>';
+      '<div class="w6-hint">' + trI18n("Click a card to switch · Esc to exit · timeout = replay") + '</div>';
     stage.appendChild(overlay);
 
     let userInteracted = false;
@@ -8079,17 +8252,33 @@
 
   function showGenericEndOfMvCtas(stage) {
     const overlay = document.createElement("div");
+    /* CSSOS_WAVE_110E 20260510 — Jing
+     * All visible strings now route through CSSOS_I18N.tr() so a
+     * Japanese / Korean / Spanish user sees their own language
+     * instead of zh/en mix. Defaults preserve original meaning. */
+    function i18nTr(en) {
+      try {
+        var fn = globalThis.CSSOS_I18N && globalThis.CSSOS_I18N.tr;
+        if (typeof fn === "function") {
+          var t = fn(en);
+          if (typeof t === "string" && t) return t;
+        }
+      } catch (_e) {}
+      return en;
+    }
     overlay.className = "w6-overlay";
     overlay.innerHTML =
       '<div class="w6-countdown" data-w6-count>5</div>' +
-      '<div style="font:600 14px/1.3 ui-monospace,monospace;color:rgba(218,255,238,.85);">本片已播完</div>' +
-      '<div class="w6-cta-row">' +
-        '<button class="w6-btn is-default" data-w6-act="replay">🔄 再来一首</button>' +
-        '<button class="w6-btn" data-w6-act="style">🎲 换风格</button>' +
-        '<button class="w6-btn" data-w6-act="storm">🔥 风暴模式</button>' +
-        '<button class="w6-btn" data-w6-act="exit">← 退出</button>' +
+      '<div style="font:600 14px/1.3 ui-monospace,monospace;color:rgba(218,255,238,.85);">' +
+        i18nTr("This MV finished") +
       '</div>' +
-      '<div class="w6-hint">Space=再来一首 · S=换风格 · F=风暴 · Esc=退出</div>';
+      '<div class="w6-cta-row">' +
+        '<button class="w6-btn is-default" data-w6-act="replay">🔄 ' + i18nTr("Play again") + '</button>' +
+        '<button class="w6-btn" data-w6-act="style">🎲 ' + i18nTr("Change style") + '</button>' +
+        '<button class="w6-btn" data-w6-act="storm">🔥 ' + i18nTr("Storm mode") + '</button>' +
+        '<button class="w6-btn" data-w6-act="exit">← ' + i18nTr("Exit") + '</button>' +
+      '</div>' +
+      '<div class="w6-hint">' + i18nTr("Space = play again · S = style · F = storm · Esc = exit") + '</div>';
     stage.appendChild(overlay);
 
     let userInteracted = false;

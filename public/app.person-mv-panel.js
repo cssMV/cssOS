@@ -1589,6 +1589,11 @@
       ".pmv-codex .pmv-hero-name-zh{font:800 32px/1.1 ui-serif,serif;color:#ffffff;letter-spacing:.04em;text-shadow:0 2px 8px rgba(0,0,0,0.7);}" +
       ".pmv-codex .pmv-hero-name-native{font:600 18px/1.2 ui-serif,serif;color:#e6fff2;margin-top:4px;text-shadow:0 1px 6px rgba(0,0,0,0.65);}" +
       ".pmv-codex .pmv-hero-name-latin{font:italic 500 13px/1.2 ui-serif,serif;color:#c8f0de;margin-top:2px;text-shadow:0 1px 4px rgba(0,0,0,0.55);}" +
+      /* CSSOS_WAVE_110E 20260510 — Wikidata-style multi-language strip. */
+      ".pmv-codex .pmv-hero-name-variants{font:500 11px/1.4 ui-serif,serif;color:rgba(218,255,238,0.78);margin-top:6px;text-shadow:0 1px 4px rgba(0,0,0,0.55);max-width:90vw;}" +
+      ".pmv-codex .pmv-hero-name-variant{display:inline-block;}" +
+      ".pmv-codex .pmv-hero-name-variant-sep{color:rgba(0,245,160,0.55);padding:0 2px;}" +
+      "html[data-theme=\"light\"] .pmv-codex .pmv-hero-name-variants{color:#e0fff0;text-shadow:0 1px 6px rgba(0,0,0,0.7);}" +
       /* Light theme: dark text on the (still-darkened) hero overlay. */
       "html[data-theme=\"light\"] .pmv-codex .pmv-hero-name-zh{color:#ffffff;text-shadow:0 2px 10px rgba(0,0,0,0.85);}" +
       "html[data-theme=\"light\"] .pmv-codex .pmv-hero-name-native{color:#f0fff7;text-shadow:0 1px 8px rgba(0,0,0,0.8);}" +
@@ -1799,11 +1804,54 @@
       var heroAttr = (lore && String(lore.source||"") === "wiki+llm")
         ? '<div class="pmv-hero-attribution">' + escTxt(tt("Image: Wikipedia / CC-BY-SA", "图源：Wikipedia / CC-BY-SA")) + '</div>'
         : '';
+      /* CSSOS_WAVE_110E 20260510 — Jing
+       * Wikipedia-style multi-language name strip below the primary
+       * + native names. p.name_variants is a JSONB map of
+       * locale → display string. We surface up to 6 variants that
+       * differ from both primaryHeroName and nativeName so a
+       * Japanese / Korean / Russian visitor sees their own reading
+       * even if the UI is English. Locale order favours common
+       * languages first; full set lives in title attr for tooltip. */
+      var nameVariantsHtml = "";
+      try {
+        var variants = (p && p.name_variants && typeof p.name_variants === "object") ? p.name_variants : {};
+        var preferredOrder = ["en", "zh", "ja", "ko", "ru", "es", "fr", "de", "ar", "hi", "pt", "it"];
+        var seen = new Set();
+        seen.add(primaryHeroName);
+        if (nameNative) {
+          // Native could be "孔子" or "孔子 · Sanskrit" — split on " · " and add each
+          String(nameNative).split(/\s+·\s+/).forEach(function (s) { if (s) seen.add(s); });
+        }
+        var keys = preferredOrder.concat(
+          Object.keys(variants).filter(function (k) { return preferredOrder.indexOf(k) === -1; })
+        );
+        var displayed = [];
+        keys.forEach(function (k) {
+          if (displayed.length >= 6) return;
+          var v = variants[k];
+          if (!v) return;
+          var s = String(v).trim();
+          if (!s || seen.has(s)) return;
+          seen.add(s);
+          displayed.push({ locale: k, name: s });
+        });
+        if (displayed.length) {
+          nameVariantsHtml = '<div class="pmv-hero-name-variants" title="' + escAttr(
+            displayed.map(function (d) { return d.name + " (" + d.locale + ")"; }).join(" · ")
+          ) + '">' +
+            displayed.map(function (d) {
+              return '<span class="pmv-hero-name-variant">' + escTxt(d.name) + '</span>';
+            }).join('<span class="pmv-hero-name-variant-sep"> · </span>') +
+          '</div>';
+        }
+      } catch (_e) { /* non-fatal */ }
+
       h += '<div class="pmv-hero">' + heroBg +
         '<div class="pmv-hero-overlay">' +
           '<div class="pmv-hero-name-zh">' + escTxt(nameZh) + '</div>' +
           (nameNative ? '<div class="pmv-hero-name-native">' + escTxt(nameNative) + '</div>' : '') +
           (nameLatin ? '<div class="pmv-hero-name-latin">' + escTxt(nameLatin) + '</div>' : '') +
+          nameVariantsHtml +
           '<div class="pmv-chip-row">' +
             (meta ? '<span class="pmv-chip">' + escTxt(meta) + '</span>' : '') +
             '<span class="pmv-chip">' + escTxt(tt("Influence", "影响力")) + ' · ' + influence + '</span>' +
@@ -2060,6 +2108,13 @@
             personIntro = personIntro.slice(0, 79).replace(/\s+\S*$/, "") + "…";
           }
         } catch (_e) {}
+        /* CSSOS_WAVE_110C 20260510 — Jing
+         * Pipe the codex's cover_pool through to the pipeline so the
+         * lite-tier kenburns slideshow can use ALL covers any user
+         * has generated for this person, not just the freshly-rendered
+         * one. Backend caps at 24 + randomizes per-call. Empty pool
+         * (first MV) → pipeline falls back to cover-stage output. */
+        var coverPool = (data && Array.isArray(data.cover_pool)) ? data.cover_pool : [];
         if (typeof globalThis.openMvPipelinePanel === "function") {
           globalThis.openMvPipelinePanel({
             cinema: true,
@@ -2074,6 +2129,7 @@
             personCiv: p.civilization || "",
             personPortrait: portrait || "",
             personIntro: personIntro,
+            coverPool: coverPool,
           });
         }
       }

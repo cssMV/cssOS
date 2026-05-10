@@ -19907,6 +19907,39 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
       console.warn("[person-mv] codex groups list failed:", (err as Error)?.message || err);
     }
 
+    /* CSSOS_WAVE_110C 20260510 — Jing
+     * cover_pool: every cover image any user has generated for this
+     * person, randomized + capped at 24. The pipeline's lite-tier
+     * kenburns slideshow uses this pool so successive runs accumulate
+     * a richer visual library. ffmpeg comfortably handles 24 images
+     * over a 3-min song (~7s each). When pool < 24, the pipeline uses
+     * what's there. When pool === 0 (first MV), the cover stage's
+     * fresh output is the only image (existing behaviour). */
+    let coverPool: string[] = [];
+    try {
+      const cpR = await withClient((c) =>
+        c.query<{ cover_image: string }>(
+          `SELECT DISTINCT w.cover_image
+             FROM person_mvs pm
+             JOIN user_works w ON w.id = pm.work_id
+            WHERE pm.person_id = $1
+              AND w.cover_image IS NOT NULL
+              AND w.cover_image <> ''
+            ORDER BY random()
+            LIMIT 24`,
+          [id],
+        ),
+      );
+      coverPool = (cpR.rows || [])
+        .map((r) => String(r.cover_image || "").trim())
+        .filter(Boolean);
+    } catch (err) {
+      console.warn(
+        "[person-mv] codex cover_pool aggregate failed (non-fatal):",
+        (err as Error)?.message || err,
+      );
+    }
+
     return res.json({
       ok: true,
       data: {
@@ -19920,6 +19953,7 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
         lineage: linR.rows,
         total_mv_count: totalMvCount,
         my_mv_count: myMvCount,
+        cover_pool: coverPool,
       },
     });
   } catch (err) {

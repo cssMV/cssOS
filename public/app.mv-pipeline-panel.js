@@ -5641,24 +5641,63 @@
         );
       } catch (composeErr) {
         const composeMsg = composeErr && composeErr.message ? composeErr.message : String(composeErr);
-        console.warn("[mv-pipeline] compose stage failed, falling back to music-only:", composeErr);
-        setStage(
-          "compose",
-          "error",
-          copy(
-            "Compose failed (" + composeMsg + ") · playing music fallback",
-            "合成失败（" + composeMsg + "）· 已切换到音乐播放"
-          ),
-          0
-        );
-        fallbackToMusicOnly(copy(
-          "Compose timed out · playing music",
-          "合成超时 · 播放音乐"
-        ));
-        renderSummary();
-        const sentinel = new Error("__CSSMV_SHORT_CIRCUIT__:compose:" + composeMsg);
-        sentinel.__shortCircuit = "compose";
-        throw sentinel;
+        const composeStatus = Number((composeErr && composeErr.status) || 0);
+        /* CSSOS_WAVE_110B 20260510 — Jing
+         * 502 / 504 from nginx-or-node frequently means rust IS still
+         * working and our connection just timed out. Try ONE retry
+         * after a short delay before falling through to music-only.
+         * Most retries succeed because rust has cached the partial
+         * work (probes, segment renders) and resumes from where it
+         * left off. */
+        const isGatewayTimeout = composeStatus === 502 || composeStatus === 504 || /502\b|504\b|gateway/i.test(composeMsg);
+        if (isGatewayTimeout && !composeErr.__retried) {
+          try {
+            console.warn("[mv-pipeline] compose 502/504 — retrying once after 4s");
+            setStage("compose", "running", copy(
+              "Compose connection lost — retrying…",
+              "合成连接丢失，正在重试…"
+            ), 50);
+            await new Promise(function (r) { setTimeout(r, 4000); });
+            composed = await withTimeout(
+              postJson("/api/mv/compose", withEngine("compose", _composeBase)),
+              COMPOSE_TIMEOUT_MS,
+              "compose"
+            );
+            // Success on retry — fall out of catch into the success path.
+          } catch (retryErr) {
+            retryErr.__retried = true;
+            const retryMsg = retryErr && retryErr.message ? retryErr.message : String(retryErr);
+            console.warn("[mv-pipeline] compose retry also failed:", retryErr);
+            setStage("compose", "error",
+              copy("Compose failed after retry (" + retryMsg + ") · playing music fallback",
+                   "重试后合成仍失败（" + retryMsg + "）· 已切换到音乐播放"), 0);
+            fallbackToMusicOnly(copy("Compose timed out · playing music", "合成超时 · 播放音乐"));
+            renderSummary();
+            const sentinel2 = new Error("__CSSMV_SHORT_CIRCUIT__:compose:" + retryMsg);
+            sentinel2.__shortCircuit = "compose";
+            throw sentinel2;
+          }
+          // Retry succeeded — fall through to the success continuation below.
+        } else {
+          console.warn("[mv-pipeline] compose stage failed, falling back to music-only:", composeErr);
+          setStage(
+            "compose",
+            "error",
+            copy(
+              "Compose failed (" + composeMsg + ") · playing music fallback",
+              "合成失败（" + composeMsg + "）· 已切换到音乐播放"
+            ),
+            0
+          );
+          fallbackToMusicOnly(copy(
+            "Compose timed out · playing music",
+            "合成超时 · 播放音乐"
+          ));
+          renderSummary();
+          const sentinel = new Error("__CSSMV_SHORT_CIRCUIT__:compose:" + composeMsg);
+          sentinel.__shortCircuit = "compose";
+          throw sentinel;
+        }
       }
 
       // CSSOS_MV_DAG_WAVE_7F 20260508 — state.mvUrl + recordEngine + setStage

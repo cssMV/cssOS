@@ -210,6 +210,95 @@ If the LLM output is still title-monotonous, add explicit instruction: "Generate
 
 ---
 
+## Wave 112 PREVIEW — Cities / Landmarks / Sites MV (Civilization Universe expansion)
+
+(Per Jing 20260510 — flagged after Wave 111. Dock icon already
+says 🏛 "Civilization MV"; unifying People + Places under it.)
+
+### Why this matters
+
+Historic sites are stories with infrastructure. Each landmark
+yields MULTIPLE narrative angles:
+
+  - 长城 → built-by (蒙恬), war (戍守), legend (孟姜女), modern war
+  - 故宫 → founding (永乐), daily life (康熙读书), fall (1924)
+  - 罗马斗兽场 → gladiators, Christian martyrs, Renaissance ruin
+  - Mount Everest → mythology, pilgrimage, climbing history,
+    geopolitics
+
+A single landmark can support 5-10 MVs against different angles.
+The data multiplier is bigger than single-person MVs.
+
+### Architecture: extend, don't rebuild
+
+90% of Person-MV infra is reusable:
+  - MV pipeline (lyrics + music + cover + video + compose)
+  - Cinema + storm + Take 2 + cover_pool
+  - Panel constitution (drag / 8-resize / 3 buttons)
+  - Dedupe + edit/delete + user creations
+  - Tier system (S / A / B / Compendium / User)
+  - Era-aware style picker
+  - cssos:run_progress events
+
+What's new:
+  - Schema: `landmark_profiles` table (location, period, civ,
+    notable_events[], coordinates, related_persons[])
+  - Different "story angle" picker — instead of bio events:
+    built / witnessed / inhabited / destroyed / restored /
+    legend
+  - Different cover prompt template (location aesthetics +
+    weather + time-of-day rather than portrait)
+  - Cross-graph relationships: landmark ↔ person ↔ event
+  - Different navigator at end-of-MV: "nearby landmarks" +
+    "same-civ landmarks" + "people who visited here"
+
+### UX: tabs in the existing panel
+
+  ┌─────────────────────────────────────────────────────┐
+  │ 🏛 Civilization MV · Civilization Universe          │
+  │ ┌─────────┬───────────┬──────────┐                  │
+  │ │ People  │ Landmarks │  Events  │                  │
+  │ └─────────┴───────────┴──────────┘                  │
+  │                                                     │
+  │ [search] [filter: era] [filter: civ] [tier]         │
+  │                                                     │
+  │ ⭐ Hall of Fame Landmarks (S)                        │
+  │ 🎴 Notable Sites (A)                                │
+  │ 📜 Compendium (B/C)                                 │
+  │ 👤 User-added Sites                                 │
+  └─────────────────────────────────────────────────────┘
+
+  Dock icon stays 🏛, tooltip becomes "Civilization MV (People +
+  Sites + Events)".
+
+### Data sources for seeding
+
+  - UNESCO World Heritage Sites (~1200 entries) → curated S/A
+  - Wikidata Q-IDs for historic sites → name_variants pre-populated
+  - Top tourist attractions per civilization (LLM curated, ~500)
+  - User submissions: "Add a place" — same dedupe rules as people
+
+### Estimated effort
+
+  3-4 sessions:
+    Session 1: schema + seed (UNESCO + Wikidata pull)
+    Session 2: tab UI + landmark codex (mostly forking
+               person-codex)
+    Session 3: story-angle picker + cross-graph navigator
+    Session 4: i18n + Wikidata multi-lang names backfill
+
+### Sequencing
+
+  - Wave 111 (Music Source Uploads) FIRST — that's a parser-pipeline
+    feature that benefits People + Places + Events equally
+  - Wave 112 (Landmarks tab) AFTER 111
+
+  Both waves play well together: a landmark's lyrics LLM call can
+  use a custom audio reference uploaded for the place's "official
+  theme music."
+
+---
+
 ## Wave 111 PREVIEW — Advanced Settings · Custom Lyrics / Music Source Uploads
 
 (Per Jing 20260510 — flagged as the BIG next bone after Person MV

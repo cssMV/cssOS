@@ -2093,16 +2093,29 @@
         // Build a short person intro for cinema's loading hero. Source
         // priority: lore.bio first sentence > core_theme > roles join.
         // Truncated to ~80 chars with ellipsis.
+        /* CSSOS_WAVE_110E2 20260510 — Jing — strip ANSI/control chars
+         * that occasionally leak from LLM-generated bios. */
+        function _stripAnsi(s) {
+          return String(s == null ? "" : s)
+            .replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, "")
+            .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
+            .replace(/\x1b/g, "")
+            .replace(/\x00\[[0-9;]*m/g, "")
+            .replace(/\bm?\[?[0-9]{1,3}(?:;[0-9]{1,3})*[A-Za-z]/g, "")
+            .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "")
+            .replace(/\s{2,}/g, " ")
+            .trim();
+        }
         var personIntro = "";
         try {
-          var bio = lore && typeof lore.bio === "string" ? lore.bio : "";
+          var bio = lore && typeof lore.bio === "string" ? _stripAnsi(lore.bio) : "";
           if (bio) {
             var firstSent = bio.split(/[。.!?！？\n]/)[0];
             if (firstSent) personIntro = firstSent.trim();
           }
-          if (!personIntro && p.core_theme) personIntro = String(p.core_theme).trim();
+          if (!personIntro && p.core_theme) personIntro = _stripAnsi(String(p.core_theme)).trim();
           if (!personIntro && Array.isArray(p.roles) && p.roles.length) {
-            personIntro = p.roles.filter(Boolean).join("·");
+            personIntro = p.roles.filter(Boolean).map(_stripAnsi).join("·");
           }
           if (personIntro && personIntro.length > 80) {
             personIntro = personIntro.slice(0, 79).replace(/\s+\S*$/, "") + "…";

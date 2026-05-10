@@ -7324,6 +7324,8 @@
   }
 
   function exitCinemaMode() {
+    /* CSSOS_WAVE_110E2 20260510 — tear down info auto-hide listeners. */
+    try { if (cinemaSt && typeof cinemaSt._infoAutoHide === "function") cinemaSt._infoAutoHide(); } catch (_e) {}
     try { delete document.body.dataset.cinema; } catch (_e) {}
     if (!cinemaSt) return;
     const panel = cinemaSt.panel;
@@ -7364,6 +7366,49 @@
     }
     cinemaSt = null;
   }
+  /* CSSOS_WAVE_110E2 20260510 — Jing
+   * Center info auto-hide. After 10s of playback the strip + any
+   * lingering loading text fade to 0. Cursor / touch / key wakes
+   * them and re-arms the timer. Honors prefers-reduced-motion via
+   * existing transition CSS. */
+  function armCinemaInfoAutoHide() {
+    if (!cinemaSt || !cinemaSt.stage) return;
+    const stage = cinemaSt.stage;
+    const strip = stage.querySelector(".cinema-strip");
+    const loading = stage.querySelector(".cinema-loading");
+    let hideTimer = 0;
+    function showAll() {
+      if (strip) strip.style.opacity = "";
+      if (loading) loading.style.opacity = "";
+    }
+    function hideAll() {
+      if (strip) strip.style.opacity = "0";
+      if (loading) loading.style.opacity = "0.18"; /* keep faintly visible */
+    }
+    function bump() {
+      showAll();
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(hideAll, 10000);
+    }
+    /* Tear down any prior arm. */
+    try { if (cinemaSt._infoAutoHide) cinemaSt._infoAutoHide(); } catch (_e) {}
+    /* Wake-on-activity. Throttled — bump runs at most once per
+     * pointermove burst because clearTimeout is cheap. */
+    function onMove() { bump(); }
+    document.addEventListener("pointermove", onMove, { passive: true });
+    document.addEventListener("touchstart", onMove, { passive: true });
+    document.addEventListener("keydown", onMove);
+    cinemaSt._infoAutoHide = function () {
+      clearTimeout(hideTimer);
+      try { document.removeEventListener("pointermove", onMove); } catch (_e) {}
+      try { document.removeEventListener("touchstart", onMove); } catch (_e) {}
+      try { document.removeEventListener("keydown", onMove); } catch (_e) {}
+      showAll();
+      cinemaSt._infoAutoHide = null;
+    };
+    bump();
+  }
+
   async function cinemaPlayCurrent() {
     if (!cinemaSt || !cinemaSt.queue.length) return;
     const wid = cinemaSt.queue[cinemaSt.idx];
@@ -7410,6 +7455,13 @@
     video.muted = false;
     video.autoplay = true;
     try { await video.play(); } catch (_e) {}
+
+    /* CSSOS_WAVE_110E2 20260510 — Jing
+     * Auto-hide center info (strip title + cinema-loading text)
+     * after 10s of playback so the visual breathes. Any user
+     * activity (pointermove/touchstart/keydown) reshows them and
+     * resets the timer. */
+    armCinemaInfoAutoHide();
     if (strip) {
       // CSSOS_PERSON_MV_WAVE5 20260507 — strip now hosts title/idx + a Like button.
       const titleStr = (title || "untitled") + (creator ? " · " + creator : "") +
@@ -7618,6 +7670,26 @@
         .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     };
+    /* CSSOS_WAVE_110E2 20260510 — Jing
+     * Strip ANSI/VT100 escape sequences that occasionally leak in
+     * from LLM-generated bios, server log copy-paste, or upstream
+     * tooling. Pattern covers CSI (\x1b[…m), OSC, and the bare
+     * remnants we've seen rendered ("0[34m", "0[4m", etc — where
+     * the leading \x1b got dropped by JSON transport).
+     *
+     * Also strip C0 control chars (\x00-\x1f except \t \n \r) and
+     * the escape itself, then collapse leftover empty `[…m]` chunks. */
+    const stripAnsi = function (s) {
+      return String(s == null ? "" : s)
+        .replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, "")  // CSI sequences
+        .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "") // OSC sequences
+        .replace(/\x1b/g, "")                         // bare ESC
+        .replace(/\x00\[[0-9;]*m/g, "")               // \0[34m leftovers
+        .replace(/\bm?\[?[0-9]{1,3}(?:;[0-9]{1,3})*[A-Za-z]/g, "") // bare [34m / 0[34m
+        .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "") // C0 ctrls (keep \t \n \r)
+        .replace(/\s{2,}/g, " ")
+        .trim();
+    };
     const name = person.name || "";
     const sub = [person.nameEn, person.nameNative].filter(Boolean).join(" · ");
     const chips = [person.era, person.civ].filter(Boolean);
@@ -7686,7 +7758,13 @@
           '<div class="cinema-hero-progress-bar"><div class="cinema-hero-progress-fill" data-cinema-progress-fill></div></div>' +
           '<div class="cinema-hero-progress-pct" data-cinema-progress-pct>0%</div>' +
         '</div>' +
-        (intro ? '<div class="cinema-hero-intro">' + intro + '</div>' : '') +
+        /* CSSOS_WAVE_110E2 20260510 — Jing — "乱码" fix.
+         * intro was inserted RAW (every other field used esc()). When
+         * the LLM-generated bio contained ANSI escape sequences from
+         * a stray prompt-injection or copy-paste, the codes rendered
+         * as gibberish like "0m0[34m0[4m...". Now we (1) strip ANSI,
+         * (2) HTML-escape, (3) clamp to 2 lines via existing CSS. */
+        (intro ? '<div class="cinema-hero-intro">' + esc(stripAnsi(intro)) + '</div>' : '') +
       '</div>';
     loading.hidden = false;
 
@@ -7821,7 +7899,8 @@
       '.panel[data-cinema="true"] .panel-body > *:not(.cinema-stage) { display:none !important; }' +
       '#cssos-cinema-stage, .panel[data-cinema="true"] .cinema-stage { position:fixed; inset:0; background:#000; display:flex; align-items:center; justify-content:center; }' +
       '#cssos-cinema-stage .cinema-video, .panel[data-cinema="true"] .cinema-video { width:100%; height:100%; object-fit:contain; background:#000; }' +
-      '#cssos-cinema-stage .cinema-strip, .panel[data-cinema="true"] .cinema-strip { position:absolute; left:0; right:0; bottom:0; padding:8px 14px; color:#daffee; font:600 12px/1.3 ui-monospace,monospace; background:linear-gradient(transparent,rgba(0,0,0,.7)); text-align:center; }' +
+      '#cssos-cinema-stage .cinema-strip, .panel[data-cinema="true"] .cinema-strip { position:absolute; left:0; right:0; bottom:0; padding:8px 14px; color:#daffee; font:600 12px/1.3 ui-monospace,monospace; background:linear-gradient(transparent,rgba(0,0,0,.7)); text-align:center; transition: opacity 600ms ease; }' +
+      '#cssos-cinema-stage .cinema-loading { transition: opacity 600ms ease; }' +
       '#cssos-cinema-stage .cinema-loading, .panel[data-cinema="true"] .cinema-loading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#daffee; }' +
       '#cssos-cinema-stage .cinema-hero-bg, .panel[data-cinema="true"] .cinema-hero-bg { position:absolute; inset:0; background-size:cover; background-position:center; opacity:.18; filter:blur(6px) saturate(1.05); }' +
       '#cssos-cinema-stage .cinema-hero-block, .panel[data-cinema="true"] .cinema-hero-block { position:relative; text-align:center; padding:0 24px; max-width:min(900px,92vw); }' +
@@ -8032,6 +8111,20 @@
     s.textContent =
       ".w6-overlay{position:absolute;inset:0;background:rgba(0,0,0,.78);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:5;color:#daffee;padding:24px;}" +
       /* CSSOS_WAVE_110B4 20260510 — person navigator cards. */
+      /* CSSOS_WAVE_110E2 20260510 — Jing
+       * Person navigator now lives in a BOTTOM STRIP (like normal MV
+       * up-next), not a center modal that takes over the screen. The
+       * card art + countdown sit at the bottom; the cinema video /
+       * portrait stays visible behind so the user keeps the visual
+       * context of the MV they just finished. */
+      ".w6-person-overlay{justify-content:flex-end !important;padding:0 !important;background:linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.65) 60%, rgba(0,0,0,0) 100%) !important;}" +
+      ".w6-person-overlay .w6-countdown{position:absolute;top:24px;right:24px;font-size:32px;}" +
+      ".w6-person-overlay .w6-pp-grid-wrap{width:100%;padding:14px 24px 18px;}" +
+      ".w6-person-overlay .w6-pp-grid{display:flex;flex-wrap:nowrap;overflow-x:auto;gap:10px;max-width:100%;padding:4px 0;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch;scrollbar-width:none;}" +
+      ".w6-person-overlay .w6-pp-grid::-webkit-scrollbar{display:none;}" +
+      ".w6-person-overlay .w6-pp-card{flex:0 0 150px;height:200px;scroll-snap-align:start;}" +
+      ".w6-person-overlay .w6-cta-row{padding-bottom:16px;margin-top:0 !important;}" +
+      ".w6-person-overlay .w6-hint{padding-bottom:8px;}" +
       ".w6-pp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;max-width:min(900px,92vw);width:100%;}" +
       ".w6-pp-card{all:unset;cursor:pointer;position:relative;display:flex;flex-direction:column;height:220px;border-radius:12px;overflow:hidden;background:rgba(8,18,14,0.65);border:1px solid rgba(0,245,160,0.25);transition:transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;}" +
       ".w6-pp-card:hover{transform:translateY(-3px);border-color:rgba(0,245,160,0.7);box-shadow:0 6px 24px rgba(0,245,160,0.22);}" +
@@ -8192,15 +8285,21 @@
         '<div class="w6-pp-tag">' + groupLabel(p._group) + '</div>' +
       '</button>';
     }).join("");
+    /* CSSOS_WAVE_110E2 20260510 — Jing — bottom-strip layout.
+     * Cards now occupy a horizontal scrolling strip pinned to the
+     * bottom of the cinema, leaving the previous MV's visual
+     * context visible above. Countdown floats top-right. */
     overlay.innerHTML =
       '<div class="w6-countdown" data-w6-count>' + COUNTDOWN_SECS + '</div>' +
-      '<div style="font:600 14px/1.3 ui-monospace,monospace;color:rgba(218,255,238,.85);margin-bottom:10px;">' + w6Esc(title) + '</div>' +
-      '<div class="w6-pp-grid">' + cardHtml + '</div>' +
-      '<div class="w6-cta-row" style="margin-top:18px;">' +
-        '<button class="w6-btn" data-w6-act="replay">🔄 ' + trI18n("Play again") + '</button>' +
-        '<button class="w6-btn" data-w6-act="exit">← ' + trI18n("Exit") + '</button>' +
-      '</div>' +
-      '<div class="w6-hint">' + trI18n("Click a card to switch · Esc to exit · timeout = replay") + '</div>';
+      '<div class="w6-pp-grid-wrap">' +
+        '<div style="font:600 13px/1.3 ui-monospace,monospace;color:rgba(218,255,238,.85);margin-bottom:8px;padding:0 4px;">' + w6Esc(title) + '</div>' +
+        '<div class="w6-pp-grid">' + cardHtml + '</div>' +
+        '<div class="w6-cta-row">' +
+          '<button class="w6-btn" data-w6-act="replay">🔄 ' + trI18n("Play again") + '</button>' +
+          '<button class="w6-btn" data-w6-act="exit">← ' + trI18n("Exit") + '</button>' +
+        '</div>' +
+        '<div class="w6-hint">' + trI18n("Click a card to switch · Esc to exit · timeout = replay") + '</div>' +
+      '</div>';
     stage.appendChild(overlay);
 
     let userInteracted = false;

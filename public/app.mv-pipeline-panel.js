@@ -8117,7 +8117,10 @@
        * card art + countdown sit at the bottom; the cinema video /
        * portrait stays visible behind so the user keeps the visual
        * context of the MV they just finished. */
-      ".w6-person-overlay{justify-content:flex-end !important;padding:0 !important;background:linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.65) 60%, rgba(0,0,0,0) 100%) !important;}" +
+      ".w6-person-overlay{justify-content:flex-end !important;padding:0 !important;background:linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.65) 60%, rgba(0,0,0,0) 100%) !important;z-index:50 !important;pointer-events:auto !important;}" +
+      /* CSSOS_WAVE_110E3 20260510 — defensive: cards must be clickable
+       * regardless of cinema-strip / cinema-loading stacking. */
+      ".w6-person-overlay .w6-pp-card,.w6-person-overlay .w6-btn{pointer-events:auto !important;cursor:pointer;position:relative;z-index:51;}" +
       ".w6-person-overlay .w6-countdown{position:absolute;top:24px;right:24px;font-size:32px;}" +
       ".w6-person-overlay .w6-pp-grid-wrap{width:100%;padding:14px 24px 18px;}" +
       ".w6-person-overlay .w6-pp-grid{display:flex;flex-wrap:nowrap;overflow-x:auto;gap:10px;max-width:100%;padding:4px 0;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch;scrollbar-width:none;}" +
@@ -8322,12 +8325,14 @@
         userInteracted = true;
         const pid = btn.getAttribute("data-w6-peer");
         clearW6Overlay(stage);
+        /* CSSOS_WAVE_110E3 20260510 — Jing
+         * Card click → directly create a NEW MV for that person,
+         * not land on the codex bio page. openCodex receives
+         * autoCinemaCreate which fires enterCinemaForPerson(
+         * forceNew:true) right after codex render lands. */
         try {
           if (typeof globalThis.openPersonMvCodex === "function") {
-            // Switch out of cinema, into the new person's codex (or
-            // straight to cinema with autoCinema=true).
-            globalThis.openPersonMvCodex(pid, { autoCinema: true });
-            // Tear down the current cinema so the codex panel can take over.
+            globalThis.openPersonMvCodex(pid, { autoCinemaCreate: true });
             try { exitCinemaMode(); } catch (_e) {}
             return;
           }
@@ -8335,7 +8340,7 @@
         // Fallback: dispatch event for any other listener.
         try {
           document.dispatchEvent(new CustomEvent("cssos:open-person-codex", {
-            detail: { person_id: pid, autoCinema: true },
+            detail: { person_id: pid, autoCinemaCreate: true },
           }));
         } catch (_e) {}
       });

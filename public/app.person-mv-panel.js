@@ -1704,8 +1704,19 @@
   /* CSSOS_PERSON_MV_WAVE5 20260507 — compact count formatter (1.2k / 1.2M) */
   function fmtCount(n){ var x = Number(n||0); if (x >= 1e6) return (x/1e6).toFixed(1).replace(/\.0$/,'')+"M"; if (x >= 1e3) return (x/1e3).toFixed(1).replace(/\.0$/,'')+"k"; return String(x); }
 
-  async function openCodex(personId) {
+  async function openCodex(personId, opts) {
     if (!personId) return;
+    opts = opts || {};
+    /* CSSOS_WAVE_110E3 20260510 — Jing
+     * autoCinemaCreate flag wires the "click navigator card →
+     * create new MV for that person" path. After renderCodex
+     * finishes (it's async; we hook on a tick), the panel finds
+     * its own "Create New Version" button and clicks it
+     * programmatically — same code path as the user's manual
+     * click, no duplication. */
+    if (opts.autoCinemaCreate || opts.autoCinema) {
+      codexState.pendingAutoCinemaCreate = true;
+    }
     var pnl = ensurePanel();
     pnl.classList.remove("hidden");
     pnl.style.display = "";
@@ -2162,6 +2173,23 @@
           enterCinemaForPerson({ forceNew: true });
         });
       });
+      /* CSSOS_WAVE_110E3 20260510 — Jing
+       * If openCodex was called with autoCinemaCreate, immediately
+       * fire enterCinemaForPerson(forceNew:true) — same code path
+       * as a manual user click on the create button. Used by the
+       * end-of-MV person navigator so a card tap goes straight
+       * into "create new MV for this person" rather than landing
+       * on the codex bio page. */
+      if (codexState.pendingAutoCinemaCreate) {
+        codexState.pendingAutoCinemaCreate = false;
+        try {
+          (async function () {
+            if (await requireSignedInForAction("create")) {
+              enterCinemaForPerson({ forceNew: true });
+            }
+          })();
+        } catch (_e) {}
+      }
       // Retry
       var retryBtn = host.querySelector(".pmv-retry");
       if (retryBtn) {

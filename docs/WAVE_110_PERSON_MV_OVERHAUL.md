@@ -161,10 +161,61 @@ Already discussed inline. The Japanese / Korean / Spanish user must see THEIR la
 
 ---
 
+## Multi-cover slideshow (Jing, 110B feed-in)
+
+> "既然每个用户输出一次就有两个作品，封面图不一样，我建议用这些封面图做增强版幻灯，不知道幻灯需要的封面图最多是多少？是否有个极限？"
+
+**ffmpeg practical limits**:
+
+- 3-min MV at 5s/image = 36 max
+- 3-min MV at 7s/image (Ken Burns sweet spot) = **~26**
+- Beyond 30, each image gets <5s on screen — too brief to appreciate
+- Render time grows linearly; ~50 covers on a 4-CPU box ≈ 60-90s render
+- Memory pressure starts at ~80 (each image gets its own filter graph)
+
+**Recommended cap: 24 covers** per slideshow.
+
+**Strategy**:
+
+- **Per person**, accumulate ALL covers across all users' MVs (`cover_pool`)
+- When pool size > 24, randomly pick 24 each pipeline run
+- When pool size ≤ 24, use them all (with kenburns randomized direction so the same image doesn't always pan the same way)
+- If pool is empty (first-ever MV for this person), use the cover engine output as the only image
+
+**Backend**:
+
+- New table column or join: `person_mvs.cover_url` already exists; just `SELECT cover_url FROM person_mvs WHERE person_id=$1 ORDER BY random() LIMIT 24`
+- Codex API extended: `cover_pool: [...24 urls]`
+
+**Pipeline**:
+
+- Video stage receives `cover_pool` and builds `kenburns_image` segments — one per cover, distributed across the song duration
+- If `cover_pool.length === 1`, fall back to current single-image kenburns
+
+## Work title diversification (Jing, 110B feed-in)
+
+> "每个作品的标题不一定是该人物的名字，而是与该人物有关的，比如生平，事迹"
+
+**Currently shipped in 110B**: `buildSeed()` now picks a random theme from:
+
+1. `lore.events[i]` — random life event ("周游列国", "杏坛讲学")
+2. `p.roles[i]` — random role  
+3. `p.visual_symbols[i]` — random symbol
+4. bio first sentence
+5. core_theme
+
+The lyrics LLM reads this theme via `seed.prompt` and the LLM's title-generation already keys off the prompt, so each take gets a different angle and different title. Verify by running 5 generations of the same person and inspecting the titles.
+
+If the LLM output is still title-monotonous, add explicit instruction: "Generate a unique work title that is NOT the person's name; reference the theme."
+
+---
+
 ## Sequencing / prioritization
 
-1. **110A (this morning)** ✅ — items 3 + 5-hero-name; Wave 110 plan
-2. **110B** — item 1 (debug missing tiers + tighten contemporary regex), item 2 (codex shows existing MVs during generation)
+1. **110A** ✅ — items 3 + 5-hero-name; plan
+2. **110B** — items 1 (default-all + tier filter strict), 2 (subtitle copy: "first" → "new"), title diversification, cover slideshow plan, cinema "playback queue" pricing dock
+3. **110C** — multi-cover slideshow backend + pipeline
+4. **110D** — i18n full audit (item 4 + 8)
 3. **110C** — item 4 + 8 (i18n audit pass on person-mv-panel + watch-ui — biggest single win)
 4. **110D** — 1000-figure seed file (data work, slow but boring)
 5. **110E** — item 6 (cinema border progress + auto-hide + era-aware up-next)

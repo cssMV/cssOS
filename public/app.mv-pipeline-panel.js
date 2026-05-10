@@ -7310,18 +7310,22 @@
     // Route the spinner copy through CSSOS_I18N.tr() (the canonical
     // helper). Fall back to globalThis.t() and finally to the zh
     // literal if neither is available. {name} is interpolated locally.
-    let subtitleTpl = "Generating the first MV for {name}…";
+    /* CSSOS_WAVE_110B 20260510 — Jing
+     * Was hardcoded "first MV" — misleading when the user already
+     * has Confucius MVs but clicked Create New Version. Use a
+     * neutral "a new MV" so the copy is accurate on call N. */
+    let subtitleTpl = "Generating a new MV for {name}…";
     try {
       const i18n = globalThis.CSSOS_I18N;
       if (i18n && typeof i18n.tr === "function") {
-        subtitleTpl = String(i18n.tr("Generating the first MV for {name}…"));
+        subtitleTpl = String(i18n.tr("Generating a new MV for {name}…"));
       } else if (typeof globalThis.t === "function") {
-        subtitleTpl = String(globalThis.t("Generating the first MV for {name}…", "正在为 {name} 生成首支 MV…"));
+        subtitleTpl = String(globalThis.t("Generating a new MV for {name}…", "正在为 {name} 生成新 MV…"));
       } else {
-        subtitleTpl = "正在为 {name} 生成首支 MV…";
+        subtitleTpl = "正在为 {name} 生成新 MV…";
       }
     } catch (_e) {
-      subtitleTpl = "正在为 {name} 生成首支 MV…";
+      subtitleTpl = "正在为 {name} 生成新 MV…";
     }
     const subtitle = String(subtitleTpl).replace("{name}", name || "—");
     // CSSOS_PERSON_MV_CINEMA_INTRO 20260507 — Jing

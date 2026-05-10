@@ -51,7 +51,12 @@
   var panelEl = null;
   var state = {
     tier: 1,             // 1 = influence; 2 = civilization
-    curationTier: "S",   // Wave 58: S | A | B | all
+    /* CSSOS_WAVE_110B 20260510 — Jing
+     * Default to "all" so the panel lands on the full layered view
+     * (Hall + Notable + Contemporary + Compendium + User Creations).
+     * Previously S-only meant users only ever saw 22-37 cards on
+     * first open and assumed the rest were missing. */
+    curationTier: "all", // S | A | B | all
     civ: "",
     search: "",
     persons: [],
@@ -874,12 +879,22 @@
     var single = String(state.curationTier || "all").toLowerCase();
     grid.innerHTML = "";
 
-    if (single === "s") {
-      grid.appendChild(renderHallSection(hall));
-    } else if (single === "a") {
-      grid.appendChild(renderNotableSection(notable));
-    } else if (single === "b") {
-      grid.appendChild(renderCompendiumSection(comp));
+    if (single === "s" || single === "a" || single === "b") {
+      /* CSSOS_WAVE_110B 20260510 — Jing
+       * When the user explicitly clicks a tier chip, show EVERY
+       * person of that tier (don't subtract contemporary/test).
+       * Otherwise picking "S" would hide Trump/Musk/Einstein etc.
+       * who are S-tier but classified as contemporary. */
+      var bucketByTier = state.persons.filter(function (p) {
+        return String(p.curation_tier || "").toUpperCase() === single.toUpperCase();
+      });
+      if (single === "s") {
+        grid.appendChild(renderHallSection(bucketByTier));
+      } else if (single === "a") {
+        grid.appendChild(renderNotableSection(bucketByTier));
+      } else {
+        grid.appendChild(renderCompendiumSection(bucketByTier));
+      }
     } else {
       /* Order per Jing 109F: Personal/Test goes LAST. */
       if (hall.length)         grid.appendChild(renderHallSection(hall));
@@ -1413,30 +1428,61 @@
    * Plus civ-aware engine preferences via cssmvEngines.setSelection
    * before opening the panel so the right LLM/music engine fires
    * for that culture. No duration forced — pipeline LLM picks. */
+  /* CSSOS_WAVE_110B 20260510 — Jing
+   * Each generation should produce a UNIQUE theme so 10 covers don't
+   * all read "Confucius / Confucius / Confucius / ...". Theme priority:
+   *   1. random pick from lore.events (life-event titles like
+   *      "周游列国" / "论语智慧" / "杏坛讲学")
+   *   2. random pick from p.roles (e.g. "教育家·哲学家·政治家")
+   *   3. random pick from p.visual_symbols
+   *   4. fallback to first-sentence bio (old behaviour)
+   *   5. ultimate fallback to core_theme
+   *
+   * The downstream lyrics/cover/music LLMs read this theme as the
+   * angle for the work, so each take gets a different title.
+   */
+  function pickRandomEntry(arr) {
+    if (!Array.isArray(arr) || !arr.length) return null;
+    return arr[Math.floor(Math.random() * arr.length)];
+  }
   function buildSeed(p, lore) {
-    /* CSSOS_PERSON_MV_CINEMA_FIRST 20260507 — Jing
-     * New prompt format (two lines):
-     *   line 1: {name_zh}
-     *   line 2: [{intro}]   ← lore.bio first sentence > core_theme > roles
-     */
     var nameZh = localizedName(p);
-    var intro = "";
-    var bio = lore && typeof lore.bio === "string" ? lore.bio : "";
-    if (bio) {
-      var firstSent = bio.split(/[。.!?！？\n]/)[0];
-      if (firstSent) intro = firstSent.trim();
+    var theme = "";
+
+    // 1. Random event
+    if (lore && Array.isArray(lore.events) && lore.events.length) {
+      var ev = pickRandomEntry(lore.events);
+      if (ev) {
+        var label = ev.title || ev.name || ev.summary || ev.detail || "";
+        if (label) theme = String(label).trim().slice(0, 60);
+      }
     }
-    if (!intro && p.core_theme) intro = String(p.core_theme).trim();
-    if (!intro && Array.isArray(p.roles) && p.roles.length) {
-      intro = p.roles.filter(Boolean).join("·");
+    // 2. Random role
+    if (!theme && Array.isArray(p.roles) && p.roles.length) {
+      var r = pickRandomEntry(p.roles);
+      if (r) theme = String(r).trim().slice(0, 40);
     }
-    var prompt = nameZh + (intro ? "\n[" + intro + "]" : "");
+    // 3. Random symbol
+    if (!theme && Array.isArray(p.visual_symbols) && p.visual_symbols.length) {
+      var s = pickRandomEntry(p.visual_symbols);
+      if (s) theme = String(s).trim().slice(0, 30);
+    }
+    // 4. Bio first sentence
+    if (!theme && lore && typeof lore.bio === "string") {
+      var firstSent = lore.bio.split(/[。.!?！？\n]/)[0];
+      if (firstSent) theme = firstSent.trim().slice(0, 80);
+    }
+    // 5. Fallback core_theme
+    if (!theme && p.core_theme) theme = String(p.core_theme).trim().slice(0, 60);
+
+    var prompt = nameZh + (theme ? "\n[" + theme + "]" : "");
     return {
       prompt: prompt,
       style: p.music_style_hint || "",
       lyrics: "",
       __personId: p.person_id,
       __civilization: p.civilization,
+      __theme: theme,  // surfaced for downstream debug + title fallback
     };
   }
 

@@ -19981,6 +19981,29 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
       );
     }
 
+    /* CSSOS_WAVE_112B_3 20260511 — Jing
+     * Related landmarks — any landmark whose related_persons[]
+     * array contains this person's id. Powers the "🤝 dialogue MV
+     * with a place" affordance: e.g. Confucius codex shows
+     * Apricot Altar (杏坛) and offers a one-click combined MV. */
+    let relatedLandmarks: any[] = [];
+    try {
+      const rlR = await withClient((c) =>
+        c.query(
+          `SELECT landmark_id, name_zh, name_en, civilization, era,
+                  location, category, visual_symbols, music_style_hint,
+                  notable_events, influence_score
+             FROM landmark_profiles
+            WHERE $1 = ANY(related_persons)
+            ORDER BY influence_score DESC LIMIT 8`,
+          [id],
+        ),
+      );
+      relatedLandmarks = rlR.rows;
+    } catch (err) {
+      console.warn("[person-mv] codex related_landmarks failed (non-fatal):", (err as Error)?.message || err);
+    }
+
     return res.json({
       ok: true,
       data: {
@@ -19995,6 +20018,7 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
         total_mv_count: totalMvCount,
         my_mv_count: myMvCount,
         cover_pool: coverPool,
+        related_landmarks: relatedLandmarks,
       },
     });
   } catch (err) {

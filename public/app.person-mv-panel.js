@@ -1042,6 +1042,85 @@
     return section;
   }
 
+  /* CSSOS_WAVE_112B_3 20260511 — Jing
+   * Dialogue MV — combine a person + landmark into a single MV.
+   * Builds a richer prompt that names both subjects and weaves in
+   * a story angle. Examples:
+   *   孔子 × 杏坛 → "杏坛讲学" 主题 MV
+   *   拿破仑 × 凯旋门 → "加冕凯旋" 主题 MV
+   *   Beethoven × 维也纳金色大厅 → "命运首演" 主题 MV
+   *
+   * Strategy:
+   *   1. Build a combined prompt: "{person_name} × {landmark_name}"
+   *   2. Pick a story angle:
+   *      - First look in landmark.notable_events for events that
+   *        mention the person's name (e.g. "杏坛讲学" mentions
+   *        Confucius implicitly via the place). If none match,
+   *        pick any random notable event.
+   *      - Else fall back to a generic "{person} at {landmark}"
+   *   3. Style — merge person.music_style_hint with
+   *      landmark.music_style_hint (era-appropriate to both)
+   *   4. Cover prompt automatically gets cinematic boost (Wave 110E4)
+   *   5. Pipe coverPool of the landmark for slideshow continuity
+   */
+  function enterDialogueCinema(person, landmark) {
+    if (!person || !landmark) return;
+    var locale = currentLocale();
+    var isZh = locale.indexOf("zh") === 0;
+    var personName = localizedName(person);
+    var landmarkName = isZh ? (landmark.name_zh || landmark.name_en)
+                            : (landmark.name_en || landmark.name_zh);
+
+    // Story angle — first try notable events that mention the person.
+    var angle = "";
+    var events = Array.isArray(landmark.notable_events) ? landmark.notable_events : [];
+    if (events.length) {
+      var personHints = [
+        person.name_zh, person.name_en, person.name_native, person.name_latin,
+      ].filter(Boolean).map(function (s) { return String(s).toLowerCase(); });
+      var matched = events.find(function (ev) {
+        var low = String(ev).toLowerCase();
+        return personHints.some(function (h) { return h && low.indexOf(h) !== -1; });
+      });
+      if (matched) angle = matched;
+      else angle = events[Math.floor(Math.random() * events.length)];
+    }
+
+    var prompt = personName + " × " + landmarkName + (angle ? "\n[" + angle + "]" : "");
+    // Merge style hints, prefer landmark's (place-of-event tends to
+    // anchor the visual + sonic atmosphere). Fall back to person's.
+    var style = String(landmark.music_style_hint || person.music_style_hint || "");
+
+    var seed = {
+      prompt: prompt,
+      style: style,
+      lyrics: "",
+      __personId: person.person_id,
+      __landmarkId: landmark.landmark_id,
+      __dialogue: true,
+      __storyAngle: angle,
+    };
+
+    if (typeof globalThis.openMvPipelinePanel === "function") {
+      globalThis.openMvPipelinePanel({
+        cinema: true,
+        queue: [],
+        personId: person.person_id,
+        landmarkId: landmark.landmark_id,
+        seed: seed,
+        forceNew: true,
+        personName: personName + " × " + landmarkName,
+        personNameEn: ((person.name_en || "") + " × " + (landmark.name_en || "")).trim(),
+        personNameNative: "",
+        personEra: landmark.era || person.era || "",
+        personCiv: landmark.civilization || person.civilization || "",
+        personPortrait: "",
+        personIntro: angle,
+        personMusicStyleHint: style,
+      });
+    }
+  }
+
   /* CSSOS_WAVE_112B 20260511 — Jing
    * Landmark codex page. Mirrors openCodex/renderCodex for persons,
    * adapted to landmark fields:
@@ -1204,16 +1283,21 @@
           '</div></div>';
       }
 
-      // Related persons
+      // Related persons — Wave 112B-3 adds 🤝 Dialogue MV button per row.
       if (relatedPersons.length) {
         h += '<div class="pmv-section"><h3>👤 ' + escTxt(tt("Related Persons", "关联人物")) + '</h3>' +
-          '<div class="pmv-chip-row">' +
+          '<div class="pmv-dialogue-list">' +
             relatedPersons.map(function (p) {
               var n = isZh ? (p.name_zh || p.name_en) : (p.name_en || p.name_zh);
-              return '<button class="pmv-chip pmv-related-person" data-person-id="' + escAttr(p.person_id) + '">' +
-                escTxt(n) +
-                (p.era ? ' · ' + escTxt(p.era) : "") +
-              '</button>';
+              return '<div class="pmv-dialogue-row" data-person-id="' + escAttr(p.person_id) + '">' +
+                '<button class="pmv-chip pmv-related-person" data-person-id="' + escAttr(p.person_id) + '">' +
+                  '👤 ' + escTxt(n) + (p.era ? ' · ' + escTxt(p.era) : "") +
+                '</button>' +
+                '<button class="pmv-dialogue-cta" data-person-id="' + escAttr(p.person_id) +
+                  '" title="' + escAttr(tt("Make a Dialogue MV combining this person and place", "为人物 × 名迹组合创作 MV")) + '">' +
+                  '🤝 ' + escTxt(tt("Dialogue MV", "组合 MV")) +
+                '</button>' +
+              '</div>';
             }).join("") +
           '</div></div>';
       }
@@ -1294,13 +1378,44 @@
         });
       });
       host.querySelectorAll(".pmv-related-person").forEach(function (chip) {
-        chip.addEventListener("click", function () {
+        chip.addEventListener("click", function (e) {
+          e.stopPropagation();
           var pid = chip.getAttribute("data-person-id");
           if (pid) openCodex(pid);
         });
       });
+      /* CSSOS_WAVE_112B_3 — 🤝 Dialogue MV from landmark codex.
+       * Fetch the person's profile first so the seed can use real
+       * name fields (name_zh/en/native/style hint) — we only have
+       * a thin row from /codex JOIN, so a quick /api/.../persons/:id
+       * fills in the rest. */
+      host.querySelectorAll(".pmv-dialogue-cta").forEach(function (btn) {
+        btn.addEventListener("click", async function (e) {
+          e.stopPropagation();
+          if (!(await requireSignedInForAction("create"))) return;
+          var pid = btn.getAttribute("data-person-id");
+          if (!pid) return;
+          try {
+            var r = await fetch("/api/person-mv/persons/" + encodeURIComponent(pid), {
+              credentials: "include", headers: { Accept: "application/json" },
+            });
+            var j = await r.json().catch(function () { return null; });
+            var person = (j && j.data && j.data.person) || (j && j.data) || null;
+            if (!person) {
+              // Fallback to the lightweight row we already have.
+              person = relatedPersons.find(function (p) { return p.person_id === pid; }) || { person_id: pid };
+            }
+            enterDialogueCinema(person, l);
+          } catch (err) {
+            console.warn("[landmark-mv] dialogue fetch person failed", err);
+            var fallbackPerson = relatedPersons.find(function (p) { return p.person_id === pid; }) || { person_id: pid };
+            enterDialogueCinema(fallbackPerson, l);
+          }
+        });
+      });
       host.querySelectorAll(".pmv-same-civ-landmark").forEach(function (chip) {
-        chip.addEventListener("click", function () {
+        chip.addEventListener("click", function (e) {
+          e.stopPropagation();
           var lid = chip.getAttribute("data-landmark-id");
           if (lid) openLandmarkCodex(lid);
         });
@@ -2404,6 +2519,13 @@
       ".pmv-codex .pmv-event-cta{all:unset;cursor:pointer;padding:6px 14px;border-radius:999px;background:linear-gradient(135deg,#00f5a0,#00c280);color:#001008;font:700 12px/1 -apple-system,system-ui,sans-serif;transition:filter .15s ease;}" +
       ".pmv-codex .pmv-event-cta:hover{filter:brightness(1.1);}" +
       ".pmv-codex .pmv-mv-angle{font:500 10px/1.3 ui-monospace,monospace;color:rgba(0,245,160,0.7);letter-spacing:.04em;margin-top:2px;display:block;}" +
+      /* CSSOS_WAVE_112B_3 20260511 — Dialogue MV (person × landmark) UI. */
+      ".pmv-codex .pmv-dialogue-list{display:flex;flex-direction:column;gap:8px;}" +
+      ".pmv-codex .pmv-dialogue-row{display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(8,18,16,.45);border:1px solid rgba(0,245,160,.18);border-radius:10px;transition:border-color .15s ease, background .15s ease;}" +
+      ".pmv-codex .pmv-dialogue-row:hover{background:rgba(8,28,22,.6);border-color:rgba(0,245,160,.4);}" +
+      ".pmv-codex .pmv-dialogue-row .pmv-chip{flex:1;text-align:left;}" +
+      ".pmv-codex .pmv-dialogue-cta{all:unset;cursor:pointer;padding:7px 14px;border-radius:999px;background:linear-gradient(135deg,#ffa500,#ff6f00);color:#001008;font:700 12px/1 -apple-system,system-ui,sans-serif;transition:filter .15s ease, box-shadow .15s ease;box-shadow:0 2px 8px rgba(255,165,0,0.3);}" +
+      ".pmv-codex .pmv-dialogue-cta:hover{filter:brightness(1.1);box-shadow:0 4px 12px rgba(255,165,0,0.5);}" +
       ".pmv-codex .pmv-mv-card{aspect-ratio:16/9;background:rgba(0,0,0,.4);border:1px solid rgba(0,245,160,.2);border-radius:8px;cursor:pointer;position:relative;overflow:hidden;}" +
       ".pmv-codex .pmv-mv-poster{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}" +
       ".pmv-codex .pmv-mv-fallback{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:36px;background:linear-gradient(135deg,#012019,#003a2c);color:#bff5dc;}" +
@@ -2646,6 +2768,31 @@
               var icon = (g.visual_theme && g.visual_theme.icon) ? String(g.visual_theme.icon) + ' ' : '';
               var label = icon + (g.name_zh || g.name_en || g.group_id) + (g.role ? ' · ' + g.role : '');
               return '<span class="pmv-chip" data-group-id="' + escAttr(g.group_id) + '" style="cursor:pointer;">' + escTxt(label) + '</span>';
+            }).join("") +
+          '</div></div>';
+      }
+
+      /* CSSOS_WAVE_112B_3 20260511 — Jing — Related Landmarks +
+       * "🤝 Dialogue MV" button per landmark. Click the landmark
+       * name to open its codex; click the 🤝 button to fire a
+       * combined person × landmark MV directly. */
+      var relLand = Array.isArray(data.related_landmarks) ? data.related_landmarks : [];
+      if (relLand.length) {
+        var locZ = currentLocale().indexOf("zh") === 0;
+        h += '<div class="pmv-section"><h3>🏛 ' + escTxt(tt("Sites of this person", "相关名迹")) + '</h3>' +
+          '<div class="pmv-dialogue-list">' +
+            relLand.map(function (l) {
+              var nm = locZ ? (l.name_zh || l.name_en) : (l.name_en || l.name_zh);
+              var meta = [l.era, l.location].filter(Boolean).join(" · ");
+              return '<div class="pmv-dialogue-row" data-landmark-id="' + escAttr(l.landmark_id) + '">' +
+                '<button class="pmv-chip pmv-related-landmark" data-landmark-id="' + escAttr(l.landmark_id) + '">' +
+                  '🏛 ' + escTxt(nm) + (meta ? ' · ' + escTxt(meta) : "") +
+                '</button>' +
+                '<button class="pmv-dialogue-cta" data-landmark-id="' + escAttr(l.landmark_id) +
+                  '" title="' + escAttr(tt("Make a Dialogue MV combining this person and place", "为人物 × 名迹组合创作 MV")) + '">' +
+                  '🤝 ' + escTxt(tt("Dialogue MV", "组合 MV")) +
+                '</button>' +
+              '</div>';
             }).join("") +
           '</div></div>';
       }
@@ -2970,6 +3117,27 @@
           if (gid && typeof globalThis.openPersonMvGroup === "function") {
             try { globalThis.openPersonMvGroup(gid); } catch (_e) {}
           }
+        });
+      });
+      /* CSSOS_WAVE_112B_3 20260511 — Jing — related landmark chips */
+      host.querySelectorAll(".pmv-related-landmark").forEach(function (chip) {
+        chip.addEventListener("click", function (e) {
+          e.stopPropagation();
+          var lid = chip.getAttribute("data-landmark-id");
+          if (lid) openLandmarkCodex(lid);
+        });
+      });
+      /* 🤝 Dialogue MV — combine this person with selected landmark. */
+      host.querySelectorAll(".pmv-dialogue-cta").forEach(function (btn) {
+        btn.addEventListener("click", async function (e) {
+          e.stopPropagation();
+          if (!(await requireSignedInForAction("create"))) return;
+          var lid = btn.getAttribute("data-landmark-id");
+          if (!lid) return;
+          var landmark = (Array.isArray(data.related_landmarks) ? data.related_landmarks : [])
+            .find(function (l) { return l.landmark_id === lid; });
+          if (!landmark) return;
+          enterDialogueCinema(p, landmark);
         });
       });
       // Compare button → modal

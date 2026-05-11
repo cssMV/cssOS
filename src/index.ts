@@ -35,6 +35,7 @@ import {
   type StructurePlan,
 } from "./cssmv/schemas/structure-tree";
 import { SEED_PERSON_PROFILES } from "./person_mv_seed";
+import { SEED_LANDMARK_PROFILES } from "./landmark_mv_seed";
 // CSSOS_PERSON_MV_WAVE96 20260508 — Jing — Meilisearch primary search.
 import {
   getMeili as __meiliClient,
@@ -13766,6 +13767,46 @@ async function seedPersonProfilesOnce() {
   });
 }
 
+/* CSSOS_WAVE_112 20260511 — Jing
+ * Landmark seed — mirror of seedPersonProfilesOnce. Runs once at
+ * boot; idempotent via ON CONFLICT. */
+let landmarkSeedLoaded = false;
+async function seedLandmarkProfilesOnce() {
+  if (landmarkSeedLoaded || !DATABASE_URL) return;
+  for (const l of SEED_LANDMARK_PROFILES) {
+    await withClient((client) =>
+      client.query(
+        `INSERT INTO landmark_profiles (
+            landmark_id, name_zh, name_en, name_native, name_latin,
+            civilization, era, location, coordinates, category, founded_year,
+            related_persons, notable_events, visual_symbols,
+            music_style_hint, tone, influence_score, risk_notes,
+            source_status, curation_tier
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'curated',$19)
+         ON CONFLICT (landmark_id) DO UPDATE SET
+            name_native     = EXCLUDED.name_native,
+            name_latin      = EXCLUDED.name_latin,
+            coordinates     = EXCLUDED.coordinates,
+            notable_events  = EXCLUDED.notable_events,
+            curation_tier   = EXCLUDED.curation_tier`,
+        [
+          l.landmark_id, l.name_zh, l.name_en,
+          l.name_native || null, l.name_latin || null,
+          l.civilization, l.era || null, l.location || null,
+          l.coordinates ? JSON.stringify(l.coordinates) : null,
+          l.category || null, l.founded_year ?? null,
+          l.related_persons || [], l.notable_events,
+          l.visual_symbols, l.music_style_hint, l.tone,
+          l.influence_score, l.risk_notes || [],
+          l.curation_tier,
+        ],
+      ),
+    );
+  }
+  landmarkSeedLoaded = true;
+  console.info("[landmark-mv] seed loaded — %d landmarks", SEED_LANDMARK_PROFILES.length);
+}
+
 let personGroupsSeedLoaded = false;
 async function seedPersonGroupsOnce() {
   if (personGroupsSeedLoaded || !DATABASE_URL) return;
@@ -22571,6 +22612,179 @@ app.get("/api/person-mv/persons/random", async (_req, res) => {
   } catch (err) {
     console.warn("[person-mv] random failed:", (err as Error)?.message || err);
     return res.status(500).json({ ok: false, code: "RANDOM_FAILED" });
+  }
+});
+
+/* CSSOS_WAVE_112 20260511 — Jing
+ * Landmark MV endpoints. Mirror the person-mv API surface 1:1 so
+ * the frontend can fork the panel code with minimal changes.
+ *
+ *   GET  /api/landmark-mv/landmarks
+ *        ?search=&civ=&curation_tier=S|A|B|all&limit=
+ *        → list landmarks (search, filter, paginate)
+ *   GET  /api/landmark-mv/landmarks/:id
+ *        → single landmark profile
+ *   GET  /api/landmark-mv/landmarks/:id/codex
+ *        → landmark + lore + MVs + cover_pool + related_landmarks
+ *
+ * Reusing the existing person_mvs MV pipeline: a landmark MV is
+ * just a user_works row tagged with landmark_id via landmark_mvs.
+ */
+app.get("/api/landmark-mv/landmarks", async (req, res) => {
+  noStore(res);
+  try {
+    await seedLandmarkProfilesOnce();
+    const civ = String(req.query.civ || "").trim();
+    const search = String(req.query.search || "").trim().toLowerCase();
+    const explicitCuration = String(req.query.curation_tier ?? "").trim().toUpperCase();
+    const curationTier =
+      explicitCuration === "S" || explicitCuration === "A" || explicitCuration === "B"
+        ? explicitCuration
+        : null;
+    const limit = Math.max(10, Math.min(1500, Number(req.query.limit || 200) || 200));
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (civ) { params.push(civ); where.push(`civilization = $${params.length}`); }
+    if (curationTier) { params.push(curationTier); where.push(`curation_tier = $${params.length}`); }
+    if (search) {
+      params.push(`%${search}%`);
+      where.push(
+        `(lower(name_zh) LIKE $${params.length} OR lower(name_en) LIKE $${params.length} ` +
+        `OR lower(civilization) LIKE $${params.length} OR lower(coalesce(location,'')) LIKE $${params.length})`,
+      );
+    }
+    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    params.push(limit);
+    const sql = `
+      SELECT landmark_id, name_zh, name_en, name_native, name_latin,
+             name_variants, civilization, era, location, coordinates,
+             category, founded_year, related_persons, notable_events,
+             visual_symbols, music_style_hint, tone, influence_score,
+             risk_notes, source_status, curation_tier,
+             created_by_user_id::text AS created_by_user_id
+        FROM landmark_profiles
+        ${whereSql}
+        ORDER BY influence_score DESC, name_en ASC
+        LIMIT $${params.length}`;
+    const r = await withClient((c) => c.query(sql, params));
+    return res.json({ ok: true, data: { landmarks: r.rows } });
+  } catch (err) {
+    console.warn("[landmark-mv] list failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "LIST_FAILED" });
+  }
+});
+
+app.get("/api/landmark-mv/landmarks/:id", async (req, res) => {
+  noStore(res);
+  try {
+    await seedLandmarkProfilesOnce();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const r = await withClient((c) =>
+      c.query(
+        `SELECT * FROM landmark_profiles WHERE landmark_id = $1 LIMIT 1`,
+        [id],
+      ),
+    );
+    if (!r.rows[0]) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    return res.json({ ok: true, data: { landmark: r.rows[0] } });
+  } catch (err) {
+    console.warn("[landmark-mv] get failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "GET_FAILED" });
+  }
+});
+
+app.get("/api/landmark-mv/landmarks/:id/codex", async (req, res) => {
+  noStore(res);
+  try {
+    await seedLandmarkProfilesOnce();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+
+    const lr = await withClient((c) =>
+      c.query(`SELECT * FROM landmark_profiles WHERE landmark_id = $1 LIMIT 1`, [id]),
+    );
+    const landmark = lr.rows[0];
+    if (!landmark) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+
+    /* MVs created against this landmark. */
+    const mvsR = await withClient((c) =>
+      c.query(
+        `SELECT lm.mv_id, lm.work_id, lm.story_angle, lm.created_by_user_id,
+                lm.created_at, w.title, w.cover_image AS cover_url,
+                w.final_mv_url, w.audio_url, w.duration_secs
+           FROM landmark_mvs lm
+           LEFT JOIN user_works w ON w.id = lm.work_id
+          WHERE lm.landmark_id = $1
+          ORDER BY lm.created_at DESC
+          LIMIT 50`,
+        [id],
+      ),
+    );
+
+    /* Cover pool — every cover users have rendered for this landmark.
+     * 24 randomized for the kenburns slideshow (Wave 110C carryover). */
+    let coverPool: string[] = [];
+    try {
+      const cpR = await withClient((c) =>
+        c.query<{ cover_image: string }>(
+          `SELECT DISTINCT w.cover_image
+             FROM landmark_mvs lm
+             JOIN user_works w ON w.id = lm.work_id
+            WHERE lm.landmark_id = $1
+              AND w.cover_image IS NOT NULL AND w.cover_image <> ''
+            ORDER BY random() LIMIT 24`,
+          [id],
+        ),
+      );
+      coverPool = (cpR.rows || []).map((r) => String(r.cover_image || "").trim()).filter(Boolean);
+    } catch { /* non-fatal */ }
+
+    /* Related persons — pull their basic profile so the codex page
+     * can link to person codices. */
+    let relatedPersons: any[] = [];
+    const personIds: string[] = Array.isArray(landmark.related_persons)
+      ? landmark.related_persons
+      : [];
+    if (personIds.length) {
+      try {
+        const pr = await withClient((c) =>
+          c.query(
+            `SELECT person_id, name_zh, name_en, civilization, era, influence_score
+               FROM person_profiles WHERE person_id = ANY($1::text[])
+              ORDER BY influence_score DESC LIMIT 8`,
+            [personIds],
+          ),
+        );
+        relatedPersons = pr.rows;
+      } catch { /* non-fatal */ }
+    }
+
+    /* Same-civilization landmarks — for codex "more like this" row. */
+    const sameCivR = await withClient((c) =>
+      c.query(
+        `SELECT landmark_id, name_zh, name_en, civilization, era, influence_score
+           FROM landmark_profiles
+          WHERE civilization = $1 AND landmark_id <> $2
+          ORDER BY influence_score DESC LIMIT 8`,
+        [landmark.civilization, id],
+      ),
+    );
+
+    return res.json({
+      ok: true,
+      data: {
+        landmark,
+        mvs: mvsR.rows,
+        cover_pool: coverPool,
+        related_persons: relatedPersons,
+        same_civ_landmarks: sameCivR.rows,
+        total_mv_count: mvsR.rowCount || 0,
+      },
+    });
+  } catch (err) {
+    console.warn("[landmark-mv] codex failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "CODEX_FAILED" });
   }
 });
 

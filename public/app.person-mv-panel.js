@@ -49,7 +49,14 @@
   }
 
   var panelEl = null;
+  /* CSSOS_WAVE_112 20260511 — civilization MV mode: people vs landmarks.
+   * Toggled via the panel-bar tabs. People mode = original flow.
+   * Landmarks mode = parallel API + parallel codex. */
+  var landmarks = [];
+  var landmarksLoading = false;
+  var landmarksLoaded = false;
   var state = {
+    mode: "people",      // "people" | "landmarks"
     tier: 1,             // 1 = influence; 2 = civilization
     /* CSSOS_WAVE_110B 20260510 — Jing
      * Default to "all" so the panel lands on the full layered view
@@ -68,6 +75,11 @@
     var s = document.createElement("style");
     s.id = "cssos-person-mv-style";
     s.textContent =
+      /* CSSOS_WAVE_112 20260511 — Civilization MV tabs (People / Landmarks). */
+      "#person-mv-panel .civ-mv-tabs{display:flex;gap:6px;padding:10px 12px 6px;border-bottom:1px solid rgba(0,245,160,0.12);}" +
+      "#person-mv-panel .civ-mv-tab{all:unset;cursor:pointer;padding:8px 16px;border-radius:999px;background:rgba(8,18,16,0.45);border:1px solid rgba(0,245,160,0.22);color:rgba(218,255,238,0.78);font:600 13px/1.2 -apple-system,system-ui,sans-serif;transition:background .15s ease, border-color .15s ease, color .15s ease;}" +
+      "#person-mv-panel .civ-mv-tab:hover{background:rgba(8,28,22,0.65);border-color:rgba(0,245,160,0.5);color:#daffee;}" +
+      "#person-mv-panel .civ-mv-tab.active{background:rgba(0,245,160,0.22);border-color:#00f5a0;color:#fff;}" +
       "#person-mv-panel .person-mv-toolbar{" +
         "display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px;align-items:center;" +
         "border-bottom:1px solid rgba(0,245,160,0.18);" +
@@ -432,10 +444,14 @@
      *    .resize-handle / .resize-handle-left chevrons are no longer
      *    needed and have been removed.
      */
+    /* CSSOS_WAVE_112 20260511 — Jing — Civilization Universe tabs.
+     * Renamed panel title to "Civilization MV" and added two tabs:
+     * People (existing) / Landmarks (new). Same panel hosts both
+     * via state.mode = "people" | "landmarks". */
     panelEl.innerHTML =
       '<div class="panel-bar">' +
         '<div class="panel-icon">🏛</div>' +
-        '<div class="panel-title">' + (tt("People MV · Civilization Universe", "人物 MV · 文明宇宙")) + '</div>' +
+        '<div class="panel-title">' + (tt("Civilization MV · People + Landmarks", "文明 MV · 人物 + 名迹")) + '</div>' +
         '<div class="panel-actions">' +
           '<button class="icon-btn" type="button" data-action="panel.minimize" aria-label="minimize" title="' + escapeAttr(tt("Collapse / Restore", "收起 / 还原")) + '">—</button>' +
           '<button class="icon-btn" type="button" data-action="panel.maximize" aria-label="maximize" title="' + escapeAttr(tt("Maximize / Restore", "最大化 / 还原")) + '">⤢</button>' +
@@ -443,6 +459,10 @@
         '</div>' +
       '</div>' +
       '<div class="panel-body">' +
+        '<div class="civ-mv-tabs" role="tablist">' +
+          '<button class="civ-mv-tab active" data-civ-mode="people" type="button">👤 ' + escapeText(tt("People", "人物")) + '</button>' +
+          '<button class="civ-mv-tab" data-civ-mode="landmarks" type="button">🏛 ' + escapeText(tt("Landmarks", "名迹")) + '</button>' +
+        '</div>' +
         '<div class="person-mv-toolbar">' +
           '<input class="person-mv-search" type="search" placeholder="' +
             tt("Search by name, civilization, theme…", "按姓名 / 文明 / 主题搜索") + '" />' +
@@ -518,6 +538,27 @@
   }
 
   function bindPanelEvents() {
+    /* CSSOS_WAVE_112 20260511 — Civilization MV tabs.
+     * Click "People" → show person list (original flow).
+     * Click "Landmarks" → fetch + render landmark list. */
+    var tabBtns = panelEl.querySelectorAll(".civ-mv-tab");
+    tabBtns.forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var mode = btn.getAttribute("data-civ-mode");
+        if (!mode || mode === state.mode) return;
+        state.mode = mode;
+        tabBtns.forEach(function (b) {
+          b.classList.toggle("active", b.getAttribute("data-civ-mode") === mode);
+        });
+        if (mode === "landmarks") {
+          if (!landmarksLoaded) loadLandmarks();
+          else renderLandmarks();
+        } else {
+          render();
+        }
+      });
+    });
+
     var searchEl = panelEl.querySelector(".person-mv-search");
     var civSel = panelEl.querySelector(".person-mv-civ-select");
     var tierBtns = panelEl.querySelectorAll(".person-mv-tier-btn");
@@ -580,20 +621,30 @@
         globalThis.togglePanelMaximize(panelEl);
       }
     });
+    /* CSSOS_WAVE_112 20260511 — dispatch reload based on current mode
+     * so search/filter changes apply to whichever list is showing. */
+    function reloadCurrent() {
+      if (state.mode === "landmarks") {
+        landmarksLoaded = false; /* force refetch with new filters */
+        loadLandmarks();
+      } else {
+        load();
+      }
+    }
     var debounceT = 0;
     if (searchEl) {
       searchEl.addEventListener("input", function () {
         clearTimeout(debounceT);
         debounceT = setTimeout(function () {
           state.search = String(searchEl.value || "").trim();
-          load();
+          reloadCurrent();
         }, 250);
       });
     }
     if (civSel) {
       civSel.addEventListener("change", function () {
         state.civ = String(civSel.value || "").trim();
-        load();
+        reloadCurrent();
       });
     }
     tierBtns.forEach(function (b) {
@@ -601,7 +652,7 @@
         tierBtns.forEach(function (x) { x.classList.remove("is-active"); });
         b.classList.add("is-active");
         state.tier = Number(b.getAttribute("data-tier") || 1);
-        load();
+        reloadCurrent();
       });
     });
     /* Wave 58 — S/A/B curation tier filter. */
@@ -611,7 +662,7 @@
         ctierBtns.forEach(function (x) { x.classList.remove("is-active"); });
         b.classList.add("is-active");
         state.curationTier = String(b.getAttribute("data-ctier") || "S");
-        load();
+        reloadCurrent();
       });
     });
     if (createBtn) {
@@ -693,6 +744,155 @@
       openCodex(p.person_id);
       try { e.preventDefault(); e.stopPropagation(); } catch (_e) {}
     }, true);
+  }
+
+  /* CSSOS_WAVE_112 20260511 — Jing — landmark list loader.
+   * Mirrors person load() but hits /api/landmark-mv/landmarks. */
+  async function loadLandmarks() {
+    if (landmarksLoading) return;
+    landmarksLoading = true;
+    try {
+      var qs = new URLSearchParams();
+      if (state.curationTier && state.curationTier !== "all") {
+        qs.set("curation_tier", state.curationTier);
+      }
+      if (state.civ) qs.set("civ", state.civ);
+      if (state.search) qs.set("search", state.search);
+      qs.set("limit", "1200");
+      var res = await fetch("/api/landmark-mv/landmarks?" + qs.toString(), {
+        credentials: "include",
+        headers: { Accept: "application/json" },
+      });
+      var json = await res.json().catch(function () { return null; });
+      var data = (json && json.data) || {};
+      landmarks = Array.isArray(data.landmarks) ? data.landmarks : [];
+      landmarksLoaded = true;
+      renderLandmarks();
+    } catch (err) {
+      console.warn("[landmark-mv] load failed", err);
+    } finally {
+      landmarksLoading = false;
+    }
+  }
+
+  /* CSSOS_WAVE_112 20260511 — render landmarks into the shared
+   * .person-mv-grid using the same tier-section structure as people
+   * so styling, tap behaviour, and sign-in gates all carry over. */
+  function renderLandmarks() {
+    if (!panelEl) return;
+    var grid = panelEl.querySelector(".person-mv-grid");
+    if (!grid) return;
+    if (!landmarks.length) {
+      grid.innerHTML = '<div class="person-mv-empty">' +
+        escapeText(tt("No landmarks loaded yet.", "暂未加载名迹。")) + '</div>';
+      return;
+    }
+    /* Bucket by curation_tier — same scheme as people. */
+    var hall = [], notable = [], comp = [];
+    landmarks.forEach(function (l) {
+      var t = String(l.curation_tier || "B").toUpperCase();
+      if (t === "S") hall.push(l);
+      else if (t === "A") notable.push(l);
+      else comp.push(l);
+    });
+    grid.innerHTML = "";
+    if (hall.length) grid.appendChild(renderLandmarkSection(
+      tt("⭐ Hall of Fame Landmarks", "⭐ 传奇名迹"), hall));
+    if (notable.length) grid.appendChild(renderLandmarkSection(
+      tt("🎴 Notable Sites", "🎴 知名名迹"), notable));
+    if (comp.length) grid.appendChild(renderLandmarkSection(
+      tt("📜 Compendium", "📜 百科全录"), comp));
+  }
+
+  function renderLandmarkSection(label, rows) {
+    var section = document.createElement("section");
+    section.className = "pmv-tier-section pmv-tier-landmark";
+    var head = document.createElement("div");
+    head.className = "pmv-tier-head";
+    head.innerHTML =
+      '<div class="pmv-tier-title">' + escapeText(label) + '</div>' +
+      '<div class="pmv-tier-count">' + rows.length + '</div>';
+    section.appendChild(head);
+    var gridEl = document.createElement("div");
+    gridEl.className = "pmv-notable-grid";
+    rows.forEach(function (l) {
+      gridEl.appendChild(buildLandmarkCard(l));
+    });
+    section.appendChild(gridEl);
+    return section;
+  }
+
+  function buildLandmarkCard(l) {
+    var locale = currentLocale();
+    var isZh = locale.indexOf("zh") === 0;
+    var primary = isZh ? (l.name_zh || l.name_en) : (l.name_en || l.name_zh);
+    var secondary = isZh ? (l.name_en || "") : (l.name_zh || "");
+    if (secondary === primary) secondary = "";
+    var meta = [l.civilization, l.era, l.location].filter(Boolean).join(" · ");
+    var card = document.createElement("article");
+    card.className = "pmv-portrait-card";
+    card.setAttribute("data-landmark-id", l.landmark_id || "");
+    /* Cover: gradient bg + emoji-glyph for now (real images come
+     * from generated MVs over time, accumulated in cover_pool). */
+    var glyph = (l.visual_symbols && l.visual_symbols[0]) || "🏛";
+    card.innerHTML =
+      '<div class="cover fallback" style="background:linear-gradient(135deg,#012019,rgba(0,180,200,0.3));">' +
+        escapeText(glyph) +
+      '</div>' +
+      '<div class="info">' +
+        '<div class="name">' + escapeText(primary) + '</div>' +
+        (secondary ? '<div class="name-en">' + escapeText(secondary) + '</div>' : '') +
+        (meta ? '<div class="meta">' + escapeText(meta) + '</div>' : '') +
+      '</div>';
+    card.onclick = function (e) {
+      if (e) { try { e.preventDefault(); e.stopPropagation(); } catch (_e) {} }
+      /* Click → directly enter cinema for this landmark (forceNew=true).
+       * Sign-in gate enforced inside enterCinemaForLandmark. */
+      enterCinemaForLandmark(l);
+    };
+    return card;
+  }
+
+  /* CSSOS_WAVE_112 20260511 — Jing
+   * Open MV pipeline in cinema for a landmark. Mirrors
+   * enterCinemaForPerson but tags the seed with __landmarkId and
+   * builds the prompt from notable_events for story variety. */
+  async function enterCinemaForLandmark(l) {
+    if (!l || !l.landmark_id) return;
+    if (!(await requireSignedInForAction("create"))) return;
+    /* Pick a random notable event as the story angle so successive
+     * generations show different facets of the landmark. */
+    var angle = "";
+    if (Array.isArray(l.notable_events) && l.notable_events.length) {
+      angle = l.notable_events[Math.floor(Math.random() * l.notable_events.length)];
+    }
+    var primaryName = currentLocale().indexOf("zh") === 0
+      ? (l.name_zh || l.name_en) : (l.name_en || l.name_zh);
+    var prompt = primaryName + (angle ? "\n[" + angle + "]" : "");
+    var seed = {
+      prompt: prompt,
+      style: l.music_style_hint || "",
+      lyrics: "",
+      __landmarkId: l.landmark_id,
+      __civilization: l.civilization,
+      __storyAngle: angle,
+    };
+    if (typeof globalThis.openMvPipelinePanel === "function") {
+      globalThis.openMvPipelinePanel({
+        cinema: true,
+        queue: [],
+        landmarkId: l.landmark_id,
+        seed: seed,
+        forceNew: true,
+        personName: primaryName,
+        personNameEn: l.name_latin || l.name_en || "",
+        personNameNative: l.name_native || "",
+        personEra: l.era || "",
+        personCiv: l.civilization || "",
+        personIntro: angle,
+        personMusicStyleHint: l.music_style_hint || "",
+      });
+    }
   }
 
   async function load() {

@@ -22788,6 +22788,286 @@ app.get("/api/landmark-mv/landmarks/:id/codex", async (req, res) => {
   }
 });
 
+/* CSSOS_WAVE_112B_2 20260511 — Jing
+ * Ad-hoc landmark creation (parallel to person POST). User types
+ * a place name, LLM fills the schema (civilization / era / category /
+ * notable_events / music_style_hint / etc.), row inserts as ad_hoc.
+ *
+ * Dedupe by name (same parenthetical-marker escape hatch as person
+ * dedupe): if 长城 already exists, second user typing 长城 lands on
+ * the canonical row. "长城（北京段）" creates a distinct entry.
+ */
+function slugifyLandmarkName(name: string): string {
+  const base = String(name || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 32);
+  const hash = crypto.createHash("sha1").update(String(name || "")).digest("hex").slice(0, 6);
+  const stem = base || "landmark";
+  return `adhoc-${stem}-${hash}`;
+}
+
+app.post("/api/landmark-mv/landmarks", express.json({ limit: "16kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const name = String((req.body as any)?.name || "").trim();
+    const hint = String((req.body as any)?.hint || "").trim();
+    if (!name) return res.status(400).json({ ok: false, code: "NAME_REQUIRED" });
+    if (name.length > 120) return res.status(400).json({ ok: false, code: "NAME_TOO_LONG" });
+    await seedLandmarkProfilesOnce();
+
+    /* Dedupe by name (parentheses suppress dedupe → intentional homonym). */
+    const hasParen = /[(（][^)）]+[)）]/.test(name);
+    if (!hasParen) {
+      const lookup = name.toLowerCase().replace(/\s+/g, "");
+      const existing = await withClient((c) =>
+        c.query<{ landmark_id: string; name_zh: string; name_en: string }>(
+          `SELECT landmark_id, name_zh, name_en
+             FROM landmark_profiles
+            WHERE lower(regexp_replace(name_zh, '\\s+', '', 'g')) = $1
+               OR lower(regexp_replace(name_en, '\\s+', '', 'g')) = $1
+            ORDER BY (source_status = 'curated') DESC, created_at ASC
+            LIMIT 1`,
+          [lookup],
+        ),
+      );
+      const found = existing.rows[0];
+      if (found) {
+        return res.json({
+          ok: true,
+          landmark_id: found.landmark_id,
+          existing: true,
+          name_zh: found.name_zh,
+          name_en: found.name_en,
+        });
+      }
+    }
+
+    const landmarkId = slugifyLandmarkName(name);
+
+    res.status(200);
+    res.setHeader("content-type", "application/json; charset=utf-8");
+    res.setHeader("transfer-encoding", "chunked");
+    res.flushHeaders?.();
+    const heartbeat = setInterval(() => { try { res.write(" "); } catch {} }, 5000);
+
+    const sysPrompt =
+      "你是文明名迹（地标/景点/古迹）档案生成器。返回严格 JSON, 键 (全部必填): " +
+      "name_zh (string), name_en (string), name_native (string|null, 当地母语原文), " +
+      "name_latin (string|null), civilization (string), era (string, 时代), " +
+      "location (string, 具体地理位置), category (string, 类别: temple/palace/monument/" +
+      "tomb/cathedral/ruins/mountain/canyon/square/skyscraper/cave/fortress/garden 等), " +
+      "founded_year (integer|null, 公历年份, 公元前用负数), " +
+      "related_persons (array of string, 0-5 项, 与该地有强关联的历史人物名), " +
+      "notable_events (array of string, 3-6 项, 与该地有关的重要事件或传说), " +
+      "visual_symbols (array of string, 3-6 项, 视觉标志, emoji 优先), " +
+      "music_style_hint (string, 与该地时代/文化匹配的音乐风格), tone (string), " +
+      "influence_score (integer 0-100), risk_notes (array of string, 0-3 项, 敏感性提示)。" +
+      "对当代/虚构/小众地点也要给出合理 schema (founded_year 可 null, influence_score 较低)。" +
+      "只返回 JSON, 不要其他文字。";
+    const userPrompt = `名迹/地点: ${name}` + (hint ? `\n补充: ${hint}` : "");
+
+    let profile: any = null;
+    try {
+      const llm = await callLlm({
+        messages: [
+          { role: "system", content: sysPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.4,
+        max_tokens: 1000,
+        response_format: { type: "json_object" },
+      });
+      if (llm.ok && llm.content) {
+        profile = JSON.parse(llm.content);
+      }
+    } catch (err) {
+      console.warn("[landmark-mv] adhoc llm threw:", (err as Error)?.message || err);
+    }
+    if (!profile || typeof profile !== "object") {
+      profile = {
+        name_zh: name, name_en: name, name_native: null, name_latin: null,
+        civilization: "当代", era: "当代",
+        location: hint || "",
+        category: "monument", founded_year: null,
+        related_persons: [], notable_events: [],
+        visual_symbols: ["🏛"],
+        music_style_hint: "", tone: "",
+        influence_score: 10, risk_notes: [],
+      };
+    }
+
+    const row = {
+      landmark_id: landmarkId,
+      name_zh: String(profile.name_zh || name).slice(0, 120),
+      name_en: String(profile.name_en || name).slice(0, 120),
+      name_native: profile.name_native ? String(profile.name_native).slice(0, 120) : null,
+      name_latin: profile.name_latin ? String(profile.name_latin).slice(0, 120) : null,
+      civilization: String(profile.civilization || "当代").slice(0, 80),
+      era: profile.era ? String(profile.era).slice(0, 80) : null,
+      location: profile.location ? String(profile.location).slice(0, 200) : null,
+      category: profile.category ? String(profile.category).slice(0, 40) : "monument",
+      founded_year: profile.founded_year != null && Number.isFinite(Number(profile.founded_year))
+        ? Math.round(Number(profile.founded_year)) : null,
+      related_persons: Array.isArray(profile.related_persons)
+        ? profile.related_persons.map((r: any) => String(r).slice(0, 80)).slice(0, 8) : [],
+      notable_events: Array.isArray(profile.notable_events)
+        ? profile.notable_events.map((r: any) => String(r).slice(0, 200)).slice(0, 8) : [],
+      visual_symbols: Array.isArray(profile.visual_symbols)
+        ? profile.visual_symbols.map((r: any) => String(r).slice(0, 40)).slice(0, 8) : [],
+      music_style_hint: profile.music_style_hint ? String(profile.music_style_hint).slice(0, 120) : null,
+      tone: profile.tone ? String(profile.tone).slice(0, 120) : null,
+      influence_score: Math.max(0, Math.min(100, Number(profile.influence_score) || 10)),
+      risk_notes: Array.isArray(profile.risk_notes)
+        ? profile.risk_notes.map((r: any) => String(r).slice(0, 200)).slice(0, 6) : [],
+    };
+
+    try {
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO landmark_profiles (
+              landmark_id, name_zh, name_en, name_native, name_latin,
+              civilization, era, location, category, founded_year,
+              related_persons, notable_events, visual_symbols,
+              music_style_hint, tone, influence_score, risk_notes,
+              source_status, curation_tier, created_by_user_id
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'ad_hoc','B',$18)
+            ON CONFLICT (landmark_id) DO NOTHING`,
+          [
+            row.landmark_id, row.name_zh, row.name_en, row.name_native, row.name_latin,
+            row.civilization, row.era, row.location, row.category, row.founded_year,
+            row.related_persons, row.notable_events, row.visual_symbols,
+            row.music_style_hint, row.tone, row.influence_score, row.risk_notes,
+            user.id,
+          ],
+        ),
+      );
+    } catch (err) {
+      clearInterval(heartbeat);
+      console.warn("[landmark-mv] adhoc insert failed:", (err as Error)?.message || err);
+      try { res.write(JSON.stringify({ ok: false, code: "INSERT_FAILED" })); } catch {}
+      return res.end();
+    }
+
+    clearInterval(heartbeat);
+    try { res.write(JSON.stringify({ ok: true, landmark_id: row.landmark_id, profile: row })); } catch {}
+    return res.end();
+  } catch (err) {
+    console.warn("[landmark-mv] adhoc failed:", (err as Error)?.message || err);
+    try { return res.status(500).json({ ok: false, code: "ADHOC_FAILED" }); } catch { return; }
+  }
+});
+
+/* CSSOS_WAVE_112B_2 20260511 — Jing — DELETE/PATCH for user landmarks.
+ * Same authorization rules as person endpoints:
+ *   - Creator (created_by_user_id matches) OR admin may mutate
+ *   - Curated/auto rows protected (admin only). */
+app.delete("/api/landmark-mv/landmarks/:id", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const landmarkId = String(req.params.id || "").trim();
+    if (!landmarkId) return res.status(400).json({ ok: false, code: "ID_REQUIRED" });
+    const isAdmin = roleForEmail(user.email) === "admin";
+    const result = await withClient((c) =>
+      c.query<{ source_status: string; created_by_user_id: string | null }>(
+        `SELECT source_status, created_by_user_id::text AS created_by_user_id
+           FROM landmark_profiles WHERE landmark_id = $1 LIMIT 1`,
+        [landmarkId],
+      ),
+    );
+    const row = result.rows[0];
+    if (!row) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const source = String(row.source_status || "").toLowerCase();
+    const ownedBy = String(row.created_by_user_id || "");
+    const owns = ownedBy && ownedBy === String(user.id);
+    if (!owns && !isAdmin) {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    if ((source === "curated" || source === "auto") && !isAdmin) {
+      return res.status(403).json({ ok: false, code: "PROTECTED_PROFILE" });
+    }
+    await withClient(async (c) => {
+      await c.query(`DELETE FROM landmark_profiles WHERE landmark_id = $1`, [landmarkId]);
+      try { await c.query(`DELETE FROM landmark_mvs WHERE landmark_id = $1`, [landmarkId]); } catch { /* may have cascaded */ }
+    });
+    return res.json({ ok: true, landmark_id: landmarkId });
+  } catch (err) {
+    console.error("[landmark-mv] delete failed", err);
+    return res.status(500).json({ ok: false, code: "INTERNAL" });
+  }
+});
+
+app.patch("/api/landmark-mv/landmarks/:id", express.json({ limit: "8kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const landmarkId = String(req.params.id || "").trim();
+    if (!landmarkId) return res.status(400).json({ ok: false, code: "ID_REQUIRED" });
+    const body = (req.body || {}) as Record<string, unknown>;
+    const editable: Record<string, string> = {
+      name_zh: "TEXT", name_en: "TEXT",
+      civilization: "TEXT", era: "TEXT", location: "TEXT",
+      category: "TEXT", music_style_hint: "TEXT", tone: "TEXT",
+    };
+    const isAdmin = roleForEmail(user.email) === "admin";
+    const result = await withClient((c) =>
+      c.query<{ source_status: string; created_by_user_id: string | null }>(
+        `SELECT source_status, created_by_user_id::text AS created_by_user_id
+           FROM landmark_profiles WHERE landmark_id = $1 LIMIT 1`,
+        [landmarkId],
+      ),
+    );
+    const row = result.rows[0];
+    if (!row) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const source = String(row.source_status || "").toLowerCase();
+    const ownedBy = String(row.created_by_user_id || "");
+    const owns = ownedBy && ownedBy === String(user.id);
+    if (!owns && !isAdmin) {
+      return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    }
+    if ((source === "curated" || source === "auto") && !isAdmin) {
+      return res.status(403).json({ ok: false, code: "PROTECTED_PROFILE" });
+    }
+    const setParts: string[] = [];
+    const params: unknown[] = [];
+    Object.keys(editable).forEach((key) => {
+      if (Object.prototype.hasOwnProperty.call(body, key) && body[key] !== undefined) {
+        const v = body[key] === null ? null : String(body[key]).slice(0, 200);
+        params.push(v);
+        setParts.push(`${key} = $${params.length}`);
+      }
+    });
+    if (!setParts.length) return res.status(400).json({ ok: false, code: "NO_FIELDS" });
+    params.push(landmarkId);
+    await withClient((c) =>
+      c.query(
+        `UPDATE landmark_profiles
+            SET ${setParts.join(", ")}, updated_at = now()
+          WHERE landmark_id = $${params.length}`,
+        params,
+      ),
+    );
+    return res.json({ ok: true, landmark_id: landmarkId });
+  } catch (err) {
+    console.error("[landmark-mv] patch failed", err);
+    return res.status(500).json({ ok: false, code: "INTERNAL" });
+  }
+});
+
 /* CSSOS_PIPELINE_DRYRUN 20260507 — Jing
  * End-to-end demo without going through the full creation flow.
  * Hits each engine in sequence so we can verify the whole chain

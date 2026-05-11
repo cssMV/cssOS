@@ -782,26 +782,246 @@
     if (!panelEl) return;
     var grid = panelEl.querySelector(".person-mv-grid");
     if (!grid) return;
+    /* CSSOS_WAVE_112B_2 20260511 — Jing
+     * "Add a place" CTA always renders above the list (even when
+     * empty), so a logged-in user can drop in a custom landmark
+     * any time. Routes through createAdhocLandmark which posts
+     * to /api/landmark-mv/landmarks with name + optional hint. */
+    var addCta = '<div class="person-mv-create-anybody" data-mode="landmark">' +
+      escapeText(tt(
+        "+ Add a place — historical, modern, or your hometown landmark.",
+        "+ 添加地点 —— 古迹、现代地标、或者你的家乡名迹。"
+      )) +
+    '</div>';
+
     if (!landmarks.length) {
-      grid.innerHTML = '<div class="person-mv-empty">' +
-        escapeText(tt("No landmarks loaded yet.", "暂未加载名迹。")) + '</div>';
+      grid.innerHTML = addCta +
+        '<div class="person-mv-empty">' +
+          escapeText(tt("No landmarks yet — add one above.", "暂无名迹 —— 上方添加一个。")) +
+        '</div>';
+      wireLandmarkAddCta(grid);
       return;
     }
-    /* Bucket by curation_tier — same scheme as people. */
-    var hall = [], notable = [], comp = [];
+    /* Bucket: S / A / B + user-created (landmark.created_by_user_id != null). */
+    var hall = [], notable = [], comp = [], userMade = [];
     landmarks.forEach(function (l) {
+      if (l.created_by_user_id) { userMade.push(l); return; }
       var t = String(l.curation_tier || "B").toUpperCase();
       if (t === "S") hall.push(l);
       else if (t === "A") notable.push(l);
       else comp.push(l);
     });
-    grid.innerHTML = "";
+    grid.innerHTML = addCta;
     if (hall.length) grid.appendChild(renderLandmarkSection(
       tt("⭐ Hall of Fame Landmarks", "⭐ 传奇名迹"), hall));
     if (notable.length) grid.appendChild(renderLandmarkSection(
       tt("🎴 Notable Sites", "🎴 知名名迹"), notable));
     if (comp.length) grid.appendChild(renderLandmarkSection(
       tt("📜 Compendium", "📜 百科全录"), comp));
+    if (userMade.length) grid.appendChild(renderLandmarkSection(
+      tt("👤 User Creations", "👤 用户自定义名迹"), userMade, { isUserMade: true }));
+    wireLandmarkAddCta(grid);
+  }
+
+  function wireLandmarkAddCta(grid) {
+    var cta = grid.querySelector('.person-mv-create-anybody[data-mode="landmark"]');
+    if (!cta) return;
+    cta.addEventListener("click", async function () {
+      if (!(await requireSignedInForAction("create"))) return;
+      var name = window.prompt(
+        tt(
+          "Enter a place name (any landmark — historic site, mountain, your hometown's pride):",
+          "输入地点名（任何名迹 —— 古迹/山川/你家乡的骄傲）："
+        ), ""
+      );
+      if (!name || !name.trim()) return;
+      var hint = window.prompt(
+        tt(
+          "Optional: a short hint (location / era / what's notable). Skip to let the AI infer.",
+          "可选：简短补充（位置/时代/有什么故事）。跳过则让 AI 推断。"
+        ), ""
+      );
+      createAdhocLandmark(name.trim(), (hint || "").trim());
+    });
+  }
+
+  async function createAdhocLandmark(name, hint) {
+    if (!name) return;
+    var cta = panelEl && panelEl.querySelector('.person-mv-create-anybody[data-mode="landmark"]');
+    if (cta) {
+      cta.classList.add("is-busy");
+      cta.textContent = "⏳ " + tt("Creating landmark profile for ", "正在为「") + name + tt("…", "」创建档案…");
+    }
+    try {
+      var res = await fetch("/api/landmark-mv/landmarks", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ name: name, hint: hint || "" }),
+      });
+      var json = await res.json().catch(function () { return null; });
+      if (!json || !json.ok || !json.landmark_id) {
+        var code = (json && json.code) || ("HTTP_" + res.status);
+        if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(tt("Failed to add landmark: ", "添加名迹失败：") + code);
+        }
+        if (cta) {
+          cta.classList.remove("is-busy");
+          cta.textContent = tt(
+            "+ Add a place — historical, modern, or your hometown landmark.",
+            "+ 添加地点 —— 古迹、现代地标、或者你的家乡名迹。"
+          );
+        }
+        return;
+      }
+      if (json.existing && typeof globalThis.showToast === "function") {
+        var d = json.name_zh || json.name_en || name;
+        globalThis.showToast(tt(
+          'Found existing landmark: ' + d + ' — opening it. To add a same-name place, retry with "(同名)" suffix.',
+          '已存在「' + d + '」 —— 已打开。如需另开同名，请加后缀「（同名）」。'
+        ));
+      }
+      // Refresh + open codex
+      landmarksLoaded = false;
+      await loadLandmarks();
+      openLandmarkCodex(json.landmark_id);
+    } catch (err) {
+      console.warn("[landmark-mv] adhoc create failed", err);
+      if (typeof globalThis.showToast === "function") {
+        globalThis.showToast(tt("Failed to add landmark.", "添加名迹失败。"));
+      }
+      if (cta) cta.classList.remove("is-busy");
+    }
+  }
+
+  function renderLandmarkSection(label, rows, opts) {
+    opts = opts || {};
+    var section = document.createElement("section");
+    section.className = "pmv-tier-section pmv-tier-landmark" + (opts.isUserMade ? " pmv-tier-user-landmark" : "");
+    var head = document.createElement("div");
+    head.className = "pmv-tier-head";
+    head.innerHTML =
+      '<div class="pmv-tier-title">' + escapeText(label) + '</div>' +
+      '<div class="pmv-tier-count">' + rows.length + '</div>';
+    section.appendChild(head);
+    var gridEl = document.createElement("div");
+    gridEl.className = "pmv-notable-grid";
+    rows.forEach(function (l) {
+      var card = buildLandmarkCard(l);
+      if (opts.isUserMade) attachLandmarkUserActions(card, l);
+      gridEl.appendChild(card);
+    });
+    section.appendChild(gridEl);
+    return section;
+  }
+
+  /* CSSOS_WAVE_112B_2 20260511 — edit/delete buttons on user-created
+   * landmark cards. Same UX as person user-creations (Wave 109G). */
+  function attachLandmarkUserActions(card, landmark) {
+    if (!card || !landmark) return;
+    var actions = document.createElement("div");
+    actions.className = "pmv-user-actions";
+    actions.innerHTML =
+      '<button type="button" class="pmv-user-action-btn" data-act="edit" ' +
+        'aria-label="' + escapeAttr(tt("Edit", "编辑")) + '" title="' + escapeAttr(tt("Edit", "编辑")) + '">✎</button>' +
+      '<button type="button" class="pmv-user-action-btn danger" data-act="delete" ' +
+        'aria-label="' + escapeAttr(tt("Delete", "删除")) + '" title="' + escapeAttr(tt("Delete", "删除")) + '">🗑</button>';
+    actions.addEventListener("click", function (e) { e.stopPropagation(); });
+    actions.addEventListener("pointerdown", function (e) { e.stopPropagation(); });
+    actions.addEventListener("pointerup", function (e) { e.stopPropagation(); });
+    actions.querySelectorAll("[data-act]").forEach(function (btn) {
+      btn.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        var act = btn.getAttribute("data-act");
+        if (act === "edit") openLandmarkEditDialog(landmark);
+        else if (act === "delete") confirmLandmarkDelete(landmark);
+      });
+    });
+    card.appendChild(actions);
+  }
+
+  function confirmLandmarkDelete(landmark) {
+    var locale = currentLocale();
+    var isZh = locale.indexOf("zh") === 0;
+    var name = isZh ? (landmark.name_zh || landmark.name_en) : (landmark.name_en || landmark.name_zh);
+    var msg = tt(
+      'Delete "' + name + '"? This removes the landmark profile and any related MVs.',
+      "确认删除「" + name + "」？将同时移除其档案和相关 MV。"
+    );
+    if (!window.confirm(msg)) return;
+    fetch("/api/landmark-mv/landmarks/" + encodeURIComponent(landmark.landmark_id), {
+      method: "DELETE", credentials: "include",
+      headers: { Accept: "application/json" },
+    })
+      .then(function (r) { return r.json().catch(function () { return null; }); })
+      .then(function (j) {
+        if (j && j.ok) {
+          if (typeof globalThis.showToast === "function") {
+            globalThis.showToast(tt("Deleted: " + name, "已删除：" + name));
+          }
+          landmarksLoaded = false;
+          loadLandmarks();
+          return;
+        }
+        var code = (j && j.code) || "INTERNAL";
+        if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(tt("Delete failed: ", "删除失败：") + code);
+        }
+      })
+      .catch(function (err) {
+        console.warn("[landmark-mv] delete failed", err);
+        if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(tt("Delete failed (network).", "删除失败（网络）。"));
+        }
+      });
+  }
+
+  function openLandmarkEditDialog(landmark) {
+    function ask(label, current) {
+      var v = window.prompt(label, current || "");
+      if (v === null) return undefined;
+      return String(v).slice(0, 200);
+    }
+    var patch = {};
+    var nameZh = ask(tt("中文名 (cancel to skip)", "中文名（取消跳过）"), landmark.name_zh);
+    if (nameZh !== undefined) patch.name_zh = nameZh;
+    var nameEn = ask(tt("English name (cancel to skip)", "英文名（取消跳过）"), landmark.name_en);
+    if (nameEn !== undefined) patch.name_en = nameEn;
+    var civ = ask(tt("Civilization (cancel to skip)", "文明（取消跳过）"), landmark.civilization);
+    if (civ !== undefined) patch.civilization = civ;
+    var era = ask(tt("Era (cancel to skip)", "时代（取消跳过）"), landmark.era);
+    if (era !== undefined) patch.era = era;
+    var loc = ask(tt("Location (cancel to skip)", "地理位置（取消跳过）"), landmark.location);
+    if (loc !== undefined) patch.location = loc;
+
+    if (!Object.keys(patch).length) return;
+    fetch("/api/landmark-mv/landmarks/" + encodeURIComponent(landmark.landmark_id), {
+      method: "PATCH", credentials: "include",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(patch),
+    })
+      .then(function (r) { return r.json().catch(function () { return null; }); })
+      .then(function (j) {
+        if (j && j.ok) {
+          if (typeof globalThis.showToast === "function") {
+            globalThis.showToast(tt("Saved.", "已保存。"));
+          }
+          landmarksLoaded = false;
+          loadLandmarks();
+          return;
+        }
+        var code = (j && j.code) || "INTERNAL";
+        if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(tt("Save failed: ", "保存失败：") + code);
+        }
+      })
+      .catch(function (err) {
+        console.warn("[landmark-mv] patch failed", err);
+        if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(tt("Save failed (network).", "保存失败（网络）。"));
+        }
+      });
   }
 
   function renderLandmarkSection(label, rows) {

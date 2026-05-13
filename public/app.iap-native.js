@@ -36,18 +36,32 @@
     } catch (_) { return false; }
   }
 
+  var __nativePurchasesProxy = null;
   function getPlugin() {
     try {
-      // CSSOS_WAVE_118 — we ship @capgo/native-purchases. Plugin
-      // registers as Capacitor.Plugins.NativePurchases on iOS native
-      // builds (no-op on web).
       var cap = globalThis.Capacitor;
       if (!cap) return null;
+      // First check the auto-registered proxy table.
       if (cap.Plugins && cap.Plugins.NativePurchases) return cap.Plugins.NativePurchases;
       if (cap.Plugins && cap.Plugins.CapgoNativePurchases) return cap.Plugins.CapgoNativePurchases;
-      // Older / alternate names retained as fallbacks
       if (cap.Plugins && cap.Plugins.InAppPurchases) return cap.Plugins.InAppPurchases;
       if (cap.Plugins && cap.Plugins.CapacitorIAP) return cap.Plugins.CapacitorIAP;
+      // CSSOS_WAVE_123 20260513 — fix iap_plugin_missing.
+      // Our shell loads https://cssstudio.app/ as-is; we never bundle
+      // @capgo/native-purchases' JS, so Capacitor.Plugins.NativePurchases
+      // is never populated by the plugin's auto-register hook. Capacitor
+      // exposes registerPlugin() globally for exactly this case — it
+      // returns a proxy bridged to the native side (compiled into the
+      // app via Pods) as long as the native plugin is present. Cache it.
+      if (__nativePurchasesProxy) return __nativePurchasesProxy;
+      if (typeof cap.registerPlugin === "function") {
+        try {
+          __nativePurchasesProxy = cap.registerPlugin("NativePurchases");
+          if (__nativePurchasesProxy) return __nativePurchasesProxy;
+        } catch (err) {
+          console.warn("[iap-native] registerPlugin failed:", err);
+        }
+      }
       return null;
     } catch (_) { return null; }
   }

@@ -78,6 +78,17 @@
       ', html[data-ios-native="1"] [data-watch-market-action="listen"]',
       ', html[data-ios-native="1"] [data-market-action="buyout"]',
       ', html[data-ios-native="1"] [data-market-action="listen-paid"]',
+      // ── Subscription panel: hide Stripe ("Pay with card") + NihaoPay
+      // (Alipay/WeChat/UnionPay) rows entirely. Apple's "in-app digital
+      // subscription" requirement means we only show the Apple-Pay
+      // button (injected by app.ios-subscription-iap-button.js). ──
+      ', html[data-ios-native="1"] [data-subscription-direct-tier]',
+      ', html[data-ios-native="1"] [data-subscription-select-tier]',
+      ', html[data-ios-native="1"] [data-subscription-panel-nihaopay-row]',
+      ', html[data-ios-native="1"] [data-subscription-nihaopay-row]',
+      ', html[data-ios-native="1"] [data-subscription-buy-boost]',
+      ', html[data-ios-native="1"] [data-subscription-boost-nihaopay-vendor]',
+      ', html[data-ios-native="1"] .pay-group',
       "{ display: none !important; visibility: hidden !important; }",
       "",
       // Hide entire payment-vendor row container if it was the only child.

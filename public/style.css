@@ -7983,11 +7983,34 @@ html[data-panel-transparent="true"] .logo-panel {
   opacity: 0;
   transition: opacity 0.4s ease, transform 0.4s ease;
   z-index: 3;
+  /* CSSOS_WAVE_117_TOAST_MOBILE 20260513 — never cover panel titles */
+  max-width: min(86vw, 480px);
+  text-align: center;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .toast.show {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
+}
+
+/* CSSOS_WAVE_117_TOAST_MOBILE 20260513 — Jing: on mobile portrait the
+   top-anchored toast covers panel titles. Pin it to the bottom-center
+   instead (above the dock + AI fab), and make it smaller so it never
+   blocks chrome. */
+@media (max-width: 480px) and (orientation: portrait) {
+  .toast {
+    top: auto;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 178px);
+    transform: translateX(-50%) translateY(20px);
+    font-size: 13px;
+    line-height: 1.4;
+    max-width: 86vw;
+  }
+  .toast.show {
+    transform: translateX(-50%) translateY(0);
+  }
 }
 
 @keyframes drift {

@@ -18909,6 +18909,216 @@ app.post("/api/system-media/backfill-now", async (req, res) => {
   return res.json({ ok: true, data: summary });
 });
 
+/* CSSOS_WAVE_129 20260513 — Jing
+ * POST /api/system-mvs/seed-historical?days=365
+ *
+ * Generates anniversary + festival auto-MV rows retrospectively for the
+ * last N days (default 365, max 1825 ≈ 5 years). Each historical day
+ * runs through the SAME generator functions as the daily cron, but with
+ * the historical date passed in for the run_date / matching MM-DD. This
+ * fills the W128 archive overlay immediately instead of waiting a year
+ * for the cron to accumulate content.
+ *
+ * Admin only. Idempotent via the unique log constraints — re-running is
+ * safe. Lite tier per row (no media backfill; the nightly W121 cron
+ * handles that). Budget-uncapped for the row inserts themselves (they're
+ * pure DB writes at ~0¢ each); media generation still respects the
+ * regular CSSOS_SYSTEM_MEDIA_DAILY_BUDGET_CENTS.
+ */
+async function runAnniversaryGenerateForDate(adminUserId: string, runDate: Date): Promise<{
+  run_date: string; matches_found: number; queued: number; skipped: number; failed: number;
+}> {
+  const mm = String(runDate.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(runDate.getUTCDate()).padStart(2, "0");
+  const today = `${mm}-${dd}`;
+  const runDateIso = runDate.toISOString().slice(0, 10);
+  const summary = { run_date: runDateIso, matches_found: 0, queued: 0, skipped: 0, failed: 0 };
+  let matches: Array<{ person_id: string; name_zh: string; name_en: string; civilization: string; era: string; music_style_hint: string; core_theme: string; event_type: string; influence_score: number }> = [];
+  try {
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT person_id, name_zh, name_en, civilization, era,
+                coalesce(music_style_hint,'') AS music_style_hint,
+                coalesce(core_theme,'') AS core_theme,
+                coalesce(influence_score, 0) AS influence_score,
+                CASE WHEN birth_month_day = $1 THEN 'birth'
+                     WHEN death_month_day = $1 THEN 'death' END AS event_type
+           FROM person_profiles
+          WHERE birth_month_day = $1 OR death_month_day = $1
+          ORDER BY influence_score DESC NULLS LAST, name_en
+          LIMIT 5`,
+        [today],
+      ),
+    );
+    matches = r.rows.filter((row: any) => row.event_type);
+  } catch (err) {
+    return summary;
+  }
+  summary.matches_found = matches.length;
+  for (const m of matches) {
+    try {
+      const seen = await withClient((c) =>
+        c.query<{ id: number }>(
+          `SELECT id FROM system_anniversary_log
+            WHERE run_date = $1 AND person_id = $2 AND event_type = $3 LIMIT 1`,
+          [runDateIso, m.person_id, m.event_type],
+        ),
+      );
+      if (seen.rows[0]) { summary.skipped += 1; continue; }
+      const workId = crypto.randomUUID();
+      const personName = m.name_zh || m.name_en;
+      const angleLabel = m.event_type === "birth"
+        ? (m.civilization.startsWith("中") ? `${personName} 诞辰纪念` : `${personName} · Birthday Remembrance`)
+        : (m.civilization.startsWith("中") ? `${personName} 忌辰纪念` : `${personName} · In Memoriam`);
+      const lyricsPreview = m.core_theme ? `${angleLabel}\n${m.core_theme}` : angleLabel;
+      const style = m.music_style_hint || "古风纪念 / 弦乐与钢琴 / 缅怀";
+      await withClient(async (client) => {
+        await client.query("BEGIN");
+        try {
+          await client.query(
+            `INSERT INTO user_works (id, user_id, title, style, work_type, lyrics_preview, status,
+                suggested_listen_price_cents, suggested_buyout_price_cents,
+                system_origin, created_at, updated_at)
+             VALUES ($1::uuid, $2::uuid, $3, $4, 'single', $5, 'published',
+                       0, 0, 'system_anniversary', $6::timestamptz, $6::timestamptz)`,
+            [workId, adminUserId, angleLabel, style, lyricsPreview, runDateIso + "T04:00:00Z"],
+          );
+          await client.query(
+            `INSERT INTO work_market_profiles (work_id, visibility, current_listen_price_cents,
+                current_buyout_price_cents, buyout_enabled, tips_enabled,
+                rights_scope, created_at, updated_at)
+             VALUES ($1::uuid, 'public', 0, 0, false, true, 'system_free', now(), now())
+             ON CONFLICT (work_id) DO NOTHING`,
+            [workId],
+          );
+          await client.query(
+            `INSERT INTO person_mvs (mv_id, person_id, work_id, created_by_user_id,
+                scenario_seed, story_angle, approval_status, visibility, created_at)
+             VALUES (gen_random_uuid(), $1, $2::uuid, $3::uuid,
+                       $4, $5, 'auto_published', 'public', $6::timestamptz)`,
+            [m.person_id, workId, adminUserId, lyricsPreview.slice(0, 200), m.event_type, runDateIso + "T04:00:00Z"],
+          );
+          await client.query("COMMIT");
+        } catch (err) { await client.query("ROLLBACK"); throw err; }
+      });
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO system_anniversary_log (run_date, person_id, event_type, work_id, status, cost_cents, created_at)
+            VALUES ($1, $2, $3, $4::uuid, 'ok', 0, $1::timestamptz + interval '4 hours')`,
+          [runDateIso, m.person_id, m.event_type, workId],
+        ),
+      );
+      summary.queued += 1;
+    } catch (err) {
+      summary.failed += 1;
+    }
+  }
+  return summary;
+}
+
+async function runFestivalGenerateForDate(adminUserId: string, runDate: Date): Promise<{
+  run_date: string; matches_found: number; queued: number; skipped: number; failed: number;
+}> {
+  const runDateIso = runDate.toISOString().slice(0, 10);
+  const summary = { run_date: runDateIso, matches_found: 0, queued: 0, skipped: 0, failed: 0 };
+  let matches: Array<{ festival_id: string; name_zh: string; name_en: string; civilization: string; music_style_hint: string; core_theme: string; influence_score: number }> = [];
+  try {
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT f.festival_id, f.name_zh, f.name_en, f.civilization,
+                coalesce(f.music_style_hint,'') AS music_style_hint,
+                coalesce(f.core_theme,'') AS core_theme,
+                coalesce(f.influence_score, 0) AS influence_score
+           FROM system_festivals f JOIN system_festival_dates d ON d.festival_id = f.festival_id
+          WHERE d.greg_date = $1::date AND f.active = true
+          ORDER BY f.influence_score DESC NULLS LAST, f.festival_id LIMIT 5`,
+        [runDateIso],
+      ),
+    );
+    matches = r.rows;
+  } catch (err) { return summary; }
+  summary.matches_found = matches.length;
+  for (const m of matches) {
+    try {
+      const seen = await withClient((c) =>
+        c.query<{ id: number }>(
+          `SELECT id FROM system_festival_log WHERE run_date = $1 AND festival_id = $2 LIMIT 1`,
+          [runDateIso, m.festival_id],
+        ),
+      );
+      if (seen.rows[0]) { summary.skipped += 1; continue; }
+      const workId = crypto.randomUUID();
+      const isZh = (m.civilization || "").startsWith("中") || /[一-鿿]/.test(m.name_zh || "");
+      const title = isZh ? `${m.name_zh} · 节日纪念` : `${m.name_en} — Festival Edition`;
+      const lyricsPreview = m.core_theme ? `${title}\n${m.core_theme}` : title;
+      const style = m.music_style_hint || (isZh ? "民乐 / 节日 / 喜庆" : "festive / cinematic / celebratory");
+      await withClient(async (client) => {
+        await client.query("BEGIN");
+        try {
+          await client.query(
+            `INSERT INTO user_works (id, user_id, title, style, work_type, lyrics_preview, status,
+                suggested_listen_price_cents, suggested_buyout_price_cents,
+                system_origin, created_at, updated_at)
+             VALUES ($1::uuid, $2::uuid, $3, $4, 'single', $5, 'published',
+                       0, 0, 'system_festival', $6::timestamptz, $6::timestamptz)`,
+            [workId, adminUserId, title, style, lyricsPreview, runDateIso + "T04:05:00Z"],
+          );
+          await client.query(
+            `INSERT INTO work_market_profiles (work_id, visibility, current_listen_price_cents,
+                current_buyout_price_cents, buyout_enabled, tips_enabled,
+                rights_scope, created_at, updated_at)
+             VALUES ($1::uuid, 'public', 0, 0, false, true, 'system_free', now(), now())
+             ON CONFLICT (work_id) DO NOTHING`,
+            [workId],
+          );
+          await client.query("COMMIT");
+        } catch (err) { await client.query("ROLLBACK"); throw err; }
+      });
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO system_festival_log (run_date, festival_id, work_id, status, cost_cents, created_at)
+            VALUES ($1, $2, $3::uuid, 'ok', 0, $1::timestamptz + interval '4 hours 5 minutes')`,
+          [runDateIso, m.festival_id, workId],
+        ),
+      );
+      summary.queued += 1;
+    } catch (err) { summary.failed += 1; }
+  }
+  return summary;
+}
+
+app.post("/api/system-mvs/seed-historical", async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const userR = await withClient((c) =>
+    c.query<{ role: string }>(`SELECT role FROM users WHERE id = $1::uuid LIMIT 1`, [userId]),
+  );
+  if (userR.rows[0]?.role !== "admin") {
+    return res.status(403).json({ ok: false, error: "admin_only" });
+  }
+  const days = Math.max(1, Math.min(1825, parseInt(String(req.query.days || "365"), 10) || 365));
+  const SYSTEM_ADMIN_USER_ID = "00000000-0000-0000-0000-000000000001";
+  const total = {
+    days_processed: 0,
+    anniversary: { queued: 0, skipped: 0, failed: 0 },
+    festival:    { queued: 0, skipped: 0, failed: 0 },
+  };
+  const now = new Date();
+  for (let i = 1; i <= days; i++) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - i));
+    const annS = await runAnniversaryGenerateForDate(SYSTEM_ADMIN_USER_ID, d);
+    const festS = await runFestivalGenerateForDate(SYSTEM_ADMIN_USER_ID, d);
+    total.anniversary.queued += annS.queued;
+    total.anniversary.skipped += annS.skipped;
+    total.anniversary.failed += annS.failed;
+    total.festival.queued += festS.queued;
+    total.festival.skipped += festS.skipped;
+    total.festival.failed += festS.failed;
+    total.days_processed += 1;
+  }
+  return res.json({ ok: true, data: total });
+});
+
 /* POST /api/system-media/backfill-one — admin or signed-in user.
  * Used by the foryou shelf when a user clicks into a still-bare system
  * work; gives them immediate media rather than the placeholder. */

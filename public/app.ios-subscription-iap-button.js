@@ -104,13 +104,25 @@
       if (err === "user_cancelled") {
         // Silent — user closed the dialog.
       } else if (err === "iap_plugin_missing") {
+        // CSSOS_WAVE_125_FIX 20260513 — Jing: the raw "registerPlugin=...
+        // available=[...]" diagnostic was being shown as a sticky toast
+        // covering the SUBSCRIPTION title. End users don't need internals.
+        // Show a clean message; full detail stays in console + telemetry.
         var diag = String((result && result.detail) || "no detail");
         console.warn("[ios-iap-btn] plugin missing detail:", diag);
+        // Send to crash-log too for admin diagnostics
+        try {
+          if (navigator.sendBeacon) {
+            navigator.sendBeacon("/api/admin/crash-log",
+              new Blob([JSON.stringify({ kind: "iap_plugin_missing", message: diag.slice(0, 300) })],
+              { type: "application/json" }));
+          }
+        } catch (_) {}
         if (typeof globalThis.showToast === "function") {
           globalThis.showToast(tr(
-            "IAP bridge not registered. ",
-            "IAP 桥未注册。"
-          ) + diag.slice(0, 200));
+            "Apple Pay isn't available in this build. Please use the web checkout for now.",
+            "本版本暂不支持 Apple Pay，请通过网页端付费。"
+          ));
         }
       } else if (typeof globalThis.showToast === "function") {
         globalThis.showToast(tr("Could not complete the purchase: ", "购买未完成：") + err);

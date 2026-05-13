@@ -18490,6 +18490,65 @@ app.get("/api/anniversary/upcoming", async (req, res) => {
   }
 });
 
+/* CSSOS_WAVE_128 20260513 — Jing
+ * GET /api/system-mvs/archive?kind=festival&id=spring-festival
+ *   or  ?kind=anniversary&person_id=p_mulan
+ *
+ * Returns all past system_origin works tied to a specific festival or
+ * person, sorted newest first. Used by the marketplace "archive" overlay
+ * to surface MVs from prior years — completes the time axis
+ *   past (this endpoint) ← today (W119/W120) → next 7 days (W125)
+ *
+ * Cap at 30 results. Public read (these are system_origin=free).
+ */
+app.get("/api/system-mvs/archive", async (req, res) => {
+  noStore(res);
+  const kind = String(req.query.kind || "").trim().toLowerCase();
+  const id = String(req.query.id || req.query.person_id || req.query.festival_id || "").trim();
+  if (!id) return res.status(400).json({ ok: false, error: "id_required" });
+  try {
+    if (kind === "festival") {
+      const r = await withClient((c) =>
+        c.query<any>(
+          `SELECT sfl.run_date, sfl.work_id, sfl.status, sfl.created_at,
+                  w.title AS work_title, w.cover_image, w.style,
+                  f.name_zh AS festival_name_zh, f.name_en AS festival_name_en,
+                  f.civilization, f.core_theme
+             FROM system_festival_log sfl
+             JOIN system_festivals f ON f.festival_id = sfl.festival_id
+             LEFT JOIN user_works w ON w.id = sfl.work_id
+            WHERE sfl.festival_id = $1 AND sfl.status = 'ok' AND sfl.work_id IS NOT NULL
+            ORDER BY sfl.run_date DESC
+            LIMIT 30`,
+          [id],
+        ),
+      );
+      return res.json({ ok: true, data: { kind: "festival", id, works: (r as any).rows } });
+    }
+    if (kind === "anniversary") {
+      const r = await withClient((c) =>
+        c.query<any>(
+          `SELECT sal.run_date, sal.work_id, sal.event_type, sal.status, sal.created_at,
+                  w.title AS work_title, w.cover_image, w.style,
+                  pp.name_zh, pp.name_en, pp.civilization, pp.era, pp.portrait_url
+             FROM system_anniversary_log sal
+             JOIN person_profiles pp ON pp.person_id = sal.person_id
+             LEFT JOIN user_works w ON w.id = sal.work_id
+            WHERE sal.person_id = $1 AND sal.status = 'ok' AND sal.work_id IS NOT NULL
+            ORDER BY sal.run_date DESC
+            LIMIT 30`,
+          [id],
+        ),
+      );
+      return res.json({ ok: true, data: { kind: "anniversary", id, works: (r as any).rows } });
+    }
+    return res.status(400).json({ ok: false, error: "kind must be 'festival' or 'anniversary'" });
+  } catch (err) {
+    console.warn("[system-mvs-archive] failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "ARCHIVE_FAILED" });
+  }
+});
+
 /* POST /api/festivals/run-now — admin manual trigger. */
 app.post("/api/festivals/run-now", async (req, res) => {
   const userId = (req.session as any)?.user_id;

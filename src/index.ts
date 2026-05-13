@@ -18479,26 +18479,32 @@ async function systemMediaSpentTodayCents(): Promise<number> {
 /* Backfill one specific work. Pulls full lyrics + cover via the existing
  * free-tier routers (callLlm + callImageGen). Returns the cost incurred
  * (cents) so callers can update budget counters. */
-async function backfillSystemWorkMedia(workId: string): Promise<{ ok: boolean; cost_cents: number; error?: string }> {
+async function backfillSystemWorkMedia(
+  workId: string,
+  level: "lite" | "full" = "lite",
+): Promise<{ ok: boolean; cost_cents: number; level: string; error?: string }> {
   let work: any;
   try {
     const r = await withClient((c) =>
       c.query<any>(
-        `SELECT id, title, style, lyrics_preview, cover_image, system_origin
+        `SELECT id, title, style, lyrics_preview, cover_image,
+                preview_audio_url, preview_video_url, system_origin
            FROM user_works WHERE id = $1::uuid LIMIT 1`,
         [workId],
       ),
     );
     work = r.rows[0];
   } catch (err) {
-    return { ok: false, cost_cents: 0, error: "load_failed: " + ((err as Error)?.message || String(err)) };
+    return { ok: false, cost_cents: 0, level, error: "load_failed: " + ((err as Error)?.message || String(err)) };
   }
-  if (!work) return { ok: false, cost_cents: 0, error: "not_found" };
-  if (!work.system_origin) return { ok: false, cost_cents: 0, error: "not_a_system_work" };
+  if (!work) return { ok: false, cost_cents: 0, level, error: "not_found" };
+  if (!work.system_origin) return { ok: false, cost_cents: 0, level, error: "not_a_system_work" };
 
   let costCents = 0;
   let fullLyrics: string | null = null;
   let coverUrl: string | null = null;
+  let audioUrl: string | null = null;
+  let videoUrl: string | null = null;
 
   // 1) Full lyrics via free→cheap LLM tier.
   if (!work.lyrics_preview || work.lyrics_preview.length < 400) {
@@ -18563,27 +18569,73 @@ async function backfillSystemWorkMedia(workId: string): Promise<{ ok: boolean; c
     }
   }
 
-  // 3) Persist back to user_works. (The system_origin trigger keeps
-  // ownership/pricing locked but allows title/style/lyrics_preview/
-  // cover_image refreshes — see migration 067.)
-  if (fullLyrics || coverUrl) {
+  // 3) Audio + video — only when level==="full" (premium, on-demand
+  //    per-click). The nightly batch never invokes this path.
+  if (level === "full") {
+    if (!work.preview_audio_url) {
+      try {
+        const styleHint = String(work.style || "").slice(0, 120);
+        const titleHint = String(work.title || "").slice(0, 120);
+        const m = await callMusicGen({
+          prompt: [titleHint, styleHint, (fullLyrics || work.lyrics_preview || "").slice(0, 300)]
+            .filter(Boolean).join(" — "),
+          duration_secs: 60, // 1 minute preview — keeps per-call cost bounded
+          mood: styleHint.toLowerCase().includes("memoriam") || styleHint.includes("缅怀") ? "solemn" : "celebratory",
+        });
+        if (m && m.ok && m.audio_url) {
+          audioUrl = m.audio_url;
+          costCents += (typeof estimateEngineCostCents === "function")
+            ? estimateEngineCostCents("music", m.provider, 60)
+            : 0;
+        }
+      } catch (err) {
+        console.warn(`[system-media] music failed for ${workId}:`, (err as Error)?.message || err);
+      }
+    }
+    if (!work.preview_video_url && (coverUrl || work.cover_image)) {
+      try {
+        const v = await callVideoGen({
+          prompt: [work.title || "", work.style || "", "cinematic, no text"]
+            .filter(Boolean).join(", "),
+          duration_secs: 5,
+          aspect_ratio: "16:9",
+          image_url: coverUrl || work.cover_image || undefined,
+        });
+        if (v && v.ok && v.video_url) {
+          videoUrl = v.video_url;
+          costCents += (typeof estimateEngineCostCents === "function")
+            ? estimateEngineCostCents("video", v.provider, 5)
+            : 0;
+        }
+      } catch (err) {
+        console.warn(`[system-media] video failed for ${workId}:`, (err as Error)?.message || err);
+      }
+    }
+  }
+
+  // 4) Persist back to user_works. (The system_origin trigger keeps
+  // ownership/pricing locked but allows media-asset refreshes — see
+  // migration 067.)
+  if (fullLyrics || coverUrl || audioUrl || videoUrl) {
     try {
       await withClient((c) =>
         c.query(
           `UPDATE user_works SET
-              lyrics_preview = COALESCE($2, lyrics_preview),
-              cover_image    = COALESCE($3, cover_image),
-              updated_at     = now()
+              lyrics_preview     = COALESCE($2, lyrics_preview),
+              cover_image        = COALESCE($3, cover_image),
+              preview_audio_url  = COALESCE($4, preview_audio_url),
+              preview_video_url  = COALESCE($5, preview_video_url),
+              updated_at         = now()
             WHERE id = $1::uuid`,
-          [workId, fullLyrics, coverUrl],
+          [workId, fullLyrics, coverUrl, audioUrl, videoUrl],
         ),
       );
     } catch (err) {
-      return { ok: false, cost_cents: costCents, error: "persist_failed: " + ((err as Error)?.message || String(err)) };
+      return { ok: false, cost_cents: costCents, level, error: "persist_failed: " + ((err as Error)?.message || String(err)) };
     }
   }
 
-  // 4) Update the originating log row's cost_cents (anniversary or festival).
+  // 5) Update the originating log row's cost_cents (anniversary or festival).
   try {
     await withClient((c) =>
       c.query(
@@ -18601,7 +18653,7 @@ async function backfillSystemWorkMedia(workId: string): Promise<{ ok: boolean; c
     );
   } catch (_) {}
 
-  return { ok: !!(fullLyrics || coverUrl), cost_cents: costCents };
+  return { ok: !!(fullLyrics || coverUrl || audioUrl || videoUrl), cost_cents: costCents, level };
 }
 
 /* Nightly batch backfill. Caps at the daily budget and at 50 works
@@ -18675,14 +18727,28 @@ app.post("/api/system-media/backfill-one", express.json({ limit: "1kb" }), async
   if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
   const workId = String((req.body as any)?.work_id || "").trim();
   if (!workId) return res.status(400).json({ ok: false, error: "work_id required" });
+  // CSSOS_WAVE_122B — caller can opt into "full" (lyrics+cover+audio+video).
+  // Audio/video are 10–100× more expensive than lyrics/cover, so:
+  //   - "lite" (default) = free→cheap LLM + image only (under $0.01/work)
+  //   - "full" = adds Suno/Mubert music + Luma/Fal video (caps at ~$1/work)
+  // Only admins may invoke "full"; regular users get lite (still useful —
+  // most works look fine with lyrics + cover alone).
+  const requestedLevel = String((req.body as any)?.level || "").trim().toLowerCase() === "full" ? "full" : "lite";
+  let effectiveLevel: "lite" | "full" = "lite";
+  if (requestedLevel === "full") {
+    const userR = await withClient((c) =>
+      c.query<{ role: string }>(`SELECT role FROM users WHERE id = $1::uuid LIMIT 1`, [userId]),
+    );
+    effectiveLevel = userR.rows[0]?.role === "admin" ? "full" : "lite";
+  }
   // Budget gate also applies to on-demand calls (don't let a busy day
   // make this an unbounded spend lever).
   const spent = await systemMediaSpentTodayCents();
   if (spent >= SYSTEM_MEDIA_DAILY_BUDGET_CENTS) {
     return res.status(429).json({ ok: false, error: "daily_budget_exhausted", spent_cents: spent });
   }
-  const r = await backfillSystemWorkMedia(workId);
-  return res.json({ ok: r.ok, cost_cents: r.cost_cents, error: r.error });
+  const r = await backfillSystemWorkMedia(workId, effectiveLevel);
+  return res.json({ ok: r.ok, cost_cents: r.cost_cents, level: r.level, error: r.error });
 });
 
 let __personMdBackfilled = false;

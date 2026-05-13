@@ -61,26 +61,25 @@
     } catch (_) {}
   }
 
-  // 2. Watch the cssmv-cinema class on #watch-panel — when it's both
-  //    present AND the panel is on screen, hide. Otherwise show.
-  function evaluate() {
-    const wp = document.getElementById("watch-panel");
-    if (!wp) return applyState(false);
-    const inCinema = wp.classList.contains("cssmv-cinema");
-    const visible = !wp.hidden && wp.offsetParent !== null;
-    applyState(inCinema && visible);
-  }
+  // CSSOS_WAVE_117_HIDE_STATUSBAR_GLOBAL 20260513 — Jing: "启动 app 就
+  // 隐藏系统时间栏，不然和面板的三按钮打架". On iOS native, ALWAYS keep
+  // the status bar hidden — every cssOS surface is treated as immersive.
+  // The status bar overlays the panel chrome (top-right minimize / close
+  // buttons) and steals tap targets. On web/Android we leave it alone.
   function start() {
-    evaluate();
-    try {
-      const mo = new MutationObserver(evaluate);
-      const wp = document.getElementById("watch-panel");
-      if (wp) mo.observe(wp, { attributes: true, attributeFilter: ["class", "hidden", "style"] });
-    } catch (_) {}
-    // Re-evaluate on common navigation events
-    ["cssos:panel-open", "cssos:panel-close", "cssos:work-changed", "visibilitychange"]
-      .forEach((ev) => document.addEventListener(ev, evaluate));
-    window.addEventListener("orientationchange", evaluate);
+    const sb = getStatusBar();
+    if (sb) {
+      // Native iOS: hide on launch, keep hidden for the whole session.
+      applyState(true);
+      // Re-apply after orientation flip or backgrounding-return (some
+      // iOS versions reset the bar to visible after coming back from
+      // a system sheet / Apple Sign-In modal).
+      const reapply = () => { lastState = null; applyState(true); };
+      window.addEventListener("orientationchange", reapply);
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) reapply();
+      });
+    }
   }
 
   if (document.readyState === "loading") {

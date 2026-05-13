@@ -3482,15 +3482,44 @@ html[data-theme="light"] .works-fp-optin-desc {
      截掉了魔镜的尖尖角，希望是竖屏宽度的 1/3 即可". On portrait phones
      constrain to 33vw so the 4 gem-points stay inside the viewport. */
 }
-@media (max-width: 480px) and (orientation: portrait) {
-  .mirror {
+@media (max-width: 480px) and (orientation: portrait),
+       (max-width: 480px) {
+  .mirror,
+  .logo-panel .mirror,
+  .mirror-stage .mirror {
     width: min(33vw, 240px) !important;
     height: min(33vw, 240px) !important;
+    max-width: 33vw !important;
+    max-height: 33vw !important;
   }
   .mirror-slogan {
     font-size: 13px !important;
     letter-spacing: .12em !important;
     padding: 0 16px !important;
+  }
+  /* CSSOS_WAVE_117_LOGO_TEXT_CENTER 20260513 — Jing: "logo，CSS和Studio
+     没有显示在魔镜中央". Lock the inner text overlay to absolute center
+     of the mirror box, with no left/right padding eating into width. */
+  .mirror-text {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 4px !important;
+    padding: 0 !important;
+  }
+  .mirror-title {
+    font-size: clamp(14px, 6vw, 22px) !important;
+    line-height: 1 !important;
+    letter-spacing: 0.04em !important;
+  }
+  .mirror-subtitle {
+    font-size: clamp(7px, 2.4vw, 10px) !important;
+    line-height: 1 !important;
+    letter-spacing: 0.32em !important;
   }
 }
 
@@ -10112,3 +10141,36 @@ html[data-theme="light"] .cssos-engine-bal-green { color: #00a060; }
 html[data-theme="light"] .cssos-engine-bal-yellow { color: #b58100; }
 html[data-theme="light"] .cssos-engine-bal-red { color: #b1311e; }
 html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
+
+/* CSSOS_WAVE_117_DEDUP_CHAT 20260513 — Jing: "右下角的两个绿色助手，
+   请整合成一个就够了". Keep #cssos-agent-fab (general AI assistant,
+   always available), hide .cssos-ai-chat-bubble (person-mv-page-specific
+   chat). The person-MV chat is reachable via the … menu inside the
+   person-mv panel itself; no need for a second floating bubble. */
+.cssos-ai-chat-bubble { display: none !important; }
+
+/* CSSOS_WAVE_117_MOBILE_PANEL_COVER 20260513 (v2) — Jing
+   v1 forced non-logo panels to solid `var(--bg)` which made the login
+   panel invisible against the same background. Revised approach: leave
+   panel chrome alone, just HIDE #logo-panel when any other panel is
+   foregrounded. Login / dock / etc render on top of nothing, as
+   intended. Logo comes back when the user closes the active panel. */
+@media (max-width: 480px) {
+  body:has(.panel.panel-front:not(#logo-panel)) #logo-panel,
+  body:has(.panel.panel-active:not(#logo-panel)) #logo-panel {
+    visibility: hidden;
+    pointer-events: none;
+  }
+}
+
+/* CSSOS_WAVE_117_AGENT_FAB_DOCK_CLEAR 20260513 — Jing: "绿色 AI 助手
+   和 Dock 打架，请往上一点". Default fab sits at bottom:18px which
+   collides with the dock row on mobile. Lift it above the dock's
+   typical height (~80px) plus safe-area inset. Keeps right-edge
+   alignment. */
+#cssos-agent-fab {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 110px) !important;
+}
+#cssos-agent-panel {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 178px) !important;
+}

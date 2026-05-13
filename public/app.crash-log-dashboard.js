@@ -57,7 +57,9 @@
     btn.style.cssText = [
       "position:fixed",
       "left:14px",
-      "bottom:calc(env(safe-area-inset-bottom,0px) + 14px)",
+      // CSSOS_WAVE_120A_FIX 20260513 — move up to clear the Dock (~80px
+      // high + safe-area inset). Mirrors the AI agent fab pattern.
+      "bottom:calc(env(safe-area-inset-bottom,0px) + 110px)",
       "z-index:9700",
       "min-width:42px",
       "height:32px",

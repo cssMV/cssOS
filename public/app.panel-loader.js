@@ -154,6 +154,31 @@
     "buildWorksCardEngineBreakdownMarkupModule",
   ].forEach((fn) => globalThis.cssosRegisterLazyShim(fn, "market"));
 
+  // CSSOS_WAVE_120B 20260513 — mv-pipeline-panel.js bootstrap.
+  // The 444 KB script only adds UI to the MV Pipeline panel (cinema /
+  // storm mode, tier label, engine-selection event listeners). The
+  // real pipeline runs from app.js / app.mv-import.js. Strategy: on
+  // first user click of any `[data-action="mv-pipeline"]` dock item /
+  // launcher, fetch the script. Subsequent clicks hit the now-resident
+  // cssmvWave6 + event listeners normally.
+  function bootstrapMvPipelineLazy() {
+    document.addEventListener("click", (ev) => {
+      const t = ev.target;
+      if (!(t instanceof Element)) return;
+      const trigger = t.closest("[data-action='mv-pipeline'], [data-panel-id='mv-pipeline'], [data-msrc-apply]");
+      if (!trigger) return;
+      // Fire-and-forget; existing click handlers continue normally.
+      globalThis.cssosLoadPanel("mv-pipeline").catch((err) => {
+        console.warn("[lazy-panel] mv-pipeline failed:", err);
+      });
+    }, true);
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", bootstrapMvPipelineLazy);
+  } else {
+    bootstrapMvPipelineLazy();
+  }
+
   // Diagnostic: list what's lazy-registered and what's loaded.
   globalThis.cssosLazyPanelDebug = function () {
     const declared = Array.from(

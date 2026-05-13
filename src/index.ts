@@ -18643,32 +18643,54 @@ async function backfillSystemWorkMedia(
   let audioUrl: string | null = null;
   let videoUrl: string | null = null;
 
-  // 1) Full lyrics via free→cheap LLM tier.
+  // CSSOS_WAVE_134 20260513 — Jing: enforce 京典模板 (10 fixed sections,
+  // 4 body lines per section + 1 ancestral-language ritual line, 40-50
+  // total lines minimum). Reuse the same buildJingdianSystemPrompt /
+  // buildJingdianUserPrompt that the user-facing /api/mv/lyrics uses,
+  // so system-generated MVs follow the identical format. Re-roll up to
+  // 2 times if the LLM returns fewer than 40 lines (the floor of a
+  // "complete" 京典 song per Jing's spec).
   if (!work.lyrics_preview || work.lyrics_preview.length < 400) {
     try {
       const seed = String(work.lyrics_preview || work.title || "").slice(0, 800);
       const isZh = /[一-鿿]/.test(seed);
       const lang = isZh ? "zh" : "en";
-      const tier = await callLlm({
-        messages: [
-          {
-            role: "system",
-            content: isZh
-              ? "你是一位歌词作家。为给定的主题写一首完整的歌词，包含 verse/chorus/bridge 标记。8-12 节，每节 4-6 行。"
-              : "You are a lyricist. Write a complete song lyric for the given theme, with verse/chorus/bridge labels. 8–12 sections, 4–6 lines each.",
-          },
-          {
-            role: "user",
-            content: `Title: ${work.title || ""}\nStyle: ${work.style || ""}\nSeed:\n${seed}\n\nWrite the full lyrics in ${lang}.`,
-          },
-        ],
-        max_tokens: 2200,
-        temperature: 0.75,
-      });
-      if (tier && tier.ok && tier.content && tier.content.trim()) {
-        fullLyrics = tier.content.trim();
+      const userPrompt = (typeof buildJingdianUserPrompt === "function")
+        ? buildJingdianUserPrompt(lang, String(work.style || ""), seed, "single", "")
+        : `Title: ${work.title || ""}\nStyle: ${work.style || ""}\nSeed:\n${seed}`;
+      const systemPrompt = (typeof buildJingdianSystemPrompt === "function")
+        ? buildJingdianSystemPrompt(lang, "single", "")
+        : "Write a complete 10-section 京典 lyric: Verse 1, Verse 2, Chorus 1, Verse 3, Verse 4, Chorus 2, Bridge, Chorus 3, Chorus 4, Outro. Each section 4 body lines + 1 ritual-language line. Total ≥40 lines.";
+
+      let attempt = 0;
+      let candidate: string | null = null;
+      let provider = "";
+      while (attempt < 3 && !candidate) {
+        attempt += 1;
+        const tier = await callLlm({
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user",   content: userPrompt   },
+          ],
+          max_tokens: 3200, // 10 sections × ~5 lines × ~30 tokens = 1500; 2× headroom for 文言文 + safety
+          temperature: attempt === 1 ? 0.7 : 0.85, // bump temperature on retry
+        });
+        const text = (tier && tier.ok && tier.content) ? tier.content.trim() : "";
+        const lineCount = text ? text.split(/\r?\n/).filter((l) => l.trim().length > 0).length : 0;
+        const sectionCount = text ? (text.match(/\[(Verse|Chorus|Bridge|Outro|Pre-Chorus)/gi) || []).length : 0;
+        // Acceptance: ≥ 40 lyric lines AND ≥ 8 section headers (allow 2 missing for retry resilience).
+        if (text && lineCount >= 40 && sectionCount >= 8) {
+          candidate = text;
+          provider = tier?.provider || "llm";
+          console.log(`[system-media] lyrics ok for ${workId}: lines=${lineCount} sections=${sectionCount} provider=${provider} attempt=${attempt}`);
+          break;
+        }
+        console.warn(`[system-media] lyrics short for ${workId}: attempt=${attempt} lines=${lineCount} sections=${sectionCount}`);
+      }
+      if (candidate) {
+        fullLyrics = candidate;
         const lyricsCost = (typeof estimateEngineCostCents === "function")
-          ? estimateEngineCostCents("lyrics", tier.provider, fullLyrics.length / 4)
+          ? estimateEngineCostCents("lyrics", provider, fullLyrics.length / 4)
           : 0;
         costCents += lyricsCost;
       }
@@ -18812,9 +18834,20 @@ async function runSystemMediaBackfillBatch(): Promise<{
   try {
     const r = await withClient((c) =>
       c.query<{ id: string }>(
+        // CSSOS_WAVE_134 20260513 — also re-roll works where the
+        // lyrics body has fewer than 40 newline-separated lines OR
+        // fewer than 8 [Section] headers. Length-in-chars alone isn't
+        // enough — a single dense paragraph of 400 chars wouldn't be
+        // a valid 10-section 京典 song.
         `SELECT id FROM user_works
            WHERE system_origin IN ('system_anniversary','system_festival')
-             AND (cover_image IS NULL OR cover_image = '' OR lyrics_preview IS NULL OR length(lyrics_preview) < 400)
+             AND (
+                  cover_image IS NULL OR cover_image = ''
+               OR lyrics_preview IS NULL
+               OR length(lyrics_preview) < 600
+               OR (length(lyrics_preview) - length(replace(lyrics_preview, E'\\n', ''))) < 40
+               OR coalesce(array_length(regexp_split_to_array(lyrics_preview, E'\\\\[(Verse|Chorus|Bridge|Outro|Pre-Chorus)'), 1), 1) - 1 < 8
+             )
            ORDER BY created_at DESC
            LIMIT 50`,
       ),
@@ -24568,6 +24601,32 @@ app.post("/api/admin/crash-log", express.json({ limit: "32kb" }), (req, res) => 
 app.get("/api/admin/crash-log/recent", (_req, res) => {
   noStore(res);
   res.json({ ok: true, entries: __crashLogBuf.slice(-100) });
+});
+
+// CSSOS_WAVE_120C 20260513 · user-flagged bug reports inbox.
+// Floating "🐛" button in the admin UI posts here. We keep an
+// in-memory ring buffer + emit to journalctl so we can grep
+// `bug-report` for the running list of things to fix.
+const __bugReportBuf: Array<{ ts: number; line: string; payload: any }> = [];
+app.post("/api/admin/bug-report", express.json({ limit: "64kb" }), (req, res) => {
+  noStore(res);
+  try {
+    const b: any = req.body || {};
+    const email = String(b.email || "anon").slice(0, 60);
+    const message = String(b.message || "").slice(0, 4000);
+    const panels = String(b.panels || "").slice(0, 200);
+    const url = String(b.url || "").slice(0, 200);
+    const last = b.lastClick ? JSON.stringify(b.lastClick).slice(0, 200) : "";
+    const line = `[bug-report] ${email} | ${panels} | ${url} | ${last} | ${message.replace(/\n/g, " ↵ ")}`;
+    console.warn(line);
+    __bugReportBuf.push({ ts: Date.now(), line, payload: b });
+    if (__bugReportBuf.length > 500) __bugReportBuf.shift();
+  } catch (_) {}
+  res.json({ ok: true });
+});
+app.get("/api/admin/bug-report/recent", (_req, res) => {
+  noStore(res);
+  res.json({ ok: true, entries: __bugReportBuf.slice(-100) });
 });
 
 // CSSOS_WAVE_111D_VISION_HEALTH 20260512 · Anthropic health snapshot.

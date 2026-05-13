@@ -2060,7 +2060,7 @@
          CSS rules apply before any panel renders. -->
     <script src="app.touch-hardening.js?v=20260513-wave117-touch"></script>
     <!-- CSSOS_WAVE_117_STEP_2 — lazy panel loader API (small, sync) -->
-    <script src="app.panel-loader.js?v=20260513-wave117-lazy-market"></script>
+    <script src="app.panel-loader.js?v=20260513-wave120b-mv-pipeline"></script>
     <!-- CSSOS_WAVE_117_IOS_STATUSBAR — hide iOS status bar in cinema mode -->
     <script defer src="app.ios-statusbar-cinema.js?v=20260513-wave117-always"></script>
     <!-- CSSOS_WAVE_115 — iOS native payment gate. MUST load FIRST so it
@@ -2166,6 +2166,8 @@
     <!-- CSSOS_WAVE_120A — Admin-only crash telemetry dashboard. Floating
          button bottom-left + slide-in right panel. Hidden for non-admin. -->
     <script src="app.crash-log-dashboard.js?v=20260513-wave120a"></script>
+    <!-- CSSOS_WAVE_120C — Admin-only "see-a-bug → tell-me" inbox FAB. -->
+    <script src="app.bug-capture.js?v=20260513-wave120c"></script>
     <script src="app.client-transcode.js?v=20260511-wave111b-b2"></script>
     <script src="app.cost-breakdown-accum.js?v=20260511-wave113k-accum"></script>
     <script src="app.mv-import.js?v=20260511-wave111b-predecode"></script>
@@ -2229,7 +2231,14 @@
     <script src="app.mv-tier-picker-modal.js?v=20260419-p2-mv-naming-1"></script>
     <script src="app.cssmv-seed-bank.js?v=20260504-infinite-seed"></script>
     <script src="app.mv-dag-executor.js?v=20260507-dag-1"></script>
-    <script src="app.mv-pipeline-panel.js?v=20260510-wave110e4-cinematic-cover"></script>
+    <!-- CSSOS_WAVE_120B 20260513 — mv-pipeline-panel.js (444 KB) is pure
+         UI for the MV Pipeline panel: cinema/storm mode, stage badges,
+         tier label. It does NOT call any /api/mv/* endpoint — the real
+         pipeline runs from app.js / app.mv-import.js / app.run-auth.js.
+         So we can safely lazy-load it on first interaction with the
+         MV Pipeline dock icon ([data-action="mv-pipeline"]) instead of
+         on every page load. Saves ~444 KB from first-paint on mobile. -->
+    <script type="cssos-lazy" data-panel="mv-pipeline" src="app.mv-pipeline-panel.js?v=20260510-wave110e4-cinematic-cover"></script>
     <script src="app.person-mv-panel.js?v=20260511-wave114b-realm-badge"></script>
     <script src="app.person-mv-discover-shelf.js?v=20260507-wave9"></script>
     <script src="app.person-mv-groups-shelf.js?v=20260508-wave16"></script>

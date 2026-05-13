@@ -1722,6 +1722,23 @@
         <div class="resize-handle"></div>
       </section>
 
+      <!-- CSSOS_WAVE_125 20260513 — System MV monitor panel.
+           Admin-only at the API layer; non-admins get a friendly message. -->
+      <section class="panel flow hidden" id="system-mvs-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">🎞</div>
+          <div class="panel-title" data-i18n="panel.systemMvs">System MVs</div>
+          <div class="panel-actions">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body" id="system-mvs-panel-content"></div>
+        <div class="resize-handle"></div>
+      </section>
+
       <section class="panel flow hidden" id="user-admin-panel">
         <div class="panel-bar">
           <div class="panel-icon">🧑‍💼</div>
@@ -1973,6 +1990,10 @@
         <div class="dock-icon">🛰</div>
         <div class="dock-label" data-i18n="dock.deliveryOps">Delivery Ops</div>
       </div>
+      <div class="dock-item" data-action="system-mvs" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">🎞</div>
+        <div class="dock-label" data-i18n="dock.systemMvs">System MVs</div>
+      </div>
       <div class="dock-item" data-action="login" data-actions="click,dblclick,longpress">
         <div class="dock-icon">🔐</div>
         <div class="dock-label" data-i18n="dock.login">Login</div>
@@ -2167,6 +2188,7 @@
     <script src="app.today-in-history-shelf.js?v=20260513-wave119b"></script>
     <script src="app.today-festival-shelf.js?v=20260513-wave122"></script>
     <script src="app.upcoming-shelf.js?v=20260513-wave125"></script>
+    <script src="app.system-mvs-panel.js?v=20260513-wave125"></script>
     <script src="app.engine-accounts.js?v=20260424-p2-92-breaker-localstorage-1"></script>
     <script src="app.payments-checkout.js?v=20260513-wave116-wallets"></script>
     <script src="app.music-input-panel.js?v=20260512-wave111d-progress-all"></script>

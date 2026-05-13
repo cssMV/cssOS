@@ -6431,7 +6431,8 @@ const dockByPanel = {
   "about-panel": "about",
   "api-panel": "api",
   "delivery-reports-panel": "reports",
-  "delivery-ops-panel": "delivery-ops"
+  "delivery-ops-panel": "delivery-ops",
+  "system-mvs-panel": "system-mvs"
 };
 const MIN_PANEL_WIDTH = 320;
 const MIN_PANEL_HEIGHT = 240;

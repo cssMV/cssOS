@@ -62,6 +62,14 @@ function guardPanelAccessModule(panelId) {
     }
     return true;
   }
+  if (panelId === "system-mvs-panel") {
+    try {
+      globalThis.renderSystemMvsPanelModule?.();
+    } catch (error) {
+      console.error("[system-mvs-panel] guard render failed", error);
+    }
+    return true;
+  }
   if (panelId === "credit-panel") {
     try {
       globalThis.renderCreditPanelModule?.();

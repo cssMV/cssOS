@@ -83,26 +83,48 @@
       return { ok: false, error: "not_ios_native" };
     }
     var plugin = getPlugin();
+    // CSSOS_WAVE_125 20260513 — diagnostics: when no proxy was obtained,
+    // dump what IS on Capacitor.Plugins so the next iteration sees real
+    // information instead of a generic "missing" error.
     if (!plugin) {
-      return { ok: false, error: "iap_plugin_missing", hint: "Run 'npm i @capacitor-community/in-app-purchases && npx cap sync ios' in the iOS project." };
+      var cap = globalThis.Capacitor;
+      var available = [];
+      try { available = cap && cap.Plugins ? Object.keys(cap.Plugins) : []; } catch (_) {}
+      var hasRegFn = !!(cap && typeof cap.registerPlugin === "function");
+      var detail = "Capacitor.registerPlugin=" + (hasRegFn ? "function" : typeof (cap && cap.registerPlugin))
+        + "; available=" + JSON.stringify(available);
+      console.warn("[iap-native] no plugin handle.", detail);
+      return { ok: false, error: "iap_plugin_missing", detail: detail };
     }
     try {
-      // Plugin API shape varies slightly by version. Try common patterns.
+      // CSSOS_WAVE_125 20260513 — call purchaseProduct via Capacitor's
+      // generic proxy method regardless of typeof check. registerPlugin()
+      // returns a Proxy whose `get(target, key)` always returns a function,
+      // so `typeof plugin.purchaseProduct` is always "function". But on
+      // older proxies, the function might be missing. So we always try
+      // purchaseProduct first; if it throws "method not implemented" we
+      // fall back. Any other throw bubbles up as a real error.
       var txnResult;
-      // Capgo native-purchases canonical method: purchaseProduct.
-      if (typeof plugin.purchaseProduct === "function") {
+      try {
         txnResult = await plugin.purchaseProduct({
           productIdentifier: productId,
-          // Capgo accepts SUBS or INAPP — subscriptions in our catalog
-          // have suffix .monthly / .annual; consumables have .credits.<n>
           planType: /\.(monthly|annual)$/.test(productId) ? "subs" : "inapp",
         });
-      } else if (typeof plugin.purchase === "function") {
-        txnResult = await plugin.purchase({ productIdentifier: productId });
-      } else if (typeof plugin.startPurchase === "function") {
-        txnResult = await plugin.startPurchase({ productId: productId });
-      } else {
-        return { ok: false, error: "iap_plugin_api_unknown" };
+      } catch (errA) {
+        var msgA = String((errA && errA.message) || errA || "");
+        console.warn("[iap-native] purchaseProduct threw:", msgA);
+        if (/not implemented|UNIMPLEMENTED|no method/i.test(msgA)) {
+          if (typeof plugin.purchase === "function") {
+            txnResult = await plugin.purchase({ productIdentifier: productId });
+          } else if (typeof plugin.startPurchase === "function") {
+            txnResult = await plugin.startPurchase({ productId: productId });
+          } else {
+            return { ok: false, error: "iap_plugin_api_unknown", detail: msgA };
+          }
+        } else {
+          // Real StoreKit / network / cancel error — propagate the message.
+          throw errA;
+        }
       }
       if (!txnResult) return { ok: false, error: "iap_no_result" };
       // Extract receipt — different plugins call it different things.

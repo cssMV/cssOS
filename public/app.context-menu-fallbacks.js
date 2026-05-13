@@ -43,7 +43,9 @@
     "user panel": "user-admin-panel",
     "users": "user-admin-panel",
     "delivery": "delivery-ops-panel",
-    "reports": "delivery-reports-panel"
+    "reports": "delivery-reports-panel",
+    "system mvs": "system-mvs-panel",
+    "system-mvs": "system-mvs-panel"
   });
 
   // Optional module openers — preferred over plain openPanel() because
@@ -55,7 +57,8 @@
     "workspaces-panel": "openWorkspacesPanelModule",
     "works-panel": "openWorksPanelModule",
     "user-admin-panel": "openUserAdminPanelModule",
-    "notifications-panel": "openNotificationsPanelModule"
+    "notifications-panel": "openNotificationsPanelModule",
+    "system-mvs-panel": "openSystemMvsPanelModule"
   });
 
   function panelIsVisible(panel) {

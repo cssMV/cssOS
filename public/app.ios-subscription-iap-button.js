@@ -104,11 +104,13 @@
       if (err === "user_cancelled") {
         // Silent — user closed the dialog.
       } else if (err === "iap_plugin_missing") {
+        var diag = String((result && result.detail) || "no detail");
+        console.warn("[ios-iap-btn] plugin missing detail:", diag);
         if (typeof globalThis.showToast === "function") {
           globalThis.showToast(tr(
-            "Please update the app to the latest TestFlight build to enable purchases.",
-            "请在 TestFlight 中更新到最新版本以启用购买。"
-          ));
+            "IAP bridge not registered. ",
+            "IAP 桥未注册。"
+          ) + diag.slice(0, 200));
         }
       } else if (typeof globalThis.showToast === "function") {
         globalThis.showToast(tr("Could not complete the purchase: ", "购买未完成：") + err);

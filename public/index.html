@@ -2035,12 +2035,12 @@
          instrumentation catches errors thrown by every later script. -->
     <script src="app.crash-guard.js?v=20260512-wave117-step1"></script>
     <!-- CSSOS_WAVE_117_STEP_2 — lazy panel loader API (small, sync) -->
-    <script src="app.panel-loader.js?v=20260513-wave117-step2"></script>
+    <script src="app.panel-loader.js?v=20260513-wave117-lazy-market"></script>
     <!-- CSSOS_WAVE_117_IOS_STATUSBAR — hide iOS status bar in cinema mode -->
     <script defer src="app.ios-statusbar-cinema.js?v=20260513-wave117-always"></script>
     <!-- CSSOS_WAVE_115 — iOS native payment gate. MUST load FIRST so it
          sets html[data-ios-native] before any payment surface renders. -->
-    <script src="app.ios-native-gate.js?v=20260511-wave115-ios-gate"></script>
+    <script src="app.ios-native-gate.js?v=20260513-wave123-hide-stripe-paths"></script>
     <script src="app.iap-native.js?v=20260513-wave118"></script>
     <script src="/i18n/constants.js"></script>
     <script src="/i18n/catalog.js"></script>
@@ -2059,7 +2059,7 @@
     <script src="app.panel-command-settings.js?v=20260412-ui-recovery-5"></script>
     <script src="app.panel-behavior-core.js?v=20260418-engines-selector-2"></script>
     <script src="app.action-permissions.js?v=20260412-ui-recovery-9"></script>
-    <script defer src="app.context-menu.js?v=20260428-onetap-bulletproof-168.4"></script>
+    <script src="app.context-menu.js?v=20260428-onetap-bulletproof-168.4"></script>
     <script src="app.delivery-report-bridges.js?v=20260412-ui-recovery-5"></script>
     <script src="app.civilization-bank.js?v=20260418-p2-41-civbank-1"></script>
     <!-- CSSOS_PHASE_A_SHARE_LINK 20260506 — Jing
@@ -2108,9 +2108,9 @@
          random fills for BPM/key/workType/vocalStyle/instrumentation/
          ensembleStyle in Advanced Settings. Re-rolls on locale flip. -->
     <script src="app.creation-civ-defaults.js?v=20260429-empty-defaults-181"></script>
-    <script defer src="app.advanced-panel-settings-render.js?v=20260504-blank-and-fill"></script>
+    <script src="app.advanced-panel-settings-render.js?v=20260504-blank-and-fill"></script>
     <script src="app.watch-audio.js?v=20260325-live-unfreeze-2"></script>
-    <script defer src="app.voice-seed.js?v=20260504-longpress-to-mv"></script>
+    <script src="app.voice-seed.js?v=20260504-longpress-to-mv"></script>
     <!-- CSSOS_PHASE2_UNIVERSAL_ENTRY_VOICE 20260427 #161 — Jing
          app.voice-submit.js was previously untracked / never loaded; the
          browser silently fell back to the legacy createRun path because
@@ -2132,7 +2132,7 @@
          see the manifest on first call. -->
     <script src="app.watch-font-manifest.js?v=20260506-quiet"></script>
     <script src="app.playlists.js?v=20260504-scoped"></script>
-    <script defer src="app.watch-ui.js?v=20260512-wave111d-chrome-fade"></script>
+    <script src="app.watch-ui.js?v=20260512-wave111d-chrome-fade"></script>
     <script src="app.watch-price-strip.js?v=20260512-wave111c-fp-chip"></script>
     <script src="app.anthropic-health-banner.js?v=20260512-wave111d-vision-health"></script>
     <script src="app.client-transcode.js?v=20260511-wave111b-b2"></script>
@@ -2141,7 +2141,12 @@
     <script src="app.watch-lyrics-bridges.js?v=20260327-watch-lyrics-bridges-split-1"></script>
     <script src="app.watch-surface-bridges.js?v=20260327-watch-surface-bridges-split-1"></script>
     <script src="app.about-panel.js?v=20260325-live-unfreeze-2"></script>
-    <script defer src="app.market-commerce.js?v=20260512-wave111d-fp-badge"></script>
+    <!-- CSSOS_WAVE_117_LAZY_MARKET 20260513 — market-commerce migrated
+         to true on-demand load. 184 KB out of first paint. Entry points
+         (Listen/Buyout/Tip in price strip, foryou marketplace tab,
+         watch queue preview, works-center pricing) all go through
+         shimmed globals in app.panel-loader.js. -->
+    <script type="cssos-lazy" data-panel="market" src="app.market-commerce.js?v=20260512-wave111d-fp-badge"></script>
     <!-- CSSOS_PERSON_MV_WAVE45_48 20260508 — Jing — upscale + product attachments. -->
     <script src="app.mv-upscale-and-products.js?v=20260508-wave45-48"></script>
     <!-- CSSOS_PERSON_MV_WAVE53 20260508 — Jing — cinema bilingual subtitles. -->
@@ -2157,7 +2162,7 @@
     <script src="app.today-festival-shelf.js?v=20260513-wave122"></script>
     <script src="app.engine-accounts.js?v=20260424-p2-92-breaker-localstorage-1"></script>
     <script src="app.payments-checkout.js?v=20260513-wave116-wallets"></script>
-    <script defer src="app.music-input-panel.js?v=20260512-wave111d-progress-all"></script>
+    <script src="app.music-input-panel.js?v=20260512-wave111d-progress-all"></script>
     <script src="app.artifact-downloads.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.delivery-dashboard-bindings.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.panel-search.js?v=20260325-live-unfreeze-2"></script>
@@ -2173,10 +2178,15 @@
     <script src="app.subscription-panel.js?v=20260506-close-fix"></script>
     <script src="app.subscription-celebration.js?v=20260501-celebrate-265"></script>
     <script src="app.subscription-watcher.js?v=20260501-celebrate-265"></script>
-    <script defer src="app.notifications-panel.js?v=20260429-no-runall-184"></script>
+    <!-- CSSOS_WAVE_117_LAZY 20260513 — notifications-panel is the first
+         panel migrated to true on-demand loading. Inert <script type=...>
+         tag (browser ignores it). Real script injected by cssosLoadPanel()
+         on first call to openNotificationsPanelModule (shim in app.panel-
+         loader.js handles the call-through). Saves 52KB from first paint. -->
+    <script type="cssos-lazy" data-panel="notifications" src="app.notifications-panel.js?v=20260429-no-runall-184"></script>
     <script src="app.credit-panel.js?v=20260412-ui-recovery-5"></script>
     <script src="app.workspaces-panel.js?v=20260412-ui-recovery-5"></script>
-    <script defer src="app.user-admin-panel.js?v=20260412-ui-recovery-5"></script>
+    <script src="app.user-admin-panel.js?v=20260412-ui-recovery-5"></script>
     <script src="app.admin-errors-panel.js?v=20260508-wave82"></script>
     <script src="app.admin-ops-panel.js?v=20260508-wave99"></script>
     <script src="app.foryou-seed-preview.js?v=20260417-ui-recovery-1"></script>
@@ -2185,8 +2195,8 @@
     <script src="app.mv-tier-picker-modal.js?v=20260419-p2-mv-naming-1"></script>
     <script src="app.cssmv-seed-bank.js?v=20260504-infinite-seed"></script>
     <script src="app.mv-dag-executor.js?v=20260507-dag-1"></script>
-    <script defer src="app.mv-pipeline-panel.js?v=20260510-wave110e4-cinematic-cover"></script>
-    <script defer src="app.person-mv-panel.js?v=20260511-wave114b-realm-badge"></script>
+    <script src="app.mv-pipeline-panel.js?v=20260510-wave110e4-cinematic-cover"></script>
+    <script src="app.person-mv-panel.js?v=20260511-wave114b-realm-badge"></script>
     <script src="app.person-mv-discover-shelf.js?v=20260507-wave9"></script>
     <script src="app.person-mv-groups-shelf.js?v=20260508-wave16"></script>
     <script src="app.person-mv-today-shelf.js?v=20260508-wave15"></script>
@@ -2214,8 +2224,8 @@
     <script src="app.watch-stage-bars.js?v=20260420-p2-78-kill-waiting-dot-1"></script>
     <script src="app.watch-music-ring.js?v=20260420-shared-arc-end-burst-1"></script>
     <script src="app.watch-media-chrome.js?v=20260506-pip-allow"></script>
-    <script defer src="app.watch-media-overlays.js?v=20260506-face-hook"></script>
-    <script defer src="app.watch-media-layout-p2100.js?v=20260511-wave113b2-no-overflow"></script>
+    <script src="app.watch-media-overlays.js?v=20260506-face-hook"></script>
+    <script src="app.watch-media-layout-p2100.js?v=20260511-wave113b2-no-overflow"></script>
     <!-- CSSMV_POPUPS_THEME_FIX 20260425 #108 — Jing: light-theme paint
          for popups + clear lingering toast/info popover on watch close. -->
     <script src="app.popups-theme-fix.js?v=20260425-p2-108-popups-theme-1"></script>

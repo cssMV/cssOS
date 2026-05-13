@@ -277,33 +277,56 @@
        * row. Sits at the top-right corner of the row's bbox, just
        * outside the cards so it never sits on top of one. Clicking
        * dismisses the bar+schools for the rest of the session. */
+      /* CSSOS_WAVE_117_NOTCH_CLOSE 20260513 — Jing: "刘海很难关闭".
+         Bumped 24×24 → 44×44 Apple-HIG tap target; red tint on
+         hover/active so the affordance reads "dismiss". */
       "#" + CLOSE_ID + "{",
       "  position:fixed;",
       "  z-index:56;",
-      "  width:24px;",
-      "  height:24px;",
+      "  width:44px;",
+      "  height:44px;",
       "  display:flex;",
       "  align-items:center;",
       "  justify-content:center;",
       "  border-radius:50%;",
-      "  background:rgba(8,18,14,0.85);",
+      "  background:rgba(8,18,14,0.92);",
       "  backdrop-filter: blur(14px) saturate(140%);",
       "  -webkit-backdrop-filter: blur(14px) saturate(140%);",
-      "  border:1px solid rgba(255,255,255,0.18);",
-      "  color:rgba(255,255,255,0.78);",
-      "  font:600 13px/1 -apple-system,system-ui,sans-serif;",
+      "  border:1.5px solid rgba(255,255,255,0.32);",
+      "  color:rgba(255,255,255,0.94);",
+      "  font:700 22px/1 -apple-system,system-ui,sans-serif;",
       "  cursor:pointer;",
       "  user-select:none;",
       "  -webkit-user-select:none;",
-      "  transition: opacity 220ms ease, transform 220ms ease, color 180ms ease, border-color 180ms ease;",
+      "  -webkit-tap-highlight-color: rgba(255,80,80,0.35);",
+      "  touch-action: manipulation;",
+      "  box-shadow: 0 2px 10px rgba(0,0,0,0.35);",
+      "  transition: opacity 220ms ease, transform 160ms ease, color 180ms ease, border-color 180ms ease, background 180ms ease;",
       "  pointer-events:auto;",
       "}",
-      "#" + CLOSE_ID + ":hover{",
+      "#" + CLOSE_ID + ":hover,",
+      "#" + CLOSE_ID + ":active{",
       "  color:#fff;",
-      "  border-color:rgba(255,255,255,0.5);",
-      "  transform:scale(1.08);",
+      "  background:rgba(120,30,30,0.92);",
+      "  border-color:rgba(255,140,140,0.7);",
+      "  transform:scale(1.06);",
       "}",
       "#" + CLOSE_ID + "[data-hidden='1']{ opacity:0; pointer-events:none; }",
+      /* CSSOS_WAVE_117_NOTCH_CLOSE_CAPSULE — mobile uses an inline pill
+         appended in renderBar(); hide the floating circle there. */
+      "@media (max-width: 480px) and (orientation: portrait){",
+      "  #" + CLOSE_ID + "{ display:none !important; }",
+      "}",
+      /* Inline close pill styling on mobile — slightly redder hover. */
+      ".cssos-act-tab.cssos-act-close-cap{",
+      "  border-color: rgba(255,140,140,0.5) !important;",
+      "  color: #ffcccc !important;",
+      "}",
+      ".cssos-act-tab.cssos-act-close-cap:active,",
+      ".cssos-act-tab.cssos-act-close-cap:hover{",
+      "  background: rgba(160,40,40,0.75) !important;",
+      "  color: #fff !important;",
+      "}",
 
       /* Tooltip for first-visit reveal */
       "#" + TOOLTIP_ID + "{",
@@ -398,6 +421,22 @@
         '<span>' + escapeHtml(label) + '</span>' +
         '</button>';
     });
+    /* CSSOS_WAVE_117_NOTCH_CLOSE_CAPSULE 20260513 — Jing:
+     * "刘海关闭按钮。手机移动端请做成最后一个胶囊吧". On mobile portrait
+     * the floating circular × is hard to thumb-tap up by the notch.
+     * Instead, append a red "✕" capsule as the LAST tab so it's
+     * inline with the other style pills and one-thumb reachable. */
+    var isMobile = window.matchMedia &&
+      window.matchMedia("(max-width: 480px) and (orientation: portrait)").matches;
+    if (isMobile) {
+      html += '<button type="button" class="cssos-act-tab cssos-act-close-cap" ' +
+        'data-tab="__close" ' +
+        'aria-label="' + escapeHtml(tr("Hide activity bar", "隐藏活动栏")) + '" ' +
+        'style="background:rgba(120,30,30,0.55);">' +
+        '<span class="cssos-act-icon">✕</span>' +
+        '<span>' + escapeHtml(tr("Hide", "关闭")) + '</span>' +
+        '</button>';
+    }
     state.bar.innerHTML = html;
     var lastId = readLastTab();
     if (lastId) {
@@ -408,6 +447,13 @@
 
   function activateTab(tabId) {
     if (!tabId) return;
+    /* CSSOS_WAVE_117_NOTCH_CLOSE_CAPSULE 20260513 — Jing:
+     * "刘海关闭按钮。手机移动端请做成最后一个胶囊吧". */
+    if (tabId === "__close") {
+      state.userDismissed = true;
+      hide();
+      return;
+    }
     /* CSSOS_WAVE_113E 20260511 — Jing
      * Schools capsule opens a compact popover instead of routing to
      * a tab content surface. */
@@ -818,8 +864,11 @@
     if (state.closeBtn && state.bar) {
       var br = state.bar.getBoundingClientRect();
       if (br.width && br.height) {
-        state.closeBtn.style.left = Math.round(br.right - 26) + "px";
-        state.closeBtn.style.top = Math.round(br.top + 6) + "px";
+        // CSSOS_WAVE_117_NOTCH_CLOSE 20260513 — close btn now 44px/48px;
+        // offset so its center sits at the bar's top-right corner.
+        var btnW = window.matchMedia("(max-width: 480px)").matches ? 48 : 44;
+        state.closeBtn.style.left = Math.round(br.right - btnW * 0.55) + "px";
+        state.closeBtn.style.top = Math.round(br.top - btnW * 0.25) + "px";
       }
     }
   }

@@ -65,6 +65,19 @@
       ', html[data-ios-native="1"] [data-payment-vendor="alipay"]',
       ', html[data-ios-native="1"] [data-payment-vendor="wechatpay"]',
       ', html[data-ios-native="1"] [data-payment-vendor="unionpay"]',
+      // ── CSSOS_WAVE_123 20260513 — also hide per-work Stripe paths.
+      // Apple Guideline 3.1.1 forbids ANY external payment for digital
+      // goods, including Stripe direct. Per-work LISTEN/BUYOUT both
+      // unlock digital content → must route through StoreKit IAP, but
+      // we don't have per-work pre-registered product IDs (App Store
+      // requires static product catalog), so v1 simply hides them on
+      // iOS native. System anniversary/festival works are FREE so
+      // they auto-play without needing either button. For other paid
+      // works the user must visit cssstudio.app on web. ──
+      ', html[data-ios-native="1"] [data-watch-market-action="buyout"]',
+      ', html[data-ios-native="1"] [data-watch-market-action="listen"]',
+      ', html[data-ios-native="1"] [data-market-action="buyout"]',
+      ', html[data-ios-native="1"] [data-market-action="listen-paid"]',
       "{ display: none !important; visibility: hidden !important; }",
       "",
       // Hide entire payment-vendor row container if it was the only child.
@@ -96,6 +109,23 @@
       if (typeof globalThis.showToast === "function") {
         globalThis.showToast(
           "Tipping via WeChat/Alipay is not available in the iOS app. Visit cssstudio.app on web."
+        );
+      }
+      return;
+    }
+    // CSSOS_WAVE_123 — also block per-work Stripe checkout. CSS hides
+    // the buttons but a stray programmatic invocation (or a card we
+    // forgot to tag) could still reach the Stripe path; capture-phase
+    // click handler is the last line of defense before /api/checkout.
+    var paid = e.target && e.target.closest
+      ? e.target.closest('[data-watch-market-action="buyout"], [data-watch-market-action="listen"], [data-market-action="buyout"], [data-market-action="listen-paid"]')
+      : null;
+    if (paid) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof globalThis.showToast === "function") {
+        globalThis.showToast(
+          "Purchases for individual works are available on the web. Visit cssstudio.app to listen or buyout. Subscriptions and credit packs are available in-app via the Apple Store."
         );
       }
     }

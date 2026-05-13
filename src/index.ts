@@ -37480,10 +37480,28 @@ app.get("/health", (_req, res) => {
  * if anything goes wrong (DB miss, FS error) — the SPA still loads.
  */
 let __cachedIndexHtml: Buffer | null = null;
+// CSSOS_WAVE_117_INDEX_CACHE_FIX 20260513 — Jing
+// "login 面板请修复" — root cause turned out to be: this function used
+// to cache index.html FOREVER, so any rsync to /srv/cssos/.../index.html
+// went unnoticed until the cssOS service restarted. Frontend bug fixes
+// silently failed to roll out. Now cache is mtime-aware: re-read from
+// disk only when the file timestamp changes (cheap stat()), so deploys
+// take effect on the next request without a service restart.
+let __cachedIndexHtmlMtime = 0;
 function readIndexHtml(): Buffer {
-  if (__cachedIndexHtml) return __cachedIndexHtml;
-  __cachedIndexHtml = fs.readFileSync(path.join(PUBLIC_DIR, "index.html"));
-  return __cachedIndexHtml;
+  try {
+    const p = path.join(PUBLIC_DIR, "index.html");
+    const m = fs.statSync(p).mtimeMs;
+    if (__cachedIndexHtml && m === __cachedIndexHtmlMtime) return __cachedIndexHtml;
+    __cachedIndexHtml = fs.readFileSync(p);
+    __cachedIndexHtmlMtime = m;
+    return __cachedIndexHtml;
+  } catch {
+    // Fallback to the old behavior if stat fails (e.g. permissions)
+    if (__cachedIndexHtml) return __cachedIndexHtml;
+    __cachedIndexHtml = fs.readFileSync(path.join(PUBLIC_DIR, "index.html"));
+    return __cachedIndexHtml;
+  }
 }
 
 function escapeHtmlAttr(s: string): string {

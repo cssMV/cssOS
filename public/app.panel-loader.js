@@ -111,6 +111,49 @@
     });
   };
 
+  /* Shim helper: register a global function name that lazy-loads a panel
+   * on first call, then forwards to the real function the panel installs.
+   * Lets us flip a panel to lazy in index.html without touching the
+   * ~50 call sites scattered through app.js / context-menu-fallbacks /
+   * dock builders that already invoke `globalThis.fooModule?.()`. */
+  globalThis.cssosRegisterLazyShim = function (fnName, panelName) {
+    if (typeof globalThis[fnName] === "function") return; // real fn already loaded
+    globalThis[fnName] = async function (...args) {
+      await globalThis.cssosLoadPanel(panelName);
+      const real = globalThis[fnName];
+      // The real script overwrote the shim during load. If not, bail.
+      if (typeof real !== "function" || real === globalThis.cssosRegisterLazyShim) {
+        console.warn(`[lazy-shim] panel "${panelName}" loaded but ${fnName} still missing`);
+        return undefined;
+      }
+      return real.apply(this, args);
+    };
+  };
+
+  // First-batch lazy registrations. Each panel must declare a
+  // <script type="cssos-lazy" data-panel="..."> tag in index.html.
+  // Wave 117 Step 2 Phase 1: notifications-panel (cleanest island).
+  globalThis.cssosRegisterLazyShim("openNotificationsPanelModule", "notifications");
+
+  // Wave 117 Step 2 Phase 2: market-commerce (184 KB). Touched by many
+  // surfaces (price-strip Listen/Buyout/Tip, foryou panel, watch
+  // queue preview, works-center pricing). Each shimmed function
+  // lazy-loads the whole module on first call; subsequent calls hit
+  // the real fn directly (shim overwritten by the real export). The
+  // first call sees a Promise — most callers fire-and-forget, the
+  // one sync caller (works-center pricing filter) falls back to
+  // direct work.* fields for that first render and self-heals.
+  [
+    "dispatchMarketWorkPayment",
+    "renderForyouMarketplace",
+    "loadPublicMarketWorks",
+    "openMarketWorkPreview",
+    "resolveDisplayedWorkPricingModule",
+    "startNihaoPayTipFromButton",
+    "buildWorksCardDeepDetailsMarkupModule",
+    "buildWorksCardEngineBreakdownMarkupModule",
+  ].forEach((fn) => globalThis.cssosRegisterLazyShim(fn, "market"));
+
   // Diagnostic: list what's lazy-registered and what's loaded.
   globalThis.cssosLazyPanelDebug = function () {
     const declared = Array.from(

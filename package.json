@@ -32,6 +32,8 @@
     "@anthropic-ai/sdk": "^0.95.0",
     "@aws-sdk/client-s3": "^3.1045.0",
     "@aws-sdk/lib-storage": "^3.1045.0",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/browser": "^8.0.3",
     "@capacitor/cli": "^7.6.5",
     "@capacitor/core": "^8.3.4",
     "@capacitor/ios": "^8.3.4",

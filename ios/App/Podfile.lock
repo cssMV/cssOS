@@ -1,18 +1,28 @@
 PODS:
   - Capacitor (8.3.4):
     - CapacitorCordova
+  - CapacitorApp (8.1.0):
+    - Capacitor
+  - CapacitorBrowser (8.0.3):
+    - Capacitor
   - CapacitorCordova (8.3.4)
   - CapgoNativePurchases (8.3.10):
     - Capacitor
 
 DEPENDENCIES:
   - "Capacitor (from `../../node_modules/@capacitor/ios`)"
+  - "CapacitorApp (from `../../node_modules/@capacitor/app`)"
+  - "CapacitorBrowser (from `../../node_modules/@capacitor/browser`)"
   - "CapacitorCordova (from `../../node_modules/@capacitor/ios`)"
   - "CapgoNativePurchases (from `../../node_modules/@capgo/native-purchases`)"
 
 EXTERNAL SOURCES:
   Capacitor:
     :path: "../../node_modules/@capacitor/ios"
+  CapacitorApp:
+    :path: "../../node_modules/@capacitor/app"
+  CapacitorBrowser:
+    :path: "../../node_modules/@capacitor/browser"
   CapacitorCordova:
     :path: "../../node_modules/@capacitor/ios"
   CapgoNativePurchases:
@@ -20,9 +30,11 @@ EXTERNAL SOURCES:
 
 SPEC CHECKSUMS:
   Capacitor: d13cad5fa09155679672808cc4ca9fbc2997e1b4
+  CapacitorApp: 449ffe26375e96f8aaaee625ac6e01e5c57c8650
+  CapacitorBrowser: c987c73d09d8bd3b5ec13f06338b1e14d5d2be69
   CapacitorCordova: c07921bdcfec6f691bae22274446b4d606ebf6a4
   CapgoNativePurchases: 0b78b5f8531112bc5a4cbf0f0ae8102d8618bde9
 
-PODFILE CHECKSUM: f87dbddde66678c3326e816f7e373e59731ea16a
+PODFILE CHECKSUM: ed3030c7bceb52c749961f3fb38105c7d550a16b
 
 COCOAPODS: 1.16.2

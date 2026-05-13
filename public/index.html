@@ -56,7 +56,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="style.css?v=20260505-true-fs" />
+    <link rel="stylesheet" href="style.css?v=20260513-wave116-wallets" />
     <link rel="stylesheet" href="style.mv-pipeline.css?v=20260507-inline-params" />
   </head>
   <body>
@@ -443,6 +443,15 @@
                   <li><a href="https://x.com/cssstudioapp" target="_blank" rel="noopener">X</a></li>
                   <li><a href="https://bsky.app/profile/cssstudio.bsky.social" target="_blank" rel="noopener">Bluesky</a></li>
                   <li><a href="https://www.tiktok.com/@cssstudioapp" target="_blank" rel="noopener">TikTok</a></li>
+                </ul>
+              </div>
+              <div class="about-section">
+                <h3 data-i18n="about.legal.title">Legal &amp; Transparency</h3>
+                <ul class="about-legal-links" style="list-style:none;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:10px;">
+                  <li><a href="/business.html" target="_blank" rel="noopener" data-i18n="about.legal.business">Business Model</a></li>
+                  <li><a href="/privacy.html" target="_blank" rel="noopener" data-i18n="about.legal.privacy">Privacy Policy</a></li>
+                  <li><a href="/terms.html" target="_blank" rel="noopener" data-i18n="about.legal.terms">Terms of Service</a></li>
+                  <li><a href="/data-flow.html" target="_blank" rel="noopener" data-i18n="about.legal.dataflow">Data Flow</a></li>
                 </ul>
               </div>
             </section>
@@ -2021,6 +2030,18 @@
 
     <div class="toast" id="toast" data-i18n="toast.awakened">CSS awakened · 流流流</div>
 
+    <!-- CSSOS_WAVE_117_STEP_1 — Crash guard. MUST load BEFORE everything
+         else so window.onerror / onunhandledrejection / location.reload
+         instrumentation catches errors thrown by every later script. -->
+    <script src="app.crash-guard.js?v=20260512-wave117-step1"></script>
+    <!-- CSSOS_WAVE_117_STEP_2 — lazy panel loader API (small, sync) -->
+    <script src="app.panel-loader.js?v=20260513-wave117-step2"></script>
+    <!-- CSSOS_WAVE_117_IOS_STATUSBAR — hide iOS status bar in cinema mode -->
+    <script defer src="app.ios-statusbar-cinema.js?v=20260513-wave117"></script>
+    <!-- CSSOS_WAVE_115 — iOS native payment gate. MUST load FIRST so it
+         sets html[data-ios-native] before any payment surface renders. -->
+    <script src="app.ios-native-gate.js?v=20260511-wave115-ios-gate"></script>
+    <script src="app.iap-native.js?v=20260513-wave118"></script>
     <script src="/i18n/constants.js"></script>
     <script src="/i18n/catalog.js"></script>
     <script src="/i18n/dict.js?v=20260424-p2-98-civ-cascade-1"></script>
@@ -2038,7 +2059,7 @@
     <script src="app.panel-command-settings.js?v=20260412-ui-recovery-5"></script>
     <script src="app.panel-behavior-core.js?v=20260418-engines-selector-2"></script>
     <script src="app.action-permissions.js?v=20260412-ui-recovery-9"></script>
-    <script src="app.context-menu.js?v=20260428-onetap-bulletproof-168.4"></script>
+    <script defer src="app.context-menu.js?v=20260428-onetap-bulletproof-168.4"></script>
     <script src="app.delivery-report-bridges.js?v=20260412-ui-recovery-5"></script>
     <script src="app.civilization-bank.js?v=20260418-p2-41-civbank-1"></script>
     <!-- CSSOS_PHASE_A_SHARE_LINK 20260506 — Jing
@@ -2087,9 +2108,9 @@
          random fills for BPM/key/workType/vocalStyle/instrumentation/
          ensembleStyle in Advanced Settings. Re-rolls on locale flip. -->
     <script src="app.creation-civ-defaults.js?v=20260429-empty-defaults-181"></script>
-    <script src="app.advanced-panel-settings-render.js?v=20260504-blank-and-fill"></script>
+    <script defer src="app.advanced-panel-settings-render.js?v=20260504-blank-and-fill"></script>
     <script src="app.watch-audio.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.voice-seed.js?v=20260504-longpress-to-mv"></script>
+    <script defer src="app.voice-seed.js?v=20260504-longpress-to-mv"></script>
     <!-- CSSOS_PHASE2_UNIVERSAL_ENTRY_VOICE 20260427 #161 — Jing
          app.voice-submit.js was previously untracked / never loaded; the
          browser silently fell back to the legacy createRun path because
@@ -2111,11 +2132,16 @@
          see the manifest on first call. -->
     <script src="app.watch-font-manifest.js?v=20260506-quiet"></script>
     <script src="app.playlists.js?v=20260504-scoped"></script>
-    <script src="app.watch-ui.js?v=20260506-no-legacy-cap"></script>
+    <script defer src="app.watch-ui.js?v=20260512-wave111d-chrome-fade"></script>
+    <script src="app.watch-price-strip.js?v=20260512-wave111c-fp-chip"></script>
+    <script src="app.anthropic-health-banner.js?v=20260512-wave111d-vision-health"></script>
+    <script src="app.client-transcode.js?v=20260511-wave111b-b2"></script>
+    <script src="app.cost-breakdown-accum.js?v=20260511-wave113k-accum"></script>
+    <script src="app.mv-import.js?v=20260511-wave111b-predecode"></script>
     <script src="app.watch-lyrics-bridges.js?v=20260327-watch-lyrics-bridges-split-1"></script>
     <script src="app.watch-surface-bridges.js?v=20260327-watch-surface-bridges-split-1"></script>
     <script src="app.about-panel.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.market-commerce.js?v=20260507-fy-close"></script>
+    <script defer src="app.market-commerce.js?v=20260512-wave111d-fp-badge"></script>
     <!-- CSSOS_PERSON_MV_WAVE45_48 20260508 — Jing — upscale + product attachments. -->
     <script src="app.mv-upscale-and-products.js?v=20260508-wave45-48"></script>
     <!-- CSSOS_PERSON_MV_WAVE53 20260508 — Jing — cinema bilingual subtitles. -->
@@ -2124,16 +2150,18 @@
     <script src="app.gift-inbox-panel.js?v=20260503-gift-open-hydrated"></script>
     <script src="app.language-panel.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.login-panel.js?v=20260509-wave107c-coming-soon"></script>
-    <script src="app.works-center.js?v=20260506-no-reflow"></script>
+    <script src="app.works-center.js?v=20260512-wave111e-locale-timeout"></script>
     <script src="app.api-billing.js?v=20260503-boost-prompt-i18n"></script>
+    <script src="app.agent-chat.js?v=20260513-wave117"></script>
+    <script src="app.today-in-history-shelf.js?v=20260513-wave119b"></script>
     <script src="app.engine-accounts.js?v=20260424-p2-92-breaker-localstorage-1"></script>
-    <script src="app.payments-checkout.js?v=20260419-nihaopay-1"></script>
-    <script src="app.music-input-panel.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.payments-checkout.js?v=20260513-wave116-wallets"></script>
+    <script defer src="app.music-input-panel.js?v=20260512-wave111d-progress-all"></script>
     <script src="app.artifact-downloads.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.delivery-dashboard-bindings.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.panel-search.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.panel-settings.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.panel-layout.js?v=20260505-open-max"></script>
+    <script src="app.panel-layout.js?v=20260511-wave113b1-fullscreen"></script>
     <script src="app.dock-settings.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.delivery-ops-bridges.js?v=20260326-delivery-ops-bridges-split-1"></script>
     <script src="app.delivery-ops-panel.js?v=20260325-live-unfreeze-2"></script>
@@ -2144,10 +2172,10 @@
     <script src="app.subscription-panel.js?v=20260506-close-fix"></script>
     <script src="app.subscription-celebration.js?v=20260501-celebrate-265"></script>
     <script src="app.subscription-watcher.js?v=20260501-celebrate-265"></script>
-    <script src="app.notifications-panel.js?v=20260429-no-runall-184"></script>
+    <script defer src="app.notifications-panel.js?v=20260429-no-runall-184"></script>
     <script src="app.credit-panel.js?v=20260412-ui-recovery-5"></script>
     <script src="app.workspaces-panel.js?v=20260412-ui-recovery-5"></script>
-    <script src="app.user-admin-panel.js?v=20260412-ui-recovery-5"></script>
+    <script defer src="app.user-admin-panel.js?v=20260412-ui-recovery-5"></script>
     <script src="app.admin-errors-panel.js?v=20260508-wave82"></script>
     <script src="app.admin-ops-panel.js?v=20260508-wave99"></script>
     <script src="app.foryou-seed-preview.js?v=20260417-ui-recovery-1"></script>
@@ -2156,8 +2184,8 @@
     <script src="app.mv-tier-picker-modal.js?v=20260419-p2-mv-naming-1"></script>
     <script src="app.cssmv-seed-bank.js?v=20260504-infinite-seed"></script>
     <script src="app.mv-dag-executor.js?v=20260507-dag-1"></script>
-    <script src="app.mv-pipeline-panel.js?v=20260510-wave110e4-cinematic-cover"></script>
-    <script src="app.person-mv-panel.js?v=20260511-wave112b3-dialogue-mv"></script>
+    <script defer src="app.mv-pipeline-panel.js?v=20260510-wave110e4-cinematic-cover"></script>
+    <script defer src="app.person-mv-panel.js?v=20260511-wave114b-realm-badge"></script>
     <script src="app.person-mv-discover-shelf.js?v=20260507-wave9"></script>
     <script src="app.person-mv-groups-shelf.js?v=20260508-wave16"></script>
     <script src="app.person-mv-today-shelf.js?v=20260508-wave15"></script>
@@ -2185,8 +2213,8 @@
     <script src="app.watch-stage-bars.js?v=20260420-p2-78-kill-waiting-dot-1"></script>
     <script src="app.watch-music-ring.js?v=20260420-shared-arc-end-burst-1"></script>
     <script src="app.watch-media-chrome.js?v=20260506-pip-allow"></script>
-    <script src="app.watch-media-overlays.js?v=20260506-face-hook"></script>
-    <script src="app.watch-media-layout-p2100.js?v=20260506-bare-toggle-fix"></script>
+    <script defer src="app.watch-media-overlays.js?v=20260506-face-hook"></script>
+    <script defer src="app.watch-media-layout-p2100.js?v=20260511-wave113b2-no-overflow"></script>
     <!-- CSSMV_POPUPS_THEME_FIX 20260425 #108 — Jing: light-theme paint
          for popups + clear lingering toast/info popover on watch close. -->
     <script src="app.popups-theme-fix.js?v=20260425-p2-108-popups-theme-1"></script>
@@ -2259,7 +2287,7 @@
          during playback are queued and fired on `ended`. Must load
          BEFORE the activity bar so the bar can route through it. -->
     <script src="app.playback-stage.js?v=20260509-wave108b"></script>
-    <script src="app.home-activity-bar.js?v=20260509-wave108k-close-button"></script>
+    <script src="app.home-activity-bar.js?v=20260511-wave113e-schools-capsule"></script>
     <!-- CSSOS_WAVE_108B 20260509 — pin MV Pipeline + Person MV
          to dock positions 1 and 2 (per Jing — they were getting
          clipped at the back). Loaded after app.boot.js below so

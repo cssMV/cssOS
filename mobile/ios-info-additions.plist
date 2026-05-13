@@ -18,8 +18,12 @@
 <string>CSS Studio saves the music videos you generate to your photo library.</string>
 <key>NSAppleMusicUsageDescription</key>
 <string>CSS Studio accesses Apple Music to let you score your music video with songs you own.</string>
-<key>NSUserTrackingUsageDescription</key>
-<string>CSS Studio uses anonymous analytics to improve the app. No personal information is shared.</string>
+<!-- CSSOS_WAVE_115B 20260511 — Jing
+     NSUserTrackingUsageDescription REMOVED. We do not track users (no
+     AppTrackingTransparency request, no IDFA, no cross-app tracking).
+     The key's presence conflicted with our App Privacy declaration
+     "No, this data is NOT used to track" and blocked App Store
+     submission. Do not re-add unless we ship a real ATT prompt. -->
 <key>NSLocationWhenInUseUsageDescription</key>
 <string>CSS Studio uses your location only to suggest local festivals and historical anniversaries near you.</string>
 <key>ITSAppUsesNonExemptEncryption</key>

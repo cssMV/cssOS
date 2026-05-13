@@ -222,7 +222,20 @@ async function loadMyWorksModule(options = {}) {
     // inflight task settles on will overwrite this anyway when it lands.
     var hardTimeout = setTimeout(function () {
       try {
-        if (list && list.innerHTML.indexOf("works-note") >= 0 && list.textContent.indexOf("oading") >= 0) {
+        // CSSOS_WAVE_111E 20260512 — Jing
+        // "应该有一段时间了，YOUR WORKS Loading works... 一直在 Loading
+        //  works... 都没有 Loading 完". Root cause: the previous escape
+        //  hatch checked list.textContent.indexOf("oading") — English
+        //  only. Chinese-locale users see "正在加载作品..." which doesn't
+        //  contain "oading", so the timeout's safety net never fired.
+        //  New check is locale-neutral: still in placeholder state iff
+        //  the list has exactly one .works-note placeholder AND zero
+        //  real .work-card elements. Also handles the case where the
+        //  inflight fetch resolved but rendered zero cards correctly.
+        if (!list) return;
+        var hasPlaceholder = !!list.querySelector(".works-note");
+        var hasCards = !!list.querySelector(".work-card, .work-row, [data-work-id]");
+        if (hasPlaceholder && !hasCards) {
           if (typeof buildWorksEmptyNoteMarkup === "function") {
             list.innerHTML = buildWorksEmptyNoteMarkup();
           } else if (typeof buildWorksLoadFailedMarkup === "function") {
@@ -266,6 +279,113 @@ globalThis.loadMyWorks = loadMyWorksModule;
 globalThis.renderWorksPanelModule = renderWorksPanelModule;
 globalThis.openWorksPanelModule = openWorksPanelModule;
 
+/* CSSOS_WAVE_111D 20260512 — Jing
+ * Global fingerprint push opt-in row. Surfaced inline in Works Center
+ * (creators' control panel) so the consent is visible exactly where
+ * the creator manages the works that would be pushed.
+ *
+ * Three states:
+ *   (a) ACRCloud Mgmt OFF on the server (operator hasn't enabled) →
+ *       show row as info-only, "Currently disabled by operator".
+ *   (b) Mgmt ON + user not opted in → checkbox unchecked, copy
+ *       explains the trade-off (anti-piracy attribution vs global
+ *       indexing of public works).
+ *   (c) Mgmt ON + user opted in → checked + month-to-date counter.
+ */
+function buildFingerprintOptinRowMarkup() {
+  return `
+    <div class="works-fp-optin-row" id="works-fp-optin-row" hidden>
+      <label class="works-fp-optin-label">
+        <input type="checkbox" id="works-fp-optin-toggle" />
+        <span class="works-fp-optin-title">🔐 ${escapeHtml(loginCopy(
+          "Allow global fingerprint push",
+          "允许全球指纹推送"
+        ))}</span>
+      </label>
+      <div class="works-fp-optin-desc" id="works-fp-optin-desc">${escapeHtml(loginCopy(
+        "Loading…",
+        "加载中…"
+      ))}</div>
+    </div>
+  `;
+}
+
+async function hydrateFingerprintOptinRow(worksBody) {
+  const row = worksBody.querySelector("#works-fp-optin-row");
+  const toggle = worksBody.querySelector("#works-fp-optin-toggle");
+  const desc = worksBody.querySelector("#works-fp-optin-desc");
+  if (!(row instanceof HTMLElement) || !(toggle instanceof HTMLInputElement) || !(desc instanceof HTMLElement)) return;
+  let state = null;
+  try {
+    const r = await fetch("/api/account/fingerprint-optin", { credentials: "include" });
+    state = await r.json().catch(() => null);
+  } catch (_) { state = null; }
+  if (!state || !state.ok) {
+    // Not signed in / endpoint not reachable — hide the row.
+    row.hidden = true;
+    return;
+  }
+  row.hidden = false;
+  toggle.checked = !!state.allow_global_push;
+  function refreshDesc() {
+    const mgmt = !!state.mgmt_enabled;
+    const used = Number(state.monthly_used || 0);
+    const cap = Number(state.monthly_cap || 0);
+    const optedIn = !!state.allow_global_push;
+    if (!mgmt) {
+      desc.innerHTML = `<em>${escapeHtml(loginCopy(
+        "Currently disabled by operator — your consent is stored but no pushes will happen until ACRCLOUD_AUTOUPLOAD_ENABLED=1 on the server. You can opt in now to be ready when it flips on.",
+        "目前由运营方关闭 —— 你的同意已保存但不会触发任何推送，直到服务器开启 ACRCLOUD_AUTOUPLOAD_ENABLED=1。可以提前勾选，等开关打开后自动生效。"
+      ))}</em>`;
+    } else if (optedIn) {
+      desc.innerHTML = escapeHtml(loginCopy(
+        `On. Your public, cleared works get their reference audio pushed to ACRCloud's global archive so reposts on any platform attribute back to you. Used ${used}/${cap} this month.`,
+        `已开启。你的公开、已清版作品会自动推送到 ACRCloud 全球库；任何平台的转发都能反向归因到你。本月已用 ${used}/${cap}。`
+      ));
+    } else {
+      desc.innerHTML = escapeHtml(loginCopy(
+        "Off. Turn on if you want copies of your public, cleared works reposted on TikTok/YouTube/etc. to be attributable back to you. Private works are never pushed. Tips are non-refundable but you can revoke this consent anytime.",
+        "未开启。开启后，转发到 TikTok / YouTube 等平台的副本可被反向归因到你。私有作品不会被推送。你可随时撤销此授权。"
+      ));
+    }
+  }
+  refreshDesc();
+  toggle.addEventListener("change", async () => {
+    const want = toggle.checked;
+    toggle.disabled = true;
+    try {
+      const r = await fetch("/api/account/fingerprint-optin", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ allow_global_push: want }),
+      });
+      const j = await r.json();
+      if (j && j.ok) {
+        state.allow_global_push = !!j.allow_global_push;
+        toggle.checked = !!j.allow_global_push;
+        refreshDesc();
+        if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(
+            j.allow_global_push
+              ? loginCopy("🔐 Global fingerprint push: on", "🔐 全球指纹推送：已开启")
+              : loginCopy("🔐 Global fingerprint push: off", "🔐 全球指纹推送：已关闭")
+          );
+        }
+      } else {
+        toggle.checked = !want;
+        if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(loginCopy("Save failed.", "保存失败。"));
+        }
+      }
+    } catch (_) {
+      toggle.checked = !want;
+    } finally {
+      toggle.disabled = false;
+    }
+  });
+}
+
 function ensureWorksPanelShell(worksBody, options = {}) {
   if (!(worksBody instanceof Element)) return;
   const displayName = String(options.displayName || "").trim() || "User";
@@ -276,9 +396,16 @@ function ensureWorksPanelShell(worksBody, options = {}) {
   worksBody.innerHTML = `
     <div class="panel-label">${loginCopy("Creator Works Center")}</div>
     ${buildWorksHeroMarkup({ displayName, avatarUrl, canSellWorks, canSetupPayout })}
+    ${buildFingerprintOptinRowMarkup()}
     ${buildWorksSearchShellMarkup(behavior)}
     ${buildWorksListShellMarkup()}
   `;
+  /* CSSOS_WAVE_111D 20260512 — Jing
+   * Wire the global-fingerprint-push opt-in toggle. Reads current
+   * state from the server, lets the creator flip it, and surfaces
+   * the operator-side gating ({mgmt_enabled, monthly_used/cap}) so
+   * the user understands when their consent is actually actionable. */
+  hydrateFingerprintOptinRow(worksBody);
   const ensurePullRevealSearchModule = globalThis.ensurePullRevealSearchModule;
   if (typeof ensurePullRevealSearchModule === "function") {
     ensurePullRevealSearchModule(worksPanel, worksBody, {
@@ -293,6 +420,10 @@ function ensureWorksPanelShell(worksBody, options = {}) {
 function bindWorksSearchControls(worksBody, options = {}) {
   if (!(worksBody instanceof Element)) return;
   const behavior = options.behavior || readPanelBehaviorSettingsLocal();
+  // CSSOS_WAVE_113C 20260511 — Jing
+  // "搜索是否真正可用?". The main #works-search-input was never
+  // wired to a re-render handler — typing in it filtered nothing.
+  const worksInput = worksBody.querySelector("#works-search-input");
   const worksFilter = worksBody.querySelector("#works-search-filter");
   const worksSort = worksBody.querySelector("#works-search-sort");
   const worksAuthor = worksBody.querySelector("#works-search-author");
@@ -301,7 +432,23 @@ function bindWorksSearchControls(worksBody, options = {}) {
   const worksFilterBar = worksBody.querySelector("#works-filter-bar");
   if (worksFilter) worksFilter.value = behavior?.works?.default_filter || "all";
   if (worksSort) worksSort.value = behavior?.works?.default_sort || "newest";
-  worksAuthor?.addEventListener("input", () => void loadMyWorksModule({ resetVisible: true }));
+  // CSSOS_WAVE_113D 20260511 — Jing
+  // "我确认 Jerusalem 这个作品是有的，可是搜索不出来". The progressive
+  // loader starts at 30 works; client-side filter can't see anything
+  // outside that window. When the user types in either search box,
+  // raise the fetch ceiling to the server cap (1000) and force a
+  // full reload once — subsequent keystrokes filter the full set
+  // in-memory.
+  const ensureFullCorpusThenFilter = () => {
+    if (Number(globalThis.__cssosWorksFetchLimit || 30) < 1000) {
+      globalThis.__cssosWorksFetchLimit = 1000;
+      void loadMyWorksModule({ resetVisible: true, force: true });
+    } else {
+      void loadMyWorksModule({ resetVisible: true });
+    }
+  };
+  worksInput?.addEventListener("input", ensureFullCorpusThenFilter);
+  worksAuthor?.addEventListener("input", ensureFullCorpusThenFilter);
   worksFilter?.addEventListener("change", () => void loadMyWorksModule({ resetVisible: true }));
   worksSort?.addEventListener("change", () => void loadMyWorksModule({ resetVisible: true }));
   worksPrice?.addEventListener("change", () => void loadMyWorksModule({ resetVisible: true }));

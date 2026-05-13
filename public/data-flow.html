@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Data Flow Explanation · CSS Studio</title>
+<link rel="stylesheet" href="/legal-page.css"/>
+</head>
+<body>
+<div id="doc-root"></div>
+<script>
+globalThis.LEGAL_DOC = {
+  en: {
+    title: "Data Flow Explanation",
+    subtitle: "CSS Studio",
+    updated: "Last updated: 2026",
+    sections: [
+      { title: "1. Overview", body: ["CSS Studio is an AI-powered creative platform that allows users to generate, publish, and trade digital content, including music, visuals, and multimedia works. Third-party authentication providers may be used to enable secure user login and identity verification."] },
+      { title: "2. Data Collected from Third-Party Services", body: [
+          "When a user logs in via a third-party authentication provider (such as social login services), we may collect the following information, depending on the permissions granted by the user:",
+          { ul: ["Basic profile information (e.g., username, profile picture)", "Unique user identifier provided by the authentication service"] },
+          "We do NOT collect sensitive personal data such as passwords, private messages, or contacts from third-party services."
+      ] },
+      { title: "3. How Data is Used", body: [
+          "The collected data is used strictly for:",
+          { ul: ["Account creation and login authentication", "Displaying user identity within CSS Studio", "Associating user-generated content with their account"] },
+          "We do NOT use third-party data for advertising, profiling, cross-platform tracking, or resale."
+      ] },
+      { title: "4. Data Storage", body: [ { ul: ["Data is securely stored on our servers", "Access is restricted to authorized systems only", "We implement reasonable security measures to prevent unauthorized access"] } ] },
+      { title: "5. Data Sharing", body: [ { ul: ["We do NOT sell user data", "We do NOT share user data with third parties, except: when required by law, or when necessary for core service infrastructure (e.g., hosting providers)"] } ] },
+      { title: "6. User Control", body: [
+          "Users can:",
+          { ul: ["Disconnect third-party accounts at any time", "Request deletion of their account and associated data"] },
+          "To request data deletion, please contact: admin@cssstudio.app"
+      ] },
+      { title: "7. Data Retention", body: ["We retain user data only as long as necessary to provide the service and fulfill legal obligations. Data will be deleted upon verified user request."] },
+      { title: "8. Security Commitment", body: [ { ul: ["Secure transmission using HTTPS", "Access control and system monitoring", "Regular system maintenance and updates"] } ] },
+      { title: "9. Compliance", body: ["CSS Studio is committed to complying with applicable data protection and privacy regulations. User data is handled responsibly and only for legitimate service purposes."] },
+      { title: "10. Contact", body: ["For any questions regarding this Data Flow Explanation or data usage, please contact: admin@cssstudio.app"] }
+    ]
+  },
+  zh: {
+    title: "数据流向说明",
+    subtitle: "CSS Studio",
+    updated: "最后更新：2026 年",
+    sections: [
+      { title: "1. 概述", body: ["CSS Studio 是一个 AI 驱动的创作平台，用户可在此生成、发布并交易音乐、视觉及多媒体作品等数字内容。我们可能使用第三方身份验证服务以实现安全登录与身份核实。"] },
+      { title: "2. 从第三方服务收集的数据", body: [
+          "当用户通过第三方身份验证（如社交登录）登录时，依据用户授予的权限，我们可能收集以下信息：",
+          { ul: ["基础个人资料（如用户名、头像）", "身份验证服务提供的唯一用户标识"] },
+          "我们不会从第三方服务收集密码、私信或联系人等敏感信息。"
+      ] },
+      { title: "3. 数据的使用方式", body: [
+          "收集的数据仅用于：",
+          { ul: ["账户创建与登录验证", "在 CSS Studio 内展示用户身份", "将用户生成的内容与其账户关联"] },
+          "我们不会将第三方数据用于广告、画像、跨平台追踪或转售。"
+      ] },
+      { title: "4. 数据存储", body: [ { ul: ["数据安全地存储于我们的服务器", "仅授权系统可访问", "采取合理的安全措施防止未经授权的访问"] } ] },
+      { title: "5. 数据共享", body: [ { ul: ["我们不出售用户数据", "我们不向第三方共享用户数据，除非：法律要求，或为核心服务基础设施所必需（如托管服务商）"] } ] },
+      { title: "6. 用户控制", body: [
+          "用户可以：",
+          { ul: ["随时解绑第三方账户", "请求删除其账户及相关数据"] },
+          "如需请求数据删除，请联系：admin@cssstudio.app"
+      ] },
+      { title: "7. 数据保留", body: ["我们仅在提供服务及履行法律义务所需的期限内保留用户数据。经过验证的删除请求将被执行。"] },
+      { title: "8. 安全承诺", body: [ { ul: ["使用 HTTPS 进行安全传输", "访问控制与系统监控", "定期系统维护与更新"] } ] },
+      { title: "9. 合规", body: ["CSS Studio 致力于遵守适用的数据保护与隐私法规，仅以合法目的负责任地处理用户数据。"] },
+      { title: "10. 联系方式", body: ["如对本数据流向说明或数据使用有任何疑问，请联系：admin@cssstudio.app"] }
+    ]
+  },
+  ja: {
+    title: "データフロー説明",
+    subtitle: "CSS Studio",
+    updated: "最終更新日：2026 年",
+    sections: [
+      { title: "1. 概要", body: ["CSS Studio は、音楽・ビジュアル・マルチメディア作品等のデジタルコンテンツを生成・公開・取引できる AI 創作プラットフォームです。安全なログインと本人確認のため、第三者認証サービスを使用する場合があります。"] },
+      { title: "2. 第三者サービスから取得するデータ", body: [
+          "ソーシャルログイン等の第三者認証を通じてログインする際、ユーザーの許可範囲に応じて以下を取得する場合があります：",
+          { ul: ["基本プロフィール情報（ユーザー名、プロフィール画像など）", "認証サービスが提供する一意のユーザー識別子"] },
+          "パスワード、ダイレクトメッセージ、連絡先などの機微情報は取得しません。"
+      ] },
+      { title: "3. データの利用目的", body: [
+          "取得したデータは厳密に以下の目的にのみ利用します：",
+          { ul: ["アカウント作成およびログイン認証", "CSS Studio 内でのユーザー識別表示", "ユーザー生成コンテンツとアカウントの関連付け"] },
+          "広告、プロファイリング、クロスプラットフォーム追跡、再販には利用しません。"
+      ] },
+      { title: "4. データ保管", body: [ { ul: ["データは当社サーバーに安全に保管されます", "アクセスは認可されたシステムに限定されます", "不正アクセス防止のため合理的なセキュリティ対策を実施します"] } ] },
+      { title: "5. データ共有", body: [ { ul: ["ユーザーデータを販売することはありません", "第三者と共有することはありません。ただし、法令で要求される場合、または中核インフラ（ホスティングなど）の運用に必要な場合を除きます"] } ] },
+      { title: "6. ユーザーによる管理", body: [
+          "ユーザーは以下が可能です：",
+          { ul: ["第三者アカウントの連携解除（いつでも）", "アカウントおよび関連データの削除請求"] },
+          "削除請求は admin@cssstudio.app までご連絡ください。"
+      ] },
+      { title: "7. データ保持", body: ["サービス提供および法令遵守に必要な期間に限りユーザーデータを保持します。本人確認済みの削除請求に応じてデータを削除します。"] },
+      { title: "8. セキュリティへの取り組み", body: [ { ul: ["HTTPS による安全な通信", "アクセス制御とシステム監視", "定期的なシステム保守と更新"] } ] },
+      { title: "9. コンプライアンス", body: ["CSS Studio は適用されるデータ保護およびプライバシー関連法規を遵守し、正当なサービス目的のためにのみユーザーデータを取り扱います。"] },
+      { title: "10. お問い合わせ", body: ["本データフロー説明やデータ利用に関するお問い合わせは admin@cssstudio.app までご連絡ください。"] }
+    ]
+  }
+};
+</script>
+<script src="/legal-page.js"></script>
+</body>
+</html>

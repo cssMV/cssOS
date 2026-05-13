@@ -1278,31 +1278,17 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
     // overflow button that toggles a `cssmv-overflow-open` class on
     // .watch-screen; the CSS rules below show the cluster only when
     // that class is present, so the corner stays clean by default.
-    if (!screen.querySelector(".cssmv-overflow-btn")) {
-      const overflowBtn = document.createElement("button");
-      overflowBtn.type = "button";
-      overflowBtn.className = "cssmv-fr-btn cssmv-overflow-btn";
-      overflowBtn.setAttribute("aria-label", "More");
-      overflowBtn.textContent = "⋯";
-      overflowBtn.addEventListener("click", function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        screen.classList.toggle("cssmv-overflow-open");
-      });
-      // Outside-click closes the overflow group.
-      document.addEventListener("pointerdown", function (e) {
-        if (!screen.classList.contains("cssmv-overflow-open")) return;
-        const t = e.target;
-        if (t && typeof t.closest === "function") {
-          if (t.closest(".cssmv-overflow-btn")) return;
-          if (t.closest(".cssmv-fr-btn")) return;
-          if (t.closest(".cssmv-stem-toggle")) return;
-          if (t.closest("#watch-style-shift")) return;
-        }
-        screen.classList.remove("cssmv-overflow-open");
-      }, true);
-      screen.appendChild(overflowBtn);
+    // CSSOS_WAVE_113B2 20260511 — Jing
+    // "媒体框右下角的信息，不要再缩成三点，恢复成和原来的桌面端一样，
+    //  如果手机端底部信息太拥挤，可以排成三行". The mobile ⋯ overflow
+    //  button is retired. Cluster buttons stay visible at all viewport
+    //  sizes; on narrow screens the override CSS in style.css lets the
+    //  cluster wrap onto multiple rows instead of collapsing.
+    const staleOverflow = screen.querySelector(".cssmv-overflow-btn");
+    if (staleOverflow && staleOverflow.parentNode) {
+      staleOverflow.parentNode.removeChild(staleOverflow);
     }
+    screen.classList.remove("cssmv-overflow-open");
     return true;
   }
 

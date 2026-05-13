@@ -481,6 +481,19 @@
             '<button class="person-mv-ctier-btn" data-ctier="all" title="' +
               tt("All tiers", "全部") + '">' + tt("All", "全") + '</button>' +
           '</span>' +
+          /* CSSOS_WAVE_114 20260511 — realm filter pills (位面). */
+          '<span class="person-mv-realm-pills" style="display:inline-flex;gap:4px;margin-left:6px;">' +
+            '<button class="person-mv-realm-btn is-active" data-realm="all" title="' +
+              tt("All realms", "全部位面") + '">🌐 ' + tt("All", "全") + '</button>' +
+            '<button class="person-mv-realm-btn" data-realm="historical" title="' +
+              tt("Real history", "真实历史") + '">📜 ' + tt("History", "历史") + '</button>' +
+            '<button class="person-mv-realm-btn" data-realm="mythological" title="' +
+              tt("Myth & gods", "神话与诸神") + '">⚡ ' + tt("Myth", "神话") + '</button>' +
+            '<button class="person-mv-realm-btn" data-realm="literary" title="' +
+              tt("Literary characters", "文学虚构") + '">📚 ' + tt("Literary", "文学") + '</button>' +
+            '<button class="person-mv-realm-btn" data-realm="folkloric" title="' +
+              tt("Folk tales", "民间传说") + '">🏮 ' + tt("Folk", "民间") + '</button>' +
+          '</span>' +
           '<select class="person-mv-civ-select"><option value="">' +
             tt("All civilizations", "全部文明") + '</option></select>' +
           '<button class="person-mv-random-btn" title="' +
@@ -665,6 +678,16 @@
         reloadCurrent();
       });
     });
+    /* CSSOS_WAVE_114 20260511 — realm filter pills. */
+    var realmBtns = panelEl.querySelectorAll(".person-mv-realm-btn");
+    realmBtns.forEach(function (b) {
+      b.addEventListener("click", function () {
+        realmBtns.forEach(function (x) { x.classList.remove("is-active"); });
+        b.classList.add("is-active");
+        state.realm = String(b.getAttribute("data-realm") || "all");
+        reloadCurrent();
+      });
+    });
     if (createBtn) {
       createBtn.addEventListener("click", async function () {
         if (!(await requireSignedInForAction("create"))) return;
@@ -757,6 +780,7 @@
         qs.set("curation_tier", state.curationTier);
       }
       if (state.civ) qs.set("civ", state.civ);
+      if (state.realm && state.realm !== "all") qs.set("realm", state.realm);
       if (state.search) qs.set("search", state.search);
       qs.set("limit", "1200");
       var res = await fetch("/api/landmark-mv/landmarks?" + qs.toString(), {
@@ -1491,11 +1515,14 @@
     var meta = [l.civilization, l.era, l.location].filter(Boolean).join(" · ");
     var card = document.createElement("article");
     card.className = "pmv-portrait-card";
+    card.style.position = "relative";
     card.setAttribute("data-landmark-id", l.landmark_id || "");
+    card.setAttribute("data-realm", String(l.realm || "historical"));
     /* Cover: gradient bg + emoji-glyph for now (real images come
      * from generated MVs over time, accumulated in cover_pool). */
     var glyph = (l.visual_symbols && l.visual_symbols[0]) || "🏛";
     card.innerHTML =
+      realmBadgeHtml(l.realm) +
       '<div class="cover fallback" style="background:linear-gradient(135deg,#012019,rgba(0,180,200,0.3));">' +
         escapeText(glyph) +
       '</div>' +
@@ -1571,6 +1598,7 @@
         qs.set("curation_tier", "all");
       }
       if (state.civ) qs.set("civ", state.civ);
+      if (state.realm && state.realm !== "all") qs.set("realm", state.realm);
       if (state.search) qs.set("search", state.search);
       /* CSSOS_WAVE_109 20260509 — bumped from 200 → 1200 to fit the
        * full compendium (DB has up to ~1000 curated personalities).
@@ -2083,6 +2111,39 @@
     return holder;
   }
 
+  /* CSSOS_WAVE_114B 20260511 — Jing
+   * Realm emoji corner badge. Mounted top-right of every card.
+   *   historical   → 📜 (default — only shown if explicitly = "historical")
+   *   mythological → ⚡
+   *   literary     → 📚
+   *   folkloric    → 🏮
+   * Returns innerHTML string ready to drop into a card. */
+  function realmBadgeHtml(realm) {
+    var r = String(realm || "historical").toLowerCase();
+    var map = {
+      historical:   { emoji: "📜", zh: "历史", en: "History" },
+      mythological: { emoji: "⚡", zh: "神话", en: "Myth" },
+      literary:     { emoji: "📚", zh: "文学", en: "Literary" },
+      folkloric:    { emoji: "🏮", zh: "民间", en: "Folk" },
+    };
+    var m = map[r] || map.historical;
+    // Don't render the default historical badge — too noisy. Only
+    // show when realm is non-default, to keep historical cards clean
+    // and let mythological / literary / folkloric stand out.
+    if (r === "historical") return "";
+    var title = tt(m.en, m.zh);
+    return '<div class="pmv-realm-badge" data-realm="' + escapeAttr(r) + '"' +
+      ' title="' + escapeAttr(title) + '"' +
+      ' style="position:absolute;top:8px;right:8px;z-index:3;' +
+        'padding:3px 7px;border-radius:999px;' +
+        'background:rgba(0,0,0,0.62);backdrop-filter:blur(6px);' +
+        'border:1px solid rgba(255,255,255,0.22);' +
+        'font:600 11px/1 -apple-system,system-ui,sans-serif;color:#fff;' +
+        'pointer-events:none;user-select:none;">' +
+      m.emoji + " " + escapeText(title) +
+    '</div>';
+  }
+
   function buildHallCard(p) {
     var primary = localizedName(p);
     var secondary = secondaryName(p);
@@ -2090,7 +2151,9 @@
     var portrait = p.portrait_url || p.cover_image_url || "";
     var card = document.createElement("article");
     card.className = "pmv-hall-card";
+    card.style.position = "relative";
     card.setAttribute("data-person-id", p.person_id || "");
+    card.setAttribute("data-realm", String(p.realm || "historical"));
     if (p.content_rating) card.setAttribute("data-content-rating", String(p.content_rating));
     var coverHtml;
     if (portrait) {
@@ -2101,7 +2164,7 @@
       coverHtml = '<div class="cover fallback" style="background:linear-gradient(135deg,#012019,rgba(0,245,160,0.25));">' +
         escapeText(glyph) + '</div>';
     }
-    card.innerHTML = coverHtml +
+    card.innerHTML = realmBadgeHtml(p.realm) + coverHtml +
       '<div class="info">' +
         '<div class="name">' + escapeText(primary) + '</div>' +
         (secondary ? '<div class="name-en">' + escapeText(secondary) + '</div>' : '') +

@@ -38,6 +38,49 @@
     try { console.warn("[cssPaymentsCheckout]", msg); } catch (_e) {}
   }
 
+  /* CSSOS_WAVE_116 20260513 — Jing
+   * Wallet (Apple Pay / Google Pay) detection.
+   *
+   * We do NOT make a Stripe PaymentRequest probe here (it requires
+   * intent creation and Stripe.js load). Instead we use the standard
+   * browser-side wallet detection APIs:
+   *   - Apple Pay → window.ApplePaySession?.canMakePayments?.()
+   *   - Google Pay → 'PaymentRequest' in window + ua hint
+   *
+   * Coarse but cheap. If a wallet appears to be supported, we surface
+   * the button; the actual confirmPayment via Stripe will fail
+   * gracefully if the wallet ends up unavailable (user falls back to
+   * the card tab in the inline Payment Element).
+   *
+   * Apple Pay only works on Safari + Apple devices, served over HTTPS.
+   * Google Pay works in most modern browsers via Stripe's GPay sheet,
+   * but most reliable in Chrome / Android. We be conservative and
+   * only show Google Pay when PaymentRequest API is present AND the
+   * platform isn't iOS (which prefers Apple Pay anyway).
+   */
+  function detectWalletSupport() {
+    const result = { applePay: false, googlePay: false };
+    try {
+      const isHttps = (typeof location !== "undefined" && location.protocol === "https:");
+      if (!isHttps) return result; // wallets require secure context
+      // Apple Pay
+      if (typeof window !== "undefined" &&
+          window.ApplePaySession &&
+          typeof window.ApplePaySession.canMakePayments === "function") {
+        try { result.applePay = !!window.ApplePaySession.canMakePayments(); } catch (_) {}
+      }
+      // Google Pay — PaymentRequest API as proxy. iOS Safari also exposes
+      // PaymentRequest in iOS 16+, so we skip GPay when Apple Pay is
+      // available to avoid double-buttons on Safari.
+      if (!result.applePay &&
+          typeof window !== "undefined" &&
+          typeof window.PaymentRequest === "function") {
+        result.googlePay = true;
+      }
+    } catch (_) {}
+    return result;
+  }
+
   function setBusy(el, busy) {
     if (!(el instanceof HTMLElement)) return;
     try {
@@ -49,6 +92,121 @@
         el.removeAttribute("data-css-pay-busy");
       }
     } catch (_e) {}
+  }
+
+  // CSSOS_WAVE_116 20260512 · Stripe.js lazy loader + inline Payment Element
+  let __stripeJsPromise = null;
+  function loadStripeJs() {
+    if (typeof window.Stripe === "function") return Promise.resolve(window.Stripe);
+    if (__stripeJsPromise) return __stripeJsPromise;
+    __stripeJsPromise = new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "https://js.stripe.com/v3/";
+      s.async = true;
+      s.onload = () => {
+        if (typeof window.Stripe === "function") resolve(window.Stripe);
+        else reject(new Error("Stripe.js loaded but window.Stripe is undefined"));
+      };
+      s.onerror = () => reject(new Error("Stripe.js failed to load"));
+      document.head.appendChild(s);
+    });
+    return __stripeJsPromise;
+  }
+
+  /* Create a PaymentIntent on the backend, mount Stripe Payment Element
+   * inline inside `container`, and return a `pay()` function that runs
+   * confirmPayment with redirect: "if_required" so non-3DS cards finish
+   * without leaving the page. */
+  async function mountStripePaymentElement(container, intentReq) {
+    if (!(container instanceof HTMLElement)) throw new Error("container_missing");
+    container.innerHTML = '<div class="pay-stripe-inline-loading">' +
+      (typeof window.tr === "function" ? window.tr("payments.stripe.loading") : "") +
+      "Loading secure card form…</div>";
+    // 1. Create intent
+    const intentRes = await fetch("/api/stripe/payment-intent/create", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(intentReq),
+    });
+    const intentJson = await intentRes.json().catch(() => null);
+    if (!intentRes.ok || !intentJson || intentJson.ok === false || !intentJson.data) {
+      const code = (intentJson && (intentJson.code || intentJson.error)) || `http_${intentRes.status}`;
+      throw new Error(`payment_intent_failed:${code}`);
+    }
+    const { client_secret, publishable_key, order_id } = intentJson.data;
+    if (!client_secret || !publishable_key) throw new Error("payment_intent_incomplete");
+    // 2. Load Stripe.js + mount Elements
+    const StripeCtor = await loadStripeJs();
+    const stripe = StripeCtor(publishable_key);
+    const elements = stripe.elements({
+      clientSecret: client_secret,
+      appearance: {
+        theme: "night",
+        variables: {
+          colorPrimary: "#00f5a0",
+          colorBackground: "#0b1612",
+          colorText: "#daffee",
+          colorTextSecondary: "rgba(218,255,238,0.7)",
+          colorDanger: "#ff6b6b",
+          fontFamily: "ui-sans-serif, system-ui, -apple-system, sans-serif",
+          borderRadius: "10px",
+        },
+      },
+    });
+    container.innerHTML = `<div class="pay-stripe-inline-element"></div>
+      <div class="pay-stripe-inline-actions">
+        <button type="button" class="mini-btn pay-stripe-inline-confirm">${
+          typeof window.tr === "function" ? window.tr("payments.stripe.pay") || "Pay" : "Pay"
+        }</button>
+        <div class="pay-stripe-inline-error" role="alert"></div>
+      </div>`;
+    const elContainer = container.querySelector(".pay-stripe-inline-element");
+    const payBtn = container.querySelector(".pay-stripe-inline-confirm");
+    const errEl = container.querySelector(".pay-stripe-inline-error");
+    const paymentElement = elements.create("payment", { layout: "tabs" });
+    paymentElement.mount(elContainer);
+    async function pay() {
+      if (errEl) errEl.textContent = "";
+      setBusy(payBtn, true);
+      try {
+        const { error } = await stripe.confirmPayment({
+          elements,
+          confirmParams: {
+            return_url: `${window.location.origin}/?stripe_intent=${encodeURIComponent(order_id || "")}`,
+          },
+          redirect: "if_required",
+        });
+        if (error) {
+          if (errEl) errEl.textContent = String(error.message || error.code || "Payment failed");
+          setBusy(payBtn, false);
+          return { ok: false, error };
+        }
+        // Success — no redirect because non-3DS card. Webhook completes the order server-side.
+        if (errEl) errEl.textContent = "";
+        return { ok: true, order_id };
+      } catch (err) {
+        if (errEl) errEl.textContent = String(err && err.message ? err.message : err);
+        setBusy(payBtn, false);
+        return { ok: false, error: err };
+      }
+    }
+    if (payBtn) payBtn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      pay().then((r) => {
+        if (r && r.ok) {
+          toast(typeof window.tr === "function"
+            ? window.tr("payments.stripe.success") || "Payment received — thank you!"
+            : "Payment received — thank you!");
+          if (typeof intentReq.onSuccess === "function") {
+            try { intentReq.onSuccess(r); } catch (_e) {}
+          }
+          // Auto-close any open picker
+          closePicker();
+        }
+      });
+    });
+    return { stripe, elements, pay, order_id };
   }
 
   function submitAutoForm(redirect) {
@@ -346,23 +504,102 @@
     if (hasStripe) {
       const g = document.createElement("div");
       g.className = "pay-group";
+      // CSSOS_WAVE_116 20260512 — inline Payment Element path.
+      // CSSOS_WAVE_116 20260513 — Jing's spec: international row should
+      // present Apple Pay + Google Pay + Card as three distinct buttons,
+      // not just "Pay with card". We detect wallet support at picker
+      // open and conditionally render the wallet buttons. All three
+      // routes through the same inline mount — Stripe's Payment Element
+      // auto-prioritizes the matching wallet when the user clicks
+      // (Apple Pay surfaces in Safari/iOS, Google Pay in Chrome/Android).
+      const useInline = options.stripe.inline === true &&
+        options.stripe.intentRequest && typeof options.stripe.intentRequest === "object";
+      const wallets = detectWalletSupport();
+      const cardLabel = String(options.stripe.label || tr("payments.picker.payWithCard", "Pay with card"));
+      const buttonsHtml = [];
+      if (wallets.applePay) {
+        buttonsHtml.push(
+          '<button type="button" class="mini-btn pay-stripe pay-wallet pay-wallet-apple" data-pay-stripe-wallet="apple_pay" aria-label="Apple Pay">' +
+            '<span class="pay-wallet-glyph"></span>' +
+            '<span class="pay-wallet-text">' + tr("payments.picker.applePay", "Pay") + '</span>' +
+          '</button>'
+        );
+      }
+      if (wallets.googlePay) {
+        buttonsHtml.push(
+          '<button type="button" class="mini-btn pay-stripe pay-wallet pay-wallet-google" data-pay-stripe-wallet="google_pay" aria-label="Google Pay">' +
+            '<span class="pay-wallet-glyph"></span>' +
+            '<span class="pay-wallet-text">' + tr("payments.picker.googlePay", "Pay") + '</span>' +
+          '</button>'
+        );
+      }
+      // Card (always shown — fallback for users without wallets)
+      buttonsHtml.push(
+        useInline
+          ? '<button type="button" class="mini-btn pay-stripe pay-card" data-pay-stripe-inline-trigger>💳 ' + cardLabel + '</button>'
+          : '<button type="button" class="mini-btn pay-stripe pay-card" data-pay-stripe>💳 ' + cardLabel + '</button>'
+      );
       g.innerHTML = [
         '<div class="pay-group-head"><span class="pay-group-dot intl"></span><span class="pay-group-label">',
-        tr("payments.picker.intl", "International · Stripe"),
+        tr("payments.picker.intl", "International"),
         '</span></div>',
-        '<div class="pay-group-body">',
-        '  <button type="button" class="mini-btn pay-stripe" data-pay-stripe>',
-        String(options.stripe.label || tr("payments.picker.payWithCard", "Pay with card")),
-        '  </button>',
+        '<div class="pay-group-body pay-group-body-wallets">',
+        buttonsHtml.join(""),
+        useInline ? '<div class="pay-stripe-inline-host" hidden></div>' : '',
         '</div>'
       ].join("");
-      g.querySelector("[data-pay-stripe]").addEventListener("click", (ev) => {
-        ev.preventDefault();
-        if (!ensureAmountOk()) return;
-        const btn = ev.currentTarget;
-        try { options.stripe.onSelect(btn, { amount_cents: currentCents }); } catch (e) { console.error(e); }
-        closePicker();
-      });
+      // Shared inline mount used by ALL three buttons in the wallet row.
+      // Stripe's Payment Element shows the user's preferred method first
+      // based on browser/region, so clicking Apple Pay in Safari surfaces
+      // Apple Pay as the default tab.
+      async function triggerInline(triggerBtn) {
+        const host = g.querySelector(".pay-stripe-inline-host");
+        if (!host) return;
+        setBusy(triggerBtn, true);
+        try {
+          const intentReq = Object.assign({}, options.stripe.intentRequest, {
+            tip_amount_cents: currentCents,
+            onSuccess: options.stripe.onSuccess,
+          });
+          host.hidden = false;
+          // Hide all three trigger buttons during mount.
+          g.querySelectorAll("[data-pay-stripe-inline-trigger], [data-pay-stripe-wallet]").forEach((b) => { b.hidden = true; });
+          await mountStripePaymentElement(host, intentReq);
+        } catch (err) {
+          host.innerHTML = '<div class="pay-stripe-inline-error">' +
+            String(err && err.message ? err.message : err) + "</div>";
+          g.querySelectorAll("[data-pay-stripe-inline-trigger], [data-pay-stripe-wallet]").forEach((b) => { b.hidden = false; });
+          setBusy(triggerBtn, false);
+        }
+      }
+      if (useInline) {
+        const cardTrigger = g.querySelector("[data-pay-stripe-inline-trigger]");
+        if (cardTrigger) cardTrigger.addEventListener("click", (ev) => { ev.preventDefault(); if (!ensureAmountOk()) return; triggerInline(cardTrigger); });
+        g.querySelectorAll("[data-pay-stripe-wallet]").forEach((wbtn) => {
+          wbtn.addEventListener("click", (ev) => { ev.preventDefault(); if (!ensureAmountOk()) return; triggerInline(wbtn); });
+        });
+      } else {
+        // Redirect-based Stripe checkout. Card button hands off to
+        // onSelect; wallet buttons also route through onSelect with a
+        // hint so the server-side intent can prioritize the right
+        // payment_method_types.
+        const cardBtn = g.querySelector("[data-pay-stripe]");
+        if (cardBtn) cardBtn.addEventListener("click", (ev) => {
+          ev.preventDefault();
+          if (!ensureAmountOk()) return;
+          try { options.stripe.onSelect(cardBtn, { amount_cents: currentCents, wallet: null }); } catch (e) { console.error(e); }
+          closePicker();
+        });
+        g.querySelectorAll("[data-pay-stripe-wallet]").forEach((wbtn) => {
+          wbtn.addEventListener("click", (ev) => {
+            ev.preventDefault();
+            if (!ensureAmountOk()) return;
+            const wallet = String(wbtn.getAttribute("data-pay-stripe-wallet") || "");
+            try { options.stripe.onSelect(wbtn, { amount_cents: currentCents, wallet }); } catch (e) { console.error(e); }
+            closePicker();
+          });
+        });
+      }
       groupsEl.appendChild(g);
     }
 
@@ -427,7 +664,13 @@
     };
     document.addEventListener("keydown", onKey, true);
 
-    document.body.appendChild(root);
+    // CSSOS_WAVE_113B3 20260512 — append into the fullscreen layer if the
+    // user is in cinema/fullscreen mode; otherwise body. Keeps the picker
+    // visible during fullscreen MV playback without exiting cinema.
+    const fsHost = (typeof document.fullscreenElement !== "undefined" && document.fullscreenElement) ||
+      document.querySelector("#watch-panel .watch-screen.is-fullscreen") ||
+      document.body;
+    (fsHost || document.body).appendChild(root);
     __picker_open = { root, onKey };
 
     // Focus first actionable button

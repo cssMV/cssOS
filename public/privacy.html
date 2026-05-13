@@ -1,116 +1,107 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Privacy Policy · CSS Studio</title>
-<style>
-  :root { --bg:#001b14; --fg:#daffee; --accent:#00f5a0; --muted:rgba(218,255,238,0.65); --max:760px; }
-  html[data-theme="light"] { --bg:#f6fff8; --fg:#0f3a2a; --accent:#00a060; --muted:rgba(15,58,42,0.7); }
-  body { margin:0; padding:48px 20px; background:var(--bg); color:var(--fg); font:16px/1.65 -apple-system,BlinkMacSystemFont,system-ui,sans-serif; }
-  main { max-width:var(--max); margin:0 auto; }
-  h1 { font-size:32px; line-height:1.2; margin:0 0 8px; }
-  h2 { color:var(--accent); margin-top:36px; font-size:18px; letter-spacing:0.04em; text-transform:uppercase; }
-  p, li { color:var(--fg); }
-  small { color:var(--muted); }
-  a { color:var(--accent); }
-  ul { padding-left:22px; }
-  code { background:rgba(0,245,160,0.1); padding:1px 6px; border-radius:4px; font:14px ui-monospace,monospace; }
-  hr { border:0; border-top:1px solid rgba(0,245,160,0.18); margin:36px 0; }
-</style>
+<link rel="stylesheet" href="/legal-page.css"/>
 </head>
 <body>
-<main>
-  <h1>Privacy Policy</h1>
-  <small>Effective 2026-05-08 · CSS Studio · cssstudio.app</small>
-
-  <h2>1. What we collect</h2>
-  <ul>
-    <li><strong>Account data</strong>: email, display name, optional avatar, password hash (we never see plaintext).</li>
-    <li><strong>Content you create</strong>: music videos, lyrics, comments, collections, templates, KYC tax info (encrypted at rest).</li>
-    <li><strong>Usage data</strong>: pages visited, features clicked, performance metrics (Web Vitals), error reports — anonymized aggregates.</li>
-    <li><strong>Device data</strong>: browser type, language, country (from IP), OS (no precise location).</li>
-    <li><strong>Push subscription tokens</strong>: when you opt in to notifications.</li>
-  </ul>
-
-  <h2>2. What we DON'T collect</h2>
-  <ul>
-    <li>Your phone book, calendar, health data, financial data (cards are handled by Stripe / NihaoPay — we never see them).</li>
-    <li>Precise GPS location.</li>
-    <li>Browsing activity outside CSS Studio.</li>
-    <li>We do NOT sell your data. Ever.</li>
-  </ul>
-
-  <h2>3. How we use it</h2>
-  <ul>
-    <li><strong>Provide the service</strong>: render your music videos, deliver notifications, save your work.</li>
-    <li><strong>Improve the service</strong>: aggregate usage analytics drive design + perf decisions.</li>
-    <li><strong>Communicate</strong>: weekly digest emails (opt-out one-click), product updates.</li>
-    <li><strong>Legal compliance</strong>: tax records for affiliate / Premium revenue payouts.</li>
-  </ul>
-
-  <h2>4. Third parties we share with</h2>
-  <ul>
-    <li><strong>Payment</strong>: Stripe (international), NihaoPay (China) — processes your card / Alipay / WeChat Pay.</li>
-    <li><strong>Email</strong>: Resend — sends digest + transactional emails.</li>
-    <li><strong>Analytics</strong>: Sentry (error tracking), self-hosted Web Vitals (no third-party cookies).</li>
-    <li><strong>AI engines</strong>: OpenAI, Anthropic, Groq, fal.ai, Replicate, Mubert, Cloudflare R2, etc. — strictly the prompts + media you submit, never your account info.</li>
-  </ul>
-
-  <h2>5. Data retention</h2>
-  <ul>
-    <li>Active accounts: kept until you delete the account.</li>
-    <li>Deleted accounts: purged within 30 days (logs may persist for security audit up to 90 days).</li>
-    <li>Database backups: rolling 30-day retention, encrypted at rest in Cloudflare R2.</li>
-  </ul>
-
-  <h2>6. Your rights</h2>
-  <ul>
-    <li><strong>Access / Export</strong>: settings → "Download my data" (one-click ZIP of everything we have).</li>
-    <li><strong>Deletion</strong>: settings → "Delete account" (irreversible, 30-day grace period).</li>
-    <li><strong>Correction</strong>: edit your profile any time.</li>
-    <li><strong>Email opt-out</strong>: every digest has a one-click unsubscribe link.</li>
-    <li><strong>Block / Report</strong>: any content / user from anywhere.</li>
-  </ul>
-
-  <h2>7. Cookies</h2>
-  <p>
-    We use a single session cookie (<code>cssos.sid</code>) to keep you signed in. No third-party
-    advertising or tracking cookies. We do not respect Do Not Track because we don't track you in
-    the first place.
-  </p>
-
-  <h2>8. Children</h2>
-  <p>
-    CSS Studio is not directed at children under 13. If a parent learns their child has signed
-    up, contact <a href="mailto:admin@cssstudio.app">admin@cssstudio.app</a> and we'll delete
-    the account on receipt.
-  </p>
-
-  <h2>9. Security</h2>
-  <p>
-    All traffic is HTTPS (TLS 1.3). Passwords are bcrypt-hashed. Sensitive fields like tax IDs
-    are AES-256-GCM encrypted. Database backups are encrypted at rest. We monitor uptime + cert
-    expiry + slow queries 24/7 and have a documented disaster-recovery process.
-  </p>
-
-  <h2>10. Changes</h2>
-  <p>
-    If we change this policy materially, we'll email registered users 30 days in advance.
-    Latest version always at <a href="https://cssstudio.app/privacy">cssstudio.app/privacy</a>.
-  </p>
-
-  <h2>11. Contact</h2>
-  <p>
-    Questions: <a href="mailto:admin@cssstudio.app">admin@cssstudio.app</a><br>
-    Postal: CSS Studio, [physical address required for App Store submission]
-  </p>
-
-  <hr>
-  <small>
-    This page is required by <a href="https://www.apple.com/legal/internet-services/itunes/dev/stdeula/">Apple App Store guidelines</a>
-    and <a href="https://gdpr.eu">GDPR</a>. Generated 2026-05-08.
-  </small>
-</main>
+<div id="doc-root"></div>
+<script>
+globalThis.LEGAL_DOC = {
+  en: {
+    title: "Privacy Policy",
+    updated: "Last updated: 2026",
+    sections: [
+      { title: "1. Information We Collect", body: ["We may collect information such as your email address, account details, usage data, and content you create."] },
+      { title: "2. How We Use Information", body: ["We use your data to operate, improve, and secure the Service, and to provide personalized features."] },
+      { title: "3. Sharing of Information", body: ["We do not sell your personal data. We may share information with service providers or when required by law."] },
+      { title: "4. Cookies and Tracking", body: ["We may use cookies and similar technologies to enhance user experience."] },
+      { title: "5. Data Security", body: ["We implement reasonable security measures to protect your data."] },
+      { title: "6. User Rights", body: ["You may request access, correction, or deletion of your personal data by contacting us."] },
+      { title: "7. Children's Privacy", body: ["The Service is not intended for children under 13."] },
+      { title: "8. International Users", body: ["Your information may be processed in different countries."] },
+      { title: "9. iOS App — Data Collection Disclosure", body: [
+        "When you use the CSS Studio iOS app (distributed via the Apple App Store), the following data categories are collected, all linked to your CSS Studio account:",
+        { ul: [
+          "Contact Info — Email address (for account creation, login, password recovery, transactional notifications).",
+          "Identifiers — Your CSS Studio user ID (a UUID) and your iOS device push notification token (APNs), used solely to deliver in-app notifications you opted into.",
+          "User Content — Lyrics, prompts, music videos, and other creative works you generate, edit, publish, or trade on the platform. Stored on our servers as required to provide the service.",
+          "Usage Data — Product interaction events (which engine you selected, how long a render took, what panel you opened) used to operate and improve the service.",
+          "Diagnostics — Crash logs and performance traces, used to diagnose bugs. Not linked to your identity beyond the user ID required to triage your issue if you contact support.",
+          "Third-Party Sign-In Identifiers — If you sign in with Apple, Google, or another OAuth provider, we receive the basic profile fields you grant (name, email, provider user ID). We do not receive your password, contacts, calendar, location, or any other field beyond what you explicitly authorize."
+        ] },
+        "We do NOT collect: precise location, health data, financial information beyond payment-receipt confirmations, contacts list, photos library (the iOS app does not request photo-library access), microphone (we do not request microphone permission), or any sensitive personal data outside what is listed above.",
+        "All listed data is used solely for App Functionality, Account Management, and Analytics. None is used for third-party advertising, cross-app tracking, data brokerage, or sold to any third party.",
+        "iOS users may request full data deletion at any time by emailing admin@cssstudio.app from their account email. Deletion requests are processed within 30 days."
+      ] },
+      { title: "10. Changes to Policy", body: ["We may update this Privacy Policy from time to time.", "This policy applies to integrations with TikTok APIs."] },
+      { title: "11. Contact", body: ["Email: admin@cssstudio.app"] }
+    ]
+  },
+  zh: {
+    title: "隐私政策",
+    updated: "最后更新：2026 年",
+    sections: [
+      { title: "1. 我们收集的信息", body: ["我们可能收集您的电子邮件地址、账户信息、使用数据以及您创建的内容。"] },
+      { title: "2. 信息的使用方式", body: ["我们使用您的数据来运营、改进和保护本服务，并提供个性化功能。"] },
+      { title: "3. 信息共享", body: ["我们不会出售您的个人数据。仅在为提供服务所必需，或法律要求时，可能与服务提供方共享。"] },
+      { title: "4. Cookie 与追踪", body: ["我们可能使用 cookie 等类似技术来改善用户体验。"] },
+      { title: "5. 数据安全", body: ["我们采取合理的安全措施保护您的数据。"] },
+      { title: "6. 用户权利", body: ["您可以通过联系我们，请求访问、更正或删除您的个人数据。"] },
+      { title: "7. 儿童隐私", body: ["本服务不面向 13 岁以下的儿童。"] },
+      { title: "8. 国际用户", body: ["您的信息可能在不同国家或地区处理。"] },
+      { title: "9. iOS App 数据收集声明", body: [
+        "当您通过 Apple App Store 安装并使用 CSS Studio iOS 应用时，以下数据类别会被收集，全部与您的 CSS Studio 账户关联：",
+        { ul: [
+          "联系方式 — 电子邮件地址（用于账户创建、登录、密码找回、交易类通知）。",
+          "标识符 — 您的 CSS Studio 用户 ID（UUID）以及您的 iOS 设备推送通知令牌（APNs），仅用于发送您同意接收的应用内通知。",
+          "用户内容 — 您在平台上生成、编辑、发布或交易的歌词、提示词、MV 等创作作品。仅为提供服务所需而存储于我们的服务器。",
+          "使用数据 — 产品交互事件（您选择的引擎、渲染耗时、打开的面板等），用于运营和改进服务。",
+          "诊断数据 — 崩溃日志和性能追踪，用于排查故障。除联系客服时排查您个人问题所需的用户 ID 关联外，不与您的身份关联。",
+          "第三方登录标识 — 若您使用 Apple、Google 或其他 OAuth 提供商登录，我们仅接收您授权的基本资料字段（姓名、邮箱、提供商用户 ID）。我们不接收您的密码、联系人、日历、位置或任何超出您明确授权范围的字段。"
+        ] },
+        "我们不会收集：精确位置、健康数据、除支付凭证以外的财务信息、联系人列表、照片库（iOS 应用不请求相册权限）、麦克风（不请求麦克风权限），以及上述列表之外的任何敏感个人数据。",
+        "上述数据仅用于「应用功能」、「账户管理」和「分析」目的。不用于第三方广告、跨应用追踪、数据中介或出售给任何第三方。",
+        "iOS 用户可随时通过从其账户邮箱发送邮件至 admin@cssstudio.app 请求完整删除数据。删除请求将在 30 天内处理。"
+      ] },
+      { title: "10. 政策变更", body: ["我们可能不时更新本隐私政策。", "本政策同样适用于与 TikTok API 的集成。"] },
+      { title: "11. 联系方式", body: ["邮箱：admin@cssstudio.app"] }
+    ]
+  },
+  ja: {
+    title: "プライバシーポリシー",
+    updated: "最終更新日：2026 年",
+    sections: [
+      { title: "1. 取得する情報", body: ["メールアドレス、アカウント情報、利用データ、作成されたコンテンツ等を取得する場合があります。"] },
+      { title: "2. 情報の利用目的", body: ["サービスの提供・改善・セキュリティ確保、およびパーソナライズ機能の提供のために利用します。"] },
+      { title: "3. 情報の共有", body: ["個人データを販売することはありません。サービス提供者との共有、または法令上必要な場合に限り共有します。"] },
+      { title: "4. Cookie とトラッキング", body: ["ユーザー体験向上のため、Cookie 等の類似技術を使用する場合があります。"] },
+      { title: "5. データセキュリティ", body: ["データを保護するため、合理的なセキュリティ対策を実施しています。"] },
+      { title: "6. ユーザーの権利", body: ["お問い合わせいただくことで、個人データへのアクセス・訂正・削除を請求できます。"] },
+      { title: "7. 子どものプライバシー", body: ["本サービスは 13 歳未満のお子様を対象としていません。"] },
+      { title: "8. 国際的な利用者", body: ["お客様の情報は異なる国で処理される場合があります。"] },
+      { title: "9. iOS アプリのデータ取得について", body: [
+        "Apple App Store 経由でインストールした CSS Studio の iOS アプリをご利用いただく場合、以下のデータカテゴリを取得します。いずれも CSS Studio アカウントに紐づきます：",
+        { ul: [
+          "連絡先情報 — メールアドレス（アカウント作成、ログイン、パスワード再発行、トランザクション通知用）。",
+          "識別子 — CSS Studio ユーザー ID（UUID）および iOS デバイスのプッシュ通知トークン（APNs）。お客様が同意されたアプリ内通知の配信のみに使用します。",
+          "ユーザーコンテンツ — プラットフォーム上で生成・編集・公開・取引する歌詞、プロンプト、MV などの創作物。サービス提供に必要な範囲でサーバーに保存します。",
+          "利用データ — 製品インタラクション（選択したエンジン、レンダリング時間、開いたパネル等）。サービスの運営・改善に使用します。",
+          "診断データ — クラッシュログとパフォーマンストレース。問題の切り分けに使用します。サポートに連絡された際の調査に必要なユーザー ID 紐付けを除き、お客様の身元には紐づけません。",
+          "サードパーティサインインの識別子 — Apple、Google などの OAuth プロバイダでサインインされた場合、お客様が許可された基本プロフィール（氏名、メール、プロバイダのユーザー ID）のみを受領します。パスワード、連絡先、カレンダー、位置情報、その他明示的に許可された範囲を超える項目は受領しません。"
+        ] },
+        "次のデータは取得しません：精密位置、健康データ、支払い受領確認を超える金融情報、連絡先リスト、写真ライブラリ（iOS アプリは写真ライブラリの権限を要求しません）、マイク（マイク権限を要求しません）、上記以外の機微情報。",
+        "上記のデータは「アプリ機能」「アカウント管理」「分析」の目的にのみ使用します。第三者広告、アプリ間トラッキング、データブローカー、第三者への販売には使用しません。",
+        "iOS ユーザーは、アカウントのメールアドレスから admin@cssstudio.app へご連絡いただくことで、いつでも完全なデータ削除を請求できます。削除請求は 30 日以内に処理いたします。"
+      ] },
+      { title: "10. ポリシーの変更", body: ["本プライバシーポリシーは随時更新されることがあります。", "本ポリシーは TikTok API 連携にも適用されます。"] },
+      { title: "11. お問い合わせ", body: ["メール：admin@cssstudio.app"] }
+    ]
+  }
+};
+</script>
+<script src="/legal-page.js"></script>
 </body>
 </html>

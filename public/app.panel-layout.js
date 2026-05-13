@@ -160,6 +160,13 @@ function togglePanelMaximizeModule(panel) {
   if (isMaximized) {
     restorePanelModule(panel);
     delete panel.dataset.maximizeMode;
+    // CSSOS_WAVE_113B1 20260511 — Jing
+    // Restoring the watch panel must also exit OS fullscreen so the
+    // user lands back in the windowed cssOS desktop (Vision Pro will
+    // leave its Immersive Environment when fullscreen exits).
+    if (panel.id === "watch-panel" && typeof globalThis.cssosExitWatchFullscreen === "function") {
+      globalThis.cssosExitWatchFullscreen();
+    }
   } else {
     storePanelStateModule(panel);
     const mode = resolvePanelMaximizeMode(panel);
@@ -184,6 +191,16 @@ function togglePanelMaximizeModule(panel) {
     }
     panel.classList.add("maximized");
     panel.dataset.maximized = "true";
+    // CSSOS_WAVE_113B1 20260511 — Jing
+    // Maximizing the watch panel must trigger the OS-level fullscreen
+    // request so Apple Vision Pro Safari can auto-enter its system
+    // Immersive Environment. This replaces the standalone 👓 Immersive
+    // pill that used to sit in the bottom-left of the media frame.
+    // Must be called from inside this click handler so the browser
+    // honors the user-activation gate on requestFullscreen.
+    if (panel.id === "watch-panel" && typeof globalThis.cssosEnterWatchFullscreen === "function") {
+      globalThis.cssosEnterWatchFullscreen();
+    }
   }
   focusPanel(panel);
 }

@@ -2821,6 +2821,84 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
   z-index: 2;
 }
 
+/* CSSOS_WAVE_111D 20260512 — 🔐 fingerprint verify badge. Sits in
+   the top-left corner of the cover thumbnail, opposite the duration
+   chip (bottom-right). Subtle by default, lights up on hover. */
+.work-cover-fp-badge {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 50%;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
+  z-index: 2;
+  pointer-events: auto;
+}
+.work-cover-fp-badge:hover,
+.work-cover-fp-badge:focus-visible {
+  transform: scale(1.12);
+  background: rgba(0, 245, 160, 0.32);
+  border-color: rgba(0, 245, 160, 0.65);
+  outline: none;
+}
+
+/* CSSOS_WAVE_111D — fingerprint opt-in row in Works Center. */
+.works-fp-optin-row {
+  margin: 10px 0 14px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 13px;
+}
+.works-fp-optin-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+  color: #e6e8ee;
+}
+.works-fp-optin-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #00f5a0;
+  cursor: pointer;
+}
+.works-fp-optin-desc {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: rgba(218, 255, 238, 0.72);
+}
+.works-fp-optin-desc em {
+  color: rgba(255, 200, 120, 0.85);
+  font-style: normal;
+}
+html[data-theme="light"] .works-fp-optin-row {
+  background: rgba(0, 40, 30, 0.04);
+  border-color: rgba(0, 160, 100, 0.22);
+}
+html[data-theme="light"] .works-fp-optin-label {
+  color: #0f3a2a;
+}
+html[data-theme="light"] .works-fp-optin-desc {
+  color: rgba(15, 58, 42, 0.72);
+}
+
 .work-cover[data-work-open-watch],
 .work-cover[data-market-toggle],
 .work-title[data-work-toggle],
@@ -3400,6 +3478,20 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
   -webkit-user-select: none;
   user-select: none;
   -webkit-user-drag: none;
+  /* CSSOS_WAVE_117_LOGO_FIT 20260513 — Jing: "手机移动端的 logo 太大了，
+     截掉了魔镜的尖尖角，希望是竖屏宽度的 1/3 即可". On portrait phones
+     constrain to 33vw so the 4 gem-points stay inside the viewport. */
+}
+@media (max-width: 480px) and (orientation: portrait) {
+  .mirror {
+    width: min(33vw, 240px) !important;
+    height: min(33vw, 240px) !important;
+  }
+  .mirror-slogan {
+    font-size: 13px !important;
+    letter-spacing: .12em !important;
+    padding: 0 16px !important;
+  }
 }
 
 .mirror-core {
@@ -8925,6 +9017,127 @@ html[data-panel-transparent="true"] .logo-panel {
   justify-content: center;
 }
 
+/* CSSOS_WAVE_116 20260513 — Jing · Wallet buttons (Apple Pay / Google Pay).
+   Native-styled per Apple HIG / Google brand guidelines so users
+   recognize them instantly. Layout: 3 buttons in row 1 (international:
+   Apple Pay + Google Pay + Card), 3 buttons in row 2 (China: Alipay
+   + WeChatPay + UnionPay). Each row's buttons flex-wrap on narrow
+   viewports — never collapse all 3 into a single rounded blob.
+   On phones <380px width the buttons stack vertically. */
+.pay-group-body-wallets {
+  gap: 8px;
+}
+.pay-wallet {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  min-height: 38px !important;
+  font-weight: 700 !important;
+  border: 0 !important;
+  border-radius: 8px !important;
+  cursor: pointer !important;
+}
+.pay-wallet .pay-wallet-glyph {
+  width: 18px;
+  height: 18px;
+  display: inline-block;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+}
+.pay-wallet.pay-wallet-apple {
+  background: #000 !important;
+  color: #fff !important;
+}
+.pay-wallet.pay-wallet-apple .pay-wallet-glyph {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23fff'><path d='M16.4 12.5c-.02-2.3 1.88-3.4 1.97-3.46-1.07-1.57-2.74-1.78-3.34-1.81-1.42-.14-2.78.84-3.5.84-.74 0-1.85-.82-3.04-.8-1.56.02-3 .91-3.81 2.31-1.62 2.82-.41 6.98 1.18 9.27.77 1.12 1.69 2.37 2.9 2.33 1.17-.05 1.61-.75 3.02-.75 1.41 0 1.81.75 3.04.73 1.26-.02 2.06-1.14 2.83-2.27.89-1.3 1.25-2.56 1.27-2.62-.03-.01-2.45-.94-2.52-3.77ZM14.07 5.45c.64-.78 1.07-1.86.95-2.94-.92.04-2.04.62-2.7 1.4-.6.7-1.13 1.81-.99 2.86 1.03.08 2.08-.52 2.74-1.32Z'/></svg>");
+}
+.pay-wallet.pay-wallet-google {
+  background: #fff !important;
+  color: #3c4043 !important;
+  border: 1px solid #dadce0 !important;
+}
+.pay-wallet.pay-wallet-google .pay-wallet-glyph {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='%234285F4' d='M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09Z'/><path fill='%2334A853' d='M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.99.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23Z'/><path fill='%23FBBC05' d='M5.84 14.1A6.6 6.6 0 0 1 5.5 12c0-.73.13-1.43.34-2.1V7.07H2.18A10.97 10.97 0 0 0 1 12c0 1.77.42 3.45 1.18 4.93l3.66-2.83Z'/><path fill='%23EA4335' d='M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07L5.84 9.9c.87-2.6 3.3-4.52 6.16-4.52Z'/></svg>");
+}
+.pay-wallet-text {
+  font-size: 13px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+.pay-card {
+  background: rgba(255,255,255,0.06) !important;
+  color: #daffee !important;
+  border: 1px solid rgba(255,255,255,0.18) !important;
+}
+.pay-card:hover {
+  background: rgba(255,255,255,0.1) !important;
+}
+html[data-theme="light"] .pay-card {
+  background: rgba(0,40,30,0.06) !important;
+  color: #0f3a2a !important;
+  border-color: rgba(0,160,100,0.32) !important;
+}
+
+/* Tighten the wallet row when 3 buttons fit, stack on narrow screens. */
+@media (max-width: 420px) {
+  .pay-group-body-wallets .pay-wallet,
+  .pay-group-body-wallets .pay-card {
+    flex: 1 1 100% !important;
+  }
+}
+
+/* CSSOS_WAVE_116 20260512 · Stripe Payment Element inline */
+.pay-stripe-inline-host {
+  flex: 1 1 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0 0;
+}
+.pay-stripe-inline-loading {
+  font: 500 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: rgba(218, 255, 238, 0.7);
+  padding: 14px 4px;
+  text-align: center;
+}
+.pay-stripe-inline-element {
+  background: rgba(11, 22, 18, 0.7);
+  border: 1px solid rgba(0, 245, 160, 0.18);
+  border-radius: 10px;
+  padding: 12px;
+  min-height: 200px;
+}
+.pay-stripe-inline-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pay-stripe-inline-confirm {
+  width: 100%;
+  background: rgba(0, 245, 160, 0.18);
+  border: 1px solid rgba(0, 245, 160, 0.55);
+  color: #daffee;
+  font-weight: 700;
+  padding: 10px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.pay-stripe-inline-confirm:hover {
+  background: rgba(0, 245, 160, 0.28);
+}
+.pay-stripe-inline-confirm[disabled] {
+  opacity: 0.55;
+  cursor: wait;
+}
+.pay-stripe-inline-error {
+  font: 500 11.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #ff8c8c;
+  min-height: 14px;
+}
+
 /* Brand-accented NihaoPay vendor buttons — keep fill subtle, lean on the
    left-edge accent and vendor glyph for recognition. */
 .mini-btn.pay-vendor {
@@ -9689,66 +9902,35 @@ body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen .panel-titlebar {
    take-toggle) in a vertical column above. Default state on mobile
    hides every cluster button so the bottom-right corner stays clean
    for subtitles + playlist chips. */
-.cssmv-overflow-btn {
-  display: none !important;
-  right: 14px !important;
-  bottom: 14px !important;
-  font-size: 22px !important;
-  line-height: 1 !important;
-  /* Always visible on mobile (overrides the .cssmv-fr-btn opacity:0
-     default) since this is the only entry-point. */
-  opacity: 0.92 !important;
-  background: rgba(7, 14, 12, 0.55) !important;
-  border-color: rgba(218, 255, 242, 0.45) !important;
-  backdrop-filter: blur(12px) saturate(1.08) !important;
-  -webkit-backdrop-filter: blur(12px) saturate(1.08) !important;
-}
+/* CSSOS_WAVE_113B2 20260511 — Jing
+   "媒体框右下角的信息，不要再缩成三点，恢复成和原来的桌面端一样，
+    如果手机端底部信息太拥挤，可以排成三行".
+   Retired the mobile ⋯ overflow collapse. Cluster buttons (info /
+   fullscreen / stem / style / take-toggle) stay visible at every
+   viewport size — they match the original desktop layout. On narrow
+   screens we stack them vertically along the right edge so they can
+   form 2-3 rows above the playlist chips without colliding. */
+.cssmv-overflow-btn { display: none !important; }
 @media (max-width: 560px), (pointer: coarse) {
-  /* Show the ⋯ button. */
-  .watch-screen .cssmv-overflow-btn {
-    display: grid !important;
-  }
-  /* Hide every other bottom/top-right cluster button by default. */
+  /* Keep every cluster button visible — no collapse. */
   .watch-screen .cssmv-info-btn,
   .watch-screen .cssmv-fs-btn,
   .watch-screen .cssmv-stem-toggle,
   .watch-screen #watch-style-shift,
   .watch-screen .cssmv-take-toggle,
   .watch-screen .watch-take-toggle {
-    display: none !important;
-  }
-  /* When ⋯ is tapped, reveal the cluster as a vertical column
-     stacked above the ⋯ button. Each button keeps its own
-     position-anchored width but we reposition them flush against
-     the right edge. */
-  .watch-screen.cssmv-overflow-open .cssmv-info-btn,
-  .watch-screen.cssmv-overflow-open .cssmv-fs-btn,
-  .watch-screen.cssmv-overflow-open .cssmv-stem-toggle,
-  .watch-screen.cssmv-overflow-open #watch-style-shift,
-  .watch-screen.cssmv-overflow-open .cssmv-take-toggle,
-  .watch-screen.cssmv-overflow-open .watch-take-toggle {
     display: grid !important;
-    right: 14px !important;
-    top: auto !important;
-    opacity: 1 !important;
-    background: rgba(7, 14, 12, 0.55) !important;
-    border-color: rgba(218, 255, 242, 0.45) !important;
-    backdrop-filter: blur(12px) saturate(1.08) !important;
-    -webkit-backdrop-filter: blur(12px) saturate(1.08) !important;
-    animation: cssos-overflow-pop 0.18s ease-out;
+    opacity: 0.92 !important;
   }
-  /* Stack: ⋯ at bottom:14, fs at +56, info at +112, stem at +168, … */
-  .watch-screen.cssmv-overflow-open .cssmv-fs-btn       { bottom: 70px !important; }
-  .watch-screen.cssmv-overflow-open .cssmv-info-btn     { bottom: 126px !important; right: 14px !important; }
-  .watch-screen.cssmv-overflow-open .cssmv-stem-toggle  { bottom: 182px !important; right: 14px !important; }
-  .watch-screen.cssmv-overflow-open #watch-style-shift  { bottom: 238px !important; right: 14px !important; }
-  .watch-screen.cssmv-overflow-open .cssmv-take-toggle,
-  .watch-screen.cssmv-overflow-open .watch-take-toggle  { bottom: 294px !important; right: 14px !important; top: auto !important; }
-  /* Rotate the ⋯ slightly so the user sees the toggle is "open." */
-  .watch-screen.cssmv-overflow-open .cssmv-overflow-btn {
-    transform: rotate(90deg) !important;
-    background: linear-gradient(180deg, rgba(7,14,12,0.78), rgba(5,10,9,0.6)) !important;
-  }
+  /* Mobile stack: pin to the right edge and rise vertically so the
+     cluster occupies up to 3 rows of vertical space above the
+     subtitle / playlist area. */
+  .watch-screen .cssmv-fs-btn       { bottom: 14px !important; right: 14px !important; top: auto !important; }
+  .watch-screen .cssmv-info-btn     { bottom: 70px !important; right: 14px !important; top: auto !important; }
+  .watch-screen .cssmv-stem-toggle  { bottom: 126px !important; right: 14px !important; top: auto !important; }
+  .watch-screen #watch-style-shift  { bottom: 182px !important; right: 14px !important; top: auto !important; }
+  .watch-screen .cssmv-take-toggle,
+  .watch-screen .watch-take-toggle  { bottom: 238px !important; right: 14px !important; top: auto !important; }
 }
 @keyframes cssos-overflow-pop {
   0%   { transform: translateY(8px) scale(0.85); opacity: 0; }

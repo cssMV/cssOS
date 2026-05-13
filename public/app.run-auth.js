@@ -276,6 +276,10 @@ async function runLyricsGenerateBridge(mode, options = {}) {
         prompt: payload.title || payload.transcript || "",
         style: payload.style || "",
         language: payload.language || "en",
+        // CSSOS_WAVE_113I 20260511 — thread work_type + SECTION FORM
+        // through so the backend prompts honor Advanced Settings.
+        work_type: String(payload.work_type || payload.workType || "single"),
+        section_form: String(payload.section_form || payload.sectionForm || ""),
         civilization: null,
         cultural_frame: null,
         voice: payload.voice || ""

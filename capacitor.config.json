@@ -1,0 +1,41 @@
+{
+  "appId": "app.cssstudio.studio",
+  "appName": "cssOS Studio",
+  "webDir": "public-ios-shell",
+  "bundledWebRuntime": false,
+  "server": {
+    "url": "https://cssstudio.app",
+    "cleartext": false,
+    "allowNavigation": [
+      "*.cssstudio.app",
+      "*.stripe.com",
+      "checkout.stripe.com",
+      "js.stripe.com",
+      "buy.itunes.apple.com",
+      "appleid.apple.com",
+      "accounts.google.com"
+    ]
+  },
+  "ios": {
+    "contentInset": "automatic",
+    "preferredContentMode": "mobile",
+    "scheme": "cssstudio",
+    "limitsNavigationsToAppBoundDomains": false,
+    "backgroundColor": "#0b0d12"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1200,
+      "launchAutoHide": true,
+      "backgroundColor": "#0b0d12",
+      "iosSpinnerStyle": "small",
+      "spinnerColor": "#00f5a0"
+    },
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    },
+    "App": {
+      "iosScheme": "cssstudio"
+    }
+  }
+}

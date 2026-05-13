@@ -4327,6 +4327,10 @@ async function createStructuredWorkNodes(nodes, style, pricingDefaults, parentWo
       source_run_id: micState.jobId || "",
       compute_units_estimate: economics.computeUnits,
       compute_cost_cents_estimate: economics.computeCostCents,
+      // CSSOS_WAVE_113K — drain per-engine cost entries accumulated
+      // during this pipeline run. Backend persists into cost_breakdown JSONB.
+      cost_breakdown: typeof globalThis.cssosDrainCostBreakdown === "function"
+        ? globalThis.cssosDrainCostBreakdown() : [],
       suggested_listen_price_cents: economics.suggestedListenPriceCents,
       suggested_buyout_price_cents: economics.suggestedBuyoutPriceCents,
       cover_image: String(node?.cover_image || "").trim(),
@@ -4635,6 +4639,9 @@ async function createMyWorkRecord(title, lines, options = {}) {
         source_run_id: micState.jobId || "",
         compute_units_estimate: economics.computeUnits,
         compute_cost_cents_estimate: economics.computeCostCents,
+        // CSSOS_WAVE_113K — pass-through (createWorkNodeRecord builds save body).
+        cost_breakdown: typeof globalThis.cssosPeekCostBreakdown === "function"
+          ? globalThis.cssosPeekCostBreakdown() : [],
         suggested_listen_price_cents: economics.suggestedListenPriceCents,
         suggested_buyout_price_cents: economics.suggestedBuyoutPriceCents,
         cover_image: assetSnapshot.cover_image || currentWorkCoverImage(title, lines),
@@ -30512,6 +30519,9 @@ async function runLyricsGenerate(mode, options = {}) {
     prompt: title || payload.transcript || "",
     style: payload.style || "",
     language: preferredLanguage,
+    // CSSOS_WAVE_113I 20260511 — thread Advanced Settings into lyrics body.
+    work_type: String(payload.work_type || creationState.workType || "single"),
+    section_form: String(payload.section_form || creationState.sectionForm || ""),
     civilization: null,
     cultural_frame: null,
     voice: payload.voice || ""

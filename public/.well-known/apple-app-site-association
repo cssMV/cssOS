@@ -3,16 +3,19 @@
     "apps": [],
     "details": [
       {
-        "appID": "QBG9PRVBYZ.app.cssstudio.app",
+        "appID": "QBG9PRVBYZ.app.cssstudio.studio",
         "paths": [
           "/auth/return",
           "/auth/return/*",
-          "/m/*"
+          "/m/*",
+          "/?cssMV=*",
+          "/verify",
+          "/verify*"
         ]
       }
     ]
   },
   "webcredentials": {
-    "apps": ["QBG9PRVBYZ.app.cssstudio.app"]
+    "apps": ["QBG9PRVBYZ.app.cssstudio.studio"]
   }
 }

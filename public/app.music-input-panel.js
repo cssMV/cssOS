@@ -1,251 +1,589 @@
+/* CSSOS_WAVE_111A 20260512 — Jing
+ * Music Source Uploads — 5-tab picker (audio / video / midi / sheet / image).
+ *
+ * Replaces the earlier 4-slot stacked layout. Per Jing:
+ *   1. Audio → cssMV extracts time-coded lyrics, runs cover/video/compose ✅
+ *   2. Video → cssMV extracts audio + lyrics, reuses video, composes ✅
+ *   3. MIDI / MusicXML (with lyrics track only) → Wave 111B (placeholder here)
+ *   4. Sheet music (OCR + sheet-site integration) → Wave 111C (placeholder here)
+ *   5. Pure image → Claude Vision → song prompt → full pipeline ✅
+ *
+ * Tab bar is horizontally scrollable (per Jing's standing rule:
+ * "凡是 tab，不管多还是少，都要做成可左右滚动的").
+ *
+ * Public surface preserved for app.creation-duration.js:
+ *   globalThis.musicSourceUploadState  (now has audio/video/midi/sheet/image)
+ *   buildAdvancedMusicSourceSettingsSection()
+ *   mountMusicSourceUploadTabInSettings(root)
+ */
+
 const musicSourceUploadState = {
   audio: null,
+  video: null,
   midi: null,
   musicxml: null,
-  scoreImage: null
+  sheet: null,
+  image: null,
+  // Last selected tab — restored on remount
+  activeTab: "audio",
+  // Per-input analysis results (asset_url, whisper text, vision analysis, etc.)
+  result: null,
 };
 globalThis.musicSourceUploadState = musicSourceUploadState;
 
 const musicSourceUploadPending = {
   audio: false,
+  video: false,
   midi: false,
   musicxml: false,
-  scoreImage: false
+  sheet: false,
+  image: false,
 };
 
-let musicSourceParserDraft = null;
-let musicSourceParserTaskDraft = null;
-let musicSourceParserTask = null;
-let musicSourceParserTaskPollTimer = 0;
+// ────────────────────────────────────────────────────────────────────
+// Wave 111D-AUTOFILL · structured lyrics, title inference, style infer
+// ────────────────────────────────────────────────────────────────────
 
-function musicSourceKinds() {
-  return [
-    {
-      key: "audio",
-      label: loginCopy("Reference audio"),
-      accept: "audio/*,.wav,.mp3,.m4a,.flac,.ogg",
-      hint: loginCopy(
-        "Upload a mature song, demo, or stem reference for future melody and arrangement extraction."
-      )
-    },
-    {
-      key: "midi",
-      label: loginCopy("MIDI sketch"),
-      accept: ".mid,.midi,audio/midi,audio/x-midi",
-      hint: loginCopy(
-        "Use MIDI when you already have notes, rhythm, or chord motion sketched out."
-      )
-    },
-    {
-      key: "musicxml",
-      label: loginCopy("MusicXML score"),
-      accept: ".musicxml,.xml,application/vnd.recordare.musicxml+xml,application/xml,text/xml",
-      hint: loginCopy(
-        "Best for structured score parsing: melody, harmony, form, and expressive markings."
-      )
-    },
-    {
-      key: "scoreImage",
-      label: loginCopy("Score image"),
-      accept: "image/*",
-      hint: loginCopy(
-        "Upload numbered notation, staff notation, or handwritten score photos for OCR and motif extraction later."
-      )
+/* Turn a wall-of-text lyric into a 京典-style section-labeled block:
+ *   [Verse 1]
+ *   line1
+ *   line2
+ *
+ *   [Chorus 1]
+ *   ...
+ *
+ * Algorithm:
+ *   1. Split by newline OR sentence punctuation (whisper output often
+ *      lacks line breaks entirely).
+ *   2. Dedup adjacent identical lines (whisper repeats verse 1 a lot).
+ *   3. Detect chorus by finding a 2-4 line block that recurs ≥ 2 times.
+ *   4. Walk the lines: chorus block → Chorus; non-chorus runs of up to
+ *      4 lines → Verse; single short non-chorus between two choruses →
+ *      Bridge; final non-chorus → Outro.
+ */
+function _miStructureLyrics(raw) {
+  if (!raw || typeof raw !== "string") return "";
+  let lines = raw.split(/[\n\r]+|(?<=[.!?。！？])\s+/g)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (lines.length === 0) return raw.trim();
+  // dedup adjacent
+  const dedup = [];
+  for (const l of lines) {
+    if (!dedup.length || dedup[dedup.length - 1].toLowerCase() !== l.toLowerCase()) {
+      dedup.push(l);
     }
-  ];
+  }
+  // find chorus
+  let chorus = null;
+  outer: for (let size = 4; size >= 2; size--) {
+    const counts = new Map();
+    for (let i = 0; i + size <= dedup.length; i++) {
+      const key = dedup.slice(i, i + size).map((s) => s.toLowerCase()).join("|");
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    for (const [k, c] of counts) {
+      if (c >= 2) { chorus = k.split("|"); break outer; }
+    }
+  }
+  // segment
+  const sections = [];
+  let buf = [];
+  const flushVerse = () => {
+    if (buf.length) { sections.push({ kind: "verse", lines: buf.slice() }); buf = []; }
+  };
+  let i = 0;
+  while (i < dedup.length) {
+    if (chorus && i + chorus.length <= dedup.length) {
+      const peek = dedup.slice(i, i + chorus.length).map((s) => s.toLowerCase()).join("|");
+      if (peek === chorus.join("|")) {
+        flushVerse();
+        sections.push({ kind: "chorus", lines: dedup.slice(i, i + chorus.length) });
+        i += chorus.length;
+        continue;
+      }
+    }
+    buf.push(dedup[i]);
+    i++;
+    if (buf.length >= 4) flushVerse();
+  }
+  flushVerse();
+  // relabel: last verse → outro; verse between two choruses with ≤2 lines → bridge
+  if (sections.length) {
+    const last = sections[sections.length - 1];
+    if (last.kind === "verse") last.kind = "outro";
+    for (let k = 1; k < sections.length - 1; k++) {
+      if (
+        sections[k].kind === "verse" && sections[k].lines.length <= 2 &&
+        sections[k - 1].kind === "chorus" && sections[k + 1].kind === "chorus"
+      ) {
+        sections[k].kind = "bridge";
+      }
+    }
+  }
+  let vN = 0, cN = 0;
+  return sections.map((s) => {
+    let label;
+    if (s.kind === "chorus") label = `[Chorus ${++cN}]`;
+    else if (s.kind === "bridge") label = `[Bridge]`;
+    else if (s.kind === "outro") label = `[Outro]`;
+    else label = `[Verse ${++vN}]`;
+    return `${label}\n${s.lines.join("\n")}`;
+  }).join("\n\n");
 }
 
-function readMusicSourceEntryLabel(entry) {
-  if (entry instanceof File) {
-    return String(entry.name || "").trim() || loginCopy("unnamed");
+/* Suno (and most music engines) can ONLY parse English bracketed section
+ * tags like [Verse 1] [Chorus 1] [Bridge] [Outro]. Anything else — Chinese
+ * 【第一节】, Japanese 「サビ」, French (Couplet), or even unbracketed
+ * "Verse 1:" — gets sung out loud as if it were a lyric. This pass walks
+ * common label patterns and rewrites them all to the canonical
+ * [Verse N] / [Chorus N] / [Bridge] / [Outro] / [Pre-Chorus] / [Intro] form.
+ * Exposed on globalThis so the magic-wand and pipeline runner can call it
+ * as a final safety pass before lyrics go to Suno. */
+function _miNormalizeSectionLabels(text) {
+  if (!text || typeof text !== "string") return "";
+  let counts = { verse: 0, chorus: 0, prechorus: 0, bridge: 0, intro: 0, outro: 0, hook: 0, interlude: 0 };
+  // Patterns: capture optional number and label
+  // 1. Bracketed CJK / Japanese / generic non-English variants
+  const patterns = [
+    // 【第N段/节/章/小节】, 【主歌/副歌/桥段/前奏/间奏/尾声/导歌/前副歌】
+    { re: /[【\[［](\s*第\s*([一二三四五六七八九十0-9]+)\s*[段节章小节]?\s*)?(主歌|副歌|桥段|前奏|间奏|尾声|导歌|前副歌|过渡|结尾|开头)\s*([一二三四五六七八九十0-9]+)?[】\]］]/g,
+      map: (m, _g1, n1, label, n2) => {
+        const n = _miCjkNumToInt(n1 || n2);
+        if (label === "副歌") return ++counts.chorus, `[Chorus ${counts.chorus}]`;
+        if (label === "主歌") return ++counts.verse, `[Verse ${counts.verse}]`;
+        if (label === "桥段" || label === "过渡") return `[Bridge]`;
+        if (label === "前奏" || label === "开头") return `[Intro]`;
+        if (label === "间奏") return `[Interlude]`;
+        if (label === "尾声" || label === "结尾") return `[Outro]`;
+        if (label === "导歌" || label === "前副歌") return `[Pre-Chorus]`;
+        return m;
+      }
+    },
+    // 【第N节】 alone (no main label) → Verse N
+    { re: /[【\[［]\s*第\s*([一二三四五六七八九十0-9]+)\s*[段节章小节]\s*[】\]］]/g,
+      map: (_m, n1) => { const n = _miCjkNumToInt(n1); counts.verse = Math.max(counts.verse, n); return `[Verse ${n}]`; }
+    },
+    // Japanese サビ / Aメロ / Bメロ / イントロ / アウトロ / ブリッジ
+    { re: /[「『\[［](サビ|Aメロ|Bメロ|Ａメロ|Ｂメロ|イントロ|アウトロ|ブリッジ|間奏)」』\]］]?/g,
+      map: (_m, label) => {
+        if (label === "サビ") return ++counts.chorus, `[Chorus ${counts.chorus}]`;
+        if (/Aメロ|Ａメロ/.test(label)) return ++counts.verse, `[Verse ${counts.verse}]`;
+        if (/Bメロ|Ｂメロ/.test(label)) return ++counts.verse, `[Verse ${counts.verse}]`;
+        if (label === "イントロ") return `[Intro]`;
+        if (label === "アウトロ") return `[Outro]`;
+        if (label === "ブリッジ") return `[Bridge]`;
+        if (label === "間奏") return `[Interlude]`;
+        return _m;
+      }
+    },
+    // Unbracketed "Verse 1:" / "Chorus:" / "Bridge -" → [Verse 1] etc.
+    { re: /^\s*(Verse|Chorus|Pre[\s-]?Chorus|Bridge|Intro|Outro|Hook|Interlude|Refrain)\s*(\d+)?\s*[:\-—]?\s*$/gim,
+      map: (_m, label, num) => {
+        const L = String(label).toLowerCase().replace(/[\s-]/g, "");
+        const n = Number(num) || 0;
+        if (L === "verse") return n ? `[Verse ${n}]` : `[Verse ${++counts.verse}]`;
+        if (L === "chorus" || L === "refrain") return n ? `[Chorus ${n}]` : `[Chorus ${++counts.chorus}]`;
+        if (L === "prechorus") return `[Pre-Chorus]`;
+        if (L === "bridge") return `[Bridge]`;
+        if (L === "intro") return `[Intro]`;
+        if (L === "outro") return `[Outro]`;
+        if (L === "hook") return `[Hook]`;
+        if (L === "interlude") return `[Interlude]`;
+        return _m;
+      }
+    },
+    // French (Couplet 1) / (Refrain) etc.
+    { re: /[(（]\s*(Couplet|Refrain|Pont|Intro(?:duction)?|Outro|Conclusion)\s*(\d+)?\s*[)）]/gi,
+      map: (_m, label, num) => {
+        const L = String(label).toLowerCase();
+        const n = Number(num) || 0;
+        if (L.startsWith("couplet")) return n ? `[Verse ${n}]` : `[Verse ${++counts.verse}]`;
+        if (L.startsWith("refrain")) return n ? `[Chorus ${n}]` : `[Chorus ${++counts.chorus}]`;
+        if (L === "pont") return `[Bridge]`;
+        if (L.startsWith("intro")) return `[Intro]`;
+        if (L === "outro" || L === "conclusion") return `[Outro]`;
+        return _m;
+      }
+    },
+  ];
+  let out = text;
+  for (const p of patterns) out = out.replace(p.re, p.map);
+  return out;
+}
+
+function _miCjkNumToInt(s) {
+  if (s == null) return 0;
+  if (/^\d+$/.test(String(s))) return Number(s);
+  const map = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
+  return map[String(s).trim()] || 0;
+}
+
+try { globalThis.cssosNormalizeSongSectionLabels = _miNormalizeSectionLabels; } catch (_) {}
+
+/* Pick the best title: explicit meta.title → vision.suggested_title →
+ * sheet_title → cleaned filename → first non-trivial lyric line. */
+function _miInferTitle(result) {
+  const candidates = [
+    result.sheet_title,
+    result.vision && result.vision.suggested_title,
+    result.meta && result.meta.title,
+    result.file_name && String(result.file_name).replace(/\.[a-z0-9]{1,5}$/i, "").replace(/[_·.\-]+/g, " ").trim(),
+  ];
+  for (const c of candidates) {
+    if (c && String(c).trim().length > 0) return String(c).trim();
   }
-  if (entry && typeof entry === "object") {
-    return String(entry.file_name || "").trim() || loginCopy("unnamed");
-  }
+  // Fall back to first lyric line
+  const txt = (result.whisper && result.whisper.text) ||
+    (result.midi_lyrics && result.midi_lyrics.text) || "";
+  const first = txt.split(/[\n\r.!?。！？,，]/).map((s) => s.trim()).filter(Boolean)[0] || "";
+  return first.slice(0, 60);
+}
+
+/* Style hint: vision.music_style_hint → tempo_marking → bpm → notation. */
+function _miInferStyle(result) {
+  if (result.vision && result.vision.music_style_hint) return String(result.vision.music_style_hint).trim();
+  if (result.tempo_marking) return String(result.tempo_marking).trim();
+  if (result.tempo_bpm) return `${result.tempo_bpm} bpm`;
+  if (result.sheet_civilization) return String(result.sheet_civilization).trim();
   return "";
 }
 
-function readMusicSourceEntrySize(entry) {
-  if (entry instanceof File) return Number(entry.size || 0);
-  if (entry && typeof entry === "object") return Number(entry.size || 0);
-  return 0;
+function _miTr(en, zh) {
+  return typeof globalThis.loginCopy === "function"
+    ? globalThis.loginCopy(en, zh || en)
+    : en;
 }
 
-function readMusicSourceMetadataSummary(entry) {
-  return entry && typeof entry === "object" && !(entry instanceof File)
-    ? entry.metadata_summary || null
-    : null;
+function _miEsc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-function formatMusicSourceUploadSummary(entry) {
-  if (!entry) {
-    return loginCopy("No file selected yet.");
-  }
-  const name = readMusicSourceEntryLabel(entry);
-  const size = readMusicSourceEntrySize(entry);
-  const statusSuffix =
-    entry && typeof entry === "object" && !(entry instanceof File) && entry.uploaded_at
-      ? loginCopy(" · ready for this session")
-      : "";
-  return loginCopy(
-    `${name} · ${formatFileBytes(size)}${statusSuffix}`
-  );
+function _miFmtBytes(n) {
+  const v = Number(n || 0);
+  if (v >= 1024 * 1024) return (v / (1024 * 1024)).toFixed(1) + " MB";
+  if (v >= 1024) return (v / 1024).toFixed(1) + " KB";
+  return v + " B";
 }
 
-function formatMusicSourceMetadataSummary(entry) {
-  const metadata = readMusicSourceMetadataSummary(entry);
-  if (!metadata) {
-    return loginCopy(
-      "After upload, this slot will show parse mode and extraction focus."
-    );
-  }
-  const parseMode = String(metadata.parse_mode || "").trim() || loginCopy("reference");
-  const extractionFocus = String(metadata.extraction_focus || "").trim() || loginCopy("style");
-  const sizeBucket = String(metadata.size_bucket || "").trim() || loginCopy("small");
-  return loginCopy(
-    `Parse mode: ${parseMode} · Focus: ${extractionFocus} · Size: ${sizeBucket}`
-  );
+function _miFmtSecs(n) {
+  const s = Math.max(0, Math.round(Number(n || 0)));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${r < 10 ? "0" : ""}${r}`;
 }
 
-function formatMusicSourceAnalysisShell(entry) {
-  const metadata = readMusicSourceMetadataSummary(entry);
-  const shell = metadata?.analysis_shell || null;
-  if (!shell) {
-    return loginCopy(
-      "After upload, this slot will show the next parser shell."
-    );
-  }
-  const parserFamily = String(shell.parser_family || "").trim() || loginCopy("reference");
-  const nextStage = String(shell.next_stage || "").trim() || loginCopy("pending");
-  return loginCopy(
-    `Parser: ${parserFamily} · Next: ${nextStage}`
-  );
+function musicSourceTabs() {
+  return [
+    {
+      key: "audio",
+      icon: "🎵",
+      label: _miTr("Audio", "音频"),
+      accept: "audio/*,.mp3,.wav,.m4a,.flac,.ogg,.aac",
+      active: true,  // Wave 111A
+      hint: _miTr(
+        "Upload mp3/wav/m4a etc. We extract time-coded lyrics (Whisper) and skip the music stage. Pipeline still generates cover + video + subtitles.",
+        "上传 mp3 / wav 等成熟音频。系统用 Whisper 抽取时间戳化的歌词，跳过音乐生成阶段。封面 + 视频 + 字幕仍由 cssMV 渲染。"
+      ),
+      endpoint: "/api/mv/audio/upload",
+      field: "audio",
+    },
+    {
+      key: "video",
+      icon: "🎬",
+      label: _miTr("Video", "视频"),
+      accept: "video/*,.mp4,.mov,.webm,.mkv",
+      active: true,  // Wave 111A
+      hint: _miTr(
+        "Upload mp4/mov etc. We extract the audio track, transcribe with Whisper, and reuse your video as-is. Only subtitles + compose run.",
+        "上传 mp4 / mov 等。系统抽取音轨，用 Whisper 转录为字幕，直接复用你的视频画面。只跑字幕 + 合成阶段。"
+      ),
+      endpoint: "/api/mv/video/upload",
+      field: "video",
+    },
+    {
+      key: "midi",
+      icon: "🎼",
+      label: _miTr("MIDI", "MIDI"),
+      accept: ".mid,.midi,audio/midi,audio/x-midi",
+      active: true,  // Wave 111B
+      hint: _miTr(
+        "Upload .mid/.midi. We extract the embedded lyric track + timing, and synthesize reference audio via fluidsynth (TimGM6mb soundfont). If no lyric track, you'll get the synthesized music as instrumental.",
+        "上传 .mid / .midi。系统抽取内嵌歌词轨 + 时间戳，并用 fluidsynth + TimGM6mb 音色库合成参考音频。如果文件无歌词轨，你会得到一段纯器乐合成版本。"
+      ),
+      endpoint: "/api/mv/midi/upload",
+      field: "midi",
+    },
+    {
+      key: "musicxml",
+      icon: "📝",
+      label: _miTr("MusicXML", "MusicXML"),
+      accept: ".musicxml,.xml,.mxl,application/vnd.recordare.musicxml+xml,application/xml,text/xml",
+      active: true,  // Wave 111B
+      hint: _miTr(
+        "Upload .musicxml/.xml/.mxl. We extract lyrics and approximate timing. Music engine still renders fresh audio from the extracted lyrics (no direct synthesis).",
+        "上传 .musicxml / .xml / .mxl。系统抽取歌词并估算时间戳。音乐引擎会基于抽取的歌词重新生成音频（不直接合成 MusicXML）。"
+      ),
+      endpoint: "/api/mv/musicxml/upload",
+      field: "musicxml",
+    },
+    {
+      key: "sheet",
+      icon: "📜",
+      label: _miTr("Sheet music", "歌谱"),
+      accept: "image/*,application/pdf,.pdf,.png,.jpg,.jpeg,.webp",
+      active: true,  // Wave 111C
+      hint: _miTr(
+        "Upload a screenshot or PDF of sheet music you have legal access to (numbered notation 简谱, staff notation 五线谱, lead sheet, chord-lyric chart). Claude Vision extracts lyrics + metadata. For sheets behind paywalls, you must log in to that site and capture/download legally — we only OCR what you give us.",
+        "上传你合法持有的歌谱截图或 PDF（简谱 / 五线谱 / 弹唱谱 / Lead Sheet）。Claude Vision 识别歌词 + 标题 / 速度 / 调号 / 拍号。需要付费的歌谱请你自己登录歌谱网站合法获取截图 —— 我们只做你提供内容的 OCR，不爬付费网站。"
+      ),
+      endpoint: "/api/mv/sheet/upload",
+      field: "sheet",
+    },
+    {
+      key: "image",
+      icon: "🖼️",
+      label: _miTr("Image", "图片"),
+      accept: "image/*,.jpg,.jpeg,.png,.webp",
+      active: true,  // Wave 111A
+      hint: _miTr(
+        "Upload any image with no music context. Claude Vision describes it and proposes a song prompt; pipeline runs the full stack from there.",
+        "上传任意图片（与音乐无任何关联）。Claude Vision 解读画面并自动生成歌词主题；之后走完整 MV 流程。"
+      ),
+      endpoint: "/api/mv/image/analyze",
+      field: "image",
+    },
+  ];
 }
 
-function formatMusicSourceParserDraftSummary(draft) {
-  if (!draft || typeof draft !== "object") {
-    return loginCopy(
-      "Parser draft is waiting for at least one uploaded source."
-    );
-  }
-  const parserFamily = String(draft.parser_family || "").trim() || loginCopy("pending");
-  const nextStage = String(draft.next_stage || "").trim() || loginCopy("pending");
-  const sourceCount = Math.max(0, Number(draft.source_count || 0) || 0);
-  return loginCopy(
-    `Parser draft · ${sourceCount} source(s) · ${parserFamily} -> ${nextStage}`
-  );
+function _miFindTab(key) {
+  return musicSourceTabs().find((t) => t.key === key) || null;
 }
 
-function formatMusicSourceParserTaskDraftSummary(draft) {
-  if (!draft || typeof draft !== "object") {
-    return loginCopy(
-      "Parser task draft has not been created yet."
-    );
-  }
-  const taskKind = String(draft.task_kind || "").trim() || loginCopy("pending");
-  const queueLane = String(draft.queue_lane || "").trim() || loginCopy("pending");
-  return loginCopy(
-    `Parser task · ${taskKind} · lane ${queueLane}`
-  );
+/* ─── Styles ─── */
+
+function _miInjectStyle() {
+  if (document.getElementById("cssos-music-source-tabs-style")) return;
+  const st = document.createElement("style");
+  st.id = "cssos-music-source-tabs-style";
+  st.textContent = [
+    ".msrc-card { border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:14px; }",
+    ".msrc-tabbar { display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; -ms-overflow-style:none; -webkit-overflow-scrolling:touch; padding-bottom:8px; margin-bottom:12px; border-bottom:1px solid rgba(255,255,255,0.06); }",
+    ".msrc-tabbar::-webkit-scrollbar { display:none; }",
+    ".msrc-tab { flex:0 0 auto; display:inline-flex; align-items:center; gap:6px; padding:7px 14px; border-radius:999px; border:1px solid rgba(255,255,255,0.14); background:rgba(0,0,0,0.32); color:#9aa; cursor:pointer; font:600 12.5px/1.2 -apple-system,system-ui,sans-serif; white-space:nowrap; transition:all 180ms ease; }",
+    ".msrc-tab:hover { color:#daffee; border-color:rgba(255,255,255,0.28); }",
+    ".msrc-tab.active { color:#0a0d12; background:linear-gradient(135deg,#00f5a0,#00b87a); border-color:transparent; font-weight:700; }",
+    ".msrc-tab.coming-soon { opacity:0.55; }",
+    ".msrc-tab .msrc-tab-icon { font-size:14px; }",
+    ".msrc-tab .msrc-tab-badge { font-size:9px; padding:1px 5px; border-radius:4px; background:rgba(255,200,0,0.18); color:#ffc83d; margin-left:2px; }",
+    ".msrc-pane { padding:6px 2px; }",
+    ".msrc-pane-title { font-size:13px; font-weight:700; color:#daffee; margin:0 0 6px; }",
+    ".msrc-pane-hint { font-size:11.5px; opacity:0.72; line-height:1.5; margin:0 0 12px; }",
+    ".msrc-file-row { display:flex; align-items:center; gap:8px; margin-bottom:10px; }",
+    ".msrc-file-input { flex:1; padding:8px; border-radius:8px; background:rgba(255,255,255,0.04); border:1px dashed rgba(255,255,255,0.22); color:#daffee; font:inherit; cursor:pointer; }",
+    ".msrc-status { font:500 11.5px/1.5 ui-monospace,monospace; min-height:16px; opacity:0.85; margin-top:4px; }",
+    ".msrc-status.ok { color:#00f5a0; }",
+    ".msrc-status.err { color:#ff6b6b; }",
+    ".msrc-status.pending { color:#ffc83d; }",
+    ".msrc-progress { display:flex; flex-direction:column; gap:4px; margin-top:4px; }",
+    ".msrc-progress-track { position:relative; height:8px; border-radius:6px; background:rgba(255,255,255,0.07); overflow:hidden; border:1px solid rgba(255,255,255,0.08); }",
+    ".msrc-progress-fill { position:absolute; left:0; top:0; bottom:0; width:0%; border-radius:6px; transition: width 240ms ease, background-color 320ms ease, filter 320ms ease; box-shadow: 0 0 8px currentColor; }",
+    ".msrc-progress-fill.indeterminate { animation: msrcShimmer 1.4s linear infinite; background-image: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.45) 50%, transparent 100%); background-size: 60% 100%; background-repeat: no-repeat; }",
+    "@keyframes msrcShimmer { 0% { background-position: -60% 0; } 100% { background-position: 160% 0; } }",
+    ".msrc-progress-label { font:600 11px/1.3 ui-monospace,monospace; color:#daffee; opacity:0.9; }",
+    ".msrc-progress-label .pct { color:#00f5a0; margin-left:6px; }",
+    ".msrc-result { margin-top:10px; padding:10px 12px; border-radius:10px; background:rgba(0,245,160,0.06); border:1px solid rgba(0,245,160,0.22); font-size:12px; line-height:1.55; }",
+    ".msrc-result .msrc-result-row { display:flex; justify-content:space-between; padding:2px 0; }",
+    ".msrc-result .msrc-result-key { opacity:0.7; }",
+    ".msrc-result .msrc-result-val { font-family:ui-monospace,monospace; color:#daffee; }",
+    ".msrc-lyrics-preview { margin-top:8px; max-height:140px; overflow-y:auto; padding:8px; border-radius:6px; background:rgba(0,0,0,0.32); font-family:ui-monospace,monospace; font-size:11px; line-height:1.6; color:#9efbcb; white-space:pre-wrap; }",
+    ".msrc-vision { margin-top:8px; padding:8px; border-radius:6px; background:rgba(0,0,0,0.32); font-size:12px; color:#daffee; line-height:1.55; }",
+    ".msrc-vision-row { padding:3px 0; }",
+    ".msrc-vision-key { font-weight:600; color:#9efbcb; }",
+    ".msrc-actions { display:flex; gap:8px; margin-top:14px; flex-wrap:wrap; }",
+    ".msrc-actions button { padding:7px 14px; border-radius:999px; cursor:pointer; font:600 12px/1.2 -apple-system,system-ui,sans-serif; }",
+    ".msrc-actions .msrc-btn-apply { background:linear-gradient(135deg,#00f5a0,#00b87a); color:#0a0d12; border:0; font-weight:700; }",
+    ".msrc-actions .msrc-btn-clear { background:transparent; color:#daffee; border:1px solid rgba(255,255,255,0.18); }",
+    ".msrc-coming-soon { text-align:center; padding:32px 12px; opacity:0.75; font-size:13px; }",
+    ".msrc-clearance-warn { margin-top:10px; padding:8px 10px; border-radius:8px; background:rgba(255,107,107,0.1); border:1px solid rgba(255,107,107,0.32); color:#ff9b9b; font-size:11.5px; line-height:1.5; }",
+  ].join("\n");
+  document.head.appendChild(st);
 }
 
-function formatMusicSourceParserTaskSummary(task) {
-  if (!task || typeof task !== "object") {
-    return loginCopy(
-      "No parser task is queued yet."
-    );
-  }
-  const status = String(task.status || "").trim() || loginCopy("queued");
-  const queueLane = String(task.queue_lane || "").trim() || loginCopy("pending");
-  const sourceCount = Math.max(0, Number(task.source_count || 0) || 0);
-  const stage = String(task?.status_history?.[task.status_history.length - 1]?.stage || "").trim();
-  const resultHint =
-    task?.parser_result?.summary_line
-      ? ` · ${String(task.parser_result.summary_line || "").trim()}`
-      : "";
-  return loginCopy(
-    `Queued parser task · ${sourceCount} source(s) · ${status} · lane ${queueLane}${stage ? ` · ${stage}` : ""}${resultHint}`
-  );
-}
-
-function formatMusicSourceParserResultSummary(task) {
-  const result = task?.parser_result;
-  if (!result || typeof result !== "object") {
-    return loginCopy(
-      "Parser result schema will appear here after the worker completes."
-    );
-  }
-  const schema = String(result.schema || "").trim() || loginCopy("pending");
-  const resultFamily = String(result.result_family || "").trim() || loginCopy("pending");
-  const workerProtocol = String(result.worker_protocol || "").trim() || loginCopy("pending");
-  const parserLane = String(result?.family_payload?.parser_lane || "").trim() || loginCopy("pending");
-  const confidence = String(result?.planner_hints?.parser_confidence || "").trim() || loginCopy("pending");
-  const nextWorker = String(result?.extracted_outline?.next_worker || "").trim() || loginCopy("pending");
-  return loginCopy(
-    `Parser result · ${resultFamily} · lane ${parserLane} · ${schema} · ${workerProtocol} · confidence ${confidence} · next ${nextWorker}`
-  );
-}
+/* ─── Render ─── */
 
 function buildMusicSourceUploadCardMarkup() {
-  const kinds = musicSourceKinds();
-  return `
-    <section class="advanced-panel-card" data-advanced-panel="music-sources">
-      <div class="advanced-panel-card-title">${escapeHtml(loginCopy("Music Source Uploads"))}</div>
-      <div class="advanced-panel-note">${escapeHtml(
-        loginCopy(
-          "This intake panel stores reference material for this session and can now queue the first parser task for audio, MIDI, MusicXML, and score images."
-        )
-      )}</div>
-      <div class="advanced-panel-note">${escapeHtml(
-        loginCopy(
-          "Goal: complete the input chain with text, voice, image score, file score, and later video reference."
-        )
-      )}</div>
-      ${kinds
-        .map(
-          (kind) => `
-            <label>
-              <span>${escapeHtml(kind.label)}</span>
-              <input type="file" accept="${escapeHtml(kind.accept)}" data-music-source-input="${escapeHtml(kind.key)}" />
-            </label>
-            <div class="advanced-panel-note">${escapeHtml(kind.hint)}</div>
-            <div class="advanced-panel-note" data-music-source-summary="${escapeHtml(kind.key)}">${escapeHtml(
-              formatMusicSourceUploadSummary(musicSourceUploadState[kind.key])
-            )}</div>
-            <div class="advanced-panel-note" data-music-source-metadata="${escapeHtml(kind.key)}">${escapeHtml(
-              formatMusicSourceMetadataSummary(musicSourceUploadState[kind.key])
-            )}</div>
-            <div class="advanced-panel-note" data-music-source-analysis="${escapeHtml(kind.key)}">${escapeHtml(
-              formatMusicSourceAnalysisShell(musicSourceUploadState[kind.key])
-            )}</div>
-          `
-        )
-        .join("")}
-      <div class="advanced-panel-note" data-music-source-parser-draft>${escapeHtml(
-        formatMusicSourceParserDraftSummary(musicSourceParserDraft)
-      )}</div>
-      <div class="advanced-panel-note" data-music-source-parser-task>${escapeHtml(
-        formatMusicSourceParserTaskDraftSummary(musicSourceParserTaskDraft)
-      )}</div>
-      <div class="advanced-panel-note" data-music-source-parser-queued>${escapeHtml(
-        formatMusicSourceParserTaskSummary(musicSourceParserTask)
-      )}</div>
-      <div class="advanced-panel-note" data-music-source-parser-result>${escapeHtml(
-        formatMusicSourceParserResultSummary(musicSourceParserTask)
-      )}</div>
-      <div class="actions">
-        <button class="cta ghost tiny" type="button" data-music-source-refresh>${escapeHtml(
-          loginCopy("Reload session draft")
-        )}</button>
-        <button class="cta ghost tiny" type="button" data-music-source-build-parser-task>${escapeHtml(
-          loginCopy("Queue parser task")
-        )}</button>
-        <button class="cta ghost tiny" type="button" data-music-source-clear="all">${escapeHtml(
-          loginCopy("Clear selections")
-        )}</button>
+  _miInjectStyle();
+  const tabs = musicSourceTabs();
+  const activeKey = musicSourceUploadState.activeTab || "audio";
+  const activeTab = _miFindTab(activeKey) || tabs[0];
+
+  const tabBar = tabs.map((t) => {
+    const isActive = t.key === activeKey;
+    const isComing = !t.active;
+    return `<button type="button" class="msrc-tab ${isActive ? "active" : ""} ${isComing ? "coming-soon" : ""}" data-msrc-tab="${_miEsc(t.key)}">
+      <span class="msrc-tab-icon">${_miEsc(t.icon)}</span>
+      <span>${_miEsc(t.label)}</span>
+      ${isComing ? `<span class="msrc-tab-badge">${_miEsc(_miTr("soon", "敬请期待"))}</span>` : ""}
+    </button>`;
+  }).join("");
+
+  let pane = "";
+  if (!activeTab.active) {
+    // Wave 111B/C placeholder
+    pane = `<div class="msrc-coming-soon">
+      <div style="font-size:32px; margin-bottom:8px;">${_miEsc(activeTab.icon)}</div>
+      <div style="font-weight:700; color:#daffee; margin-bottom:6px;">${_miEsc(activeTab.label)}</div>
+      <div>${_miEsc(activeTab.hint)}</div>
+    </div>`;
+  } else {
+    const fileSlot = musicSourceUploadState[activeKey];
+    const result = musicSourceUploadState.result;
+    const resultMatchesActive = result && result._tab === activeKey;
+    pane = `<div class="msrc-pane" data-msrc-pane="${_miEsc(activeKey)}">
+      <p class="msrc-pane-hint">${_miEsc(activeTab.hint)}</p>
+      <div class="msrc-file-row">
+        <input class="msrc-file-input" type="file" accept="${_miEsc(activeTab.accept)}"
+               data-msrc-upload="${_miEsc(activeKey)}" />
       </div>
-    </section>
-  `;
+      ${activeKey === "sheet" ? `
+      <div class="msrc-url-row" style="display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap;">
+        <input type="url" data-msrc-sheet-url placeholder="${_miEsc(_miTr("…or paste a public HTTPS PDF/image URL (IMSLP, raw GitHub, etc.)", "…或粘贴公开 HTTPS PDF/图片 URL（如 IMSLP、GitHub raw 等）"))}"
+               style="flex:1 1 260px;min-width:0;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#daffee;font-size:13px;" />
+        <button type="button" data-msrc-sheet-url-go style="padding:8px 14px;border-radius:8px;border:1px solid rgba(0,245,160,0.4);background:rgba(0,245,160,0.12);color:#daffee;font-weight:600;cursor:pointer;">${_miEsc(_miTr("Import URL", "导入 URL"))}</button>
+        <span style="font-size:11px;opacity:0.6;flex:1 1 100%;">${_miEsc(_miTr("Tip: you can also paste a screenshot directly (⌘V / Ctrl+V) while this tab is focused.", "提示：聚焦此面板时可直接粘贴截图（⌘V / Ctrl+V）。"))}</span>
+      </div>` : ""}
+      <div class="msrc-status" data-msrc-status="${_miEsc(activeKey)}">${
+        fileSlot
+          ? _miEsc(_miTr("File selected: ", "已选择文件：") + (fileSlot.name || _miTr("(unnamed)", "(未命名)")))
+          : ""
+      }</div>
+      ${resultMatchesActive ? _miRenderResultBlock(result) : ""}
+      <div class="msrc-actions">
+        <button type="button" class="msrc-btn-apply" data-msrc-apply="${_miEsc(activeKey)}"
+                ${resultMatchesActive ? "" : "disabled style=\"opacity:0.45;cursor:not-allowed;\""}>
+          ${_miEsc(_miTr("Apply to MV Pipeline", "应用到 MV 管线"))}
+        </button>
+        <button type="button" class="msrc-btn-clear" data-msrc-clear="${_miEsc(activeKey)}">
+          ${_miEsc(_miTr("Clear", "清除"))}
+        </button>
+      </div>
+    </div>`;
+  }
+
+  return `<section class="advanced-panel-card msrc-card" data-advanced-panel="music-sources">
+    <div class="advanced-panel-card-title">${_miEsc(_miTr("Music Source Uploads", "音乐源上传"))}</div>
+    <div class="advanced-panel-note">${_miEsc(_miTr(
+      "Pick one of five input types. Your input replaces the matching pipeline stages; the rest still run via cssMV.",
+      "选一种输入类型 —— 它会替换对应的 cssMV 流程阶段，其余阶段照常生成。"
+    ))}</div>
+    <nav class="msrc-tabbar">${tabBar}</nav>
+    ${pane}
+  </section>`;
+}
+
+function _miRenderResultBlock(result) {
+  if (!result) return "";
+  const lines = [];
+  if (result.duration_secs)
+    lines.push(`<div class="msrc-result-row"><span class="msrc-result-key">${_miEsc(_miTr("Duration", "时长"))}</span><span class="msrc-result-val">${_miFmtSecs(result.duration_secs)}</span></div>`);
+  if (result.width && result.height)
+    lines.push(`<div class="msrc-result-row"><span class="msrc-result-key">${_miEsc(_miTr("Size", "尺寸"))}</span><span class="msrc-result-val">${result.width}×${result.height}${result.fps ? " @ " + result.fps + "fps" : ""}</span></div>`);
+  if (result.codec || result.vcodec)
+    lines.push(`<div class="msrc-result-row"><span class="msrc-result-key">${_miEsc(_miTr("Codec", "编码"))}</span><span class="msrc-result-val">${_miEsc(result.codec || result.vcodec || "")}</span></div>`);
+  // MIDI / MusicXML specific
+  if (result.tempo_bpm)
+    lines.push(`<div class="msrc-result-row"><span class="msrc-result-key">${_miEsc(_miTr("Tempo", "速度"))}</span><span class="msrc-result-val">${result.tempo_bpm} bpm · ${_miEsc(result.time_signature || "")}</span></div>`);
+  if (result.note_count)
+    lines.push(`<div class="msrc-result-row"><span class="msrc-result-key">${_miEsc(_miTr("Notes", "音符"))}</span><span class="msrc-result-val">${result.note_count} · ${result.track_count || 1} ${_miTr("track(s)", "音轨")}</span></div>`);
+  if (result.bytes)
+    lines.push(`<div class="msrc-result-row"><span class="msrc-result-key">${_miEsc(_miTr("Size on disk", "占用空间"))}</span><span class="msrc-result-val">${_miFmtBytes(result.bytes)}</span></div>`);
+  if (Array.isArray(result.skip_stages) && result.skip_stages.length)
+    lines.push(`<div class="msrc-result-row"><span class="msrc-result-key">${_miEsc(_miTr("Skips stages", "跳过阶段"))}</span><span class="msrc-result-val">${_miEsc(result.skip_stages.join(", "))}</span></div>`);
+  if (result.has_lyrics === false)
+    lines.push(`<div class="msrc-result-row"><span class="msrc-result-key">${_miEsc(_miTr("Lyrics", "歌词"))}</span><span class="msrc-result-val" style="color:#ffc83d;">${_miEsc(_miTr("not embedded — instrumental only", "未嵌入歌词 — 纯器乐"))}</span></div>`);
+  // Sheet music specific rows
+  if (result._tab === "sheet") {
+    if (result.notation_type)
+      lines.push(`<div class="msrc-result-row"><span class="msrc-result-key">${_miEsc(_miTr("Notation", "记谱法"))}</span><span class="msrc-result-val">${_miEsc(result.notation_type)}</span></div>`);
+    if (result.sheet_title)
+      lines.push(`<div class="msrc-result-row"><span class="msrc-result-key">${_miEsc(_miTr("Title", "标题"))}</span><span class="msrc-result-val">${_miEsc(result.sheet_title)}</span></div>`);
+    if (result.composer || result.lyricist) {
+      const parts = [];
+      if (result.composer) parts.push(_miTr("Composer ", "作曲 ") + result.composer);
+      if (result.lyricist) parts.push(_miTr("Lyricist ", "作词 ") + result.lyricist);
+      lines.push(`<div class="msrc-result-row"><span class="msrc-result-key">${_miEsc(_miTr("Credits", "信息"))}</span><span class="msrc-result-val">${_miEsc(parts.join(" · "))}</span></div>`);
+    }
+    if (result.key_signature)
+      lines.push(`<div class="msrc-result-row"><span class="msrc-result-key">${_miEsc(_miTr("Key", "调号"))}</span><span class="msrc-result-val">${_miEsc(result.key_signature)}</span></div>`);
+    if (result.sheet_pages)
+      lines.push(`<div class="msrc-result-row"><span class="msrc-result-key">${_miEsc(_miTr("Pages OCRed", "已识别页数"))}</span><span class="msrc-result-val">${result.sheet_pages}</span></div>`);
+    if (typeof result.sheet_confidence === "number")
+      lines.push(`<div class="msrc-result-row"><span class="msrc-result-key">${_miEsc(_miTr("OCR confidence", "识别置信度"))}</span><span class="msrc-result-val" style="color:${result.sheet_confidence > 0.75 ? "#00f5a0" : result.sheet_confidence > 0.5 ? "#ffc83d" : "#ff9b9b"};">${Math.round(result.sheet_confidence * 100)}%</span></div>`);
+  }
+
+  let extra = "";
+  const _miTitle = _miInferTitle(result);
+  const _miStructuredRaw =
+    (result.whisper && result.whisper.text && _miStructureLyrics(result.whisper.text)) ||
+    (result.midi_lyrics && result.midi_lyrics.text && _miStructureLyrics(result.midi_lyrics.text)) ||
+    "";
+  // CSSOS_WAVE_111D_LABELS 20260512 — normalize any non-English section
+  // labels to bracketed English. Suno can't parse 【第一节】 or similar
+  // and will literally sing the label out loud.
+  const _miStructured = _miStructuredRaw ? _miNormalizeSectionLabels(_miStructuredRaw) : "";
+  // Persist the structured-and-normalised lyrics so Apply uses exactly
+  // what the user sees in the editable textarea below.
+  if (_miStructured) {
+    try { result.lyrics_edited = result.lyrics_edited || _miStructured; } catch (_) {}
+  }
+  if (_miStructured) {
+    // Title chip above the editor — NEVER inside the textarea, so
+    // it can't leak to the music engine.
+    if (_miTitle) {
+      extra += `<div style="font-size:13px;color:#daffee;font-weight:700;margin-top:8px;">[${_miEsc(_miTitle)}]</div>`;
+    }
+    extra += `<div style="font:500 11.5px/1.4 ui-monospace,monospace;color:rgba(218,255,238,0.75);margin:6px 0 4px;">
+      ${_miEsc(_miTr(
+        "✏️ Edit lyrics below — exact text goes to the music engine. Keep section tags in English brackets like [Verse 1] [Chorus 1] — Suno cannot parse 【第一节】 and will sing the label out loud.",
+        "✏️ 下方可编辑歌词 —— 编辑后的文本将原样进入音乐引擎。请保持英文方括号小节标签如 [Verse 1] [Chorus 1] —— Suno 无法解析【第一节】这类中文标签，会被当成歌词唱出来。"
+      ))}
+    </div>`;
+    extra += `<textarea class="msrc-lyrics-editor" data-msrc-lyrics-editor="${_miEsc(result._tab || "")}"
+      style="width:100%;min-height:240px;max-height:70vh;resize:vertical;
+             font:500 12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;
+             color:#daffee;background:rgba(0,0,0,0.32);
+             border:1px solid rgba(0,245,160,0.28);border-radius:8px;
+             padding:10px 12px;outline:none;white-space:pre;overflow:auto;"
+      spellcheck="false"
+    >${_miEsc(result.lyrics_edited || _miStructured)}</textarea>`;
+  }
+  if (result.vision) {
+    const v = result.vision;
+    extra += `<div class="msrc-vision">
+      <div class="msrc-vision-row"><span class="msrc-vision-key">${_miEsc(_miTr("Scene", "场景"))}:</span> ${_miEsc(v.description || "")}</div>
+      <div class="msrc-vision-row"><span class="msrc-vision-key">${_miEsc(_miTr("Suggested theme", "建议主题"))}:</span> ${_miEsc(v.lyrics_prompt || "")}</div>
+      <div class="msrc-vision-row"><span class="msrc-vision-key">${_miEsc(_miTr("Style", "风格"))}:</span> ${_miEsc(v.music_style_hint || "")}</div>
+      <div class="msrc-vision-row"><span class="msrc-vision-key">${_miEsc(_miTr("Civilization", "文明"))}:</span> ${_miEsc(v.civilization || "")}</div>
+      ${v.suggested_title ? `<div class="msrc-vision-row"><span class="msrc-vision-key">${_miEsc(_miTr("Title", "标题"))}:</span> ${_miEsc(v.suggested_title)}</div>` : ""}
+    </div>`;
+  }
+  let clearance = "";
+  if (result.requires_clearance) {
+    clearance = `<div class="msrc-clearance-warn">⚠️ ${_miEsc(_miTr(
+      "Copyright clearance pending — this work can be played privately, but marketplace listing (Listen / Buyout / Tip) will be disabled until clearance.",
+      "版权审核中 —— 可私有播放，但 marketplace 上架（聆听/买断/打赏）将禁用，直到清版完成。"
+    ))}</div>`;
+  }
+
+  return `<div class="msrc-result">
+    <strong style="font-size:12px; color:#00f5a0;">${_miEsc(_miTr("✓ Parsed", "✓ 已解析"))}</strong>
+    <div style="margin-top:6px;">${lines.join("")}</div>
+    ${extra}
+    ${clearance}
+  </div>`;
 }
 
 function renderMusicSourceUploadPanelMarkup() {
@@ -256,264 +594,498 @@ function buildAdvancedMusicSourceSettingsSection() {
   return renderMusicSourceUploadPanelMarkup();
 }
 
-function buildMusicSourceUploadPanelDigest() {
-  const loadedKinds = musicSourceKinds().filter((kind) => !!musicSourceUploadState[kind.key]);
-  if (!loadedKinds.length) {
-    return loginCopy(
-      "No score or reference file is attached to this session yet."
-    );
-  }
-  return loginCopy(
-    `${loadedKinds.length} source slot(s) attached: ${loadedKinds.map((kind) => kind.label).join(", ")}`
-  );
-}
+/* ─── Backend calls ─── */
 
-function syncMusicSourceUploadSummaries(root) {
-  if (!(root instanceof Element)) return;
-  musicSourceKinds().forEach((kind) => {
-    const summary = root.querySelector(`[data-music-source-summary="${kind.key}"]`);
-    const metadata = root.querySelector(`[data-music-source-metadata="${kind.key}"]`);
-    const analysis = root.querySelector(`[data-music-source-analysis="${kind.key}"]`);
-    if (summary) {
-      const pending = musicSourceUploadPending[kind.key];
-      summary.textContent = pending
-        ? loginCopy("Uploading...")
-        : formatMusicSourceUploadSummary(musicSourceUploadState[kind.key]);
+/* Real-time progress bar with cycling random colors. Two phases:
+ *   1. Upload (0–90%) — real bytes via XHR upload.onprogress.
+ *   2. Analyze (90–99%) — server processing (Whisper/Vision/ACRCloud);
+ *      we don't have server-side progress, so we crawl smoothly toward
+ *      99% while the indeterminate shimmer overlay plays.
+ * Fill color rotates through a vivid HSL palette every ~600ms. */
+function _miMountProgress(statusEl, initialLabel) {
+  if (!statusEl) return null;
+  statusEl.className = "msrc-status pending";
+  statusEl.innerHTML = `<div class="msrc-progress">
+    <div class="msrc-progress-track"><div class="msrc-progress-fill" style="background:hsl(160,80%,55%);color:hsl(160,80%,55%);"></div></div>
+    <div class="msrc-progress-label"><span class="msrc-progress-text">${_miEsc(initialLabel || "")}</span><span class="pct">0%</span></div>
+  </div>`;
+  const fill = statusEl.querySelector(".msrc-progress-fill");
+  const textEl = statusEl.querySelector(".msrc-progress-text");
+  const pctEl = statusEl.querySelector(".pct");
+  // Cycle random vivid colors so the bar feels alive
+  const colorTimer = setInterval(() => {
+    if (!fill || !fill.isConnected) { clearInterval(colorTimer); return; }
+    const hue = Math.floor(Math.random() * 360);
+    const sat = 70 + Math.floor(Math.random() * 25); // 70–95
+    const lum = 50 + Math.floor(Math.random() * 15); // 50–65
+    const c = `hsl(${hue},${sat}%,${lum}%)`;
+    fill.style.background = c;
+    fill.style.color = c; // drives box-shadow glow
+  }, 600);
+  let crawlTimer = null;
+  let crawlPct = 0;
+  function setPct(p, label) {
+    if (!fill) return;
+    crawlPct = Math.max(crawlPct, p);
+    fill.style.width = `${crawlPct.toFixed(1)}%`;
+    if (pctEl) pctEl.textContent = `${Math.round(crawlPct)}%`;
+    if (label != null && textEl) textEl.textContent = label;
+  }
+  function startAnalyzePhase(label) {
+    if (fill) fill.classList.add("indeterminate");
+    setPct(90, label);
+    if (crawlTimer) clearInterval(crawlTimer);
+    // Crawl 90 → 99 over ~30s so the bar still feels alive while server analyzes
+    crawlTimer = setInterval(() => {
+      if (crawlPct >= 99) return;
+      const remain = 99 - crawlPct;
+      setPct(crawlPct + Math.max(0.05, remain * 0.03));
+    }, 600);
+  }
+  function finish(label, isError) {
+    if (crawlTimer) clearInterval(crawlTimer);
+    clearInterval(colorTimer);
+    if (fill) fill.classList.remove("indeterminate");
+    if (isError) {
+      statusEl.className = "msrc-status err";
+      statusEl.textContent = label || "";
+    } else {
+      setPct(100, label);
+      // Fade out after a beat so the user sees 100%, then drop the bar
+      setTimeout(() => {
+        if (!statusEl.isConnected) return;
+        statusEl.className = "msrc-status ok";
+        statusEl.textContent = label || "";
+      }, 600);
     }
-    if (metadata) {
-      metadata.textContent = formatMusicSourceMetadataSummary(musicSourceUploadState[kind.key]);
-    }
-    if (analysis) {
-      analysis.textContent = formatMusicSourceAnalysisShell(musicSourceUploadState[kind.key]);
-    }
-  });
-  const parserDraft = root.querySelector("[data-music-source-parser-draft]");
-  if (parserDraft) {
-    parserDraft.textContent = formatMusicSourceParserDraftSummary(musicSourceParserDraft);
   }
-  const parserTaskDraft = root.querySelector("[data-music-source-parser-task]");
-  if (parserTaskDraft) {
-    parserTaskDraft.textContent = formatMusicSourceParserTaskDraftSummary(musicSourceParserTaskDraft);
-  }
-  const parserTask = root.querySelector("[data-music-source-parser-queued]");
-  if (parserTask) {
-    parserTask.textContent = formatMusicSourceParserTaskSummary(musicSourceParserTask);
-  }
-  const parserResult = root.querySelector("[data-music-source-parser-result]");
-  if (parserResult) {
-    parserResult.textContent = formatMusicSourceParserResultSummary(musicSourceParserTask);
-  }
+  return { setPct, startAnalyzePhase, finish };
 }
 
-async function loadMusicSourceDraft() {
-  const res = await fetch("/api/music-sources/draft", {
-    credentials: "include",
-    cache: "no-store"
-  });
-  const payload = await res.json().catch(() => null);
-  const data = typeof getApiData === "function" ? getApiData(payload) : payload?.data || payload;
-  if (!res.ok || payload?.ok === false) {
-    throw new Error(payload?.code || `music_source_draft_load_failed:${res.status}`);
-  }
-  return {
-    draft: data?.draft && typeof data.draft === "object" ? data.draft : {},
-    parserJobDraft: data?.parser_job_draft && typeof data.parser_job_draft === "object" ? data.parser_job_draft : null,
-    parserTaskDraft: data?.parser_task_draft && typeof data.parser_task_draft === "object" ? data.parser_task_draft : null,
-    parserTask: data?.parser_task && typeof data.parser_task === "object" ? data.parser_task : null
-  };
-}
-
-async function buildMusicSourceParserTaskDraft() {
-  const res = await fetch("/api/music-sources/parser-task-draft", {
-    method: "POST",
-    credentials: "include"
-  });
-  const payload = await res.json().catch(() => null);
-  const data = typeof getApiData === "function" ? getApiData(payload) : payload?.data || payload;
-  if (!res.ok || payload?.ok === false) {
-    throw new Error(payload?.code || `music_source_parser_task_failed:${res.status}`);
-  }
-  return {
-    parserTaskDraft: data?.parser_task_draft && typeof data.parser_task_draft === "object" ? data.parser_task_draft : null,
-    parserTask: data?.parser_task && typeof data.parser_task === "object" ? data.parser_task : null
-  };
-}
-
-async function queueMusicSourceParserTask() {
-  const res = await fetch("/api/music-sources/parser-tasks", {
-    method: "POST",
-    credentials: "include"
-  });
-  const payload = await res.json().catch(() => null);
-  const data = typeof getApiData === "function" ? getApiData(payload) : payload?.data || payload;
-  if (!res.ok || payload?.ok === false) {
-    throw new Error(payload?.code || `music_source_parser_task_queue_failed:${res.status}`);
-  }
-  return data?.parser_task && typeof data.parser_task === "object" ? data.parser_task : null;
-}
-
-async function loadCurrentMusicSourceParserTask() {
-  const res = await fetch("/api/music-sources/parser-tasks/current", {
-    credentials: "include",
-    cache: "no-store"
-  });
-  const payload = await res.json().catch(() => null);
-  const data = typeof getApiData === "function" ? getApiData(payload) : payload?.data || payload;
-  if (!res.ok || payload?.ok === false) {
-    throw new Error(payload?.code || `music_source_parser_task_status_failed:${res.status}`);
-  }
-  return data?.parser_task && typeof data.parser_task === "object" ? data.parser_task : null;
-}
-
-function clearMusicSourceParserTaskPolling() {
-  if (musicSourceParserTaskPollTimer) {
-    clearTimeout(musicSourceParserTaskPollTimer);
-    musicSourceParserTaskPollTimer = 0;
-  }
-}
-
-function pollMusicSourceParserTask(root) {
-  clearMusicSourceParserTaskPolling();
-  const status = String(musicSourceParserTask?.status || "").trim().toLowerCase();
-  if (!musicSourceParserTask || !["queued", "processing"].includes(status)) return;
-  musicSourceParserTaskPollTimer = window.setTimeout(async () => {
+function _miUploadFile(tab, file, statusEl) {
+  if (!tab || !tab.endpoint) return Promise.resolve(null);
+  musicSourceUploadPending[tab.key] = true;
+  const prog = _miMountProgress(statusEl, _miTr("Uploading…", "上传中…"));
+  return new Promise((resolve) => {
     try {
-      musicSourceParserTask = await loadCurrentMusicSourceParserTask();
-      syncMusicSourceUploadSummaries(root);
-    } catch {}
-    pollMusicSourceParserTask(root);
-  }, 1500);
-}
-
-async function uploadMusicSourceFile(kind, file, trigger = null, root = null) {
-  if (!(file instanceof File)) return null;
-  musicSourceUploadPending[kind] = true;
-  try {
-    syncMusicSourceUploadSummaries(root);
-    setButtonBusy?.(trigger, true);
-    const dataUrl = await fileToDataUrl(file);
-    const res = await fetch("/api/music-sources/upload", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({
-        kind,
-        file_name: file.name || `${kind}.bin`,
-        data_url: dataUrl
-      })
-    });
-    const payload = await res.json().catch(() => null);
-    const data = typeof getApiData === "function" ? getApiData(payload) : payload?.data || payload;
-    if (!res.ok || payload?.ok === false || !data?.entry) {
-      throw new Error(payload?.code || `music_source_upload_failed:${res.status}`);
+      const form = new FormData();
+      form.append(tab.field, file);
+      const creationState = globalThis.creationState || {};
+      if (creationState.workType) form.append("work_type", creationState.workType);
+      if (creationState.language) form.append("language", creationState.language);
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", tab.endpoint, true);
+      xhr.withCredentials = true;
+      xhr.upload.onprogress = (e) => {
+        if (!prog || !e.lengthComputable) return;
+        // Reserve 0–90% for upload; analyze owns 90–100.
+        const pct = Math.min(90, (e.loaded / e.total) * 90);
+        prog.setPct(pct, _miTr("Uploading…", "上传中…"));
+      };
+      xhr.upload.onload = () => {
+        if (prog) prog.startAnalyzePhase(_miTr("Analyzing…", "解析中…"));
+      };
+      xhr.onload = () => {
+        let j = null;
+        try { j = JSON.parse(xhr.responseText); } catch (_e) {}
+        if (xhr.status >= 200 && xhr.status < 300 && j && j.ok !== false) {
+          if (prog) prog.finish(_miTr("Parsed ✓", "已解析 ✓"), false);
+          musicSourceUploadPending[tab.key] = false;
+          resolve(j);
+          return;
+        }
+        // Prefer the human-friendly hint, fall back to detail, then code
+        const errMsg = (j && (j.hint || j.detail || j.error)) || `upload_failed:${xhr.status}`;
+        if (prog) prog.finish(_miTr("Upload failed: ", "上传失败：") + String(errMsg).slice(0, 120), true);
+        musicSourceUploadPending[tab.key] = false;
+        resolve(null);
+      };
+      xhr.onerror = () => {
+        if (prog) prog.finish(_miTr("Network error", "网络错误"), true);
+        musicSourceUploadPending[tab.key] = false;
+        resolve(null);
+      };
+      xhr.send(form);
+    } catch (err) {
+      console.warn("[mv-source-upload] failed:", err);
+      if (prog) prog.finish(_miTr("Upload failed: ", "上传失败：") + String(err.message || err).slice(0, 120), true);
+      musicSourceUploadPending[tab.key] = false;
+      resolve(null);
     }
-    musicSourceUploadState[kind] = data.entry;
-    musicSourceParserDraft =
-      data?.parser_job_draft && typeof data.parser_job_draft === "object" ? data.parser_job_draft : musicSourceParserDraft;
-    musicSourceParserTaskDraft =
-      data?.parser_task_draft && typeof data.parser_task_draft === "object" ? data.parser_task_draft : musicSourceParserTaskDraft;
-    musicSourceParserTask =
-      data?.parser_task && typeof data.parser_task === "object" ? data.parser_task : null;
-    safeShowToast?.(
-      loginCopy("Music source uploaded into this session draft.")
-    );
-    return data.entry;
-  } catch {
-    showToast?.(loginCopy("Music source upload failed."));
-    return null;
-  } finally {
-    musicSourceUploadPending[kind] = false;
-    setButtonBusy?.(trigger, false);
-    syncMusicSourceUploadSummaries(root);
-  }
-}
-
-async function clearMusicSourceDraft(kind) {
-  const res = await fetch(`/api/music-sources/draft/${encodeURIComponent(kind)}`, {
-    method: "DELETE",
-    credentials: "include"
   });
-  const payload = await res.json().catch(() => null);
-  if (!res.ok || payload?.ok === false) {
-    throw new Error(payload?.code || `music_source_clear_failed:${res.status}`);
-  }
-  musicSourceUploadState[kind] = null;
-  const data = typeof getApiData === "function" ? getApiData(payload) : payload?.data || payload;
-  musicSourceParserDraft =
-    data?.parser_job_draft && typeof data.parser_job_draft === "object" ? data.parser_job_draft : null;
-  musicSourceParserTaskDraft =
-    data?.parser_task_draft && typeof data.parser_task_draft === "object" ? data.parser_task_draft : null;
-  musicSourceParserTask =
-    data?.parser_task && typeof data.parser_task === "object" ? data.parser_task : null;
 }
 
-async function hydrateMusicSourceDraft(root) {
-  if (!(root instanceof Element)) return;
+/* Push the uploaded asset into the MV pipeline state. CSSOS_WAVE_111D 20260512:
+ * the previous implementation called `cssosMvPipelinePanelState()` which has
+ * never been defined anywhere — so all the `ps.audioUrl = ...` writes
+ * silently no-op'd. The real shared mutable state is `globalThis.creationState`,
+ * and the lyrics input has id="lyrics-input". This rewrite:
+ *   1. Direct-mutates creationState (the canonical creation-flow store)
+ *   2. FORCE-overwrites the lyrics textarea (drop the `!input.value` guard
+ *      which prevented user re-applies)
+ *   3. Stores upload asset URL + skip_stages on creationState for the
+ *      pipeline runner to honor when /api/runs/create lands those keys
+ *      (full skip-music-stage routing tracked as Wave 111E).
+ *   4. Toast message honestly reports what was filled.
+ */
+function _miApplyResultToPipeline(result) {
+  if (!result) return false;
+  const filled = [];
   try {
-    const { draft, parserJobDraft, parserTaskDraft, parserTask } = await loadMusicSourceDraft();
-    musicSourceKinds().forEach((kind) => {
-      musicSourceUploadState[kind.key] = draft?.[kind.key] || null;
-    });
-    musicSourceParserDraft = parserJobDraft;
-    musicSourceParserTaskDraft = parserTaskDraft;
-    musicSourceParserTask = parserTask;
-    syncMusicSourceUploadSummaries(root);
-    pollMusicSourceParserTask(root);
-  } catch {
-    syncMusicSourceUploadSummaries(root);
+    const cs = globalThis.creationState;
+    // 1. Lyrics — prefer the user-edited textarea (lyrics_edited) if present,
+    //    else structured-from-source, else raw. ALWAYS run the section-label
+    //    normaliser so non-English tags never reach Suno.
+    const rawLyrics =
+      (result.whisper && result.whisper.text) ||
+      (result.midi_lyrics && result.midi_lyrics.has_lyrics && result.midi_lyrics.text) ||
+      "";
+    const structuredLyrics = rawLyrics ? _miStructureLyrics(rawLyrics) : "";
+    const editedLyrics = (result.lyrics_edited && String(result.lyrics_edited).trim()) || "";
+    const lyricsText = _miNormalizeSectionLabels(editedLyrics || structuredLyrics || rawLyrics);
+    if (lyricsText) {
+      // hit EVERY known lyric textarea so whatever the user sees gets it
+      const lyricIds = [
+        "custom-lyrics", "mvp-lyrics", "creation-lyrics-input",
+        "watch-lyrics-editor", "song-seed-lyrics", "lyrics-input",
+      ];
+      for (const id of lyricIds) {
+        const el = document.getElementById(id);
+        if (el && (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement)) {
+          el.value = lyricsText;
+          try { el.dataset.cssmvUserTyped = "1"; } catch (_) {}
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      }
+      filled.push(_miTr("lyrics", "歌词"));
+      if (cs) cs.lyrics = lyricsText;
+    }
+    // 2. Title — inferred via _miInferTitle, FORCE-overwrite
+    const titleHint = _miInferTitle(result);
+    if (titleHint) {
+      const titleIds = ["creation-title", "title-input", "mvp-title", "song-seed-title"];
+      for (const id of titleIds) {
+        const el = document.getElementById(id);
+        if (el && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
+          el.value = titleHint;
+          try { el.dataset.cssmvUserTyped = "1"; } catch (_) {}
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      }
+      filled.push(_miTr("title", "标题"));
+      if (cs) cs.prompt = titleHint;
+    }
+    // 3. Style — inferred via _miInferStyle, FORCE-overwrite
+    const styleHint = _miInferStyle(result);
+    if (styleHint) {
+      const styleIds = [
+        "style-input", "creation-music-style", "mvp-style",
+        "creation-instrumentation", "creation-vocal-style",
+      ];
+      for (const id of styleIds) {
+        const el = document.getElementById(id);
+        if (el && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && !el.value) {
+          el.value = styleHint;
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      }
+      filled.push(_miTr("style", "风格"));
+      if (cs) cs.musicStyle = cs.musicStyle || styleHint;
+    }
+    // 4. Mirror upload asset + skip_stages onto creationState for the
+    //    pipeline runner. The runner doesn't yet consume these (Wave
+    //    111E will wire skip-music-stage into /api/runs/create) but
+    //    storing them now means as soon as that lands, all existing
+    //    uploads start honoring skip_stages without UI changes.
+    if (cs) {
+      cs.userUploadAsset = result.asset_url || null;
+      cs.userUploadKind = result._tab || null;
+      cs.userUploadSkipStages = Array.isArray(result.skip_stages) ? result.skip_stages.slice() : [];
+      cs.userUploadRequiresClearance = !!result.requires_clearance;
+      cs.userUploadImportSource = result.import_source || null;
+      if (result._tab === "image" && result.asset_url) {
+        cs.userUploadCoverUrl = result.asset_url;
+      }
+      if (result._tab === "sheet" && result.sheet_civilization) {
+        cs.civilization = result.sheet_civilization;
+      }
+    }
+    // Also expose for legacy listeners / debug
+    globalThis.cssosLastUserUpload = result;
+
+    // CSSOS_WAVE_111D_AUTOLAUNCH_V2 20260512 — Reuse the Person-MV launch
+    // pattern so the 6-stage MV Pipeline panel (lyrics / cover / music /
+    // video / subtitles / compose capsules + progress bars) becomes
+    // immediately visible. Order:
+    //   1. Fire input/change on every filled DOM element (already done
+    //      above) so creationState + state.songSeed sync.
+    //   2. smartFillEmptyAdvancedFields() — civilisation-aware backfill
+    //      across the ~25 advanced inputs/selects/sliders that the user
+    //      hasn't touched. Same chain as the lyrics magic wand.
+    //   3. openMvPipelinePanel({ cinema:true, autoStart:true, seed, focus,
+    //      forceNew }) — matches app.person-mv-panel.js line 1128. NO
+    //      `hidden:true`, so the 6-stage panel paints front-and-center.
+    try {
+      const seed = {
+        prompt: titleHint || undefined,
+        lyrics: lyricsText || undefined,
+        style: styleHint || undefined,
+      };
+      const launch = async () => {
+        // Step 1 already done synchronously above.
+        // Step 2: civilisation-aware backfill
+        try {
+          if (typeof globalThis.smartFillEmptyAdvancedFields === "function") {
+            await globalThis.smartFillEmptyAdvancedFields();
+          }
+        } catch (sfErr) {
+          console.warn("[mv-source-upload] smartFill failed:", sfErr);
+        }
+        // Step 3: open the visible 6-stage MV Pipeline panel — person-MV pattern
+        if (typeof globalThis.openMvPipelinePanel === "function") {
+          try {
+            globalThis.openMvPipelinePanel({
+              cinema: true,
+              autoStart: true,
+              forceNew: true,
+              seed: seed,
+              focus: true,
+              // omit `hidden` → panel paints visibly with 6 stage capsules
+              personName: titleHint || undefined,
+              personMusicStyleHint: styleHint || undefined,
+              personIntro: (result.vision && result.vision.lyrics_prompt) || undefined,
+            });
+            return;
+          } catch (mvErr) {
+            console.warn("[mv-source-upload] openMvPipelinePanel failed:", mvErr);
+          }
+        }
+        // Fallback: unified entry (still triggers pipeline, less visible)
+        if (typeof globalThis.cssmvUnifiedEntry === "function") {
+          globalThis.cssmvUnifiedEntry({
+            source: "music-source-upload", seed, preferredTab: "mv",
+            force: true, focus: true, hidden: false, showMvPipeline: true,
+          }).catch((err) => console.warn("[mv-source-upload] unified entry failed:", err));
+        }
+      };
+      // Give DOM dispatchers a tick to settle our forced fills, then launch.
+      setTimeout(() => { launch(); }, 60);
+    } catch (launchErr) {
+      console.warn("[mv-source-upload] auto-launch failed:", launchErr);
+    }
+
+    if (typeof globalThis.showToast === "function") {
+      const what = filled.length
+        ? filled.join(_miTr(" + ", " + "))
+        : _miTr("(no fields auto-filled)", "(没有可自动填入的字段)");
+      globalThis.showToast(_miTr(
+        `Applied ${what}. Launching MV pipeline — sit back and enjoy.`,
+        `已填入${what}。正在自动启动 MV 管线，请欣赏。`
+      ));
+    }
+    return true;
+  } catch (err) {
+    console.warn("[mv-source-upload] apply failed:", err);
+    if (typeof globalThis.showToast === "function") {
+      globalThis.showToast(_miTr("Apply failed: ", "应用失败：") + String(err.message || err).slice(0, 120));
+    }
+    return false;
   }
 }
+
+/* ─── Bind ─── */
 
 function bindMusicSourceUploadControls(root) {
   if (!(root instanceof Element)) return;
-  root.querySelectorAll("[data-music-source-input]").forEach((input) => {
-    if (!(input instanceof HTMLInputElement)) return;
-    input.addEventListener("change", async () => {
-      const key = String(input.getAttribute("data-music-source-input") || "").trim();
-      if (!key || !(key in musicSourceUploadState)) return;
-      const file = input.files?.[0] || null;
-      if (!file) return;
-      musicSourceUploadState[key] = file;
-      syncMusicSourceUploadSummaries(root);
-      const uploaded = await uploadMusicSourceFile(key, file, input, root);
-      if (!uploaded) {
-        input.value = "";
+  if (root.dataset.msrcBound === "1") return;
+  root.dataset.msrcBound = "1";
+
+  // Delegate everything to root for resilience to re-renders
+  root.addEventListener("click", (e) => {
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+
+    // Tab switch
+    const tabBtn = target.closest("[data-msrc-tab]");
+    if (tabBtn instanceof HTMLElement) {
+      const key = tabBtn.getAttribute("data-msrc-tab");
+      if (key && key !== musicSourceUploadState.activeTab) {
+        musicSourceUploadState.activeTab = key;
+        _miRerender(root);
       }
-      syncMusicSourceUploadSummaries(root);
-    });
-  });
-  root.querySelector('[data-music-source-refresh]')?.addEventListener("click", () => {
-    void hydrateMusicSourceDraft(root);
-  });
-  root.querySelector('[data-music-source-build-parser-task]')?.addEventListener("click", async () => {
-    try {
-      const result = await buildMusicSourceParserTaskDraft();
-      musicSourceParserTaskDraft = result?.parserTaskDraft || null;
-      musicSourceParserTask = await queueMusicSourceParserTask();
-      pollMusicSourceParserTask(root);
-      safeShowToast?.(
-        loginCopy("Parser task is queued for the next ingest stage.")
-      );
-    } catch {
-      showToast?.(loginCopy("Parser task could not be queued yet."));
+      return;
     }
-    syncMusicSourceUploadSummaries(root);
-  });
-  root.querySelector('[data-music-source-clear="all"]')?.addEventListener("click", async () => {
-    await Promise.all(
-      musicSourceKinds().map(async (kind) => {
-        try {
-          await clearMusicSourceDraft(kind.key);
-        } catch {}
-        const input = root.querySelector(`[data-music-source-input="${kind.key}"]`);
-        if (input instanceof HTMLInputElement) {
-          input.value = "";
+
+    // Apply to pipeline
+    const applyBtn = target.closest("[data-msrc-apply]");
+    if (applyBtn instanceof HTMLElement && !applyBtn.hasAttribute("disabled")) {
+      _miApplyResultToPipeline(musicSourceUploadState.result);
+      return;
+    }
+
+    // Clear
+    const clearBtn = target.closest("[data-msrc-clear]");
+    if (clearBtn instanceof HTMLElement) {
+      const key = clearBtn.getAttribute("data-msrc-clear");
+      if (key) {
+        musicSourceUploadState[key] = null;
+        if (musicSourceUploadState.result && musicSourceUploadState.result._tab === key) {
+          musicSourceUploadState.result = null;
         }
-      })
-    );
-    syncMusicSourceUploadSummaries(root);
+        _miRerender(root);
+      }
+      return;
+    }
   });
-  void hydrateMusicSourceDraft(root);
+
+  // Live-bind the editable structured-lyrics textarea so edits flow back
+  // into musicSourceUploadState.result.lyrics_edited (used on Apply).
+  root.addEventListener("input", (e) => {
+    const t = e.target;
+    if (t instanceof HTMLTextAreaElement && t.hasAttribute("data-msrc-lyrics-editor")) {
+      if (musicSourceUploadState.result) {
+        musicSourceUploadState.result.lyrics_edited = t.value;
+      }
+    }
+  });
+
+  root.addEventListener("change", async (e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    const key = target.getAttribute("data-msrc-upload");
+    if (!key) return;
+    const tab = _miFindTab(key);
+    if (!tab || !tab.active) return;
+    const file = target.files && target.files[0];
+    if (!file) return;
+
+    musicSourceUploadState[key] = file;
+    const statusEl = root.querySelector(`[data-msrc-status="${key}"]`);
+    if (statusEl) {
+      statusEl.className = "msrc-status pending";
+    }
+
+    const j = await _miUploadFile(tab, file, statusEl);
+    if (!j) return;
+
+    const shaped = _miShapeResult(key, j);
+    shaped.file_name = file.name || null;
+    musicSourceUploadState.result = shaped;
+    _miRerender(root);
+  });
+
+  // Sheet-tab URL importer (Wave 111D-D3)
+  root.addEventListener("click", async (e) => {
+    const t = e.target;
+    if (!(t instanceof Element)) return;
+    const goBtn = t.closest("[data-msrc-sheet-url-go]");
+    if (!(goBtn instanceof HTMLElement)) return;
+    const inp = root.querySelector("[data-msrc-sheet-url]");
+    const url = inp instanceof HTMLInputElement ? inp.value.trim() : "";
+    if (!url) return;
+    const statusEl = root.querySelector('[data-msrc-status="sheet"]');
+    // Reuse the same progress bar component — the server-side fetch
+    // doesn't expose byte-level progress, so we start in indeterminate
+    // mode (90% crawl + shimmer + cycling random colors).
+    const prog = _miMountProgress(statusEl, _miTr("Fetching URL…", "抓取 URL 中…"));
+    if (prog) prog.startAnalyzePhase(_miTr("Fetching & analyzing…", "抓取与解析中…"));
+    try {
+      const cs = globalThis.creationState || {};
+      const res = await fetch("/api/mv/sheet/import-url", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, language: cs.language || "en" }),
+      });
+      const j = await res.json().catch(() => null);
+      if (!res.ok || !j || j.ok === false) {
+        const err = j?.hint || j?.error || `import_failed:${res.status}`;
+        throw new Error(err);
+      }
+      if (prog) prog.finish(_miTr("Imported ✓", "已导入 ✓"), false);
+      musicSourceUploadState.result = _miShapeResult("sheet", j);
+      _miRerender(root);
+    } catch (err) {
+      console.warn("[mv-sheet-url] failed:", err);
+      if (prog) prog.finish(_miTr("URL import failed: ", "URL 导入失败：") + String(err.message || err).slice(0, 200), true);
+    }
+  });
+
+  // Sheet-tab clipboard paste (Wave 111D-D2)
+  root.addEventListener("paste", async (e) => {
+    if (musicSourceUploadState.activeTab !== "sheet") return;
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (const it of items) {
+      if (it.kind === "file" && (it.type.startsWith("image/") || it.type === "application/pdf")) {
+        const f = it.getAsFile();
+        if (!f) continue;
+        e.preventDefault();
+        const tab = _miFindTab("sheet");
+        const statusEl = root.querySelector('[data-msrc-status="sheet"]');
+        musicSourceUploadState.sheet = f;
+        if (statusEl) statusEl.className = "msrc-status pending";
+        const j = await _miUploadFile(tab, f, statusEl);
+        if (j) {
+          musicSourceUploadState.result = _miShapeResult("sheet", j);
+          _miRerender(root);
+        }
+        return;
+      }
+    }
+  });
+}
+
+function _miShapeResult(key, j) {
+  return {
+      _tab: key,
+      asset_url: j.asset_url || null,
+      midi_asset_url: j.midi_asset_url || null,
+      musicxml_asset_url: j.musicxml_asset_url || null,
+      duration_secs: j.meta?.duration_secs || j.meta?.estimated_duration_secs || 0,
+      width: j.meta?.width || 0,
+      height: j.meta?.height || 0,
+      fps: j.meta?.fps || 0,
+      codec: j.meta?.codec || null,
+      vcodec: j.meta?.vcodec || null,
+      tempo_bpm: j.meta?.tempo_bpm || 0,
+      time_signature: j.meta?.time_signature || null,
+      key_signature: j.meta?.key_signature || null,
+      note_count: j.meta?.note_count || 0,
+      track_count: j.meta?.track_count || 0,
+      // Sheet music specific
+      notation_type: j.meta?.notation_type || null,
+      composer: j.meta?.composer || null,
+      lyricist: j.meta?.lyricist || null,
+      tempo_marking: j.meta?.tempo_marking || null,
+      sheet_title: j.meta?.title || null,
+      sheet_pages: j.sheet_pages || 0,
+      sheet_civilization: j.meta?.civilization || null,
+      sheet_language_hint: j.meta?.language_hint || null,
+      sheet_confidence: j.meta?.confidence || null,
+      bytes: j.file?.stored_bytes || j.file?.original_bytes || 0,
+      whisper: j.whisper || null,
+      vision: j.analysis || null,
+      midi_lyrics: j.lyrics || null,
+      has_lyrics: j.lyrics ? j.lyrics.has_lyrics : null,
+      skip_stages: j.skip_stages || [],
+      import_source: j.import_source || null,
+      requires_clearance: !!j.requires_clearance,
+      fingerprint: j.fingerprint || null,
+      raw: j,
+    };
+}
+
+function _miRerender(root) {
+  if (!(root instanceof Element)) return;
+  root.innerHTML = renderMusicSourceUploadPanelMarkup();
+  const inner = root.querySelector('[data-advanced-panel="music-sources"]');
+  if (inner instanceof Element) {
+    inner.dataset.msrcBound = ""; // reset bind on inner since outer is bound
+  }
 }
 
 function mountMusicSourceUploadPanel(root) {
@@ -528,10 +1100,28 @@ function wireAdvancedMusicSourceUploadIntoAdvancedSettings(root) {
 
 function mountMusicSourceUploadTabInSettings(root) {
   if (!(root instanceof Element)) return;
-  if (root.dataset.musicSourceUploadMounted === "true") return;
+  if (root.dataset.musicSourceUploadMounted === "true") {
+    // Already mounted, just rerender to reflect current state
+    root.innerHTML = renderMusicSourceUploadPanelMarkup();
+    return;
+  }
   root.dataset.musicSourceUploadMounted = "true";
   root.innerHTML = renderMusicSourceUploadPanelMarkup();
-  const uploadShell =
-    root.querySelector('[data-advanced-panel="music-sources"]') || root;
-  mountMusicSourceUploadPanel(uploadShell);
+  mountMusicSourceUploadPanel(root);
 }
+
+/* ─── Compatibility shims for app.creation-duration.js ─── */
+function buildMusicSourceUploadPanelDigest() {
+  const loaded = ["audio", "video", "image"].filter((k) => musicSourceUploadState[k]);
+  if (!loaded.length) return _miTr("No source file attached.", "未附加任何源文件。");
+  return _miTr(`${loaded.length} source(s) attached: ${loaded.join(", ")}`, `已附加 ${loaded.length} 个源：${loaded.join("、")}`);
+}
+
+/* Export globals for app.js / app.creation-flow.js / app.creation-duration.js */
+globalThis.buildMusicSourceUploadCardMarkup = buildMusicSourceUploadCardMarkup;
+globalThis.renderMusicSourceUploadPanelMarkup = renderMusicSourceUploadPanelMarkup;
+globalThis.buildAdvancedMusicSourceSettingsSection = buildAdvancedMusicSourceSettingsSection;
+globalThis.mountMusicSourceUploadPanel = mountMusicSourceUploadPanel;
+globalThis.mountMusicSourceUploadTabInSettings = mountMusicSourceUploadTabInSettings;
+globalThis.wireAdvancedMusicSourceUploadIntoAdvancedSettings = wireAdvancedMusicSourceUploadIntoAdvancedSettings;
+globalThis.buildMusicSourceUploadPanelDigest = buildMusicSourceUploadPanelDigest;

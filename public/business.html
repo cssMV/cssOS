@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Business Model · CSS Studio</title>
+<link rel="stylesheet" href="/legal-page.css"/>
+</head>
+<body>
+<div id="doc-root"></div>
+<script>
+globalThis.LEGAL_DOC = {
+  en: {
+    title: "Our Business Model",
+    subtitle: "A brief introduction to how CSS Studio operates.",
+    updated: "Last updated: 2026",
+    sections: [
+      { title: "1. What We Do", body: ["CSS Studio is an AI-powered creative platform. Users generate music videos, lyrics, covers, and full multimedia works from short prompts. The platform spans a Civilization Universe of curated People and Landmarks, plus user-created content that lives alongside it."] },
+      { title: "2. How We Generate Revenue", body: [
+          "Our business model combines three streams:",
+          { ul: [
+              "Subscriptions — monthly plans that unlock higher generation quotas, longer videos, premium engines, and priority queues.",
+              "Credit packs — pay-as-you-go credits for users who prefer not to subscribe; credits are consumed by individual generation runs (lyrics, cover, music, video, compose).",
+              "Marketplace fees — when users publish and trade digital works on the platform, CSS Studio charges a small service fee on each transaction."
+          ] }
+      ] },
+      { title: "3. What Users Pay For", body: ["Users pay for compute (the AI engines that produce music, images, and video), for storage and delivery of finished works, and for ongoing access to curated content libraries. Free-tier users always retain access to the core experience at a lower quota."] },
+      { title: "4. Costs We Carry", body: ["The largest costs are third-party AI inference, GPU compute, audio/video rendering, and CDN bandwidth. A meaningful portion of revenue is reinvested into model quality, the curated seed libraries, and the cross-language experience."] },
+      { title: "5. Creator Economy", body: ["Creators retain ownership of their works. The platform offers tools to publish, remix, and trade — and takes a transparent fee on paid transactions. We do not sell user data and we do not run a third-party ad business on top of generated content."] },
+      { title: "6. Refunds", body: [
+          "We honor refunds for unused subscription time, unused credit packs, listen passes used less than 10%, and buyouts not yet re-licensed or remixed — within the windows specified in our Terms of Service §7. Tips are non-refundable as they are voluntary gifts delivered to creators immediately. Failed generations are automatically refunded with no request needed.",
+          "Full refund rules: see Terms of Service §7 at /terms.html."
+      ] },
+      { title: "7. Sustainability", body: ["Our goal is a healthy ratio between user value and platform cost: users get more creative leverage per dollar over time as engines improve, and the platform earns enough to keep investing in quality, safety, and the multi-language Civilization Universe."] },
+      { title: "8. Contact", body: ["Business inquiries: admin@cssstudio.app"] }
+    ]
+  },
+  zh: {
+    title: "我们的商业模式",
+    subtitle: "关于 CSS Studio 如何运营的简要介绍。",
+    updated: "最后更新：2026 年",
+    sections: [
+      { title: "1. 我们做什么", body: ["CSS Studio 是一个 AI 驱动的创作平台。用户通过简短提示词生成 MV、歌词、封面与完整的多媒体作品。平台覆盖一个由精选人物与名迹构成的“文明宇宙”，并与用户自主创建的内容并行共存。"] },
+      { title: "2. 收入来源", body: [
+          "我们的商业模式由三条主要收入线组成：",
+          { ul: [
+              "订阅服务——按月订阅可解锁更高的生成额度、更长视频、高级引擎与优先队列。",
+              "积分包——按需购买，无需订阅；每次生成（歌词、封面、音乐、视频、合成）消耗相应积分。",
+              "市场交易费——当用户在平台上发布或交易数字作品时，CSS Studio 收取较低比例的服务费。"
+          ] }
+      ] },
+      { title: "3. 用户为什么付费", body: ["用户付费购买的是算力（产出音乐、图像与视频的 AI 引擎）、作品的存储与分发，以及对精选内容库的持续访问。免费用户始终可以以较低额度访问核心体验。"] },
+      { title: "4. 我们承担的成本", body: ["主要成本包括第三方 AI 推理、GPU 算力、音视频渲染与 CDN 带宽。我们将相当部分收入再投入到模型质量、精选种子库与多语言体验中。"] },
+      { title: "5. 创作者经济", body: ["创作者保留作品所有权。平台提供发布、二创与交易工具，并在付费交易中收取透明的服务费。我们不出售用户数据，也不在生成内容之上经营第三方广告业务。"] },
+      { title: "6. 退款政策", body: [
+          "我们对以下情形提供退款：订阅未使用天数、未消耗的积分包、播放未达 10% 的聆听通行证、尚未再授权或二创的买断作品 —— 在《服务条款》第 7 节规定的时限内办理。打赏不可退款（直接送达创作者的自愿赠予）。生成失败将自动返还相应费用，无需申请。",
+          "完整退款规则：见《服务条款》第 7 节 /terms.html。"
+      ] },
+      { title: "7. 可持续性", body: ["我们追求“用户价值与平台成本”的健康比例：随引擎进步，用户每一分付出可获得更大的创作杠杆；平台也能持续投入于质量、安全与多语言文明宇宙。"] },
+      { title: "8. 联系方式", body: ["商务合作：admin@cssstudio.app"] }
+    ]
+  },
+  ja: {
+    title: "ビジネスモデル",
+    subtitle: "CSS Studio の運営方法に関する簡単なご紹介。",
+    updated: "最終更新日：2026 年",
+    sections: [
+      { title: "1. 私たちの事業", body: ["CSS Studio は AI を活用した創作プラットフォームです。短いプロンプトから MV、歌詞、カバーアート、マルチメディア作品を生成できます。厳選された人物と名所からなる「文明ユニバース」と、ユーザー自身が作成したコンテンツが共存します。"] },
+      { title: "2. 収益源", body: [
+          "ビジネスモデルは主に 3 つの収益柱で構成されます：",
+          { ul: [
+              "サブスクリプション — 月額プランで生成枠の拡大、長尺動画、プレミアムエンジン、優先キューを解放。",
+              "クレジットパック — 都度購入。生成（歌詞・カバー・音楽・動画・合成）ごとに消費されます。",
+              "マーケット手数料 — ユーザーが作品を販売・取引する際、CSS Studio は低率のサービス手数料をいただきます。"
+          ] }
+      ] },
+      { title: "3. ユーザーが支払う対価", body: ["音楽・画像・動画を生成する AI エンジンの計算資源、完成作品の保管と配信、厳選コンテンツライブラリへの継続的アクセスに対してお支払いいただきます。無料ユーザーも常に低めの枠でコア体験にアクセスできます。"] },
+      { title: "4. 主なコスト", body: ["最大のコストは第三者 AI 推論、GPU 計算、音声・映像レンダリング、CDN 帯域です。収益の相当部分をモデル品質、シードライブラリ、多言語体験への投資に再配分しています。"] },
+      { title: "5. クリエイターエコノミー", body: ["作品の所有権はクリエイターが保持します。プラットフォームは公開・リミックス・取引のためのツールを提供し、有料取引には透明な手数料を適用します。ユーザーデータの販売や、生成コンテンツ上の第三者広告事業は行いません。"] },
+      { title: "6. 返金", body: [
+          "次のケースについて返金を承ります：サブスクリプションの未使用期間、未消費のクレジットパック、再生 10% 未満のリスニングパス、再ライセンス・リミックス未実施の買取作品 —— 利用規約第 7 条の期限内で対応します。投げ銭はクリエイターに直接届けられる任意の贈与のため返金不可です。生成失敗時は自動返還、申請不要です。",
+          "完全な返金規則：利用規約第 7 条 /terms.html をご参照ください。"
+      ] },
+      { title: "7. 持続可能性", body: ["ユーザー価値とプラットフォームコストの健全な比率を目指します。エンジンが進化するにつれ、ユーザーは支払い 1 円あたりにより大きな創作レバレッジを得られ、プラットフォームも品質・安全・多言語文明ユニバースに投資し続けられます。"] },
+      { title: "8. お問い合わせ", body: ["ビジネスに関するお問い合わせ：admin@cssstudio.app"] }
+    ]
+  }
+};
+</script>
+<script src="/legal-page.js"></script>
+</body>
+</html>

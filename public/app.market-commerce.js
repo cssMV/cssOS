@@ -359,6 +359,11 @@ function syncMarketCountLabel(countLabel) {
 
 function bindMarketSearchControls() {
   const behavior = readPanelBehaviorSettingsLocal();
+  // CSSOS_WAVE_113C 20260511 — Jing
+  // "搜索是否真正可用?". The main #foryou-market-search input was
+  // never bound to a re-render handler — typing in it had no effect.
+  // Wire `oninput` here so the visible search bar actually filters.
+  const searchInput = document.getElementById("foryou-market-search");
   const filterInput = document.getElementById("foryou-market-filter");
   const sortInput = document.getElementById("foryou-market-sort");
   const authorInput = document.getElementById("foryou-market-author");
@@ -378,8 +383,23 @@ function bindMarketSearchControls() {
       renderForyouMarketplace({ resetVisible: true });
   if (sortInput)
     sortInput.onchange = () => renderForyouMarketplace({ resetVisible: true });
+  // CSSOS_WAVE_113D 20260511 — Jing
+  // Same fix as works-center: client-side filter can't reach works
+  // beyond the progressively-loaded window. On first keystroke,
+  // bump the fetch ceiling to the server cap (1000) and force one
+  // full reload; subsequent keystrokes filter the corpus in-memory.
+  const ensureMarketFullCorpusThenFilter = () => {
+    if (Number(globalThis.__cssosMarketFetchLimit || 30) < 1000) {
+      globalThis.__cssosMarketFetchLimit = 1000;
+      void loadPublicMarketWorks(true).then(() => renderForyouMarketplace({ resetVisible: true }));
+    } else {
+      renderForyouMarketplace({ resetVisible: true });
+    }
+  };
+  if (searchInput)
+    searchInput.oninput = ensureMarketFullCorpusThenFilter;
   if (authorInput)
-    authorInput.oninput = () => renderForyouMarketplace({ resetVisible: true });
+    authorInput.oninput = ensureMarketFullCorpusThenFilter;
   if (priceInput)
     priceInput.onchange = () => renderForyouMarketplace({ resetVisible: true });
   if (timeInput)
@@ -1694,6 +1714,12 @@ function buildMarketCardsMarkup(works = []) {
       const _durOverlay = _durSecs > 0
         ? `<span class="work-cover-duration">${Math.floor(_durSecs / 60)}:${String(Math.floor(_durSecs % 60)).padStart(2, "0")}</span>`
         : "";
+      // CSSOS_WAVE_111D 20260512 — 🔐 verify badge on the foryou
+      // marketplace card cover too. Same UX as Works Center.
+      const _fpHash = String(work?.fingerprint_hash || "").trim();
+      const _fpBadge = /^[a-f0-9]{8,64}$/i.test(_fpHash)
+        ? `<a class="work-cover-fp-badge" href="/verify?h=${encodeURIComponent(_fpHash)}" target="_blank" rel="noopener" title="${escapeHtml(loginCopy("Verify this MV is from CSS Studio", "验证此 MV 的 cssOS 原产证明"))} · ${escapeHtml(_fpHash)}" data-fingerprint-hash="${escapeHtml(_fpHash)}" onclick="event.stopPropagation();">🔐</a>`
+        : "";
       // CSSOS_PHASE2_ADMIN_PUBLIC_WORK 20260504 — Jing
       // Admin works show in marketplace as FREE PUBLIC works:
       //   • listen / buyout / tip transactions disabled
@@ -1716,6 +1742,7 @@ function buildMarketCardsMarkup(works = []) {
         <article class="work-card market-card foryou-shelf-card ${_playedClass}${_isAdminOwned ? " is-admin-public" : ""}" data-market-work-id="${escapeHtml(workId)}" data-work-expand>
           <div class="work-cover" data-market-cover-key="${escapeHtml(workId)}" data-market-action="open-watch" role="button" tabindex="0" aria-label="${escapeHtml(loginCopy("Play MV"))}">
             ${coverImage ? `<img src="${escapeHtml(coverImage)}" alt="${title}" loading="lazy" decoding="async" />` : `<div class="work-cover-fallback">${rawTitle.slice(0, 2).toUpperCase()}</div>`}
+            ${_fpBadge}
             ${_durOverlay}
             <span class="work-cover-played-dot" aria-hidden="true"></span>
           </div>
@@ -2332,6 +2359,9 @@ function buildWorksCardsMarkup(works = [], options = {}) {
         workId,
         coverImage,
         durationSecs: Number(work?.duration_secs || work?.audio_duration_secs || 0) || 0,
+        // CSSOS_WAVE_111D 20260512 — thread fingerprint_hash through
+        // so the cover renders the 🔐 verify badge.
+        fingerprintHash: String(work?.fingerprint_hash || "").trim(),
         title,
         style,
         workType,
@@ -2377,9 +2407,19 @@ function buildWorksCardCoverMarkup(options = {}) {
   const durOverlay = durSecs > 0
     ? `<span class="work-cover-duration">${Math.floor(durSecs / 60)}:${String(Math.floor(durSecs % 60)).padStart(2, "0")}</span>`
     : "";
+  // CSSOS_WAVE_111D 20260512 — Jing
+  // 🔐 fingerprint badge top-left of the cover thumbnail. Click opens
+  // /verify?h=<hash> in a new tab. Shown only when fingerprint_hash
+  // exists in DB (auto-fingerprint hook runs after compose-finalize,
+  // so most works land with the hash within ~10s of being saved).
+  const fpHash = String(options.fingerprintHash || "").trim();
+  const fpBadge = /^[a-f0-9]{8,64}$/i.test(fpHash)
+    ? `<a class="work-cover-fp-badge" href="/verify?h=${encodeURIComponent(fpHash)}" target="_blank" rel="noopener" title="${escapeHtml(loginCopy("Verify this MV is from CSS Studio", "验证此 MV 的 cssOS 原产证明"))} · ${escapeHtml(fpHash)}" data-fingerprint-hash="${escapeHtml(fpHash)}" onclick="event.stopPropagation();">🔐</a>`
+    : "";
   return `
     <div class="work-cover" data-work-cover data-work-cover-key="${escapeHtml(workId)}" data-work-open-watch>
       ${coverImage ? `<img src="${escapeHtml(coverImage)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" />` : `<div class="work-cover-fallback">${title.slice(0, 2).toUpperCase()}</div>`}
+      ${fpBadge}
       ${durOverlay}
       <span class="work-cover-played-dot" aria-hidden="true"></span>
     </div>
@@ -4046,6 +4086,66 @@ async function dispatchMarketWorkPayment(workId, orderKind, button) {
   const id = String(workId || "").trim();
   if (!id) return;
   const kind = String(orderKind || "").trim().toLowerCase();
+  // CSSOS_WAVE_113B3 20260512 — Tip flow: open a unified picker with
+  // amount input + Stripe (international) + NihaoPay (Alipay/WeChat/
+  // UnionPay) so the user never leaves cinema/fullscreen mode.
+  if (kind === "tip" || kind === "tip-nihaopay") {
+    if (!isLoggedInUser()) {
+      showToast(loginCopy("Please sign in first."));
+      try { openPanel(loginPanel); } catch (_e) {}
+      return;
+    }
+    const tipWork = findPublicMarketWorkByIdModule(id) || {};
+    const tipCreatorId = String(tipWork?.owner_user_id || "").trim();
+    const tipPicker = window.cssPaymentsCheckout && typeof window.cssPaymentsCheckout.openPicker === "function"
+      ? window.cssPaymentsCheckout.openPicker
+      : null;
+    if (!tipPicker) {
+      await startStripeCheckoutForWork(id, "tip", button, { tipAmountCents: 200 });
+      return;
+    }
+    // Default suggested tip: $2.00. User can override.
+    const defaultTipCents = 200;
+    tipPicker({
+      title: loginCopy("Tip the creator"),
+      subtitle: loginCopy("Choose an amount and a payment method."),
+      amountCents: defaultTipCents,
+      allowAmountEdit: true,
+      amountMinCents: 100,
+      stripe: {
+        label: loginCopy("Pay with card"),
+        // CSSOS_WAVE_116 — Stripe Payment Element inline (no redirect).
+        // confirmPayment runs with redirect:"if_required", so non-3DS
+        // cards complete without leaving cinema/fullscreen mode.
+        inline: true,
+        intentRequest: {
+          work_id: id,
+          order_kind: "tip",
+          tip_amount_cents: defaultTipCents,
+        },
+        onSelect: (btn, ctx) => {
+          // Legacy fallback if Stripe.js fails to load
+          void startStripeCheckoutForWork(id, "tip", btn || button, {
+            tipAmountCents: (ctx && ctx.amount_cents) || defaultTipCents,
+          });
+        }
+      },
+      nihaopay: tipCreatorId ? {
+        onSelect: (vendor, btn, ctx) => {
+          window.cssPaymentsCheckout.startCheckout({
+            kind: "tip",
+            vendor,
+            amount_cents: (ctx && ctx.amount_cents) || defaultTipCents,
+            target_creator_id: tipCreatorId,
+            trigger: btn || button,
+            note: `tip:${id}`,
+            metadata: { work_id: id }
+          });
+        }
+      } : undefined
+    });
+    return;
+  }
   if (kind !== "listen" && kind !== "buyout") {
     await startStripeCheckoutForWork(id, orderKind, button);
     return;

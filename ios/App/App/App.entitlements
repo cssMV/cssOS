@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- CSSOS_WAVE_118 20260513 — Jing -->
+    <!-- Capabilities matched to the Apple Developer App ID app.cssstudio.studio -->
+    <!-- Sign in with Apple (App ID has it set as Primary) -->
+    <key>com.apple.developer.applesignin</key>
+    <array>
+        <string>Default</string>
+    </array>
+    <!-- Push Notifications (APNs) — production server -->
+    <key>aps-environment</key>
+    <string>production</string>
+    <!-- Universal Links / Associated Domains for cssstudio.app -->
+    <key>com.apple.developer.associated-domains</key>
+    <array>
+        <string>applinks:cssstudio.app</string>
+        <string>applinks:www.cssstudio.app</string>
+    </array>
+    <!-- Apple Pay — merchant.app.cssstudio.app already registered on Apple Developer -->
+    <key>com.apple.developer.in-app-payments</key>
+    <array>
+        <string>merchant.app.cssstudio.app</string>
+    </array>
+</dict>
+</plist>

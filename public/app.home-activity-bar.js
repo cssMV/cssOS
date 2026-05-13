@@ -58,8 +58,14 @@
   };
 
   /* Tab labels — bilingual; "icon" is glyph or emoji rendered before label. */
+  /* CSSOS_WAVE_113E 20260511 — Jing
+   * "取消6大流派的相册展示，改为排行榜之后的一个6大流派胶囊按钮".
+   * Schools moves from a horizontal album below the bar into a
+   * single capsule button right after "Top" in the bar itself.
+   * Clicking it opens a compact popover listing the schools. */
   var STYLE_TABS = [
     { id: "leaderboard", icon: "🏆", en: "Top",       zh: "排行榜" },
+    { id: "schools",     icon: "🏛", en: "Schools",   zh: "流派" },
     { id: "epic",        icon: "⚔️",  en: "Epic",      zh: "史诗" },
     { id: "tang",        icon: "🐉", en: "Tang",      zh: "唐风" },
     { id: "ambient",     icon: "🌫️", en: "Ambient",   zh: "氛围" },
@@ -402,6 +408,13 @@
 
   function activateTab(tabId) {
     if (!tabId) return;
+    /* CSSOS_WAVE_113E 20260511 — Jing
+     * Schools capsule opens a compact popover instead of routing to
+     * a tab content surface. */
+    if (tabId === "schools") {
+      toggleSchoolsPopover();
+      return;
+    }
     persistLastTab(tabId);
     /* Visual active state */
     if (state.bar) {
@@ -501,7 +514,80 @@
       .catch(function () {});
   }
 
+  /* CSSOS_WAVE_113E 20260511 — Jing
+   * Schools data is loaded for the popover; the album row is hidden. */
+  state.schoolsData = [];
+
+  function toggleSchoolsPopover() {
+    var pop = document.getElementById("cssos-schools-popover");
+    if (pop) { pop.remove(); return; }
+    var groups = state.schoolsData || [];
+    if (!groups.length) return;
+    var locale = (globalThis.CSSOS_I18N && globalThis.CSSOS_I18N.getCurrentLocale && globalThis.CSSOS_I18N.getCurrentLocale()) || "en";
+    var isZh = /^zh/i.test(String(locale));
+    pop = document.createElement("div");
+    pop.id = "cssos-schools-popover";
+    pop.style.cssText = [
+      "position:fixed", "z-index:60",
+      "left:50%", "transform:translateX(-50%)",
+      "top:calc(var(--cssos-bar-top, 24px) + 56px)",
+      "max-width:min(92vw, 720px)",
+      "padding:8px",
+      "background:rgba(8,18,14,0.92)",
+      "backdrop-filter:blur(20px) saturate(140%)",
+      "-webkit-backdrop-filter:blur(20px) saturate(140%)",
+      "border:1px solid rgba(0,245,160,0.28)",
+      "border-radius:14px",
+      "box-shadow:0 12px 36px rgba(0,0,0,0.55)",
+      "display:flex", "flex-wrap:wrap", "gap:6px",
+      "max-height:min(60vh, 420px)", "overflow-y:auto"
+    ].join(";");
+    groups.forEach(function (g) {
+      var icon = (g.visual_theme && g.visual_theme.icon) ? String(g.visual_theme.icon) : "🏛";
+      var name = isZh ? (g.name_zh || g.name_en || g.group_id) : (g.name_en || g.name_zh || g.group_id);
+      var stats = "👥 " + (g.member_count || 0) + " · 🎼 " + (g.mv_count || 0);
+      var b = document.createElement("button");
+      b.type = "button";
+      b.dataset.groupId = g.group_id || "";
+      b.style.cssText = [
+        "display:inline-flex", "align-items:center", "gap:6px",
+        "padding:6px 10px", "border-radius:999px",
+        "background:rgba(0,245,160,0.10)", "color:#daffee",
+        "border:1px solid rgba(0,245,160,0.32)",
+        "font:600 12px/1 -apple-system,system-ui,sans-serif",
+        "cursor:pointer", "white-space:nowrap"
+      ].join(";");
+      b.innerHTML = "<span>" + icon + "</span><span>" + escapeHtml(name) +
+        "</span><span style='opacity:.7;font-weight:500;font-size:10.5px;'>" +
+        escapeHtml(stats) + "</span>";
+      b.addEventListener("click", function () {
+        if (typeof globalThis.openPersonMvGroup === "function") {
+          try { globalThis.openPersonMvGroup(g.group_id); } catch (_) {}
+        }
+        pop.remove();
+      });
+      pop.appendChild(b);
+    });
+    document.body.appendChild(pop);
+    /* Outside-click closes. */
+    setTimeout(function () {
+      var off = function (e) {
+        if (!pop.contains(e.target) && !e.target.closest('[data-tab="schools"]')) {
+          pop.remove();
+          document.removeEventListener("pointerdown", off, true);
+        }
+      };
+      document.addEventListener("pointerdown", off, true);
+    }, 0);
+  }
   function renderSchools(groups) {
+    state.schoolsData = Array.isArray(groups) ? groups.slice() : [];
+    if (state.schools) {
+      state.schools.innerHTML = "";
+      state.schools.style.display = "none";
+    }
+    return;
+    /* eslint-disable */
     if (!state.schools) return;
     var locale = (globalThis.CSSOS_I18N && globalThis.CSSOS_I18N.getCurrentLocale && globalThis.CSSOS_I18N.getCurrentLocale()) || "en";
     var isZh = /^zh/i.test(String(locale));
@@ -725,15 +811,15 @@
     var tip = document.getElementById(TOOLTIP_ID);
     if (tip) tip.setAttribute("data-anchor", anchor);
 
-    /* Position the close × at the top-right corner of the schools
-     * row's actual rendered bbox. We can't put it INSIDE the row
-     * (its overflow:auto would clip it), so it lives as a sibling
-     * fixed element and we sync its position here. */
-    if (state.closeBtn && state.schools) {
-      var sr = state.schools.getBoundingClientRect();
-      if (sr.width && sr.height) {
-        state.closeBtn.style.left = Math.round(sr.right - 28) + "px";
-        state.closeBtn.style.top = Math.round(sr.top - 8) + "px";
+    /* CSSOS_WAVE_113E 20260511 — Jing
+     * "关闭按钮放到刘海右上角". The close × now hugs the top-right
+     * corner of the activity bar (the "notch" / 刘海) itself,
+     * regardless of whether the schools row exists. */
+    if (state.closeBtn && state.bar) {
+      var br = state.bar.getBoundingClientRect();
+      if (br.width && br.height) {
+        state.closeBtn.style.left = Math.round(br.right - 26) + "px";
+        state.closeBtn.style.top = Math.round(br.top + 6) + "px";
       }
     }
   }

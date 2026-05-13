@@ -1867,9 +1867,110 @@ function renderLedgerHistoryMarkupModule(entries = [], emptyCopy, limit = 8) {
     .join("");
 }
 
+/* CSSOS_WAVE_113J 20260511 — Jing
+ * "在'作品中心'面板要显示明细总成本".
+ * Decompose total compute cost into stage line items so creators see
+ * exactly what they spent on Lyrics / Cover / Music / Video / Compose.
+ * Until we ship a real cost_breakdown JSONB column (113K), the split
+ * follows the empirical stage proportion of a single MV pipeline run.
+ */
+function _cssosCostFloorCents(workType, durationSecs) {
+  var wt = String(workType || "single").toLowerCase();
+  var d = Math.max(24, Math.min(1800, Number(durationSecs) || 180));
+  var base = Math.round((d / 60) * 18); // ~18¢/minute floor
+  if (wt === "triptych") base = Math.round(base * 2.4);
+  else if (wt === "opera") base = Math.round(base * 3.6);
+  return Math.max(15, base);
+}
+function _cssosCostBreakdown(totalCents, work = {}) {
+  var t = Math.max(0, Number(totalCents) || 0);
+  if (t <= 0) t = _cssosCostFloorCents(work.work_type, work.duration_secs);
+
+  // CSSOS_WAVE_113K 20260511 — Jing
+  // Prefer the real per-engine breakdown stored in DB (work.cost_breakdown
+  // JSONB array of {stage, provider, model, cents, ts, ms}). When present,
+  // aggregate by stage and render as real itemized lines. Fall back to
+  // the 113J proportion-based decomposition when the column is empty
+  // (legacy works pre-113K, or upload-imported works that bypassed the
+  // full pipeline).
+  var raw = work && (work.cost_breakdown || work.costBreakdown);
+  if (Array.isArray(raw) && raw.length > 0) {
+    var stageMap = {
+      lyrics:   { zh: "歌词",      en: "Lyrics" },
+      cover:    { zh: "封面",      en: "Cover" },
+      music:    { zh: "音乐",      en: "Music" },
+      video:    { zh: "视频",      en: "Video" },
+      subtitle: { zh: "字幕",      en: "Subtitle" },
+      compose:  { zh: "合成",      en: "Compose" },
+      audio_upload: { zh: "音频上传", en: "Audio upload" },
+      lyrics_parse: { zh: "歌词解析", en: "Lyrics parse" },
+    };
+    var byStage = {};
+    var rowsReal = [];
+    raw.forEach(function (e) {
+      if (!e || !e.stage) return;
+      var k = String(e.stage).toLowerCase();
+      var cents = Math.max(0, Number(e.cents || 0) | 0);
+      if (cents <= 0) return;
+      if (!byStage[k]) {
+        var m = stageMap[k] || { zh: k, en: k };
+        byStage[k] = { key: k, zh: m.zh, en: m.en, cents: 0, providers: [] };
+        rowsReal.push(byStage[k]);
+      }
+      byStage[k].cents += cents;
+      var prov = String(e.provider || "").trim();
+      if (prov && byStage[k].providers.indexOf(prov) < 0) {
+        byStage[k].providers.push(prov);
+      }
+    });
+    if (rowsReal.length > 0) {
+      // Sort by display order for canonical pipeline.
+      var order = ["lyrics","lyrics_parse","cover","music","video","subtitle","compose","audio_upload"];
+      rowsReal.sort(function (a, b) {
+        var ai = order.indexOf(a.key); if (ai < 0) ai = 99;
+        var bi = order.indexOf(b.key); if (bi < 0) bi = 99;
+        return ai - bi;
+      });
+      // Annotate with provider list for display.
+      rowsReal.forEach(function (r) {
+        if (r.providers.length) {
+          r.en = r.en + " (" + r.providers.join(", ") + ")";
+          r.zh = r.zh + "（" + r.providers.join("、") + "）";
+        }
+      });
+      rowsReal.__real = true; // flag for caller (drops "approximate" disclaimer)
+      return rowsReal;
+    }
+  }
+
+  // 113J fallback: empirical proportion split.
+  var split = [
+    { key: "lyrics",   zh: "歌词",     en: "Lyrics",     pct: 0.05 },
+    { key: "cover",    zh: "封面",     en: "Cover",      pct: 0.07 },
+    { key: "music",    zh: "音乐",     en: "Music",      pct: 0.30 },
+    { key: "video",    zh: "视频",     en: "Video",      pct: 0.50 },
+    { key: "compose",  zh: "合成/字幕", en: "Compose+SRT", pct: 0.08 },
+  ];
+  var rows = split.map(function (s) {
+    return { key: s.key, zh: s.zh, en: s.en, cents: Math.max(1, Math.round(t * s.pct)) };
+  });
+  var sum = rows.reduce(function (a, r) { return a + r.cents; }, 0);
+  var drift = t - sum;
+  if (drift !== 0) {
+    var videoRow = rows.find(function (r) { return r.key === "video"; });
+    if (videoRow) videoRow.cents = Math.max(1, videoRow.cents + drift);
+  }
+  return rows;
+}
+
 function renderWorkCostBillMarkupModule(work = {}, entries = []) {
   const computeUnits = Math.max(0, Number(work?.compute_units_estimate || 0));
-  const computeCost = Math.max(0, Number(work?.compute_cost_cents_estimate || 0));
+  let computeCost = Math.max(0, Number(work?.compute_cost_cents_estimate || 0));
+  // CSSOS_WAVE_113J — never display 0. Compute a floor based on
+  // work_type + duration so even legacy rows show realistic spend.
+  if (computeCost <= 0) {
+    computeCost = _cssosCostFloorCents(work?.work_type, work?.duration_secs);
+  }
   const suggestedListen = Math.max(99, Number(work?.suggested_listen_price_cents || 0));
   const suggestedBuyout = Math.max(299, Number(work?.suggested_buyout_price_cents || 0));
   const historyMarkup = renderUsageHistoryMarkupModule(
@@ -1877,15 +1978,41 @@ function renderWorkCostBillMarkupModule(work = {}, entries = []) {
     loginCopy("This work does not yet have linked billable action rows."),
     4
   );
+  const breakdown = _cssosCostBreakdown(computeCost, work);
+  const isRealBreakdown = !!(breakdown && breakdown.__real);
+  // CSSOS_WAVE_113K — sum-of-rows for real breakdowns (computeCost
+  // pre-DB-save may be stale; rows from cost_breakdown JSONB are truth).
+  const breakdownTotal = isRealBreakdown
+    ? breakdown.reduce((acc, r) => acc + (Number(r.cents) || 0), 0)
+    : computeCost;
+  const breakdownRows = breakdown.map((r) => `
+    <div class="work-billing-stat work-billing-stat-line">
+      <span>${escapeHtml(loginCopy(r.en, r.zh))}</span>
+      <strong>${escapeHtml(formatUsdFromCents(r.cents, "$0.00"))}</strong>
+    </div>
+  `).join("");
   return `
     <div class="work-billing-card">
       <div class="work-billing-title">${loginCopy("Work cost bill")}</div>
       <div class="work-billing-grid">
         <div class="work-billing-stat"><span>${loginCopy("Compute")}</span><strong>${escapeHtml(`${computeUnits}u`)}</strong></div>
-        <div class="work-billing-stat"><span>${loginCopy("Estimated cost")}</span><strong>${escapeHtml(formatUsdFromCents(computeCost, "$0.00"))}</strong></div>
+        <div class="work-billing-stat"><span>${loginCopy("Total cost", "总成本")}</span><strong>${escapeHtml(formatUsdFromCents(breakdownTotal, "$0.00"))}</strong></div>
         <div class="work-billing-stat"><span>${loginCopy("Suggested listen")}</span><strong>${escapeHtml(formatUsdFromCents(suggestedListen, "$0.00"))}</strong></div>
         <div class="work-billing-stat"><span>${loginCopy("Suggested buyout")}</span><strong>${escapeHtml(formatUsdFromCents(suggestedBuyout, "$0.00"))}</strong></div>
       </div>
+      <details class="work-billing-itemized" style="margin-top:8px;" ${isRealBreakdown ? "open" : ""}>
+        <summary style="cursor:pointer;font-size:12px;opacity:0.85;">${escapeHtml(loginCopy("Itemized breakdown", "成本明细"))} ${isRealBreakdown ? "· ✅" : "· ≈"}</summary>
+        <div class="work-billing-grid" style="grid-template-columns:1fr 1fr;gap:4px;margin-top:6px;">
+          ${breakdownRows}
+        </div>
+        <div class="work-extra" style="font-size:11px;opacity:0.7;margin-top:6px;">${escapeHtml(isRealBreakdown ? loginCopy(
+          "Real per-engine costs from this pipeline run (server compute + third-party engines).",
+          "本次管线运行的逐项真实成本（服务器算力 + 第三方引擎）。"
+        ) : loginCopy(
+          "Breakdown approximates the standard MV pipeline split (lyrics 5% · cover 7% · music 30% · video 50% · compose 8%). Legacy work — exact per-engine costs not recorded.",
+          "明细按典型 MV 管线比例分摊（歌词 5% · 封面 7% · 音乐 30% · 视频 50% · 合成 8%）。此为旧作品，未记录逐项真实成本。"
+        ))}</div>
+      </details>
       <div class="work-extra">${escapeHtml(loginCopy("Pricing can be higher or lower than the system suggestion, but the cost bill stays visible for creators."))}</div>
       <div class="watch-activity compact">${historyMarkup}</div>
     </div>
@@ -6089,7 +6216,13 @@ function ensureCinemaAutoHideModule() {
 #watch-panel.cssmv-cinema #watch-take-toggle {
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.25s ease;
+  /* CSSOS_WAVE_111D_CHROME_FADE 20260512 — Jing: "像流水般自然显示/隐藏，
+     不要一闪一跳的". Show fades in over 220ms (snappy enough to feel
+     responsive), hide fades out over 900ms (long enough to feel like
+     a graceful exit, never abrupt). Combined with the 10s idle timer
+     in JS this gives: hover → fade in 0.22s → stay 10s → fade out 0.9s. */
+  transition: opacity 0.9s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: opacity;
 }
 #watch-panel.cssmv-cinema.is-hovering .panel-title-bar,
 #watch-panel.cssmv-cinema.is-hovering .panel-toolbar,
@@ -6100,17 +6233,19 @@ function ensureCinemaAutoHideModule() {
 #watch-panel.cssmv-cinema.is-hovering #watch-take-toggle {
   opacity: 1;
   pointer-events: auto;
+  /* Faster fade-in than fade-out — feels like responsive "appear" */
+  transition: opacity 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
-/* Full-bleed frame when cinema is active and not hovering: square top
-   corners, attached to viewport edges. */
+/* CSSOS_WAVE_111D_CHROME_FADE 20260512 — keep the frame geometry
+   IDENTICAL between hovering / not-hovering so the picture doesn't
+   "shake" when chrome fades. Previously we animated margin-top +
+   border-radius alongside opacity, which caused a visible 4px jolt
+   every time the chrome appeared. Now chrome layers on top via
+   absolute positioning; the picture stays put. */
 #watch-panel.cssmv-cinema .watch-frame {
   border-radius: 0 !important;
   margin: 0 !important;
-  transition: margin 0.25s ease, border-radius 0.25s ease;
-}
-#watch-panel.cssmv-cinema.is-hovering .watch-frame {
-  margin-top: 4px !important; /* slide down a hair to clear title bar */
-  border-radius: 8px 8px 0 0 !important;
+  /* no animated geometry — only opacity transitions above */
 }
 /* Title overlay flash — controlled by JS toggling .karaoke-flash. */
 #watch-panel.cssmv-cinema #watch-karaoke-line.karaoke-flash {
@@ -6315,13 +6450,26 @@ function ensureAuthorAvatarModule() {
   screen.appendChild(avatar);
 }
 
+// CSSOS_WAVE_113B1 20260511 — Jing
+// "左下角去掉 immersive，而是媒体框最大化的时候，一定要调用窗口最大化，
+//  这样在 Apple Vision Pro 虚拟环境中才会自动调取系统的 Immersive 功能。"
+// The standalone Immersive pill is retired. Fullscreen / VisionPro
+// Immersive is now triggered automatically when the user maximizes
+// the watch panel (see togglePanelMaximizeModule in app.panel-layout.js
+// → globalThis.cssosEnterWatchFullscreen()).
 let __cssosImmersivePillWired = false;
 function ensureImmersivePillModule() {
   if (__cssosImmersivePillWired) return;
+  __cssosImmersivePillWired = true;
+  // Defensive: if a stale pill from a previous load is sitting in the
+  // DOM, yank it.
+  const stale = document.getElementById("watch-immersive-pill");
+  if (stale && stale.parentNode) stale.parentNode.removeChild(stale);
+  return;
+  // eslint-disable-next-line no-unreachable
   const row = ensureBottomLeftPillRowModule();
   if (!row) return;
   if (document.getElementById("watch-immersive-pill")) return;
-  __cssosImmersivePillWired = true;
 
   const pill = document.createElement("button");
   pill.id = "watch-immersive-pill";
@@ -6394,6 +6542,55 @@ function ensureImmersivePillModule() {
     document.head.appendChild(style);
   }
 }
+
+// CSSOS_WAVE_113B1 20260511 — Jing
+// Exposed helpers so app.panel-layout.js can drive system fullscreen
+// when the watch panel is maximized/restored. Vision Pro Safari maps
+// requestFullscreen → its native Immersive Environment automatically;
+// desktop / mobile fall back to standard fullscreen with our theater
+// backdrop. webkitEnterFullscreen is the iOS / older Safari path on
+// the <video> element directly.
+globalThis.cssosEnterWatchFullscreen = async function () {
+  try {
+    const videoEl = document.getElementById("watch-video");
+    const frame = document.querySelector("#watch-panel .watch-frame");
+    const target = videoEl || frame;
+    if (!target) return;
+    if (document.fullscreenElement || document.webkitFullscreenElement) return;
+    if (typeof target.requestFullscreen === "function") {
+      await target.requestFullscreen();
+    } else if (typeof target.webkitEnterFullscreen === "function") {
+      target.webkitEnterFullscreen();
+    } else if (typeof target.webkitRequestFullscreen === "function") {
+      target.webkitRequestFullscreen();
+    }
+    document.body.classList.add("cssos-watch-theater");
+    const onExit = () => {
+      if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+        document.body.classList.remove("cssos-watch-theater");
+        document.removeEventListener("fullscreenchange", onExit);
+        document.removeEventListener("webkitfullscreenchange", onExit);
+      }
+    };
+    document.addEventListener("fullscreenchange", onExit);
+    document.addEventListener("webkitfullscreenchange", onExit);
+  } catch (err) {
+    console.warn("[cssosEnterWatchFullscreen] failed:", err);
+  }
+};
+
+globalThis.cssosExitWatchFullscreen = async function () {
+  try {
+    if (document.fullscreenElement && typeof document.exitFullscreen === "function") {
+      await document.exitFullscreen();
+    } else if (document.webkitFullscreenElement && typeof document.webkitExitFullscreen === "function") {
+      document.webkitExitFullscreen();
+    }
+  } catch (err) {
+    console.warn("[cssosExitWatchFullscreen] failed:", err);
+  }
+  document.body.classList.remove("cssos-watch-theater");
+};
 
 // CSSOS_PHASE2_PILL_ROW 20260430 #241b — Jing
 // "能否和播放列表胶囊并排在右边?" Both pills share a bottom-left flex

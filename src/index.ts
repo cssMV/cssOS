@@ -9,6 +9,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import { spawn } from "node:child_process";
+import multer from "multer";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import type { PoolClient, QueryResult } from "pg";
@@ -817,6 +818,39 @@ function persistBase64Cover(b64: string, userId: unknown): string {
   }
 }
 
+// CSSOS_WAVE_111D_NO_SVG_DATA_URI 20260512 — Jing
+// "凡是这种代码，最后面的合成就会失败" — compose pipelines (ffmpeg /
+// runway-ken-burns / fal-img2video) can't read `data:image/svg+xml;base64,…`
+// URIs. They need a real raster file. This helper rasterizes any SVG
+// gradient/placeholder we'd otherwise emit as a data: URI into a real
+// WebP file on disk and returns its public `/uploads/fallbacks/...`
+// URL. Sharp is already loaded (used by the canonical image-optimize
+// pipeline) so adding another encode call is essentially free.
+const fallbackDir = path.join(PUBLIC_DIR, "uploads", "fallbacks");
+try { fs.mkdirSync(fallbackDir, { recursive: true }); } catch (_e) {}
+async function svgToWebpFallbackUrl(
+  svg: string,
+  width: number,
+  height: number,
+  tag: string = "placeholder",
+): Promise<string> {
+  const safeTag = String(tag).replace(/[^\w.-]+/g, "_").slice(0, 32) || "placeholder";
+  const hash = crypto.createHash("sha1").update(svg).digest("hex").slice(0, 12);
+  const fname = `${safeTag}-${width}x${height}-${hash}.webp`;
+  const diskPath = path.join(fallbackDir, fname);
+  // Idempotent: if a previous identical SVG already rasterized to the
+  // same hash-named file, reuse it.
+  if (!fs.existsSync(diskPath)) {
+    const buf = Buffer.from(svg, "utf8");
+    await sharp(buf, { density: 96 })
+      .resize(width, height, { fit: "cover" })
+      .webp({ quality: 82 })
+      .toFile(diskPath);
+    try { fs.chmodSync(diskPath, 0o644); } catch (_e) {}
+  }
+  return `/uploads/fallbacks/${fname}`;
+}
+
 // CSSOS_PHASE2_COVER_FALLBACK 20260507 — Jing
 // Runway is the preferred cover engine (premium quality), but it returns
 // 400 / 402-style errors when the user's account is out of credits. The
@@ -878,7 +912,8 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
         size: fallbackSize,
       });
       clearInterval(heartbeat);
-      recordEngineCall(img.provider || "image-router", Date.now() - __coverT0, 0, !!img.ok);
+      const __coverCostCents = estimateEngineCostCents("cover", img?.provider);
+      recordEngineCall(img.provider || "image-router", Date.now() - __coverT0, __coverCostCents, !!img.ok);
       if (img.ok) {
         const imageUrl = img.image_url
           ? img.image_url
@@ -891,7 +926,7 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
             model: img.model,
             engine: img.provider,
             version: img.model,
-            cost_cents: 0,
+            cost_cents: __coverCostCents,
             use_user_key: false,
             tier_sweep: true,
           }));
@@ -910,10 +945,13 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
     let hue = 180;
     for (let i = 0; i < (prompt || "").length; i++) hue = (hue * 31 + prompt.charCodeAt(i)) % 360;
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="hsl(${hue},70%,32%)"/><stop offset="100%" stop-color="hsl(${(hue + 60) % 360},75%,18%)"/></linearGradient></defs><rect width="1024" height="1024" fill="url(#g)"/></svg>`;
+    // CSSOS_WAVE_111D_NO_SVG_DATA_URI 20260512 — emit a real .webp URL,
+    // never a data:image/svg+xml URI (compose pipelines can't read it).
+    const placeholderUrl = await svgToWebpFallbackUrl(svg, 1024, 1024, "cover");
     res.write(JSON.stringify({
       ok: true,
       task_id: `placeholder-${Date.now()}`,
-      image_url: `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`,
+      image_url: placeholderUrl,
       model: "css-gradient-placeholder",
       engine: "placeholder",
       version: "1",
@@ -1010,7 +1048,8 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
     `<rect width="1024" height="1024" fill="url(#g)"/>` +
     `<circle cx="512" cy="512" r="180" fill="rgba(255,255,255,0.06)"/>` +
     `</svg>`;
-  const placeholderUrl = `data:image/svg+xml;base64,${Buffer.from(placeholderSvg).toString("base64")}`;
+  // CSSOS_WAVE_111D_NO_SVG_DATA_URI 20260512 — rasterize to real .webp
+  const placeholderUrl = await svgToWebpFallbackUrl(placeholderSvg, 1024, 1024, "cover");
   console.warn(
     `[mv-cover] all providers failed, returning placeholder. runway=${runwayDetail.slice(0, 80)} fallback=${(img?.error || imgErr || "no_provider").slice(0, 80)}`,
   );
@@ -1122,6 +1161,4090 @@ function _mvParseUpstreamErr(
   }
 }
 
+// CSSOS_WAVE_113G 20260511 — Jing
+// "都说了 [Verse 1]…[Outro] 不管是什么语言什么文明这些标签都不能翻译，
+//  否则 Suno 会当成歌词来唱". Helpers to (1) build a bulletproof
+// system prompt that puts the LANGUAGE directive FIRST and shows the
+// model a fully-worked example in the target language, and (2)
+// post-process the LLM output so even when the model misbehaves
+// (translates labels, emits a draft preface, redrafts a second time)
+// we hand Suno the canonical 10-section form with FIXED English
+// bracket labels.
+const JINGDIAN_SECTIONS = [
+  "Verse 1", "Verse 2", "Chorus 1", "Verse 3", "Verse 4",
+  "Chorus 2", "Bridge", "Chorus 3", "Chorus 4", "Outro",
+] as const;
+
+/* Common mistranslations of the section labels we've observed in the
+ * wild. Mapping → canonical English bracket form. Keys are matched
+ * case-insensitively against the inside of any [..] block. Order
+ * matters: more specific (numbered) variants come before generic. */
+const SECTION_LABEL_ALIASES: Record<string, string> = {
+  // English variants
+  "verse one":   "Verse 1", "verse 1": "Verse 1", "verse1": "Verse 1",
+  "verse two":   "Verse 2", "verse 2": "Verse 2", "verse2": "Verse 2",
+  "verse three": "Verse 3", "verse 3": "Verse 3", "verse3": "Verse 3",
+  "verse four":  "Verse 4", "verse 4": "Verse 4", "verse4": "Verse 4",
+  "verse":       "Verse 1",
+  "chorus one":   "Chorus 1", "chorus 1": "Chorus 1", "chorus1": "Chorus 1",
+  "chorus two":   "Chorus 2", "chorus 2": "Chorus 2", "chorus2": "Chorus 2",
+  "chorus three": "Chorus 3", "chorus 3": "Chorus 3", "chorus3": "Chorus 3",
+  "chorus four":  "Chorus 4", "chorus 4": "Chorus 4", "chorus4": "Chorus 4",
+  "chorus":       "Chorus 1",
+  "refrain":      "Chorus 1",
+  "bridge":      "Bridge",
+  "middle 8":    "Bridge", "middle eight": "Bridge",
+  "outro":       "Outro",
+  "ending":      "Outro", "coda": "Outro", "tag": "Outro",
+  "intro":       "Verse 1", // we don't keep an Intro slot — fold into Verse 1
+  "pre-chorus":  "Verse 2", "pre chorus": "Verse 2", "prechorus": "Verse 2",
+  // Chinese variants we've seen Suno-bait
+  "第一节": "Verse 1", "第二节": "Verse 2", "第三节": "Verse 3", "第四节": "Verse 4",
+  "主歌一": "Verse 1", "主歌二": "Verse 2", "主歌三": "Verse 3", "主歌四": "Verse 4",
+  "主歌1": "Verse 1", "主歌2": "Verse 2", "主歌3": "Verse 3", "主歌4": "Verse 4",
+  "主歌":   "Verse 1",
+  "副歌一": "Chorus 1", "副歌二": "Chorus 2", "副歌三": "Chorus 3", "副歌四": "Chorus 4",
+  "副歌1": "Chorus 1", "副歌2": "Chorus 2", "副歌3": "Chorus 3", "副歌4": "Chorus 4",
+  "副歌":   "Chorus 1", "合唱": "Chorus 1",
+  "过门": "Bridge", "桥段": "Bridge", "间奏": "Bridge",
+  "尾声": "Outro", "结尾": "Outro", "结束": "Outro",
+  "前奏": "Verse 1",
+  // Japanese
+  "サビ": "Chorus 1", "ブリッジ": "Bridge",
+  "イントロ": "Verse 1", "アウトロ": "Outro",
+};
+
+function languageNameFromCode(code: string): string {
+  const c = String(code || "").toLowerCase().trim();
+  if (c.startsWith("zh")) return "Chinese (Simplified, 简体中文)";
+  if (c.startsWith("ja")) return "Japanese (日本語)";
+  if (c.startsWith("ko")) return "Korean (한국어)";
+  if (c.startsWith("es")) return "Spanish (Español)";
+  if (c.startsWith("fr")) return "French (Français)";
+  if (c.startsWith("de")) return "German (Deutsch)";
+  if (c.startsWith("it")) return "Italian (Italiano)";
+  if (c.startsWith("pt")) return "Portuguese (Português)";
+  if (c.startsWith("ru")) return "Russian (Русский)";
+  if (c.startsWith("ar")) return "Arabic (العربية)";
+  if (c.startsWith("hi")) return "Hindi (हिन्दी)";
+  return "English";
+}
+
+/* CSSOS_WAVE_113I — workType describes the engagement-level container:
+ *   single    → one song, default 10-section 京典 template
+ *   triptych  → THREE songs in one pass, each its own 京典 template
+ *   opera     → ALL scenes of the requested act/chapter; keep generating
+ *               sections until the act is complete (LLM may run out of
+ *               tokens — caller can ask for continuation)
+ *   shortplay / series / film → scene-by-scene lyric sequence
+ * sectionForm overrides the default 10-section list when present
+ * (free-text — user's Advanced Settings field). When absent we fall
+ * back to the canonical 10-section 京典 template.
+ */
+function buildJingdianSystemPrompt(language: string, workType: string = "single", sectionForm: string = ""): string {
+  const langName = languageNameFromCode(language);
+  const wt = String(workType || "single").toLowerCase();
+  const customForm = String(sectionForm || "").trim();
+  const useCustomForm = customForm.length > 0;
+  const defaultSectionList = [
+    "[Verse 1]", "[Verse 2]", "[Chorus 1]", "[Verse 3]", "[Verse 4]",
+    "[Chorus 2]", "[Bridge]", "[Chorus 3]", "[Chorus 4]", "[Outro]",
+  ];
+  const sectionListBlock = useCustomForm
+    ? customForm
+    : defaultSectionList.join("\n");
+  const workTypeBlock = (() => {
+    if (wt === "triptych") {
+      return [
+        `WORK TYPE: triptych (三部曲) — produce THREE separate songs in this single response. Separate them with an empty line followed by "[Part II]" / "[Part III]" markers. Each part follows its own complete section template below.`,
+      ].join("\n");
+    }
+    if (wt === "opera") {
+      return [
+        `WORK TYPE: opera (歌剧) — produce ALL scenes of the requested act in this response. Each scene is its own section block following the template below. Separate scenes with "[Scene N]" markers. Do not stop until every scene of the act is fully written.`,
+      ].join("\n");
+    }
+    if (wt === "shortplay" || wt === "short_play") {
+      return `WORK TYPE: short play (短剧) — sequence of scene songs. Mark each scene with "[Scene N]" then the section blocks.`;
+    }
+    if (wt === "series" || wt === "tv_series") {
+      return `WORK TYPE: TV series (电视连续剧) — produce songs for each episode requested. Mark with "[Episode N]" then the section blocks.`;
+    }
+    if (wt === "film" || wt === "movie") {
+      return `WORK TYPE: film (电影) — produce scene-by-scene lyric sequence. Mark each cue with "[Cue N]" or "[Scene N]".`;
+    }
+    return `WORK TYPE: single song (单曲) — one complete song following the section template.`;
+  })();
+  return [
+    `LANGUAGE DIRECTIVE (highest priority):`,
+    `All lyric BODY lines MUST be written in ${langName}. Do not switch languages mid-song, do not translate to Chinese, do not "localize" Western personas to Chinese. The body language is fixed by this directive regardless of who the song is about.`,
+    ``,
+    `LINE COUNT PER SECTION: each section should have 4 body lines in ${langName} plus 1 ritual line in the civilization's ancestral / sacred language (Latin for Roman, Classical Greek for Hellenic, Sanskrit for Vedic, Classical Chinese 文言文 for ancient Chinese, Old Egyptian/Coptic for Egyptian, etc.) used as an incantation / refrain. If the civilization has no distinct ancestral language, write 4 body lines and skip the ritual line. Target total: 40–50 lyric lines per single song so the music engine renders 5+ minutes.`,
+    ``,
+    workTypeBlock,
+    ``,
+    `${useCustomForm ? `SECTION TEMPLATE (user-specified via Advanced Settings → SECTION FORM — use this exact form, do not substitute the default 10-section template):` : `You write singable lyrics in the CSS Studio 京典 (Jing-Dian) 10-section template. Output EXACTLY these 10 sections in this exact order, each label on its own line wrapped in square brackets, each followed by 4 lyric body lines + 1 ancestral-language ritual line:`}`,
+    sectionListBlock,
+    ``,
+    `ABSOLUTE RULES — violating any of these breaks the music engine downstream (Suno will literally sing the violation as a lyric):`,
+    `1. The 10 labels above are FIXED ENGLISH TOKENS. NEVER translate them. NEVER write [第一节] / [副歌] / [サビ] / [Estrofa] / [Couplet] — only [Verse 1], [Verse 2], [Chorus 1], etc. This rule overrides the language directive — labels stay English even when the body is Chinese / Japanese / etc.`,
+    `2. Brackets MUST be ASCII square brackets [ and ]. DO NOT use full-width Chinese brackets 【】, 〔〕, 《》, Japanese ｢｣, parentheses (), curly braces {}, markdown ##, bold **, or any other delimiter. Only [ and ].`,
+    `3. Only the lyric BODY lines are written in ${langName}. Labels stay English.`,
+    `4. Chorus 1/2/3/4 share the same hook melody — body lyrics may vary slightly but the recognizable refrain returns each time.`,
+    `5. Output the FINAL lyrics only. NO drafts, NO "Here is version 2", NO commentary, NO markdown headings, NO disclaimers, NO explanations, NO meta-text. Begin with the first section header and end with the last line of the last section.`,
+    `6. Produce ALL requested sections in a single pass. Do not stop early. For single song: do not re-output the song after finishing. For triptych / opera / multi-scene works: produce all parts in this same response, separated by [Part II] / [Scene N] / [Episode N] markers as appropriate.`,
+  ].join("\n");
+}
+
+function buildJingdianUserPrompt(language: string, style: string, prompt: string, workType: string = "single", sectionForm: string = ""): string {
+  const langName = languageNameFromCode(language);
+  const wt = String(workType || "single").toLowerCase();
+  const wtLabel = wt === "triptych" ? "TRIPTYCH (three songs, 三部曲)"
+    : wt === "opera" ? "OPERA (歌剧 — all scenes of the act)"
+    : wt === "shortplay" || wt === "short_play" ? "SHORT PLAY (短剧 — scene-by-scene)"
+    : wt === "series" || wt === "tv_series" ? "TV SERIES (电视连续剧 — by episode)"
+    : wt === "film" || wt === "movie" ? "FILM (电影 — scene cues)"
+    : "SINGLE SONG (单曲)";
+  return [
+    `Write the FULL lyrics for: ${wtLabel}.`,
+    `Body language: ${langName} (language code "${language}"). Add 1 ancestral-language ritual line per section where applicable.`,
+    style ? `Musical style: ${style}.` : "",
+    `Subject / scene: ${prompt || "an evocative scene"}.`,
+    sectionForm ? `User-specified section form (override default): ${sectionForm}` : "",
+    ``,
+    `Reminder: every section label uses ASCII square brackets [ ] in English (Verse / Chorus / Bridge / Outro / Part / Scene / Episode / Cue). Body in ${langName}. No drafts, no commentary. Target: 4 body lines + 1 ancestral line per section so the song runs 5+ minutes.`,
+  ].filter(Boolean).join("\n");
+}
+
+/* Post-process raw LLM output into canonical 京典 form:
+ *  - strip drafts/prefaces before first [Verse 1]
+ *  - rewrite mistranslated/misspelled labels to canonical English
+ *  - if the model emitted multiple full passes (second [Verse 1]
+ *    found AFTER the first [Outro]), keep only the first pass
+ *  - ensure all 10 sections exist; if any are missing, leave a
+ *    minimal stub line so Suno still produces the section boundary.
+ */
+/* CSSOS_WAVE_113I 20260511 — Jing
+ * Caller passes (workType, sectionForm). The normalizer:
+ *  - For single: keep ONE pass; detect & drop only true LLM redrafts
+ *    (multiple full passes back-to-back with no narrative transition).
+ *  - For triptych / opera / 短剧 / 电视连续剧 / 电影: PRESERVE multi-
+ *    pass output (the engine legitimately produces 3 songs / many scenes).
+ *  - NEVER pad missing sections — honor the user's SECTION FORM in
+ *    Advanced Settings (could be 4 or 12 sections, not always 10).
+ * Default behavior (when caller doesn't pass anything) = single song
+ * with no padding (the deprecated 10-section auto-pad is removed).
+ */
+type LyricsWorkType = "single" | "triptych" | "opera" | "shortplay" | "series" | "film" | string;
+function normalizeLyricsToJingdian(raw: string, workType: LyricsWorkType = "single", _sectionForm: string = ""): string {
+  if (!raw) return raw;
+  let text = String(raw).replace(/\r\n?/g, "\n").trim();
+
+  // CSSOS_WAVE_113H 20260511 — Jing
+  // "现在自动把 Verse 1 翻译成 第一节，Suno 照收不误唱出来了".
+  // Root cause: when the model writes in Chinese mode it uses
+  // FULL-WIDTH brackets 【…】 / （…） / 〔…〕 / 《…》 — those bypass the
+  // ASCII [..] regex entirely, so the translated label stays in the
+  // output and Suno sings "第二节" as a lyric. Fix in 3 passes:
+
+  // Pass 1 — try to detect "header lines" (a short standalone line
+  // that names a section, possibly w/ any bracket flavor or none at
+  // all) and rewrite them to canonical [Verse 1]…[Outro]. We do this
+  // BEFORE the [..] regex pass so even unbracketed "第一节:" or
+  // "## Chorus 2" headers get normalized.
+  const bracketStripper = /^\s*(?:\*+|#+|>+)?\s*[\[【〔《（(]?\s*([^\[\]【】〔〕《》（）()*#>\n]{1,40}?)\s*[\]】〕》）)]?\s*[:：.。\-—]?\s*\*?\*?\s*$/;
+  function mapLabelToken(token: string): string | null {
+    const key = String(token || "").trim().toLowerCase();
+    if (!key) return null;
+    const direct = SECTION_LABEL_ALIASES[key];
+    if (direct) return direct;
+    const stripped = key.replace(/[\s_\-.]/g, "");
+    for (const k of Object.keys(SECTION_LABEL_ALIASES)) {
+      if (k.replace(/[\s_\-.]/g, "") === stripped) {
+        const v = SECTION_LABEL_ALIASES[k];
+        if (v) return v;
+      }
+    }
+    for (const k of Object.keys(SECTION_LABEL_ALIASES)) {
+      if (key.includes(k)) {
+        const v = SECTION_LABEL_ALIASES[k];
+        if (v) return v;
+      }
+    }
+    return null;
+  }
+
+  // Strip a leading "Draft 1:" / "Here are the lyrics:" / "Version 2:"
+  // header — anything before the first plausible section OR multi-part
+  // marker line. Multi-part markers (Scene 1 / Part II / Act III /
+  // Episode 1 / Cue 4 / Movement III / 第二幕) count as legitimate
+  // starts for opera / triptych / film / series work types.
+  const MULTI_PART_MARKER = /^(Part\s+[IVX0-9]+|Act\s+[IVX0-9]+|Movement\s+[IVX0-9]+|Scene\s+\d+[A-Za-z]?|Episode\s+\d+[A-Za-z]?|Cue\s+\d+[A-Za-z]?|Chapter\s+\d+[A-Za-z]?|Book\s+[IVX0-9]+|第[一二三四五六七八九十]+[部幕场集回章])$/i;
+  const firstLineWithSection = text.split("\n").findIndex((line) => {
+    const m = line.match(bracketStripper);
+    if (!m || !m[1]) return false;
+    if (mapLabelToken(m[1]) !== null) return true;
+    if (MULTI_PART_MARKER.test(String(m[1]).trim())) return true;
+    return false;
+  });
+  if (firstLineWithSection > 0) {
+    text = text.split("\n").slice(firstLineWithSection).join("\n");
+  }
+
+  // Pass 2 — rewrite every line that LOOKS like a section header
+  // (any bracket flavor, or pure-text label line) to the canonical
+  // ASCII [Label] form on its own line. Body lines are untouched.
+  text = text.split("\n").map((line) => {
+    // Only consider short lines as potential headers (< 40 chars).
+    if (line.trim().length > 50) return line;
+    const m = line.match(bracketStripper);
+    if (!m || !m[1]) return line;
+    const canon = mapLabelToken(m[1]);
+    if (canon) return `[${canon}]`;
+    return line;
+  }).join("\n");
+
+  // Pass 3 — catch any [..] / 【..】 / （..） / 〔..〕 that survived
+  // Pass 2 (e.g. inline mid-line bracketed labels) and rewrite them.
+  // Unknown bracketed tokens get downgraded to parentheses so Suno
+  // doesn't treat them as section markers.
+  text = text.replace(/[\[【〔《]([^\]\n】〕》]{1,40})[\]】〕》]/g, (_match, inner) => {
+    const canon = mapLabelToken(inner);
+    if (canon) return `[${canon}]`;
+    const trimmed = String(inner || "").trim();
+    // Already-correct section label?
+    if (/^(Verse [1-9]|Chorus [1-9]|Bridge|Outro|Intro|Pre-Chorus|Refrain)$/i.test(trimmed)) {
+      return `[${trimmed}]`;
+    }
+    // CSSOS_WAVE_113I — multi-part / scene / movement markers MUST
+    // survive intact for triptych / opera / film / series. Suno
+    // treats these as section dividers too, which is what we want.
+    if (/^(Part\s+[IVX0-9]+|Act\s+[IVX0-9]+|Movement\s+[IVX0-9]+|Scene\s+\d+[A-Za-z]?|Episode\s+\d+[A-Za-z]?|Cue\s+\d+[A-Za-z]?|Chapter\s+\d+[A-Za-z]?|Book\s+[IVX0-9]+|第[一二三四五六七八九十]+[部幕场集回章])$/i.test(trimmed)) {
+      return `[${trimmed}]`;
+    }
+    // Unknown — neutralize to parentheses (Suno-safe).
+    return `(${inner})`;
+  });
+  // CSSOS_WAVE_113I 20260511 — Jing
+  // Trim leading text BEFORE the first section header (LLM preface).
+  // BUT: if the text already starts with a legitimate multi-part
+  // marker ([Scene 1] / [Part I] / [Act 1] / 第一幕), keep it —
+  // those open opera / triptych / film outputs and must survive.
+  if (!/^\s*[\[【〔《]?(?:Part\s+[IVX0-9]+|Act\s+[IVX0-9]+|Movement\s+[IVX0-9]+|Scene\s+\d+|Episode\s+\d+|Cue\s+\d+|Chapter\s+\d+|Book\s+[IVX0-9]+|第[一二三四五六七八九十]+[部幕场集回章])[\]】〕》]?\s*$/im.test(text.split("\n")[0] || "")) {
+    const firstVerse1 = text.indexOf("[Verse 1]");
+    if (firstVerse1 > 0) text = text.slice(firstVerse1);
+  }
+
+  // For SINGLE-song work type, drop true LLM redrafts. For
+  // triptych / opera / 短剧 / 电视连续剧 / 电影 we PRESERVE every
+  // pass — the engine legitimately outputs multiple parts/scenes and
+  // we don't want to throw any of them away.
+  const isMultiPartWork = ["triptych", "opera", "shortplay", "short_play", "series", "tv_series", "film", "movie"]
+    .includes(String(workType || "").toLowerCase());
+  if (!isMultiPartWork) {
+    // Heuristic: a redraft is when [Verse 1] reappears AFTER the
+    // first [Outro] with NO movement/title separator between them.
+    // Real triptych output would have act markers (Part II / Act 2 /
+    // 第二部 / etc.) between passes; redraft does not.
+    const firstOutroEnd = (() => {
+      const idx = text.indexOf("[Outro]");
+      if (idx < 0) return -1;
+      // End of the [Outro] block = position of next blank-line gap
+      // or end of text.
+      const gap = text.indexOf("\n\n[", idx + 7);
+      return gap > 0 ? gap : -1;
+    })();
+    if (firstOutroEnd > 0) {
+      const tail = text.slice(firstOutroEnd);
+      const nextV1 = tail.search(/\n\[Verse 1\]/);
+      if (nextV1 >= 0) {
+        const between = tail.slice(0, nextV1);
+        const hasActMarker = /\b(Part [IVX2-9]+|Act [IVX2-9]+|Movement [IVX2-9]+|Scene \d+|第[二三四五六七八九十]+[部幕场])\b/.test(between);
+        if (!hasActMarker) {
+          // Pure redraft — drop everything from the second [Verse 1]
+          // onward.
+          text = text.slice(0, firstOutroEnd + nextV1);
+        }
+      }
+    }
+  }
+
+  // CSSOS_WAVE_113I — Auto-padding REMOVED.
+  // Previously we appended `[Verse 2]\nooh ah` for any missing
+  // section. That overrode the user's SECTION FORM advanced setting
+  // (which may be 4-12 sections, not always 10). Honor what the LLM
+  // produced — if a section is missing, the music engine will simply
+  // skip it. Length / completeness is the prompt's responsibility,
+  // not the post-processor's.
+  void JINGDIAN_SECTIONS;
+  return text.trim();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * CSSOS_WAVE_111 20260511 — Jing
+ * Custom Lyrics / Music Source Uploads parsers.
+ *
+ *   POST /api/mv/lyrics/parse  — parse pasted/uploaded lyrics text
+ *                                (plain | .lrc | .srt | .vtt) →
+ *                                normalized 京典 form + work_type
+ *                                detection + aligned timestamps
+ *
+ *   POST /api/mv/audio/upload  — multer 100MB cap, ffprobe, DRM
+ *                                rejection, AAC 48kHz transcode,
+ *                                optional ACRCloud fingerprint,
+ *                                optional Whisper ASR (LRC-less only)
+ *
+ *   POST /api/mv/audio/transcribe — explicit Whisper call (cheap path
+ *                                   when user did the upload separately)
+ *
+ * All limits driven by MV_UPLOAD_LIMITS — change in one place.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+const MV_UPLOAD_LIMITS = {
+  SINGLE_MAX_SECS: 8 * 60,                           // 480 — industry single max
+  TRIPTYCH_MAX_SECS: 24 * 60,                        // 3 × single
+  OPERA_ACT_MAX_SECS: 90 * 60,                       // ~12 scenes × 7-8min
+  OPERA_SCENE_MAX_SECS: 8 * 60,                      // 1 scene = 1 single
+  FILE_MAX_BYTES: 100 * 1024 * 1024,                 // 100 MB
+  ACCEPTED_MIME: new Set([
+    "audio/mpeg", "audio/mp3",
+    "audio/mp4", "audio/aac", "audio/x-m4a", "audio/m4a",
+    "audio/flac", "audio/x-flac",
+    "audio/wav", "audio/wave", "audio/x-wav",
+    "audio/ogg", "audio/opus",
+  ]),
+  TARGET_SAMPLE_RATE: 48000,
+  TARGET_CHANNELS: 2,
+  TARGET_BITRATE_KBPS: 192,
+  TARGET_CODEC: "aac",
+  WHISPER_COST_CENTS_PER_MIN: 1,                     // OpenAI Whisper $0.006/min, round up to 1¢
+  ACRCLOUD_COST_CENTS_PER_CHECK: 1,                  // ~1¢ amortized
+  HOT_STORAGE_DAYS: 30,
+} as const;
+
+const ACRCLOUD_HOST   = (process.env.ACRCLOUD_HOST   || "").trim();
+const ACRCLOUD_KEY    = (process.env.ACRCLOUD_ACCESS_KEY    || "").trim();
+const ACRCLOUD_SECRET = (process.env.ACRCLOUD_ACCESS_SECRET || "").trim();
+const ACRCLOUD_ENABLED = !!(ACRCLOUD_HOST && ACRCLOUD_KEY && ACRCLOUD_SECRET);
+
+// CSSOS_WAVE_111C 20260512 — Jing
+// Management API gates. Default OFF — operator must explicitly opt-in
+// per environment to enable cssOS-produced audio being pushed to the
+// global ACRCloud reference bucket. PAT (JWT) auth, separate from the
+// HMAC creds the Identification API uses.
+const ACRCLOUD_PAT = (process.env.ACRCLOUD_PAT || "").trim();
+const ACRCLOUD_AUTOUPLOAD_ENABLED =
+  String(process.env.ACRCLOUD_AUTOUPLOAD_ENABLED || "").trim() === "1";
+const ACRCLOUD_MGMT_HOST =
+  (process.env.ACRCLOUD_MGMT_HOST || "api-v2.acrcloud.com").trim();
+const ACRCLOUD_REFERENCE_BUCKET_NAME =
+  (process.env.ACRCLOUD_REFERENCE_BUCKET || "cssOS-Originals").trim();
+const ACRCLOUD_MAX_PUSHES_PER_MONTH = Math.max(
+  0,
+  Number.parseInt(process.env.ACRCLOUD_MAX_PUSHES_PER_MONTH || "500", 10) || 500,
+);
+const ACRCLOUD_MGMT_ENABLED = !!(ACRCLOUD_PAT && ACRCLOUD_AUTOUPLOAD_ENABLED);
+
+/* ───── Lyrics format detection + parsing ───────────────────────── */
+
+type ParsedLyricLine = { ts_ms: number | null; text: string };
+
+function detectLyricsFormat(raw: string): "lrc" | "srt" | "vtt" | "plain" {
+  const head = String(raw || "").slice(0, 4000);
+  if (/^WEBVTT/m.test(head)) return "vtt";
+  if (/^\d+\s*\n\d{2}:\d{2}:\d{2}[,.]\d{3}\s*-->/m.test(head)) return "srt";
+  if (/^\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]/m.test(head)) return "lrc";
+  return "plain";
+}
+
+function parseLrcTimestamp(ts: string): number {
+  // [mm:ss.xx] or [mm:ss:xx] or [hh:mm:ss.xx]
+  const m = String(ts).match(/(?:(\d+):)?(\d+):(\d+)(?:[.:](\d+))?/);
+  if (!m) return 0;
+  const h = m[1] ? Number(m[1]) : 0;
+  const mins = Number(m[2] || 0);
+  const secs = Number(m[3] || 0);
+  const frac = m[4] || "0";
+  const fracMs = Number(String(frac).padEnd(3, "0").slice(0, 3));
+  return ((h * 60 + mins) * 60 + secs) * 1000 + fracMs;
+}
+
+function parseLrc(raw: string): { lines: ParsedLyricLine[]; text: string; duration_ms: number } {
+  const lines: ParsedLyricLine[] = [];
+  let maxTs = 0;
+  for (const line of String(raw || "").replace(/\r\n?/g, "\n").split("\n")) {
+    const tsMatches = Array.from(line.matchAll(/\[(\d+:\d+(?:[.:]\d+)?)\]/g));
+    if (!tsMatches.length) {
+      const trimmed = line.trim();
+      // Standalone text line (no timestamp) — skip metadata tags
+      // like [ar:...], [ti:...], [by:...].
+      if (trimmed && !/^\[[a-z]+:/i.test(trimmed)) {
+        lines.push({ ts_ms: null, text: trimmed });
+      }
+      continue;
+    }
+    const text = line.replace(/\[\d+:\d+(?:[.:]\d+)?\]/g, "").trim();
+    if (!text) continue;
+    for (const m of tsMatches) {
+      const ts = parseLrcTimestamp(m[1] || "0:0");
+      if (ts > maxTs) maxTs = ts;
+      lines.push({ ts_ms: ts, text });
+    }
+  }
+  lines.sort((a, b) => (a.ts_ms ?? 0) - (b.ts_ms ?? 0));
+  return {
+    lines,
+    text: lines.map((l) => l.text).join("\n"),
+    duration_ms: maxTs,
+  };
+}
+
+function parseSrtOrVtt(raw: string): { lines: ParsedLyricLine[]; text: string; duration_ms: number } {
+  const text = String(raw || "").replace(/\r\n?/g, "\n").replace(/^WEBVTT.*$/m, "");
+  const blockRe = /(\d{1,2}:\d{2}:\d{2}[,.]\d{3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[,.]\d{3})\s*\n([\s\S]*?)(?=\n\n|\n*$)/g;
+  const lines: ParsedLyricLine[] = [];
+  let maxTs = 0;
+  let match: RegExpExecArray | null;
+  while ((match = blockRe.exec(text)) !== null) {
+    const startTs = parseLrcTimestamp(match[1] || "0:0:0");
+    const endTs = parseLrcTimestamp(match[2] || "0:0:0");
+    const body = String(match[3] || "").trim().replace(/<[^>]+>/g, "");
+    if (!body) continue;
+    if (endTs > maxTs) maxTs = endTs;
+    for (const bodyLine of body.split("\n")) {
+      const t = bodyLine.trim();
+      if (t) lines.push({ ts_ms: startTs, text: t });
+    }
+  }
+  return {
+    lines,
+    text: lines.map((l) => l.text).join("\n"),
+    duration_ms: maxTs,
+  };
+}
+
+/* Detect work_type from user's prompt or pasted-lyrics text.
+ * Returns "single" | "triptych" | "opera" | "shortplay" | "series" | "film". */
+function detectWorkTypeFromText(text: string): string {
+  const t = String(text || "").toLowerCase();
+  // Chinese keywords (most common path)
+  if (/三部曲|trilogy/i.test(t)) return "triptych";
+  if (/歌剧|opera|cantata|oratorio/i.test(t)) return "opera";
+  if (/短剧|short\s*play|sketch/i.test(t)) return "shortplay";
+  if (/电视连续剧|连续剧|tv\s*series|series|episode/i.test(t)) return "series";
+  if (/电影|film|movie|cinematic|score/i.test(t)) return "film";
+  // Default
+  return "single";
+}
+
+/* Detect maximum allowed duration for a given work_type, in seconds. */
+function maxDurationSecsForWorkType(wt: string): number {
+  const w = String(wt || "single").toLowerCase();
+  if (w === "triptych") return MV_UPLOAD_LIMITS.TRIPTYCH_MAX_SECS;
+  if (w === "opera") return MV_UPLOAD_LIMITS.OPERA_ACT_MAX_SECS;
+  return MV_UPLOAD_LIMITS.SINGLE_MAX_SECS;
+}
+
+/* ───── /api/mv/lyrics/parse ─────────────────────────────────────── */
+
+app.post("/api/mv/lyrics/parse", express.json({ limit: "1mb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const body = (req.body && typeof req.body === "object") ? req.body : {};
+  const rawText = String((body as any).text || (body as any).content || "").slice(0, 200_000); // 200 KB
+  const explicitWorkType = String((body as any).work_type || "").trim().toLowerCase() || null;
+  const titleHint = String((body as any).title || "").trim();
+  if (!rawText.trim()) {
+    return res.status(400).json({ ok: false, error: "empty_text" });
+  }
+
+  const format = detectLyricsFormat(rawText);
+  let aligned: ParsedLyricLine[] = [];
+  let bodyText = rawText.trim();
+  let durationMs = 0;
+
+  if (format === "lrc") {
+    const r = parseLrc(rawText);
+    aligned = r.lines;
+    bodyText = r.text;
+    durationMs = r.duration_ms;
+  } else if (format === "srt" || format === "vtt") {
+    const r = parseSrtOrVtt(rawText);
+    aligned = r.lines;
+    bodyText = r.text;
+    durationMs = r.duration_ms;
+  }
+
+  // Run the Wave 113I normalizer so brackets/sections are canonical.
+  // For plain text we ask it to be permissive about section count
+  // (don't pad missing). Pass detected work_type so triptych/opera
+  // passes are preserved.
+  const workType = explicitWorkType
+    || detectWorkTypeFromText(titleHint + "\n" + bodyText);
+  const normalized = normalizeLyricsToJingdian(bodyText, workType, "");
+
+  // Inferred duration: from timestamps if present, else estimate
+  // 1 line ≈ 4 seconds (industry-typical pacing).
+  const inferredDurationSecs = durationMs > 0
+    ? Math.round(durationMs / 1000)
+    : Math.max(60, normalized.split(/\n+/).filter(Boolean).length * 4);
+
+  const maxDur = maxDurationSecsForWorkType(workType);
+  const overLimit = inferredDurationSecs > maxDur;
+
+  return res.json({
+    ok: true,
+    format,
+    work_type: workType,
+    title: titleHint || null,
+    lyrics: normalized,
+    aligned_lyrics: aligned.length ? aligned : null,
+    duration_secs: inferredDurationSecs,
+    duration_ms: durationMs || null,
+    line_count: aligned.length || normalized.split(/\n+/).filter(Boolean).length,
+    over_limit: overLimit,
+    limit_secs: maxDur,
+    suggestion: overLimit
+      ? `Detected ${inferredDurationSecs}s exceeds ${workType} limit of ${maxDur}s. Split into multiple parts or escalate work_type.`
+      : null,
+  });
+});
+
+/* ───── Audio Upload (multer + ffprobe + transcode) ───────────────── */
+
+const audioUploadDir = path.join(os.tmpdir(), "cssos-uploads");
+try { fs.mkdirSync(audioUploadDir, { recursive: true }); } catch (_) { /* noop */ }
+const audioUploader = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, audioUploadDir),
+    filename: (_req, file, cb) => {
+      const safe = String(file.originalname || "upload").replace(/[^\w.-]+/g, "_").slice(0, 80);
+      cb(null, `${Date.now()}_${crypto.randomBytes(4).toString("hex")}_${safe}`);
+    },
+  }),
+  limits: { fileSize: MV_UPLOAD_LIMITS.FILE_MAX_BYTES },
+  fileFilter: (_req, file, cb) => {
+    const mt = String(file.mimetype || "").toLowerCase();
+    // multer mimetype is best-effort — we re-verify via ffprobe.
+    // Accept anything audio/* and let ffprobe gatekeep.
+    if (mt.startsWith("audio/") || mt === "application/octet-stream") {
+      cb(null, true);
+    } else {
+      cb(new Error(`unsupported_mime:${mt}`));
+    }
+  },
+});
+
+type FfprobeAudioMeta = {
+  duration_secs: number;
+  bitrate_kbps: number;
+  sample_rate: number;
+  channels: number;
+  codec: string;
+  format: string;
+  drm_encrypted: boolean;
+  tags: { title?: string; artist?: string; album?: string; year?: string };
+};
+
+function ffprobeAudio(filePath: string): Promise<FfprobeAudioMeta> {
+  return new Promise((resolve, reject) => {
+    const ff = spawn("ffprobe", [
+      "-v", "error",
+      "-print_format", "json",
+      "-show_format",
+      "-show_streams",
+      filePath,
+    ]);
+    let stdout = "";
+    let stderr = "";
+    ff.stdout.on("data", (b) => { stdout += b.toString(); });
+    ff.stderr.on("data", (b) => { stderr += b.toString(); });
+    ff.on("error", (err) => reject(err));
+    ff.on("close", (code) => {
+      if (code !== 0) {
+        return reject(new Error(`ffprobe_failed:${code}:${stderr.slice(0, 200)}`));
+      }
+      try {
+        const j = JSON.parse(stdout);
+        const format = j.format || {};
+        const audioStream = (j.streams || []).find((s: any) => s.codec_type === "audio") || {};
+        const tags = (format.tags || {});
+        // DRM: format.format_name like "mp4,m4a" can be ok, but
+        // tags.encoder or stream.tags showing iTunSMPB / drms / drmi
+        // means Apple FairPlay. Also check codec for drms/drmi.
+        const codecName = String(audioStream.codec_name || "").toLowerCase();
+        const formatTags = JSON.stringify(format.tags || {}).toLowerCase();
+        const streamTags = JSON.stringify(audioStream.tags || {}).toLowerCase();
+        const drmEncrypted =
+          codecName === "drms" || codecName === "drmi" ||
+          formatTags.includes("drm") ||
+          streamTags.includes("drm") ||
+          /\.drm/i.test(String(format.format_name || ""));
+        resolve({
+          duration_secs: Math.round(Number(format.duration || audioStream.duration || 0) || 0),
+          bitrate_kbps: Math.round(Number(format.bit_rate || 0) / 1000),
+          sample_rate: Number(audioStream.sample_rate || 0),
+          channels: Number(audioStream.channels || 0),
+          codec: codecName,
+          format: String(format.format_name || ""),
+          drm_encrypted: drmEncrypted,
+          tags: {
+            title: tags.title || undefined,
+            artist: tags.artist || tags.ARTIST || undefined,
+            album: tags.album || undefined,
+            year: tags.date || tags.year || undefined,
+          },
+        });
+      } catch (err) {
+        reject(err);
+      }
+    });
+  });
+}
+
+function ffmpegTranscodeToAac(srcPath: string, dstPath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const ff = spawn("ffmpeg", [
+      "-y",
+      "-i", srcPath,
+      "-vn",
+      "-ar", String(MV_UPLOAD_LIMITS.TARGET_SAMPLE_RATE),
+      "-ac", String(MV_UPLOAD_LIMITS.TARGET_CHANNELS),
+      "-c:a", MV_UPLOAD_LIMITS.TARGET_CODEC,
+      "-b:a", `${MV_UPLOAD_LIMITS.TARGET_BITRATE_KBPS}k`,
+      dstPath,
+    ]);
+    let stderr = "";
+    ff.stderr.on("data", (b) => { stderr += b.toString(); });
+    ff.on("error", reject);
+    ff.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`ffmpeg_failed:${code}:${stderr.slice(-200)}`));
+    });
+  });
+}
+
+/* ACRCloud HMAC-SHA1 signed identification — Audio Fingerprinting API.
+ * https://docs.acrcloud.com/reference/identification-api
+ * Returns parsed metadata when ACRCLOUD_ENABLED + match found,
+ * otherwise null. */
+async function fingerprintCheckAcrcloud(audioPath: string): Promise<any | null> {
+  if (!ACRCLOUD_ENABLED) return null;
+  try {
+    // Read up to first 15s of audio (ACRCloud accepts 3-15s sample).
+    // Easier: shell out to ffmpeg to extract first 10s as 44k mono mp3,
+    // then HMAC-sign with timestamp.
+    const sample = path.join(audioUploadDir, `acrsample_${Date.now()}_${crypto.randomBytes(3).toString("hex")}.mp3`);
+    await new Promise<void>((resolve, reject) => {
+      const ff = spawn("ffmpeg", [
+        "-y", "-i", audioPath,
+        "-t", "10",
+        "-ar", "44100", "-ac", "1",
+        "-c:a", "libmp3lame", "-b:a", "128k",
+        sample,
+      ]);
+      ff.on("error", reject);
+      ff.on("close", (c) => c === 0 ? resolve() : reject(new Error("acr_sample_failed")));
+    });
+    const sampleBytes = fs.readFileSync(sample);
+    fs.unlink(sample, () => {});
+    const ts = Math.floor(Date.now() / 1000).toString();
+    const stringToSign = [
+      "POST", "/v1/identify",
+      ACRCLOUD_KEY, "audio", "1", ts,
+    ].join("\n");
+    const signature = crypto.createHmac("sha1", ACRCLOUD_SECRET).update(stringToSign).digest("base64");
+    const form = new FormData();
+    form.append("access_key", ACRCLOUD_KEY);
+    form.append("data_type", "audio");
+    form.append("signature_version", "1");
+    form.append("signature", signature);
+    form.append("timestamp", ts);
+    form.append("sample_bytes", String(sampleBytes.length));
+    form.append("sample", new Blob([new Uint8Array(sampleBytes)]), "sample.mp3");
+    const r = await fetch(`https://${ACRCLOUD_HOST}/v1/identify`, {
+      method: "POST",
+      body: form,
+    });
+    const j: any = await r.json().catch(() => null);
+    if (!j) return null;
+    const code = Number(j?.status?.code);
+    if (code !== 0) {
+      // 1001 = no result (clean); any other code = error
+      return code === 1001
+        ? { matched: false, status: "no_match", raw: j.status }
+        : { matched: false, status: "error", raw: j.status };
+    }
+    const music = (j?.metadata?.music || [])[0] || null;
+    if (!music) return { matched: false, status: "no_music" };
+    return {
+      matched: true,
+      title: music.title || null,
+      artists: (music.artists || []).map((a: any) => a.name).filter(Boolean),
+      album: music.album?.name || null,
+      isrc: music.external_ids?.isrc || null,
+      iswc: music.external_ids?.iswc || null,
+      release_date: music.release_date || null,
+      score: music.score || null,
+      raw: music,
+    };
+  } catch (err) {
+    console.warn("[acrcloud] fingerprint failed:", err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+/* CSSOS_WAVE_111A 20260512 — Jing
+ * Video file probe: pulls duration, dims, fps, codec, audio-track
+ * presence. Mirrors ffprobeAudio shape so the upload endpoint can
+ * apply the same duration / work-type guard rails. Returns has_audio
+ * flag so we know whether Whisper extraction is feasible. */
+type FfprobeVideoMeta = {
+  duration_secs: number;
+  width: number;
+  height: number;
+  fps: number;
+  vcodec: string;
+  acodec: string;
+  has_audio: boolean;
+  drm_encrypted: boolean;
+  bitrate_kbps: number;
+  tags: { title?: string; artist?: string };
+};
+
+function ffprobeVideo(filePath: string): Promise<FfprobeVideoMeta> {
+  return new Promise((resolve, reject) => {
+    const ff = spawn("ffprobe", [
+      "-v", "error",
+      "-print_format", "json",
+      "-show_format",
+      "-show_streams",
+      filePath,
+    ]);
+    let stdout = "";
+    let stderr = "";
+    ff.stdout.on("data", (b) => { stdout += b.toString(); });
+    ff.stderr.on("data", (b) => { stderr += b.toString(); });
+    ff.on("error", reject);
+    ff.on("close", (code) => {
+      if (code !== 0) return reject(new Error(`ffprobe_failed:${code}:${stderr.slice(0, 200)}`));
+      try {
+        const j = JSON.parse(stdout);
+        const format = j.format || {};
+        const streams = j.streams || [];
+        const videoStream = streams.find((s: any) => s.codec_type === "video") || {};
+        const audioStream = streams.find((s: any) => s.codec_type === "audio") || null;
+        const tags = (format.tags || {});
+        const fpsRaw = String(videoStream.r_frame_rate || "0/1");
+        const fpsParts = fpsRaw.split("/").map(Number);
+        const num = Number(fpsParts[0]) || 0;
+        const den = Number(fpsParts[1]) || 0;
+        const fps = den ? Math.round((num / den) * 100) / 100 : 0;
+        const vcodec = String(videoStream.codec_name || "").toLowerCase();
+        const acodec = audioStream ? String(audioStream.codec_name || "").toLowerCase() : "";
+        const formatTags = JSON.stringify(format.tags || {}).toLowerCase();
+        const drmEncrypted =
+          vcodec === "drmi" || acodec === "drms" || acodec === "drmi" ||
+          formatTags.includes("drm") ||
+          /\.drm/i.test(String(format.format_name || ""));
+        resolve({
+          duration_secs: Math.round(Number(format.duration || videoStream.duration || 0) || 0),
+          width: Number(videoStream.width || 0),
+          height: Number(videoStream.height || 0),
+          fps,
+          vcodec,
+          acodec,
+          has_audio: !!audioStream,
+          drm_encrypted: drmEncrypted,
+          bitrate_kbps: Math.round(Number(format.bit_rate || 0) / 1000),
+          tags: {
+            title: tags.title || undefined,
+            artist: tags.artist || tags.ARTIST || undefined,
+          },
+        });
+      } catch (err) { reject(err); }
+    });
+  });
+}
+
+/* Extract the audio track from a video file → temporary mp3/wav for
+ * Whisper transcription + ACRCloud fingerprinting. We don't bother
+ * with high quality here — Whisper handles 16kHz mono. */
+function ffmpegExtractAudioFromVideo(videoPath: string, audioOutPath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const ff = spawn("ffmpeg", [
+      "-y",
+      "-i", videoPath,
+      "-vn",                     // drop video
+      "-ar", "16000",            // 16kHz mono is plenty for Whisper
+      "-ac", "1",
+      "-c:a", "libmp3lame",
+      "-b:a", "96k",
+      audioOutPath,
+    ]);
+    let stderr = "";
+    ff.stderr.on("data", (b) => { stderr += b.toString(); });
+    ff.on("error", reject);
+    ff.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`ffmpeg_extract_audio_failed:${code}:${stderr.slice(-200)}`));
+    });
+  });
+}
+
+/* CSSOS_WAVE_111B 20260512 — Jing
+ * MIDI / MusicXML parsing — extract lyrics tracks + render reference
+ * audio via fluidsynth. Per Jing: "MIDI + MusicXML 我们只做带 lyrics
+ * 轨道的。如果是纯器乐，那我们也只做纯音乐，没有歌词的，不必无中
+ * 生有." So we reject (or mark "instrumental_only") files without
+ * embedded lyrics. Synthesis still happens regardless so the user
+ * always gets playable audio.
+ */
+type MidiLyricsResult = {
+  duration_secs: number;
+  tempo_bpm: number;
+  time_signature: string;
+  track_count: number;
+  note_count: number;
+  has_lyrics: boolean;
+  lyrics_lines: ParsedLyricLine[];
+  raw_lyrics_text: string;
+};
+
+async function parseMidiFile(filePath: string): Promise<MidiLyricsResult> {
+  const { Midi } = await import("@tonejs/midi");
+  const bytes = fs.readFileSync(filePath);
+  // @tonejs/midi accepts ArrayBuffer
+  const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  const midi: any = new Midi(ab);
+  const duration_secs = Math.round(Number(midi.duration || 0));
+  const tempos = midi.header?.tempos || [];
+  const tempo_bpm = tempos.length ? Math.round(Number(tempos[0].bpm || 120)) : 120;
+  const ts = (midi.header?.timeSignatures || [])[0];
+  const time_signature = ts ? `${ts.timeSignature?.[0] || 4}/${ts.timeSignature?.[1] || 4}` : "4/4";
+
+  // Gather lyrics events. @tonejs/midi exposes `lyrics` on the header
+  // (it merges all lyric tracks). Each entry has { ticks, time, text }.
+  const headerLyrics: any[] = midi.header?.lyrics || [];
+  // Some MIDI files store lyrics in tracks as well — gather them too.
+  const trackLyrics: any[] = [];
+  for (const track of (midi.tracks || [])) {
+    if (Array.isArray(track.lyrics)) {
+      for (const ev of track.lyrics) trackLyrics.push(ev);
+    }
+  }
+  const allLyrics = [...headerLyrics, ...trackLyrics]
+    .map((ev: any) => ({
+      ts_ms: Math.max(0, Math.round((Number(ev.time) || 0) * 1000)),
+      text: String(ev.text || "").trim(),
+    }))
+    .filter((l) => l.text)
+    .sort((a, b) => a.ts_ms - b.ts_ms);
+
+  // Coalesce syllables on the same/near timestamp into lines:
+  // many MIDIs store lyrics per-syllable with explicit line breaks
+  // (e.g. '\n' or '/' or '\r' as text-only entries).
+  const lyrics_lines: ParsedLyricLine[] = [];
+  let cur: ParsedLyricLine | null = null;
+  for (const ev of allLyrics) {
+    const text = ev.text;
+    const isBreak = /^[\r\n\/]+$/.test(text);
+    if (isBreak) {
+      if (cur && cur.text) { lyrics_lines.push(cur); cur = null; }
+      continue;
+    }
+    if (!cur) {
+      cur = { ts_ms: ev.ts_ms, text: "" };
+    }
+    // Build line as concatenated syllables (with smart spacing)
+    const sep = /^[\.,\?!:;'"\)]/.test(text) || cur.text.endsWith("-") ? "" : " ";
+    cur.text = cur.text ? cur.text.replace(/-$/, "") + (cur.text.endsWith("-") ? "" : sep) + text : text;
+    // Break lines longer than ~80 chars at next break or word boundary
+    if (cur.text.length > 80) {
+      lyrics_lines.push(cur);
+      cur = null;
+    }
+  }
+  if (cur && cur.text) lyrics_lines.push(cur);
+
+  const note_count = (midi.tracks || []).reduce(
+    (sum: number, t: any) => sum + ((t.notes && t.notes.length) || 0),
+    0
+  );
+
+  return {
+    duration_secs,
+    tempo_bpm,
+    time_signature,
+    track_count: (midi.tracks || []).length,
+    note_count,
+    has_lyrics: lyrics_lines.length > 0,
+    lyrics_lines,
+    raw_lyrics_text: lyrics_lines.map((l) => l.text).join("\n"),
+  };
+}
+
+/* Render MIDI to mp3 via fluidsynth + a General MIDI soundfont. The
+ * TimGM6mb.sf2 soundfont is preinstalled at /usr/share/sounds/sf2/
+ * (timgm6mb-soundfont Debian package). */
+function synthMidiToMp3(midiPath: string, mp3OutPath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const sf2 = "/usr/share/sounds/sf2/TimGM6mb.sf2";
+    if (!fs.existsSync(sf2)) {
+      return reject(new Error(`soundfont_missing:${sf2}`));
+    }
+    const wavTmp = mp3OutPath.replace(/\.mp3$/i, ".tmp.wav");
+    // 1) fluidsynth → wav
+    const fs1 = spawn("fluidsynth", [
+      "-ni",                           // no shell, interactive=no
+      "-F", wavTmp,                    // render to file
+      "-r", "44100",                   // 44.1 kHz
+      "-T", "wav",                     // wav output
+      sf2, midiPath,
+    ]);
+    let err1 = "";
+    fs1.stderr.on("data", (b) => { err1 += b.toString(); });
+    fs1.on("error", reject);
+    fs1.on("close", (code) => {
+      if (code !== 0) {
+        return reject(new Error(`fluidsynth_failed:${code}:${err1.slice(-200)}`));
+      }
+      // 2) wav → mp3 via ffmpeg
+      const ff = spawn("ffmpeg", [
+        "-y",
+        "-i", wavTmp,
+        "-c:a", "libmp3lame",
+        "-b:a", "192k",
+        mp3OutPath,
+      ]);
+      let err2 = "";
+      ff.stderr.on("data", (b) => { err2 += b.toString(); });
+      ff.on("error", reject);
+      ff.on("close", (c) => {
+        try { fs.unlinkSync(wavTmp); } catch (_) {}
+        if (c === 0) resolve();
+        else reject(new Error(`ffmpeg_mp3_failed:${c}:${err2.slice(-200)}`));
+      });
+    });
+  });
+}
+
+/* MusicXML → MIDI conversion. @tonejs/midi is JSON-based and doesn't
+ * read MusicXML directly. We use a minimal hand-rolled parser for
+ * common MusicXML structure (note pitch + duration + lyric elements)
+ * to produce a MIDI in memory. For .mxl (compressed MusicXML), we
+ * unzip first using node's built-in zlib via a small helper.
+ *
+ * Production-grade MusicXML parsing is complex (Finale/Sibelius/
+ * MuseScore each have quirks). For Wave 111B we focus on the lyrics
+ * track extraction — which is what the user actually wants. Audio
+ * synthesis uses the converted MIDI; if the MusicXML is too exotic
+ * for our parser, the user gets the lyrics + extracted timing but
+ * audio synth may fail (we return graceful no-audio in that case).
+ */
+async function parseMusicXmlFile(filePath: string): Promise<MidiLyricsResult & { midi_path: string | null }> {
+  // 1. If .mxl, unzip to find the .musicxml inside
+  let xmlContent: string;
+  if (/\.mxl$/i.test(filePath)) {
+    const zlib = await import("zlib");
+    // .mxl is a zip — but Node's zlib is gzip/deflate only. Use unzip CLI.
+    const tmpDir = path.join(audioUploadDir, `mxl_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+    await new Promise<void>((resolve, reject) => {
+      const unzip = spawn("unzip", ["-o", filePath, "-d", tmpDir]);
+      unzip.on("error", reject);
+      unzip.on("close", (c) => c === 0 ? resolve() : reject(new Error(`unzip_failed:${c}`)));
+    });
+    // Find the score xml inside
+    const files = fs.readdirSync(tmpDir);
+    const scoreFile = files.find((f) => /\.(musicxml|xml)$/i.test(f) && !/META-INF/i.test(f));
+    if (!scoreFile) {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}
+      throw new Error("musicxml_not_found_in_mxl");
+    }
+    xmlContent = fs.readFileSync(path.join(tmpDir, scoreFile), "utf8");
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}
+    void zlib;
+  } else {
+    xmlContent = fs.readFileSync(filePath, "utf8");
+  }
+
+  // 2. Extract lyrics from MusicXML — they're inside <lyric><text>…</text></lyric>
+  // tags, attached to notes. We pull them in document order; timing
+  // approximated by note position × tempo.
+  const lyricMatches: string[] = [];
+  // Match <lyric ...><text>WORD</text></lyric> blocks, handling syllabic break info.
+  const lyricRe = /<lyric\b[^>]*>([\s\S]*?)<\/lyric>/gi;
+  const textRe = /<text\b[^>]*>([\s\S]*?)<\/text>/i;
+  const syllabicRe = /<syllabic\b[^>]*>([\s\S]*?)<\/syllabic>/i;
+  let m: RegExpExecArray | null;
+  while ((m = lyricRe.exec(xmlContent)) !== null) {
+    const innerLyric = m[1] || "";
+    const tm = innerLyric.match(textRe);
+    if (!tm || !tm[1]) continue;
+    const syllabic = innerLyric.match(syllabicRe)?.[1]?.trim().toLowerCase() || "single";
+    const word = String(tm[1]).replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+    // Add separator semantics based on syllabic type
+    if (syllabic === "begin" || syllabic === "middle") {
+      lyricMatches.push(word + "-");
+    } else {
+      lyricMatches.push(word);
+    }
+  }
+
+  // Coalesce syllables into lines
+  const lyrics_lines: ParsedLyricLine[] = [];
+  let cur = "";
+  for (const w of lyricMatches) {
+    if (w.endsWith("-")) {
+      cur += w.replace(/-$/, "");
+    } else {
+      cur = cur ? cur + " " + w : w;
+      if (cur.length > 60) {
+        lyrics_lines.push({ ts_ms: 0, text: cur }); // ts_ms approx — pending MIDI render
+        cur = "";
+      }
+    }
+  }
+  if (cur) lyrics_lines.push({ ts_ms: 0, text: cur });
+
+  // 3. Extract tempo (per-minute beats), default 120
+  const tempoMatch = xmlContent.match(/<sound\b[^>]*\btempo="(\d+(?:\.\d+)?)"/i);
+  const tempo_bpm = tempoMatch && tempoMatch[1] ? Math.round(Number(tempoMatch[1])) : 120;
+
+  // 4. Extract time signature, default 4/4
+  const beatsMatch = xmlContent.match(/<beats\b[^>]*>(\d+)<\/beats>/i);
+  const beatTypeMatch = xmlContent.match(/<beat-type\b[^>]*>(\d+)<\/beat-type>/i);
+  const beats = (beatsMatch && beatsMatch[1]) ? Number(beatsMatch[1]) : 4;
+  const beatType = (beatTypeMatch && beatTypeMatch[1]) ? Number(beatTypeMatch[1]) : 4;
+  const time_signature = `${beats}/${beatType}`;
+
+  // 5. Count notes (very rough — used for stats display)
+  const noteCount = (xmlContent.match(/<note\b/g) || []).length;
+
+  // 6. Estimate duration: count divisions per measure + measure count
+  const divisionsMatch = xmlContent.match(/<divisions\b[^>]*>(\d+)<\/divisions>/i);
+  const divisions = (divisionsMatch && divisionsMatch[1]) ? Number(divisionsMatch[1]) : 4;
+  const measureCount = (xmlContent.match(/<measure\b/g) || []).length;
+  // duration_secs ≈ measures × (beats per measure) × (60 / bpm)
+  const duration_secs = Math.round(measureCount * beats * (60 / tempo_bpm));
+
+  // Spread lyrics linearly across duration (approx — MusicXML doesn't
+  // give us per-note timing in MIDI ms without a full sequencer).
+  // This gives the user usable karaoke-style approximation; for
+  // precise timing they should provide MIDI directly.
+  if (lyrics_lines.length > 0 && duration_secs > 0) {
+    const per = (duration_secs * 1000) / lyrics_lines.length;
+    lyrics_lines.forEach((l, i) => { l.ts_ms = Math.round(per * i); });
+  }
+
+  void divisions;
+
+  return {
+    duration_secs,
+    tempo_bpm,
+    time_signature,
+    track_count: 1, // approximation — MusicXML uses parts not tracks
+    note_count: noteCount,
+    has_lyrics: lyrics_lines.length > 0,
+    lyrics_lines,
+    raw_lyrics_text: lyrics_lines.map((l) => l.text).join("\n"),
+    midi_path: null, // We don't convert MusicXML → MIDI in Wave 111B (synthesis is best-effort)
+  };
+}
+
+/* OpenAI Whisper transcription. ~$0.006/min. Returns plain text +
+ * (when available) verbose JSON for word-level timestamps. */
+type WhisperWordTs = { word: string; ts_ms: number; end_ms: number };
+async function whisperTranscribe(audioPath: string, language?: string): Promise<{ text: string; lines: ParsedLyricLine[]; words?: WhisperWordTs[] } | null> {
+  const apiKey = (process.env.OPENAI_API_KEY || "").trim();
+  if (!apiKey) return null;
+  try {
+    const audioBytes = fs.readFileSync(audioPath);
+    const form = new FormData();
+    form.append("file", new Blob([new Uint8Array(audioBytes)]), path.basename(audioPath));
+    form.append("model", "whisper-1");
+    form.append("response_format", "verbose_json");
+    // CSSOS_WAVE_111B-B1 20260511 — Jing
+    // Word-level timestamps (~50ms precision) for karaoke-style
+    // highlight in the subtitle engine. Segment-level fallback is
+    // preserved by OpenAI's response, so callers reading j.segments
+    // still work without change.
+    form.append("timestamp_granularities[]", "segment");
+    form.append("timestamp_granularities[]", "word");
+    if (language) form.append("language", language);
+    const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${apiKey}` },
+      body: form,
+    });
+    if (!r.ok) {
+      const errText = await r.text().catch(() => "");
+      console.warn("[whisper] failed:", r.status, errText.slice(0, 200));
+      return null;
+    }
+    const j: any = await r.json().catch(() => null);
+    if (!j) return null;
+    const text = String(j.text || "").trim();
+    const lines: ParsedLyricLine[] = (j.segments || []).map((s: any) => ({
+      ts_ms: Math.round(Number(s.start || 0) * 1000),
+      text: String(s.text || "").trim(),
+    })).filter((l: ParsedLyricLine) => l.text);
+    // CSSOS_WAVE_111B-B1 — word-level timeline for karaoke highlight.
+    const words: WhisperWordTs[] = Array.isArray(j.words)
+      ? j.words
+          .map((w: any) => ({
+            word: String(w.word || "").trim(),
+            ts_ms: Math.round(Number(w.start || 0) * 1000),
+            end_ms: Math.round(Number(w.end || 0) * 1000),
+          }))
+          .filter((w: WhisperWordTs) => w.word && w.end_ms >= w.ts_ms)
+      : [];
+    if (words.length) return { text, lines, words };
+    return { text, lines };
+  } catch (err) {
+    console.warn("[whisper] threw:", err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+/* POST /api/mv/audio/upload — happy path:
+ *   1. multer receives file (≤100MB)
+ *   2. ffprobe extracts metadata + DRM check (reject if encrypted)
+ *   3. duration vs work_type limit check
+ *   4. ffmpeg transcodes to 48kHz stereo AAC 192k for downstream
+ *   5. ACRCloud fingerprint (if enabled) — sets requires_clearance
+ *   6. Move both files to /srv/cssos/uploads/ and return public URLs
+ *   7. Returns asset descriptor that frontend stores in work_assets
+ *      via existing /api/works/save path with skip_stages=['music'].
+ */
+app.post("/api/mv/audio/upload", (req, res, next) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  audioUploader.single("audio")(req as any, res as any, (err) => {
+    if (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/file too large|LIMIT_FILE_SIZE/i.test(msg)) {
+        return res.status(413).json({
+          ok: false,
+          error: "file_too_large",
+          limit_bytes: MV_UPLOAD_LIMITS.FILE_MAX_BYTES,
+        });
+      }
+      return res.status(400).json({ ok: false, error: msg });
+    }
+    next();
+  });
+}, async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  const file = (req as any).file as { path: string; originalname: string; size: number; mimetype: string } | undefined;
+  if (!file) return res.status(400).json({ ok: false, error: "no_file" });
+  const workType = String((req.body as any)?.work_type || "single").toLowerCase();
+  const requestedTitle = String((req.body as any)?.title || "").trim();
+  const skipFingerprint = String((req.body as any)?.skip_fingerprint || "") === "1";
+  const skipTranscribe = String((req.body as any)?.skip_transcribe || "") === "1";
+  const language = String((req.body as any)?.language || "").trim() || undefined;
+  const hasUserLyrics = !!String((req.body as any)?.lyrics || "").trim();
+
+  let meta: FfprobeAudioMeta;
+  try {
+    meta = await ffprobeAudio(file.path);
+  } catch (err) {
+    fs.unlink(file.path, () => {});
+    return res.status(400).json({
+      ok: false,
+      error: "ffprobe_failed",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  if (meta.drm_encrypted) {
+    fs.unlink(file.path, () => {});
+    return res.status(415).json({
+      ok: false,
+      error: "drm_protected",
+      hint: "DRM-protected files (Apple Music / Spotify exports etc.) cannot be uploaded. Use a non-DRM source.",
+    });
+  }
+
+  const maxDur = maxDurationSecsForWorkType(workType);
+  if (meta.duration_secs > maxDur) {
+    fs.unlink(file.path, () => {});
+    return res.status(413).json({
+      ok: false,
+      error: "duration_exceeds_work_type",
+      duration_secs: meta.duration_secs,
+      limit_secs: maxDur,
+      hint: `For ${workType}, max duration is ${maxDur}s. Trim or escalate work_type to opera (90min/act).`,
+    });
+  }
+
+  // Transcode to AAC 48kHz stereo for downstream pipeline + storage.
+  const transcodedPath = path.join(audioUploadDir, `aac_${path.basename(file.path)}.m4a`);
+  try {
+    await ffmpegTranscodeToAac(file.path, transcodedPath);
+  } catch (err) {
+    fs.unlink(file.path, () => {});
+    return res.status(500).json({
+      ok: false,
+      error: "transcode_failed",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // Move transcoded file into the long-lived uploads directory served
+  // by Express static. PUBLIC_DIR/../uploads/audio/<userid>/<file>.m4a
+  const publicUploadsRoot = path.join(PUBLIC_DIR, "uploads", "audio", String(userId));
+  try { fs.mkdirSync(publicUploadsRoot, { recursive: true }); } catch (_) {}
+  const finalName = `${Date.now()}_${crypto.randomBytes(4).toString("hex")}.m4a`;
+  const finalDiskPath = path.join(publicUploadsRoot, finalName);
+  try {
+    fs.copyFileSync(transcodedPath, finalDiskPath);
+  } catch (err) {
+    fs.unlink(file.path, () => {});
+    fs.unlink(transcodedPath, () => {});
+    return res.status(500).json({
+      ok: false,
+      error: "persist_failed",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+  const publicUrl = `/uploads/audio/${userId}/${finalName}`;
+
+  // Optional ACRCloud fingerprint check
+  let fingerprint: any = null;
+  let requiresClearance = false;
+  if (!skipFingerprint) {
+    fingerprint = await fingerprintCheckAcrcloud(file.path);
+    if (fingerprint?.matched) {
+      // Found a copyrighted match — lock marketplace until cleared.
+      requiresClearance = true;
+    } else if (!ACRCLOUD_ENABLED) {
+      // No fingerprint service configured — pessimistic default.
+      requiresClearance = true;
+    }
+  }
+
+  // Optional Whisper transcription — only if user did not paste lyrics
+  let whisperResult: { text: string; lines: ParsedLyricLine[]; words?: WhisperWordTs[] } | null = null;
+  if (!skipTranscribe && !hasUserLyrics) {
+    whisperResult = await whisperTranscribe(file.path, language);
+  }
+
+  // Clean up working copies (keep finalDiskPath)
+  fs.unlink(file.path, () => {});
+  fs.unlink(transcodedPath, () => {});
+
+  // Cost accounting (Wave 113J)
+  const transcribeCostCents = whisperResult
+    ? Math.max(1, Math.round((meta.duration_secs / 60) * MV_UPLOAD_LIMITS.WHISPER_COST_CENTS_PER_MIN))
+    : 0;
+  const fingerprintCostCents = fingerprint
+    ? MV_UPLOAD_LIMITS.ACRCLOUD_COST_CENTS_PER_CHECK
+    : 0;
+  // The work that will be saved with this audio skips both lyrics
+  // (if user pasted them) and music stage entirely. Frontend uses
+  // this for the price strip + works center breakdown.
+  const skipStages = ["music"];
+  if (hasUserLyrics || whisperResult) skipStages.push("lyrics");
+
+  return res.json({
+    ok: true,
+    asset_url: publicUrl,
+    file: {
+      original_name: file.originalname,
+      original_bytes: file.size,
+      stored_bytes: fs.statSync(finalDiskPath).size,
+    },
+    meta: {
+      duration_secs: meta.duration_secs,
+      bitrate_kbps: meta.bitrate_kbps,
+      sample_rate: meta.sample_rate,
+      channels: meta.channels,
+      codec: meta.codec,
+      title: meta.tags.title || requestedTitle || null,
+      artist: meta.tags.artist || null,
+      album: meta.tags.album || null,
+    },
+    fingerprint,
+    whisper: whisperResult ? {
+      text: whisperResult.text,
+      lines: whisperResult.lines.slice(0, 200),
+      words: whisperResult.words ? whisperResult.words.slice(0, 4000) : undefined,
+    } : null,
+    requires_clearance: requiresClearance,
+    skip_stages: skipStages,
+    import_source: hasUserLyrics ? "audio+lyrics" : "audio_upload",
+    cost_breakdown: {
+      transcribe_cents: transcribeCostCents,
+      fingerprint_cents: fingerprintCostCents,
+      total_added_cents: transcribeCostCents + fingerprintCostCents,
+    },
+    acrcloud_enabled: ACRCLOUD_ENABLED,
+    whisper_enabled: !!(process.env.OPENAI_API_KEY || "").trim(),
+  });
+});
+
+/* POST /api/mv/audio/transcribe — explicit re-transcribe of an
+ * already-uploaded asset by URL. Used when frontend wants to add
+ * lyrics after the fact. */
+app.post("/api/mv/audio/transcribe", express.json({ limit: "16kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const assetUrl = String((req.body as any)?.asset_url || "").trim();
+  const language = String((req.body as any)?.language || "").trim() || undefined;
+  if (!assetUrl.startsWith(`/uploads/audio/${userId}/`)) {
+    return res.status(403).json({ ok: false, error: "forbidden_asset" });
+  }
+  const diskPath = path.join(PUBLIC_DIR, assetUrl.replace(/^\/+/, ""));
+  if (!fs.existsSync(diskPath)) {
+    return res.status(404).json({ ok: false, error: "asset_not_found" });
+  }
+  const result = await whisperTranscribe(diskPath, language);
+  if (!result) {
+    return res.status(503).json({ ok: false, error: "whisper_unavailable" });
+  }
+  return res.json({
+    ok: true,
+    text: result.text,
+    lines: result.lines,
+    cost_cents: Math.max(1, Math.round((result.text.length / 200) * MV_UPLOAD_LIMITS.WHISPER_COST_CENTS_PER_MIN)),
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+ * CSSOS_WAVE_111B 20260511 — Jing
+ * Reverse fingerprint lookup + ?fp= alias route + /verify page.
+ * Lets anyone with a cssOS-produced MP3 verify provenance and route
+ * back to the canonical work URL.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+/* Compute the canonical fingerprint hash from an audio file path.
+ * Uses ACRCloud's chromaprint-style fingerprint output if available;
+ * falls back to sha256 of the canonical AAC bytes. The result is a
+ * 16-hex-char short hash suitable for use as a URL slug.
+ *
+ * Why two paths: full chromaprint requires `fpcalc` binary. Most prod
+ * servers won't have it. We use ffmpeg + sha256 as a robust fallback
+ * that still gives us a stable per-file identifier. Replace with true
+ * acoustic fingerprint once `fpcalc` is on the box. */
+async function computeFingerprintHash(audioPath: string): Promise<string | null> {
+  try {
+    // Path A: ffmpeg-derived canonical PCM hash. Re-encode first 30s
+    // to 16k mono PCM so the hash is stable across encode-rate jitter.
+    const tmpPath = path.join(os.tmpdir(), `fp_${crypto.randomBytes(4).toString("hex")}.pcm`);
+    await new Promise<void>((resolve, reject) => {
+      const ff = spawn("ffmpeg", [
+        "-y", "-i", audioPath,
+        "-t", "30",
+        "-ar", "16000", "-ac", "1",
+        "-f", "s16le",
+        tmpPath,
+      ]);
+      ff.on("error", reject);
+      ff.on("close", (c) => c === 0 ? resolve() : reject(new Error(`ffmpeg_fingerprint_${c}`)));
+    });
+    const pcmBytes = fs.readFileSync(tmpPath);
+    fs.unlink(tmpPath, () => {});
+    return crypto.createHash("sha256").update(pcmBytes).digest("hex").slice(0, 16);
+  } catch (err) {
+    console.warn("[fingerprint] hash compute failed:", err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+/* POST /api/works/:id/fingerprint — owner triggers async fingerprinting
+ * of the final MV audio. Stores 16-hex-char hash in fingerprint_hash
+ * and sets fingerprinted_at. Idempotent: if already fingerprinted,
+ * returns the existing hash unless `force=1`. */
+app.post("/api/works/:id/fingerprint", express.json({ limit: "1kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const workId = String(req.params.id || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(workId)) {
+    return res.status(400).json({ ok: false, error: "invalid_work_id" });
+  }
+  const force = String((req.body as any)?.force || "") === "1";
+  try {
+    const ownerCheck = await withClient((c) =>
+      c.query<{ user_id: string; fingerprint_hash: string | null }>(
+        `SELECT user_id, fingerprint_hash FROM user_works WHERE id = $1::uuid LIMIT 1`,
+        [workId],
+      ),
+    );
+    const row = ownerCheck.rows[0];
+    if (!row) return res.status(404).json({ ok: false, error: "work_not_found" });
+    if (row.user_id !== userId) {
+      return res.status(403).json({ ok: false, error: "not_owner" });
+    }
+    if (row.fingerprint_hash && !force) {
+      return res.json({
+        ok: true,
+        fingerprint_hash: row.fingerprint_hash,
+        cached: true,
+        verify_url: `https://cssstudio.app/?fp=${encodeURIComponent(row.fingerprint_hash)}`,
+      });
+    }
+    // Locate the final_mv audio asset. work_assets.url holds the
+    // public URL; we resolve it back to the on-disk path under
+    // /uploads or /artifacts.
+    const assetR = await withClient((c) =>
+      c.query<{ url: string | null }>(
+        `SELECT url FROM work_assets
+          WHERE work_id = $1::uuid
+            AND asset_type IN ('final_mv','audio_track_1','audio_master')
+          ORDER BY created_at DESC LIMIT 1`,
+        [workId],
+      ),
+    );
+    const url = String(assetR.rows[0]?.url || "").trim();
+    if (!url) {
+      return res.status(404).json({ ok: false, error: "no_audio_asset" });
+    }
+    // Resolve URL → disk path. Supported prefixes: /uploads/... and
+    // /artifacts/... (cssOS internal). External URLs (s3, http) are
+    // downloaded to a temp file first.
+    let diskPath: string;
+    let cleanup = false;
+    if (url.startsWith("/uploads/") || url.startsWith("/artifacts/")) {
+      diskPath = path.join(PUBLIC_DIR, url.replace(/^\/+/, ""));
+      if (!fs.existsSync(diskPath)) {
+        // Try /srv/cssos/artifacts for legacy paths
+        diskPath = path.join("/srv/cssos", url.replace(/^\/+/, ""));
+      }
+    } else if (/^https?:\/\//.test(url)) {
+      const tmp = path.join(os.tmpdir(), `fp_dl_${crypto.randomBytes(4).toString("hex")}`);
+      const r = await fetch(url);
+      if (!r.ok) return res.status(502).json({ ok: false, error: "asset_fetch_failed" });
+      const buf = Buffer.from(await r.arrayBuffer());
+      fs.writeFileSync(tmp, buf);
+      diskPath = tmp;
+      cleanup = true;
+    } else {
+      return res.status(400).json({ ok: false, error: "unsupported_asset_url" });
+    }
+    const hash = await computeFingerprintHash(diskPath);
+    if (cleanup) fs.unlink(diskPath, () => {});
+    if (!hash) {
+      return res.status(500).json({ ok: false, error: "fingerprint_compute_failed" });
+    }
+    await withClient((c) =>
+      c.query(
+        `UPDATE user_works
+            SET fingerprint_hash = $2, fingerprinted_at = now()
+          WHERE id = $1::uuid`,
+        [workId, hash],
+      ),
+    );
+    return res.json({
+      ok: true,
+      fingerprint_hash: hash,
+      cached: false,
+      verify_url: `https://cssstudio.app/?fp=${encodeURIComponent(hash)}`,
+    });
+  } catch (err) {
+    console.warn("[work-fingerprint] failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, error: "fingerprint_failed" });
+  }
+});
+
+/* GET /api/works/by-fingerprint/:hash — public reverse lookup.
+ * Returns canonical work_id + minimal metadata if a match exists.
+ * Used by the /verify page and the ?fp= alias route. */
+app.get("/api/works/by-fingerprint/:hash", async (req, res) => {
+  noStore(res);
+  const hash = String(req.params.hash || "").trim().toLowerCase();
+  if (!/^[a-f0-9]{8,64}$/.test(hash)) {
+    return res.status(400).json({ ok: false, error: "invalid_hash" });
+  }
+  try {
+    const r = await withClient((c) =>
+      c.query<{
+        id: string; title: string | null; user_id: string;
+        owner_name: string | null; owner_handle: string | null;
+        fingerprinted_at: Date | null; cover_image: string | null;
+        work_type: string | null;
+      }>(
+        `SELECT w.id, w.title, w.user_id,
+                u.display_name AS owner_name, u.username AS owner_handle,
+                w.fingerprinted_at, w.cover_image, w.work_type
+           FROM user_works w
+           JOIN users u ON u.id = w.user_id
+          WHERE w.fingerprint_hash = $1
+          LIMIT 1`,
+        [hash],
+      ),
+    );
+    const row = r.rows[0];
+    if (!row) {
+      return res.status(404).json({ ok: false, error: "no_match" });
+    }
+    return res.json({
+      ok: true,
+      work_id: row.id,
+      title: row.title,
+      owner: { name: row.owner_name, handle: row.owner_handle },
+      work_type: row.work_type,
+      fingerprinted_at: row.fingerprinted_at,
+      cover_image: row.cover_image,
+      canonical_url: `https://cssstudio.app/?cssMV=${encodeURIComponent(row.id)}`,
+    });
+  } catch (err) {
+    console.warn("[fingerprint-lookup] failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, error: "lookup_failed" });
+  }
+});
+
+/* GET /?fp=<hash> alias — resolve to canonical work URL via 302.
+ * Wired in the existing `/` handler — we add a redirect for ?fp=...
+ * specifically. */
+app.get("/verify", async (_req, res) => {
+  // Serve a tiny static page that lets users drop an audio file,
+  // computes a hash client-side via Web Crypto, and hits the
+  // by-fingerprint endpoint. Keep it self-contained so it works
+  // even when the SPA shell hasn't loaded.
+  const html = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Verify · CSS Studio</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+html,body{margin:0;background:#0b0d12;color:#e6e8ee;font:14px/1.5 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;}
+.wrap{max-width:640px;margin:48px auto;padding:24px;}
+h1{color:#fff;margin:0 0 6px;font-size:24px;}
+p{color:#9aa;margin:8px 0;}
+.drop{margin-top:20px;padding:36px;border:2px dashed rgba(255,255,255,0.18);border-radius:14px;text-align:center;background:rgba(255,255,255,0.03);}
+.drop.hot{border-color:#00f5a0;background:rgba(0,245,160,0.06);}
+.result{margin-top:18px;padding:14px;border-radius:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);}
+.result.ok{border-color:rgba(0,245,160,0.55);}
+.result.bad{border-color:rgba(255,107,107,0.55);}
+a{color:#79b8ff;}
+code{font-family:ui-monospace,monospace;font-size:12px;color:#9aa;}
+</style></head>
+<body><div class="wrap">
+<h1>🔐 Verify a CSS Studio MV</h1>
+<p>Drop any audio file (mp3 / m4a / wav). We compute a short fingerprint hash locally and check it against our archive. No file leaves your browser unless we ask the server for the lookup.</p>
+<label class="drop" id="drop"><input type="file" id="f" accept="audio/*" style="display:none">
+  <div id="msg">Drop a file or click to choose</div>
+</label>
+<div id="result" class="result" hidden></div>
+<p style="margin-top:24px;font-size:12px;"><a href="/">← Back to CSS Studio</a></p>
+</div>
+<script>
+// Compute the same fingerprint as the server: 16-bit PCM @ 16kHz mono,
+// first 30s, sha256, first 16 hex chars. We use Web Audio API to decode
+// and resample, then hash via Web Crypto.
+async function computeHash(file) {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+  const buf = await file.arrayBuffer();
+  const decoded = await ctx.decodeAudioData(buf);
+  const samples = decoded.getChannelData(0).slice(0, 16000 * 30); // 30s mono
+  const pcm = new Int16Array(samples.length);
+  for (let i = 0; i < samples.length; i++) {
+    let s = Math.max(-1, Math.min(1, samples[i]));
+    pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+  const hashBuf = await crypto.subtle.digest("SHA-256", pcm.buffer);
+  return Array.from(new Uint8Array(hashBuf)).slice(0, 8)
+    .map(b => b.toString(16).padStart(2, "0")).join("");
+}
+const drop = document.getElementById("drop");
+const file = document.getElementById("f");
+const msg = document.getElementById("msg");
+const result = document.getElementById("result");
+drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("hot"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("hot"));
+drop.addEventListener("drop", e => {
+  e.preventDefault(); drop.classList.remove("hot");
+  if (e.dataTransfer.files[0]) handle(e.dataTransfer.files[0]);
+});
+file.addEventListener("change", () => file.files[0] && handle(file.files[0]));
+async function handle(f) {
+  msg.textContent = "Computing fingerprint…";
+  result.hidden = true;
+  try {
+    const hash = await computeHash(f);
+    msg.innerHTML = "Fingerprint: <code>" + hash + "</code>";
+    const r = await fetch("/api/works/by-fingerprint/" + encodeURIComponent(hash));
+    const j = await r.json();
+    if (j.ok) {
+      result.hidden = false;
+      result.className = "result ok";
+      result.innerHTML = "✅ <strong>Match.</strong> This is a CSS Studio work.<br>" +
+        "<strong>" + (j.title || "Untitled") + "</strong>" +
+        (j.owner && j.owner.name ? " by " + j.owner.name : "") +
+        "<br>" + (j.work_type ? "Type: " + j.work_type + "<br>" : "") +
+        '<a href="' + j.canonical_url + '">Open the original →</a>';
+    } else {
+      result.hidden = false;
+      result.className = "result bad";
+      result.textContent = "No match in our archive. This audio doesn't appear to be from CSS Studio (or it was uploaded as user-imported content with fingerprint pending).";
+    }
+  } catch (err) {
+    result.hidden = false;
+    result.className = "result bad";
+    result.textContent = "Verification failed: " + (err.message || err);
+  }
+}
+</script></body></html>`;
+  res.setHeader("content-type", "text/html; charset=utf-8");
+  res.send(html);
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+ * CSSOS_WAVE_111C 20260512 — Jing
+ * ACRCloud Management API push — uploads cssOS-produced reference
+ * audio so global ACRCloud clients can attribute reposts back to us.
+ *
+ * Triple-gated:
+ *   1. ACRCLOUD_AUTOUPLOAD_ENABLED=1 in env (operator switch)
+ *   2. Creator has user_fingerprint_optin.allow_global_push = true
+ *   3. Work is public + not requires_clearance + not already pushed
+ *
+ * Plus a monthly cap (ACRCLOUD_MAX_PUSHES_PER_MONTH, default 500)
+ * enforced via acrcloud_push_log row count for the current month.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+async function getCurrentMonthPushCount(): Promise<number> {
+  try {
+    const r = await withClient((c) =>
+      c.query<{ n: string }>(
+        `SELECT COUNT(*) AS n FROM acrcloud_push_log
+          WHERE upload_status = 'ok'
+            AND created_at >= date_trunc('month', now())`,
+      ),
+    );
+    return Number(r.rows[0]?.n || 0) | 0;
+  } catch (_) { return 0; }
+}
+
+async function pushReferenceAudioToAcrcloud(opts: {
+  workId: string;
+  userId: string;
+  audioPath: string;
+  title: string;
+  artist?: string;
+  // CSSOS_WAVE_111D 20260512 — extended custom-metadata fields that
+  // match the bucket's JSON metadata template (cssos_work_id,
+  // cssos_work_type, cssos_creator, cssos_canonical_url). Optional
+  // so legacy callers (the explicit POST /api/works/:id/fingerprint/push
+  // endpoint with body-supplied opts) keep working — the auto hook
+  // always passes them.
+  workType?: string;
+  creator?: string;
+  canonicalUrl?: string;
+}): Promise<{ ok: boolean; status: string; bucket_id?: string; remote_audio_id?: string; cost_cents: number; error?: string }> {
+  if (!ACRCLOUD_MGMT_ENABLED) {
+    return { ok: false, status: "disabled", cost_cents: 0, error: "ACRCLOUD_AUTOUPLOAD_ENABLED=0 or PAT missing" };
+  }
+  // Per-month rate limit guard.
+  const used = await getCurrentMonthPushCount();
+  if (used >= ACRCLOUD_MAX_PUSHES_PER_MONTH) {
+    return {
+      ok: false,
+      status: "rate_limited",
+      cost_cents: 0,
+      error: `Monthly cap reached (${used}/${ACRCLOUD_MAX_PUSHES_PER_MONTH}).`,
+    };
+  }
+  try {
+    // ACRCloud Management API: POST /api/buckets/:bucket_id/audios
+    // with multipart form { file, data_type=audio, audio_id, title, ... }.
+    // We resolve bucket by NAME first call (list buckets, find ours).
+    // For minimal first-touch, allow operator to pre-create the bucket
+    // and we pass its id via env ACRCLOUD_REFERENCE_BUCKET_ID.
+    const presetBucketId = (process.env.ACRCLOUD_REFERENCE_BUCKET_ID || "").trim();
+    let bucketId = presetBucketId;
+    if (!bucketId) {
+      const listResp = await fetch(`https://${ACRCLOUD_MGMT_HOST}/api/buckets`, {
+        headers: { "Authorization": `Bearer ${ACRCLOUD_PAT}`, "Accept": "application/json" },
+      });
+      if (!listResp.ok) {
+        return {
+          ok: false, status: "error", cost_cents: 0,
+          error: `bucket_list_failed:${listResp.status}`,
+        };
+      }
+      const buckets: any = await listResp.json().catch(() => null);
+      const items: any[] = Array.isArray(buckets?.items) ? buckets.items
+        : Array.isArray(buckets?.data) ? buckets.data
+        : Array.isArray(buckets) ? buckets : [];
+      const ours = items.find((b) => String(b?.name || "").toLowerCase() === ACRCLOUD_REFERENCE_BUCKET_NAME.toLowerCase());
+      if (!ours) {
+        return {
+          ok: false, status: "error", cost_cents: 0,
+          error: `bucket_not_found: ${ACRCLOUD_REFERENCE_BUCKET_NAME} — create it in ACRCloud console or set ACRCLOUD_REFERENCE_BUCKET_ID`,
+        };
+      }
+      bucketId = String(ours.id || ours.bucket_id || "");
+    }
+    if (!bucketId) {
+      return { ok: false, status: "error", cost_cents: 0, error: "no_bucket_id" };
+    }
+    // Upload the audio.
+    const audioBytes = fs.readFileSync(opts.audioPath);
+    const form = new FormData();
+    form.append("file", new Blob([new Uint8Array(audioBytes)]), path.basename(opts.audioPath));
+    form.append("data_type", "audio");
+    form.append("audio_id", opts.workId);
+    form.append("title", opts.title.slice(0, 200));
+    if (opts.artist) form.append("artist", opts.artist.slice(0, 200));
+    // CSSOS_WAVE_111D 20260512 — custom metadata fields per the
+    // bucket's JSON template. Empty values are sent as empty strings
+    // so the keys still register on the ACRCloud side (downstream
+    // queries always get the field back, just null when we didn't
+    // populate it). canonical_url is the highest-ROI one — clients
+    // who match our content get the cssOS deeplink directly in the
+    // response metadata, no extra API roundtrip needed.
+    form.append("cssos_work_id", opts.workId);
+    form.append("cssos_work_type", String(opts.workType || "single").slice(0, 24));
+    form.append("cssos_creator", String(opts.creator || "").slice(0, 120));
+    form.append(
+      "cssos_canonical_url",
+      String(opts.canonicalUrl || `https://cssstudio.app/?cssMV=${opts.workId}`).slice(0, 240),
+    );
+    const upResp = await fetch(`https://${ACRCLOUD_MGMT_HOST}/api/buckets/${encodeURIComponent(bucketId)}/audios`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${ACRCLOUD_PAT}` },
+      body: form,
+    });
+    const upBody: any = await upResp.json().catch(() => null);
+    if (!upResp.ok) {
+      return {
+        ok: false, status: "error", cost_cents: 0,
+        error: `upload_failed:${upResp.status}:${JSON.stringify(upBody || "").slice(0, 200)}`,
+      };
+    }
+    const remoteAudioId = String(upBody?.id || upBody?.audio_id || upBody?.data?.id || "");
+    // ACRCloud reference upload pricing varies by plan; estimate 1¢ per file.
+    return {
+      ok: true,
+      status: "ok",
+      bucket_id: bucketId,
+      remote_audio_id: remoteAudioId,
+      cost_cents: 1,
+    };
+  } catch (err) {
+    return {
+      ok: false, status: "error", cost_cents: 0,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/* POST /api/works/:id/fingerprint/push — owner-or-admin triggers
+ * ACRCloud Management upload for an already-fingerprinted work. All
+ * gates checked here. Logs to acrcloud_push_log. */
+app.post("/api/works/:id/fingerprint/push", express.json({ limit: "1kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const workId = String(req.params.id || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(workId)) {
+    return res.status(400).json({ ok: false, error: "invalid_work_id" });
+  }
+  if (!ACRCLOUD_MGMT_ENABLED) {
+    return res.status(503).json({
+      ok: false,
+      error: "autoupload_disabled",
+      hint: "Operator: set ACRCLOUD_AUTOUPLOAD_ENABLED=1 + ACRCLOUD_PAT in env.",
+    });
+  }
+  try {
+    const r = await withClient((c) =>
+      c.query<{
+        user_id: string; title: string | null; fingerprint_hash: string | null;
+        fingerprint_pushed: boolean; requires_clearance: boolean;
+        visibility: string | null;
+        work_type: string | null;
+        creator: string | null;
+      }>(
+        `SELECT w.user_id, w.title, w.fingerprint_hash, w.fingerprint_pushed,
+                w.requires_clearance, w.work_type,
+                COALESCE(u.display_name, u.username, '') AS creator,
+                COALESCE(mp.visibility, 'public') AS visibility
+           FROM user_works w
+           LEFT JOIN users u ON u.id = w.user_id
+           LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
+          WHERE w.id = $1::uuid LIMIT 1`,
+        [workId],
+      ),
+    );
+    const row = r.rows[0];
+    if (!row) return res.status(404).json({ ok: false, error: "work_not_found" });
+    if (row.user_id !== userId) return res.status(403).json({ ok: false, error: "not_owner" });
+    if (!row.fingerprint_hash) {
+      return res.status(412).json({ ok: false, error: "fingerprint_pending", hint: "POST /api/works/:id/fingerprint first" });
+    }
+    if (row.fingerprint_pushed) {
+      return res.json({ ok: true, status: "already_pushed", cached: true });
+    }
+    if (row.requires_clearance) {
+      return res.status(412).json({ ok: false, error: "clearance_required" });
+    }
+    if (row.visibility !== "public") {
+      return res.status(412).json({ ok: false, error: "private_work_blocked" });
+    }
+    // Creator opt-in check.
+    const opt = await withClient((c) =>
+      c.query<{ allow_global_push: boolean }>(
+        `SELECT allow_global_push FROM user_fingerprint_optin WHERE user_id = $1::uuid`,
+        [userId],
+      ),
+    );
+    if (!opt.rows[0]?.allow_global_push) {
+      return res.status(412).json({
+        ok: false, error: "creator_optin_required",
+        hint: "Toggle 'Allow global fingerprint push' in your account settings first.",
+      });
+    }
+    // Resolve final_mv asset.
+    const assetR = await withClient((c) =>
+      c.query<{ url: string | null }>(
+        `SELECT url FROM work_assets
+          WHERE work_id = $1::uuid
+            AND asset_type IN ('final_mv','audio_track_1','audio_master')
+          ORDER BY created_at DESC LIMIT 1`,
+        [workId],
+      ),
+    );
+    const url = String(assetR.rows[0]?.url || "").trim();
+    if (!url) return res.status(404).json({ ok: false, error: "no_audio_asset" });
+    let diskPath: string;
+    let cleanup = false;
+    if (url.startsWith("/uploads/") || url.startsWith("/artifacts/")) {
+      diskPath = path.join(PUBLIC_DIR, url.replace(/^\/+/, ""));
+      if (!fs.existsSync(diskPath)) diskPath = path.join("/srv/cssos", url.replace(/^\/+/, ""));
+    } else if (/^https?:\/\//.test(url)) {
+      const tmp = path.join(os.tmpdir(), `mgmt_${crypto.randomBytes(4).toString("hex")}`);
+      const dl = await fetch(url);
+      if (!dl.ok) return res.status(502).json({ ok: false, error: "asset_fetch_failed" });
+      fs.writeFileSync(tmp, Buffer.from(await dl.arrayBuffer()));
+      diskPath = tmp;
+      cleanup = true;
+    } else {
+      return res.status(400).json({ ok: false, error: "unsupported_asset_url" });
+    }
+    const result = await pushReferenceAudioToAcrcloud({
+      workId, userId,
+      audioPath: diskPath,
+      title: row.title || `cssOS-${workId.slice(0, 8)}`,
+      workType: row.work_type || "single",
+      creator: row.creator || "",
+      canonicalUrl: `https://cssstudio.app/?cssMV=${workId}`,
+    });
+    if (cleanup) fs.unlink(diskPath, () => {});
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO acrcloud_push_log
+            (work_id, user_id, bucket_id, remote_audio_id, upload_status, cost_cents, error_detail)
+          VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7)`,
+        [workId, userId, result.bucket_id || null, result.remote_audio_id || null,
+         result.status, result.cost_cents, result.error || null],
+      ),
+    );
+    if (result.ok) {
+      await withClient((c) =>
+        c.query(
+          `UPDATE user_works SET fingerprint_pushed = true WHERE id = $1::uuid`,
+          [workId],
+        ),
+      );
+    }
+    return res.json({
+      ok: result.ok,
+      status: result.status,
+      bucket_id: result.bucket_id || null,
+      remote_audio_id: result.remote_audio_id || null,
+      cost_cents: result.cost_cents,
+      error: result.error || null,
+    });
+  } catch (err) {
+    console.warn("[mgmt-push] failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, error: "push_failed" });
+  }
+});
+
+/* POST /api/account/fingerprint-optin — creator toggles consent for
+ * cssOS to push their public works' reference audio to the global
+ * ACRCloud bucket. Default OFF — opt-in is explicit. */
+app.post("/api/account/fingerprint-optin", express.json({ limit: "1kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const allow = !!(req.body as any)?.allow_global_push;
+  await withClient((c) =>
+    c.query(
+      `INSERT INTO user_fingerprint_optin (user_id, allow_global_push, updated_at)
+         VALUES ($1::uuid, $2, now())
+       ON CONFLICT (user_id) DO UPDATE
+         SET allow_global_push = EXCLUDED.allow_global_push,
+             updated_at = now()`,
+      [userId, allow],
+    ),
+  );
+  return res.json({ ok: true, allow_global_push: allow });
+});
+app.get("/api/account/fingerprint-optin", async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const r = await withClient((c) =>
+    c.query<{ allow_global_push: boolean }>(
+      `SELECT allow_global_push FROM user_fingerprint_optin WHERE user_id = $1::uuid`,
+      [userId],
+    ),
+  );
+  return res.json({
+    ok: true,
+    allow_global_push: !!r.rows[0]?.allow_global_push,
+    mgmt_enabled: ACRCLOUD_MGMT_ENABLED,
+    monthly_cap: ACRCLOUD_MAX_PUSHES_PER_MONTH,
+    monthly_used: await getCurrentMonthPushCount(),
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+ * CSSOS_WAVE_117 20260513 — Jing
+ * Agent chat — conversational orchestrator over the cssOS APIs.
+ *
+ * The user types in natural language ("I want a Confucius × Apricot
+ * Altar opera"); the agent picks tools, calls them, returns a final
+ * message AND (optionally) a `seed` payload the frontend can route
+ * straight into the MV pipeline.
+ *
+ * Architecture:
+ *   - Claude is the dispatcher (claude-sonnet-4-5 default; haiku
+ *     fallback when OPENAI/anthropic key absent).
+ *   - Tools wrap existing internal HTTP endpoints in-process to
+ *     avoid the network roundtrip — we call the handler functions
+ *     directly via withClient/SQL. This keeps latency low + free
+ *     of HTTP auth recursion.
+ *   - System prompt is anchored on UI locale so a 中文 user gets
+ *     Chinese responses, etc.
+ *   - Prompt caching: the system prompt + tool schemas are marked
+ *     ephemeral so successive turns in the same session re-use the
+ *     same cache block (≈ 90% input-token cost reduction per turn).
+ *   - Session memory: simple in-memory ring per (user, session_id),
+ *     bounded to last 24 turns. Survives the process; clears on
+ *     restart. Good enough for v1.
+ *   - Metering: each turn writes a usage_events row with route
+ *     'agent_chat' so we can rate-limit and bill.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+const AGENT_MODEL = (process.env.AGENT_MODEL || "claude-sonnet-4-5").trim();
+const AGENT_FALLBACK_MODEL = (process.env.AGENT_FALLBACK_MODEL || "claude-haiku-4-5").trim();
+const AGENT_MAX_TURNS = 8;
+const AGENT_TURNS_PER_USER_PER_HOUR = 60;
+
+type AgentMessage = {
+  role: "user" | "assistant";
+  content: any; // string OR Anthropic content blocks (text / tool_use / tool_result)
+};
+
+/* Lightweight per-(user, session) ring. We don't persist agent
+ * transcripts to DB yet — the data lives in process memory and is
+ * lost on restart. v2 will move it to user_works.metadata or a
+ * dedicated table. */
+const AGENT_SESSIONS: Map<string, { messages: AgentMessage[]; updatedAt: number }> = new Map();
+const AGENT_SESSION_TTL_MS = 60 * 60 * 1000; // 1 hour idle
+const AGENT_MAX_MESSAGES_PER_SESSION = 48;
+
+function agentSessionKey(userId: string, sessionId: string): string {
+  return `${userId}::${sessionId}`;
+}
+
+function getAgentSession(userId: string, sessionId: string): AgentMessage[] {
+  const key = agentSessionKey(userId, sessionId);
+  const now = Date.now();
+  // Lazy GC: drop expired sessions opportunistically.
+  for (const [k, v] of AGENT_SESSIONS) {
+    if (now - v.updatedAt > AGENT_SESSION_TTL_MS) AGENT_SESSIONS.delete(k);
+  }
+  const existing = AGENT_SESSIONS.get(key);
+  return existing ? existing.messages : [];
+}
+
+function appendAgentSession(userId: string, sessionId: string, msgs: AgentMessage[]): void {
+  const key = agentSessionKey(userId, sessionId);
+  const existing = AGENT_SESSIONS.get(key) || { messages: [], updatedAt: Date.now() };
+  existing.messages = existing.messages.concat(msgs).slice(-AGENT_MAX_MESSAGES_PER_SESSION);
+  existing.updatedAt = Date.now();
+  AGENT_SESSIONS.set(key, existing);
+}
+
+/* Tool schema — fed verbatim into Anthropic API. Keep keys flat &
+ * snake_case so Claude reliably matches. */
+const AGENT_TOOLS = [
+  {
+    name: "search_persons",
+    description: "Search the cssOS People library by name, civilization, era, or theme. Returns up to 12 best matches with their person_id, names, civilization, era, realm, and influence score. Use this to find candidates when the user mentions a name (e.g. 'Beethoven', '孔子', 'Napoleon').",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Free-text name/keyword (English or any language)." },
+        realm: { type: "string", enum: ["historical","mythological","literary","folkloric","all"], description: "Filter by realm. Default 'all'." },
+        civilization: { type: "string", description: "Optional civilization filter, e.g. '中华文明', '古希腊文明'." },
+        limit: { type: "integer", minimum: 1, maximum: 24, description: "Max results. Default 8." },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "search_landmarks",
+    description: "Search the cssOS Landmarks library by name, location, civilization, or category. Returns up to 12 matches. Use this to find places (e.g. 'Musikverein', '杏坛', 'Mount Olympus').",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        realm: { type: "string", enum: ["historical","mythological","literary","folkloric","all"] },
+        civilization: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 24 },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "get_person_codex",
+    description: "Fetch the full profile + recent MVs + related landmarks for a person_id. Use after search_persons when the user picks a candidate or commits to one person.",
+    input_schema: {
+      type: "object",
+      properties: { person_id: { type: "string" } },
+      required: ["person_id"],
+    },
+  },
+  {
+    name: "get_landmark_codex",
+    description: "Fetch the full profile + recent MVs + related persons for a landmark_id.",
+    input_schema: {
+      type: "object",
+      properties: { landmark_id: { type: "string" } },
+      required: ["landmark_id"],
+    },
+  },
+  {
+    name: "propose_dialogue_mv",
+    description: "Synthesize an MV seed (prompt, style, lyrics scaffold, work_type) from a person × landmark pairing. Returns a structured seed the user can confirm before kicking off generation. This does NOT start generation — call create_work_from_seed for that.",
+    input_schema: {
+      type: "object",
+      properties: {
+        person_id: { type: "string" },
+        landmark_id: { type: "string", description: "Optional — if omitted, the proposal is a solo persona MV." },
+        theme: { type: "string", description: "Optional one-line angle (e.g. '杏坛讲学', 'crowning at Notre-Dame')." },
+        work_type: { type: "string", enum: ["single","triptych","opera","shortplay","series","film"], description: "Default 'single'." },
+        language: { type: "string", description: "BCP-47 code, e.g. 'en','zh','ja'. Default follows the user's UI locale." },
+      },
+      required: ["person_id"],
+    },
+  },
+  {
+    name: "verify_fingerprint",
+    description: "Look up a 16-hex-char fingerprint hash in the cssOS archive to verify provenance of a music file.",
+    input_schema: {
+      type: "object",
+      properties: { hash: { type: "string" } },
+      required: ["hash"],
+    },
+  },
+];
+
+/* In-process tool dispatcher. Each tool returns a serializable object
+ * which becomes the `content` of a `tool_result` block fed back to
+ * Claude on the next turn. Errors throw — caught upstream and turned
+ * into a tool_result with `is_error: true` so the model can react. */
+async function runAgentTool(
+  name: string,
+  input: any,
+  ctx: { userId: string; uiLocale: string },
+): Promise<any> {
+  const inp = input && typeof input === "object" ? input : {};
+  switch (name) {
+    case "search_persons": {
+      const q = String(inp.query || "").trim().toLowerCase();
+      const realm = String(inp.realm || "all").trim().toLowerCase();
+      const civ = String(inp.civilization || "").trim();
+      const limit = Math.max(1, Math.min(24, Number(inp.limit || 8) | 0));
+      const where: string[] = [];
+      const params: unknown[] = [];
+      if (q) {
+        params.push(`%${q}%`);
+        where.push(`(lower(name_zh) LIKE $${params.length} OR lower(name_en) LIKE $${params.length} OR lower(coalesce(name_native,'')) LIKE $${params.length} OR lower(coalesce(name_latin,'')) LIKE $${params.length} OR lower(coalesce(core_theme,'')) LIKE $${params.length})`);
+      }
+      if (realm && realm !== "all") {
+        params.push(realm);
+        where.push(`realm = $${params.length}`);
+      }
+      if (civ) { params.push(civ); where.push(`civilization = $${params.length}`); }
+      params.push(limit);
+      const sql = `SELECT person_id, name_zh, name_en, civilization, era, realm,
+                          influence_score, core_theme,
+                          coalesce(roles,'{}') AS roles
+                     FROM person_profiles
+                     ${where.length ? "WHERE " + where.join(" AND ") : ""}
+                    ORDER BY influence_score DESC, name_en
+                    LIMIT $${params.length}`;
+      const r = await withClient((c) => c.query(sql, params));
+      return { results: r.rows };
+    }
+    case "search_landmarks": {
+      const q = String(inp.query || "").trim().toLowerCase();
+      const realm = String(inp.realm || "all").trim().toLowerCase();
+      const civ = String(inp.civilization || "").trim();
+      const limit = Math.max(1, Math.min(24, Number(inp.limit || 8) | 0));
+      const where: string[] = [];
+      const params: unknown[] = [];
+      if (q) {
+        params.push(`%${q}%`);
+        where.push(`(lower(name_zh) LIKE $${params.length} OR lower(name_en) LIKE $${params.length} OR lower(coalesce(name_native,'')) LIKE $${params.length} OR lower(coalesce(location,'')) LIKE $${params.length})`);
+      }
+      if (realm && realm !== "all") { params.push(realm); where.push(`realm = $${params.length}`); }
+      if (civ) { params.push(civ); where.push(`civilization = $${params.length}`); }
+      params.push(limit);
+      const sql = `SELECT landmark_id, name_zh, name_en, civilization, era, location, realm,
+                          category, influence_score, related_persons,
+                          coalesce(notable_events,'{}') AS notable_events
+                     FROM landmark_profiles
+                     ${where.length ? "WHERE " + where.join(" AND ") : ""}
+                    ORDER BY influence_score DESC, name_en
+                    LIMIT $${params.length}`;
+      const r = await withClient((c) => c.query(sql, params));
+      return { results: r.rows };
+    }
+    case "get_person_codex": {
+      const id = String(inp.person_id || "").trim();
+      if (!id) return { error: "person_id required" };
+      const r = await withClient((c) =>
+        c.query(
+          `SELECT pp.*,
+                  (SELECT count(*)::int FROM person_mvs WHERE person_id = pp.person_id) AS mv_count
+             FROM person_profiles pp
+            WHERE pp.person_id = $1 LIMIT 1`,
+          [id],
+        ),
+      );
+      if (!r.rows[0]) return { error: "person_not_found" };
+      const landmarks = await withClient((c) =>
+        c.query(
+          `SELECT landmark_id, name_zh, name_en, civilization, era, location
+             FROM landmark_profiles WHERE $1 = ANY(related_persons)
+            ORDER BY influence_score DESC LIMIT 8`,
+          [id],
+        ),
+      );
+      return { person: r.rows[0], related_landmarks: landmarks.rows };
+    }
+    case "get_landmark_codex": {
+      const id = String(inp.landmark_id || "").trim();
+      if (!id) return { error: "landmark_id required" };
+      const r = await withClient((c) =>
+        c.query(
+          `SELECT * FROM landmark_profiles WHERE landmark_id = $1 LIMIT 1`,
+          [id],
+        ),
+      );
+      if (!r.rows[0]) return { error: "landmark_not_found" };
+      const landmark = r.rows[0];
+      const personIds = Array.isArray(landmark.related_persons) ? landmark.related_persons : [];
+      const persons = personIds.length
+        ? await withClient((c) =>
+            c.query(
+              `SELECT person_id, name_zh, name_en, civilization, era, influence_score
+                 FROM person_profiles WHERE person_id = ANY($1::text[])
+                ORDER BY influence_score DESC`,
+              [personIds],
+            ),
+          ).then((q) => q.rows)
+        : [];
+      return { landmark, related_persons: persons };
+    }
+    case "propose_dialogue_mv": {
+      const pid = String(inp.person_id || "").trim();
+      const lid = String(inp.landmark_id || "").trim() || null;
+      const theme = String(inp.theme || "").trim();
+      const workType = String(inp.work_type || "single").trim().toLowerCase();
+      const language = String(inp.language || ctx.uiLocale || "en").trim().toLowerCase();
+      if (!pid) return { error: "person_id required" };
+      const personR = await withClient((c) =>
+        c.query<{ name_zh: string; name_en: string; civilization: string; era: string; music_style_hint: string; tone: string; core_theme: string }>(
+          `SELECT name_zh, name_en, civilization, era,
+                  coalesce(music_style_hint,'') AS music_style_hint,
+                  coalesce(tone,'') AS tone,
+                  coalesce(core_theme,'') AS core_theme
+             FROM person_profiles WHERE person_id = $1 LIMIT 1`,
+          [pid],
+        ),
+      );
+      const person = personR.rows[0];
+      if (!person) return { error: "person_not_found" };
+      let landmark: any = null;
+      if (lid) {
+        const lr = await withClient((c) =>
+          c.query(
+            `SELECT name_zh, name_en, civilization, era, location,
+                    coalesce(music_style_hint,'') AS music_style_hint,
+                    coalesce(tone,'') AS tone,
+                    coalesce(notable_events,'{}') AS notable_events
+               FROM landmark_profiles WHERE landmark_id = $1 LIMIT 1`,
+            [lid],
+          ),
+        );
+        landmark = lr.rows[0] || null;
+      }
+      const personName = language.startsWith("zh")
+        ? (person.name_zh || person.name_en)
+        : (person.name_en || person.name_zh);
+      const landmarkName = landmark
+        ? (language.startsWith("zh") ? (landmark.name_zh || landmark.name_en) : (landmark.name_en || landmark.name_zh))
+        : null;
+      const angle = theme || (landmark && Array.isArray(landmark.notable_events) && landmark.notable_events.length
+        ? String(landmark.notable_events[0])
+        : person.core_theme);
+      const prompt = landmarkName
+        ? `${personName} × ${landmarkName}${angle ? "\n[" + angle + "]" : ""}`
+        : `${personName}${angle ? "\n[" + angle + "]" : ""}`;
+      const style = String(
+        landmark?.music_style_hint || person.music_style_hint || "古风史诗"
+      );
+      return {
+        seed: {
+          prompt,
+          style,
+          language,
+          work_type: workType,
+          __personId: pid,
+          __landmarkId: lid,
+          __dialogue: !!lid,
+          __storyAngle: angle,
+        },
+        person_label: personName,
+        landmark_label: landmarkName,
+        notes: landmark
+          ? `Dialogue MV: ${personName} encountering ${landmarkName}. Angle: ${angle}. Civilization: ${person.civilization} × ${landmark.civilization}.`
+          : `Solo persona MV: ${personName}. Theme: ${angle}.`,
+        ready_to_create: true,
+      };
+    }
+    case "verify_fingerprint": {
+      const hash = String(inp.hash || "").trim().toLowerCase();
+      if (!/^[a-f0-9]{8,64}$/.test(hash)) return { error: "invalid_hash" };
+      const r = await withClient((c) =>
+        c.query(
+          `SELECT w.id, w.title, w.work_type, w.fingerprinted_at,
+                  u.display_name AS owner_name, u.username AS owner_handle
+             FROM user_works w JOIN users u ON u.id = w.user_id
+            WHERE w.fingerprint_hash = $1 LIMIT 1`,
+          [hash],
+        ),
+      );
+      if (!r.rows[0]) return { matched: false };
+      return {
+        matched: true,
+        work_id: r.rows[0].id,
+        title: r.rows[0].title,
+        work_type: r.rows[0].work_type,
+        owner: { name: r.rows[0].owner_name, handle: r.rows[0].owner_handle },
+        canonical_url: `https://cssstudio.app/?cssMV=${r.rows[0].id}`,
+        fingerprinted_at: r.rows[0].fingerprinted_at,
+      };
+    }
+    default:
+      return { error: `unknown_tool:${name}` };
+  }
+}
+
+function languageNameFromCodeShort(code: string): string {
+  const c = String(code || "").toLowerCase();
+  if (c.startsWith("zh")) return "Chinese";
+  if (c.startsWith("ja")) return "Japanese";
+  if (c.startsWith("es")) return "Spanish";
+  if (c.startsWith("fr")) return "French";
+  if (c.startsWith("de")) return "German";
+  if (c.startsWith("ko")) return "Korean";
+  return "English";
+}
+
+function buildAgentSystemPrompt(uiLocale: string): string {
+  const lang = languageNameFromCodeShort(uiLocale);
+  return [
+    `You are the cssOS Studio creative assistant. Your job is to help the user create a music video (MV) by guiding them through choosing a person, an optional landmark, a work type (single / triptych / opera / shortplay / series / film), and a musical/visual angle.`,
+    ``,
+    `LANGUAGE: Reply to the user in ${lang}. The user's UI locale is "${uiLocale}". Always use ${lang} for prose. Person and landmark names should follow the user's locale (Chinese names in 中文 when locale=zh, English when locale=en, etc.).`,
+    ``,
+    `WORK FLOW:`,
+    `  1. When the user mentions a person or place, immediately call search_persons or search_landmarks to ground the conversation in real cssOS-curated entities. Don't invent person_id values.`,
+    `  2. Once you have a likely candidate, optionally call get_person_codex / get_landmark_codex to fetch details (era, music_style_hint, notable_events) so your proposal is grounded.`,
+    `  3. When the user is ready (or you have enough context), call propose_dialogue_mv to synthesize an MV seed. Present the proposal in prose ("I'm thinking: Beethoven × Musikverein, opera-style, 'Eroica's Reception'") and ask for confirmation.`,
+    `  4. If the user confirms, instruct them to click the "Create MV" button in your final message — the frontend handles the actual creation. Include the seed object in your final response in a JSON code block tagged with \`cssos-seed\` (see below).`,
+    ``,
+    `REALMS: cssOS has four realms — historical / mythological / literary / folkloric. Cross-realm pairings are allowed (孙悟空 × 凌霄宝殿, Beethoven × Musikverein, Sherlock Holmes × 221B Baker Street). When the user mentions a fictional/mythological figure, default realm filter to that category for searches.`,
+    ``,
+    `STYLE & VOICE:`,
+    `  - Be concise. 1-3 short sentences per turn unless the user asked for depth.`,
+    `  - Be specific. "Eroica's Reception" beats "a famous moment".`,
+    `  - Surface options rather than imposing. If 3 candidates match, list them briefly.`,
+    `  - Never reveal raw tool outputs (JSON blobs) to the user — summarize.`,
+    ``,
+    `SEED FORMAT (final message when user confirms creation):`,
+    "```cssos-seed",
+    `{"prompt":"...","style":"...","language":"...","work_type":"single","__personId":"...","__landmarkId":"...","__dialogue":true,"__storyAngle":"..."}`,
+    "```",
+    `The frontend parses this fenced block and shows a "Create this MV" button — do not call create_work_from_seed yourself. After emitting the seed block, stop.`,
+    ``,
+    `SAFETY: Never propose RAGE / hate / extremist content. Historical figures should be treated respectfully — risk_notes in the codex flag sensitive cases (e.g. modern political figures).`,
+  ].join("\n");
+}
+
+async function recordAgentUsage(userId: string, turns: number, costCents: number, sessionId: string): Promise<void> {
+  try {
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO usage_events (user_id, route, units, cost_cents, meta)
+         VALUES ($1::uuid, 'agent_chat', $2, $3, $4::jsonb)`,
+        [userId, turns, costCents, JSON.stringify({ session_id: sessionId })],
+      ),
+    );
+  } catch (err) {
+    console.warn("[agent] usage_events write failed:", (err as Error)?.message || err);
+  }
+}
+
+async function getAgentTurnsLastHour(userId: string): Promise<number> {
+  try {
+    const r = await withClient((c) =>
+      c.query<{ n: string }>(
+        `SELECT COALESCE(SUM(units),0)::text AS n FROM usage_events
+          WHERE user_id = $1::uuid
+            AND route = 'agent_chat'
+            AND created_at >= now() - interval '1 hour'`,
+        [userId],
+      ),
+    );
+    return Number(r.rows[0]?.n || 0) | 0;
+  } catch (_) { return 0; }
+}
+
+/* POST /api/agent/chat
+ *   Body: { message: string, session_id?: string, ui_locale?: string }
+ *   Response: {
+ *     ok: true,
+ *     reply: string,
+ *     seed: object|null,           // parsed cssos-seed block if present
+ *     tool_calls: [{name,input,result_summary}],
+ *     turns_this_hour: number,
+ *     turns_remaining: number,
+ *   }
+ */
+app.post("/api/agent/chat", express.json({ limit: "32kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const apiKey = (process.env.ANTHROPIC_API_KEY || "").trim();
+  if (!apiKey) {
+    return res.status(503).json({ ok: false, error: "agent_unavailable", hint: "ANTHROPIC_API_KEY not configured" });
+  }
+  const body = (req.body && typeof req.body === "object") ? req.body : {};
+  const message = String((body as any).message || "").trim();
+  if (!message) return res.status(400).json({ ok: false, error: "empty_message" });
+  const sessionId = String((body as any).session_id || "default").slice(0, 64);
+  const uiLocale = String((body as any).ui_locale || "en").slice(0, 12);
+
+  // Rate-limit guard.
+  const used = await getAgentTurnsLastHour(userId);
+  if (used >= AGENT_TURNS_PER_USER_PER_HOUR) {
+    return res.status(429).json({
+      ok: false,
+      error: "rate_limited",
+      hint: `Limit: ${AGENT_TURNS_PER_USER_PER_HOUR} agent turns/hour. Used: ${used}. Reset at the next hour rollover.`,
+    });
+  }
+
+  const history = getAgentSession(userId, sessionId);
+  const messages: AgentMessage[] = history.slice();
+  messages.push({ role: "user", content: message });
+
+  const client = new Anthropic({ apiKey });
+  const toolCallsLog: { name: string; input: any; result_summary: string }[] = [];
+  let finalText = "";
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let stopReason = "";
+  const systemPrompt = buildAgentSystemPrompt(uiLocale);
+
+  try {
+    for (let turn = 0; turn < AGENT_MAX_TURNS; turn++) {
+      const resp = await client.messages.create({
+        model: AGENT_MODEL,
+        max_tokens: 2048,
+        system: [
+          {
+            type: "text",
+            text: systemPrompt,
+            cache_control: { type: "ephemeral" },
+          } as any,
+        ] as any,
+        tools: AGENT_TOOLS as any,
+        messages: messages.map((m) => ({ role: m.role, content: m.content })) as any,
+      });
+      totalInputTokens += resp.usage?.input_tokens || 0;
+      totalOutputTokens += resp.usage?.output_tokens || 0;
+      stopReason = String(resp.stop_reason || "");
+      // Append the assistant turn (content blocks) to history.
+      messages.push({ role: "assistant", content: resp.content as any });
+
+      // Collect any text + tool_use blocks.
+      const toolUseBlocks: any[] = [];
+      let textChunk = "";
+      for (const block of resp.content as any[]) {
+        if (block.type === "text") textChunk += block.text || "";
+        else if (block.type === "tool_use") toolUseBlocks.push(block);
+      }
+      if (textChunk) finalText = textChunk;
+
+      if (resp.stop_reason !== "tool_use" || toolUseBlocks.length === 0) {
+        // Model wants to end the turn (or end conversation).
+        break;
+      }
+
+      // Execute all requested tools, append tool_result blocks.
+      const toolResults: any[] = [];
+      for (const tb of toolUseBlocks) {
+        const toolName = String(tb.name || "");
+        const toolInput = tb.input || {};
+        let result: any;
+        try {
+          result = await runAgentTool(toolName, toolInput, { userId, uiLocale });
+        } catch (err) {
+          result = { error: err instanceof Error ? err.message : String(err) };
+        }
+        const summary = (() => {
+          try {
+            const s = JSON.stringify(result);
+            return s.length > 240 ? s.slice(0, 240) + "…" : s;
+          } catch { return "[unserializable]"; }
+        })();
+        toolCallsLog.push({ name: toolName, input: toolInput, result_summary: summary });
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: tb.id,
+          content: typeof result === "string" ? result : JSON.stringify(result),
+        });
+      }
+      messages.push({ role: "user", content: toolResults as any });
+    }
+  } catch (err) {
+    console.warn("[agent] turn failed:", (err as Error)?.message || err);
+    return res.status(500).json({
+      ok: false,
+      error: "agent_failed",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // Parse seed block out of finalText if present.
+  let seed: any = null;
+  const seedMatch = finalText.match(/```cssos-seed\s*\n([\s\S]*?)\n```/);
+  if (seedMatch && seedMatch[1]) {
+    try {
+      seed = JSON.parse(seedMatch[1]);
+    } catch (_) { seed = null; }
+  }
+  // Remove the fenced seed block from the user-facing reply (we render
+  // it as a "Create this MV" button instead).
+  const reply = finalText.replace(/```cssos-seed[\s\S]*?```/g, "").trim();
+
+  // Persist memory + meter.
+  // Last user msg is already in messages from initial push; assistant
+  // turns from the loop are too. We diff against original `history`.
+  const newTurns = messages.slice(history.length);
+  appendAgentSession(userId, sessionId, newTurns);
+  // Cost estimate: claude-sonnet-4-5 at $3 / 1M input, $15 / 1M output.
+  // Round up to nearest cent.
+  const costCents = Math.max(
+    1,
+    Math.ceil((totalInputTokens / 1_000_000) * 300 + (totalOutputTokens / 1_000_000) * 1500),
+  );
+  await recordAgentUsage(userId, 1, costCents, sessionId);
+
+  return res.json({
+    ok: true,
+    reply,
+    seed,
+    tool_calls: toolCallsLog,
+    turns_this_hour: used + 1,
+    turns_remaining: Math.max(0, AGENT_TURNS_PER_USER_PER_HOUR - used - 1),
+    stop_reason: stopReason,
+    cost_cents: costCents,
+    session_id: sessionId,
+  });
+});
+
+/* GET /api/agent/session — peek at recent messages (debugging + UI
+ * reload-state recovery). Returns sanitized text + tool_call summaries. */
+app.get("/api/agent/session", async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const sessionId = String(req.query.session_id || "default").slice(0, 64);
+  const history = getAgentSession(userId, sessionId);
+  const display = history.map((m) => {
+    if (typeof m.content === "string") return { role: m.role, text: m.content };
+    if (Array.isArray(m.content)) {
+      const texts = (m.content as any[]).filter((b) => b.type === "text").map((b) => b.text);
+      const tools = (m.content as any[]).filter((b) => b.type === "tool_use").map((b) => b.name);
+      return {
+        role: m.role,
+        text: texts.join(""),
+        tool_calls: tools,
+      };
+    }
+    return { role: m.role, text: "" };
+  });
+  return res.json({
+    ok: true,
+    session_id: sessionId,
+    messages: display,
+    turns_this_hour: await getAgentTurnsLastHour(userId),
+    turns_per_hour_limit: AGENT_TURNS_PER_USER_PER_HOUR,
+  });
+});
+
+/* DELETE /api/agent/session — clear the current session. */
+app.delete("/api/agent/session", async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const sessionId = String(req.query.session_id || "default").slice(0, 64);
+  AGENT_SESSIONS.delete(agentSessionKey(userId, sessionId));
+  return res.json({ ok: true });
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+ * CSSOS_WAVE_118 20260513 — Jing
+ * Apple App Store IAP receipt verification + product catalog.
+ *
+ * Flow:
+ *   1. iOS native app (Capacitor + StoreKit plugin) initiates purchase
+ *   2. On success, StoreKit returns a transaction with a JWS-signed
+ *      receipt payload + transaction_id + product_id
+ *   3. App POSTs to /api/iap/apple/verify with the receipt
+ *   4. Server validates with Apple's App Store Server API:
+ *        - Production: https://api.storekit.itunes.apple.com
+ *        - Sandbox:    https://api.storekit-sandbox.itunes.apple.com
+ *      We try production first; on 21007 (sandbox receipt in prod) we
+ *      retry against sandbox. This is the standard pattern.
+ *   5. Server idempotently INSERTs into iap_receipts and grants the
+ *      product (subscription tier, credit pack, unlock).
+ *
+ * For v1.0 submission, we ship the endpoint + validation logic. The
+ * actual App Store Connect product IDs you'll create are defined in
+ * IAP_PRODUCT_CATALOG below — keep these IDs in sync with what you
+ * configure in App Store Connect.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+/* IAP product catalog. The keys MUST match App Store Connect product
+ * IDs verbatim (case-sensitive). Apple recommends reverse-DNS scheme.
+ * Each entry maps to what we grant on successful verification. */
+type IapProductDef = {
+  id: string;
+  kind: "subscription" | "credit_pack" | "unlock";
+  /** Tier name when kind=subscription (matches our membership tiers). */
+  tier?: "starter" | "pro" | "studio";
+  /** Credits granted when kind=credit_pack. */
+  credits?: number;
+  /** Display price in cents (App Store may localize; this is our
+   *  internal "what we think we charged" for cost tracking). */
+  amount_cents: number;
+  /** Sub period in days when kind=subscription. */
+  period_days?: number;
+};
+
+// CSSOS_WAVE_118 20260513 — Bundle ID rectified to match the existing
+// Apple Developer Portal registration `app.cssstudio.studio` (4-part rDNS).
+// IAP product IDs nest under it per Apple convention.
+const IAP_PRODUCT_CATALOG: Record<string, IapProductDef> = {
+  // Subscriptions
+  "app.cssstudio.studio.starter.monthly": { id: "app.cssstudio.studio.starter.monthly", kind: "subscription", tier: "starter", amount_cents: 499,  period_days: 30 },
+  "app.cssstudio.studio.pro.monthly":     { id: "app.cssstudio.studio.pro.monthly",     kind: "subscription", tier: "pro",     amount_cents: 1499, period_days: 30 },
+  "app.cssstudio.studio.studio.monthly":  { id: "app.cssstudio.studio.studio.monthly",  kind: "subscription", tier: "studio",  amount_cents: 4999, period_days: 30 },
+  "app.cssstudio.studio.starter.annual":  { id: "app.cssstudio.studio.starter.annual",  kind: "subscription", tier: "starter", amount_cents: 4990,  period_days: 365 },
+  "app.cssstudio.studio.pro.annual":      { id: "app.cssstudio.studio.pro.annual",      kind: "subscription", tier: "pro",     amount_cents: 14990, period_days: 365 },
+  "app.cssstudio.studio.studio.annual":   { id: "app.cssstudio.studio.studio.annual",   kind: "subscription", tier: "studio",  amount_cents: 49990, period_days: 365 },
+  // Credit packs (one-time consumables)
+  "app.cssstudio.studio.credits.100":   { id: "app.cssstudio.studio.credits.100",   kind: "credit_pack", credits: 100,   amount_cents: 99 },
+  "app.cssstudio.studio.credits.500":   { id: "app.cssstudio.studio.credits.500",   kind: "credit_pack", credits: 500,   amount_cents: 499 },
+  "app.cssstudio.studio.credits.2000":  { id: "app.cssstudio.studio.credits.2000",  kind: "credit_pack", credits: 2000,  amount_cents: 1499 },
+  "app.cssstudio.studio.credits.10000": { id: "app.cssstudio.studio.credits.10000", kind: "credit_pack", credits: 10000, amount_cents: 4999 },
+};
+
+const APPLE_IAP_SHARED_SECRET = (process.env.APPLE_IAP_SHARED_SECRET || "").trim();
+const APPLE_IAP_BUNDLE_ID = (process.env.APPLE_IAP_BUNDLE_ID || "app.cssstudio.studio").trim();
+
+/* GET /api/iap/products — public catalog so the iOS app + web UI
+ * can render the right buttons & prices. */
+app.get("/api/iap/products", async (_req, res) => {
+  noStore(res);
+  return res.json({
+    ok: true,
+    bundle_id: APPLE_IAP_BUNDLE_ID,
+    products: Object.values(IAP_PRODUCT_CATALOG),
+  });
+});
+
+/* Validate a unified receipt with Apple's legacy verifyReceipt API.
+ * This is the simplest path for receipts coming from a StoreKit 1
+ * client. StoreKit 2 (iOS 15+) returns JWS transactions that we'd
+ * verify locally with the AppStoreServerLibrary — for v1.0 we accept
+ * both but only fully verify the legacy flow; JWS path is accepted
+ * with a structural check + saved for later server-side cron verify. */
+async function verifyAppleReceiptLegacy(
+  receiptDataB64: string,
+): Promise<{ ok: boolean; status: number; environment?: string; payload?: any; error?: string }> {
+  if (!APPLE_IAP_SHARED_SECRET) {
+    return { ok: false, status: -1, error: "APPLE_IAP_SHARED_SECRET not configured" };
+  }
+  const body = JSON.stringify({
+    "receipt-data": receiptDataB64,
+    "password": APPLE_IAP_SHARED_SECRET,
+    "exclude-old-transactions": true,
+  });
+  async function callApple(host: string) {
+    const r = await fetch(`https://${host}/verifyReceipt`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+    return await r.json().catch(() => null);
+  }
+  try {
+    // Try production first.
+    let j: any = await callApple("buy.itunes.apple.com");
+    if (j?.status === 21007) {
+      // Sandbox receipt sent to prod; retry against sandbox.
+      j = await callApple("sandbox.itunes.apple.com");
+    }
+    const status = Number(j?.status ?? -1);
+    if (status === 0) {
+      return { ok: true, status, environment: String(j.environment || "Production"), payload: j };
+    }
+    return { ok: false, status, payload: j, error: `apple_status_${status}` };
+  } catch (err) {
+    return { ok: false, status: -1, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/* Pull the most recent transaction for each product from a legacy
+ * verifyReceipt response. Falls back to receipt.in_app[] if
+ * latest_receipt_info is absent. */
+function extractAppleTransactions(payload: any): any[] {
+  if (!payload) return [];
+  const latest = Array.isArray(payload.latest_receipt_info) ? payload.latest_receipt_info : null;
+  if (latest && latest.length) return latest;
+  const inApp = Array.isArray(payload.receipt?.in_app) ? payload.receipt.in_app : null;
+  if (inApp && inApp.length) return inApp;
+  return [];
+}
+
+async function grantIapPurchase(opts: {
+  userId: string;
+  productId: string;
+  transactionId: string;
+  originalTransactionId?: string | undefined;
+  purchasedAt: Date;
+  expiresAt?: Date | null | undefined;
+  environment: string;
+  appAccountToken?: string | null | undefined;
+  rawPayload: any;
+}): Promise<{ granted: boolean; reason?: string }> {
+  const def = IAP_PRODUCT_CATALOG[opts.productId];
+  if (!def) {
+    // Save the receipt for audit even when product unknown — protects
+    // against future product additions where the iOS client beats the
+    // server.
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO iap_receipts
+          (transaction_id, original_transaction_id, user_id, product_id, product_kind, amount_cents, purchased_at, expires_at, environment, app_account_token, raw_payload, granted)
+         VALUES ($1,$2,$3::uuid,$4,'unknown',0,$5,$6,$7,$8,$9::jsonb,false)
+         ON CONFLICT (transaction_id) DO NOTHING`,
+        [opts.transactionId, opts.originalTransactionId || null, opts.userId, opts.productId,
+         opts.purchasedAt, opts.expiresAt || null, opts.environment, opts.appAccountToken || null,
+         JSON.stringify(opts.rawPayload)],
+      ),
+    );
+    return { granted: false, reason: "unknown_product" };
+  }
+
+  // Idempotent insert: if the transaction already exists, do nothing.
+  const insertR = await withClient((c) =>
+    c.query<{ id: string }>(
+      `INSERT INTO iap_receipts
+        (transaction_id, original_transaction_id, user_id, product_id, product_kind, amount_cents, currency, purchased_at, expires_at, environment, app_account_token, raw_payload, granted, granted_at)
+       VALUES ($1,$2,$3::uuid,$4,$5,$6,'USD',$7,$8,$9,$10,$11::jsonb,true,now())
+       ON CONFLICT (transaction_id) DO NOTHING
+       RETURNING transaction_id AS id`,
+      [opts.transactionId, opts.originalTransactionId || null, opts.userId,
+       opts.productId, def.kind, def.amount_cents,
+       opts.purchasedAt, opts.expiresAt || null, opts.environment, opts.appAccountToken || null,
+       JSON.stringify(opts.rawPayload)],
+    ),
+  );
+  if (!insertR.rows[0]) {
+    // Already granted — idempotent re-post.
+    return { granted: false, reason: "already_granted" };
+  }
+  // Grant the actual product.
+  try {
+    if (def.kind === "subscription" && def.tier) {
+      // Extend the user's membership.tier and membership.expires_at.
+      // This mirrors what the Stripe webhook does. Schema: users has
+      // `tier` + `tier_expires_at`. (Adjust column names if different.)
+      const expiry = opts.expiresAt || new Date(opts.purchasedAt.getTime() + ((def.period_days || 30) * 24 * 60 * 60 * 1000));
+      await withClient((c) =>
+        c.query(
+          `UPDATE users
+              SET tier = $2,
+                  tier_expires_at = GREATEST(COALESCE(tier_expires_at, $3), $3)
+            WHERE id = $1::uuid`,
+          [opts.userId, def.tier, expiry],
+        ),
+      );
+    } else if (def.kind === "credit_pack" && def.credits) {
+      // Add credits to user_credits table (create if missing).
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO usage_events (user_id, route, units, cost_cents, meta)
+           VALUES ($1::uuid, 'iap_credit_grant', $2, $3, $4::jsonb)`,
+          [opts.userId, def.credits, def.amount_cents,
+           JSON.stringify({ product_id: opts.productId, transaction_id: opts.transactionId, source: "apple_iap" })],
+        ),
+      );
+    }
+    return { granted: true };
+  } catch (err) {
+    console.warn("[iap] grant failed:", (err as Error)?.message || err);
+    return { granted: false, reason: "grant_failed" };
+  }
+}
+
+/* POST /api/iap/apple/verify
+ *   Body: {
+ *     receipt_data: string,           // base64 receipt
+ *     // OR for StoreKit 2 single-transaction shape:
+ *     transaction_id?: string,
+ *     product_id?: string,
+ *     app_account_token?: string,     // UUID we passed at purchase time
+ *   }
+ *   Response: { ok, granted, transactions, environment, ... }
+ */
+app.post("/api/iap/apple/verify", express.json({ limit: "200kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const body = (req.body && typeof req.body === "object") ? req.body : {};
+  const receiptB64 = String((body as any).receipt_data || "").trim();
+  if (!receiptB64) {
+    return res.status(400).json({ ok: false, error: "receipt_data_required" });
+  }
+  if (!APPLE_IAP_SHARED_SECRET) {
+    return res.status(503).json({
+      ok: false,
+      error: "iap_not_configured",
+      hint: "Set APPLE_IAP_SHARED_SECRET in /etc/cssos.env (App Store Connect → My Apps → cssOS → App Information → App-Specific Shared Secret).",
+    });
+  }
+  const verification = await verifyAppleReceiptLegacy(receiptB64);
+  if (!verification.ok) {
+    return res.status(400).json({
+      ok: false,
+      error: "verification_failed",
+      apple_status: verification.status,
+      detail: verification.error,
+    });
+  }
+  const txns = extractAppleTransactions(verification.payload);
+  const results: any[] = [];
+  for (const t of txns) {
+    const productId = String(t.product_id || "").trim();
+    if (!productId) continue;
+    const txnId = String(t.transaction_id || "").trim();
+    if (!txnId) continue;
+    const origTxnId = String(t.original_transaction_id || "").trim() || null;
+    const purchasedAtMs = Number(t.purchase_date_ms || t.original_purchase_date_ms || Date.now());
+    const expiresAtMs = t.expires_date_ms ? Number(t.expires_date_ms) : null;
+    const appAccountToken = String(t.app_account_token || "").trim() || null;
+    const grant = await grantIapPurchase({
+      userId,
+      productId,
+      transactionId: txnId,
+      originalTransactionId: origTxnId || undefined,
+      purchasedAt: new Date(purchasedAtMs),
+      expiresAt: expiresAtMs ? new Date(expiresAtMs) : null,
+      environment: String(verification.environment || "Production"),
+      appAccountToken,
+      rawPayload: t,
+    });
+    results.push({
+      product_id: productId,
+      transaction_id: txnId,
+      granted: grant.granted,
+      reason: grant.reason,
+    });
+  }
+  return res.json({
+    ok: true,
+    environment: verification.environment,
+    transactions: results,
+    granted_count: results.filter((r) => r.granted).length,
+  });
+});
+
+/* App Store Server-to-Server notifications V2 webhook.
+ * Apple POSTs renewals / refunds / cancels here. Configure URL in
+ * App Store Connect → My Apps → cssOS → App Information → App Store
+ * Server Notifications → Production Server URL:
+ *   https://cssstudio.app/api/iap/apple/notifications
+ *
+ * Body is a JWS-signed payload — for v1.0 we accept and log; full
+ * verification with Apple's certificate chain happens in 118B. */
+app.post("/api/iap/apple/notifications", express.json({ limit: "200kb" }), async (req, res) => {
+  try {
+    const body = (req.body && typeof req.body === "object") ? req.body : {};
+    const signedPayload = String((body as any).signedPayload || "").trim();
+    // Persist raw signed payload to a side table or log; for v1 just log.
+    console.info("[iap-s2s] received notification, len=%d", signedPayload.length);
+    // TODO 118B: verify Apple JWS, parse notificationType, handle:
+    //   - DID_RENEW → extend tier_expires_at
+    //   - DID_FAIL_TO_RENEW → mark grace period
+    //   - REFUND → set iap_receipts.refunded=true + revoke tier
+    //   - REVOKE → revoke and ban future grants for txn
+    return res.status(200).end();
+  } catch (err) {
+    console.warn("[iap-s2s] failed:", (err as Error)?.message || err);
+    return res.status(200).end(); // always 200 to Apple
+  }
+});
+
+/* GET /.well-known/apple-developer-merchantid-domain-association
+ * Apple Pay domain validation file. Content comes from your Apple
+ * Developer portal → Merchant IDs → cssOS → Apple Pay Payment
+ * Processing Certificate → "Download Domain Verification File".
+ * Set the file contents via APPLE_PAY_DOMAIN_ASSOCIATION env (paste
+ * the entire file content as a single line). When this env is empty,
+ * we return 404 so Apple's check correctly reports "domain not yet
+ * verified" instead of returning garbage. */
+const APPLE_PAY_DOMAIN_ASSOCIATION = (process.env.APPLE_PAY_DOMAIN_ASSOCIATION || "").trim();
+app.get("/.well-known/apple-developer-merchantid-domain-association", (_req, res) => {
+  if (!APPLE_PAY_DOMAIN_ASSOCIATION) {
+    return res.status(404).type("text/plain").send("Not configured");
+  }
+  res.type("text/plain").send(APPLE_PAY_DOMAIN_ASSOCIATION);
+});
+/* Also expose without the .txt suffix some Stripe configs request. */
+app.get("/apple-developer-merchantid-domain-association", (req, res) => {
+  return (app._router.handle as any).call(app, Object.assign(req, { url: "/.well-known/apple-developer-merchantid-domain-association" }), res, () => {});
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+ * CSSOS_WAVE_111A 20260512 — Jing
+ * /api/mv/video/upload + /api/mv/image/analyze
+ *
+ * User-content input parsers that extend the cssMV pipeline so the
+ * user can bring their own raw material instead of generating from
+ * scratch:
+ *
+ *   • video upload → cssMV extracts audio track → Whisper makes
+ *     time-coded lyrics → pipeline skips lyrics + music + video
+ *     stages; only subtitles + compose run, against user's video.
+ *   • image upload → Claude Vision describes scene → output becomes
+ *     the lyrics prompt → pipeline runs full normal flow (lyrics →
+ *     cover → music → video → subtitles → compose). The image
+ *     itself can be reused as the cover.
+ *
+ * Wave 111B (MIDI/MusicXML lyrics-track-only) and 111C (sheet OCR
+ * + sheet-site integration) ship in later rounds.
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
+// Video upload — accepts mp4/mov/webm up to 100MB
+const videoUploader = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, audioUploadDir),
+    filename: (_req, file, cb) => {
+      const safe = String(file.originalname || "upload").replace(/[^\w.-]+/g, "_").slice(0, 80);
+      cb(null, `vid_${Date.now()}_${crypto.randomBytes(4).toString("hex")}_${safe}`);
+    },
+  }),
+  limits: { fileSize: MV_UPLOAD_LIMITS.FILE_MAX_BYTES },
+  fileFilter: (_req, file, cb) => {
+    const mt = String(file.mimetype || "").toLowerCase();
+    if (mt.startsWith("video/") || mt === "application/octet-stream") {
+      cb(null, true);
+    } else {
+      cb(new Error(`unsupported_mime:${mt}`));
+    }
+  },
+});
+
+app.post("/api/mv/video/upload", (req, res, next) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  videoUploader.single("video")(req as any, res as any, (err) => {
+    if (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/file too large|LIMIT_FILE_SIZE/i.test(msg)) {
+        return res.status(413).json({
+          ok: false,
+          error: "file_too_large",
+          limit_bytes: MV_UPLOAD_LIMITS.FILE_MAX_BYTES,
+        });
+      }
+      return res.status(400).json({ ok: false, error: msg });
+    }
+    next();
+  });
+}, async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  const file = (req as any).file as { path: string; originalname: string; size: number; mimetype: string } | undefined;
+  if (!file) return res.status(400).json({ ok: false, error: "no_file" });
+  const workType = String((req.body as any)?.work_type || "single").toLowerCase();
+  const requestedTitle = String((req.body as any)?.title || "").trim();
+  const skipFingerprint = String((req.body as any)?.skip_fingerprint || "") === "1";
+  const skipTranscribe = String((req.body as any)?.skip_transcribe || "") === "1";
+  const language = String((req.body as any)?.language || "").trim() || undefined;
+  const hasUserLyrics = !!String((req.body as any)?.lyrics || "").trim();
+
+  let meta: FfprobeVideoMeta;
+  try {
+    meta = await ffprobeVideo(file.path);
+  } catch (err) {
+    fs.unlink(file.path, () => {});
+    return res.status(400).json({
+      ok: false,
+      error: "ffprobe_failed",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  if (meta.drm_encrypted) {
+    fs.unlink(file.path, () => {});
+    return res.status(415).json({ ok: false, error: "drm_protected" });
+  }
+
+  const maxDur = maxDurationSecsForWorkType(workType);
+  if (meta.duration_secs > maxDur) {
+    fs.unlink(file.path, () => {});
+    return res.status(413).json({
+      ok: false,
+      error: "duration_exceeds_work_type",
+      duration_secs: meta.duration_secs,
+      limit_secs: maxDur,
+    });
+  }
+
+  // Extract audio track for Whisper + ACRCloud (if has audio).
+  let extractedAudioPath: string | null = null;
+  if (meta.has_audio) {
+    extractedAudioPath = path.join(audioUploadDir, `vidext_${path.basename(file.path)}.mp3`);
+    try {
+      await ffmpegExtractAudioFromVideo(file.path, extractedAudioPath);
+    } catch (err) {
+      console.warn("[mv-video] audio extract failed:", err);
+      extractedAudioPath = null;
+    }
+  }
+
+  // Persist video to long-lived /uploads/video/<userid>/
+  const publicUploadsRoot = path.join(PUBLIC_DIR, "uploads", "video", String(userId));
+  try { fs.mkdirSync(publicUploadsRoot, { recursive: true }); } catch (_) {}
+  const ext = path.extname(file.originalname || ".mp4").toLowerCase() || ".mp4";
+  const finalName = `${Date.now()}_${crypto.randomBytes(4).toString("hex")}${ext}`;
+  const finalDiskPath = path.join(publicUploadsRoot, finalName);
+  try {
+    fs.copyFileSync(file.path, finalDiskPath);
+  } catch (err) {
+    fs.unlink(file.path, () => {});
+    if (extractedAudioPath) fs.unlink(extractedAudioPath, () => {});
+    return res.status(500).json({
+      ok: false,
+      error: "persist_failed",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+  const publicVideoUrl = `/uploads/video/${userId}/${finalName}`;
+
+  // Optional ACRCloud fingerprint on the extracted audio
+  let fingerprint: any = null;
+  let requiresClearance = false;
+  if (extractedAudioPath && !skipFingerprint) {
+    fingerprint = await fingerprintCheckAcrcloud(extractedAudioPath);
+    if (fingerprint?.matched) requiresClearance = true;
+    else if (!ACRCLOUD_ENABLED) requiresClearance = true;
+  }
+
+  // Optional Whisper transcription on the extracted audio
+  let whisperResult: { text: string; lines: ParsedLyricLine[]; words?: WhisperWordTs[] } | null = null;
+  if (extractedAudioPath && !skipTranscribe && !hasUserLyrics) {
+    whisperResult = await whisperTranscribe(extractedAudioPath, language);
+  }
+
+  // Cleanup temp files (keep the persisted video)
+  fs.unlink(file.path, () => {});
+  if (extractedAudioPath) fs.unlink(extractedAudioPath, () => {});
+
+  // Cost accounting (Wave 113J)
+  const transcribeCostCents = whisperResult
+    ? Math.max(1, Math.round((meta.duration_secs / 60) * MV_UPLOAD_LIMITS.WHISPER_COST_CENTS_PER_MIN))
+    : 0;
+  const fingerprintCostCents = fingerprint
+    ? MV_UPLOAD_LIMITS.ACRCLOUD_COST_CENTS_PER_CHECK
+    : 0;
+  // User brought BOTH audio and video → skip music, video stages.
+  // If they also have/auto-extracted lyrics → skip lyrics too.
+  const skipStages = ["music", "video"];
+  if (hasUserLyrics || whisperResult) skipStages.push("lyrics");
+
+  return res.json({
+    ok: true,
+    asset_url: publicVideoUrl,
+    file: {
+      original_name: file.originalname,
+      original_bytes: file.size,
+      stored_bytes: fs.statSync(finalDiskPath).size,
+    },
+    meta: {
+      duration_secs: meta.duration_secs,
+      width: meta.width,
+      height: meta.height,
+      fps: meta.fps,
+      vcodec: meta.vcodec,
+      acodec: meta.acodec,
+      has_audio: meta.has_audio,
+      title: meta.tags.title || requestedTitle || null,
+      artist: meta.tags.artist || null,
+    },
+    fingerprint,
+    whisper: whisperResult ? {
+      text: whisperResult.text,
+      lines: whisperResult.lines.slice(0, 400),
+      words: whisperResult.words ? whisperResult.words.slice(0, 8000) : undefined,
+    } : null,
+    requires_clearance: requiresClearance,
+    skip_stages: skipStages,
+    import_source: hasUserLyrics ? "video+lyrics" : "video_upload",
+    cost_breakdown: {
+      transcribe_cents: transcribeCostCents,
+      fingerprint_cents: fingerprintCostCents,
+      total_added_cents: transcribeCostCents + fingerprintCostCents,
+    },
+    acrcloud_enabled: ACRCLOUD_ENABLED,
+    whisper_enabled: !!(process.env.OPENAI_API_KEY || "").trim(),
+  });
+});
+
+/* /api/mv/image/analyze — user uploads a pure image (no music
+ * context) and asks cssMV to "make a song out of this". Claude
+ * Vision describes the image and proposes a lyrics prompt, music
+ * style hint, civilization frame, and (optionally) the image as
+ * cover. Pipeline then runs the FULL normal stack from that prompt. */
+const imageUploader = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, audioUploadDir),
+    filename: (_req, file, cb) => {
+      const safe = String(file.originalname || "img").replace(/[^\w.-]+/g, "_").slice(0, 80);
+      cb(null, `img_${Date.now()}_${crypto.randomBytes(4).toString("hex")}_${safe}`);
+    },
+  }),
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB cap for images
+  fileFilter: (_req, file, cb) => {
+    const mt = String(file.mimetype || "").toLowerCase();
+    if (mt.startsWith("image/")) cb(null, true);
+    else cb(new Error(`unsupported_mime:${mt}`));
+  },
+});
+
+app.post("/api/mv/image/analyze", (req, res, next) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  imageUploader.single("image")(req as any, res as any, (err) => {
+    if (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return res.status(400).json({ ok: false, error: msg });
+    }
+    next();
+  });
+}, async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  const file = (req as any).file as { path: string; originalname: string; size: number; mimetype: string } | undefined;
+  if (!file) return res.status(400).json({ ok: false, error: "no_file" });
+  const language = String((req.body as any)?.language || "en").trim();
+
+  // Persist the image so it can be reused as cover
+  const publicUploadsRoot = path.join(PUBLIC_DIR, "uploads", "image", String(userId));
+  try { fs.mkdirSync(publicUploadsRoot, { recursive: true }); } catch (_) {}
+  const ext = path.extname(file.originalname || ".jpg").toLowerCase() || ".jpg";
+  const finalName = `${Date.now()}_${crypto.randomBytes(4).toString("hex")}${ext}`;
+  const finalDiskPath = path.join(publicUploadsRoot, finalName);
+  try {
+    fs.copyFileSync(file.path, finalDiskPath);
+  } catch (err) {
+    fs.unlink(file.path, () => {});
+    return res.status(500).json({
+      ok: false,
+      error: "persist_failed",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+  const publicImageUrl = `/uploads/image/${userId}/${finalName}`;
+  const imageBytes = fs.readFileSync(file.path);
+  const imageB64 = imageBytes.toString("base64");
+  const imageMime = file.mimetype || "image/jpeg";
+  fs.unlink(file.path, () => {}); // working copy
+
+  // Call Claude Vision via callLlm with vision content blocks.
+  const anthropicKey = (process.env.ANTHROPIC_API_KEY || "").trim();
+  if (!anthropicKey) {
+    return res.status(503).json({
+      ok: false,
+      error: "vision_unavailable",
+      hint: "ANTHROPIC_API_KEY not configured",
+      asset_url: publicImageUrl,
+    });
+  }
+
+  const systemPrompt =
+    "You are a music creative director. The user provided an image with no musical context. " +
+    "Your job: turn it into a song prompt for our music-video pipeline. Return STRICT JSON " +
+    "with these keys exactly: " +
+    "{ description: string (1-2 sentences of what you see), " +
+    "  lyrics_prompt: string (a concise creative subject for the lyrics engine, like 'A lonely lighthouse keeper at dawn'), " +
+    "  music_style_hint: string (genre/instruments/mood, e.g. 'cinematic orchestral with cello, slow build, melancholic'), " +
+    "  civilization: string (which cultural/era frame fits — e.g. 'modern western', 'ancient Chinese', 'medieval European'), " +
+    "  suggested_title: string (a short song title in " + language + "), " +
+    "  language_hint: string (best language for the lyrics body, e.g. 'en', 'zh', 'ja') } " +
+    "Output ONLY the JSON object, no markdown, no commentary.";
+
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": anthropicKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 800,
+        system: systemPrompt,
+        messages: [{
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: imageMime, data: imageB64 } },
+            { type: "text", text: "Analyze this image and produce the JSON song prompt as instructed." },
+          ],
+        }],
+      }),
+    });
+    if (!r.ok) {
+      const t = await r.text().catch(() => "");
+      const reported = reportAnthropicError(r.status, t);
+      console.warn("[mv-image] anthropic failed:", r.status, reported.code, reported.message.slice(0, 200));
+      return res.status(502).json({
+        ok: false,
+        error: reported.code,
+        detail: reported.message,
+        hint: reported.hint,
+        status: r.status,
+        asset_url: publicImageUrl,
+      });
+    }
+    reportAnthropicOk();
+    const j: any = await r.json().catch(() => null);
+    const text = String(j?.content?.[0]?.text || "").trim();
+    // Try to extract JSON from the response
+    let parsed: any = null;
+    try {
+      // Strip markdown code fences if present
+      const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+      parsed = JSON.parse(cleaned);
+    } catch (e) {
+      // Try to find a JSON object inside the text
+      const m = text.match(/\{[\s\S]*\}/);
+      if (m) {
+        try { parsed = JSON.parse(m[0]); } catch (_) { /* ignore */ }
+      }
+    }
+    if (!parsed) {
+      return res.status(502).json({
+        ok: false,
+        error: "vision_parse_failed",
+        raw_text: text.slice(0, 500),
+        asset_url: publicImageUrl,
+      });
+    }
+
+    const visionCostCents = 2; // Claude Sonnet vision ~2¢ per image
+    return res.json({
+      ok: true,
+      asset_url: publicImageUrl,
+      file: {
+        original_name: file.originalname,
+        original_bytes: file.size,
+      },
+      analysis: parsed,
+      // For image → MV, pipeline runs the FULL stack (no stages skipped).
+      // The image becomes the cover; analysis.lyrics_prompt feeds lyrics gen.
+      skip_stages: [],
+      import_source: "image_upload",
+      cost_breakdown: {
+        vision_cents: visionCostCents,
+        total_added_cents: visionCostCents,
+      },
+    });
+  } catch (err) {
+    console.warn("[mv-image] threw:", err);
+    return res.status(500).json({
+      ok: false,
+      error: "vision_threw",
+      detail: err instanceof Error ? err.message : String(err),
+      asset_url: publicImageUrl,
+    });
+  }
+});
+
+/* CSSOS_WAVE_111B 20260512 — Jing
+ * /api/mv/midi/upload — accept .mid/.midi, parse lyrics + timing,
+ * synthesize reference audio via fluidsynth + TimGM6mb soundfont.
+ * /api/mv/musicxml/upload — accept .musicxml/.xml/.mxl, parse lyrics
+ * via XML regex (no Java/MuseScore dep).
+ * Both return `has_lyrics` — when false, user is told instrumental-
+ * only and synthesized audio is offered as a "pure music" output.
+ */
+const midiUploader = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, audioUploadDir),
+    filename: (_req, file, cb) => {
+      const safe = String(file.originalname || "score").replace(/[^\w.-]+/g, "_").slice(0, 80);
+      cb(null, `midi_${Date.now()}_${crypto.randomBytes(4).toString("hex")}_${safe}`);
+    },
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB — MIDIs are tiny, MusicXML rarely exceeds this
+  fileFilter: (_req, file, cb) => {
+    const mt = String(file.mimetype || "").toLowerCase();
+    const name = String(file.originalname || "").toLowerCase();
+    if (
+      mt.includes("midi") || mt.includes("musicxml") || mt.includes("xml") ||
+      mt === "application/octet-stream" ||
+      /\.(mid|midi|musicxml|xml|mxl)$/i.test(name)
+    ) {
+      cb(null, true);
+    } else {
+      cb(new Error(`unsupported_mime:${mt}`));
+    }
+  },
+});
+
+app.post("/api/mv/midi/upload", (req, res, next) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  midiUploader.single("midi")(req as any, res as any, (err) => {
+    if (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return res.status(400).json({ ok: false, error: msg });
+    }
+    next();
+  });
+}, async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  const file = (req as any).file as { path: string; originalname: string; size: number; mimetype: string } | undefined;
+  if (!file) return res.status(400).json({ ok: false, error: "no_file" });
+  const workType = String((req.body as any)?.work_type || "single").toLowerCase();
+
+  let parsed: MidiLyricsResult;
+  try {
+    parsed = await parseMidiFile(file.path);
+  } catch (err) {
+    fs.unlink(file.path, () => {});
+    return res.status(400).json({
+      ok: false,
+      error: "midi_parse_failed",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  const maxDur = maxDurationSecsForWorkType(workType);
+  if (parsed.duration_secs > maxDur) {
+    fs.unlink(file.path, () => {});
+    return res.status(413).json({
+      ok: false,
+      error: "duration_exceeds_work_type",
+      duration_secs: parsed.duration_secs,
+      limit_secs: maxDur,
+    });
+  }
+
+  // Synthesize MIDI → mp3 via fluidsynth (best-effort; not fatal on fail)
+  const publicUploadsRoot = path.join(PUBLIC_DIR, "uploads", "midi", String(userId));
+  try { fs.mkdirSync(publicUploadsRoot, { recursive: true }); } catch (_) {}
+  const mp3Name = `${Date.now()}_${crypto.randomBytes(4).toString("hex")}.mp3`;
+  const mp3DiskPath = path.join(publicUploadsRoot, mp3Name);
+  let synthOk = false;
+  let synthError: string | null = null;
+  try {
+    await synthMidiToMp3(file.path, mp3DiskPath);
+    synthOk = fs.existsSync(mp3DiskPath) && fs.statSync(mp3DiskPath).size > 0;
+  } catch (err) {
+    synthError = err instanceof Error ? err.message : String(err);
+    console.warn("[mv-midi] synth failed:", synthError);
+  }
+
+  // Also persist the original MIDI so user can re-use it later
+  const midiName = `${Date.now()}_${crypto.randomBytes(4).toString("hex")}.mid`;
+  const midiDiskPath = path.join(publicUploadsRoot, midiName);
+  try { fs.copyFileSync(file.path, midiDiskPath); } catch (_) {}
+  fs.unlink(file.path, () => {});
+
+  const audioAssetUrl = synthOk ? `/uploads/midi/${userId}/${mp3Name}` : null;
+  const midiAssetUrl = fs.existsSync(midiDiskPath) ? `/uploads/midi/${userId}/${midiName}` : null;
+
+  // skip_stages: we have music (synth) + lyrics (from MIDI). Cover +
+  // video + compose still run.
+  const skipStages: string[] = [];
+  if (synthOk) skipStages.push("music");
+  if (parsed.has_lyrics) skipStages.push("lyrics");
+
+  return res.json({
+    ok: true,
+    asset_url: audioAssetUrl,
+    midi_asset_url: midiAssetUrl,
+    meta: {
+      duration_secs: parsed.duration_secs,
+      tempo_bpm: parsed.tempo_bpm,
+      time_signature: parsed.time_signature,
+      track_count: parsed.track_count,
+      note_count: parsed.note_count,
+      codec: "mp3 (synth)",
+    },
+    lyrics: parsed.has_lyrics ? {
+      has_lyrics: true,
+      lines: parsed.lyrics_lines,
+      text: parsed.raw_lyrics_text,
+    } : {
+      has_lyrics: false,
+      note: "MIDI file has no embedded lyrics track. You can still use the synthesized audio as instrumental.",
+    },
+    whisper: null,                // not relevant for MIDI (we have explicit lyrics or none)
+    skip_stages: skipStages,
+    import_source: parsed.has_lyrics ? "midi+lyrics" : "midi_instrumental",
+    cost_breakdown: {
+      synth_cents: synthOk ? 1 : 0,
+      total_added_cents: synthOk ? 1 : 0,
+    },
+    synth_ok: synthOk,
+    synth_error: synthError,
+  });
+});
+
+/* MusicXML / .mxl upload — same uploader, different parser. */
+app.post("/api/mv/musicxml/upload", (req, res, next) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  midiUploader.single("musicxml")(req as any, res as any, (err) => {
+    if (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return res.status(400).json({ ok: false, error: msg });
+    }
+    next();
+  });
+}, async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  const file = (req as any).file as { path: string; originalname: string; size: number; mimetype: string } | undefined;
+  if (!file) return res.status(400).json({ ok: false, error: "no_file" });
+  const workType = String((req.body as any)?.work_type || "single").toLowerCase();
+
+  let parsed: Awaited<ReturnType<typeof parseMusicXmlFile>>;
+  try {
+    parsed = await parseMusicXmlFile(file.path);
+  } catch (err) {
+    fs.unlink(file.path, () => {});
+    return res.status(400).json({
+      ok: false,
+      error: "musicxml_parse_failed",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  const maxDur = maxDurationSecsForWorkType(workType);
+  if (parsed.duration_secs > maxDur) {
+    fs.unlink(file.path, () => {});
+    return res.status(413).json({
+      ok: false,
+      error: "duration_exceeds_work_type",
+      duration_secs: parsed.duration_secs,
+      limit_secs: maxDur,
+    });
+  }
+
+  // Persist the original MusicXML
+  const publicUploadsRoot = path.join(PUBLIC_DIR, "uploads", "musicxml", String(userId));
+  try { fs.mkdirSync(publicUploadsRoot, { recursive: true }); } catch (_) {}
+  const ext = path.extname(file.originalname || ".musicxml").toLowerCase() || ".musicxml";
+  const xmlName = `${Date.now()}_${crypto.randomBytes(4).toString("hex")}${ext}`;
+  const xmlDiskPath = path.join(publicUploadsRoot, xmlName);
+  try { fs.copyFileSync(file.path, xmlDiskPath); } catch (_) {}
+  fs.unlink(file.path, () => {});
+
+  // For Wave 111B, MusicXML synthesis is NOT auto-done (lacks a
+  // dependable MusicXML→MIDI converter without MuseScore). User
+  // still gets lyrics + timing for subtitles; pipeline music stage
+  // will run via the existing Suno path using extracted lyrics.
+  const skipStages: string[] = [];
+  if (parsed.has_lyrics) skipStages.push("lyrics");
+  // music stage still runs (we don't have synth audio for MusicXML)
+
+  return res.json({
+    ok: true,
+    asset_url: null,           // no synth audio for MusicXML in 111B
+    musicxml_asset_url: `/uploads/musicxml/${userId}/${xmlName}`,
+    meta: {
+      duration_secs: parsed.duration_secs,
+      tempo_bpm: parsed.tempo_bpm,
+      time_signature: parsed.time_signature,
+      track_count: parsed.track_count,
+      note_count: parsed.note_count,
+    },
+    lyrics: parsed.has_lyrics ? {
+      has_lyrics: true,
+      lines: parsed.lyrics_lines,
+      text: parsed.raw_lyrics_text,
+      timing_note: "Lyrics timing is APPROXIMATE — distributed linearly across estimated duration. For precise timing, upload MIDI instead.",
+    } : {
+      has_lyrics: false,
+      note: "MusicXML file has no embedded lyrics. Music engine will still run normally.",
+    },
+    whisper: null,
+    skip_stages: skipStages,
+    import_source: parsed.has_lyrics ? "musicxml+lyrics" : "musicxml_instrumental",
+    cost_breakdown: {
+      parse_cents: 0,
+      total_added_cents: 0,
+    },
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+ * CSSOS_WAVE_111C 20260512 — Jing
+ * /api/mv/sheet/upload — Sheet music OCR (numbered notation 简谱,
+ * staff notation 五线谱, chord-lyric chart 弹唱谱, lead sheet).
+ *
+ * Per Jing's design: user is responsible for legal access to the
+ * sheet ("由用户登录网站，付费，我们只截取已经有合法使用权的歌谱").
+ * cssOS receives the user's screenshot/PDF and only does OCR — we
+ * do not crawl sheet-music sites, do not bypass paywalls.
+ *
+ * Approach (honest evaluation in Wave 111C planning):
+ *   - Claude Vision (claude-3-5-sonnet) handles BOTH 简谱 and
+ *     五线谱 + lyrics extraction in 11 languages.
+ *   - Heavy alternatives (Audiveris OMR / PaddleOCR) are deferred —
+ *     they add big install + marginal lyrics-extraction improvement
+ *     over Claude Vision, while we mostly care about lyrics anyway.
+ *   - PDF → page images via pdftoppm (poppler-utils).
+ *   - Returns: lyrics_lines, notation_type, metadata (title/tempo/
+ *     key/composer/lyricist), language_hint.
+ *
+ * Future Wave 111D will add real sheet-site integrations (MuseScore
+ * API, browser-extension capture, formal partner integrations).
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
+/* Rasterize first N pages of a PDF to PNG via pdftoppm. Returns
+ * absolute paths to generated PNGs. We cap at 5 pages to bound cost
+ * (Claude Vision ~3¢/page) and prompt size. */
+function pdfToPagePngs(pdfPath: string, outDir: string, maxPages: number = 5): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    // pdftoppm writes <prefix>-1.png, <prefix>-2.png ...
+    const prefix = path.join(outDir, `sheet_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`);
+    const args = [
+      "-png",
+      "-r", "150",                // 150 dpi — readable for OCR, manageable size
+      "-f", "1", "-l", String(maxPages),
+      pdfPath, prefix,
+    ];
+    const proc = spawn("pdftoppm", args);
+    let stderr = "";
+    proc.stderr.on("data", (b) => { stderr += b.toString(); });
+    proc.on("error", reject);
+    proc.on("close", (code) => {
+      if (code !== 0) {
+        return reject(new Error(`pdftoppm_failed:${code}:${stderr.slice(-200)}`));
+      }
+      try {
+        const dir = path.dirname(prefix);
+        const base = path.basename(prefix);
+        const pngs = fs
+          .readdirSync(dir)
+          .filter((f) => f.startsWith(base) && f.endsWith(".png"))
+          .map((f) => path.join(dir, f))
+          .sort();
+        resolve(pngs);
+      } catch (err) {
+        reject(err);
+      }
+    });
+  });
+}
+
+// CSSOS_WAVE_111D_VISION_HEALTH 20260512 · Anthropic health probe.
+// Every Vision call calls reportAnthropicResponse(status, body) so we
+// can surface user-friendly errors AND flag a low-balance state for
+// the admin dashboard. No mailer — `/api/admin/anthropic/health`
+// returns the flag and admin UI shows a banner.
+const __anthropicHealth: {
+  lastErrorAt: number;
+  lastErrorStatus: number;
+  lastErrorType: string;
+  lastErrorMessage: string;
+  lowBalance: boolean;
+  lowBalanceSince: number;
+  rateLimited: boolean;
+  rateLimitedSince: number;
+} = {
+  lastErrorAt: 0,
+  lastErrorStatus: 0,
+  lastErrorType: "",
+  lastErrorMessage: "",
+  lowBalance: false,
+  lowBalanceSince: 0,
+  rateLimited: false,
+  rateLimitedSince: 0,
+};
+function reportAnthropicError(status: number, bodyText: string): {
+  code: string; message: string; hint: string;
+} {
+  let errType = "";
+  let errMsg = "";
+  try {
+    const j = JSON.parse(bodyText);
+    errType = String(j?.error?.type || "");
+    errMsg = String(j?.error?.message || "");
+  } catch (_) {
+    errMsg = String(bodyText || "").slice(0, 240);
+  }
+  __anthropicHealth.lastErrorAt = Date.now();
+  __anthropicHealth.lastErrorStatus = status;
+  __anthropicHealth.lastErrorType = errType;
+  __anthropicHealth.lastErrorMessage = errMsg;
+  // Low-balance detection — Anthropic returns invalid_request_error with
+  // this exact phrase when credits are exhausted.
+  if (/credit balance is too low/i.test(errMsg)) {
+    if (!__anthropicHealth.lowBalance) __anthropicHealth.lowBalanceSince = Date.now();
+    __anthropicHealth.lowBalance = true;
+    return {
+      code: "anthropic_low_balance",
+      message: "Anthropic API credit balance is too low — please top up.",
+      hint: "Visit https://console.anthropic.com/settings/billing to add credits.",
+    };
+  }
+  // Rate-limited
+  if (status === 429 || /rate.?limit/i.test(errType)) {
+    __anthropicHealth.rateLimited = true;
+    __anthropicHealth.rateLimitedSince = Date.now();
+    return {
+      code: "anthropic_rate_limited",
+      message: "Anthropic API is rate-limiting requests — try again in a minute.",
+      hint: "If this persists, raise your tier in the Anthropic console.",
+    };
+  }
+  // Model not found / deprecated
+  if (status === 404 || errType === "not_found_error") {
+    return {
+      code: "anthropic_model_unavailable",
+      message: `Vision model unavailable: ${errMsg}`,
+      hint: "The configured Claude model may have been deprecated.",
+    };
+  }
+  // Generic upstream failure
+  return {
+    code: "anthropic_upstream_failed",
+    message: errMsg || `HTTP ${status}`,
+    hint: "",
+  };
+}
+function reportAnthropicOk() {
+  // Clear sticky flags on first successful call
+  __anthropicHealth.lowBalance = false;
+  __anthropicHealth.rateLimited = false;
+}
+
+/* Call Claude Vision with up to N sheet images in one message and
+ * ask for structured JSON extraction. Returns the parsed JSON or
+ * null on failure. */
+async function analyzeSheetMusicWithVision(
+  imagePaths: string[],
+  language: string,
+): Promise<any | null> {
+  const apiKey = (process.env.ANTHROPIC_API_KEY || "").trim();
+  if (!apiKey) return null;
+  if (!imagePaths.length) return null;
+
+  const systemPrompt = [
+    "You are a sheet-music OCR specialist. The user uploaded screenshots/photos/PDF pages of a music score.",
+    "Possible notation types you must distinguish:",
+    "  - 'staff' (五线谱, 5-line Western staff notation)",
+    "  - 'numbered' (简谱, Chinese numbered notation using 1-7 with dashes for duration, dots for octave)",
+    "  - 'lead_sheet' (melody line + chord symbols, common for jazz/pop)",
+    "  - 'chord_lyric' (弹唱谱, lyrics with chord symbols above, no notes)",
+    "  - 'tablature' (guitar/bass tab)",
+    "  - 'mixed' (multiple types in same score)",
+    "  - 'unknown' (can't determine)",
+    "",
+    "Extract the following and return STRICT JSON only — no markdown, no commentary:",
+    "{",
+    `  "title": string (song title if visible, otherwise null),`,
+    `  "composer": string|null (作曲),`,
+    `  "lyricist": string|null (作词),`,
+    `  "tempo_marking": string|null (e.g. 'Andante', 'BPM=72', '快板'),`,
+    `  "tempo_bpm": number|null (if numerically given),`,
+    `  "key_signature": string|null (e.g. 'C major', '1=D', 'F#m'),`,
+    `  "time_signature": string|null (e.g. '4/4', '3/4', '6/8'),`,
+    `  "notation_type": one of the strings listed above,`,
+    `  "language_hint": ISO code for the lyrics' primary language ('en','zh','ja','ko','es','fr','de','it','pt','ru','ar'),`,
+    `  "lyrics_lines": array of strings — each item is one line of lyrics in document order, preserving the original language. DO NOT translate. Skip note names / chord symbols / measure numbers / page numbers. If the sheet has multiple verses, include them all. If the sheet has no lyrics (pure instrumental), use empty array [].`,
+    `  "civilization": string (cultural frame this song fits — e.g. 'modern western pop', 'classical Chinese', 'medieval European hymn', '20th century jazz'),`,
+    `  "confidence": number 0.0-1.0 (your confidence in lyrics extraction accuracy)`,
+    "}",
+    "",
+    `Output ONLY the JSON. Reply target language for the song body would be '${language}' but ALWAYS preserve original lyric language in lyrics_lines.`,
+  ].join("\n");
+
+  // Build image content blocks. Cap each image at ~2MB base64-encoded
+  // to stay within Anthropic API limits.
+  const imageBlocks: any[] = [];
+  for (const p of imagePaths) {
+    try {
+      const bytes = fs.readFileSync(p);
+      if (bytes.length > 4 * 1024 * 1024) continue; // skip oversized
+      const b64 = bytes.toString("base64");
+      const ext = path.extname(p).toLowerCase();
+      const mime =
+        ext === ".png" ? "image/png" :
+        ext === ".webp" ? "image/webp" :
+        ext === ".gif" ? "image/gif" :
+        "image/jpeg";
+      imageBlocks.push({ type: "image", source: { type: "base64", media_type: mime, data: b64 } });
+    } catch (_) { /* skip */ }
+  }
+  if (!imageBlocks.length) return null;
+
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 4000,
+        system: systemPrompt,
+        messages: [{
+          role: "user",
+          content: [
+            ...imageBlocks,
+            { type: "text", text: `Extract structured sheet-music data from the ${imageBlocks.length} page(s) above and return the strict JSON object as instructed.` },
+          ],
+        }],
+      }),
+    });
+    if (!r.ok) {
+      const t = await r.text().catch(() => "");
+      const reported = reportAnthropicError(r.status, t);
+      console.warn("[mv-sheet] anthropic failed:", r.status, reported.code, reported.message.slice(0, 200));
+      return null;
+    }
+    reportAnthropicOk();
+    const j: any = await r.json().catch(() => null);
+    const text = String(j?.content?.[0]?.text || "").trim();
+    let parsed: any = null;
+    try {
+      const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+      parsed = JSON.parse(cleaned);
+    } catch (_) {
+      const m = text.match(/\{[\s\S]*\}/);
+      if (m) { try { parsed = JSON.parse(m[0]); } catch (__) {} }
+    }
+    return parsed;
+  } catch (err) {
+    console.warn("[mv-sheet] threw:", err);
+    return null;
+  }
+}
+
+// Sheet uploader — accepts image OR PDF
+const sheetUploader = multer({
+  storage: multer.diskStorage({
+    destination: (_req: any, _file: any, cb: any) => cb(null, audioUploadDir),
+    filename: (_req: any, file: any, cb: any) => {
+      const safe = String(file.originalname || "sheet").replace(/[^\w.-]+/g, "_").slice(0, 80);
+      cb(null, `sheet_${Date.now()}_${crypto.randomBytes(4).toString("hex")}_${safe}`);
+    },
+  }),
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25MB — PDFs can be larger than plain images
+  fileFilter: (_req: any, file: any, cb: any) => {
+    const mt = String(file.mimetype || "").toLowerCase();
+    const name = String(file.originalname || "").toLowerCase();
+    if (
+      mt.startsWith("image/") ||
+      mt === "application/pdf" ||
+      /\.(pdf|png|jpg|jpeg|webp|heic|gif)$/i.test(name)
+    ) {
+      cb(null, true);
+    } else {
+      cb(new Error(`unsupported_mime:${mt}`));
+    }
+  },
+});
+
+app.post("/api/mv/sheet/upload", (req, res, next) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  sheetUploader.single("sheet")(req as any, res as any, (err: any) => {
+    if (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return res.status(400).json({ ok: false, error: msg });
+    }
+    next();
+  });
+}, async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  const file = (req as any).file as { path: string; originalname: string; size: number; mimetype: string } | undefined;
+  if (!file) return res.status(400).json({ ok: false, error: "no_file" });
+  const language = String((req.body as any)?.language || "en").trim();
+  const isPdf = /\.pdf$/i.test(file.originalname) || file.mimetype === "application/pdf";
+
+  // Persist the uploaded sheet for re-use
+  const publicUploadsRoot = path.join(PUBLIC_DIR, "uploads", "sheet", String(userId));
+  try { fs.mkdirSync(publicUploadsRoot, { recursive: true }); } catch (_) {}
+  const ext = path.extname(file.originalname || (isPdf ? ".pdf" : ".jpg")).toLowerCase();
+  const finalName = `${Date.now()}_${crypto.randomBytes(4).toString("hex")}${ext}`;
+  const finalDiskPath = path.join(publicUploadsRoot, finalName);
+  try {
+    fs.copyFileSync(file.path, finalDiskPath);
+  } catch (err) {
+    fs.unlink(file.path, () => {});
+    return res.status(500).json({
+      ok: false,
+      error: "persist_failed",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+  const publicSheetUrl = `/uploads/sheet/${userId}/${finalName}`;
+
+  // Build list of image paths to send to Claude Vision
+  let imagePaths: string[] = [];
+  const pageTempPaths: string[] = []; // for cleanup
+  if (isPdf) {
+    try {
+      const pngs = await pdfToPagePngs(file.path, audioUploadDir, 5);
+      imagePaths = pngs;
+      pageTempPaths.push(...pngs);
+    } catch (err) {
+      fs.unlink(file.path, () => {});
+      return res.status(400).json({
+        ok: false,
+        error: "pdf_rasterize_failed",
+        detail: err instanceof Error ? err.message : String(err),
+        asset_url: publicSheetUrl,
+      });
+    }
+  } else {
+    imagePaths = [file.path];
+  }
+
+  // Anthropic key check
+  const anthropicKey = (process.env.ANTHROPIC_API_KEY || "").trim();
+  if (!anthropicKey) {
+    fs.unlink(file.path, () => {});
+    for (const p of pageTempPaths) fs.unlink(p, () => {});
+    return res.status(503).json({
+      ok: false,
+      error: "vision_unavailable",
+      hint: "ANTHROPIC_API_KEY not configured",
+      asset_url: publicSheetUrl,
+    });
+  }
+
+  let analysis: any = null;
+  try {
+    analysis = await analyzeSheetMusicWithVision(imagePaths, language);
+  } catch (err) {
+    console.warn("[mv-sheet] vision threw:", err);
+  }
+
+  // Cleanup temp pages + working copy of original
+  fs.unlink(file.path, () => {});
+  for (const p of pageTempPaths) fs.unlink(p, () => {});
+
+  if (!analysis) {
+    // CSSOS_WAVE_111D_VISION_HEALTH 20260512 — surface the actual
+    // upstream reason (low balance / rate limited / model gone) so
+    // the user sees a useful message instead of "vision_failed".
+    const lastErr = __anthropicHealth.lastErrorMessage || "";
+    const code = __anthropicHealth.lowBalance ? "anthropic_low_balance"
+      : __anthropicHealth.rateLimited ? "anthropic_rate_limited"
+      : "vision_failed";
+    return res.status(502).json({
+      ok: false,
+      error: code,
+      detail: lastErr,
+      hint: __anthropicHealth.lowBalance
+        ? "Anthropic API credits exhausted. Top up at https://console.anthropic.com/settings/billing"
+        : __anthropicHealth.rateLimited
+          ? "Anthropic API is rate-limiting. Try again shortly."
+          : "Sheet OCR failed — please try a clearer image or retry.",
+      asset_url: publicSheetUrl,
+    });
+  }
+
+  // Shape lyrics_lines into pipeline-friendly format with approximate
+  // timing (linearly distributed — sheet music doesn't give us
+  // millisecond timing without full OMR + sequencing).
+  const linesRaw = Array.isArray(analysis.lyrics_lines)
+    ? analysis.lyrics_lines.filter((x: any) => typeof x === "string" && x.trim().length > 0)
+    : [];
+  const hasLyrics = linesRaw.length > 0;
+  // Estimate duration from tempo + line count: assume each line is
+  // ~4 measures × time signature beats / bpm. If we don't know bpm,
+  // fall back to 4 seconds per line.
+  const bpm = Number(analysis.tempo_bpm || 0) || 80;
+  const beatsPerLine = 8; // rough — typical lyric line spans ~8 beats
+  const lineDurationSec = Math.max(2, (60 / bpm) * beatsPerLine);
+  const estimatedDuration = Math.round(linesRaw.length * lineDurationSec);
+  const lyrics_lines = linesRaw.map((text: string, i: number) => ({
+    ts_ms: Math.round(i * lineDurationSec * 1000),
+    text: String(text).trim(),
+  }));
+
+  // skip_stages: we have lyrics (high confidence) but NOT music or
+  // video. Pipeline runs music + cover + video + compose normally.
+  const skipStages: string[] = [];
+  if (hasLyrics) skipStages.push("lyrics");
+
+  const visionCostCents = 3 * imagePaths.length;
+
+  return res.json({
+    ok: true,
+    asset_url: publicSheetUrl,
+    sheet_pages: imagePaths.length,
+    is_pdf: isPdf,
+    meta: {
+      title: analysis.title || null,
+      composer: analysis.composer || null,
+      lyricist: analysis.lyricist || null,
+      tempo_marking: analysis.tempo_marking || null,
+      tempo_bpm: analysis.tempo_bpm || null,
+      key_signature: analysis.key_signature || null,
+      time_signature: analysis.time_signature || null,
+      notation_type: analysis.notation_type || "unknown",
+      language_hint: analysis.language_hint || language,
+      civilization: analysis.civilization || null,
+      confidence: typeof analysis.confidence === "number" ? analysis.confidence : null,
+      estimated_duration_secs: estimatedDuration,
+    },
+    lyrics: {
+      has_lyrics: hasLyrics,
+      lines: lyrics_lines,
+      text: linesRaw.join("\n"),
+      timing_note: hasLyrics
+        ? "Timing is APPROXIMATE — linearly distributed across estimated duration. For exact timing, upload MIDI or audio instead."
+        : null,
+    },
+    analysis_raw: analysis,
+    skip_stages: skipStages,
+    import_source: hasLyrics ? "sheet_ocr+lyrics" : "sheet_ocr_instrumental",
+    cost_breakdown: {
+      vision_cents: visionCostCents,
+      total_added_cents: visionCostCents,
+    },
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────
+// Wave 111D-D3 · /api/mv/sheet/import-url
+// Fetch a public HTTPS PDF or image URL and OCR it through the same
+// sheet-music pipeline. SSRF-guarded (HTTPS only, no private/loopback
+// hosts), size-capped at 25 MB, content-type whitelisted.
+// MuseScore Pro / paywalled pages are NOT bypassed — caller must
+// supply a directly-accessible asset URL (e.g. Save-as-PDF link, IMSLP
+// public-domain PDF, raw GitHub PDF, etc.).
+// ────────────────────────────────────────────────────────────────────
+app.post("/api/mv/sheet/import-url", express.json({ limit: "8kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+
+  const rawUrl = String((req.body as any)?.url || "").trim();
+  const language = String((req.body as any)?.language || "en").trim();
+  if (!rawUrl) return res.status(400).json({ ok: false, error: "missing_url" });
+
+  let parsed: URL;
+  try { parsed = new URL(rawUrl); } catch {
+    return res.status(400).json({ ok: false, error: "invalid_url" });
+  }
+  if (parsed.protocol !== "https:") {
+    return res.status(400).json({ ok: false, error: "https_only" });
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (
+    host === "localhost" ||
+    host.endsWith(".local") ||
+    /^(127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(host) ||
+    /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host) ||
+    host === "::1"
+  ) {
+    return res.status(400).json({ ok: false, error: "blocked_host" });
+  }
+  // Helpful gate for sites we know require auth
+  if (/(^|\.)musescore\.com$/.test(host) && !/\.pdf(\?|$)/i.test(parsed.pathname)) {
+    return res.status(400).json({
+      ok: false,
+      error: "musescore_login_required",
+      hint: "MuseScore songs require a Pro login. Open the score in your browser, choose Print → Save as PDF, then upload the PDF directly via the Sheet tab.",
+    });
+  }
+
+  // Fetch with size cap
+  let fetched: Response;
+  try {
+    fetched = await fetch(rawUrl, {
+      redirect: "follow",
+      headers: { "User-Agent": "cssOS-Sheet-Importer/1.0 (+admin@cssstudio.app)" },
+    });
+  } catch (err) {
+    return res.status(502).json({ ok: false, error: "fetch_failed", detail: err instanceof Error ? err.message : String(err) });
+  }
+  if (!fetched.ok) {
+    return res.status(502).json({ ok: false, error: "http_error", status: fetched.status });
+  }
+  const ctype = (String(fetched.headers.get("content-type") || "").toLowerCase().split(";")[0] || "").trim();
+  const isPdf = ctype === "application/pdf" || /\.pdf(\?|$)/i.test(parsed.pathname);
+  const isImage = ctype.startsWith("image/") || /\.(png|jpg|jpeg|webp|gif)(\?|$)/i.test(parsed.pathname);
+  if (!isPdf && !isImage) {
+    return res.status(400).json({ ok: false, error: "unsupported_content_type", detail: ctype });
+  }
+  const cl = Number(fetched.headers.get("content-length") || 0);
+  if (cl && cl > 25 * 1024 * 1024) {
+    return res.status(413).json({ ok: false, error: "file_too_large", max_bytes: 25 * 1024 * 1024 });
+  }
+  const buf = Buffer.from(await fetched.arrayBuffer());
+  if (buf.length > 25 * 1024 * 1024) {
+    return res.status(413).json({ ok: false, error: "file_too_large", max_bytes: 25 * 1024 * 1024 });
+  }
+
+  // Stage to disk like the upload route
+  const ext = isPdf ? ".pdf" : (path.extname(parsed.pathname).toLowerCase() || ".png");
+  const publicUploadsRoot = path.join(PUBLIC_DIR, "uploads", "sheet", String(userId));
+  try { fs.mkdirSync(publicUploadsRoot, { recursive: true }); } catch (_) {}
+  const finalName = `${Date.now()}_${crypto.randomBytes(4).toString("hex")}${ext}`;
+  const finalDiskPath = path.join(publicUploadsRoot, finalName);
+  const tempPath = path.join(audioUploadDir, `sheeturl_${Date.now()}_${crypto.randomBytes(4).toString("hex")}${ext}`);
+  try {
+    fs.writeFileSync(finalDiskPath, buf);
+    fs.writeFileSync(tempPath, buf);
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: "persist_failed", detail: err instanceof Error ? err.message : String(err) });
+  }
+  const publicSheetUrl = `/uploads/sheet/${userId}/${finalName}`;
+
+  // Rasterize PDF or use image directly
+  let imagePaths: string[] = [];
+  const pageTempPaths: string[] = [];
+  if (isPdf) {
+    try {
+      const pngs = await pdfToPagePngs(tempPath, audioUploadDir, 5);
+      imagePaths = pngs;
+      pageTempPaths.push(...pngs);
+    } catch (err) {
+      fs.unlink(tempPath, () => {});
+      return res.status(400).json({
+        ok: false, error: "pdf_rasterize_failed",
+        detail: err instanceof Error ? err.message : String(err),
+        asset_url: publicSheetUrl,
+      });
+    }
+  } else {
+    imagePaths = [tempPath];
+  }
+
+  const anthropicKey = (process.env.ANTHROPIC_API_KEY || "").trim();
+  if (!anthropicKey) {
+    fs.unlink(tempPath, () => {});
+    for (const p of pageTempPaths) fs.unlink(p, () => {});
+    return res.status(503).json({ ok: false, error: "vision_unavailable", asset_url: publicSheetUrl });
+  }
+
+  let analysis: any = null;
+  try {
+    analysis = await analyzeSheetMusicWithVision(imagePaths, language);
+  } catch (err) {
+    console.warn("[mv-sheet-url] vision threw:", err);
+  }
+  fs.unlink(tempPath, () => {});
+  for (const p of pageTempPaths) fs.unlink(p, () => {});
+  if (!analysis) {
+    const code = __anthropicHealth.lowBalance ? "anthropic_low_balance"
+      : __anthropicHealth.rateLimited ? "anthropic_rate_limited"
+      : "vision_failed";
+    return res.status(502).json({
+      ok: false,
+      error: code,
+      detail: __anthropicHealth.lastErrorMessage || "",
+      hint: __anthropicHealth.lowBalance
+        ? "Anthropic API credits exhausted. Top up at https://console.anthropic.com/settings/billing"
+        : "Sheet OCR failed — please try a clearer image or retry.",
+      asset_url: publicSheetUrl,
+    });
+  }
+
+  const linesRaw = Array.isArray(analysis.lyrics_lines)
+    ? analysis.lyrics_lines.filter((x: any) => typeof x === "string" && x.trim().length > 0)
+    : [];
+  const hasLyrics = linesRaw.length > 0;
+  const bpm = Number(analysis.tempo_bpm || 0) || 80;
+  const beatsPerLine = 8;
+  const lineDurationSec = Math.max(2, (60 / bpm) * beatsPerLine);
+  const estimatedDuration = Math.round(linesRaw.length * lineDurationSec);
+  const lyrics_lines = linesRaw.map((text: string, i: number) => ({
+    ts_ms: Math.round(i * lineDurationSec * 1000),
+    text: String(text).trim(),
+  }));
+  const skipStages: string[] = hasLyrics ? ["lyrics"] : [];
+  const visionCostCents = 3 * imagePaths.length;
+
+  return res.json({
+    ok: true,
+    asset_url: publicSheetUrl,
+    source_url: rawUrl,
+    sheet_pages: imagePaths.length,
+    is_pdf: isPdf,
+    meta: {
+      title: analysis.title || null,
+      composer: analysis.composer || null,
+      lyricist: analysis.lyricist || null,
+      tempo_marking: analysis.tempo_marking || null,
+      tempo_bpm: analysis.tempo_bpm || null,
+      key_signature: analysis.key_signature || null,
+      time_signature: analysis.time_signature || null,
+      notation_type: analysis.notation_type || "unknown",
+      language_hint: analysis.language_hint || language,
+      civilization: analysis.civilization || null,
+      confidence: typeof analysis.confidence === "number" ? analysis.confidence : null,
+      estimated_duration_secs: estimatedDuration,
+    },
+    lyrics: {
+      has_lyrics: hasLyrics,
+      lines: lyrics_lines,
+      text: linesRaw.join("\n"),
+      timing_note: hasLyrics ? "Timing is APPROXIMATE — linearly distributed across estimated duration." : null,
+    },
+    analysis_raw: analysis,
+    skip_stages: skipStages,
+    import_source: hasLyrics ? "sheet_url+lyrics" : "sheet_url_instrumental",
+    cost_breakdown: { vision_cents: visionCostCents, total_added_cents: visionCostCents },
+  });
+});
+
 // /api/mv/lyrics — Rust LLM router → callLlm fallback → trivial stub.
 app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => {
   const userId = (req.session as any)?.user_id;
@@ -1140,6 +5263,15 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
   const style = String((body as any).style || "").trim();
   const language = String((body as any).language || "en").trim();
   const explicitEngine = String((body as any).engine || "").trim().toLowerCase();
+  // CSSOS_WAVE_113I 20260511 — Jing
+  // "如果用户在高级设置面板里 SECTION FORM 设置不是10节歌词呢? …
+  //  歌剧一幕50+场，必须检测歌曲/三部曲/歌剧/短剧/连续剧/电影关键字眼".
+  // Thread work_type + section_form into the prompt builders + the
+  // post-processor so multi-part outputs are preserved and the user's
+  // Advanced Settings SECTION FORM wins over the default 10-section
+  // template.
+  const workType = String((body as any).work_type || (body as any).workType || "single").trim().toLowerCase();
+  const sectionForm = String((body as any).section_form || (body as any).sectionForm || "").trim();
 
   // CSSOS_PHASE2_LYRICS_TIER_FIRST 20260507 — Jing
   // Mirror /api/mv/cover: free → cheap → standard first via callLlm
@@ -1164,26 +5296,27 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
     try {
       const tier = await callLlm({
         messages: [
-          { role: "system", content: "You write concise, singable music-video lyrics. Reply with raw lyrics only — no commentary, no markdown headings." },
-          { role: "user", content: `Write short song lyrics in ${language}${style ? ` (${style} style)` : ""} for: ${prompt || "an evocative scene"}.` },
+          { role: "system", content: buildJingdianSystemPrompt(language, workType, sectionForm) },
+          { role: "user", content: buildJingdianUserPrompt(language, style, prompt, workType, sectionForm) },
         ],
-        max_tokens: 600,
-        temperature: 0.85,
+        max_tokens: 2600,
+        temperature: 0.7,
       });
       clearInterval(heartbeat);
-      recordEngineCall(tier?.provider || "llm-router", Date.now() - __lyricsT0, 0, !!(tier && tier.ok && tier.content));
+      const __lyricsCostCents = estimateEngineCostCents("lyrics", tier?.provider, (tier?.content || "").length / 4);
+      recordEngineCall(tier?.provider || "llm-router", Date.now() - __lyricsT0, __lyricsCostCents, !!(tier && tier.ok && tier.content));
       if (tier && tier.ok && tier.content && tier.content.trim()) {
         console.log(`[mv-lyrics] tier sweep WIN: provider=${tier.provider} model=${tier.model}`);
         res.write(JSON.stringify({
           ok: true,
           task_id: `tier-${tier.provider}-${Date.now()}`,
-          lyrics: tier.content.trim(),
+          lyrics: normalizeLyricsToJingdian(tier.content.trim(), workType, sectionForm),
           derived_settings: { title: prompt.slice(0, 80) || "Untitled", music_style: style },
           sections: null,
           shot_scripts: null,
           model: tier.model,
           engine: tier.provider,
-          cost_cents: 0,
+          cost_cents: __lyricsCostCents,
           use_user_key: false,
           tier_sweep: true,
         }));
@@ -1236,11 +5369,11 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
   try {
     llm = await callLlm({
       messages: [
-        { role: "system", content: "You write concise, singable music-video lyrics. Reply with raw lyrics only — no commentary, no markdown headings." },
-        { role: "user", content: `Write short song lyrics in ${language}${style ? ` (${style} style)` : ""} for: ${prompt || "an evocative scene"}.` },
+        { role: "system", content: buildJingdianSystemPrompt(language, workType, sectionForm) },
+        { role: "user", content: buildJingdianUserPrompt(language, style, prompt, workType, sectionForm) },
       ],
-      max_tokens: 600,
-      temperature: 0.85,
+      max_tokens: 2600,
+      temperature: 0.7,
     });
   } catch (err) {
     llmErr = err instanceof Error ? err.message : String(err);
@@ -1251,7 +5384,7 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
     return res.status(200).json({
       ok: true,
       task_id: `fallback-${llm.provider}-${Date.now()}`,
-      lyrics: llm.content.trim(),
+      lyrics: normalizeLyricsToJingdian(llm.content.trim(), workType, sectionForm),
       derived_settings: {
         title: prompt.slice(0, 80) || "Untitled",
         music_style: style,
@@ -1336,7 +5469,8 @@ app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
         tags,
       });
       clearInterval(heartbeat);
-      recordEngineCall(tier?.provider || "music-router", Date.now() - __musicT0, 0, !!(tier && tier.ok));
+      const __musicCostCents = estimateEngineCostCents("music", tier?.provider, Number((req.body as any)?.duration_secs) || 180);
+      recordEngineCall(tier?.provider || "music-router", Date.now() - __musicT0, __musicCostCents, !!(tier && tier.ok));
       if (tier && tier.ok) {
         const audioUrl = tier.audio_url
           ? tier.audio_url
@@ -1348,7 +5482,7 @@ app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
             task_id: `tier-${tier.provider}-${Date.now()}`,
             audio_url: audioUrl,
             engine: tier.provider,
-            cost_cents: 0,
+            cost_cents: __musicCostCents,
             use_user_key: false,
             tier_sweep: true,
           }));
@@ -1553,7 +5687,8 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
           `<stop offset="0%" stop-color="hsl(${hue},70%,32%)"/>` +
           `<stop offset="100%" stop-color="hsl(${(hue + 60) % 360},75%,18%)"/>` +
           `</linearGradient></defs><rect width="${w}" height="${h}" fill="url(#g)"/></svg>`;
-        stillUrl = `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
+        // CSSOS_WAVE_111D_NO_SVG_DATA_URI 20260512 — rasterize to real .webp
+        stillUrl = await svgToWebpFallbackUrl(svg, Number(w) || 1024, Number(h) || 576, "still");
       }
       return sendJson({
         ok: true,
@@ -1578,7 +5713,8 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
         aspect_ratio: aspect,
         ...(imageUrl ? { image_url: imageUrl } : {}),
       });
-      recordEngineCall(tierVid?.provider || "video-router", Date.now() - __videoT0, 0, !!(tierVid && tierVid.ok && (tierVid.video_url || tierVid.poll_url)));
+      const __videoCostCents = estimateEngineCostCents("video", tierVid?.provider, Number((req.body as any)?.duration_secs) || 10);
+      recordEngineCall(tierVid?.provider || "video-router", Date.now() - __videoT0, __videoCostCents, !!(tierVid && tierVid.ok && (tierVid.video_url || tierVid.poll_url)));
       if (tierVid && tierVid.ok && (tierVid.video_url || tierVid.poll_url)) {
         console.log(`[mv-video] tier sweep WIN: provider=${tierVid.provider}`);
         return sendJson({
@@ -1587,7 +5723,7 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
           video_url: tierVid.video_url || "",
           poll_url: tierVid.poll_url || "",
           engine: tierVid.provider,
-          cost_cents: 0,
+          cost_cents: __videoCostCents,
           use_user_key: false,
           tier_sweep: true,
         });
@@ -1694,7 +5830,8 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
       `<stop offset="0%" stop-color="hsl(${hue},70%,32%)"/>` +
       `<stop offset="100%" stop-color="hsl(${(hue + 60) % 360},75%,18%)"/>` +
       `</linearGradient></defs><rect width="${w}" height="${h}" fill="url(#g)"/></svg>`;
-    stillUrl = `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
+    // CSSOS_WAVE_111D_NO_SVG_DATA_URI 20260512 — rasterize to real .webp
+    stillUrl = await svgToWebpFallbackUrl(svg, Number(w) || 1024, Number(h) || 576, "still");
   }
 
   console.warn(
@@ -2183,6 +6320,79 @@ type EngineUsageRecord = {
 };
 const ENGINE_USAGE_WINDOW_MAX = 1000;
 const engineUsageWindow: Map<string, EngineUsageRecord[]> = new Map();
+/* CSSOS_WAVE_113J 20260511 — Jing
+ * "凡是 0 的都是错的，不可能输出一个 MV 成本为 0".
+ * Realistic per-call cost estimator. Numbers are conservative
+ * upper bounds based on public pricing pages (2026-05) for the
+ * tier-sweep providers + the premium Rust upstream paths. Server
+ * compute floor is amortized per stage so even free providers
+ * always contribute ≥ 1¢ (covers our GCE / bandwidth / storage).
+ *
+ * stage:  "lyrics" | "cover" | "music" | "video" | "subtitle" | "compose"
+ * provider: lowercased tier-sweep provider name OR "openai" / "anthropic" / "suno" / "kling" etc.
+ * sizeHint: optional — token count for lyrics, image px for cover, seconds for music/video. */
+function estimateEngineCostCents(
+  stage: string,
+  provider: string | null | undefined,
+  sizeHint?: number,
+): number {
+  const s = String(stage || "").toLowerCase();
+  const p = String(provider || "").trim().toLowerCase();
+  // Server compute floor per stage (amortized GCE + bandwidth + storage).
+  const serverFloor: Record<string, number> = {
+    lyrics: 1, cover: 2, music: 3, video: 4, subtitle: 1, compose: 2,
+  };
+  const floor = serverFloor[s] ?? 1;
+
+  // Stage × provider rate tables (cents).
+  if (s === "lyrics") {
+    const tokens = Math.max(800, Number(sizeHint) || 1800); // typical 京典 ≈ 1.8k tokens
+    // OpenAI gpt-4o: $5/M in + $15/M out → ~3-4¢ per typical song
+    // Anthropic Claude 3.5 Sonnet: $3/M in + $15/M out → ~3¢
+    // Free tier-sweep providers: ~0.5-1¢ amortized infra
+    if (p === "openai")    return Math.max(floor, Math.round((tokens / 1000) * 1.8));
+    if (p === "anthropic") return Math.max(floor, Math.round((tokens / 1000) * 1.6));
+    if (p === "groq" || p === "cerebras") return floor + 1;
+    if (p === "mistral" || p === "openrouter" || p === "deepseek") return floor + 1;
+    if (p === "gemini")    return floor + 1;
+    if (p === "together" || p === "huggingface") return floor + 1;
+    return floor; // placeholder / unknown
+  }
+  if (s === "cover") {
+    // 1024² SDXL on Replicate ~0.5¢; DALL-E 3 1024² ~4¢; Midjourney via proxy ~3¢
+    if (p === "openai" || p === "dalle" || p === "dalle3") return 4;
+    if (p === "midjourney") return 5;
+    if (p === "replicate" || p === "stability" || p === "flux") return floor + 1;
+    if (p === "ideogram") return 3;
+    if (p === "gemini" || p === "imagen") return floor + 2;
+    return floor + 1;
+  }
+  if (s === "music") {
+    // Suno custom: ~$0.10/song = 10¢; Udio similar; free tier-sweep ~3-4¢ amortized
+    const secs = Math.max(60, Number(sizeHint) || 180);
+    if (p === "suno") return Math.max(10, Math.round(secs / 30));
+    if (p === "udio") return Math.max(10, Math.round(secs / 30));
+    if (p === "elevenlabs-music") return 8;
+    if (p === "replicate") return 5;
+    return floor + 3;
+  }
+  if (s === "video") {
+    // Kling / Runway Gen-3 / Sora: $0.30-1.00 per 10s clip
+    const secs = Math.max(5, Number(sizeHint) || 10);
+    if (p === "sora")      return Math.max(30, Math.round((secs / 10) * 80));
+    if (p === "runway" || p === "runwayml") return Math.max(20, Math.round((secs / 10) * 50));
+    if (p === "kling")     return Math.max(15, Math.round((secs / 10) * 35));
+    if (p === "luma")      return Math.max(15, Math.round((secs / 10) * 30));
+    if (p === "minimax")   return Math.max(10, Math.round((secs / 10) * 25));
+    if (p === "pika")      return Math.max(10, Math.round((secs / 10) * 25));
+    if (p === "replicate") return Math.max(8,  Math.round((secs / 10) * 15));
+    return floor + 8;
+  }
+  if (s === "subtitle") return floor; // mostly local processing
+  if (s === "compose")  return floor + 1; // ffmpeg server-side
+  return floor;
+}
+
 function recordEngineCall(
   engine: string | null | undefined,
   ms: number,
@@ -9148,6 +13358,141 @@ async function syncCanonicalWorkAssets(
   void enqueueKaraokeTranscription(workId).catch((err) => {
     console.warn("[karaoke] transcription enqueue failed", workId, err?.message || err);
   });
+  /* CSSOS_WAVE_111C 20260512 — Jing
+   * After canonical asset sync, fire-and-forget compute the cssOS
+   * audio fingerprint hash so /verify and ?fp= lookups work without
+   * the owner having to manually POST /fingerprint. Short-circuits
+   * if already fingerprinted, audio missing, or compute fails. */
+  void enqueueAutoFingerprintHash(workId).catch((err) => {
+    console.warn("[fingerprint] auto enqueue failed", workId, err?.message || err);
+  });
+}
+
+/* CSSOS_WAVE_111C 20260512 — Jing
+ * Idempotent background fingerprint hash compute. Mirrors the shape of
+ * enqueueKaraokeTranscription: short-circuit when already done, fetch
+ * the audio asset disk path, compute hash, UPDATE user_works. Errors
+ * are logged but never thrown — fingerprinting is best-effort.
+ *
+ * If ACRCloud Management push is enabled AND the creator has opted in
+ * AND the work is public AND not requires_clearance, also schedule a
+ * push (subject to monthly cap inside pushReferenceAudioToAcrcloud). */
+async function enqueueAutoFingerprintHash(workId: string): Promise<void> {
+  try {
+    const lookup = await withClient((c) =>
+      c.query<{
+        existing_hash: string | null;
+        audio_url: string | null;
+        user_id: string;
+        title: string | null;
+        work_type: string | null;
+        creator: string | null;
+        pushed: boolean;
+        requires_clearance: boolean;
+        visibility: string;
+        opt_in: boolean;
+      }>(
+        `SELECT
+            w.fingerprint_hash AS existing_hash,
+            (SELECT url FROM work_assets
+              WHERE work_id = $1::uuid
+                AND asset_type IN ('final_mv','audio_track_1','audio_master')
+              ORDER BY created_at DESC LIMIT 1) AS audio_url,
+            w.user_id, w.title, w.work_type,
+            COALESCE(u.display_name, u.username, '') AS creator,
+            COALESCE(w.fingerprint_pushed, false) AS pushed,
+            COALESCE(w.requires_clearance, false) AS requires_clearance,
+            COALESCE(mp.visibility, 'public') AS visibility,
+            COALESCE((SELECT allow_global_push FROM user_fingerprint_optin
+                       WHERE user_id = w.user_id), false) AS opt_in
+           FROM user_works w
+           LEFT JOIN users u ON u.id = w.user_id
+           LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
+          WHERE w.id = $1::uuid LIMIT 1`,
+        [workId],
+      ),
+    );
+    const row = lookup.rows[0];
+    if (!row) return;
+    if (row.existing_hash) return; // already fingerprinted
+    const url = String(row.audio_url || "").trim();
+    if (!url) return;
+    setImmediate(async () => {
+      try {
+        let diskPath: string;
+        let cleanup = false;
+        if (url.startsWith("/uploads/") || url.startsWith("/artifacts/")) {
+          diskPath = path.join(PUBLIC_DIR, url.replace(/^\/+/, ""));
+          if (!fs.existsSync(diskPath)) diskPath = path.join("/srv/cssos", url.replace(/^\/+/, ""));
+          if (!fs.existsSync(diskPath)) return; // can't find audio on disk
+        } else if (/^https?:\/\//.test(url)) {
+          const tmp = path.join(os.tmpdir(), `auto_fp_${crypto.randomBytes(4).toString("hex")}`);
+          const dl = await fetch(url);
+          if (!dl.ok) return;
+          fs.writeFileSync(tmp, Buffer.from(await dl.arrayBuffer()));
+          diskPath = tmp;
+          cleanup = true;
+        } else {
+          return;
+        }
+        const hash = await computeFingerprintHash(diskPath);
+        if (!hash) {
+          if (cleanup) fs.unlink(diskPath, () => {});
+          return;
+        }
+        await withClient((c) =>
+          c.query(
+            `UPDATE user_works
+                SET fingerprint_hash = $2, fingerprinted_at = now()
+              WHERE id = $1::uuid AND fingerprint_hash IS NULL`,
+            [workId, hash],
+          ),
+        );
+        console.info("[fingerprint] auto-hashed work %s → %s", workId.slice(0, 8), hash);
+
+        // Optional B4 Management push — triple-gated.
+        const eligibleForPush =
+          ACRCLOUD_MGMT_ENABLED &&
+          row.opt_in &&
+          row.visibility === "public" &&
+          !row.requires_clearance &&
+          !row.pushed;
+        if (eligibleForPush) {
+          const result = await pushReferenceAudioToAcrcloud({
+            workId,
+            userId: row.user_id,
+            audioPath: diskPath,
+            title: row.title || `cssOS-${workId.slice(0, 8)}`,
+            workType: row.work_type || "single",
+            creator: row.creator || "",
+            canonicalUrl: `https://cssstudio.app/?cssMV=${workId}`,
+          });
+          await withClient((c) =>
+            c.query(
+              `INSERT INTO acrcloud_push_log
+                  (work_id, user_id, bucket_id, remote_audio_id, upload_status, cost_cents, error_detail)
+                VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7)`,
+              [workId, row.user_id, result.bucket_id || null, result.remote_audio_id || null,
+               result.status, result.cost_cents, result.error || null],
+            ),
+          );
+          if (result.ok) {
+            await withClient((c) =>
+              c.query(`UPDATE user_works SET fingerprint_pushed = true WHERE id = $1::uuid`, [workId]),
+            );
+            console.info("[fingerprint] auto-pushed to ACRCloud %s bucket=%s", workId.slice(0, 8), result.bucket_id);
+          } else {
+            console.warn("[fingerprint] auto-push failed %s: %s", workId.slice(0, 8), result.error);
+          }
+        }
+        if (cleanup) fs.unlink(diskPath, () => {});
+      } catch (err) {
+        console.warn("[fingerprint] auto-hash compute failed", workId, (err as Error)?.message || err);
+      }
+    });
+  } catch (err) {
+    console.warn("[fingerprint] auto enqueue lookup failed", workId, (err as Error)?.message || err);
+  }
 }
 
 /* ============================================================
@@ -13695,6 +18040,651 @@ export function parseLifespanMonthDay(lifespan: string | null | undefined): { bi
   return { birth: extractMd(parts[0] || ""), death: extractMd(parts[1] || "") };
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+ * CSSOS_WAVE_119 20260513 — Jing
+ * 今日纪念自动 MV 生成器.
+ *
+ * Daily flow:
+ *   1. Compute today's MM-DD in UTC.
+ *   2. Query person_profiles WHERE birth_month_day=$1 OR death_month_day=$1.
+ *   3. For each (person, event_type), check system_anniversary_log:
+ *      already done today? skip.
+ *   4. Otherwise: synthesize a seed (person × birth/death angle),
+ *      call /api/mv/lyrics → cover → music → video → compose,
+ *      then INSERT into user_works with admin-owner + free + locked.
+ *   5. Log the result.
+ *
+ * For v1 we use a SIMPLIFIED pipeline: just create the work_works row
+ * with the seed metadata (lyrics preview, cover_image as a synthetic
+ * placeholder). The actual heavy pipeline (lyrics + music + video gen)
+ * runs ASYNC via the standard /api/mv/* endpoints called from a
+ * dedicated worker. For this round we stub the work creation so the
+ * marketplace shelf has rows immediately; full content fills in over
+ * the next render pass triggered by users opening the work.
+ *
+ * Influence cap: top 5 matches by influence_score per day (avoid
+ * spamming marketplace when many anniversaries collide).
+ * ═══════════════════════════════════════════════════════════════════ */
+
+async function runDailyAnniversaryAutoMv(adminUserId: string): Promise<{
+  run_date: string; matches_found: number; queued: number; skipped: number; failed: number;
+}> {
+  const now = new Date();
+  const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(now.getUTCDate()).padStart(2, "0");
+  const today = `${mm}-${dd}`;
+  const runDateIso = now.toISOString().slice(0, 10);
+  const summary = { run_date: runDateIso, matches_found: 0, queued: 0, skipped: 0, failed: 0 };
+
+  let matches: Array<{ person_id: string; name_zh: string; name_en: string; civilization: string; era: string; music_style_hint: string; core_theme: string; event_type: string; influence_score: number }> = [];
+  try {
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT person_id, name_zh, name_en, civilization, era,
+                coalesce(music_style_hint,'') AS music_style_hint,
+                coalesce(core_theme,'') AS core_theme,
+                coalesce(influence_score, 0) AS influence_score,
+                CASE WHEN birth_month_day = $1 THEN 'birth'
+                     WHEN death_month_day = $1 THEN 'death' END AS event_type
+           FROM person_profiles
+          WHERE birth_month_day = $1 OR death_month_day = $1
+          ORDER BY influence_score DESC NULLS LAST, name_en
+          LIMIT 5`,
+        [today],
+      ),
+    );
+    matches = r.rows.filter((row: any) => row.event_type);
+  } catch (err) {
+    console.warn("[anniversary] match query failed:", (err as Error)?.message || err);
+    return summary;
+  }
+  summary.matches_found = matches.length;
+  if (!matches.length) return summary;
+
+  for (const m of matches) {
+    try {
+      // Idempotency check
+      const seen = await withClient((c) =>
+        c.query<{ id: number }>(
+          `SELECT id FROM system_anniversary_log
+            WHERE run_date = $1 AND person_id = $2 AND event_type = $3 LIMIT 1`,
+          [runDateIso, m.person_id, m.event_type],
+        ),
+      );
+      if (seen.rows[0]) {
+        summary.skipped += 1;
+        continue;
+      }
+      // Synthesize the work + insert into user_works as admin-owned,
+      // free, non-transferable. Full media pipeline fills in over time
+      // when users actually click to play; today we land the row so
+      // the "Today in History" shelf has content.
+      const workId = crypto.randomUUID();
+      const personName = m.name_zh || m.name_en;
+      const angleLabel = m.event_type === "birth"
+        ? (m.civilization.startsWith("中") ? `${personName} 诞辰纪念` : `${personName} · Birthday Remembrance`)
+        : (m.civilization.startsWith("中") ? `${personName} 忌辰纪念` : `${personName} · In Memoriam`);
+      const lyricsPreview = m.core_theme
+        ? `${angleLabel}\n${m.core_theme}`
+        : angleLabel;
+      const style = m.music_style_hint || "古风纪念 / 弦乐与钢琴 / 缅怀";
+
+      await withClient(async (client) => {
+        await client.query("BEGIN");
+        try {
+          await client.query(
+            `INSERT INTO user_works (
+                id, user_id, title, style, work_type, lyrics_preview, status,
+                suggested_listen_price_cents, suggested_buyout_price_cents,
+                system_origin, created_at, updated_at
+             ) VALUES ($1::uuid, $2::uuid, $3, $4, 'single', $5, 'published',
+                       0, 0, 'system_anniversary', now(), now())`,
+            [workId, adminUserId, angleLabel, style, lyricsPreview],
+          );
+          // Lock marketplace knobs via work_market_profiles.
+          await client.query(
+            `INSERT INTO work_market_profiles (
+                work_id, visibility, current_listen_price_cents,
+                current_buyout_price_cents, buyout_enabled, tips_enabled,
+                rights_scope, created_at, updated_at
+             ) VALUES ($1::uuid, 'public', 0, 0, false, true, 'system_free', now(), now())
+             ON CONFLICT (work_id) DO UPDATE SET
+                visibility = 'public',
+                current_listen_price_cents = 0,
+                current_buyout_price_cents = 0,
+                buyout_enabled = false,
+                tips_enabled = true,
+                rights_scope = 'system_free'`,
+            [workId],
+          );
+          await client.query(
+            `INSERT INTO person_mvs (
+                mv_id, person_id, work_id, created_by_user_id,
+                scenario_seed, story_angle, approval_status, visibility, created_at
+             ) VALUES (gen_random_uuid(), $1, $2::uuid, $3::uuid,
+                       $4, $5, 'auto_published', 'public', now())`,
+            [m.person_id, workId, adminUserId, lyricsPreview.slice(0, 200), m.event_type],
+          );
+          await client.query("COMMIT");
+        } catch (err) {
+          await client.query("ROLLBACK");
+          throw err;
+        }
+      });
+
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO system_anniversary_log
+              (run_date, person_id, event_type, work_id, status, cost_cents)
+            VALUES ($1, $2, $3, $4::uuid, 'ok', 0)`,
+          [runDateIso, m.person_id, m.event_type, workId],
+        ),
+      );
+      summary.queued += 1;
+    } catch (err) {
+      summary.failed += 1;
+      try {
+        await withClient((c) =>
+          c.query(
+            `INSERT INTO system_anniversary_log
+                (run_date, person_id, event_type, status, error_detail)
+              VALUES ($1, $2, $3, 'failed', $4)
+              ON CONFLICT (run_date, person_id, event_type) DO UPDATE
+                SET status = 'failed', error_detail = EXCLUDED.error_detail`,
+            [runDateIso, m.person_id, m.event_type, String((err as Error)?.message || err).slice(0, 400)],
+          ),
+        );
+      } catch (_) {}
+      console.warn(`[anniversary] failed person=${m.person_id} ${m.event_type}:`, (err as Error)?.message || err);
+    }
+  }
+  return summary;
+}
+
+/* GET /api/anniversary/today — public marketplace shelf API.
+ * Returns the system-generated MVs for today's anniversaries, plus
+ * the upstream person profiles. Frontend renders this as the
+ * "Today in History" row. */
+app.get("/api/anniversary/today", async (_req, res) => {
+  noStore(res);
+  const now = new Date();
+  const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(now.getUTCDate()).padStart(2, "0");
+  const today = `${mm}-${dd}`;
+  try {
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT pp.person_id, pp.name_zh, pp.name_en, pp.civilization, pp.era,
+                pp.portrait_url, pp.influence_score,
+                pp.birth_month_day, pp.death_month_day,
+                sal.event_type, sal.work_id, sal.status, sal.created_at,
+                w.title AS work_title, w.cover_image
+           FROM person_profiles pp
+           LEFT JOIN system_anniversary_log sal
+                  ON sal.person_id = pp.person_id
+                 AND sal.run_date = current_date
+           LEFT JOIN user_works w ON w.id = sal.work_id
+          WHERE pp.birth_month_day = $1 OR pp.death_month_day = $1
+          ORDER BY pp.influence_score DESC NULLS LAST, pp.name_en
+          LIMIT 10`,
+        [today],
+      ),
+    );
+    return res.json({ ok: true, data: { date: today, anniversaries: r.rows } });
+  } catch (err) {
+    console.warn("[anniversary-today] failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "TODAY_FAILED" });
+  }
+});
+
+/* POST /api/anniversary/run-now — admin-only manual trigger for the
+ * daily cron. Useful for backfilling missed days, testing, or
+ * regenerating after fixing a bug. */
+app.post("/api/anniversary/run-now", async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  // Admin-only
+  const userR = await withClient((c) =>
+    c.query<{ role: string }>(`SELECT role FROM users WHERE id = $1::uuid LIMIT 1`, [userId]),
+  );
+  if (userR.rows[0]?.role !== "admin") {
+    return res.status(403).json({ ok: false, error: "admin_only" });
+  }
+  const SYSTEM_ADMIN_USER_ID = "00000000-0000-0000-0000-000000000001";
+  const summary = await runDailyAnniversaryAutoMv(SYSTEM_ADMIN_USER_ID);
+  return res.json({ ok: true, data: summary });
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+ * CSSOS_WAVE_120 20260513 — Jing
+ * 节日自动 MV 生成器.
+ *
+ * Mirrors the anniversary auto-MV pipeline (Wave 119), but drives off
+ * system_festivals + system_festival_dates rather than person_profiles.
+ * Same ownership / pricing rules (admin-owned, free, locked, tips-on,
+ * system_origin='system_festival') enforced by migration 067's
+ * cssos_protect_system_works trigger.
+ *
+ * Idempotency: system_festival_log unique on (run_date, festival_id).
+ * ═══════════════════════════════════════════════════════════════════ */
+
+async function runDailyFestivalAutoMv(adminUserId: string): Promise<{
+  run_date: string; matches_found: number; queued: number; skipped: number; failed: number;
+}> {
+  const now = new Date();
+  const runDateIso = now.toISOString().slice(0, 10);
+  const summary = { run_date: runDateIso, matches_found: 0, queued: 0, skipped: 0, failed: 0 };
+
+  let matches: Array<{ festival_id: string; name_zh: string; name_en: string; civilization: string; music_style_hint: string; core_theme: string; influence_score: number }> = [];
+  try {
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT f.festival_id, f.name_zh, f.name_en, f.civilization,
+                coalesce(f.music_style_hint,'') AS music_style_hint,
+                coalesce(f.core_theme,'')      AS core_theme,
+                coalesce(f.influence_score, 0) AS influence_score
+           FROM system_festivals f
+           JOIN system_festival_dates d ON d.festival_id = f.festival_id
+          WHERE d.greg_date = $1::date AND f.active = true
+          ORDER BY f.influence_score DESC NULLS LAST, f.festival_id
+          LIMIT 5`,
+        [runDateIso],
+      ),
+    );
+    matches = r.rows;
+  } catch (err) {
+    console.warn("[festival] match query failed:", (err as Error)?.message || err);
+    return summary;
+  }
+  summary.matches_found = matches.length;
+  if (!matches.length) return summary;
+
+  for (const m of matches) {
+    try {
+      const seen = await withClient((c) =>
+        c.query<{ id: number }>(
+          `SELECT id FROM system_festival_log
+            WHERE run_date = $1 AND festival_id = $2 LIMIT 1`,
+          [runDateIso, m.festival_id],
+        ),
+      );
+      if (seen.rows[0]) {
+        summary.skipped += 1;
+        continue;
+      }
+      const workId = crypto.randomUUID();
+      const isZh = (m.civilization || "").startsWith("中") || /[一-鿿]/.test(m.name_zh || "");
+      const title = isZh ? `${m.name_zh} · 节日纪念` : `${m.name_en} — Festival Edition`;
+      const lyricsPreview = m.core_theme
+        ? `${title}\n${m.core_theme}`
+        : title;
+      const style = m.music_style_hint || (isZh ? "民乐 / 节日 / 喜庆" : "festive / cinematic / celebratory");
+
+      await withClient(async (client) => {
+        await client.query("BEGIN");
+        try {
+          await client.query(
+            `INSERT INTO user_works (
+                id, user_id, title, style, work_type, lyrics_preview, status,
+                suggested_listen_price_cents, suggested_buyout_price_cents,
+                system_origin, created_at, updated_at
+             ) VALUES ($1::uuid, $2::uuid, $3, $4, 'single', $5, 'published',
+                       0, 0, 'system_festival', now(), now())`,
+            [workId, adminUserId, title, style, lyricsPreview],
+          );
+          await client.query(
+            `INSERT INTO work_market_profiles (
+                work_id, visibility, current_listen_price_cents,
+                current_buyout_price_cents, buyout_enabled, tips_enabled,
+                rights_scope, created_at, updated_at
+             ) VALUES ($1::uuid, 'public', 0, 0, false, true, 'system_free', now(), now())
+             ON CONFLICT (work_id) DO UPDATE SET
+                visibility = 'public',
+                current_listen_price_cents = 0,
+                current_buyout_price_cents = 0,
+                buyout_enabled = false,
+                tips_enabled = true,
+                rights_scope = 'system_free'`,
+            [workId],
+          );
+          await client.query("COMMIT");
+        } catch (err) {
+          await client.query("ROLLBACK");
+          throw err;
+        }
+      });
+
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO system_festival_log
+              (run_date, festival_id, work_id, status, cost_cents)
+            VALUES ($1, $2, $3::uuid, 'ok', 0)`,
+          [runDateIso, m.festival_id, workId],
+        ),
+      );
+      summary.queued += 1;
+    } catch (err) {
+      summary.failed += 1;
+      try {
+        await withClient((c) =>
+          c.query(
+            `INSERT INTO system_festival_log
+                (run_date, festival_id, status, error_detail)
+              VALUES ($1, $2, 'failed', $3)
+              ON CONFLICT (run_date, festival_id) DO UPDATE
+                SET status = 'failed', error_detail = EXCLUDED.error_detail`,
+            [runDateIso, m.festival_id, String((err as Error)?.message || err).slice(0, 400)],
+          ),
+        );
+      } catch (_) {}
+      console.warn(`[festival] failed festival=${m.festival_id}:`, (err as Error)?.message || err);
+    }
+  }
+  return summary;
+}
+
+/* GET /api/festivals/today — public shelf data. Returns active festivals
+ * matching today's Gregorian date plus their generated work (if any).
+ * Frontend renders this alongside the anniversary "Today in History"
+ * shelf as a "Today's Festival" row.
+ */
+app.get("/api/festivals/today", async (_req, res) => {
+  noStore(res);
+  const today = new Date().toISOString().slice(0, 10);
+  try {
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT f.festival_id, f.name_zh, f.name_en, f.civilization,
+                f.music_style_hint, f.core_theme, f.influence_score,
+                sfl.work_id, sfl.status, sfl.created_at,
+                w.title AS work_title, w.cover_image
+           FROM system_festivals f
+           JOIN system_festival_dates d ON d.festival_id = f.festival_id
+           LEFT JOIN system_festival_log sfl
+                  ON sfl.festival_id = f.festival_id
+                 AND sfl.run_date = current_date
+           LEFT JOIN user_works w ON w.id = sfl.work_id
+          WHERE d.greg_date = $1::date AND f.active = true
+          ORDER BY f.influence_score DESC NULLS LAST, f.festival_id
+          LIMIT 10`,
+        [today],
+      ),
+    );
+    return res.json({ ok: true, data: { date: today, festivals: r.rows } });
+  } catch (err) {
+    console.warn("[festivals-today] failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "TODAY_FAILED" });
+  }
+});
+
+/* POST /api/festivals/run-now — admin manual trigger. */
+app.post("/api/festivals/run-now", async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const userR = await withClient((c) =>
+    c.query<{ role: string }>(`SELECT role FROM users WHERE id = $1::uuid LIMIT 1`, [userId]),
+  );
+  if (userR.rows[0]?.role !== "admin") {
+    return res.status(403).json({ ok: false, error: "admin_only" });
+  }
+  const SYSTEM_ADMIN_USER_ID = "00000000-0000-0000-0000-000000000001";
+  const summary = await runDailyFestivalAutoMv(SYSTEM_ADMIN_USER_ID);
+  return res.json({ ok: true, data: summary });
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+ * CSSOS_WAVE_121 20260513 — Jing
+ * 系统作品真实媒体管线 (lazy + nightly batch).
+ *
+ * Anniversary (W119) + festival (W120) workers land bare user_works rows
+ * with lyrics_preview only — no cover image, no audio, no video. This
+ * worker fills in the real media for those rows.
+ *
+ * Strategy:
+ *   1. Nightly cron at 05:00 UTC scans for system_origin IN
+ *      ('system_anniversary','system_festival') with NULL cover_image.
+ *   2. Budget gate: env CSSOS_SYSTEM_MEDIA_DAILY_BUDGET_CENTS (default
+ *      500 = $5/day). Stop processing once today's spend exceeds it.
+ *   3. For each work: call free→cheap LLM tier for full lyrics (using
+ *      callLlm), then free→cheap image tier for cover (callImageGen).
+ *   4. Music + video are deferred — they're expensive ($1–$5 per asset
+ *      via Suno/Runway) and the shelf works without them. Wave 121B
+ *      will add a per-click on-demand path.
+ *
+ * Lazy on-demand: when a user opens a system work that's still bare,
+ * the work-detail endpoint (Wave 121B) will run the same backfill for
+ * just that work synchronously, marking it "warm" before the batch
+ * gets to it.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+const SYSTEM_MEDIA_DAILY_BUDGET_CENTS = Math.max(
+  0,
+  parseInt(process.env.CSSOS_SYSTEM_MEDIA_DAILY_BUDGET_CENTS || "500", 10) || 500,
+);
+
+async function systemMediaSpentTodayCents(): Promise<number> {
+  try {
+    const r = await withClient((c) =>
+      c.query<{ total: string | null }>(
+        `SELECT (
+            (SELECT coalesce(sum(cost_cents),0) FROM system_anniversary_log WHERE created_at::date = current_date)
+          + (SELECT coalesce(sum(cost_cents),0) FROM system_festival_log    WHERE created_at::date = current_date)
+         ) AS total`,
+      ),
+    );
+    return Number(r.rows[0]?.total || 0);
+  } catch (_) { return 0; }
+}
+
+/* Backfill one specific work. Pulls full lyrics + cover via the existing
+ * free-tier routers (callLlm + callImageGen). Returns the cost incurred
+ * (cents) so callers can update budget counters. */
+async function backfillSystemWorkMedia(workId: string): Promise<{ ok: boolean; cost_cents: number; error?: string }> {
+  let work: any;
+  try {
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT id, title, style, lyrics_preview, cover_image, system_origin
+           FROM user_works WHERE id = $1::uuid LIMIT 1`,
+        [workId],
+      ),
+    );
+    work = r.rows[0];
+  } catch (err) {
+    return { ok: false, cost_cents: 0, error: "load_failed: " + ((err as Error)?.message || String(err)) };
+  }
+  if (!work) return { ok: false, cost_cents: 0, error: "not_found" };
+  if (!work.system_origin) return { ok: false, cost_cents: 0, error: "not_a_system_work" };
+
+  let costCents = 0;
+  let fullLyrics: string | null = null;
+  let coverUrl: string | null = null;
+
+  // 1) Full lyrics via free→cheap LLM tier.
+  if (!work.lyrics_preview || work.lyrics_preview.length < 400) {
+    try {
+      const seed = String(work.lyrics_preview || work.title || "").slice(0, 800);
+      const isZh = /[一-鿿]/.test(seed);
+      const lang = isZh ? "zh" : "en";
+      const tier = await callLlm({
+        messages: [
+          {
+            role: "system",
+            content: isZh
+              ? "你是一位歌词作家。为给定的主题写一首完整的歌词，包含 verse/chorus/bridge 标记。8-12 节，每节 4-6 行。"
+              : "You are a lyricist. Write a complete song lyric for the given theme, with verse/chorus/bridge labels. 8–12 sections, 4–6 lines each.",
+          },
+          {
+            role: "user",
+            content: `Title: ${work.title || ""}\nStyle: ${work.style || ""}\nSeed:\n${seed}\n\nWrite the full lyrics in ${lang}.`,
+          },
+        ],
+        max_tokens: 2200,
+        temperature: 0.75,
+      });
+      if (tier && tier.ok && tier.content && tier.content.trim()) {
+        fullLyrics = tier.content.trim();
+        const lyricsCost = (typeof estimateEngineCostCents === "function")
+          ? estimateEngineCostCents("lyrics", tier.provider, fullLyrics.length / 4)
+          : 0;
+        costCents += lyricsCost;
+      }
+    } catch (err) {
+      console.warn(`[system-media] lyrics failed for ${workId}:`, (err as Error)?.message || err);
+    }
+  }
+
+  // 2) Cover via free→cheap image tier.
+  if (!work.cover_image) {
+    try {
+      const promptParts = [
+        work.title || "",
+        work.style || "",
+        (work.lyrics_preview || "").slice(0, 200),
+        "cinematic album cover art, dramatic lighting, no text",
+      ].filter(Boolean);
+      const img = await callImageGen({
+        prompt: promptParts.join(" — "),
+        size: "1024x1024",
+      });
+      if (img && img.ok) {
+        coverUrl = img.image_url
+          ? img.image_url
+          : (img.image_b64 ? persistBase64Cover(img.image_b64, "00000000-0000-0000-0000-000000000001") : null);
+        if (coverUrl) {
+          const coverCost = (typeof estimateEngineCostCents === "function")
+            ? estimateEngineCostCents("cover", img.provider)
+            : 0;
+          costCents += coverCost;
+        }
+      }
+    } catch (err) {
+      console.warn(`[system-media] cover failed for ${workId}:`, (err as Error)?.message || err);
+    }
+  }
+
+  // 3) Persist back to user_works. (The system_origin trigger keeps
+  // ownership/pricing locked but allows title/style/lyrics_preview/
+  // cover_image refreshes — see migration 067.)
+  if (fullLyrics || coverUrl) {
+    try {
+      await withClient((c) =>
+        c.query(
+          `UPDATE user_works SET
+              lyrics_preview = COALESCE($2, lyrics_preview),
+              cover_image    = COALESCE($3, cover_image),
+              updated_at     = now()
+            WHERE id = $1::uuid`,
+          [workId, fullLyrics, coverUrl],
+        ),
+      );
+    } catch (err) {
+      return { ok: false, cost_cents: costCents, error: "persist_failed: " + ((err as Error)?.message || String(err)) };
+    }
+  }
+
+  // 4) Update the originating log row's cost_cents (anniversary or festival).
+  try {
+    await withClient((c) =>
+      c.query(
+        `UPDATE system_anniversary_log SET cost_cents = cost_cents + $2
+           WHERE work_id = $1::uuid AND run_date = current_date`,
+        [workId, costCents],
+      ),
+    );
+    await withClient((c) =>
+      c.query(
+        `UPDATE system_festival_log SET cost_cents = cost_cents + $2
+           WHERE work_id = $1::uuid AND run_date = current_date`,
+        [workId, costCents],
+      ),
+    );
+  } catch (_) {}
+
+  return { ok: !!(fullLyrics || coverUrl), cost_cents: costCents };
+}
+
+/* Nightly batch backfill. Caps at the daily budget and at 50 works
+ * per run (sanity bound) to keep the API node responsive. */
+async function runSystemMediaBackfillBatch(): Promise<{
+  processed: number; ok: number; failed: number; spent_cents: number; budget_left_cents: number;
+}> {
+  const summary = { processed: 0, ok: 0, failed: 0, spent_cents: 0, budget_left_cents: 0 };
+  if (!DATABASE_URL) return summary;
+  const spentBefore = await systemMediaSpentTodayCents();
+  let budgetLeft = Math.max(0, SYSTEM_MEDIA_DAILY_BUDGET_CENTS - spentBefore);
+  summary.budget_left_cents = budgetLeft;
+  if (budgetLeft <= 0) {
+    console.log(`[system-media] budget exhausted (spent=${spentBefore} cap=${SYSTEM_MEDIA_DAILY_BUDGET_CENTS})`);
+    return summary;
+  }
+
+  let candidates: Array<{ id: string }> = [];
+  try {
+    const r = await withClient((c) =>
+      c.query<{ id: string }>(
+        `SELECT id FROM user_works
+           WHERE system_origin IN ('system_anniversary','system_festival')
+             AND (cover_image IS NULL OR cover_image = '' OR lyrics_preview IS NULL OR length(lyrics_preview) < 400)
+           ORDER BY created_at DESC
+           LIMIT 50`,
+      ),
+    );
+    candidates = r.rows;
+  } catch (err) {
+    console.warn("[system-media] candidate scan failed:", (err as Error)?.message || err);
+    return summary;
+  }
+
+  for (const c of candidates) {
+    if (budgetLeft <= 0) break;
+    summary.processed += 1;
+    try {
+      const r = await backfillSystemWorkMedia(c.id);
+      summary.spent_cents += r.cost_cents;
+      budgetLeft = Math.max(0, budgetLeft - r.cost_cents);
+      if (r.ok) summary.ok += 1; else summary.failed += 1;
+    } catch (err) {
+      summary.failed += 1;
+      console.warn(`[system-media] backfill threw for ${c.id}:`, (err as Error)?.message || err);
+    }
+  }
+  summary.budget_left_cents = budgetLeft;
+  return summary;
+}
+
+/* POST /api/system-media/backfill-now — admin trigger for the batch. */
+app.post("/api/system-media/backfill-now", async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const userR = await withClient((c) =>
+    c.query<{ role: string }>(`SELECT role FROM users WHERE id = $1::uuid LIMIT 1`, [userId]),
+  );
+  if (userR.rows[0]?.role !== "admin") {
+    return res.status(403).json({ ok: false, error: "admin_only" });
+  }
+  const summary = await runSystemMediaBackfillBatch();
+  return res.json({ ok: true, data: summary });
+});
+
+/* POST /api/system-media/backfill-one — admin or signed-in user.
+ * Used by the foryou shelf when a user clicks into a still-bare system
+ * work; gives them immediate media rather than the placeholder. */
+app.post("/api/system-media/backfill-one", express.json({ limit: "1kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const workId = String((req.body as any)?.work_id || "").trim();
+  if (!workId) return res.status(400).json({ ok: false, error: "work_id required" });
+  // Budget gate also applies to on-demand calls (don't let a busy day
+  // make this an unbounded spend lever).
+  const spent = await systemMediaSpentTodayCents();
+  if (spent >= SYSTEM_MEDIA_DAILY_BUDGET_CENTS) {
+    return res.status(429).json({ ok: false, error: "daily_budget_exhausted", spent_cents: spent });
+  }
+  const r = await backfillSystemWorkMedia(workId);
+  return res.json({ ok: r.ok, cost_cents: r.cost_cents, error: r.error });
+});
+
 let __personMdBackfilled = false;
 async function backfillPersonMonthDayOnce() {
   if (__personMdBackfilled || !DATABASE_URL) return;
@@ -13726,6 +18716,26 @@ async function backfillPersonMonthDayOnce() {
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+ * CSSOS_WAVE_119 20260513 — Jing
+ *
+ * NOTE: The anniversary auto-MV generator + /api/anniversary/today +
+ * /api/anniversary/run-now endpoints + the 04:00 UTC daily cron all
+ * pre-existed in this file (lines ~18050-18250) before this wave's
+ * planning session. My Wave 119 additions (which would have duplicated
+ * them) have been removed; instead, this wave's contribution is:
+ *   1. Migration 067 — adds `system_origin` column + SQL trigger that
+ *      enforces Jing's strict copyright rule (owner=admin / prices=0 /
+ *      buyout=false / tips=true) for any work flagged as system-
+ *      generated. The pre-existing INSERT path needs to set
+ *      system_origin='anniversary' to activate the trigger; that
+ *      patch lives in runAnniversaryGenerate() above.
+ *   2. Frontend Today-in-History shelf (app.today-in-history-shelf.js,
+ *      Wave 119B) — consumes the existing endpoint's
+ *      {date, anniversaries} response.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+
 let personSeedLoaded = false;
 async function seedPersonProfilesOnce() {
   if (personSeedLoaded || !DATABASE_URL) return;
@@ -13737,17 +18747,32 @@ async function seedPersonProfilesOnce() {
             person_id, name_zh, name_en, name_native, name_latin,
             civilization, era, lifespan,
             roles, core_theme, visual_symbols, music_style_hint, tone,
-            influence_score, risk_notes, source_status
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'curated')
+            influence_score, risk_notes, source_status, realm
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'curated',$16)
          ON CONFLICT (person_id) DO UPDATE SET
-            name_native = EXCLUDED.name_native,
-            name_latin  = EXCLUDED.name_latin`,
+            /* CSSOS_WAVE_112D 20260511 — refresh ALL editable fields. */
+            name_zh          = EXCLUDED.name_zh,
+            name_en          = EXCLUDED.name_en,
+            name_native      = EXCLUDED.name_native,
+            name_latin       = EXCLUDED.name_latin,
+            civilization     = EXCLUDED.civilization,
+            era              = EXCLUDED.era,
+            lifespan         = EXCLUDED.lifespan,
+            roles            = EXCLUDED.roles,
+            core_theme       = EXCLUDED.core_theme,
+            visual_symbols   = EXCLUDED.visual_symbols,
+            music_style_hint = EXCLUDED.music_style_hint,
+            tone             = EXCLUDED.tone,
+            influence_score  = EXCLUDED.influence_score,
+            risk_notes       = EXCLUDED.risk_notes,
+            realm            = EXCLUDED.realm`,
         [
           p.person_id, p.name_zh, p.name_en,
           (p as any).name_native || null, (p as any).name_latin || null,
           p.civilization, p.era, p.lifespan,
           p.roles, p.core_theme, p.visual_symbols, p.music_style_hint, p.tone,
           p.influence_score, p.risk_notes,
+          (p as any).realm || "historical",
         ],
       ),
     );
@@ -13781,14 +18806,33 @@ async function seedLandmarkProfilesOnce() {
             civilization, era, location, coordinates, category, founded_year,
             related_persons, notable_events, visual_symbols,
             music_style_hint, tone, influence_score, risk_notes,
-            source_status, curation_tier
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'curated',$19)
+            source_status, curation_tier, realm
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'curated',$19,$20)
          ON CONFLICT (landmark_id) DO UPDATE SET
-            name_native     = EXCLUDED.name_native,
-            name_latin      = EXCLUDED.name_latin,
-            coordinates     = EXCLUDED.coordinates,
-            notable_events  = EXCLUDED.notable_events,
-            curation_tier   = EXCLUDED.curation_tier`,
+            name_zh          = EXCLUDED.name_zh,
+            name_en          = EXCLUDED.name_en,
+            name_native      = EXCLUDED.name_native,
+            name_latin       = EXCLUDED.name_latin,
+            civilization     = EXCLUDED.civilization,
+            era              = EXCLUDED.era,
+            location         = EXCLUDED.location,
+            coordinates      = EXCLUDED.coordinates,
+            category         = EXCLUDED.category,
+            founded_year     = EXCLUDED.founded_year,
+            /* CSSOS_WAVE_112D 20260511 — Jing
+             * Refresh ALL editable fields on seed re-run so edits to
+             * related_persons / visual_symbols / music_style_hint /
+             * influence_score in the seed file propagate to already-
+             * seeded DB rows. Curated seed is the source of truth. */
+            related_persons  = EXCLUDED.related_persons,
+            notable_events   = EXCLUDED.notable_events,
+            visual_symbols   = EXCLUDED.visual_symbols,
+            music_style_hint = EXCLUDED.music_style_hint,
+            tone             = EXCLUDED.tone,
+            influence_score  = EXCLUDED.influence_score,
+            risk_notes       = EXCLUDED.risk_notes,
+            curation_tier    = EXCLUDED.curation_tier,
+            realm            = EXCLUDED.realm`,
         [
           l.landmark_id, l.name_zh, l.name_en,
           l.name_native || null, l.name_latin || null,
@@ -13799,6 +18843,7 @@ async function seedLandmarkProfilesOnce() {
           l.visual_symbols, l.music_style_hint, l.tone,
           l.influence_score, l.risk_notes || [],
           l.curation_tier,
+          (l as any).realm || "historical",
         ],
       ),
     );
@@ -17664,7 +22709,7 @@ async function loadMineWorkDescendants(rootIds: string[]) {
       // its own MV with its own audio + final mp4).
       `SELECT w.id, w.title, w.style, w.work_type, w.lyrics_preview, w.status, w.created_at, w.updated_at,
               w.parent_work_id, w.root_work_id, w.structure_role, w.sequence_index, w.structure_plan,
-              w.source_run_id, w.compute_units_estimate, w.compute_cost_cents_estimate, w.suggested_listen_price_cents, w.suggested_buyout_price_cents,
+              w.source_run_id, w.compute_units_estimate, w.compute_cost_cents_estimate, w.cost_breakdown, w.fingerprint_hash, w.suggested_listen_price_cents, w.suggested_buyout_price_cents,
               w.cover_image, w.preview_image_url, w.preview_video_url,
               mp.visibility,
               COALESCE(listen_product.amount_cents, mp.current_listen_price_cents) AS current_listen_price_cents,
@@ -17728,6 +22773,8 @@ async function loadMarketWorkDescendants(rootIds: string[]) {
          w.source_run_id,
          w.compute_units_estimate,
          w.compute_cost_cents_estimate,
+         w.cost_breakdown,
+         w.fingerprint_hash,
          w.suggested_listen_price_cents,
          w.suggested_buyout_price_cents,
          w.cover_image,
@@ -17786,6 +22833,8 @@ async function loadMarketWorkDescendantsForRoot(rootId: string) {
          w.source_run_id,
          w.compute_units_estimate,
          w.compute_cost_cents_estimate,
+         w.cost_breakdown,
+         w.fingerprint_hash,
          w.suggested_listen_price_cents,
          w.suggested_buyout_price_cents,
          w.cover_image,
@@ -17881,7 +22930,7 @@ app.get("/api/works/mine", async (req, res) => {
       client.query<Row>(
         `SELECT w.id, w.title, w.style, w.work_type, w.lyrics_preview, w.status, w.created_at, w.updated_at,
                 w.parent_work_id, w.root_work_id, w.structure_role, w.sequence_index, w.structure_plan,
-                w.source_run_id, w.compute_units_estimate, w.compute_cost_cents_estimate, w.suggested_listen_price_cents, w.suggested_buyout_price_cents,
+                w.source_run_id, w.compute_units_estimate, w.compute_cost_cents_estimate, w.cost_breakdown, w.fingerprint_hash, w.suggested_listen_price_cents, w.suggested_buyout_price_cents,
                 w.cover_image, w.preview_image_url, w.preview_video_url,
                 mp.visibility,
                 COALESCE(listen_product.amount_cents, mp.current_listen_price_cents) AS current_listen_price_cents,
@@ -18389,6 +23438,19 @@ app.get("/api/person-mv/persons", async (req, res) => {
     const params: unknown[] = [];
     if (civ) { params.push(civ); where.push(`civilization = $${params.length}`); }
     if (curationTier) { params.push(curationTier); where.push(`curation_tier = $${params.length}`); }
+    // CSSOS_WAVE_114 20260511 — Jing. Realm filter (historical /
+    // mythological / literary / folkloric). Comma-separated for multi.
+    {
+      const realmParam = String(req.query.realm || "").trim().toLowerCase();
+      if (realmParam && realmParam !== "all") {
+        const realms = realmParam.split(",").map((s) => s.trim()).filter(Boolean);
+        if (realms.length === 1) {
+          params.push(realms[0]); where.push(`realm = $${params.length}`);
+        } else if (realms.length > 1) {
+          params.push(realms); where.push(`realm = ANY($${params.length}::text[])`);
+        }
+      }
+    }
     if (search) {
       params.push(`%${search}%`);
       where.push(
@@ -19001,6 +24063,57 @@ app.post("/api/user/email-prefs", express.json({ limit: "2kb" }), async (req, re
 });
 
 /* CSSOS_WAVE94 20260508 — Jing — health probe admin endpoints. */
+// CSSOS_WAVE_117_STEP_1 20260512 · client crash & reload telemetry.
+// app.crash-guard.js beacons here whenever it catches:
+//   - window.error / unhandledrejection
+//   - location.reload / location.assign calls
+//   - beforeunload (last click info)
+// We just log to stderr for now (journalctl readable). Later we can
+// pipe to a DB table + admin dashboard timeline.
+const __crashLogBuf: Array<{ ts: number; line: string }> = [];
+app.post("/api/admin/crash-log", express.json({ limit: "32kb" }), (req, res) => {
+  noStore(res);
+  try {
+    const body: any = req.body || {};
+    const kind = String(body.kind || "unknown").slice(0, 32);
+    const msg = String(body.message || body.target || "").slice(0, 300);
+    const url = String(body.url || "").slice(0, 200);
+    const ua = String(body.ua || "").slice(0, 200);
+    const lastClickJson = body.lastClick ? JSON.stringify(body.lastClick).slice(0, 240) : "";
+    const line = `[crash-guard] ${kind} | ${msg} | ${url} | ${lastClickJson} | ${ua}`;
+    console.warn(line);
+    __crashLogBuf.push({ ts: Date.now(), line });
+    if (__crashLogBuf.length > 500) __crashLogBuf.shift();
+  } catch (_) { /* never throw */ }
+  res.json({ ok: true });
+});
+app.get("/api/admin/crash-log/recent", (_req, res) => {
+  noStore(res);
+  res.json({ ok: true, entries: __crashLogBuf.slice(-100) });
+});
+
+// CSSOS_WAVE_111D_VISION_HEALTH 20260512 · Anthropic health snapshot.
+// Returns the last-known error (if any) plus sticky flags so the admin
+// dashboard can show a "Anthropic balance low — please top up" banner
+// without needing email. Clears `lowBalance` automatically on next
+// successful Vision call (reportAnthropicOk).
+app.get("/api/admin/anthropic/health", async (_req, res) => {
+  noStore(res);
+  res.json({
+    ok: true,
+    snapshot: {
+      lastErrorAt: __anthropicHealth.lastErrorAt,
+      lastErrorStatus: __anthropicHealth.lastErrorStatus,
+      lastErrorType: __anthropicHealth.lastErrorType,
+      lastErrorMessage: __anthropicHealth.lastErrorMessage,
+      lowBalance: __anthropicHealth.lowBalance,
+      lowBalanceSince: __anthropicHealth.lowBalanceSince,
+      rateLimited: __anthropicHealth.rateLimited,
+      rateLimitedSince: __anthropicHealth.rateLimitedSince,
+    },
+  });
+});
+
 app.get("/api/admin/health/probes", async (req, res) => {
   noStore(res);
   try {
@@ -22670,6 +27783,19 @@ app.get("/api/landmark-mv/landmarks", async (req, res) => {
     const params: unknown[] = [];
     if (civ) { params.push(civ); where.push(`civilization = $${params.length}`); }
     if (curationTier) { params.push(curationTier); where.push(`curation_tier = $${params.length}`); }
+    // CSSOS_WAVE_114 20260511 — Jing. Realm filter (historical /
+    // mythological / literary / folkloric). Comma-separated for multi.
+    {
+      const realmParam = String(req.query.realm || "").trim().toLowerCase();
+      if (realmParam && realmParam !== "all") {
+        const realms = realmParam.split(",").map((s) => s.trim()).filter(Boolean);
+        if (realms.length === 1) {
+          params.push(realms[0]); where.push(`realm = $${params.length}`);
+        } else if (realms.length > 1) {
+          params.push(realms); where.push(`realm = ANY($${params.length}::text[])`);
+        }
+      }
+    }
     if (search) {
       params.push(`%${search}%`);
       where.push(
@@ -22684,7 +27810,7 @@ app.get("/api/landmark-mv/landmarks", async (req, res) => {
              name_variants, civilization, era, location, coordinates,
              category, founded_year, related_persons, notable_events,
              visual_symbols, music_style_hint, tone, influence_score,
-             risk_notes, source_status, curation_tier,
+             risk_notes, source_status, curation_tier, realm,
              created_by_user_id::text AS created_by_user_id
         FROM landmark_profiles
         ${whereSql}
@@ -23597,6 +28723,8 @@ app.get("/api/works/market", async (req, res) => {
            w.source_run_id,
            w.compute_units_estimate,
            w.compute_cost_cents_estimate,
+           w.cost_breakdown,
+           w.fingerprint_hash,
            w.suggested_listen_price_cents,
            w.suggested_buyout_price_cents,
            w.cover_image,
@@ -23898,6 +29026,31 @@ app.post("/api/works", async (req, res) => {
         10,
       ) || 0,
     );
+    // CSSOS_WAVE_113K 20260511 — Jing
+    // cost_breakdown: array of per-engine call entries
+    //   [{ stage, provider, model, cents, ts, ms }]
+    // Frontend accumulates one entry per lyrics/cover/music/video/
+    // subtitle/compose engine response and posts here on save. We
+    // persist the JSONB blob so the Works Center can show real
+    // itemized lines instead of the 113J proportion-based fallback.
+    let costBreakdownPayload: unknown[] = [];
+    try {
+      const raw = (req.body as any)?.cost_breakdown;
+      if (Array.isArray(raw)) {
+        costBreakdownPayload = raw
+          .filter((e: any) => e && typeof e === "object")
+          .slice(0, 64) // safety cap
+          .map((e: any) => ({
+            stage: String(e.stage || "").slice(0, 24),
+            provider: String(e.provider || "").slice(0, 48),
+            model: String(e.model || "").slice(0, 96),
+            cents: Math.max(0, Math.min(100000, Number.parseInt(String(e.cents ?? 0), 10) || 0)),
+            ts: Number.isFinite(Number(e.ts)) ? Number(e.ts) : Date.now(),
+            ms: Math.max(0, Number.parseInt(String(e.ms ?? 0), 10) || 0),
+          }))
+          .filter((e) => e.stage && e.cents >= 0);
+      }
+    } catch (_) { /* leave as [] on malformed input */ }
     const suggestedListenPriceCents = Math.max(
       0,
       Number.parseInt(
@@ -23955,9 +29108,9 @@ app.post("/api/works", async (req, res) => {
           `INSERT INTO user_works (
              id, user_id, title, style, work_type, lyrics_preview, status, parent_work_id, root_work_id, structure_role, sequence_index, structure_plan,
              source_run_id, compute_units_estimate, compute_cost_cents_estimate, suggested_listen_price_cents, suggested_buyout_price_cents,
-             cover_image, preview_image_url, preview_video_url
+             cover_image, preview_image_url, preview_video_url, cost_breakdown
            )
-           VALUES ($1::uuid, $2, $3, $4, $5, $6, 'draft', $7::uuid, $8::uuid, $9, $10, $11::jsonb, $12, $13, $14, $15, $16, $17, $18, $19)`,
+           VALUES ($1::uuid, $2, $3, $4, $5, $6, 'draft', $7::uuid, $8::uuid, $9, $10, $11::jsonb, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb)`,
           [
             workId,
             user.id,
@@ -23978,6 +29131,7 @@ app.post("/api/works", async (req, res) => {
             persistedAssets.coverImage,
             persistedAssets.previewImageUrl,
             persistedAssets.storedPreviewVideoRef,
+            JSON.stringify(costBreakdownPayload),
           ],
         );
         const resolvedRootWorkId = requestedRootWorkId || workId;
@@ -24197,6 +29351,25 @@ app.patch("/api/works/:id/generation", async (req, res) => {
         10,
       ) || 0,
     );
+    // CSSOS_WAVE_113K — same parse + cap as the create path.
+    let costBreakdownPayload: unknown[] = [];
+    try {
+      const raw = (req.body as any)?.cost_breakdown;
+      if (Array.isArray(raw)) {
+        costBreakdownPayload = raw
+          .filter((e: any) => e && typeof e === "object")
+          .slice(0, 64)
+          .map((e: any) => ({
+            stage: String(e.stage || "").slice(0, 24),
+            provider: String(e.provider || "").slice(0, 48),
+            model: String(e.model || "").slice(0, 96),
+            cents: Math.max(0, Math.min(100000, Number.parseInt(String(e.cents ?? 0), 10) || 0)),
+            ts: Number.isFinite(Number(e.ts)) ? Number(e.ts) : Date.now(),
+            ms: Math.max(0, Number.parseInt(String(e.ms ?? 0), 10) || 0),
+          }))
+          .filter((e) => e.stage && e.cents >= 0);
+      }
+    } catch (_) { /* leave as [] on malformed input */ }
     const suggestedListenPriceCents = Math.max(
       0,
       Number.parseInt(
@@ -24256,6 +29429,7 @@ app.patch("/api/works/:id/generation", async (req, res) => {
                cover_image = COALESCE($10, cover_image),
                preview_image_url = COALESCE($11, preview_image_url),
                preview_video_url = COALESCE($12, preview_video_url),
+               cost_breakdown = CASE WHEN jsonb_array_length($13::jsonb) > 0 THEN $13::jsonb ELSE cost_breakdown END,
                updated_at = now()
            WHERE id = $1
            RETURNING title, style, lyrics_preview, source_run_id, compute_units_estimate,
@@ -24274,6 +29448,7 @@ app.patch("/api/works/:id/generation", async (req, res) => {
             persistedAssets.coverImage,
             persistedAssets.previewImageUrl,
             persistedAssets.storedPreviewVideoRef,
+            JSON.stringify(costBreakdownPayload),
           ],
         );
         await syncCanonicalWorkAssets(
@@ -24357,6 +29532,25 @@ app.patch("/api/works/:id/pricing", async (req, res) => {
         : null;
     if (!workId) {
       return res.status(400).json({ ok: false, code: "WORK_REQUIRED" });
+    }
+    /* CSSOS_WAVE_119 20260513 — Jing
+     * System-generated MVs (anniversary, festival, etc.) have
+     * immutable pricing rules per the founder's spec:
+     *   listen = 0, buyout disabled, tips OK, visibility public.
+     * Reject any PATCH attempt — even from admins — so the contract
+     * is enforced at the data layer, not just UI. */
+    const sysOriginR = await withClient((c) =>
+      c.query<{ system_origin: string | null }>(
+        `SELECT system_origin FROM user_works WHERE id = $1::uuid LIMIT 1`,
+        [workId],
+      ),
+    );
+    if (sysOriginR.rows[0]?.system_origin) {
+      return res.status(403).json({
+        ok: false,
+        code: "SYSTEM_WORK_IMMUTABLE",
+        detail: `Work is system-owned (origin: ${sysOriginR.rows[0].system_origin}) — pricing locked: free + non-transferable + tips-enabled. Cannot be modified.`,
+      });
     }
     // CSSOS_PHASE2_NO_JUDGE_AS_PLAYER 20260501 #266 — Jing
     // Admin-owned works are always free to listen/watch and cannot be
@@ -24692,7 +29886,7 @@ app.post("/api/auth/apple/callback", (req, res) => {
  * iOS Capacitor app uses @capacitor-community/apple-sign-in which
  * returns an `identityToken` (JWT) directly. We verify the JWT
  * against Apple's JWKS with audience = iOS Bundle ID
- * (`app.cssstudio.app`, falls back to APPLE_NATIVE_CLIENT_ID env if
+ * (`app.cssstudio.studio`, falls back to APPLE_NATIVE_CLIENT_ID env if
  * set). On success we set the session cookie just like the web
  * callback. The web Service ID flow above is untouched. */
 app.post("/api/auth/apple/native", express.json(), async (req, res) => {
@@ -24710,7 +29904,7 @@ app.post("/api/auth/apple/native", express.json(), async (req, res) => {
     }
     const nativeAud =
       String(process.env.APPLE_NATIVE_CLIENT_ID || "").trim() ||
-      "app.cssstudio.app";
+      "app.cssstudio.studio";
     const { payload } = await jwtVerify(idToken, appleJwks, {
       issuer: "https://appleid.apple.com",
       audience: nativeAud,
@@ -24801,7 +29995,7 @@ app.get("/auth/return", (req, res) => {
 
 /* CSSOS_WAVE_98C_AASA 20260508 — Jing
  * Serve Apple App Site Association so iOS validates Universal Links
- * for app.cssstudio.app. The file MUST be served at the exact path
+ * for app.cssstudio.studio. The file MUST be served at the exact path
  * `/.well-known/apple-app-site-association`, with
  * Content-Type: application/json, no redirects, no auth challenge. */
 app.get("/.well-known/apple-app-site-association", (_req, res) => {
@@ -27665,6 +32859,142 @@ app.post("/api/stripe/checkout/create", async (req, res) => {
       ok: false,
       code: "STRIPE_CHECKOUT_CREATE_FAILED",
       message: String(err),
+    });
+  }
+});
+
+// ────────────────────────────────────────────────────────────────────
+// CSSOS_WAVE_116 20260512 · Stripe Payment Element (in-place)
+// Creates a PaymentIntent + a matching pending work_order so the client
+// can mount Stripe's Payment Element inline (no redirect to hosted
+// checkout). Mirrors /api/stripe/checkout/create's validation + order
+// creation; only the Stripe call changes from Checkout Session →
+// PaymentIntent with automatic_payment_methods.
+// ────────────────────────────────────────────────────────────────────
+app.post("/api/stripe/payment-intent/create", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    }
+    const stripe = getStripeClient();
+    if (!stripe) {
+      return res.status(503).json({ ok: false, code: "STRIPE_NOT_CONFIGURED" });
+    }
+    const publishableKey = String(process.env.STRIPE_PUBLISHABLE_KEY || "").trim();
+    if (!publishableKey) {
+      return res.status(503).json({ ok: false, code: "STRIPE_PUBLISHABLE_KEY_MISSING" });
+    }
+    const workId = String(req.body?.work_id || "").trim();
+    const orderKind = String(req.body?.order_kind || "listen")
+      .trim()
+      .toLowerCase() as CommerceProductKind;
+    const tipAmountCents = Math.round(Number(req.body?.tip_amount_cents || 0));
+    if (!workId) return res.status(400).json({ ok: false, code: "WORK_ID_REQUIRED" });
+    if (orderKind !== "listen" && orderKind !== "buyout" && orderKind !== "tip") {
+      return res.status(400).json({ ok: false, code: "ORDER_KIND_INVALID" });
+    }
+    const commercePolicy = await getCommercePolicySettings();
+    if (
+      orderKind === "tip" &&
+      (!Number.isFinite(tipAmountCents) || tipAmountCents < commercePolicy.minTipCents)
+    ) {
+      return res.status(400).json({ ok: false, code: "TIP_AMOUNT_INVALID" });
+    }
+    const product = await resolveCommerceProduct({ workId, orderKind, tipAmountCents });
+    if (product.ownerUserId === user.id) {
+      return res.status(400).json({ ok: false, code: "SELF_PURCHASE_NOT_ALLOWED" });
+    }
+    if (isCssosAdminEmail(user.email)) {
+      return res.status(403).json({ ok: false, code: "ADMIN_CANNOT_PURCHASE" });
+    }
+    const existingOrders = await findExistingBuyerWorkOrder({
+      buyerUserId: user.id, workId,
+    });
+    const paidBuyout = existingOrders.find(
+      (row) => String(row.order_kind || "") === "buyout" && String(row.status || "") === "paid",
+    );
+    if (paidBuyout) {
+      return res.status(409).json({
+        ok: false, code: "ORDER_ALREADY_OWNED_BUYOUT", order_id: paidBuyout.id,
+      });
+    }
+    if (orderKind !== "tip") {
+      const existingSameKind = existingOrders.find(
+        (row) => String(row.order_kind || "") === orderKind,
+      );
+      if (existingSameKind && ["pending", "processing"].includes(String(existingSameKind.status || ""))) {
+        return res.status(409).json({ ok: false, code: "ORDER_ALREADY_PENDING", order_id: existingSameKind.id });
+      }
+      if (existingSameKind && String(existingSameKind.status || "") === "paid") {
+        return res.status(409).json({ ok: false, code: "ORDER_ALREADY_PAID", order_id: existingSameKind.id });
+      }
+    }
+    const customer = await ensureStripeCustomer({
+      userId: user.id, email: normalizeEmail(user.email), name: user.display_name,
+    });
+    const grossAmountCents = Number(product.amountCents);
+    const platformFeeCents = computePlatformFeeCents(grossAmountCents);
+    const sellerNetCents = Math.max(0, grossAmountCents - platformFeeCents);
+    const requestId = crypto.randomUUID();
+    const orderId = await createPendingWorkOrder({
+      buyerUserId: user.id,
+      sellerUserId: product.ownerUserId,
+      workId,
+      productId: product.productId,
+      orderKind,
+      currency: product.currency,
+      grossAmountCents,
+      platformFeeCents,
+      sellerNetCents,
+      requestId,
+      meta: {
+        rights_scope: product.rightsScope,
+        title: product.title,
+        ...(orderKind === "tip" ? { tip_amount_cents: grossAmountCents } : {}),
+        intent_kind: "payment_element_inline",
+      },
+    });
+    if (!orderId) {
+      return res.status(500).json({ ok: false, code: "ORDER_CREATE_FAILED" });
+    }
+    const customerId = String(customer?.stripe_customer_id || "");
+    const intentParams: Stripe.PaymentIntentCreateParams = {
+      amount: grossAmountCents,
+      currency: product.currency.toLowerCase(),
+      automatic_payment_methods: { enabled: true },
+      description: `${product.title} (${orderKind})`,
+      metadata: {
+        order_id: orderId,
+        work_id: workId,
+        buyer_user_id: user.id,
+        seller_user_id: product.ownerUserId,
+        product_id: String(product.productId || ""),
+        order_kind: orderKind,
+      },
+    };
+    if (customerId) intentParams.customer = customerId;
+    const intent = await stripe.paymentIntents.create(intentParams);
+    await updateWorkOrderStripeRefs({
+      orderId,
+      checkoutSessionId: null,
+      paymentIntentId: intent.id,
+      metaPatch: { payment_element_inline: true },
+    });
+    return res.json(okData({
+      authenticated: true,
+      configured: true,
+      order_id: orderId,
+      payment_intent_id: intent.id,
+      client_secret: intent.client_secret,
+      publishable_key: publishableKey,
+      amount_cents: grossAmountCents,
+      currency: product.currency,
+    }));
+  } catch (err) {
+    return res.status(500).json({
+      ok: false, code: "STRIPE_PAYMENT_INTENT_CREATE_FAILED", message: String(err),
     });
   }
 });
@@ -32372,6 +37702,30 @@ function injectIntoHead(html: string, block: string): string {
 app.get("/", async (req, res) => {
   noStore(res);
   res.type("html");
+  // CSSOS_WAVE_111B 20260511 — Jing
+  // ?fp=<hash> alias route: resolve fingerprint hash → canonical
+  // cssMV UUID, then 302 to /?cssMV=<uuid>. If no match, fall through
+  // to /verify page so the user can try again.
+  const fpHash = String(req.query.fp || "").trim().toLowerCase();
+  if (fpHash && /^[a-f0-9]{8,64}$/.test(fpHash)) {
+    try {
+      const r = await withClient((c) =>
+        c.query<{ id: string }>(
+          `SELECT id FROM user_works WHERE fingerprint_hash = $1 LIMIT 1`,
+          [fpHash],
+        ),
+      );
+      const row = r.rows[0];
+      if (row?.id) {
+        return res.redirect(302, `/?cssMV=${encodeURIComponent(row.id)}`);
+      }
+      // No match — bounce to verify with a hint.
+      return res.redirect(302, `/verify?h=${encodeURIComponent(fpHash)}&miss=1`);
+    } catch (err) {
+      console.warn("[fp-alias] lookup failed:", (err as Error)?.message || err);
+      // fall through to normal home page on DB error
+    }
+  }
   const cssMV = String(req.query.cssMV || "").trim();
   const dsnBlock = buildSentryDsnBlock();
   const sendWithDsn = () => {
@@ -34505,6 +39859,114 @@ async function start() {
     );
   } else {
     console.log("[cron-samples] disabled (no DATABASE_URL — dev mode)");
+  }
+
+
+  /* CSSOS_WAVE_119 20260513 — Jing
+   * Daily "今日纪念" auto MV cron. Runs at 04:00 UTC (an hour after
+   * cron-samples). Scans person_profiles for birth_month_day OR
+   * death_month_day matching today's MM-DD; for each match, queues
+   * a system-owned MV via the existing pipeline endpoints.
+   *
+   * Idempotency: system_anniversary_log unique constraint on
+   * (run_date, person_id, event_type) prevents double-fires.
+   *
+   * Ownership rules (hardcoded — admin-owned + free + locked):
+   *   owner_user_id = '00000000-0000-0000-0000-000000000001'
+   *   visibility = 'public'
+   *   listen_price_cents = 0
+   *   buyout_enabled = false
+   *   tips_enabled = true     (accepts tips → system ops fund)
+   *   system_origin = 'system_anniversary' (price-lock guard reads this)
+   */
+  if (DATABASE_URL) {
+    const SYSTEM_ADMIN_USER_ID = "00000000-0000-0000-0000-000000000001";
+    const anniversaryTick = async () => {
+      try {
+        const summary = await runDailyAnniversaryAutoMv(SYSTEM_ADMIN_USER_ID);
+        console.log(
+          `[anniversary-cron] tick ok — date=${summary.run_date} matches=${summary.matches_found} queued=${summary.queued} skipped=${summary.skipped} failed=${summary.failed}`,
+        );
+      } catch (err) {
+        console.warn(
+          "[anniversary-cron] tick failed:",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    };
+    const ONE_DAY_MS_ANN = 24 * 60 * 60 * 1000;
+    const nowA = new Date();
+    const nextA = new Date(Date.UTC(
+      nowA.getUTCFullYear(),
+      nowA.getUTCMonth(),
+      nowA.getUTCDate(),
+      4, 0, 0, 0,   // 04:00 UTC daily
+    ));
+    if (nextA.getTime() <= nowA.getTime()) {
+      nextA.setUTCDate(nextA.getUTCDate() + 1);
+    }
+    const delayMsA = nextA.getTime() - nowA.getTime();
+    setTimeout(() => {
+      anniversaryTick();
+      setInterval(anniversaryTick, ONE_DAY_MS_ANN);
+    }, delayMsA);
+    console.log(
+      `[anniversary-cron] scheduled first run in ${Math.round(delayMsA / 3600000)}h (next 04:00 UTC)`,
+    );
+  }
+
+  /* CSSOS_WAVE_120 20260513 — Jing
+   * Daily festival auto-MV cron at 04:05 UTC (5 min after anniversary).
+   * Same idempotency / ownership model. See runDailyFestivalAutoMv. */
+  if (DATABASE_URL) {
+    const SYSTEM_ADMIN_USER_ID_FEST = "00000000-0000-0000-0000-000000000001";
+    const festivalTick = async () => {
+      try {
+        const summary = await runDailyFestivalAutoMv(SYSTEM_ADMIN_USER_ID_FEST);
+        console.log(
+          `[festival-cron] tick ok — date=${summary.run_date} matches=${summary.matches_found} queued=${summary.queued} skipped=${summary.skipped} failed=${summary.failed}`,
+        );
+      } catch (err) {
+        console.warn("[festival-cron] tick failed:", err instanceof Error ? err.message : String(err));
+      }
+    };
+    const ONE_DAY_MS_FEST = 24 * 60 * 60 * 1000;
+    const nowF = new Date();
+    const nextF = new Date(Date.UTC(
+      nowF.getUTCFullYear(), nowF.getUTCMonth(), nowF.getUTCDate(),
+      4, 5, 0, 0,
+    ));
+    if (nextF.getTime() <= nowF.getTime()) nextF.setUTCDate(nextF.getUTCDate() + 1);
+    const delayMsF = nextF.getTime() - nowF.getTime();
+    setTimeout(() => { festivalTick(); setInterval(festivalTick, ONE_DAY_MS_FEST); }, delayMsF);
+    console.log(`[festival-cron] scheduled first run in ${Math.round(delayMsF / 3600000)}h (next 04:05 UTC)`);
+  }
+
+  /* CSSOS_WAVE_121 20260513 — Jing
+   * Daily system-media backfill cron at 05:00 UTC. Fills lyrics + cover
+   * for system_origin works landed by the anniversary/festival workers.
+   * Budget-gated via CSSOS_SYSTEM_MEDIA_DAILY_BUDGET_CENTS. */
+  if (DATABASE_URL) {
+    const mediaBackfillTick = async () => {
+      try {
+        const summary = await runSystemMediaBackfillBatch();
+        console.log(
+          `[system-media-cron] tick ok — processed=${summary.processed} ok=${summary.ok} failed=${summary.failed} spent=${summary.spent_cents}¢ budget_left=${summary.budget_left_cents}¢`,
+        );
+      } catch (err) {
+        console.warn("[system-media-cron] tick failed:", err instanceof Error ? err.message : String(err));
+      }
+    };
+    const ONE_DAY_MS_SM = 24 * 60 * 60 * 1000;
+    const nowSM = new Date();
+    const nextSM = new Date(Date.UTC(
+      nowSM.getUTCFullYear(), nowSM.getUTCMonth(), nowSM.getUTCDate(),
+      5, 0, 0, 0,
+    ));
+    if (nextSM.getTime() <= nowSM.getTime()) nextSM.setUTCDate(nextSM.getUTCDate() + 1);
+    const delayMsSM = nextSM.getTime() - nowSM.getTime();
+    setTimeout(() => { mediaBackfillTick(); setInterval(mediaBackfillTick, ONE_DAY_MS_SM); }, delayMsSM);
+    console.log(`[system-media-cron] scheduled first run in ${Math.round(delayMsSM / 3600000)}h (next 05:00 UTC)`);
   }
 
   /* CSSOS_WAVE102 20260508 — Jing

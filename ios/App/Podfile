@@ -1,0 +1,49 @@
+require_relative '../../node_modules/@capacitor/ios/scripts/pods_helpers'
+
+# CSSOS_WAVE_118 — Capgo native-purchases podspec references this
+# helper at top-level; CocoaPods doesn't always carry it across
+# require boundaries, so define it here too for resilience.
+def has_storekit_265_sdk?
+  developer_dirs = [ENV['DEVELOPER_DIR'], '/Applications/Xcode.app/Contents/Developer'].compact
+  sdk_roots = [ENV['SDKROOT']].compact
+  developer_dirs.each do |developer_dir|
+    sdk_roots.concat([
+      File.join(developer_dir, 'Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk'),
+      File.join(developer_dir, 'Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk')
+    ])
+  end
+  sdk_roots.any? do |sdk_root|
+    module_path = File.join(sdk_root, 'System/Library/Frameworks/StoreKit.framework/Modules/StoreKit.swiftmodule')
+    Dir[File.join(module_path, '*.swiftinterface')].any? do |path|
+      begin
+        contents = File.read(path)
+        contents.include?('BillingPlanType') && contents.include?('pricingTerms')
+      rescue StandardError
+        false
+      end
+    end
+  end
+end
+
+platform :ios, '15.0'
+use_frameworks!
+
+# workaround to avoid Xcode caching of Pods that requires
+# Product -> Clean Build Folder after new Cordova plugins installed
+# Requires CocoaPods 1.6 or newer
+install! 'cocoapods', :disable_input_output_paths => true
+
+def capacitor_pods
+  pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'
+  pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'
+  pod 'CapgoNativePurchases', :path => '../../node_modules/@capgo/native-purchases'
+end
+
+target 'App' do
+  capacitor_pods
+  # Add your Pods here
+end
+
+post_install do |installer|
+  assertDeploymentTarget(installer)
+end

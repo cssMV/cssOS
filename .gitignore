@@ -3,6 +3,14 @@ dist
 dist-web
 build
 .DS_Store
+
+# Claude Code local state
+.claude/
+
+# Xcode user-specific build state
+**/xcuserdata/
+**/*.xcuserstate
+DerivedData/
 .env
 .env.local
 *.log

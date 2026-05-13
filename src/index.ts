@@ -18417,6 +18417,79 @@ app.get("/api/festivals/today", async (_req, res) => {
   }
 });
 
+/* CSSOS_WAVE_125 20260513 — Jing
+ * GET /api/festivals/upcoming?days=7 — next N days of festivals (default
+ * 7, max 30, min 1). Used by the marketplace shelf to render a "Coming
+ * up" row alongside Today's Festival. Excludes today (Today is its
+ * own shelf). Returns at most 12 items even if days is large.
+ */
+app.get("/api/festivals/upcoming", async (req, res) => {
+  noStore(res);
+  const days = Math.max(1, Math.min(30, parseInt(String(req.query.days || "7"), 10) || 7));
+  try {
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT f.festival_id, f.name_zh, f.name_en, f.civilization,
+                f.music_style_hint, f.core_theme, f.influence_score,
+                d.greg_date
+           FROM system_festivals f
+           JOIN system_festival_dates d ON d.festival_id = f.festival_id
+          WHERE d.greg_date > current_date
+            AND d.greg_date <= current_date + ($1::int * interval '1 day')
+            AND f.active = true
+          ORDER BY d.greg_date, f.influence_score DESC NULLS LAST
+          LIMIT 12`,
+        [days],
+      ),
+    );
+    return res.json({ ok: true, data: { window_days: days, festivals: r.rows } });
+  } catch (err) {
+    console.warn("[festivals-upcoming] failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "UPCOMING_FAILED" });
+  }
+});
+
+/* GET /api/anniversary/upcoming?days=7 — next N days of birth/death
+ * anniversaries (default 7, max 30, min 1). Cap at top-influence 10. */
+app.get("/api/anniversary/upcoming", async (req, res) => {
+  noStore(res);
+  const days = Math.max(1, Math.min(30, parseInt(String(req.query.days || "7"), 10) || 7));
+  try {
+    // Compute target MM-DD strings for the window (today exclusive, today+N inclusive).
+    const now = new Date();
+    const targetMonthDays: string[] = [];
+    for (let i = 1; i <= days; i++) {
+      const d = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
+      const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+      const dd = String(d.getUTCDate()).padStart(2, "0");
+      targetMonthDays.push(`${mm}-${dd}`);
+    }
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT pp.person_id, pp.name_zh, pp.name_en, pp.civilization, pp.era,
+                pp.portrait_url, pp.influence_score,
+                pp.birth_month_day, pp.death_month_day,
+                CASE WHEN pp.birth_month_day = ANY($1::text[]) THEN pp.birth_month_day
+                     WHEN pp.death_month_day = ANY($1::text[]) THEN pp.death_month_day
+                END AS upcoming_md,
+                CASE WHEN pp.birth_month_day = ANY($1::text[]) THEN 'birth'
+                     WHEN pp.death_month_day = ANY($1::text[]) THEN 'death'
+                END AS event_type
+           FROM person_profiles pp
+          WHERE pp.birth_month_day = ANY($1::text[])
+             OR pp.death_month_day = ANY($1::text[])
+          ORDER BY pp.influence_score DESC NULLS LAST, pp.name_en
+          LIMIT 10`,
+        [targetMonthDays],
+      ),
+    );
+    return res.json({ ok: true, data: { window_days: days, anniversaries: r.rows } });
+  } catch (err) {
+    console.warn("[anniversary-upcoming] failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "UPCOMING_FAILED" });
+  }
+});
+
 /* POST /api/festivals/run-now — admin manual trigger. */
 app.post("/api/festivals/run-now", async (req, res) => {
   const userId = (req.session as any)?.user_id;

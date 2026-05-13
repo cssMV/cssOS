@@ -20,33 +20,33 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
      *      Stripe/IAP/auth tokens live in cookies).
      */
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        // (1) Bound the HTTP-layer URLCache. Default is "unlimited" on iOS
+        //     which lets video/audio bytes accumulate. 50 MB RAM / 100 MB
+        //     disk is generous for a site that lazily loads everything.
         URLCache.shared = URLCache(
             memoryCapacity: 50 * 1024 * 1024,
             diskCapacity: 100 * 1024 * 1024,
             diskPath: nil
         )
-        let store = WKWebsiteDataStore.default()
-        let allTypes = WKWebsiteDataStore.allWebsiteDataTypes()
-        store.fetchDataRecords(ofTypes: allTypes) { records in
-            var totalBytes: Int64 = 0
-            for r in records {
-                if #available(iOS 17.0, *) {
-                    totalBytes += Int64(r.dataSize)
-                } else {
-                    totalBytes += 1_000_000
-                }
-            }
-            let limit: Int64 = 200 * 1024 * 1024
-            if totalBytes > limit {
-                let typesToNuke = WKWebsiteDataStore.allWebsiteDataTypes()
-                    .subtracting([WKWebsiteDataTypeCookies])
-                store.removeData(
-                    ofTypes: typesToNuke,
-                    modifiedSince: .distantPast
-                ) {
-                    NSLog("[cssos] WKWebsiteDataStore nuked %lld bytes -> 0", totalBytes)
-                }
-            }
+
+        // (2) Wipe WKWebView's disk-cache and offline-app-cache on every
+        //     launch. These are the big offenders — they grow unbounded
+        //     as the user plays MV videos in the marketplace. We
+        //     deliberately keep cookies (session) and localStorage /
+        //     IndexedDB (UI state) so the user doesn't get logged out or
+        //     lose preferences on launch.
+        let typesToNuke: Set<String> = [
+            WKWebsiteDataTypeDiskCache,
+            WKWebsiteDataTypeMemoryCache,
+            WKWebsiteDataTypeOfflineWebApplicationCache,
+            WKWebsiteDataTypeFetchCache,
+            WKWebsiteDataTypeServiceWorkerRegistrations,
+        ]
+        WKWebsiteDataStore.default().removeData(
+            ofTypes: typesToNuke,
+            modifiedSince: .distantPast
+        ) {
+            NSLog("[cssos] WKWebsiteDataStore: disk + offline cache wiped on launch")
         }
         return true
     }

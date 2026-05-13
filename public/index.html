@@ -2034,6 +2034,10 @@
          else so window.onerror / onunhandledrejection / location.reload
          instrumentation catches errors thrown by every later script. -->
     <script src="app.crash-guard.js?v=20260512-wave117-step1"></script>
+    <!-- CSSOS_WAVE_117_TOUCH_HARDENING — block pull-to-refresh, edge-swipe
+         nav, dead-anchor reloads, double-tap fires. Must load early so
+         CSS rules apply before any panel renders. -->
+    <script src="app.touch-hardening.js?v=20260513-wave117-touch"></script>
     <!-- CSSOS_WAVE_117_STEP_2 — lazy panel loader API (small, sync) -->
     <script src="app.panel-loader.js?v=20260513-wave117-lazy-market"></script>
     <!-- CSSOS_WAVE_117_IOS_STATUSBAR — hide iOS status bar in cinema mode -->

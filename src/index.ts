@@ -18705,6 +18705,64 @@ async function runSystemMediaBackfillBatch(): Promise<{
   return summary;
 }
 
+/* CSSOS_WAVE_124 20260513 — Jing
+ * GET /api/admin/system-mvs/today — combined snapshot of today's
+ * anniversary + festival auto-MV runs, plus budget state, for the
+ * admin monitoring page at /admin/system-mvs.html.
+ *
+ * Returns lite payload (no work content, just IDs + status) so the
+ * dashboard renders fast. The page links to each work_id for details. */
+app.get("/api/admin/system-mvs/today", async (req, res) => {
+  noStore(res);
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const userR = await withClient((c) =>
+    c.query<{ role: string }>(`SELECT role FROM users WHERE id = $1::uuid LIMIT 1`, [userId]),
+  );
+  if (userR.rows[0]?.role !== "admin") {
+    return res.status(403).json({ ok: false, error: "admin_only" });
+  }
+  try {
+    const ann = await withClient((c) =>
+      c.query<any>(
+        `SELECT sal.id, sal.person_id, pp.name_zh, pp.name_en, sal.event_type,
+                sal.work_id, sal.status, sal.cost_cents, sal.error_detail, sal.created_at
+           FROM system_anniversary_log sal
+           LEFT JOIN person_profiles pp ON pp.person_id = sal.person_id
+          WHERE sal.run_date = current_date
+          ORDER BY sal.created_at DESC`,
+      ),
+    );
+    const fest = await withClient((c) =>
+      c.query<any>(
+        `SELECT sfl.id, sfl.festival_id, sf.name_zh, sf.name_en,
+                sfl.work_id, sfl.status, sfl.cost_cents, sfl.error_detail, sfl.created_at
+           FROM system_festival_log sfl
+           LEFT JOIN system_festivals sf ON sf.festival_id = sfl.festival_id
+          WHERE sfl.run_date = current_date
+          ORDER BY sfl.created_at DESC`,
+      ),
+    );
+    const spent = await systemMediaSpentTodayCents();
+    return res.json({
+      ok: true,
+      data: {
+        date: new Date().toISOString().slice(0, 10),
+        anniversaries: (ann as any).rows,
+        festivals: (fest as any).rows,
+        budget: {
+          cap_cents: SYSTEM_MEDIA_DAILY_BUDGET_CENTS,
+          spent_cents: spent,
+          remaining_cents: Math.max(0, SYSTEM_MEDIA_DAILY_BUDGET_CENTS - spent),
+        },
+      },
+    });
+  } catch (err) {
+    console.warn("[admin-system-mvs-today] failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "TODAY_FAILED" });
+  }
+});
+
 /* POST /api/system-media/backfill-now — admin trigger for the batch. */
 app.post("/api/system-media/backfill-now", async (req, res) => {
   const userId = (req.session as any)?.user_id;

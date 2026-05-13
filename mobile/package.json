@@ -11,8 +11,9 @@
     "@capacitor/browser": "^6.0.0",
     "@capacitor/app": "^6.0.0",
     "@capacitor/status-bar": "^6.0.0",
+    "@capgo/native-purchases": "^6.0.0",
     "@capacitor-community/apple-sign-in": "^6.0.0",
-    "@capgo/native-purchases": "^6.5.0"
+    "@capgo/native-purchases": "^6.0.42"
   },
   "devDependencies": {
     "@capacitor/cli": "^6.0.0"

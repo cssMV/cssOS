@@ -18900,15 +18900,22 @@ app.get("/api/admin/system-mvs/today", async (req, res) => {
   }
 });
 
-/* POST /api/system-media/backfill-now — admin trigger for the batch. */
+/* POST /api/system-media/backfill-now — admin or internal-token trigger.
+ * CSSOS_WAVE_132 20260513 — Jing: also accepts X-CSSOS-Internal-Token
+ * header matching env CSSOS_INTERNAL_TOKEN so server-side ops scripts
+ * can fire the batch without a session cookie. Same budget-cap applies. */
 app.post("/api/system-media/backfill-now", async (req, res) => {
-  const userId = (req.session as any)?.user_id;
-  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
-  const userR = await withClient((c) =>
-    c.query<{ role: string }>(`SELECT role FROM users WHERE id = $1::uuid LIMIT 1`, [userId]),
-  );
-  if (userR.rows[0]?.role !== "admin") {
-    return res.status(403).json({ ok: false, error: "admin_only" });
+  const internalToken = String(req.header("x-cssos-internal-token") || "").trim();
+  const tokenOk = !!(CSSOS_INTERNAL_TOKEN && internalToken && internalToken === CSSOS_INTERNAL_TOKEN);
+  if (!tokenOk) {
+    const userId = (req.session as any)?.user_id;
+    if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+    const userR = await withClient((c) =>
+      c.query<{ role: string }>(`SELECT role FROM users WHERE id = $1::uuid LIMIT 1`, [userId]),
+    );
+    if (userR.rows[0]?.role !== "admin") {
+      return res.status(403).json({ ok: false, error: "admin_only" });
+    }
   }
   const summary = await runSystemMediaBackfillBatch();
   return res.json({ ok: true, data: summary });
@@ -24583,6 +24590,49 @@ app.get("/api/admin/anthropic/health", async (_req, res) => {
       rateLimitedSince: __anthropicHealth.rateLimitedSince,
     },
   });
+});
+
+// CSSOS_WAVE_119 20260513 — IAP health snapshot for the admin dashboard.
+// Aggregates from iap_receipts so we can spot configuration / verification
+// failures (missing shared secret, sandbox-vs-prod mismatch, refund
+// activity) without tailing logs.
+app.get("/api/admin/iap/health", async (_req, res) => {
+  noStore(res);
+  try {
+    const pool = getPool();
+    const recent24h = await pool.query<{
+      environment: string;
+      granted: boolean;
+      refunded: boolean;
+      n: string;
+    }>(
+      `SELECT environment, granted, refunded, COUNT(*)::text AS n
+         FROM iap_receipts
+         WHERE created_at > NOW() - INTERVAL '24 hours'
+         GROUP BY 1, 2, 3
+         ORDER BY 1, 2, 3`,
+    );
+    const total = await pool.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM iap_receipts`,
+    );
+    const lastSuccess = await pool.query<{ ts: Date }>(
+      `SELECT granted_at AS ts FROM iap_receipts
+         WHERE granted = true ORDER BY granted_at DESC NULLS LAST LIMIT 1`,
+    );
+    res.json({
+      ok: true,
+      snapshot: {
+        shared_secret_configured: APPLE_IAP_SHARED_SECRET.length > 0,
+        bundle_id: APPLE_IAP_BUNDLE_ID,
+        catalog_size: Object.keys(IAP_PRODUCT_CATALOG).length,
+        total_receipts: Number(total.rows[0]?.n || 0),
+        last_granted_at: lastSuccess.rows[0]?.ts || null,
+        last_24h_by_env: recent24h.rows,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err) });
+  }
 });
 
 app.get("/api/admin/health/probes", async (req, res) => {

@@ -29,24 +29,28 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             diskPath: nil
         )
 
-        // (2) Wipe WKWebView's disk-cache and offline-app-cache on every
-        //     launch. These are the big offenders — they grow unbounded
-        //     as the user plays MV videos in the marketplace. We
-        //     deliberately keep cookies (session) and localStorage /
-        //     IndexedDB (UI state) so the user doesn't get logged out or
-        //     lose preferences on launch.
-        let typesToNuke: Set<String> = [
-            WKWebsiteDataTypeDiskCache,
-            WKWebsiteDataTypeMemoryCache,
-            WKWebsiteDataTypeOfflineWebApplicationCache,
-            WKWebsiteDataTypeFetchCache,
-            WKWebsiteDataTypeServiceWorkerRegistrations,
-        ]
-        WKWebsiteDataStore.default().removeData(
-            ofTypes: typesToNuke,
-            modifiedSince: .distantPast
-        ) {
-            NSLog("[cssos] WKWebsiteDataStore: disk + offline cache wiped on launch")
+        // (2) Auto-wipe on launch is OPT-IN. Default OFF so first-launch
+        //     users don't lose fresh offline assets. iOS exposes a
+        //     built-in manual control via Settings → cssOS Studio →
+        //     iPhone Storage → "Offload App" (clears caches but keeps
+        //     user data). Power users can also enable auto-wipe via
+        //     iOS Settings → cssOS Studio → Clear cache on launch
+        //     (this toggle is read here on every launch).
+        let autoWipeOnLaunch = UserDefaults.standard.bool(forKey: "cssos.wipeCacheOnLaunch")
+        if autoWipeOnLaunch {
+            let typesToNuke: Set<String> = [
+                WKWebsiteDataTypeDiskCache,
+                WKWebsiteDataTypeMemoryCache,
+                WKWebsiteDataTypeOfflineWebApplicationCache,
+                WKWebsiteDataTypeFetchCache,
+                WKWebsiteDataTypeServiceWorkerRegistrations,
+            ]
+            WKWebsiteDataStore.default().removeData(
+                ofTypes: typesToNuke,
+                modifiedSince: .distantPast
+            ) {
+                NSLog("[cssos] WKWebView cache wiped — auto-on-launch")
+            }
         }
         return true
     }

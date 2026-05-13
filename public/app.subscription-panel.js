@@ -470,6 +470,48 @@ async function requestMembershipPlanChangeModule(targetTier, trigger = null, sta
       showToast(text);
     }
   };
+
+  /* CSSOS_WAVE_123 20260513 — iOS native: route through StoreKit IAP
+   * instead of the Stripe-backed /api/billing/membership/change.
+   * Apple Guideline 3.1.1: digital subscriptions must use IAP. The
+   * StoreKit dialog handles the user-facing payment UX; we just kick
+   * it off here and let the receipt verify endpoint flip the tier
+   * server-side.
+   *
+   * Default to monthly period for v1 (we don't have an annual toggle
+   * in this modal yet; the user can upgrade to annual via the App
+   * Store's standard "Manage Subscriptions" flow). */
+  const iosNative = typeof globalThis.cssosIsIosNative === "function"
+    ? globalThis.cssosIsIosNative()
+    : false;
+  if (iosNative && globalThis.cssosIapNative && nextTier !== "free") {
+    try {
+      setButtonBusy(trigger, true);
+      updateStatus(tr("Opening Apple Pay…"));
+      const result = await globalThis.cssosIapNative.purchaseSubscriptionTier(nextTier, "monthly");
+      if (result && result.ok) {
+        if (typeof fetchBillingStatus === "function") {
+          await fetchBillingStatus().catch(() => null);
+        }
+        await renderSubscriptionPanelModule();
+        updateStatus(tr("Subscription activated."));
+        return true;
+      }
+      const err = String(result?.error || "");
+      if (err === "user_cancelled") {
+        updateStatus(tr("Cancelled."));
+      } else {
+        updateStatus(tr("Could not complete the purchase: ") + err);
+      }
+      return false;
+    } catch (err) {
+      updateStatus(tr("Apple Pay error: ") + String(err?.message || err));
+      return false;
+    } finally {
+      setButtonBusy(trigger, false);
+    }
+  }
+
   try {
     setButtonBusy(trigger, true);
     updateStatus(tr("Updating your membership plan..."));

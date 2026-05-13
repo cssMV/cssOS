@@ -9,6 +9,7 @@
   },
   "plugins": {
     "SplashScreen": { "launchShowDuration": 2000 },
-    "PushNotifications": { "presentationOptions": ["badge", "sound", "alert"] }
+    "PushNotifications": { "presentationOptions": ["badge", "sound", "alert"] },
+    "NativePurchases": {}
   }
 }

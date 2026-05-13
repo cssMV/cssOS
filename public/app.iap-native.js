@@ -106,9 +106,16 @@
       // fall back. Any other throw bubbles up as a real error.
       var txnResult;
       try {
+        // CSSOS_WAVE_118 20260513 — @capgo/native-purchases uses
+        // `productType` (not `planType`). Sending both keys is safe;
+        // plugins ignore unknown fields. Subscription products are
+        // named like `pro.monthly` / `pro.annual` in our App Store
+        // Connect catalog.
+        var _productType = /\.(monthly|annual|weekly|yearly)$/.test(productId) ? "subs" : "inapp";
         txnResult = await plugin.purchaseProduct({
           productIdentifier: productId,
-          planType: /\.(monthly|annual)$/.test(productId) ? "subs" : "inapp",
+          productType: _productType,
+          planType: _productType,  // legacy field for older plugin builds
         });
       } catch (errA) {
         var msgA = String((errA && errA.message) || errA || "");

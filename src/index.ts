@@ -18250,7 +18250,12 @@ app.post("/api/anniversary/run-now", async (req, res) => {
   if (userR.rows[0]?.role !== "admin") {
     return res.status(403).json({ ok: false, error: "admin_only" });
   }
-  const SYSTEM_ADMIN_USER_ID = "00000000-0000-0000-0000-000000000001";
+  // CSSOS_WAVE_131 20260513 — Jing's directive: all system-output works
+  // belong to admin@cssstudio.app (UUID below), free + locked + 无价之宝.
+  // Migration in /tmp/reassign-system-works.sql already retargeted the
+  // 610 historical seed works; this constant keeps future cron output
+  // pointed at the same identity. Don't change without owner sign-off.
+  const SYSTEM_ADMIN_USER_ID = "ff6d32ab-fc93-4971-9c28-9b9f8c195cbb";
   const summary = await runDailyAnniversaryAutoMv(SYSTEM_ADMIN_USER_ID);
   return res.json({ ok: true, data: summary });
 });
@@ -18559,7 +18564,7 @@ app.post("/api/festivals/run-now", async (req, res) => {
   if (userR.rows[0]?.role !== "admin") {
     return res.status(403).json({ ok: false, error: "admin_only" });
   }
-  const SYSTEM_ADMIN_USER_ID = "00000000-0000-0000-0000-000000000001";
+  const SYSTEM_ADMIN_USER_ID = "ff6d32ab-fc93-4971-9c28-9b9f8c195cbb";
   const summary = await runDailyFestivalAutoMv(SYSTEM_ADMIN_USER_ID);
   return res.json({ ok: true, data: summary });
 });
@@ -18688,7 +18693,7 @@ async function backfillSystemWorkMedia(
       if (img && img.ok) {
         coverUrl = img.image_url
           ? img.image_url
-          : (img.image_b64 ? persistBase64Cover(img.image_b64, "00000000-0000-0000-0000-000000000001") : null);
+          : (img.image_b64 ? persistBase64Cover(img.image_b64, "ff6d32ab-fc93-4971-9c28-9b9f8c195cbb") : null);
         if (coverUrl) {
           const coverCost = (typeof estimateEngineCostCents === "function")
             ? estimateEngineCostCents("cover", img.provider)
@@ -19097,7 +19102,7 @@ app.post("/api/system-mvs/seed-historical", async (req, res) => {
     return res.status(403).json({ ok: false, error: "admin_only" });
   }
   const days = Math.max(1, Math.min(1825, parseInt(String(req.query.days || "365"), 10) || 365));
-  const SYSTEM_ADMIN_USER_ID = "00000000-0000-0000-0000-000000000001";
+  const SYSTEM_ADMIN_USER_ID = "ff6d32ab-fc93-4971-9c28-9b9f8c195cbb";
   const total = {
     days_processed: 0,
     anniversary: { queued: 0, skipped: 0, failed: 0 },
@@ -40364,7 +40369,7 @@ async function start() {
    *   system_origin = 'system_anniversary' (price-lock guard reads this)
    */
   if (DATABASE_URL) {
-    const SYSTEM_ADMIN_USER_ID = "00000000-0000-0000-0000-000000000001";
+    const SYSTEM_ADMIN_USER_ID = "ff6d32ab-fc93-4971-9c28-9b9f8c195cbb";
     const anniversaryTick = async () => {
       try {
         const summary = await runDailyAnniversaryAutoMv(SYSTEM_ADMIN_USER_ID);
@@ -40403,7 +40408,7 @@ async function start() {
    * Daily festival auto-MV cron at 04:05 UTC (5 min after anniversary).
    * Same idempotency / ownership model. See runDailyFestivalAutoMv. */
   if (DATABASE_URL) {
-    const SYSTEM_ADMIN_USER_ID_FEST = "00000000-0000-0000-0000-000000000001";
+    const SYSTEM_ADMIN_USER_ID_FEST = "ff6d32ab-fc93-4971-9c28-9b9f8c195cbb";
     const festivalTick = async () => {
       try {
         const summary = await runDailyFestivalAutoMv(SYSTEM_ADMIN_USER_ID_FEST);

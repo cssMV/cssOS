@@ -112,6 +112,7 @@
       + '    <button class="sysmv-btn" data-sysmv-act="anniversary">' + esc(tr("Run anniversary now", "立刻跑纪念")) + '</button>'
       + '    <button class="sysmv-btn" data-sysmv-act="festival">' + esc(tr("Run festival now", "立刻跑节日")) + '</button>'
       + '    <button class="sysmv-btn ghost" data-sysmv-act="backfill">' + esc(tr("Backfill media", "补媒体")) + '</button>'
+      + '    <button class="sysmv-btn ghost" data-sysmv-act="seed-historical">' + esc(tr("Seed 365 days", "回溯 365 天")) + '</button>'
       + '    <button class="sysmv-btn ghost" data-sysmv-act="refresh">' + esc(tr("Refresh", "刷新")) + '</button>'
       + '  </div>'
       + '  <div class="sysmv-section-title">' + esc(tr("Today's anniversaries (W119)", "今日纪念 (W119)")) + '</div>'
@@ -247,6 +248,14 @@
         if (act === "anniversary") postAction("/api/anniversary/run-now", tr("Anniversary", "纪念"), btn);
         else if (act === "festival") postAction("/api/festivals/run-now", tr("Festival", "节日"), btn);
         else if (act === "backfill") postAction("/api/system-media/backfill-now", tr("Backfill", "补媒体"), btn);
+        else if (act === "seed-historical") {
+          if (confirm(tr(
+            "Generate anniversary + festival MVs for the past 365 days? Idempotent — safe to re-run.",
+            "为过去 365 天生成纪念 + 节日 MV？幂等，可重跑。"
+          ))) {
+            postAction("/api/system-mvs/seed-historical?days=365", tr("Seed historical", "回溯"), btn);
+          }
+        }
         else if (act === "refresh") fetchAndRender();
       });
     });

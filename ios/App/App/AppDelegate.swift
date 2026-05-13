@@ -1,13 +1,53 @@
 import UIKit
 import Capacitor
+import WebKit
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
 
     var window: UIWindow?
 
+    /* CSSOS_WAVE_126 20260513 — Jing
+     * Cap WKWebView's cached footprint. Without this, browsing the
+     * marketplace + playing MVs lets WKWebView accumulate gigabytes of
+     * audio/video/HTTP cache in `Documents & Data` (a fresh install
+     * reached 3 GB after a few sessions of normal use). Strategy:
+     *
+     *   1. Cap NSURLCache (HTTP layer beneath WKWebView) to 50 MB RAM
+     *      / 100 MB disk so it can't spiral.
+     *   2. On launch, measure WKWebsiteDataStore. If > 200 MB, wipe
+     *      everything EXCEPT cookies (so the session stays logged in —
+     *      Stripe/IAP/auth tokens live in cookies).
+     */
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        URLCache.shared = URLCache(
+            memoryCapacity: 50 * 1024 * 1024,
+            diskCapacity: 100 * 1024 * 1024,
+            diskPath: nil
+        )
+        let store = WKWebsiteDataStore.default()
+        let allTypes = WKWebsiteDataStore.allWebsiteDataTypes()
+        store.fetchDataRecords(ofTypes: allTypes) { records in
+            var totalBytes: Int64 = 0
+            for r in records {
+                if #available(iOS 17.0, *) {
+                    totalBytes += Int64(r.dataSize)
+                } else {
+                    totalBytes += 1_000_000
+                }
+            }
+            let limit: Int64 = 200 * 1024 * 1024
+            if totalBytes > limit {
+                let typesToNuke = WKWebsiteDataStore.allWebsiteDataTypes()
+                    .subtracting([WKWebsiteDataTypeCookies])
+                store.removeData(
+                    ofTypes: typesToNuke,
+                    modifiedSince: .distantPast
+                ) {
+                    NSLog("[cssos] WKWebsiteDataStore nuked %lld bytes -> 0", totalBytes)
+                }
+            }
+        }
         return true
     }
 

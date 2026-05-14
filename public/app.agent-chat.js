@@ -250,7 +250,11 @@
     }
     var actions = document.createElement("div");
     actions.className = "cssos-agent-msg-actions";
-    actions.innerHTML = '<button type="button" class="copy-btn" title="' + esc(tr("Copy","复制")) + '" aria-label="' + esc(tr("Copy","复制")) + '">📋</button>';
+    // CSSOS_WAVE_140 fix — use the same ⧉ (U+29C9 Two-Joined-Squares)
+    // glyph that app.context-menu.js uses for "Copy", instead of 📋.
+    // Matches the existing comment/notification widget style across the
+    // app.
+    actions.innerHTML = '<button type="button" class="copy-btn" title="' + esc(tr("Copy","复制")) + '" aria-label="' + esc(tr("Copy","复制")) + '">⧉</button>';
     actions.querySelector(".copy-btn").addEventListener("click", function (e) {
       e.stopPropagation();
       try {

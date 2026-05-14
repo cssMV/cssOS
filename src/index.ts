@@ -20248,10 +20248,22 @@ async function runSystemAudioBackfillBatch(maxBudgetCents?: number): Promise<{
     if (budgetLeft <= 0) { summary.skipped += 1; continue; }
     summary.processed += 1;
     try {
+      // CSSOS_WAVE_155 20260514 — Jing: stable-audio-2 bills by duration.
+      // The first batch at 60s burned the whole $20 on 83 tracks
+      // (~$0.24 each → 609 works would be ~$150, way over budget).
+      // System works are free tribute MVs — a 30s preview loop is
+      // plenty, and halves the per-track cost. Also: DON'T pass raw
+      // lyrics into the music prompt — stable-audio-2 is instrumental
+      // text-to-audio, it doesn't sing words, and raw lyric lines can
+      // trip the content filter for no benefit. Style + title +
+      // neutral mood only.
+      const moodHint = /缅怀|memoriam|挽|逝|忌/.test(String(w.style || "") + String(w.title || ""))
+        ? "solemn, reflective, slow"
+        : "uplifting, cinematic, melodic";
       const tier = await callMusicGen({
-        prompt: [w.title, w.style, String(w.lyrics_preview || "").slice(0, 200)]
-          .filter(Boolean).join(" — "),
-        duration_secs: 60,
+        prompt: [w.style, moodHint, "instrumental, no vocals"]
+          .filter(Boolean).join(", "),
+        duration_secs: 30,
       });
       // CSSOS_WAVE_154 — providers return either audio_url (mubert /
       // replicate / fal) or audio_b64 (HF / deepinfra / stability).

@@ -2976,6 +2976,7 @@ async function openLatestOwnedWorkPreviewModule() {
   globalThis.currentStructuredWatchQueue = queue;
   const latestWork = queue.items[0];
   currentWatchPreviewWork = latestWork;
+  globalThis.cssosBindToWorkId?.(latestWork); // CSSOS_WAVE_121 Step 2
   const sourceRunId = String(latestWork?.source_run_id || "").trim();
   if (sourceRunId) currentWatchAudioRunId = sourceRunId;
   await renderMarketWorkPreviewIntoWatchModule({

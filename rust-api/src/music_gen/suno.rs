@@ -943,6 +943,38 @@ fn finalize_result(task: &SunoSubmitAck, v: serde_json::Value) -> MusicGenResult
         })
         .unwrap_or((None, None, None));
 
+    // CSSOS_WAVE_121 Step 3 20260514 — Jing: "两首相同的歌、两个相同的MV".
+    // De-dupe defense. If Suno's API returned the same clip twice (some
+    // API revisions duplicate the first clip into slot [1] when the
+    // second take hasn't finished rendering), `alt_audio_url` would equal
+    // `audio_url` — and downstream we'd create a Take 2 sibling work that
+    // is a byte-for-byte copy of Take 1. The user sees "two identical
+    // songs, two identical MVs". Drop alt_* entirely when the URL or the
+    // conversion id collides with Take 1 — better to ship one honest
+    // single-take work than two confusing clones.
+    let (alt_audio_url, alt_duration_secs, alt_conversion_id) = {
+        let url_collides = alt_audio_url
+            .as_deref()
+            .map(|u| u == audio_url.as_str())
+            .unwrap_or(false);
+        let id_collides = match (&alt_conversion_id, &conversion_id) {
+            (Some(a), Some(b)) => a == b,
+            _ => false,
+        };
+        if url_collides || id_collides {
+            tracing::warn!(
+                target: "cssos::suno::finalize",
+                task_id = %task.task_id,
+                url_collides,
+                id_collides,
+                "Suno returned a duplicate second clip — dropping alt take to avoid clone work"
+            );
+            (None, None, None)
+        } else {
+            (alt_audio_url, alt_duration_secs, alt_conversion_id)
+        }
+    };
+
     MusicGenResult {
         task_id: task.task_id.clone(),
         conversion_id,

@@ -818,6 +818,10 @@ function persistBase64Cover(b64: string, userId: unknown): string {
   }
 }
 
+// CSSOS_WAVE_154 20260514 — Jing: persistBase64Audio already exists
+// further down the file (used by the headless-MV pipeline). The
+// system-work audio backfill reuses it; no second copy needed.
+
 // CSSOS_WAVE_111D_NO_SVG_DATA_URI 20260512 — Jing
 // "凡是这种代码，最后面的合成就会失败" — compose pipelines (ffmpeg /
 // runway-ken-burns / fal-img2video) can't read `data:image/svg+xml;base64,…`
@@ -15470,9 +15474,65 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
         if (!b64) { lastErr = "deepinfra_music_empty_body"; continue; }
         { void resetEngineFailures(provider); return { ok: true, provider: "deepinfra_music", audio_b64: b64 }; }
       }
-      // Other music providers (suno, elevenlabs, stability) — adapters
-      // land separately. Suno already runs through the existing
-      // suno-api sidecar; ElevenLabs Music has its own sidecar.
+      // CSSOS_WAVE_154 20260514 — Jing: Stability stable-audio-2
+      // adapter. The free music providers (HF / fal / mubert /
+      // replicate) are all down (HF deprecated the model, mubert hit
+      // its account track cap, fal rate-limited, replicate slug
+      // stale), so a real paid provider is needed for the system-work
+      // audio backfill. Stability's stable-audio-2 is well-documented,
+      // STABILITY_API_KEY is already in env, and it bills ~$0.02-0.06
+      // per generation — far cheaper than Suno.
+      //
+      // API: POST https://api.stability.ai/v2beta/audio/stable-audio-2/text-to-audio
+      //   multipart/form-data: prompt, duration (1-190s), output_format
+      //   headers: Authorization: Bearer <key>, Accept: audio/*
+      //   200 → binary audio bytes (mp3). Non-200 → JSON error.
+      if (provider === "stability") {
+        const stabKey = String(process.env.STABILITY_API_KEY || "").trim();
+        if (!stabKey) continue;
+        const dur = Math.max(5, Math.min(190, Math.round(req.duration_secs || 60)));
+        const prompt = String(req.prompt || (req.tags || []).join(", ") || "cinematic instrumental")
+          .slice(0, 2000); // Stability hard-limits prompt length; 2k is safe.
+        const form = new FormData();
+        form.append("prompt", prompt);
+        form.append("duration", String(dur));
+        form.append("output_format", "mp3");
+        form.append("model", "stable-audio-2");
+        let upstream: Response;
+        try {
+          upstream = await fetch(
+            "https://api.stability.ai/v2beta/audio/stable-audio-2/text-to-audio",
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${stabKey}`,
+                Accept: "audio/*",
+              },
+              body: form as any,
+            },
+          );
+        } catch (netErr) {
+          lastErr = `stability_music_net_${(netErr as Error)?.message || netErr}`;
+          console.warn(`[music-router] stability threw:`, lastErr.slice(0, 200));
+          continue;
+        }
+        if (!upstream.ok) {
+          const body = await upstream.text().catch(() => "");
+          lastErr = `stability_music_${upstream.status}: ${body.slice(0, 200)}`;
+          if (isCreditsError(upstream.status, body)) {
+            console.warn(`[music-router] stability credits/quota, falling through`);
+          } else {
+            console.warn(`[music-router] stability ${upstream.status}: ${body.slice(0, 200)}`);
+          }
+          continue;
+        }
+        const ab = await upstream.arrayBuffer();
+        const b64 = Buffer.from(ab).toString("base64");
+        if (!b64) { lastErr = "stability_music_empty_body"; continue; }
+        { void resetEngineFailures(provider); return { ok: true, provider: "stability", audio_b64: b64 }; }
+      }
+      // Other music providers (suno, elevenlabs) — adapters land
+      // separately. Suno runs through the existing suno-api sidecar.
     } catch (err) {
       lastErr = `${provider}_threw_${(err as Error)?.message || err}`;
       console.warn(`[music-router] ${provider} threw:`, lastErr.slice(0, 200));
@@ -20193,7 +20253,19 @@ async function runSystemAudioBackfillBatch(maxBudgetCents?: number): Promise<{
           .filter(Boolean).join(" — "),
         duration_secs: 60,
       });
-      if (!tier || !tier.ok || !tier.audio_url) {
+      // CSSOS_WAVE_154 — providers return either audio_url (mubert /
+      // replicate / fal) or audio_b64 (HF / deepinfra / stability).
+      // Persist b64 to a real file so the DB stores a URL, not a
+      // multi-MB data: URI.
+      let audioUrl = "";
+      if (tier && tier.ok) {
+        if (tier.audio_url) {
+          audioUrl = tier.audio_url;
+        } else if (tier.audio_b64) {
+          audioUrl = persistBase64Audio(tier.audio_b64, String(w.id)) || "";
+        }
+      }
+      if (!audioUrl) {
         summary.failed += 1;
         continue;
       }
@@ -20206,7 +20278,7 @@ async function runSystemAudioBackfillBatch(maxBudgetCents?: number): Promise<{
         c.query(
           `UPDATE user_works SET preview_audio_url = $2, updated_at = now()
             WHERE id = $1::uuid`,
-          [w.id, tier.audio_url],
+          [w.id, audioUrl],
         ),
       );
       if (cost > 0) {

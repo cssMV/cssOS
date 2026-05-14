@@ -4124,8 +4124,42 @@ async function getCreditBalance(userId: string): Promise<number> {
   } catch (_) { return 0; }
 }
 
+/* CSSOS_WAVE_139 20260514 — Jing's directive: 设置 @cssstudio.app 所有
+ * 用户和 jingdudc@gmail.com 等系统管理员，可以免积分. */
+async function isCreditExempt(userId: string): Promise<boolean> {
+  try {
+    const r = await withClient((c) =>
+      c.query<{ email: string; role: string }>(
+        `SELECT lower(coalesce(email,'')) AS email, coalesce(role,'') AS role
+           FROM users WHERE id = $1::uuid LIMIT 1`,
+        [userId],
+      ),
+    );
+    const row = (r as any).rows[0];
+    if (!row) return false;
+    if (String(row.role).toLowerCase() === "admin") return true;
+    const email = String(row.email || "");
+    if (email.endsWith("@cssstudio.app")) return true;
+    if (email === "jingdudc@gmail.com") return true;
+    return false;
+  } catch (_) { return false; }
+}
+
 async function debitCredits(userId: string, amount: number, reason: string, payload: any = {}): Promise<{ ok: boolean; balance: number; error?: string }> {
   if (amount <= 0) return { ok: true, balance: await getCreditBalance(userId) };
+  // Staff / admin / @cssstudio.app exemption.
+  if (await isCreditExempt(userId)) {
+    try {
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO credit_events (user_id, delta, reason, payload)
+           VALUES ($1::uuid, 0, $2, $3::jsonb)`,
+          [userId, "staff_exempt:" + reason, JSON.stringify({ ...payload, would_have_charged: amount })],
+        ),
+      );
+    } catch (_) { /* best-effort logging */ }
+    return { ok: true, balance: await getCreditBalance(userId) };
+  }
   try {
     return await withClient(async (client) => {
       await client.query("BEGIN");
@@ -4329,6 +4363,245 @@ app.post("/api/dm/mark-read", express.json({ limit: "4kb" }), async (req, res) =
     return res.json({ ok: true, marked: n });
   } catch (err) {
     return res.status(500).json({ ok: false, error: "mark_failed", detail: (err as Error)?.message || "" });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+ * CSSOS_WAVE_139A 20260514 — Jing
+ * Group DM / discussion rooms. The AI assistant chat panel is where
+ * users compose room messages too — same UI as 1:1 DM, plus a small
+ * "rooms" sidebar / drawer.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+/* POST /api/rooms/create — { name, topic?, visibility?, member_handles? }.
+ * Creator is auto-added as owner. */
+app.post("/api/rooms/create", express.json({ limit: "8kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const body = (req.body && typeof req.body === "object") ? req.body : {};
+  const name = String((body as any).name || "").trim().slice(0, 80);
+  if (!name) return res.status(400).json({ ok: false, error: "name_required" });
+  const topic = String((body as any).topic || "").trim().slice(0, 200) || null;
+  const vis = ((body as any).visibility === "public") ? "public" : "private";
+  const handles: string[] = Array.isArray((body as any).member_handles)
+    ? (body as any).member_handles.map((s: any) => String(s || "").trim()).filter(Boolean).slice(0, 24)
+    : [];
+
+  try {
+    return await withClient(async (client) => {
+      await client.query("BEGIN");
+      try {
+        const ins = await client.query<{ id: string }>(
+          `INSERT INTO chat_rooms (name, owner_user_id, topic, visibility)
+           VALUES ($1, $2::uuid, $3, $4) RETURNING id`,
+          [name, userId, topic, vis],
+        );
+        const roomId = ins.rows[0]!.id;
+        // Add owner.
+        await client.query(
+          `INSERT INTO chat_room_members (room_id, user_id, role)
+           VALUES ($1::uuid, $2::uuid, 'owner') ON CONFLICT DO NOTHING`,
+          [roomId, userId],
+        );
+        // Resolve + add invited members.
+        const added: string[] = [];
+        const missed: string[] = [];
+        for (const h of handles) {
+          const r = await client.query<{ id: string }>(
+            `SELECT id FROM users
+              WHERE lower(coalesce(username,'')) = lower($1)
+                 OR lower(coalesce(email,'')) = lower($1)
+                 OR lower(coalesce(display_name,'')) = lower($1)
+              LIMIT 1`,
+            [h],
+          );
+          const target = r.rows[0];
+          if (!target) { missed.push(h); continue; }
+          await client.query(
+            `INSERT INTO chat_room_members (room_id, user_id, role)
+             VALUES ($1::uuid, $2::uuid, 'member') ON CONFLICT DO NOTHING`,
+            [roomId, target.id],
+          );
+          added.push(h);
+        }
+        await client.query("COMMIT");
+        return res.json({ ok: true, room_id: roomId, members_added: added, members_not_found: missed });
+      } catch (err) {
+        await client.query("ROLLBACK");
+        throw err;
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: "create_failed", detail: (err as Error)?.message || "" });
+  }
+});
+
+/* GET /api/rooms — my rooms (member). */
+app.get("/api/rooms", async (req, res) => {
+  noStore(res);
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  try {
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT r.id, r.name, r.topic, r.visibility, r.created_at, r.archived_at,
+                m.role, m.last_read_at,
+                (SELECT count(*)::int FROM chat_room_members WHERE room_id = r.id) AS member_count,
+                (SELECT count(*)::int FROM direct_messages dm
+                   WHERE dm.room_id = r.id
+                     AND (m.last_read_at IS NULL OR dm.created_at > m.last_read_at)
+                     AND dm.sender_id <> $1::uuid
+                ) AS unread_count
+           FROM chat_rooms r
+           JOIN chat_room_members m ON m.room_id = r.id AND m.user_id = $1::uuid
+          WHERE r.archived_at IS NULL
+          ORDER BY r.updated_at DESC
+          LIMIT 40`,
+        [userId],
+      ),
+    );
+    return res.json({ ok: true, rooms: (r as any).rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: "load_failed", detail: (err as Error)?.message || "" });
+  }
+});
+
+/* GET /api/rooms/:room_id/messages?since=<iso> */
+app.get("/api/rooms/:room_id/messages", async (req, res) => {
+  noStore(res);
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const roomId = String(req.params.room_id || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(roomId)) return res.status(400).json({ ok: false, error: "invalid_room_id" });
+  // Must be a member.
+  try {
+    const mem = await withClient((c) =>
+      c.query<{ ok: number }>(
+        `SELECT 1 AS ok FROM chat_room_members WHERE room_id = $1::uuid AND user_id = $2::uuid LIMIT 1`,
+        [roomId, userId],
+      ),
+    );
+    if (!(mem as any).rows.length) return res.status(403).json({ ok: false, error: "not_a_member" });
+    const since = String(req.query.since || "").trim();
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT dm.id, dm.body, dm.work_id, dm.created_at,
+                s.username AS sender_username, s.display_name AS sender_name,
+                w.title AS work_title, w.cover_image AS work_cover
+           FROM direct_messages dm
+           JOIN users s ON s.id = dm.sender_id
+           LEFT JOIN user_works w ON w.id = dm.work_id
+          WHERE dm.room_id = $1::uuid
+            ${since ? "AND dm.created_at > $2::timestamptz" : ""}
+          ORDER BY dm.created_at ASC
+          LIMIT 100`,
+        since ? [roomId, since] : [roomId],
+      ),
+    );
+    // Mark room read.
+    await withClient((c) =>
+      c.query(
+        `UPDATE chat_room_members SET last_read_at = now()
+          WHERE room_id = $1::uuid AND user_id = $2::uuid`,
+        [roomId, userId],
+      ),
+    );
+    return res.json({ ok: true, messages: (r as any).rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: "load_failed", detail: (err as Error)?.message || "" });
+  }
+});
+
+/* POST /api/rooms/:room_id/send — { body, work_id? } */
+app.post("/api/rooms/:room_id/send", express.json({ limit: "8kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const roomId = String(req.params.room_id || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(roomId)) return res.status(400).json({ ok: false, error: "invalid_room_id" });
+  const body = (req.body && typeof req.body === "object") ? req.body : {};
+  const text = String((body as any).body || "").trim();
+  if (!text) return res.status(400).json({ ok: false, error: "body_required" });
+  const workId = String((body as any).work_id || "").trim() || null;
+  // Verify membership.
+  try {
+    const mem = await withClient((c) =>
+      c.query<{ ok: number }>(
+        `SELECT 1 AS ok FROM chat_room_members WHERE room_id = $1::uuid AND user_id = $2::uuid LIMIT 1`,
+        [roomId, userId],
+      ),
+    );
+    if (!(mem as any).rows.length) return res.status(403).json({ ok: false, error: "not_a_member" });
+    const ins = await withClient((c) =>
+      c.query<{ id: string; created_at: Date }>(
+        `INSERT INTO direct_messages (sender_id, room_id, body, work_id)
+         VALUES ($1::uuid, $2::uuid, $3, $4::uuid)
+         RETURNING id, created_at`,
+        [userId, roomId, text, workId],
+      ),
+    );
+    // Bump room updated_at so it sorts to the top.
+    await withClient((c) =>
+      c.query(`UPDATE chat_rooms SET updated_at = now() WHERE id = $1::uuid`, [roomId]),
+    );
+    return res.json({
+      ok: true,
+      message_id: (ins as any).rows[0]!.id,
+      created_at: (ins as any).rows[0]!.created_at,
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: "send_failed", detail: (err as Error)?.message || "" });
+  }
+});
+
+/* POST /api/rooms/:room_id/invite — owner/admin can add new members. */
+app.post("/api/rooms/:room_id/invite", express.json({ limit: "4kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const roomId = String(req.params.room_id || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(roomId)) return res.status(400).json({ ok: false, error: "invalid_room_id" });
+  const body = (req.body && typeof req.body === "object") ? req.body : {};
+  const handles: string[] = Array.isArray((body as any).handles)
+    ? (body as any).handles.map((s: any) => String(s || "").trim()).filter(Boolean).slice(0, 24)
+    : [];
+  if (!handles.length) return res.status(400).json({ ok: false, error: "handles_required" });
+  try {
+    const role = await withClient((c) =>
+      c.query<{ role: string }>(
+        `SELECT role FROM chat_room_members WHERE room_id = $1::uuid AND user_id = $2::uuid LIMIT 1`,
+        [roomId, userId],
+      ),
+    );
+    const myRole = (role as any).rows[0]?.role;
+    if (myRole !== "owner" && myRole !== "admin") {
+      return res.status(403).json({ ok: false, error: "not_authorized", detail: "Only room owner or admin can invite." });
+    }
+    const added: string[] = [];
+    const missed: string[] = [];
+    for (const h of handles) {
+      const r = await withClient((c) =>
+        c.query<{ id: string }>(
+          `SELECT id FROM users
+            WHERE lower(coalesce(username,'')) = lower($1)
+               OR lower(coalesce(email,'')) = lower($1)
+               OR lower(coalesce(display_name,'')) = lower($1)
+            LIMIT 1`,
+          [h],
+        ),
+      );
+      const target = (r as any).rows[0];
+      if (!target) { missed.push(h); continue; }
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO chat_room_members (room_id, user_id, role)
+           VALUES ($1::uuid, $2::uuid, 'member') ON CONFLICT DO NOTHING`,
+          [roomId, target.id],
+        ),
+      );
+      added.push(h);
+    }
+    return res.json({ ok: true, added, not_found: missed });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: "invite_failed", detail: (err as Error)?.message || "" });
   }
 });
 
@@ -14106,9 +14379,11 @@ async function enqueueSlideshowPoolGeneration(workId: string): Promise<void> {
       "vivid colors, dramatic lighting, beautiful character with full face visible (no half-face crops unless intentional closeup), centered composition, no text, no watermark",
     ].filter(Boolean).join(", ");
     const STYLE_SEEDS = SLIDESHOW_LIFE_ARC_SEEDS;
-    // Fire generations sequentially with small parallelism (4 at a time)
-    // to avoid hammering free providers and getting rate-limited.
+    // Fire generations in waves of 4 concurrent with 1.2 s pauses so
+    // free providers (Replicate 6 RPM, Together 50 RPM) don't 429-flood.
+    // Prefer fal (Flux schnell, generous quota) for slideshow batches.
     const BATCH = 4;
+    const INTER_BATCH_SLEEP_MS = 1200;
     for (let i = 0; i < need; i += BATCH) {
       const slice: Promise<void>[] = [];
       for (let j = i; j < Math.min(i + BATCH, need); j++) {
@@ -14116,7 +14391,11 @@ async function enqueueSlideshowPoolGeneration(workId: string): Promise<void> {
         const variant = `${basePrompt}, ${seed}`;
         slice.push((async () => {
           try {
-            const img = await callImageGen({ prompt: variant, size: "1024x1024" });
+            const img = await callImageGen({
+              prompt: variant,
+              size: "1024x1024",
+              prefer: ["fal", "huggingface", "pollinations", "deepinfra"],
+            });
             if (!img.ok) return;
             const url = img.image_url
               ? img.image_url
@@ -14132,6 +14411,9 @@ async function enqueueSlideshowPoolGeneration(workId: string): Promise<void> {
         })());
       }
       await Promise.all(slice);
+      if (i + BATCH < need) {
+        await new Promise((r) => setTimeout(r, INTER_BATCH_SLEEP_MS));
+      }
     }
     console.info(`[slideshow] pool seeded for ${workId} (target ${SLIDESHOW_POOL_SIZE})`);
   } catch (err) {
@@ -42743,15 +43025,26 @@ app.post(
 
       // Generate in parallel. Each frame uses a slightly different style
       // seed phrase so the pool has actual variety.
+      // CSSOS_WAVE_122 · rate-limit-friendly batching. Free providers
+      // (Replicate / Together) impose tight per-minute caps; throwing
+      // 30 simultaneous requests at them yields 28 × 429 + 2 successes.
+      // Run in waves of 4 concurrent with 1.2s pause between waves so
+      // the slowest provider's per-minute counter has time to recover.
       const STYLE_SEEDS = SLIDESHOW_LIFE_ARC_SEEDS;
-      const tasks: Promise<{ ok: boolean; url?: string; err?: string }>[] = [];
-      for (let i = 0; i < need; i++) {
-        const seed = STYLE_SEEDS[(existing + i) % STYLE_SEEDS.length];
-        const variant = `${basePrompt}, ${seed}`;
-        tasks.push(
-          (async () => {
+      const BATCH = 4;
+      const INTER_BATCH_SLEEP_MS = 1200;
+      const results: Array<{ ok: boolean; url?: string; err?: string }> = [];
+      for (let i = 0; i < need; i += BATCH) {
+        const slice = [] as Promise<{ ok: boolean; url?: string; err?: string }>[];
+        for (let j = i; j < Math.min(i + BATCH, need); j++) {
+          const seed = STYLE_SEEDS[(existing + j) % STYLE_SEEDS.length];
+          const variant = `${basePrompt}, ${seed}`;
+          slice.push((async () => {
             try {
-              const img = await callImageGen({ prompt: variant, size });
+              const img = await callImageGen({
+                prompt: variant, size,
+                prefer: ["fal", "huggingface", "pollinations", "deepinfra"],
+              });
               if (!img.ok) return { ok: false, err: img.error || "image_gen_failed" };
               const url = img.image_url
                 ? img.image_url
@@ -42761,10 +43054,14 @@ app.post(
             } catch (err) {
               return { ok: false, err: err instanceof Error ? err.message : String(err) };
             }
-          })(),
-        );
+          })());
+        }
+        const batchResults = await Promise.all(slice);
+        results.push(...batchResults);
+        if (i + BATCH < need) {
+          await new Promise((r) => setTimeout(r, INTER_BATCH_SLEEP_MS));
+        }
       }
-      const results = await Promise.all(tasks);
       const successful = results.filter((r) => r.ok && r.url);
 
       // Persist each successful URL as a work_assets row

@@ -3142,31 +3142,75 @@ type AgentMessage = {
  * transcripts to DB yet — the data lives in process memory and is
  * lost on restart. v2 will move it to user_works.metadata or a
  * dedicated table. */
+// CSSOS_WAVE_152 20260514 — Jing: 请保存聊天记录，除非用户手动清除.
+// The Map is now just a hot in-process cache; agent_chat_sessions
+// (migration 074) is the durable source of truth. A server restart or
+// an hour of inactivity no longer wipes a conversation — only an
+// explicit DELETE /api/agent/session does.
 const AGENT_SESSIONS: Map<string, { messages: AgentMessage[]; updatedAt: number }> = new Map();
-const AGENT_SESSION_TTL_MS = 60 * 60 * 1000; // 1 hour idle
 const AGENT_MAX_MESSAGES_PER_SESSION = 48;
 
 function agentSessionKey(userId: string, sessionId: string): string {
   return `${userId}::${sessionId}`;
 }
 
-function getAgentSession(userId: string, sessionId: string): AgentMessage[] {
+async function getAgentSession(userId: string, sessionId: string): Promise<AgentMessage[]> {
   const key = agentSessionKey(userId, sessionId);
-  const now = Date.now();
-  // Lazy GC: drop expired sessions opportunistically.
-  for (const [k, v] of AGENT_SESSIONS) {
-    if (now - v.updatedAt > AGENT_SESSION_TTL_MS) AGENT_SESSIONS.delete(k);
+  const cached = AGENT_SESSIONS.get(key);
+  if (cached) return cached.messages;
+  // Cache miss → load from DB.
+  try {
+    const r = await withClient((c) =>
+      c.query<{ messages: AgentMessage[] }>(
+        `SELECT messages FROM agent_chat_sessions
+          WHERE user_id = $1::uuid AND session_id = $2 LIMIT 1`,
+        [userId, sessionId],
+      ),
+    );
+    const msgs = Array.isArray(r.rows[0]?.messages) ? r.rows[0]!.messages : [];
+    AGENT_SESSIONS.set(key, { messages: msgs, updatedAt: Date.now() });
+    return msgs;
+  } catch (err) {
+    console.warn("[agent-session] DB load failed:", (err as Error)?.message || err);
+    return [];
   }
-  const existing = AGENT_SESSIONS.get(key);
-  return existing ? existing.messages : [];
 }
 
-function appendAgentSession(userId: string, sessionId: string, msgs: AgentMessage[]): void {
+async function appendAgentSession(userId: string, sessionId: string, msgs: AgentMessage[]): Promise<void> {
   const key = agentSessionKey(userId, sessionId);
   const existing = AGENT_SESSIONS.get(key) || { messages: [], updatedAt: Date.now() };
   existing.messages = existing.messages.concat(msgs).slice(-AGENT_MAX_MESSAGES_PER_SESSION);
   existing.updatedAt = Date.now();
   AGENT_SESSIONS.set(key, existing);
+  // Persist (UPSERT) — best-effort; a failed write keeps the in-memory
+  // copy so the live turn isn't lost.
+  try {
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO agent_chat_sessions (user_id, session_id, messages, updated_at)
+         VALUES ($1::uuid, $2, $3::jsonb, now())
+         ON CONFLICT (user_id, session_id) DO UPDATE
+           SET messages = EXCLUDED.messages, updated_at = now()`,
+        [userId, sessionId, JSON.stringify(existing.messages)],
+      ),
+    );
+  } catch (err) {
+    console.warn("[agent-session] DB persist failed:", (err as Error)?.message || err);
+  }
+}
+
+async function clearAgentSession(userId: string, sessionId: string): Promise<void> {
+  AGENT_SESSIONS.delete(agentSessionKey(userId, sessionId));
+  try {
+    await withClient((c) =>
+      c.query(
+        `DELETE FROM agent_chat_sessions WHERE user_id = $1::uuid AND session_id = $2`,
+        [userId, sessionId],
+      ),
+    );
+  } catch (err) {
+    console.warn("[agent-session] DB delete failed:", (err as Error)?.message || err);
+  }
 }
 
 /* Tool schema — fed verbatim into Anthropic API. Keep keys flat &
@@ -3863,7 +3907,7 @@ app.post("/api/agent/chat", express.json({ limit: "32kb" }), async (req, res) =>
     });
   }
 
-  const history = getAgentSession(userId, sessionId);
+  const history = await getAgentSession(userId, sessionId);
   const messages: AgentMessage[] = history.slice();
   messages.push({ role: "user", content: message });
 
@@ -3972,7 +4016,7 @@ app.post("/api/agent/chat", express.json({ limit: "32kb" }), async (req, res) =>
   // Last user msg is already in messages from initial push; assistant
   // turns from the loop are too. We diff against original `history`.
   const newTurns = messages.slice(history.length);
-  appendAgentSession(userId, sessionId, newTurns);
+  await appendAgentSession(userId, sessionId, newTurns);
   // Cost estimate: claude-sonnet-4-5 at $3 / 1M input, $15 / 1M output.
   // Round up to nearest cent.
   const costCents = Math.max(
@@ -4751,7 +4795,7 @@ app.get("/api/agent/session", async (req, res) => {
   const userId = (req.session as any)?.user_id;
   if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
   const sessionId = String(req.query.session_id || "default").slice(0, 64);
-  const history = getAgentSession(userId, sessionId);
+  const history = await getAgentSession(userId, sessionId);
   const display = history.map((m) => {
     if (typeof m.content === "string") return { role: m.role, text: m.content };
     if (Array.isArray(m.content)) {
@@ -4779,7 +4823,9 @@ app.delete("/api/agent/session", async (req, res) => {
   const userId = (req.session as any)?.user_id;
   if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
   const sessionId = String(req.query.session_id || "default").slice(0, 64);
-  AGENT_SESSIONS.delete(agentSessionKey(userId, sessionId));
+  // CSSOS_WAVE_152 — clear BOTH the in-memory cache and the persisted
+  // agent_chat_sessions row. This is the only path that wipes history.
+  await clearAgentSession(userId, sessionId);
   return res.json({ ok: true });
 });
 

@@ -31,13 +31,29 @@
     } catch (_) { return "en"; }
   }
   function ensureSessionId() {
+    // CSSOS_WAVE_152 20260514 — Jing: 请保存聊天记录，除非用户手动清除.
+    // session_id moved from sessionStorage → localStorage so it
+    // survives closing the app / tab. The server now persists the
+    // conversation in agent_chat_sessions, so the same id rehydrates
+    // the full thread on next launch. Migrate any legacy sessionStorage
+    // id forward so an in-progress conversation isn't orphaned.
     try {
-      var sid = sessionStorage.getItem("cssos.agent.session_id");
+      var sid = localStorage.getItem("cssos.agent.session_id");
       if (sid) return sid;
-      sid = "s_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
-      sessionStorage.setItem("cssos.agent.session_id", sid);
+      var legacy = null;
+      try { legacy = sessionStorage.getItem("cssos.agent.session_id"); } catch (_) {}
+      sid = legacy || ("s_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8));
+      localStorage.setItem("cssos.agent.session_id", sid);
       return sid;
-    } catch (_) { return "fallback"; }
+    } catch (_) {
+      try {
+        var s2 = sessionStorage.getItem("cssos.agent.session_id");
+        if (s2) return s2;
+        s2 = "s_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
+        sessionStorage.setItem("cssos.agent.session_id", s2);
+        return s2;
+      } catch (_e) { return "fallback"; }
+    }
   }
 
   function injectStyles() {
@@ -521,6 +537,9 @@
         method: "DELETE", credentials: "include",
       });
     } catch (_) {}
+    // CSSOS_WAVE_152 — manual clear removes the id from BOTH stores so
+    // the next message starts a genuinely fresh session.
+    try { localStorage.removeItem("cssos.agent.session_id"); } catch (_) {}
     try { sessionStorage.removeItem("cssos.agent.session_id"); } catch (_) {}
     var messages = document.getElementById("cssos-agent-messages");
     if (messages) messages.innerHTML = "";

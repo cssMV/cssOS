@@ -475,11 +475,19 @@
     var st = document.createElement("style");
     st.id = "cssos-agent-work-card-style";
     st.textContent = [
-      ".cssos-agent-work-cards{display:flex;flex-direction:column;gap:10px;margin:8px 0;}",
-      ".cssos-agent-work-cards.is-multi{display:flex;flex-direction:row;overflow-x:auto;scroll-snap-type:x mandatory;padding-bottom:4px;}",
+      /* CSSOS_WAVE_147 20260514 — Jing: 卡片塌成两条线. The parent
+         #cssos-agent-messages is display:flex;flex-direction:column,
+         so a child flex row gets align-items:stretch but the cards'
+         own height collapsed because aspect-ratio:1/1 on .cover didn't
+         resolve inside the nested flex context. Fix: give the cards an
+         explicit min-height + flex-shrink:0, and the cover an explicit
+         pixel height instead of relying on aspect-ratio. */
+      ".cssos-agent-work-cards{display:flex;flex-direction:column;gap:10px;margin:8px 0;align-self:stretch;}",
+      ".cssos-agent-work-cards.is-multi{display:flex;flex-direction:row;overflow-x:auto;scroll-snap-type:x mandatory;padding-bottom:4px;align-items:flex-start;}",
       ".cssos-agent-work-cards.is-multi .cssos-agent-work-card{flex:0 0 240px;scroll-snap-align:start;}",
-      ".cssos-agent-work-card{background:rgba(8,18,14,0.7);border:1px solid rgba(0,245,160,0.32);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;}",
-      ".cssos-agent-work-card .cover{position:relative;width:100%;aspect-ratio:1/1;background-size:cover;background-position:center;}",
+      ".cssos-agent-work-card{background:rgba(8,18,14,0.7);border:1px solid rgba(0,245,160,0.32);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;flex-shrink:0;min-height:300px;width:100%;}",
+      ".cssos-agent-work-cards.is-multi .cssos-agent-work-card{width:240px;}",
+      ".cssos-agent-work-card .cover{position:relative;width:100%;height:200px;flex:0 0 200px;background-size:cover;background-position:center;background-color:#0a1812;}",
       ".cssos-agent-work-card .cover .badge{position:absolute;top:6px;left:6px;padding:3px 9px;border-radius:999px;background:rgba(0,245,160,0.85);color:#0a0d12;font:700 10px/1 ui-monospace,monospace;letter-spacing:.05em;text-transform:uppercase;}",
       ".cssos-agent-work-card .info{padding:10px 12px;display:flex;flex-direction:column;gap:6px;}",
       ".cssos-agent-work-card .title{font:600 14px/1.25 -apple-system,system-ui,sans-serif;color:#fff;}",

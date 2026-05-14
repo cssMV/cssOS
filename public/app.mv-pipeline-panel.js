@@ -229,9 +229,13 @@
   // user can reconfigure them in the advanced panel without code changes.
   // `etaSecs` is a UI-only hint for the asymptotic progress animation; actual
   // runtime depends on the selected engine.
+  // CSSOS_WAVE_146 20260514 — Jing's directive: pipeline order is
+  // lyrics → cover → music → video → subtitles → compose. Lyrics first
+  // so the 京典 10-section text seeds the cover prompt, music mood, and
+  // subtitle timing.
   const STAGES = [
-    { id: "cover",     etaSecs: 18, progressVerbKey: "mv.stage.cover.verb",     labelEn: "Cover art",  labelZh: "封面图",    verbEn: "Drawing cover",      verbZh: "正在绘制封面" },
     { id: "lyrics",    etaSecs: 8,  progressVerbKey: "mv.stage.lyrics.verb",    labelEn: "Lyrics",     labelZh: "歌词",      verbEn: "Writing lyrics",     verbZh: "正在生成歌词" },
+    { id: "cover",     etaSecs: 18, progressVerbKey: "mv.stage.cover.verb",     labelEn: "Cover art",  labelZh: "封面图",    verbEn: "Drawing cover",      verbZh: "正在绘制封面" },
     { id: "music",     etaSecs: 120, progressVerbKey: "mv.stage.music.verb",     labelEn: "Music",      labelZh: "音乐",      verbEn: "Composing music",    verbZh: "正在生成音乐" },
     { id: "video",     etaSecs: 45, progressVerbKey: "mv.stage.video.verb",     labelEn: "Video",      labelZh: "视频",      verbEn: "Rendering video",    verbZh: "正在渲染视频" },
     { id: "subtitles", etaSecs: 2,  progressVerbKey: "mv.stage.subtitles.verb", labelEn: "Subtitles",  labelZh: "字幕",      verbEn: "Timing subtitles",   verbZh: "正在对轴字幕" },
@@ -6931,6 +6935,11 @@
         // resolve to the same work_id (no new row inserted).
         source_run_id: targetMvId || null,
         engine_costs_cents: engineCosts,
+        // CSSOS_WAVE_146 20260514 — Jing: forward the person identity so
+        // the commit handler links this work into person_mvs and the
+        // person codex MV gallery shows ALL the user's MVs, not just the
+        // system sample.
+        person_id: state.personId || null,
         // Extension point — see server-side /api/mv/commit handler. When the
         // route starts persisting this it will show up in the work detail UI
         // without a frontend change. Today it's additive metadata only.
@@ -7080,6 +7089,8 @@
         source_run_id: altMvId,
         engine_costs_cents: args.engineCosts || [],
         engine_meta: args.engineMeta || [],
+        // CSSOS_WAVE_146 — Take 2 also links into person_mvs.
+        person_id: args.personId || null,
         // Tag so admin/UX can identify these without parsing title
         is_take2: true,
       });

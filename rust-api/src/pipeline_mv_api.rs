@@ -1611,6 +1611,14 @@ pub struct CommitRequest {
     pub engine_meta: Option<serde_json::Value>,
     #[serde(default)]
     pub aligned_lyrics: Option<serde_json::Value>,
+    // CSSOS_WAVE_146 20260514 — Jing: "人物MV专页还是只显示1首样板MV".
+    // Root cause: a pipeline-created work was never linked into
+    // person_mvs, so the codex query (which joins person_mvs) only
+    // surfaced the system sample. When the universal entry point seed
+    // carried a person, the frontend now forwards it here so we link
+    // the new work_id into person_mvs.
+    #[serde(default)]
+    pub person_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1949,6 +1957,34 @@ async fn commit_inner(
             .execute(&app.pool)
             .await;
         }
+    }
+
+    // CSSOS_WAVE_146 20260514 — link the finished work into person_mvs
+    // so it shows up on the person codex MV gallery. Best-effort: a
+    // failure here must not roll back the committed work.
+    if let Some(pid) = body
+        .person_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let _ = sqlx::query(
+            "INSERT INTO person_mvs \
+               (mv_id, person_id, work_id, created_by_user_id, \
+                scenario_seed, approval_status, visibility, created_at) \
+             VALUES (gen_random_uuid(), $1, $2, $3, $4, 'auto_published', 'public', now()) \
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(pid)
+        .bind(work_id)
+        .bind(user_id)
+        .bind(body.lyrics_preview.as_deref().map(|s| {
+            let mut t = s.to_string();
+            t.truncate(400);
+            t
+        }))
+        .execute(&app.pool)
+        .await;
     }
 
     Ok(Json(CommitResponse {

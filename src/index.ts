@@ -30934,6 +30934,29 @@ app.post("/api/works", async (req, res) => {
           workId,
           persistedAssets.assetRecords,
         );
+        // CSSOS_WAVE_146 20260514 — Jing: 人物 MV 专页只显示 1 首样板.
+        // Root cause: when a user creates an MV via the pipeline, the
+        // work_id is INSERTed but never linked into person_mvs. So the
+        // /api/person-mv/persons/:id/codex query (which joins person_mvs)
+        // only finds system samples. Fix: if the request carried a
+        // person_id (the universal entry point seed __personId flows
+        // here as req.body.person_id), insert a person_mvs row.
+        const linkedPersonId = String(req.body?.person_id || req.body?.__personId || "").trim();
+        if (linkedPersonId) {
+          try {
+            await client.query(
+              `INSERT INTO person_mvs (
+                  mv_id, person_id, work_id, created_by_user_id,
+                  scenario_seed, approval_status, visibility, created_at
+               ) VALUES (gen_random_uuid(), $1, $2::uuid, $3::uuid,
+                         $4, 'auto_published', 'public', now())
+               ON CONFLICT DO NOTHING`,
+              [linkedPersonId, workId, user.id, String(req.body?.scenario_seed || "").slice(0, 400)],
+            );
+          } catch (linkErr) {
+            console.warn("[works-create] person_mvs link failed (non-fatal):", (linkErr as Error)?.message || linkErr);
+          }
+        }
         await client.query("COMMIT");
       } catch (error) {
         await client.query("ROLLBACK");

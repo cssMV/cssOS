@@ -31062,7 +31062,17 @@ function buildBuiltinDockActionMap() {
     longpress: () => openPanelSettings(foryouPanel)
   },
   cssmv: {
-    click: () => openPanel(cssmvPanel),
+    // CSSOS_WAVE_147 20260514 — Jing: the 🎬 CSS MV dock entry opens the
+    // real MV pipeline panel (6-capsule progress), not the delivery
+    // digest dashboard. Falls back to the dashboard panel only if the
+    // pipeline opener isn't available.
+    click: () => {
+      if (typeof globalThis.openMvPipelinePanel === "function") {
+        globalThis.openMvPipelinePanel({ origin: "dock-cssmv" });
+      } else {
+        openPanel(cssmvPanel);
+      }
+    },
     dblclick: () => ensureWatchCentered(),
     longpress: () => openPanelSettings(cssmvPanel)
   },
@@ -31544,7 +31554,21 @@ function getVoiceSeedModuleFn(name) {
 }
 
 function invokeMicClickAction(origin = "logo") {
-  showCreationSurface(origin);
+  // CSSOS_WAVE_147 20260514 — Jing: 统一走 MV pipeline panel. Every
+  // universal entry point (dock 🎤 mic, logo mirror tap, dock play)
+  // funnels here. They must all land on the MV pipeline panel — the
+  // one with the 6-capsule progress (lyrics → cover → music → video →
+  // subtitles → compose) + total progress bar — not the watch /
+  // creation showcase surface.
+  //
+  // Voice capture (triggerMic) still fires so the user can speak their
+  // seed; the transcript feeds the pipeline prompt as before.
+  if (typeof globalThis.openMvPipelinePanel === "function") {
+    try { globalThis.openMvPipelinePanel({ origin: origin }); }
+    catch (err) { console.warn("[mic-entry] openMvPipelinePanel failed:", err); showCreationSurface(origin); }
+  } else {
+    showCreationSurface(origin);
+  }
   return triggerMic(origin);
 }
 

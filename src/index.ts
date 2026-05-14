@@ -3492,6 +3492,13 @@ async function runAgentTool(
       const validWorkTypes = new Set(["single","triptych","opera","shortplay","series","film"]);
       const wt = validWorkTypes.has(workType) ? workType : "single";
 
+      // CSSOS_WAVE_138 Part B — cost meter.
+      const debitCost = costForCreateWork(wt);
+      const debitR = await debitCredits(ctx.userId, debitCost, "create_work", { work_type: wt, title });
+      if (!debitR.ok) {
+        return { error: "insufficient_credit", need: debitCost, have: debitR.balance, hint: "Earn credits via plays / forks / boost, or top up in Settings → Subscription." };
+      }
+
       // Build lyricist prompt (re-use the user-facing endpoint's helpers).
       const sysPrompt = (typeof buildJingdianSystemPrompt === "function")
         ? buildJingdianSystemPrompt(lang, wt, "")
@@ -3730,8 +3737,81 @@ app.post("/api/agent/chat", express.json({ limit: "32kb" }), async (req, res) =>
   const sessionId = String((body as any).session_id || "default").slice(0, 64);
   const uiLocale = String((body as any).ui_locale || "en").slice(0, 12);
 
-  // Rate-limit guard.
+  // Rate-limit (pulled up so the DM short-circuit can echo the counters
+  // without referencing `used` before it's defined).
   const used = await getAgentTurnsLastHour(userId);
+
+  // CSSOS_WAVE_138 Part A — @username DM short-circuit. If the message
+  // starts with "@<name>" (allow optional space or "@<name>:" prefix),
+  // skip the LLM entirely and route to direct_messages. The user
+  // sees a confirmation reply; the LLM cost is avoided.
+  const dmMatch = message.match(/^\s*@([\w一-鿿.\-]+)([:\s]+)?([\s\S]*)$/);
+  if (dmMatch) {
+    const recipientHandle = dmMatch[1];
+    const dmBody = (dmMatch[3] || "").trim();
+    if (dmBody) {
+      let recipient: any;
+      try {
+        const r = await withClient((c) =>
+          c.query<{ id: string; username: string; display_name: string }>(
+            `SELECT id, username, display_name FROM users
+              WHERE lower(coalesce(username,'')) = lower($1)
+                 OR lower(coalesce(display_name,'')) = lower($1)
+                 OR lower(coalesce(email,'')) = lower($1)
+              LIMIT 1`,
+            [recipientHandle],
+          ),
+        );
+        recipient = (r as any).rows[0];
+      } catch (_e) {}
+      if (recipient && String(recipient.id) !== String(userId)) {
+        try {
+          await withClient((c) =>
+            c.query(
+              `INSERT INTO direct_messages (sender_id, recipient_id, body)
+               VALUES ($1::uuid, $2::uuid, $3)`,
+              [userId, recipient.id, dmBody],
+            ),
+          );
+          const isZh = String(uiLocale || "").toLowerCase().startsWith("zh");
+          const who = recipient.display_name || recipient.username || recipientHandle;
+          return res.json({
+            ok: true,
+            reply: isZh
+              ? `✉️ 已私信给 @${who}（只有他/她在 AI 助理里能看到）`
+              : `✉️ DM sent to @${who} (only they will see it in their AI assistant)`,
+            seed: null,
+            tool_calls: [{ name: "dm_send", input: { recipient: recipientHandle, body_len: dmBody.length }, result_summary: "delivered" }],
+            work_cards: [],
+            dm_delivered: true,
+            turns_this_hour: used,
+            turns_remaining: Math.max(0, AGENT_TURNS_PER_USER_PER_HOUR - used),
+            stop_reason: "dm_routed",
+            cost_cents: 0,
+            session_id: sessionId,
+          });
+        } catch (err) {
+          // Fall through to LLM path on insert failure.
+        }
+      } else if (!recipient) {
+        return res.json({
+          ok: true,
+          reply: `❓ Couldn't find a user named "@${recipientHandle}". Check the username (case-insensitive) or ask them to set one in Profile.`,
+          seed: null,
+          tool_calls: [],
+          work_cards: [],
+          dm_delivered: false,
+          turns_this_hour: used,
+          turns_remaining: Math.max(0, AGENT_TURNS_PER_USER_PER_HOUR - used),
+          stop_reason: "dm_recipient_unknown",
+          cost_cents: 0,
+          session_id: sessionId,
+        });
+      }
+    }
+  }
+
+  // Rate-limit guard (used computed above).
   if (used >= AGENT_TURNS_PER_USER_PER_HOUR) {
     return res.status(429).json({
       ok: false,
@@ -3918,6 +3998,11 @@ app.post("/api/agent/work/:work_id/generate-audio", async (req, res) => {
   if (work.preview_audio_url) {
     return res.json({ ok: true, audio_url: work.preview_audio_url, cached: true });
   }
+  // CSSOS_WAVE_138 Part B — cost meter.
+  const debitR = await debitCredits(userId, CSSOS_AGENT_COSTS.generate_audio, "generate_audio", { work_id: workId });
+  if (!debitR.ok) {
+    return res.status(402).json({ ok: false, error: "insufficient_credit", need: CSSOS_AGENT_COSTS.generate_audio, have: debitR.balance });
+  }
   try {
     const tier = await callMusicGen({
       prompt: [work.title, work.style, String(work.lyrics_preview || "").slice(0, 300)]
@@ -3966,6 +4051,11 @@ app.post("/api/agent/work/:work_id/generate-video", async (req, res) => {
   if (work.preview_video_url) {
     return res.json({ ok: true, video_url: work.preview_video_url, cached: true });
   }
+  // CSSOS_WAVE_138 Part B — cost meter.
+  const debitV = await debitCredits(userId, CSSOS_AGENT_COSTS.generate_video, "generate_video", { work_id: workId });
+  if (!debitV.ok) {
+    return res.status(402).json({ ok: false, error: "insufficient_credit", need: CSSOS_AGENT_COSTS.generate_video, have: debitV.balance });
+  }
   try {
     const tier = await callVideoGen({
       prompt: [work.title, work.style, "cinematic, no text"].filter(Boolean).join(", "),
@@ -3987,6 +4077,258 @@ app.post("/api/agent/work/:work_id/generate-video", async (req, res) => {
     return res.json({ ok: true, video_url: videoUrl, provider: tier.provider });
   } catch (err) {
     return res.status(500).json({ ok: false, error: "video_gen_failed", detail: (err as Error)?.message || "" });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+ * CSSOS_WAVE_138 20260514 — Jing
+ *
+ *   PART A — @username Direct Messages via AI assistant
+ *
+ * Users type `@<username> ...` in the AI chat. Server detects the
+ * leading @-mention, looks up the recipient by username (or
+ * display_name fallback), inserts a row into direct_messages, and
+ * skips the LLM call entirely. The reply to the sender is just a
+ * confirmation; nothing leaks to other users.
+ *
+ * Other users see the DM as a synthetic system-message in their own
+ * agent chat the next time they open it (via /api/dm/inbox).
+ *
+ *   PART B — creation cost meter
+ *
+ * Every paid LLM/media tool call (create_work, generate-audio,
+ * generate-video) debits the caller's user_credits.balance. Free-
+ * tier users get 100 starter credits; the daily cron tops up by 5/day
+ * for active users. (Top-up cron deferred to W139.)
+ * ═══════════════════════════════════════════════════════════════════ */
+
+/* Cost table. Tweak here; surfaced in /api/agent/cost-rates so the
+ * frontend can show a fee preview before the user confirms. */
+const CSSOS_AGENT_COSTS = {
+  create_work_single:   1,    // ~$0.01 lite tier (lyrics + cover)
+  create_work_triptych: 3,
+  create_work_opera:    5,
+  create_work_other:    2,    // shortplay / series / film
+  generate_audio:       10,   // ~$0.10 Suno/Mubert
+  generate_video:       50,   // ~$0.50 Luma/Fal
+  dm_send:              0,    // free
+} as const;
+
+async function getCreditBalance(userId: string): Promise<number> {
+  try {
+    const r = await withClient((c) =>
+      c.query<{ balance: string }>(`SELECT balance FROM user_credits WHERE user_id = $1::uuid`, [userId]),
+    );
+    if (!r.rows.length) return 0;
+    return Number(r.rows[0]!.balance) || 0;
+  } catch (_) { return 0; }
+}
+
+async function debitCredits(userId: string, amount: number, reason: string, payload: any = {}): Promise<{ ok: boolean; balance: number; error?: string }> {
+  if (amount <= 0) return { ok: true, balance: await getCreditBalance(userId) };
+  try {
+    return await withClient(async (client) => {
+      await client.query("BEGIN");
+      try {
+        // Upsert + atomic check-and-debit. Returns the new balance if the
+        // pre-debit balance was sufficient; NULL otherwise (insufficient).
+        const r = await client.query<{ balance: string | null }>(
+          `INSERT INTO user_credits (user_id, balance, lifetime_spent, updated_at)
+           VALUES ($1::uuid, 0, 0, now())
+           ON CONFLICT (user_id) DO NOTHING`,
+          [userId],
+        );
+        const u = await client.query<{ balance: string }>(
+          `UPDATE user_credits
+              SET balance = balance - $2,
+                  lifetime_spent = lifetime_spent + $2,
+                  updated_at = now()
+            WHERE user_id = $1::uuid AND balance >= $2
+            RETURNING balance`,
+          [userId, amount],
+        );
+        if (!u.rows.length) {
+          await client.query("ROLLBACK");
+          const cur = await getCreditBalance(userId);
+          return { ok: false, balance: cur, error: "insufficient_credit" };
+        }
+        await client.query(
+          `INSERT INTO credit_events (user_id, delta, reason, payload)
+           VALUES ($1::uuid, $2, $3, $4::jsonb)`,
+          [userId, -amount, reason, JSON.stringify(payload)],
+        );
+        await client.query("COMMIT");
+        return { ok: true, balance: Number(u.rows[0]!.balance) || 0 };
+      } catch (err) {
+        await client.query("ROLLBACK");
+        throw err;
+      }
+    });
+  } catch (err) {
+    return { ok: false, balance: 0, error: (err as Error)?.message || "debit_failed" };
+  }
+}
+
+function costForCreateWork(workType: string): number {
+  const wt = String(workType || "single").toLowerCase();
+  if (wt === "triptych") return CSSOS_AGENT_COSTS.create_work_triptych;
+  if (wt === "opera")    return CSSOS_AGENT_COSTS.create_work_opera;
+  if (wt === "single")   return CSSOS_AGENT_COSTS.create_work_single;
+  return CSSOS_AGENT_COSTS.create_work_other;
+}
+
+/* GET /api/agent/cost-rates — public; frontend shows fee preview. */
+app.get("/api/agent/cost-rates", (_req, res) => {
+  noStore(res);
+  return res.json({ ok: true, rates: CSSOS_AGENT_COSTS });
+});
+
+/* GET /api/credits/balance — sign-in required. */
+app.get("/api/credits/balance", async (req, res) => {
+  noStore(res);
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const balance = await getCreditBalance(userId);
+  return res.json({ ok: true, balance });
+});
+
+/* POST /api/dm/send — { recipient, body, work_id? }. recipient may be
+ * username (preferred) or email. */
+app.post("/api/dm/send", express.json({ limit: "8kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const body = (req.body && typeof req.body === "object") ? req.body : {};
+  const recipientRaw = String((body as any).recipient || "").trim();
+  const text = String((body as any).body || "").trim();
+  const workId = String((body as any).work_id || "").trim() || null;
+  if (!recipientRaw) return res.status(400).json({ ok: false, error: "recipient_required" });
+  if (!text)          return res.status(400).json({ ok: false, error: "body_required" });
+  if (text.length > 4000) return res.status(400).json({ ok: false, error: "body_too_long" });
+
+  // Resolve recipient: username (case-insensitive) then email, then
+  // display_name. Don't allow self-DM.
+  let recipient: any;
+  try {
+    const r = await withClient((c) =>
+      c.query<{ id: string; username: string; email: string }>(
+        `SELECT id, username, email FROM users
+          WHERE lower(coalesce(username,'')) = lower($1)
+             OR lower(coalesce(email,'')) = lower($1)
+             OR lower(coalesce(display_name,'')) = lower($1)
+          LIMIT 1`,
+        [recipientRaw],
+      ),
+    );
+    recipient = r.rows[0];
+  } catch (_err) { /* fall through */ }
+  if (!recipient) return res.status(404).json({ ok: false, error: "recipient_not_found", hint: "Use @username (case-insensitive). Check if the user has set a username in their profile." });
+  if (String(recipient.id) === String(userId)) {
+    return res.status(400).json({ ok: false, error: "cannot_dm_self" });
+  }
+
+  try {
+    const ins = await withClient((c) =>
+      c.query<{ id: string; created_at: Date }>(
+        `INSERT INTO direct_messages (sender_id, recipient_id, body, work_id)
+         VALUES ($1::uuid, $2::uuid, $3, $4::uuid)
+         RETURNING id, created_at`,
+        [userId, recipient.id, text, workId],
+      ),
+    );
+    return res.json({
+      ok: true,
+      message_id: ins.rows[0]!.id,
+      created_at: ins.rows[0]!.created_at,
+      recipient: { username: recipient.username, email: recipient.email },
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: "send_failed", detail: (err as Error)?.message || "" });
+  }
+});
+
+/* GET /api/dm/inbox — recent messages addressed to me. Optional
+ * ?since=<iso> for delta-fetch. */
+app.get("/api/dm/inbox", async (req, res) => {
+  noStore(res);
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const since = String(req.query.since || "").trim();
+  try {
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT dm.id, dm.body, dm.work_id, dm.read_at, dm.created_at,
+                s.username AS sender_username, s.display_name AS sender_name,
+                w.title AS work_title, w.cover_image AS work_cover
+           FROM direct_messages dm
+           JOIN users s ON s.id = dm.sender_id
+           LEFT JOIN user_works w ON w.id = dm.work_id
+          WHERE dm.recipient_id = $1::uuid
+            ${since ? "AND dm.created_at > $2::timestamptz" : ""}
+          ORDER BY dm.created_at DESC
+          LIMIT 50`,
+        since ? [userId, since] : [userId],
+      ),
+    );
+    return res.json({ ok: true, messages: (r as any).rows });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: "load_failed", detail: (err as Error)?.message || "" });
+  }
+});
+
+/* GET /api/dm/unread-count — light poll endpoint for the FAB red dot. */
+app.get("/api/dm/unread-count", async (req, res) => {
+  noStore(res);
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  try {
+    const r = await withClient((c) =>
+      c.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM direct_messages
+          WHERE recipient_id = $1::uuid AND read_at IS NULL`,
+        [userId],
+      ),
+    );
+    return res.json({ ok: true, unread: Number(r.rows[0]?.n || 0) });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: "count_failed" });
+  }
+});
+
+/* POST /api/dm/mark-read — { message_ids?: string[] } or all=true. */
+app.post("/api/dm/mark-read", express.json({ limit: "4kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const body = (req.body && typeof req.body === "object") ? req.body : {};
+  const all = !!(body as any).all;
+  const ids: string[] = Array.isArray((body as any).message_ids)
+    ? (body as any).message_ids.map((s: any) => String(s || "").trim()).filter(Boolean)
+    : [];
+  try {
+    let n = 0;
+    if (all) {
+      const r = await withClient((c) =>
+        c.query(
+          `UPDATE direct_messages SET read_at = now()
+            WHERE recipient_id = $1::uuid AND read_at IS NULL`,
+          [userId],
+        ),
+      );
+      n = (r as any).rowCount || 0;
+    } else if (ids.length) {
+      const r = await withClient((c) =>
+        c.query(
+          `UPDATE direct_messages SET read_at = now()
+            WHERE recipient_id = $1::uuid
+              AND id = ANY($2::uuid[])
+              AND read_at IS NULL`,
+          [userId, ids],
+        ),
+      );
+      n = (r as any).rowCount || 0;
+    }
+    return res.json({ ok: true, marked: n });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: "mark_failed", detail: (err as Error)?.message || "" });
   }
 });
 
@@ -13697,6 +14039,47 @@ async function syncCanonicalWorkAssets(
  * Reused both by the auto-fire-on-canonical-sync path above and by the
  * POST /api/works/:id/slideshow/generate manual trigger. Spawns the
  * generation in the background so the caller doesn't block. */
+// CSSOS_WAVE_122B 20260513 — Jing: "人物的一生不同时期，不同环境，不同
+// 场景的画面". The slideshow pool now spans the figure's whole life arc:
+// 8 young + 8 middle + 8 elder + 6 legendary = 30 unique life-story scenes.
+// Result: a true visual biography, not 30 angles of the same elder portrait.
+const SLIDESHOW_LIFE_ARC_SEEDS: readonly string[] = [
+  // Young (8)
+  "as a child around age 10, playing in the family courtyard, soft daylight",
+  "as a teenager around age 15, reading scrolls under an oil lamp at night",
+  "in early adulthood around age 20, training in the practice yard at dawn",
+  "at age 22, traveling along a dusty mountain road, distant peaks behind",
+  "in their prime around age 25, holding a brush mid-stroke, ink-stained fingers",
+  "at age 24, gazing at the rising sun from a stone bridge",
+  "as a young adult, sitting by a flowing stream at dawn, robes fluttering in the breeze",
+  "at age 19, riding a horse through a bamboo forest in spring",
+  // Middle age (8)
+  "at the height of fame around age 35, in formal court robes, lantern-lit hall",
+  "around age 40, composing poetry by moonlight on a balcony, wine cup in hand",
+  "at age 38, on horseback at the edge of a battlefield, banners snapping",
+  "around age 42, in a small mountain hermitage, brewing tea over a brazier",
+  "at age 45, teaching a young disciple under an ancient pine tree in autumn",
+  "around age 36, drinking wine with friends in a pavilion overlooking a lake",
+  "at age 50, looking out over a vast harbor at sunset, gulls overhead",
+  "around age 48, walking through fallen maple leaves on a temple path",
+  // Elder years (8)
+  "in wise elder years around age 65, sitting in a meditation garden with a koi pond",
+  "around age 70, holding a worn book by candlelight, deep contemplation",
+  "at age 68, looking out from a moonlit balcony, peaceful expression",
+  "around age 75, listening to rain falling on the tiled roof, brewing tea",
+  "at age 72, in robes of soft cream silk, painting calligraphy in a study",
+  "around age 80, sitting by a fire on a winter night, snow falling outside",
+  "at age 60, on a stone bench in an autumn garden, chrysanthemum petals drifting",
+  "in old age, holding a bamboo flute by a misty river at dawn",
+  // Legendary / mythologized (6)
+  "idealized form remembered by history, ageless, in iconic robes, soft halo of light",
+  "as depicted in legend, surrounded by drifting cherry petals and golden mist",
+  "in mythologized form, holding a symbolic object, ethereal celestial background",
+  "as the spirit appears in a dream, beside a quiet moonlit lake, ghostly luminance",
+  "in the moment of their most famous act, captured in painted dramatic light",
+  "as remembered by followers, serene timeless portrait, mountain mist behind",
+];
+
 async function enqueueSlideshowPoolGeneration(workId: string): Promise<void> {
   if (!workId) return;
   try {
@@ -13711,7 +14094,7 @@ async function enqueueSlideshowPoolGeneration(workId: string): Promise<void> {
     const workRow = await pool.query<{
       title: string; civilization: string | null;
     }>(
-      `SELECT title, civilization FROM user_works WHERE id = $1 LIMIT 1`,
+      `SELECT title, NULL::text AS civilization FROM user_works WHERE id = $1 LIMIT 1`,
       [workId],
     );
     const work = workRow.rows[0];
@@ -13722,16 +14105,7 @@ async function enqueueSlideshowPoolGeneration(workId: string): Promise<void> {
       work.civilization ? `set in the ${work.civilization} cultural frame` : "",
       "vivid colors, dramatic lighting, beautiful character with full face visible (no half-face crops unless intentional closeup), centered composition, no text, no watermark",
     ].filter(Boolean).join(", ");
-    const STYLE_SEEDS = [
-      "wide establishing shot", "intimate close-up", "golden-hour lighting", "moonlit night",
-      "ornate interior", "vast landscape", "soft rain", "swirling mist", "blooming flowers",
-      "candlelit chamber", "windswept hilltop", "embroidered silk", "stone courtyard",
-      "rippling water", "drifting petals", "snow-dusted scene", "lantern-lit street",
-      "incense smoke", "calligraphy backdrop", "dawn over mountains", "twilight horizon",
-      "starlit sky", "lush garden", "carved jade ornaments", "pearl-strung curtains",
-      "embroidered phoenix motif", "rolling clouds", "swirling silk robes", "ink-wash atmosphere",
-      "lacquered red columns",
-    ];
+    const STYLE_SEEDS = SLIDESHOW_LIFE_ARC_SEEDS;
     // Fire generations sequentially with small parallelism (4 at a time)
     // to avoid hammering free providers and getting rate-limited.
     const BATCH = 4;
@@ -42318,21 +42692,29 @@ app.post(
       if (!/^[0-9a-fA-F-]{8,64}$/.test(id)) {
         return res.status(400).json({ ok: false, code: "INVALID_WORK_ID" });
       }
-      const user = await getSessionUser(req);
-      if (!user) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+      // CSSOS_WAVE_122 · internal-token bypass for backfill script
+      const internalHdr = String(req.headers["x-cssos-internal"] || "").trim();
+      const isInternal = !!CSSOS_INTERNAL_TOKEN && internalHdr === CSSOS_INTERNAL_TOKEN;
+      let user: any = null;
+      if (!isInternal) {
+        user = await getSessionUser(req);
+        if (!user) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+      }
 
       // Load work to verify ownership / get prompt context
       const workRow = await withClient((c) =>
         c.query<{ user_id: string; title: string; lyrics_preview: string; cover_image: string; civilization: string | null }>(
-          `SELECT user_id, title, lyrics_preview, cover_image, civilization FROM user_works WHERE id = $1 LIMIT 1`,
+          `SELECT user_id, title, lyrics_preview, cover_image, NULL::text AS civilization FROM user_works WHERE id = $1 LIMIT 1`,
           [id],
         ),
       );
       const work = workRow.rows[0];
       if (!work) return res.status(404).json({ ok: false, code: "WORK_NOT_FOUND" });
-      const isOwner = String(work.user_id) === String(user.id);
-      const isAdmin = isCssosAdminEmail(user.email);
-      if (!isOwner && !isAdmin) return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+      if (!isInternal) {
+        const isOwner = String(work.user_id) === String(user.id);
+        const isAdmin = isCssosAdminEmail(user.email);
+        if (!isOwner && !isAdmin) return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+      }
 
       const force = req.body?.force === true;
       const promptOverride = String(req.body?.prompt_override || "").trim();
@@ -42361,16 +42743,7 @@ app.post(
 
       // Generate in parallel. Each frame uses a slightly different style
       // seed phrase so the pool has actual variety.
-      const STYLE_SEEDS = [
-        "wide establishing shot", "intimate close-up", "golden-hour lighting", "moonlit night",
-        "ornate interior", "vast landscape", "soft rain", "swirling mist", "blooming flowers",
-        "candlelit chamber", "windswept hilltop", "embroidered silk", "stone courtyard",
-        "rippling water", "drifting petals", "snow-dusted scene", "lantern-lit street",
-        "incense smoke", "calligraphy backdrop", "dawn over mountains", "twilight horizon",
-        "starlit sky", "lush garden", "carved jade ornaments", "pearl-strung curtains",
-        "embroidered phoenix motif", "rolling clouds", "swirling silk robes", "ink-wash atmosphere",
-        "lacquered red columns",
-      ];
+      const STYLE_SEEDS = SLIDESHOW_LIFE_ARC_SEEDS;
       const tasks: Promise<{ ok: boolean; url?: string; err?: string }>[] = [];
       for (let i = 0; i < need; i++) {
         const seed = STYLE_SEEDS[(existing + i) % STYLE_SEEDS.length];
@@ -42382,7 +42755,7 @@ app.post(
               if (!img.ok) return { ok: false, err: img.error || "image_gen_failed" };
               const url = img.image_url
                 ? img.image_url
-                : (img.image_b64 ? persistBase64Cover(img.image_b64, user.id) : "");
+                : (img.image_b64 ? persistBase64Cover(img.image_b64, (user && user.id) || work.user_id || "auto-slideshow") : "");
               if (!url) return { ok: false, err: "no_url" };
               return { ok: true, url };
             } catch (err) {

@@ -514,6 +514,16 @@
       if (Array.isArray(j.work_cards) && j.work_cards.length) {
         try { renderWorkCards(j.work_cards); } catch (err) { console.warn("[agent-chat] work-card render failed", err); }
       }
+      // CSSOS_WAVE_138 — surface insufficient-credit hints inline.
+      var insufficient = (j.tool_calls || []).find(function (t) {
+        return t && t.result_summary && t.result_summary.indexOf("insufficient_credit") >= 0;
+      });
+      if (insufficient) {
+        renderSystem(tr(
+          "Out of credits for that action. Earn more via plays/forks/boost or top up in Subscription.",
+          "积分不足。可通过播放/被转发/Boost 赚取，或在订阅面板充值。"
+        ));
+      }
       updateMeta({ turns_this_hour: j.turns_this_hour, turns_per_hour_limit: j.turns_this_hour + j.turns_remaining });
     } catch (err) {
       clearTyping();

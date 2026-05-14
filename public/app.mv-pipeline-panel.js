@@ -7476,7 +7476,7 @@
    * behavior: hide ONLY the central output info (person name, bio,
    * chips, status line) — leave the background / video / progress at
    * full brightness. The info reappears on activity OR when the
-   * 情绪字幕 engine randomly switches a font (cssmv:font-switch), then
+   * 情绪字幕 engine randomly switches a font (cssmv:font-shuffle), then
    * auto-hides again after 10s of no operation. */
   function armCinemaInfoAutoHide() {
     if (!cinemaSt || !cinemaSt.stage) return;
@@ -7519,17 +7519,17 @@
     document.addEventListener("pointermove", onMove, { passive: true });
     document.addEventListener("touchstart", onMove, { passive: true });
     document.addEventListener("keydown", onMove);
-    /* CSSOS_WAVE_158 — the 情绪字幕 engine fires cssmv:font-switch each
-     * time it randomly re-styles a word. That counts as activity: the
+    /* CSSOS_WAVE_158 — the global font-shuffle cycle (shuffleTokenFonts) fires
+     * cssmv:font-shuffle on its auto-rotate cadence. That counts as activity: the
      * central info flashes back, then auto-hides again 10s later. */
     function onFontSwitch() { bump(); }
-    globalThis.addEventListener("cssmv:font-switch", onFontSwitch);
+    globalThis.addEventListener("cssmv:font-shuffle", onFontSwitch);
     cinemaSt._infoAutoHide = function () {
       clearTimeout(hideTimer);
       try { document.removeEventListener("pointermove", onMove); } catch (_e) {}
       try { document.removeEventListener("touchstart", onMove); } catch (_e) {}
       try { document.removeEventListener("keydown", onMove); } catch (_e) {}
-      try { globalThis.removeEventListener("cssmv:font-switch", onFontSwitch); } catch (_e) {}
+      try { globalThis.removeEventListener("cssmv:font-shuffle", onFontSwitch); } catch (_e) {}
       showAll();
       cinemaSt._infoAutoHide = null;
     };

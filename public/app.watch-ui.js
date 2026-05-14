@@ -4785,9 +4785,16 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
   // Cache: lazily-built timeline per work signature. Recomputed when
   // pipelineState.title or lyrics changes.
   let cachedSig = "";
-  let cachedTimeline = []; // [{start_s, end_s, text}]
+  let cachedTimeline = []; // [{start_s, end_s, text, words?}]
   let lastIdx = -1;
   let lastSrtFetchSig = "";
+  // CSSOS_WAVE_159 20260514 — 情绪字幕引擎. When the music engine
+  // emitted a WORD-level timeline (Suno + Whisper forced-alignment,
+  // unit:"word"), we keep the raw word list here and build line cues
+  // that carry a `.words` sub-array. The per-character renderer reads
+  // those REAL word windows instead of even-dividing the line duration
+  // — a held note gets a long window, a clipped syllable a short one.
+  let cachedWordTimeline = null; // [{text,start_s,end_s}] or null
 
   // CSSOS_PHASE2_KARAOKE_GUARD 20260504 — Jing
   // "歌词还是只闪了几下，就是不显示出来，我觉得是被什么吃掉了."
@@ -4855,6 +4862,72 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
   const buildTimeline = (ps) => {
     // Tier 1: engine-emitted aligned_lyrics (Suno per-line timing).
     const aligned = Array.isArray(ps?.alignedLyrics) ? ps.alignedLyrics : null;
+    // CSSOS_WAVE_159 — WORD-level path. When the entries are unit:"word"
+    // (Suno run that got Whisper forced-alignment), do NOT treat each
+    // word as its own karaoke line — that would flash one word at a
+    // time. Instead: keep the raw word list, then re-group words back
+    // into the lyric LINES (from ps.lyrics) so the karaoke display
+    // still shows whole lines, while every line cue carries a `.words`
+    // sub-array of REAL per-word [start_s,end_s] windows for the
+    // per-character emotional renderer to bite-sync against.
+    cachedWordTimeline = null;
+    if (aligned && aligned.length > 0 &&
+        aligned.some((e) => String(e && e.unit) === "word")) {
+      const words = aligned
+        .map((w) => ({
+          text: String(w.text || "").trim(),
+          start_s: Number(w.start_s != null ? w.start_s : (Number(w.start_ms || 0) / 1000)) || 0,
+          end_s: Number(w.end_s != null ? w.end_s : (Number(w.end_ms || 0) / 1000)) || 0,
+        }))
+        .filter((w) => w.text && w.end_s > w.start_s)
+        .sort((a, b) => a.start_s - b.start_s);
+      if (words.length) {
+        cachedWordTimeline = words;
+        // Group the words back into display lines. Prefer the real
+        // lyric line breaks from ps.lyrics; fall back to one line per
+        // word if no lyrics text is available.
+        const lyricLines = String(ps?.lyrics || "")
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter((l) => l && !isLyricSectionMarkerModule(l));
+        const cues = [];
+        if (lyricLines.length) {
+          const nonSpaceLen = (s) => Array.from(String(s).replace(/\s+/g, "")).length;
+          let wi = 0;
+          for (let li = 0; li < lyricLines.length && wi < words.length; li += 1) {
+            const need = Math.max(1, nonSpaceLen(lyricLines[li]));
+            const group = [];
+            let got = 0;
+            // Consume words until this line's character budget is met.
+            while (wi < words.length && got < need) {
+              const w = words[wi];
+              group.push(w);
+              got += Math.max(1, nonSpaceLen(w.text));
+              wi += 1;
+            }
+            if (!group.length) break;
+            cues.push({
+              start_s: group[0].start_s,
+              end_s: Math.max(group[0].start_s + 0.25, group[group.length - 1].end_s),
+              text: lyricLines[li],
+              words: group,
+            });
+          }
+          // Any leftover words (lyrics shorter than transcription) →
+          // append as their own cues so nothing is dropped.
+          while (wi < words.length) {
+            const w = words[wi];
+            cues.push({ start_s: w.start_s, end_s: Math.max(w.start_s + 0.25, w.end_s), text: w.text, words: [w] });
+            wi += 1;
+          }
+        } else {
+          for (const w of words) {
+            cues.push({ start_s: w.start_s, end_s: Math.max(w.start_s + 0.25, w.end_s), text: w.text, words: [w] });
+          }
+        }
+        if (cues.length) return cues;
+      }
+    }
     // Tier 2 (CSSOS_PHASE2_INLINE_SRT 20260504): parsed SRT TEXT
     // sitting on pipelineState.subtitlesSrt (set by runAll's subtitles
     // stage). Parse on the fly when aligned is missing — this is the
@@ -5356,6 +5429,62 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
         const text = stripKaraokePunct(String(line.text || ""));
         const chars = Array.from(text); // preserves CJK + emoji clusters
         const perChar = lineDur / Math.max(chars.length, 1);
+        // CSSOS_WAVE_159 20260514 — 情绪字幕引擎: REAL per-character
+        // timing. Jing: "英文歌声不一定每一个字都唱相同的时长…有些词
+        // 唱腔拉很长好几秒，有些词半秒都不到，如果均时长，就无法做到词
+        // 级字幕。" When this cue carries `.words` (Suno + Whisper
+        // forced-alignment, unit:"word"), each character's reveal
+        // window is derived from the REAL sung word it belongs to — a
+        // held word spreads a long window across its chars, a clipped
+        // word a short one. Within a multi-char word we sub-divide its
+        // true window (chars of one sung word ARE roughly co-temporal,
+        // so this is honest, not interpolation across the whole line).
+        // No `.words` → graceful fallback to the even `perChar` divide.
+        //
+        // charTimings[i] = { delay, dur } in SECONDS, relative to the
+        // line's start, for the i-th entry of `chars`.
+        const charTimings = (function () {
+          const words = Array.isArray(line.words) ? line.words : null;
+          if (!words || !words.length) return null;
+          const lineStart = Number(line.start_s || 0);
+          const isSpace = (c) => /\s/.test(c);
+          // Non-space character count carried by each word.
+          const wordCharLists = words.map((w) =>
+            Array.from(String(w.text || "")).filter((c) => !isSpace(c))
+          );
+          const out = new Array(chars.length);
+          let wi = 0;       // current word index
+          let wci = 0;      // char index within current word
+          let lastDelay = 0, lastDur = perChar;
+          for (let i = 0; i < chars.length; i += 1) {
+            if (isSpace(chars[i])) {
+              // Spaces ride the previous char's window (zero visible
+              // glow cost — kara-space is &nbsp;).
+              out[i] = { delay: lastDelay, dur: lastDur };
+              continue;
+            }
+            // Advance past any exhausted words.
+            while (wi < words.length && wci >= wordCharLists[wi].length) {
+              wi += 1; wci = 0;
+            }
+            if (wi >= words.length) {
+              // Ran out of aligned words — extend from the last window.
+              out[i] = { delay: lastDelay + lastDur, dur: lastDur };
+              lastDelay = out[i].delay;
+              continue;
+            }
+            const w = words[wi];
+            const n = Math.max(1, wordCharLists[wi].length);
+            const wStart = Number(w.start_s || 0) - lineStart;
+            const wDur = Math.max(0.08, Number(w.end_s || 0) - Number(w.start_s || 0));
+            const subDur = wDur / n;
+            const delay = wStart + wci * subDur;
+            out[i] = { delay, dur: subDur };
+            lastDelay = delay; lastDur = subDur;
+            wci += 1;
+          }
+          return out;
+        })();
         // CSSOS_PHASE2_PER_CHAR_FONT 20260504 — Jing
         // "普通字幕的每一歌词/每一个字的字幕字体也是可以随机切换的".
         // Each kara-char span pulls its own font from the 92+ font
@@ -5419,8 +5548,11 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
           return Math.random();
         };
         const spans = chars.map((ch, i) => {
-          const delay = (i * perChar).toFixed(2);
-          const dur = perChar.toFixed(2);
+          // CSSOS_WAVE_159 — real per-word window when available,
+          // else the legacy even divide.
+          const ct = charTimings && charTimings[i];
+          const delay = (ct ? Math.max(0, ct.delay) : i * perChar).toFixed(2);
+          const dur = (ct ? Math.max(0.08, ct.dur) : perChar).toFixed(2);
           const isWhitespace = /\s/.test(ch);
           const safe = isWhitespace
             ? "&nbsp;"

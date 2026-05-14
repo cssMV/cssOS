@@ -2312,6 +2312,64 @@ async function whisperTranscribe(audioPath: string, language?: string): Promise<
   }
 }
 
+/* CSSOS_WAVE_159 20260514 — 情绪字幕引擎 (Emotional Subtitle Engine).
+ * ----------------------------------------------------------------
+ * Jing's signature feature: per-character subtitle styling where each
+ * character switches font/size/color/shadow exactly when the vocal
+ * "bites" that word. This REQUIRES real per-word timestamps — NOT an
+ * even-division of line duration across characters.
+ *
+ *   "英文歌声不一定每一个字都唱相同的时长…特别是一些词，唱腔可能要
+ *    拉很长好几秒甚至几十秒，而有些词半秒都不到，如果均时长，就无法
+ *    做到词级字幕。"
+ *
+ * kie.ai's get-timestamped-lyrics only aligns Chinese at LINE
+ * granularity, so we run OpenAI Whisper forced-alignment on the actual
+ * rendered audio to recover true word-level timing (~50ms precision).
+ * Whisper word tokens are real sung-duration windows — a held note
+ * gets a long window, a clipped syllable a short one.
+ *
+ * Downloads the audio URL to a tmp file, runs whisperTranscribe with
+ * word granularity, and returns a word-unit LyricTimelineEntry[].
+ * Best-effort: returns undefined on any failure so callers fall back
+ * to the line-level kie.ai timeline. */
+async function alignWordsViaWhisper(
+  audioUrl: string,
+  language?: string,
+): Promise<LyricTimelineEntry[] | undefined> {
+  if (!audioUrl || /^(data|file):/i.test(audioUrl)) return undefined;
+  if (!(process.env.OPENAI_API_KEY || "").trim()) return undefined;
+  let tmp = "";
+  try {
+    const dl = await fetch(audioUrl);
+    if (!dl.ok) {
+      console.warn("[emotional-subs] audio download failed:", dl.status);
+      return undefined;
+    }
+    const buf = Buffer.from(await dl.arrayBuffer());
+    if (!buf.length) return undefined;
+    const ext = /\.(mp3|wav|m4a|ogg|flac)(\?|$)/i.exec(audioUrl)?.[1] || "mp3";
+    tmp = path.join(os.tmpdir(), `emosub_${crypto.randomBytes(5).toString("hex")}.${ext}`);
+    fs.writeFileSync(tmp, buf);
+    const wr = await whisperTranscribe(tmp, language);
+    if (!wr || !wr.words || !wr.words.length) return undefined;
+    const timeline: LyricTimelineEntry[] = wr.words
+      .map((w) => ({
+        text: String(w.word || "").replace(/\s+/g, " ").trim(),
+        start_s: Math.max(0, w.ts_ms / 1000),
+        end_s: Math.max(0, w.end_ms / 1000),
+        unit: "word" as const,
+      }))
+      .filter((e) => e.text && e.end_s > e.start_s);
+    return timeline.length ? timeline : undefined;
+  } catch (err) {
+    console.warn("[emotional-subs] whisper align threw:", err instanceof Error ? err.message : err);
+    return undefined;
+  } finally {
+    if (tmp) { try { fs.unlinkSync(tmp); } catch (_e) {} }
+  }
+}
+
 /* POST /api/mv/audio/upload — happy path:
  *   1. multer receives file (≤100MB)
  *   2. ffprobe extracts metadata + DRM check (reject if encrypted)
@@ -6624,7 +6682,17 @@ app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
             ...(tier.alt_duration_s ? { alt_duration_secs: tier.alt_duration_s } : {}),
             ...(tier.audio_id ? { audio_id: tier.audio_id } : {}),
             ...(tier.lyrics_timeline && tier.lyrics_timeline.length
-              ? { lyrics_timeline: tier.lyrics_timeline }
+              ? {
+                  lyrics_timeline: tier.lyrics_timeline,
+                  // CSSOS_WAVE_159 — the frontend music stage reads
+                  // `aligned_lyrics` into state.alignedLyrics, which seeds
+                  // the karaoke timeline cache + 情绪字幕 engine. Emit it
+                  // under that name too. Each entry keeps its `unit`
+                  // ("word" when Whisper forced-alignment ran, "line"
+                  // otherwise) so the renderer knows whether it can drive
+                  // true per-character bite-sync or must fall back.
+                  aligned_lyrics: tier.lyrics_timeline,
+                }
               : {}),
           }));
           return res.end();
@@ -6723,7 +6791,11 @@ app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
         ...(music.alt_duration_s ? { alt_duration_secs: music.alt_duration_s } : {}),
         ...(music.audio_id ? { audio_id: music.audio_id } : {}),
         ...(music.lyrics_timeline && music.lyrics_timeline.length
-          ? { lyrics_timeline: music.lyrics_timeline }
+          ? {
+              lyrics_timeline: music.lyrics_timeline,
+              // CSSOS_WAVE_159 — see tier-sweep branch above.
+              aligned_lyrics: music.lyrics_timeline,
+            }
           : {}),
       });
     }
@@ -15216,6 +15288,9 @@ type MusicGenRequest = {
   lyrics?: string;
   title?: string;
   instrumental?: boolean;
+  /* CSSOS_WAVE_159 — ISO language hint for Whisper forced-alignment of
+   * the 情绪字幕 word-level timeline. Optional — Whisper auto-detects. */
+  language?: string;
 };
 /* CSSOS_WAVE_156 — word/line-level lyric timeline returned by singing
  * engines (Suno via kie.ai). Each entry is the actual sung word/line
@@ -15718,6 +15793,23 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
               }
             } catch (_e) { /* try next track */ }
           }
+        }
+        // CSSOS_WAVE_159 — 情绪字幕引擎. The kie.ai timeline above is
+        // LINE-level for Chinese, which cannot drive a per-character
+        // emotional subtitle (each char must re-style exactly when the
+        // vocal bites it). Run Whisper forced-alignment on the chosen
+        // track's rendered audio to recover REAL word-level timing —
+        // held notes get long windows, clipped syllables short ones —
+        // and prefer that over the coarse line-level timeline. On any
+        // failure we keep the kie.ai line-level timeline (graceful).
+        if (!wantInstrumental && chosen.audioUrl) {
+          try {
+            const wordTl = await alignWordsViaWhisper(chosen.audioUrl, req.language);
+            if (wordTl && wordTl.length) {
+              timeline = wordTl;
+              console.log(`[music-router] suno: whisper word-align OK (${wordTl.length} words)`);
+            }
+          } catch (_e) { /* keep line-level timeline */ }
         }
         void resetEngineFailures(provider);
         // CSSOS_WAVE_158 — Jing: "先播放完毕这两首刚输出的歌曲，才显示

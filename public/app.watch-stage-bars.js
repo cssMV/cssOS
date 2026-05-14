@@ -43,7 +43,10 @@
   const SVG_NS = "http://www.w3.org/2000/svg";
   // Pipeline stage order. Source of truth lives in app.mv-pipeline-panel.js
   // (STAGE_ORDER); this array MUST stay in sync with it.
-  const STAGES = ["cover", "lyrics", "music", "video", "subtitles", "compose"];
+  // CSSOS_WAVE_157 20260514 — Jing: pipeline order is
+  // 歌词→封面图→音乐→视频→字幕→合成. Lyrics first so the 京典 text
+  // seeds the cover prompt, music mood, and subtitle timeline.
+  const STAGES = ["lyrics", "cover", "music", "video", "subtitles", "compose"];
   // Watch panel border-radius. Matches style.css --radius (24px).
   const PANEL_RADIUS_PX = 24;
   // Bar stroke thickness. Jing earlier: "尺寸小一半" — halved from 10 → 5.

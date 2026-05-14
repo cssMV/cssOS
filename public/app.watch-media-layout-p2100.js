@@ -1864,7 +1864,8 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
   //         stage's label only.
   // ========================================================================
   (function installSixStageTitleAndAutoplay() {
-    const ALL_STAGES = ["cover", "lyrics", "music", "video", "subtitles", "compose"];
+    // CSSOS_WAVE_157 20260514 — order: 歌词→封面图→音乐→视频→字幕→合成.
+    const ALL_STAGES = ["lyrics", "cover", "music", "video", "subtitles", "compose"];
     let _autoPlayed = false;
     let _allDoneAt = 0;
 

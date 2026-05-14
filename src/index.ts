@@ -3513,20 +3513,32 @@ async function runAgentTool(
 
       let lyricsText: string | null = null;
       let lyricsProvider = "";
+      // CSSOS_WAVE_142 20260514 — Jing: nginx timed out create_work at
+      // 5min because LLM tier-sweep × 3 retries × multi-provider stacked
+      // past the deadline. Cap total wall time at 90s via Promise.race;
+      // also drop retries from 3 → 2 since the second attempt with
+      // raised temperature is usually the deciding one anyway.
+      const deadlineMs = 90_000;
+      const t0 = Date.now();
       try {
         let attempt = 0;
-        while (attempt < 3 && !lyricsText) {
+        while (attempt < 2 && !lyricsText) {
           attempt += 1;
-          const r = await callLlm({
-            messages: [
-              { role: "system", content: sysPrompt },
-              { role: "user",   content: userPrompt },
-            ],
-            max_tokens: wt === "triptych" ? 7200 : (wt === "opera" ? 9000 : 3200),
-            temperature: attempt === 1 ? 0.75 : 0.9,
-          });
+          if (Date.now() - t0 > deadlineMs) break;
+          const remaining = deadlineMs - (Date.now() - t0);
+          const r = await Promise.race([
+            callLlm({
+              messages: [
+                { role: "system", content: sysPrompt },
+                { role: "user",   content: userPrompt },
+              ],
+              max_tokens: wt === "triptych" ? 7200 : (wt === "opera" ? 9000 : 3200),
+              temperature: attempt === 1 ? 0.75 : 0.9,
+            }),
+            new Promise<any>((resolve) => setTimeout(() => resolve({ ok: false, error: "deadline_exceeded" }), Math.max(5_000, remaining))),
+          ]);
           const text = (r && r.ok && r.content) ? r.content.trim() : "";
-          const lines = text ? text.split(/\r?\n/).filter((l) => l.trim().length > 0).length : 0;
+          const lines = text ? text.split(/\r?\n/).filter((l: string) => l.trim().length > 0).length : 0;
           const sections = text ? (text.match(/\[(Verse|Chorus|Bridge|Outro|Pre-Chorus)/gi) || []).length : 0;
           const minLines = wt === "single" ? 40 : (wt === "triptych" ? 100 : 60);
           const minSections = wt === "single" ? 8 : (wt === "triptych" ? 20 : 8);
@@ -3539,7 +3551,12 @@ async function runAgentTool(
       } catch (_err) { /* fall through */ }
 
       if (!lyricsText) {
-        return { error: "lyrics_generation_failed", hint: "All free-tier LLM providers returned short / empty output. Try again in a few minutes (most reset at UTC 00:00) or upgrade to a paid tier." };
+        // CSSOS_WAVE_142 — refund the credit we debited up-front. Even
+        // staff-exempt users get a clean ledger entry via creditUserBalance.
+        try {
+          await creditUserBalance(ctx.userId, debitCost, "create_work_refund", { reason: "lyrics_generation_failed", title, work_type: wt });
+        } catch (_) {}
+        return { error: "lyrics_generation_failed", hint: "Free-tier LLM providers all timed out or returned short output. Credits refunded. Try again in a few minutes (most providers reset at UTC 00:00)." };
       }
 
       // Split into parts for triptych / opera / etc.

@@ -529,7 +529,29 @@
           ui_locale: uiLocale(),
         }),
       });
-      var j = await r.json();
+      // CSSOS_WAVE_142 20260514 — Jing fix: when the server / nginx
+      // times out a long create_work call, response body is HTML or
+      // empty, and `r.json()` throws iOS WebKit's "The string did not
+      // match the expected pattern.". Catch that explicitly and show
+      // a user-meaningful message instead of the raw regex error.
+      var j = null;
+      try {
+        j = await r.json();
+      } catch (parseErr) {
+        clearTyping();
+        var hint = r.status === 504 || r.status === 502
+          ? tr(
+              "Creation took too long and the server cut it off. Try a shorter prompt, or wait a minute and retry — most third-party LLM providers reset on the hour.",
+              "创作耗时过长被服务器截断。请缩短提示词后重试，或等一两分钟（多数第三方 LLM 在整点恢复配额）。"
+            )
+          : tr(
+              "Server returned a non-JSON response (status ", "服务器返回非 JSON（状态 "
+            ) + r.status + "). " + tr(
+              "Try again in a moment.", "稍后再试。"
+            );
+        renderSystem(hint);
+        return;
+      }
       clearTyping();
       if (!j.ok) {
         if (r.status === 401) {

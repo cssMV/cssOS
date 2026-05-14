@@ -3556,6 +3556,19 @@ html[data-theme="light"] .works-fp-optin-desc {
   animation: mirrorSpellcastBreath 0.42s ease-in-out infinite;
 }
 
+/* CSSOS_WAVE_149 20260514 — Jing: "logo 太大，静默时可以这么大，但是
+   急促呼吸的时候请改小，像 Apple Store 启动的苹果 logo 那么大". When
+   the logo panel enters ANY lyric-spellcast (rapid-breathing) state,
+   shrink the mirror to the ~150px Apple-boot-logo footprint. Idle
+   (no .lyric-spellcast) keeps the full --mirror-size. */
+.logo-panel.lyric-spellcast .mirror {
+  width: min(150px, 38vw) !important;
+  height: min(150px, 38vw) !important;
+  max-width: 150px !important;
+  max-height: 150px !important;
+  transition: width 360ms ease, height 360ms ease;
+}
+
 .logo-panel.lyric-spellcast--halo .mirror::before {
   content: "";
   position: absolute;

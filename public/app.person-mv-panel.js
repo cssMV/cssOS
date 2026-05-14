@@ -2592,7 +2592,11 @@
       ".pmv-codex .pmv-mv-card{aspect-ratio:16/9;background:rgba(0,0,0,.4);border:1px solid rgba(0,245,160,.2);border-radius:8px;cursor:pointer;position:relative;overflow:hidden;}" +
       ".pmv-codex .pmv-mv-poster{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}" +
       ".pmv-codex .pmv-mv-fallback{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:36px;background:linear-gradient(135deg,#012019,#003a2c);color:#bff5dc;}" +
-      ".pmv-codex .pmv-mv-meta{position:absolute;left:0;right:0;bottom:0;padding:4px 6px;background:linear-gradient(transparent,rgba(0,0,0,.7));font:600 11px/1.2 ui-monospace,monospace;color:#bff5dc;text-align:right;}" +
+      /* CSSOS_WAVE_149 20260514 — Jing: 右下角小图标排太密. Split the
+         three bottom overlays into distinct corners so they breathe:
+         duration → bottom-LEFT pill, view/like stats → bottom-RIGHT
+         upper row, comment/share actions → bottom-RIGHT lower row. */
+      ".pmv-codex .pmv-mv-meta{position:absolute;left:6px;bottom:6px;right:auto;padding:2px 7px;border-radius:4px;background:rgba(0,0,0,.6);font:600 10px/1.2 ui-monospace,monospace;color:#bff5dc;text-align:left;}" +
       ".pmv-codex .pmv-source-chip{display:inline-block;margin-top:8px;padding:3px 9px;border-radius:999px;background:rgba(0,245,160,.10);border:1px solid rgba(0,245,160,.28);font:600 10px/1.4 ui-monospace,monospace;color:#9ad6c0;letter-spacing:.04em;}" +
       ".pmv-codex .pmv-empty-mv{text-align:center;padding:30px 12px;color:#9ad6c0;}" +
       ".pmv-codex .pmv-mini-row{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;}" +
@@ -2603,9 +2607,9 @@
       ".pmv-codex .pmv-influence-bar{height:6px;border-radius:3px;background:rgba(255,255,255,.08);margin-top:6px;overflow:hidden;}" +
       ".pmv-codex .pmv-influence-fill{height:100%;background:linear-gradient(90deg,#00f5a0,#7dffce);}" +
       /* CSSOS_PERSON_MV_WAVE5 20260507 — view+like badge + wave 8 hero attribution */
-      ".pmv-codex .pmv-mv-stats{position:absolute;right:6px;bottom:18px;padding:2px 6px;border-radius:4px;background:rgba(0,0,0,.55);font:600 10px/1.2 ui-monospace,monospace;color:#daffee;letter-spacing:.02em;}" +
+      ".pmv-codex .pmv-mv-stats{position:absolute;right:6px;bottom:34px;padding:2px 7px;border-radius:4px;background:rgba(0,0,0,.6);font:600 10px/1.2 ui-monospace,monospace;color:#daffee;letter-spacing:.02em;}" +
       /* CSSOS_PERSON_MV_WAVE12B 20260508 — comments + share overlay icons on each card. */
-      ".pmv-codex .pmv-mv-card .pmv-mv-actions{position:absolute;right:6px;bottom:6px;display:flex;gap:4px;z-index:2;}" +
+      ".pmv-codex .pmv-mv-card .pmv-mv-actions{position:absolute;right:6px;bottom:6px;display:flex;gap:6px;z-index:2;}" +
       ".pmv-codex .pmv-mv-card .pmv-mv-icon{all:unset;cursor:pointer;padding:4px 8px;border-radius:999px;background:rgba(0,0,0,.5);color:#daffee;font:600 11px/1 ui-monospace,monospace;}" +
       ".pmv-codex .pmv-mv-card .pmv-mv-icon:hover{background:rgba(0,245,160,.3);}" +
       /* CSSOS_PERSON_MV_WAVE13 20260508 — official sample ribbon + create-my-version CTA. */
@@ -3139,6 +3143,29 @@
         btn.addEventListener("click", async function(){
           if (!(await requireSignedInForAction("create"))) return;
           enterCinemaForPerson({ forceNew: true });
+        });
+      });
+      // CSSOS_WAVE_149 20260514 — Jing: 人物 codex 的 MV 卡片无法点击进
+      // MV 面板欣赏. The landmark codex wired this; the person codex
+      // never did. Click a gallery card → open the MV pipeline panel
+      // in cinema mode with that work queued. Skip clicks that landed
+      // on the inner comment/share icon buttons.
+      host.querySelectorAll(".pmv-mv-card").forEach(function (card) {
+        card.addEventListener("click", function (e) {
+          if (e.target && e.target.closest && e.target.closest(".pmv-mv-icon")) return;
+          var wid = card.getAttribute("data-work-id");
+          if (!wid) return;
+          if (typeof globalThis.openMvPipelinePanel === "function") {
+            globalThis.openMvPipelinePanel({
+              cinema: true,
+              queue: [wid],
+              personId: p.person_id,
+              personName: primary,
+              personEra: p.era || "",
+              personCiv: p.civilization || "",
+              personPortrait: p.portrait_url || "",
+            });
+          }
         });
       });
       /* CSSOS_WAVE_110E3 20260510 — Jing

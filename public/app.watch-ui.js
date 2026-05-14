@@ -9480,6 +9480,15 @@ async function renderMarketWorkPreviewIntoWatchModule({
   seed = {},
   previewUnlimited = false
 } = {}) {
+  // CSSOS_WAVE_121 20260513 — work-id-binding hard contract.
+  // EVERY entry into the watch render path MUST bind the work_id first
+  // so cached frames / fallback thumbs from the previous work get
+  // flushed before this work's assets are drawn. Prevents 张冠李戴.
+  try {
+    if (work && typeof globalThis.cssosBindToWorkId === "function") {
+      globalThis.cssosBindToWorkId(work);
+    }
+  } catch (_e) {}
   openWatchPreviewShellModule({ fallbackTab: "mv" });
   clearWatchPreviewLimit();
   renderSongSeedPreviewModule(seed);

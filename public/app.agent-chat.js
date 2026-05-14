@@ -288,6 +288,96 @@
     messages.scrollTop = messages.scrollHeight;
   }
 
+  /* CSSOS_WAVE_136 20260513 — Jing: rich work-card renderer.
+   * Renders 1-N work cards returned by the create_work tool. Each card
+   * shows the cover image (or gradient placeholder) above, title +
+   * meta below, and two action buttons: ▶ Play (deep-links to the MV
+   * panel) + 📝 View lyrics (expands the full 京典 10-section text in
+   * place). Triptych and opera responses produce a horizontal scroll
+   * track of cards. */
+  function renderWorkCards(cards) {
+    var messages = document.getElementById("cssos-agent-messages");
+    if (!messages || !Array.isArray(cards) || !cards.length) return;
+    injectWorkCardStyles();
+    var wrap = document.createElement("div");
+    wrap.className = "cssos-agent-work-cards" + (cards.length > 1 ? " is-multi" : "");
+    cards.forEach(function (c) {
+      var bg = c.cover_url
+        ? 'background-image:url(' + esc(String(c.cover_url)) + ');'
+        : 'background:linear-gradient(135deg,#012019,rgba(0,245,160,0.18));';
+      var meta = [c.work_type, c.style, c.civilization, c.language]
+        .filter(Boolean).join(" · ");
+      var card = document.createElement("article");
+      card.className = "cssos-agent-work-card";
+      card.innerHTML = [
+        '<div class="cover" style="' + bg + '">',
+        '  <span class="badge">' + esc(c.work_type || "single") + '</span>',
+        '</div>',
+        '<div class="info">',
+        '  <div class="title">' + esc(c.title || "—") + '</div>',
+        '  ' + (meta ? '<div class="meta">' + esc(meta) + '</div>' : ''),
+        '  <div class="actions">',
+        '    <button type="button" data-act="play">▶ ' + esc(tr("Play in MV panel", "在 MV 面板播放")) + '</button>',
+        '    <button type="button" data-act="lyrics">📝 ' + esc(tr("View lyrics", "看歌词")) + '</button>',
+        '  </div>',
+        '  <pre class="lyrics" hidden></pre>',
+        '</div>',
+      ].join("");
+      card.querySelector('[data-act="play"]').addEventListener("click", function () {
+        var wid = c.work_id;
+        if (typeof globalThis.openMarketWorkPreview === "function") {
+          globalThis.openMarketWorkPreview({ id: wid, work_id: wid });
+          togglePanel();
+          return;
+        }
+        try {
+          var url = new URL(window.location.href);
+          url.searchParams.set("cssMV", wid);
+          window.history.pushState({}, "", url.toString());
+          window.dispatchEvent(new PopStateEvent("popstate"));
+          togglePanel();
+        } catch (_) {
+          window.location.href = "/?cssMV=" + encodeURIComponent(wid);
+        }
+      });
+      card.querySelector('[data-act="lyrics"]').addEventListener("click", function () {
+        var pre = card.querySelector(".lyrics");
+        if (!pre) return;
+        if (pre.hidden) {
+          pre.textContent = String(c.lyrics_preview || "");
+          pre.hidden = false;
+        } else {
+          pre.hidden = true;
+        }
+      });
+      wrap.appendChild(card);
+    });
+    messages.appendChild(wrap);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function injectWorkCardStyles() {
+    if (document.getElementById("cssos-agent-work-card-style")) return;
+    var st = document.createElement("style");
+    st.id = "cssos-agent-work-card-style";
+    st.textContent = [
+      ".cssos-agent-work-cards{display:flex;flex-direction:column;gap:10px;margin:8px 0;}",
+      ".cssos-agent-work-cards.is-multi{display:flex;flex-direction:row;overflow-x:auto;scroll-snap-type:x mandatory;padding-bottom:4px;}",
+      ".cssos-agent-work-cards.is-multi .cssos-agent-work-card{flex:0 0 240px;scroll-snap-align:start;}",
+      ".cssos-agent-work-card{background:rgba(8,18,14,0.7);border:1px solid rgba(0,245,160,0.32);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;}",
+      ".cssos-agent-work-card .cover{position:relative;width:100%;aspect-ratio:1/1;background-size:cover;background-position:center;}",
+      ".cssos-agent-work-card .cover .badge{position:absolute;top:6px;left:6px;padding:3px 9px;border-radius:999px;background:rgba(0,245,160,0.85);color:#0a0d12;font:700 10px/1 ui-monospace,monospace;letter-spacing:.05em;text-transform:uppercase;}",
+      ".cssos-agent-work-card .info{padding:10px 12px;display:flex;flex-direction:column;gap:6px;}",
+      ".cssos-agent-work-card .title{font:600 14px/1.25 -apple-system,system-ui,sans-serif;color:#fff;}",
+      ".cssos-agent-work-card .meta{font:500 11px/1.3 ui-monospace,monospace;color:rgba(255,255,255,0.55);}",
+      ".cssos-agent-work-card .actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;}",
+      ".cssos-agent-work-card .actions button{flex:1;background:rgba(0,245,160,0.18);color:#5effc9;border:1px solid rgba(0,245,160,0.35);padding:7px 8px;border-radius:8px;font:600 12px/1.2 -apple-system,system-ui,sans-serif;cursor:pointer;}",
+      ".cssos-agent-work-card .actions button:hover{background:rgba(0,245,160,0.28);}",
+      ".cssos-agent-work-card .lyrics{margin:6px 0 0;padding:8px 10px;background:rgba(0,0,0,0.32);border-radius:8px;color:#dde6ff;font:500 11.5px/1.5 ui-monospace,monospace;white-space:pre-wrap;max-height:260px;overflow:auto;}",
+    ].join("\n");
+    document.head.appendChild(st);
+  }
+
   async function clearConversation() {
     try {
       await fetch("/api/agent/session?session_id=" + encodeURIComponent(ensureSessionId()), {
@@ -337,6 +427,13 @@
       var toolNames = (j.tool_calls || []).map(function (t) { return t.name; });
       if (j.reply) renderMsg("assistant", j.reply, toolNames);
       if (j.seed) renderSeedCard(j.seed);
+      // CSSOS_WAVE_136 20260513 — rich work-cards from chat-to-creation.
+      // The backend create_work tool returns one or more user_works rows
+      // with cover + lyrics; render each as a clickable card that deep-
+      // links into the MV panel.
+      if (Array.isArray(j.work_cards) && j.work_cards.length) {
+        try { renderWorkCards(j.work_cards); } catch (err) { console.warn("[agent-chat] work-card render failed", err); }
+      }
       updateMeta({ turns_this_hour: j.turns_this_hour, turns_per_hour_limit: j.turns_this_hour + j.turns_remaining });
     } catch (err) {
       clearTyping();

@@ -3242,6 +3242,36 @@ const AGENT_TOOLS = [
       required: ["hash"],
     },
   },
+  {
+    // CSSOS_WAVE_136 20260513 — Jing's directive: chat-to-creation.
+    // When the user asks for a song / lyric / MV (e.g. "请创作中国古风
+    // 《凌霄宝殿》" or "三部曲《朋友兄弟》, 副歌必须有..."), Claude
+    // calls this tool. The tool runs the same 京典模板 pipeline used
+    // by the daily cron + /api/mv/lyrics endpoint, persists a real
+    // user_works row owned by the caller, then returns a structured
+    // "work_card" object that the chat frontend renders as a rich card
+    // (cover above, audio/video buttons below). For triptych/opera/
+    // multi-scene types, returns an array of cards.
+    name: "create_work",
+    description: "Generate a full cssOS work (lyrics + cover) for the user from a free-text prompt. Use this whenever the user asks you to create a song, MV, opera, triptych, short play, series, or film. The user owns the resulting work. Output is rendered inline as rich work cards in the chat. Cost: ~$0.01 per song (lite tier — lyrics + cover only; audio/video are deferred to a separate explicit step). Lyrics always follow the 京典 10-section template (Verse 1, Verse 2, Chorus 1, Verse 3, Verse 4, Chorus 2, Bridge, Chorus 3, Chorus 4, Outro — 4 body lines per section + 1 ancestral-language ritual line, 40-50 lines total).",
+    input_schema: {
+      type: "object",
+      properties: {
+        title:        { type: "string", description: "Song / work title in the target language. e.g. '凌霄宝殿', '朋友兄弟', 'Ode to Solitude'." },
+        style:        { type: "string", description: "Genre / style hint. e.g. '中国古风 / 笛 / 民乐', 'rock anthem / electric guitar', '古典钢琴 / 弦乐'." },
+        civilization: { type: "string", description: "Optional civilization for the ritual-language line. e.g. '中华', 'Roman', 'Hellenic', 'Vedic', 'Egyptian'." },
+        language:     { type: "string", description: "BCP-47 code for the body lines. Default 'zh' if the user's prompt is Chinese, else 'en'." },
+        theme:        { type: "string", description: "Optional one-line angle / story (e.g. '兄弟情深朋友厚谊', 'spring breeze over the southern hills'). The lyricist uses this as the seed." },
+        work_type:    { type: "string", enum: ["single","triptych","opera","shortplay","series","film"], description: "Default 'single'." },
+        required_hooks: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional fixed lyric lines the user demands in the chorus (e.g. '我们一起扛过枪', '我们一起下过乡'). The lyricist embeds these verbatim into Chorus 1/2/3/4."
+        },
+      },
+      required: ["title"],
+    },
+  },
 ];
 
 /* In-process tool dispatcher. Each tool returns a serializable object
@@ -3443,6 +3473,160 @@ async function runAgentTool(
         fingerprinted_at: r.rows[0].fingerprinted_at,
       };
     }
+    case "create_work": {
+      // CSSOS_WAVE_136 20260513 — Jing's directive: chat-to-creation.
+      // Runs the 京典 lyrics generator + image-router for cover, then
+      // INSERTs a user_works row owned by ctx.userId. For triptych /
+      // opera, asks the lyricist to produce all parts in one pass and
+      // splits on [Part N] / [Scene N] markers.
+      const title = String(inp.title || "").trim();
+      if (!title) return { error: "title_required" };
+      const style = String(inp.style || "").trim();
+      const civilization = String(inp.civilization || "").trim();
+      const lang = String(inp.language || (/[一-鿿]/.test(title + " " + style + " " + (inp.theme || "")) ? "zh" : "en")).slice(0, 6);
+      const theme = String(inp.theme || "").trim();
+      const workType = String(inp.work_type || "single").toLowerCase();
+      const requiredHooks: string[] = Array.isArray(inp.required_hooks)
+        ? inp.required_hooks.map((s: any) => String(s || "").trim()).filter(Boolean)
+        : [];
+      const validWorkTypes = new Set(["single","triptych","opera","shortplay","series","film"]);
+      const wt = validWorkTypes.has(workType) ? workType : "single";
+
+      // Build lyricist prompt (re-use the user-facing endpoint's helpers).
+      const sysPrompt = (typeof buildJingdianSystemPrompt === "function")
+        ? buildJingdianSystemPrompt(lang, wt, "")
+        : "Write 10-section 京典 lyric (Verse 1..Outro), 4 body + 1 ritual line each, ≥40 lines.";
+      let userPrompt = (typeof buildJingdianUserPrompt === "function")
+        ? buildJingdianUserPrompt(lang, style, theme || title, wt, "")
+        : `Title: ${title}\nStyle: ${style}\nTheme: ${theme || title}\nWork type: ${wt}`;
+      if (requiredHooks.length) {
+        userPrompt += `\n\nMANDATORY chorus lines (must appear verbatim across Chorus 1/2/3/4, the user has demanded these exact lines — do not paraphrase or translate):\n` +
+          requiredHooks.map((h, i) => `${i + 1}. ${h}`).join("\n");
+      }
+
+      let lyricsText: string | null = null;
+      let lyricsProvider = "";
+      try {
+        let attempt = 0;
+        while (attempt < 3 && !lyricsText) {
+          attempt += 1;
+          const r = await callLlm({
+            messages: [
+              { role: "system", content: sysPrompt },
+              { role: "user",   content: userPrompt },
+            ],
+            max_tokens: wt === "triptych" ? 7200 : (wt === "opera" ? 9000 : 3200),
+            temperature: attempt === 1 ? 0.75 : 0.9,
+          });
+          const text = (r && r.ok && r.content) ? r.content.trim() : "";
+          const lines = text ? text.split(/\r?\n/).filter((l) => l.trim().length > 0).length : 0;
+          const sections = text ? (text.match(/\[(Verse|Chorus|Bridge|Outro|Pre-Chorus)/gi) || []).length : 0;
+          const minLines = wt === "single" ? 40 : (wt === "triptych" ? 100 : 60);
+          const minSections = wt === "single" ? 8 : (wt === "triptych" ? 20 : 8);
+          if (text && lines >= minLines && sections >= minSections) {
+            lyricsText = text;
+            lyricsProvider = r?.provider || "llm";
+            break;
+          }
+        }
+      } catch (_err) { /* fall through */ }
+
+      if (!lyricsText) {
+        return { error: "lyrics_generation_failed", hint: "All free-tier LLM providers returned short / empty output. Try again in a few minutes (most reset at UTC 00:00) or upgrade to a paid tier." };
+      }
+
+      // Split into parts for triptych / opera / etc.
+      const parts: { title: string; lyrics: string }[] = [];
+      if (wt === "triptych") {
+        // Split on [Part II] / [Part III] markers (case-insensitive, robust to
+        // whitespace).
+        const splitRe = /\n\s*\[\s*Part\s+(II|III|2|3)\s*\]\s*\n/i;
+        const segments = lyricsText.split(splitRe).filter((s, i) => i % 2 === 0);
+        if (segments.length >= 2) {
+          segments.slice(0, 3).forEach((seg, idx) => {
+            parts.push({ title: `${title} (${idx + 1}/${segments.length})`, lyrics: seg.trim() });
+          });
+        } else {
+          parts.push({ title, lyrics: lyricsText });
+        }
+      } else {
+        parts.push({ title, lyrics: lyricsText });
+      }
+
+      // Generate covers + INSERT user_works for each part.
+      const cards: any[] = [];
+      for (const part of parts) {
+        let coverUrl = "";
+        try {
+          const img = await callImageGen({
+            prompt: [part.title, style, theme, civilization, "cinematic album cover, dramatic lighting, no text"]
+              .filter(Boolean).join(" — "),
+            size: "1024x1024",
+          });
+          if (img && img.ok) {
+            coverUrl = img.image_url
+              ? img.image_url
+              : (img.image_b64 ? persistBase64Cover(img.image_b64, ctx.userId) : "");
+          }
+        } catch (_) { /* cover is optional */ }
+
+        const workId = crypto.randomUUID();
+        const previewLine = part.lyrics.split(/\r?\n/).find((l) => l.trim().length > 0 && !l.startsWith("[")) || part.title;
+        try {
+          await withClient(async (client) => {
+            await client.query("BEGIN");
+            try {
+              await client.query(
+                `INSERT INTO user_works
+                   (id, user_id, title, style, work_type, lyrics_preview,
+                    cover_image, status, suggested_listen_price_cents,
+                    suggested_buyout_price_cents, created_at, updated_at)
+                  VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6,
+                          $7, 'published', 100, 0,
+                          now(), now())`,
+                [workId, ctx.userId, part.title, style || "", wt, part.lyrics, coverUrl || null],
+              );
+              await client.query(
+                `INSERT INTO work_market_profiles
+                   (work_id, owner_user_id, visibility, current_listen_price_cents,
+                    current_buyout_price_cents, buyout_enabled, tips_enabled,
+                    rights_scope, created_at, updated_at)
+                  VALUES ($1::uuid, $2::uuid, 'private', 100, 0, false, true,
+                          'personal_use', now(), now())
+                  ON CONFLICT (work_id) DO NOTHING`,
+                [workId, ctx.userId],
+              );
+              await client.query("COMMIT");
+            } catch (errIn) { await client.query("ROLLBACK"); throw errIn; }
+          });
+        } catch (errOuter) {
+          return { error: "work_insert_failed", detail: (errOuter as Error)?.message || String(errOuter) };
+        }
+        cards.push({
+          work_id: workId,
+          title: part.title,
+          style: style || "",
+          civilization: civilization || "",
+          language: lang,
+          work_type: wt,
+          cover_url: coverUrl || null,
+          lyrics_preview: part.lyrics,
+          line_count: part.lyrics.split(/\r?\n/).filter((l) => l.trim().length > 0).length,
+          deeplink: `/?cssMV=${workId}`,
+          // Audio/video deferred — frontend renders "Generate music" / "Generate video" buttons
+          // that the user clicks to trigger /api/mv/music + /api/mv/video later.
+          audio_url: null,
+          video_url: null,
+        });
+      }
+
+      return {
+        work_cards: cards,
+        provider: lyricsProvider,
+        work_type: wt,
+        count: cards.length,
+      };
+    }
     default:
       return { error: `unknown_tool:${name}` };
   }
@@ -3485,6 +3669,9 @@ function buildAgentSystemPrompt(uiLocale: string): string {
     `{"prompt":"...","style":"...","language":"...","work_type":"single","__personId":"...","__landmarkId":"...","__dialogue":true,"__storyAngle":"..."}`,
     "```",
     `The frontend parses this fenced block and shows a "Create this MV" button — do not call create_work_from_seed yourself. After emitting the seed block, stop.`,
+    ``,
+    `DIRECT CREATION (W136):`,
+    `  When the user types a clear creation command ("请创作《凌霄宝殿》", "三部曲《朋友兄弟》, 副歌必须有 ...", "write me an opera about Mulan"), bypass the dialogue/seed flow and call the create_work tool immediately. Parse the title from the quotes / 《》, infer work_type from keywords (单曲/single, 三部曲/triptych, 歌剧/opera, 短剧/shortplay, 连续剧/series, 电影/film), and pass any mandatory chorus lines the user listed into required_hooks verbatim. The tool returns work_cards which the frontend renders as rich cards in the chat. Your wrap-up should be one short sentence ("做好了 — 一首 4 分多钟的中国古风《凌霄宝殿》，点击封面进 MV 面板播放") then stop. Do not paste raw lyrics or JSON in the chat reply — the cards already show them.`,
     ``,
     `SAFETY: Never propose RAGE / hate / extremist content. Historical figures should be treated respectfully — risk_notes in the codex flag sensitive cases (e.g. modern political figures).`,
   ].join("\n");
@@ -3617,7 +3804,18 @@ app.post("/api/agent/chat", express.json({ limit: "32kb" }), async (req, res) =>
             return s.length > 240 ? s.slice(0, 240) + "…" : s;
           } catch { return "[unserializable]"; }
         })();
-        toolCallsLog.push({ name: toolName, input: toolInput, result_summary: summary });
+        // CSSOS_WAVE_136 20260513 — Jing: preserve work_cards from the
+        // create_work tool so the frontend chat can render rich cards
+        // inline. Result_summary is a truncated string for the log; the
+        // full work_cards array hitches a ride on a separate field that
+        // the response shaper at the end of this handler picks up.
+        const fullResult = result && typeof result === "object" ? result : null;
+        toolCallsLog.push({
+          name: toolName,
+          input: toolInput,
+          result_summary: summary,
+          ...(fullResult && fullResult.work_cards ? { work_cards: fullResult.work_cards } : {}),
+        } as any);
         toolResults.push({
           type: "tool_result",
           tool_use_id: tb.id,
@@ -3660,11 +3858,22 @@ app.post("/api/agent/chat", express.json({ limit: "32kb" }), async (req, res) =>
   );
   await recordAgentUsage(userId, 1, costCents, sessionId);
 
+  // CSSOS_WAVE_136 — surface work_cards top-level so the chat frontend
+  // doesn't have to dig through tool_calls. We collect cards from every
+  // create_work invocation in this turn (rare to have >1, but supported).
+  const work_cards: any[] = [];
+  for (const tc of toolCallsLog as any[]) {
+    if (tc && tc.name === "create_work" && Array.isArray(tc.work_cards)) {
+      work_cards.push(...tc.work_cards);
+    }
+  }
+
   return res.json({
     ok: true,
     reply,
     seed,
     tool_calls: toolCallsLog,
+    work_cards, // [] when no creation happened
     turns_this_hour: used + 1,
     turns_remaining: Math.max(0, AGENT_TURNS_PER_USER_PER_HOUR - used - 1),
     stop_reason: stopReason,

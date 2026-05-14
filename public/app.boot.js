@@ -667,6 +667,21 @@ window.addEventListener("blur", () => {
 });
 
 window.addEventListener("resize", () => {
-  panels.forEach((panel) => clampPanelInViewport(panel));
+  // CSSOS_WAVE_151 — clamp EVERY .panel (the static `panels` array
+  // misses dynamically-created panels like mv-pipeline-panel and the
+  // W125+ additions). clampAllPanelsInViewport falls back to the
+  // per-panel loop if the global isn't ready yet.
+  if (typeof clampAllPanelsInViewport === "function") {
+    clampAllPanelsInViewport();
+  } else {
+    panels.forEach((panel) => clampPanelInViewport(panel));
+  }
   layoutShowcasePanels();
+});
+// Also clamp on orientation change (mobile) + once shortly after load
+// so panels opened at a stale size get pulled back in.
+window.addEventListener("orientationchange", () => {
+  setTimeout(() => {
+    if (typeof clampAllPanelsInViewport === "function") clampAllPanelsInViewport();
+  }, 250);
 });

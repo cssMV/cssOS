@@ -8989,6 +8989,16 @@ function openPanel(panel, options = {}) {
       panel.dataset.firstOpenMaximized = "1";
     }
   } catch (_e) { /* non-fatal */ }
+  // CSSOS_WAVE_151 20260514 — after a panel opens (and any first-open
+  // maximize toggle settles), pull it back on-screen if it landed
+  // partially or fully outside the viewport. rAF so layout is final.
+  try {
+    requestAnimationFrame(() => {
+      try { clampPanelInViewport(panel); } catch (_) {}
+    });
+  } catch (_) {
+    try { clampPanelInViewport(panel); } catch (_) {}
+  }
   if (shouldFocus) {
     focusPanel(panel);
   }
@@ -27757,16 +27767,61 @@ function placePanelFromTopLeft(panel) {
 
 function clampPanelInViewport(panel) {
   if (!panel) return;
-  if (!panel.style.left && !panel.style.top) return;
-  const rect = panel.getBoundingClientRect();
-  const maxLeft = Math.max(0, window.innerWidth - rect.width);
-  const maxTop = Math.max(0, window.innerHeight - rect.height);
+  // CSSOS_WAVE_151 20260514 — Jing: 有些面板跑出屏幕外，用户无法拖回来.
+  // The old guard `if (!panel.style.left && !panel.style.top) return`
+  // skipped any panel that hadn't been dragged yet — but a panel can
+  // still end up off-screen if it was opened at a wider window size,
+  // or if its own width exceeds the viewport. Now we clamp EVERY
+  // visible panel, and also cap its width/height to the viewport so a
+  // too-big panel can't overflow the right/bottom edge.
+  const isHidden = panel.hidden
+    || panel.classList.contains("hidden")
+    || panel.classList.contains("is-hidden")
+    || (panel.offsetParent === null && getComputedStyle(panel).position !== "fixed");
+  if (isHidden) return;
+  // Don't fight maximized/fullscreen panels — they're meant to fill.
+  if (panel.dataset.maximized === "true" || panel.dataset.maximizeMode === "fullscreen") return;
+
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  let rect = panel.getBoundingClientRect();
+
+  // 1) Cap size to viewport (leave a 12px margin so the panel chrome
+  //    + resize handle stay reachable).
+  const maxW = Math.max(280, vw - 12);
+  const maxH = Math.max(220, vh - 12);
+  if (rect.width > maxW) { panel.style.width = maxW + "px"; }
+  if (rect.height > maxH) { panel.style.height = maxH + "px"; }
+  // Re-measure after any size change.
+  rect = panel.getBoundingClientRect();
+
+  // 2) Clamp position so the panel stays fully on-screen.
+  const maxLeft = Math.max(0, vw - rect.width);
+  const maxTop = Math.max(0, vh - rect.height);
   const clampedLeft = Math.min(Math.max(0, rect.left), maxLeft);
   const clampedTop = Math.min(Math.max(0, rect.top), maxTop);
-  panel.style.left = `${clampedLeft}px`;
-  panel.style.top = `${clampedTop}px`;
-  panel.style.transform = "none";
+  // Only rewrite inline styles if the panel is actually off-screen OR
+  // already had inline positioning — leaves CSS-centered panels alone
+  // unless they genuinely overflow.
+  const offScreen = rect.left < 0 || rect.top < 0
+    || rect.right > vw || rect.bottom > vh;
+  if (offScreen || panel.style.left || panel.style.top) {
+    panel.style.left = `${clampedLeft}px`;
+    panel.style.top = `${clampedTop}px`;
+    panel.style.transform = "none";
+  }
 }
+
+// CSSOS_WAVE_151 — clamp ALL .panel elements (the static `panels`
+// array misses dynamically-created ones like mv-pipeline-panel and
+// the W125+ panels). Exposed globally so any module can call it.
+function clampAllPanelsInViewport() {
+  try {
+    document.querySelectorAll(".panel").forEach((p) => clampPanelInViewport(p));
+  } catch (_) {}
+}
+globalThis.clampAllPanelsInViewport = clampAllPanelsInViewport;
+globalThis.clampPanelInViewport = clampPanelInViewport;
 
 function hexToRgb(hex) {
   const value = hex.replace("#", "");

@@ -18,75 +18,90 @@
  *      (existing function in app.js).
  *   3. Routes guests to login first via openPanel(loginPanel).
  */
+/* CSSOS_WAVE_145 20260514 — Jing: the REAL fix.
+ *
+ * The heavy app.mv-pipeline-panel.js DOES define globalThis.openMvPipelinePanel
+ * at line ~8037, but it's lazy-loaded (<script type="cssos-lazy" data-panel=
+ * "mv-pipeline">). Until something triggers `cssosLoadPanel("mv-pipeline")`,
+ * the function doesn't exist — so person-codex / agent-chat / mic / play /
+ * advanced-apply call sites silently no-op.
+ *
+ * This shim installs a *placeholder* openMvPipelinePanel that:
+ *   1. Triggers cssosLoadPanel("mv-pipeline") which loads the heavy module.
+ *   2. The heavy module's IIFE re-assigns globalThis.openMvPipelinePanel
+ *      with the real implementation.
+ *   3. Once that's done, we call the real one with the same args.
+ *
+ * After the first invocation, the shim is gone (overwritten by the heavy
+ * module) and every subsequent call hits the real function directly. */
 (function () {
-  if (typeof globalThis.openMvPipelinePanel === "function") return;
+  // If the heavy module already loaded (unlikely on first paint but possible
+  // after a SPA route change), keep its version.
+  if (typeof globalThis.openMvPipelinePanel === "function" &&
+      globalThis.openMvPipelinePanel.__cssosShim !== true) {
+    return;
+  }
 
-  function getPanel() { return document.getElementById("cssmv-panel"); }
-  function loginPanel() { return document.getElementById("login-panel"); }
+  var loadInflight = null;
 
-  globalThis.openMvPipelinePanel = function openMvPipelinePanel(opts) {
-    var panel = getPanel();
-    if (!panel) {
-      if (typeof globalThis.showToast === "function") {
-        globalThis.showToast(
-          (typeof globalThis.loginCopy === "function"
-            ? globalThis.loginCopy("MV pipeline panel not loaded yet — try again in a moment.","MV 管线面板尚未加载，请稍候再试。")
-            : "MV pipeline panel not loaded yet.")
-        );
-      }
-      return false;
-    }
-    // Guests → login first.
-    try {
-      if (!globalThis.authState || !globalThis.authState.user) {
+  function placeholder(opts) {
+    var args = arguments;
+    // Trigger lazy load + recurse once the heavy version is in place.
+    if (typeof globalThis.cssosLoadPanel === "function") {
+      if (!loadInflight) loadInflight = globalThis.cssosLoadPanel("mv-pipeline");
+      loadInflight.then(function () {
+        if (typeof globalThis.openMvPipelinePanel === "function" &&
+            globalThis.openMvPipelinePanel.__cssosShim !== true) {
+          try { globalThis.openMvPipelinePanel.apply(null, args); }
+          catch (err) { console.warn("[mv-pipeline-shim] heavy opener threw:", err); }
+        } else {
+          console.warn("[mv-pipeline-shim] panel module loaded but didn't expose openMvPipelinePanel");
+        }
+      }, function (err) {
+        console.warn("[mv-pipeline-shim] lazy load failed:", err);
         if (typeof globalThis.showToast === "function") {
           globalThis.showToast(
             (typeof globalThis.loginCopy === "function"
-              ? globalThis.loginCopy("Please sign in first to enter the MV pipeline.","请先登录后进入 MV 管线。")
-              : "Sign in first.")
+              ? globalThis.loginCopy("MV pipeline failed to load. Refresh the app and try again.",
+                                     "MV 管线加载失败，请重启 app 重试。")
+              : "MV pipeline failed to load.")
           );
         }
-        var lp = loginPanel();
-        if (lp && typeof globalThis.openPanel === "function") globalThis.openPanel(lp);
-        return false;
+      });
+    } else {
+      // No lazy loader available — try to load the script tag directly.
+      var tag = document.querySelector('script[type="cssos-lazy"][data-panel="mv-pipeline"]');
+      if (tag) {
+        var s = document.createElement("script");
+        s.src = tag.getAttribute("src");
+        s.async = false;
+        s.onload = function () {
+          if (typeof globalThis.openMvPipelinePanel === "function" &&
+              globalThis.openMvPipelinePanel.__cssosShim !== true) {
+            try { globalThis.openMvPipelinePanel.apply(null, args); } catch (_) {}
+          }
+        };
+        document.head.appendChild(s);
       }
-    } catch (_) {}
-
-    // Stash seed for the heavy module to consume on its next render.
-    // The seed convention is the same one buildAgentSystemPrompt uses
-    // (cssos-seed JSON block): { prompt, style, language, work_type,
-    // __personId, __landmarkId, __storyAngle, autoStart, forceNew }.
+    }
+    // Best-effort fallback: stash seed for any future consumer.
     if (opts && typeof opts === "object") {
-      var carrier = opts.seed || opts;
       try {
         globalThis.__cssosMvPipelineSeed = {
           ts: Date.now(),
-          seed: carrier,
+          seed: opts.seed || opts,
           autoStart: !!opts.autoStart,
           forceNew: !!opts.forceNew,
         };
-        // Also broadcast via CustomEvent so any future listener picks
-        // it up without having to poll the global.
         try {
           document.dispatchEvent(new CustomEvent("cssos:mv-pipeline-seed", {
-            detail: { seed: carrier, autoStart: !!opts.autoStart, forceNew: !!opts.forceNew },
+            detail: { seed: opts.seed || opts, autoStart: !!opts.autoStart, forceNew: !!opts.forceNew },
           }));
         } catch (_) {}
       } catch (_) {}
     }
-
-    // Open the panel via the existing pattern.
-    try {
-      if (typeof globalThis.openPanel === "function") {
-        globalThis.openPanel(panel);
-      } else {
-        panel.hidden = false;
-        panel.classList.remove("hidden", "is-hidden");
-      }
-    } catch (_) {
-      panel.hidden = false;
-      panel.classList.remove("hidden", "is-hidden");
-    }
-    return true;
-  };
+    return null;
+  }
+  placeholder.__cssosShim = true;
+  globalThis.openMvPipelinePanel = placeholder;
 })();

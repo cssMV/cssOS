@@ -14516,7 +14516,7 @@ async function enqueueSlideshowPoolGeneration(workId: string): Promise<void> {
             const img = await callImageGen({
               prompt: variant,
               size: "1024x1024",
-              prefer: ["fal", "huggingface", "pollinations", "deepinfra"],
+              prefer: ["fal", "replicate", "deepinfra", "huggingface", "pollinations"],
             });
             if (!img.ok) return;
             const url = img.image_url
@@ -43200,8 +43200,13 @@ app.post(
             try {
               const img = await callImageGen({
                 prompt: variant, size,
-                prefer: ["fal", "huggingface", "pollinations", "deepinfra"],
+                prefer: ["fal", "replicate", "deepinfra", "huggingface", "pollinations"],
               });
+              if (!img.ok) {
+                // Per-frame: don't trigger engine cooldown on a single
+                // 429 — backoff briefly and let the provider list move on.
+                await new Promise((r) => setTimeout(r, 250));
+              }
               if (!img.ok) return { ok: false, err: img.error || "image_gen_failed" };
               const url = img.image_url
                 ? img.image_url

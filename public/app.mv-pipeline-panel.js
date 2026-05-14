@@ -1898,12 +1898,16 @@
     if (!host) return;
     if (host.dataset && host.dataset.cssosOverallMounted) return;
     if (host.dataset) host.dataset.cssosOverallMounted = "1";
+    // CSSOS_WAVE_158 20260514 — Jing: 6 capsules, order
+    // 歌词→封面图→音乐→视频→字幕→合成. subtitles was missing entirely;
+    // weights re-sum to 100 (5+10+30+40+5+10).
     const STAGE_META = [
-      { id: "lyrics",   weight: 5,  icon: "✍️", label: "Lyrics" },
-      { id: "music",    weight: 35, icon: "🎵", label: "Music" },
-      { id: "cover",    weight: 10, icon: "🖼️", label: "Cover" },
-      { id: "video",    weight: 40, icon: "🎬", label: "Video" },
-      { id: "compose",  weight: 10, icon: "🎞️", label: "Compose" }
+      { id: "lyrics",    weight: 5,  icon: "✍️", label: "Lyrics" },
+      { id: "cover",     weight: 10, icon: "🖼️", label: "Cover" },
+      { id: "music",     weight: 30, icon: "🎵", label: "Music" },
+      { id: "video",     weight: 40, icon: "🎬", label: "Video" },
+      { id: "subtitles", weight: 5,  icon: "💬", label: "Subtitles" },
+      { id: "compose",   weight: 10, icon: "🎞️", label: "Compose" }
     ];
     host.innerHTML =
       '<div class="cinema-hero-progress" data-mvp-progress>' +
@@ -1914,7 +1918,7 @@
     const stagesEl = host.querySelector("[data-mvp-progress-stages]");
     const fillEl = host.querySelector("[data-mvp-progress-fill]");
     const pctEl = host.querySelector("[data-mvp-progress-pct]");
-    let lastPcts = { lyrics: 0, music: 0, cover: 0, video: 0, compose: 0 };
+    let lastPcts = { lyrics: 0, cover: 0, music: 0, video: 0, subtitles: 0, compose: 0 };
     const renderChips = function (pcts) {
       if (!stagesEl) return;
       stagesEl.innerHTML = STAGE_META.map(function (s) {
@@ -1945,12 +1949,15 @@
       try {
         const pr = ev && ev.detail && ev.detail.progress;
         if (!pr) return;
-        const composePct = (pr.compose != null) ? pr.compose : (pr.subtitles != null ? pr.subtitles : (pr.kara || 0));
+        // CSSOS_WAVE_158 — subtitles is now its own capsule; compose
+        // no longer absorbs it. kara is the legacy merged key.
+        const composePct = (pr.compose != null) ? pr.compose : (pr.kara || 0);
         lastPcts = {
           lyrics: Number(pr.lyrics || 0),
-          music: Number(pr.music || 0),
           cover: Number(pr.cover || 0),
+          music: Number(pr.music || 0),
           video: Number(pr.video || 0),
+          subtitles: Number(pr.subtitles != null ? pr.subtitles : 0),
           compose: Number(composePct || 0),
         };
         const overall = compute(lastPcts);
@@ -7767,7 +7774,45 @@
     };
     const name = person.name || "";
     const sub = [person.nameEn, person.nameNative].filter(Boolean).join(" · ");
-    const chips = [person.era, person.civ].filter(Boolean);
+    // CSSOS_WAVE_158 20260514 — Jing: 中华文明 chip must respect i18n.
+    // Curated map of the common civilization names; unmapped values
+    // fall back to the original Chinese (graceful). On zh locale we
+    // always show the Chinese label.
+    const CIV_I18N = {
+      "中华文明": "Chinese Civilization", "中华文学": "Chinese Literature",
+      "中华神话": "Chinese Mythology", "中华民间": "Chinese Folklore",
+      "中华佛教神话": "Chinese Buddhist Mythology",
+      "古希腊文明": "Ancient Greek Civilization", "古希腊神话": "Greek Mythology",
+      "古罗马文明": "Ancient Roman Civilization",
+      "古埃及文明": "Ancient Egyptian Civilization", "古埃及神话": "Egyptian Mythology",
+      "印度文明": "Indian Civilization", "古印度文明": "Ancient Indian Civilization",
+      "印度教神话": "Hindu Mythology", "佛教神话": "Buddhist Mythology",
+      "现代印度": "Modern India", "莫卧儿印度": "Mughal India",
+      "波斯文明": "Persian Civilization", "拜占庭文明": "Byzantine Civilization",
+      "美索不达米亚文明": "Mesopotamian Civilization", "美索不达米亚神话": "Mesopotamian Mythology",
+      "欧洲文明": "European Civilization", "西方文明": "Western Civilization",
+      "文艺复兴欧洲": "Renaissance Europe", "启蒙欧洲": "Enlightenment Europe",
+      "巴洛克欧洲": "Baroque Europe", "古典主义欧洲": "Classical Europe",
+      "浪漫主义欧洲": "Romantic Europe", "近代欧洲": "Early Modern Europe",
+      "近现代欧洲": "Modern Europe", "维多利亚文学": "Victorian Literature",
+      "北欧神话": "Norse Mythology", "现代北欧": "Modern Nordic",
+      "日本古典": "Classical Japan", "印加文明": "Inca Civilization",
+      "藏文明": "Tibetan Civilization", "中土世界": "Middle-earth",
+      "美国": "United States", "近现代北美": "Modern North America",
+      "现代非洲": "Modern Africa", "现代文学": "Modern Literature",
+      "近现代科学": "Modern Science", "当代": "Contemporary",
+    };
+    const civLabel = function (civ) {
+      if (!civ) return civ;
+      let isZh = false;
+      try {
+        const loc = String(localStorage.getItem("CSSOS_LANG") || localStorage.getItem("cssos.locale") || navigator.language || "en").toLowerCase();
+        isZh = loc.indexOf("zh") === 0;
+      } catch (_e) {}
+      if (isZh) return civ;
+      return CIV_I18N[civ] || civ;
+    };
+    const chips = [person.era, civLabel(person.civ)].filter(Boolean);
     const bgImg = person.portrait
       ? '<div class="cinema-hero-bg" style="background-image:url(\'' + String(person.portrait).replace(/'/g, "%27") + '\');"></div>'
       : '';
@@ -7810,12 +7855,15 @@
       } catch (_e) {}
       return zh;
     };
+    // CSSOS_WAVE_158 20260514 — Jing: 6 capsules, order
+    // 歌词→封面图→音乐→视频→字幕→合成. subtitles was missing.
     const STAGE_META = [
-      { id: "lyrics",   weight: 5,  icon: "✍️", en: "Lyrics",  zh: "写词" },
-      { id: "music",    weight: 35, icon: "🎵", en: "Music",   zh: "配乐" },
-      { id: "cover",    weight: 10, icon: "🖼️", en: "Cover",   zh: "封面" },
-      { id: "video",    weight: 40, icon: "🎬", en: "Video",   zh: "视频" },
-      { id: "compose",  weight: 10, icon: "🎞️", en: "Compose", zh: "合成" }
+      { id: "lyrics",    weight: 5,  icon: "✍️", en: "Lyrics",    zh: "歌词" },
+      { id: "cover",     weight: 10, icon: "🖼️", en: "Cover",     zh: "封面图" },
+      { id: "music",     weight: 30, icon: "🎵", en: "Music",     zh: "音乐" },
+      { id: "video",     weight: 40, icon: "🎬", en: "Video",     zh: "视频" },
+      { id: "subtitles", weight: 5,  icon: "💬", en: "Subtitles", zh: "字幕" },
+      { id: "compose",   weight: 10, icon: "🎞️", en: "Compose",   zh: "合成" }
     ];
     loading.innerHTML =
       bgImg +
@@ -7852,7 +7900,7 @@
     const fillEl = loading.querySelector("[data-cinema-progress-fill]");
     const pctEl = loading.querySelector("[data-cinema-progress-pct]");
     const statusEl = loading.querySelector(".cinema-hero-status-line");
-    let lastPcts = { lyrics: 0, music: 0, cover: 0, video: 0, compose: 0 };
+    let lastPcts = { lyrics: 0, cover: 0, music: 0, video: 0, subtitles: 0, compose: 0 };
     const renderStages = function (pcts) {
       if (!stagesEl) return;
       stagesEl.innerHTML = STAGE_META.map(function (s) {
@@ -7885,13 +7933,15 @@
       try {
         const pr = ev && ev.detail && ev.detail.progress;
         if (!pr) return;
-        // compose stage falls back to subtitles/kara if compose isn't set
-        const composePct = (pr.compose != null) ? pr.compose : (pr.subtitles != null ? pr.subtitles : (pr.kara || 0));
+        // CSSOS_WAVE_158 — subtitles is its own capsule now; compose
+        // only falls back to the legacy merged `kara` key.
+        const composePct = (pr.compose != null) ? pr.compose : (pr.kara || 0);
         lastPcts = {
           lyrics: Number(pr.lyrics || 0),
-          music: Number(pr.music || 0),
           cover: Number(pr.cover || 0),
+          music: Number(pr.music || 0),
           video: Number(pr.video || 0),
+          subtitles: Number(pr.subtitles != null ? pr.subtitles : 0),
           compose: Number(composePct || 0),
         };
         const overall = computeOverall(lastPcts);

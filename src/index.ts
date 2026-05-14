@@ -3537,7 +3537,33 @@ async function runAgentTool(
             }),
             new Promise<any>((resolve) => setTimeout(() => resolve({ ok: false, error: "deadline_exceeded" }), Math.max(5_000, remaining))),
           ]);
-          const text = (r && r.ok && r.content) ? r.content.trim() : "";
+          let text = (r && r.ok && r.content) ? r.content.trim() : "";
+          // CSSOS_WAVE_148 20260514 — Jing: 不要返回人类无法读的歌词.
+          // The LLM sometimes wraps lyrics in a JSON envelope
+          // ({"lyrics":"..."}) or prefixes a markdown fence / commentary.
+          // Unwrap + de-escape so what we store is clean human-readable
+          // text, never escaped \n or a JSON blob.
+          if (text) {
+            // Strip ```json ... ``` or ``` ... ``` fences.
+            text = text.replace(/^```(?:json|text)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
+            // If it's a JSON envelope, pull the lyrics/text/content field.
+            if (text.startsWith("{") || text.startsWith("[")) {
+              try {
+                const parsed = JSON.parse(text);
+                const inner = parsed && (parsed.lyrics || parsed.text || parsed.content);
+                if (typeof inner === "string" && inner.trim()) text = inner.trim();
+              } catch (_) {
+                const m = text.match(/"(?:lyrics|text|content)"\s*:\s*"([\s\S]*?)"\s*[,}]/);
+                if (m && m[1]) text = m[1];
+              }
+            }
+            // De-escape literal \n \t \" that survive a flawed envelope.
+            if (/\\n/.test(text)) {
+              text = text.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n")
+                         .replace(/\\t/g, "\t").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+            }
+            text = text.trim();
+          }
           const lines = text ? text.split(/\r?\n/).filter((l: string) => l.trim().length > 0).length : 0;
           const sections = text ? (text.match(/\[(Verse|Chorus|Bridge|Outro|Pre-Chorus)/gi) || []).length : 0;
           const minLines = wt === "single" ? 40 : (wt === "triptych" ? 100 : 60);

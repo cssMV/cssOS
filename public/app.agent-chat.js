@@ -387,7 +387,16 @@
         var pre = card.querySelector(".lyrics");
         if (!pre) return;
         if (pre.hidden) {
-          pre.textContent = String(c.lyrics_preview || "");
+          // CSSOS_WAVE_148 20260514 — Jing: 不要返回人类无法读的歌词
+          // (literal "\n" / JSON-escaped). Run through the shared
+          // normalizer which unwraps JSON envelopes, converts literal
+          // \n / \t / \" to real characters, and tidies [Section]
+          // markers onto their own lines.
+          var raw = String(c.lyrics_preview || "");
+          var clean = (typeof globalThis.cssosNormalizeLyricsText === "function")
+            ? globalThis.cssosNormalizeLyricsText(raw)
+            : raw.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\\t/g, "\t").replace(/\\"/g, '"');
+          pre.textContent = clean;
           pre.hidden = false;
         } else {
           pre.hidden = true;

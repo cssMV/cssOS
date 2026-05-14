@@ -7774,43 +7774,27 @@
     };
     const name = person.name || "";
     const sub = [person.nameEn, person.nameNative].filter(Boolean).join(" · ");
-    // CSSOS_WAVE_158 20260514 — Jing: 中华文明 chip must respect i18n.
-    // Curated map of the common civilization names; unmapped values
-    // fall back to the original Chinese (graceful). On zh locale we
-    // always show the Chinese label.
-    const CIV_I18N = {
-      "中华文明": "Chinese Civilization", "中华文学": "Chinese Literature",
-      "中华神话": "Chinese Mythology", "中华民间": "Chinese Folklore",
-      "中华佛教神话": "Chinese Buddhist Mythology",
-      "古希腊文明": "Ancient Greek Civilization", "古希腊神话": "Greek Mythology",
-      "古罗马文明": "Ancient Roman Civilization",
-      "古埃及文明": "Ancient Egyptian Civilization", "古埃及神话": "Egyptian Mythology",
-      "印度文明": "Indian Civilization", "古印度文明": "Ancient Indian Civilization",
-      "印度教神话": "Hindu Mythology", "佛教神话": "Buddhist Mythology",
-      "现代印度": "Modern India", "莫卧儿印度": "Mughal India",
-      "波斯文明": "Persian Civilization", "拜占庭文明": "Byzantine Civilization",
-      "美索不达米亚文明": "Mesopotamian Civilization", "美索不达米亚神话": "Mesopotamian Mythology",
-      "欧洲文明": "European Civilization", "西方文明": "Western Civilization",
-      "文艺复兴欧洲": "Renaissance Europe", "启蒙欧洲": "Enlightenment Europe",
-      "巴洛克欧洲": "Baroque Europe", "古典主义欧洲": "Classical Europe",
-      "浪漫主义欧洲": "Romantic Europe", "近代欧洲": "Early Modern Europe",
-      "近现代欧洲": "Modern Europe", "维多利亚文学": "Victorian Literature",
-      "北欧神话": "Norse Mythology", "现代北欧": "Modern Nordic",
-      "日本古典": "Classical Japan", "印加文明": "Inca Civilization",
-      "藏文明": "Tibetan Civilization", "中土世界": "Middle-earth",
-      "美国": "United States", "近现代北美": "Modern North America",
-      "现代非洲": "Modern Africa", "现代文学": "Modern Literature",
-      "近现代科学": "Modern Science", "当代": "Contemporary",
-    };
+    // CSSOS_WAVE_158 20260514 — Jing: the civilization chip must respect
+    // i18n. cssOS users are global (every language), so we route the civ
+    // value through the canonical CSSOS_I18N.tr() helper — the same
+    // translation catalog every other string uses — instead of a
+    // hardcoded zh→en map. The Chinese civ value is the translation key;
+    // tr() resolves it to whatever locale the user is in (and returns the
+    // key itself on zh / when no translation exists — graceful fallback).
     const civLabel = function (civ) {
       if (!civ) return civ;
-      let isZh = false;
       try {
-        const loc = String(localStorage.getItem("CSSOS_LANG") || localStorage.getItem("cssos.locale") || navigator.language || "en").toLowerCase();
-        isZh = loc.indexOf("zh") === 0;
+        const i18n = globalThis.CSSOS_I18N;
+        if (i18n && typeof i18n.tr === "function") {
+          const out = i18n.tr(civ);
+          if (out) return String(out);
+        }
+        if (typeof globalThis.t === "function") {
+          const out = globalThis.t(civ, civ);
+          if (out) return String(out);
+        }
       } catch (_e) {}
-      if (isZh) return civ;
-      return CIV_I18N[civ] || civ;
+      return civ;
     };
     const chips = [person.era, civLabel(person.civ)].filter(Boolean);
     const bgImg = person.portrait
@@ -8062,9 +8046,13 @@
        * overflow (min-width:max-content + flex:0 0 auto), container
        * scrolls horizontally with hidden scrollbar, active chip auto-
        * scrolls into view via JS scrollIntoView. */
-      '.cinema-hero-progress-stages { display:flex; flex-wrap:nowrap; gap:6px; justify-content:flex-start; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding:2px 4px; }' +
-      '.cinema-hero-progress-stages::-webkit-scrollbar { display:none; }' +
-      '.cinema-hero-progress-chip { font:600 11px/1 ui-monospace,monospace; padding:5px 8px; border-radius:999px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.12); color:rgba(255,255,255,.45); letter-spacing:.04em; transition:background .25s,color .25s,border-color .25s; white-space:nowrap; flex:0 0 auto; min-width:max-content; scroll-snap-align:center; }' +
+      /* CSSOS_WAVE_158 20260514 — Jing: the 6 capsules' combined width
+         must equal the progress bar width. Each chip is flex:1 1 0 so
+         the 6 evenly divide the .cinema-hero-progress container (same
+         max-width as the bar). No horizontal scroll — labels ellipsis
+         if cramped. */
+      '.cinema-hero-progress-stages { display:flex; flex-wrap:nowrap; gap:4px; justify-content:stretch; width:100%; }' +
+      '.cinema-hero-progress-chip { font:600 10.5px/1 ui-monospace,monospace; padding:5px 4px; border-radius:999px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.12); color:rgba(255,255,255,.45); letter-spacing:.02em; transition:background .25s,color .25s,border-color .25s; white-space:nowrap; flex:1 1 0; min-width:0; overflow:hidden; text-overflow:ellipsis; text-align:center; }' +
       '.cinema-hero-progress-chip.active { background:rgba(0,245,160,.16); border-color:rgba(0,245,160,.55); color:#daffee; }' +
       '.cinema-hero-progress-chip.done { background:rgba(0,245,160,.28); border-color:rgba(0,245,160,.85); color:#001a10; }' +
       '.cinema-hero-progress-bar { position:relative; height:6px; border-radius:999px; background:rgba(255,255,255,.08); overflow:hidden; }' +

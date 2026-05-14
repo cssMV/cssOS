@@ -6611,6 +6611,20 @@
           let _durationLabel = "";
           if (_d1 && _d2) _durationLabel = ` · ♪1 ${_d1} · ♪2 ${_d2}`;
           else if (_d1) _durationLabel = ` · ${_d1}`;
+          // CSSOS_WAVE_158 20260514 — Jing: the cinema-hero progress
+          // readout must show 歌1/歌2 total durations once the bar hits
+          // 100%, mirroring the MV PIPELINE panel. Broadcast the freshly
+          // resolved dual-track durations so the hero can stash + render.
+          try {
+            globalThis.dispatchEvent(new CustomEvent("cssmv:music-durations", {
+              detail: {
+                d1Secs: Number(state.duration || 0) || 0,
+                d2Secs: Number(state.altDuration || 0) || 0,
+                d1: _d1 || "",
+                d2: _d2 || "",
+              },
+            }));
+          } catch (_e) {}
           const _musicCardTitle =
             String(state.title || (out._resp && out._resp.title) || "").trim() || "Track";
           setStage(
@@ -7885,6 +7899,9 @@
     const pctEl = loading.querySelector("[data-cinema-progress-pct]");
     const statusEl = loading.querySelector(".cinema-hero-status-line");
     let lastPcts = { lyrics: 0, cover: 0, music: 0, video: 0, subtitles: 0, compose: 0 };
+    // CSSOS_WAVE_158 — dual-track durations, captured from the music
+    // stage; rendered into the pct readout once overall hits 100%.
+    let heroDurations = { d1: "", d2: "" };
     const renderStages = function (pcts) {
       if (!stagesEl) return;
       stagesEl.innerHTML = STAGE_META.map(function (s) {
@@ -7930,8 +7947,29 @@
         };
         const overall = computeOverall(lastPcts);
         if (fillEl) fillEl.style.width = overall + "%";
-        if (pctEl) pctEl.textContent = overall + "%";
+        if (pctEl) pctEl.textContent = overallText(overall);
         renderStages(lastPcts);
+      } catch (_e) {}
+    };
+    // CSSOS_WAVE_158 — at 100% the pct readout shows 歌1/歌2 total
+    // durations (♪1 m:ss · ♪2 m:ss), mirroring the MV PIPELINE panel.
+    const overallText = function (overall) {
+      if (overall >= 100 && (heroDurations.d1 || heroDurations.d2)) {
+        if (heroDurations.d1 && heroDurations.d2) {
+          return "100% · ♪1 " + heroDurations.d1 + " · ♪2 " + heroDurations.d2;
+        }
+        return "100% · " + (heroDurations.d1 || heroDurations.d2);
+      }
+      return overall + "%";
+    };
+    const onMusicDurations = function (ev) {
+      try {
+        const d = (ev && ev.detail) || {};
+        heroDurations = { d1: String(d.d1 || ""), d2: String(d.d2 || "") };
+        // If the bar is already at 100%, refresh the readout in place.
+        if (pctEl && computeOverall(lastPcts) >= 100) {
+          pctEl.textContent = overallText(100);
+        }
       } catch (_e) {}
     };
     const onError = function (ev) {
@@ -7969,10 +8007,12 @@
     };
     try { window.addEventListener("cssos:run_progress", onProgress); } catch (_e) {}
     try { globalThis.addEventListener("cssmv:stage-error", onError); } catch (_e) {}
+    try { globalThis.addEventListener("cssmv:music-durations", onMusicDurations); } catch (_e) {}
     if (cinemaSt) {
       cinemaSt._cleanup = function () {
         try { window.removeEventListener("cssos:run_progress", onProgress); } catch (_e) {}
         try { globalThis.removeEventListener("cssmv:stage-error", onError); } catch (_e) {}
+        try { globalThis.removeEventListener("cssmv:music-durations", onMusicDurations); } catch (_e) {}
       };
     }
     // Initial paint of stage chips at 0%.

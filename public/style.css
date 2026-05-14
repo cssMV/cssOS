@@ -3484,13 +3484,19 @@ html[data-theme="light"] .works-fp-optin-desc {
 }
 @media (max-width: 480px) and (orientation: portrait),
        (max-width: 480px) {
+  /* CSSOS_WAVE_140 20260514 — Jing: "改变尺寸小一点，像 Apple Store
+     启动画面的那个苹果图标". Apple boot logo on 414px viewport is
+     ~110-130px tall. Shrink all instances of the breathing mirror
+     (logo + every place we re-use it as a loader/buffering indicator)
+     to the same ~120px footprint. */
   .mirror,
   .logo-panel .mirror,
-  .mirror-stage .mirror {
-    width: min(33vw, 240px) !important;
-    height: min(33vw, 240px) !important;
-    max-width: 33vw !important;
-    max-height: 33vw !important;
+  .mirror-stage .mirror,
+  .cssos-buffering-mirror {
+    width: min(28vw, 130px) !important;
+    height: min(28vw, 130px) !important;
+    max-width: 130px !important;
+    max-height: 130px !important;
   }
   .mirror-slogan {
     font-size: 13px !important;

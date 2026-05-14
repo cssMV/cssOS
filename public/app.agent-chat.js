@@ -61,6 +61,11 @@
       ".cssos-agent-msg.assistant{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);align-self:flex-start;}",
       ".cssos-agent-msg.system{background:rgba(255,180,80,0.08);border:1px solid rgba(255,180,80,0.28);align-self:center;font-size:11.5px;color:#ffc878;}",
       ".cssos-agent-tools{font:500 11px/1.4 ui-monospace,monospace;color:#79b8ff;margin-top:6px;opacity:0.78;}",
+      /* W140 — per-message copy button (📋) below the body. */
+      ".cssos-agent-msg-actions{display:flex;justify-content:flex-end;margin-top:6px;opacity:0.55;}",
+      ".cssos-agent-msg-actions .copy-btn{background:transparent;border:0;color:inherit;padding:2px 6px;border-radius:5px;font-size:12px;cursor:pointer;line-height:1;}",
+      ".cssos-agent-msg-actions .copy-btn:hover{background:rgba(255,255,255,0.08);opacity:1;}",
+      ".cssos-agent-msg:hover .cssos-agent-msg-actions{opacity:1;}",
       ".cssos-agent-typing{align-self:flex-start;color:#9aa;font-size:13px;font-style:italic;}",
       ".cssos-agent-seed-card{align-self:flex-start;background:rgba(0,245,160,0.08);border:1px solid rgba(0,245,160,0.36);border-radius:12px;padding:10px 12px;margin-top:6px;display:flex;flex-direction:column;gap:8px;max-width:92%;}",
       ".cssos-agent-seed-card .label{font:600 11px/1 ui-monospace,monospace;color:#00f5a0;letter-spacing:.06em;}",
@@ -229,7 +234,12 @@
     if (!messages) return;
     var div = document.createElement("div");
     div.className = "cssos-agent-msg " + (role === "assistant" ? "assistant" : role === "system" ? "system" : "user");
-    div.textContent = text;
+    // CSSOS_WAVE_140 20260514 — Jing: 信息下方加复制图标. Single copy
+    // button below every message body. Pointer-cursor + subtle hover.
+    var bodyEl = document.createElement("div");
+    bodyEl.className = "cssos-agent-msg-body";
+    bodyEl.textContent = text;
+    div.appendChild(bodyEl);
     if (Array.isArray(toolCalls) && toolCalls.length) {
       var tools = document.createElement("div");
       tools.className = "cssos-agent-tools";
@@ -238,6 +248,29 @@
       }).join(" · ");
       div.appendChild(tools);
     }
+    var actions = document.createElement("div");
+    actions.className = "cssos-agent-msg-actions";
+    actions.innerHTML = '<button type="button" class="copy-btn" title="' + esc(tr("Copy","复制")) + '" aria-label="' + esc(tr("Copy","复制")) + '">📋</button>';
+    actions.querySelector(".copy-btn").addEventListener("click", function (e) {
+      e.stopPropagation();
+      try {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+          navigator.clipboard.writeText(text);
+        } else {
+          var ta = document.createElement("textarea");
+          ta.value = text;
+          ta.style.position = "fixed"; ta.style.left = "-9999px";
+          document.body.appendChild(ta); ta.select();
+          document.execCommand("copy");
+          ta.remove();
+        }
+        var btn = actions.querySelector(".copy-btn");
+        var prev = btn.textContent;
+        btn.textContent = "✓";
+        setTimeout(function () { btn.textContent = prev; }, 1200);
+      } catch (err) { /* ignore */ }
+    });
+    div.appendChild(actions);
     messages.appendChild(div);
     messages.scrollTop = messages.scrollHeight;
   }

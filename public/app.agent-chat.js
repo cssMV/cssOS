@@ -520,9 +520,13 @@
       });
       if (insufficient) {
         renderSystem(tr(
-          "Out of credits for that action. Earn more via plays/forks/boost or top up in Subscription.",
-          "积分不足。可通过播放/被转发/Boost 赚取，或在订阅面板充值。"
+          "Out of credits for that action. Tap 💎 in ⋯ menu to top up, or earn more via plays/forks/boost.",
+          "积分不足。点 ⋯ 菜单里的 💎 充值，或通过播放/被转发/Boost 赚取。"
         ));
+        // CSSOS_WAVE_139B — auto-pop the top-up modal when insufficient.
+        if (typeof globalThis.cssosOpenCreditsTopup === "function") {
+          setTimeout(function () { try { globalThis.cssosOpenCreditsTopup(); } catch (_) {} }, 400);
+        }
       }
       updateMeta({ turns_this_hour: j.turns_this_hour, turns_per_hour_limit: j.turns_this_hour + j.turns_remaining });
     } catch (err) {

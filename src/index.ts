@@ -4124,6 +4124,47 @@ async function getCreditBalance(userId: string): Promise<number> {
   } catch (_) { return 0; }
 }
 
+/* CSSOS_WAVE_139B 20260514 — Jing: credit top-up.
+ * Atomic upsert into user_credits + audit row in credit_events. Used
+ * by both Apple IAP verify (W118) and Stripe checkout webhook (W139B). */
+async function creditUserBalance(userId: string, amount: number, reason: string, payload: any = {}): Promise<{ ok: boolean; balance: number; error?: string }> {
+  if (amount <= 0) return { ok: false, balance: 0, error: "non_positive_amount" };
+  try {
+    return await withClient(async (client) => {
+      await client.query("BEGIN");
+      try {
+        await client.query(
+          `INSERT INTO user_credits (user_id, balance, lifetime_earned, updated_at)
+           VALUES ($1::uuid, 0, 0, now())
+           ON CONFLICT (user_id) DO NOTHING`,
+          [userId],
+        );
+        const u = await client.query<{ balance: string }>(
+          `UPDATE user_credits
+              SET balance = balance + $2,
+                  lifetime_earned = lifetime_earned + $2,
+                  updated_at = now()
+            WHERE user_id = $1::uuid
+            RETURNING balance`,
+          [userId, amount],
+        );
+        await client.query(
+          `INSERT INTO credit_events (user_id, delta, reason, payload)
+           VALUES ($1::uuid, $2, $3, $4::jsonb)`,
+          [userId, amount, reason, JSON.stringify(payload)],
+        );
+        await client.query("COMMIT");
+        return { ok: true, balance: Number(u.rows[0]?.balance || 0) };
+      } catch (err) {
+        await client.query("ROLLBACK");
+        throw err;
+      }
+    });
+  } catch (err) {
+    return { ok: false, balance: 0, error: (err as Error)?.message || "credit_failed" };
+  }
+}
+
 /* CSSOS_WAVE_139 20260514 — Jing's directive: 设置 @cssstudio.app 所有
  * 用户和 jingdudc@gmail.com 等系统管理员，可以免积分. */
 async function isCreditExempt(userId: string): Promise<boolean> {
@@ -4215,6 +4256,62 @@ function costForCreateWork(workType: string): number {
 app.get("/api/agent/cost-rates", (_req, res) => {
   noStore(res);
   return res.json({ ok: true, rates: CSSOS_AGENT_COSTS });
+});
+
+/* CSSOS_WAVE_139B 20260514 — credit-pack top-up endpoints.
+ *
+ * POST /api/credits/topup/start — body { product_id }.
+ * Web: returns { checkout_url } for Stripe Checkout.
+ * iOS native callers should NOT hit this — they use cssosIapNative
+ * .purchaseCreditPack(<n>) which routes through StoreKit + the existing
+ * /api/iap/apple/verify path. This endpoint refuses iOS native callers
+ * (frontend gates the button) to stay within App Store 3.1.1.
+ *
+ * Catalog is the same IAP_PRODUCT_CATALOG used by Apple IAP, filtered
+ * to credit_pack entries. amount_cents is what Stripe charges; credits
+ * is what we hand back on success. Stripe session metadata.kind is
+ * "credit_pack" so the existing /api/stripe/webhook processor (extended
+ * below) can grant on checkout.session.completed. */
+app.post("/api/credits/topup/start", express.json({ limit: "4kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const body = (req.body && typeof req.body === "object") ? req.body : {};
+  const productId = String((body as any).product_id || "").trim();
+  const def = IAP_PRODUCT_CATALOG[productId];
+  if (!def || def.kind !== "credit_pack" || !def.credits) {
+    return res.status(400).json({ ok: false, error: "invalid_credit_pack_product" });
+  }
+  const stripe = getStripeClient();
+  if (!stripe) return res.status(503).json({ ok: false, error: "stripe_not_configured" });
+  try {
+    const origin = String(req.headers.origin || "https://cssstudio.app").replace(/\/+$/, "");
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      payment_method_types: ["card"],
+      line_items: [{
+        quantity: 1,
+        price_data: {
+          currency: "usd",
+          unit_amount: def.amount_cents,
+          product_data: {
+            name: `cssOS Credits — ${def.credits} credits`,
+            description: `Top up ${def.credits} cssOS credits for your account.`,
+          },
+        },
+      }],
+      success_url: origin + "/billing/return?session_id={CHECKOUT_SESSION_ID}&kind=credit_pack",
+      cancel_url:  origin + "/billing/return?cancelled=1&kind=credit_pack",
+      metadata: {
+        kind: "credit_pack",
+        product_id: productId,
+        buyer_user_id: String(userId),
+        credits: String(def.credits),
+      },
+    });
+    return res.json({ ok: true, checkout_url: session.url, session_id: session.id });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: "stripe_session_failed", detail: (err as Error)?.message || "" });
+  }
 });
 
 /* GET /api/credits/balance — sign-in required. */
@@ -4834,7 +4931,15 @@ async function grantIapPurchase(opts: {
         ),
       );
     } else if (def.kind === "credit_pack" && def.credits) {
-      // Add credits to user_credits table (create if missing).
+      // CSSOS_WAVE_139B 20260514 — Jing: previously this branch only
+      // logged a usage_events row but never actually incremented the
+      // user_credits.balance ledger. Fixed: real credit + audit row.
+      await creditUserBalance(opts.userId, def.credits, "iap_credit_pack", {
+        product_id: opts.productId,
+        transaction_id: opts.transactionId,
+        amount_cents: def.amount_cents,
+        source: "apple_iap",
+      });
       await withClient((c) =>
         c.query(
           `INSERT INTO usage_events (user_id, route, units, cost_cents, meta)
@@ -21941,6 +22046,41 @@ async function processStripeWebhookEvent(event: Stripe.Event) {
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
+    // CSSOS_WAVE_139B 20260514 — credit-pack top-up via Stripe Checkout.
+    // Metadata.kind === "credit_pack" + product_id + buyer_user_id.
+    if (session.metadata?.kind === "credit_pack") {
+      const buyerId = String(session.metadata?.buyer_user_id || "").trim();
+      const productId = String(session.metadata?.product_id || "").trim();
+      const def = IAP_PRODUCT_CATALOG[productId];
+      if (buyerId && def && def.kind === "credit_pack" && def.credits) {
+        // Idempotency: dedupe on session.id.
+        const dup = await withClient((c) =>
+          c.query<{ id: string }>(
+            `SELECT id FROM credit_events
+              WHERE reason = 'stripe_credit_pack'
+                AND payload->>'stripe_session_id' = $1 LIMIT 1`,
+            [session.id],
+          ),
+        );
+        if (!(dup as any).rows.length) {
+          await creditUserBalance(buyerId, def.credits, "stripe_credit_pack", {
+            stripe_session_id: session.id,
+            product_id: productId,
+            amount_cents: def.amount_cents,
+            source: "stripe_checkout",
+          });
+          await withClient((c) =>
+            c.query(
+              `INSERT INTO usage_events (user_id, route, units, cost_cents, meta)
+               VALUES ($1::uuid, 'stripe_credit_grant', $2, $3, $4::jsonb)`,
+              [buyerId, def.credits, def.amount_cents,
+               JSON.stringify({ product_id: productId, stripe_session_id: session.id, source: "stripe_checkout" })],
+            ),
+          );
+        }
+      }
+      return;
+    }
     // P2-25b: subscription upgrade via Stripe Checkout.
     const membershipTier = normalizeMembershipTier(
       session.metadata?.membership_tier,

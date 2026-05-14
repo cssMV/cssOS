@@ -34,8 +34,12 @@
     st.id = "cssos-agent-overflow-style";
     st.textContent = [
       /* Hide both bug FABs everywhere. Functionality still reachable
-         via the agent panel overflow menu (admin) or programmatic API. */
-      "#cssos-bug-fab,#cssos-crash-fab{display:none!important;}",
+         via the agent panel overflow menu (admin) or programmatic API.
+         CSSOS_WAVE_141 fix: the crash-log-dashboard FAB id is actually
+         `cssos-crash-dash-btn` (not `cssos-crash-fab`); the wrong
+         selector let the 🪲 ladybug keep floating on the bottom-left
+         despite W135's intent. */
+      "#cssos-bug-fab,#cssos-crash-fab,#cssos-crash-dash-btn{display:none!important;}",
       ".cssos-agent-overflow-menu{position:absolute;top:48px;right:12px;background:#0f1219;border:1px solid rgba(255,255,255,0.12);border-radius:10px;padding:6px 0;z-index:10001;min-width:200px;box-shadow:0 8px 24px rgba(0,0,0,0.4);}",
       ".cssos-agent-overflow-menu[hidden]{display:none;}",
       ".cssos-agent-overflow-menu .item{display:flex;align-items:center;gap:8px;padding:9px 14px;font:500 13px/1.2 -apple-system,system-ui,sans-serif;color:#e6e8ee;cursor:pointer;border:0;background:transparent;width:100%;text-align:left;}",
@@ -93,7 +97,8 @@
         if (bugFab && typeof bugFab.click === "function") bugFab.click();
         else if (typeof globalThis.cssosOpenBugReportModal === "function") globalThis.cssosOpenBugReportModal();
       } else if (act === "crash-logs") {
-        var crashFab = document.getElementById("cssos-crash-fab");
+        var crashFab = document.getElementById("cssos-crash-dash-btn")
+          || document.getElementById("cssos-crash-fab");
         if (crashFab && typeof crashFab.click === "function") crashFab.click();
       }
     });

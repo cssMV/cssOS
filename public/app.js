@@ -31120,6 +31120,25 @@ function buildBuiltinDockActionMap() {
     },
     longpress: () => openPanelSettings(deliveryOpsPanel)
   },
+  // CSSOS_WAVE_141 20260514 — Jing fix: 🌌 System MVs dock click was a
+  // no-op because no handler was registered here. renderSystemMvsPanelModule
+  // hydrates the dashboard; we then openPanel() the section.
+  "system-mvs": {
+    click: () => {
+      const panel = document.getElementById("system-mvs-panel");
+      globalThis.renderSystemMvsPanelModule?.();
+      if (panel) openPanel(panel);
+    },
+    dblclick: () => {
+      const panel = document.getElementById("system-mvs-panel");
+      globalThis.renderSystemMvsPanelModule?.();
+      if (panel) { openPanel(panel); openAndMaximize(panel); }
+    },
+    longpress: () => {
+      const panel = document.getElementById("system-mvs-panel");
+      if (panel) openPanelSettings(panel);
+    },
+  },
   login: {
     click: () => openPanel(loginPanel, { userInitiated: true }),
     dblclick: () => openAndMaximize(loginPanel, { userInitiated: true }),

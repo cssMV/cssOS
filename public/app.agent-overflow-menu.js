@@ -68,10 +68,25 @@
     var menu = document.createElement("div");
     menu.className = "cssos-agent-overflow-menu";
     menu.hidden = true;
+    panel.appendChild(menu);
+    refreshMenuItems(menu);
+  }
+
+  // CSSOS_WAVE_143 20260514 — re-render the menu items on every open so
+  // admin-only items (Crash logs) appear after authState loads. The
+  // first build runs before login, when viewerIsAdmin() returns false.
+  function refreshMenuItems(menu) {
     var admin = viewerIsAdmin();
+    var hadCrash = !!menu.querySelector('[data-act="crash-logs"]');
+    var hadBug   = !!menu.querySelector('[data-act="bug-report"]');
+    var hadDm    = !!menu.querySelector('[data-act="dm"]');
+    // If nothing has changed since last build, keep the menu intact —
+    // other modules (chat-rooms, dm-inbox, credits-topup, provider-health)
+    // append their own items here; we don't want to clobber them.
+    if (hadBug && hadDm && (admin === hadCrash)) return;
     menu.innerHTML = [
       '<button class="item" data-act="bug-report">'
-        + '<span class="glyph">🐛</span><span>' + esc(tr("Report what you see", "提交看到的问题")) + '</span>'
+        + '<span class="glyph">🐞</span><span>' + esc(tr("Report a bug / diagnose", "提交 bug · 诊断")) + '</span>'
         + '</button>',
       admin
         ? '<button class="item" data-act="crash-logs">'
@@ -83,7 +98,6 @@
         + '<span class="glyph">📩</span><span>' + esc(tr("Direct messages (coming soon)", "私信（即将上线）")) + '</span>'
         + '</button>',
     ].filter(Boolean).join("");
-    panel.appendChild(menu);
 
     menu.addEventListener("click", function (e) {
       var btn = e.target.closest(".item");
@@ -122,7 +136,12 @@
     btn.addEventListener("click", function (e) {
       e.stopPropagation();
       var menu = panel.querySelector(".cssos-agent-overflow-menu");
-      if (menu) menu.hidden = !menu.hidden;
+      if (menu) {
+        // CSSOS_WAVE_143 — refresh admin-gated items every time the menu
+        // opens, so Crash logs etc. show up after late authState load.
+        if (menu.hidden) refreshMenuItems(menu);
+        menu.hidden = !menu.hidden;
+      }
     });
     document.addEventListener("click", function (e) {
       var menu = panel.querySelector(".cssos-agent-overflow-menu");

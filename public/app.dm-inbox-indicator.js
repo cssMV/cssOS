@@ -28,7 +28,11 @@
     var st = document.createElement("style");
     st.id = "cssos-dm-indicator-style";
     st.textContent = [
-      "#cssos-agent-fab{position:relative;}",
+      /* CSSOS_WAVE_143 20260514 — DO NOT set position:relative on
+         #cssos-agent-fab here. It already has position:fixed from
+         app.agent-chat.js, which IS a positioning context for the
+         absolutely-positioned dot below. Forcing relative undid the
+         fixed positioning and dropped the FAB to bottom-left. */
       "#cssos-dm-dot{position:absolute;top:-2px;right:-2px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#ff5060;color:#fff;font:700 11px/18px ui-monospace,monospace;text-align:center;border:2px solid #0a0d12;pointer-events:none;}",
       "#cssos-dm-dot[hidden]{display:none;}",
       ".cssos-dm-bubble{margin:8px 0;padding:10px 12px;border-radius:10px;background:rgba(80,140,255,0.10);border:1px solid rgba(80,140,255,0.32);color:#dde6ff;font:500 12.5px/1.45 -apple-system,system-ui,sans-serif;}",

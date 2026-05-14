@@ -119,8 +119,42 @@
       `%c[work-id] bound to ${id}${work && work.title ? " · " + work.title : ""}`,
       "color:#0a0;font-weight:bold",
     );
+    // CSSOS_WAVE_122 20260513 · slideshow pool draw.
+    // After binding, ask the server for a freshly-shuffled 15-of-30
+    // slideshow draw and feed it into the watch frame loop. If the
+    // server returns 0 frames (pool not yet generated), we silently
+    // fall back to whatever the existing single-cover logic produces.
+    // The draw is per-bind, so every replay sees a new visual mix.
+    fetchSlideshow(id).then((urls) => {
+      // Ownership check: a faster work-switch may have happened while
+      // this fetch was in-flight; only apply if still bound to id.
+      if (__currentWorkId !== id) return;
+      if (!urls || urls.length === 0) return;
+      try {
+        globalThis.currentPreviewFrameSequence = urls;
+        if (urls[0]) globalThis.currentPreviewFrameDataUrl = urls[0];
+        // Re-trigger the watch frame loop with the new pool
+        if (typeof globalThis.startWatchFrameLoopModule === "function") {
+          globalThis.startWatchFrameLoopModule(urls);
+        }
+        window.dispatchEvent(new CustomEvent("cssos:slideshow-loaded", {
+          detail: { workId: id, count: urls.length },
+        }));
+      } catch (_) {}
+    }).catch(() => { /* no-op — fall back to legacy single-cover path */ });
     return true;
   };
+
+  async function fetchSlideshow(workId) {
+    try {
+      const r = await fetch(`/api/works/${encodeURIComponent(workId)}/slideshow`, {
+        credentials: "include",
+      });
+      if (!r.ok) return [];
+      const j = await r.json();
+      return Array.isArray(j?.urls) ? j.urls.filter(Boolean) : [];
+    } catch (_) { return []; }
+  }
 
   /* Loaders call this with the work_id they were asked to load FOR.
    * If the current binding has since changed (user clicked another

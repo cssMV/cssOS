@@ -319,6 +319,12 @@
         '  <div class="actions">',
         '    <button type="button" data-act="play">▶ ' + esc(tr("Play in MV panel", "在 MV 面板播放")) + '</button>',
         '    <button type="button" data-act="lyrics">📝 ' + esc(tr("View lyrics", "看歌词")) + '</button>',
+        (c.audio_url
+          ? '    <audio class="inline-audio" controls preload="none" src="' + esc(c.audio_url) + '"></audio>'
+          : '    <button type="button" data-act="gen-audio">🎵 ' + esc(tr("Generate music", "生成音乐")) + '</button>'),
+        (c.video_url
+          ? '    <a class="inline-video-link" href="' + esc(c.video_url) + '" target="_blank" rel="noopener">🎬 ' + esc(tr("Open video", "查看视频")) + '</a>'
+          : '    <button type="button" data-act="gen-video">🎬 ' + esc(tr("Generate video", "生成视频")) + '</button>'),
         '  </div>',
         '  <pre class="lyrics" hidden></pre>',
         '</div>',
@@ -350,6 +356,77 @@
           pre.hidden = true;
         }
       });
+      // CSSOS_WAVE_137 — per-card audio + video generation.
+      var genAudioBtn = card.querySelector('[data-act="gen-audio"]');
+      if (genAudioBtn) {
+        genAudioBtn.addEventListener("click", async function () {
+          genAudioBtn.disabled = true;
+          var orig = genAudioBtn.textContent;
+          genAudioBtn.textContent = tr("Generating music…", "正在生成音乐…");
+          try {
+            var r = await fetch("/api/agent/work/" + encodeURIComponent(c.work_id) + "/generate-audio", {
+              method: "POST", credentials: "include",
+            });
+            var j = await r.json();
+            if (r.ok && j.ok && j.audio_url) {
+              var audio = document.createElement("audio");
+              audio.className = "inline-audio";
+              audio.controls = true;
+              audio.src = j.audio_url;
+              genAudioBtn.replaceWith(audio);
+              c.audio_url = j.audio_url;
+            } else {
+              genAudioBtn.disabled = false;
+              genAudioBtn.textContent = orig;
+              if (typeof globalThis.showToast === "function") {
+                globalThis.showToast(tr("Music generation failed: ", "音乐生成失败：") + (j.error || r.status));
+              }
+            }
+          } catch (err) {
+            genAudioBtn.disabled = false;
+            genAudioBtn.textContent = orig;
+            if (typeof globalThis.showToast === "function") {
+              globalThis.showToast(tr("Music error: ", "音乐错误：") + (err && err.message || err));
+            }
+          }
+        });
+      }
+      var genVideoBtn = card.querySelector('[data-act="gen-video"]');
+      if (genVideoBtn) {
+        genVideoBtn.addEventListener("click", async function () {
+          genVideoBtn.disabled = true;
+          var orig = genVideoBtn.textContent;
+          genVideoBtn.textContent = tr("Generating video…", "正在生成视频…");
+          try {
+            var r = await fetch("/api/agent/work/" + encodeURIComponent(c.work_id) + "/generate-video", {
+              method: "POST", credentials: "include",
+            });
+            var j = await r.json();
+            if (r.ok && j.ok && j.video_url) {
+              var link = document.createElement("a");
+              link.className = "inline-video-link";
+              link.href = j.video_url;
+              link.target = "_blank";
+              link.rel = "noopener";
+              link.textContent = "🎬 " + tr("Open video", "查看视频");
+              genVideoBtn.replaceWith(link);
+              c.video_url = j.video_url;
+            } else {
+              genVideoBtn.disabled = false;
+              genVideoBtn.textContent = orig;
+              if (typeof globalThis.showToast === "function") {
+                globalThis.showToast(tr("Video generation failed: ", "视频生成失败：") + (j.error || r.status));
+              }
+            }
+          } catch (err) {
+            genVideoBtn.disabled = false;
+            genVideoBtn.textContent = orig;
+            if (typeof globalThis.showToast === "function") {
+              globalThis.showToast(tr("Video error: ", "视频错误：") + (err && err.message || err));
+            }
+          }
+        });
+      }
       wrap.appendChild(card);
     });
     messages.appendChild(wrap);
@@ -374,6 +451,9 @@
       ".cssos-agent-work-card .actions button{flex:1;background:rgba(0,245,160,0.18);color:#5effc9;border:1px solid rgba(0,245,160,0.35);padding:7px 8px;border-radius:8px;font:600 12px/1.2 -apple-system,system-ui,sans-serif;cursor:pointer;}",
       ".cssos-agent-work-card .actions button:hover{background:rgba(0,245,160,0.28);}",
       ".cssos-agent-work-card .lyrics{margin:6px 0 0;padding:8px 10px;background:rgba(0,0,0,0.32);border-radius:8px;color:#dde6ff;font:500 11.5px/1.5 ui-monospace,monospace;white-space:pre-wrap;max-height:260px;overflow:auto;}",
+      ".cssos-agent-work-card .inline-audio{width:100%;height:32px;flex:1 1 100%;margin-top:4px;}",
+      ".cssos-agent-work-card .inline-video-link{flex:1;text-align:center;padding:7px 8px;border-radius:8px;background:rgba(255,180,80,0.18);color:#ffd07a;border:1px solid rgba(255,180,80,0.4);font:600 12px/1.2 -apple-system,system-ui,sans-serif;text-decoration:none;}",
+      ".cssos-agent-work-card .inline-video-link:hover{background:rgba(255,180,80,0.28);}",
     ].join("\n");
     document.head.appendChild(st);
   }

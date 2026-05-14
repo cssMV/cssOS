@@ -3882,6 +3882,114 @@ app.post("/api/agent/chat", express.json({ limit: "32kb" }), async (req, res) =>
   });
 });
 
+/* CSSOS_WAVE_137 20260513 — Jing: complete chat-to-creation MVP loop.
+ *
+ * POST /api/agent/work/:work_id/generate-audio
+ * POST /api/agent/work/:work_id/generate-video
+ *
+ * Triggered by the "Generate music" / "Generate video" buttons on
+ * each work card rendered in the AI assistant chat. Validates that
+ * the caller owns the work, then runs callMusicGen / callVideoGen
+ * (free→cheap tier first), persists the resulting URL to
+ * user_works.preview_audio_url / preview_video_url, and returns the
+ * fresh URL so the chat card swaps the button for an inline player. */
+app.post("/api/agent/work/:work_id/generate-audio", async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const workId = String(req.params.work_id || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(workId)) return res.status(400).json({ ok: false, error: "invalid_work_id" });
+  let work: any;
+  try {
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT id, user_id, title, style, lyrics_preview, preview_audio_url
+           FROM user_works WHERE id = $1::uuid LIMIT 1`,
+        [workId],
+      ),
+    );
+    work = (r as any).rows[0];
+  } catch (_err) {
+    return res.status(500).json({ ok: false, error: "load_failed" });
+  }
+  if (!work) return res.status(404).json({ ok: false, error: "not_found" });
+  if (String(work.user_id) !== String(userId)) {
+    return res.status(403).json({ ok: false, error: "not_your_work" });
+  }
+  if (work.preview_audio_url) {
+    return res.json({ ok: true, audio_url: work.preview_audio_url, cached: true });
+  }
+  try {
+    const tier = await callMusicGen({
+      prompt: [work.title, work.style, String(work.lyrics_preview || "").slice(0, 300)]
+        .filter(Boolean).join(" — "),
+      duration_secs: 60,
+    });
+    if (!tier || !tier.ok || !tier.audio_url) {
+      return res.status(503).json({ ok: false, error: "music_provider_unavailable", detail: tier?.error || "" });
+    }
+    const audioUrl = tier.audio_url;
+    await withClient((c) =>
+      c.query(
+        `UPDATE user_works SET preview_audio_url = $2, updated_at = now()
+          WHERE id = $1::uuid`,
+        [workId, audioUrl],
+      ),
+    );
+    return res.json({ ok: true, audio_url: audioUrl, provider: tier.provider });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: "music_gen_failed", detail: (err as Error)?.message || "" });
+  }
+});
+
+app.post("/api/agent/work/:work_id/generate-video", async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const workId = String(req.params.work_id || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(workId)) return res.status(400).json({ ok: false, error: "invalid_work_id" });
+  let work: any;
+  try {
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT id, user_id, title, style, cover_image, preview_video_url
+           FROM user_works WHERE id = $1::uuid LIMIT 1`,
+        [workId],
+      ),
+    );
+    work = (r as any).rows[0];
+  } catch (_err) {
+    return res.status(500).json({ ok: false, error: "load_failed" });
+  }
+  if (!work) return res.status(404).json({ ok: false, error: "not_found" });
+  if (String(work.user_id) !== String(userId)) {
+    return res.status(403).json({ ok: false, error: "not_your_work" });
+  }
+  if (work.preview_video_url) {
+    return res.json({ ok: true, video_url: work.preview_video_url, cached: true });
+  }
+  try {
+    const tier = await callVideoGen({
+      prompt: [work.title, work.style, "cinematic, no text"].filter(Boolean).join(", "),
+      duration_secs: 5,
+      aspect_ratio: "16:9",
+      image_url: work.cover_image || undefined,
+    });
+    if (!tier || !tier.ok || !tier.video_url) {
+      return res.status(503).json({ ok: false, error: "video_provider_unavailable", detail: tier?.error || "" });
+    }
+    const videoUrl = tier.video_url;
+    await withClient((c) =>
+      c.query(
+        `UPDATE user_works SET preview_video_url = $2, updated_at = now()
+          WHERE id = $1::uuid`,
+        [workId, videoUrl],
+      ),
+    );
+    return res.json({ ok: true, video_url: videoUrl, provider: tier.provider });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: "video_gen_failed", detail: (err as Error)?.message || "" });
+  }
+});
+
 /* GET /api/agent/session — peek at recent messages (debugging + UI
  * reload-state recovery). Returns sanitized text + tool_call summaries. */
 app.get("/api/agent/session", async (req, res) => {
@@ -13575,6 +13683,86 @@ async function syncCanonicalWorkAssets(
   void enqueueAutoFingerprintHash(workId).catch((err) => {
     console.warn("[fingerprint] auto enqueue failed", workId, err?.message || err);
   });
+  /* CSSOS_WAVE_122 20260513 — Jing
+   * Plan B slideshow pool: after canonical asset sync, fire-and-forget
+   * batch-generate POOL_SIZE varied slideshow frames so the watch panel
+   * can draw a fresh random subset on every playback. Idempotent — the
+   * helper short-circuits if the pool is already full. */
+  void enqueueSlideshowPoolGeneration(workId).catch((err) => {
+    console.warn("[slideshow] auto enqueue failed", workId, err?.message || err);
+  });
+}
+
+/* CSSOS_WAVE_122 20260513 · slideshow pool generator (idempotent).
+ * Reused both by the auto-fire-on-canonical-sync path above and by the
+ * POST /api/works/:id/slideshow/generate manual trigger. Spawns the
+ * generation in the background so the caller doesn't block. */
+async function enqueueSlideshowPoolGeneration(workId: string): Promise<void> {
+  if (!workId) return;
+  try {
+    const pool = getPool();
+    const existing = await pool.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM work_assets
+         WHERE work_id = $1 AND asset_type = 'slideshow_frame'`,
+      [workId],
+    );
+    const have = Number(existing.rows[0]?.n || 0);
+    if (have >= SLIDESHOW_POOL_SIZE) return;
+    const workRow = await pool.query<{
+      title: string; civilization: string | null;
+    }>(
+      `SELECT title, civilization FROM user_works WHERE id = $1 LIMIT 1`,
+      [workId],
+    );
+    const work = workRow.rows[0];
+    if (!work) return;
+    const need = SLIDESHOW_POOL_SIZE - have;
+    const basePrompt = [
+      work.title ? `Cinematic scene about "${work.title}"` : "Cinematic scene",
+      work.civilization ? `set in the ${work.civilization} cultural frame` : "",
+      "vivid colors, dramatic lighting, beautiful character with full face visible (no half-face crops unless intentional closeup), centered composition, no text, no watermark",
+    ].filter(Boolean).join(", ");
+    const STYLE_SEEDS = [
+      "wide establishing shot", "intimate close-up", "golden-hour lighting", "moonlit night",
+      "ornate interior", "vast landscape", "soft rain", "swirling mist", "blooming flowers",
+      "candlelit chamber", "windswept hilltop", "embroidered silk", "stone courtyard",
+      "rippling water", "drifting petals", "snow-dusted scene", "lantern-lit street",
+      "incense smoke", "calligraphy backdrop", "dawn over mountains", "twilight horizon",
+      "starlit sky", "lush garden", "carved jade ornaments", "pearl-strung curtains",
+      "embroidered phoenix motif", "rolling clouds", "swirling silk robes", "ink-wash atmosphere",
+      "lacquered red columns",
+    ];
+    // Fire generations sequentially with small parallelism (4 at a time)
+    // to avoid hammering free providers and getting rate-limited.
+    const BATCH = 4;
+    for (let i = 0; i < need; i += BATCH) {
+      const slice: Promise<void>[] = [];
+      for (let j = i; j < Math.min(i + BATCH, need); j++) {
+        const seed = STYLE_SEEDS[(have + j) % STYLE_SEEDS.length];
+        const variant = `${basePrompt}, ${seed}`;
+        slice.push((async () => {
+          try {
+            const img = await callImageGen({ prompt: variant, size: "1024x1024" });
+            if (!img.ok) return;
+            const url = img.image_url
+              ? img.image_url
+              : (img.image_b64 ? persistBase64Cover(img.image_b64, "auto-slideshow") : "");
+            if (!url) return;
+            await pool.query(
+              `INSERT INTO work_assets (work_id, asset_type, url, meta)
+                 VALUES ($1, 'slideshow_frame', $2, $3::jsonb)
+               ON CONFLICT DO NOTHING`,
+              [workId, url, JSON.stringify({ pool_index: have + j, seed, auto: true })],
+            );
+          } catch (_) { /* per-frame failures are non-fatal */ }
+        })());
+      }
+      await Promise.all(slice);
+    }
+    console.info(`[slideshow] pool seeded for ${workId} (target ${SLIDESHOW_POOL_SIZE})`);
+  } catch (err) {
+    console.warn("[slideshow] enqueueSlideshowPoolGeneration failed:", err);
+  }
 }
 
 /* CSSOS_WAVE_111C 20260512 — Jing
@@ -42090,6 +42278,201 @@ app.post("/api/works/:id/products", express.json({ limit: "4kb" }), async (req, 
     return res.json({ ok: true, attachment: ins.rows[0] });
   } catch (err) {
     return res.status(500).json({ ok: false, code: "PRODUCT_SAVE_FAILED", message: String(err) });
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════
+// CSSOS_WAVE_122 20260513 · Slideshow pool — Plan B
+// "以后只输出一张封面图和一张卡片缩略图即可，让幻灯每次都是实时输出图片
+//  来做幻灯，让用户每次都看到不同的画面".
+//
+// Compromise economics (vs the user's original idea of real-time
+// generation every play, which would burn $1.8k+/month at 1k plays/day):
+//   • One-time at work-creation: batch-generate POOL_SIZE (default 30)
+//     frames using the same SDXL/Flux pipeline as the cover.
+//   • At playback: client randomly draws PICK_SIZE (default 15) frames
+//     from the pool — combinations of 15 from 30 = 155 million, so the
+//     user effectively never sees the same slideshow twice.
+//   • Marginal cost: ~$0.09 per work (vs $0.036 current), in exchange
+//     for unlimited fresh-feeling replays. Net win.
+// ════════════════════════════════════════════════════════════════════
+
+const SLIDESHOW_POOL_SIZE = Number(process.env.SLIDESHOW_POOL_SIZE || 30);
+const SLIDESHOW_PICK_SIZE = Number(process.env.SLIDESHOW_PICK_SIZE || 15);
+
+/* POST /api/works/:id/slideshow/generate — owner / admin only.
+ * Idempotent: returns existing pool if >= SLIDESHOW_POOL_SIZE frames
+ * already exist. Otherwise tops up to SLIDESHOW_POOL_SIZE.
+ *
+ * Body (optional):
+ *   { prompt_override?: string, size?: "1024x1024", force?: boolean }
+ *
+ * Cost: ~$0.003-0.005 per frame via cheap provider sweep. */
+app.post(
+  "/api/works/:id/slideshow/generate",
+  express.json({ limit: "32kb" }),
+  async (req, res) => {
+    noStore(res);
+    try {
+      const id = String(req.params.id || "").trim();
+      if (!/^[0-9a-fA-F-]{8,64}$/.test(id)) {
+        return res.status(400).json({ ok: false, code: "INVALID_WORK_ID" });
+      }
+      const user = await getSessionUser(req);
+      if (!user) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+
+      // Load work to verify ownership / get prompt context
+      const workRow = await withClient((c) =>
+        c.query<{ user_id: string; title: string; lyrics_preview: string; cover_image: string; civilization: string | null }>(
+          `SELECT user_id, title, lyrics_preview, cover_image, civilization FROM user_works WHERE id = $1 LIMIT 1`,
+          [id],
+        ),
+      );
+      const work = workRow.rows[0];
+      if (!work) return res.status(404).json({ ok: false, code: "WORK_NOT_FOUND" });
+      const isOwner = String(work.user_id) === String(user.id);
+      const isAdmin = isCssosAdminEmail(user.email);
+      if (!isOwner && !isAdmin) return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+
+      const force = req.body?.force === true;
+      const promptOverride = String(req.body?.prompt_override || "").trim();
+      const size = String(req.body?.size || "1024x1024").trim();
+
+      // Existing pool count
+      const poolCount = await withClient((c) =>
+        c.query<{ n: string }>(
+          `SELECT COUNT(*)::text AS n FROM work_assets WHERE work_id = $1 AND asset_type = 'slideshow_frame'`,
+          [id],
+        ),
+      );
+      const existing = Number(poolCount.rows[0]?.n || 0);
+      if (existing >= SLIDESHOW_POOL_SIZE && !force) {
+        return res.json({ ok: true, status: "already_full", pool_size: existing, target: SLIDESHOW_POOL_SIZE });
+      }
+      const need = Math.max(0, SLIDESHOW_POOL_SIZE - existing);
+
+      // Build the prompt: prefer override, else derive from work + civilization
+      const basePrompt = promptOverride ||
+        [
+          work.title ? `Cinematic scene about "${work.title}"` : "Cinematic scene",
+          work.civilization ? `set in the ${work.civilization} cultural frame` : "",
+          "vivid colors, dramatic lighting, beautiful character with full face visible (no half-face crops unless intentional closeup), centered composition, no text, no watermark",
+        ].filter(Boolean).join(", ");
+
+      // Generate in parallel. Each frame uses a slightly different style
+      // seed phrase so the pool has actual variety.
+      const STYLE_SEEDS = [
+        "wide establishing shot", "intimate close-up", "golden-hour lighting", "moonlit night",
+        "ornate interior", "vast landscape", "soft rain", "swirling mist", "blooming flowers",
+        "candlelit chamber", "windswept hilltop", "embroidered silk", "stone courtyard",
+        "rippling water", "drifting petals", "snow-dusted scene", "lantern-lit street",
+        "incense smoke", "calligraphy backdrop", "dawn over mountains", "twilight horizon",
+        "starlit sky", "lush garden", "carved jade ornaments", "pearl-strung curtains",
+        "embroidered phoenix motif", "rolling clouds", "swirling silk robes", "ink-wash atmosphere",
+        "lacquered red columns",
+      ];
+      const tasks: Promise<{ ok: boolean; url?: string; err?: string }>[] = [];
+      for (let i = 0; i < need; i++) {
+        const seed = STYLE_SEEDS[(existing + i) % STYLE_SEEDS.length];
+        const variant = `${basePrompt}, ${seed}`;
+        tasks.push(
+          (async () => {
+            try {
+              const img = await callImageGen({ prompt: variant, size });
+              if (!img.ok) return { ok: false, err: img.error || "image_gen_failed" };
+              const url = img.image_url
+                ? img.image_url
+                : (img.image_b64 ? persistBase64Cover(img.image_b64, user.id) : "");
+              if (!url) return { ok: false, err: "no_url" };
+              return { ok: true, url };
+            } catch (err) {
+              return { ok: false, err: err instanceof Error ? err.message : String(err) };
+            }
+          })(),
+        );
+      }
+      const results = await Promise.all(tasks);
+      const successful = results.filter((r) => r.ok && r.url);
+
+      // Persist each successful URL as a work_assets row
+      for (let i = 0; i < successful.length; i++) {
+        const r = successful[i];
+        if (!r) continue;
+        await withClient((c) =>
+          c.query(
+            `INSERT INTO work_assets (work_id, asset_type, url, meta)
+               VALUES ($1, 'slideshow_frame', $2, $3::jsonb)
+             ON CONFLICT DO NOTHING`,
+            [
+              id,
+              r.url || "",
+              JSON.stringify({ pool_index: existing + i, seed: STYLE_SEEDS[(existing + i) % STYLE_SEEDS.length] }),
+            ],
+          ),
+        );
+      }
+
+      const newPool = await withClient((c) =>
+        c.query<{ n: string }>(
+          `SELECT COUNT(*)::text AS n FROM work_assets WHERE work_id = $1 AND asset_type = 'slideshow_frame'`,
+          [id],
+        ),
+      );
+      return res.json({
+        ok: true,
+        status: "generated",
+        added: successful.length,
+        failed: results.length - successful.length,
+        pool_size: Number(newPool.rows[0]?.n || 0),
+        target: SLIDESHOW_POOL_SIZE,
+      });
+    } catch (err) {
+      return res.status(500).json({
+        ok: false,
+        code: "SLIDESHOW_GENERATE_FAILED",
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  },
+);
+
+/* GET /api/works/:id/slideshow — public.
+ * Returns a randomly-shuffled subset (default 15) of the pool. Each
+ * call returns a different ordering so playback sessions feel fresh.
+ * If pool size < SLIDESHOW_PICK_SIZE, returns whatever's available. */
+app.get("/api/works/:id/slideshow", async (req, res) => {
+  noStore(res);
+  try {
+    const id = String(req.params.id || "").trim();
+    if (!/^[0-9a-fA-F-]{8,64}$/.test(id)) {
+      return res.status(400).json({ ok: false, code: "INVALID_WORK_ID" });
+    }
+    const pickCount = Math.min(
+      SLIDESHOW_POOL_SIZE,
+      Math.max(1, Number(req.query.n || SLIDESHOW_PICK_SIZE)),
+    );
+    const rows = await withClient((c) =>
+      c.query<{ url: string }>(
+        `SELECT url FROM work_assets
+           WHERE work_id = $1 AND asset_type = 'slideshow_frame' AND url IS NOT NULL AND url <> ''
+           ORDER BY random() LIMIT $2`,
+        [id, pickCount],
+      ),
+    );
+    const urls = rows.rows.map((r) => r.url).filter(Boolean);
+    return res.json({
+      ok: true,
+      work_id: id,
+      pool_size_target: SLIDESHOW_POOL_SIZE,
+      returned: urls.length,
+      urls,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      code: "SLIDESHOW_FETCH_FAILED",
+      message: err instanceof Error ? err.message : String(err),
+    });
   }
 });
 

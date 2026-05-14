@@ -61,8 +61,10 @@
     overlay.innerHTML = ''
       + '<div class="bg" style="background:' + randomMirrorBgGradient() + ';"></div>'
       + '<img class="mirror-img a" src="assets/mirror-1.webp" alt="" aria-hidden="true">'
-      + '<img class="mirror-img b" src="assets/mirror-2.webp" alt="" aria-hidden="true">'
-      + '<div class="label">BUFFERING</div>';
+      + '<img class="mirror-img b" src="assets/mirror-2.webp" alt="" aria-hidden="true">';
+    // CSSOS_WAVE_144B — Jing: "Buffering 去掉". Label removed; the
+    // breathing mirror + random-tint backdrop alone convey the loading
+    // state.
     parent.appendChild(overlay);
     var show = function () { overlay.classList.add("is-active"); };
     var hide = function () { overlay.classList.remove("is-active"); };

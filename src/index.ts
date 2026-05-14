@@ -6609,12 +6609,23 @@ app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
           console.log(`[mv-music] tier sweep WIN: provider=${tier.provider}`);
           res.write(JSON.stringify({
             ok: true,
-            task_id: `tier-${tier.provider}-${Date.now()}`,
+            task_id: tier.task_id || `tier-${tier.provider}-${Date.now()}`,
             audio_url: audioUrl,
             engine: tier.provider,
             cost_cents: __musicCostCents,
             use_user_key: false,
             tier_sweep: true,
+            // CSSOS_WAVE_158 — surface Take 2 + duration + word timeline so
+            // the Watch player auto-plays BOTH Suno tracks and the cinema
+            // hero can render 歌1/歌2 durations + the 情绪字幕 timeline.
+            ...(tier.duration_s ? { duration_secs: tier.duration_s } : {}),
+            ...(tier.alt_audio_url ? { alt_audio_url: tier.alt_audio_url } : {}),
+            ...(tier.alt_audio_id ? { alt_audio_id: tier.alt_audio_id } : {}),
+            ...(tier.alt_duration_s ? { alt_duration_secs: tier.alt_duration_s } : {}),
+            ...(tier.audio_id ? { audio_id: tier.audio_id } : {}),
+            ...(tier.lyrics_timeline && tier.lyrics_timeline.length
+              ? { lyrics_timeline: tier.lyrics_timeline }
+              : {}),
           }));
           return res.end();
         }
@@ -6698,13 +6709,22 @@ app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
     if (audioUrl) {
       return res.status(200).json({
         ok: true,
-        task_id: `fallback-${music.provider}-${Date.now()}`,
+        task_id: music.task_id || `fallback-${music.provider}-${Date.now()}`,
         audio_url: audioUrl,
         engine: music.provider,
         cost_cents: 0,
         use_user_key: false,
         fallback: true,
         upstream_error: upstreamDetail,
+        // CSSOS_WAVE_158 — Take 2 + duration + word timeline (see above).
+        ...(music.duration_s ? { duration_secs: music.duration_s } : {}),
+        ...(music.alt_audio_url ? { alt_audio_url: music.alt_audio_url } : {}),
+        ...(music.alt_audio_id ? { alt_audio_id: music.alt_audio_id } : {}),
+        ...(music.alt_duration_s ? { alt_duration_secs: music.alt_duration_s } : {}),
+        ...(music.audio_id ? { audio_id: music.audio_id } : {}),
+        ...(music.lyrics_timeline && music.lyrics_timeline.length
+          ? { lyrics_timeline: music.lyrics_timeline }
+          : {}),
       });
     }
   }
@@ -14603,7 +14623,9 @@ async function enqueueSlideshowPoolGeneration(workId: string): Promise<void> {
               `INSERT INTO work_assets (work_id, asset_type, url, meta)
                  VALUES ($1, 'slideshow_frame', $2, $3::jsonb)
                ON CONFLICT DO NOTHING`,
-              [workId, url, JSON.stringify({ pool_index: have + j, seed, auto: true })],
+              // CSSOS_WAVE_125 — stamp the provider so we can tally which
+              // image engine produces the ugly-face frames the user flags.
+              [workId, url, JSON.stringify({ pool_index: have + j, seed, auto: true, provider: img.provider || "unknown" })],
             );
           } catch (_) { /* per-frame failures are non-fatal */ }
         })());
@@ -15218,6 +15240,12 @@ type MusicGenResponse = {
   task_id?: string;
   audio_id?: string;
   duration_s?: number;
+  /* CSSOS_WAVE_158 — Suno (and any dual-clip engine) returns TWO tracks
+   * per generation. The second track is surfaced as Take 2 so the Watch
+   * panel can A/B and auto-play BOTH before advancing to the next card. */
+  alt_audio_url?: string;
+  alt_audio_id?: string;
+  alt_duration_s?: number;
 };
 const MUSIC_PROVIDERS = ["huggingface_music", "fal_music", "mubert", "replicate_music", "deepinfra_music", "elevenlabs", "stability", "suno"] as const;
 /* CSSOS_PROVIDER_PRIORITY 20260507 — Jing
@@ -15692,6 +15720,14 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
           }
         }
         void resetEngineFailures(provider);
+        // CSSOS_WAVE_158 — Jing: "先播放完毕这两首刚输出的歌曲，才显示
+        // 别的人物卡片." Suno returns 2 tracks per task; the first
+        // non-instrumental track with an aligned timeline is anchored as
+        // Take 1 (audio_url), and the OTHER track is surfaced as Take 2
+        // (alt_audio_url) so the Watch player auto-plays both before the
+        // queue advances. Previously only `chosen` was returned, so
+        // `alt_audio_url` was always null and Take 2 was silently dropped.
+        const alt = tracks.find((tk) => tk.audioId !== chosen.audioId);
         return {
           ok: true,
           provider: "suno",
@@ -15699,6 +15735,13 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
           task_id: taskId,
           audio_id: chosen.audioId,
           duration_s: chosen.durationS,
+          ...(alt
+            ? {
+                alt_audio_url: alt.audioUrl,
+                alt_audio_id: alt.audioId,
+                alt_duration_s: alt.durationS,
+              }
+            : {}),
           ...(timeline && timeline.length ? { lyrics_timeline: timeline } : {}),
         };
       }
@@ -26320,6 +26363,25 @@ app.get("/api/admin/anthropic/health", async (_req, res) => {
 // Aggregates from iap_receipts so we can spot configuration / verification
 // failures (missing shared secret, sandbox-vs-prod mismatch, refund
 // activity) without tailing logs.
+// CSSOS_WAVE_125 20260514 — slideshow-frame engine tally. Cross-reference
+// with 🐛 bug-reports mentioning ugly faces to pin down which image
+// provider is the offender. Each slideshow_frame row stamps meta.provider.
+app.get("/api/admin/slideshow/engine-tally", async (_req, res) => {
+  noStore(res);
+  try {
+    const pool = getPool();
+    const rows = await pool.query<{ provider: string; n: string }>(
+      `SELECT COALESCE(meta->>'provider', 'unknown') AS provider, COUNT(*)::text AS n
+         FROM work_assets
+         WHERE asset_type = 'slideshow_frame'
+         GROUP BY 1 ORDER BY 2 DESC`,
+    );
+    res.json({ ok: true, by_provider: rows.rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err) });
+  }
+});
+
 app.get("/api/admin/iap/health", async (_req, res) => {
   noStore(res);
   try {

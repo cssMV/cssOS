@@ -2121,6 +2121,7 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
         const work = findWorkByRunId(runId);
         if (work) {
           try { globalThis.currentWatchPreviewWork = work; } catch (_e) { /* no-op */ }
+          try { globalThis.cssosBindToWorkId?.(work); } catch (_e) { /* CSSOS_WAVE_121 Step 2 */ }
         }
 
         // Hide stale video so the next-run cover paint isn't masked.

@@ -233,6 +233,7 @@ async function submitVoiceOrFallbackTitleModule(blobOrNull) {
     optimisticWork?.local_id || optimisticWork?.work_id || ""
   ).trim();
   currentWatchPreviewWork = optimisticWork;
+  globalThis.cssosBindToWorkId?.(optimisticWork); // CSSOS_WAVE_121 Step 2
   void refreshWorkSurfaces?.();
   openPanel?.(foryouPanel);
   openPanel?.(watchPanel);

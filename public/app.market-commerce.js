@@ -500,6 +500,7 @@ async function openMarketWorkPreview(work = {}) {
     : resolveStructuredPlaybackRequestModule(work);
   const targetWork = playback.targetWork || work || null;
   currentWatchPreviewWork = targetWork;
+  globalThis.cssosBindToWorkId?.(targetWork); // CSSOS_WAVE_121 Step 2
   // CSSOS_PHASE2_PLAYED_INDICATOR 20260504 — mark this work + its
   // siblings/children as played the moment a watch session opens for
   // them, so the unplayed-dot disappears immediately.
@@ -1228,6 +1229,7 @@ async function advanceStructuredWorkPlaybackModule() {
     index: nextIndex,
   };
   currentWatchPreviewWork = { ...(nextWork || {}) };
+  globalThis.cssosBindToWorkId?.(currentWatchPreviewWork); // CSSOS_WAVE_121 Step 2
   const sourceRunId = String(nextWork?.source_run_id || "").trim();
   if (sourceRunId) currentWatchAudioRunId = sourceRunId;
   await renderMarketWorkPreviewIntoWatchModule({
@@ -4445,6 +4447,7 @@ async function regenerateWorkPreviewVideo(work, trigger = null) {
     );
     currentPersistedRootWorkId = workId;
     currentWatchPreviewWork = { ...(work || {}) };
+    globalThis.cssosBindToWorkId?.(currentWatchPreviewWork); // CSSOS_WAVE_121 Step 2
     state.title = String(work?.title || state.title || "CSS MV").trim();
     state.lines = workLyricsLines(work);
     openWatchPreviewShellModule({ fallbackTab: "mv" });

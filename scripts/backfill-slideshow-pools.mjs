@@ -42,8 +42,17 @@ if (DRY) {
   rows.forEach((r, i) => console.log(`  ${i + 1}. ${r.id} · ${r.title || "(untitled)"} · have ${r.have}/${POOL_SIZE}`));
   await client.end(); process.exit(0);
 }
+// The endpoint is now fire-and-forget — each POST returns instantly and
+// the server generates 30 frames in the background (4-concurrent waves).
+// To avoid 12 works × 30 frames hammering image providers all at once,
+// we PACE the queue: dispatch one work, then sleep PER_WORK_PACING_MS so
+// the previous work's background generation has time to drain. The
+// server-side helper takes ~45-70s for 30 frames at the rate-limited
+// cadence, so ~60s spacing keeps concurrency at roughly one work's worth.
+const PER_WORK_PACING_MS = Number(process.env.BACKFILL_PACING_MS || 60_000);
 let done = 0, failed = 0;
-for (const r of rows) {
+for (let idx = 0; idx < rows.length; idx++) {
+  const r = rows[idx];
   try {
     const res = await fetch(`${BASE_URL}/api/works/${r.id}/slideshow/generate`, {
       method: "POST",
@@ -52,13 +61,17 @@ for (const r of rows) {
     });
     const j = await res.json().catch(() => null);
     if (res.ok && j?.ok) {
-      console.log(`  ✓ ${r.id} → ${j.status}, pool=${j.pool_size}`);
+      console.log(`  ✓ ${r.id} → ${j.status} (need ${j.need ?? "?"})`);
       done++;
     } else {
       console.warn(`  ✗ ${r.id} → ${res.status} ${j?.code || ""}`);
       failed++;
     }
   } catch (err) { console.warn(`  ✗ ${r.id} → ${err.message}`); failed++; }
+  // Pace between works (skip the wait after the last one)
+  if (idx < rows.length - 1) {
+    await new Promise((res) => setTimeout(res, PER_WORK_PACING_MS));
+  }
 }
 await client.end();
 console.log(`\n✅ ${done}/${rows.length} backfilled  (failed ${failed})`);

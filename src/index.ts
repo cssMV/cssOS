@@ -15254,7 +15254,11 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
           headers,
           body: JSON.stringify({
             duration,
-            prompt: String(req.prompt || (req.tags || []).join(", ") || "cinematic ambient"),
+            // CSSOS_WAVE_153A 20260514 — Mubert rejects prompts > 255
+            // chars with a 422. Our system-work prompts are
+            // "title — style — first 200 chars of lyrics" which easily
+            // overflows. Truncate hard to 240 to stay safely under.
+            prompt: String(req.prompt || (req.tags || []).join(", ") || "cinematic ambient").slice(0, 240),
             mode: "track",
             format: "mp3",
             intensity: "medium",
@@ -15309,7 +15313,11 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
         // musicgen-small ≈ 256 tokens / 10s @ 32kHz; cap to ~30s worth.
         const maxNewTokens = Math.min(1536, Math.round(dur * 25.6));
         const prompt = String(req.prompt || (req.tags || []).join(", ") || "cinematic ambient");
-        const upstream = await fetch("https://api-inference.huggingface.co/models/facebook/musicgen-small", {
+        // CSSOS_WAVE_153A 20260514 — Jing: HF deprecated
+        // api-inference.huggingface.co; the new free Inference path is
+        // router.huggingface.co/hf-inference/models/<model>. The old
+        // host returns 404 "Cannot POST /models/...".
+        const upstream = await fetch("https://router.huggingface.co/hf-inference/models/facebook/musicgen-small", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${hfKey}`,
@@ -20131,6 +20139,117 @@ async function runSystemMediaBackfillBatch(): Promise<{
   summary.budget_left_cents = budgetLeft;
   return summary;
 }
+
+/* CSSOS_WAVE_153A 20260514 — Jing: system-work audio backfill.
+ *
+ * The lite-tier W121 backfill fills lyrics + cover only. This batch
+ * walks system_origin works that already have a 京典 lyric + a cover
+ * but no preview_audio_url, and generates audio via callMusicGen
+ * (free→cheap→paid tier sweep — Mubert/HF/fal free tiers reset daily
+ * and are tried first; Suno is the paid last resort).
+ *
+ * Budget: capped at SYSTEM_MEDIA_DAILY_BUDGET_CENTS ($5/day default)
+ * of ACTUAL audio spend per run. Free-tier generations cost 0¢ and
+ * don't count — so on a good day the whole batch can be free. Run
+ * daily; ~609 works clear in ≤ 12 days even if every day hits the cap.
+ *
+ * Spend is tracked in-process per run (the cron fires once/day) plus
+ * a credit_events audit row per paid generation. */
+async function runSystemAudioBackfillBatch(maxBudgetCents?: number): Promise<{
+  processed: number; ok: number; failed: number; skipped: number; spent_cents: number; budget_left_cents: number;
+}> {
+  const summary = { processed: 0, ok: 0, failed: 0, skipped: 0, spent_cents: 0, budget_left_cents: 0 };
+  if (!DATABASE_URL) return summary;
+  const cap = Math.max(0, maxBudgetCents != null ? maxBudgetCents : SYSTEM_MEDIA_DAILY_BUDGET_CENTS);
+  let budgetLeft = cap;
+  summary.budget_left_cents = budgetLeft;
+
+  let candidates: Array<{ id: string; title: string; style: string; lyrics_preview: string }> = [];
+  try {
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT id, title, coalesce(style,'') AS style, coalesce(lyrics_preview,'') AS lyrics_preview
+           FROM user_works
+          WHERE system_origin IN ('system_anniversary','system_festival')
+            AND preview_audio_url IS NULL
+            AND cover_image IS NOT NULL AND cover_image <> ''
+            AND length(coalesce(lyrics_preview,'')) >= 600
+          ORDER BY created_at DESC
+          LIMIT 200`,
+      ),
+    );
+    candidates = (r as any).rows;
+  } catch (err) {
+    console.warn("[system-audio] candidate scan failed:", (err as Error)?.message || err);
+    return summary;
+  }
+
+  for (const w of candidates) {
+    if (budgetLeft <= 0) { summary.skipped += 1; continue; }
+    summary.processed += 1;
+    try {
+      const tier = await callMusicGen({
+        prompt: [w.title, w.style, String(w.lyrics_preview || "").slice(0, 200)]
+          .filter(Boolean).join(" — "),
+        duration_secs: 60,
+      });
+      if (!tier || !tier.ok || !tier.audio_url) {
+        summary.failed += 1;
+        continue;
+      }
+      const cost = (typeof estimateEngineCostCents === "function")
+        ? estimateEngineCostCents("music", tier.provider, 60)
+        : 0;
+      // Stop if this paid generation would blow the cap (free = 0¢, always allowed).
+      if (cost > 0 && cost > budgetLeft) { summary.skipped += 1; continue; }
+      await withClient((c) =>
+        c.query(
+          `UPDATE user_works SET preview_audio_url = $2, updated_at = now()
+            WHERE id = $1::uuid`,
+          [w.id, tier.audio_url],
+        ),
+      );
+      if (cost > 0) {
+        budgetLeft = Math.max(0, budgetLeft - cost);
+        summary.spent_cents += cost;
+        try {
+          await withClient((c) =>
+            c.query(
+              `INSERT INTO credit_events (user_id, delta, reason, payload)
+               VALUES ('ff6d32ab-fc93-4971-9c28-9b9f8c195cbb'::uuid, $1, 'system_audio_backfill', $2::jsonb)`,
+              [-cost, JSON.stringify({ work_id: w.id, provider: tier.provider })],
+            ),
+          );
+        } catch (_) {}
+      }
+      summary.ok += 1;
+    } catch (err) {
+      summary.failed += 1;
+      console.warn(`[system-audio] backfill threw for ${w.id}:`, (err as Error)?.message || err);
+    }
+  }
+  summary.budget_left_cents = budgetLeft;
+  console.log(`[system-audio] batch done — processed=${summary.processed} ok=${summary.ok} failed=${summary.failed} skipped=${summary.skipped} spent=${summary.spent_cents}¢`);
+  return summary;
+}
+
+/* POST /api/system-media/audio-backfill-now — admin or internal-token. */
+app.post("/api/system-media/audio-backfill-now", async (req, res) => {
+  const internalToken = String(req.header("x-cssos-internal-token") || "").trim();
+  const tokenOk = !!(CSSOS_INTERNAL_TOKEN && internalToken && internalToken === CSSOS_INTERNAL_TOKEN);
+  if (!tokenOk) {
+    const userId = (req.session as any)?.user_id;
+    if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+    const userR = await withClient((c) =>
+      c.query<{ role: string }>(`SELECT role FROM users WHERE id = $1::uuid LIMIT 1`, [userId]),
+    );
+    if (userR.rows[0]?.role !== "admin") {
+      return res.status(403).json({ ok: false, error: "admin_only" });
+    }
+  }
+  const summary = await runSystemAudioBackfillBatch();
+  return res.json({ ok: true, data: summary });
+});
 
 /* CSSOS_WAVE_124 20260513 — Jing
  * GET /api/admin/system-mvs/today — combined snapshot of today's
@@ -41882,6 +42001,36 @@ async function start() {
     console.log(`[system-media-cron] scheduled first run in ${Math.round(delayMsSM / 3600000)}h (next 05:00 UTC)`);
   }
 
+  /* CSSOS_WAVE_153A 20260514 — Jing: daily system-work AUDIO backfill
+   * cron at 05:30 UTC (30 min after the lyrics+cover lite cron). Walks
+   * works that have a 京典 lyric + cover but no audio, generates audio
+   * via the free→cheap→paid music tier sweep, capped at
+   * CSSOS_SYSTEM_MEDIA_DAILY_BUDGET_CENTS ($5/day) of ACTUAL paid spend.
+   * Free-tier (Mubert/HF/fal) generations are 0¢ and uncapped, so most
+   * days clear a chunk for free; ~609 works finish in ≤ 12 days. */
+  if (DATABASE_URL) {
+    const audioBackfillTick = async () => {
+      try {
+        const summary = await runSystemAudioBackfillBatch();
+        console.log(
+          `[system-audio-cron] tick ok — processed=${summary.processed} ok=${summary.ok} failed=${summary.failed} skipped=${summary.skipped} spent=${summary.spent_cents}¢`,
+        );
+      } catch (err) {
+        console.warn("[system-audio-cron] tick failed:", err instanceof Error ? err.message : String(err));
+      }
+    };
+    const ONE_DAY_MS_SA = 24 * 60 * 60 * 1000;
+    const nowSA = new Date();
+    const nextSA = new Date(Date.UTC(
+      nowSA.getUTCFullYear(), nowSA.getUTCMonth(), nowSA.getUTCDate(),
+      5, 30, 0, 0,
+    ));
+    if (nextSA.getTime() <= nowSA.getTime()) nextSA.setUTCDate(nextSA.getUTCDate() + 1);
+    const delayMsSA = nextSA.getTime() - nowSA.getTime();
+    setTimeout(() => { audioBackfillTick(); setInterval(audioBackfillTick, ONE_DAY_MS_SA); }, delayMsSA);
+    console.log(`[system-audio-cron] scheduled first run in ${Math.round(delayMsSA / 3600000)}h (next 05:30 UTC)`);
+  }
+
   /* CSSOS_WAVE102 20260508 — Jing
    * Daily pg_dump → R2 backup at 02:00 UTC (one hour before sample-cron).
    * Shells out to scripts/backup-postgres.mjs so the heavy work happens in
@@ -43277,90 +43426,25 @@ app.post(
       }
       const need = Math.max(0, SLIDESHOW_POOL_SIZE - existing);
 
-      // Build the prompt: prefer override, else derive from work + civilization
-      const basePrompt = promptOverride ||
-        [
-          work.title ? `Cinematic scene about "${work.title}"` : "Cinematic scene",
-          work.civilization ? `set in the ${work.civilization} cultural frame` : "",
-          "vivid colors, dramatic lighting, beautiful character with full face visible (no half-face crops unless intentional closeup), centered composition, no text, no watermark",
-        ].filter(Boolean).join(", ");
-
-      // Generate in parallel. Each frame uses a slightly different style
-      // seed phrase so the pool has actual variety.
-      // CSSOS_WAVE_122 · rate-limit-friendly batching. Free providers
-      // (Replicate / Together) impose tight per-minute caps; throwing
-      // 30 simultaneous requests at them yields 28 × 429 + 2 successes.
-      // Run in waves of 4 concurrent with 1.2s pause between waves so
-      // the slowest provider's per-minute counter has time to recover.
-      const STYLE_SEEDS = SLIDESHOW_LIFE_ARC_SEEDS;
-      const BATCH = 4;
-      const INTER_BATCH_SLEEP_MS = 1200;
-      const results: Array<{ ok: boolean; url?: string; err?: string }> = [];
-      for (let i = 0; i < need; i += BATCH) {
-        const slice = [] as Promise<{ ok: boolean; url?: string; err?: string }>[];
-        for (let j = i; j < Math.min(i + BATCH, need); j++) {
-          const seed = STYLE_SEEDS[(existing + j) % STYLE_SEEDS.length];
-          const variant = `${basePrompt}, ${seed}`;
-          slice.push((async () => {
-            try {
-              const img = await callImageGen({
-                prompt: variant, size,
-                prefer: ["fal", "replicate", "deepinfra", "huggingface", "pollinations"],
-              });
-              if (!img.ok) {
-                // Per-frame: don't trigger engine cooldown on a single
-                // 429 — backoff briefly and let the provider list move on.
-                await new Promise((r) => setTimeout(r, 250));
-              }
-              if (!img.ok) return { ok: false, err: img.error || "image_gen_failed" };
-              const url = img.image_url
-                ? img.image_url
-                : (img.image_b64 ? persistBase64Cover(img.image_b64, (user && user.id) || work.user_id || "auto-slideshow") : "");
-              if (!url) return { ok: false, err: "no_url" };
-              return { ok: true, url };
-            } catch (err) {
-              return { ok: false, err: err instanceof Error ? err.message : String(err) };
-            }
-          })());
-        }
-        const batchResults = await Promise.all(slice);
-        results.push(...batchResults);
-        if (i + BATCH < need) {
-          await new Promise((r) => setTimeout(r, INTER_BATCH_SLEEP_MS));
-        }
-      }
-      const successful = results.filter((r) => r.ok && r.url);
-
-      // Persist each successful URL as a work_assets row
-      for (let i = 0; i < successful.length; i++) {
-        const r = successful[i];
-        if (!r) continue;
-        await withClient((c) =>
-          c.query(
-            `INSERT INTO work_assets (work_id, asset_type, url, meta)
-               VALUES ($1, 'slideshow_frame', $2, $3::jsonb)
-             ON CONFLICT DO NOTHING`,
-            [
-              id,
-              r.url || "",
-              JSON.stringify({ pool_index: existing + i, seed: STYLE_SEEDS[(existing + i) % STYLE_SEEDS.length] }),
-            ],
-          ),
-        );
-      }
-
-      const newPool = await withClient((c) =>
-        c.query<{ n: string }>(
-          `SELECT COUNT(*)::text AS n FROM work_assets WHERE work_id = $1 AND asset_type = 'slideshow_frame'`,
-          [id],
-        ),
+      // CSSOS_WAVE_122 · fire-and-forget. The old synchronous path
+      // generated all 30 frames before responding (60-90s), but node
+      // fetch (undici) aborts the connection at ~30s — the backfill
+      // script saw "fetch failed" on most works even though the server
+      // kept generating fine. Now we kick the shared
+      // enqueueSlideshowPoolGeneration helper in the background (it
+      // already does 4-concurrent rate-limit-friendly batching + DB
+      // persistence + idempotent pool-size short-circuit) and return
+      // immediately. Callers poll GET /api/works/:id/slideshow to see
+      // the pool fill in. `promptOverride` is intentionally dropped —
+      // the helper derives a richer life-arc prompt from work.title.
+      void enqueueSlideshowPoolGeneration(id).catch((e) =>
+        console.warn("[slideshow] background generation failed", id, e?.message || e),
       );
       return res.json({
         ok: true,
-        status: "generated",
-        added: successful.length,
-        failed: results.length - successful.length,
-        pool_size: Number(newPool.rows[0]?.n || 0),
+        status: "queued",
+        pool_size: existing,
+        need,
         target: SLIDESHOW_POOL_SIZE,
       });
     } catch (err) {

@@ -1646,6 +1646,7 @@ async function startCreation(customTitle, customLyrics, options = {}) {
       currentWatchPreviewWork =
         listLocalWorksForCurrentUser().find((work) => String(work?.local_id || work?.work_id || "").trim() === creationPayload.localWorkId) ||
         currentWatchPreviewWork;
+      globalThis.cssosBindToWorkId?.(currentWatchPreviewWork); // CSSOS_WAVE_121 Step 2
     }
     void createMyWorkRecord(title, lines, creationPayload);
     if (creationPayload.existingRunId) {

@@ -19851,7 +19851,17 @@ async function backfillSystemWorkMedia(
   // so system-generated MVs follow the identical format. Re-roll up to
   // 2 times if the LLM returns fewer than 40 lines (the floor of a
   // "complete" 京典 song per Jing's spec).
-  if (!work.lyrics_preview || work.lyrics_preview.length < 400) {
+  // CSSOS_WAVE_150 20260514 — Jing: the gate must match the candidate
+  // query in runSystemMediaBackfillBatch (W134), otherwise works that
+  // the query flags as "needs re-roll" (lyrics < 600 chars, < 40 lines,
+  // or < 8 [Section] headers) get SKIPPED here because the old gate was
+  // just `length < 400` — every batch then re-selected the same 50 and
+  // did nothing → processed:50 ok:0 failed:50 forever.
+  const __lp = String(work.lyrics_preview || "");
+  const __lpLines = __lp ? __lp.split(/\r?\n/).filter((l: string) => l.trim().length > 0).length : 0;
+  const __lpSections = __lp ? (__lp.match(/\[(Verse|Chorus|Bridge|Outro|Pre-Chorus)/gi) || []).length : 0;
+  const __needsLyrics = !__lp || __lp.length < 600 || __lpLines < 40 || __lpSections < 8;
+  if (__needsLyrics) {
     try {
       const seed = String(work.lyrics_preview || work.title || "").slice(0, 800);
       const isZh = /[一-鿿]/.test(seed);

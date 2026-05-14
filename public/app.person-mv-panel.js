@@ -2984,7 +2984,10 @@
                 '<div class="pmv-mv-meta">' + escTxt((m.duration_secs || 0) + "s") + '</div>';
             }
             var cardCls = "pmv-mv-card" + (m.is_official_sample ? " is-official-sample" : "");
-            return '<div class="' + cardCls + '" data-work-id="' + escAttr(m.work_id) + '">' +
+            // CSSOS_WAVE_153B — carry the creator id so the All/Mine tab
+            // filter can show/hide without a re-fetch.
+            return '<div class="' + cardCls + '" data-work-id="' + escAttr(m.work_id) + '"' +
+              ' data-creator-id="' + escAttr(String(m.created_by_user_id || "")) + '">' +
               inner + '</div>';
           }).join("") +
         '</div>';
@@ -3185,6 +3188,36 @@
           })();
         } catch (_e) {}
       }
+      // CSSOS_WAVE_153B 20260514 — Jing: 「Mine · 0」永远 0 — root cause:
+      // the .pmv-mv-tab All/Mine chips had NO click handler at all, so
+      // the tab never filtered. Wire it now: filter the gallery grid
+      // client-side by data-creator-id === current user id.
+      (function wireMvTabs() {
+        var tabs = host.querySelectorAll(".pmv-mv-tab");
+        if (!tabs.length) return;
+        var myId = "";
+        try {
+          myId = String(
+            (globalThis.authState && globalThis.authState.user && globalThis.authState.user.id) || ""
+          );
+        } catch (_e) {}
+        tabs.forEach(function (tab) {
+          tab.addEventListener("click", function () {
+            var which = tab.getAttribute("data-mv-tab") || "all";
+            host.querySelectorAll(".pmv-mv-tab").forEach(function (t) {
+              t.classList.toggle("is-active", t === tab);
+            });
+            host.querySelectorAll(".pmv-mv-card").forEach(function (card) {
+              if (which === "mine") {
+                var cid = String(card.getAttribute("data-creator-id") || "");
+                card.style.display = (myId && cid === myId) ? "" : "none";
+              } else {
+                card.style.display = "";
+              }
+            });
+          });
+        });
+      })();
       // Retry
       var retryBtn = host.querySelector(".pmv-retry");
       if (retryBtn) {

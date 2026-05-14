@@ -148,6 +148,13 @@
       card.addEventListener("click", function () {
         var workId = card.getAttribute("data-work-id");
         if (!workId) return;
+        // CSSOS_WAVE_153C 20260514 — Jing: 节日 shelf 点击对齐 W128/W149
+        // 统一入口 — open the MV pipeline panel in cinema mode with the
+        // work queued, same as the person/landmark codex gallery cards.
+        if (typeof globalThis.openMvPipelinePanel === "function") {
+          globalThis.openMvPipelinePanel({ cinema: true, queue: [workId] });
+          return;
+        }
         if (typeof globalThis.openMarketWorkPreview === "function") {
           globalThis.openMarketWorkPreview({ id: workId, work_id: workId });
           return;

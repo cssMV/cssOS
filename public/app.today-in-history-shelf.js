@@ -130,6 +130,12 @@
       card.addEventListener("click", function () {
         var workId = card.getAttribute("data-work-id");
         if (!workId) return;
+        // CSSOS_WAVE_153C 20260514 — align with festival shelf + codex
+        // gallery: open the MV pipeline panel in cinema mode.
+        if (typeof globalThis.openMvPipelinePanel === "function") {
+          globalThis.openMvPipelinePanel({ cinema: true, queue: [workId] });
+          return;
+        }
         if (typeof globalThis.openMarketWorkPreview === "function") {
           globalThis.openMarketWorkPreview({ id: workId, work_id: workId });
           return;

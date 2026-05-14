@@ -136,6 +136,7 @@ pub mod llm;
 pub mod market_package;
 pub mod media;
 pub mod music_composition;
+pub mod music_civilization_map;
 pub mod music_gen;
 pub mod mv_compose;
 pub mod mv_keepalive;

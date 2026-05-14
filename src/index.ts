@@ -15188,6 +15188,24 @@ type MusicGenRequest = {
   /* Per-provider model override (from cookie `cssos_music_<provider>_model`
    * filled in by the calling endpoint via userPreferredModelMap). */
   prefer_model?: Record<string, string>;
+  /* CSSOS_WAVE_156 20260514 — when set, the lyrics the music engine
+   * should SING. Suno/Udio (via kie.ai) need this to produce vocals +
+   * a word-level timeline. Instrumental providers ignore it. */
+  lyrics?: string;
+  title?: string;
+  instrumental?: boolean;
+};
+/* CSSOS_WAVE_156 — word/line-level lyric timeline returned by singing
+ * engines (Suno via kie.ai). Each entry is the actual sung word/line
+ * with its real start/end in the produced audio — the foundation for
+ * 情绪字幕 (emotional subtitles) that bite-sync to the vocal. */
+type LyricTimelineEntry = {
+  text: string;
+  start_s: number;
+  end_s: number;
+  /* "word" | "line" — kie.ai returns word-level; we keep the field
+   * so a coarser fallback (forced-alignment by line) is also typable. */
+  unit?: "word" | "line";
 };
 type MusicGenResponse = {
   ok: boolean;
@@ -15195,6 +15213,11 @@ type MusicGenResponse = {
   audio_url?: string;
   audio_b64?: string;
   error?: string;
+  /* CSSOS_WAVE_156 — populated by the Suno adapter. */
+  lyrics_timeline?: LyricTimelineEntry[];
+  task_id?: string;
+  audio_id?: string;
+  duration_s?: number;
 };
 const MUSIC_PROVIDERS = ["huggingface_music", "fal_music", "mubert", "replicate_music", "deepinfra_music", "elevenlabs", "stability", "suno"] as const;
 /* CSSOS_PROVIDER_PRIORITY 20260507 — Jing
@@ -15531,8 +15554,155 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
         if (!b64) { lastErr = "stability_music_empty_body"; continue; }
         { void resetEngineFailures(provider); return { ok: true, provider: "stability", audio_b64: b64 }; }
       }
-      // Other music providers (suno, elevenlabs) — adapters land
-      // separately. Suno runs through the existing suno-api sidecar.
+      // CSSOS_WAVE_156 20260514 — Jing: Suno via kie.ai. The ONLY
+      // provider that actually SINGS the lyrics and can hand back a
+      // word-level timeline — the hard requirement for 情绪字幕
+      // (emotional subtitles), short plays / TV series / films.
+      //
+      // kie.ai Suno API (base https://api.kie.ai):
+      //   POST /api/v1/generate            → { data: { taskId } }
+      //   GET  /api/v1/generate/record-info?taskId=  → poll until
+      //        status SUCCESS, data.response.sunoData[] has audioUrl,
+      //        duration, id (= audioId), imageUrl, title
+      //   POST /api/v1/generate/get-timestamped-lyrics  { taskId,
+      //        audioId } → aligned word/line timestamps
+      //
+      // We poll synchronously (no callback server) with a generous
+      // deadline — Suno generation is 30-120s. On success we also
+      // fetch the timestamped-lyrics so the caller gets the timeline.
+      if (provider === "suno") {
+        const kieKey = String(process.env.KIE_API_KEY || "").trim();
+        if (!kieKey) { lastErr = "suno_no_kie_key"; continue; }
+        const kieHeaders = {
+          Authorization: `Bearer ${kieKey}`,
+          "Content-Type": "application/json",
+        };
+        const wantInstrumental = req.instrumental === true || !req.lyrics;
+        const sunoBody: Record<string, unknown> = {
+          // customMode=true lets us pass explicit lyrics + style + title.
+          customMode: true,
+          instrumental: wantInstrumental,
+          model: "V4",
+          style: String(req.prompt || (req.tags || []).join(", ") || "cinematic").slice(0, 200),
+          title: String(req.title || "cssOS").slice(0, 80),
+          // kie.ai rejects the request (422) without a callBackUrl. We
+          // don't actually need the callback — we poll record-info —
+          // but the field is mandatory. Point it at a real no-op
+          // endpoint so kie.ai's URL validation passes.
+          callBackUrl: `${String(process.env.APP_BASE_URL || "https://cssstudio.app").replace(/\/+$/, "")}/api/webhooks/kie-suno`,
+        };
+        if (!wantInstrumental && req.lyrics) {
+          sunoBody.prompt = String(req.lyrics).slice(0, 4000);
+        }
+        let taskId = "";
+        try {
+          const gen = await fetch("https://api.kie.ai/api/v1/generate", {
+            method: "POST",
+            headers: kieHeaders,
+            body: JSON.stringify(sunoBody),
+          });
+          const genJson: any = await gen.json().catch(() => null);
+          if (!gen.ok || !genJson) {
+            lastErr = `suno_generate_${gen.status}: ${JSON.stringify(genJson || {}).slice(0, 160)}`;
+            if (isCreditsError(gen.status, JSON.stringify(genJson || {}))) console.warn("[music-router] suno credits/quota, falling through");
+            else console.warn(`[music-router] suno generate ${gen.status}: ${lastErr.slice(0, 160)}`);
+            continue;
+          }
+          taskId = String(genJson?.data?.taskId || genJson?.data?.task_id || genJson?.taskId || "").trim();
+          if (!taskId) { lastErr = `suno_no_task_id: ${JSON.stringify(genJson).slice(0, 160)}`; continue; }
+        } catch (netErr) {
+          lastErr = `suno_generate_net_${(netErr as Error)?.message || netErr}`;
+          continue;
+        }
+        // Poll record-info. Suno typically lands in 40-120s; deadline 240s.
+        // Suno V4 returns TWO tracks per task — collect them all so we
+        // can pick whichever one actually has an aligned timeline.
+        type SunoTrack = { audioUrl: string; audioId: string; durationS: number };
+        let tracks: SunoTrack[] = [];
+        const deadline = Date.now() + 240_000;
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 5000));
+          let info: any = null;
+          try {
+            const st = await fetch(
+              `https://api.kie.ai/api/v1/generate/record-info?taskId=${encodeURIComponent(taskId)}`,
+              { headers: kieHeaders },
+            );
+            info = await st.json().catch(() => null);
+          } catch (_e) { continue; }
+          const status = String(info?.data?.status || info?.status || "").toUpperCase();
+          if (status === "SUCCESS" || status === "COMPLETE" || status === "FIRST_SUCCESS") {
+            const sd = info?.data?.response?.sunoData || info?.data?.sunoData || [];
+            if (Array.isArray(sd) && sd.length) {
+              tracks = sd
+                .map((t: any) => ({
+                  audioUrl: String(t.audioUrl || t.audio_url || t.streamAudioUrl || "").trim(),
+                  audioId: String(t.id || t.audioId || "").trim(),
+                  durationS: Number(t.duration || 0) || 0,
+                }))
+                .filter((t: SunoTrack) => t.audioUrl);
+            }
+            if (tracks.length) break;
+          }
+          if (status === "FAILED" || status === "ERROR" || status === "SENSITIVE_WORD_ERROR") {
+            lastErr = `suno_task_${status}`;
+            break;
+          }
+        }
+        if (!tracks.length) { lastErr = lastErr || "suno_poll_timeout"; continue; }
+
+        // Fetch the timestamped lyric timeline. kie.ai aligns Chinese
+        // at LINE granularity (each entry is a whole lyric line), and
+        // only SOME of the per-task tracks have alignment computed —
+        // so probe every track's audioId and keep the first non-empty
+        // timeline, then anchor audio_url to THAT track for sync.
+        let timeline: LyricTimelineEntry[] | undefined;
+        let chosen = tracks[0]!;
+        if (!wantInstrumental) {
+          for (const tk of tracks) {
+            try {
+              const tl = await fetch("https://api.kie.ai/api/v1/generate/get-timestamped-lyrics", {
+                method: "POST",
+                headers: kieHeaders,
+                body: JSON.stringify({ taskId, audioId: tk.audioId, musicIndex: 0 }),
+              });
+              const tlJson: any = await tl.json().catch(() => null);
+              const rows = tlJson?.data?.alignedWords || tlJson?.data?.words || tlJson?.alignedWords || [];
+              if (Array.isArray(rows) && rows.length) {
+                const cleaned: LyricTimelineEntry[] = rows
+                  .map((w: any) => ({
+                    // Strip [Section] headers and collapse newlines —
+                    // keep the actual sung text only.
+                    text: String(w.word ?? w.text ?? "")
+                      .replace(/\[[^\]]*\]/g, "")
+                      .replace(/\s+/g, " ")
+                      .trim(),
+                    start_s: Number(w.startS ?? w.start_s ?? w.start ?? 0) || 0,
+                    end_s: Number(w.endS ?? w.end_s ?? w.end ?? 0) || 0,
+                    unit: "line" as const,
+                  }))
+                  .filter((e: LyricTimelineEntry) => e.text && e.end_s > e.start_s);
+                if (cleaned.length) {
+                  timeline = cleaned;
+                  chosen = tk;
+                  break;
+                }
+              }
+            } catch (_e) { /* try next track */ }
+          }
+        }
+        void resetEngineFailures(provider);
+        return {
+          ok: true,
+          provider: "suno",
+          audio_url: chosen.audioUrl,
+          task_id: taskId,
+          audio_id: chosen.audioId,
+          duration_s: chosen.durationS,
+          ...(timeline && timeline.length ? { lyrics_timeline: timeline } : {}),
+        };
+      }
+      // elevenlabs — adapter still TODO.
     } catch (err) {
       lastErr = `${provider}_threw_${(err as Error)?.message || err}`;
       console.warn(`[music-router] ${provider} threw:`, lastErr.slice(0, 200));
@@ -35222,6 +35392,21 @@ app.post("/api/stripe/connect/start", async (req, res) => {
       message: String(err),
     });
   }
+});
+
+/* CSSOS_WAVE_156 20260514 — Jing: kie.ai Suno callback sink.
+ * kie.ai's /api/v1/generate requires a callBackUrl. We don't rely on
+ * the callback (the music router polls record-info synchronously), but
+ * the field is mandatory and kie.ai validates the URL. This endpoint
+ * just 200s everything so kie.ai is satisfied. Logged for debugging in
+ * case we later switch to a callback-driven flow. */
+app.post("/api/webhooks/kie-suno", express.json({ limit: "256kb" }), (req, res) => {
+  try {
+    const taskId = String((req.body as any)?.data?.taskId || (req.body as any)?.taskId || "");
+    const status = String((req.body as any)?.data?.status || (req.body as any)?.status || "");
+    console.log(`[kie-suno-callback] taskId=${taskId} status=${status}`);
+  } catch (_) {}
+  return res.json({ ok: true });
 });
 
 app.post("/api/stripe/webhook", async (req, res) => {

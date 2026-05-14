@@ -620,6 +620,18 @@ pub struct MusicRequest {
     /// adapter falls back to deriving from prompt's first line.
     #[serde(default)]
     pub title: Option<String>,
+    /// CSSOS_WAVE_123 20260514 — Jing: "每个文明的人物应该音乐风格都不一样".
+    /// Cultural signal for civilization×era→style enrichment. The
+    /// person-MV frontend already knows personCiv/personEra; it forwards
+    /// them here so Suno gets an explicit genre + vocal register + lead
+    /// instruments instead of defaulting to a soft female ballad.
+    /// All optional — absent ⇒ enrichment is skipped, behaviour unchanged.
+    #[serde(default)]
+    pub civilization: Option<String>,
+    #[serde(default)]
+    pub era: Option<String>,
+    #[serde(default)]
+    pub gender: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1025,6 +1037,29 @@ async fn music_inner(
     let lang = body.language.as_deref();
     let resolved_prompt = mv_random_inputs::ensure_prompt(&body.prompt, lang);
     let resolved_style = mv_random_inputs::ensure_style(body.music_style.as_deref());
+    // CSSOS_WAVE_123 20260514 — civilization×era→style enrichment. When
+    // the caller supplied cultural signal, append explicit genre + vocal
+    // register + lead instruments so Suno differentiates per culture
+    // instead of defaulting every figure to a soft female ballad.
+    let resolved_style = match crate::music_civilization_map::enrich_music_style(
+        body.civilization.as_deref(),
+        body.era.as_deref(),
+        body.gender.as_deref(),
+        &resolved_style,
+    ) {
+        Some(enriched) => {
+            tracing::info!(
+                target: "cssos::mv::music::civ_enrich",
+                civilization = %body.civilization.as_deref().unwrap_or(""),
+                era = %body.era.as_deref().unwrap_or(""),
+                gender = %body.gender.as_deref().unwrap_or(""),
+                enriched = %enriched,
+                "music style enriched by civilization map"
+            );
+            enriched
+        }
+        None => resolved_style,
+    };
     // Only auto-fill lyrics when the caller is explicitly NOT requesting an
     // instrumental track. Instrumental mode is a legit user choice; we must
     // not silently inject lyrics that would force a vocal track.
@@ -2278,8 +2313,16 @@ fn default_lyrics_system_prompt() -> String {
 }
 
 Rules:
+- ★ JINGDIAN 10-SECTION CONTRACT (MANDATORY — the "lyrics" field MUST obey all of these):
+  • The lyrics MUST contain EXACTLY these 10 sections, in THIS order, each on its own line as a bracket marker:
+      [Verse 1]  [Verse 2]  [Chorus 1]  [Verse 3]  [Verse 4]  [Chorus 2]  [Bridge]  [Chorus 3]  [Chorus 4]  [Outro]
+  • Section markers MUST be ENGLISH inside square brackets, EXACTLY as written above. NEVER translate them (no 【主歌】, no （副歌）, no "Verso 1"). The music engine only parses English bracket markers; a translated marker gets sung aloud as a lyric — unacceptable.
+  • Each section MUST have AT LEAST 4 sung lines. The whole song MUST be AT LEAST 40 sung lines total (markers and blank lines do not count).
+  • The 4 Chorus sections share the SAME hook text (a chorus repeats) — that is correct and expected, still write it out in full each time.
+  • All sung lines MUST be in the requested target language ONLY. A figure from a Western civilization sings in their own language, NOT Chinese; a Chinese figure sings in Chinese. Do not mix scripts within the lyric body.
+  • Put a blank line between sections for readability.
 - "lines" arrays contain ONLY sung text. NEVER include "[Verse 1]" or "**Chorus**" inside a line — those go ONLY in the top-level "lyrics" field as section markers.
-- "kind" values: intro, verse_1, verse_2, verse_3, ..., chorus, bridge, hook, outro. Use snake_case.
+- "kind" values: intro, verse_1, verse_2, verse_3, ..., chorus, bridge, hook, outro. Use snake_case. The "sections" array SHOULD mirror the 10-section contract above (verse_1, verse_2, chorus_1, verse_3, verse_4, chorus_2, bridge, chorus_3, chorus_4, outro).
 - One shot_scripts entry per section. section_kind matches a section.
 - scene_description must be filmable: concrete subject + action + setting. Avoid pure abstraction.
 - motion is a camera direction: "slow zoom", "static", "dolly right", "handheld", "crane up", "rack focus", etc.
@@ -2657,6 +2700,101 @@ async fn lyrics(
     .await
 }
 
+// CSSOS_WAVE_124 20260514 — Jing: 歌词「京典 10 段契约」.
+// Validate a parsed lyric body against the Jingdian contract:
+//   • ≥ 40 sung lines (markers / blanks excluded)
+//   • the 10 canonical English bracket section markers all present
+//   • no translated / non-English section markers
+//   • script of the body matches the requested language family
+// Returns Ok(()) on pass, Err(reason) describing the first violation —
+// the reason string is fed back into the retry prompt verbatim.
+const JINGDIAN_SECTIONS: [&str; 10] = [
+    "[Verse 1]", "[Verse 2]", "[Chorus 1]", "[Verse 3]", "[Verse 4]",
+    "[Chorus 2]", "[Bridge]", "[Chorus 3]", "[Chorus 4]", "[Outro]",
+];
+
+fn validate_jingdian_contract(lyrics: &str, lang: Option<&str>) -> Result<(), String> {
+    let body = lyrics.trim();
+    if body.is_empty() {
+        return Err("lyrics body is empty".to_string());
+    }
+    // 1. sung-line count (exclude marker lines + blanks)
+    let is_marker = |l: &str| {
+        let t = l.trim();
+        (t.starts_with('[') && t.ends_with(']'))
+            || (t.starts_with('【') && t.ends_with('】'))
+            || (t.starts_with('（') && t.ends_with('）'))
+            || (t.starts_with('(') && t.ends_with(')') && t.len() < 40)
+    };
+    let sung_lines = body
+        .lines()
+        .filter(|l| !l.trim().is_empty() && !is_marker(l))
+        .count();
+    if sung_lines < 40 {
+        return Err(format!(
+            "only {sung_lines} sung lines — the Jingdian contract requires AT LEAST 40 sung lines across 10 sections"
+        ));
+    }
+    // 2. all 10 canonical English markers present
+    let missing: Vec<&str> = JINGDIAN_SECTIONS
+        .iter()
+        .copied()
+        .filter(|m| !body.contains(m))
+        .collect();
+    if !missing.is_empty() {
+        return Err(format!(
+            "missing required English section markers: {}. Use EXACTLY [Verse 1] [Verse 2] [Chorus 1] [Verse 3] [Verse 4] [Chorus 2] [Bridge] [Chorus 3] [Chorus 4] [Outro]",
+            missing.join(", ")
+        ));
+    }
+    // 3. no translated / CJK-bracket section markers
+    for line in body.lines() {
+        let t = line.trim();
+        if (t.starts_with('【') && t.ends_with('】'))
+            || (t.starts_with('（') && t.ends_with('）') && t.chars().count() < 20)
+        {
+            return Err(format!(
+                "found a non-English section marker '{t}' — section markers MUST be English in square brackets, never translated"
+            ));
+        }
+    }
+    // 4. language/script consistency. Coarse check: if a CJK target was
+    //    requested, the body should be predominantly CJK; if a Latin
+    //    target was requested, predominantly Latin. Catches the
+    //    "Western figure singing Chinese" class of bug.
+    if let Some(code) = lang.map(|c| c.to_ascii_lowercase()) {
+        let cjk = body.chars().filter(|c| {
+            let u = *c as u32;
+            (0x4E00..=0x9FFF).contains(&u) // CJK unified
+                || (0x3040..=0x30FF).contains(&u) // hiragana/katakana
+                || (0xAC00..=0xD7AF).contains(&u) // hangul
+        }).count();
+        let latin = body.chars().filter(|c| c.is_ascii_alphabetic()).count();
+        let total = (cjk + latin).max(1);
+        let cjk_ratio = cjk as f32 / total as f32;
+        let wants_cjk = code.starts_with("zh") || code.starts_with("ja")
+            || code.starts_with("jp") || code.starts_with("ko") || code.starts_with("kr");
+        let wants_latin = matches!(
+            code.as_str(),
+            "en" | "en-us" | "en-gb" | "es" | "fr" | "de" | "pt" | "pt-br"
+                | "it" | "id" | "tr" | "vi"
+        );
+        if wants_cjk && cjk_ratio < 0.5 {
+            return Err(format!(
+                "target language is {code} but the lyric body is mostly non-CJK ({:.0}% CJK) — write the lyrics in {code}",
+                cjk_ratio * 100.0
+            ));
+        }
+        if wants_latin && cjk_ratio > 0.25 {
+            return Err(format!(
+                "target language is {code} but the lyric body contains too much CJK ({:.0}%) — write the lyrics in {code}, do not mix scripts",
+                cjk_ratio * 100.0
+            ));
+        }
+    }
+    Ok(())
+}
+
 async fn lyrics_inner(
     app: AppState,
     auth: AuthSession,
@@ -2748,17 +2886,94 @@ async fn lyrics_inner(
         .clone()
         .unwrap_or_else(default_lyrics_system_prompt);
 
+    // CSSOS_WAVE_124 — the 10-section Jingdian contract needs more room
+    // than the old 800-token cap (40+ lines × ~10 tokens + JSON envelope
+    // + shot scripts ≈ 1800-2400 tokens). Bump the floor to 2600 unless
+    // the caller explicitly asked for more.
+    let max_tokens = body.max_tokens.unwrap_or(800).max(2600);
+
     let chat_req = ChatRequest {
         model: version.clone(),
-        system: Some(system_prompt),
-        user: user_prompt,
-        max_tokens: body.max_tokens.unwrap_or(800),
+        system: Some(system_prompt.clone()),
+        user: user_prompt.clone(),
+        max_tokens,
         temperature: std::env::var("CSSMV_LYRICS_TEMPERATURE")
             .ok()
             .and_then(|s| s.parse::<f32>().ok()),
     };
 
-    let result = generate_chat(&engine, &chat_req).await.map_err(llm_error)?;
+    let mut result = generate_chat(&engine, &chat_req).await.map_err(llm_error)?;
+
+    // CSSOS_WAVE_124 — self-check the Jingdian contract; retry ONCE with
+    // a stricter corrective prompt if the first draft violates it. One
+    // retry bounds latency (~+8s worst case) and cost while still
+    // catching the common "too short / translated markers / wrong
+    // language" failures. The user never sees the rejected draft.
+    {
+        let (probe_lyrics, _, _, _) = parse_lyrics_llm_output(&result.text);
+        if let Err(reason) = validate_jingdian_contract(&probe_lyrics, body.language.as_deref()) {
+            tracing::warn!(
+                target = "mv_pipeline_lyrics",
+                engine = %engine,
+                version = %version,
+                violation = %reason,
+                "lyrics draft violated Jingdian contract — retrying once"
+            );
+            let corrective = format!(
+                "{user_prompt}\n\n\
+                 ⚠️ YOUR PREVIOUS DRAFT WAS REJECTED. Violation: {reason}\n\
+                 Rewrite from scratch. The \"lyrics\" field MUST contain ALL 10 sections in order — \
+                 [Verse 1] [Verse 2] [Chorus 1] [Verse 3] [Verse 4] [Chorus 2] [Bridge] [Chorus 3] [Chorus 4] [Outro] — \
+                 each English bracket marker on its own line, each section AT LEAST 4 sung lines, \
+                 AT LEAST 40 sung lines total, all in the requested target language. \
+                 Return the same JSON envelope shape. JSON ONLY."
+            );
+            let retry_req = ChatRequest {
+                model: version.clone(),
+                system: Some(system_prompt.clone()),
+                user: corrective,
+                max_tokens: max_tokens.max(3000),
+                temperature: std::env::var("CSSMV_LYRICS_TEMPERATURE")
+                    .ok()
+                    .and_then(|s| s.parse::<f32>().ok()),
+            };
+            match generate_chat(&engine, &retry_req).await {
+                Ok(retry_result) => {
+                    let (retry_lyrics, _, _, _) = parse_lyrics_llm_output(&retry_result.text);
+                    match validate_jingdian_contract(&retry_lyrics, body.language.as_deref()) {
+                        Ok(()) => {
+                            tracing::info!(
+                                target = "mv_pipeline_lyrics",
+                                "retry satisfied the Jingdian contract"
+                            );
+                            result = retry_result;
+                        }
+                        Err(retry_reason) => {
+                            // Both attempts failed — keep whichever draft is
+                            // LONGER (more sung lines is the lesser evil),
+                            // and log so we can tune the prompt.
+                            tracing::warn!(
+                                target = "mv_pipeline_lyrics",
+                                retry_violation = %retry_reason,
+                                "retry still violated contract — keeping longer of the two drafts"
+                            );
+                            if retry_result.text.len() > result.text.len() {
+                                result = retry_result;
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target = "mv_pipeline_lyrics",
+                        error = %format!("{e:?}"),
+                        "lyrics retry call failed — keeping original draft"
+                    );
+                }
+            }
+        }
+    }
+
     let task_id = format!("lyrics-{}", Uuid::new_v4());
     let cost_cents = price_cents(&engine, &version);
     let _ = meter_usage(

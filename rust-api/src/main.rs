@@ -157,6 +157,7 @@ mod media;
 mod metrics;
 mod models;
 mod music_composition;
+mod music_civilization_map;
 mod music_gen;
 mod mv_compose;
 mod mv_keepalive;

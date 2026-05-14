@@ -7466,20 +7466,45 @@
    * Center info auto-hide. After 10s of playback the strip + any
    * lingering loading text fade to 0. Cursor / touch / key wakes
    * them and re-arms the timer. Honors prefers-reduced-motion via
-   * existing transition CSS. */
+   * existing transition CSS.
+   *
+   * CSSOS_WAVE_158 20260514 — Jing — screen-dimming bug fix.
+   * "只有第一次输出的时候图1是亮着的，第二次之后界面就暗下来。"
+   * Root cause: hideAll() was setting `loading.style.opacity = 0.18`,
+   * dimming the ENTIRE hero element (background, progress, video — the
+   * whole interface) instead of just the central text. Correct
+   * behavior: hide ONLY the central output info (person name, bio,
+   * chips, status line) — leave the background / video / progress at
+   * full brightness. The info reappears on activity OR when the
+   * 情绪字幕 engine randomly switches a font (cssmv:font-switch), then
+   * auto-hides again after 10s of no operation. */
   function armCinemaInfoAutoHide() {
     if (!cinemaSt || !cinemaSt.stage) return;
     const stage = cinemaSt.stage;
     const strip = stage.querySelector(".cinema-strip");
     const loading = stage.querySelector(".cinema-loading");
+    /* The central output info — name / sub / chips / status line / bio.
+     * These (and ONLY these) fade out; the hero background, portrait,
+     * progress bar and the playing video stay at full brightness. */
+    function infoEls() {
+      const root = loading || stage;
+      return Array.prototype.slice.call(
+        root.querySelectorAll(
+          ".cinema-hero-name, .cinema-hero-sub, .cinema-hero-chips," +
+          " .cinema-hero-status-line, .cinema-hero-intro"
+        )
+      );
+    }
     let hideTimer = 0;
     function showAll() {
       if (strip) strip.style.opacity = "";
-      if (loading) loading.style.opacity = "";
+      if (loading) loading.style.opacity = ""; /* never dim the whole hero */
+      infoEls().forEach(function (el) { el.style.opacity = ""; });
     }
     function hideAll() {
       if (strip) strip.style.opacity = "0";
-      if (loading) loading.style.opacity = "0.18"; /* keep faintly visible */
+      if (loading) loading.style.opacity = ""; /* keep interface bright */
+      infoEls().forEach(function (el) { el.style.opacity = "0"; });
     }
     function bump() {
       showAll();
@@ -7494,11 +7519,17 @@
     document.addEventListener("pointermove", onMove, { passive: true });
     document.addEventListener("touchstart", onMove, { passive: true });
     document.addEventListener("keydown", onMove);
+    /* CSSOS_WAVE_158 — the 情绪字幕 engine fires cssmv:font-switch each
+     * time it randomly re-styles a word. That counts as activity: the
+     * central info flashes back, then auto-hides again 10s later. */
+    function onFontSwitch() { bump(); }
+    globalThis.addEventListener("cssmv:font-switch", onFontSwitch);
     cinemaSt._infoAutoHide = function () {
       clearTimeout(hideTimer);
       try { document.removeEventListener("pointermove", onMove); } catch (_e) {}
       try { document.removeEventListener("touchstart", onMove); } catch (_e) {}
       try { document.removeEventListener("keydown", onMove); } catch (_e) {}
+      try { globalThis.removeEventListener("cssmv:font-switch", onFontSwitch); } catch (_e) {}
       showAll();
       cinemaSt._infoAutoHide = null;
     };
@@ -8050,6 +8081,14 @@
       '#cssos-cinema-stage .cinema-video, .panel[data-cinema="true"] .cinema-video { width:100%; height:100%; object-fit:contain; background:#000; }' +
       '#cssos-cinema-stage .cinema-strip, .panel[data-cinema="true"] .cinema-strip { position:absolute; left:0; right:0; bottom:0; padding:8px 14px; color:#daffee; font:600 12px/1.3 ui-monospace,monospace; background:linear-gradient(transparent,rgba(0,0,0,.7)); text-align:center; transition: opacity 600ms ease; }' +
       '#cssos-cinema-stage .cinema-loading { transition: opacity 600ms ease; }' +
+      /* CSSOS_WAVE_158 — only the central output info fades on idle;
+       * the hero background / video / progress stay fully bright. */
+      '#cssos-cinema-stage .cinema-hero-name, #cssos-cinema-stage .cinema-hero-sub,' +
+      ' #cssos-cinema-stage .cinema-hero-chips, #cssos-cinema-stage .cinema-hero-status-line,' +
+      ' #cssos-cinema-stage .cinema-hero-intro,' +
+      ' .panel[data-cinema="true"] .cinema-hero-name, .panel[data-cinema="true"] .cinema-hero-sub,' +
+      ' .panel[data-cinema="true"] .cinema-hero-chips, .panel[data-cinema="true"] .cinema-hero-status-line,' +
+      ' .panel[data-cinema="true"] .cinema-hero-intro { transition: opacity 600ms ease; }' +
       '#cssos-cinema-stage .cinema-loading, .panel[data-cinema="true"] .cinema-loading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#daffee; }' +
       '#cssos-cinema-stage .cinema-hero-bg, .panel[data-cinema="true"] .cinema-hero-bg { position:absolute; inset:0; background-size:cover; background-position:center; opacity:.18; filter:blur(6px) saturate(1.05); }' +
       '#cssos-cinema-stage .cinema-hero-block, .panel[data-cinema="true"] .cinema-hero-block { position:relative; text-align:center; padding:0 24px; max-width:min(900px,92vw); }' +

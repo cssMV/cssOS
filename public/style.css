@@ -10216,3 +10216,105 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
 #cssos-agent-panel {
   bottom: calc(env(safe-area-inset-bottom, 0px) + 178px) !important;
 }
+
+/* CSSOS_WAVE_172 20260515 — Jing: 树状专辑卡 (For You / Works Center)
+ * Multi-part roots (triptych / opera / etc.) get an album-style cover:
+ *  - Two offset stack layers behind the main cover hint at the parts
+ *    underneath (like a stack of vinyl sleeves).
+ *  - A "× N" badge sits top-right of the cover.
+ *  - A 3-tile child-thumb strip lives directly under the cover so the
+ *    user can click straight into any part without expanding the
+ *    hierarchy tree.
+ */
+.work-cover.is-album {
+  /* The two stack layers slip outside the cover's normal bounds, so
+   * allow them to render even though .work-cover keeps overflow:hidden
+   * for non-album cards. */
+  overflow: visible;
+}
+.work-cover.is-album .work-cover-img,
+.work-cover.is-album .work-cover-fallback {
+  position: relative;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 12px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.42);
+}
+.work-cover-stack-layer {
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  background: rgba(0, 245, 160, 0.18) center/cover no-repeat;
+  border: 1px solid rgba(0, 245, 160, 0.32);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
+}
+.work-cover-stack-layer.is-mid {
+  z-index: 2;
+  transform: translate(3px, 3px) rotate(2.2deg);
+  filter: brightness(0.85) saturate(0.85);
+}
+.work-cover-stack-layer.is-rear {
+  z-index: 1;
+  transform: translate(6px, 6px) rotate(4.5deg);
+  filter: brightness(0.65) saturate(0.7);
+}
+.work-cover-album-count {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 4;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(0, 245, 160, 0.92);
+  color: #0a0d12;
+  font: 700 10px/1 ui-monospace, monospace;
+  letter-spacing: 0.04em;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+/* 3-tile child-thumb strip under the cover. */
+.work-album-thumb-strip {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 0;
+}
+.work-album-thumb {
+  position: relative;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 9px;
+  border: 1px solid rgba(0, 245, 160, 0.32);
+  background: rgba(8, 18, 14, 0.7) center/cover no-repeat;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.18s ease, border-color 0.18s ease;
+}
+.work-album-thumb:hover {
+  transform: translateY(-2px);
+  border-color: rgba(0, 245, 160, 0.7);
+}
+.work-album-thumb-seq {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.65);
+  color: #5effc9;
+  font: 700 10px/16px ui-monospace, monospace;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* When the whole card is a multi-part root, lift it slightly to read
+ * as one cohesive album entry. */
+.work-card.is-album-root {
+  border-color: rgba(0, 245, 160, 0.45);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+}

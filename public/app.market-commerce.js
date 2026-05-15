@@ -1752,7 +1752,7 @@ function buildMarketCardsMarkup(works = []) {
             <div class="work-title" data-market-toggle>${title}</div>
             <div class="work-tags" title="${style}">${style}</div>
             <div class="work-pricing">
-              <span class="price-chip ghost-chip">${loginCopy("Type")} · ${escapeHtml(workTypeLabel(workType))}</span>
+              <span class="price-chip ghost-chip">${loginCopy("Type")} · ${escapeHtml(workTypeLabel(workType))}${options.albumChildCount >= 2 ? ` × ${Number(options.albumChildCount)}` : ""}</span>
               <span class="price-chip">${loginCopy("Listen")} · ${cardListenChip}</span>
               <span class="price-chip">${escapeHtml(buyoutLabelForWorkModule(work))} · ${cardBuyoutChip}</span>
               ${_isAdminOwned ? `<span class="price-chip price-chip-public">${loginCopy("Public · Free for all")}</span>` : ""}
@@ -2202,7 +2202,7 @@ function buildWorksCardPricingMarkup(options = {}) {
   const buyoutPriceCents = Math.max(0, Number(options.buyoutPriceCents || 0));
   return `
     <div class="work-pricing">
-      <span class="price-chip ghost-chip">${loginCopy("Type")} · ${escapeHtml(workTypeLabel(workType))}</span>
+      <span class="price-chip ghost-chip">${loginCopy("Type")} · ${escapeHtml(workTypeLabel(workType))}${options.albumChildCount >= 2 ? ` × ${Number(options.albumChildCount)}` : ""}</span>
       ${
         canEditWorkPrices
           ? `
@@ -2268,14 +2268,48 @@ function buildWorksCardMarkup(options = {}) {
     ? globalThis.cssosWorkIsPlayedModule(workId) : false;
   const _playedCls = _played ? "is-played" : "is-unplayed";
   const _adminCls = options.isAdminOwned ? " is-admin-public" : "";
+  // CSSOS_WAVE_135 — received-gift badge + class.
+  const _giftCls = options.isReceivedGift ? " is-received-gift" : "";
+  const _giftBadge = options.isReceivedGift
+    ? `<div class="work-gift-badge" title="${escapeHtml(loginCopy("A gift from CSS Studio — free forever, not for sale", "CSS Studio 送你的礼物 — 永久免费，不可出售"))}">🎁 ${escapeHtml(loginCopy("Gift", "礼物"))}</div>`
+    : "";
+  // CSSOS_WAVE_172 — album-card class so CSS can dress the whole card
+  // (slight 3D rise, sequence chips) when the work has child parts.
+  const albumCount = Math.max(0, Number(options.albumChildCount || 0));
+  const _albumCls = albumCount >= 2 ? " is-album-root" : "";
   return `
-    <article class="work-card ${_playedCls}${_adminCls}" data-work-expand data-work-id="${escapeHtml(workId)}">
+    <article class="work-card ${_playedCls}${_adminCls}${_giftCls}${_albumCls}" data-work-expand data-work-id="${escapeHtml(workId)}">
+      ${_giftBadge}
       ${buildWorksCardCoverMarkup(options)}
+      ${buildWorksCardChildThumbsMarkup(options)}
       ${buildWorksCardInfoMarkup(options)}
       ${buildWorksCardActionsMarkup(options)}
       ${buildWorksCardDetailsMarkup(options)}
     </article>
   `;
+}
+
+// CSSOS_WAVE_172 — Jing: 树状专辑卡 thumb strip. For multi-part roots
+// render a horizontal row of mini child covers right under the main
+// cover; clicking a thumb opens THAT child's MV in the watch panel.
+function buildWorksCardChildThumbsMarkup(options = {}) {
+  const albumChildCount = Math.max(0, Number(options.albumChildCount || 0));
+  const albumThumbs = Array.isArray(options.albumChildThumbs)
+    ? options.albumChildThumbs : [];
+  if (albumChildCount < 2 || !albumThumbs.length) return "";
+  const tiles = albumThumbs.slice(0, 3).map((t, i) => {
+    const cid = String(t && t.id || "").trim();
+    const cover = String(t && t.cover || "").trim();
+    const seq = i + 1;
+    const title = String(t && t.title || "").trim();
+    const bg = cover
+      ? `style="background-image:url('${escapeHtml(cover).replace(/'/g, "&#39;")}');"`
+      : "";
+    return `<button class="work-album-thumb" type="button" data-work-album-child="${escapeHtml(cid)}" title="${escapeHtml(title)}" ${bg}>
+      <span class="work-album-thumb-seq">${seq}</span>
+    </button>`;
+  }).join("");
+  return `<div class="work-album-thumb-strip" data-work-album-strip>${tiles}</div>`;
 }
 
 function buildWorksCardsMarkup(works = [], options = {}) {
@@ -2314,10 +2348,24 @@ function buildWorksCardsMarkup(works = [], options = {}) {
         .toLowerCase();
       const voiceSourceBadge =
         source === "voice" || work?.show_voice_source_badge;
-      const hierarchyMarkup = renderHierarchyTree(
-        resolveRenderableWorkChildren(work),
-        "works",
-      );
+      // CSSOS_WAVE_172 20260515 — Jing: For You / Works Center 树状专辑卡.
+      // For multi-part roots (triptych/opera/etc., post-W169) capture
+      // child count + their cover URLs + ids so the card can render an
+      // album stack + child thumbnail strip + "× N" badge.
+      const renderableChildren = resolveRenderableWorkChildren(work);
+      const albumChildren = (Array.isArray(renderableChildren) ? renderableChildren : [])
+        .slice() // sequence-ascending sort already done backend-side
+        .filter((c) => c && (c.id || c.work_id));
+      const albumChildCount = albumChildren.length;
+      const albumChildThumbs = albumChildren.slice(0, 3).map((c) => {
+        const cid = String(c.work_id || c.id || "").trim();
+        const ccover =
+          (typeof globalThis.resolveWorkCardThumbnailImageModule === "function"
+            ? globalThis.resolveWorkCardThumbnailImageModule(c)
+            : null) || resolveWorkCoverImage(c) || "";
+        return { id: cid, cover: String(ccover || ""), title: String(c.title || "").trim() };
+      });
+      const hierarchyMarkup = renderHierarchyTree(renderableChildren, "works");
       const commerce = getWorkCommerceDetails(workId);
       const pricing = resolveDisplayedWorkPricingModule(work, commerce);
       const listenPriceCents = pricing.listenPriceCents;
@@ -2353,6 +2401,13 @@ function buildWorksCardsMarkup(works = [], options = {}) {
       const isAdminOwned = typeof globalThis.isAdminWorkModule === "function"
         ? globalThis.isAdminWorkModule(work)
         : false;
+      // CSSOS_WAVE_135 20260514 — gifts the viewer received (welcome /
+      // birthday MV). Backend /api/works/mine merges them in with
+      // is_received_gift=true. They're admin-owned (so the isAdminOwned
+      // path above already makes them Free + Priceless + read-only) —
+      // we just add a 🎁 badge so the user knows it was a gift TO them.
+      const isReceivedGift = work?.is_received_gift === true
+        || String(work?.structure_role || "") === "gift";
       const cardListenPrice = isAdminOwned ? loginCopy("Free") : listenPrice;
       const cardBuyoutPrice = isAdminOwned ? loginCopy("Priceless · 无价之宝") : buyoutPrice;
       const cardCanEditWorkPrices = canEditWorkPrices && !isAdminOwned;
@@ -2360,10 +2415,30 @@ function buildWorksCardsMarkup(works = [], options = {}) {
       return buildWorksCardMarkup({
         workId,
         coverImage,
-        durationSecs: Number(work?.duration_secs || work?.audio_duration_secs || 0) || 0,
+        // CSSOS_WAVE_165 20260515 — Jing: "作品时长被误删除了还是怎么了
+        // 不显示了". The narrow `duration_secs || audio_duration_secs`
+        // fallback missed the field names used elsewhere
+        // (preview_duration_secs / total_duration_secs / final_duration_secs
+        // / duration / duration_seconds). Use the same broad fallback as
+        // the foryou shelf so the mm:ss overlay always shows when ANY of
+        // the duration fields is populated.
+        durationSecs: Number(
+          work?.duration_secs ??
+          work?.audio_duration_secs ??
+          work?.preview_duration_secs ??
+          work?.total_duration_secs ??
+          work?.final_duration_secs ??
+          work?.duration ??
+          work?.audio_duration ??
+          work?.duration_seconds ??
+          0
+        ) || 0,
         // CSSOS_WAVE_111D 20260512 — thread fingerprint_hash through
         // so the cover renders the 🔐 verify badge.
         fingerprintHash: String(work?.fingerprint_hash || "").trim(),
+        // CSSOS_WAVE_172 — album-card data: count + child thumbs.
+        albumChildCount,
+        albumChildThumbs,
         title,
         style,
         workType,
@@ -2384,6 +2459,7 @@ function buildWorksCardsMarkup(works = [], options = {}) {
         canWatchWorks,
         canRegenerateThumbnail,
         canRegeneratePreviewVideo,
+        isReceivedGift,
         work,
         lyricsPreview,
         suggestedListen,
@@ -2418,11 +2494,40 @@ function buildWorksCardCoverMarkup(options = {}) {
   const fpBadge = /^[a-f0-9]{8,64}$/i.test(fpHash)
     ? `<a class="work-cover-fp-badge" href="/verify?h=${encodeURIComponent(fpHash)}" target="_blank" rel="noopener" title="${escapeHtml(loginCopy("Verify this MV is from CSS Studio", "验证此 MV 的 cssOS 原产证明"))} · ${escapeHtml(fpHash)}" data-fingerprint-hash="${escapeHtml(fpHash)}" onclick="event.stopPropagation();">🔐</a>`
     : "";
+  // CSSOS_WAVE_172 20260515 — Jing: album-style root card. Multi-part
+  // roots get two offset "stack" layers behind the main cover that hint
+  // at the children sitting underneath, plus a top-right "× N" badge.
+  const albumChildCount = Math.max(0, Number(options.albumChildCount || 0));
+  const albumThumbs = Array.isArray(options.albumChildThumbs)
+    ? options.albumChildThumbs.filter((t) => t && (t.id || t.cover))
+    : [];
+  const stackLayers = albumChildCount >= 2
+    ? (function () {
+        // Take up to 2 distinct child covers for the rear/middle stack
+        // layers. Fall back to the root cover so the silhouette stays
+        // legible even if a child has no cover yet.
+        const pool = albumThumbs
+          .map((t) => String(t.cover || ""))
+          .filter(Boolean);
+        const rear  = pool[1] || pool[0] || coverImage;
+        const mid   = pool[0] || coverImage;
+        const mk = (url, cls) => url
+          ? `<div class="work-cover-stack-layer ${cls}" style="background-image:url('${escapeHtml(url).replace(/'/g, "&#39;")}');" aria-hidden="true"></div>`
+          : `<div class="work-cover-stack-layer ${cls}" aria-hidden="true"></div>`;
+        return mk(rear, "is-rear") + mk(mid, "is-mid");
+      })()
+    : "";
+  const albumCountBadge = albumChildCount >= 2
+    ? `<span class="work-cover-album-count" aria-label="${escapeHtml(loginCopy(`${albumChildCount} parts`, `${albumChildCount} 部`))}">× ${albumChildCount}</span>`
+    : "";
+  const isAlbumCls = albumChildCount >= 2 ? " is-album" : "";
   return `
-    <div class="work-cover" data-work-cover data-work-cover-key="${escapeHtml(workId)}" data-work-open-watch>
-      ${coverImage ? `<img src="${escapeHtml(coverImage)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" />` : `<div class="work-cover-fallback">${title.slice(0, 2).toUpperCase()}</div>`}
+    <div class="work-cover${isAlbumCls}" data-work-cover data-work-cover-key="${escapeHtml(workId)}" data-work-open-watch>
+      ${stackLayers}
+      ${coverImage ? `<img class="work-cover-img" src="${escapeHtml(coverImage)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" />` : `<div class="work-cover-fallback">${title.slice(0, 2).toUpperCase()}</div>`}
       ${fpBadge}
       ${durOverlay}
+      ${albumCountBadge}
       <span class="work-cover-played-dot" aria-hidden="true"></span>
     </div>
   `;
@@ -3097,6 +3202,30 @@ function bindWorksCardActionButtons(list, sortedWorks, options = {}) {
     cover.addEventListener("click", async (event) => {
       event.stopPropagation();
       await openWatchFromCard(cover);
+    });
+  });
+
+  // CSSOS_WAVE_172 — album thumb-strip: each button opens the
+  // specific CHILD part in the watch panel (not the umbrella root).
+  list.querySelectorAll("[data-work-album-child]").forEach((thumb) => {
+    thumb.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      const cid = String(thumb.getAttribute("data-work-album-child") || "").trim();
+      if (!cid) return;
+      try {
+        if (typeof globalThis.openMarketWorkPreview === "function") {
+          globalThis.openMarketWorkPreview({ id: cid, work_id: cid });
+          return;
+        }
+      } catch (_) { /* fall through */ }
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set("cssMV", cid);
+        window.location.href = url.toString();
+      } catch (_) {
+        window.location.href = "/?cssMV=" + encodeURIComponent(cid);
+      }
     });
   });
 

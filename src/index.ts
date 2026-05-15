@@ -506,7 +506,17 @@ function spawnFfmpeg(args: string[]): Promise<{ code: number; stderr: string }> 
 
 async function buildPreviewClip(originalAbsPath: string, previewPath: string): Promise<void> {
   if (!fs.existsSync(originalAbsPath)) {
-    throw new Error("source missing");
+    throw new Error(`source missing: ${originalAbsPath}`);
+  }
+  // CSSOS_WAVE_170 20260515 — Jing: short-circuit obviously broken
+  // sources before invoking ffmpeg. A 0-byte or sub-1KB file is almost
+  // always a partial download / HTML error page saved with .mp4 ext;
+  // ffmpeg would just dump 50 lines of "moov atom not found" stderr.
+  const stat = fs.statSync(originalAbsPath);
+  if (stat.size < 1024) {
+    throw new Error(
+      `source too small to preview (${stat.size} bytes): ${originalAbsPath}`,
+    );
   }
   const baseArgs = ["-ss", "0", "-t", String(MEDIA_PREVIEW_LIMIT_SECONDS), "-i", originalAbsPath];
   // Stream-copy first — fast, lossless. May fail on non-keyframe-aligned cuts.
@@ -526,9 +536,15 @@ async function buildPreviewClip(originalAbsPath: string, previewPath: string): P
     "-y", previewPath,
   ]);
   if (transcodeResult.code === 0 && fs.existsSync(previewPath)) return;
+  // CSSOS_WAVE_170 — slice the TAIL of stderr (the actual error
+  // message lives at the end; the head is just ffmpeg version +
+  // configuration flags which journalctl truncates anyway). Include
+  // the source path so we can grep failing files later.
+  const tailFrom = (s: string) => String(s || "").slice(-700);
   throw new Error(
-    `ffmpeg failed: copy=${copyResult.code} transcode=${transcodeResult.code} ` +
-    `stderr=${(transcodeResult.stderr || copyResult.stderr).slice(0, 1000)}`,
+    `ffmpeg failed src=${originalAbsPath} ` +
+    `copy=${copyResult.code} transcode=${transcodeResult.code} ` +
+    `stderr_tail=${tailFrom(transcodeResult.stderr || copyResult.stderr)}`,
   );
 }
 
@@ -3880,7 +3896,7 @@ function buildAgentSystemPrompt(uiLocale: string): string {
     `  1. When the user mentions a person or place, immediately call search_persons or search_landmarks to ground the conversation in real cssOS-curated entities. Don't invent person_id values.`,
     `  2. Once you have a likely candidate, optionally call get_person_codex / get_landmark_codex to fetch details (era, music_style_hint, notable_events) so your proposal is grounded.`,
     `  3. When the user is ready (or you have enough context), call propose_dialogue_mv to synthesize an MV seed. Present the proposal in prose ("I'm thinking: Beethoven × Musikverein, opera-style, 'Eroica's Reception'") and ask for confirmation.`,
-    `  4. If the user confirms, instruct them to click the "Create MV" button in your final message — the frontend handles the actual creation. Include the seed object in your final response in a JSON code block tagged with \`cssos-seed\` (see below).`,
+    `  4. If the user confirms (or just types a clear creation prompt without a confirm step), emit the cssos-seed block — the frontend AUTO-OPENS the MV pipeline panel in cinema mode and starts the run; the user just watches. No buttons, no extra clicks. See SEED FORMAT below.`,
     ``,
     `REALMS: cssOS has four realms — historical / mythological / literary / folkloric. Cross-realm pairings are allowed (孙悟空 × 凌霄宝殿, Beethoven × Musikverein, Sherlock Holmes × 221B Baker Street). When the user mentions a fictional/mythological figure, default realm filter to that category for searches.`,
     ``,
@@ -3890,14 +3906,14 @@ function buildAgentSystemPrompt(uiLocale: string): string {
     `  - Surface options rather than imposing. If 3 candidates match, list them briefly.`,
     `  - Never reveal raw tool outputs (JSON blobs) to the user — summarize.`,
     ``,
-    `SEED FORMAT (final message when user confirms creation):`,
+    `SEED FORMAT (single-MV creation — DEFAULT path. CSSOS_WAVE_174):`,
     "```cssos-seed",
-    `{"prompt":"...","style":"...","language":"...","work_type":"single","__personId":"...","__landmarkId":"...","__dialogue":true,"__storyAngle":"..."}`,
+    `{"prompt":"...","style":"...","language":"...","work_type":"single","title":"...","__personId":"...","__landmarkId":"...","__dialogue":true,"__storyAngle":"..."}`,
     "```",
-    `The frontend parses this fenced block and shows a "Create this MV" button — do not call create_work_from_seed yourself. After emitting the seed block, stop.`,
+    `The frontend AUTO-LAUNCHES the MV panel + cinema-hero progress the moment this block lands — no button, no extra click. Your one-line wrap-up should be present-continuous, e.g. "Creating this MV ▸ <title>…" / "正在为您创作《<title>》…", then stop. Do NOT call create_work_from_seed yourself; do NOT promise the user to click anything. Always include a "title" field so the cinema-hero shows a meaningful caption while the pipeline runs.`,
     ``,
-    `DIRECT CREATION (W136):`,
-    `  When the user types a clear creation command ("请创作《凌霄宝殿》", "三部曲《朋友兄弟》, 副歌必须有 ...", "write me an opera about Mulan"), bypass the dialogue/seed flow and call the create_work tool immediately. Parse the title from the quotes / 《》, infer work_type from keywords (单曲/single, 三部曲/triptych, 歌剧/opera, 短剧/shortplay, 连续剧/series, 电影/film), and pass any mandatory chorus lines the user listed into required_hooks verbatim. The tool returns work_cards which the frontend renders as rich cards in the chat. Your wrap-up should be one short sentence ("做好了 — 一首 4 分多钟的中国古风《凌霄宝殿》，点击封面进 MV 面板播放") then stop. Do not paste raw lyrics or JSON in the chat reply — the cards already show them.`,
+    `DIRECT CREATION via create_work (multi-part works only):`,
+    `  ONLY use the create_work tool for multi-part work_types — triptych / opera / shortplay / series / film — where the user explicitly wants N persisted siblings as a unit ("三部曲《朋友兄弟》", "歌剧《凌霄》", "5-act opera about Mulan"). For a SINGLE work, prefer the SEED FORMAT path above so the user drops straight into the cinema-hero instead of waiting on a card. Parse title from quotes / 《》, infer work_type, pass any mandatory chorus lines into required_hooks verbatim. The tool returns work_cards which the frontend renders. Your wrap-up is one short sentence ("做好了 — 三部曲《朋友兄弟》已创作完成，点击任意封面进 MV 面板") then stop.`,
     ``,
     `SAFETY: Never propose RAGE / hate / extremist content. Historical figures should be treated respectfully — risk_notes in the codex flag sensitive cases (e.g. modern political figures).`,
     ``,
@@ -4186,7 +4202,7 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
     } catch (_) { seed = null; }
   }
   // Remove the fenced seed block from the user-facing reply (we render
-  // it as a "Create this MV" button instead).
+  // it auto-launches the cinema panel via renderSeedCard, W174).
   const reply = finalText.replace(/```cssos-seed[\s\S]*?```/g, "").trim();
 
   // Persist memory + meter.
@@ -14760,6 +14776,13 @@ async function syncCanonicalWorkAssets(
        DO UPDATE SET url = EXCLUDED.url, meta = EXCLUDED.meta`,
       [workId, asset.assetType, asset.url, JSON.stringify(asset.meta || {})],
     );
+    /* CSSOS_WAVE_166 — `syncCanonicalWorkAssets` only handles
+     * cover/preview assets (per CanonicalWorkAssetRecord type). The
+     * final_mv / audio_track_1 inserts happen in other code paths;
+     * duration is now persisted via:
+     *   (a) POST /api/works body.duration_secs at insert time
+     *   (b) the one-shot backfill SQL for historical rows
+     *   (c) the COALESCE fallback in /api/works/mine SELECT (Wave 165). */
   }
   /* CSSOS_PHASE3_KARAOKE 20260506 — Jing
    * After every canonical sync, kick a fire-and-forget Whisper pass.
@@ -28316,6 +28339,10 @@ type HeadlessResult = {
   video_url?: string | undefined;
   mv_url?: string | undefined;
   video_skipped?: boolean | undefined;
+  /* CSSOS_WAVE_167 20260515 — Jing: surface the music-stage duration
+   * (in seconds) so the asset-insert call sites can stamp it into both
+   * user_works.duration_secs and work_assets.meta.duration_secs. */
+  duration_secs?: number | undefined;
   stages: HeadlessStage[];
   error?: string | undefined;
 };
@@ -28790,6 +28817,7 @@ async function runHeadlessPipeline(
     video_url: videoUrl || undefined,
     mv_url: mvUrl || undefined,
     video_skipped: videoSkipped,
+    duration_secs: audioUrl ? durationSec : undefined,
     stages,
   };
 }
@@ -28878,26 +28906,33 @@ async function generatePersonSamplesBatch(
       await withClient(async (client) => {
         await client.query("BEGIN");
         try {
+          // CSSOS_WAVE_167 20260515 — Jing: stamp duration_secs into
+          // user_works at insert time + asset meta, so card-render SQL
+          // reads a non-NULL column instead of relying on the COALESCE
+          // fallback into asset meta JSON.
+          const _w167DurMeta = result.duration_secs
+            ? JSON.stringify({ duration_secs: Math.round(result.duration_secs) })
+            : "{}";
           await client.query(
             `INSERT INTO user_works (
-               id, user_id, title, style, work_type, status, cover_image
-             ) VALUES ($1::uuid, $2, $3, $4, 'mv', 'published', $5)`,
-            [workId, systemUserId, title, style, result.cover_url],
+               id, user_id, title, style, work_type, status, cover_image, duration_secs
+             ) VALUES ($1::uuid, $2, $3, $4, 'mv', 'published', $5, $6)`,
+            [workId, systemUserId, title, style, result.cover_url, result.duration_secs ? Math.round(result.duration_secs) : null],
           );
           if (result.mv_url) {
             await client.query(
               `INSERT INTO work_assets (work_id, asset_type, url, meta)
-                 VALUES ($1::uuid, 'final_mv', $2, '{}'::jsonb)
-               ON CONFLICT (work_id, asset_type) DO UPDATE SET url = EXCLUDED.url`,
-              [workId, result.mv_url],
+                 VALUES ($1::uuid, 'final_mv', $2, $3::jsonb)
+               ON CONFLICT (work_id, asset_type) DO UPDATE SET url = EXCLUDED.url, meta = EXCLUDED.meta`,
+              [workId, result.mv_url, _w167DurMeta],
             );
           }
           if (result.audio_url) {
             await client.query(
               `INSERT INTO work_assets (work_id, asset_type, url, meta)
-                 VALUES ($1::uuid, 'audio_track_1', $2, '{}'::jsonb)
-               ON CONFLICT (work_id, asset_type) DO UPDATE SET url = EXCLUDED.url`,
-              [workId, result.audio_url],
+                 VALUES ($1::uuid, 'audio_track_1', $2, $3::jsonb)
+               ON CONFLICT (work_id, asset_type) DO UPDATE SET url = EXCLUDED.url, meta = EXCLUDED.meta`,
+              [workId, result.audio_url, _w167DurMeta],
             );
           }
           const styleTags = deriveStyleTags(row.music_style_hint, row.tone, row.core_theme);
@@ -29624,6 +29659,7 @@ async function runDialoguePipeline(
     audio_url: audioUrl || undefined,
     mv_url: mvUrl || undefined,
     video_skipped: true,
+    duration_secs: audioUrl ? durationSec : undefined,
     stages,
     ffmpeg_cover_cmd: coverCmd,
   };
@@ -29685,25 +29721,29 @@ app.post("/api/person-mv/dialogue", express.json({ limit: "4kb" }), async (req, 
       mvId = await withClient(async (client) => {
         await client.query("BEGIN");
         try {
+          // CSSOS_WAVE_167 — stamp duration_secs into user_works + meta.
+          const _w167DurMeta = result.duration_secs
+            ? JSON.stringify({ duration_secs: Math.round(result.duration_secs) })
+            : "{}";
           await client.query(
-            `INSERT INTO user_works (id, user_id, title, style, work_type, status, cover_image)
-             VALUES ($1::uuid, $2, $3, $4, 'mv', 'published', $5)`,
-            [workId, String(user.id), title, style, result.cover_url],
+            `INSERT INTO user_works (id, user_id, title, style, work_type, status, cover_image, duration_secs)
+             VALUES ($1::uuid, $2, $3, $4, 'mv', 'published', $5, $6)`,
+            [workId, String(user.id), title, style, result.cover_url, result.duration_secs ? Math.round(result.duration_secs) : null],
           );
           if (result.mv_url) {
             await client.query(
               `INSERT INTO work_assets (work_id, asset_type, url, meta)
-                 VALUES ($1::uuid, 'final_mv', $2, '{}'::jsonb)
-               ON CONFLICT (work_id, asset_type) DO UPDATE SET url = EXCLUDED.url`,
-              [workId, result.mv_url],
+                 VALUES ($1::uuid, 'final_mv', $2, $3::jsonb)
+               ON CONFLICT (work_id, asset_type) DO UPDATE SET url = EXCLUDED.url, meta = EXCLUDED.meta`,
+              [workId, result.mv_url, _w167DurMeta],
             );
           }
           if (result.audio_url) {
             await client.query(
               `INSERT INTO work_assets (work_id, asset_type, url, meta)
-                 VALUES ($1::uuid, 'audio_track_1', $2, '{}'::jsonb)
-               ON CONFLICT (work_id, asset_type) DO UPDATE SET url = EXCLUDED.url`,
-              [workId, result.audio_url],
+                 VALUES ($1::uuid, 'audio_track_1', $2, $3::jsonb)
+               ON CONFLICT (work_id, asset_type) DO UPDATE SET url = EXCLUDED.url, meta = EXCLUDED.meta`,
+              [workId, result.audio_url, _w167DurMeta],
             );
           }
           const ins = await client.query<{ mv_id: string }>(
@@ -30036,6 +30076,7 @@ async function runHeadlessGroupPipeline(
     audio_url: audioUrl || undefined,
     mv_url: mvUrl || undefined,
     video_skipped: true,
+    duration_secs: audioUrl ? durationSec : undefined,
     stages,
   };
 }
@@ -31894,6 +31935,15 @@ app.post("/api/works", async (req, res) => {
       Boolean(requestedRootWorkId || parentWorkId) &&
       (inheritedRootType === "opera" || inheritedRootType === "triptych");
     const workId = crypto.randomUUID();
+    // CSSOS_WAVE_166 20260515 — Jing: accept duration_secs from the
+    // pipeline payload so the column is populated at create time and
+    // card SQL doesn't have to dig into asset meta. Clamps to a sane
+    // [0, 3600] window; null when caller omits.
+    const bodyDurationSecsRaw = Number(req.body?.duration_secs);
+    const bodyDurationSecs =
+      Number.isFinite(bodyDurationSecsRaw) && bodyDurationSecsRaw > 0
+        ? Math.min(3600, Math.round(bodyDurationSecsRaw))
+        : null;
     const persistedAssets = await buildPersistedWorkAssetBundle({
       workId,
       sourceRunId,
@@ -31909,9 +31959,9 @@ app.post("/api/works", async (req, res) => {
           `INSERT INTO user_works (
              id, user_id, title, style, work_type, lyrics_preview, status, parent_work_id, root_work_id, structure_role, sequence_index, structure_plan,
              source_run_id, compute_units_estimate, compute_cost_cents_estimate, suggested_listen_price_cents, suggested_buyout_price_cents,
-             cover_image, preview_image_url, preview_video_url, cost_breakdown
+             cover_image, preview_image_url, preview_video_url, cost_breakdown, duration_secs
            )
-           VALUES ($1::uuid, $2, $3, $4, $5, $6, 'draft', $7::uuid, $8::uuid, $9, $10, $11::jsonb, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb)`,
+           VALUES ($1::uuid, $2, $3, $4, $5, $6, 'draft', $7::uuid, $8::uuid, $9, $10, $11::jsonb, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21)`,
           [
             workId,
             user.id,
@@ -31933,6 +31983,7 @@ app.post("/api/works", async (req, res) => {
             persistedAssets.previewImageUrl,
             persistedAssets.storedPreviewVideoRef,
             JSON.stringify(costBreakdownPayload),
+            bodyDurationSecs,
           ],
         );
         const resolvedRootWorkId = requestedRootWorkId || workId;

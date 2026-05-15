@@ -564,34 +564,66 @@
     if (el) el.remove();
   }
 
+  /* CSSOS_WAVE_174 20260515 — Jing: 接近零门槛创作.
+   *   "用户输入 prompt，AI 回应 Creating this MV，自动启动 MV 面板
+   *    （MV PIPELINE 在后台走流程），像人物 MV 进入 MV 面板那样，
+   *    用户只需要看着进度条…拿到作品时长就马上显示。"
+   * The seed card no longer asks for a confirm click. The moment the
+   * agent emits a seed, we (a) drop in a lightweight "Creating ▸ <title>"
+   * status row so the chat shows what's happening, (b) auto-open the
+   * MV pipeline panel in CINEMA mode with that seed and forceNew, and
+   * (c) collapse the chat so the cinema-hero loading screen owns the
+   * frame. openMvPipelinePanel({cinema:true, seed}) already auto-fires
+   * cssmvRunPipeline (see app.mv-pipeline-panel.js), so every stage's
+   * progress (title, music duration, cover, subtitles…) streams into
+   * the existing cinema-hero progress block as it arrives — the user
+   * just watches. */
   function renderSeedCard(seed) {
     var messages = document.getElementById("cssos-agent-messages");
     if (!messages || !seed) return;
+    var title = String(seed.title || "").trim()
+      || String(seed.prompt || "").split("\n")[0].slice(0, 60).trim()
+      || tr("Untitled MV", "未命名 MV");
+    var metaLine = [
+      seed.work_type,
+      seed.style,
+      seed.language,
+    ].filter(Boolean).join(" · ");
     var card = document.createElement("div");
-    card.className = "cssos-agent-seed-card";
+    card.className = "cssos-agent-seed-card is-auto-launch";
     card.innerHTML = [
-      '<div class="label">🎬 ' + esc(tr("PROPOSED MV", "MV 建议")) + '</div>',
-      '<div class="prompt">' + esc(String(seed.prompt || "")) + '</div>',
-      '<div class="meta">' + esc([
-        seed.work_type ? "Type: " + seed.work_type : "",
-        seed.style ? "Style: " + seed.style : "",
-        seed.language ? "Lang: " + seed.language : "",
-      ].filter(Boolean).join(" · ")) + '</div>',
-      '<button type="button">✨ ' + esc(tr("Create this MV", "创作这支 MV")) + '</button>',
+      '<div class="label">🎬 ' + esc(tr("Creating this MV…", "正在创作这支 MV…")) + '</div>',
+      '<div class="prompt"><strong>' + esc(title) + '</strong></div>',
+      metaLine ? '<div class="meta">' + esc(metaLine) + '</div>' : '',
+      '<div class="meta" style="opacity:.7;margin-top:6px">' + esc(tr(
+        "Opening the MV panel — the progress bar shows every stage live.",
+        "MV 面板已自动打开 — 各阶段进度会实时显示在影院模式里。"
+      )) + '</div>',
     ].join("");
-    card.querySelector("button").addEventListener("click", function () {
-      if (typeof globalThis.openMvPipelinePanel === "function") {
-        globalThis.openMvPipelinePanel({
-          seed: seed,
-          forceNew: true,
-        });
-        togglePanel(); // collapse the chat so the pipeline panel takes focus
-      } else if (typeof globalThis.showToast === "function") {
-        globalThis.showToast(tr("MV pipeline not ready yet — please open it manually.", "MV 管线未就绪 —— 请手动打开。"));
-      }
-    });
     messages.appendChild(card);
     messages.scrollTop = messages.scrollHeight;
+
+    // Fire-and-forget: open the cinema panel + auto-run pipeline.
+    // The seed object already carries everything the pipeline needs.
+    try {
+      if (typeof globalThis.openMvPipelinePanel === "function") {
+        globalThis.openMvPipelinePanel({
+          cinema: true,
+          queue: [],
+          seed: seed,
+          forceNew: true,
+          personName: title,
+          personMusicStyleHint: seed.style || "",
+        });
+        // Collapse the chat so the cinema-hero owns the frame.
+        try { togglePanel(); } catch (_) {}
+      } else if (typeof globalThis.showToast === "function") {
+        globalThis.showToast(tr(
+          "MV pipeline not ready yet — please retry in a moment.",
+          "MV 管线还没就绪 —— 请稍后重试。"
+        ));
+      }
+    } catch (_) {}
   }
 
   /* CSSOS_WAVE_136 20260513 — Jing: rich work-card renderer.

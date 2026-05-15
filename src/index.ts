@@ -1279,19 +1279,22 @@ function buildJingdianSystemPrompt(language: string, workType: string = "single"
         `WORK TYPE: triptych (三部曲) — produce THREE separate songs in this single response. Separate them with an empty line followed by "[Part II]" / "[Part III]" markers. Each part follows its own complete section template below.`,
       ].join("\n");
     }
+    // CSSOS_WAVE_176 — marker words match the create_work hierarchy
+    // splitter exactly (HIERARCHY_WORDS map). Two-layer types name BOTH
+    // levels so the tree comes back as root → outer → inner.
     if (wt === "opera") {
       return [
-        `WORK TYPE: opera (歌剧) — produce ALL scenes of the requested act in this response. Each scene is its own section block following the template below. Separate scenes with "[Scene N]" markers. Do not stop until every scene of the act is fully written.`,
+        `WORK TYPE: opera (歌剧) — produce a multi-act opera. First emit "[Act I]" (Roman numeral), then within each act emit "[Scene 1]", "[Scene 2]"… for that act's scenes, then "[Act II]" and its scenes, etc. Each scene is one full section block per the template below. Do not stop until every act × scene of the opera is fully written.`,
       ].join("\n");
     }
     if (wt === "shortplay" || wt === "short_play") {
-      return `WORK TYPE: short play (短剧) — sequence of scene songs. Mark each scene with "[Scene N]" then the section blocks.`;
+      return `WORK TYPE: short play (短剧) — sequence of episode songs. Mark each episode with "[Episode 1]", "[Episode 2]"… (NOT [Scene N]), then the section blocks. Each episode is one complete song.`;
     }
     if (wt === "series" || wt === "tv_series") {
-      return `WORK TYPE: TV series (电视连续剧) — produce songs for each episode requested. Mark with "[Episode N]" then the section blocks.`;
+      return `WORK TYPE: TV series (电视连续剧) — produce multi-season output. First emit "[Season 1]", then within that season emit "[Episode 1]", "[Episode 2]"…, then "[Season 2]" and its episodes, etc. Each episode is one complete song per the template below.`;
     }
     if (wt === "film" || wt === "movie") {
-      return `WORK TYPE: film (电影) — produce scene-by-scene lyric sequence. Mark each cue with "[Cue N]" or "[Scene N]".`;
+      return `WORK TYPE: film (电影) — produce a multi-chapter film. First emit "[Chapter 1]", then within each chapter emit "[Scene 1]", "[Scene 2]"… for that chapter's scenes, then "[Chapter 2]" and its scenes, etc. Each scene is one complete song per the template below.`;
     }
     return `WORK TYPE: single song (单曲) — one complete song following the section template.`;
   })();
@@ -3707,69 +3710,98 @@ async function runAgentTool(
         return { error: "lyrics_generation_failed", hint: "Free-tier LLM providers all timed out or returned short output. Credits refunded. Try again in a few minutes (most providers reset at UTC 00:00)." };
       }
 
-      // CSSOS_WAVE_175 20260515 — Jing: 歌剧三层结构 (title → acts → scenes).
-      // Triptych stays a flat 2-level tree (root → 3 parts). Opera splits
-      // the LLM output by [Act I/II/III…] then within each Act by
-      // [Scene 1/2/…]. The result is a 3-level structure that the
-      // catalog renderer expands as opera → acts (collapsible) → scenes
-      // (clickable leaves).
+      // CSSOS_WAVE_175 / 176 20260515 — Jing: 多 part 树状结构.
+      //   Triptych  → root → 3 parts                    (flat 2-layer)
+      //   Opera     → root → acts → scenes              (3-layer)
+      //   Shortplay → root → episodes                   (flat 2-layer)
+      //   Series    → root → seasons → episodes         (3-layer)
+      //   Film      → root → chapters → scenes          (3-layer)
       type SceneNode = { title: string; lyrics: string };
-      type ActNode = { title: string; scenes: SceneNode[]; lyrics?: string };
-      const parts: SceneNode[] = []; // flat parts (triptych or fallback)
-      let operaActs: ActNode[] | null = null;
-      if (wt === "triptych") {
-        const splitRe = /\n\s*\[\s*Part\s+(II|III|2|3)\s*\]\s*\n/i;
-        const segments = lyricsText.split(splitRe).filter((s, i) => i % 2 === 0);
-        if (segments.length >= 2) {
-          segments.slice(0, 3).forEach((seg, idx) => {
-            parts.push({ title: `${title} (${idx + 1}/${segments.length})`, lyrics: seg.trim() });
-          });
-        } else {
-          parts.push({ title, lyrics: lyricsText });
-        }
-      } else if (wt === "opera") {
-        // First split by [Act ...] headers — capture the act tag so we
-        // can label rows naturally ("Act I", "Act II"…).
-        const actRe = /\n\s*\[\s*Act\s+([IVX0-9]+)\s*[:\-—]?\s*([^\]]*)\]\s*\n/gi;
-        const actMatches: { tag: string; sub: string; index: number }[] = [];
+      type ActNode = { title: string; scenes: SceneNode[] };
+      // Per-work_type marker words. `outer` is the top split (always);
+      // `inner` is the nested split (only for 3-layer types). The
+      // canonical bracket headers the LLM is told to emit follow the
+      // pattern `[<Word> <tag>]` / `[<Word> <tag> · <sub>]`.
+      const HIERARCHY_WORDS: Record<string, { outer: string; inner: string | null; outerLabel: string; innerLabel: string }> = {
+        triptych:  { outer: "Part",    inner: null,      outerLabel: "Part",    innerLabel: "" },
+        opera:     { outer: "Act",     inner: "Scene",   outerLabel: "Act",     innerLabel: "Scene" },
+        shortplay: { outer: "Episode", inner: null,      outerLabel: "Ep",      innerLabel: "" },
+        series:    { outer: "Season",  inner: "Episode", outerLabel: "Season",  innerLabel: "Ep" },
+        film:      { outer: "Chapter", inner: "Scene",   outerLabel: "Chapter", innerLabel: "Scene" },
+      };
+      // Generic hierarchical splitter: outer word + optional inner word.
+      // Returns either flat parts (no-inner) or { acts: [...] } shape.
+      function splitHierarchy(text: string, outer: string, inner: string | null):
+        | { kind: "flat"; flat: SceneNode[] }
+        | { kind: "nested"; acts: ActNode[] }
+        | null {
+        const outerRe = new RegExp(`\\n\\s*\\[\\s*${outer}\\s+([IVX0-9]+)\\s*[:\\-—]?\\s*([^\\]]*)\\]\\s*\\n`, "gi");
+        const outerMatches: { tag: string; sub: string; index: number }[] = [];
         let m: RegExpExecArray | null;
-        while ((m = actRe.exec(lyricsText))) {
-          actMatches.push({ tag: String(m[1] || "").trim(), sub: String(m[2] || "").trim(), index: m.index });
+        while ((m = outerRe.exec(text))) {
+          outerMatches.push({ tag: String(m[1] || "").trim(), sub: String(m[2] || "").trim(), index: m.index });
         }
-        if (actMatches.length >= 1) {
-          const acts: ActNode[] = [];
-          for (let i = 0; i < actMatches.length; i += 1) {
-            const start = actMatches[i]!.index;
-            const end = (i + 1 < actMatches.length) ? actMatches[i + 1]!.index : lyricsText.length;
-            const actBody = lyricsText.slice(start, end);
-            const actLabel = `Act ${actMatches[i]!.tag}${actMatches[i]!.sub ? " · " + actMatches[i]!.sub : ""}`;
-            // Within an act, split by [Scene N]; if no scene markers,
-            // treat the entire act as a single scene.
-            const sceneRe = /\n\s*\[\s*Scene\s+(\d+)\s*[:\-—]?\s*([^\]]*)\]\s*\n/gi;
-            const sceneMatches: { num: string; sub: string; index: number }[] = [];
-            let s: RegExpExecArray | null;
-            while ((s = sceneRe.exec(actBody))) {
-              sceneMatches.push({ num: String(s[1] || "").trim(), sub: String(s[2] || "").trim(), index: s.index });
-            }
-            const scenes: SceneNode[] = [];
-            if (sceneMatches.length >= 1) {
-              for (let j = 0; j < sceneMatches.length; j += 1) {
-                const ss = sceneMatches[j]!.index;
-                const ee = (j + 1 < sceneMatches.length) ? sceneMatches[j + 1]!.index : actBody.length;
-                const sceneBody = actBody.slice(ss, ee).trim();
-                const sceneLabel = `${actLabel} · Scene ${sceneMatches[j]!.num}${sceneMatches[j]!.sub ? " · " + sceneMatches[j]!.sub : ""}`;
-                if (sceneBody) scenes.push({ title: sceneLabel, lyrics: sceneBody });
-              }
-            } else {
-              scenes.push({ title: actLabel, lyrics: actBody.trim() });
-            }
-            acts.push({ title: actLabel, scenes });
-          }
-          if (acts.length >= 1 && acts.some((a) => a.scenes.length)) {
-            operaActs = acts;
-          }
+        if (outerMatches.length < 1) return null;
+        const groups: { title: string; body: string }[] = [];
+        for (let i = 0; i < outerMatches.length; i += 1) {
+          const start = outerMatches[i]!.index;
+          const end = (i + 1 < outerMatches.length) ? outerMatches[i + 1]!.index : text.length;
+          const body = text.slice(start, end);
+          const label = `${outer} ${outerMatches[i]!.tag}${outerMatches[i]!.sub ? " · " + outerMatches[i]!.sub : ""}`;
+          groups.push({ title: label, body });
         }
-        if (!operaActs) {
+        if (!inner) {
+          // Flat — each outer match is a part.
+          return {
+            kind: "flat",
+            flat: groups.map((g) => ({ title: g.title, lyrics: g.body.replace(/^\s*\n/, "").trim() })).filter((p) => p.lyrics),
+          };
+        }
+        // Nested — split each outer body by [inner N].
+        const acts: ActNode[] = [];
+        const innerRe = new RegExp(`\\n\\s*\\[\\s*${inner}\\s+(\\d+)\\s*[:\\-—]?\\s*([^\\]]*)\\]\\s*\\n`, "gi");
+        for (const grp of groups) {
+          innerRe.lastIndex = 0;
+          const innerMatches: { num: string; sub: string; index: number }[] = [];
+          let s: RegExpExecArray | null;
+          while ((s = innerRe.exec(grp.body))) {
+            innerMatches.push({ num: String(s[1] || "").trim(), sub: String(s[2] || "").trim(), index: s.index });
+          }
+          const scenes: SceneNode[] = [];
+          if (innerMatches.length >= 1) {
+            for (let j = 0; j < innerMatches.length; j += 1) {
+              const ss = innerMatches[j]!.index;
+              const ee = (j + 1 < innerMatches.length) ? innerMatches[j + 1]!.index : grp.body.length;
+              const sceneBody = grp.body.slice(ss, ee).trim();
+              const sceneLabel = `${grp.title} · ${inner} ${innerMatches[j]!.num}${innerMatches[j]!.sub ? " · " + innerMatches[j]!.sub : ""}`;
+              if (sceneBody) scenes.push({ title: sceneLabel, lyrics: sceneBody });
+            }
+          } else {
+            scenes.push({ title: grp.title, lyrics: grp.body.trim() });
+          }
+          acts.push({ title: grp.title, scenes });
+        }
+        return acts.some((a) => a.scenes.length) ? { kind: "nested", acts } : null;
+      }
+
+      const parts: SceneNode[] = [];
+      let operaActs: ActNode[] | null = null; // legacy name kept; covers any 3-layer wt
+      const hwords = HIERARCHY_WORDS[wt];
+      if (hwords) {
+        const split = splitHierarchy(lyricsText, hwords.outer, hwords.inner);
+        if (split && split.kind === "nested") {
+          operaActs = split.acts;
+        } else if (split && split.kind === "flat") {
+          split.flat.forEach((seg, idx) => {
+            // Keep the triptych's nice "(N/M)" convention for that wt only;
+            // every other flat type uses the header label as-is.
+            const partTitle = wt === "triptych"
+              ? `${title} (${idx + 1}/${split.flat.length})`
+              : `${title} · ${seg.title}`;
+            parts.push({ title: partTitle, lyrics: seg.lyrics });
+          });
+        }
+        if (!operaActs && !parts.length) {
           // LLM didn't honor the structure — fall back to single part.
           parts.push({ title, lyrics: lyricsText });
         }

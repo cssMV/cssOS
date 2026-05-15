@@ -1938,6 +1938,18 @@
     </main>
 
     <footer class="dock" id="dock">
+      <!-- CSSOS_WAVE_163 20260515 — Jing: "自从加入了 🌌 System MVs，
+           MV PIPELINE 面板就丢失了，请找回来". The MV Pipeline dock item
+           had gone missing from index.html — DOCK_DEFAULT_ORDER lists
+           "mv-pipeline" first, but restoreDockOrder() only renders
+           actions that have a matching STATIC .dock-item, so a missing
+           item is silently dropped. Restored here as a first-class
+           static dock entry; buildBuiltinDockActionMap() carries the
+           matching "mv-pipeline" → openMvPipelinePanel() handler. -->
+      <div class="dock-item" data-action="mv-pipeline" data-actions="click,dblclick,longpress">
+        <div class="dock-icon">🎞️</div>
+        <div class="dock-label" data-i18n="dock.mvPipeline">MV Pipeline</div>
+      </div>
       <div class="dock-item" data-action="mic" data-actions="click,dblclick,longpress" data-hold="mic">
         <div class="dock-icon dock-icon-media dock-mic-icon">
           <img class="dock-mic-img dock-mic-a" src="assets/dock-mic-1.png" alt="" aria-hidden="true" />
@@ -2200,7 +2212,7 @@
     <script src="app.login-panel.js?v=20260509-wave107c-coming-soon"></script>
     <script src="app.works-center.js?v=20260512-wave111e-locale-timeout"></script>
     <script src="app.api-billing.js?v=20260503-boost-prompt-i18n"></script>
-    <script src="app.agent-chat.js?v=20260515-wave163-robust"></script>
+    <script src="app.agent-chat.js?v=20260515-wave164-card-height"></script>
     <script src="app.agent-overflow-menu.js?v=20260515-wave163-bugfix"></script>
     <script src="app.dm-inbox-indicator.js?v=20260514-wave143-fab-position-fix"></script>
     <script src="app.chat-rooms.js?v=20260514-wave139a"></script>

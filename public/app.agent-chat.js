@@ -721,10 +721,18 @@
          200px square cover on top and the info stacked below — never a
          wide/flat card. Single cards center themselves; multi cards
          scroll-snap horizontally. */
-      ".cssos-agent-work-cards{display:flex;flex-direction:row;flex-wrap:wrap;gap:10px;margin:8px 0;align-self:stretch;}",
+      /* CSSOS_WAVE_164 20260515 — Jing: "卡片再次塌成一条线." The W147 fix
+         didn't fully stick: #cssos-agent-messages is a vertically-
+         constrained flex-column (flex:1 inside a fixed-height panel),
+         and every child flex-item inherits `flex-shrink:1` by default,
+         so under pressure the cards wrap squashed to ~10px tall and the
+         user just saw a thin colored band where the 3 cards should be.
+         Lock the wrap AND each card against shrinking, and pin the cover
+         to a non-shrinkable 200×200 block so it can never collapse. */
+      ".cssos-agent-work-cards{display:flex;flex-direction:row;flex-wrap:wrap;gap:10px;margin:8px 0;align-self:stretch;flex-shrink:0;min-height:290px;}",
       ".cssos-agent-work-cards.is-multi{flex-wrap:nowrap;overflow-x:auto;scroll-snap-type:x mandatory;padding-bottom:4px;align-items:flex-start;}",
-      ".cssos-agent-work-card{background:rgba(8,18,14,0.7);border:1px solid rgba(0,245,160,0.32);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;flex:0 0 200px;width:200px;scroll-snap-align:start;}",
-      ".cssos-agent-work-card .cover{position:relative;width:100%;height:200px;flex:0 0 200px;background-size:cover;background-position:center;background-color:#0a1812;}",
+      ".cssos-agent-work-card{background:rgba(8,18,14,0.7);border:1px solid rgba(0,245,160,0.32);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;flex:0 0 200px;width:200px;min-height:290px;flex-shrink:0;scroll-snap-align:start;}",
+      ".cssos-agent-work-card .cover{position:relative;width:100%;height:200px;min-height:200px;flex:0 0 200px;background-size:cover;background-position:center;background-color:#0a1812;}",
       ".cssos-agent-work-card .cover .badge{position:absolute;top:6px;left:6px;padding:3px 9px;border-radius:999px;background:rgba(0,245,160,0.85);color:#0a0d12;font:700 10px/1 ui-monospace,monospace;letter-spacing:.05em;text-transform:uppercase;}",
       ".cssos-agent-work-card .info{padding:10px 12px;display:flex;flex-direction:column;gap:6px;}",
       ".cssos-agent-work-card .title{font:600 14px/1.25 -apple-system,system-ui,sans-serif;color:#fff;}",

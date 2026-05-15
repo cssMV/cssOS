@@ -1264,6 +1264,38 @@ function languageNameFromCode(code: string): string {
 function buildJingdianSystemPrompt(language: string, workType: string = "single", sectionForm: string = ""): string {
   const langName = languageNameFromCode(language);
   const wt = String(workType || "single").toLowerCase();
+  // CSSOS_WAVE_179 — Jing's clarification: 短剧 episodes are DRAMA
+  // SCRIPTS (scene heading + dialogue + action + hook), not lyrics.
+  // The 京典 lyric template is for the eventual MV songs (theme /
+  // interlude / ending), generated separately as full MVs that link
+  // off the shortplay catalog card. The shortplay create_work call
+  // emits the script for N episodes only.
+  if (wt === "shortplay" || wt === "short_play") {
+    return [
+      `WORK TYPE: short play (短剧) — modern short-form drama SERIES.`,
+      `Output FIVE episodes by default (the LLM batch ceiling; the user can request fewer; if they ask for more, the system will chain follow-up calls).`,
+      ``,
+      `Each EPISODE is a DRAMA SCRIPT, ≤ 3 minutes when filmed:`,
+      `  • A short SCENE heading: "SCENE: <location> · <time of day>".`,
+      `  • Several DIALOGUE lines as "SPEAKER: line" (uppercase speaker tag, body in ${langName}).`,
+      `  • One or two ACTION blocks describing what happens on screen (visual, prose, in ${langName}).`,
+      `  • A HOOK at the very end — one line, cliffhanger, sets up the next episode ("但下一秒，门外传来了沉重的脚步声。" / "And then her phone rang — it was him.").`,
+      ``,
+      `THESE ARE NOT LYRICS. Do not write [Verse 1] / [Chorus] / refrains / ritual lines. There is no music staff template here.`,
+      ``,
+      `MARKERS (exact, ASCII brackets only):`,
+      `  [Episode 1] · <optional sub-title>`,
+      `  [Episode 2] · <optional sub-title>`,
+      `  …`,
+      `Continue with [Episode 3] / [Episode 4] / [Episode 5]. Each episode 80–200 ${langName} words.`,
+      ``,
+      `If the user asks for a theme song / interlude / ending song (主题曲 / 插曲 / 片尾曲), DO NOT include them here — they will be generated as separate MV works in a follow-up step. Just output the episode scripts.`,
+      ``,
+      `LANGUAGE: every body line (dialogue + action + hook + scene description) is written in ${langName}. SCENE / DIALOGUE / ACTION / HOOK section labels stay in English ASCII as written above.`,
+      ``,
+      `Output the FINAL scripts only. No drafts, no commentary, no markdown headings beyond the [Episode N] markers. Begin with "[Episode 1]" on the first line and end with the last HOOK line of the last episode.`,
+    ].join("\n");
+  }
   const customForm = String(sectionForm || "").trim();
   const useCustomForm = customForm.length > 0;
   const defaultSectionList = [
@@ -1287,22 +1319,7 @@ function buildJingdianSystemPrompt(language: string, workType: string = "single"
         `WORK TYPE: opera (歌剧) — produce a multi-act opera. First emit "[Act I]" (Roman numeral), then within each act emit "[Scene 1]", "[Scene 2]"… for that act's scenes, then "[Act II]" and its scenes, etc. Each scene is one full section block per the template below. Do not stop until every act × scene of the opera is fully written.`,
       ].join("\n");
     }
-    if (wt === "shortplay" || wt === "short_play") {
-      // CSSOS_WAVE_178 — Jing's definition: 短剧 = lots of ≤3-min eps
-      // (20–100), each ending on a hook, plus separately-marked theme
-      // / interlude / ending SONGS. Single-ep would be 微型剧, not this.
-      return [
-        `WORK TYPE: short play (短剧) — a SHORT-FORM SERIES of many small episodes (typical 20+ episodes, can reach 100; default to 20 if the user didn't specify a count). Each EPISODE is a small song (≤ 3 minutes — shorter than a normal MV), with a "hook" line at the very end that tantalizes the next episode (a cliffhanger, a reveal, a question — "But the next morning…", "And then the door opened.", "他没想到，那个人竟是——").`,
-        `Mark each episode with "[Episode 1]" / "[Episode 2]" … using ARABIC numerals — NOT [Scene N] (that's opera/film), NOT [Part N] (that's triptych).`,
-        `If the user wants a 主题曲 / 片头曲 / 插曲 / 片尾曲 (theme / interlude / ending song), produce them as SEPARATE full-length songs alongside the episodes, marked with:`,
-        `  [Theme Song]      ← 主题曲 / 片头曲 — full-length (~40 lyric lines, like a normal single)`,
-        `  [Interlude 1]     ← 插曲 — full-length`,
-        `  [Ending Song]     ← 片尾曲 — full-length`,
-        `Order: optional [Theme Song] first, then all [Episode N] in order, optionally [Interlude N] interleaved at the user-specified positions (or omit), optional [Ending Song] last.`,
-        `Per-episode SECTION SHAPE: each episode is SHORT — Verse 1 + Chorus + Outro (3 sections, ~12 lines total in the body language plus 0-1 ritual line). Save the hook for the OUTRO's last line.`,
-        `Per-song SECTION SHAPE for Theme/Interlude/Ending: full 10-section 京典 template, ~40+ lines.`,
-      ].join("\n");
-    }
+    // shortplay handled by W179 early-return above (drama script, not lyrics).
     if (wt === "series" || wt === "tv_series") {
       return `WORK TYPE: TV series (电视连续剧) — produce multi-season output. First emit "[Season 1]", then within that season emit "[Episode 1]", "[Episode 2]"…, then "[Season 2]" and its episodes, etc. Each episode is one complete song per the template below.`;
     }
@@ -3713,24 +3730,29 @@ async function runAgentTool(
           }
           const lines = text ? text.split(/\r?\n/).filter((l: string) => l.trim().length > 0).length : 0;
           const sections = text ? (text.match(/\[(Verse|Chorus|Bridge|Outro|Pre-Chorus)/gi) || []).length : 0;
-          // CSSOS_WAVE_178 — validation thresholds per work_type.
-          // shortplay is many tiny eps; each is ~12 lines / 3 sections,
-          // so even a 20-ep short play clears ~240 lines / 60 sections.
-          // Set the floor low enough that a 20-ep run still passes
-          // even if a few eps come in light.
+          // CSSOS_WAVE_179 — shortplay is DRAMA SCRIPT, not lyrics, so
+          // the [Verse/Chorus/...] section count doesn't apply. Validate
+          // by: at least 5 episodes' worth of body lines + at least
+          // 4 [Episode N] markers. minSections=0 sidesteps the lyric
+          // check (sections regex won't match drama prose anyway).
           const minLines = wt === "single"    ? 40
                          : wt === "triptych"  ? 100
-                         : wt === "shortplay" ? 150
+                         : wt === "shortplay" ? 50
                          : wt === "series"    ? 100
                          : wt === "film"      ? 100
                          : 60;
           const minSections = wt === "single"    ? 8
                             : wt === "triptych"  ? 20
-                            : wt === "shortplay" ? 40
+                            : wt === "shortplay" ? 0
                             : wt === "series"    ? 20
                             : wt === "film"      ? 20
                             : 8;
-          if (text && lines >= minLines && sections >= minSections) {
+          // CSSOS_WAVE_179 — for shortplay, also require ≥ 3 [Episode N]
+          // markers so a single-block fallback doesn't count as a "drama".
+          const episodeMarkerCount = wt === "shortplay"
+            ? (text.match(/\[\s*Episode\s+\d+/gi) || []).length
+            : Infinity;
+          if (text && lines >= minLines && sections >= minSections && episodeMarkerCount >= (wt === "shortplay" ? 3 : 0)) {
             lyricsText = text;
             lyricsProvider = r?.provider || "llm";
             break;

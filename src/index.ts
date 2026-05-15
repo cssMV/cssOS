@@ -3681,12 +3681,20 @@ async function runAgentTool(
           attempt += 1;
           if (Date.now() - t0 > deadlineMs) break;
           const remaining = deadlineMs - (Date.now() - t0);
+          // CSSOS_WAVE_180 — shortplay (drama script) wants Claude
+          // Sonnet 4.5 specifically: best long-form coherence among the
+          // available LLMs, ~10–15 ep capacity per call, sound character
+          // voice. Pin the provider AND the model for this call only.
+          const llmPrefer = wt === "shortplay" ? ["anthropic"] : undefined;
+          const llmPreferModel = wt === "shortplay" ? { anthropic: "claude-sonnet-4-5" } : undefined;
           const r = await Promise.race([
             callLlm({
               messages: [
                 { role: "system", content: sysPrompt },
                 { role: "user",   content: userPrompt },
               ],
+              ...(llmPrefer ? { prefer: llmPrefer } : {}),
+              ...(llmPreferModel ? { prefer_model: llmPreferModel } : {}),
               // CSSOS_WAVE_178 — shortplay = 20+ tiny eps + optional songs;
               // each ep is ~12 lines but the COUNT pushes total tokens.
               // Series/film also need headroom for multi-season/chapter
@@ -15552,6 +15560,11 @@ type LlmRequest = {
   response_format?: unknown;
   /** Override per-request preference (e.g. "openai" for trusted fallback) */
   prefer?: string[];
+  /** CSSOS_WAVE_180 — per-provider model override for a single call.
+   * Used by shortplay create_work to pin Anthropic to Sonnet 4.5 (the
+   * coherent long-form drama writer) without changing the default for
+   * every other call. */
+  prefer_model?: Record<string, string>;
 };
 type LlmResponse = {
   ok: boolean;
@@ -15839,8 +15852,13 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
     const cfg = LLM_PROVIDER_DEFAULTS[provider];
     const apiKey = String(process.env[cfg.keyEnv] || "").trim();
     if (!apiKey) continue;
-    const modelOverride = String(process.env[`LLM_MODEL_${provider.toUpperCase()}`] || "").trim();
-    const model = modelOverride || cfg.model;
+    // CSSOS_WAVE_180 — precedence: per-request prefer_model > env
+    // override > provider default. Per-request wins because callers
+    // who know they need a specific model (long-form drama, vision)
+    // shouldn't be overridden by a global env knob.
+    const reqModel = (req.prefer_model && req.prefer_model[provider]) || "";
+    const envModel = String(process.env[`LLM_MODEL_${provider.toUpperCase()}`] || "").trim();
+    const model = reqModel || envModel || cfg.model;
     try {
       let upstream: Response;
       let json: any;

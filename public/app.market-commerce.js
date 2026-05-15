@@ -2537,8 +2537,56 @@ function buildWorksCardDetailsMarkup(options = {}) {
   const hierarchyMarkup = String(options.hierarchyMarkup || "");
   return `
     <div class="work-details">
+      ${buildWorksCardAlbumDetailMarkup(options)}
       ${buildWorksCardCommerceDetailsMarkup(options)}
       ${hierarchyMarkup}
+    </div>
+  `;
+}
+
+// CSSOS_WAVE_173 20260515 — Jing: 完整唱片背面. When the card is a
+// multi-part root, expanding it reveals an album back-cover view —
+// big cover on the left, track listing on the right with sequence
+// numbers + part titles. Each track row is a clickable shortcut that
+// opens that exact part in the watch panel without going through the
+// hierarchy <details> tree (which still sits below for power-user
+// drill-down). For single-part works this returns empty so the
+// existing card body is unchanged.
+function buildWorksCardAlbumDetailMarkup(options = {}) {
+  const albumChildCount = Math.max(0, Number(options.albumChildCount || 0));
+  if (albumChildCount < 2) return "";
+  const albumThumbs = Array.isArray(options.albumChildThumbs)
+    ? options.albumChildThumbs : [];
+  if (!albumThumbs.length) return "";
+  const title = String(options.title || "").trim() || loginCopy("Untitled");
+  const cover = String(options.coverImage || "").trim();
+  const workTypeLbl = workTypeLabel(options.workType);
+  const tracks = albumThumbs.map((t, i) => {
+    const cid = String(t && t.id || "").trim();
+    const tcover = String(t && t.cover || "").trim();
+    const ttitle = String(t && t.title || "").trim() || `${title} · ${i + 1}`;
+    const bg = tcover
+      ? `style="background-image:url('${escapeHtml(tcover).replace(/'/g, "&#39;")}');"`
+      : "";
+    return `<button class="work-album-track" type="button" data-work-album-child="${escapeHtml(cid)}" title="${escapeHtml(ttitle)}">
+      <span class="work-album-track-seq">${i + 1}</span>
+      <span class="work-album-track-thumb" ${bg} aria-hidden="true"></span>
+      <span class="work-album-track-title">${escapeHtml(ttitle)}</span>
+      <span class="work-album-track-go" aria-hidden="true">▶</span>
+    </button>`;
+  }).join("");
+  return `
+    <div class="work-album-detail" data-work-album-detail>
+      <div class="work-album-detail-cover">
+        ${cover
+          ? `<img src="${escapeHtml(cover)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" />`
+          : `<div class="work-album-detail-fallback">${escapeHtml(title.slice(0, 2).toUpperCase())}</div>`}
+        <span class="work-album-detail-badge">${escapeHtml(workTypeLbl)} × ${albumChildCount}</span>
+      </div>
+      <div class="work-album-detail-tracks">
+        <div class="work-album-detail-tracks-head">${escapeHtml(loginCopy("Tracks", "曲目"))}</div>
+        ${tracks}
+      </div>
     </div>
   `;
 }

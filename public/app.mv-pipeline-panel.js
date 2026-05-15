@@ -3349,6 +3349,10 @@
     // `globalThis.cssmvMvPipelineRunAll(opts)`.
     void options; // explicit no-op so the linter doesn't strip the comment
     const seed = options.seed || null;
+    // CSSOS_WAVE_182 — stash the live seed on state so per-stage code
+    // (music engine prefer / instrumental flag for shortplay) can read
+    // it without re-threading through every helper.
+    state._seed = seed;
 
     // CSSOS_PHASE2_MV_TIER_PICKER_MODAL 20260419 — low-balance prompt. Before
     // we spend credit, pull the account balance and compare against the
@@ -4737,12 +4741,25 @@
       // the new checkbox in Advanced Settings; default off so existing
       // behaviour stays the same when the user never touches it.
       const _instrumentalCheckbox = document.getElementById("creation-make-instrumental");
-      const _makeInstrumental = !!(_instrumentalCheckbox && _instrumentalCheckbox.checked);
+      // CSSOS_WAVE_182 — seed.make_instrumental forces instrumental
+      // BGM for shortplay episodes (the script is dialogue, not lyrics
+      // to sing). Same flag also keys music-engine preference toward
+      // Mubert / Stable Audio over Suno via seed.prefer_music.
+      const _seedRef = (typeof globalThis.cssosMvPipelinePanelState === "function"
+        && globalThis.cssosMvPipelinePanelState() && globalThis.cssosMvPipelinePanelState()._seed)
+        || (state && state._seed) || null;
+      const _seedInstrumental = !!(_seedRef && (_seedRef.make_instrumental || _seedRef.instrumental));
+      const _makeInstrumental = _seedInstrumental
+        || !!(_instrumentalCheckbox && _instrumentalCheckbox.checked);
+      const _seedPreferMusic = (_seedRef && Array.isArray(_seedRef.prefer_music) && _seedRef.prefer_music.length)
+        ? _seedRef.prefer_music.slice(0, 6)
+        : null;
       const _musicPayload = withEngine("music", {
         prompt: state.prompt,
         music_style: _enrichedStyle || state.style || null,
         lyrics: _makeInstrumental ? null : state.lyrics,
         make_instrumental: _makeInstrumental,
+        ...(_seedPreferMusic ? { prefer: _seedPreferMusic } : {}),
         // CSSOS_PHASE2_KIE_TITLE 20260429 #207 — Jing
         // Pass the user's actual song title to Suno. Without this the
         // backend was deriving title from prompt's first line, which Suno

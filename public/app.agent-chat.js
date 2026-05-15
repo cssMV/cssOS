@@ -779,6 +779,57 @@
     });
     messages.appendChild(wrap);
     messages.scrollTop = messages.scrollHeight;
+
+    // CSSOS_WAVE_182 20260515 — Jing: 不是直接创作画面吗？即视频（目前
+    // 用幻灯）呢？  W179 stopped at "scripts persisted", but for shortplay
+    // the user expects to WATCH the drama, not just read 5 cards of
+    // script text. Auto-launch cinema for Episode 1 using its script
+    // as the seed.lyrics so the music + slideshow + subtitle stages
+    // fire immediately. The remaining 4 episodes stay as cards the
+    // user can tap (next wave wires resume-from-script so each
+    // episode auto-watches without creating a twin work). For each
+    // shortplay episode we pin instrumental=true and prefer the
+    // background-music engines (Mubert / Stable Audio) so the
+    // dialogue isn't sung as a song — it's drama with BGM.
+    try {
+      var first = cards[0] || {};
+      var workType = String(first.work_type || "").toLowerCase();
+      if (workType === "shortplay" && first.lyrics_preview && first.title
+          && typeof globalThis.openMvPipelinePanel === "function") {
+        var ep1Title = String(first.title || "").trim() || "Episode 1";
+        var sharedStyle = String(first.style || "").trim();
+        var seed = {
+          prompt: ep1Title + (sharedStyle ? "\n[" + sharedStyle + "]" : ""),
+          style: sharedStyle,
+          language: String(first.language || "").trim() || "en",
+          work_type: "single",         // episode plays as a single drama clip
+          title: ep1Title,
+          lyrics: String(first.lyrics_preview || "").trim(),
+          // Drama, not song: instrumental BGM under the script.
+          instrumental: true,
+          make_instrumental: true,
+          // Prefer Mubert / Stable Audio for the mood BGM bed; Suno
+          // would try to sing the script otherwise.
+          prefer_music: ["mubert", "stability"],
+          // Slideshow tier — no real-video clips.
+          tier: "lite",
+          __shortplayEpisode: true,
+          __shortplayRootTitle: ep1Title.split(" · ")[0] || ep1Title,
+          __shortplayEpisodeIndex: 1,
+        };
+        try {
+          globalThis.openMvPipelinePanel({
+            cinema: true,
+            queue: [],
+            seed: seed,
+            forceNew: true,
+            personName: ep1Title,
+            personMusicStyleHint: sharedStyle,
+          });
+          try { togglePanel(); } catch (_) {}
+        } catch (_) { /* non-fatal — user can still click the cards */ }
+      }
+    } catch (_) {}
   }
 
   function injectWorkCardStyles() {

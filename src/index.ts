@@ -3707,11 +3707,17 @@ async function runAgentTool(
         return { error: "lyrics_generation_failed", hint: "Free-tier LLM providers all timed out or returned short output. Credits refunded. Try again in a few minutes (most providers reset at UTC 00:00)." };
       }
 
-      // Split into parts for triptych / opera / etc.
-      const parts: { title: string; lyrics: string }[] = [];
+      // CSSOS_WAVE_175 20260515 — Jing: 歌剧三层结构 (title → acts → scenes).
+      // Triptych stays a flat 2-level tree (root → 3 parts). Opera splits
+      // the LLM output by [Act I/II/III…] then within each Act by
+      // [Scene 1/2/…]. The result is a 3-level structure that the
+      // catalog renderer expands as opera → acts (collapsible) → scenes
+      // (clickable leaves).
+      type SceneNode = { title: string; lyrics: string };
+      type ActNode = { title: string; scenes: SceneNode[]; lyrics?: string };
+      const parts: SceneNode[] = []; // flat parts (triptych or fallback)
+      let operaActs: ActNode[] | null = null;
       if (wt === "triptych") {
-        // Split on [Part II] / [Part III] markers (case-insensitive, robust to
-        // whitespace).
         const splitRe = /\n\s*\[\s*Part\s+(II|III|2|3)\s*\]\s*\n/i;
         const segments = lyricsText.split(splitRe).filter((s, i) => i % 2 === 0);
         if (segments.length >= 2) {
@@ -3719,6 +3725,52 @@ async function runAgentTool(
             parts.push({ title: `${title} (${idx + 1}/${segments.length})`, lyrics: seg.trim() });
           });
         } else {
+          parts.push({ title, lyrics: lyricsText });
+        }
+      } else if (wt === "opera") {
+        // First split by [Act ...] headers — capture the act tag so we
+        // can label rows naturally ("Act I", "Act II"…).
+        const actRe = /\n\s*\[\s*Act\s+([IVX0-9]+)\s*[:\-—]?\s*([^\]]*)\]\s*\n/gi;
+        const actMatches: { tag: string; sub: string; index: number }[] = [];
+        let m: RegExpExecArray | null;
+        while ((m = actRe.exec(lyricsText))) {
+          actMatches.push({ tag: String(m[1] || "").trim(), sub: String(m[2] || "").trim(), index: m.index });
+        }
+        if (actMatches.length >= 1) {
+          const acts: ActNode[] = [];
+          for (let i = 0; i < actMatches.length; i += 1) {
+            const start = actMatches[i]!.index;
+            const end = (i + 1 < actMatches.length) ? actMatches[i + 1]!.index : lyricsText.length;
+            const actBody = lyricsText.slice(start, end);
+            const actLabel = `Act ${actMatches[i]!.tag}${actMatches[i]!.sub ? " · " + actMatches[i]!.sub : ""}`;
+            // Within an act, split by [Scene N]; if no scene markers,
+            // treat the entire act as a single scene.
+            const sceneRe = /\n\s*\[\s*Scene\s+(\d+)\s*[:\-—]?\s*([^\]]*)\]\s*\n/gi;
+            const sceneMatches: { num: string; sub: string; index: number }[] = [];
+            let s: RegExpExecArray | null;
+            while ((s = sceneRe.exec(actBody))) {
+              sceneMatches.push({ num: String(s[1] || "").trim(), sub: String(s[2] || "").trim(), index: s.index });
+            }
+            const scenes: SceneNode[] = [];
+            if (sceneMatches.length >= 1) {
+              for (let j = 0; j < sceneMatches.length; j += 1) {
+                const ss = sceneMatches[j]!.index;
+                const ee = (j + 1 < sceneMatches.length) ? sceneMatches[j + 1]!.index : actBody.length;
+                const sceneBody = actBody.slice(ss, ee).trim();
+                const sceneLabel = `${actLabel} · Scene ${sceneMatches[j]!.num}${sceneMatches[j]!.sub ? " · " + sceneMatches[j]!.sub : ""}`;
+                if (sceneBody) scenes.push({ title: sceneLabel, lyrics: sceneBody });
+              }
+            } else {
+              scenes.push({ title: actLabel, lyrics: actBody.trim() });
+            }
+            acts.push({ title: actLabel, scenes });
+          }
+          if (acts.length >= 1 && acts.some((a) => a.scenes.length)) {
+            operaActs = acts;
+          }
+        }
+        if (!operaActs) {
+          // LLM didn't honor the structure — fall back to single part.
           parts.push({ title, lyrics: lyricsText });
         }
       } else {
@@ -3732,7 +3784,13 @@ async function runAgentTool(
       // nginx's 300s ceiling. Generate every part's cover in PARALLEL so
       // triptych cover time drops to ~30s. DB inserts stay serial below
       // (fast, no parallel benefit, and keeps transaction ordering sane).
-      const covers: string[] = await Promise.all(parts.map(async (part) => {
+      // CSSOS_WAVE_175 — for opera, flatten scenes for parallel cover
+      // generation. Each scene gets its own cover (it's the playable
+      // leaf); acts reuse their first scene's cover.
+      const coverTargets: { title: string; lyrics: string }[] = operaActs
+        ? operaActs.flatMap((a) => a.scenes)
+        : parts;
+      const covers: string[] = await Promise.all(coverTargets.map(async (part) => {
         try {
           const img = await callImageGen({
             prompt: [part.title, style, theme, civilization, "cinematic album cover, dramatic lighting, no text"]
@@ -3748,12 +3806,10 @@ async function runAgentTool(
         return "";
       }));
 
-      // CSSOS_WAVE_169 20260515 — Jing: 三部曲 / 歌剧 等多 part 作品要
-      // 以树结构入库 — root + 子节点。For You / Works Center 凭
-      // structure_role='root' 渲染一张"专辑卡"，展开后是子卡。
-      // Single-part works skip the root and behave as before
-      // (root_work_id = own id, parent_work_id = null).
-      const isMultiPart = parts.length > 1;
+      // CSSOS_WAVE_169 / 175 20260515 — Jing: 三部曲 / 歌剧 等多 part 作品要
+      // 以树结构入库 — root + 子节点 (+ grandchildren for opera).
+      const isOperaTree = !!operaActs;
+      const isMultiPart = isOperaTree || parts.length > 1;
       const rootId = isMultiPart ? crypto.randomUUID() : null;
       const rootCoverUrl = (covers.find((u) => u) || null);
 
@@ -3795,8 +3851,136 @@ async function runAgentTool(
         }
       }
 
-      // INSERT user_works for each part.
+      // CSSOS_WAVE_175 — opera 3-level insert: root → acts → scenes.
+      // Each act is a structure_role='act' row with empty lyrics; each
+      // scene is structure_role='scene' under the act, carrying real
+      // lyrics + its own cover. Scenes are the playable leaves.
       const cards: any[] = [];
+      if (isOperaTree && operaActs && rootId) {
+        let sceneCoverIdx = 0;
+        for (let ai = 0; ai < operaActs.length; ai += 1) {
+          const act = operaActs[ai]!;
+          const actId = crypto.randomUUID();
+          // Act gets the first scene's cover (if any) as a poster.
+          const actCover = covers[sceneCoverIdx] || null;
+          try {
+            await withClient(async (client) => {
+              await client.query("BEGIN");
+              try {
+                await client.query(
+                  `INSERT INTO user_works
+                     (id, user_id, title, style, work_type, lyrics_preview,
+                      cover_image, status, suggested_listen_price_cents,
+                      suggested_buyout_price_cents,
+                      parent_work_id, root_work_id, structure_role, sequence_index,
+                      created_at, updated_at)
+                    VALUES ($1::uuid, $2::uuid, $3, $4, $5, '',
+                            $6, 'published', 100, 0,
+                            $7::uuid, $8::uuid, 'act', $9,
+                            now(), now())`,
+                  [actId, ctx.userId, act.title, style || "", wt, actCover,
+                   rootId, rootId, ai + 1],
+                );
+                await client.query(
+                  `INSERT INTO work_market_profiles
+                     (work_id, owner_user_id, visibility, current_listen_price_cents,
+                      current_buyout_price_cents, buyout_enabled, tips_enabled,
+                      rights_scope, created_at, updated_at)
+                    VALUES ($1::uuid, $2::uuid, 'private', 100, 0, false, true,
+                            'personal_use', now(), now())
+                    ON CONFLICT (work_id) DO NOTHING`,
+                  [actId, ctx.userId],
+                );
+                await client.query("COMMIT");
+              } catch (errIn) { await client.query("ROLLBACK"); throw errIn; }
+            });
+          } catch (errOuter) {
+            return { error: "work_insert_failed", detail: "act_insert:" + ((errOuter as Error)?.message || String(errOuter)) };
+          }
+          const sceneCards: any[] = [];
+          for (let si = 0; si < act.scenes.length; si += 1) {
+            const scene = act.scenes[si]!;
+            const sceneId = crypto.randomUUID();
+            const sceneCover = covers[sceneCoverIdx] || null;
+            sceneCoverIdx += 1;
+            try {
+              await withClient(async (client) => {
+                await client.query("BEGIN");
+                try {
+                  await client.query(
+                    `INSERT INTO user_works
+                       (id, user_id, title, style, work_type, lyrics_preview,
+                        cover_image, status, suggested_listen_price_cents,
+                        suggested_buyout_price_cents,
+                        parent_work_id, root_work_id, structure_role, sequence_index,
+                        created_at, updated_at)
+                      VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6,
+                              $7, 'published', 100, 0,
+                              $8::uuid, $9::uuid, 'scene', $10,
+                              now(), now())`,
+                    [sceneId, ctx.userId, scene.title, style || "", wt, scene.lyrics, sceneCover,
+                     actId, rootId, si + 1],
+                  );
+                  await client.query(
+                    `INSERT INTO work_market_profiles
+                       (work_id, owner_user_id, visibility, current_listen_price_cents,
+                        current_buyout_price_cents, buyout_enabled, tips_enabled,
+                        rights_scope, created_at, updated_at)
+                      VALUES ($1::uuid, $2::uuid, 'private', 100, 0, false, true,
+                              'personal_use', now(), now())
+                    ON CONFLICT (work_id) DO NOTHING`,
+                    [sceneId, ctx.userId],
+                  );
+                  await client.query("COMMIT");
+                } catch (errIn) { await client.query("ROLLBACK"); throw errIn; }
+              });
+            } catch (errOuter) {
+              return { error: "work_insert_failed", detail: "scene_insert:" + ((errOuter as Error)?.message || String(errOuter)) };
+            }
+            sceneCards.push({
+              work_id: sceneId,
+              title: scene.title,
+              cover_url: sceneCover || null,
+              lyrics_preview: scene.lyrics,
+              line_count: scene.lyrics.split(/\r?\n/).filter((l) => l.trim().length > 0).length,
+              deeplink: `/?cssMV=${sceneId}`,
+              root_work_id: rootId,
+              structure_role: "scene",
+              sequence_index: si + 1,
+              audio_url: null,
+              video_url: null,
+            });
+          }
+          cards.push({
+            work_id: actId,
+            title: act.title,
+            style: style || "",
+            civilization: civilization || "",
+            language: lang,
+            work_type: wt,
+            cover_url: actCover || null,
+            lyrics_preview: "",
+            line_count: 0,
+            deeplink: `/?cssMV=${actId}`,
+            root_work_id: rootId,
+            structure_role: "act",
+            sequence_index: ai + 1,
+            children: sceneCards, // nested so renderWorkCards / album-detail can recurse
+            audio_url: null,
+            video_url: null,
+          });
+        }
+        return {
+          work_cards: cards,
+          provider: lyricsProvider,
+          work_type: wt,
+          count: cards.reduce((acc, c) => acc + (Array.isArray(c.children) ? c.children.length : 0), 0),
+          root_work_id: rootId,
+          root_title: title,
+        };
+      }
+
+      // INSERT user_works for each part (flat: single or triptych).
       for (let i = 0; i < parts.length; i += 1) {
         const part = parts[i]!;
         const coverUrl = covers[i] || "";

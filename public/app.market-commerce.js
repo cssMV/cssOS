@@ -2348,23 +2348,48 @@ function buildWorksCardsMarkup(works = [], options = {}) {
         .toLowerCase();
       const voiceSourceBadge =
         source === "voice" || work?.show_voice_source_badge;
-      // CSSOS_WAVE_172 20260515 — Jing: For You / Works Center 树状专辑卡.
+      // CSSOS_WAVE_172 / 175 20260515 — Jing: 树状专辑卡 + 歌剧两层结构.
       // For multi-part roots (triptych/opera/etc., post-W169) capture
       // child count + their cover URLs + ids so the card can render an
-      // album stack + child thumbnail strip + "× N" badge.
+      // album stack + child thumbnail strip + "× N" badge. Opera goes
+      // one level deeper (act → scene), so we ALSO build a normalized
+      // tree of {id,title,cover,sequence_index,structure_role,children}
+      // that the recursive album-detail renderer can walk.
       const renderableChildren = resolveRenderableWorkChildren(work);
       const albumChildren = (Array.isArray(renderableChildren) ? renderableChildren : [])
         .slice() // sequence-ascending sort already done backend-side
         .filter((c) => c && (c.id || c.work_id));
       const albumChildCount = albumChildren.length;
-      const albumChildThumbs = albumChildren.slice(0, 3).map((c) => {
-        const cid = String(c.work_id || c.id || "").trim();
-        const ccover =
+      const normalizeAlbumNode = (c, idx) => ({
+        id: String(c.work_id || c.id || "").trim(),
+        title: String(c.title || "").trim(),
+        cover: String(
           (typeof globalThis.resolveWorkCardThumbnailImageModule === "function"
             ? globalThis.resolveWorkCardThumbnailImageModule(c)
-            : null) || resolveWorkCoverImage(c) || "";
-        return { id: cid, cover: String(ccover || ""), title: String(c.title || "").trim() };
+            : null) || resolveWorkCoverImage(c) || ""
+        ),
+        sequence_index: Number(c.sequence_index || idx + 1) || (idx + 1),
+        structure_role: String(c.structure_role || "").trim().toLowerCase(),
+        children: (Array.isArray(c.children) ? c.children : []).map(normalizeAlbumNode),
       });
+      const albumChildTree = albumChildren.map(normalizeAlbumNode);
+      // Flat top-3 thumbs for the cover-strip / stack layers (covers
+      // are sampled from the FIRST playable leaf in each top-level
+      // branch — for opera that's "Act I's first scene" so the strip
+      // still reads visually).
+      const firstLeafCover = (n) => {
+        if (!n) return "";
+        if (!n.children || !n.children.length) return n.cover || "";
+        for (const k of n.children) {
+          const c = firstLeafCover(k);
+          if (c) return c;
+        }
+        return n.cover || "";
+      };
+      const albumChildThumbs = albumChildTree.slice(0, 3).map((c) => ({
+        id: c.id, title: c.title,
+        cover: c.cover || firstLeafCover(c),
+      }));
       const hierarchyMarkup = renderHierarchyTree(renderableChildren, "works");
       const commerce = getWorkCommerceDetails(workId);
       const pricing = resolveDisplayedWorkPricingModule(work, commerce);
@@ -2436,9 +2461,12 @@ function buildWorksCardsMarkup(works = [], options = {}) {
         // CSSOS_WAVE_111D 20260512 — thread fingerprint_hash through
         // so the cover renders the 🔐 verify badge.
         fingerprintHash: String(work?.fingerprint_hash || "").trim(),
-        // CSSOS_WAVE_172 — album-card data: count + child thumbs.
+        // CSSOS_WAVE_172 / 175 — album-card data: count + flat thumb
+        // sample for the cover strip + full normalized tree for the
+        // recursive album-detail panel (opera goes act → scene).
         albumChildCount,
         albumChildThumbs,
+        albumChildTree,
         title,
         style,
         workType,
@@ -2544,14 +2572,14 @@ function buildWorksCardDetailsMarkup(options = {}) {
   `;
 }
 
-// CSSOS_WAVE_173 20260515 — Jing: 完整唱片背面. When the card is a
-// multi-part root, expanding it reveals an album back-cover view —
-// big cover on the left, track listing on the right with sequence
-// numbers + part titles. Each track row is a clickable shortcut that
-// opens that exact part in the watch panel without going through the
-// hierarchy <details> tree (which still sits below for power-user
-// drill-down). For single-part works this returns empty so the
-// existing card body is unchanged.
+// CSSOS_WAVE_173 / 175 20260515 — Jing: 完整唱片背面 + 歌剧三层结构.
+//   Triptych: title → 3 parts (single-level)
+//   Opera:    title → acts → scenes  (two levels — each scene is a single)
+// The renderer walks the tree recursively: any node whose children
+// themselves have children becomes an expandable <details> "section"
+// row (Acts in opera); leaf nodes (parts in triptych, scenes in opera)
+// become clickable single-track rows that open in the watch panel.
+// Single-part works skip this block entirely.
 function buildWorksCardAlbumDetailMarkup(options = {}) {
   const albumChildCount = Math.max(0, Number(options.albumChildCount || 0));
   if (albumChildCount < 2) return "";
@@ -2561,20 +2589,14 @@ function buildWorksCardAlbumDetailMarkup(options = {}) {
   const title = String(options.title || "").trim() || loginCopy("Untitled");
   const cover = String(options.coverImage || "").trim();
   const workTypeLbl = workTypeLabel(options.workType);
-  const tracks = albumThumbs.map((t, i) => {
-    const cid = String(t && t.id || "").trim();
-    const tcover = String(t && t.cover || "").trim();
-    const ttitle = String(t && t.title || "").trim() || `${title} · ${i + 1}`;
-    const bg = tcover
-      ? `style="background-image:url('${escapeHtml(tcover).replace(/'/g, "&#39;")}');"`
-      : "";
-    return `<button class="work-album-track" type="button" data-work-album-child="${escapeHtml(cid)}" title="${escapeHtml(ttitle)}">
-      <span class="work-album-track-seq">${i + 1}</span>
-      <span class="work-album-track-thumb" ${bg} aria-hidden="true"></span>
-      <span class="work-album-track-title">${escapeHtml(ttitle)}</span>
-      <span class="work-album-track-go" aria-hidden="true">▶</span>
-    </button>`;
-  }).join("");
+  const renderableTree = Array.isArray(options.albumChildTree) && options.albumChildTree.length
+    ? options.albumChildTree
+    : albumThumbs.map((t, i) => ({
+        id: t.id, title: t.title, cover: t.cover,
+        sequence_index: i + 1, children: [],
+        structure_role: "part",
+      }));
+  const tracks = renderableAlbumNodes(renderableTree, 0);
   return `
     <div class="work-album-detail" data-work-album-detail>
       <div class="work-album-detail-cover">
@@ -2589,6 +2611,53 @@ function buildWorksCardAlbumDetailMarkup(options = {}) {
       </div>
     </div>
   `;
+}
+
+// Recursive renderer for the album-detail tracks column. depth=0 for
+// top-level children of the root; depth>0 for nested scenes etc. Each
+// leaf is a click-to-open <button>; each inner node is a collapsible
+// <details> that holds further rows. Acts get a small "× N scenes"
+// counter so the user sees structure at a glance before expanding.
+function renderableAlbumNodes(nodes, depth) {
+  return (Array.isArray(nodes) ? nodes : [])
+    .map((node, idx) => {
+      const cid = String(node && (node.id || node.work_id) || "").trim();
+      const ntitle = String(node && node.title || "").trim()
+        || `Section ${idx + 1}`;
+      const cover = String(node && node.cover || node.cover_image || node.preview_image_url || "").trim();
+      const seq = Number(node && (node.sequence_index || idx + 1)) || (idx + 1);
+      const role = String(node && node.structure_role || "").trim().toLowerCase();
+      const children = Array.isArray(node && node.children) ? node.children : [];
+      const isInner = children.length > 0;
+      const bg = cover
+        ? `style="background-image:url('${escapeHtml(cover).replace(/'/g, "&#39;")}');"`
+        : "";
+      if (!isInner) {
+        // Leaf — playable track row.
+        return `<button class="work-album-track depth-${depth}" type="button" data-work-album-child="${escapeHtml(cid)}" title="${escapeHtml(ntitle)}">
+          <span class="work-album-track-seq">${seq}</span>
+          <span class="work-album-track-thumb" ${bg} aria-hidden="true"></span>
+          <span class="work-album-track-title">${escapeHtml(ntitle)}</span>
+          <span class="work-album-track-go" aria-hidden="true">▶</span>
+        </button>`;
+      }
+      // Inner node (an Act, etc.) — collapsible section. The first
+      // act at depth 0 opens by default so the user sees structure
+      // without clicking; deeper or later acts stay collapsed.
+      const openAttr = (depth === 0 && idx === 0) ? " open" : "";
+      const sceneCountCopy = `× ${children.length}`;
+      return `<details class="work-album-section depth-${depth}" data-album-section${openAttr}>
+        <summary>
+          <span class="work-album-section-seq">${seq}</span>
+          <span class="work-album-section-title">${escapeHtml(ntitle)}</span>
+          <span class="work-album-section-meta">${escapeHtml(sceneCountCopy)}</span>
+        </summary>
+        <div class="work-album-section-body">
+          ${renderableAlbumNodes(children, depth + 1)}
+        </div>
+      </details>`;
+    })
+    .join("");
 }
 
 function normalizeStructuredPlanForDisplay(work = {}) {

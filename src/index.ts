@@ -6637,6 +6637,14 @@ app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
   const duration = Number((body as any).duration_secs || (body as any).duration || 30) || 30;
   const tags = Array.isArray((body as any).tags) ? (body as any).tags as string[] : [];
   const explicitEngine = String((body as any).engine || "").trim().toLowerCase();
+  // CSSOS_WAVE_160 — forward the lyrics + language to the tier-sweep /
+  // fallback callMusicGen path so Suno actually SINGS them (and so the
+  // Whisper forced-alignment for 情绪字幕 has real vocals to align).
+  // `make_instrumental` true (or absent lyrics) → no word timeline.
+  const bodyLyrics = String((body as any).lyrics || "").trim();
+  const bodyLanguage = String((body as any).language || (body as any).lang || "").trim();
+  const bodyInstrumental = (body as any).make_instrumental === true || (body as any).instrumental === true;
+  const wantWordTimeline = !!bodyLyrics && !bodyInstrumental;
 
   // CSSOS_PHASE2_MUSIC_TIER_FIRST 20260507 — Jing
   // Free → cheap (mubert/stability) before paid (suno/elevenlabs).
@@ -6655,6 +6663,10 @@ app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
         prompt: prompt || "ambient cinematic instrumental",
         duration_secs: duration,
         tags,
+        ...(bodyLyrics ? { lyrics: bodyLyrics } : {}),
+        ...(bodyLanguage ? { language: bodyLanguage } : {}),
+        instrumental: bodyInstrumental,
+        want_word_timeline: wantWordTimeline,
       });
       clearInterval(heartbeat);
       const __musicCostCents = estimateEngineCostCents("music", tier?.provider, Number((req.body as any)?.duration_secs) || 180);
@@ -6764,6 +6776,10 @@ app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
       prompt: prompt || "ambient cinematic instrumental",
       duration_secs: duration,
       tags,
+      ...(bodyLyrics ? { lyrics: bodyLyrics } : {}),
+      ...(bodyLanguage ? { language: bodyLanguage } : {}),
+      instrumental: bodyInstrumental,
+      want_word_timeline: wantWordTimeline,
     });
   } catch (err) {
     musicErr = err instanceof Error ? err.message : String(err);
@@ -14669,21 +14685,38 @@ async function enqueueSlideshowPoolGeneration(workId: string): Promise<void> {
       "vivid colors, dramatic lighting, beautiful character with full face visible (no half-face crops unless intentional closeup), centered composition, no text, no watermark",
     ].filter(Boolean).join(", ");
     const STYLE_SEEDS = SLIDESHOW_LIFE_ARC_SEEDS;
-    // Fire generations in waves of 4 concurrent with 1.2 s pauses so
-    // free providers (Replicate 6 RPM, Together 50 RPM) don't 429-flood.
-    // Prefer fal (Flux schnell, generous quota) for slideshow batches.
+    // CSSOS_WAVE_127 20260514 — Jing: "桌面端电影超宽屏幕，手机端 9:16,
+    // 必须在目标比例的媒体框内构图，不要方图硬裁/拉伸". The pool now
+    // generates BOTH orientations so the watch panel can serve a
+    // device-correct frame: landscape (16:9, desktop cinema) and
+    // portrait (9:16, mobile fullscreen). Each frame's meta records its
+    // `orientation` so /slideshow can filter. We alternate orientation
+    // per index → even split, both fill at the same rate.
+    //   landscape 1344×768  (composed for wide cinema framing)
+    //   portrait  768×1344  (composed for 9:16 mobile fullscreen)
+    // Combined with the Wave 126 `object-fit: cover !important` guard,
+    // the figure is correctly proportioned with minimal edge crop —
+    // never the old square-then-stretch squash.
+    const ORIENT = (idx: number): { size: string; orientation: string; framing: string } =>
+      idx % 2 === 0
+        ? { size: "1344x768", orientation: "landscape",
+            framing: "wide cinematic 16:9 composition, subject framed with cinematic headroom, environment visible on both sides" }
+        : { size: "768x1344", orientation: "portrait",
+            framing: "vertical 9:16 composition, subject centered head-to-chest, full face clearly visible, no half-face crop" };
     const BATCH = 4;
     const INTER_BATCH_SLEEP_MS = 1200;
     for (let i = 0; i < need; i += BATCH) {
       const slice: Promise<void>[] = [];
       for (let j = i; j < Math.min(i + BATCH, need); j++) {
-        const seed = STYLE_SEEDS[(have + j) % STYLE_SEEDS.length];
-        const variant = `${basePrompt}, ${seed}`;
+        const poolIdx = have + j;
+        const seed = STYLE_SEEDS[poolIdx % STYLE_SEEDS.length];
+        const orient = ORIENT(poolIdx);
+        const variant = `${basePrompt}, ${seed}, ${orient.framing}`;
         slice.push((async () => {
           try {
             const img = await callImageGen({
               prompt: variant,
-              size: "1024x1024",
+              size: orient.size,
               prefer: ["fal", "replicate", "deepinfra", "huggingface", "pollinations"],
             });
             if (!img.ok) return;
@@ -14695,9 +14728,13 @@ async function enqueueSlideshowPoolGeneration(workId: string): Promise<void> {
               `INSERT INTO work_assets (work_id, asset_type, url, meta)
                  VALUES ($1, 'slideshow_frame', $2, $3::jsonb)
                ON CONFLICT DO NOTHING`,
-              // CSSOS_WAVE_125 — stamp the provider so we can tally which
-              // image engine produces the ugly-face frames the user flags.
-              [workId, url, JSON.stringify({ pool_index: have + j, seed, auto: true, provider: img.provider || "unknown" })],
+              // CSSOS_WAVE_125 — stamp provider (engine tally).
+              // CSSOS_WAVE_127 — stamp orientation (device-correct serve).
+              [workId, url, JSON.stringify({
+                pool_index: poolIdx, seed, auto: true,
+                provider: img.provider || "unknown",
+                orientation: orient.orientation,
+              })],
             );
           } catch (_) { /* per-frame failures are non-fatal */ }
         })());
@@ -14707,9 +14744,114 @@ async function enqueueSlideshowPoolGeneration(workId: string): Promise<void> {
         await new Promise((r) => setTimeout(r, INTER_BATCH_SLEEP_MS));
       }
     }
-    console.info(`[slideshow] pool seeded for ${workId} (target ${SLIDESHOW_POOL_SIZE})`);
+    console.info(`[slideshow] pool seeded for ${workId} (target ${SLIDESHOW_POOL_SIZE}, dual-orientation)`);
   } catch (err) {
     console.warn("[slideshow] enqueueSlideshowPoolGeneration failed:", err);
+  }
+}
+
+// CSSOS_WAVE_132 20260514 — Jing: "重新设计用户欢迎MV…让画面至少使用
+// lite级别的幻灯，然后真的输出关于生日的音乐，制作成一首真正的欢迎MV…
+// 是否也使用京典模版?"
+//
+// The welcome (and birthday) gift was a placeholder: a static
+// dark-purple gradient .mp4 + a sine-wave pad .mp3. This upgrades it
+// IN PLACE, fire-and-forget, after the placeholder template render so
+// the gift lands instantly then becomes real within ~1-2 min:
+//   1. Generate 京典 10-section welcome/birthday lyrics via callLlm.
+//   2. Generate REAL music from those lyrics via callMusicGen.
+//   3. Swap work_assets.audio_track_1 + user_works.lyrics_preview to
+//      the real output.
+//   4. Kick enqueueSlideshowPoolGeneration → the lite-tier slideshow
+//      pool (Wave 122/127) gives the watch panel real, varied visuals
+//      instead of one flat purple still.
+// Errors are non-fatal — the placeholder gift already exists, so worst
+// case the user keeps the (working, if dull) placeholder.
+async function upgradeGiftToRealMv(
+  workId: string,
+  opts: { kind: "welcome" | "birthday"; recipientName?: string; language?: string },
+): Promise<void> {
+  if (!workId) return;
+  const kind = opts.kind || "welcome";
+  const name = String(opts.recipientName || "friend").slice(0, 40);
+  const lang = String(opts.language || "en").slice(0, 8);
+  try {
+    const pool = getPool();
+    // 1. 京典 10-section lyrics. callLlm is the Node-side LLM router.
+    const theme = kind === "birthday"
+      ? `A heartfelt birthday celebration song for ${name} — joyful, warm, full of wishes for the year ahead.`
+      : `A warm welcome song for ${name}, a brand-new cssOS creator — encouraging, hopeful, "your story begins here".`;
+    const sys = [
+      "You are a professional songwriter. Write SINGABLE original lyrics following the Jingdian 10-section template.",
+      "The lyrics MUST contain EXACTLY these 10 sections, in order, each as an English bracket marker on its own line:",
+      "[Verse 1] [Verse 2] [Chorus 1] [Verse 3] [Verse 4] [Chorus 2] [Bridge] [Chorus 3] [Chorus 4] [Outro]",
+      "Each section ≥ 4 sung lines; ≥ 40 sung lines total. The 4 Chorus sections repeat the same hook.",
+      "Section markers stay ENGLISH in square brackets — never translated. Output ONLY the lyrics text, no commentary.",
+      lang.startsWith("zh")
+        ? "Write the sung lines in Simplified Chinese."
+        : lang.startsWith("ja") ? "Write the sung lines in Japanese."
+        : "Write the sung lines in English.",
+    ].join("\n");
+    let lyrics = "";
+    try {
+      const lr = await callLlm({
+        messages: [
+          { role: "system", content: sys },
+          { role: "user", content: theme },
+        ],
+        max_tokens: 1600,
+        temperature: 0.85,
+      });
+      if (lr.ok && lr.content) lyrics = String(lr.content).trim();
+    } catch (e) {
+      console.warn("[gift-upgrade] lyrics gen failed:", e instanceof Error ? e.message : e);
+    }
+    // 2. Real music from those lyrics.
+    let audioUrl = "";
+    try {
+      const mood = kind === "birthday" ? "joyful celebratory" : "warm hopeful uplifting";
+      const musicReq: MusicGenRequest = {
+        prompt: theme,
+        mood,
+        title: kind === "birthday" ? `Happy Birthday, ${name}` : `Welcome, ${name}`,
+        duration_secs: 90,
+        language: lang,
+      };
+      if (lyrics) musicReq.lyrics = lyrics;
+      const mr = await callMusicGen(musicReq);
+      if (mr && mr.ok) {
+        audioUrl = (mr as any).audio_url
+          ? (mr as any).audio_url
+          : ((mr as any).audio_b64 ? persistBase64Cover((mr as any).audio_b64, "gift-mv") : "");
+      }
+    } catch (e) {
+      console.warn("[gift-upgrade] music gen failed:", e instanceof Error ? e.message : e);
+    }
+    // 3. Swap in the real assets (only when we actually got them).
+    if (lyrics) {
+      try {
+        await pool.query(
+          `UPDATE user_works SET lyrics_preview = $2, updated_at = now() WHERE id = $1`,
+          [workId, lyrics],
+        );
+      } catch (_e) {}
+    }
+    if (audioUrl) {
+      try {
+        await pool.query(
+          `INSERT INTO work_assets (work_id, asset_type, url, meta)
+             VALUES ($1, 'audio_track_1', $2, $3::jsonb)
+           ON CONFLICT (work_id, asset_type)
+             DO UPDATE SET url = EXCLUDED.url, meta = EXCLUDED.meta`,
+          [workId, audioUrl, JSON.stringify({ source: "gift-real-mv-upgrade", kind })],
+        );
+      } catch (_e) {}
+    }
+    // 4. Lite-tier slideshow pool — real varied visuals (Wave 122/127).
+    void enqueueSlideshowPoolGeneration(workId).catch(() => {});
+    console.info(`[gift-upgrade] ${kind} MV upgraded for work=${workId} (lyrics=${!!lyrics} audio=${!!audioUrl})`);
+  } catch (err) {
+    console.warn("[gift-upgrade] upgradeGiftToRealMv failed:", err instanceof Error ? err.message : err);
   }
 }
 
@@ -15291,6 +15433,14 @@ type MusicGenRequest = {
   /* CSSOS_WAVE_159 — ISO language hint for Whisper forced-alignment of
    * the 情绪字幕 word-level timeline. Optional — Whisper auto-detects. */
   language?: string;
+  /* CSSOS_WAVE_160 — opt-in for the Whisper forced-alignment pass.
+   * Whisper costs money + adds ~10-30s of latency per track, and the
+   * word-level timeline is ONLY consumed by the interactive MV
+   * pipeline's 情绪字幕 renderer. Headless callers (system-audio
+   * backfill, festival/anniversary auto-MV, ad-hoc system works) just
+   * need audio — they leave this false so they never pay the Whisper
+   * tax. Defaults to false; only /api/mv/music sets it true. */
+  want_word_timeline?: boolean;
 };
 /* CSSOS_WAVE_156 — word/line-level lyric timeline returned by singing
  * engines (Suno via kie.ai). Each entry is the actual sung word/line
@@ -15802,7 +15952,11 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
         // held notes get long windows, clipped syllables short ones —
         // and prefer that over the coarse line-level timeline. On any
         // failure we keep the kie.ai line-level timeline (graceful).
-        if (!wantInstrumental && chosen.audioUrl) {
+        //
+        // CSSOS_WAVE_160 — gated behind req.want_word_timeline so only
+        // the interactive MV pipeline pays the Whisper cost + latency;
+        // headless callers (backfill, auto-MV crons) skip it entirely.
+        if (req.want_word_timeline && !wantInstrumental && chosen.audioUrl) {
           try {
             const wordTl = await alignWordsViaWhisper(chosen.audioUrl, req.language);
             if (wordTl && wordTl.length) {
@@ -23458,11 +23612,26 @@ function setAuthSession(
   // generation.
   try {
     void import("./personalization/index.js").then((mod) => {
-      mod.fireTriggerFireAndForget(getPool(), {
+      // CSSOS_WAVE_132 — use fireTrigger (not the fire-and-forget
+      // wrapper) so we get the workId back, then upgrade the freshly
+      // rendered placeholder gift into a real MV: 京典 lyrics + real
+      // music + lite-tier slideshow pool. The upgrade is itself
+      // fire-and-forget — login never blocks on it, and the gift is
+      // already delivered (placeholder) before the upgrade starts.
+      mod.fireTrigger(getPool(), {
         triggerKey: "welcome",
         targetUserId: userId,
         livemode: true,
         payload: { provider },
+      }).then((res: any) => {
+        if (res && res.status === "delivered" && res.workId) {
+          void upgradeGiftToRealMv(res.workId, { kind: "welcome" });
+        }
+      }).catch((err: unknown) => {
+        console.warn(
+          "[personalization] welcome dispatch error (non-fatal):",
+          err instanceof Error ? err.message : String(err),
+        );
       });
     });
   } catch (err) {
@@ -42224,9 +42393,30 @@ async function start() {
       registerAllPersonalizationTriggers,
       runDailyBirthdayFlush,
       fireTriggerFireAndForget,
+      fireTrigger,
     } = await import("./personalization/index.js");
     await loadPersonalizationTemplates();
     registerAllPersonalizationTriggers();
+
+    // CSSOS_WAVE_132 — birthday gifts get the same real-MV upgrade as
+    // welcome gifts. runDailyBirthdayFlush expects a fire-and-forget
+    // callback; this wrapper matches that signature but internally
+    // uses fireTrigger (which returns the workId) so we can chain
+    // upgradeGiftToRealMv. Stays void-returning + non-throwing.
+    const birthdayFireWithUpgrade = (poolArg: any, args: any): void => {
+      void fireTrigger(poolArg, args)
+        .then((res: any) => {
+          if (res && res.status === "delivered" && res.workId) {
+            void upgradeGiftToRealMv(res.workId, { kind: "birthday" });
+          }
+        })
+        .catch((err: unknown) => {
+          console.warn(
+            "[personalization] birthday dispatch error (non-fatal):",
+            err instanceof Error ? err.message : String(err),
+          );
+        });
+    };
 
     // CSSOS_PHASE2_PERSONALIZATION_STAGE_F 20260503 — Jing
     // Birthday flush daemon. Scans every 6 hours; the SQL inside
@@ -42242,7 +42432,7 @@ async function start() {
       try {
         const userIds = await runDailyBirthdayFlush(
           getPool(),
-          fireTriggerFireAndForget,
+          birthdayFireWithUpgrade,
           getPool(),
         );
         if (userIds.length) {
@@ -43895,18 +44085,61 @@ app.get("/api/works/:id/slideshow", async (req, res) => {
       SLIDESHOW_POOL_SIZE,
       Math.max(1, Number(req.query.n || SLIDESHOW_PICK_SIZE)),
     );
-    const rows = await withClient((c) =>
-      c.query<{ url: string }>(
-        `SELECT url FROM work_assets
-           WHERE work_id = $1 AND asset_type = 'slideshow_frame' AND url IS NOT NULL AND url <> ''
-           ORDER BY random() LIMIT $2`,
-        [id, pickCount],
-      ),
-    );
-    const urls = rows.rows.map((r) => r.url).filter(Boolean);
+    // CSSOS_WAVE_127 — device-correct orientation. The Watch panel passes
+    // ?orientation=landscape (desktop cinema) or =portrait (mobile 9:16).
+    // We prefer frames matching that orientation; if the pool doesn't
+    // have enough of the requested kind yet (mid-backfill, or a legacy
+    // pool generated before Wave 127 with no orientation tag), we top up
+    // with whatever else exists so the slideshow is never empty.
+    const wantOrient = String(req.query.orientation || "").trim().toLowerCase();
+    const orientFilter = wantOrient === "portrait" || wantOrient === "landscape"
+      ? wantOrient : "";
+    let rows: { url: string }[] = [];
+    if (orientFilter) {
+      const matched = await withClient((c) =>
+        c.query<{ url: string }>(
+          `SELECT url FROM work_assets
+             WHERE work_id = $1 AND asset_type = 'slideshow_frame'
+               AND url IS NOT NULL AND url <> ''
+               AND meta->>'orientation' = $2
+             ORDER BY random() LIMIT $3`,
+          [id, orientFilter, pickCount],
+        ),
+      );
+      rows = matched.rows;
+      if (rows.length < pickCount) {
+        // Top up with any-orientation frames (legacy / opposite) so the
+        // strip is never short. object-fit:cover (Wave 126) keeps even a
+        // mismatched frame undistorted — just a bit more edge crop.
+        const topUp = await withClient((c) =>
+          c.query<{ url: string }>(
+            `SELECT url FROM work_assets
+               WHERE work_id = $1 AND asset_type = 'slideshow_frame'
+                 AND url IS NOT NULL AND url <> ''
+                 AND (meta->>'orientation' IS DISTINCT FROM $2)
+               ORDER BY random() LIMIT $3`,
+            [id, orientFilter, pickCount - rows.length],
+          ),
+        );
+        rows = rows.concat(topUp.rows);
+      }
+    } else {
+      const any = await withClient((c) =>
+        c.query<{ url: string }>(
+          `SELECT url FROM work_assets
+             WHERE work_id = $1 AND asset_type = 'slideshow_frame'
+               AND url IS NOT NULL AND url <> ''
+             ORDER BY random() LIMIT $2`,
+          [id, pickCount],
+        ),
+      );
+      rows = any.rows;
+    }
+    const urls = rows.map((r) => r.url).filter(Boolean);
     return res.json({
       ok: true,
       work_id: id,
+      orientation: orientFilter || "any",
       pool_size_target: SLIDESHOW_POOL_SIZE,
       returned: urls.length,
       urls,

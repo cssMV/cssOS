@@ -77,6 +77,12 @@
       ".cssos-agent-msg.assistant{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);align-self:flex-start;}",
       ".cssos-agent-msg.system{background:rgba(255,180,80,0.08);border:1px solid rgba(255,180,80,0.28);align-self:center;font-size:11.5px;color:#ffc878;}",
       ".cssos-agent-tools{font:500 11px/1.4 ui-monospace,monospace;color:#79b8ff;margin-top:6px;opacity:0.78;}",
+      /* W162 — clickable links inside assistant messages. cssMV links
+         open the MV panel in-app; underline + accent so they read as
+         tappable, with word-break so long UUIDs wrap inside the bubble. */
+      ".cssos-agent-link{color:#5effc9;text-decoration:underline;text-underline-offset:2px;cursor:pointer;word-break:break-all;}",
+      ".cssos-agent-link:hover{color:#9affda;}",
+      "a[data-cssmv].cssos-agent-link{font-weight:600;}",
       /* W140 — per-message copy button (📋) below the body. */
       ".cssos-agent-msg-actions{display:flex;justify-content:flex-end;margin-top:6px;opacity:0.55;}",
       ".cssos-agent-msg-actions .copy-btn{background:transparent;border:0;color:inherit;padding:2px 6px;border-radius:5px;font-size:12px;cursor:pointer;line-height:1;}",
@@ -340,6 +346,95 @@
     meta.textContent = used + "/" + cap;
   }
 
+  /* CSSOS_WAVE_162 20260515 — Jing: "AI助理无法显示正常的链接吗？哪怕
+   * 我复制了链接也无法打开，正确应该是启动 MV 面板欣赏的。"
+   *
+   * Open a work by id straight into the MV panel — same path the rich
+   * work-card's ▶ button uses. Hoisted to module scope so both the
+   * card renderer and the in-message linkifier share one entry point. */
+  function openWorkById(wid) {
+    wid = String(wid || "").trim();
+    if (!wid) return;
+    if (typeof globalThis.openMarketWorkPreview === "function") {
+      try {
+        globalThis.openMarketWorkPreview({ id: wid, work_id: wid, __cssosShareLink: true });
+        togglePanel();
+        return;
+      } catch (_) { /* fall through */ }
+    }
+    try {
+      var url = new URL(window.location.href);
+      url.searchParams.set("cssMV", wid);
+      // Full reload path: app.share-link-router.js reads ?cssMV=<id> on
+      // boot, fetches the work, and opens the MV panel — reliable even
+      // when openMarketWorkPreview isn't loaded yet.
+      window.location.href = url.toString();
+    } catch (_) {
+      window.location.href = "/?cssMV=" + encodeURIComponent(wid);
+    }
+  }
+
+  /* Extract a cssMV work-id from any href shape we might emit or the
+   * agent might type: "/?cssMV=<id>", "?cssMV=<id>",
+   * "https://host/?cssMV=<id>", "/?mv=<id>". Returns "" when none. */
+  function cssMvIdFromHref(href) {
+    var s = String(href || "");
+    var m = s.match(/[?&](?:cssMV|mv)=([0-9a-fA-F-]{8,64})/);
+    return m ? m[1] : "";
+  }
+
+  /* Turn a plain-text message body into HTML with clickable links.
+   * Handles markdown links [label](url) and bare URLs. cssMV links are
+   * rewritten to absolute URLs (so a copied link actually works) and
+   * tagged data-cssmv so the click handler opens the MV panel in-app
+   * instead of navigating away. */
+  function linkifyInto(el, rawText) {
+    var text = String(rawText == null ? "" : rawText);
+    var html = esc(text);
+    var origin = "";
+    try { origin = window.location.origin; } catch (_) { origin = ""; }
+    function anchor(label, href) {
+      var mv = cssMvIdFromHref(href);
+      var absHref = href;
+      if (mv) {
+        // Always emit an absolute URL so copy-paste works off-app.
+        absHref = origin + "/?cssMV=" + mv;
+        return '<a class="cssos-agent-link" data-cssmv="' + esc(mv) +
+          '" href="' + esc(absHref) + '">' + label + '</a>';
+      }
+      // Non-cssMV link — open in a new tab, leave as-is.
+      if (/^(https?:)?\/\//i.test(href) || href.charAt(0) === "/") {
+        return '<a class="cssos-agent-link" target="_blank" rel="noopener" href="' +
+          esc(href) + '">' + label + '</a>';
+      }
+      return label; // not a recognizable URL — leave plain
+    }
+    // 1. Markdown links [label](url) — label/url are already escaped.
+    html = html.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, function (_m, label, url) {
+      return anchor(label, url);
+    });
+    // 2. Bare URLs not already inside an <a> we just made. Match
+    //    http(s):// … and absolute "/?cssMV=" / "?cssMV=" forms.
+    html = html.replace(
+      /(^|[\s(])((?:https?:\/\/[^\s<)]+)|(?:\/?\?(?:cssMV|mv)=[0-9a-fA-F-]{8,64}))/g,
+      function (_m, pre, url) {
+        // Skip if this looks like it's already inside an href="" we built.
+        return pre + anchor(url, url);
+      }
+    );
+    el.innerHTML = html;
+    // Wire cssMV links to the in-app MV panel opener.
+    try {
+      el.querySelectorAll("a[data-cssmv]").forEach(function (a) {
+        a.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          openWorkById(a.getAttribute("data-cssmv"));
+        });
+      });
+    } catch (_) {}
+  }
+
   function renderMsg(role, text, toolCalls) {
     var messages = document.getElementById("cssos-agent-messages");
     if (!messages) return;
@@ -349,7 +444,13 @@
     // button below every message body. Pointer-cursor + subtle hover.
     var bodyEl = document.createElement("div");
     bodyEl.className = "cssos-agent-msg-body";
-    bodyEl.textContent = text;
+    // CSSOS_WAVE_162 — assistant / system bodies get clickable links
+    // (markdown + bare URLs); user input stays literal plain text.
+    if (role === "assistant" || role === "system") {
+      linkifyInto(bodyEl, text);
+    } else {
+      bodyEl.textContent = text;
+    }
     div.appendChild(bodyEl);
     if (Array.isArray(toolCalls) && toolCalls.length) {
       var tools = document.createElement("div");
@@ -480,24 +581,9 @@
       // CSSOS_WAVE_161 20260515 — Jing: "让卡片/链接可点击打开." The
       // whole card (cover + title) opens the work, not just the small
       // ▶ button — and the cover shows a pointer cursor so it reads as
-      // clickable.
-      function openThisWork() {
-        var wid = c.work_id;
-        if (typeof globalThis.openMarketWorkPreview === "function") {
-          globalThis.openMarketWorkPreview({ id: wid, work_id: wid });
-          togglePanel();
-          return;
-        }
-        try {
-          var url = new URL(window.location.href);
-          url.searchParams.set("cssMV", wid);
-          window.history.pushState({}, "", url.toString());
-          window.dispatchEvent(new PopStateEvent("popstate"));
-          togglePanel();
-        } catch (_) {
-          window.location.href = "/?cssMV=" + encodeURIComponent(wid);
-        }
-      }
+      // clickable. CSSOS_WAVE_162 — routes through the shared
+      // openWorkById() so card + in-message links behave identically.
+      function openThisWork() { openWorkById(c.work_id); }
       card.querySelector('[data-act="play"]').addEventListener("click", openThisWork);
       var coverEl = card.querySelector(".cover");
       if (coverEl) {

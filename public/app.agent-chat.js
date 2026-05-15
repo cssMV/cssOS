@@ -161,6 +161,26 @@
       input.style.height = "auto";
       input.style.height = Math.min(120, input.scrollHeight) + "px";
     });
+    // CSSOS_WAVE_167 20260515 — Jing: 允许粘贴图片进 AI 助理 (like this
+    // very chat). Paste handler captures any image/* clipboard item,
+    // reads it as base64, appends to pendingImages, and previews a
+    // thumbnail strip above the input. On send (sendCurrent) the
+    // images go in the request body alongside the text.
+    input.addEventListener("paste", function (e) {
+      try {
+        var items = (e.clipboardData && e.clipboardData.items) || [];
+        var captured = 0;
+        for (var i = 0; i < items.length; i += 1) {
+          var it = items[i];
+          if (!it || it.kind !== "file") continue;
+          var t = String(it.type || "").toLowerCase();
+          if (t.indexOf("image/") !== 0) continue;
+          var f = it.getAsFile();
+          if (f) { captured += 1; readImageFile(f); }
+        }
+        if (captured) e.preventDefault();
+      } catch (_) {}
+    });
     panel.querySelector("#cssos-agent-send").addEventListener("click", sendCurrent);
 
     // CSSOS_WAVE_131 20260514 — Jing: "AI 助理小窗应该可以拖拽，不然会
@@ -329,7 +349,12 @@
               renderWorkCards(m.work_cards);
               return;
             }
-            if (m && m.text) renderMsg(m.role, m.text, m.tool_calls);
+            // CSSOS_WAVE_167 — render text + image-attachment thumbnails
+            // on rehydrate. Image-only turns (no text) still render so
+            // the user sees what they pasted.
+            if (m && (m.text || (Array.isArray(m.images) && m.images.length))) {
+              renderMsg(m.role, m.text || "", m.tool_calls, m.images);
+            }
           } catch (err) {
             try { console.warn("[agent-chat] hydrate entry render failed", err); } catch (_) {}
           }
@@ -443,7 +468,7 @@
     } catch (_) {}
   }
 
-  function renderMsg(role, text, toolCalls) {
+  function renderMsg(role, text, toolCalls, images) {
     var messages = document.getElementById("cssos-agent-messages");
     if (!messages) return;
     var div = document.createElement("div");
@@ -464,6 +489,24 @@
       bodyEl.textContent = text;
     }
     div.appendChild(bodyEl);
+    // CSSOS_WAVE_167 — render attached image thumbnails inside the
+    // message bubble. Same DOM whether it's a live send (data: URL
+    // preview) or a re-hydrate (persisted /artifacts/... URL).
+    if (Array.isArray(images) && images.length) {
+      ensureAttachStripStyles();
+      var imgWrap = document.createElement("div");
+      imgWrap.className = "cssos-agent-msg-images";
+      images.forEach(function (src) {
+        if (!src) return;
+        var a = document.createElement("a");
+        a.href = src;
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.style.backgroundImage = "url(\"" + String(src).replace(/"/g, "%22") + "\")";
+        imgWrap.appendChild(a);
+      });
+      div.appendChild(imgWrap);
+    }
     if (Array.isArray(toolCalls) && toolCalls.length) {
       var tools = document.createElement("div");
       tools.className = "cssos-agent-tools";
@@ -763,13 +806,110 @@
     renderSystem(tr("Conversation cleared. Fresh start.", "对话已清空，重新开始。"));
   }
 
+  /* CSSOS_WAVE_167 — pasted-image state + UI. */
+  var pendingImages = []; // [{ b64, media_type, data_url }]
+  var MAX_IMG_BYTES = 8 * 1024 * 1024; // 8 MB raw — body limit is 12 MB after base64 inflation
+  var MAX_IMG_COUNT = 6;
+
+  function ensureAttachStripStyles() {
+    if (document.getElementById("cssos-agent-attach-style")) return;
+    var st = document.createElement("style");
+    st.id = "cssos-agent-attach-style";
+    st.textContent = [
+      "#cssos-agent-attach-strip{display:none;gap:6px;padding:6px 12px 0;flex-wrap:wrap;}",
+      "#cssos-agent-attach-strip[data-has='1']{display:flex;}",
+      "#cssos-agent-attach-strip .thumb{position:relative;width:54px;height:54px;border-radius:8px;background:#0a0e16 center/cover no-repeat;border:1px solid rgba(0,245,160,0.35);}",
+      "#cssos-agent-attach-strip .thumb .x{position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:#0d1117;border:1px solid rgba(255,255,255,0.32);color:#fff;font:700 11px/16px ui-monospace,monospace;cursor:pointer;text-align:center;padding:0;}",
+      ".cssos-agent-msg-images{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}",
+      ".cssos-agent-msg-images a{display:block;width:120px;height:120px;border-radius:8px;background:#0a0e16 center/cover no-repeat;border:1px solid rgba(0,245,160,0.3);}",
+    ].join("\n");
+    document.head.appendChild(st);
+  }
+
+  function ensureAttachStrip() {
+    var panel = document.getElementById("cssos-agent-panel");
+    if (!panel) return null;
+    var strip = document.getElementById("cssos-agent-attach-strip");
+    if (strip) return strip;
+    ensureAttachStripStyles();
+    strip = document.createElement("div");
+    strip.id = "cssos-agent-attach-strip";
+    var inputRow = document.getElementById("cssos-agent-input-row");
+    if (inputRow && inputRow.parentNode) {
+      inputRow.parentNode.insertBefore(strip, inputRow);
+    } else {
+      panel.appendChild(strip);
+    }
+    return strip;
+  }
+
+  function repaintAttachStrip() {
+    var strip = ensureAttachStrip();
+    if (!strip) return;
+    strip.innerHTML = "";
+    pendingImages.forEach(function (im, i) {
+      var t = document.createElement("div");
+      t.className = "thumb";
+      t.style.backgroundImage = "url(\"" + im.data_url + "\")";
+      var x = document.createElement("button");
+      x.type = "button"; x.className = "x"; x.textContent = "×";
+      x.title = tr("Remove", "移除");
+      x.addEventListener("click", function () {
+        pendingImages.splice(i, 1);
+        repaintAttachStrip();
+      });
+      t.appendChild(x);
+      strip.appendChild(t);
+    });
+    strip.dataset.has = pendingImages.length ? "1" : "0";
+  }
+
+  function readImageFile(file) {
+    if (!file) return;
+    if (pendingImages.length >= MAX_IMG_COUNT) {
+      renderSystem(tr(
+        "Max 6 images per message — drop one of the existing thumbnails first.",
+        "每条消息最多 6 张图，先移除一张再粘。"
+      ));
+      return;
+    }
+    if (file.size && file.size > MAX_IMG_BYTES) {
+      renderSystem(tr(
+        "Image too large (8 MB max).",
+        "图片太大（上限 8 MB）。"
+      ));
+      return;
+    }
+    var media = String(file.type || "").toLowerCase();
+    if (["image/png","image/jpeg","image/jpg","image/webp","image/gif"].indexOf(media) < 0) {
+      renderSystem(tr("Unsupported image type.", "不支持的图片格式。"));
+      return;
+    }
+    if (media === "image/jpg") media = "image/jpeg";
+    var fr = new FileReader();
+    fr.onload = function () {
+      var dataUrl = String(fr.result || "");
+      var m = dataUrl.match(/^data:([^;]+);base64,(.*)$/);
+      if (!m) return;
+      pendingImages.push({ b64: m[2], media_type: media, data_url: dataUrl });
+      repaintAttachStrip();
+    };
+    fr.readAsDataURL(file);
+  }
+
   async function sendCurrent() {
     var input = document.getElementById("cssos-agent-input");
     var btn = document.getElementById("cssos-agent-send");
     if (!input) return;
     var msg = String(input.value || "").trim();
-    if (!msg) return;
-    renderMsg("user", msg, null);
+    if (!msg && !pendingImages.length) return;
+    // Snapshot the attachments for this send + clear UI immediately so
+    // a slow round-trip doesn't double-send if the user clicks again.
+    var sendImages = pendingImages.slice();
+    pendingImages = [];
+    repaintAttachStrip();
+    var localPreviewUrls = sendImages.map(function (im) { return im.data_url; });
+    renderMsg("user", msg, null, localPreviewUrls);
     input.value = "";
     input.style.height = "auto";
     btn.disabled = true;
@@ -783,6 +923,12 @@
           message: msg,
           session_id: ensureSessionId(),
           ui_locale: uiLocale(),
+          // CSSOS_WAVE_167 — pasted-image payloads. Backend dedupes media
+          // type, persists each to disk, and threads them into the user
+          // turn as Claude image content blocks.
+          images: sendImages.map(function (im) {
+            return { b64: im.b64, media_type: im.media_type };
+          }),
         }),
       });
       // CSSOS_WAVE_142 20260514 — Jing fix: when the server / nginx

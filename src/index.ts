@@ -3886,7 +3886,7 @@ async function getAgentTurnsLastHour(userId: string): Promise<number> {
  *     turns_remaining: number,
  *   }
  */
-app.post("/api/agent/chat", express.json({ limit: "32kb" }), async (req, res) => {
+app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) => {
   const userId = (req.session as any)?.user_id;
   if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
   const apiKey = (process.env.ANTHROPIC_API_KEY || "").trim();
@@ -3984,7 +3984,50 @@ app.post("/api/agent/chat", express.json({ limit: "32kb" }), async (req, res) =>
 
   const history = await getAgentSession(userId, sessionId);
   const messages: AgentMessage[] = history.slice();
-  messages.push({ role: "user", content: message });
+
+  // CSSOS_WAVE_167 20260515 — Jing: "请开放权限，让用户可以粘贴图片
+  // 进去." Accept an optional images[] array; each entry is a base64
+  // payload + media_type (image/png|jpeg|webp|gif). When present, build
+  // the user turn as a multimodal content array (text + image blocks)
+  // — Claude reads images natively. Persist each image to disk so the
+  // session log keeps a URL reference (not the multi-MB base64 blob),
+  // and re-shape the saved entry to use {type:"image",source:{type:
+  // "url"}} so subsequent turns can still reference it without bloat.
+  const rawImages: any[] = Array.isArray((body as any).images) ? (body as any).images : [];
+  type UserBlock =
+    | { type: "text"; text: string }
+    | { type: "image"; source: { type: "base64"; media_type: string; data: string } };
+  const userBlocks: UserBlock[] = [];
+  const persistedImageUrls: string[] = [];
+  const ALLOWED_IMG = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+  for (const im of rawImages.slice(0, 6)) {
+    let b64 = String(im?.b64 || im?.data || "").trim();
+    let mediaType = String(im?.media_type || im?.mediaType || "").trim().toLowerCase();
+    // Tolerate data URLs: data:image/png;base64,XXXX
+    const dataUrlMatch = b64.match(/^data:([^;]+);base64,(.*)$/);
+    if (dataUrlMatch) {
+      mediaType = mediaType || dataUrlMatch[1]!.toLowerCase();
+      b64 = dataUrlMatch[2]!;
+    }
+    if (!b64 || !ALLOWED_IMG.has(mediaType)) continue;
+    // Persist to disk for session-history reference; failures degrade
+    // to inline-only (still works for the current turn).
+    try {
+      const url = persistBase64Cover(b64, userId);
+      if (url) persistedImageUrls.push(url);
+    } catch (_) {}
+    userBlocks.push({
+      type: "image",
+      source: { type: "base64", media_type: mediaType, data: b64 },
+    });
+  }
+  if (message) userBlocks.push({ type: "text", text: message });
+
+  if (userBlocks.length > 1 || (userBlocks.length === 1 && userBlocks[0]!.type !== "text")) {
+    messages.push({ role: "user", content: userBlocks as any });
+  } else {
+    messages.push({ role: "user", content: message });
+  }
 
   const client = new Anthropic({ apiKey });
   const toolCallsLog: { name: string; input: any; result_summary: string }[] = [];
@@ -4090,7 +4133,29 @@ app.post("/api/agent/chat", express.json({ limit: "32kb" }), async (req, res) =>
   // Persist memory + meter.
   // Last user msg is already in messages from initial push; assistant
   // turns from the loop are too. We diff against original `history`.
-  const newTurns = messages.slice(history.length);
+  // CSSOS_WAVE_167 — strip base64 image payloads from saved turns so a
+  // 5 MB pasted screenshot doesn't bloat the JSONB row. Replace with
+  // {type:"image", source:{type:"url", url:<persisted webp URL>}} —
+  // small, still renderable on re-hydration, and within Anthropic's
+  // input format for future replays. The mapping is positional: the
+  // i-th image block in the user message gets the i-th persistedImageUrls.
+  const newTurns = messages.slice(history.length).map((m, idx) => {
+    if (idx !== 0 || m.role !== "user" || !Array.isArray(m.content)) return m;
+    let imgIdx = 0;
+    const lean = (m.content as any[]).map((b) => {
+      if (b && b.type === "image" && b.source && b.source.type === "base64") {
+        const url = persistedImageUrls[imgIdx++];
+        if (url) {
+          return { type: "image", source: { type: "url", url } };
+        }
+        // Couldn't persist — drop the inline base64 to keep the row small;
+        // a small placeholder marker keeps the conversation shape sane.
+        return { type: "text", text: "[image attached but not persisted]" };
+      }
+      return b;
+    });
+    return { role: m.role, content: lean };
+  });
   await appendAgentSession(userId, sessionId, newTurns);
   // Cost estimate: claude-sonnet-4-5 at $3 / 1M input, $15 / 1M output.
   // Round up to nearest cent.
@@ -4888,8 +4953,18 @@ app.get("/api/agent/session", async (req, res) => {
       const blocks = m.content as any[];
       const texts = blocks.filter((b) => b.type === "text").map((b) => b.text);
       const tools = blocks.filter((b) => b.type === "tool_use").map((b) => b.name);
-      if (texts.length || tools.length) {
-        display.push({ role: m.role, text: texts.join(""), tool_calls: tools });
+      // CSSOS_WAVE_167 — surface pasted-image URLs to the frontend so
+      // re-hydration can re-render the thumbnails. Only URL-form
+      // images get exposed (base64 was stripped pre-persist).
+      const images = blocks
+        .filter((b) => b && b.type === "image" && b.source && b.source.type === "url" && b.source.url)
+        .map((b) => String(b.source.url));
+      if (texts.length || tools.length || images.length) {
+        const entry: any = { role: m.role };
+        if (texts.length) entry.text = texts.join("");
+        if (tools.length) entry.tool_calls = tools;
+        if (images.length) entry.images = images;
+        display.push(entry);
       }
       // tool_result blocks (in `user` role messages) carry the
       // create_work output as a JSON string — recover work_cards.

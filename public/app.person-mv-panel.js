@@ -1125,6 +1125,16 @@
       __storyAngle: angle,
     };
 
+    // CSSOS_WAVE_177 20260515 — Jing: 提炼标题，人物、地名、文化必须
+    // 智能联动，而不是机械的 "某某某人物 × 某某某地点".
+    // The mechanical concat ("Harry Potter × Hogwarts Great Hall") is
+    // demoted to the chip strip; the smart distilled story angle
+    // (from landmark.notable_events, e.g. "霍格沃茨之战的决战大厅")
+    // becomes the cinema-hero TITLE. Falls back to the mechanical
+    // pairing when no notable_events angle is available.
+    var pairing = personName + " × " + landmarkName;
+    var pairingEn = ((person.name_en || "") + " × " + (landmark.name_en || "")).trim();
+    var smartTitle = String(angle || "").trim();
     if (typeof globalThis.openMvPipelinePanel === "function") {
       globalThis.openMvPipelinePanel({
         cinema: true,
@@ -1133,13 +1143,17 @@
         landmarkId: landmark.landmark_id,
         seed: seed,
         forceNew: true,
-        personName: personName + " × " + landmarkName,
-        personNameEn: ((person.name_en || "") + " × " + (landmark.name_en || "")).trim(),
-        personNameNative: "",
+        personName: smartTitle || pairing,
+        personNameEn: smartTitle ? pairing : pairingEn,
+        personNameNative: smartTitle ? pairingEn : "",
         personEra: landmark.era || person.era || "",
         personCiv: landmark.civilization || person.civilization || "",
         personPortrait: "",
-        personIntro: angle,
+        // When the smart title takes the hero, the angle is already
+        // surfaced up there — leave the intro empty so the hero stays
+        // clean. If we fell back to mechanical pairing as the title,
+        // surface the angle (if any) as supporting intro text.
+        personIntro: smartTitle ? "" : angle,
         personMusicStyleHint: style,
       });
     }

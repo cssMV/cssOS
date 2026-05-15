@@ -7330,22 +7330,52 @@
       // Empty queue (or forceNew) → background pipeline run with hero loading.
       renderCinemaHeroLoading(stage, cinemaSt.person);
       // Pre-fill the (hidden) pipeline inputs from the seed so runAll picks
-      // up the multiline prompt + style. Person seeds force-overwrite.
+      // up the multiline prompt + style.
+      // CSSOS_WAVE_177 20260515 — Jing: 串词 bug fix.
+      // After a Confucius MV finished, the lyrics textarea kept the
+      // Confucius lyrics. Then a NEW Harry Potter run started, the
+      // runAll lyrics stage saw a non-empty textarea, took it as
+      // user-supplied lyrics, and SKIPPED LLM generation entirely —
+      // so the Harry Potter MV came out with Confucius lyrics. Root
+      // cause: the old clear was gated on `isPersonSeed`, but even
+      // that path didn't reset state.lyrics, and the chat W174 seed
+      // (no __personId) never cleared at all. Now: any fresh cinema
+      // run with a seed (forceNew OR any seed at all) hard-clears
+      // BOTH the textarea AND state.lyrics. The work id is the only
+      // source of truth — never carry old text across creations.
       try {
         const seed = cinemaSt.seed || {};
         const promptEl = panel.querySelector("#mvp-prompt");
         const styleEl = panel.querySelector("#mvp-style");
         const lyricsEl = panel.querySelector("#mvp-lyrics");
         const isPersonSeed = !!seed.__personId;
-        if (promptEl && seed.prompt && (isPersonSeed || !promptEl.value)) {
+        const isFreshRun = !!(cinemaSt.forceNew || seed.prompt || isPersonSeed);
+        if (promptEl && seed.prompt && (isFreshRun || !promptEl.value)) {
           promptEl.value = String(seed.prompt);
           try { promptEl.dispatchEvent(new Event("input", { bubbles: true })); } catch (_e) {}
         }
-        if (styleEl && seed.style && (isPersonSeed || !styleEl.value)) {
+        if (styleEl && seed.style && (isFreshRun || !styleEl.value)) {
           styleEl.value = String(seed.style);
           try { styleEl.dispatchEvent(new Event("input", { bubbles: true })); } catch (_e) {}
         }
-        if (lyricsEl && isPersonSeed) lyricsEl.value = "";
+        if (isFreshRun) {
+          if (lyricsEl) {
+            lyricsEl.value = "";
+            try { lyricsEl.dispatchEvent(new Event("input", { bubbles: true })); } catch (_e) {}
+          }
+          // Also clear in-memory state.lyrics so runAll's textarea-read
+          // at line ~3386 doesn't get back-filled from a stale state.
+          try {
+            if (typeof globalThis.cssosMvPipelinePanelState === "function") {
+              const ps = globalThis.cssosMvPipelinePanelState();
+              if (ps) {
+                ps.lyrics = "";
+                ps.alignedLyrics = null;
+                ps.title = ""; // re-derived from seed prompt
+              }
+            }
+          } catch (_e) {}
+        }
       } catch (_e) {}
       // fire normal pipeline run in background
       try {

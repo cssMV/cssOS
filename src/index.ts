@@ -3732,6 +3732,53 @@ async function runAgentTool(
         return "";
       }));
 
+      // CSSOS_WAVE_169 20260515 — Jing: 三部曲 / 歌剧 等多 part 作品要
+      // 以树结构入库 — root + 子节点。For You / Works Center 凭
+      // structure_role='root' 渲染一张"专辑卡"，展开后是子卡。
+      // Single-part works skip the root and behave as before
+      // (root_work_id = own id, parent_work_id = null).
+      const isMultiPart = parts.length > 1;
+      const rootId = isMultiPart ? crypto.randomUUID() : null;
+      const rootCoverUrl = (covers.find((u) => u) || null);
+
+      if (isMultiPart && rootId) {
+        try {
+          await withClient(async (client) => {
+            await client.query("BEGIN");
+            try {
+              // Root row: stores the umbrella metadata, no lyrics body
+              // (so the codex/For You renderer knows it's a container).
+              await client.query(
+                `INSERT INTO user_works
+                   (id, user_id, title, style, work_type, lyrics_preview,
+                    cover_image, status, suggested_listen_price_cents,
+                    suggested_buyout_price_cents,
+                    parent_work_id, root_work_id, structure_role, sequence_index,
+                    created_at, updated_at)
+                  VALUES ($1::uuid, $2::uuid, $3, $4, $5, '',
+                          $6, 'published', 100, 0,
+                          NULL, $1::uuid, 'root', 0,
+                          now(), now())`,
+                [rootId, ctx.userId, title, style || "", wt, rootCoverUrl],
+              );
+              await client.query(
+                `INSERT INTO work_market_profiles
+                   (work_id, owner_user_id, visibility, current_listen_price_cents,
+                    current_buyout_price_cents, buyout_enabled, tips_enabled,
+                    rights_scope, created_at, updated_at)
+                  VALUES ($1::uuid, $2::uuid, 'private', 100, 0, false, true,
+                          'personal_use', now(), now())
+                  ON CONFLICT (work_id) DO NOTHING`,
+                [rootId, ctx.userId],
+              );
+              await client.query("COMMIT");
+            } catch (errIn) { await client.query("ROLLBACK"); throw errIn; }
+          });
+        } catch (errOuter) {
+          return { error: "work_insert_failed", detail: "root_insert:" + ((errOuter as Error)?.message || String(errOuter)) };
+        }
+      }
+
       // INSERT user_works for each part.
       const cards: any[] = [];
       for (let i = 0; i < parts.length; i += 1) {
@@ -3739,6 +3786,10 @@ async function runAgentTool(
         const coverUrl = covers[i] || "";
         const workId = crypto.randomUUID();
         const previewLine = part.lyrics.split(/\r?\n/).find((l) => l.trim().length > 0 && !l.startsWith("[")) || part.title;
+        const partRootId = rootId || workId;
+        const partParentId = rootId; // null for single-part
+        const partRole = isMultiPart ? "part" : "single";
+        const partSeq = isMultiPart ? (i + 1) : 0;
         try {
           await withClient(async (client) => {
             await client.query("BEGIN");
@@ -3747,11 +3798,15 @@ async function runAgentTool(
                 `INSERT INTO user_works
                    (id, user_id, title, style, work_type, lyrics_preview,
                     cover_image, status, suggested_listen_price_cents,
-                    suggested_buyout_price_cents, created_at, updated_at)
+                    suggested_buyout_price_cents,
+                    parent_work_id, root_work_id, structure_role, sequence_index,
+                    created_at, updated_at)
                   VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6,
                           $7, 'published', 100, 0,
+                          $8::uuid, $9::uuid, $10, $11,
                           now(), now())`,
-                [workId, ctx.userId, part.title, style || "", wt, part.lyrics, coverUrl || null],
+                [workId, ctx.userId, part.title, style || "", wt, part.lyrics, coverUrl || null,
+                 partParentId, partRootId, partRole, partSeq],
               );
               await client.query(
                 `INSERT INTO work_market_profiles
@@ -3780,6 +3835,9 @@ async function runAgentTool(
           lyrics_preview: part.lyrics,
           line_count: part.lyrics.split(/\r?\n/).filter((l) => l.trim().length > 0).length,
           deeplink: `/?cssMV=${workId}`,
+          root_work_id: partRootId,
+          structure_role: partRole,
+          sequence_index: partSeq,
           // Audio/video deferred — frontend renders "Generate music" / "Generate video" buttons
           // that the user clicks to trigger /api/mv/music + /api/mv/video later.
           audio_url: null,
@@ -3792,6 +3850,7 @@ async function runAgentTool(
         provider: lyricsProvider,
         work_type: wt,
         count: cards.length,
+        ...(rootId ? { root_work_id: rootId, root_title: title } : {}),
       };
     }
     default:

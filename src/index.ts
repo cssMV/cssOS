@@ -1288,7 +1288,20 @@ function buildJingdianSystemPrompt(language: string, workType: string = "single"
       ].join("\n");
     }
     if (wt === "shortplay" || wt === "short_play") {
-      return `WORK TYPE: short play (短剧) — sequence of episode songs. Mark each episode with "[Episode 1]", "[Episode 2]"… (NOT [Scene N]), then the section blocks. Each episode is one complete song.`;
+      // CSSOS_WAVE_178 — Jing's definition: 短剧 = lots of ≤3-min eps
+      // (20–100), each ending on a hook, plus separately-marked theme
+      // / interlude / ending SONGS. Single-ep would be 微型剧, not this.
+      return [
+        `WORK TYPE: short play (短剧) — a SHORT-FORM SERIES of many small episodes (typical 20+ episodes, can reach 100; default to 20 if the user didn't specify a count). Each EPISODE is a small song (≤ 3 minutes — shorter than a normal MV), with a "hook" line at the very end that tantalizes the next episode (a cliffhanger, a reveal, a question — "But the next morning…", "And then the door opened.", "他没想到，那个人竟是——").`,
+        `Mark each episode with "[Episode 1]" / "[Episode 2]" … using ARABIC numerals — NOT [Scene N] (that's opera/film), NOT [Part N] (that's triptych).`,
+        `If the user wants a 主题曲 / 片头曲 / 插曲 / 片尾曲 (theme / interlude / ending song), produce them as SEPARATE full-length songs alongside the episodes, marked with:`,
+        `  [Theme Song]      ← 主题曲 / 片头曲 — full-length (~40 lyric lines, like a normal single)`,
+        `  [Interlude 1]     ← 插曲 — full-length`,
+        `  [Ending Song]     ← 片尾曲 — full-length`,
+        `Order: optional [Theme Song] first, then all [Episode N] in order, optionally [Interlude N] interleaved at the user-specified positions (or omit), optional [Ending Song] last.`,
+        `Per-episode SECTION SHAPE: each episode is SHORT — Verse 1 + Chorus + Outro (3 sections, ~12 lines total in the body language plus 0-1 ritual line). Save the hook for the OUTRO's last line.`,
+        `Per-song SECTION SHAPE for Theme/Interlude/Ending: full 10-section 京典 template, ~40+ lines.`,
+      ].join("\n");
     }
     if (wt === "series" || wt === "tv_series") {
       return `WORK TYPE: TV series (电视连续剧) — produce multi-season output. First emit "[Season 1]", then within that season emit "[Episode 1]", "[Episode 2]"…, then "[Season 2]" and its episodes, etc. Each episode is one complete song per the template below.`;
@@ -3657,7 +3670,16 @@ async function runAgentTool(
                 { role: "system", content: sysPrompt },
                 { role: "user",   content: userPrompt },
               ],
-              max_tokens: wt === "triptych" ? 7200 : (wt === "opera" ? 9000 : 3200),
+              // CSSOS_WAVE_178 — shortplay = 20+ tiny eps + optional songs;
+              // each ep is ~12 lines but the COUNT pushes total tokens.
+              // Series/film also need headroom for multi-season/chapter
+              // outputs. Cap is per-LLM-call, validated downstream.
+              max_tokens: wt === "triptych"  ? 7200
+                        : wt === "opera"     ? 9000
+                        : wt === "shortplay" ? 9000
+                        : wt === "series"    ? 9000
+                        : wt === "film"      ? 9000
+                        : 3200,
               temperature: attempt === 1 ? 0.75 : 0.9,
             }),
             new Promise<any>((resolve) => setTimeout(() => resolve({ ok: false, error: "deadline_exceeded" }), Math.max(5_000, remaining))),
@@ -3691,8 +3713,23 @@ async function runAgentTool(
           }
           const lines = text ? text.split(/\r?\n/).filter((l: string) => l.trim().length > 0).length : 0;
           const sections = text ? (text.match(/\[(Verse|Chorus|Bridge|Outro|Pre-Chorus)/gi) || []).length : 0;
-          const minLines = wt === "single" ? 40 : (wt === "triptych" ? 100 : 60);
-          const minSections = wt === "single" ? 8 : (wt === "triptych" ? 20 : 8);
+          // CSSOS_WAVE_178 — validation thresholds per work_type.
+          // shortplay is many tiny eps; each is ~12 lines / 3 sections,
+          // so even a 20-ep short play clears ~240 lines / 60 sections.
+          // Set the floor low enough that a 20-ep run still passes
+          // even if a few eps come in light.
+          const minLines = wt === "single"    ? 40
+                         : wt === "triptych"  ? 100
+                         : wt === "shortplay" ? 150
+                         : wt === "series"    ? 100
+                         : wt === "film"      ? 100
+                         : 60;
+          const minSections = wt === "single"    ? 8
+                            : wt === "triptych"  ? 20
+                            : wt === "shortplay" ? 40
+                            : wt === "series"    ? 20
+                            : wt === "film"      ? 20
+                            : 8;
           if (text && lines >= minLines && sections >= minSections) {
             lyricsText = text;
             lyricsProvider = r?.provider || "llm";
@@ -3716,7 +3753,15 @@ async function runAgentTool(
       //   Shortplay → root → episodes                   (flat 2-layer)
       //   Series    → root → seasons → episodes         (3-layer)
       //   Film      → root → chapters → scenes          (3-layer)
-      type SceneNode = { title: string; lyrics: string };
+      // CSSOS_WAVE_178 — Jing clarified what 短剧 actually is:
+      //   每集 ≤ 3 分钟，20–100 集，每集末尾有"钩子"，主题曲 / 插曲 /
+      //   片尾曲单独标注。「微型剧」才是单集。所以 shortplay 必须支持：
+      //     - 大批量短 episode (default ~20, can hit 100)
+      //     - mixed-role siblings: Episode / Theme Song / Interlude /
+      //       Ending Song — all flat children of root, each tagged.
+      // SceneNode gains an optional role hint surfaced in DB as
+      // structure_role so the UI / catalog can label icons by kind.
+      type SceneNode = { title: string; lyrics: string; role?: string };
       type ActNode = { title: string; scenes: SceneNode[] };
       // Per-work_type marker words. `outer` is the top split (always);
       // `inner` is the nested split (only for 3-layer types). The
@@ -3784,10 +3829,56 @@ async function runAgentTool(
         return acts.some((a) => a.scenes.length) ? { kind: "nested", acts } : null;
       }
 
+      // CSSOS_WAVE_178 — shortplay dedicated parser. Recognizes
+      //   [Episode N]      → role 'episode'  (the short main eps)
+      //   [Theme Song]     → role 'theme_song'
+      //   [Opening Song]   → role 'theme_song'
+      //   [Interlude N]    → role 'interlude'
+      //   [Ending Song]    → role 'ending_song'
+      //   [Outro Song]     → role 'ending_song'
+      // Falls back to the generic HIERARCHY_WORDS Episode-only flat
+      // parse if none of the song markers appear.
+      function splitShortplay(text: string): SceneNode[] | null {
+        const re = /\n\s*\[\s*(Episode\s+\d+|Theme\s+Song|Opening\s+Song|Interlude\s+\d+|Ending\s+Song|Outro\s+Song)\s*[:\-—]?\s*([^\]]*)\]\s*\n/gi;
+        const hits: { tag: string; sub: string; index: number }[] = [];
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(text))) {
+          hits.push({ tag: String(m[1] || "").trim(), sub: String(m[2] || "").trim(), index: m.index });
+        }
+        if (hits.length < 2) return null;
+        const out: SceneNode[] = [];
+        for (let i = 0; i < hits.length; i += 1) {
+          const start = hits[i]!.index;
+          const end = (i + 1 < hits.length) ? hits[i + 1]!.index : text.length;
+          const body = text.slice(start, end).replace(/^\s*\n/, "").trim();
+          if (!body) continue;
+          const tagLow = hits[i]!.tag.toLowerCase();
+          let role = "episode";
+          if (/^theme\s+song$/.test(tagLow) || /^opening\s+song$/.test(tagLow)) role = "theme_song";
+          else if (/^interlude/.test(tagLow)) role = "interlude";
+          else if (/^ending\s+song$/.test(tagLow) || /^outro\s+song$/.test(tagLow)) role = "ending_song";
+          else if (/^episode/.test(tagLow)) role = "episode";
+          const label = hits[i]!.tag + (hits[i]!.sub ? " · " + hits[i]!.sub : "");
+          out.push({ title: `${title} · ${label}`, lyrics: body, role });
+        }
+        return out.length ? out : null;
+      }
+
       const parts: SceneNode[] = [];
       let operaActs: ActNode[] | null = null; // legacy name kept; covers any 3-layer wt
+
+      // shortplay first — its parser recognizes mixed-role siblings.
+      if (wt === "shortplay") {
+        const spParts = splitShortplay(lyricsText);
+        if (spParts && spParts.length) {
+          parts.push(...spParts);
+        }
+        // If shortplay parser found nothing, fall through to the generic
+        // HIERARCHY_WORDS Episode-only path below.
+      }
+
       const hwords = HIERARCHY_WORDS[wt];
-      if (hwords) {
+      if (!parts.length && hwords) {
         const split = splitHierarchy(lyricsText, hwords.outer, hwords.inner);
         if (split && split.kind === "nested") {
           operaActs = split.acts;
@@ -3798,14 +3889,14 @@ async function runAgentTool(
             const partTitle = wt === "triptych"
               ? `${title} (${idx + 1}/${split.flat.length})`
               : `${title} · ${seg.title}`;
-            parts.push({ title: partTitle, lyrics: seg.lyrics });
+            const segEntry: SceneNode = { title: partTitle, lyrics: seg.lyrics };
+            if (wt === "shortplay") segEntry.role = "episode";
+            parts.push(segEntry);
           });
         }
-        if (!operaActs && !parts.length) {
-          // LLM didn't honor the structure — fall back to single part.
-          parts.push({ title, lyrics: lyricsText });
-        }
-      } else {
+      }
+      if (!operaActs && !parts.length) {
+        // LLM didn't honor the structure — fall back to single part.
         parts.push({ title, lyrics: lyricsText });
       }
 
@@ -3819,13 +3910,17 @@ async function runAgentTool(
       // CSSOS_WAVE_175 — for opera, flatten scenes for parallel cover
       // generation. Each scene gets its own cover (it's the playable
       // leaf); acts reuse their first scene's cover.
-      const coverTargets: { title: string; lyrics: string }[] = operaActs
-        ? operaActs.flatMap((a) => a.scenes)
-        : parts;
-      const covers: string[] = await Promise.all(coverTargets.map(async (part) => {
+      // CSSOS_WAVE_178 — shortplay can have 20–100 episodes; firing
+      // 100 parallel image-gen calls would blow the budget and hit
+      // provider rate limits. For shortplay: generate ONE shared show
+      // cover, reuse it for every [Episode N], and only generate a
+      // dedicated cover for each [Theme Song] / [Interlude N] /
+      // [Ending Song] (those are full-length distinct songs).
+      const shortplayShareCover = wt === "shortplay";
+      const renderCover = async (label: string): Promise<string> => {
         try {
           const img = await callImageGen({
-            prompt: [part.title, style, theme, civilization, "cinematic album cover, dramatic lighting, no text"]
+            prompt: [label, style, theme, civilization, "cinematic album cover, dramatic lighting, no text"]
               .filter(Boolean).join(" — "),
             size: "1024x1024",
           });
@@ -3836,7 +3931,23 @@ async function runAgentTool(
           }
         } catch (_) { /* cover is optional */ }
         return "";
-      }));
+      };
+      let covers: string[];
+      if (shortplayShareCover) {
+        const sharedCover = await renderCover(title);
+        // Dedicated cover for non-episode roles (songs); reuse shared
+        // for plain episodes.
+        const songCovers = await Promise.all(parts.map(async (part) => {
+          if (String(part.role || "") === "episode") return sharedCover;
+          return await renderCover(part.title);
+        }));
+        covers = songCovers;
+      } else {
+        const coverTargets: { title: string; lyrics: string }[] = operaActs
+          ? operaActs.flatMap((a) => a.scenes)
+          : parts;
+        covers = await Promise.all(coverTargets.map((part) => renderCover(part.title)));
+      }
 
       // CSSOS_WAVE_169 / 175 20260515 — Jing: 三部曲 / 歌剧 等多 part 作品要
       // 以树结构入库 — root + 子节点 (+ grandchildren for opera).
@@ -4020,7 +4131,12 @@ async function runAgentTool(
         const previewLine = part.lyrics.split(/\r?\n/).find((l) => l.trim().length > 0 && !l.startsWith("[")) || part.title;
         const partRootId = rootId || workId;
         const partParentId = rootId; // null for single-part
-        const partRole = isMultiPart ? "part" : "single";
+        // CSSOS_WAVE_178 — shortplay leaves carry their own role
+        // (episode / theme_song / interlude / ending_song); other
+        // flat multi-part types stay 'part'; single stays 'single'.
+        const partRole = isMultiPart
+          ? (String(part.role || "").trim() || "part")
+          : "single";
         const partSeq = isMultiPart ? (i + 1) : 0;
         try {
           await withClient(async (client) => {

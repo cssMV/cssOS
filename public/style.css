@@ -3828,27 +3828,20 @@ html[data-theme="light"] .works-fp-optin-desc {
   animation-name: mirrorFadeB;
 }
 
-/* CSSOS_WAVE_170 20260515 — Jing: "魔镜图片和 CSS Studio 不匹配".
- * The webp mirror images are busy + multicolor and the CSS/Studio
- * brand text was getting lost ON TOP of them. Three small fixes pull
- * the visual back together without throwing out the magic-mirror
- * identity:
- *   1) Cap the mirror-img max opacity so it reads as a soft backdrop
- *      rather than competing with the brand text on top.
- *   2) Drop a dark brand-tinted scrim disc behind .mirror-text so the
- *      "CSS" + "Studio" labels sit cleanly framed inside the crystal.
- *   3) Trace a cssOS-green ring around that scrim so the inner badge
- *      reads as part of the brand, not as text accidentally floating
- *      over a stock magic-mirror illustration.
+/* CSSOS_WAVE_171 20260515 — Jing: 保持遮罩尺寸，把魔镜图缩到 1/5
+ * 宽度，取消横的团圆环，魔镜两张图保持原来的缓慢呼吸。
+ * - Scale the busy webp mirror down to 20 % so it becomes a small
+ *   centered jewel inside the dark scrim, not a competing backdrop.
+ * - Keep the ORIGINAL mirrorFadeA/B breathing (don't switch to the
+ *   capped-opacity Soft variant — full breath is back).
+ * - The horizontal green oval ring (.mirror-text::after) is removed
+ *   below — it was reading as a "lens" cutting across the crystal.
  */
 .logo-panel .mirror-img {
-  /* Soft-backdrop: half-strength even at the animation's peak. */
-  opacity: 0.55 !important;
-  filter: drop-shadow(0 0 22px rgba(0, 245, 160, 0.32))
-          saturate(0.92);
+  transform: scale(0.20);
+  transform-origin: center center;
+  filter: drop-shadow(0 0 12px rgba(0, 245, 160, 0.35));
 }
-.logo-panel .mirror-img.mirror-a { animation-name: mirrorFadeASoft; }
-.logo-panel .mirror-img.mirror-b { animation-name: mirrorFadeBSoft; }
 
 .mirror-text {
   position: relative;
@@ -3879,19 +3872,8 @@ html[data-theme="light"] .works-fp-optin-desc {
   pointer-events: none;
 }
 
-/* cssOS-green inner ring that frames the brand badge. */
-.mirror-text::after {
-  content: "";
-  position: absolute;
-  inset: -10% -6%;
-  border-radius: 50%;
-  border: 1px solid rgba(0, 245, 160, 0.42);
-  box-shadow:
-    0 0 12px rgba(0, 245, 160, 0.32),
-    inset 0 0 10px rgba(11, 247, 255, 0.18);
-  z-index: -1;
-  pointer-events: none;
-}
+/* CSSOS_WAVE_171 — Jing removed the horizontal green oval ring; the
+ * dark scrim disc alone now frames CSS / Studio. */
 
 .mirror-title {
   /* CSSOS_LOGO_TEXT_FIT_INNER 20260506 — Jing

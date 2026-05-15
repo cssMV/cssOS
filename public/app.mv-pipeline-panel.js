@@ -7094,7 +7094,12 @@
     const titleBase = String(args.seedTitle || "Untitled MV").trim();
     const altTitle = titleBase + " · Take 2";
     try {
-      await postJson("/api/mv/commit", {
+      // CSSOS_WAVE_159b 20260514 — Jing: "明明输出2首歌，总是只播放
+      // 第一首." Capture the committed work_id so the cinema queue can
+      // actually play Take 2 — previously the result was discarded and
+      // the run-finish event carried no work_id, so the cinema
+      // finishHandler had nothing to push.
+      const committedB = await postJson("/api/mv/commit", {
         title: altTitle.slice(0, 120),
         style: args.style || null,
         lyrics_preview: args.lyrics ? args.lyrics.slice(0, 8000) : null,
@@ -7115,11 +7120,18 @@
         // Tag so admin/UX can identify these without parsing title
         is_take2: true,
       });
-      try { console.info("[mv-pipeline][take2] sibling MV committed:", composedB.mv_url); } catch (_e) {}
-      /* Dispatch run-finish so the codex grid can refresh. */
+      const committedBWid = committedB && (committedB.work_id || committedB.workId || committedB.id);
+      try { console.info("[mv-pipeline][take2] sibling MV committed:", composedB.mv_url, "wid:", committedBWid); } catch (_e) {}
+      /* Dispatch run-finish so the codex grid refreshes AND the cinema
+       * queue can append Take 2 right after Take 1. */
       try {
         globalThis.dispatchEvent(new CustomEvent("cssmv:run-finish", {
-          detail: { mv_url: composedB.mv_url, take: 2, person_id: args.personId || null },
+          detail: {
+            mv_url: composedB.mv_url,
+            work_id: committedBWid || null,
+            take: 2,
+            person_id: args.personId || null,
+          },
         }));
       } catch (_e) {}
     } catch (commitErr) {
@@ -7341,12 +7353,24 @@
           globalThis.cssmvRunPipeline({ seed: cinemaSt.seed });
         }
       } catch (_e) {}
-      // Listen for runFinish event to push the new mv into queue
+      // Listen for runFinish events to push new mvs into the queue.
+      // CSSOS_WAVE_159b 20260514 — Jing: "明明输出2首歌，总是只播放
+      // 第一首." Suno outputs 2 songs → the pipeline commits Take 1 then
+      // a Take 2 sibling, each firing its own cssmv:run-finish. The
+      // listener used to be { once:true }, so the SECOND event (Take 2)
+      // was silently dropped and the cinema queue only ever had one
+      // work. Now the handler stays subscribed and is idempotent: it
+      // appends every distinct work_id, hides the loading hero + starts
+      // playback only on the first, and lets cinemaPlayCurrent advance
+      // through Take 1 → Take 2 naturally on `ended`.
       const finishHandler = function (ev) {
         try {
           const wid = ev && ev.detail && (ev.detail.work_id || ev.detail.workId);
-          if (wid && cinemaSt) {
-            cinemaSt.queue.push(wid);
+          if (!wid || !cinemaSt) return;
+          if (cinemaSt.queue.indexOf(wid) !== -1) return; // dedup
+          const wasEmpty = cinemaSt.queue.length === 0;
+          cinemaSt.queue.push(wid);
+          if (wasEmpty) {
             const loading = stage.querySelector(".cinema-loading");
             if (loading) loading.hidden = true;
             cinemaPlayCurrent();
@@ -7356,9 +7380,10 @@
       // CSSOS_PHASE2_RUN_FINISH 20260507 — Wave 2.6 polish — Jing
       // Canonical event name: `cssmv:run-finish`. Dispatched from the
       // autosave block (~line 5942) right after /api/mv/commit returns
-      // a work_id. Only one listener — the legacy mvPipelineRunFinish
-      // alias was never actually dispatched.
-      globalThis.addEventListener("cssmv:run-finish", finishHandler, { once: true });
+      // a work_id, AND from the Take 2 sibling commit. Not { once } —
+      // both takes must be captured. Torn down in destroyCinema().
+      globalThis.addEventListener("cssmv:run-finish", finishHandler);
+      if (cinemaSt) cinemaSt._finishHandler = finishHandler;
     }
     return panel;
   }
@@ -7447,6 +7472,12 @@
     if (typeof cinemaSt._cleanup === "function") {
       try { cinemaSt._cleanup(); } catch (_e) {}
     }
+    // CSSOS_WAVE_159b — tear down the (no longer { once }) run-finish
+    // listener that appends Take 1 / Take 2 to the cinema queue.
+    if (cinemaSt._finishHandler) {
+      try { globalThis.removeEventListener("cssmv:run-finish", cinemaSt._finishHandler); } catch (_e) {}
+      cinemaSt._finishHandler = null;
+    }
     // CSSOS_PHASE2_MV_WAVE6 20260507 — Jing
     // Tear down end-of-MV CTAs overlay + storm grid + bound key handlers.
     if (cinemaSt._w6KeyHandler) {
@@ -7483,15 +7514,20 @@
     const stage = cinemaSt.stage;
     const strip = stage.querySelector(".cinema-strip");
     const loading = stage.querySelector(".cinema-loading");
-    /* The central output info — name / sub / chips / status line / bio.
-     * These (and ONLY these) fade out; the hero background, portrait,
-     * progress bar and the playing video stay at full brightness. */
+    /* CSSOS_WAVE_159b 20260514 — Jing: "我要求是播放时是一个干净的
+     * 视频/幻灯。6胶囊和输出时的总进度条，也和人物名字、简介一样，
+     * 播放媒体10秒后必须隐藏，让画面干净。" So the idle fade-out now
+     * also covers the 6 stage capsules + the overall progress bar +
+     * pct readout (the whole `.cinema-hero-progress` block) — not just
+     * the name / bio. Only the hero background, portrait and the
+     * playing video stay visible: a clean frame after 10s. */
     function infoEls() {
       const root = loading || stage;
       return Array.prototype.slice.call(
         root.querySelectorAll(
           ".cinema-hero-name, .cinema-hero-sub, .cinema-hero-chips," +
-          " .cinema-hero-status-line, .cinema-hero-intro"
+          " .cinema-hero-status-line, .cinema-hero-intro," +
+          " .cinema-hero-progress"
         )
       );
     }
@@ -7536,10 +7572,137 @@
     bump();
   }
 
+  /* CSSOS_WAVE_128 20260514 — cinema-mode price strip. Mirrors
+   * app.watch-price-strip.js (Wave 113) but compact, for the
+   * .cinema-strip surface inside the MV pipeline panel. Order per Jing:
+   *   1. Cost   — total compute cost, OWNER-ONLY (others never see it)
+   *   2. Listen — audio-only price
+   *   3. View   — audio + video price
+   *   4. Buyout — full rights (audio+video+everything) price
+   *   5. Tip    — opens the unified picker (international Stripe + NihaoPay)
+   * Every actionable chip routes through dispatchMarketWorkPayment so
+   * the checkout flow is identical to the marketplace path. */
+  function renderCinemaPriceStrip(host, w, wid) {
+    if (!host) return;
+    w = w || {};
+    var workId = String(wid || w.id || w.work_id || "").trim();
+    function fmtCents(c) {
+      var n = Number(c || 0);
+      if (!isFinite(n) || n <= 0) return "—";
+      return n >= 100 ? "$" + (n / 100).toFixed(2) : "¢" + n;
+    }
+    function cssCopy(en, zh) {
+      try {
+        if (typeof globalThis.loginCopy === "function") return globalThis.loginCopy(en, zh);
+      } catch (_e) {}
+      var lang = (navigator.language || "en").toLowerCase();
+      return (lang.indexOf("zh") === 0 && zh) ? zh : en;
+    }
+    var isOwn = w.is_own === true || w.owner_is_viewer === true;
+    var listenCents = Number(w.current_listen_price_cents || w.listen_price_cents || w.suggested_listen_price_cents || 0);
+    var viewCents = Number(w.view_price_cents || w.current_view_price_cents || w.suggested_view_price_cents || 0);
+    var buyoutCents = Number(w.current_buyout_price_cents || w.buyout_price_cents || w.suggested_buyout_price_cents || 0);
+    var costCents = Number(w.compute_cost_cents_estimate || w.creator_cost_cents || w.cost_cents || 0);
+    var buyoutEnabled = w.buyout_enabled !== false;
+    var tipsEnabled = w.tips_enabled !== false;
+    var canTransact = !isOwn && !!workId;
+
+    host.innerHTML = "";
+    function chip(label, opts) {
+      opts = opts || {};
+      var b = document.createElement("button");
+      b.type = "button";
+      b.textContent = label;
+      var bg = opts.kind === "cost" ? "rgba(20,20,20,.6)"
+             : opts.kind === "tip"  ? "rgba(150,100,30,.78)"
+             :                          "rgba(40,90,70,.8)";
+      b.style.cssText = "all:unset;cursor:" + (opts.onClick ? "pointer" : "default") + ";" +
+        "padding:3px 10px;border-radius:999px;background:" + bg + ";" +
+        "border:1px solid rgba(255,255,255,.22);font:600 11px/1.2 ui-monospace,monospace;" +
+        "color:rgba(255,255,255,.96);white-space:nowrap;" + (opts.disabled ? "opacity:.5;" : "");
+      if (opts.title) b.title = opts.title;
+      if (opts.onClick && !opts.disabled) {
+        b.addEventListener("click", function (e) {
+          e.stopPropagation();
+          try { opts.onClick(); } catch (_e) {}
+        });
+      }
+      host.appendChild(b);
+      return b;
+    }
+    function dispatch(action) {
+      var anchor = document.createElement("button");
+      anchor.style.display = "none";
+      anchor.dataset.marketAction = action;
+      document.body.appendChild(anchor);
+      try {
+        if (typeof globalThis.dispatchMarketWorkPayment === "function") {
+          globalThis.dispatchMarketWorkPayment(workId, action, anchor);
+        }
+      } finally {
+        setTimeout(function () { try { anchor.remove(); } catch (_e) {} }, 100);
+      }
+    }
+    // 1. Cost — OWNER ONLY. Total compute cost; itemised detail lives in 作品中心.
+    if (isOwn) {
+      chip(cssCopy("Cost", "成本") + " · " + fmtCents(costCents), {
+        kind: "cost",
+        title: cssCopy(
+          "Total compute cost for this work — only you can see this. Itemised breakdown in Works Center.",
+          "本作品总成本（服务器算力+第三方引擎），仅作者本人可见。明细见作品中心。"
+        ),
+      });
+    }
+    // 2. Listen — audio only
+    chip(cssCopy("Listen", "聆听") + " · " + (listenCents > 0 ? fmtCents(listenCents) : cssCopy("Free", "免费")), {
+      kind: "buy",
+      title: cssCopy("Audio-only listening price", "聆听价格（仅音频）"),
+      disabled: !canTransact || listenCents <= 0,
+      onClick: (canTransact && listenCents > 0) ? function () { dispatch("listen"); } : null,
+    });
+    // 3. View — audio + video
+    chip(cssCopy("View", "欣赏") + " · " + (viewCents > 0 ? fmtCents(viewCents) : cssCopy("Free", "免费")), {
+      kind: "buy",
+      title: cssCopy("Full audio + video viewing price", "欣赏价格（音频+视频）"),
+      disabled: !canTransact || viewCents <= 0,
+      onClick: (canTransact && viewCents > 0) ? function () { dispatch("view"); } : null,
+    });
+    // 4. Buyout — full rights
+    var buyoutLabel = !buyoutEnabled
+      ? cssCopy("Buyout · Not for sale", "买断 · 版权不出售")
+      : buyoutCents > 0
+        ? cssCopy("Buyout", "买断") + " · " + fmtCents(buyoutCents)
+        : cssCopy("Buyout · Priceless", "买断 · 无价之宝");
+    chip(buyoutLabel, {
+      kind: "buy",
+      title: cssCopy("Buy out everything — audio, video, full rights", "买断价格（音频+视频等全部完整权利）"),
+      disabled: !canTransact || !buyoutEnabled || buyoutCents <= 0,
+      onClick: (canTransact && buyoutEnabled && buyoutCents > 0) ? function () { dispatch("buyout"); } : null,
+    });
+    // 5. Tip — unified picker (international Stripe + NihaoPay 微信/支付宝/银联)
+    chip("💝 " + cssCopy("Tip", "打赏"), {
+      kind: "tip",
+      title: cssCopy("Tip the creator — card or WeChat/Alipay/UnionPay", "打赏创作者 — 国外银行卡 / 微信·支付宝·银联"),
+      disabled: !canTransact || !tipsEnabled,
+      onClick: (canTransact && tipsEnabled) ? function () { dispatch("tip"); } : null,
+    });
+  }
+
   async function cinemaPlayCurrent() {
     if (!cinemaSt || !cinemaSt.queue.length) return;
     const wid = cinemaSt.queue[cinemaSt.idx];
     if (!wid) return;
+    // CSSOS_WAVE_121_STEP_4 20260514 — async-loader ownership self-check.
+    // cinemaPlayCurrent does two awaits (work fetch + subtitle fetch +
+    // video.play). If the user advances the cinema queue (teaser card,
+    // next, exit) while those are in flight, the stale completion would
+    // write video.src / strip / subtitles into the NOW-different track —
+    // classic 张冠李戴. Capture the work-id this invocation owns; after
+    // every await, bail if the queue has moved on.
+    const __ownWid = wid;
+    const __stillOwner = function () {
+      return !!cinemaSt && cinemaSt.queue[cinemaSt.idx] === __ownWid;
+    };
     const stage = cinemaSt.stage;
     const video = stage.querySelector(".cinema-video");
     const strip = stage.querySelector(".cinema-strip");
@@ -7552,6 +7715,8 @@
       // ad-hoc shapes (e.g. cached/legacy responses or assets nesting).
       const r = await fetch("/api/works/public/" + encodeURIComponent(wid), { credentials: "include" });
       const j = await r.json().catch(function(){ return null; });
+      // Ownership guard: queue advanced while this fetch was in flight.
+      if (!__stillOwner()) return;
       const w = (j && (j.data || j.work || j)) || {};
       videoUrl = w.final_mv_url || w.preview_video_url || w.video_url || w.url ||
         (w.assets && (w.assets.video_url || w.assets.video || (w.assets.video && w.assets.video.url))) || null;
@@ -7568,11 +7733,13 @@
           const sr = await fetch(w.subtitle_srt_url, { credentials: "include" });
           if (sr.ok) {
             const txt = await sr.text();
+            if (!__stillOwner()) return; // queue moved on during SRT fetch
             cinemaSt._aligned = globalThis.parseSrtToAlignedLyricsModule(txt) || null;
           }
         }
       } catch (_e) {}
     } catch (_e) {}
+    if (!__stillOwner()) return; // final guard before any DOM writes
     if (!videoUrl) {
       // skip to next
       if (cinemaSt.idx < cinemaSt.queue.length - 1) { cinemaSt.idx += 1; return cinemaPlayCurrent(); }
@@ -7582,6 +7749,7 @@
     video.muted = false;
     video.autoplay = true;
     try { await video.play(); } catch (_e) {}
+    if (!__stillOwner()) return; // queue advanced during play() promise
 
     /* CSSOS_WAVE_110E2 20260510 — Jing
      * Auto-hide center info (strip title + cinema-loading text)
@@ -7590,39 +7758,24 @@
      * resets the timer. */
     armCinemaInfoAutoHide();
     if (strip) {
-      // CSSOS_PERSON_MV_WAVE5 20260507 — strip now hosts title/idx + a Like button.
+      // CSSOS_WAVE_128 20260514 — Jing: "底部的点赞，我一直反对…而是真金
+      // 白银，显示价格条". The cinema strip's old white-heart Like button
+      // is replaced with the real price strip: 成本(仅作者本人可见) /
+      // 聆听 / 欣赏 / 买断 / 打赏(中外两线). All chips route through the
+      // canonical dispatchMarketWorkPayment dispatcher — tip opens the
+      // Wave 116 unified picker (inline Stripe + NihaoPay).
       const titleStr = (title || "untitled") + (creator ? " · " + creator : "") +
         " · " + (cinemaSt.idx + 1) + "/" + cinemaSt.queue.length;
       strip.innerHTML = '<span class="cinema-strip-title"></span>' +
-        ' <button class="cinema-like-btn" type="button" title="Like" style="all:unset;cursor:pointer;margin-left:10px;padding:3px 10px;border-radius:999px;background:rgba(0,0,0,.55);border:1px solid rgba(0,245,160,.4);font:600 12px/1.2 ui-monospace,monospace;color:#daffee;">🤍 0</button>';
+        '<span class="cinema-price-strip" style="display:inline-flex;flex-wrap:wrap;gap:6px;margin-left:10px;align-items:center;"></span>';
       const titleEl = strip.querySelector(".cinema-strip-title");
       if (titleEl) titleEl.textContent = titleStr;
-      const likeBtn = strip.querySelector(".cinema-like-btn");
       cinemaSt._currentWid = wid;
-      cinemaSt._likedByMe = false;
-      // Initial stats fetch (also works for non-person_mvs entries — silently 404).
+      // Build the price strip from the canonical work payload `w`
+      // (already fetched by ID at the top of cinemaPlayCurrent).
       try {
-        const sR = await fetch("/api/person-mv/mvs/" + encodeURIComponent(wid) + "/stats", { credentials: "include" });
-        if (sR.ok) {
-          const sJ = await sR.json().catch(function(){ return null; });
-          if (sJ && sJ.ok && likeBtn) {
-            likeBtn.textContent = "🤍 " + __fmtCinemaCount(sJ.like_count);
-          }
-        }
+        renderCinemaPriceStrip(strip.querySelector(".cinema-price-strip"), w, wid);
       } catch (_e) {}
-      if (likeBtn) {
-        likeBtn.onclick = async function () {
-          try {
-            const lr = await fetch("/api/person-mv/mvs/" + encodeURIComponent(wid) + "/like",
-              { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: "{}" });
-            const lj = await lr.json().catch(function(){ return null; });
-            if (lj && lj.ok) {
-              cinemaSt._likedByMe = !!lj.liked;
-              likeBtn.textContent = (lj.liked ? "❤️ " : "🤍 ") + __fmtCinemaCount(lj.like_count);
-            }
-          } catch (_e) {}
-        };
-      }
     }
     // CSSOS_PERSON_MV_WAVE5 20260507 — record a view as soon as the track plays.
     // Fires once per track-load (clearing old onplay). Toast surfaces position
@@ -8085,10 +8238,10 @@
        * the hero background / video / progress stay fully bright. */
       '#cssos-cinema-stage .cinema-hero-name, #cssos-cinema-stage .cinema-hero-sub,' +
       ' #cssos-cinema-stage .cinema-hero-chips, #cssos-cinema-stage .cinema-hero-status-line,' +
-      ' #cssos-cinema-stage .cinema-hero-intro,' +
+      ' #cssos-cinema-stage .cinema-hero-intro, #cssos-cinema-stage .cinema-hero-progress,' +
       ' .panel[data-cinema="true"] .cinema-hero-name, .panel[data-cinema="true"] .cinema-hero-sub,' +
       ' .panel[data-cinema="true"] .cinema-hero-chips, .panel[data-cinema="true"] .cinema-hero-status-line,' +
-      ' .panel[data-cinema="true"] .cinema-hero-intro { transition: opacity 600ms ease; }' +
+      ' .panel[data-cinema="true"] .cinema-hero-intro, .panel[data-cinema="true"] .cinema-hero-progress { transition: opacity 600ms ease; }' +
       '#cssos-cinema-stage .cinema-loading, .panel[data-cinema="true"] .cinema-loading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#daffee; }' +
       '#cssos-cinema-stage .cinema-hero-bg, .panel[data-cinema="true"] .cinema-hero-bg { position:absolute; inset:0; background-size:cover; background-position:center; opacity:.18; filter:blur(6px) saturate(1.05); }' +
       '#cssos-cinema-stage .cinema-hero-block, .panel[data-cinema="true"] .cinema-hero-block { position:relative; text-align:center; padding:0 24px; max-width:min(900px,92vw); }' +
@@ -8145,7 +8298,14 @@
       /* CSSOS_PERSON_MV_CINEMA_SUBS 20260507 — Jing
        * Emotion karaoke subtitle ticker overlay for cinema video. */
       '#cssos-cinema-stage .cinema-subs { position:absolute; left:0; right:0; bottom:64px; padding:0 24px; text-align:center; pointer-events:none; z-index:5; }' +
-      '#cssos-cinema-stage .cinema-subs-line { display:inline-block; padding:8px 16px; border-radius:8px; background:rgba(0,0,0,.55); color:#fff; font:600 22px/1.4 ui-sans-serif,system-ui,sans-serif; text-shadow:0 2px 12px rgba(0,0,0,.7); max-width:min(960px,90vw); }';
+      '#cssos-cinema-stage .cinema-subs-line { display:inline-block; padding:8px 16px; border-radius:8px; background:rgba(0,0,0,.55); color:#fff; font:600 22px/1.4 ui-sans-serif,system-ui,sans-serif; text-shadow:0 2px 12px rgba(0,0,0,.7); max-width:min(960px,90vw); }' +
+      /* CSSOS_WAVE_128B 20260514 — Jing: "信息条上面有一个黑色小块块,
+       * 看来只做到一半就丢弃了". That black pill is .cinema-subs-line with
+       * no text — an empty subtitle line still painting its black
+       * background + padding + border-radius. When the line has no
+       * content it must not render at all. :empty covers every code
+       * path (hidden flag missed, karaoke gap, loading hero state). */
+      '#cssos-cinema-stage .cinema-subs-line:empty { display:none !important; }';
     document.head.appendChild(s);
   }
 
@@ -8687,18 +8847,28 @@
         globalThis.cssmvRunPipeline({ seed: newSeed, fresh: true });
       }
     } catch (_e) {}
+    // CSSOS_WAVE_159b — idempotent, not { once }: capture BOTH Take 1
+    // and the Take 2 sibling so the replay also plays both songs.
+    if (cinemaSt && cinemaSt._finishHandler) {
+      try { globalThis.removeEventListener("cssmv:run-finish", cinemaSt._finishHandler); } catch (_e) {}
+      cinemaSt._finishHandler = null;
+    }
     const finishHandler = function (ev) {
       try {
         const wid = ev && ev.detail && (ev.detail.work_id || ev.detail.workId);
-        if (wid && cinemaSt) {
-          cinemaSt.queue.push(wid);
+        if (!wid || !cinemaSt) return;
+        if (cinemaSt.queue.indexOf(wid) !== -1) return; // dedup
+        const wasEmpty = cinemaSt.queue.length === 0;
+        cinemaSt.queue.push(wid);
+        if (wasEmpty) {
           const loading = stage && stage.querySelector(".cinema-loading");
           if (loading) loading.hidden = true;
           cinemaPlayCurrent();
         }
       } catch (_e) {}
     };
-    globalThis.addEventListener("cssmv:run-finish", finishHandler, { once: true });
+    globalThis.addEventListener("cssmv:run-finish", finishHandler);
+    if (cinemaSt) cinemaSt._finishHandler = finishHandler;
   }
 
   /* CSSOS_WAVE_110E 20260510 — Jing

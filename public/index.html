@@ -56,7 +56,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="style.css?v=20260513-wave117-toast-mobile" />
+    <link rel="stylesheet" href="style.css?v=20260514-wave126-objectfit" />
     <link rel="stylesheet" href="style.mv-pipeline.css?v=20260507-inline-params" />
   </head>
   <body>
@@ -2061,13 +2061,13 @@
     <script src="app.touch-hardening.js?v=20260513-wave117-touch"></script>
     <!-- CSSOS_WAVE_121 — work-id binding: every watch render flushes
          asset caches first to prevent 张冠李戴. -->
-    <script src="app.work-id-binding.js?v=20260513-wave122-slideshow"></script>
+    <script src="app.work-id-binding.js?v=20260514-wave127-orientation"></script>
     <!-- CSSOS_WAVE_123 — injects civilization/era/gender into /api/mv/music
          POSTs so Suno differentiates per culture instead of defaulting
          every figure to a soft female ballad. -->
     <script src="app.music-civ-inject.js?v=20260514-wave123"></script>
     <!-- CSSOS_WAVE_117_STEP_2 — lazy panel loader API (small, sync) -->
-    <script src="app.panel-loader.js?v=20260513-wave120b-mv-pipeline"></script>
+    <script src="app.panel-loader.js?v=20260514-wave129-unlazy-market"></script>
     <!-- CSSOS_WAVE_117_IOS_STATUSBAR — hide iOS status bar in cinema mode -->
     <script defer src="app.ios-statusbar-cinema.js?v=20260513-wave117-always"></script>
     <!-- CSSOS_WAVE_115 — iOS native payment gate. MUST load FIRST so it
@@ -2106,7 +2106,7 @@
     <script src="app.share-link-router.js?v=20260506-share-link"></script>
     <script src="app.share-dialog.js?v=20260506-share-link"></script>
     <script src="app.download-menu.js?v=20260506-phase-b"></script>
-    <script src="app.up-next-strip.js?v=20260506-by-id"></script>
+    <script src="app.up-next-strip.js?v=20260514-wave126-preselect"></script>
     <script src="app.preview-cap.js?v=20260506-a11y"></script>
     <script src="app.tab-title-sync.js?v=20260506-tab-sync"></script>
     <script src="app.shortcuts-overlay.js?v=20260506-cheatsheet-snap"></script>
@@ -2181,12 +2181,15 @@
     <script src="app.watch-lyrics-bridges.js?v=20260327-watch-lyrics-bridges-split-1"></script>
     <script src="app.watch-surface-bridges.js?v=20260327-watch-surface-bridges-split-1"></script>
     <script src="app.about-panel.js?v=20260325-live-unfreeze-2"></script>
-    <!-- CSSOS_WAVE_117_LAZY_MARKET 20260513 — market-commerce migrated
-         to true on-demand load. 184 KB out of first paint. Entry points
-         (Listen/Buyout/Tip in price strip, foryou marketplace tab,
-         watch queue preview, works-center pricing) all go through
-         shimmed globals in app.panel-loader.js. -->
-    <script type="cssos-lazy" data-panel="market" src="app.market-commerce.js?v=20260512-wave111d-fp-badge"></script>
+    <!-- CSSOS_WAVE_129 20260514 — REVERTED to eager load. The Wave 117
+         lazy-load experiment caused a crash storm: 33+ functions in this
+         module are bare-called from 14+ other files (loadWatchCommerce,
+         loadCreatorBoostState, renderSellerPanel, buildWorks*Markup, …)
+         and only 8 got lazy-shims — the rest threw ReferenceError before
+         the market panel loaded (crash-guard logged 35 hits/session).
+         market-commerce is NOT an island; it must load eagerly. The
+         mv-pipeline-panel lazy-load (a true island) stays. -->
+    <script src="app.market-commerce.js?v=20260514-wave129-eager"></script>
     <!-- CSSOS_PERSON_MV_WAVE45_48 20260508 — Jing — upscale + product attachments. -->
     <script src="app.mv-upscale-and-products.js?v=20260508-wave45-48"></script>
     <!-- CSSOS_PERSON_MV_WAVE53 20260508 — Jing — cinema bilingual subtitles. -->
@@ -2252,7 +2255,7 @@
          MV Pipeline dock icon ([data-action="mv-pipeline"]) instead of
          on every page load. Saves ~444 KB from first-paint on mobile. -->
     <script src="app.mv-pipeline-open-shim.js?v=20260514-wave145-lazy-trigger"></script>
-    <script type="cssos-lazy" data-panel="mv-pipeline" src="app.mv-pipeline-panel.js?v=20260514-wave159-emosub"></script>
+    <script type="cssos-lazy" data-panel="mv-pipeline" src="app.mv-pipeline-panel.js?v=20260514-wave159b-2song-cleanscreen"></script>
     <script src="app.person-mv-panel.js?v=20260514-wave153b-mine-tab"></script>
     <script src="app.person-mv-discover-shelf.js?v=20260507-wave9"></script>
     <script src="app.person-mv-groups-shelf.js?v=20260508-wave16"></script>

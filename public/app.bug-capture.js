@@ -171,10 +171,27 @@
     };
   }, true);
 
+  // CSSOS_WAVE_130 20260514 — Jing: "把这个毛毛虫整合进 AI 助理".
+  // Expose the report-modal opener globally so the AI Assistant panel
+  // (app.agent-chat.js) can trigger it from a 🐛 button in its header.
+  // The standalone bottom-right FAB is now suppressed — one entry point
+  // (inside the assistant) is cleaner than two floating balls fighting
+  // for the same corner.
+  globalThis.cssosOpenBugReport = function () {
+    if (!viewerIsAdmin()) return false;
+    openModal();
+    return true;
+  };
+  // CSSOS_WAVE_163 — alias under the name some callers historically used
+  // (app.agent-overflow-menu.js was calling cssosOpenBugReportModal).
+  globalThis.cssosOpenBugReportModal = globalThis.cssosOpenBugReport;
+  globalThis.cssosBugReportAvailable = viewerIsAdmin;
+
   function start() {
     if (!viewerIsAdmin()) { setTimeout(start, 5000); return; }
-    const b = ensureBtn();
-    b.style.display = "inline-flex";
+    // Standalone FAB intentionally NOT shown — the 🐛 entry now lives
+    // in the AI Assistant header. ensureBtn()/the old FAB code stays
+    // in the file as a fallback but is never displayed.
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", start);

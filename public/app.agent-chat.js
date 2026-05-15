@@ -320,11 +320,19 @@
           // CSSOS_WAVE_161 20260515 — Jing: re-render the rich work-cards
           // on session re-hydration. Previously only m.text was rendered,
           // so a created MV's clickable card vanished on every reopen.
-          if (m && Array.isArray(m.work_cards) && m.work_cards.length) {
-            try { renderWorkCards(m.work_cards); } catch (err) { console.warn("[agent-chat] hydrate work-card render failed", err); }
-            return;
+          // CSSOS_WAVE_163 — Jing: "聊天信息一刷新就消失." Each entry is
+          // now isolated in its own try/catch: if ONE message (or its
+          // cards) fails to render, the rest of the conversation still
+          // shows instead of the whole panel going blank.
+          try {
+            if (m && Array.isArray(m.work_cards) && m.work_cards.length) {
+              renderWorkCards(m.work_cards);
+              return;
+            }
+            if (m && m.text) renderMsg(m.role, m.text, m.tool_calls);
+          } catch (err) {
+            try { console.warn("[agent-chat] hydrate entry render failed", err); } catch (_) {}
           }
-          if (m.text) renderMsg(m.role, m.text, m.tool_calls);
         });
       } else {
         renderSystem(tr(
@@ -446,8 +454,12 @@
     bodyEl.className = "cssos-agent-msg-body";
     // CSSOS_WAVE_162 — assistant / system bodies get clickable links
     // (markdown + bare URLs); user input stays literal plain text.
+    // CSSOS_WAVE_163 — linkify is best-effort: if it ever throws on a
+    // weird message, fall back to plain text rather than letting the
+    // exception bubble up and blank the whole chat on re-hydration.
     if (role === "assistant" || role === "system") {
-      linkifyInto(bodyEl, text);
+      try { linkifyInto(bodyEl, text); }
+      catch (_e) { bodyEl.textContent = String(text == null ? "" : text); }
     } else {
       bodyEl.textContent = text;
     }
@@ -806,8 +818,21 @@
       // The backend create_work tool returns one or more user_works rows
       // with cover + lyrics; render each as a clickable card that deep-
       // links into the MV panel.
-      if (Array.isArray(j.work_cards) && j.work_cards.length) {
-        try { renderWorkCards(j.work_cards); } catch (err) { console.warn("[agent-chat] work-card render failed", err); }
+      // CSSOS_WAVE_163 20260515 — Jing: "输出的作品没有图片卡片." Belt
+      // and suspenders: prefer the top-level j.work_cards, but if that's
+      // empty fall back to collecting cards off j.tool_calls[].work_cards
+      // (the create_work tool result), so a card always shows the moment
+      // a work is created — even if the top-level shaper missed it.
+      var liveCards = (Array.isArray(j.work_cards) && j.work_cards.length)
+        ? j.work_cards
+        : (j.tool_calls || []).reduce(function (acc, t) {
+            if (t && Array.isArray(t.work_cards) && t.work_cards.length) {
+              return acc.concat(t.work_cards);
+            }
+            return acc;
+          }, []);
+      if (liveCards && liveCards.length) {
+        try { renderWorkCards(liveCards); } catch (err) { console.warn("[agent-chat] work-card render failed", err); }
       }
       // CSSOS_WAVE_138 — surface insufficient-credit hints inline.
       var insufficient = (j.tool_calls || []).find(function (t) {

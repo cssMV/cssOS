@@ -85,8 +85,10 @@
     // append their own items here; we don't want to clobber them.
     if (hadBug && hadDm && (admin === hadCrash)) return;
     menu.innerHTML = [
+      // CSSOS_WAVE_133 — Jing: icon → 🐛 caterpillar, paired with the
+      // 🪲 green beetle below. (The duplicate header button was removed.)
       '<button class="item" data-act="bug-report">'
-        + '<span class="glyph">🐞</span><span>' + esc(tr("Report a bug / diagnose", "提交 bug · 诊断")) + '</span>'
+        + '<span class="glyph">🐛</span><span>' + esc(tr("Report a bug / diagnose", "提交 bug · 诊断")) + '</span>'
         + '</button>',
       admin
         ? '<button class="item" data-act="crash-logs">'
@@ -105,11 +107,20 @@
       var act = btn.getAttribute("data-act");
       menu.hidden = true;
       if (act === "bug-report") {
-        // The existing bug-capture module installs a global hook.
-        // Click its hidden FAB programmatically so its modal opens.
-        var bugFab = document.getElementById("cssos-bug-fab");
-        if (bugFab && typeof bugFab.click === "function") bugFab.click();
-        else if (typeof globalThis.cssosOpenBugReportModal === "function") globalThis.cssosOpenBugReportModal();
+        // CSSOS_WAVE_163 20260515 — Jing: "毛毛虫整合进来之后，无法弹出
+        // 小窗口了。" Root cause: the bug-capture module exposes its modal
+        // opener as `globalThis.cssosOpenBugReport` (W130), but this menu
+        // was calling the non-existent `cssosOpenBugReportModal`, AND the
+        // hidden `cssos-bug-fab` is no longer created at all (W135). So
+        // BOTH branches were dead — nothing opened. Call the real opener.
+        if (typeof globalThis.cssosOpenBugReport === "function") {
+          globalThis.cssosOpenBugReport();
+        } else if (typeof globalThis.cssosOpenBugReportModal === "function") {
+          globalThis.cssosOpenBugReportModal();
+        } else {
+          var bugFab = document.getElementById("cssos-bug-fab");
+          if (bugFab && typeof bugFab.click === "function") bugFab.click();
+        }
       } else if (act === "crash-logs") {
         var crashFab = document.getElementById("cssos-crash-dash-btn")
           || document.getElementById("cssos-crash-fab");

@@ -388,19 +388,21 @@
   function openWorkById(wid) {
     wid = String(wid || "").trim();
     if (!wid) return;
-    if (typeof globalThis.openMarketWorkPreview === "function") {
-      try {
-        globalThis.openMarketWorkPreview({ id: wid, work_id: wid, __cssosShareLink: true });
-        togglePanel();
-        return;
-      } catch (_) { /* fall through */ }
-    }
+    // CSSOS_WAVE_168 20260515 — Jing: 点击链接导致整个系统冻结。
+    // Root cause: openMarketWorkPreview synchronously opens the MV
+    // panel + cinema overlay + (when the freshly-created work has no
+    // audio/video yet) sits in an infinite "waiting for media" state
+    // that captures every click. The user couldn't dismiss it.
+    //
+    // Safer path: ALWAYS navigate to /?cssMV=<id>. app.share-link-
+    // router.js boots, fetches the work, drops a single-entry loop_
+    // single playlist, and opens the panel cleanly. If the work has
+    // no media yet, the panel shows a normal placeholder with a usable
+    // close button — never a frozen overlay. Same-tab nav also lets
+    // the user use the browser back button to return to the chat.
     try {
       var url = new URL(window.location.href);
       url.searchParams.set("cssMV", wid);
-      // Full reload path: app.share-link-router.js reads ?cssMV=<id> on
-      // boot, fetches the work, and opens the MV panel — reliable even
-      // when openMarketWorkPreview isn't loaded yet.
       window.location.href = url.toString();
     } catch (_) {
       window.location.href = "/?cssMV=" + encodeURIComponent(wid);

@@ -121,6 +121,10 @@
       '  <div class="title">🤖 ' + esc(tr("cssOS Assistant", "cssOS 创作助手")) + '</div>',
       '  <div style="display:flex;gap:4px;align-items:center;">',
       '    <span class="meta" id="cssos-agent-meta"></span>',
+      // CSSOS_WAVE_133 — the Wave 130 header 🐛 button was REMOVED: it
+      // duplicated the "Report a bug / diagnose" item already living in
+      // the ⋯ overflow menu (app.agent-overflow-menu.js). One entry
+      // point only — inside the ⋯ dropdown.
       '    <button type="button" data-act="clear" title="' + esc(tr("Clear conversation", "清空对话")) + '">🗑️</button>',
       '    <button type="button" data-act="close" title="' + esc(tr("Close", "关闭")) + '">✕</button>',
       '  </div>',
@@ -136,6 +140,9 @@
 
     panel.querySelector('[data-act="close"]').addEventListener("click", togglePanel);
     panel.querySelector('[data-act="clear"]').addEventListener("click", clearConversation);
+    // CSSOS_WAVE_133 — the 🐛 report button wiring was removed with the
+    // button itself; "Report a bug / diagnose" lives in the ⋯ overflow
+    // menu (app.agent-overflow-menu.js), which calls cssosOpenBugReport.
 
     var input = panel.querySelector("#cssos-agent-input");
     input.addEventListener("keydown", function (e) {
@@ -150,7 +157,88 @@
     });
     panel.querySelector("#cssos-agent-send").addEventListener("click", sendCurrent);
 
+    // CSSOS_WAVE_131 20260514 — Jing: "AI 助理小窗应该可以拖拽，不然会
+    // 挡住别的面板". Drag by the header. Switches the panel from
+    // right/bottom anchoring to left/top on first drag, clamps to the
+    // viewport, and persists the position to localStorage so it stays
+    // where the user left it across sessions.
+    makeAgentPanelDraggable(panel, panel.querySelector("header"));
+
     renderSuggestions();
+  }
+
+  var DRAG_POS_KEY = "cssos.agent.panel.pos.v1";
+  function makeAgentPanelDraggable(panel, handle) {
+    if (!panel || !handle) return;
+    // Restore a saved position if present.
+    try {
+      var saved = JSON.parse(localStorage.getItem(DRAG_POS_KEY) || "null");
+      if (saved && typeof saved.left === "number" && typeof saved.top === "number") {
+        applyPanelPos(panel, saved.left, saved.top);
+      }
+    } catch (_e) {}
+
+    handle.style.cursor = "move";
+    handle.style.touchAction = "none";
+    var dragging = false, startX = 0, startY = 0, baseLeft = 0, baseTop = 0;
+
+    function onDown(e) {
+      // Ignore drags that start on the header buttons (🐛 / 🗑️ / ✕).
+      if (e.target && e.target.closest && e.target.closest("button")) return;
+      var pt = e.touches ? e.touches[0] : e;
+      var rect = panel.getBoundingClientRect();
+      dragging = true;
+      startX = pt.clientX;
+      startY = pt.clientY;
+      baseLeft = rect.left;
+      baseTop = rect.top;
+      // Pin to left/top so dragging is absolute, not anchored to right/bottom.
+      applyPanelPos(panel, baseLeft, baseTop);
+      document.addEventListener("pointermove", onMove, { passive: false });
+      document.addEventListener("pointerup", onUp, { passive: true });
+      document.addEventListener("touchmove", onMove, { passive: false });
+      document.addEventListener("touchend", onUp, { passive: true });
+      e.preventDefault && e.preventDefault();
+    }
+    function onMove(e) {
+      if (!dragging) return;
+      var pt = e.touches ? e.touches[0] : e;
+      var nx = baseLeft + (pt.clientX - startX);
+      var ny = baseTop + (pt.clientY - startY);
+      applyPanelPos(panel, nx, ny);
+      e.preventDefault && e.preventDefault();
+    }
+    function onUp() {
+      if (!dragging) return;
+      dragging = false;
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("touchmove", onMove);
+      document.removeEventListener("touchend", onUp);
+      var rect = panel.getBoundingClientRect();
+      try {
+        localStorage.setItem(DRAG_POS_KEY, JSON.stringify({ left: rect.left, top: rect.top }));
+      } catch (_e) {}
+    }
+    handle.addEventListener("pointerdown", onDown);
+    handle.addEventListener("touchstart", onDown, { passive: false });
+    // Re-clamp into view on viewport resize so it never strands offscreen.
+    window.addEventListener("resize", function () {
+      var rect = panel.getBoundingClientRect();
+      applyPanelPos(panel, rect.left, rect.top);
+    });
+  }
+  function applyPanelPos(panel, left, top) {
+    var w = panel.offsetWidth || 420;
+    var h = panel.offsetHeight || 600;
+    var maxL = Math.max(0, window.innerWidth - w);
+    var maxT = Math.max(0, window.innerHeight - h);
+    var L = Math.max(0, Math.min(maxL, left));
+    var T = Math.max(0, Math.min(maxT, top));
+    panel.style.left = L + "px";
+    panel.style.top = T + "px";
+    panel.style.right = "auto";
+    panel.style.bottom = "auto";
   }
 
   function renderSuggestions() {
@@ -223,6 +311,13 @@
       updateMeta(j);
       if (Array.isArray(j.messages) && j.messages.length) {
         j.messages.forEach(function (m) {
+          // CSSOS_WAVE_161 20260515 — Jing: re-render the rich work-cards
+          // on session re-hydration. Previously only m.text was rendered,
+          // so a created MV's clickable card vanished on every reopen.
+          if (m && Array.isArray(m.work_cards) && m.work_cards.length) {
+            try { renderWorkCards(m.work_cards); } catch (err) { console.warn("[agent-chat] hydrate work-card render failed", err); }
+            return;
+          }
           if (m.text) renderMsg(m.role, m.text, m.tool_calls);
         });
       } else {
@@ -382,7 +477,11 @@
         '  <pre class="lyrics" hidden></pre>',
         '</div>',
       ].join("");
-      card.querySelector('[data-act="play"]').addEventListener("click", function () {
+      // CSSOS_WAVE_161 20260515 — Jing: "让卡片/链接可点击打开." The
+      // whole card (cover + title) opens the work, not just the small
+      // ▶ button — and the cover shows a pointer cursor so it reads as
+      // clickable.
+      function openThisWork() {
         var wid = c.work_id;
         if (typeof globalThis.openMarketWorkPreview === "function") {
           globalThis.openMarketWorkPreview({ id: wid, work_id: wid });
@@ -398,7 +497,19 @@
         } catch (_) {
           window.location.href = "/?cssMV=" + encodeURIComponent(wid);
         }
-      });
+      }
+      card.querySelector('[data-act="play"]').addEventListener("click", openThisWork);
+      var coverEl = card.querySelector(".cover");
+      if (coverEl) {
+        coverEl.style.cursor = "pointer";
+        coverEl.title = tr("Open in MV panel", "在 MV 面板打开");
+        coverEl.addEventListener("click", openThisWork);
+      }
+      var titleEl = card.querySelector(".title");
+      if (titleEl) {
+        titleEl.style.cursor = "pointer";
+        titleEl.addEventListener("click", openThisWork);
+      }
       card.querySelector('[data-act="lyrics"]').addEventListener("click", function () {
         var pre = card.querySelector(".lyrics");
         if (!pre) return;

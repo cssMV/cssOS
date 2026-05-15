@@ -4858,19 +4858,45 @@ app.get("/api/agent/session", async (req, res) => {
   if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
   const sessionId = String(req.query.session_id || "default").slice(0, 64);
   const history = await getAgentSession(userId, sessionId);
-  const display = history.map((m) => {
-    if (typeof m.content === "string") return { role: m.role, text: m.content };
-    if (Array.isArray(m.content)) {
-      const texts = (m.content as any[]).filter((b) => b.type === "text").map((b) => b.text);
-      const tools = (m.content as any[]).filter((b) => b.type === "tool_use").map((b) => b.name);
-      return {
-        role: m.role,
-        text: texts.join(""),
-        tool_calls: tools,
-      };
+  // CSSOS_WAVE_161 20260515 — Jing: "卡片显示问题还没修复." The chat
+  // re-hydration path only ever rendered TEXT — the rich work-cards
+  // from create_work were dropped on every panel reopen / page reload,
+  // so a created MV permanently lost its clickable card. The cards ARE
+  // persisted (inside the tool_result block's JSON content), so here we
+  // parse them back out and emit them as their own ordered display
+  // entries; the frontend renders each via renderWorkCards().
+  const display: any[] = [];
+  for (const m of history) {
+    if (typeof m.content === "string") {
+      display.push({ role: m.role, text: m.content });
+      continue;
     }
-    return { role: m.role, text: "" };
-  });
+    if (Array.isArray(m.content)) {
+      const blocks = m.content as any[];
+      const texts = blocks.filter((b) => b.type === "text").map((b) => b.text);
+      const tools = blocks.filter((b) => b.type === "tool_use").map((b) => b.name);
+      if (texts.length || tools.length) {
+        display.push({ role: m.role, text: texts.join(""), tool_calls: tools });
+      }
+      // tool_result blocks (in `user` role messages) carry the
+      // create_work output as a JSON string — recover work_cards.
+      for (const b of blocks) {
+        if (b && b.type === "tool_result") {
+          let parsed: any = null;
+          try {
+            parsed = typeof b.content === "string"
+              ? JSON.parse(b.content)
+              : (b.content && typeof b.content === "object" ? b.content : null);
+          } catch { parsed = null; }
+          if (parsed && Array.isArray(parsed.work_cards) && parsed.work_cards.length) {
+            display.push({ role: "assistant", work_cards: parsed.work_cards });
+          }
+        }
+      }
+      continue;
+    }
+    display.push({ role: m.role, text: "" });
+  }
   return res.json({
     ok: true,
     session_id: sessionId,

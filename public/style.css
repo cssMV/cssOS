@@ -3828,21 +3828,6 @@ html[data-theme="light"] .works-fp-optin-desc {
   animation-name: mirrorFadeB;
 }
 
-/* CSSOS_WAVE_171 20260515 — Jing: 保持遮罩尺寸，把魔镜图缩到 1/5
- * 宽度，取消横的团圆环，魔镜两张图保持原来的缓慢呼吸。
- * - Scale the busy webp mirror down to 20 % so it becomes a small
- *   centered jewel inside the dark scrim, not a competing backdrop.
- * - Keep the ORIGINAL mirrorFadeA/B breathing (don't switch to the
- *   capped-opacity Soft variant — full breath is back).
- * - The horizontal green oval ring (.mirror-text::after) is removed
- *   below — it was reading as a "lens" cutting across the crystal.
- */
-.logo-panel .mirror-img {
-  transform: scale(0.20);
-  transform-origin: center center;
-  filter: drop-shadow(0 0 12px rgba(0, 245, 160, 0.35));
-}
-
 .mirror-text {
   position: relative;
   z-index: 2;
@@ -3853,27 +3838,6 @@ html[data-theme="light"] .works-fp-optin-desc {
   pointer-events: none;
   width: calc(100% - 120px);
 }
-
-/* Dark brand-tinted scrim behind the CSS/Studio text — keeps the
- * brand mark legible no matter which mirror frame is on screen. */
-.mirror-text::before {
-  content: "";
-  position: absolute;
-  inset: -8% -4%;
-  border-radius: 50%;
-  background: radial-gradient(
-    circle at 50% 50%,
-    rgba(2, 14, 10, 0.78) 0%,
-    rgba(2, 14, 10, 0.62) 45%,
-    rgba(2, 14, 10, 0) 75%
-  );
-  box-shadow: inset 0 0 24px rgba(0, 245, 160, 0.22);
-  z-index: -1;
-  pointer-events: none;
-}
-
-/* CSSOS_WAVE_171 — Jing removed the horizontal green oval ring; the
- * dark scrim disc alone now frames CSS / Studio. */
 
 .mirror-title {
   /* CSSOS_LOGO_TEXT_FIT_INNER 20260506 — Jing
@@ -6259,22 +6223,6 @@ html[data-theme="light"] .works-fp-optin-desc {
   z-index: 0;
 }
 
-/* CSSOS_WAVE_126 20260514 — Jing: "人物被压扁了…输出16:9格式然后拉伸".
-   HARD GUARD against non-uniform scaling. No matter what inline style,
-   engine output aspect, or future regression sets on the watch media
-   elements, they MUST `object-fit: cover` — uniform scale + crop, never
-   stretch. A 9:16 portrait in a 21:9 cinema frame gets cropped (face
-   stays correctly proportioned), never squashed wide. `!important`
-   beats any inline `object-fit: fill` a render path might inject. */
-#watch-panel .watch-video,
-#watch-panel .watch-svg,
-#watch-panel video,
-#watch-panel img.watch-cover,
-.watch-screen video,
-.watch-screen img {
-  object-fit: cover !important;
-}
-
 .watch-svg {
   width: 100%;
   height: 100%;
@@ -8362,19 +8310,6 @@ html[data-panel-transparent="true"] .logo-panel {
   }
 }
 
-/* CSSOS_WAVE_170 — capped-opacity variants used inside .logo-panel so
- * the mirror image stays as a soft backdrop and the brand text leads. */
-@keyframes mirrorFadeASoft {
-  0%, 30%   { opacity: 0.55; }
-  50%, 80%  { opacity: 0; }
-  100%      { opacity: 0.55; }
-}
-@keyframes mirrorFadeBSoft {
-  0%, 30%   { opacity: 0; }
-  50%, 80%  { opacity: 0.55; }
-  100%      { opacity: 0; }
-}
-
 @keyframes mirrorHaloPulse {
   0%,
   100% {
@@ -9888,28 +9823,6 @@ body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen .panel-titlebar {
   color: #c8ffe6;
   border: 1px solid rgba(0, 245, 160, 0.5);
   pointer-events: none;
-}
-
-/* CSSOS_WAVE_135 20260514 — received-gift (welcome / birthday MV) badge.
-   Amber chip top-left so it reads distinctly from the green 公共 chip. */
-.work-card.is-received-gift {
-  border-color: rgba(255, 200, 60, 0.45);
-}
-.work-card .work-gift-badge {
-  position: absolute;
-  top: 6px;
-  left: 6px;
-  z-index: 3;
-  padding: 2px 9px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  border-radius: 999px;
-  background: rgba(40, 28, 0, 0.82);
-  color: #ffd66b;
-  border: 1px solid rgba(255, 200, 60, 0.6);
-  pointer-events: none;
-  backdrop-filter: blur(6px);
 }
 
 /* CSSOS_PHASE2_FORYOU_DROP_FEATURED 20260505 — Jing

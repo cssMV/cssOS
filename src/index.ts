@@ -3830,6 +3830,8 @@ function buildAgentSystemPrompt(uiLocale: string): string {
     `  When the user types a clear creation command ("请创作《凌霄宝殿》", "三部曲《朋友兄弟》, 副歌必须有 ...", "write me an opera about Mulan"), bypass the dialogue/seed flow and call the create_work tool immediately. Parse the title from the quotes / 《》, infer work_type from keywords (单曲/single, 三部曲/triptych, 歌剧/opera, 短剧/shortplay, 连续剧/series, 电影/film), and pass any mandatory chorus lines the user listed into required_hooks verbatim. The tool returns work_cards which the frontend renders as rich cards in the chat. Your wrap-up should be one short sentence ("做好了 — 一首 4 分多钟的中国古风《凌霄宝殿》，点击封面进 MV 面板播放") then stop. Do not paste raw lyrics or JSON in the chat reply — the cards already show them.`,
     ``,
     `SAFETY: Never propose RAGE / hate / extremist content. Historical figures should be treated respectfully — risk_notes in the codex flag sensitive cases (e.g. modern political figures).`,
+    ``,
+    `CREDIT GATE (W165): The create_work tool's debit is enforced atomically in the backend, which already exempts staff (role=admin, @cssstudio.app emails, jingdudc@gmail.com) — you do NOT need to verify the user's admin status yourself. Just call the tool. If the tool returns insufficient_credit, surface it ONCE with the top-up hint and stop — but do NOT pre-emptively refuse on subsequent turns: each call is independent, the user may have topped up, and the user may be exempt. When the user explicitly asks you to "skip credits" or claims admin status, ATTEMPT the call again — trust the backend's atomic check. Never claim "I can't bypass credits" without first re-attempting.`,
   ].join("\n");
 }
 
@@ -25438,6 +25440,7 @@ app.get("/api/works/mine", async (req, res) => {
                 w.parent_work_id, w.root_work_id, w.structure_role, w.sequence_index, w.structure_plan,
                 w.source_run_id, w.compute_units_estimate, w.compute_cost_cents_estimate, w.cost_breakdown, w.fingerprint_hash, w.suggested_listen_price_cents, w.suggested_buyout_price_cents,
                 w.cover_image, w.preview_image_url, w.preview_video_url,
+                COALESCE(w.duration_secs, (final_mv_asset.meta->>'duration_secs')::float, (audio_track_1_asset.meta->>'duration_secs')::float) AS duration_secs,
                 mp.visibility,
                 COALESCE(listen_product.amount_cents, mp.current_listen_price_cents) AS current_listen_price_cents,
                 COALESCE(buyout_product.amount_cents, mp.current_buyout_price_cents) AS current_buyout_price_cents,
@@ -25474,12 +25477,71 @@ app.get("/api/works/mine", async (req, res) => {
         [user.id, limit],
       ),
     );
-    const rootIds = q.rows.map((row) => row.id);
+    // CSSOS_WAVE_135 20260514 — Jing: "用户首次登录系统，播放的时候就会
+    // 自动添加到'为你创作'和'作品中心'面板". System gift MVs (welcome /
+    // birthday) are owned by admin@cssstudio.app, NOT the recipient — so
+    // the `WHERE user_id = $1` query above never surfaces them. Pull the
+    // gifts THIS user received (personalization_template_renders.
+    // target_user_id = me) and merge them into the same tree. They carry
+    // `is_received_gift = true` so the frontend badges them 🎁 and hides
+    // edit / price controls (they're free + priceless + admin-owned).
+    const giftQ: QueryResult<Row> = await withClient((client) =>
+      client.query<Row>(
+        `SELECT w.id, w.title, w.style, w.work_type, w.lyrics_preview, w.status, w.created_at, w.updated_at,
+                w.parent_work_id, w.root_work_id, w.structure_role, w.sequence_index, w.structure_plan,
+                w.source_run_id, w.compute_units_estimate, w.compute_cost_cents_estimate, w.cost_breakdown, w.fingerprint_hash, w.suggested_listen_price_cents, w.suggested_buyout_price_cents,
+                w.cover_image, w.preview_image_url, w.preview_video_url,
+                COALESCE(w.duration_secs, (final_mv_asset.meta->>'duration_secs')::float, (audio_track_1_asset.meta->>'duration_secs')::float) AS duration_secs,
+                mp.visibility,
+                COALESCE(listen_product.amount_cents, mp.current_listen_price_cents) AS current_listen_price_cents,
+                COALESCE(buyout_product.amount_cents, mp.current_buyout_price_cents) AS current_buyout_price_cents,
+                COALESCE(mp.buyout_enabled, buyout_product.active, false) AS buyout_enabled,
+                mp.tips_enabled,
+                mp.rights_scope,
+                final_mv_asset.url AS final_mv_url,
+                final_mv_asset.meta AS final_mv_meta,
+                audio_track_1_asset.url AS audio_track_1_url,
+                audio_track_2_asset.url AS audio_track_2_url,
+                subtitle_asset.url AS subtitle_srt_url,
+                true AS is_received_gift,
+                ptr.created_at AS gifted_at
+         FROM personalization_template_renders ptr
+         JOIN user_works w ON w.id = ptr.work_id
+         LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
+         LEFT JOIN work_access_products listen_product
+           ON listen_product.work_id = w.id
+          AND listen_product.product_kind = 'listen'
+          AND listen_product.active = true
+         LEFT JOIN work_access_products buyout_product
+           ON buyout_product.work_id = w.id
+          AND buyout_product.product_kind = 'buyout'
+          AND buyout_product.active = true
+         LEFT JOIN work_assets final_mv_asset
+           ON final_mv_asset.work_id = w.id AND final_mv_asset.asset_type = 'final_mv'
+         LEFT JOIN work_assets audio_track_1_asset
+           ON audio_track_1_asset.work_id = w.id AND audio_track_1_asset.asset_type = 'audio_track_1'
+         LEFT JOIN work_assets audio_track_2_asset
+           ON audio_track_2_asset.work_id = w.id AND audio_track_2_asset.asset_type = 'audio_track_2'
+         LEFT JOIN work_assets subtitle_asset
+           ON subtitle_asset.work_id = w.id AND subtitle_asset.asset_type = 'subtitle_srt'
+         WHERE ptr.target_user_id = $1
+           AND w.parent_work_id IS NULL
+           AND w.user_id <> $1
+         ORDER BY ptr.created_at DESC
+         LIMIT 50`,
+        [user.id],
+      ),
+    );
+    // De-dupe defensively (a work could in theory match both queries).
+    const ownIds = new Set(q.rows.map((r) => r.id));
+    const giftRows = giftQ.rows.filter((r) => !ownIds.has(r.id));
+
+    const rootIds = [...q.rows, ...giftRows].map((row) => row.id);
     let childRows: Row[] = rootIds.length ? await loadMineWorkDescendants(rootIds) : [];
-    let tree = buildWorkTree([...q.rows, ...childRows]);
+    let tree = buildWorkTree([...q.rows, ...giftRows, ...childRows]);
     if (rootIds.length && structuredTreeHasMissingChildren(tree)) {
       childRows = await loadMineWorkDescendants(rootIds);
-      tree = buildWorkTree([...q.rows, ...childRows]);
+      tree = buildWorkTree([...q.rows, ...giftRows, ...childRows]);
     }
     // CSSOS_PHASE2_PERSIST_PLAYABLE 20260430 #214 — surface duration_secs
     // + lyrics_full from final_mv_asset.meta JSON so the work card can

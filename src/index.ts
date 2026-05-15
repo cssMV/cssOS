@@ -3709,10 +3709,14 @@ async function runAgentTool(
         parts.push({ title, lyrics: lyricsText });
       }
 
-      // Generate covers + INSERT user_works for each part.
-      const cards: any[] = [];
-      for (const part of parts) {
-        let coverUrl = "";
+      // CSSOS_WAVE_166 20260515 — Jing: "Creation took too long and the
+      // server cut it off." Cover generation was running SERIALLY — for a
+      // triptych that's 3 × ~30s = ~90s of cover work alone, which on top
+      // of 90s of lyrics generation + Claude's agentic loop pushed past
+      // nginx's 300s ceiling. Generate every part's cover in PARALLEL so
+      // triptych cover time drops to ~30s. DB inserts stay serial below
+      // (fast, no parallel benefit, and keeps transaction ordering sane).
+      const covers: string[] = await Promise.all(parts.map(async (part) => {
         try {
           const img = await callImageGen({
             prompt: [part.title, style, theme, civilization, "cinematic album cover, dramatic lighting, no text"]
@@ -3720,12 +3724,19 @@ async function runAgentTool(
             size: "1024x1024",
           });
           if (img && img.ok) {
-            coverUrl = img.image_url
+            return img.image_url
               ? img.image_url
               : (img.image_b64 ? persistBase64Cover(img.image_b64, ctx.userId) : "");
           }
         } catch (_) { /* cover is optional */ }
+        return "";
+      }));
 
+      // INSERT user_works for each part.
+      const cards: any[] = [];
+      for (let i = 0; i < parts.length; i += 1) {
+        const part = parts[i]!;
+        const coverUrl = covers[i] || "";
         const workId = crypto.randomUUID();
         const previewLine = part.lyrics.split(/\r?\n/).find((l) => l.trim().length > 0 && !l.startsWith("[")) || part.title;
         try {

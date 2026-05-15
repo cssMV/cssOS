@@ -3940,13 +3940,14 @@ async function runAgentTool(
       // CSSOS_WAVE_175 — for opera, flatten scenes for parallel cover
       // generation. Each scene gets its own cover (it's the playable
       // leaf); acts reuse their first scene's cover.
-      // CSSOS_WAVE_178 — shortplay can have 20–100 episodes; firing
-      // 100 parallel image-gen calls would blow the budget and hit
-      // provider rate limits. For shortplay: generate ONE shared show
-      // cover, reuse it for every [Episode N], and only generate a
-      // dedicated cover for each [Theme Song] / [Interlude N] /
-      // [Ending Song] (those are full-length distinct songs).
-      const shortplayShareCover = wt === "shortplay";
+      // CSSOS_WAVE_181 — Jing: 短剧也要每集不同封面.
+      // Previously (W178) we reused one show-poster across every
+      // episode to dodge the 100-call image-gen blowup. With the
+      // default-5-eps batch this wave (W179), parallel cover gen is
+      // tiny — 5 dedicated covers ≈ $0.15, well within budget — so
+      // every episode now gets its own cover. We keep a soft cap:
+      // beyond 30 leaves we fall back to one-cover-per-role-group
+      // to keep big-batch shortplays from melting the image router.
       const renderCover = async (label: string): Promise<string> => {
         try {
           const img = await callImageGen({
@@ -3963,19 +3964,19 @@ async function runAgentTool(
         return "";
       };
       let covers: string[];
-      if (shortplayShareCover) {
-        const sharedCover = await renderCover(title);
-        // Dedicated cover for non-episode roles (songs); reuse shared
-        // for plain episodes.
-        const songCovers = await Promise.all(parts.map(async (part) => {
-          if (String(part.role || "") === "episode") return sharedCover;
+      const coverTargets: { title: string; lyrics: string; role?: string }[] = operaActs
+        ? operaActs.flatMap((a) => a.scenes)
+        : parts;
+      const LARGE_BATCH = 30;
+      if (wt === "shortplay" && coverTargets.length > LARGE_BATCH) {
+        // Big-batch safety: one cover per (role) — e.g. one shared
+        // for all episodes, individual for each theme/interlude/ending.
+        const sharedEpCover = await renderCover(title);
+        covers = await Promise.all(coverTargets.map(async (part) => {
+          if (String(part.role || "episode") === "episode") return sharedEpCover;
           return await renderCover(part.title);
         }));
-        covers = songCovers;
       } else {
-        const coverTargets: { title: string; lyrics: string }[] = operaActs
-          ? operaActs.flatMap((a) => a.scenes)
-          : parts;
         covers = await Promise.all(coverTargets.map((part) => renderCover(part.title)));
       }
 

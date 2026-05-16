@@ -76,6 +76,19 @@ while IFS=$'\t' read -r ts_ms message; do
     >> "$EVENTS_FILE"
   logger -t cssos-oom-detector "[oom-detector] NEW oom kill: $message"
   echo "[oom-detector] NEW oom kill: $message" >&2
+  # CSSOS_WAVE_202 — push to Slack / Discord / generic webhook / Resend
+  # email so the alert reaches a phone within seconds, not the next
+  # time someone tails journalctl. Alerter reads sinks from
+  # /etc/cssstudio/cssstudio.env; missing ones are skipped silently.
+  if [ -x /srv/cssos/bin/cssos-oom-alert.sh ]; then
+    printf '{"ts":%s,"ts_iso":"%s","message":"%s","top_procs":"%s","host":"%s"}\n' \
+      "$ts_int" \
+      "$(date -u -d "@${ts_int}" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "")" \
+      "$esc_msg" \
+      "$esc_top" \
+      "$(hostname -s 2>/dev/null || echo cssos)" \
+      | /srv/cssos/bin/cssos-oom-alert.sh >/dev/null 2>&1 || true
+  fi
 done < <(
   journalctl -k --output=short-unix --since "$WINDOW" --no-pager 2>/dev/null \
     | grep -iE "$PATTERN" \

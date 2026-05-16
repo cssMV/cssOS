@@ -3,26 +3,28 @@
  * "一旦启动 app 进入主界面开始，顶部时间栏就隐藏，
  *  底部的白色滑动条，只能无操作 2 秒自动隐藏。"
  *
- * iOS Safari (and Android Chrome) only allows the top status bar /
- * URL chrome / bottom home-indicator pill to be hidden via the
- * Fullscreen API, and that API requires a user gesture. So this
- * module:
+ * CSSOS_WAVE_193 20260516 refinement — Jing: 把全屏请求收紧到
+ * "真正的创作意图" 手势上，不要在随便点 chip / 登录按钮时就把
+ * 浏览器壳子掀掉。
  *
- *   1. Waits for the FIRST user touch / click / keydown after boot.
- *   2. Requests document.documentElement.requestFullscreen() (with
- *      webkit prefix on older iOS).
- *   3. iOS then auto-hides the time bar AND auto-hides the home
- *      indicator after ~2-3 s of no interaction — the OS itself
- *      handles the "无操作自动隐藏" behavior once we're fullscreen.
+ * iOS Safari only allows the top status bar / URL chrome / bottom
+ * home-indicator pill to be hidden via the Fullscreen API, and that
+ * API requires a user gesture. Earlier draft listened for ANY first
+ * pointerdown — which fired fullscreen on incidental taps (chip,
+ * dock icon, sign-in button). This version listens ONLY on signals
+ * that mean "I'm starting to CREATE":
  *
- * Scoped to TOUCH devices only (pointer: coarse) — auto-fullscreen
- * on desktop browsers feels invasive and the time bar isn't a
- * problem there anyway.
+ *   1. cssos:mic_hold_start         ← user holds the mirror to record
+ *   2. cssos:enter-immersive        ← any module can dispatch this to
+ *                                      request fullscreen explicitly
+ *   3. click on #mvp-run            ← MV Pipeline "Start" button
+ *   4. click on [data-cssos-fullscreen-trigger]
  *
- * Skips in standalone PWA mode (window.matchMedia('(display-mode:
- * standalone)')) since the app is already chrome-less in that mode.
+ * Once any of these fire, iOS takes over: time bar hides, home
+ * indicator dims after ~2 s of no touch and re-appears on next touch.
  *
- * Idempotent: runs once per page load via a sentinel flag.
+ * Scoped to TOUCH devices only (pointer: coarse). Skips standalone
+ * PWA mode (already chrome-less). Idempotent via __cssosAppFullscreenWired.
  */
 (function () {
   "use strict";
@@ -33,9 +35,7 @@
     try {
       if (typeof window === "undefined" || typeof document === "undefined") return false;
       if (typeof window.matchMedia !== "function") return false;
-      // Only touch devices.
       if (!window.matchMedia("(pointer: coarse)").matches) return false;
-      // Already chrome-less in PWA / standalone mode.
       if (window.matchMedia("(display-mode: standalone)").matches) return false;
       if (typeof navigator !== "undefined" && navigator.standalone === true) return false;
       return true;
@@ -55,7 +55,7 @@
         || el.webkitRequestFullScreen
         || el.mozRequestFullScreen
         || el.msRequestFullscreen;
-      if (!fn) return; // unsupported — quietly bail
+      if (!fn) return;
       const p = fn.call(el);
       if (p && typeof p.catch === "function") {
         p.catch(function () { /* user denied or browser blocked — silent */ });
@@ -63,23 +63,46 @@
     } catch (_) { /* never let this break the app */ }
   }
 
+  // Expose the trigger so other modules can call it without dispatching
+  // a custom event (e.g. createCreationSurface, Start Pipeline button).
+  globalThis.cssosRequestAppFullscreen = enterFullscreen;
+
   function arm() {
-    // Listen for any of: first touch, first pointerdown, first click,
-    // first keydown. Once any fires, request fullscreen and detach.
-    const events = ["touchstart", "pointerdown", "click", "keydown"];
-    const handler = function () {
-      events.forEach(function (ev) {
-        try { document.removeEventListener(ev, handler, { capture: true }); } catch (_) {}
-      });
-      enterFullscreen();
-    };
-    events.forEach(function (ev) {
-      try {
-        document.addEventListener(ev, handler, { capture: true, passive: true, once: true });
-      } catch (_) {
-        try { document.addEventListener(ev, handler, true); } catch (__) {}
-      }
-    });
+    // 1. The mic-hold creation gesture — fires touchstart→pointerdown
+    //    inside the SAME user-gesture window that getUserMedia uses,
+    //    so fullscreen + mic permission share one tap.
+    try {
+      window.addEventListener("cssos:mic_hold_start", enterFullscreen, { passive: true });
+    } catch (_) {}
+
+    // 2. Explicit opt-in event any module can dispatch.
+    try {
+      window.addEventListener("cssos:enter-immersive", enterFullscreen, { passive: true });
+    } catch (_) {}
+
+    // 3. Click delegation: Start Pipeline button + any element opted in
+    //    via data-cssos-fullscreen-trigger. Capture phase so we run
+    //    before the button's own handler — both fire inside the same
+    //    user gesture, so requestFullscreen + the click action both
+    //    get the activation token.
+    document.addEventListener("click", function (ev) {
+      if (fired) return;
+      const t = ev.target;
+      if (!t || !t.closest) return;
+      const hit = t.closest("#mvp-run, [data-cssos-fullscreen-trigger]");
+      if (hit) enterFullscreen();
+    }, { capture: true, passive: true });
+
+    // 4. Pointerdown on the same intent targets — pointerdown beats click
+    //    when iOS slow-tap detection holds; keeps fullscreen synchronous
+    //    with the user's first contact.
+    document.addEventListener("pointerdown", function (ev) {
+      if (fired) return;
+      const t = ev.target;
+      if (!t || !t.closest) return;
+      const hit = t.closest("#mvp-run, [data-cssos-fullscreen-trigger]");
+      if (hit) enterFullscreen();
+    }, { capture: true, passive: true });
   }
 
   if (document.readyState === "loading") {

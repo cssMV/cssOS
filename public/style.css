@@ -6185,6 +6185,23 @@ html[data-theme="light"] .works-fp-optin-desc {
   }
 }
 
+/* CSSOS_WAVE_191 20260516 — Jing: 横屏手机 logo 严重变形.
+   Portrait override above sets 33vw, which in landscape becomes ~33%
+   of the LONG edge (e.g. 800px × 0.33 ≈ 264px), but the logo-panel's
+   short edge (≈ 330px viewport height minus chrome ≈ 150-200px usable)
+   is much smaller — the square mirror overflows vertically and the
+   container clips it to a horizontal band, looking deformed.
+   On landscape phones (any touch device held landscape), size by the
+   SHORT edge instead: 33vh so the mirror is exactly 1/3 of viewport
+   HEIGHT, leaving 1/3 padding top + 1/3 padding bottom for breathing
+   room — matches the portrait brief but axis-swapped. */
+@media (orientation: landscape) and (max-height: 600px),
+       (orientation: landscape) and (pointer: coarse) {
+  .logo-panel {
+    --mirror-size: 33vh;
+  }
+}
+
 .watch-screen::before {
   content: "";
   position: absolute;

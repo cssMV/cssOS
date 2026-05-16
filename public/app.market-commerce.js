@@ -477,7 +477,13 @@ function ensureMarketSearchReveal(body, behavior) {
   }
 }
 
-async function openMarketWorkPreview(work = {}) {
+// CSSOS_WAVE_198 20260516 — accept an explicit options bag so the
+// skipFullscreen / queue-advance plumbing inside this function actually
+// has somewhere to read from. Previously it referenced `options`
+// without declaring the parameter, throwing
+// "ReferenceError: options is not defined" on every preview open
+// (beaconed on /#person-mv/codex/* etc.).
+async function openMarketWorkPreview(work = {}, options = {}) {
   /* CSSOS_SHARE_LINK_SINGLE_SOURCE 20260506 — Jing
    * "用户点击进来，好像要经过几道关卡，这个UUID好像也不是唯一真源,
    *  面板跳来跳去，最终播放了一个不是分享的那个标题的作品."

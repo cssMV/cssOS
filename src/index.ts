@@ -1234,6 +1234,61 @@ const SECTION_LABEL_ALIASES: Record<string, string> = {
   "イントロ": "Verse 1", "アウトロ": "Outro",
 };
 
+/* CSSOS_WAVE_197 20260516 — Jing: agent 在 LLM 写歌时, civilization 字段
+ * 自动决定歌词母语. Mirror of public/app.civ-language-map.js so the
+ * server-side create_work tool stays in lock-step with the person-MV
+ * panel's language pick. Substring match, case-insensitive, first hit
+ * wins (more specific keys ordered first). Unknown civ → "" so the
+ * caller falls back to script-sniff / UI / "en". */
+const CIV_LANGUAGE_ENTRIES: ReadonlyArray<{ match: ReadonlyArray<string>; lang: string }> = [
+  { match: ["中华", "Chinese", "Confucian", "Daoist", "Taoist"],            lang: "zh" },
+  { match: ["日本", "Japan", "Japanese"],                                    lang: "ja" },
+  { match: ["朝鲜", "韩国", "高丽", "Korean", "Korea", "Goryeo", "Joseon"],   lang: "ko" },
+  { match: ["越南", "Vietnam", "Vietnamese"],                                lang: "vi" },
+  { match: ["藏文明", "西藏", "Tibet", "Tibetan"],                          lang: "bo" },
+  { match: ["莫卧儿", "Mughal"],                                             lang: "ur" },
+  { match: ["古印度", "印度教神话", "Vedic", "Hindu Myth"],                 lang: "sa" },
+  { match: ["佛教神话", "Buddhist Myth"],                                   lang: "sa" },
+  { match: ["现代印度", "Modern India"],                                     lang: "hi" },
+  { match: ["印度", "India", "Indian"],                                     lang: "hi" },
+  { match: ["波斯", "Persia", "Persian", "Iran", "Iranian"],                 lang: "fa" },
+  { match: ["古埃及", "Ancient Egypt", "Egyptian Myth"],                     lang: "ar" },
+  { match: ["美索不达米亚", "Mesopotam"],                                   lang: "ar" },
+  { match: ["奥斯曼", "Ottoman", "Turkic"],                                 lang: "tr" },
+  { match: ["阿拉伯", "Arab"],                                               lang: "ar" },
+  { match: ["古希腊", "Ancient Greek", "Hellenic", "Greek Myth"],            lang: "el" },
+  { match: ["拜占庭", "Byzantine"],                                          lang: "el" },
+  { match: ["古罗马", "Ancient Roman", "Roman Empire"],                      lang: "la" },
+  { match: ["文艺复兴", "Renaissance"],                                      lang: "it" },
+  { match: ["启蒙", "Enlightenment"],                                        lang: "fr" },
+  { match: ["巴洛克", "Baroque"],                                            lang: "de" },
+  { match: ["古典主义", "Classical Europe"],                                 lang: "de" },
+  { match: ["浪漫主义", "Romantic Europe"],                                  lang: "de" },
+  { match: ["维多利亚", "Victorian"],                                        lang: "en" },
+  { match: ["近现代欧洲", "近代欧洲", "Modern Europe", "Early Modern Europe"], lang: "en" },
+  { match: ["北欧神话", "Norse Mythology"],                                 lang: "is" },
+  { match: ["现代北欧", "Modern Nordic"],                                   lang: "sv" },
+  { match: ["印加", "Inca"],                                                 lang: "es" },
+  { match: ["美国", "近现代北美", "Modern North America", "United States", "American"], lang: "en" },
+  { match: ["现代非洲", "Modern Africa"],                                   lang: "sw" },
+  { match: ["中土世界", "Middle-earth"],                                     lang: "en" },
+  { match: ["欧洲", "European", "西方", "Western"],                          lang: "en" },
+  { match: ["现代文学", "Modern Literature"],                               lang: "en" },
+  { match: ["现代科学", "近现代科学", "Modern Science"],                    lang: "en" },
+  { match: ["当代", "Contemporary"],                                         lang: "en" },
+];
+function civToLanguageServer(civilization: string): string {
+  const s = String(civilization || "").trim();
+  if (!s) return "";
+  const lower = s.toLowerCase();
+  for (const e of CIV_LANGUAGE_ENTRIES) {
+    for (const key of e.match) {
+      if (lower.indexOf(key.toLowerCase()) !== -1) return e.lang;
+    }
+  }
+  return "";
+}
+
 function languageNameFromCode(code: string): string {
   const c = String(code || "").toLowerCase().trim();
   if (c.startsWith("zh")) return "Chinese (Simplified, 简体中文)";
@@ -3638,7 +3693,20 @@ async function runAgentTool(
       if (!title) return { error: "title_required" };
       const style = String(inp.style || "").trim();
       const civilization = String(inp.civilization || "").trim();
-      const lang = String(inp.language || (/[一-鿿]/.test(title + " " + style + " " + (inp.theme || "")) ? "zh" : "en")).slice(0, 6);
+      // CSSOS_WAVE_197 20260516 — Jing: agent 在 LLM 写歌时看到 civilization
+      // 就自动联动语言。Priority chain:
+      //   1. inp.language  (explicit override the agent set)
+      //   2. civToLanguageServer(civilization) — Chinese 中华 → zh,
+      //      古埃及 → ar, 日本 → ja, 古希腊 → el, 古罗马 → la, …
+      //   3. CJK script sniff on title/style/theme → zh
+      //   4. "en" default
+      const civDerivedLang = civToLanguageServer(civilization);
+      const sniffedZh = /[一-鿿]/.test(title + " " + style + " " + (inp.theme || ""));
+      const lang = String(
+        inp.language
+          || civDerivedLang
+          || (sniffedZh ? "zh" : "en")
+      ).slice(0, 6);
       const theme = String(inp.theme || "").trim();
       const workType = String(inp.work_type || "single").toLowerCase();
       const requiredHooks: string[] = Array.isArray(inp.required_hooks)
@@ -4351,6 +4419,8 @@ function buildAgentSystemPrompt(uiLocale: string): string {
     `SAFETY: Never propose RAGE / hate / extremist content. Historical figures should be treated respectfully — risk_notes in the codex flag sensitive cases (e.g. modern political figures).`,
     ``,
     `CREDIT GATE (W165): The create_work tool's debit is enforced atomically in the backend, which already exempts staff (role=admin, @cssstudio.app emails, jingdudc@gmail.com) — you do NOT need to verify the user's admin status yourself. Just call the tool. If the tool returns insufficient_credit, surface it ONCE with the top-up hint and stop — but do NOT pre-emptively refuse on subsequent turns: each call is independent, the user may have topped up, and the user may be exempt. When the user explicitly asks you to "skip credits" or claims admin status, ATTEMPT the call again — trust the backend's atomic check. Never claim "I can't bypass credits" without first re-attempting.`,
+    ``,
+    `CIVILIZATION → LYRIC LANGUAGE (W197): When you set "civilization" on create_work (e.g. "中华文明", "古埃及", "古希腊", "日本古典", "中土世界"), the backend automatically routes the lyric language to the persona's mother tongue (中华→zh, 古埃及→ar, 古希腊→el, 古罗马→la, 日本→ja, 莫卧儿→ur, 北欧神话→is, etc.) regardless of the user's UI language. You do NOT need to set "language" yourself unless the user explicitly overrides it ("write the Confucius opera in English"). Just pass a clean civilization label and the lyrics will land in the right language.`,
   ].join("\n");
 }
 

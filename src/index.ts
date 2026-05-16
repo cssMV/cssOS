@@ -33954,6 +33954,66 @@ app.post("/api/auth/apple/native", express.json(), async (req, res) => {
  * redeem the token (single-use, 90s TTL) and call setAuthSession
  * on THIS request — that Set-Cookie lands in the WebView's jar.
  * Replay returns 401. */
+/* CSSOS_WAVE_206 20260516 — Jing: Apple App Review demo sign-in.
+ *
+ * cssOS is OAuth-only (Apple / Google / GitHub / X / Facebook / WeChat
+ * / Bluesky). For App Store Review the reviewer can't use any of those
+ * — they can't log into our Apple ID / Google account. They need a
+ * static credential that the submission text discloses.
+ *
+ * This endpoint accepts {email, password} and validates against:
+ *   APP_REVIEW_DEMO_EMAIL    — pre-baked allow-listed email
+ *   APP_REVIEW_DEMO_PASSWORD — pre-baked allow-listed password
+ * Both env vars must be set OR the endpoint returns 503 (disabled),
+ * which means we can flip it off post-review by removing the env vars.
+ *
+ * Password compare is constant-time. On success we set req.session
+ * .user_id (same shape every OAuth path uses), so the rest of the app
+ * doesn't need to know there was anything special about this sign-in.
+ */
+app.post("/api/auth/demo-login", express.json({ limit: "1kb" }), async (req, res) => {
+  const expectedEmail = String(process.env.APP_REVIEW_DEMO_EMAIL || "").trim().toLowerCase();
+  const expectedPassword = String(process.env.APP_REVIEW_DEMO_PASSWORD || "");
+  if (!expectedEmail || !expectedPassword) {
+    return res.status(503).json({ ok: false, error: "demo_login_disabled" });
+  }
+  const body = (req.body && typeof req.body === "object") ? (req.body as any) : {};
+  const email = String(body.email || "").trim().toLowerCase();
+  const password = String(body.password || "");
+  if (!email || !password) {
+    return res.status(400).json({ ok: false, error: "missing_credentials" });
+  }
+  // Constant-time compare on both fields (use a fixed-length hash so
+  // timing leaks nothing about either secret's actual length).
+  const hashedExpected = crypto.createHash("sha256").update(`${expectedEmail}\n${expectedPassword}`).digest();
+  const hashedActual   = crypto.createHash("sha256").update(`${email}\n${password}`).digest();
+  if (!crypto.timingSafeEqual(hashedExpected, hashedActual)) {
+    return res.status(401).json({ ok: false, error: "invalid_credentials" });
+  }
+  try {
+    const r = await withClient((c) =>
+      c.query<{ id: string }>(
+        `SELECT id FROM users WHERE lower(email) = $1 AND deleted_at IS NULL LIMIT 1`,
+        [email],
+      ),
+    );
+    const row = r.rows[0];
+    if (!row) {
+      return res.status(404).json({ ok: false, error: "demo_user_missing" });
+    }
+    (req.session as any).user_id = row.id;
+    (req.session as any).auth_provider = "demo";
+    return res.json({
+      ok: true,
+      user_id: row.id,
+      note: "App Review demo sign-in — single-use OAuth bypass for Apple's review process.",
+    });
+  } catch (err) {
+    console.warn("[auth/demo-login] threw:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, error: "demo_login_failed" });
+  }
+});
+
 app.post("/api/auth/handoff/exchange", express.json({ limit: "1kb" }), async (req, res) => {
   try {
     const handoff = String((req.body && (req.body as any).handoff) || "").trim();

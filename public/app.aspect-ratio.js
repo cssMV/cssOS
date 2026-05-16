@@ -38,22 +38,21 @@ const ASPECT_PRESETS = Object.freeze({
     runwayImageRatio: "1080:1920",
     runwayVideoRatio: "720:1280"
   },
-  // CSSOS_WAVE_187 20260516 — Jing: 加一个「手机真全屏」规格.
-  // Modern iPhones (X/11/12/13/14/15/16, most "tall" Android flagships)
-  // are ~19.5:9, taller than the classic 9:16. Rendering at exactly the
-  // phone's native pixel grid (e.g. iPhone 14 Pro = 1170×2532) means
-  // playback fills bezel-to-bezel with NO letterbox at the top/bottom
-  // — the user's W186 panel corners then sit flush with the display
-  // corner. Runway has no native 19.5:9, so we anchor to 1170:2532 in
-  // canvas and let pickClosest fall back to 1080:1920 for the engine
-  // call; ffmpeg pad / scale to the full 1170×2532 at compose time.
+  // CSSOS_WAVE_188 20260516 — Jing: 「手机真全屏」要动态检测当前设备
+  // 屏幕规格，不同手机不一样。Default w/h here is just a sensible
+  // fallback for non-mobile contexts (server-side render, desktop
+  // preview). resolveCreationAspectRatioModule overrides these with
+  // the user's REAL device pixel grid (screen.width × DPR portrait-
+  // oriented) when this preset is active — so iPhone SE gets 750×1334,
+  // iPhone 14 Pro gets 1179×2556, Pixel 7 gets 1080×2400, etc.
   "9:19.5": {
     key: "9:19.5",
-    label: { en: "Phone Fullscreen 19.5:9", zh: "手机真全屏 19.5:9" },
-    tagline: { en: "Fills modern phones edge-to-edge", zh: "现代手机屏满铺，无黑边" },
+    label: { en: "Phone Fullscreen (device-fit)", zh: "手机真全屏（按本机）" },
+    tagline: { en: "Detected from your device — fills bezel to bezel", zh: "按当前手机屏幕规格自动检测，满铺无黑边" },
     w: 1170, h: 2532,
     runwayImageRatio: "1080:1920",
-    runwayVideoRatio: "720:1280"
+    runwayVideoRatio: "720:1280",
+    isDeviceFit: true
   },
   "1:1": {
     key: "1:1",
@@ -157,6 +156,52 @@ function clampCustomDimensionModule(value, fallback, min, max) {
   return Math.max(min, Math.min(max, n));
 }
 
+// CSSOS_WAVE_188 20260516 — Jing: 手机真全屏要按当前设备测一遍.
+// Read the device's actual physical pixel grid for portrait fullscreen
+// playback. Resolution priority:
+//   1. screen.width × DPR  /  screen.height × DPR  → physical pixels
+//   2. window.innerWidth × DPR  /  innerHeight × DPR  → viewport fallback
+// Forces portrait (smaller value = width). Clamps to a safe 320–4096
+// range so a weird browser zoom can't ship a tiny or huge canvas. Memo
+// once per page load — re-detecting on every resolve is unnecessary and
+// would shift the spec mid-pipeline if the user rotates.
+let __cssosDetectedDeviceFitCache = null;
+function detectDeviceFullscreenPixelsModule() {
+  if (__cssosDetectedDeviceFitCache !== null) return __cssosDetectedDeviceFitCache;
+  if (typeof window === "undefined" || typeof screen === "undefined") {
+    __cssosDetectedDeviceFitCache = null;
+    return null;
+  }
+  try {
+    const dpr = Math.max(1, Number(window.devicePixelRatio) || 1);
+    // Prefer screen.* — that's the device's display, independent of
+    // address-bar collapse / split-screen window cropping.
+    let cssW = Number(screen.width) || 0;
+    let cssH = Number(screen.height) || 0;
+    if (!(cssW > 0 && cssH > 0)) {
+      cssW = Number(window.innerWidth) || 0;
+      cssH = Number(window.innerHeight) || 0;
+    }
+    if (!(cssW > 0 && cssH > 0)) {
+      __cssosDetectedDeviceFitCache = null;
+      return null;
+    }
+    let pxW = Math.round(cssW * dpr);
+    let pxH = Math.round(cssH * dpr);
+    // Force portrait: smaller is width.
+    if (pxW > pxH) { const t = pxW; pxW = pxH; pxH = t; }
+    // Clamp into a sane range. 320×480 covers ancient devices;
+    // 4096×8192 covers iPad Pro 12.9 (2048×2732) with headroom.
+    pxW = Math.max(320, Math.min(4096, pxW));
+    pxH = Math.max(480, Math.min(8192, pxH));
+    __cssosDetectedDeviceFitCache = { w: pxW, h: pxH, dpr };
+    return __cssosDetectedDeviceFitCache;
+  } catch (_) {
+    __cssosDetectedDeviceFitCache = null;
+    return null;
+  }
+}
+
 function normalizeAspectPresetKeyModule(key) {
   if (!key || typeof key !== "string") return "16:9";
   const trimmed = key.trim();
@@ -211,6 +256,19 @@ function resolveCreationAspectRatioModule(options) {
   if (presetKey === "custom") {
     w = clampCustomDimensionModule(stateLike.customWidth, 1920, 64, 8192);
     h = clampCustomDimensionModule(stateLike.customHeight, 1080, 64, 8192);
+  } else if (preset.isDeviceFit) {
+    // CSSOS_WAVE_188 — read the user's ACTUAL device pixel grid so the
+    // output media truly fills THAT phone. Forces portrait (smaller is
+    // width, larger is height). Detection runs only in a browser
+    // context; falls back to the preset defaults otherwise.
+    const detected = detectDeviceFullscreenPixelsModule();
+    if (detected) {
+      w = detected.w;
+      h = detected.h;
+    } else {
+      w = preset.w;
+      h = preset.h;
+    }
   } else {
     w = preset.w;
     h = preset.h;
@@ -269,7 +327,10 @@ Object.assign(globalThis, {
   applyAspectRatioCssVarModule,
   applyAspectRatioCssVar: applyAspectRatioCssVarModule,
   normalizeAspectPresetKey: normalizeAspectPresetKeyModule,
-  normalizeAspectPresetKeyModule
+  normalizeAspectPresetKeyModule,
+  // CSSOS_WAVE_188 — surface the detector so other modules (e.g. the
+  // pipeline panel caption) can show "(detected 1170×2532)".
+  detectDeviceFullscreenPixelsModule
 });
 
 // Legacy var bindings for scripts that may reference these symbols directly.

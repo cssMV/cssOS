@@ -24611,6 +24611,177 @@ app.get("/api/me", async (req, res) => {
   }
 });
 
+/* CSSOS_WAVE_200 20260516 — Jing: "用户上传了自定义头像（可否把头像存到
+ * 数据库）". Accept a base64-encoded image in the request body and persist
+ * a 256×256 WebP under MV_FALLBACK_ARTIFACTS_DIR + mirrored to R2. Updates
+ * users.avatar_url so it overrides whatever OAuth provider seeded.
+ * Body shape: { image_b64: string } where image_b64 may include the
+ * "data:image/...;base64," prefix (we strip it). Max input 4MB. */
+app.post(
+  "/api/profile/avatar",
+  express.json({ limit: "8mb" }),
+  async (req, res) => {
+    noStore(res);
+    try {
+      const user = await getSessionUser(req);
+      if (!user || !user.id) {
+        return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+      }
+      const raw = String(req.body?.image_b64 || "").trim();
+      const stripped = raw.replace(/^data:image\/[a-z+]+;base64,/i, "");
+      if (!stripped) {
+        return res
+          .status(400)
+          .json({ ok: false, code: "IMAGE_REQUIRED" });
+      }
+      let inputBuf: Buffer;
+      try {
+        inputBuf = Buffer.from(stripped, "base64");
+      } catch (_e) {
+        return res
+          .status(400)
+          .json({ ok: false, code: "INVALID_BASE64" });
+      }
+      if (inputBuf.length < 64 || inputBuf.length > 4 * 1024 * 1024) {
+        return res
+          .status(400)
+          .json({ ok: false, code: "IMAGE_SIZE_OUT_OF_RANGE" });
+      }
+      const userHash = crypto
+        .createHash("sha1")
+        .update(String(user.id))
+        .digest("hex")
+        .slice(0, 8);
+      const rand = crypto.randomBytes(6).toString("hex");
+      const filename = `avatar-${userHash}-${Date.now()}-${rand}.webp`;
+      const filePath = path.join(MV_FALLBACK_ARTIFACTS_DIR, filename);
+      try {
+        await sharp(inputBuf, { failOn: "none" })
+          .resize({ width: 256, height: 256, fit: "cover", position: "center" })
+          .webp({ quality: 85 })
+          .toFile(filePath);
+        try { fs.chmodSync(filePath, 0o644); } catch {}
+      } catch (e) {
+        console.warn(
+          "[avatar-upload] sharp encode failed:",
+          (e as Error)?.message,
+        );
+        return res
+          .status(400)
+          .json({ ok: false, code: "ENCODE_FAILED" });
+      }
+      const publicUrl = `${publicArtifactsBase()}/artifacts/mv-fallback/${filename}`;
+      // Mirror to R2 best-effort
+      setTimeout(() => {
+        optimizeAndUploadAsync(filePath, "artifacts/mv-fallback");
+      }, 250);
+      // Persist on the user row — this overrides any OAuth-seeded URL
+      // because users.avatar_url is the single source of truth for
+      // every avatar render across the app.
+      try {
+        await withClient((c) =>
+          c.query(
+            `UPDATE users SET avatar_url = $2, updated_at = now() WHERE id = $1`,
+            [user.id, publicUrl],
+          ),
+        );
+      } catch (e) {
+        console.warn(
+          "[avatar-upload] UPDATE users failed:",
+          (e as Error)?.message,
+        );
+        return res
+          .status(500)
+          .json({ ok: false, code: "DB_UPDATE_FAILED" });
+      }
+      return res.json({ ok: true, avatar_url: publicUrl });
+    } catch (err) {
+      console.warn(
+        "[avatar-upload] failed:",
+        (err as Error)?.message || err,
+      );
+      return res
+        .status(500)
+        .json({ ok: false, code: "AVATAR_UPLOAD_FAILED" });
+    }
+  },
+);
+
+/* CSSOS_WAVE_200 — viewer ↔ target relationship snapshot. Frontend uses
+ * this to render the avatar context menu with the right toggle states
+ * (Follow vs ✓ Following, Block vs ✓ Blocked) without 3 round trips. */
+app.get("/api/users/:username/relationship", async (req, res) => {
+  noStore(res);
+  try {
+    const viewer = await getSessionUser(req).catch(() => null);
+    if (!viewer || !viewer.id) {
+      return res.json({
+        ok: true,
+        signed_in: false,
+        is_following: false,
+        is_blocked: false,
+        target: null,
+      });
+    }
+    const target = await resolveUserByUsernameOrId(
+      String(req.params.username || "").trim(),
+    );
+    if (!target) {
+      return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    }
+    if (target.id === viewer.id) {
+      return res.json({
+        ok: true,
+        signed_in: true,
+        is_self: true,
+        is_following: false,
+        is_blocked: false,
+        target: {
+          id: target.id,
+          username: target.username,
+          display_name: target.display_name,
+          avatar_url: target.avatar_url,
+        },
+      });
+    }
+    const [followR, blockR] = await Promise.all([
+      withClient((c) =>
+        c.query(
+          `SELECT 1 FROM user_follows WHERE follower_id = $1 AND followee_id = $2`,
+          [viewer.id, target.id],
+        ),
+      ),
+      withClient((c) =>
+        c.query(
+          `SELECT 1 FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2`,
+          [viewer.id, target.id],
+        ),
+      ),
+    ]);
+    return res.json({
+      ok: true,
+      signed_in: true,
+      is_self: false,
+      is_following: (followR.rowCount || 0) > 0,
+      is_blocked: (blockR.rowCount || 0) > 0,
+      target: {
+        id: target.id,
+        username: target.username,
+        display_name: target.display_name,
+        avatar_url: target.avatar_url,
+      },
+    });
+  } catch (err) {
+    console.warn(
+      "[relationship] failed:",
+      (err as Error)?.message || err,
+    );
+    return res
+      .status(500)
+      .json({ ok: false, code: "RELATIONSHIP_FAILED" });
+  }
+});
+
 app.post("/api/profile/switch-provider", async (req, res) => {
   noStore(res);
   try {
@@ -27329,7 +27500,13 @@ app.post("/api/admin/crash-log", express.json({ limit: "32kb" }), (req, res) => 
     const url = String(body.url || "").slice(0, 200);
     const ua = String(body.ua || "").slice(0, 200);
     const lastClickJson = body.lastClick ? JSON.stringify(body.lastClick).slice(0, 240) : "";
-    const line = `[crash-guard] ${kind} | ${msg} | ${url} | ${lastClickJson} | ${ua}`;
+    // CSSOS_WAVE_199 20260516 — capture stack + source so we can pinpoint
+    // which fetch / module emitted a "Load failed" / generic rejection.
+    // Stack is line-flattened so it stays grep-friendly on a single line.
+    const stackFlat = String(body.stack || "").replace(/\n+/g, " ↩ ").slice(0, 800);
+    const source = String(body.source || "").slice(0, 240);
+    const tail = (stackFlat || source) ? ` | ${source || ""} | ${stackFlat || ""}` : "";
+    const line = `[crash-guard] ${kind} | ${msg} | ${url} | ${lastClickJson} | ${ua}${tail}`;
     console.warn(line);
     __crashLogBuf.push({ ts: Date.now(), line });
     if (__crashLogBuf.length > 500) __crashLogBuf.shift();

@@ -2066,7 +2066,7 @@
     <!-- CSSOS_WAVE_117_STEP_1 — Crash guard. MUST load BEFORE everything
          else so window.onerror / onunhandledrejection / location.reload
          instrumentation catches errors thrown by every later script. -->
-    <script src="app.crash-guard.js?v=20260516-wave184-quota-recovery"></script>
+    <script src="app.crash-guard.js?v=20260516-wave199-setItem-guard"></script>
     <!-- CSSOS_WAVE_117_TOUCH_HARDENING — block pull-to-refresh, edge-swipe
          nav, dead-anchor reloads, double-tap fires. Must load early so
          CSS rules apply before any panel renders. -->
@@ -2087,7 +2087,7 @@
     <script src="app.wake-lock.js?v=20260516-wave195-wake-lock"></script>
     <!-- CSSOS_WAVE_196 — civilization → lyric-language map. Loads
          BEFORE person-mv-panel.js so seed-builders can call into it. -->
-    <script src="app.civ-language-map.js?v=20260516-wave196-civ-lang"></script>
+    <script src="app.civ-language-map.js?v=20260516-wave197-en-fallback"></script>
     <!-- CSSOS_WAVE_121 — work-id binding: every watch render flushes
          asset caches first to prevent 张冠李戴. -->
     <script src="app.work-id-binding.js?v=20260514-wave127-orientation"></script>
@@ -2196,7 +2196,7 @@
          see the manifest on first call. -->
     <script src="app.watch-font-manifest.js?v=20260506-quiet"></script>
     <script src="app.playlists.js?v=20260504-scoped"></script>
-    <script src="app.watch-ui.js?v=20260514-wave159-emosub"></script>
+    <script src="app.watch-ui.js?v=20260516-wave200-avatar-menu"></script>
     <script src="app.watch-price-strip.js?v=20260512-wave111c-fp-chip"></script>
     <script src="app.anthropic-health-banner.js?v=20260512-wave111d-vision-health"></script>
     <!-- CSSOS_WAVE_120A — Admin-only crash telemetry dashboard. Floating
@@ -2284,8 +2284,8 @@
          MV Pipeline dock icon ([data-action="mv-pipeline"]) instead of
          on every page load. Saves ~444 KB from first-paint on mobile. -->
     <script src="app.mv-pipeline-open-shim.js?v=20260514-wave145-lazy-trigger"></script>
-    <script type="cssos-lazy" data-panel="mv-pipeline" src="app.mv-pipeline-panel.js?v=20260516-wave190-rotate-live"></script>
-    <script src="app.person-mv-panel.js?v=20260516-wave196-civ-language"></script>
+    <script type="cssos-lazy" data-panel="mv-pipeline" src="app.mv-pipeline-panel.js?v=20260516-wave199-runall-reset"></script>
+    <script src="app.person-mv-panel.js?v=20260516-wave199-han-strip"></script>
     <script src="app.person-mv-discover-shelf.js?v=20260507-wave9"></script>
     <script src="app.person-mv-groups-shelf.js?v=20260508-wave16"></script>
     <script src="app.person-mv-today-shelf.js?v=20260508-wave15"></script>

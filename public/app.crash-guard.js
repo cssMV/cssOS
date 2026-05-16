@@ -208,6 +208,45 @@
     } catch (_) { return false; }
   }
 
+  // CSSOS_WAVE_199 20260516 — monkey-patch localStorage.setItem so EVERY
+  // write self-heals on QuotaExceeded. The W184 startup probe + window
+  // .error fallback only catch SOME setItem throws; many callers wrap
+  // their setItem in try/catch that swallows the QuotaExceeded and
+  // silently leaves a stale value behind, so the auth / panel state
+  // never restores. This wrapper runs the same prune-and-retry
+  // recovery used elsewhere and ALWAYS returns void instead of
+  // throwing, so callers never see the error.
+  try {
+    const proto = (typeof Storage !== "undefined" && Storage.prototype) || null;
+    if (proto && typeof proto.setItem === "function" && !proto.__cssosQuotaGuarded) {
+      const origSet = proto.setItem;
+      proto.setItem = function patched_setItem(key, value) {
+        try {
+          return origSet.call(this, key, value);
+        } catch (err) {
+          const name = String((err && (err.name || err.message)) || "");
+          if (!/Quota|quota|NS_ERROR_DOM_QUOTA/.test(name)) {
+            // Not a quota issue — re-throw so unrelated storage errors
+            // (e.g. SecurityError in private mode) surface to callers.
+            throw err;
+          }
+          try { pruneCssosStorage(); } catch (_) {}
+          try {
+            // Retry once after prune. If it still throws, swallow —
+            // we'd rather drop a single cache write than crash the app.
+            return origSet.call(this, key, value);
+          } catch (_) { /* second-pass quota — give up silently */ }
+          // Don't toast for every dropped write (would be noisy on a
+          // tight quota). The W184 window.error path still fires its
+          // user-facing toast when the underlying throw escapes to
+          // window scope (e.g. via async unwrapped paths).
+          return undefined;
+        }
+      };
+      Object.defineProperty(proto, "__cssosQuotaGuarded", { value: true, writable: false });
+    }
+  } catch (_) { /* Storage prototype access blocked — bail */ }
+
   window.addEventListener("error", (ev) => {
     const msg = String(ev.message || ev.error?.message || "unknown_error");
     const stack = String(ev.error?.stack || "").slice(0, 2000);

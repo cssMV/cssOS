@@ -38,6 +38,23 @@ const ASPECT_PRESETS = Object.freeze({
     runwayImageRatio: "1080:1920",
     runwayVideoRatio: "720:1280"
   },
+  // CSSOS_WAVE_187 20260516 — Jing: 加一个「手机真全屏」规格.
+  // Modern iPhones (X/11/12/13/14/15/16, most "tall" Android flagships)
+  // are ~19.5:9, taller than the classic 9:16. Rendering at exactly the
+  // phone's native pixel grid (e.g. iPhone 14 Pro = 1170×2532) means
+  // playback fills bezel-to-bezel with NO letterbox at the top/bottom
+  // — the user's W186 panel corners then sit flush with the display
+  // corner. Runway has no native 19.5:9, so we anchor to 1170:2532 in
+  // canvas and let pickClosest fall back to 1080:1920 for the engine
+  // call; ffmpeg pad / scale to the full 1170×2532 at compose time.
+  "9:19.5": {
+    key: "9:19.5",
+    label: { en: "Phone Fullscreen 19.5:9", zh: "手机真全屏 19.5:9" },
+    tagline: { en: "Fills modern phones edge-to-edge", zh: "现代手机屏满铺，无黑边" },
+    w: 1170, h: 2532,
+    runwayImageRatio: "1080:1920",
+    runwayVideoRatio: "720:1280"
+  },
   "1:1": {
     key: "1:1",
     label: { en: "Square 1:1", zh: "方形 1:1" },
@@ -93,7 +110,7 @@ const ASPECT_PRESETS = Object.freeze({
 });
 
 const ASPECT_PRESET_ORDER = Object.freeze([
-  "16:9", "9:16", "1:1", "4:5", "21:9", "2.39:1", "32:9", "custom"
+  "16:9", "9:16", "9:19.5", "1:1", "4:5", "21:9", "2.39:1", "32:9", "custom"
 ]);
 
 // Master list of Runway Gen-4 ratios. Kept verbatim from the Runway docs;

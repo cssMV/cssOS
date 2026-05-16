@@ -1194,6 +1194,24 @@
       if (globalThis.creationState) {
         globalThis.creationState.customWidth = Number.isFinite(wVal) && wVal > 0 ? wVal : null;
         globalThis.creationState.customHeight = Number.isFinite(hVal) && hVal > 0 ? hVal : null;
+        // CSSOS_WAVE_187 20260516 — Jing: 自定义宽高之前无效.
+        // Root cause: resolveCreationAspectRatio only honors
+        // customWidth/customHeight when aspectRatio === "custom", but
+        // typing into the W/H inputs never flipped the preset key. So
+        // values were stored but ignored. Auto-promote to "custom" the
+        // moment either input has a usable number, and reflect it in
+        // the chip row's aria-pressed state.
+        if ((Number.isFinite(wVal) && wVal > 0) || (Number.isFinite(hVal) && hVal > 0)) {
+          globalThis.creationState.aspectRatio = "custom";
+          try {
+            Array.prototype.forEach.call(row.querySelectorAll(".mvp-aspect-chip"), function (el) {
+              el.setAttribute("aria-pressed", el.getAttribute("data-ar") === "custom" ? "true" : "false");
+            });
+          } catch (_) {}
+          if (typeof globalThis.markCreationFieldTouched === "function") {
+            globalThis.markCreationFieldTouched("aspectRatio");
+          }
+        }
       }
       if (typeof globalThis.markCreationFieldTouched === "function") {
         globalThis.markCreationFieldTouched("customWidth");
@@ -1203,6 +1221,10 @@
     }
     wIn.addEventListener("input", onCustomInput);
     hIn.addEventListener("input", onCustomInput);
+    // Same trigger when the user PASTES a value or leaves the field
+    // after stepping it; "input" catches both, but be paranoid.
+    wIn.addEventListener("change", onCustomInput);
+    hIn.addEventListener("change", onCustomInput);
 
     // Initial caption + CSS var push.
     applyChange();

@@ -48,10 +48,10 @@ const ASPECT_PRESETS = Object.freeze({
   "9:19.5": {
     key: "9:19.5",
     label: { en: "Phone Fullscreen (device-fit)", zh: "手机真全屏（按本机）" },
-    tagline: { en: "Detected from your device — fills bezel to bezel", zh: "按当前手机屏幕规格自动检测，满铺无黑边" },
+    tagline: { en: "Auto-detects device + current orientation at render time", zh: "实时检测本机规格和手持横竖屏状态" },
     w: 1170, h: 2532,
-    runwayImageRatio: "1080:1920",
-    runwayVideoRatio: "720:1280",
+    runwayImageRatio: null, // resolved at render-time from live orientation
+    runwayVideoRatio: null,
     isDeviceFit: true
   },
   "1:1": {
@@ -156,48 +156,50 @@ function clampCustomDimensionModule(value, fallback, min, max) {
   return Math.max(min, Math.min(max, n));
 }
 
-// CSSOS_WAVE_188 20260516 — Jing: 手机真全屏要按当前设备测一遍.
-// Read the device's actual physical pixel grid for portrait fullscreen
-// playback. Resolution priority:
-//   1. screen.width × DPR  /  screen.height × DPR  → physical pixels
-//   2. window.innerWidth × DPR  /  innerHeight × DPR  → viewport fallback
-// Forces portrait (smaller value = width). Clamps to a safe 320–4096
-// range so a weird browser zoom can't ship a tiny or huge canvas. Memo
-// once per page load — re-detecting on every resolve is unnecessary and
-// would shift the spec mid-pipeline if the user rotates.
-let __cssosDetectedDeviceFitCache = null;
+// CSSOS_WAVE_189 20260516 — Jing: 手机真全屏要按当前设备 + 当前横竖屏
+// 状态实时检测，每次输出前都重新测一遍，不再 cache.
+// 横屏手机就按横屏真全屏出，竖屏手机就按竖屏真全屏出。
+//
+// Detection chain:
+//   1. screen.width × DPR  /  screen.height × DPR     — physical pixels
+//   2. window.innerWidth × DPR  /  innerHeight × DPR  — viewport fallback
+// Honors the CURRENT orientation (does NOT force portrait — landscape
+// phones get a landscape device-fit, portrait phones get portrait).
+// Clamps to [320..4096] × [320..8192] for safety against weird zooms.
+// NO memoization — every call re-reads the live screen so the user
+// can rotate up until the moment they hit "Start Pipeline".
 function detectDeviceFullscreenPixelsModule() {
-  if (__cssosDetectedDeviceFitCache !== null) return __cssosDetectedDeviceFitCache;
-  if (typeof window === "undefined" || typeof screen === "undefined") {
-    __cssosDetectedDeviceFitCache = null;
-    return null;
-  }
+  if (typeof window === "undefined" || typeof screen === "undefined") return null;
   try {
     const dpr = Math.max(1, Number(window.devicePixelRatio) || 1);
     // Prefer screen.* — that's the device's display, independent of
-    // address-bar collapse / split-screen window cropping.
+    // address-bar collapse / split-screen window cropping. We DO want
+    // its orientation though, so read width/height honestly.
     let cssW = Number(screen.width) || 0;
     let cssH = Number(screen.height) || 0;
     if (!(cssW > 0 && cssH > 0)) {
       cssW = Number(window.innerWidth) || 0;
       cssH = Number(window.innerHeight) || 0;
     }
-    if (!(cssW > 0 && cssH > 0)) {
-      __cssosDetectedDeviceFitCache = null;
-      return null;
+    if (!(cssW > 0 && cssH > 0)) return null;
+
+    // screen.width/height on some browsers stays "natural orientation"
+    // (e.g. tablet portrait-native reports portrait even when held
+    // landscape). Cross-check with the live viewport orientation so we
+    // honor how the device is held RIGHT NOW.
+    const viewportLandscape = (Number(window.innerWidth) || 0) >= (Number(window.innerHeight) || 0);
+    const screenLandscape   = cssW >= cssH;
+    if (viewportLandscape !== screenLandscape) {
+      // Swap to match the live viewport orientation.
+      const t = cssW; cssW = cssH; cssH = t;
     }
+
     let pxW = Math.round(cssW * dpr);
     let pxH = Math.round(cssH * dpr);
-    // Force portrait: smaller is width.
-    if (pxW > pxH) { const t = pxW; pxW = pxH; pxH = t; }
-    // Clamp into a sane range. 320×480 covers ancient devices;
-    // 4096×8192 covers iPad Pro 12.9 (2048×2732) with headroom.
     pxW = Math.max(320, Math.min(4096, pxW));
-    pxH = Math.max(480, Math.min(8192, pxH));
-    __cssosDetectedDeviceFitCache = { w: pxW, h: pxH, dpr };
-    return __cssosDetectedDeviceFitCache;
+    pxH = Math.max(320, Math.min(8192, pxH));
+    return { w: pxW, h: pxH, dpr, orientation: pxW >= pxH ? "landscape" : "portrait" };
   } catch (_) {
-    __cssosDetectedDeviceFitCache = null;
     return null;
   }
 }
@@ -217,18 +219,23 @@ function normalizeAspectPresetKeyModule(key) {
   return aliases[lowered] || "16:9";
 }
 
-// CSSOS_PHASE2_DEFAULT_AR_BY_ORIENTATION 20260426 #138 — Jing
-// "视频默认输出电影风格的Anamorphic 2.39:1，特别注意，输出之前，请检测正在
-//  输出设备的横竖状态，不管是桌面端还是移动端，横屏状态，默认输出电影风格
-//  的Anamorphic 2.39:1，竖屏（一般是手机端）默认输出Portrait 9:16。"
+// CSSOS_WAVE_189 20260516 — Jing: 手机端 (无论横竖) 默认 device-fit 真全屏;
+// 桌面端横屏默认电影风格 2.39:1，桌面端竖屏窗口默认 9:16 单曲短视频.
 //
-// Pick a default aspect ratio based on the user's current viewport
-// orientation when neither state.aspectRatio nor state.outputAspectRatio
-// has been set explicitly. Landscape → cinema 2.39:1, portrait → 9:16.
-// Server-rendered or null window falls back to 2.39:1 (cinema first).
+// 不再用固定 9:16 兜底手机. 用 device-fit 预设, 它会按用户当前手持的
+// 横竖屏状态实时输出对应分辨率的真全屏媒体.
+//
+// Detection: pointer:coarse OR small viewport → mobile/touch device.
+// Mobile → "9:19.5" (the device-fit preset; it adapts to current
+// orientation at resolve time). Desktop landscape → "2.39:1" cinema.
+// Desktop portrait window (rare) → "9:16". Server-rendered → 2.39:1.
 function defaultAspectByOrientationModule() {
   try {
     if (typeof window === "undefined") return "2.39:1";
+    const isMobile = (typeof window.matchMedia === "function")
+      && (window.matchMedia("(pointer: coarse)").matches
+          || window.matchMedia("(max-width: 768px)").matches);
+    if (isMobile) return "9:19.5";
     const w = Number(window.innerWidth || 0);
     const h = Number(window.innerHeight || 0);
     if (!w || !h) return "2.39:1";

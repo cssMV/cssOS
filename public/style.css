@@ -10517,3 +10517,48 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
 .work-album-section.depth-2 {
   margin-left: 12px;
 }
+
+/* CSSOS_WAVE_186 20260516 — Jing: 让面板四角与 iPhone 屏幕圆角对齐，
+ * 这样真全屏播放时，沿面板边框走的进度条 / 边框装饰刚好和手机屏边
+ * 重叠。47px 是 iPhone 14/15/16 显示区圆角的标称值（CSS px），Android
+ * 和老 iPhone 上也是顺眼的过渡。只在 mobile + cinema/maximized
+ * (沉浸全屏) 才接管，桌面端 + 平铺态保留原 24px 风格不动。
+ *
+ * Edge-to-edge 也一并处理：cinema/maximized 模式下移除 .panel 的外
+ * 边距，让 border-radius 实际成为屏幕四角的视觉重叠。
+ */
+@media (max-width: 600px), (pointer: coarse) {
+  body[data-cinema="true"] .panel,
+  .panel[data-cinema="true"],
+  .panel.is-maximized,
+  .panel.is-fullscreen {
+    inset: 0 !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    max-height: 100vh !important;
+    max-height: 100dvh !important;
+    margin: 0 !important;
+    /* 47px is iPhone 14/15/16 display corner radius. Older iPhones
+       (X/11/12/13) sit at 39–47px; Android 9–24px depending on OEM.
+       env(safe-area-inset-top) lets supported browsers nudge toward
+       the actual device value, else we fall back to 47px. */
+    border-radius: max(28px, min(env(safe-area-inset-top, 47px), 55px)) !important;
+    overflow: hidden !important;
+  }
+
+  /* When the watch panel itself is the immersive surface (the user's
+     real-fullscreen playback target), match the same radius so the
+     progress bar tracing the panel border lines up with the bezel. */
+  #watch-panel.is-cinema,
+  #watch-panel.is-fullscreen,
+  body[data-cinema="true"] #watch-panel {
+    border-radius: max(28px, min(env(safe-area-inset-top, 47px), 55px)) !important;
+    inset: 0 !important;
+    margin: 0 !important;
+  }
+}

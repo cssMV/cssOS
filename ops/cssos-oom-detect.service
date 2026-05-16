@@ -1,0 +1,18 @@
+[Unit]
+Description=cssOS dmesg OOM detector — emits journalctl events + JSONL log on new OOM kills
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/srv/cssos/bin/cssos-oom-detect.sh
+# Read-only on most paths, only writes to /srv/cssos/shared.
+ProtectSystem=strict
+ReadWritePaths=/srv/cssos/shared
+PrivateTmp=true
+NoNewPrivileges=true
+# Defensive timeout — the script itself is fast (<1s) but a slow
+# journalctl shouldn't pile up units.
+TimeoutStartSec=20
+
+[Install]
+WantedBy=multi-user.target

@@ -17189,7 +17189,42 @@ function imageProviderOrder(prefer?: string[]): string[] {
   return (prefer && prefer.length) ? list : tierSortProviders(list);
 }
 
+/* CSSOS_WAVE_201 20260516 — Jing: today the box went unreachable for
+ * 1h+ because the image router fan-out hit a hung upstream and bare
+ * fetch() has no timeout. Each stuck call holds an fd + an event-loop
+ * tick forever. With slideshow pool seeding firing 4-concurrent ×
+ * multiple-works in parallel, file descriptors pile up until SSH /
+ * nginx can't get one and the box appears dead.
+ *
+ * Defense: every outbound HTTP call from the image router (and other
+ * fan-out paths) wraps fetch with AbortSignal.timeout. A provider that
+ * hangs >15s aborts, the router skips to the next provider, and the
+ * worst case is one slow generation, not a box freeze. */
+const IMAGE_ROUTER_TIMEOUT_MS = Number(
+  process.env.IMAGE_ROUTER_TIMEOUT_MS || 15_000,
+);
+function imageFetchInit(init: RequestInit = {}): RequestInit {
+  if (init.signal) return init; // caller already managing
+  return { ...init, signal: AbortSignal.timeout(IMAGE_ROUTER_TIMEOUT_MS) };
+}
+
 async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
+  /* CSSOS_WAVE_201 — shadow the global `fetch` with a per-call wrapper
+   * that injects AbortSignal.timeout. Every `await fetch(...)` below
+   * (9 different provider calls + 1 GET) gets a 15s ceiling for free.
+   * Provider hangs now produce AbortError → existing try/catch around
+   * each provider already treats throws as "skip provider, try next". */
+  const _origFetch = globalThis.fetch;
+  // eslint-disable-next-line @typescript-eslint/no-shadow
+  const fetch: typeof globalThis.fetch = (input, init) => {
+    const opts: RequestInit = (init || {}) as RequestInit;
+    if (opts.signal) return _origFetch(input as RequestInfo, opts);
+    return _origFetch(input as RequestInfo, {
+      ...opts,
+      signal: AbortSignal.timeout(IMAGE_ROUTER_TIMEOUT_MS),
+    });
+  };
+
   const order = imageProviderOrder(req.prefer);
   let lastErr = "no_providers_available";
   let lastStatus = 0;
@@ -27516,6 +27551,50 @@ app.post("/api/admin/crash-log", express.json({ limit: "32kb" }), (req, res) => 
 app.get("/api/admin/crash-log/recent", (_req, res) => {
   noStore(res);
   res.json({ ok: true, entries: __crashLogBuf.slice(-100) });
+});
+
+// CSSOS_WAVE_200 20260516 — Jing: dmesg OOM detector telemetry.
+// The cssos-oom-detect.timer (systemd, every 2 min) appends one JSONL
+// line per fresh kernel OOM kill to /srv/cssos/shared/oom-events.jsonl.
+// This endpoint surfaces the most recent entries so the admin / crash
+// dashboard can show them, and so post-hang I can poll it to see what
+// got killed (Suno polling? ffmpeg? Whisper? long-running compose?).
+app.get("/api/admin/oom-events", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) return res.status(401).json({ ok: false, error: "sign_in_required" });
+    if (roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, error: "admin_required" });
+    }
+    const limit = Math.max(1, Math.min(Number(req.query.limit || 50), 500));
+    const sinceTs = Number(req.query.since || 0) || 0;
+    const eventsPath = "/srv/cssos/shared/oom-events.jsonl";
+    let raw = "";
+    try { raw = fs.readFileSync(eventsPath, "utf8"); } catch { raw = ""; }
+    const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    const parsed: any[] = [];
+    for (const line of lines) {
+      try {
+        const obj = JSON.parse(line);
+        if (sinceTs && Number(obj.ts || 0) <= sinceTs) continue;
+        parsed.push(obj);
+      } catch { /* skip malformed line */ }
+    }
+    parsed.sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0));
+    return res.json({
+      ok: true,
+      total: parsed.length,
+      entries: parsed.slice(0, limit),
+      detector_log_hint: "journalctl -t cssos-oom-detector --since '1 hour ago'",
+    });
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      error: "oom_events_read_failed",
+      detail: (err as Error)?.message || String(err),
+    });
+  }
 });
 
 // CSSOS_WAVE_120C 20260513 · user-flagged bug reports inbox.

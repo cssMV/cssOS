@@ -1,0 +1,12 @@
+[Unit]
+Description=Run cssOS OOM detector every 2 minutes
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=2min
+AccuracySec=15s
+Persistent=true
+Unit=cssos-oom-detect.service
+
+[Install]
+WantedBy=timers.target

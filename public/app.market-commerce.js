@@ -1752,7 +1752,7 @@ function buildMarketCardsMarkup(works = []) {
             <div class="work-title" data-market-toggle>${title}</div>
             <div class="work-tags" title="${style}">${style}</div>
             <div class="work-pricing">
-              <span class="price-chip ghost-chip">${loginCopy("Type")} · ${escapeHtml(workTypeLabel(workType))}${options.albumChildCount >= 2 ? ` × ${Number(options.albumChildCount)}` : ""}</span>
+              <span class="price-chip ghost-chip">${loginCopy("Type")} · ${escapeHtml(workTypeLabel(workType))}${(Array.isArray(work?.children) && work.children.length >= 2) ? ` × ${work.children.length}` : ""}</span>
               <span class="price-chip">${loginCopy("Listen")} · ${cardListenChip}</span>
               <span class="price-chip">${escapeHtml(buyoutLabelForWorkModule(work))} · ${cardBuyoutChip}</span>
               ${_isAdminOwned ? `<span class="price-chip price-chip-public">${loginCopy("Public · Free for all")}</span>` : ""}

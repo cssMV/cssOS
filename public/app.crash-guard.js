@@ -134,7 +134,40 @@
       }).catch(() => {});
     } catch (_) {}
   }
+  // CSSOS_WAVE_208 20260516 — Jing: 关掉对普通用户的"后台异步出错"
+  // toast — 它没行动价值, 反而吓人("以为哪里出错了, 用不了了"). 只
+  // 给 admin / @cssstudio.app 显示, 其他人完全静默. Beacon 和
+  // preventDefault 都保留不变, 所以服务端 journalctl 依然记录每一次
+  // 异常, 系统看门狗依然被骗过去不会强刷.
+  const ADMIN_EMAIL_DOMAINS = ["cssstudio.app"];
+  const ADMIN_EMAIL_EXACT = new Set([
+    "admin@cssstudio.app",
+    "jingdudc@gmail.com",
+    "jing@cssstudio.app",
+    "vip@cssstudio.app",
+  ]);
+  function viewerIsAdminCrashGuard() {
+    try {
+      const email = String(globalThis.authState?.user?.email || "").trim().toLowerCase();
+      if (!email) return false;
+      if (ADMIN_EMAIL_EXACT.has(email)) return true;
+      for (const dom of ADMIN_EMAIL_DOMAINS) {
+        if (email.endsWith("@" + dom)) return true;
+      }
+      if (typeof globalThis.isAdminEmailModule === "function") {
+        return !!globalThis.isAdminEmailModule(email);
+      }
+    } catch (_) {}
+    return false;
+  }
   function showFriendlyToast(msg) {
+    // Non-admin users see nothing — silent swallow. Avoids the
+    // "is the app broken? am I locked out?" panic when the underlying
+    // glitch is something cosmetic / cacheable / already-handled.
+    if (!viewerIsAdminCrashGuard()) {
+      try { console.warn("[cssos-crash-guard][silent]", msg); } catch (_) {}
+      return;
+    }
     try {
       if (typeof globalThis.showToast === "function") {
         globalThis.showToast(msg);

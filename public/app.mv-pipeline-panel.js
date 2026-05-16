@@ -1226,6 +1226,39 @@
     wIn.addEventListener("change", onCustomInput);
     hIn.addEventListener("change", onCustomInput);
 
+    // CSSOS_WAVE_190 20260516 — Jing: 用户切换横竖屏，规格必须实时切换.
+    // The "9:19.5" device-fit preset reads screen dimensions live, but
+    // the panel caption is only refreshed when the user interacts with
+    // the chips / inputs. Rotating the phone fires `orientationchange`
+    // and `resize` on window — listen for both so the caption (and
+    // the --cssos-output-ar CSS var that scales the watch preview)
+    // re-resolve immediately. Bail when the user is on a non-device-
+    // fit preset to avoid pointless re-renders.
+    if (!row.dataset.cssosOrientationBound) {
+      row.dataset.cssosOrientationBound = "1";
+      const onOrientationChange = function () {
+        const key = (globalThis.creationState && globalThis.creationState.aspectRatio) || "";
+        const preset = (globalThis.ASPECT_PRESETS || {})[key];
+        if (!preset || !preset.isDeviceFit) return;
+        applyChange();
+      };
+      try { window.addEventListener("resize", onOrientationChange, { passive: true }); } catch (_) {}
+      try { window.addEventListener("orientationchange", onOrientationChange, { passive: true }); } catch (_) {}
+      try {
+        // matchMedia('(orientation: landscape)') change is the most
+        // reliable signal on iOS Safari, where 'orientationchange'
+        // sometimes fires before screen.* updates.
+        if (typeof window.matchMedia === "function") {
+          const mq = window.matchMedia("(orientation: landscape)");
+          if (mq && typeof mq.addEventListener === "function") {
+            mq.addEventListener("change", onOrientationChange);
+          } else if (mq && typeof mq.addListener === "function") {
+            mq.addListener(onOrientationChange);
+          }
+        }
+      } catch (_) {}
+    }
+
     // Initial caption + CSS var push.
     applyChange();
   }

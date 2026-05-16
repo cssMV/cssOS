@@ -21,8 +21,11 @@ body "$BASE/terms.html"   | grep -qi "subscription\|service\|terms" && pass "Ter
 
 # 2. App shell + manifest
 c=$(code "$BASE/"); [ "$c" = "200" ] && pass "/ returns 200" "$c" || fail "/ returns 200" "$c"
-body "$BASE/index.html" | grep -q "viewport-fit=cover" && pass "index.html viewport-fit=cover" "found" || fail "index.html viewport-fit=cover" "missing"
-body "$BASE/index.html" | grep -q "apple-mobile-web-app-capable" && pass "iOS web-app meta present" "found" || fail "iOS web-app meta present" "missing"
+html="$(body "$BASE/index.html")"
+# Here-string instead of `echo | grep -q` so SIGPIPE under pipefail
+# doesn't false-fail a real match.
+grep -q "viewport-fit=cover"        <<< "$html" && pass "index.html viewport-fit=cover" "found" || fail "index.html viewport-fit=cover" "missing"
+grep -q "apple-mobile-web-app-capable" <<< "$html" && pass "iOS web-app meta present" "found" || fail "iOS web-app meta present" "missing"
 c=$(code "$BASE/manifest.webmanifest"); [ "$c" = "200" ] && pass "manifest reachable" "$c" || fail "manifest reachable" "$c"
 body "$BASE/manifest.webmanifest" | grep -q '"orientation":[[:space:]]*"portrait"' && pass "manifest orientation=portrait" "found" || fail "manifest orientation=portrait" "missing"
 v=$(body "$BASE/version.json"); echo "$v" | grep -q '"version"' && pass "/version.json responds" "$(echo "$v" | tr -d '"{}' )" || fail "/version.json responds" "$v"
@@ -43,7 +46,7 @@ else
 fi
 
 # 5. Sign in with Apple
-c=$(code "$BASE/api/auth/apple/start")
+c=$(code "$BASE/api/auth/apple")
 if [ "$c" = "302" ] || [ "$c" = "303" ] || [ "$c" = "307" ] || [ "$c" = "200" ]; then
   pass "Sign in with Apple /start" "$c"
 else
@@ -55,12 +58,12 @@ for f in app.boot.js app.market-commerce.js app.mv-pipeline-panel.js app.agent-c
   c=$(code "$BASE/$f"); [ "$c" = "200" ] && pass "$f" "$c" || fail "$f" "$c"
 done
 
-# 7. Person-MV
-c=$(code "$BASE/api/person-mv/people")
+# 7. Person-MV (real route is /persons, not /people)
+c=$(code "$BASE/api/person-mv/persons")
 if [ "$c" = "200" ] || [ "$c" = "401" ] || [ "$c" = "304" ]; then
-  pass "person-mv people list" "$c"
+  pass "person-mv persons list" "$c"
 else
-  fail "person-mv people list" "$c"
+  fail "person-mv persons list" "$c"
 fi
 
 # 8. Host health
@@ -76,7 +79,9 @@ if [ "$sshok" = "ok" ]; then
   else
     fail "cssOS RSS < 4 GB" "${rss_mb}MB"
   fi
-  errs=$(ssh -o ConnectTimeout=6 api-vm 'sudo journalctl -u cssOS --since "1 hour ago" --no-pager 2>/dev/null | grep -c "crash-guard.*window.error\|crash-guard.*unhandledrejection" || echo 0' 2>/dev/null)
+  # Strip newlines/whitespace — `|| echo 0` from the remote script can
+  # tack on a second "0" and break integer compare.
+  errs=$(ssh -o ConnectTimeout=6 api-vm 'sudo journalctl -u cssOS --since "1 hour ago" --no-pager 2>/dev/null | grep -c -e "crash-guard.*window.error" -e "crash-guard.*unhandledrejection"' 2>/dev/null | head -1 | tr -d '[:space:]')
   errs="${errs:-0}"
   if [ "$errs" -lt 5 ]; then
     pass "crash-guard fatals (1h)" "$errs"

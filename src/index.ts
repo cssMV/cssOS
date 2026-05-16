@@ -788,6 +788,31 @@ function publicArtifactsBase(): string {
  * The companion thumbnail is at the same basename + .thumb.webp;
  * callers that need it just swap the suffix.
  */
+/* CSSOS_WAVE_203 20260516 — Jing: 长跑分块. Tiny semaphore-style runner
+ * that caps in-flight concurrency. Used by create_work to keep big
+ * opera / film / series cover generation from buffering 20+ image
+ * blobs in memory simultaneously. Linear order preserved in the
+ * results array (worker writes to results[index]). */
+async function mapWithConcurrency<T, R>(
+  items: ReadonlyArray<T>,
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  if (!items.length) return results;
+  let next = 0;
+  const width = Math.max(1, Math.min(concurrency, items.length));
+  async function worker(): Promise<void> {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i]!, i);
+    }
+  }
+  await Promise.all(Array.from({ length: width }, () => worker()));
+  return results;
+}
+
 function persistBase64Cover(b64: string, userId: unknown): string {
   const userHash = crypto.createHash("sha1").update(String(userId)).digest("hex").slice(0, 8);
   const rand = crypto.randomBytes(6).toString("hex");
@@ -4106,16 +4131,27 @@ async function runAgentTool(
         ? operaActs.flatMap((a) => a.scenes)
         : parts;
       const LARGE_BATCH = 30;
+      // CSSOS_WAVE_203 20260516 — Jing: 长跑分块. Opera with 5+ acts ×
+      // 4+ scenes = 20+ concurrent image-gen HTTP calls under the old
+      // Promise.all(...). Each response holds ~1-3 MB cover blob in
+      // memory at once → 60 MB peak just for the buffer pool, plus
+      // each provider SDK's internal queue. Cap concurrency at 3 so at
+      // most 3 covers are in-flight, drastically lowering peak RSS
+      // during big multi-part runs (opera / film / series) without
+      // making them wait MUCH longer on the wall clock (network is
+      // usually the bottleneck, not local CPU).
+      const COVER_CONCURRENCY = 3;
       if (wt === "shortplay" && coverTargets.length > LARGE_BATCH) {
-        // Big-batch safety: one cover per (role) — e.g. one shared
-        // for all episodes, individual for each theme/interlude/ending.
+        // Big-batch safety: one cover per (role) — one shared for all
+        // episodes, individual for each theme/interlude/ending.
         const sharedEpCover = await renderCover(title);
-        covers = await Promise.all(coverTargets.map(async (part) => {
+        covers = await mapWithConcurrency(coverTargets, COVER_CONCURRENCY, async (part) => {
           if (String(part.role || "episode") === "episode") return sharedEpCover;
           return await renderCover(part.title);
-        }));
+        });
       } else {
-        covers = await Promise.all(coverTargets.map((part) => renderCover(part.title)));
+        covers = await mapWithConcurrency(coverTargets, COVER_CONCURRENCY,
+          (part) => renderCover(part.title));
       }
 
       // CSSOS_WAVE_169 / 175 20260515 — Jing: 三部曲 / 歌剧 等多 part 作品要
@@ -15985,6 +16021,9 @@ async function resolveEngineModel(
 }
 
 async function callLlm(req: LlmRequest): Promise<LlmResponse> {
+  // CSSOS_WAVE_202 — shadow global fetch with a 60s-timeout wrapper.
+  // eslint-disable-next-line @typescript-eslint/no-shadow
+  const fetch = makeTimeoutFetch(LLM_ROUTER_TIMEOUT_MS);
   const order = llmProviderOrder(req.prefer);
   let lastErr = "no_providers_available";
   let lastStatus = 0;
@@ -16199,6 +16238,9 @@ function musicProviderOrder(prefer?: string[]): string[] {
   return (prefer && prefer.length) ? list : tierSortProviders(list);
 }
 async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
+  // CSSOS_WAVE_202 — 180s timeout wrapper (Suno/ElevenLabs can be slow).
+  // eslint-disable-next-line @typescript-eslint/no-shadow
+  const fetch = makeTimeoutFetch(MUSIC_ROUTER_TIMEOUT_MS);
   const order = musicProviderOrder(req.prefer);
   let lastErr = "";
   for (const provider of order) {
@@ -16751,6 +16793,9 @@ function videoProviderOrder(prefer?: string[]): string[] {
   return (prefer && prefer.length) ? list : tierSortProviders(list);
 }
 async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
+  // CSSOS_WAVE_202 — 240s timeout wrapper (Runway / Luma can be slowest).
+  // eslint-disable-next-line @typescript-eslint/no-shadow
+  const fetch = makeTimeoutFetch(VIDEO_ROUTER_TIMEOUT_MS);
   const order = videoProviderOrder(req.prefer);
   let lastErr = "";
   for (const provider of order) {
@@ -17203,6 +17248,41 @@ function imageProviderOrder(prefer?: string[]): string[] {
 const IMAGE_ROUTER_TIMEOUT_MS = Number(
   process.env.IMAGE_ROUTER_TIMEOUT_MS || 15_000,
 );
+/* CSSOS_WAVE_202 20260516 — Jing: extend Wave 201's timeout-fetch
+ * pattern to every AI-engine router so a hung upstream on any path
+ * (LLM, music, video, TTS, Whisper) can't take the box down. Per-stage
+ * budgets reflect typical upstream latency. */
+const LLM_ROUTER_TIMEOUT_MS = Number(
+  process.env.LLM_ROUTER_TIMEOUT_MS || 60_000,
+);
+const MUSIC_ROUTER_TIMEOUT_MS = Number(
+  process.env.MUSIC_ROUTER_TIMEOUT_MS || 180_000,
+);
+const VIDEO_ROUTER_TIMEOUT_MS = Number(
+  process.env.VIDEO_ROUTER_TIMEOUT_MS || 240_000,
+);
+const TTS_ROUTER_TIMEOUT_MS = Number(
+  process.env.TTS_ROUTER_TIMEOUT_MS || 30_000,
+);
+const WHISPER_ROUTER_TIMEOUT_MS = Number(
+  process.env.WHISPER_ROUTER_TIMEOUT_MS || 60_000,
+);
+/* Shadowable fetch wrapper. Use inside an AI-engine router fn:
+ *   const fetch = makeTimeoutFetch(LLM_ROUTER_TIMEOUT_MS);
+ * Every `await fetch(...)` after this line gets the cap, zero edits at
+ * call sites. Caller-provided `signal` (if any) wins, so explicit
+ * AbortControllers still work. */
+function makeTimeoutFetch(timeoutMs: number): typeof globalThis.fetch {
+  const orig = globalThis.fetch;
+  return ((input: RequestInfo | URL, init?: RequestInit) => {
+    const opts: RequestInit = (init || {}) as RequestInit;
+    if (opts.signal) return orig(input as RequestInfo, opts);
+    return orig(input as RequestInfo, {
+      ...opts,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  }) as typeof globalThis.fetch;
+}
 function imageFetchInit(init: RequestInit = {}): RequestInit {
   if (init.signal) return init; // caller already managing
   return { ...init, signal: AbortSignal.timeout(IMAGE_ROUTER_TIMEOUT_MS) };
@@ -19334,7 +19414,7 @@ async function ensurePersonMvTables() {
  * actor for defense-in-depth. */
 async function enqueueNotification(
   userId: string | null | undefined,
-  kind: "mv_like" | "mv_comment" | "comment_mention" | "follow" | "feed_new_mv" | "system" | "dm_received" | "remix_received",
+  kind: "mv_like" | "mv_comment" | "comment_mention" | "follow" | "feed_new_mv" | "system" | "dm_received" | "remix_received" | "gift_received",
   payload: Record<string, unknown>,
 ): Promise<void> {
   if (!DATABASE_URL || !userId) return;
@@ -21427,6 +21507,18 @@ async function runSystemAudioBackfillBatch(maxBudgetCents?: number): Promise<{
   let budgetLeft = cap;
   summary.budget_left_cents = budgetLeft;
 
+  // CSSOS_WAVE_203 20260516 — Jing: 分块从源头降低触顶概率.
+  // Before: LIMIT 200, serial loop, no yield, no memory check. Each
+  // iteration buffers a Suno track (~1-3 MB b64 → file persist) — over
+  // 200 iterations RSS easily hits 8+ GB. This morning's hang fits.
+  //
+  // After: LIMIT 50 per call (the timer triggers it again next slot,
+  // so 200 still drains in ~4 ticks), and we bail mid-loop if RSS
+  // approaches the W201 MemoryHigh = 10 GB soft line, so the next
+  // timer fires fresh.
+  const BATCH_LIMIT = 50;
+  const RSS_BAIL_BYTES = 8 * 1024 * 1024 * 1024; // 8 GB — leave 2 GB headroom under MemoryHigh
+
   let candidates: Array<{ id: string; title: string; style: string; lyrics_preview: string }> = [];
   try {
     const r = await withClient((c) =>
@@ -21438,7 +21530,7 @@ async function runSystemAudioBackfillBatch(maxBudgetCents?: number): Promise<{
             AND cover_image IS NOT NULL AND cover_image <> ''
             AND length(coalesce(lyrics_preview,'')) >= 600
           ORDER BY created_at DESC
-          LIMIT 200`,
+          LIMIT ${BATCH_LIMIT}`,
       ),
     );
     candidates = (r as any).rows;
@@ -21448,6 +21540,16 @@ async function runSystemAudioBackfillBatch(maxBudgetCents?: number): Promise<{
   }
 
   for (const w of candidates) {
+    // CSSOS_WAVE_203 — bail if we're nearing the soft cap so the next
+    // timer fires with a fresh heap instead of getting OOM-killed.
+    try {
+      const rss = process.memoryUsage().rss;
+      if (rss > RSS_BAIL_BYTES) {
+        summary.skipped += (candidates.length - summary.processed);
+        console.warn(`[system-audio] bail at RSS=${(rss/1024/1024).toFixed(0)}MB — next tick will resume`);
+        break;
+      }
+    } catch (_) {}
     if (budgetLeft <= 0) { summary.skipped += 1; continue; }
     summary.processed += 1;
     try {
@@ -21514,6 +21616,11 @@ async function runSystemAudioBackfillBatch(maxBudgetCents?: number): Promise<{
       summary.failed += 1;
       console.warn(`[system-audio] backfill threw for ${w.id}:`, (err as Error)?.message || err);
     }
+    // CSSOS_WAVE_203 — yield to the event loop between iterations so
+    // gc can claim per-iteration buffers (Suno b64, persistBase64Audio
+    // intermediates) before the next allocation. Without this the heap
+    // grows monotonically through the whole batch.
+    await new Promise((r) => setImmediate(r));
   }
   summary.budget_left_cents = budgetLeft;
   console.log(`[system-audio] batch done — processed=${summary.processed} ok=${summary.ok} failed=${summary.failed} skipped=${summary.skipped} spent=${summary.spent_cents}¢`);
@@ -24645,6 +24752,180 @@ app.get("/api/me", async (req, res) => {
     );
   }
 });
+
+/* CSSOS_WAVE_203 20260516 — Jing: "充值（包括帮充值，赠送作品等）".
+ * Peer-to-peer credit gift. Sender pays from their own user_credits
+ * balance, recipient receives the same amount. Atomic within a single
+ * DB transaction so a partial transfer is impossible. Both legs land
+ * in credit_events with linked gift_id metadata for auditability.
+ *
+ * Body: { recipient_id: string (UUID or username), amount: int >= 50 }
+ *   amount is in credit units (1 credit ≈ 1¢ of compute cost).
+ *   Min 50 (≈ $0.50) to discourage spam, max 50000 (≈ $500) per gift.
+ *
+ * Returns: { ok: true, gift_id, sender_balance, recipient_balance,
+ *            recipient: { id, display_name, avatar_url } } */
+app.post(
+  "/api/gifts/credits",
+  express.json({ limit: "2kb" }),
+  async (req, res) => {
+    noStore(res);
+    try {
+      const sender = await getSessionUser(req);
+      if (!sender || !sender.id) {
+        return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+      }
+      const recipientHandle = String(req.body?.recipient_id || "").trim();
+      const amount = Math.floor(Number(req.body?.amount || 0));
+      if (!recipientHandle) {
+        return res.status(400).json({ ok: false, code: "RECIPIENT_REQUIRED" });
+      }
+      if (!Number.isFinite(amount) || amount < 50 || amount > 50_000) {
+        return res
+          .status(400)
+          .json({ ok: false, code: "INVALID_AMOUNT", min: 50, max: 50_000 });
+      }
+      const recipient = await resolveUserByUsernameOrId(recipientHandle);
+      if (!recipient) {
+        return res.status(404).json({ ok: false, code: "RECIPIENT_NOT_FOUND" });
+      }
+      if (recipient.id === sender.id) {
+        return res
+          .status(400)
+          .json({ ok: false, code: "CANNOT_GIFT_SELF" });
+      }
+      // Block check — can't gift to someone you've blocked or who blocked you.
+      const blockR = await withClient((c) =>
+        c.query(
+          `SELECT 1 FROM user_blocks
+            WHERE (blocker_id = $1 AND blocked_id = $2)
+               OR (blocker_id = $2 AND blocked_id = $1)
+            LIMIT 1`,
+          [sender.id, recipient.id],
+        ),
+      );
+      if ((blockR.rowCount || 0) > 0) {
+        return res.status(403).json({ ok: false, code: "BLOCKED" });
+      }
+
+      const giftId = crypto.randomUUID();
+      const meta = {
+        gift_id: giftId,
+        recipient_id: recipient.id,
+        recipient_handle: recipient.username || recipient.id,
+        sender_id: sender.id,
+      };
+
+      let senderBalanceAfter = 0;
+      let recipientBalanceAfter = 0;
+      try {
+        await withClient(async (client) => {
+          await client.query("BEGIN");
+          try {
+            // Ensure both ledger rows exist.
+            await client.query(
+              `INSERT INTO user_credits (user_id, balance, lifetime_earned, updated_at)
+               VALUES ($1::uuid, 0, 0, now())
+               ON CONFLICT (user_id) DO NOTHING`,
+              [sender.id],
+            );
+            await client.query(
+              `INSERT INTO user_credits (user_id, balance, lifetime_earned, updated_at)
+               VALUES ($1::uuid, 0, 0, now())
+               ON CONFLICT (user_id) DO NOTHING`,
+              [recipient.id],
+            );
+            // Atomic check-and-debit on sender. RETURNING NULL when
+            // pre-debit balance < amount (insufficient funds).
+            const debit = await client.query<{ balance: string | null }>(
+              `UPDATE user_credits
+                  SET balance = balance - $2,
+                      lifetime_spent = lifetime_spent + $2,
+                      updated_at = now()
+                WHERE user_id = $1::uuid
+                  AND balance >= $2
+                RETURNING balance`,
+              [sender.id, amount],
+            );
+            if (!debit.rowCount) {
+              throw new Error("INSUFFICIENT_BALANCE");
+            }
+            senderBalanceAfter = Number(debit.rows[0]?.balance || 0);
+            const credit = await client.query<{ balance: string }>(
+              `UPDATE user_credits
+                  SET balance = balance + $2,
+                      lifetime_earned = lifetime_earned + $2,
+                      updated_at = now()
+                WHERE user_id = $1::uuid
+                RETURNING balance`,
+              [recipient.id, amount],
+            );
+            recipientBalanceAfter = Number(credit.rows[0]?.balance || 0);
+            // Dual-leg audit rows.
+            await client.query(
+              `INSERT INTO credit_events (user_id, delta, reason, payload)
+                 VALUES ($1::uuid, $2, 'gift_sent', $3::jsonb),
+                        ($4::uuid, $5, 'gift_received', $6::jsonb)`,
+              [
+                sender.id,
+                -amount,
+                JSON.stringify(meta),
+                recipient.id,
+                amount,
+                JSON.stringify({ ...meta, sender_name: (sender as any).display_name || (sender as any).email }),
+              ],
+            );
+            await client.query("COMMIT");
+          } catch (err) {
+            await client.query("ROLLBACK");
+            throw err;
+          }
+        });
+      } catch (err) {
+        const code = (err as Error)?.message === "INSUFFICIENT_BALANCE"
+          ? "INSUFFICIENT_BALANCE"
+          : "TRANSFER_FAILED";
+        return res.status(code === "INSUFFICIENT_BALANCE" ? 402 : 500).json({
+          ok: false,
+          code,
+        });
+      }
+
+      // Notify the recipient (best-effort, off the critical path).
+      try {
+        await enqueueNotification(recipient.id, "gift_received", {
+          gift_id: giftId,
+          amount,
+          sender_id: sender.id,
+          sender_display_name: (sender as any).display_name || null,
+          sender_username: (sender as any).username || null,
+        });
+      } catch (_e) {}
+
+      return res.json({
+        ok: true,
+        gift_id: giftId,
+        amount,
+        sender_balance: senderBalanceAfter,
+        recipient_balance: recipientBalanceAfter,
+        recipient: {
+          id: recipient.id,
+          username: recipient.username,
+          display_name: recipient.display_name || recipient.username,
+          avatar_url: recipient.avatar_url,
+        },
+      });
+    } catch (err) {
+      console.warn(
+        "[gifts/credits] failed:",
+        (err as Error)?.message || err,
+      );
+      return res
+        .status(500)
+        .json({ ok: false, code: "GIFT_FAILED" });
+    }
+  },
+);
 
 /* CSSOS_WAVE_200 20260516 — Jing: "用户上传了自定义头像（可否把头像存到
  * 数据库）". Accept a base64-encoded image in the request body and persist
@@ -29285,6 +29566,9 @@ function normalizeOpenAiWords(raw: any): WhisperChunk[] {
 }
 
 async function callWhisperGen(req: WhisperGenRequest): Promise<WhisperGenResponse> {
+  // CSSOS_WAVE_202 — 60s timeout wrapper for ASR providers.
+  // eslint-disable-next-line @typescript-eslint/no-shadow
+  const fetch = makeTimeoutFetch(WHISPER_ROUTER_TIMEOUT_MS);
   const order = whisperProviderOrder(req.prefer);
   let lastErr = "";
   let lastStatus = 0;

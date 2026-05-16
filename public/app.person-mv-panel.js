@@ -1115,10 +1115,19 @@
     // anchor the visual + sonic atmosphere). Fall back to person's.
     var style = String(landmark.music_style_hint || person.music_style_hint || "");
 
+    // CSSOS_WAVE_196 — Jing: 人物 MV 歌词必须跟随人物的母语，不管 UI 语言.
+    // Pick the landmark's civilization first (it anchors the scene),
+    // fall back to the person's. civToLanguageModule maps Chinese
+    // 中华 → zh, 古埃及 → ar, 日本 → ja, 古希腊 → el, 古罗马 → la…
+    var seedCiv  = String(landmark.civilization || person.civilization || "");
+    var seedLang = (typeof globalThis.civToLanguageModule === "function")
+      ? globalThis.civToLanguageModule(seedCiv) : "";
     var seed = {
       prompt: prompt,
       style: style,
       lyrics: "",
+      civilization: seedCiv || null,
+      language: seedLang || undefined,   // pipeline state picks this up
       __personId: person.person_id,
       __landmarkId: landmark.landmark_id,
       __dialogue: true,
@@ -1366,10 +1375,14 @@
         if (!angle && Array.isArray(l.notable_events) && l.notable_events.length) {
           angle = l.notable_events[Math.floor(Math.random() * l.notable_events.length)];
         }
+        var seedLang2 = (typeof globalThis.civToLanguageModule === "function")
+          ? globalThis.civToLanguageModule(l.civilization || "") : "";
         var seed = {
           prompt: primary + (angle ? "\n[" + angle + "]" : ""),
           style: l.music_style_hint || "",
           lyrics: "",
+          civilization: l.civilization || null,
+          language: seedLang2 || undefined,
           __landmarkId: l.landmark_id,
           __civilization: l.civilization,
           __storyAngle: angle,
@@ -1574,10 +1587,14 @@
     var primaryName = currentLocale().indexOf("zh") === 0
       ? (l.name_zh || l.name_en) : (l.name_en || l.name_zh);
     var prompt = primaryName + (angle ? "\n[" + angle + "]" : "");
+    var seedLang3 = (typeof globalThis.civToLanguageModule === "function")
+      ? globalThis.civToLanguageModule(l.civilization || "") : "";
     var seed = {
       prompt: prompt,
       style: l.music_style_hint || "",
       lyrics: "",
+      civilization: l.civilization || null,
+      language: seedLang3 || undefined,
       __landmarkId: l.landmark_id,
       __civilization: l.civilization,
       __storyAngle: angle,

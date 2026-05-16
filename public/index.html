@@ -2081,6 +2081,13 @@
          .lock("portrait") covers Chrome Android, and an iOS Safari
          rotate-back overlay covers what Apple won't let us lock. -->
     <script src="app.orientation-lock.js?v=20260516-wave194-portrait-only"></script>
+    <!-- CSSOS_WAVE_195 — Screen Wake Lock: keep display awake while
+         any media element is playing OR the MV pipeline is running.
+         Auto-releases when everything goes idle so battery survives. -->
+    <script src="app.wake-lock.js?v=20260516-wave195-wake-lock"></script>
+    <!-- CSSOS_WAVE_196 — civilization → lyric-language map. Loads
+         BEFORE person-mv-panel.js so seed-builders can call into it. -->
+    <script src="app.civ-language-map.js?v=20260516-wave196-civ-lang"></script>
     <!-- CSSOS_WAVE_121 — work-id binding: every watch render flushes
          asset caches first to prevent 张冠李戴. -->
     <script src="app.work-id-binding.js?v=20260514-wave127-orientation"></script>
@@ -2278,7 +2285,7 @@
          on every page load. Saves ~444 KB from first-paint on mobile. -->
     <script src="app.mv-pipeline-open-shim.js?v=20260514-wave145-lazy-trigger"></script>
     <script type="cssos-lazy" data-panel="mv-pipeline" src="app.mv-pipeline-panel.js?v=20260516-wave190-rotate-live"></script>
-    <script src="app.person-mv-panel.js?v=20260515-wave177-smart-title"></script>
+    <script src="app.person-mv-panel.js?v=20260516-wave196-civ-language"></script>
     <script src="app.person-mv-discover-shelf.js?v=20260507-wave9"></script>
     <script src="app.person-mv-groups-shelf.js?v=20260508-wave16"></script>
     <script src="app.person-mv-today-shelf.js?v=20260508-wave15"></script>

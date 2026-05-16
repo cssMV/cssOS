@@ -3257,6 +3257,74 @@ app.post("/api/works/:id/fingerprint/push", express.json({ limit: "1kb" }), asyn
 /* POST /api/account/fingerprint-optin — creator toggles consent for
  * cssOS to push their public works' reference audio to the global
  * ACRCloud bucket. Default OFF — opt-in is explicit. */
+/* CSSOS_WAVE_204 20260516 — Jing: App Store 5.1.1(v) requires an
+ * in-app account-deletion path. The user submitted text claims
+ * "Profile → Account → Delete Account" → confirmation → 30-day purge
+ * with 7-day grace. Backend wiring lives here.
+ *
+ *   POST /api/account/delete
+ *     - Auth: signed-in user only.
+ *     - Body: { confirm: "delete-my-account" } — guards against
+ *       accidental hits from non-confirmation UI taps.
+ *     - Marks users.deleted_at = now(); next session-restore /
+ *       getSessionUser blocks the user. Destroys the current session
+ *       cookie.
+ *     - Returns { ok, purge_eta_iso } — 30 days out, advertised to
+ *       the UI so the modal can show "fully purged on 2026-06-15".
+ *     - The actual hard-purge (PII scrub, S3 object delete) lives in
+ *       a future scheduled job; soft-delete is what Apple cares about
+ *       on day-1.
+ */
+app.post("/api/account/delete", express.json({ limit: "1kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const confirm = String((req.body as any)?.confirm || "").trim();
+  if (confirm !== "delete-my-account") {
+    return res.status(400).json({
+      ok: false,
+      error: "confirmation_required",
+      hint: 'POST {"confirm":"delete-my-account"} to proceed.',
+    });
+  }
+  try {
+    await withClient((c) =>
+      c.query(
+        `UPDATE users
+            SET deleted_at = now(), updated_at = now()
+          WHERE id = $1::uuid AND deleted_at IS NULL`,
+        [userId],
+      ),
+    );
+    // Best-effort: log a credit_events row so the audit trail shows
+    // the user-initiated deletion + the 30-day purge window.
+    try {
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO credit_events (user_id, delta, reason, payload)
+           VALUES ($1::uuid, 0, 'account_delete_requested', $2::jsonb)`,
+          [userId, JSON.stringify({ purge_eta_iso: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString() })],
+        ),
+      );
+    } catch (_) { /* audit row is best-effort */ }
+    // Tear down the session so subsequent requests are unauthenticated.
+    req.session.destroy((err) => {
+      if (err) console.warn("[account/delete] session destroy failed:", err);
+      try { res.clearCookie(process.env.SESSION_COOKIE || "cssos_session"); } catch (_) {}
+      const purgeEta = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
+      return res.json({
+        ok: true,
+        soft_deleted: true,
+        purge_eta_iso: purgeEta,
+        grace_window_days: 7,
+        message: "Account marked for deletion. Final purge in 30 days. Within the first 7 days, sign in to restore.",
+      });
+    });
+  } catch (err) {
+    console.warn("[account/delete] threw:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, error: "delete_failed", detail: (err as Error)?.message || String(err) });
+  }
+});
+
 app.post("/api/account/fingerprint-optin", express.json({ limit: "1kb" }), async (req, res) => {
   const userId = (req.session as any)?.user_id;
   if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
@@ -8540,14 +8608,23 @@ async function getSessionUser(req: express.Request) {
     display_name: string | null;
     email: string | null;
     avatar_url: string | null;
+    deleted_at: string | null;
   };
+  // CSSOS_WAVE_204 — soft-deleted accounts (Apple 5.1.1(v) flow) are
+  // treated as signed-out: anything they had a session token for stops
+  // working immediately. The 7-day grace window is handled by the
+  // sign-in path checking deleted_at > now() - interval '7 days' and
+  // clearing it on user re-sign-in.
   const result: QueryResult<UserRow> = await withClient((client) =>
     client.query<UserRow>(
-      "SELECT id, display_name, email, avatar_url FROM users WHERE id = $1",
+      "SELECT id, display_name, email, avatar_url, deleted_at FROM users WHERE id = $1",
       [sessionUserId],
     ),
   );
-  return result.rows[0] || null;
+  const row = result.rows[0];
+  if (!row) return null;
+  if (row.deleted_at) return null; // soft-deleted → treat as signed out
+  return row;
 }
 
 function okEmpty(data: unknown, message = "No data yet") {

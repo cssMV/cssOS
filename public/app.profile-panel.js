@@ -65,6 +65,25 @@ function buildProfileMetaMarkup(options = {}) {
     <div class="profile-account-meta">${t("profile.connectedProviders")} ${escapeHtml(linkedText)}</div>
     <div class="profile-account-meta">${t("profile.accountRole")} ${escapeHtml(roleLabel)}</div>
     ${note ? `<div class="profile-account-meta">${escapeHtml(note)}</div>` : ""}
+    <!-- CSSOS_WAVE_205 20260516 — Jing: Apple 5.1.1(v) in-app account
+         deletion path. Bottom-of-meta danger zone with explicit
+         confirm modal, POSTs to /api/account/delete with the
+         "delete-my-account" guard token, then forces a reload so the
+         UI lands on the guest state. -->
+    <div class="profile-account-danger-zone" style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,80,80,0.18);">
+      <button type="button"
+              class="profile-delete-account-btn"
+              data-profile-delete-account
+              style="background:transparent;border:1px solid rgba(255,80,80,0.5);color:#ff8080;padding:8px 14px;border-radius:8px;font:500 13px/1.2 -apple-system,system-ui,sans-serif;cursor:pointer;">
+        ${escapeHtml(loginCopy("Delete account", "删除账号"))}
+      </button>
+      <div class="profile-account-meta" style="margin-top:6px;font-size:11.5px;color:rgba(255,255,255,0.5);">
+        ${escapeHtml(loginCopy(
+          "Permanently delete your account and all generated works. 30-day purge with a 7-day grace window.",
+          "永久删除你的账号和所有生成的作品。30 天彻底清除，前 7 天内重新登录可恢复。"
+        ))}
+      </div>
+    </div>
   `;
 }
 
@@ -149,8 +168,75 @@ function bindSignedInProfileActions(summary, options = {}) {
   bindProfileNavButtons(summary, options);
   bindProfileAvatarInput(summary, options);
   bindProfileCommerceActions(summary);
+  bindProfileDeleteAccount(summary);
   syncProfilePasskeyControls({ signedIn: true });
   ensureProfileCommerceLoaded();
+}
+
+// CSSOS_WAVE_205 20260516 — Delete-account click handler.
+// Two-step confirmation (native confirm() is acceptable per Apple's
+// review pattern; cleaner-looking modal can replace it later, the
+// guard token + backend gate are the load-bearing part).
+function bindProfileDeleteAccount(summary) {
+  if (!(summary instanceof Element)) return;
+  const btn = summary.querySelector("[data-profile-delete-account]");
+  if (!btn || btn.__cssosBound) return;
+  btn.__cssosBound = true;
+  btn.addEventListener("click", async (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const c1 = loginCopy(
+      "Delete your account?\n\nThis schedules a 30-day purge of your account, generated works, and uploaded media. Sign in again within the first 7 days to cancel.",
+      "确认删除账号？\n\n你的账号、所有生成作品和上传素材将进入 30 天清除流程。前 7 天内重新登录可取消。"
+    );
+    if (!window.confirm(c1)) return;
+    const c2 = loginCopy(
+      "Last check — really delete? Type-confirmation will be sent to the server.",
+      "最后一次确认 — 真的删除？将向服务器发送类型确认。"
+    );
+    if (!window.confirm(c2)) return;
+    btn.disabled = true;
+    const origText = btn.textContent;
+    btn.textContent = loginCopy("Deleting…", "删除中…");
+    try {
+      const res = await fetch("/api/account/delete", {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ confirm: "delete-my-account" }),
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok || !payload || payload.ok !== true) {
+        const detail = (payload && (payload.error || payload.detail)) || `status_${res.status}`;
+        if (typeof showToast === "function") {
+          showToast(loginCopy("Delete failed: ", "删除失败：") + detail);
+        } else {
+          window.alert(loginCopy("Delete failed: ", "删除失败：") + detail);
+        }
+        btn.disabled = false;
+        btn.textContent = origText;
+        return;
+      }
+      const purgeIso = String(payload.purge_eta_iso || "");
+      const purgeDate = purgeIso ? new Date(purgeIso).toLocaleDateString() : "30 days";
+      const grace = Number(payload.grace_window_days || 7);
+      const msg = loginCopy(
+        `Account deleted. Final purge on ${purgeDate}. Sign in within ${grace} days to restore.`,
+        `账号已删除。${purgeDate} 彻底清除。${grace} 天内重新登录可恢复。`
+      );
+      try { if (typeof showToast === "function") showToast(msg); else window.alert(msg); } catch (_) {}
+      // Server already destroyed the session + cleared the cookie.
+      // Reload so the UI lands on guest state and any cached
+      // authState / linked-provider rows are wiped.
+      setTimeout(() => { try { window.location.href = "/"; } catch (_) { window.location.reload(); } }, 1200);
+    } catch (err) {
+      const m = (err && err.message) || String(err);
+      if (typeof showToast === "function") showToast(loginCopy("Delete error: ", "删除错误：") + m);
+      else window.alert(loginCopy("Delete error: ", "删除错误：") + m);
+      btn.disabled = false;
+      btn.textContent = origText;
+    }
+  });
 }
 
 function bindProfileNavButtons(summary, options = {}) {
@@ -176,10 +262,60 @@ function bindProfileAvatarInput(summary, options = {}) {
     if (!canEditProfile) return;
     const file = avatarInput.files?.[0];
     if (!file) return;
+    // CSSOS_WAVE_202b 20260516 — Jing: avatar must persist to the DB
+    // (was local-storage only). Read file → data URL for instant local
+    // preview, then POST the base64 to /api/profile/avatar so the
+    // server resizes to 256×256 WebP, mirrors to R2, and updates
+    // users.avatar_url. On success, the next /api/me refresh picks
+    // up the canonical URL and clears the local override (which would
+    // otherwise shadow the server value for this device only).
+    if (file.size > 8 * 1024 * 1024) {
+      try {
+        if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(t("profile.avatarTooLarge") || "Image too large (max 8 MB)");
+        }
+      } catch (_e) {}
+      try { avatarInput.value = ""; } catch (_e) {}
+      return;
+    }
     const reader = new FileReader();
-    reader.onload = () => {
-      writeProfileAvatarOverride(String(reader.result || ""));
+    reader.onload = async () => {
+      const dataUrl = String(reader.result || "");
+      // 1. Instant local preview via the override (don't wait for upload)
+      writeProfileAvatarOverride(dataUrl);
       broadcastProfileRefresh({ includeWorks: true });
+      // 2. Server upload (best-effort; failure leaves local override in place)
+      try {
+        const resp = await fetch("/api/profile/avatar", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image_b64: dataUrl }),
+        });
+        const j = await resp.json().catch(() => null);
+        if (resp.ok && j && j.ok && j.avatar_url) {
+          // Hydrate auth state so every panel sees the new URL.
+          if (authState && authState.user) {
+            authState.user.avatar_url = j.avatar_url;
+            authState.user.avatar = j.avatar_url;
+          }
+          // Drop the local override — server is now the source of truth.
+          try { writeProfileAvatarOverride(""); } catch (_e) {}
+          broadcastProfileRefresh({ includeWorks: true });
+          if (typeof globalThis.showToast === "function") {
+            globalThis.showToast(t("profile.avatarUpdated") || "Avatar updated");
+          }
+        } else {
+          if (typeof globalThis.showToast === "function") {
+            globalThis.showToast(t("profile.avatarUploadFailed") || "Avatar upload failed — using local copy");
+          }
+        }
+      } catch (err) {
+        console.warn("[profile-avatar] upload failed:", err);
+        if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(t("profile.avatarUploadFailed") || "Avatar upload failed — using local copy");
+        }
+      }
     };
     reader.readAsDataURL(file);
   });

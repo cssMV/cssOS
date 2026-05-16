@@ -2076,6 +2076,11 @@
          home indicator after a few seconds of no touch. Touch devices
          only; PWA / standalone skipped (already chrome-less). -->
     <script src="app.app-fullscreen-immersive.js?v=20260516-wave193-intent-scoped"></script>
+    <!-- CSSOS_WAVE_194 — lock the app to portrait. Three layers:
+         manifest "orientation":"portrait" handles PWA, screen.orientation
+         .lock("portrait") covers Chrome Android, and an iOS Safari
+         rotate-back overlay covers what Apple won't let us lock. -->
+    <script src="app.orientation-lock.js?v=20260516-wave194-portrait-only"></script>
     <!-- CSSOS_WAVE_121 — work-id binding: every watch render flushes
          asset caches first to prevent 张冠李戴. -->
     <script src="app.work-id-binding.js?v=20260514-wave127-orientation"></script>

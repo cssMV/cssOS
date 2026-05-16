@@ -3,6 +3,7 @@
   "short_name": "CSS Studio",
   "start_url": "/",
   "display": "standalone",
+  "orientation": "portrait",
   "theme_color": "#001b14",
   "background_color": "#001b14",
   "icons": [

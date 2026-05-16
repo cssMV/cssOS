@@ -3654,52 +3654,74 @@ async function runAgentTool(
         return { error: "insufficient_credit", need: debitCost, have: debitR.balance, hint: "Earn credits via plays / forks / boost, or top up in Settings → Subscription." };
       }
 
-      // CSSOS_WAVE_184 20260516 — Jing: 免费用户只有三次，最多输出一首
-      // 完整三部曲. Lifetime cap of 3 PLAYABLE LEAVES per free-tier
-      // user. A triptych counts as 3 (its 3 parts); a single counts
-      // as 1; an opera (with N scenes) counts as N. Staff / admin /
-      // paid tiers bypass this check entirely (isCreditExempt above
-      // already returns true for them via debitCredits, but the cap
-      // is independent of credits, so we re-check here).
+      // CSSOS_WAVE_185 20260516 — Jing: 免费用户上限走会员订阅级别 —
+      // 订阅面板规定多少次就多少次，不要在代码里写死。
+      //
+      // Read the user's tier policy via the canonical
+      // resolveUserAccessProfile, then enforce
+      // policy.monthlyGenerationLimit on PLAYABLE LEAVES created this
+      // calendar month. Free tier's "monthlyGenerationLimit: 3" is the
+      // single source of truth — if Jing later edits that to 5 / 10,
+      // this gate moves with it automatically. Tiers with limit=null
+      // (admin / vip / enterprise) bypass.
       try {
-        const exempt = await isCreditExempt(ctx.userId);
-        if (!exempt) {
-          const FREE_LIFETIME_LEAVES = 3;
-          const used = await withClient((c) =>
-            c.query<{ n: string }>(
-              `SELECT COUNT(*)::text AS n FROM user_works
-                WHERE user_id = $1::uuid
-                  AND structure_role IN ('single','part','scene','episode','theme_song','interlude','ending_song')
-                  AND status <> 'deleted'`,
-              [ctx.userId],
-            ),
-          );
-          const usedCount = Number(used.rows[0]?.n || 0) || 0;
-          // Estimate leaves THIS request will add (matches the parser
-          // logic: triptych=3, opera default 6 scenes, shortplay=5,
-          // single=1, others=1 unless the LLM splits).
-          const projected = wt === "triptych" ? 3
-                          : wt === "opera"    ? 6
-                          : wt === "shortplay"? 5
-                          : wt === "series"   ? 4
-                          : wt === "film"     ? 4
-                          : 1;
-          if (usedCount + projected > FREE_LIFETIME_LEAVES) {
-            // Refund the credit since we're refusing.
-            try { await creditUserBalance(ctx.userId, debitCost, "create_work_refund", { reason: "free_quota_exceeded", title, work_type: wt }); } catch (_) {}
-            return {
-              error: "free_quota_exceeded",
-              hint: `Free users get ${FREE_LIFETIME_LEAVES} creations total (enough for one triptych). Already used: ${usedCount}, this would add: ${projected}. Upgrade in Settings → Subscription to keep creating.`,
-              used: usedCount,
-              would_add: projected,
-              limit: FREE_LIFETIME_LEAVES,
-            };
+        // Resolve the access profile for ctx.userId. We need the email
+        // too because resolveUserAccessProfile uses it for admin role
+        // detection; one row lookup is cheap and matches the rest of
+        // the system's path.
+        const userRow = await withClient((c) =>
+          c.query<{ id: string; email: string | null }>(
+            `SELECT id, email FROM users WHERE id = $1::uuid LIMIT 1`,
+            [ctx.userId],
+          ),
+        );
+        const u = userRow.rows[0];
+        if (u) {
+          const access = await resolveUserAccessProfile({ id: u.id, email: u.email });
+          const limit = access.policy.monthlyGenerationLimit;
+          if (typeof limit === "number" && limit > 0) {
+            // Count THIS MONTH's playable leaves created by the user.
+            const used = await withClient((c) =>
+              c.query<{ n: string }>(
+                `SELECT COUNT(*)::text AS n FROM user_works
+                  WHERE user_id = $1::uuid
+                    AND structure_role IN ('single','part','scene','episode','theme_song','interlude','ending_song')
+                    AND status <> 'deleted'
+                    AND created_at >= date_trunc('month', now())`,
+                [ctx.userId],
+              ),
+            );
+            const usedCount = Number(used.rows[0]?.n || 0) || 0;
+            // Estimate leaves THIS request will add (matches the
+            // parser logic downstream).
+            const projected = wt === "triptych"  ? 3
+                            : wt === "opera"     ? 6
+                            : wt === "shortplay" ? 5
+                            : wt === "series"    ? 4
+                            : wt === "film"      ? 4
+                            : 1;
+            if (usedCount + projected > limit) {
+              // Refund the credit since we're refusing.
+              try {
+                await creditUserBalance(ctx.userId, debitCost, "create_work_refund",
+                  { reason: "tier_quota_exceeded", title, work_type: wt, tier: access.tier });
+              } catch (_) {}
+              return {
+                error: "tier_quota_exceeded",
+                tier: access.tier,
+                hint: `Your ${access.tier} tier allows ${limit} creations per month. Used this month: ${usedCount}, this would add: ${projected}. Upgrade in Settings → Subscription to lift the cap.`,
+                used: usedCount,
+                would_add: projected,
+                limit,
+              };
+            }
           }
+          // limit === null → unlimited tier, no gate.
         }
       } catch (quotaErr) {
         // Quota check is best-effort — if the DB query blows up,
         // don't block the user; just log it.
-        console.warn("[create_work] free-quota check threw:", (quotaErr as Error)?.message);
+        console.warn("[create_work] tier-quota check threw:", (quotaErr as Error)?.message);
       }
 
       // Build lyricist prompt (re-use the user-facing endpoint's helpers).

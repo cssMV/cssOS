@@ -2071,6 +2071,11 @@
          nav, dead-anchor reloads, double-tap fires. Must load early so
          CSS rules apply before any panel renders. -->
     <script src="app.touch-hardening.js?v=20260513-wave117-touch"></script>
+    <!-- CSSOS_WAVE_192 — on first user gesture, request true fullscreen
+         on the document so iOS hides the top time bar + auto-hides the
+         home indicator after a few seconds of no touch. Touch devices
+         only; PWA / standalone skipped (already chrome-less). -->
+    <script src="app.app-fullscreen-immersive.js?v=20260516-wave192-immersive"></script>
     <!-- CSSOS_WAVE_121 — work-id binding: every watch render flushes
          asset caches first to prevent 张冠李戴. -->
     <script src="app.work-id-binding.js?v=20260514-wave127-orientation"></script>

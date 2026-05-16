@@ -402,6 +402,120 @@ function renderLoginPlatformsModule() {
     `;
     loginList.appendChild(card);
   });
+  // CSSOS_WAVE_207 20260516 — Jing: Apple App Review demo sign-in.
+  // cssOS is OAuth-only by design; this is the ONE email+password path,
+  // gated server-side by APP_REVIEW_DEMO_EMAIL + APP_REVIEW_DEMO_PASSWORD
+  // env vars (W206). When the env is unset, the endpoint 503s and the
+  // form silently shows "currently disabled" — so we can always leave
+  // the UI shipping, and only the credentials toggle whether it works.
+  // Collapsed by default; hidden when a user is already signed in.
+  appendAppReviewDemoForm();
+}
+
+function appendAppReviewDemoForm() {
+  try {
+    if (!loginList) return;
+    if (authState && authState.user) return; // hide once signed in
+    if (loginList.querySelector("[data-cssos-demo-login]")) return; // idempotent
+    const wrap = document.createElement("details");
+    wrap.className = "login-demo-wrap";
+    wrap.setAttribute("data-cssos-demo-login", "1");
+    wrap.style.cssText = "margin-top:18px;padding:10px 12px;border:1px dashed rgba(255,255,255,0.12);border-radius:10px;background:rgba(255,255,255,0.02);";
+    const titleEn = "App Review demo sign-in";
+    const titleZh = "应用审核入口";
+    wrap.innerHTML = [
+      `<summary style="cursor:pointer;font:600 12px/1.3 ui-monospace,monospace;color:rgba(255,255,255,0.55);letter-spacing:0.06em;text-transform:uppercase;list-style:none;">`,
+      `  ${loginPanelLoginCopy(titleEn, titleZh)}`,
+      `</summary>`,
+      `<div style="margin-top:10px;display:flex;flex-direction:column;gap:8px;">`,
+      `  <div style="font-size:11.5px;line-height:1.5;color:rgba(255,255,255,0.5);">`,
+      `    ${loginPanelLoginCopy(
+        "Apple App Reviewers only. Production sign-in goes through Apple / Google / GitHub / etc. above.",
+        "仅供 Apple 审核员使用。普通登录请用上方的 Apple / Google / GitHub 等。"
+      )}`,
+      `  </div>`,
+      `  <input type="email" data-cssos-demo-email autocomplete="email" placeholder="${escapeAttr(loginPanelLoginCopy("Email", "邮箱"))}" `,
+      `         style="background:rgba(0,0,0,0.32);border:1px solid rgba(255,255,255,0.14);color:#e6e8ee;border-radius:8px;padding:8px 10px;font:500 13px/1.3 -apple-system,system-ui,sans-serif;" />`,
+      `  <input type="password" data-cssos-demo-password autocomplete="current-password" placeholder="${escapeAttr(loginPanelLoginCopy("Password", "密码"))}" `,
+      `         style="background:rgba(0,0,0,0.32);border:1px solid rgba(255,255,255,0.14);color:#e6e8ee;border-radius:8px;padding:8px 10px;font:500 13px/1.3 -apple-system,system-ui,sans-serif;" />`,
+      `  <button type="button" data-cssos-demo-submit `,
+      `          style="background:rgba(0,245,160,0.16);border:1px solid rgba(0,245,160,0.42);color:#5effc9;border-radius:8px;padding:8px 14px;font:600 13px/1.2 -apple-system,system-ui,sans-serif;cursor:pointer;">`,
+      `    ${loginPanelLoginCopy("Sign in", "登录")}`,
+      `  </button>`,
+      `  <div data-cssos-demo-status style="font-size:11.5px;line-height:1.5;color:rgba(255,255,255,0.55);min-height:1.2em;"></div>`,
+      `</div>`,
+    ].join("");
+    loginList.appendChild(wrap);
+    bindDemoForm(wrap);
+  } catch (_e) { /* never break login panel render */ }
+}
+
+function escapeAttr(s) {
+  return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function bindDemoForm(wrap) {
+  const emailEl    = wrap.querySelector("[data-cssos-demo-email]");
+  const passwordEl = wrap.querySelector("[data-cssos-demo-password]");
+  const submitEl   = wrap.querySelector("[data-cssos-demo-submit]");
+  const statusEl   = wrap.querySelector("[data-cssos-demo-status]");
+  if (!emailEl || !passwordEl || !submitEl || !statusEl) return;
+  const submit = async () => {
+    const email = String(emailEl.value || "").trim();
+    const password = String(passwordEl.value || "");
+    if (!email || !password) {
+      statusEl.textContent = loginPanelLoginCopy("Email and password required.", "请填写邮箱和密码。");
+      return;
+    }
+    submitEl.disabled = true;
+    const origText = submitEl.textContent;
+    submitEl.textContent = loginPanelLoginCopy("Signing in…", "登录中…");
+    statusEl.textContent = "";
+    try {
+      const res = await fetch("/api/auth/demo-login", {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok || !payload || payload.ok !== true) {
+        const code = (payload && payload.error) || `status_${res.status}`;
+        if (code === "demo_login_disabled") {
+          statusEl.textContent = loginPanelLoginCopy(
+            "Demo sign-in is currently disabled.",
+            "演示登录当前已关闭。"
+          );
+        } else if (code === "invalid_credentials") {
+          statusEl.textContent = loginPanelLoginCopy("Wrong email or password.", "邮箱或密码错误。");
+        } else if (code === "demo_user_missing") {
+          statusEl.textContent = loginPanelLoginCopy("Demo account not found.", "演示账号不存在。");
+        } else {
+          statusEl.textContent = loginPanelLoginCopy("Sign-in failed: ", "登录失败：") + code;
+        }
+        submitEl.disabled = false;
+        submitEl.textContent = origText;
+        return;
+      }
+      statusEl.textContent = loginPanelLoginCopy("Signed in. Loading…", "已登录，正在加载…");
+      // Rehydrate authState the same way an OAuth callback would.
+      try { await (typeof fetchMe === "function" ? fetchMe() : fetchMeModule()); } catch (_) {}
+      try { renderLoginPlatforms(); } catch (_) {}
+      // Soft reload so any cached panel state for guests is wiped and
+      // every render path sees the new authState in one pass.
+      setTimeout(() => { try { window.location.reload(); } catch (_) {} }, 350);
+    } catch (err) {
+      statusEl.textContent = loginPanelLoginCopy("Network error: ", "网络错误：") + (err && err.message || err);
+      submitEl.disabled = false;
+      submitEl.textContent = origText;
+    }
+  };
+  submitEl.addEventListener("click", submit);
+  [emailEl, passwordEl].forEach((el) => {
+    el.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") { ev.preventDefault(); submit(); }
+    });
+  });
 }
 
 async function fetchMeModule() {

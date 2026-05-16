@@ -301,6 +301,36 @@
     });
   }
 
+  // CSSOS_WAVE_184 20260516 — Jing: AI 助理只许登录用户用；游客挡掉.
+  // The endpoint already returns 401 for guests, but we'd rather show
+  // a clean prompt at panel-open than let the user type a message
+  // and bounce off "sign-in required". Auth check reads the same
+  // authState the rest of the app uses.
+  function viewerIsSignedIn() {
+    try {
+      var uid = String(globalThis.authState && globalThis.authState.user && globalThis.authState.user.id || "").trim();
+      return !!uid;
+    } catch (_) { return false; }
+  }
+  function promptGuestSignIn() {
+    try {
+      if (typeof globalThis.showToast === "function") {
+        globalThis.showToast(tr(
+          "Sign in to use the AI Assistant — free users get 3 creations (up to one triptych).",
+          "AI 助理需要登录使用 — 免费用户可创作 3 次（足够输出一首三部曲）。"
+        ));
+      }
+    } catch (_) {}
+    try {
+      var loginPanel = document.getElementById("login-panel");
+      if (loginPanel && typeof globalThis.openPanelModule === "function") {
+        globalThis.openPanelModule("login-panel");
+      } else if (typeof globalThis.openLoginPanel === "function") {
+        globalThis.openLoginPanel();
+      }
+    } catch (_) {}
+  }
+
   function togglePanel() {
     var panel = document.getElementById("cssos-agent-panel");
     var fab = document.getElementById("cssos-agent-fab");
@@ -310,6 +340,11 @@
       panel.setAttribute("data-open", "0");
       fab.setAttribute("data-active", "0");
     } else {
+      // CSSOS_WAVE_184 — guests can't open the assistant.
+      if (!viewerIsSignedIn()) {
+        promptGuestSignIn();
+        return;
+      }
       panel.setAttribute("data-open", "1");
       fab.setAttribute("data-active", "1");
       hydrateSessionFromServer();

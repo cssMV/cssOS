@@ -143,11 +143,87 @@
     } catch (_) {}
     try { console.warn("[cssos-crash-guard]", msg); } catch (_) {}
   }
+  // CSSOS_WAVE_184 20260516 — localStorage quota recovery.
+  // Jing's session was hitting QuotaExceededError on Safari (localStorage
+  // capped at ~5 MB per origin), which cascaded into "auth state not
+  // restored / panels won't open" because every helper that tried
+  // setItem failed mid-init. When we see a QuotaExceededError, sweep
+  // the OLDEST cssos.* keys (preserving the auth + session sentinels)
+  // and retry the offending write once.
+  const STORAGE_KEEP = new Set([
+    "cssos.agent.session_id",
+    "cssos.locale",
+    "CSSOS_LANG",
+    "cssos.theme",
+  ]);
+  // CSSOS_WAVE_184 — proactive startup check. Probe localStorage with
+  // a tiny write; if it throws Quota, prune BEFORE any other module
+  // boots so panels load cleanly. Safari's 5 MB cap is the common
+  // tripwire here.
+  try {
+    const probeKey = "__cssos_storage_probe__";
+    localStorage.setItem(probeKey, "1");
+    localStorage.removeItem(probeKey);
+  } catch (probeErr) {
+    if (/Quota|quota/i.test(String(probeErr?.name || probeErr?.message || ""))) {
+      try { console.warn("[cssos-crash-guard] localStorage near full on boot — pruning"); } catch (_) {}
+      // Pruning helper isn't defined yet at this hoisted point in IIFE
+      // execution; safe to delegate to a quick inline sweep that mirrors
+      // pruneCssosStorage. We can't share the function until after it's
+      // declared below, so duplicate the body once for the boot probe.
+      try {
+        const entries = [];
+        for (let i = 0; i < localStorage.length; i += 1) {
+          const k = localStorage.key(i);
+          if (!k || !k.startsWith("cssos.")) continue;
+          if (k === "cssos.agent.session_id" || k === "cssos.locale" || k === "cssos.theme") continue;
+          const v = localStorage.getItem(k) || "";
+          entries.push({ k, size: v.length });
+        }
+        entries.sort((a, b) => b.size - a.size);
+        for (const e of entries.slice(0, 25)) {
+          try { localStorage.removeItem(e.k); } catch (_) {}
+        }
+      } catch (_) {}
+    }
+  }
+
+  function pruneCssosStorage() {
+    try {
+      const entries = [];
+      for (let i = 0; i < localStorage.length; i += 1) {
+        const k = localStorage.key(i);
+        if (!k || !k.startsWith("cssos.") || STORAGE_KEEP.has(k)) continue;
+        const v = localStorage.getItem(k) || "";
+        entries.push({ k, size: v.length });
+      }
+      // Drop the BIGGEST 25 first — biggest blobs free the most space.
+      entries.sort((a, b) => b.size - a.size);
+      let dropped = 0;
+      for (const e of entries.slice(0, 25)) {
+        try { localStorage.removeItem(e.k); dropped += e.size; } catch (_) {}
+      }
+      console.warn("[cssos-crash-guard] localStorage pruned, freed ~" + dropped + " bytes");
+      return dropped > 0;
+    } catch (_) { return false; }
+  }
+
   window.addEventListener("error", (ev) => {
     const msg = String(ev.message || ev.error?.message || "unknown_error");
     const stack = String(ev.error?.stack || "").slice(0, 2000);
     const src = `${ev.filename || ""}:${ev.lineno || 0}:${ev.colno || 0}`;
     beacon({ kind: "window.error", message: msg, stack, source: src });
+    // CSSOS_WAVE_184 — auto-recover from localStorage quota errors.
+    if (/QuotaExceededError|quota.*exceeded|exceeded.*quota|NS_ERROR_DOM_QUOTA/i.test(msg)) {
+      const freed = pruneCssosStorage();
+      if (freed) {
+        showFriendlyToast(
+          "本地缓存满了，已自动清理一部分。请刷新一下。 / Local cache was full — pruned. Please refresh."
+        );
+        ev.preventDefault?.();
+        return;
+      }
+    }
     showFriendlyToast("出错了，但已被拦截；输入内容已自动保存。 / Something glitched but was caught — your input is auto-saved.");
     // Prevent webview watchdog from treating as fatal
     ev.preventDefault?.();

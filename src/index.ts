@@ -3654,6 +3654,54 @@ async function runAgentTool(
         return { error: "insufficient_credit", need: debitCost, have: debitR.balance, hint: "Earn credits via plays / forks / boost, or top up in Settings → Subscription." };
       }
 
+      // CSSOS_WAVE_184 20260516 — Jing: 免费用户只有三次，最多输出一首
+      // 完整三部曲. Lifetime cap of 3 PLAYABLE LEAVES per free-tier
+      // user. A triptych counts as 3 (its 3 parts); a single counts
+      // as 1; an opera (with N scenes) counts as N. Staff / admin /
+      // paid tiers bypass this check entirely (isCreditExempt above
+      // already returns true for them via debitCredits, but the cap
+      // is independent of credits, so we re-check here).
+      try {
+        const exempt = await isCreditExempt(ctx.userId);
+        if (!exempt) {
+          const FREE_LIFETIME_LEAVES = 3;
+          const used = await withClient((c) =>
+            c.query<{ n: string }>(
+              `SELECT COUNT(*)::text AS n FROM user_works
+                WHERE user_id = $1::uuid
+                  AND structure_role IN ('single','part','scene','episode','theme_song','interlude','ending_song')
+                  AND status <> 'deleted'`,
+              [ctx.userId],
+            ),
+          );
+          const usedCount = Number(used.rows[0]?.n || 0) || 0;
+          // Estimate leaves THIS request will add (matches the parser
+          // logic: triptych=3, opera default 6 scenes, shortplay=5,
+          // single=1, others=1 unless the LLM splits).
+          const projected = wt === "triptych" ? 3
+                          : wt === "opera"    ? 6
+                          : wt === "shortplay"? 5
+                          : wt === "series"   ? 4
+                          : wt === "film"     ? 4
+                          : 1;
+          if (usedCount + projected > FREE_LIFETIME_LEAVES) {
+            // Refund the credit since we're refusing.
+            try { await creditUserBalance(ctx.userId, debitCost, "create_work_refund", { reason: "free_quota_exceeded", title, work_type: wt }); } catch (_) {}
+            return {
+              error: "free_quota_exceeded",
+              hint: `Free users get ${FREE_LIFETIME_LEAVES} creations total (enough for one triptych). Already used: ${usedCount}, this would add: ${projected}. Upgrade in Settings → Subscription to keep creating.`,
+              used: usedCount,
+              would_add: projected,
+              limit: FREE_LIFETIME_LEAVES,
+            };
+          }
+        }
+      } catch (quotaErr) {
+        // Quota check is best-effort — if the DB query blows up,
+        // don't block the user; just log it.
+        console.warn("[create_work] free-quota check threw:", (quotaErr as Error)?.message);
+      }
+
       // Build lyricist prompt (re-use the user-facing endpoint's helpers).
       const sysPrompt = (typeof buildJingdianSystemPrompt === "function")
         ? buildJingdianSystemPrompt(lang, wt, "")

@@ -14884,6 +14884,211 @@ app.get("/api/cssmv/openai-probe", async (_req, res) => {
 });
 
 app.get("/api/auth/diagnostics", handleAuthDiagnostics);
+
+/* ============================================================
+ * CSSOS_WAVE_210 20260516 — Jing: i18n translate-batch endpoint.
+ *
+ * English is the single source of truth. UI code calls tr("English
+ * string"); the client runtime collects misses (any English not yet
+ * in the current locale's catalog), batches them, and POSTs here.
+ *
+ * Pipeline:
+ *   1. Read existing /srv/cssos/shared/i18n-cache/<locale>.json
+ *      (creates if missing).
+ *   2. Filter incoming strings to ONLY the ones not yet cached.
+ *   3. Send the missing batch to Claude Sonnet 4.5 with a strict
+ *      one-line-per-string contract.
+ *   4. Merge result into the cache file and respond with the
+ *      complete { english: translated } map for the requested set
+ *      (cached hits + just-translated misses).
+ *
+ * Lazy activation: no language is preloaded. Each locale's cache is
+ * built incrementally by real users picking it. If nobody ever picks
+ * Wolof we never spend a token on it.
+ *
+ * Per-IP rate limit: 30 batch requests / 10 min, max 200 strings /
+ * batch (Apple reviewer + a couple dozen genuine first-locale users
+ * can coexist; a malicious script can't drain $$).
+ * ============================================================ */
+
+const I18N_CACHE_DIR = "/srv/cssos/shared/i18n-cache";
+const I18N_BATCH_MAX_STRINGS = 200;
+const I18N_BATCH_RATE_WINDOW_MS = 10 * 60 * 1000;
+const I18N_BATCH_RATE_LIMIT = 30;
+type I18nBucket = { count: number; resetAt: number };
+const i18nRateBuckets = new Map<string, I18nBucket>();
+
+function i18nLocalePathSafe(locale: string): string | null {
+  // BCP-47-ish: alpha-3 max + optional script/region tag. Reject any
+  // path traversal characters before touching the filesystem.
+  const lc = String(locale || "").trim();
+  if (!/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$/.test(lc)) return null;
+  return lc.toLowerCase().replace(/[^a-z0-9-]/g, "");
+}
+function i18nCacheFile(locale: string): string {
+  return path.join(I18N_CACHE_DIR, `${locale}.json`);
+}
+function i18nReadCache(locale: string): Record<string, string> {
+  try {
+    const p = i18nCacheFile(locale);
+    if (!fs.existsSync(p)) return {};
+    const raw = fs.readFileSync(p, "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (_) { return {}; }
+}
+function i18nWriteCache(locale: string, map: Record<string, string>): void {
+  try {
+    if (!fs.existsSync(I18N_CACHE_DIR)) fs.mkdirSync(I18N_CACHE_DIR, { recursive: true });
+    const p = i18nCacheFile(locale);
+    // Atomic write via tmp + rename so concurrent requests can't
+    // corrupt the catalog.
+    const tmp = `${p}.tmp.${process.pid}.${Date.now()}`;
+    fs.writeFileSync(tmp, JSON.stringify(map, null, 2), "utf8");
+    fs.renameSync(tmp, p);
+  } catch (err) {
+    console.warn("[i18n] cache write failed:", (err as Error)?.message);
+  }
+}
+function i18nRateCheck(req: express.Request): boolean {
+  const ip = String(req.ip || req.headers["x-forwarded-for"] || "anon").split(",")[0]!.trim();
+  const now = Date.now();
+  let b = i18nRateBuckets.get(ip);
+  if (!b || b.resetAt < now) {
+    b = { count: 0, resetAt: now + I18N_BATCH_RATE_WINDOW_MS };
+    i18nRateBuckets.set(ip, b);
+  }
+  b.count += 1;
+  return b.count <= I18N_BATCH_RATE_LIMIT;
+}
+
+async function i18nTranslateBatchViaClaude(
+  englishStrings: string[],
+  targetLocale: string,
+): Promise<Record<string, string>> {
+  const apiKey = (process.env.ANTHROPIC_API_KEY || "").trim();
+  if (!apiKey || !englishStrings.length) return {};
+  // Identify each string by 1-based index so the LLM can't reorder
+  // or merge entries. We parse back by the same numbered prefix.
+  const numbered = englishStrings
+    .map((s, i) => `${i + 1}\t${s.replace(/\r?\n/g, " \\ ")}`)
+    .join("\n");
+  const systemPrompt = [
+    `You translate cssOS UI strings from English to ${targetLocale}.`,
+    `cssOS is a creative platform for AI-generated music videos.`,
+    `Each input line is "<index>\\t<english>". Output the SAME number of lines,`,
+    `each "<index>\\t<translated>", in the SAME order. No commentary, no blank lines.`,
+    `Rules:`,
+    `  • Keep all {placeholders}, %d / %s, HTML tags, URLs, brand names`,
+    `    (cssOS, CSS Studio, Suno, Runway, Apple, Anthropic, Claude, Sonnet,`,
+    `    Mubert, Whisper, OpenAI, Google, GitHub, Stripe) verbatim.`,
+    `  • Stay short — UI chips and buttons need to fit. Match the original`,
+    `    register (terse imperatives → terse imperatives).`,
+    `  • If a string is already in the target language or is brand-only,`,
+    `    echo it back unchanged.`,
+    `  • Backslash-space "\\" represents a line break in the source; preserve it.`,
+    `  • Preserve leading/trailing emoji and punctuation.`,
+  ].join("\n");
+  const client = new Anthropic({ apiKey });
+  let raw = "";
+  try {
+    const resp = await client.messages.create({
+      model: "claude-sonnet-4-5",
+      max_tokens: Math.min(8192, Math.max(512, englishStrings.length * 80)),
+      temperature: 0,
+      system: systemPrompt,
+      messages: [{ role: "user", content: numbered }],
+    });
+    const block = (resp.content || []).find((b: any) => b.type === "text") as any;
+    raw = String(block?.text || "").trim();
+  } catch (err) {
+    console.warn("[i18n] Claude call threw:", (err as Error)?.message);
+    return {};
+  }
+  // Parse "<index>\t<translation>" back to a map.
+  const out: Record<string, string> = {};
+  const lines = raw.split(/\r?\n/);
+  for (const line of lines) {
+    const m = line.match(/^\s*(\d+)\s*\t(.*)$/);
+    if (!m) continue;
+    const idx = Number(m[1]);
+    if (!Number.isFinite(idx) || idx < 1 || idx > englishStrings.length) continue;
+    const english = englishStrings[idx - 1]!;
+    let translated = String(m[2] || "").trim();
+    // Re-inflate the \\-space line-break marker the prompt uses.
+    translated = translated.replace(/\s*\\\s*/g, "\n");
+    if (!translated) continue;
+    out[english] = translated;
+  }
+  return out;
+}
+
+app.post("/api/i18n/translate-batch", express.json({ limit: "256kb" }), async (req, res) => {
+  if (!i18nRateCheck(req)) {
+    return res.status(429).json({ ok: false, error: "rate_limited" });
+  }
+  const body = (req.body && typeof req.body === "object") ? (req.body as any) : {};
+  const locale = i18nLocalePathSafe(String(body.target_locale || body.locale || ""));
+  if (!locale) {
+    return res.status(400).json({ ok: false, error: "bad_locale" });
+  }
+  if (locale === "en") {
+    // English requests are a no-op — the source IS the answer.
+    const out: Record<string, string> = {};
+    const arr = Array.isArray(body.strings) ? body.strings : [];
+    for (const s of arr) { if (typeof s === "string" && s) out[s] = s; }
+    return res.json({ ok: true, locale, translations: out, cached: 0, translated: 0 });
+  }
+  const rawStrings: unknown[] = Array.isArray(body.strings) ? body.strings : [];
+  const strings = rawStrings
+    .filter((s): s is string => typeof s === "string" && !!s)
+    .slice(0, I18N_BATCH_MAX_STRINGS);
+  if (!strings.length) {
+    return res.json({ ok: true, locale, translations: {}, cached: 0, translated: 0 });
+  }
+  const cache = i18nReadCache(locale);
+  const cachedHits: Record<string, string> = {};
+  const misses: string[] = [];
+  for (const s of strings) {
+    if (Object.prototype.hasOwnProperty.call(cache, s) && typeof cache[s] === "string" && cache[s]!.length) {
+      cachedHits[s] = cache[s]!;
+    } else {
+      misses.push(s);
+    }
+  }
+  let translated: Record<string, string> = {};
+  if (misses.length) {
+    translated = await i18nTranslateBatchViaClaude(misses, locale);
+    if (Object.keys(translated).length) {
+      // Merge into cache atomically and persist.
+      const merged = { ...cache, ...translated };
+      i18nWriteCache(locale, merged);
+    }
+  }
+  return res.json({
+    ok: true,
+    locale,
+    translations: { ...cachedHits, ...translated },
+    cached: Object.keys(cachedHits).length,
+    translated: Object.keys(translated).length,
+    untranslated: misses.length - Object.keys(translated).length,
+  });
+});
+
+/* GET /api/i18n/catalog/:locale — fast bulk fetch of a locale's full
+ * cached catalog. Used on boot when the user has picked a non-English
+ * locale: one fetch primes the whole dict, then per-render tr() calls
+ * resolve from memory. */
+app.get("/api/i18n/catalog/:locale", (req, res) => {
+  const locale = i18nLocalePathSafe(String(req.params.locale || ""));
+  if (!locale) return res.status(400).json({ ok: false, error: "bad_locale" });
+  if (locale === "en") return res.json({ ok: true, locale, translations: {} });
+  const cache = i18nReadCache(locale);
+  res.setHeader("Cache-Control", "public, max-age=60");
+  return res.json({ ok: true, locale, translations: cache, count: Object.keys(cache).length });
+});
+
+
 app.get("/auth/github", handleGitHubAuthStart);
 app.get("/api/auth/github", (_req, res) => res.redirect(302, "/auth/github"));
 app.get("/api/auth/github/callback", (req, res) => {

@@ -1988,17 +1988,17 @@ function creationSummaryText() {
 const creationReferenceAtlas = {
   zh: {
     region: loginCopy("Chinese-speaking worlds"),
-    artists: ["周杰伦", "王菲", "邓丽君", "谭盾", "坂本龙一式电影感在东亚语境中的延展"],
+    artists: ["华语流行 / R&B 融合", "都市抒情情歌", "复古时代曲", "古典跨界 / 电影配乐感", "新派国乐 / 东方电子"],
     ensembles: ["中国爱乐乐团", "香港管弦乐团", "中国广播民族乐团", "江南丝竹 / 国风室内乐编制"]
   },
   ja: {
     region: loginCopy("Japan"),
-    artists: ["久石让", "宇多田光", "玉置浩二", "椎名林檎", "坂本龙一"],
+    artists: ["和风电影配乐", "City Pop", "昭和歌谣", "前卫摇滚 / 实验流行", "环境电子 / 极简钢琴"],
     ensembles: ["NHK交响乐团", "东京爱乐乐团", "和太鼓团体", "城市流行乐队编制"]
   },
   en: {
     region: loginCopy("US / UK and wider English-language worlds"),
-    artists: ["The Beatles", "Aretha Franklin", "Whitney Houston", "Hans Zimmer", "Daft Punk"],
+    artists: ["British Invasion rock", "classic soul / R&B", "gospel-pop power ballad", "cinematic orchestral score", "French house / electronic"],
     ensembles: ["London Symphony Orchestra", "Berlin Philharmonic", "Metropole-style studio orchestra", "Gospel choir / soul band / synth-pop band"]
   }
 };

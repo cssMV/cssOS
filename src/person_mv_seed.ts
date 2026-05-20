@@ -1686,7 +1686,7 @@ export const SEED_PERSON_PROFILES: SeedPersonProfile[] = [
    * CSSOS_WAVE_114 20260511 — Jing
    * Mythological / Literary / Folkloric realm — first batch.
    * Cross-realm Dialogue MV: Sun Wukong × 凌霄宝殿,
-   *   Zeus × Mount Olympus, Harry Potter × Hogwarts Great Hall,
+   *   Zeus × Mount Olympus, Sherlock Holmes × 221B Baker Street,
    *   嫦娥 × 月宫, 牛郎织女 × 鹊桥.
    * ═══════════════════════════════════════════════════════════════ */
 
@@ -2140,42 +2140,6 @@ export const SEED_PERSON_PROFILES: SeedPersonProfile[] = [
 
   // ─── Literary personas ────────────────────────────────────────────
   {
-    person_id: "harry-potter",
-    name_zh: "哈利·波特",
-    name_en: "Harry Potter",
-    name_native: "Harry James Potter",
-    name_latin: "Harry Potter",
-    civilization: "现代文学",
-    era: "20-21 世纪虚构",
-    lifespan: "1980（虚构）—",
-    roles: ["巫师学徒", "霍格沃茨毕业生"],
-    core_theme: "活下来的男孩 · 死亡圣器",
-    visual_symbols: ["闪电疤痕", "圆框眼镜", "魔杖", "猫头鹰"],
-    music_style_hint: "现代奇幻 / 弦乐与铜管 / 神秘",
-    tone: "神秘 · 勇敢",
-    influence_score: 94,
-    risk_notes: ["仍受版权保护，作为文化符号呈现"],
-    realm: "literary",
-  },
-  {
-    person_id: "hermione-granger",
-    name_zh: "赫敏·格兰杰",
-    name_en: "Hermione Granger",
-    name_native: "Hermione Jean Granger",
-    name_latin: "Hermione Granger",
-    civilization: "现代文学",
-    era: "20-21 世纪虚构",
-    lifespan: "1979（虚构）—",
-    roles: ["巫师学徒", "格兰芬多三人组"],
-    core_theme: "学霸魔女 · 时间转换器",
-    visual_symbols: ["波浪卷发", "课本叠摞", "魔杖", "时间转换器"],
-    music_style_hint: "现代奇幻 / 钢琴与弦乐 / 灵慧",
-    tone: "灵慧 · 坚定",
-    influence_score: 89,
-    risk_notes: ["仍受版权保护"],
-    realm: "literary",
-  },
-  {
     person_id: "sherlock-holmes",
     name_zh: "夏洛克·福尔摩斯",
     name_en: "Sherlock Holmes",
@@ -2191,24 +2155,6 @@ export const SEED_PERSON_PROFILES: SeedPersonProfile[] = [
     tone: "锐利 · 冷峻",
     influence_score: 93,
     risk_notes: ["公版人物，可自由使用"],
-    realm: "literary",
-  },
-  {
-    person_id: "frodo-baggins",
-    name_zh: "弗罗多·巴金斯",
-    name_en: "Frodo Baggins",
-    name_native: "Frodo Baggins",
-    name_latin: "Frodo Baggins",
-    civilization: "中土世界",
-    era: "第三纪元",
-    lifespan: "夏尔历 2968-3021",
-    roles: ["持戒者", "霍比特人"],
-    core_theme: "魔戒征途 · 末日山口",
-    visual_symbols: ["金色魔戒", "灰斗篷", "刺针", "夏尔小屋"],
-    music_style_hint: "中土史诗 / 弦乐与笛 / 漫长",
-    tone: "漫长 · 坚毅",
-    influence_score: 90,
-    risk_notes: ["仍受版权保护"],
     realm: "literary",
   },
   {

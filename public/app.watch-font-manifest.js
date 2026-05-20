@@ -26,11 +26,6 @@
     "format": "truetype"
   },
   {
-    "family": "Alien",
-    "src": "fonts_en/Alien-2.otf",
-    "format": "opentype"
-  },
-  {
     "family": "Alison",
     "src": "fonts_en/Alison-finch-2.otf",
     "format": "opentype"
@@ -39,11 +34,6 @@
     "family": "Allianty",
     "src": "fonts_en/Allianty-2.otf",
     "format": "opentype"
-  },
-  {
-    "family": "AlloefiraForPersonal",
-    "src": "fonts_en/AlloefiraFreeForPersonal-2.ttf",
-    "format": "truetype"
   },
   {
     "family": "Alter",
@@ -66,11 +56,6 @@
     "format": "truetype"
   },
   {
-    "family": "Amerilatte",
-    "src": "fonts_en/AmerilatteDemoRegular-2.ttf",
-    "format": "truetype"
-  },
-  {
     "family": "Amiela",
     "src": "fonts_en/Amiela-2.otf",
     "format": "opentype"
@@ -81,24 +66,9 @@
     "format": "truetype"
   },
   {
-    "family": "Angellita",
-    "src": "fonts_en/Angellita-demo-2.otf",
-    "format": "opentype"
-  },
-  {
     "family": "Anthony",
     "src": "fonts_en/Anthony-Houston-2.ttf",
     "format": "truetype"
-  },
-  {
-    "family": "AnytimeSoon",
-    "src": "fonts_en/AnytimeSoonDemoRegular-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "Apple Kids",
-    "src": "fonts_en/Apple-Kids-2.otf",
-    "format": "opentype"
   },
   {
     "family": "Artisual Deco",
@@ -113,21 +83,6 @@
   {
     "family": "Asmelina",
     "src": "fonts_en/Asmelina-Harley-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "AulionItalic",
-    "src": "fonts_en/AulionDemoItalic-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "Aulion",
-    "src": "fonts_en/AulionDemoRegular-3.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "Aurum Script",
-    "src": "fonts_en/Aurum-Script-Free-2.ttf",
     "format": "truetype"
   },
   {
@@ -146,24 +101,9 @@
     "format": "truetype"
   },
   {
-    "family": "AvocadoDiet",
-    "src": "fonts_en/AvocadoDietDemo-JRBBB-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "Avondale",
-    "src": "fonts_en/Avondale-Sample-2.otf",
-    "format": "opentype"
-  },
-  {
     "family": "Ayanalove",
     "src": "fonts_en/Ayanalove-2.otf",
     "format": "opentype"
-  },
-  {
-    "family": "BackToSchool",
-    "src": "fonts_en/BackToSchoolPersonalUseRegular-w1xX2-2.ttf",
-    "format": "truetype"
   },
   {
     "family": "Backrush",
@@ -176,11 +116,6 @@
     "format": "opentype"
   },
   {
-    "family": "Bagsman",
-    "src": "fonts_en/BagsmanDemoRegular-2.ttf",
-    "format": "truetype"
-  },
-  {
     "family": "Balinesse",
     "src": "fonts_en/Balinesse-Regular-2.ttf",
     "format": "truetype"
@@ -191,19 +126,9 @@
     "format": "opentype"
   },
   {
-    "family": "Balkous",
-    "src": "fonts_en/Balkous-FREE-2.otf",
-    "format": "opentype"
-  },
-  {
     "family": "Balymond",
     "src": "fonts_en/Balymond-2.ttf",
     "format": "truetype"
-  },
-  {
-    "family": "BarbieScript",
-    "src": "fonts_en/BarbieScript-gxYjP-2.otf",
-    "format": "opentype"
   },
   {
     "family": "BattomGlory",
@@ -211,18 +136,8 @@
     "format": "opentype"
   },
   {
-    "family": "Battur",
-    "src": "fonts_en/Battur-demo-2.ttf",
-    "format": "truetype"
-  },
-  {
     "family": "Beauty",
     "src": "fonts_en/Beauty-Boutique-2.otf",
-    "format": "opentype"
-  },
-  {
-    "family": "Beguns",
-    "src": "fonts_en/Beguns-FREE-2.otf",
     "format": "opentype"
   },
   {
@@ -246,11 +161,6 @@
     "format": "opentype"
   },
   {
-    "family": "Bintank",
-    "src": "fonts_en/Bintank-PersonalUse-2.otf",
-    "format": "opentype"
-  },
-  {
     "family": "Blackish",
     "src": "fonts_en/Blackish-2.ttf",
     "format": "truetype"
@@ -261,18 +171,8 @@
     "format": "opentype"
   },
   {
-    "family": "Bold Ish",
-    "src": "fonts_en/Bold-Ish-Demo-2.ttf",
-    "format": "truetype"
-  },
-  {
     "family": "BoldnessRace",
     "src": "fonts_en/BoldnessRace-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "Brevard",
-    "src": "fonts_en/BrevardDemoRegular-2.ttf",
     "format": "truetype"
   },
   {
@@ -301,16 +201,6 @@
     "format": "opentype"
   },
   {
-    "family": "Capuche",
-    "src": "fonts_en/Capuche-Trial-2.otf",
-    "format": "opentype"
-  },
-  {
-    "family": "Carnallians",
-    "src": "fonts_en/CarnalliansDemoRegular-2.ttf",
-    "format": "truetype"
-  },
-  {
     "family": "CastilloSignature",
     "src": "fonts_en/CastilloSignature-rgaey-2.otf",
     "format": "opentype"
@@ -321,16 +211,6 @@
     "format": "opentype"
   },
   {
-    "family": "Celistyne",
-    "src": "fonts_en/CelistyneDemoRegular-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "CharlieKayden",
-    "src": "fonts_en/CharlieKaydenDemoRegular-2.ttf",
-    "format": "truetype"
-  },
-  {
     "family": "Chedaty",
     "src": "fonts_en/Chedaty-2.otf",
     "format": "opentype"
@@ -338,11 +218,6 @@
   {
     "family": "Cheerful Day",
     "src": "fonts_en/Cheerful-Day-EaZ4j-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "ChristmasQueen",
-    "src": "fonts_en/ChristmasQueenPersonalUse-lgqEX-2.ttf",
     "format": "truetype"
   },
   {
@@ -361,43 +236,13 @@
     "format": "truetype"
   },
   {
-    "family": "Coventysh",
-    "src": "fonts_en/CoventyshDemo-Eayez-2.otf",
-    "format": "opentype"
-  },
-  {
     "family": "Cuningham",
     "src": "fonts_en/Cuningham-Singleton-2.otf",
     "format": "opentype"
   },
   {
-    "family": "CyberGothic",
-    "src": "fonts_en/CyberGothicDemo-2.otf",
-    "format": "opentype"
-  },
-  {
-    "family": "Cyberion",
-    "src": "fonts_en/Cyberion-demo-2.otf",
-    "format": "opentype"
-  },
-  {
     "family": "DELMANOMORELLI",
     "src": "fonts_en/DELMANOMORELLI-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "Danillous",
-    "src": "fonts_en/DanillousDemoRegular-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "Dankfield",
-    "src": "fonts_en/Dankfield-regular-demo-2.otf",
-    "format": "opentype"
-  },
-  {
-    "family": "DarkFalcon",
-    "src": "fonts_en/DarkFalconDemoRegular-2.ttf",
     "format": "truetype"
   },
   {
@@ -409,26 +254,6 @@
     "family": "Delisha",
     "src": "fonts_en/Delisha-2.otf",
     "format": "opentype"
-  },
-  {
-    "family": "Dellima",
-    "src": "fonts_en/Dellima-Demo-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "n",
-    "src": "fonts_en/Demon-Blade-2.otf",
-    "format": "opentype"
-  },
-  {
-    "family": "Devilion",
-    "src": "fonts_en/Devilion-Demo-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "DiamondFlower",
-    "src": "fonts_en/DiamondFlowerDemoRegular-2.ttf",
-    "format": "truetype"
   },
   {
     "family": "DilanWhemsy",
@@ -446,18 +271,8 @@
     "format": "truetype"
   },
   {
-    "family": "Dovetail",
-    "src": "fonts_en/DovetailDemoRegular-2.ttf",
-    "format": "truetype"
-  },
-  {
     "family": "Draco",
     "src": "fonts_en/Draco-2.otf",
-    "format": "opentype"
-  },
-  {
-    "family": "Edellyn",
-    "src": "fonts_en/Edellyndemo-w1x78-2.otf",
     "format": "opentype"
   },
   {
@@ -466,28 +281,8 @@
     "format": "truetype"
   },
   {
-    "family": "Energetic Script",
-    "src": "fonts_en/Energetic-Script-Limited-2.otf",
-    "format": "opentype"
-  },
-  {
     "family": "EnglandScript",
     "src": "fonts_en/EnglandScript-2.otf",
-    "format": "opentype"
-  },
-  {
-    "family": "FamousIdol",
-    "src": "fonts_en/FamousIdolDemoDisplay-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "Firebreak",
-    "src": "fonts_en/FirebreakDemoRegular-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "Frasell",
-    "src": "fonts_en/FrasellPersonalUse-2.otf",
     "format": "opentype"
   },
   {
@@ -501,16 +296,6 @@
     "format": "opentype"
   },
   {
-    "family": "Gamiela",
-    "src": "fonts_en/Gamiela-Demo-Regular-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "Gegor",
-    "src": "fonts_en/Gegor-Demo-2.otf",
-    "format": "opentype"
-  },
-  {
     "family": "Generation",
     "src": "fonts_en/Generation-EaZ2r-2.otf",
     "format": "opentype"
@@ -521,34 +306,14 @@
     "format": "opentype"
   },
   {
-    "family": "Geyster",
-    "src": "fonts_en/Geyster-DEMO-2.otf",
-    "format": "opentype"
-  },
-  {
     "family": "GingerBiscuitExtrudePul",
     "src": "fonts_en/GingerBiscuitExtrudePul-ZVOWl-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "GingerBiscuit",
-    "src": "fonts_en/GingerBiscuitPersonalUse-3zXmy-3.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "GoldenBrick",
-    "src": "fonts_en/GoldenBrickPersonalUseRegular-eZyr6-2.ttf",
     "format": "truetype"
   },
   {
     "family": "GoodHood",
     "src": "fonts_en/GoodHood-2.otf",
     "format": "opentype"
-  },
-  {
-    "family": "Goodselves",
-    "src": "fonts_en/GoodselvesDemoRegular-2.ttf",
-    "format": "truetype"
   },
   {
     "family": "GreenHome",
@@ -568,21 +333,6 @@
   {
     "family": "HamsleyScript",
     "src": "fonts_en/HamsleyScriptRegular-8MyrJ-2.otf",
-    "format": "opentype"
-  },
-  {
-    "family": "Hamsterly",
-    "src": "fonts_en/HamsterlyDemoRegular-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "Han Le Tours",
-    "src": "fonts_en/Han-Le-Tours-Demo-Version-2.otf",
-    "format": "opentype"
-  },
-  {
-    "family": "Heaven Wanders",
-    "src": "fonts_en/Heaven-Wanders-DEMO-2.otf",
     "format": "opentype"
   },
   {
@@ -609,11 +359,6 @@
     "family": "Igoe",
     "src": "fonts_en/Igoe-2.otf",
     "format": "opentype"
-  },
-  {
-    "family": "InterpretateOne",
-    "src": "fonts_en/InterpretateOneDemo-7BEZB-2.ttf",
-    "format": "truetype"
   },
   {
     "family": "IronHorse",
@@ -661,11 +406,6 @@
     "format": "opentype"
   },
   {
-    "family": "LightenUp",
-    "src": "fonts_en/LightenUpDemoRegular-2.ttf",
-    "format": "truetype"
-  },
-  {
     "family": "LittleBirds",
     "src": "fonts_en/LittleBirdsRegular-lg81w-2.ttf",
     "format": "truetype"
@@ -676,11 +416,6 @@
     "format": "opentype"
   },
   {
-    "family": "Lomario",
-    "src": "fonts_en/LomarioDemoRegular-2.ttf",
-    "format": "truetype"
-  },
-  {
     "family": "Losttimoh",
     "src": "fonts_en/Losttimoh-2.otf",
     "format": "opentype"
@@ -688,21 +423,6 @@
   {
     "family": "Lovelygirly",
     "src": "fonts_en/Lovelygirly-2.otf",
-    "format": "opentype"
-  },
-  {
-    "family": "Madelita",
-    "src": "fonts_en/Madelita-demo-2.otf",
-    "format": "opentype"
-  },
-  {
-    "family": "Maeryn",
-    "src": "fonts_en/Maeryn-Demo-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "Maleficent",
-    "src": "fonts_en/Maleficent-2.otf",
     "format": "opentype"
   },
   {
@@ -726,21 +446,6 @@
     "format": "truetype"
   },
   {
-    "family": "Melat i",
-    "src": "fonts_en/Melat-iDemo-Regular-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "Melonday",
-    "src": "fonts_en/MelondayDemoRegular-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "MilknBalls",
-    "src": "fonts_en/MilknBalls-BlackDemo-2.otf",
-    "format": "opentype"
-  },
-  {
     "family": "MonsieurLaDoulaise",
     "src": "fonts_en/MonsieurLaDoulaise-Regular-2.ttf",
     "format": "truetype"
@@ -754,11 +459,6 @@
     "family": "Montreau",
     "src": "fonts_en/Montreau-Regular-2.otf",
     "format": "opentype"
-  },
-  {
-    "family": "Moon Charming",
-    "src": "fonts_en/Moon-Charming-Demo-2.ttf",
-    "format": "truetype"
   },
   {
     "family": "Moreland",
@@ -796,11 +496,6 @@
     "format": "opentype"
   },
   {
-    "family": "Neography",
-    "src": "fonts_en/Neography-DEMO-2.ttf",
-    "format": "truetype"
-  },
-  {
     "family": "No.013 Sounso Moon",
     "src": "fonts_en/No.013-Sounso-Moon-2.ttf",
     "format": "truetype"
@@ -811,34 +506,9 @@
     "format": "opentype"
   },
   {
-    "family": "Ottama",
-    "src": "fonts_en/Ottama-Demo-2.otf",
-    "format": "opentype"
-  },
-  {
-    "family": "Pandemi",
-    "src": "fonts_en/PandemiDemoRegular-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "Photogenics",
-    "src": "fonts_en/PhotogenicsDemoRegular-2.ttf",
-    "format": "truetype"
-  },
-  {
     "family": "Pithick",
     "src": "fonts_en/Pithick-Crispy-2.otf",
     "format": "opentype"
-  },
-  {
-    "family": "Play Spoon",
-    "src": "fonts_en/Play-Spoon-Demo-Regular-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "Plularius",
-    "src": "fonts_en/PlulariusDemoRegular-2.ttf",
-    "format": "truetype"
   },
   {
     "family": "Polonium",
@@ -866,34 +536,9 @@
     "format": "truetype"
   },
   {
-    "family": "Quickstep",
-    "src": "fonts_en/QuickstepDemoRegular-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "Quillbacks",
-    "src": "fonts_en/Quillbacks-Demo-Regular-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "Quimil",
-    "src": "fonts_en/Quimil-Demo-2.ttf",
-    "format": "truetype"
-  },
-  {
     "family": "Rainbow",
     "src": "fonts_en/Rainbow-Universe-2.ttf",
     "format": "truetype"
-  },
-  {
-    "family": "Rallisha",
-    "src": "fonts_en/RallishaDemo-2.otf",
-    "format": "opentype"
-  },
-  {
-    "family": "Rankfine",
-    "src": "fonts_en/RankfinePersonalUse-lgPDd-2.otf",
-    "format": "opentype"
   },
   {
     "family": "Rastano",
@@ -909,11 +554,6 @@
     "family": "Rattnugidari",
     "src": "fonts_en/Rattnugidari-3.ttf",
     "format": "truetype"
-  },
-  {
-    "family": "Rayleigh",
-    "src": "fonts_en/Rayleigh-Demo-Version-2.otf",
-    "format": "opentype"
   },
   {
     "family": "Realistic",
@@ -941,11 +581,6 @@
     "format": "truetype"
   },
   {
-    "family": "Rindu",
-    "src": "fonts_en/Rindu-demo-2.ttf",
-    "format": "truetype"
-  },
-  {
     "family": "Rivandell",
     "src": "fonts_en/Rivandell-2.otf",
     "format": "opentype"
@@ -953,11 +588,6 @@
   {
     "family": "Rough Owl",
     "src": "fonts_en/Rough-Owl-Regular-qZpJd-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "Rubicela",
-    "src": "fonts_en/RubicelaDemoRegular-2.ttf",
     "format": "truetype"
   },
   {
@@ -971,16 +601,6 @@
     "format": "truetype"
   },
   {
-    "family": "Shailendra",
-    "src": "fonts_en/ShailendraDemoRegular-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "SidgerNakson",
-    "src": "fonts_en/SidgerNaksonDemo-lgvx5-2.ttf",
-    "format": "truetype"
-  },
-  {
     "family": "Siegra",
     "src": "fonts_en/Siegra-2.otf",
     "format": "opentype"
@@ -988,11 +608,6 @@
   {
     "family": "Sinethar",
     "src": "fonts_en/Sinethar-0WLLo-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "Sonatta",
-    "src": "fonts_en/SonattaDemo-2.ttf",
     "format": "truetype"
   },
   {
@@ -1006,48 +621,13 @@
     "format": "truetype"
   },
   {
-    "family": "Swansong",
-    "src": "fonts_en/Swansong-FREE-2.otf",
-    "format": "opentype"
-  },
-  {
-    "family": "Sweetish",
-    "src": "fonts_en/SweetishDemoRegular-2.ttf",
-    "format": "truetype"
-  },
-  {
     "family": "Sweety",
     "src": "fonts_en/Sweety-Sunshine-2.otf",
     "format": "opentype"
   },
   {
-    "family": "Themordeus",
-    "src": "fonts_en/Themordeusdemo-p76xv-2.otf",
-    "format": "opentype"
-  },
-  {
-    "family": "TheropodsBold",
-    "src": "fonts_en/TheropodsDemoBold-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "TheropodsItalic",
-    "src": "fonts_en/TheropodsDemoItalic-3.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "Theropods",
-    "src": "fonts_en/TheropodsDemoRegular-4.ttf",
-    "format": "truetype"
-  },
-  {
     "family": "Timothy Sign",
     "src": "fonts_en/Timothy-Sign-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "Undertones",
-    "src": "fonts_en/UndertonesDemoRegular-2.ttf",
     "format": "truetype"
   },
   {
@@ -1071,34 +651,14 @@
     "format": "opentype"
   },
   {
-    "family": "Violableness",
-    "src": "fonts_en/ViolablenessDemoRegular-2.ttf",
-    "format": "truetype"
-  },
-  {
     "family": "Violet",
     "src": "fonts_en/Violet-Twinkle-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "Virgolate",
-    "src": "fonts_en/Virgolatedemo-JRAaK-2.otf",
-    "format": "opentype"
-  },
-  {
-    "family": "WeddingDream",
-    "src": "fonts_en/WeddingDreamDemoRegular-2.ttf",
     "format": "truetype"
   },
   {
     "family": "WelcomeValentine",
     "src": "fonts_en/WelcomeValentine-2.otf",
     "format": "opentype"
-  },
-  {
-    "family": "WhetherFark",
-    "src": "fonts_en/WhetherFarkDemoRegular-2.ttf",
-    "format": "truetype"
   },
   {
     "family": "Wilson",
@@ -1161,11 +721,6 @@
     "format": "truetype"
   },
   {
-    "family": "hallimah",
-    "src": "fonts_en/hallimah-demo-2.ttf",
-    "format": "truetype"
-  },
-  {
     "family": "holly and",
     "src": "fonts_en/holly-and-berries-2.ttf",
     "format": "truetype"
@@ -1176,19 +731,9 @@
     "format": "opentype"
   },
   {
-    "family": "malema",
-    "src": "fonts_en/malema-free-2.ttf",
-    "format": "truetype"
-  },
-  {
     "family": "nucleo",
     "src": "fonts_en/nucleo-2.ttf",
     "format": "truetype"
-  },
-  {
-    "family": "pittsburgh",
-    "src": "fonts_en/pittsburgh-personal-use-only-2.otf",
-    "format": "opentype"
   },
   {
     "family": "ractor",
@@ -1216,721 +761,11 @@
     "format": "truetype"
   },
   {
-    "family": "vanberg",
-    "src": "fonts_en/vanberg-free-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "AZhuPaoPaoTi-2",
-    "src": "fonts_cn2/AZhuPaoPaoTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "AaJianHaoTi-2",
-    "src": "fonts_cn2/AaJianHaoTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "ChaoZiSheBeiJianFan-Shan(REEJI-CHAO-BeiMingGBT-Flash)-2",
-    "src": "fonts_cn2/ChaoZiSheBeiJianFan-Shan(REEJI-CHAO-BeiMingGBT-Flash)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "ChaoZiSheFengYunJianFan-Shan(REEJI-CHAO-FengyunGBT-Flash)-2",
-    "src": "fonts_cn2/ChaoZiSheFengYunJianFan-Shan(REEJI-CHAO-FengyunGBT-Flash)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "ChaoZiSheGuoFengHongShuJian-2",
-    "src": "fonts_cn2/ChaoZiSheGuoFengHongShuJian-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "ChaoZiSheGuoFengKaiJianFan-Shan(REEJI-CHAO-RuikaiGBT-Flash)-2",
-    "src": "fonts_cn2/ChaoZiSheGuoFengKaiJianFan-Shan(REEJI-CHAO-RuikaiGBT-Flash)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "ChaoZiSheJuanMeiJian-Shan-ChangGui(REEJI-CHAO-MeiGB-Flash-Regular)-2",
-    "src": "fonts_cn2/ChaoZiSheJuanMeiJian-Shan-ChangGui(REEJI-CHAO-MeiGB-Flash-Regular)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "ChaoZiSheJuanMeiJian-Shan-CuTi(REEJI-CHAO-MeiGB-Flash-Bold)-2",
-    "src": "fonts_cn2/ChaoZiSheJuanMeiJian-Shan-CuTi(REEJI-CHAO-MeiGB-Flash-Bold)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "ChaoZiSheJuanMeiJian-Shan-XiTi(REEJI-CHAO-MeiGB-Flash-Light)-2",
-    "src": "fonts_cn2/ChaoZiSheJuanMeiJian-Shan-XiTi(REEJI-CHAO-MeiGB-Flash-Light)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "ChaoZiSheKanTingLiuJianFan-Shan(REEJI-CHAO-KanTingLiuGBT-Flash)-2",
-    "src": "fonts_cn2/ChaoZiSheKanTingLiuJianFan-Shan(REEJI-CHAO-KanTingLiuGBT-Flash)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "ChaoZiSheLingDuBengTaJianFan-Shan(CHAO-BengtaGBT-Flash)-2",
-    "src": "fonts_cn2/ChaoZiSheLingDuBengTaJianFan-Shan(CHAO-BengtaGBT-Flash)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "ChaoZiSheLingTuYueYeJianFan-Shan(REEJI-CHAO-HareGBT-Flash)-2",
-    "src": "fonts_cn2/ChaoZiSheLingTuYueYeJianFan-Shan(REEJI-CHAO-HareGBT-Flash)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "ChaoZiSheYueNOUSAKI-REEJI-CHAO-HareJP)-2",
-    "src": "fonts_cn2/ChaoZiSheYueNOUSAKI-REEJI-CHAO-HareJP)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "ChaoZiSheZengYuBoShouShuJianFan-Shan(REEJI-CHAO-ZengGBT-Flash)-2",
-    "src": "fonts_cn2/ChaoZiSheZengYuBoShouShuJianFan-Shan(REEJI-CHAO-ZengGBT-Flash)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "DMFT1607996674306-2",
-    "src": "fonts_cn2/DMFT1607996674306-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "GEETYPEQingKongHeiGB-YanShiBan-ChangGui(GEETYPE-SkyGB-Demo-Reguar)-2",
-    "src": "fonts_cn2/GEETYPEQingKongHeiGB-YanShiBan-ChangGui(GEETYPE-SkyGB-Demo-Reguar)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "GEETYPEQingKongHeiGB-YanShiBan-XiHei(GEETYPE-SkyGB-Demo-Light)-2",
-    "src": "fonts_cn2/GEETYPEQingKongHeiGB-YanShiBan-XiHei(GEETYPE-SkyGB-Demo-Light)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "GEETYPEQingKongHeiGB-YanShiBan-XianHei(GEETYPE-SkyGB-Demo-Thin)-2",
-    "src": "fonts_cn2/GEETYPEQingKongHeiGB-YanShiBan-XianHei(GEETYPE-SkyGB-Demo-Thin)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "GEETYPEQingKongHeiGB-YanShiBan-ZhongHei(GEETYPE-SkyGB-Demo-Medium)-2",
-    "src": "fonts_cn2/GEETYPEQingKongHeiGB-YanShiBan-ZhongHei(GEETYPE-SkyGB-Demo-Medium)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "GongFanMianFeiTi2.0(GengDuoZiTiBaiDuSouShiJueFang)-2",
-    "src": "fonts_cn2/GongFanMianFeiTi2.0(GengDuoZiTiBaiDuSouShiJueFang)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "JingNanBoBoHei-Bold-2",
-    "src": "fonts_cn2/JingNanBoBoHei-Bold-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "Kingnammm-Maiyuan-II-Regular-2",
-    "src": "fonts_cn2/Kingnammm-Maiyuan-II-Regular-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "KingnamypeYuanmoSC-Regular-2",
-    "src": "fonts_cn2/KingnamypeYuanmoSC-Regular-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "MFFengWu-Noncommercial-Regular-2",
-    "src": "fonts_cn2/MFFengWu-Noncommercial-Regular-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "MFSuHei-Noncommercial-Regular-2",
-    "src": "fonts_cn2/MFSuHei-Noncommercial-Regular-2.ttf",
-    "format": "truetype"
-  },
-  {
     "family": "PangMenZhengDaoXiXianTi-2",
     "src": "fonts_cn2/PangMenZhengDaoXiXianTi-2.ttf",
     "format": "truetype"
-  },
-  {
-    "family": "PingFangGongZiTi-2",
-    "src": "fonts_cn2/PingFangGongZiTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "PingFangJiangJunTi-2",
-    "src": "fonts_cn2/PingFangJiangJunTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "PingFangJiangNanTi-2",
-    "src": "fonts_cn2/PingFangJiangNanTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "PingFangLaiJiangHuFeiYangTi-2",
-    "src": "fonts_cn2/PingFangLaiJiangHuFeiYangTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "PingFangLaiJiangHuHuaiGuTi-2",
-    "src": "fonts_cn2/PingFangLaiJiangHuHuaiGuTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "PingFangLaiJiangHuLangTi-2",
-    "src": "fonts_cn2/PingFangLaiJiangHuLangTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "PingFangLiuAngLeTianTi-2",
-    "src": "fonts_cn2/PingFangLiuAngLeTianTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "PingFangMengMeng-2",
-    "src": "fonts_cn2/PingFangMengMeng-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "PingFangQingChunTi-2",
-    "src": "fonts_cn2/PingFangQingChunTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "PingFangSaTuoTi-2",
-    "src": "fonts_cn2/PingFangSaTuoTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "PingFangSaiBeiTi-2",
-    "src": "fonts_cn2/PingFangSaiBeiTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "PingFangSanShengTi-2",
-    "src": "fonts_cn2/PingFangSanShengTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "PingFangShangShangQianTi-2",
-    "src": "fonts_cn2/PingFangShangShangQianTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "PingFangShaoHuaTi-2",
-    "src": "fonts_cn2/PingFangShaoHuaTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "PingFangShiGuangTi-2",
-    "src": "fonts_cn2/PingFangShiGuangTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "PingFangShouShuTi-2",
-    "src": "fonts_cn2/PingFangShouShuTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "PingFangXiangSiTi-2",
-    "src": "fonts_cn2/PingFangXiangSiTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "PingFangZhangYaLingHeiFangTi-2",
-    "src": "fonts_cn2/PingFangZhangYaLingHeiFangTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "QianTuBiFengShouXieTi-2",
-    "src": "fonts_cn2/QianTuBiFengShouXieTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "QianTuHouHeiTi-2",
-    "src": "fonts_cn2/QianTuHouHeiTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "QianTuMaKeShouXieTi-2",
-    "src": "fonts_cn2/QianTuMaKeShouXieTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "QianTuXianMoTi-2",
-    "src": "fonts_cn2/QianTuXianMoTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "QingNiaoHuaGuangXingKai-2",
-    "src": "fonts_cn2/QingNiaoHuaGuangXingKai-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "RuiZiAoYunJingShenDuoGuanJianMianFei-Shan(REEJI-DuoguanGB-free-Flash)-2",
-    "src": "fonts_cn2/RuiZiAoYunJingShenDuoGuanJianMianFei-Shan(REEJI-DuoguanGB-free-Flash)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "RuiZiAoYunJingShenPinBoJianMianFei-Shan(REEJI-PinboGB-Flash)-2",
-    "src": "fonts_cn2/RuiZiAoYunJingShenPinBoJianMianFei-Shan(REEJI-PinboGB-Flash)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "RuiZiChaoPaiHaoHengHeiJian-ChangGui-2",
-    "src": "fonts_cn2/RuiZiChaoPaiHaoHengHeiJian-ChangGui-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "RuiZiChaoPaiHaoHengHeiJian-DaHei-2",
-    "src": "fonts_cn2/RuiZiChaoPaiHaoHengHeiJian-DaHei-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "RuiZiChaoPaiHaoHengHeiJian-TeHei-2",
-    "src": "fonts_cn2/RuiZiChaoPaiHaoHengHeiJian-TeHei-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "RuiZiChaoPaiHaoHengHeiJian-ZhongHei-2",
-    "src": "fonts_cn2/RuiZiChaoPaiHaoHengHeiJian-ZhongHei-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "RuiZiTaiKongLiXianXiangSuJian-Shan(REEJI-TaikoRiskGB-Flash)-2",
-    "src": "fonts_cn2/RuiZiTaiKongLiXianXiangSuJian-Shan(REEJI-TaikoRiskGB-Flash)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "RuiZiTaiKongQiYuXiangSuJian-Shan(REEJI-TaikoMagicGB-Flash)-2",
-    "src": "fonts_cn2/RuiZiTaiKongQiYuXiangSuJian-Shan(REEJI-TaikoMagicGB-Flash)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "RuiZiTaiKongZhuMengHeiJian-Shan-ChangGui(REEJI-TaikodreamGB-Flash-Regular)-2",
-    "src": "fonts_cn2/RuiZiTaiKongZhuMengHeiJian-Shan-ChangGui(REEJI-TaikodreamGB-Flash-Regular)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "RuiZiTaiKongZhuMengHeiJian-Shan-ChaoHei(REEJI-TaikodreamGB-Flash-Heavy)-2",
-    "src": "fonts_cn2/RuiZiTaiKongZhuMengHeiJian-Shan-ChaoHei(REEJI-TaikodreamGB-Flash-Heavy)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "RuiZiTaiKongZhuMengHeiJian-Shan-DaHei(REEJI-TaikodreamGB-Flash-Bold)-2",
-    "src": "fonts_cn2/RuiZiTaiKongZhuMengHeiJian-Shan-DaHei(REEJI-TaikodreamGB-Flash-Bold)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "RuiZiTaiKongZhuMengHeiJian-Shan-TeHei(REEJI-TaikodreamGB-Flash-Black)-2",
-    "src": "fonts_cn2/RuiZiTaiKongZhuMengHeiJian-Shan-TeHei(REEJI-TaikodreamGB-Flash-Black)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "RuiZiTaiKongZhuMengHeiJian-Shan-ZhongHei(REEJI-TaikodreamGB-Flash-Medium)-2",
-    "src": "fonts_cn2/RuiZiTaiKongZhuMengHeiJian-Shan-ZhongHei(REEJI-TaikodreamGB-Flash-Medium)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "RuiZiZhenYanCiPoGongYiMianFei-Shan(REEJI-PierceGB-free-Flash)-2",
-    "src": "fonts_cn2/RuiZiZhenYanCiPoGongYiMianFei-Shan(REEJI-PierceGB-free-Flash)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "SanJiLiLiangTiJian-Cu-2",
-    "src": "fonts_cn2/SanJiLiLiangTiJian-Cu-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "SanJiPoMoTi-2",
-    "src": "fonts_cn2/SanJiPoMoTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "SanJiSuXianJianTi-2",
-    "src": "fonts_cn2/SanJiSuXianJianTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "SanJiXingKaiJianTi-Cu-2",
-    "src": "fonts_cn2/SanJiXingKaiJianTi-Cu-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "XiaoDouDaoHuaXinFengJianFan-Shan(REEJI-Xiaodou-FlowerGBT-Flash)-2",
-    "src": "fonts_cn2/XiaoDouDaoHuaXinFengJianFan-Shan(REEJI-Xiaodou-FlowerGBT-Flash)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "XiaoDouDaoQiuRiHeJianFan-Shan(REEJI-Xiaodou-AutumnGBT-Flash)-2",
-    "src": "fonts_cn2/XiaoDouDaoQiuRiHeJianFan-Shan(REEJI-Xiaodou-AutumnGBT-Flash)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "XiaoDouDaoTaoYuanXiangJianFan-Shan(REEJI-Xiaodou-UtopiaGBT-Flash)-2",
-    "src": "fonts_cn2/XiaoDouDaoTaoYuanXiangJianFan-Shan(REEJI-Xiaodou-UtopiaGBT-Flash)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "XiaoDouDaoXiaXiKongJianFan-Shan(REEJI-Xiaodou-SummerGBT-Flash)-2",
-    "src": "fonts_cn2/XiaoDouDaoXiaXiKongJianFan-Shan(REEJI-Xiaodou-SummerGBT-Flash)-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "YuWeiShuFaYunMoFanTi-2",
-    "src": "fonts_cn2/YuWeiShuFaYunMoFanTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "YunFengHanChanTi-2",
-    "src": "fonts_cn2/YunFengHanChanTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "ZhengXinGeYingBiKaiShuJian-2",
-    "src": "fonts_cn2/ZhengXinGeYingBiKaiShuJian-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "ZiTiChuanQiNanAnTi-MianFeiShangYong-2",
-    "src": "fonts_cn2/ZiTiChuanQiNanAnTi-MianFeiShangYong-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "ZiZhiQuXiMaiTi-2",
-    "src": "fonts_cn2/ZiZhiQuXiMaiTi-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "dianyingzimuti-2",
-    "src": "fonts_cn2/dianyingzimuti-2.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂丝滑黑巧体(商用需授权)",
-    "src": "fonts_cn2/字小魂丝滑黑巧体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂兔兔体(商用需授权)",
-    "src": "fonts_cn2/字小魂兔兔体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂公式黑(商用需授权)",
-    "src": "fonts_cn2/字小魂公式黑(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂公路体(商用需授权)",
-    "src": "fonts_cn2/字小魂公路体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂凌智黑(商用需授权)",
-    "src": "fonts_cn2/字小魂凌智黑(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂启力黑(商用需授权)",
-    "src": "fonts_cn2/字小魂启力黑(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂咔嗒体(商用需授权)",
-    "src": "fonts_cn2/字小魂咔嗒体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂品味黑(商用需授权)",
-    "src": "fonts_cn2/字小魂品味黑(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂外星奇趣体(商用需授权)",
-    "src": "fonts_cn2/字小魂外星奇趣体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂天润黑(商用需授权)",
-    "src": "fonts_cn2/字小魂天润黑(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂小尾巴体(商用需授权)",
-    "src": "fonts_cn2/字小魂小尾巴体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂小木屋体(商用需授权)",
-    "src": "fonts_cn2/字小魂小木屋体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂彩虹积木体(商用需授权)",
-    "src": "fonts_cn2/字小魂彩虹积木体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂心悦体(商用需授权)",
-    "src": "fonts_cn2/字小魂心悦体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂怪力趣黑(商用需授权)",
-    "src": "fonts_cn2/字小魂怪力趣黑(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂悦动音速黑(商用需授权)",
-    "src": "fonts_cn2/字小魂悦动音速黑(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂摩登时尚体(商用需授权)",
-    "src": "fonts_cn2/字小魂摩登时尚体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂新跃黑体(商用需授权)",
-    "src": "fonts_cn2/字小魂新跃黑体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂方块黑(商用需授权)",
-    "src": "fonts_cn2/字小魂方块黑(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂明日山峰体(商用需授权)",
-    "src": "fonts_cn2/字小魂明日山峰体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂智趣黑(商用需授权)",
-    "src": "fonts_cn2/字小魂智趣黑(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂未来体(商用需授权)",
-    "src": "fonts_cn2/字小魂未来体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂林海体(商用需授权)",
-    "src": "fonts_cn2/字小魂林海体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂活力飞扬体(商用需授权)",
-    "src": "fonts_cn2/字小魂活力飞扬体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂清欢体(商用需授权)",
-    "src": "fonts_cn2/字小魂清欢体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂清水体(商用需授权)",
-    "src": "fonts_cn2/字小魂清水体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂烈日当空体(商用需授权)",
-    "src": "fonts_cn2/字小魂烈日当空体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂玉米体(商用需授权)",
-    "src": "fonts_cn2/字小魂玉米体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂甜心泡泡体(商用需授权)",
-    "src": "fonts_cn2/字小魂甜心泡泡体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂聚力体(商用需授权)",
-    "src": "fonts_cn2/字小魂聚力体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂自由行星体(商用需授权)",
-    "src": "fonts_cn2/字小魂自由行星体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂芯科幻体(商用需授权)",
-    "src": "fonts_cn2/字小魂芯科幻体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂行者黑(商用需授权)",
-    "src": "fonts_cn2/字小魂行者黑(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂醇香悠然体(商用需授权)",
-    "src": "fonts_cn2/字小魂醇香悠然体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂钢铁黑(商用需授权)",
-    "src": "fonts_cn2/字小魂钢铁黑(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂铁塔黑(商用需授权)",
-    "src": "fonts_cn2/字小魂铁塔黑(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂阳光体(商用需授权)",
-    "src": "fonts_cn2/字小魂阳光体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字小魂音律体(商用需授权)",
-    "src": "fonts_cn2/字小魂音律体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂假日乐园体(商用需授权)",
-    "src": "fonts_cn2/字魂假日乐园体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂光年体(商用需授权)",
-    "src": "fonts_cn2/字魂光年体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂动力火车体(商用需授权)",
-    "src": "fonts_cn2/字魂动力火车体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂勇士体(商用需授权)",
-    "src": "fonts_cn2/字魂勇士体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂卡通软糖体(商用需授权)",
-    "src": "fonts_cn2/字魂卡通软糖体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂吨吨桶(商用需授权)",
-    "src": "fonts_cn2/字魂吨吨桶(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂团圆宋(商用需授权)",
-    "src": "fonts_cn2/字魂团圆宋(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂天狼体(商用需授权)",
-    "src": "fonts_cn2/字魂天狼体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂奇迹宇宙体(商用需授权)",
-    "src": "fonts_cn2/字魂奇迹宇宙体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂学士黑(商用需授权)",
-    "src": "fonts_cn2/字魂学士黑(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂宝珠体(商用需授权)",
-    "src": "fonts_cn2/字魂宝珠体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂宝藏体(商用需授权)",
-    "src": "fonts_cn2/字魂宝藏体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂无限引力黑(商用需授权)",
-    "src": "fonts_cn2/字魂无限引力黑(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂火焰隶(商用需授权)",
-    "src": "fonts_cn2/字魂火焰隶(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂烟花体(商用需授权)",
-    "src": "fonts_cn2/字魂烟花体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂精灵体(商用需授权)",
-    "src": "fonts_cn2/字魂精灵体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂翠竹楷书(商用需授权)",
-    "src": "fonts_cn2/字魂翠竹楷书(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂翰林皇榜体(商用需授权)",
-    "src": "fonts_cn2/字魂翰林皇榜体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂虎虎威风体(商用需授权)",
-    "src": "fonts_cn2/字魂虎虎威风体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂超硬核体(商用需授权)",
-    "src": "fonts_cn2/字魂超硬核体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂趋光体(商用需授权)",
-    "src": "fonts_cn2/字魂趋光体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂跳动旋律体(商用需授权)",
-    "src": "fonts_cn2/字魂跳动旋律体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂铁甲坦克体(商用需授权)",
-    "src": "fonts_cn2/字魂铁甲坦克体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂闪烁凝光体(商用需授权)",
-    "src": "fonts_cn2/字魂闪烁凝光体(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂阅然楷(商用需授权)",
-    "src": "fonts_cn2/字魂阅然楷(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂雅致黑(商用需授权)",
-    "src": "fonts_cn2/字魂雅致黑(商用需授权).ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "字魂青龙霸道体(商用需授权)",
-    "src": "fonts_cn2/字魂青龙霸道体(商用需授权).ttf",
-    "format": "truetype"
   }
-];
+  ];
   // CSSOS_PHASE2_FONT_404_PRUNE 20260426 #134 — Jing
   // "控制台报错，还是这些字体问题，能不能一次性下载他们？免得每次都报错？"
   //

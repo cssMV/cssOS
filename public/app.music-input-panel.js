@@ -17,6 +17,15 @@
  *   mountMusicSourceUploadTabInSettings(root)
  */
 
+/* CSSOS_WAVE_247 20260520 — Jing: App Store 过审前临时屏蔽「音乐源上传」整卡片.
+ * 原因: 任意 mp3/mp4 上传 → 抽词/复用音视频, 在苹果眼里像"扒任意歌曲"工具,
+ *   踩 5.2(IP) + 1.2(UGC 审核) 雷点. App 是远程加载 cssstudio.app, 所以这是
+ *   纯前端开关 —— 翻 true 重新部署即放出, 无需重新发版/重审.
+ * 过审后改回 true 即恢复 (整卡片 + 全部 5 个 tab).
+ * 折中方案(只藏 audio/video 两个高危 tab)见 musicSourceTabs() 注释. */
+const MUSIC_SOURCE_UPLOAD_ENABLED = false;
+globalThis.MUSIC_SOURCE_UPLOAD_ENABLED = MUSIC_SOURCE_UPLOAD_ENABLED;
+
 const musicSourceUploadState = {
   audio: null,
   video: null,
@@ -370,11 +379,27 @@ function _miInjectStyle() {
   st.id = "cssos-music-source-tabs-style";
   st.textContent = [
     ".msrc-card { border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:14px; }",
-    ".msrc-tabbar { display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; -ms-overflow-style:none; -webkit-overflow-scrolling:touch; padding-bottom:8px; margin-bottom:12px; border-bottom:1px solid rgba(255,255,255,0.06); }",
+    /* CSSOS_WAVE_220A 20260518 v14 — track + thumb. */
+    ".msrc-tabbar { display:flex; gap:0; overflow-x:auto; scrollbar-width:none; -ms-overflow-style:none; -webkit-overflow-scrolling:touch; padding:4px; margin-bottom:12px; background:rgba(0,245,160,0.10); border:1px solid rgba(0,245,160,0.30); border-radius:999px; align-items:stretch; }",
     ".msrc-tabbar::-webkit-scrollbar { display:none; }",
-    ".msrc-tab { flex:0 0 auto; display:inline-flex; align-items:center; gap:6px; padding:7px 14px; border-radius:999px; border:1px solid rgba(255,255,255,0.14); background:rgba(0,0,0,0.32); color:#9aa; cursor:pointer; font:600 12.5px/1.2 -apple-system,system-ui,sans-serif; white-space:nowrap; transition:all 180ms ease; }",
-    ".msrc-tab:hover { color:#daffee; border-color:rgba(255,255,255,0.28); }",
-    ".msrc-tab.active { color:#0a0d12; background:linear-gradient(135deg,#00f5a0,#00b87a); border-color:transparent; font-weight:700; }",
+    ".msrc-tab { flex:1 1 auto; min-width:max-content; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:9px 16px; box-sizing:border-box; border-radius:0; border:0; background:transparent; color:#daffee; cursor:pointer; font:500 12px/1 -apple-system,system-ui,sans-serif; white-space:nowrap; transition: background 180ms ease, color 180ms ease; }",
+    ".msrc-tab.active { border:0 !important; border-left:1px solid rgba(0,245,160,0.30) !important; border-right:1px solid rgba(0,245,160,0.30) !important; border-radius:999px !important; color:var(--text,#fff); font-weight:600; box-shadow:none; }",
+    /* v17.1 — inactive curves: ( for before-active, ) for after-active. */
+    ".msrc-tabbar > .msrc-tab:has(~ .msrc-tab.active) { border-left:1px solid rgba(0,245,160,0.30) !important; border-radius:999px 0 0 999px !important; }",
+    ".msrc-tabbar > .msrc-tab.active ~ .msrc-tab { border-right:1px solid rgba(0,245,160,0.30) !important; border-radius:0 999px 999px 0 !important; }",
+    /* 6-hue rotation. */
+    ".msrc-tabbar > .msrc-tab:nth-child(6n+1):hover:not(.active) { background:hsla(150,80%,70%,0.22); }",
+    ".msrc-tabbar > .msrc-tab:nth-child(6n+2):hover:not(.active) { background:hsla(200,80%,70%,0.22); }",
+    ".msrc-tabbar > .msrc-tab:nth-child(6n+3):hover:not(.active) { background:hsla(280,80%,75%,0.22); }",
+    ".msrc-tabbar > .msrc-tab:nth-child(6n+4):hover:not(.active) { background:hsla(340,80%,75%,0.22); }",
+    ".msrc-tabbar > .msrc-tab:nth-child(6n+5):hover:not(.active) { background:hsla(45,90%,70%,0.22); }",
+    ".msrc-tabbar > .msrc-tab:nth-child(6n+6):hover:not(.active) { background:hsla(95,70%,65%,0.22); }",
+    ".msrc-tabbar > .msrc-tab:nth-child(6n+1).active { background:hsla(150,80%,55%,0.50) !important; }",
+    ".msrc-tabbar > .msrc-tab:nth-child(6n+2).active { background:hsla(200,80%,55%,0.50) !important; }",
+    ".msrc-tabbar > .msrc-tab:nth-child(6n+3).active { background:hsla(280,80%,60%,0.50) !important; }",
+    ".msrc-tabbar > .msrc-tab:nth-child(6n+4).active { background:hsla(340,80%,60%,0.50) !important; }",
+    ".msrc-tabbar > .msrc-tab:nth-child(6n+5).active { background:hsla(45,90%,55%,0.50) !important; }",
+    ".msrc-tabbar > .msrc-tab:nth-child(6n+6).active { background:hsla(95,70%,50%,0.50) !important; }",
     ".msrc-tab.coming-soon { opacity:0.55; }",
     ".msrc-tab .msrc-tab-icon { font-size:14px; }",
     ".msrc-tab .msrc-tab-badge { font-size:9px; padding:1px 5px; border-radius:4px; background:rgba(255,200,0,0.18); color:#ffc83d; margin-left:2px; }",
@@ -587,6 +612,8 @@ function _miRenderResultBlock(result) {
 }
 
 function renderMusicSourceUploadPanelMarkup() {
+  // CSSOS_WAVE_247 — 过审前屏蔽: 任何调用方都拿到空 markup.
+  if (!MUSIC_SOURCE_UPLOAD_ENABLED) return "";
   return buildMusicSourceUploadCardMarkup();
 }
 
@@ -1100,6 +1127,12 @@ function wireAdvancedMusicSourceUploadIntoAdvancedSettings(root) {
 
 function mountMusicSourceUploadTabInSettings(root) {
   if (!(root instanceof Element)) return;
+  // CSSOS_WAVE_247 — 过审前整卡片屏蔽: 不渲染, 并隐藏容器避免留空槽.
+  if (!MUSIC_SOURCE_UPLOAD_ENABLED) {
+    root.innerHTML = "";
+    root.style.display = "none";
+    return;
+  }
   if (root.dataset.musicSourceUploadMounted === "true") {
     // Already mounted, just rerender to reflect current state
     root.innerHTML = renderMusicSourceUploadPanelMarkup();

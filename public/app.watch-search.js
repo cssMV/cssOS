@@ -42,9 +42,10 @@
     // CSSOS_WAVE_287 — 浮动搜索框(桌面+App): 默认隐藏在顶部之上, 下滑/滚轮向下
     // 显示、上滑/向上隐藏(Apple 风). transform 动画.
     box.style.cssText = [
-      // CSSOS_WAVE_296 — anchor with safe-area so the search box, the author
-      // avatar (top-left) and the exit-cinema ✕ (top-right) sit on ONE row.
-      "position:absolute", "top:calc(env(safe-area-inset-top,0px) + 8px)",
+      // CSSOS_WAVE_300b — Jing: "三个都靠近顶边". 之前搜索框/✕ 加了
+      // safe-area-inset-top, 但头像没加, 结果两者掉到头像下面一整个 inset.
+      // 头像贴顶很正, 所以三者统一用同一个固定 top(不加 safe-area), 全部贴顶一行.
+      "position:absolute", "top:10px",
       "left:10px", "right:10px", "z-index:60", "display:flex",
       "flex-direction:column", "gap:8px", "pointer-events:none",
       "transform:translateY(-140%)", "opacity:0",
@@ -93,9 +94,8 @@
       exitBtn.title = tr("Exit cinema", "退出影院");
       exitBtn.textContent = "✕";
       exitBtn.style.cssText = [
-        // CSSOS_WAVE_296 — +9px so the 40px button's center aligns with the
-        // search input's center (one row with the avatar).
-        "position:absolute", "top:calc(env(safe-area-inset-top,0px) + 9px)", "right:10px",
+        // CSSOS_WAVE_300b — 同搜索框: 固定 top:10px 贴顶, 与头像/搜索框一行.
+        "position:absolute", "top:10px", "right:10px",
         "z-index:61", "width:40px", "height:40px", "border-radius:50%",
         "border:1px solid rgba(255,255,255,0.55)", "background:rgba(0,0,0,0.55)",
         "backdrop-filter:blur(8px)", "-webkit-backdrop-filter:blur(8px)",
@@ -216,7 +216,7 @@
       var iv = setInterval(function () {
         var av = document.getElementById("watch-author-avatar");
         if (av) {
-          try { av.style.setProperty("top", "calc(env(safe-area-inset-top,0px) + 9px)", "important"); } catch (_e) {}
+          try { av.style.setProperty("top", "10px", "important"); } catch (_e) {}
           clearInterval(iv);
         } else if (++tries > 40) { clearInterval(iv); }
       }, 150);

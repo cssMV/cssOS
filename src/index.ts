@@ -7451,6 +7451,57 @@ function __mvDedupGuard(
   } catch { return false; } // fail-open
 }
 
+// CSSOS_WAVE_258 20260520 — Jing: 输入指纹结果复用缓存 (安全地基, 默认 no-op).
+// 仅当客户端显式传 reuse_ok:true 时才复用最近一次成功结果 —— 这个标志由
+// pipeline 编排器只在"失败重试/断点续跑"路径设置, 绝不在"用户主动重生成"
+// (求变化)时设置. 客户端没接线前, 这整套是完全 no-op (零行为变化、零迁移、
+// 无需 work_id). 进程内 + TTL 限时. input-hash 排除控制标志, 使"存"与"取"
+// 两次请求映射到同一 key. 捕获只挂在 res.json (流式 tier-sweep / premium
+// 直传路径不走 res.json, 不受影响), 故对现有响应零干扰.
+const __mvResultCache = new Map<string, { ts: number; payload: any }>();
+const __MV_RESULT_TTL_MS = 30 * 60 * 1000;
+function __mvInputKey(stage: string, userId: unknown, body: any): string | null {
+  try {
+    if (!userId || !body || typeof body !== "object") return null;
+    const clone: any = { ...body };
+    delete clone.reuse_ok; delete clone.forceNew; delete clone.fresh;
+    const s = JSON.stringify(clone);
+    let h = 0;
+    for (let i = 0; i < s.length; i += 1) h = (h * 31 + s.charCodeAt(i)) | 0;
+    return `${stage}:${userId}:${h}`;
+  } catch { return null; }
+}
+function __mvReuseLookup(stage: string, userId: unknown, body: any): any | null {
+  try {
+    if (!body || body.reuse_ok !== true) return null; // opt-in only — default no-op
+    const key = __mvInputKey(stage, userId, body);
+    if (!key) return null;
+    const hit = __mvResultCache.get(key);
+    if (hit && Date.now() - hit.ts < __MV_RESULT_TTL_MS) return hit.payload;
+    return null;
+  } catch { return null; }
+}
+function __mvInstallResultCapture(stage: string, userId: unknown, body: any, res: express.Response): void {
+  try {
+    const key = __mvInputKey(stage, userId, body);
+    if (!key) return;
+    const _json = res.json.bind(res);
+    (res as any).json = function (payload: any) {
+      try {
+        if (payload && payload.ok &&
+            (payload.audio_url || payload.video_url || payload.asset_url || payload.image_url)) {
+          if (__mvResultCache.size > 500) {
+            const now = Date.now();
+            for (const [k, v] of __mvResultCache) if (now - v.ts > __MV_RESULT_TTL_MS) __mvResultCache.delete(k);
+          }
+          __mvResultCache.set(key, { ts: Date.now(), payload });
+        }
+      } catch { /* never break the response */ }
+      return _json(payload);
+    };
+  } catch { /* fail-open */ }
+}
+
 app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
   const userId = (req.session as any)?.user_id;
   if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
@@ -7476,6 +7527,12 @@ app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
       error: "duplicate_in_flight",
       message: "这首歌正在生成中，已忽略重复请求以避免重复扣费。/ Already generating — duplicate ignored.",
     });
+  }
+  // CSSOS_WAVE_258 — 重试/续跑复用 (opt-in via reuse_ok); 默认 no-op. 否则记录结果.
+  {
+    const __reuse = __mvReuseLookup("music", userId, body);
+    if (__reuse) return res.json({ ...__reuse, reused: true, cost_cents: 0 });
+    __mvInstallResultCapture("music", userId, body, res);
   }
   const prompt = String((body as any).prompt || (body as any).title || "").trim();
   const duration = Number((body as any).duration_secs || (body as any).duration || 30) || 30;
@@ -7720,6 +7777,12 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
       error: "duplicate_in_flight",
       message: "这段视频正在生成中，已忽略重复请求以避免重复扣费。/ Already generating — duplicate ignored.",
     });
+  }
+  // CSSOS_WAVE_258 — 重试/续跑复用 (opt-in via reuse_ok); 默认 no-op. 否则记录结果.
+  {
+    const __reuse = __mvReuseLookup("video", userId, body);
+    if (__reuse) return res.json({ ...__reuse, reused: true, cost_cents: 0 });
+    __mvInstallResultCapture("video", userId, body, res);
   }
   const prompt = String((body as any).prompt || "").trim();
   const aspectRaw = String((body as any).aspect_ratio || (body as any).ratio || "16:9").trim();

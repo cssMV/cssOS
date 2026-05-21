@@ -61,9 +61,24 @@
   var listEl = null;
   var visible = false;
   var settingsPopover = null;
+  var countdownEl = null;          // CSSOS_WAVE_264 — 可见倒计时 "切歌 Ns"
 
-  var LEAD_OPTIONS = [5, 10, 15];
-  var COUNT_OPTIONS = [5, 8, 10, 15];
+  /* CSSOS_WAVE_126 20260514 — Jing: "点切歌只是预选，当前歌放完才自然切".
+   * Preselect state. Clicking an up-next card no longer interrupts the
+   * current song — it marks that work as "待播 / Queued". When the
+   * current song's media fires `ended`, we switch to the preselected
+   * work. Clicking a different card before `ended` just replaces the
+   * preselection (and re-preloads). All switches go through
+   * switchToWorkById() which fetches canonical data by ID — never
+   * trusts the stale playlist item shape. */
+  var preselectedId = null;       // work_id of the queued-next work
+  var preselectedItem = null;     // last-known shape (for thumb only)
+  var preloadEls = [];            // hidden <audio>/<video>/Image refs to release
+  var preloadForId = "";          // which work_id the current preload belongs to
+
+  // CSSOS_WAVE_251 20260520 — Jing: 倒计时/即将播放上限加到 30秒/30首.
+  var LEAD_OPTIONS = [5, 8, 10, 15, 30];
+  var COUNT_OPTIONS = [5, 8, 10, 15, 30];
 
   function dismissSettings() {
     if (!settingsPopover || !settingsPopover.parentNode) return;
@@ -181,12 +196,26 @@
     var hdr = document.createElement("div");
     hdr.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:12px;";
     var ttl = document.createElement("div");
-    ttl.textContent = tt("Up Next", "即将播放");
-    ttl.style.cssText = "color:#daffee;font:600 11px/1 ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;opacity:.78;";
+    ttl.style.cssText = "color:#daffee;font:600 11px/1 ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;opacity:.78;display:flex;align-items:center;gap:8px;";
+    var ttlText = document.createElement("span");
+    ttlText.textContent = tt("Up Next", "即将播放");
+    ttl.appendChild(ttlText);
+    /* CSSOS_WAVE_264 20260521 — Jing: 可见倒计时. 让用户清楚"还有几秒切下一首/
+     * 还能改多久主意". timeUpdateHandler 每帧更新 Math.ceil(remaining). */
+    countdownEl = document.createElement("span");
+    countdownEl.style.cssText =
+      "padding:2px 8px;border-radius:999px;background:rgba(255,200,60,0.16);" +
+      "border:1px solid rgba(255,200,60,0.5);color:#ffd86b;" +
+      "font:700 11px/1 ui-monospace,monospace;letter-spacing:.02em;font-variant-numeric:tabular-nums;";
+    countdownEl.textContent = "";
+    ttl.appendChild(countdownEl);
     var hdrRight = document.createElement("div");
     hdrRight.style.cssText = "display:flex;align-items:center;gap:10px;";
     var hint = document.createElement("div");
-    hint.textContent = tt("Tap any to play it next", "点击任意一首立即播放");
+    hint.textContent = tt(
+      "Tap to queue — plays when this song ends",
+      "点击预选 — 当前歌放完自动切，可随时改选"
+    );
     hint.style.cssText = "color:rgba(218,255,238,0.55);font:400 11px/1 -apple-system,system-ui,sans-serif;";
     hdrRight.appendChild(hint);
     /* CSSOS_UP_NEXT_GEAR 20260506 — tunable lead/count sliders right
@@ -316,7 +345,25 @@
       // Some hosts honour <link rel=preload>; cheaper to just kick the
       // GET above. If the browser already has it, the onload fires sync.
     }
-    if (index === 0) {
+    /* CSSOS_WAVE_126 — badge logic:
+     *   • A preselected card always wins the badge ("待播 / Queued",
+     *     amber) regardless of position.
+     *   • Otherwise index 0 shows the default auto-advance "下一首"
+     *     (green) — but ONLY when nothing is preselected, so the user
+     *     isn't confused about which one actually plays next. */
+    var cardId = String((item && (item.id || item.work_id)) || "").trim();
+    var isPreselected = !!preselectedId && cardId === preselectedId;
+    if (isPreselected) {
+      var queuedBadge = document.createElement("span");
+      queuedBadge.textContent = tt("Queued", "待播");
+      queuedBadge.style.cssText =
+        "position:absolute;top:4px;left:4px;padding:2px 6px;border-radius:4px;" +
+        "background:rgba(255,200,60,0.92);color:#1a1300;font:700 9px/1 ui-monospace,monospace;letter-spacing:.06em;";
+      thumb.appendChild(queuedBadge);
+      // Amber ring on the whole card so it's unmistakable.
+      card.style.borderColor = "rgba(255,200,60,0.85)";
+      card.style.background = "rgba(255,200,60,0.10)";
+    } else if (index === 0 && !preselectedId) {
       var nextBadge = document.createElement("span");
       nextBadge.textContent = tt("Next", "下一首");
       nextBadge.style.cssText =
@@ -332,42 +379,183 @@
     title.style.cssText = "font:500 12px/1.25 -apple-system,system-ui,sans-serif;color:#daffee;width:100%;";
     card.appendChild(title);
 
-    if (item.style) {
-      var style = document.createElement("div");
-      style.textContent = truncateTitle(String(item.style).split(/[,，\n]/)[0], 24);
-      style.style.cssText = "font:400 10px/1.2 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.55);width:100%;";
-      card.appendChild(style);
+    /* CSSOS_WAVE_205 20260516 — Jing: "人物MV进入MV面板，每次播放结束前
+     * 显示的另一个人物的卡片，要标注人物名称。为你创作/作品中心每次
+     * 播放结束前显示的待播卡片，要显示作品时长". Two new bottom rows:
+     *   - person line (when item carries a person_name from person-MV)
+     *   - meta line: duration (mm:ss) on the left, style on the right */
+    var personName = String(
+      item.person_name || item.personName || item.__personName ||
+      item.person_display_name || ""
+    ).trim();
+    if (personName) {
+      var personEl = document.createElement("div");
+      personEl.textContent = "👤 " + truncateTitle(personName, 24);
+      personEl.title = personName;
+      personEl.style.cssText = "font:600 10.5px/1.2 -apple-system,system-ui,sans-serif;color:#ffd28d;width:100%;";
+      card.appendChild(personEl);
     }
+    var metaEl = document.createElement("div");
+    metaEl.style.cssText =
+      "display:flex;align-items:center;gap:6px;width:100%;" +
+      "font:400 10px/1.2 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.55);";
+    var durSecs = Number(
+      item.duration_secs ?? item.audio_duration_secs ??
+      item.preview_duration_secs ?? item.total_duration_secs ?? 0
+    ) || 0;
+    if (durSecs > 0) {
+      var durEl = document.createElement("span");
+      durEl.textContent =
+        Math.floor(durSecs / 60) + ":" +
+        String(Math.floor(durSecs % 60)).padStart(2, "0");
+      durEl.style.cssText = "font-variant-numeric:tabular-nums;font-weight:600;color:rgba(218,255,238,0.78);";
+      metaEl.appendChild(durEl);
+    }
+    if (item.style) {
+      var style = document.createElement("span");
+      style.textContent = truncateTitle(String(item.style).split(/[,，\n]/)[0], 18);
+      style.style.cssText = "min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;";
+      metaEl.appendChild(style);
+    }
+    if (metaEl.children.length) card.appendChild(metaEl);
 
     card.addEventListener("click", function (e) {
       e.preventDefault();
       e.stopPropagation();
-      jumpTo(item);
+      // CSSOS_WAVE_126 — click = preselect, NOT an immediate jump. The
+      // current song keeps playing; this work becomes 待播 / Queued.
+      preselect(item);
     });
     return card;
   }
 
-  function jumpTo(item) {
+  /* CSSOS_WAVE_126 — release any hidden preload elements from a prior
+   * preselection so we don't leak <audio>/<video> nodes or keep
+   * downloading a work the user changed their mind about. */
+  function releasePreload() {
+    preloadEls.forEach(function (el) {
+      try {
+        if (el && el.tagName) {
+          el.removeAttribute("src");
+          if (typeof el.load === "function") el.load();
+          if (el.parentNode) el.parentNode.removeChild(el);
+        }
+      } catch (_e) {}
+    });
+    preloadEls = [];
+    preloadForId = "";
+  }
+
+  /* CSSOS_WAVE_126 — warm the browser cache for the queued work's heavy
+   * assets (audio + video + cover) so the eventual switch is instant.
+   * `work` is canonical data already fetched by ID. */
+  function preloadWork(work) {
+    releasePreload();
+    if (!work) return;
+    var wid = String(work.id || work.work_id || "").trim();
+    preloadForId = wid;
+    var audioUrl = String(
+      work.audio_track_1_url || work.audio_url || work.final_mv_url || ""
+    ).trim();
+    var videoUrl = String(
+      work.preview_video_url || work.final_mv_url || work.video_url || ""
+    ).trim();
+    var coverUrl = String(
+      work.cover_image || work.preview_image_url || work.cover_url || ""
+    ).trim();
+    try {
+      if (audioUrl) {
+        var a = document.createElement("audio");
+        a.preload = "auto";
+        a.muted = true;
+        a.style.display = "none";
+        a.src = audioUrl;
+        document.body.appendChild(a);
+        preloadEls.push(a);
+      }
+      if (videoUrl) {
+        var v = document.createElement("video");
+        v.preload = "auto";
+        v.muted = true;
+        v.style.display = "none";
+        v.src = videoUrl;
+        document.body.appendChild(v);
+        preloadEls.push(v);
+      }
+      if (coverUrl) {
+        var img = new Image();
+        img.decoding = "async";
+        img.src = coverUrl;
+        preloadEls.push(img);
+      }
+    } catch (_e) {}
+  }
+
+  /* CSSOS_WAVE_126 — preselect (NOT jump). Marks `item` as queued-next,
+   * fetches its canonical data by ID, kicks the preload, and repaints
+   * the strip so the chosen card shows the 待播 badge. Does NOT touch
+   * the currently-playing media. */
+  function preselect(item) {
     var id = String(item && (item.id || item.work_id) || "").trim();
     if (!id) return;
-    try {
-      var pl = globalThis.cssosPlaylists;
-      if (pl && typeof pl.seekTo === "function") pl.seekTo(id);
-    } catch (_e) {}
-    /* CSSOS_JUMP_BY_ID 20260506 — Jing
-     * Don't pass the stale playlist item to openMarketWorkPreview.
-     * Playlist items can have outdated cover / src / lyric fields and
-     * the player ends up showing the previous song's video while the
-     * audio swaps — classic 张冠李戴 bug. Always refetch the canonical
-     * work data by ID first, then hand the fresh payload to the
-     * existing open flow. */
+    // Toggle off if the user taps the already-preselected card again.
+    if (preselectedId === id) {
+      preselectedId = null;
+      preselectedItem = null;
+      releasePreload();
+      refresh();
+      toast(tt("Queued song cleared", "已取消预选"));
+      return;
+    }
+    preselectedId = id;
+    preselectedItem = item;
+    refresh(); // immediate visual feedback (待播 badge)
+    // Canonical fetch by ID — never trust the stale playlist item shape.
     fetch("/api/works/public/" + encodeURIComponent(id), {
       credentials: "include",
       headers: { Accept: "application/json" },
     }).then(function (r) { return r.json().catch(function () { return null; }); })
       .then(function (j) {
         var data = (j && (j.data || j)) || null;
-        var fresh = (data && data.id) ? data : item;
+        // Ownership guard: user may have re-picked while this was in flight.
+        if (preselectedId !== id) return;
+        if (data && data.id) {
+          preselectedItem = data; // upgrade to canonical shape
+          preloadWork(data);
+        }
+        refresh();
+      })
+      .catch(function () { /* preload is best-effort */ });
+    var label = truncateTitle(String(item.title || ""), 24) || tt("this song", "这首歌");
+    toast(tt("Queued: " + label + " — plays when the current song ends",
+             "已预选「" + label + "」— 当前歌放完自动切"));
+  }
+
+  /* CSSOS_WAVE_126 — the ONE canonical switch path. Always re-fetches
+   * the full work record by ID so title / lyrics / cover / music /
+   * video / subtitles / suggested price ALL belong to this exact work.
+   * Binds Wave 121's work-id contract before opening. */
+  function switchToWorkById(id, fallbackItem) {
+    var workId = String(id || "").trim();
+    if (!workId) return;
+    try {
+      var pl = globalThis.cssosPlaylists;
+      if (pl && typeof pl.seekTo === "function") pl.seekTo(workId);
+    } catch (_e) {}
+    fetch("/api/works/public/" + encodeURIComponent(workId), {
+      credentials: "include",
+      headers: { Accept: "application/json" },
+    }).then(function (r) { return r.json().catch(function () { return null; }); })
+      .then(function (j) {
+        var data = (j && (j.data || j)) || null;
+        var fresh = (data && data.id) ? data : (fallbackItem || { id: workId });
+        try {
+          // Wave 121: flush stale asset caches + stamp the new work-id
+          // BEFORE the open flow paints anything.
+          if (typeof globalThis.cssosBindToWorkId === "function") {
+            globalThis.cssosBindToWorkId(fresh);
+          }
+        } catch (_e) {}
         try {
           if (typeof globalThis.openMarketWorkPreview === "function") {
             globalThis.openMarketWorkPreview(fresh);
@@ -375,15 +563,18 @@
         } catch (_e) {}
       })
       .catch(function () {
-        // Network failure → fall back to the stale item; better than
-        // nothing, and the player will still try to play.
         try {
-          if (typeof globalThis.openMarketWorkPreview === "function") {
-            globalThis.openMarketWorkPreview(item);
+          if (fallbackItem && typeof globalThis.openMarketWorkPreview === "function") {
+            globalThis.openMarketWorkPreview(fallbackItem);
           }
         } catch (_e) {}
       });
-    hide();
+  }
+
+  function toast(msg) {
+    try {
+      if (typeof globalThis.showToast === "function") globalThis.showToast(msg);
+    } catch (_e) {}
   }
 
   function refresh() {
@@ -427,12 +618,42 @@
     var remaining = v.duration - v.currentTime;
     if (remaining <= leadSeconds() && remaining > 0.3) {
       show();
+      // CSSOS_WAVE_264 — 实时倒计时: 还有几秒自然切到下一首/预选项. 让"倒计时
+      // 结束前可改主意"变得可感知. preselect 时提示切到预选, 否则切下一首.
+      if (countdownEl) {
+        var secs = Math.max(1, Math.ceil(remaining));
+        countdownEl.textContent = preselectedId
+          ? tt("queued · " + secs + "s", "已选 · " + secs + "s")
+          : tt("next · " + secs + "s", "切歌 · " + secs + "s");
+      }
     } else if (remaining > leadSeconds() + 0.5) {
       hide();
     }
   }
 
-  function endedHandler() { hide(); }
+  /* CSSOS_WAVE_126 — when the current song's media ends, if the user
+   * has preselected a work, switch to it NOW (the natural moment — no
+   * mid-song interruption). If nothing is preselected, fall through to
+   * whatever the playlist's own auto-advance does (unchanged behavior).
+   * Guard against double-fire: `ended` can fire on both the <audio> and
+   * <video> for the same track. */
+  var __lastEndedSwitchAt = 0;
+  function endedHandler() {
+    var now = Date.now();
+    if (now - __lastEndedSwitchAt < 1500) { hide(); return; }
+    if (preselectedId) {
+      __lastEndedSwitchAt = now;
+      var targetId = preselectedId;
+      var fallback = preselectedItem;
+      // Clear preselect state BEFORE the switch so the new track's
+      // up-next strip starts clean.
+      preselectedId = null;
+      preselectedItem = null;
+      releasePreload();
+      switchToWorkById(targetId, fallback);
+    }
+    hide();
+  }
   function emptiedHandler() { hide(); }
 
   function bindMedia() {
@@ -486,6 +707,14 @@
       .then(function (j) {
         var data = (j && (j.data || j)) || null;
         var fresh = (data && data.id) ? data : (fallbackItem || { id: workId });
+        // CSSOS_WAVE_126 — bind the work-id contract (Wave 121) so the
+        // open flow flushes stale caches before painting. Belt-and-
+        // suspenders against 张冠李戴 on this external entry path too.
+        try {
+          if (typeof globalThis.cssosBindToWorkId === "function") {
+            globalThis.cssosBindToWorkId(fresh);
+          }
+        } catch (_e) {}
         if (typeof globalThis.openMarketWorkPreview === "function") {
           globalThis.openMarketWorkPreview(fresh);
           return true;
@@ -512,6 +741,13 @@
     hide: hide,
     refresh: refresh,
     leadSeconds: leadSeconds,
-    countItems: countItems
+    countItems: countItems,
+    // CSSOS_WAVE_126 — preselect API for debugging / external callers.
+    preselect: preselect,
+    preselectedId: function () { return preselectedId; },
+    clearPreselect: function () {
+      preselectedId = null; preselectedItem = null;
+      releasePreload(); refresh();
+    }
   };
 })();

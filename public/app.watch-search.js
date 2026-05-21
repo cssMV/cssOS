@@ -115,6 +115,27 @@
       panel.appendChild(exitBtn);
     }
 
+    // CSSOS_WAVE_297 20260521 — Jing: "左上角那个关闭按钮去掉, 已经有一个了"(右上角
+    // 退出影院 ✕). App 全屏里只保留 #watch-exit-cinema 一个 ✕. 清掉 watch 面板里
+    // 其它任何裸 "×/✕" 关闭按钮(无论哪个模块注入的). 仅 App 端执行.
+    if (isApp()) {
+      var killStrayClose = function () {
+        var pnl = document.getElementById("watch-panel");
+        if (!pnl) return;
+        pnl.querySelectorAll("button, [role=button]").forEach(function (el) {
+          if (el.id === "watch-exit-cinema") return;
+          var t = String(el.textContent || "").trim();
+          if (t === "×" || t === "✕" || t === "✖" || t === "⨉") {
+            try { el.style.setProperty("display", "none", "important"); } catch (_e) {}
+          }
+        });
+      };
+      killStrayClose();
+      try {
+        new MutationObserver(killStrayClose).observe(panel, { childList: true, subtree: true });
+      } catch (_e) {}
+    }
+
     input.addEventListener("input", function () {
       clearTimeout(debTimer);
       var v = String(input.value || "").trim();

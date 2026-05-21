@@ -47,8 +47,23 @@
   // 歌词→封面图→音乐→视频→字幕→合成. Lyrics first so the 京典 text
   // seeds the cover prompt, music mood, and subtitle timeline.
   const STAGES = ["lyrics", "cover", "music", "video", "subtitles", "compose"];
-  // Watch panel border-radius. Matches style.css --radius (24px).
+  // Watch panel border-radius. Matches style.css --radius (24px) on
+  // desktop. CSSOS_WAVE_297 20260521 — Jing: 全屏 App 里进度环贴边(inset:0)
+  // 走 MV 边框, 四角要顺着【设备屏幕圆角】走, 否则直角会被设备圆角裁掉. 现代
+  // iPhone 屏幕圆角约 47–55 CSS px; 默认 55, 可用 localStorage.cssos_mv_corner_radius
+  // 就地微调到刚好贴合自己机型(在哪用就在哪改).
   const PANEL_RADIUS_PX = 24;
+  function panelRadiusPx() {
+    var isApp = false;
+    try { isApp = document.documentElement.classList.contains("cssos-app"); } catch (_e) {}
+    if (!isApp) return PANEL_RADIUS_PX;
+    var r = 55;
+    try {
+      var v = parseFloat(localStorage.getItem("cssos_mv_corner_radius"));
+      if (isFinite(v) && v >= 0 && v <= 200) r = v;
+    } catch (_e) {}
+    return r;
+  }
   // Bar stroke thickness. Jing earlier: "尺寸小一半" — halved from 10 → 5.
   const TRAIL_STROKE_PX = 5;
 
@@ -383,7 +398,7 @@
     const inset = TRAIL_STROKE_PX / 2;
     const rw = Math.max(0, w - TRAIL_STROKE_PX);
     const rh = Math.max(0, h - TRAIL_STROKE_PX);
-    const rx = Math.max(0, PANEL_RADIUS_PX - inset);
+    const rx = Math.max(0, panelRadiusPx() - inset);
     const perimeter = 2 * (rw + rh) - (2 * rx * (4 - Math.PI));
     return { w, h, inset, rw, rh, rx, perimeter };
   }

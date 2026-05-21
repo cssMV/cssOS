@@ -6268,13 +6268,12 @@ html.cssos-app #watch-panel.panel-active {
   outline: none !important;
   border: none !important;
 }
-/* CSSOS_WAVE_292 20260521 — Jing 提醒: 边框进度条(.cssmv-border-bar, 沿四周走
- * 一圈的圆角矩形)在 inset:0 贴边时, 它的直角四角同样会被设备圆角屏幕裁掉.
- * 全屏时把整条进度环【内缩 20px】→ 四角离屏幕边足够远, 落在设备圆角的安全区内
- * (几何上 R≤55px 的设备都不会被裁); 媒体仍铺满到边, 进度环在内侧贴着圆角走.
- * ResizeObserver 会自动按内缩后的尺寸重算周长/几何. 顶部细进度线同理两端内缩. */
-html.cssos-app #watch-panel .cssmv-border-bar { inset: 20px !important; }
-html.cssos-app #watch-panel .panel-progress-line { left: 20px !important; right: 20px !important; }
+/* CSSOS_WAVE_297 20260521 — Jing: 内缩 20px 破坏画面, 撤销. 进度环回到【贴边
+ * inset:0】走 MV 面板真正的边框, 四角不再缩进; 改为让圆角矩形的圆角半径 =
+ * 设备屏幕圆角(见 app.watch-stage-bars.js 的 APP 半径), 这样四角顺着设备圆角
+ * 走, 既贴边又不会被裁. (撤销 W292 的 inset:20。) */
+html.cssos-app #watch-panel .cssmv-border-bar { inset: 0 !important; }
+html.cssos-app #watch-panel .panel-progress-line { left: 0 !important; right: 0 !important; }
 /* 视频/封面填满整屏(cover: 溢出裁切, 竖屏 MV 在竖屏 App 里正好铺满)。 */
 html.cssos-app #watch-panel .watch-video,
 html.cssos-app #watch-panel .watch-svg {

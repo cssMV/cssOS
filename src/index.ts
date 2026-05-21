@@ -7416,9 +7416,49 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
 });
 
 // /api/mv/music — Rust music router → callMusicGen fallback → silent WAV stub.
+// CSSOS_WAVE_254 20260520 — Jing: 在途去重锁, 杜绝重复提交导致同一首歌
+// 付费生成两次 (双击 / 重进面板 / 客户端重发 → 两次 Suno/Runway 付费).
+// 设计要点 (安全优先):
+//   • fail-open: userId / bodyStr 缺失或任何异常 → 直接放行, 绝不挡正常请求.
+//   • 锁只在请求"真正在途"期间生效: res 完成(成功或失败)立即释放, 所以
+//     生成失败后用户立刻重试 NOT 会被误判为重复.
+//   • 15 分钟 TTL 兜底: 万一 res 事件没触发, 锁也会自动过期, 永不卡死生成.
+// 拦截到重复时返回 409 + 明确 code, 第一单照常产出真实结果.
+const __mvInflight = new Map<string, number>(); // fingerprint → expiry epoch ms
+const __MV_INFLIGHT_TTL_MS = 15 * 60 * 1000;    // 兜底过期 (远超最慢的付费生成)
+function __mvDedupGuard(
+  stage: string,
+  userId: unknown,
+  bodyStr: string,
+  res: express.Response,
+): boolean /* true = 是重复, 应拦截 */ {
+  try {
+    if (!userId || !bodyStr) return false; // fail-open
+    let h = 0;
+    for (let i = 0; i < bodyStr.length; i += 1) h = (h * 31 + bodyStr.charCodeAt(i)) | 0;
+    const key = `${stage}:${userId}:${h}`;
+    const now = Date.now();
+    if (__mvInflight.size > 1000) {
+      for (const [k, exp] of __mvInflight) if (exp <= now) __mvInflight.delete(k);
+    }
+    const exp = __mvInflight.get(key);
+    if (exp && exp > now) return true; // 同一指纹仍在途 → 拦截
+    __mvInflight.set(key, now + __MV_INFLIGHT_TTL_MS);
+    const release = () => { __mvInflight.delete(key); };
+    res.on("finish", release);
+    res.on("close", release);
+    return false;
+  } catch { return false; } // fail-open
+}
+
 app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
   const userId = (req.session as any)?.user_id;
   if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  // CSSOS_WAVE_218 — real-dollar pre-flight before any vendor call.
+  {
+    const pf = await mvStagePreflight(req, "music");
+    if (!pf.ok) return res.status(pf.status).json(pf.body);
+  }
   if (!CSSOS_INTERNAL_TOKEN) {
     return res.status(503).json({
       ok: false,
@@ -7429,6 +7469,14 @@ app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
 
   const body = (req.body && typeof req.body === "object") ? req.body : {};
   const bodyStr = Object.keys(body).length > 0 ? JSON.stringify(body) : "";
+  // CSSOS_WAVE_254 — 同一首歌正在生成时, 拦掉重复提交, 防双重付费.
+  if (__mvDedupGuard("music", userId, bodyStr, res)) {
+    return res.status(409).json({
+      ok: false, code: "DUPLICATE_IN_FLIGHT",
+      error: "duplicate_in_flight",
+      message: "这首歌正在生成中，已忽略重复请求以避免重复扣费。/ Already generating — duplicate ignored.",
+    });
+  }
   const prompt = String((body as any).prompt || (body as any).title || "").trim();
   const duration = Number((body as any).duration_secs || (body as any).duration || 30) || 30;
   const tags = Array.isArray((body as any).tags) ? (body as any).tags as string[] : [];
@@ -7665,6 +7713,14 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
 
   const body = (req.body && typeof req.body === "object") ? req.body : {};
   const bodyStr = Object.keys(body).length > 0 ? JSON.stringify(body) : "";
+  // CSSOS_WAVE_254 — 同一视频正在生成时, 拦掉重复提交, 防双重付费.
+  if (__mvDedupGuard("video", userId, bodyStr, res)) {
+    return res.status(409).json({
+      ok: false, code: "DUPLICATE_IN_FLIGHT",
+      error: "duplicate_in_flight",
+      message: "这段视频正在生成中，已忽略重复请求以避免重复扣费。/ Already generating — duplicate ignored.",
+    });
+  }
   const prompt = String((body as any).prompt || "").trim();
   const aspectRaw = String((body as any).aspect_ratio || (body as any).ratio || "16:9").trim();
   const aspect: "16:9" | "9:16" | "1:1" =

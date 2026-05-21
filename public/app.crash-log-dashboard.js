@@ -22,11 +22,14 @@
   if (globalThis.__cssosCrashDashWired) return;
   globalThis.__cssosCrashDashWired = true;
 
+  // CSSOS_WAVE_257 20260520 — Jing: 移除 vip@cssstudio.app. Apple 审核员用
+  // 的就是 vip, 之前它在此名单里 → 审核员会看到 dev 浮动 🪲 调试按钮(违反
+  // App Store 4.0 设计/暴露调试 UI). 与 W233 收紧一致: vip 是付费等级测试
+  // 账号, 不应有任何调试视图.
   const ADMIN_EMAILS = new Set([
     "admin@cssstudio.app",
     "jingdudc@gmail.com",
     "jing@cssstudio.app",
-    "vip@cssstudio.app",
   ]);
 
   function viewerIsAdmin() {

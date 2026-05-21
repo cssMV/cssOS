@@ -206,6 +206,52 @@ html[data-theme="light"] #cssos-admin-ops-card .ao-fail{color:#a82424;}
     }
   }
 
+  // CSSOS_WAVE_257 20260520 — Jing: 把 crash 遥测聚合报表接进运营面板,
+  // 让运营人员(而非 Jing 自己盯 dev 🪲 浮窗)看"崩溃死了没"的数据.
+  // 读已就绪的 /api/admin/crash-log/report (持久化 JSONL 聚合).
+  function kindClass(k) {
+    if (k === "window.error" || k === "unhandledrejection") return "ao-q-slow";
+    if (k === "location.reload" || k === "location.assign") return "ao-q-mid";
+    return "ao-q-fast";
+  }
+  function renderCrashReport(j) {
+    const total = Number(j.total || 0);
+    const win = Number(j.window_hours || 48);
+    const kinds = Object.entries(j.by_kind || {}).sort((a, b) => b[1] - a[1]);
+    const tops = Array.isArray(j.top_messages) ? j.top_messages : [];
+    const kindRows = kinds.length
+      ? kinds.map(([k, n]) => `<tr><td class="${kindClass(k)}">${esc(k)}</td><td style="text-align:right;">${esc(n)}</td></tr>`).join("")
+      : `<tr><td colspan="2">${esc(tr("none", "无"))}</td></tr>`;
+    const topRows = tops.length
+      ? tops.map((m) => `<tr><td style="text-align:right;color:#fca5a5;font-weight:600;">${esc(m.count)}×</td><td class="ao-q-cell">${esc(String(m.message).slice(0, 160))}</td></tr>`).join("")
+      : `<tr><td colspan="2">${esc(tr("none — clean ✅", "无 — 干净 ✅"))}</td></tr>`;
+    return `
+      <div class="ao-kpis">
+        <div class="ao-kpi"><div class="ao-kpi-label">${esc(tr("Total events", "事件总数"))} · ${esc(win)}h</div>
+          <div class="ao-kpi-value ${total > 200 ? "ao-fail" : ""}">${esc(total)}</div></div>
+      </div>
+      <h3>${esc(tr("By kind", "按类型"))}</h3>
+      <table><tbody>${kindRows}</tbody></table>
+      <h3>${esc(tr("Top error messages", "高频错误"))}</h3>
+      <table><tbody>${topRows}</tbody></table>`;
+  }
+  async function loadCrashReport() {
+    const el = document.getElementById("cssos-admin-crash-body");
+    if (!el) return;
+    el.innerHTML = `<div class="ao-status">${esc(tr("Loading…", "加载中…"))}</div>`;
+    try {
+      const r = await fetch("/api/admin/crash-log/report?hours=48", { credentials: "include" });
+      const j = await r.json();
+      if (!j || !j.ok) {
+        el.innerHTML = `<div class="ao-status">${esc(tr("Crash report unavailable (ops access / no data yet).", "崩溃报表不可用（需运营权限，或暂无数据）。"))}</div>`;
+        return;
+      }
+      el.innerHTML = renderCrashReport(j);
+    } catch (err) {
+      el.innerHTML = `<div class="ao-status">${esc(tr("Failed to load.", "加载失败。"))} ${esc(String(err && err.message || err))}</div>`;
+    }
+  }
+
   async function load() {
     const body = document.getElementById("cssos-admin-ops-body");
     const status = document.getElementById("cssos-admin-ops-status");
@@ -228,6 +274,15 @@ html[data-theme="light"] #cssos-admin-ops-card .ao-fail{color:#a82424;}
       status.textContent = "";
       document.getElementById("cssos-admin-slowq-load")?.addEventListener("click", loadSlowQueries);
       document.getElementById("cssos-admin-slowq-reset")?.addEventListener("click", resetSlowQueries);
+      // CSSOS_WAVE_257 — 崩溃遥测 section, 自动加载(当前最关心的健康指标).
+      body.insertAdjacentHTML(
+        "beforeend",
+        `<h3 style="margin-top:18px;">🪲 ${esc(tr("Crash telemetry · last 48h", "崩溃遥测 · 近 48 小时"))}
+          <button type="button" class="ao-mini" id="cssos-admin-crash-reload" style="margin-left:8px;">${esc(tr("Reload", "重载"))}</button></h3>
+         <div id="cssos-admin-crash-body"><div class="ao-status">${esc(tr("Loading…", "加载中…"))}</div></div>`,
+      );
+      document.getElementById("cssos-admin-crash-reload")?.addEventListener("click", loadCrashReport);
+      loadCrashReport();
     } catch (err) {
       body.innerHTML = `<div class="ao-status">${esc(tr("Failed to load.", "加载失败。"))} ${esc(String(err && err.message || err))}</div>`;
       status.textContent = "";

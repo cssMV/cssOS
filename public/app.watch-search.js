@@ -56,7 +56,9 @@
     input.placeholder = tr("Search MVs, creators, styles…", "搜索 MV / 作者 / 风格…");
     input.setAttribute("aria-label", tr("Search MVs", "搜索 MV"));
     input.style.cssText = [
-      "pointer-events:auto", "width:100%", "box-sizing:border-box",
+      // CSSOS_WAVE_293 — 输入框两侧各留 ~52px: 左给作者头像、右给退出影院按钮,
+      // 两边对称, 头像不再被搜索框盖住.
+      "pointer-events:auto", "width:auto", "box-sizing:border-box", "margin:0 52px",
       "background:rgba(0,0,0,0.55)", "backdrop-filter:blur(12px)",
       "-webkit-backdrop-filter:blur(12px)", "border:1px solid rgba(0,245,160,0.45)",
       "border-radius:999px", "color:#fff", "font:500 15px/1.2 -apple-system,system-ui,sans-serif",
@@ -77,6 +79,37 @@
     box.appendChild(input);
     box.appendChild(results);
     panel.appendChild(box);
+
+    // CSSOS_WAVE_293 — 退出影院按钮(右上角, 与左上角作者头像对称). 仅 App 全屏
+    // 显示(桌面有标题栏的 × 关闭). 点击: 派发 cssos:watch-close + 退出全屏 +
+    // 去 cinema class → 回到主界面/feed.
+    if (isApp() && !document.getElementById("watch-exit-cinema")) {
+      var exitBtn = document.createElement("button");
+      exitBtn.id = "watch-exit-cinema";
+      exitBtn.type = "button";
+      exitBtn.setAttribute("aria-label", tr("Exit cinema", "退出影院"));
+      exitBtn.title = tr("Exit cinema", "退出影院");
+      exitBtn.textContent = "✕";
+      exitBtn.style.cssText = [
+        "position:absolute", "top:calc(env(safe-area-inset-top,0px) + 6px)", "right:10px",
+        "z-index:61", "width:40px", "height:40px", "border-radius:50%",
+        "border:1px solid rgba(255,255,255,0.55)", "background:rgba(0,0,0,0.55)",
+        "backdrop-filter:blur(8px)", "-webkit-backdrop-filter:blur(8px)",
+        "color:#fff", "font:600 18px/1 -apple-system,system-ui,sans-serif",
+        "cursor:pointer", "display:flex", "align-items:center", "justify-content:center",
+        "box-shadow:0 4px 14px rgba(0,0,0,0.4)",
+      ].join(";");
+      exitBtn.addEventListener("click", function () {
+        try { document.dispatchEvent(new CustomEvent("cssos:watch-close")); } catch (_e) {}
+        try { window.dispatchEvent(new CustomEvent("cssos:watch-close")); } catch (_e) {}
+        try {
+          if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen();
+          else if (document.webkitFullscreenElement && document.webkitExitFullscreen) document.webkitExitFullscreen();
+        } catch (_e) {}
+        try { document.body.classList.remove("cssos-cinema-mode", "cssos-watch-theater", "cssos-watch-idle"); } catch (_e) {}
+      });
+      panel.appendChild(exitBtn);
+    }
 
     input.addEventListener("input", function () {
       clearTimeout(debTimer);

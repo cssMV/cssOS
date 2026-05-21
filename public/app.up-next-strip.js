@@ -61,7 +61,6 @@
   var listEl = null;
   var visible = false;
   var settingsPopover = null;
-  var countdownEl = null;          // CSSOS_WAVE_264 — 可见倒计时 "切歌 Ns"
 
   /* CSSOS_WAVE_126 20260514 — Jing: "点切歌只是预选，当前歌放完才自然切".
    * Preselect state. Clicking an up-next card no longer interrupts the
@@ -196,19 +195,9 @@
     var hdr = document.createElement("div");
     hdr.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:12px;";
     var ttl = document.createElement("div");
-    ttl.style.cssText = "color:#daffee;font:600 11px/1 ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;opacity:.78;display:flex;align-items:center;gap:8px;";
-    var ttlText = document.createElement("span");
-    ttlText.textContent = tt("Up Next", "即将播放");
-    ttl.appendChild(ttlText);
-    /* CSSOS_WAVE_264 20260521 — Jing: 可见倒计时. 让用户清楚"还有几秒切下一首/
-     * 还能改多久主意". timeUpdateHandler 每帧更新 Math.ceil(remaining). */
-    countdownEl = document.createElement("span");
-    countdownEl.style.cssText =
-      "padding:2px 8px;border-radius:999px;background:rgba(255,200,60,0.16);" +
-      "border:1px solid rgba(255,200,60,0.5);color:#ffd86b;" +
-      "font:700 11px/1 ui-monospace,monospace;letter-spacing:.02em;font-variant-numeric:tabular-nums;";
-    countdownEl.textContent = "";
-    ttl.appendChild(countdownEl);
+    ttl.textContent = tt("Up Next", "即将播放");
+    ttl.style.cssText = "color:#daffee;font:600 11px/1 ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;opacity:.78;";
+    // CSSOS_WAVE_265 — 倒计时不再放条头, 改放在用户选中的那张卡的徽章上.
     var hdrRight = document.createElement("div");
     hdrRight.style.cssText = "display:flex;align-items:center;gap:10px;";
     var hint = document.createElement("div");
@@ -353,22 +342,29 @@
      *     isn't confused about which one actually plays next. */
     var cardId = String((item && (item.id || item.work_id)) || "").trim();
     var isPreselected = !!preselectedId && cardId === preselectedId;
+    /* CSSOS_WAVE_265 20260521 — Jing: 倒计时加在"将要播放的那张卡"上 (用户选
+     * 谁就在谁身上; 默认 index0). 徽章带 class + data-base 文案, timeUpdate
+     * 每帧把它更新成 "待播 · 8s" / "下一首 · 8s". 改选时徽章随预选卡移动. */
     if (isPreselected) {
       var queuedBadge = document.createElement("span");
-      queuedBadge.textContent = tt("Queued", "待播");
+      queuedBadge.className = "cssos-up-next-countdown-badge";
+      queuedBadge.dataset.baseLabel = tt("Queued", "待播");
+      queuedBadge.textContent = queuedBadge.dataset.baseLabel;
       queuedBadge.style.cssText =
         "position:absolute;top:4px;left:4px;padding:2px 6px;border-radius:4px;" +
-        "background:rgba(255,200,60,0.92);color:#1a1300;font:700 9px/1 ui-monospace,monospace;letter-spacing:.06em;";
+        "background:rgba(255,200,60,0.92);color:#1a1300;font:700 9px/1 ui-monospace,monospace;letter-spacing:.06em;font-variant-numeric:tabular-nums;";
       thumb.appendChild(queuedBadge);
       // Amber ring on the whole card so it's unmistakable.
       card.style.borderColor = "rgba(255,200,60,0.85)";
       card.style.background = "rgba(255,200,60,0.10)";
     } else if (index === 0 && !preselectedId) {
       var nextBadge = document.createElement("span");
-      nextBadge.textContent = tt("Next", "下一首");
+      nextBadge.className = "cssos-up-next-countdown-badge";
+      nextBadge.dataset.baseLabel = tt("Next", "下一首");
+      nextBadge.textContent = nextBadge.dataset.baseLabel;
       nextBadge.style.cssText =
         "position:absolute;top:4px;left:4px;padding:2px 6px;border-radius:4px;" +
-        "background:rgba(0,245,160,0.85);color:#001b14;font:700 9px/1 ui-monospace,monospace;letter-spacing:.06em;";
+        "background:rgba(0,245,160,0.85);color:#001b14;font:700 9px/1 ui-monospace,monospace;letter-spacing:.06em;font-variant-numeric:tabular-nums;";
       thumb.appendChild(nextBadge);
     }
     card.appendChild(thumb);
@@ -618,13 +614,13 @@
     var remaining = v.duration - v.currentTime;
     if (remaining <= leadSeconds() && remaining > 0.3) {
       show();
-      // CSSOS_WAVE_264 — 实时倒计时: 还有几秒自然切到下一首/预选项. 让"倒计时
-      // 结束前可改主意"变得可感知. preselect 时提示切到预选, 否则切下一首.
-      if (countdownEl) {
-        var secs = Math.max(1, Math.ceil(remaining));
-        countdownEl.textContent = preselectedId
-          ? tt("queued · " + secs + "s", "已选 · " + secs + "s")
-          : tt("next · " + secs + "s", "切歌 · " + secs + "s");
+      // CSSOS_WAVE_265 — 实时倒计时直接更新"将要播放的那张卡"的徽章, 让用户
+      // 清楚还有几秒切到这一首/还能改多久主意. 徽章本身已在用户选中的卡上.
+      if (stripEl) {
+        var badge = stripEl.querySelector(".cssos-up-next-countdown-badge");
+        if (badge && badge.dataset.baseLabel) {
+          badge.textContent = badge.dataset.baseLabel + " · " + Math.max(1, Math.ceil(remaining)) + "s";
+        }
       }
     } else if (remaining > leadSeconds() + 0.5) {
       hide();

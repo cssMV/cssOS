@@ -4224,6 +4224,18 @@ function __cssosBlankWatchSurfaceForSwapModule() {
   try {
     if (typeof watchKaraokeLine !== "undefined" && watchKaraokeLine) watchKaraokeLine.innerHTML = "";
   } catch (_e) {}
+  // CSSOS_WAVE_261 20260521 — Jing(#2): 切歌瞬间也即时清空标题/字幕 overlay 文本.
+  // 之前只清了视频/音频/卡拉OK; 标题(#watch-title-text + 帧内 .cssmv-mv-title)
+  // 和字幕(#watch-subtitle)要等 openMarketWorkPreview 异步重渲才更新, 中间会
+  // 闪一下上一首的旧标题/字幕. 这里先硬清到空, 新歌再全量重渲, 杜绝残影.
+  try {
+    document.querySelectorAll(".watch-title-text, #watch-title-text, .cssmv-mv-title")
+      .forEach((el) => { try { el.textContent = ""; } catch (_e2) {} });
+  } catch (_e) {}
+  try {
+    const __sub = document.getElementById("watch-subtitle");
+    if (__sub) __sub.textContent = "";
+  } catch (_e) {}
 }
 
 function applyWatchQueueItemModule(item) {

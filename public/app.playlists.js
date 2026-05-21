@@ -181,7 +181,10 @@
       // 1 · 登录用户: 先放自己的作品 (最新→最旧)
       if (loggedIn) {
         try {
-          const r = await fetch("/api/works/mine", { credentials: "include" });
+          // CSSOS_WAVE_253 20260520 — Jing: 拉满 (服务端上限 1000), 不要默认
+          // 的 20 条 —— 否则队列被截断, loop_all 在末尾早早回头. 要播完
+          // 全部可播放作品(normaliseItem 已过滤无媒体的)才按模式回头.
+          const r = await fetch("/api/works/mine?limit=1000", { credentials: "include" });
           const p = await r.json().catch(() => null);
           const mineFlat = flattenWorksTree(p?.data?.works || p?.works || []);
           mineFlat.sort((a, b) =>
@@ -192,7 +195,7 @@
       }
       // 2 · 追加平台精选 feed (所有人), 去重 — 永远有内容连播
       try {
-        const r = await fetch("/api/works/market?limit=100", { credentials: "include" });
+        const r = await fetch("/api/works/market?limit=1000", { credentials: "include" });
         const p = await r.json().catch(() => null);
         const mktFlat = flattenWorksTree(p?.data?.works || p?.works || []);
         // market 已按服务端顺序 (热门/最新), 不再二次排序; 仅追加在自己作品之后.

@@ -2021,16 +2021,25 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
       }
       if (Date.now() - _allDoneAt < 800) return;
       _autoPlayed = true;
-      try {
-        if (typeof globalThis.cssmvStageBarsHide === "function") {
-          globalThis.cssmvStageBarsHide();
-        }
-      } catch (_e) { /* no-op */ }
+      /* CSSOS_WAVE_205 20260516 — Jing: "必须显示边框进度条，就是面板边框
+       * 进度条沿着边框走动的进度条，不要隐藏". The original auto-play
+       * handler hid the stage-bars border progress entirely on
+       * "all done". But the bar has a `playback` mode that re-syncs
+       * its length to the active media's currentTime — perfect for
+       * the "border progress chasing while the song plays" experience
+       * the user wants. Don't hide; the bar's own `onPlay` handler
+       * (wireMediaSources) flips mode=playback when video.play() fires
+       * and the gradient keeps rotating. */
       try {
         const v = document.getElementById("watch-video");
         if (v && typeof v.play === "function") {
-          v.muted = true; // browsers gate audio autoplay; muted is always allowed
+          // CSSOS_WAVE_279 — 静音自动播(浏览器放行) → 视觉先放, 免点击; 设
+          // pendingUnmute 让首次轻触解锁声音. 已解锁过则不再静音(带声切歌).
           v.playsInline = true;
+          if (!globalThis.__cssosWatchAudioUnlocked) {
+            v.muted = true;
+            globalThis.__cssosWatchPendingUnmute = true;
+          }
           const p = v.play();
           if (p && typeof p.catch === "function") {
             p.catch(() => {

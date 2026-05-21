@@ -7533,6 +7533,26 @@ async function handleWatchPlaybackSurfaceClick(ev) {
     return;
   }
   armWatchExplicitPreviewIntent();
+  // CSSOS_WAVE_279 20260521 — Jing: 进场视频已【静音自动播】(视觉先放). 用户
+  // 这第一次轻触是来【解锁声音】的, 不该被当成"暂停". 取消视频静音 + 起播
+  // 歌曲音频(若有独立音轨), 清掉 pending 标志后直接返回; 之后的轻触才是
+  // 正常的播放/暂停切换.
+  if (globalThis.__cssosWatchPendingUnmute && watchVideo && !watchVideo.paused) {
+    globalThis.__cssosWatchPendingUnmute = false;
+    globalThis.__cssosWatchAudioUnlocked = true; // 本会话已授权声音, 后续切歌带声自动播
+    try { watchVideo.muted = false; } catch (_e) {}
+    try {
+      if (watchAudioPreview && String(watchAudioPreview.currentSrc || watchAudioPreview.src || "").trim()) {
+        watchAudioPreview.muted = false;
+        // 与视频对齐进度后起播, 避免声画不同步.
+        try { watchAudioPreview.currentTime = watchVideo.currentTime || 0; } catch (_e2) {}
+        watchAudioPreview.play?.().catch(() => {});
+      }
+    } catch (_e) {}
+    pulseWatchOverlayFeedbackModule("play");
+    syncWatchMusicStateModule();
+    return;
+  }
   const videoPlaying = !!(
     watchVideo &&
     !watchVideo.paused &&
@@ -8645,6 +8665,19 @@ function attemptWatchVideoPlaybackModule(options = {}) {
 
   const tryPlay = () => {
     if (!watchVideo || !watchVideo.src) return;
+    // CSSOS_WAVE_279 20260521 — Jing: 进场免点击. 视频【强制静音】再 play —
+    // 静音自动播浏览器基本都放行 → 视觉立即播放, 不再被拦/不再闪封面池.
+    // 声音留到用户首次轻触时解锁(见 handleWatchPlaybackSurfaceClick 的
+    // pendingUnmute 分支). 之前不静音 → 被拦 → fallback 封面闪.
+    try {
+      watchVideo.playsInline = true;
+      // 仅在本会话尚未被用户解锁声音前强制静音; 一旦解锁(首次轻触), 后续
+      // 切歌就带声音自动播, 不再每首都要求重新点一下.
+      if (!globalThis.__cssosWatchAudioUnlocked) {
+        watchVideo.muted = true;
+        globalThis.__cssosWatchPendingUnmute = true;
+      }
+    } catch (_e) {}
     const playPromise = watchVideo.play?.();
     if (!playPromise || typeof playPromise.then !== "function") return;
     playPromise

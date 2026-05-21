@@ -6344,19 +6344,22 @@ function activateVideoBlockedFallbackModule(item, videoEl) {
       videoEl.style.opacity = "0";
       videoEl.style.pointerEvents = "none";
     }
-    // Promote the cover image into the slideshow host. cssmvSetCoverSlides
-    // accepts an array; feeding it [cover, cover] makes the existing
-    // crossfade engine pulse the same image with Ken-Burns gracefully.
+    // CSSOS_WAVE_220A_COVER_POOL 20260519 — Jing: feed the real 5-image
+    // cover pool, shuffled per panel-open so every viewing differs. Falls
+    // back to [cover ×4] Ken-Burns when no pool exists (legacy works).
     const cover = String(item?.cover_url || item?.cover_image || item?.preview_image_url || "").trim();
-    if (cover && typeof globalThis.cssmvSetCoverSlides === "function") {
-      // 4 staggered copies → smooth Ken-Burns drift. Real production
-      // path would supply 5 distinct AI-gen variations; one image is
-      // an acceptable fallback when only one is available.
-      globalThis.cssmvSetCoverSlides([cover, cover, cover, cover]);
-    }
-    // Bump slideshow intensity higher in fallback mode for energy.
-    if (typeof globalThis.cssmvSetSlideshowIntensity === "function") {
-      globalThis.cssmvSetSlideshowIntensity(0.7);
+    const poolRaw = Array.isArray(item?.cover_slides) ? item.cover_slides : [];
+    const pool = poolRaw
+      .map((u) => (typeof u === "string" ? u.trim() : ""))
+      .filter(Boolean);
+    // CSSOS_WAVE_278 20260521 — Jing: 进场 / 视频被浏览器拦住等待首次点击时,
+    // 封面只显示【一张稳定的主封面】, 不再洗牌循环整个封面池. 之前循环多张
+    // 封面 + 0.7 高强度 → "闪过很多画面", 用户点了还在闪、眼花. 现在: 稳定
+    // 一帧 + 视频已预加载, 用户一点击即顺利播放. (封面池的 ken-burns 切换
+    // 留给真正的 lite 播放路径, 与本"等待播放"态无关.)
+    if (typeof globalThis.cssmvSetCoverSlides === "function") {
+      const stable = cover || pool[0] || "";
+      if (stable) globalThis.cssmvSetCoverSlides([stable]);
     }
   } catch (_e) {}
 }

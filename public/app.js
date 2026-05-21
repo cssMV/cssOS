@@ -8956,19 +8956,11 @@ function openPanel(panel, options = {}) {
       return;
     }
   } catch (_e) { /* non-fatal */ }
-  // CSSOS_WAVE_267 20260521 — Jing 根因修复(主界面冻结): openPanel 对已打开的
-  // 面板不幂等. 当某处反复自动 openPanel(同一已打开面板, 典型: 游客访问受限
-  // 面板被反复弹 login) 时, 每次重开都重启 `.panel:not(.hidden)` 的 panelReveal
-  // 动画 → 卡在 0% + 持续重排, 主线程被烧满、连控制台都打不开. 这里: 非用户
-  // 主动的"重开一个已经可见(未 hidden / 未最小化)的面板" 直接 no-op, 打断
-  // 重启循环 (对游客也生效); 用户主动点击 (userInitiated) 仍照常置顶/打开.
-  try {
-    if (!options.userInitiated && panel.classList &&
-        !panel.classList.contains("hidden") &&
-        panel.dataset && panel.dataset.minimized !== "true") {
-      return;
-    }
-  } catch (_e) { /* non-fatal */ }
+  // CSSOS_WAVE_267 reverted 20260521 — the idempotency early-return skipped
+  // bring-to-front for an already-open-but-not-front panel, which could trap a
+  // caller that loops "openPanel(p) until p is front" → main-thread freeze.
+  // Restored original behavior; the panelReveal-restart concern is handled by
+  // W266 (pointer-events in keyframes) instead.
   if (!guardPanelAccess(panel.id)) return;
   const restoredLayout = applyStoredPanelLayout(panel);
   if (panel === watchPanel) {

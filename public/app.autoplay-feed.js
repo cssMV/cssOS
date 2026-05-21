@@ -38,9 +38,17 @@
     } catch (_e) { return false; }
   }
 
+  // CSSOS_WAVE_268 20260521 — Jing 紧急止血: 暂时禁用"进主界面自动打开 watch".
+  // 现象: autoplay 自动开 watch → watch 渲染循环(ResizeObserver/readProgress
+  // 每帧)烧死主线程 → 用户一进来就冻、什么都点不了. 先关掉自动打开, 让用户
+  // 落在可用的 home(已实测无循环、可点); 手动进 watch 的冻结问题另行修复后
+  // 把此 flag 改回 true 即恢复连播.
+  var CSSOS_AUTOPLAY_FEED_ENABLED = false;
+
   // 进主界面自动打开 MV 面板并连播 for-you 混合队列.
   globalThis.cssosAutoOpenWatchFeed = function cssosAutoOpenWatchFeed(opts) {
     opts = opts || {};
+    if (!CSSOS_AUTOPLAY_FEED_ENABLED) return; // W268 止血: 不自动开 watch
     if (opened && !opts.force) return;
     if (hasBlockingDeepLink()) return;       // 深链优先
     if (watchPanelIsOpen()) { opened = true; return; }

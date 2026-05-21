@@ -4216,9 +4216,34 @@ function __cssosClearPreviewTimer() {
   }
 }
 
+// CSSOS_WAVE_251 20260520 — Jing (强调三遍): 切歌时上一首的标题/字幕/画面/
+// 视频残留会带到下一首. 在加载下一首之前, 先把当前 surface 彻底清空到
+// 空屏 —— 视频帧 + 帧序列 + 封面缩略图 + artwork pool (resetWatchVideo
+// PreviewModule), 音频源, 字幕时间轴缓存 + 卡拉OK DOM 行. 之后
+// openMarketWorkPreview 会用新歌内容全量重渲染; 这一步只保证切换间隙是
+// 干净空屏而不是旧歌的残帧/旧字幕.
+function __cssosBlankWatchSurfaceForSwapModule() {
+  try { resetWatchVideoPreviewModule(); } catch (_e) {}
+  try {
+    if (typeof watchAudioPreview !== "undefined" && watchAudioPreview) {
+      watchAudioPreview.pause?.();
+      watchAudioPreview.removeAttribute("src");
+      watchAudioPreview.load?.();
+    }
+  } catch (_e) {}
+  try {
+    if (globalThis.watchKaraokeTimelineCache) globalThis.watchKaraokeTimelineCache.data = null;
+  } catch (_e) {}
+  try {
+    if (typeof watchKaraokeLine !== "undefined" && watchKaraokeLine) watchKaraokeLine.innerHTML = "";
+  } catch (_e) {}
+}
+
 function applyWatchQueueItemModule(item) {
   if (!item) return;
   __cssosClearPreviewTimer();
+  // CSSOS_WAVE_251 — 切歌前硬清空, 杜绝上一首残留串到下一首.
+  __cssosBlankWatchSurfaceForSwapModule();
   // CSSOS_PHASE2_FULL_SWAP_ON_NAV 20260430 #236 — Jing
   // "切换歌的时候，只是切换视频而已，音频还是旧的，连标题也是旧的，
   //  歌词也是旧的。应该全部切换."

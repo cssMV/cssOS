@@ -2,7 +2,7 @@
  *
  * 两件事:
  *  1. cssosAutoOpenWatchFeed() — 进主界面后自动把播放队列切到混合
- *     "for-you" 源 (登录: 自己作品最新→最近, 播完接平台精选; Guest:
+ *     "for-you" 源 (登录: 自己作品最新→最旧, 播完接平台精选; Guest:
  *     纯精选), 并自动打开 watch/MV 面板播第一首. 播完自动下一首靠
  *     现有 queueStructuredWatchAdvanceModule (ended→advance) 走 active
  *     playlist, 已自动覆盖.

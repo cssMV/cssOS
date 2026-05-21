@@ -150,7 +150,7 @@
 
   // ─── Source fetchers ────────────────────────────────────────────────
   // CSSOS_WAVE_250 20260520 — Jing: TikTok 式"为你创作"混合队列.
-  // 进主界面自动播放: 登录用户先播自己的全部作品(最新→最近), 播完
+  // 进主界面自动播放: 登录用户先播自己的全部作品(最新→最旧), 播完
   // 无缝接平台精选 feed (/api/works/market); Guest 直接精选. 这样队列
   // 永远有内容连播. 旧的 GET /cssapi/v1/mv 已废弃, 改用 market 端点.
   function flattenWorksTree(works) {
@@ -178,7 +178,7 @@
     const have = new Set(list.items.map((it) => it.id));
     const loggedIn = !!(globalThis.authState && globalThis.authState.user);
     try {
-      // 1 · 登录用户: 先放自己的作品 (最新→最近)
+      // 1 · 登录用户: 先放自己的作品 (最新→最旧)
       if (loggedIn) {
         try {
           const r = await fetch("/api/works/mine", { credentials: "include" });

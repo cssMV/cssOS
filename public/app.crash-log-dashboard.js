@@ -112,6 +112,8 @@
       <div style="padding:14px 16px;border-bottom:1px solid rgba(0,245,160,0.15);display:flex;align-items:center;gap:10px;flex-shrink:0;">
         <span style="font-size:18px;">🪲</span>
         <strong style="flex:1;font-size:14px;letter-spacing:.04em;">CRASH TELEMETRY</strong>
+        <button type="button" data-cd-report title="Aggregated report / 聚合报表"
+          style="background:transparent;border:1px solid rgba(0,245,160,0.35);color:#daffee;font-size:13px;padding:4px 10px;border-radius:6px;cursor:pointer;">📊</button>
         <button type="button" data-cd-refresh title="Refresh"
           style="background:transparent;border:1px solid rgba(0,245,160,0.35);color:#daffee;font-size:13px;padding:4px 10px;border-radius:6px;cursor:pointer;">↻</button>
         <button type="button" data-cd-close aria-label="Close"
@@ -125,6 +127,7 @@
     `;
     p.querySelector("[data-cd-close]").addEventListener("click", closePanel);
     p.querySelector("[data-cd-refresh]").addEventListener("click", () => { poll(true); });
+    p.querySelector("[data-cd-report]").addEventListener("click", () => { loadReport(); });
     document.body.appendChild(p);
     return p;
   }
@@ -237,6 +240,44 @@
         ${uaShort ? `<div style="color:rgba(218,255,238,0.35);font:400 9.5px/1.3 ui-monospace,monospace;margin-top:3px;">${escapeHtml(uaShort)}</div>` : ""}
       </div>`;
     }).join("");
+  }
+
+  // ── Aggregated report (CSSOS_WAVE_255 20260520) ──────────────────
+  // Pulls the persisted JSONL digest from /api/admin/crash-log/report so
+  // ops can read a summary (by-kind counts, top error messages, recent
+  // unload click targets) instead of scrolling raw events.
+  async function loadReport(hours) {
+    const list = document.querySelector("#cssos-crash-dash-panel [data-cd-list]");
+    if (!list) return;
+    list.innerHTML = `<div style="padding:32px 16px;text-align:center;color:rgba(218,255,238,0.5);font:500 12px/1.4 ui-monospace,monospace;">Loading report…</div>`;
+    let j = null;
+    try {
+      const r = await fetch(`/api/admin/crash-log/report?hours=${Number(hours) || 48}`, { credentials: "include" });
+      j = await r.json();
+    } catch (_) { /* fall through to error */ }
+    if (!j || !j.ok) {
+      list.innerHTML = `<div style="padding:32px 16px;text-align:center;color:#ff8c8c;font:500 12px/1.4 ui-monospace,monospace;">Report unavailable (need ops access, or no JSONL yet).</div>`;
+      return;
+    }
+    const win = j.window_hours || 48;
+    const kinds = Object.entries(j.by_kind || {}).sort((a, b) => b[1] - a[1]);
+    const tops = Array.isArray(j.top_messages) ? j.top_messages : [];
+    const clicks = Array.isArray(j.recent_unload_clicks) ? j.recent_unload_clicks : [];
+    const sec = (title, inner) => `<div style="padding:12px 16px;border-bottom:1px solid rgba(0,245,160,0.08);">
+      <div style="color:rgba(0,245,160,0.85);font:700 10.5px/1 ui-monospace,monospace;letter-spacing:.08em;margin-bottom:8px;">${title}</div>${inner}</div>`;
+    const kindRows = kinds.length ? kinds.map(([k, n]) =>
+      `<div style="display:flex;justify-content:space-between;font:500 12px/1.7 ui-monospace,monospace;"><span style="color:${kindColor(k)};">${escapeHtml(k)}</span><span style="color:#daffee;">${n}</span></div>`).join("") : `<div style="color:rgba(218,255,238,0.5);">none</div>`;
+    const topRows = tops.length ? tops.map((m) =>
+      `<div style="font:400 11px/1.45 ui-monospace,monospace;color:#daffee;margin-bottom:5px;word-break:break-word;"><span style="color:#ff8c8c;font-weight:700;">${m.count}×</span> ${escapeHtml(String(m.message).slice(0, 140))}</div>`).join("") : `<div style="color:rgba(218,255,238,0.5);">none</div>`;
+    const clickRows = clicks.length ? clicks.slice(0, 15).map((c) => {
+      let label = ""; try { const o = typeof c.click === "string" ? JSON.parse(c.click) : c.click; label = `${o.tag || ""}${o.id ? "#" + o.id : ""} ${String(o.text || "").slice(0, 50)}`; } catch (_) { label = String(c.click || "").slice(0, 60); }
+      return `<div style="font:400 10.5px/1.4 ui-monospace,monospace;color:rgba(218,255,238,0.7);margin-bottom:4px;word-break:break-word;">📍 ${escapeHtml(label)} <span style="color:rgba(218,255,238,0.4);">· ${relativeTime(c.ts)}</span></div>`;
+    }).join("") : `<div style="color:rgba(218,255,238,0.5);">none</div>`;
+    list.innerHTML =
+      sec(`SUMMARY · last ${win}h`, `<div style="font:500 12px/1.7 ui-monospace,monospace;color:#daffee;">total events: <b>${j.total || 0}</b></div>`) +
+      sec("BY KIND", kindRows) +
+      sec("TOP ERROR MESSAGES", topRows) +
+      sec("RECENT UNLOAD CLICK TARGETS", clickRows);
   }
 
   // ── Polling ──────────────────────────────────────────────────────

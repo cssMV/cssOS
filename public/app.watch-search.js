@@ -113,6 +113,26 @@
         try { document.body.classList.remove("cssos-cinema-mode", "cssos-watch-theater", "cssos-watch-idle"); } catch (_e) {}
       });
       panel.appendChild(exitBtn);
+
+      // CSSOS_WAVE_298 20260521 — Jing: 退出影院 ✕ 只在【真全屏影院模式】显示;
+      // 一旦退出(cssos-cinema-mode / is-cssmv-fullscreen / 原生全屏 都没了)就
+      // 立刻隐藏, 别再杵在那儿. 监听 body class + 原生 fullscreenchange.
+      var syncExitVis = function () {
+        var on = false;
+        try {
+          var pnl = document.getElementById("watch-panel");
+          on = document.body.classList.contains("cssos-cinema-mode") ||
+            (pnl && pnl.classList.contains("is-cssmv-fullscreen")) ||
+            !!document.fullscreenElement || !!document.webkitFullscreenElement;
+        } catch (_e) {}
+        exitBtn.style.setProperty("display", on ? "flex" : "none", "important");
+      };
+      syncExitVis();
+      try {
+        new MutationObserver(syncExitVis).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+        document.addEventListener("fullscreenchange", syncExitVis, { passive: true });
+        document.addEventListener("webkitfullscreenchange", syncExitVis, { passive: true });
+      } catch (_e) {}
     }
 
     // CSSOS_WAVE_297 20260521 — Jing: "左上角那个关闭按钮去掉, 已经有一个了"(右上角

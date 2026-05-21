@@ -430,6 +430,18 @@ function bindWorksSearchControls(worksBody, options = {}) {
   const worksPrice = worksBody.querySelector("#works-search-price");
   const worksTime = worksBody.querySelector("#works-search-time");
   const worksFilterBar = worksBody.querySelector("#works-filter-bar");
+  // CSSOS_WAVE_291 — ⋯ 切换"高级搜索"区(作者/类型/排序/价格/时间默认收起).
+  const worksAdvToggle = worksBody.querySelector("#works-search-advanced-toggle");
+  const worksAdvPanel = worksBody.querySelector("#works-search-advanced");
+  if (worksAdvToggle && worksAdvPanel && !worksAdvToggle.dataset.cssosWired) {
+    worksAdvToggle.dataset.cssosWired = "1";
+    worksAdvToggle.addEventListener("click", function () {
+      const open = worksAdvPanel.hasAttribute("hidden");
+      if (open) worksAdvPanel.removeAttribute("hidden"); else worksAdvPanel.setAttribute("hidden", "");
+      worksAdvToggle.setAttribute("aria-expanded", open ? "true" : "false");
+      worksAdvToggle.classList.toggle("is-open", open);
+    });
+  }
   if (worksFilter) worksFilter.value = behavior?.works?.default_filter || "all";
   if (worksSort) worksSort.value = behavior?.works?.default_sort || "newest";
   // CSSOS_WAVE_113D 20260511 — Jing

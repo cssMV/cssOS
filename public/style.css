@@ -2658,6 +2658,39 @@ body.longpress-guard * {
   align-items: center;
 }
 
+/* CSSOS_WAVE_291 — ⋯ 高级搜索切换按钮 + 折叠的高级筛选区. */
+.panel-search-advanced-btn {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 245, 160, 0.24);
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text, #daffee);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .15s ease, border-color .15s ease;
+}
+.panel-search-advanced-btn:hover,
+.panel-search-advanced-btn.is-open {
+  background: rgba(0, 245, 160, 0.16);
+  border-color: rgba(0, 245, 160, 0.55);
+}
+.panel-search-advanced {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0, 245, 160, 0.12);
+}
+.panel-search-advanced[hidden] { display: none; }
+
 .panel-search-input {
   flex: 1 1 220px;
   min-width: 0;

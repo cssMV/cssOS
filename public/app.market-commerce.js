@@ -2128,11 +2128,17 @@ function buildWorksPermissionEmptyMarkup() {
 }
 
 function buildWorksSearchShellMarkup(behavior) {
+  // CSSOS_WAVE_291 20260521 — Jing: 浮层搜索. 主行只留【搜索框 + ⋯】, 原来挤在
+  // 一行的 5 个筛选(作者/类型/排序/价格/时间)收进 ⋯ 展开的"高级搜索"区(默认
+  // 隐藏). 所有原 ID 保留, works-center.js 的搜索/筛选逻辑不变.
   return `
-    <div class="panel-search-shell works-search-shell">
-      <div class="panel-search-meta">${loginCopy("Pull down to search your works")}</div>
+    <div class="panel-search-shell works-search-shell" id="works-search-shell" data-search-float="swipe">
       <div class="panel-search-row">
         <input id="works-search-input" class="panel-search-input" type="search" placeholder="${escapeHtml(loginCopy("Search title, style, lyrics..."))}" />
+        <button id="works-search-advanced-toggle" class="panel-search-advanced-btn" type="button"
+          title="${escapeHtml(loginCopy("Advanced filters", "高级筛选"))}" aria-label="${escapeHtml(loginCopy("Advanced filters", "高级筛选"))}" aria-expanded="false">⋯</button>
+      </div>
+      <div class="panel-search-advanced" id="works-search-advanced" hidden>
         <input id="works-search-author" class="panel-search-input panel-search-input--narrow" type="search" placeholder="${escapeHtml(loginCopy("Author"))}" />
         <select id="works-search-filter" class="panel-search-select">
           <option value="all">${loginCopy("All")}</option>

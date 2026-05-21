@@ -6214,6 +6214,27 @@ html.cssos-app #watch-panel .watch-screen {
 html.cssos-app #watch-panel:not(.hidden) ~ .dock,
 html.cssos-app.cssos-watch-fullscreen .dock,
 html.cssos-app.cssos-watch-fullscreen .app-badges { display: none !important; }
+
+/* CSSOS_WAVE_290 20260521 — Jing(真全屏暴露): 去掉那圈青绿发光边框/glow.
+ * 真机圆角屏幕会把【直角的边框环】裁掉四角 → 不协调. 设备圆角半径无标准 CSS
+ * 可探测, 但只要全屏时彻底不画边框(::before 渐变环 + box-shadow + outline +
+ * border 全 none), 就没有"直角被裁"的问题 —— 媒体 object-fit:cover 铺满, 设备
+ * 圆角自然裁切媒体边角(等同所有全屏视频 App 的正常观感, 满屏无黑、无突兀边框). */
+html.cssos-app #watch-panel::before,
+html.cssos-app #watch-panel::after,
+html.cssos-app #watch-panel.panel-front::before,
+html.cssos-app #watch-panel.panel-active::before {
+  display: none !important;
+  content: none !important;
+  box-shadow: none !important;
+}
+html.cssos-app #watch-panel,
+html.cssos-app #watch-panel.panel-front,
+html.cssos-app #watch-panel.panel-active {
+  box-shadow: none !important;
+  outline: none !important;
+  border: none !important;
+}
 /* 视频/封面填满整屏(cover: 溢出裁切, 竖屏 MV 在竖屏 App 里正好铺满)。 */
 html.cssos-app #watch-panel .watch-video,
 html.cssos-app #watch-panel .watch-svg {

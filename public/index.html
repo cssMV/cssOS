@@ -2071,6 +2071,9 @@
          根治播放时每帧轮询抛 ReferenceError 压垮 webview 看门狗 →
          强刷返回主界面的崩溃. 必须早于所有调用方(watch-audio-polling 等). -->
     <script src="app.lyric-utils.js?v=20260520-wave249-compactlyric-global"></script>
+    <!-- CSSOS_WAVE_255 — 相同输入重生成: 覆盖旧作品 vs 输出新作品 的选择+记忆.
+         独立模块, 高级设置面板回滚动荡时也能用; 暴露 cssosResolveRegenOutputMode(). -->
+    <script src="app.regen-output-mode.js?v=20260520-wave255-regen-mode"></script>
     <script src="app.ios-app-store-hardening.js?v=20260519-wave233-ios-harden"></script>
     <!-- CSSOS_WAVE_117_TOUCH_HARDENING — block pull-to-refresh, edge-swipe
          nav, dead-anchor reloads, double-tap fires. Must load early so

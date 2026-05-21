@@ -1368,6 +1368,17 @@
       // Wire actions
       var enterCinema = function (opts) {
         opts = opts || {};
+        // CSSOS_WAVE_255 — "创作新版本"(forceNew) = 相同输入重生成. 先问用户
+        // 覆盖旧作品 vs 输出新作品 (或用其记住的选择), 再以结果重入. fail-open.
+        if (opts.forceNew === true && !opts.__regenResolved &&
+            typeof globalThis.cssosResolveRegenOutputMode === "function") {
+          globalThis.cssosResolveRegenOutputMode().then(function (mode) {
+            opts.__regenResolved = true;
+            opts.forceNew = (mode === "new");
+            enterCinema(opts);
+          });
+          return;
+        }
         var queue = opts.forceNew
           ? []
           : mvs.map(function (m) { return m.work_id; }).filter(Boolean);
@@ -3101,6 +3112,16 @@
        */
       function enterCinemaForPerson(opts) {
         opts = opts || {};
+        // CSSOS_WAVE_255 — 同 enterCinema: forceNew(创作新版本) 先问覆盖 vs 新作品.
+        if (opts.forceNew === true && !opts.__regenResolved &&
+            typeof globalThis.cssosResolveRegenOutputMode === "function") {
+          globalThis.cssosResolveRegenOutputMode().then(function (mode) {
+            opts.__regenResolved = true;
+            opts.forceNew = (mode === "new");
+            enterCinemaForPerson(opts);
+          });
+          return;
+        }
         var seed = buildSeed(p, lore);
         applyCivHints(p.civilization);
         var queue = opts.forceNew

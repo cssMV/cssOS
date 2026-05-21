@@ -4252,6 +4252,21 @@ function __cssosBlankWatchSurfaceForSwapModule() {
     const __sub = document.getElementById("watch-subtitle");
     if (__sub) __sub.textContent = "";
   } catch (_e) {}
+  // CSSOS_WAVE_281 20260521 — Jing: 还要清【头部标题栏】"WATCH · 上一首" 和
+  // 缓存里的 pipelineState.title —— 否则切歌瞬间头部仍显示上一首标题(media
+  // 已换), 且 mv-title-sync 观察器会把这个旧标题栏文本又推回大 overlay,
+  // 造成"音视频是新歌、标题还是旧歌"的串台. 先清到只剩品牌前缀, 新歌再填.
+  try {
+    const __pt = document.querySelector("#watch-panel .panel-title");
+    if (__pt) {
+      const cur = String(__pt.textContent || "").trim();
+      let brand = "Watch";
+      if (cur && cur.includes("·")) brand = cur.slice(0, cur.indexOf("·")).trim() || brand;
+      __pt.textContent = brand;
+    }
+  } catch (_e) {}
+  try { if (globalThis.cssosMvPipelinePanelState) { const ps = globalThis.cssosMvPipelinePanelState(); if (ps) ps.title = ""; } } catch (_e) {}
+  try { document.querySelectorAll(".watch-frame-title, #watch-frame-title").forEach((el) => { el.textContent = ""; }); } catch (_e) {}
 }
 
 function applyWatchQueueItemModule(item) {

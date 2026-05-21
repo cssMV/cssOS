@@ -5945,6 +5945,9 @@ function ensureMediaActionsPillModule() {
   pill.id = "watch-actions-pill";
   pill.type = "button";
   pill.title = "More actions";
+  // CSSOS_WAVE_274 20260521 — Jing(P2 无障碍): 纯图标按钮补 aria-label,
+  // 否则屏幕阅读器只会念 "⋯" / 无名. 双语.
+  pill.setAttribute("aria-label", loginCopy("More actions", "更多操作"));
   pill.textContent = "⋯";
   pill.style.cssText =
     "background:rgba(0,0,0,0.55);backdrop-filter:blur(8px);" +
@@ -6523,6 +6526,7 @@ function ensureAuthorAvatarModule() {
   avatar.id = "watch-author-avatar";
   avatar.type = "button";
   avatar.title = "By unknown author";
+  avatar.setAttribute("aria-label", loginCopy("Author — tap for options", "作者 — 点击查看选项")); // CSSOS_WAVE_274 无障碍
   // CSSOS_PHASE2_AVATAR_SOLO 20260501 #263 — Jing
   // "媒体框左上角，请让用户头像独占." Aspect pill moved into the ⋯
   // menu, so the avatar takes the top-left corner alone at top:12px.
@@ -6541,11 +6545,31 @@ function ensureAuthorAvatarModule() {
       const ps = globalThis.cssosMvPipelinePanelState
         ? globalThis.cssosMvPipelinePanelState()
         : null;
-      const ownerId = String(ps?.ownerId || ps?.owner_id || "").trim();
-      const ownerName = String(ps?.ownerName || ps?.owner_name || "").trim();
-      const ownerAvatar = String(ps?.ownerAvatarUrl || "").trim();
+      let ownerId = String(ps?.ownerId || ps?.owner_id || "").trim();
+      let ownerName = String(ps?.ownerName || ps?.owner_name || "").trim();
+      let ownerAvatar = String(ps?.ownerAvatarUrl || "").trim();
+      /* CSSOS_WAVE_213 20260517 — Jing: "哪怕是在输出的时候，左上角也要显示
+       * 自己的头像". When the pipeline is mid-output, ownerId is still
+       * empty (work not committed). Fall back to the SIGNED-IN user so
+       * the avatar always renders. Menu code below uses ownerId === my-id
+       * to gray out Follow/Block (can't follow/block self). */
+      if (!ownerId) {
+        const auth = (typeof globalThis.cssosAuthState === "function")
+          ? globalThis.cssosAuthState()
+          : globalThis.authState;
+        const meId = String(auth?.user?.id || "").trim();
+        if (meId) {
+          ownerId = meId;
+          ownerName = String(auth?.user?.display_name || auth?.user?.email || "You").trim();
+          ownerAvatar = String(auth?.user?.avatar_url || auth?.user?.avatar || auth?.user?.picture || "").trim();
+        }
+      }
       avatar.dataset.ownerId = ownerId;
-      avatar.title = ownerName ? `By ${ownerName} — click to play their works` : "Unknown author";
+      avatar.title = ownerName ? `By ${ownerName} — click for options` : "Unknown author";
+      // CSSOS_WAVE_274 无障碍: aria-label 随作者名更新(屏幕阅读器念出作者).
+      avatar.setAttribute("aria-label", ownerName
+        ? loginCopy(`Author ${ownerName} — tap for options`, `作者 ${ownerName} — 点击查看选项`)
+        : loginCopy("Author — tap for options", "作者 — 点击查看选项"));
       avatar.innerHTML = "";
       if (ownerAvatar) {
         const img = document.createElement("img");
@@ -6653,6 +6677,7 @@ function ensureImmersivePillModule() {
   pill.id = "watch-immersive-pill";
   pill.type = "button";
   pill.title = "Immersive Environments — Vision Pro / WebXR / cinema fullscreen";
+  pill.setAttribute("aria-label", loginCopy("Immersive view", "沉浸式全屏")); // CSSOS_WAVE_274 无障碍
   // CSSOS_PHASE2_PILL_ROW 20260430 #241b — sits in the shared
   // bottom-left flex row alongside the playlist pill, no longer
   // absolutely positioned itself.

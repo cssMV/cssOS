@@ -33082,6 +33082,16 @@ app.get("/api/works/market", async (req, res) => {
     // CSSOS_PHASE2_FULL_MARKET_LIMIT 20260504 — Jing: same cap raise
     // as /api/works/mine so the marketplace pages client-side cleanly.
     const limit = Math.max(1, Math.min(Number(req.query.limit || 24), 1000));
+    // CSSOS_TIER_C_MULTILINGUAL C6 20260520 — optional ?lang=ja filter:
+    // only works that have a READY language track in that language. Empty
+    // = no filter. Validated against the supported set.
+    const langFilterRaw = String(req.query.lang || "").trim().toLowerCase();
+    const langFilter = mvSupportedLanguageCodes().has(langFilterRaw) ? langFilterRaw : "";
+    // CSSOS_WAVE_285 20260521 — Jing(Part B): 搜索 + offset 分页. q 为空 = 不过滤
+    // (照常按最新返回). q 命中 标题 / 作者名 / 风格 / 歌词预览(ILIKE 不区分大小写).
+    // offset 配合 limit 做"上滑加载更多 10/次".
+    const searchQ = String(req.query.q || "").trim().slice(0, 80);
+    const offset = Math.max(0, Math.min(Number(req.query.offset || 0), 100000));
     type Row = WorkTreeRow;
     const q: QueryResult<Row> = await withClient((client) =>
       client.query<Row>(
@@ -33141,9 +33151,17 @@ app.get("/api/works/market", async (req, res) => {
          WHERE COALESCE(mp.visibility, 'public') <> 'private'
            AND COALESCE(listen_product.amount_cents, mp.current_listen_price_cents, $2) > 0
            AND w.parent_work_id IS NULL
+           AND ($3 = '' OR EXISTS (
+                 SELECT 1 FROM work_language_tracks wf
+                  WHERE wf.work_id = w.id AND wf.lang = $3 AND wf.status = 'ready'))
+           -- CSSOS_WAVE_285 — 文本搜索: q 为空则不过滤
+           AND ($4 = '' OR w.title ILIKE '%' || $4 || '%'
+                        OR u.display_name ILIKE '%' || $4 || '%'
+                        OR COALESCE(w.style, '') ILIKE '%' || $4 || '%'
+                        OR COALESCE(w.lyrics_preview, '') ILIKE '%' || $4 || '%')
          ORDER BY w.updated_at DESC, w.created_at DESC
-         LIMIT $1`,
-        [limit, defaultListenPriceCents()],
+         LIMIT $1 OFFSET $5`,
+        [limit, defaultListenPriceCents(), langFilter, searchQ, offset],
       ),
     );
     const rootIds = q.rows.map((row) => row.id);

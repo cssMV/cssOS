@@ -7500,7 +7500,27 @@ function handleWatchUserPlaybackGesture() {
   return true;
 }
 
-async function handleWatchPlaybackSurfaceClick() {
+async function handleWatchPlaybackSurfaceClick(ev) {
+  // CSSOS_WAVE_275 20260521 — Jing: MV 面板里"除了用户主动暂停, 所有操作都不该
+  // 暂停播放, 一边操作一边播". 此处理器绑在整个 .watch-screen 上, 之前不看
+  // event.target → 点媒体区内的任何控件(头像/⋯/✦/take/aspect/沉浸胶囊/菜单/
+  // tab/字体选择器…)都冒泡进来 toggle 暂停 = "一操作就停". 修正: 只有点
+  // 【媒体空白区】或【▶/⏸ 播放按钮本身】才切换暂停; 点其它控件直接放行不暂停.
+  try {
+    const t = ev && ev.target;
+    if (t && typeof t.closest === "function" && !t.closest(".watch-overlay-play")) {
+      if (t.closest(
+        "button, a, input, textarea, select, [role=button], [data-watch-tab], " +
+        ".watch-author-avatar, #watch-author-avatar, #watch-actions-pill, " +
+        "#watch-immersive-pill, #watch-style-shift, #watch-pill-row-bl, " +
+        "#watch-take-toggle, #watch-aspect-pill, .watch-media-action, " +
+        ".cssos-author-menu, .cssos-gift-modal, .watch-font-picker, " +
+        ".watch-commerce-actions, .watch-share-info"
+      )) {
+        return; // 点的是控件 → 照常操作, 不打断播放
+      }
+    }
+  } catch (_e) { /* fail-open: 任何异常都按原逻辑走 */ }
   if (!authState?.user && typeof openLoginForCreation === "function") {
     openLoginForCreation(
       loginCopy(

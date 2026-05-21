@@ -6171,6 +6171,36 @@ html[data-theme="light"] .works-fp-optin-desc {
   overflow: hidden;
 }
 
+/* CSSOS_WAVE_284 20260521 — Jing: App 端(html.cssos-app)媒体框充满全屏 +
+ * 隐藏标题栏. 桌面浏览器无 cssos-app class, 完全不受影响(仍是原来的
+ * aspect-ratio 居中预览框). 仅 watch 面板生效. */
+html.cssos-app #watch-panel .panel-bar { display: none !important; }
+html.cssos-app #watch-panel {
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+  border-radius: 0 !important;
+}
+html.cssos-app #watch-panel .watch-pane.active,
+html.cssos-app #watch-panel .watch-frame { height: 100% !important; }
+html.cssos-app #watch-panel .watch-screen {
+  aspect-ratio: auto !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+}
+/* 视频/封面填满整屏(cover: 溢出裁切, 竖屏 MV 在竖屏 App 里正好铺满)。 */
+html.cssos-app #watch-panel .watch-video,
+html.cssos-app #watch-panel .watch-svg {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+}
+
 /* Portrait viewport: allow the preview to shrink vertically so a 16:9 output
  * doesn't hog the whole screen, and let 9:16 output take up to 78vh. */
 @media (orientation: portrait), (max-width: 820px) {

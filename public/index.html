@@ -2,6 +2,21 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- CSSOS_WAVE_284 20260521 — Jing: 标记 App/standalone 上下文 → <html.cssos-app>.
+         App 端(Capacitor iOS UA=cssos-ios / PWA standalone / iOS 主屏 standalone)据此
+         隐藏 watch 标题栏并让媒体框充满全屏; 桌面浏览器不加此 class, 维持原样.
+         必须最早执行(在 CSS 应用前打上 class, 避免布局闪)。 -->
+    <script>
+      (function () {
+        try {
+          var ua = String(navigator.userAgent || "").toLowerCase();
+          var isApp = /cssos-ios/.test(ua)
+            || (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches)
+            || navigator.standalone === true;
+          if (isApp) document.documentElement.classList.add("cssos-app");
+        } catch (e) {}
+      })();
+    </script>
     <!-- CSSOS_PHASE2_TRUE_FULLSCREEN 20260505 — Jing
          "手机端的MV面板能否让面板真全屏充满手机屏幕". viewport-fit=cover
          lets the page extend UNDER the notch + home-indicator. The
@@ -56,7 +71,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="style.css?v=20260521-w282-cta" />
+    <link rel="stylesheet" href="style.css?v=20260521-w284-appfull" />
     <link rel="stylesheet" href="style.mv-pipeline.css?v=20260520-wave243-scroll-segments" />
   </head>
   <body>

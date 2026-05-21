@@ -135,25 +135,31 @@
       } catch (_e) {}
     }
 
-    // CSSOS_WAVE_297 20260521 — Jing: "左上角那个关闭按钮去掉, 已经有一个了"(右上角
-    // 退出影院 ✕). App 全屏里只保留 #watch-exit-cinema 一个 ✕. 清掉 watch 面板里
-    // 其它任何裸 "×/✕" 关闭按钮(无论哪个模块注入的). 仅 App 端执行.
+    // CSSOS_WAVE_297/300 20260521 — Jing: "左上角那个旧的关闭按钮取消" — 真全屏
+    // 影院里只保留右上角 #watch-exit-cinema 一个 ✕. 那个旧的 × 不在 #watch-panel
+    // 内(W297 只扫面板, 漏了), 现在【document 级】扫描: 任何裸 "×/✕" 按钮, 只要不是
+    // 退出影院键、且落在左上角区域(left<220 且 top<320), 就隐藏. 仅 App 端执行.
     if (isApp()) {
       var killStrayClose = function () {
-        var pnl = document.getElementById("watch-panel");
-        if (!pnl) return;
-        pnl.querySelectorAll("button, [role=button]").forEach(function (el) {
+        document.querySelectorAll("button, [role=button], .icon-btn").forEach(function (el) {
           if (el.id === "watch-exit-cinema") return;
           var t = String(el.textContent || "").trim();
-          if (t === "×" || t === "✕" || t === "✖" || t === "⨉") {
+          if (t !== "×" && t !== "✕" && t !== "✖" && t !== "⨉") return;
+          var r;
+          try { r = el.getBoundingClientRect(); } catch (_e) { return; }
+          // 左上角区域的关闭键(就是截图里那个旧 ×). 其它位置的 × 不动.
+          if (r && r.width > 0 && r.left < 220 && r.top < 320) {
             try { el.style.setProperty("display", "none", "important"); } catch (_e) {}
           }
         });
       };
       killStrayClose();
       try {
-        new MutationObserver(killStrayClose).observe(panel, { childList: true, subtree: true });
+        new MutationObserver(killStrayClose).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style"] });
       } catch (_e) {}
+      // 全屏切换时位置会变, 再扫一遍.
+      document.addEventListener("fullscreenchange", killStrayClose, { passive: true });
+      document.addEventListener("webkitfullscreenchange", killStrayClose, { passive: true });
     }
 
     input.addEventListener("input", function () {

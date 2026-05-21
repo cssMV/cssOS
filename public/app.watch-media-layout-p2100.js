@@ -815,6 +815,16 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
     // a 800ms gentle opacity fade; animate=false (default) writes instantly
     // so initial renders + marker-recovery don't show a blank gap.
     const animate = !!(opts && opts.animate);
+    // CSSOS_WAVE_271 — 恢复路径: overlays 抹掉我们的 glyph 但文本没变时, 原样
+    // 重贴上次快照(不重新随机) → 不再每次"恢复"都抖一下. 只有新文本才重随机.
+    if (opts && opts.recover && el.__cssmvShuffleSnap && el.__cssmvShuffleSnap.text === text) {
+      const s = el.__cssmvShuffleSnap;
+      el.innerHTML = s.html;
+      el.style.textAlign = s.align || "";
+      el.classList.remove("cssmv-p2100-vertical-rl", "cssmv-p2100-vertical-lr");
+      if (s.vClass) el.classList.add(s.vClass);
+      return;
+    }
     function writeContent() {
       const pieces = tokenize(text);
       // CSSMV_LYRIC_SINGLE_LINE 20260426 #120 — only the SONG TITLE gets
@@ -841,6 +851,19 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
         const cls = Math.random() < 0.5 ? "cssmv-p2100-vertical-rl" : "cssmv-p2100-vertical-lr";
         el.classList.add(cls);
       }
+      // CSSOS_WAVE_271 20260521 — Jing: 快照本次随机结果. 当 overlays 抹掉我们的
+      // glyph 后(同一行文本)走恢复路径时, 原样重贴这份快照而不再重新随机,
+      // 消除"恢复抖动"(对齐跳/字体变)的闪烁. 仅真正的新文本才会重新随机.
+      el.__cssmvShuffleSnap = {
+        text,
+        html: el.innerHTML,
+        align: el.style.textAlign || "",
+        vClass: el.classList.contains("cssmv-p2100-vertical-rl")
+          ? "cssmv-p2100-vertical-rl"
+          : el.classList.contains("cssmv-p2100-vertical-lr")
+            ? "cssmv-p2100-vertical-lr"
+            : "",
+      };
     }
 
     // Helper: shrink title font-size if it overflows the frame.
@@ -1644,8 +1667,9 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
         if (cur === el.dataset[key + "LastText"]) {
           // Same text — overlays just re-wrote children, but we don't care.
           // Re-apply our shuffle ONCE if our marker disappeared, then stop.
+          // CSSOS_WAVE_271 — recover:true → 复用快照原样重贴, 不重新随机(消闪烁).
           if (!el.querySelector(".cssmv-p2100-glyph")) {
-            applyShuffle(el);
+            applyShuffle(el, { recover: true });
           }
           return;
         }

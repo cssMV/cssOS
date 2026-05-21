@@ -1377,6 +1377,8 @@
           globalThis.cssosResolveRegenOutputMode().then(function (mode) {
             opts.__regenResolved = true;
             opts.forceNew = (mode === "new");
+            // CSSOS_WAVE_259 — 用户主动重生成 = 求新, 开"求新窗口"禁复用(W258).
+            try { globalThis.cssosMvMarkFresh?.(); } catch (_) {}
             enterCinema(opts);
           });
           return;
@@ -3127,6 +3129,8 @@
           globalThis.cssosResolveRegenOutputMode().then(function (mode) {
             opts.__regenResolved = true;
             opts.forceNew = (mode === "new");
+            // CSSOS_WAVE_259 — 用户主动重生成 = 求新, 开"求新窗口"禁复用(W258).
+            try { globalThis.cssosMvMarkFresh?.(); } catch (_) {}
             enterCinemaForPerson(opts);
           });
           return;

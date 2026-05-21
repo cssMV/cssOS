@@ -2074,6 +2074,9 @@
     <!-- CSSOS_WAVE_255 — 相同输入重生成: 覆盖旧作品 vs 输出新作品 的选择+记忆.
          独立模块, 高级设置面板回滚动荡时也能用; 暴露 cssosResolveRegenOutputMode(). -->
     <script src="app.regen-output-mode.js?v=20260520-wave255-regen-mode"></script>
+    <!-- CSSOS_WAVE_259 — 钱漏#3 接线: 给 mv 生成注入 reuse_ok(重试/续跑复用),
+         用户主动重生成时开"求新窗口"强制出新. 必须早加载以包好 fetch. -->
+    <script src="app.mv-reuse-flag.js?v=20260520-wave259-reuse-flag"></script>
     <script src="app.ios-app-store-hardening.js?v=20260519-wave233-ios-harden"></script>
     <!-- CSSOS_WAVE_117_TOUCH_HARDENING — block pull-to-refresh, edge-swipe
          nav, dead-anchor reloads, double-tap fires. Must load early so

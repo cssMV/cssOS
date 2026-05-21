@@ -46,6 +46,8 @@
 
   function placeholder(opts) {
     var args = arguments;
+    // CSSOS_WAVE_259 — forceNew = 用户要新版本 = 求新, 开"求新窗口"禁结果复用(W258).
+    try { if (opts && opts.forceNew) globalThis.cssosMvMarkFresh?.(); } catch (_) {}
     // Trigger lazy load + recurse once the heavy version is in place.
     if (typeof globalThis.cssosLoadPanel === "function") {
       if (!loadInflight) loadInflight = globalThis.cssosLoadPanel("mv-pipeline");

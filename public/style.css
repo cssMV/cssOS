@@ -8079,13 +8079,25 @@ html[data-panel-transparent="true"] .logo-panel {
 }
 
 @keyframes panelReveal {
+  /* CSSOS_WAVE_266 20260521 — Jing 紧急修复: 主界面冻结/所有按钮无法点击.
+     根因: `.panel:not(.hidden)` 套用此 reveal 动画, 但 #login-panel 的动画
+     卡在 currentTime:0 (0% 帧 = opacity:0) 且 playState=running, 于是面板
+     永久 opacity:0、却 pointer-events:auto → 一个隐形全屏面板吞掉了所有点击.
+     加 pointer-events 到关键帧: 露不出来(0%~60%)就不吞点击, 露到 60% 才
+     接管点击. 这样任何卡在起始帧的面板都点击穿透, 主界面立刻恢复可点;
+     正常淡入的面板 0.36s 后照常可交互. */
   0% {
     opacity: 0;
     filter: blur(10px) saturate(140%);
+    pointer-events: none;
+  }
+  60% {
+    pointer-events: auto;
   }
   100% {
     opacity: 1;
     filter: blur(0);
+    pointer-events: auto;
   }
 }
 

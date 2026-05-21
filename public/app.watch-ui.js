@@ -2317,7 +2317,23 @@ function setProgressModule(el, value) {
   el.style.width = `${value}%`;
 }
 
+let __cssosLyricsPctCache = { sig: null, val: 0 };
 function currentLyricsProgressPercentModule() {
+  // CSSOS_WAVE_270 20260521 — Jing: readProgress 热路径节流. 此函数被进度
+  // 定时器/旋转器反复调用, 原来每次都跑重的歌词解析(hasCanonicalLyricsBody
+  // Lines + isWatchLyricsReady→compactLyricLines, 解析全文). 用便宜的输入指纹
+  // 缓存: 输入未变就直接返回上次结果, 跳过重算 —— 长时间连播 / 低端机更顺.
+  const sig =
+    (typingState.completed ? 1 : 0) + "|" +
+    String(state.songSeed?.lyrics || "").length + "|" +
+    (Array.isArray(state.lines) ? state.lines.length : 0) + "|" +
+    (watchLyricsEditor?.value || "").length + "|" +
+    (lyricsInput?.value || "").length + "|" +
+    (lyricsEl?.textContent?.length || 0) + "|" +
+    (lyricsTargetLength || 0) + "|" +
+    (globalThis.lyricsSeedRequestState?.pending ? 1 : 0) + "|" +
+    String(state.songSeed?.title || state.title || "").length;
+  if (__cssosLyricsPctCache.sig === sig) return __cssosLyricsPctCache.val;
   const requestState = globalThis.lyricsSeedRequestState || {};
   const hasSeedLyrics =
     (globalThis.hasCanonicalLyricsBodyLinesModule?.(

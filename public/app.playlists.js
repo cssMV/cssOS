@@ -149,20 +149,61 @@
   }
 
   // ─── Source fetchers ────────────────────────────────────────────────
+  // CSSOS_WAVE_250 20260520 — Jing: TikTok 式"为你创作"混合队列.
+  // 进主界面自动播放: 登录用户先播自己的全部作品(最新→最近), 播完
+  // 无缝接平台精选 feed (/api/works/market); Guest 直接精选. 这样队列
+  // 永远有内容连播. 旧的 GET /cssapi/v1/mv 已废弃, 改用 market 端点.
+  function flattenWorksTree(works) {
+    const flat = [];
+    const visit = (w) => {
+      if (!w) return;
+      flat.push(w);
+      if (Array.isArray(w.children)) w.children.forEach(visit);
+    };
+    (Array.isArray(works) ? works : []).forEach(visit);
+    return flat;
+  }
+  function pushUnique(list, have, rawItems, ownFlag) {
+    for (const w of rawItems) {
+      const it = normaliseItem(ownFlag == null ? w : { ...w, is_own: ownFlag });
+      if (it && !have.has(it.id)) {
+        list.items.push(it);
+        have.add(it.id);
+      }
+    }
+  }
   async function fetchForYou(list) {
-    // for-you = all (own + others), cursor-paginated
     if (list.loading || list.exhausted) return;
-    // CSSOS_PHASE2_KILL_405_GET_MV 20260504 — Jing
-    // GET /cssapi/v1/mv is unregistered server-side (only POST is
-    // registered in rust-api/src/routes.rs). Don't even attempt the
-    // request — the 405 paints a red entry in DevTools every load.
-    // Mark exhausted so any caller upstream knows this source is
-    // empty; "My Works" loop covers the user's own library via a
-    // separate path. For-You feeds for OTHER users' works are not
-    // yet surfaced through any working endpoint.
-    list.exhausted = true;
-    list.loading = false;
-    notify();
+    list.loading = true;
+    const have = new Set(list.items.map((it) => it.id));
+    const loggedIn = !!(globalThis.authState && globalThis.authState.user);
+    try {
+      // 1 · 登录用户: 先放自己的作品 (最新→最近)
+      if (loggedIn) {
+        try {
+          const r = await fetch("/api/works/mine", { credentials: "include" });
+          const p = await r.json().catch(() => null);
+          const mineFlat = flattenWorksTree(p?.data?.works || p?.works || []);
+          mineFlat.sort((a, b) =>
+            (Date.parse(String(b?.created_at || "")) || 0) -
+            (Date.parse(String(a?.created_at || "")) || 0));
+          pushUnique(list, have, mineFlat, true);
+        } catch (_e) { /* mine fetch failed — fall through to market */ }
+      }
+      // 2 · 追加平台精选 feed (所有人), 去重 — 永远有内容连播
+      try {
+        const r = await fetch("/api/works/market?limit=100", { credentials: "include" });
+        const p = await r.json().catch(() => null);
+        const mktFlat = flattenWorksTree(p?.data?.works || p?.works || []);
+        // market 已按服务端顺序 (热门/最新), 不再二次排序; 仅追加在自己作品之后.
+        pushUnique(list, have, mktFlat, null);
+      } catch (_e) {}
+    } catch (_e) {}
+    finally {
+      list.exhausted = true; // 两个源都是一次性全量返回
+      list.loading = false;
+      notify();
+    }
   }
 
   async function fetchMine(list) {

@@ -481,7 +481,14 @@ scheduleNonCriticalBoot(() => {
     { name: "restoreMusicDeliveryDashboardRunId", fn: () => restoreMusicDeliveryDashboardRunId() },
     { name: "renderMusicDeliveryDashboard", fn: () => renderMusicDeliveryDashboard() },
     { name: "initCreationConsole", fn: () => initCreationConsole() },
-    { name: "renderAdvancedPanelSettings", fn: () => renderAdvancedPanelSettings() }
+    { name: "renderAdvancedPanelSettings", fn: () => renderAdvancedPanelSettings() },
+    // CSSOS_WAVE_250 20260520 — Jing: 进主界面自动打开 MV 面板连播
+    // for-you 混合队列. 延迟 1.5s 等 fetchMe 解析完(知道登录/Guest),
+    // 函数内部再判深链接, 有深链则不抢.
+    {
+      name: "autoOpenWatchFeed",
+      fn: () => setTimeout(() => { try { globalThis.cssosAutoOpenWatchFeed?.(); } catch (_e) {} }, 1500),
+    }
   ]);
 });
 if (loginLogout) {

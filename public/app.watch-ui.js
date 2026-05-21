@@ -7503,6 +7503,46 @@ function handleWatchUserPlaybackGesture() {
   return true;
 }
 
+// CSSOS_WAVE_280 20260521 — Jing: 静音自动播时, 显示一个不挡画面的小提示
+// "🔇 轻触开声音", 几秒后自动淡出; 用户解锁声音 / 暂停时立即消失.
+// pointer-events:none 确保它永不拦截点击(点它下面的媒体区照样解锁声音).
+let __watchSoundHintTimer = null;
+function showWatchSoundHintModule() {
+  try {
+    if (!globalThis.__cssosWatchPendingUnmute) return; // 已解锁就不提示
+    var host = document.querySelector("#watch-panel .watch-screen");
+    if (!host) return;
+    var hint = document.getElementById("watch-sound-hint");
+    if (!hint) {
+      hint = document.createElement("div");
+      hint.id = "watch-sound-hint";
+      hint.style.cssText =
+        "position:absolute;left:50%;bottom:64px;transform:translateX(-50%);" +
+        "padding:6px 14px;border-radius:999px;background:rgba(0,0,0,0.5);" +
+        "backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);color:#fff;" +
+        "font:600 12px/1 -apple-system,system-ui,sans-serif;letter-spacing:.02em;" +
+        "white-space:nowrap;pointer-events:none;z-index:40;opacity:0;" +
+        "transition:opacity .4s ease;box-shadow:0 4px 16px rgba(0,0,0,0.4);";
+      host.appendChild(hint);
+    }
+    hint.textContent = loginCopy("🔇 Tap for sound", "🔇 轻触开声音");
+    hint.style.display = "block";
+    requestAnimationFrame(function () { hint.style.opacity = "1"; });
+    clearTimeout(__watchSoundHintTimer);
+    __watchSoundHintTimer = setTimeout(function () {
+      hint.style.opacity = "0";
+      setTimeout(function () { if (hint) hint.style.display = "none"; }, 450);
+    }, 4000); // 4s 后淡出 (解锁仍可随时轻触)
+  } catch (_e) {}
+}
+function hideWatchSoundHintModule() {
+  try {
+    clearTimeout(__watchSoundHintTimer);
+    var hint = document.getElementById("watch-sound-hint");
+    if (hint) { hint.style.opacity = "0"; setTimeout(function () { if (hint) hint.style.display = "none"; }, 450); }
+  } catch (_e) {}
+}
+
 async function handleWatchPlaybackSurfaceClick(ev) {
   // CSSOS_WAVE_275 20260521 — Jing: MV 面板里"除了用户主动暂停, 所有操作都不该
   // 暂停播放, 一边操作一边播". 此处理器绑在整个 .watch-screen 上, 之前不看
@@ -7540,6 +7580,7 @@ async function handleWatchPlaybackSurfaceClick(ev) {
   if (globalThis.__cssosWatchPendingUnmute && watchVideo && !watchVideo.paused) {
     globalThis.__cssosWatchPendingUnmute = false;
     globalThis.__cssosWatchAudioUnlocked = true; // 本会话已授权声音, 后续切歌带声自动播
+    hideWatchSoundHintModule(); // CSSOS_WAVE_280 解锁了, 收起提示
     try { watchVideo.muted = false; } catch (_e) {}
     try {
       if (watchAudioPreview && String(watchAudioPreview.currentSrc || watchAudioPreview.src || "").trim()) {
@@ -8352,6 +8393,11 @@ function initWatchVideoPlaybackControlsModule() {
   const syncIndicator = () => handleWatchVideoPlayStateChange(indicator, clickTarget);
   watchVideo.addEventListener("play", syncIndicator);
   watchVideo.addEventListener("pause", syncIndicator);
+  // CSSOS_WAVE_280 — 视频静音自动播起来时, 弹"🔇 轻触开声音"提示; 暂停即收起.
+  watchVideo.addEventListener("playing", function () {
+    if (globalThis.__cssosWatchPendingUnmute && watchVideo.muted) showWatchSoundHintModule();
+  });
+  watchVideo.addEventListener("pause", hideWatchSoundHintModule);
   watchVideo.addEventListener("timeupdate", handleWatchVideoTimeUpdate);
   syncWatchPlaybackIndicator(indicator, clickTarget);
 

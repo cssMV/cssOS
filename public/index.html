@@ -2165,7 +2165,7 @@
     <script src="app.mv-language-pill.js?v=20260520-tierc-c5c-syncsub"></script>
     <script src="app.up-next-strip.js?v=20260521-w277-countdown"></script>
     <!-- CSSOS_WAVE_286 — App 端 watch 顶部纯搜索框(异步检索+无限滚动+点击进队列). -->
-    <script src="app.watch-search.js?v=20260521-w293-exitbtn"></script>
+    <script src="app.watch-search.js?v=20260521-w296-onerow-sync"></script>
     <!-- CSSOS_WAVE_294 — 可复用苹果风浮层搜索: 自动接管 [data-search-float="swipe"]
          的搜索壳(Works Center 等), 下滑显示/上滑隐藏. -->
     <script src="app.floating-search.js?v=20260521-w294-floatsearch"></script>
@@ -2605,13 +2605,20 @@
          */
         (function () {
           var idleTimer = null;
-          var IDLE_MS = 1500;
+          // CSSOS_WAVE_296 20260521 — Jing: "10秒，没有特殊强调，都是10秒".
+          // Single unified idle window for ALL watch chrome (top trio +
+          // bottom dock) so they reveal/hide as ONE unit, never staggered.
+          var IDLE_MS = 10000;
           // Selectors to forcibly hide while cinema is on AND user is idle.
           // Subtitle (#watch-subtitle, #watch-karaoke-line, .watch-lyric-line)
           // intentionally NOT in this list — those are part of the cinema
           // experience, not chrome.
           var CHROME_SELECTORS = [
-            "#watch-panel .panel-bar",
+            // CSSOS_WAVE_220C 20260521 — Jing: title bar (.panel-bar) must
+            // STAY RESIDENT in cinema. Hiding it on idle made the media
+            // frame jump up/down (layout reflow) every wake/idle cycle.
+            // Removed from the force-hide list. (.panel-actions buttons
+            // below still auto-hide — only the bar shell stays.)
             "#watch-panel .panel-actions",
             "#watch-panel .panel-toolbar",
             "#watch-panel .watch-toolbar",
@@ -2633,6 +2640,11 @@
             "#watch-panel .cssmv-info-btn",
             "#watch-panel .cssmv-fs-btn",
             "#watch-panel .cssmv-stem-toggle",
+            // CSSOS_WAVE_296 — top floating search box + exit-cinema button
+            // join the SAME hide unit as the dock so the top trio (avatar,
+            // search, ✕) and bottom dock show/hide together, not staggered.
+            "#watch-search-box",
+            "#watch-exit-cinema",
             "#dock"
           ];
           var hidden = []; // [{el, prevDisplay, prevPriority}]
@@ -2662,7 +2674,21 @@
             hidden = [];
             document.body.style.removeProperty("cursor");
           }
-          function sleep() { if (inCinema()) hideChrome(); }
+          function sleep() {
+            if (!inCinema()) return;
+            // CSSOS_WAVE_296 — don't hide mid-search: if the floating search
+            // input is focused or has text, re-arm instead of hiding so the
+            // user can keep reading results.
+            try {
+              var si = document.getElementById("watch-search-input");
+              if (si && (document.activeElement === si || String(si.value || "").trim())) {
+                if (idleTimer) clearTimeout(idleTimer);
+                idleTimer = setTimeout(sleep, IDLE_MS);
+                return;
+              }
+            } catch (_e) {}
+            hideChrome();
+          }
           function wake() {
             if (!inCinema()) {
               showChrome();

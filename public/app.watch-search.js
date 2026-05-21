@@ -42,7 +42,9 @@
     // CSSOS_WAVE_287 — 浮动搜索框(桌面+App): 默认隐藏在顶部之上, 下滑/滚轮向下
     // 显示、上滑/向上隐藏(Apple 风). transform 动画.
     box.style.cssText = [
-      "position:absolute", "top:6px",
+      // CSSOS_WAVE_296 — anchor with safe-area so the search box, the author
+      // avatar (top-left) and the exit-cinema ✕ (top-right) sit on ONE row.
+      "position:absolute", "top:calc(env(safe-area-inset-top,0px) + 8px)",
       "left:10px", "right:10px", "z-index:60", "display:flex",
       "flex-direction:column", "gap:8px", "pointer-events:none",
       "transform:translateY(-140%)", "opacity:0",
@@ -91,7 +93,9 @@
       exitBtn.title = tr("Exit cinema", "退出影院");
       exitBtn.textContent = "✕";
       exitBtn.style.cssText = [
-        "position:absolute", "top:calc(env(safe-area-inset-top,0px) + 6px)", "right:10px",
+        // CSSOS_WAVE_296 — +9px so the 40px button's center aligns with the
+        // search input's center (one row with the avatar).
+        "position:absolute", "top:calc(env(safe-area-inset-top,0px) + 9px)", "right:10px",
         "z-index:61", "width:40px", "height:40px", "border-radius:50%",
         "border:1px solid rgba(255,255,255,0.55)", "background:rgba(0,0,0,0.55)",
         "backdrop-filter:blur(8px)", "-webkit-backdrop-filter:blur(8px)",
@@ -124,17 +128,24 @@
       if (results.scrollTop + results.clientHeight >= results.scrollHeight - 90) loadMore();
     });
 
-    // ── CSSOS_WAVE_289 — MV 面板【特殊模式】: 有操作就显示搜索框, 无操作自动
-    // 隐藏(区别于其它面板的"下滑显示/上滑隐藏" swipe 模式). 任意交互(轻触/
-    // 移动/按键/滚轮)都唤出搜索框, 静止 ~3.5s 自动淡隐; 正在输入/有结果时不隐. ──
-    var IDLE_HIDE_MS = 3500;
+    // ── CSSOS_WAVE_296 20260521 — Jing: "顶部头像/搜索框/退出键 和底部 Dock,
+    // 显示同时显示, 隐藏同时隐藏, 不要一前一后". 影院模式下统一交给 index.html
+    // 的 CHROME hide 系统(10s 空闲、display 同步切换 #watch-search-box +
+    // #watch-exit-cinema + #dock + 头像), 这里不再各自计时, 避免错位.
+    // 非影院(桌面)才用本地 activity 兜底(同样 10s). ──
+    function inCinema() {
+      try { return document.body.classList.contains("cssos-cinema-mode"); } catch (_e) { return false; }
+    }
+    var IDLE_HIDE_MS = 10000;
     var hideTimer = null;
     function showBar() {
       box.style.transform = "translateY(0)";
       box.style.opacity = "1";
-      armIdleHide();
+      // 影院模式: 显隐由统一系统(display:none)接管, 这里不自行计时淡隐.
+      if (!inCinema()) armIdleHide();
     }
     function hideBar() {
+      if (inCinema()) return; // 影院由统一系统隐藏
       if (document.activeElement === input || String(input.value || "").trim()) return; // 输入/看结果时不隐
       box.style.transform = "translateY(-140%)";
       box.style.opacity = "0";
@@ -146,16 +157,23 @@
     globalThis.cssosWatchSearchShow = showBar;
     var panel = document.getElementById("watch-panel");
     if (panel) {
-      // 任意操作 → 显示 + 重置空闲计时.
       ["pointerdown", "pointermove", "touchstart", "touchmove", "wheel", "keydown"].forEach(function (ev) {
-        panel.addEventListener(ev, function () {
-          // 别让搜索框自身的输入操作触发"重新计时隐藏"打断打字 —— hideBar 已护住输入态.
-          showBar();
-        }, { passive: true });
+        panel.addEventListener(ev, function () { showBar(); }, { passive: true });
       });
-      // 进入 MV 面板先亮一下让用户知道有搜索, 随后空闲自动隐.
       showBar();
     }
+    // 把作者头像也对齐到这一行(头像由 watch-ui 注入, 这里覆写 top 让三者居中
+    // 对齐). 头像可能晚于本脚本出现, 轮询几次直到就位.
+    (function alignAvatarRow() {
+      var tries = 0;
+      var iv = setInterval(function () {
+        var av = document.getElementById("watch-author-avatar");
+        if (av) {
+          try { av.style.setProperty("top", "calc(env(safe-area-inset-top,0px) + 9px)", "important"); } catch (_e) {}
+          clearInterval(iv);
+        } else if (++tries > 40) { clearInterval(iv); }
+      }, 150);
+    })();
     return box;
   }
 

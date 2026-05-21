@@ -66,12 +66,22 @@
     // breathing mirror + random-tint backdrop alone convey the loading
     // state.
     parent.appendChild(overlay);
-    var show = function () { overlay.classList.add("is-active"); };
+    var show = function () {
+      // CSSOS_WAVE_276 20260521 — Jing: 预加载魔镜只在【真正缓冲/卡顿】时显示,
+      // 不能常亮挡住正在欣赏的 MV. 而且只在该 media 确实"正在播放但卡住"时才显,
+      // 暂停 / 无 src / 空闲(如 MV 模式下 idle 的 audio-preview)一律不显示 ——
+      // 否则会出现"两个 logo 呼吸打架"(video + 闲置 audio 各挂一个).
+      try {
+        if (media.paused || media.ended) return;
+        if (!String(media.currentSrc || media.src || "").trim()) return;
+      } catch (_e) {}
+      overlay.classList.add("is-active");
+    };
     var hide = function () { overlay.classList.remove("is-active"); };
+    // 只挂"卡顿"事件; 去掉 loadstart / seeking —— 它们在正常起播 / 设 src /
+    // 拖动时也会触发, 导致魔镜常亮或卡死显示. 真正的拖动缓冲仍会触发 waiting.
     media.addEventListener("waiting", show);
     media.addEventListener("stalled", show);
-    media.addEventListener("loadstart", show);
-    media.addEventListener("seeking", show);
     media.addEventListener("playing", hide);
     media.addEventListener("canplay", hide);
     media.addEventListener("canplaythrough", hide);

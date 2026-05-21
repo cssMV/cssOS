@@ -114,6 +114,42 @@
     return showChooser();
   };
 
+  // CSSOS_WAVE_255 — 偏好设置入口 (贴在"创作新版本"按钮旁的 ⚙ 调用).
+  // 三选: 新作品 / 覆盖 / 每次问我; 选了立即持久化(含"每次问我"=恢复询问).
+  globalThis.cssosOpenRegenModeSettings = function () {
+    ensureStyle();
+    var cur = readMode();
+    var mask = document.createElement("div");
+    mask.className = "cssos-regen-mask";
+    function row(mode, title, sub) {
+      var on = cur === mode;
+      return '<button type="button" class="cssos-regen-btn' + (mode === "new" ? " is-new" : "") +
+        '" data-mode="' + mode + '">' + (on ? "✓ " : "") + title +
+        "<small>" + sub + "</small></button>";
+    }
+    mask.innerHTML =
+      '<div class="cssos-regen-card" role="dialog" aria-modal="true">' +
+      "<h3>" + tr("Regenerate behaviour", "重新生成默认行为") + "</h3>" +
+      "<p>" + tr("When you regenerate with the same input:", "当你用相同输入重新生成时：") + "</p>" +
+      '<div class="cssos-regen-btns">' +
+      row("new", tr("Always output a new work", "总是输出新作品"), tr("Keeps the old one.", "保留旧作品。")) +
+      row("overwrite", tr("Always overwrite the old work", "总是覆盖旧作品"), tr("Replaces in place.", "原地替换。")) +
+      row("ask", tr("Ask me each time", "每次都问我"), tr("Show the chooser every time.", "每次都弹出选择框。")) +
+      "</div></div>";
+    document.body.appendChild(mask);
+    var done = false;
+    function pick(mode) {
+      if (done) return; done = true;
+      writeMode(mode);
+      try { mask.remove(); } catch (_) {}
+      try { globalThis.showToast?.(tr("Saved.", "已保存。")); } catch (_) {}
+    }
+    mask.querySelectorAll(".cssos-regen-btn").forEach(function (b) {
+      b.addEventListener("click", function () { pick(b.getAttribute("data-mode")); });
+    });
+    mask.addEventListener("click", function (e) { if (e.target === mask) { try { mask.remove(); } catch (_) {} } });
+  };
+
   globalThis.cssosRegenOutputMode = Object.freeze({
     get: readMode,
     set: writeMode,

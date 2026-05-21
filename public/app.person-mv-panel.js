@@ -1294,6 +1294,8 @@
         h += '<button class="pmv-cinema">🎬 ' + escTxt(tt("Enter Cinema", "进入影院")) + ' (' + mvs.length + ')</button>';
       }
       h += '<button class="pmv-secondary pmv-create-mv">✨ ' + escTxt(tt("Create New Version", "创作新版本")) + '</button>';
+      // CSSOS_WAVE_255 — 贴在功能旁的 ⚙: 重选"覆盖 vs 新作品"默认行为(含恢复"每次问我").
+      h += '<button class="pmv-secondary pmv-regen-gear" title="' + escTxt(tt("Regenerate behaviour", "重新生成默认行为")) + '" aria-label="' + escTxt(tt("Regenerate behaviour", "重新生成默认行为")) + '">⚙</button>';
       h += '<button class="pmv-back">← ' + escTxt(tt("Back", "返回")) + '</button>';
       h += '</div>';
 
@@ -1429,6 +1431,13 @@
         btn.addEventListener("click", async function () {
           if (!(await requireSignedInForAction("create"))) return;
           enterCinema({ forceNew: true });
+        });
+      });
+      // CSSOS_WAVE_255 — ⚙ 打开"重新生成默认行为"偏好(新作品/覆盖/每次问我).
+      host.querySelectorAll(".pmv-regen-gear").forEach(function (btn) {
+        btn.addEventListener("click", function (e) {
+          e.stopPropagation();
+          globalThis.cssosOpenRegenModeSettings?.();
         });
       });
       host.querySelectorAll(".pmv-event-cta").forEach(function (btn, idx) {

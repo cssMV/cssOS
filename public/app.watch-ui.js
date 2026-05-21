@@ -4480,9 +4480,11 @@ async function watchQueueAdvanceModule(direction = +1, _wrapDepth = 0) {
       if (!item) {
         if (typeof globalThis.showToast === "function") {
           const mode = globalThis.cssosPlaylists.getMode();
-          if (mode === "sequential") globalThis.showToast("End of playlist (顺序播放). 切换到列表循环可继续.");
-          else if (mode === "reverse") globalThis.showToast("Start of playlist (倒序播放).");
-          else globalThis.showToast("No playable items in the playlist.");
+          // CSSOS_WAVE_273 20260521 — Jing(P2 i18n): 这些播放期 toast 之前写死,
+          // 中文用户看到英文/混排. 统一走 loginCopy(en, zh) 双语.
+          if (mode === "sequential") globalThis.showToast(loginCopy("End of playlist — switch to loop to keep playing.", "已到列表末尾(顺序播放)。切换到列表循环可继续。"));
+          else if (mode === "reverse") globalThis.showToast(loginCopy("Start of playlist (reverse).", "已到列表开头(倒序播放)。"));
+          else globalThis.showToast(loginCopy("No playable items in the playlist.", "列表里暂无可播放的作品。"));
         }
         return;
       }

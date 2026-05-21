@@ -4275,6 +4275,11 @@ function applyWatchQueueItemModule(item) {
         take_index: item.take_index,
         root_work_id: item.root_work_id,
         sequence_index: item.sequence_index,
+        // CSSOS_WAVE_262 — 把"作者"身份带进去, 头像/DM/打赏才认作者而非当前用户.
+        owner_id: item.owner_id,
+        owner_user_id: item.owner_id,
+        owner_name: item.owner_name,
+        owner_avatar_url: item.owner_avatar_url,
         is_own: item.is_own,
       });
       return;

@@ -762,7 +762,7 @@ async function openMarketWorkPreview(work = {}, options = {}) {
           // identity so the avatar widget can render initials / image
           // and the per-author playlist filter has an id to pivot on.
           pipelineState.ownerId = String(
-            targetWork?.owner_id || targetWork?.user_id || ""
+            targetWork?.owner_id || targetWork?.owner_user_id || targetWork?.user_id || ""
           ).trim();
           pipelineState.ownerName = String(
             targetWork?.owner_name || targetWork?.owner_email || "Creator"

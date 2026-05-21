@@ -145,6 +145,12 @@
       sequence_index: raw.sequence_index ?? 0,
       is_own: raw.is_own === true,
       created_at: raw.created_at || null,
+      // CSSOS_WAVE_262 20260521 — Jing: 携带"作者"身份, 供媒体框左上角头像
+      // 显示作者(而非当前用户) + 关注/DM/打赏对作者生效. 之前这里丢了 owner_*
+      // → 切歌后 pipelineState.ownerId 空 → 头像回退到自己 → DM/打赏永远灰.
+      owner_id: String(raw.owner_id || raw.owner_user_id || raw.user_id || "").trim() || null,
+      owner_name: String(raw.owner_name || "").trim() || null,
+      owner_avatar_url: String(raw.owner_avatar_url || "").trim() || null,
     };
   }
 

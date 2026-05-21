@@ -28089,6 +28089,31 @@ app.post("/api/user/email-prefs", express.json({ limit: "2kb" }), async (req, re
 // We just log to stderr for now (journalctl readable). Later we can
 // pipe to a DB table + admin dashboard timeline.
 const __crashLogBuf: Array<{ ts: number; line: string }> = [];
+// CSSOS_WAVE_252 20260520 — Jing: 内存 buffer (500 条) 一部署就清空, 留不住
+// 历史. 改为同时落盘成 JSONL (AI / 运营面板最易读), 供"久不久查是什么在
+// 搞鬼". 文件路径与 oom-events.jsonl 同目录; 写满自动裁剪到最近 N 条.
+const __CRASH_LOG_PATH = "/srv/cssos/shared/crash-log.jsonl";
+const __CRASH_LOG_MAX_LINES = 20000;        // 约够最近几天 (W249 修复后量骤降)
+let __crashLogWriteCount = 0;
+function __appendCrashLogJsonl(rec: Record<string, unknown>): void {
+  try {
+    fs.appendFileSync(__CRASH_LOG_PATH, JSON.stringify(rec) + "\n");
+    __crashLogWriteCount += 1;
+    // 每 2000 次写检查一次, 超上限就裁到最近 __CRASH_LOG_MAX_LINES 条.
+    if (__crashLogWriteCount % 2000 === 0) {
+      try {
+        const raw = fs.readFileSync(__CRASH_LOG_PATH, "utf8");
+        const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
+        if (lines.length > __CRASH_LOG_MAX_LINES) {
+          fs.writeFileSync(
+            __CRASH_LOG_PATH,
+            lines.slice(-__CRASH_LOG_MAX_LINES).join("\n") + "\n",
+          );
+        }
+      } catch { /* trim best-effort */ }
+    }
+  } catch { /* shared dir missing / EACCES — journalctl still has it */ }
+}
 app.post("/api/admin/crash-log", express.json({ limit: "32kb" }), (req, res) => {
   noStore(res);
   try {
@@ -28104,16 +28129,74 @@ app.post("/api/admin/crash-log", express.json({ limit: "32kb" }), (req, res) => 
     const stackFlat = String(body.stack || "").replace(/\n+/g, " ↩ ").slice(0, 800);
     const source = String(body.source || "").slice(0, 240);
     const tail = (stackFlat || source) ? ` | ${source || ""} | ${stackFlat || ""}` : "";
+    const ts = Date.now();
     const line = `[crash-guard] ${kind} | ${msg} | ${url} | ${lastClickJson} | ${ua}${tail}`;
     console.warn(line);
-    __crashLogBuf.push({ ts: Date.now(), line });
+    __crashLogBuf.push({ ts, line });
     if (__crashLogBuf.length > 500) __crashLogBuf.shift();
+    // 结构化落盘 (JSONL) — 运营报表 / AI 排查用.
+    __appendCrashLogJsonl({
+      ts, kind, message: msg, url, ua,
+      last_click: body.lastClick || null,
+      source: source || null,
+      stack: stackFlat || null,
+    });
   } catch (_) { /* never throw */ }
   res.json({ ok: true });
 });
 app.get("/api/admin/crash-log/recent", (_req, res) => {
   noStore(res);
   res.json({ ok: true, entries: __crashLogBuf.slice(-100) });
+});
+// CSSOS_WAVE_252 20260520 — 运营/排查报表: 从 JSONL 聚合 (按事件类型、
+// Top 错误消息、最近卸载前点击的目标、时间范围), 让运营人员看报表而不是
+// 翻原始日志. admin / @cssstudio.app 可读. ?hours=N 限定时间窗 (默认 48h).
+app.get("/api/admin/crash-log/report", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) return res.status(401).json({ ok: false, error: "sign_in_required" });
+    const email = String(user.email || "").toLowerCase();
+    const isOps = roleForEmail(user.email) === "admin" || /@cssstudio\.app$/.test(email);
+    if (!isOps) return res.status(403).json({ ok: false, error: "ops_required" });
+    const hours = Math.max(1, Math.min(Number(req.query.hours || 48), 24 * 30));
+    const sinceTs = Date.now() - hours * 3600 * 1000;
+    let raw = "";
+    try { raw = fs.readFileSync(__CRASH_LOG_PATH, "utf8"); } catch { raw = ""; }
+    const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    const byKind: Record<string, number> = {};
+    const byMessage: Record<string, number> = {};
+    const recentClicks: Array<{ ts: number; click: unknown }> = [];
+    let total = 0, minTs = Infinity, maxTs = 0;
+    for (const ln of lines) {
+      let o: any; try { o = JSON.parse(ln); } catch { continue; }
+      const ts = Number(o.ts || 0);
+      if (ts < sinceTs) continue;
+      total += 1;
+      if (ts < minTs) minTs = ts;
+      if (ts > maxTs) maxTs = ts;
+      byKind[o.kind || "unknown"] = (byKind[o.kind || "unknown"] || 0) + 1;
+      if (o.message) byMessage[String(o.message).slice(0, 160)] = (byMessage[String(o.message).slice(0, 160)] || 0) + 1;
+      if (o.kind === "beforeunload" && o.last_click && recentClicks.length < 40) {
+        recentClicks.push({ ts, click: o.last_click });
+      }
+    }
+    const topMessages = Object.entries(byMessage)
+      .sort((a, b) => b[1] - a[1]).slice(0, 20)
+      .map(([message, count]) => ({ message, count }));
+    return res.json({
+      ok: true,
+      window_hours: hours,
+      total,
+      time_range: total ? { from: minTs, to: maxTs } : null,
+      by_kind: byKind,
+      top_messages: topMessages,
+      recent_unload_clicks: recentClicks.sort((a, b) => b.ts - a.ts),
+      file: __CRASH_LOG_PATH,
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: "crash_report_failed", detail: (err as Error)?.message || String(err) });
+  }
 });
 
 // CSSOS_WAVE_200 20260516 — Jing: dmesg OOM detector telemetry.

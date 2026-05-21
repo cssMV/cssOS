@@ -4455,6 +4455,17 @@ function applyWatchQueueItemModule(item) {
 }
 
 async function watchQueueAdvanceModule(direction = +1, _wrapDepth = 0) {
+  // CSSOS_WAVE_272 20260521 — Jing(P1 双击切歌锁): 快速双滑/双击会并发触发多次
+  // advance, applyWatchQueueItemModule 是 fire-and-forget(不 await), 两个异步
+  // 渲染交错 → 上一首的标题/字幕/画面残余串到下一首(用户强调三遍的痛点).
+  // 防抖锁: 一次切歌 settle 前(450ms)忽略后续 advance, 一处覆盖所有入口
+  // (滚轮 / 触摸滑动 / autoplay-feed / ended-自动连播). _wrapDepth>0 是内部
+  // "跳过不可播放项"的换行递归, 属同一次切歌, 不受锁限制.
+  if (_wrapDepth === 0) {
+    const __now = Date.now();
+    if (__now < (globalThis.__cssosWatchAdvanceLockUntil || 0)) return;
+    globalThis.__cssosWatchAdvanceLockUntil = __now + 450;
+  }
   // CSSOS_PHASE2_PLAYLISTS 20260430 #239 — Jing
   // "请制作一个播放列表... 多种方式播放."
   // Prefer the cssosPlaylists module (sequential / reverse / shuffle /

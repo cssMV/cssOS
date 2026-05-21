@@ -56,8 +56,8 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="style.css?v=20260516-wave204-card-bg" />
-    <link rel="stylesheet" href="style.mv-pipeline.css?v=20260507-inline-params" />
+    <link rel="stylesheet" href="style.css?v=20260521-w272-cachebust" />
+    <link rel="stylesheet" href="style.mv-pipeline.css?v=20260520-wave243-scroll-segments" />
   </head>
   <body>
     <div class="bg">
@@ -2070,13 +2070,13 @@
     <!-- CSSOS_WAVE_249 20260520 — Jing: 极早定义 compactLyricLines 全局,
          根治播放时每帧轮询抛 ReferenceError 压垮 webview 看门狗 →
          强刷返回主界面的崩溃. 必须早于所有调用方(watch-audio-polling 等). -->
-    <script src="app.lyric-utils.js?v=20260520-wave249-compactlyric-global"></script>
+    <script src="app.lyric-utils.js?v=20260521-w272-cachebust"></script>
     <!-- CSSOS_WAVE_255 — 相同输入重生成: 覆盖旧作品 vs 输出新作品 的选择+记忆.
          独立模块, 高级设置面板回滚动荡时也能用; 暴露 cssosResolveRegenOutputMode(). -->
-    <script src="app.regen-output-mode.js?v=20260520-wave255-regen-mode"></script>
+    <script src="app.regen-output-mode.js?v=20260521-w272-cachebust"></script>
     <!-- CSSOS_WAVE_259 — 钱漏#3 接线: 给 mv 生成注入 reuse_ok(重试/续跑复用),
          用户主动重生成时开"求新窗口"强制出新. 必须早加载以包好 fetch. -->
-    <script src="app.mv-reuse-flag.js?v=20260520-wave259-reuse-flag"></script>
+    <script src="app.mv-reuse-flag.js?v=20260521-w272-cachebust"></script>
     <script src="app.ios-app-store-hardening.js?v=20260519-wave233-ios-harden"></script>
     <!-- CSSOS_WAVE_117_TOUCH_HARDENING — block pull-to-refresh, edge-swipe
          nav, dead-anchor reloads, double-tap fires. Must load early so
@@ -2143,10 +2143,12 @@
          fetch is in flight before the rest of boot. The router waits
          for openMarketWorkPreview to be defined before invoking, so
          load-order timing isn't critical — this is just the head start. -->
-    <script src="app.share-link-router.js?v=20260506-share-link"></script>
+    <script src="app.share-link-router.js?v=20260520-w220c-cta-loop-fix"></script>
     <script src="app.share-dialog.js?v=20260506-share-link"></script>
     <script src="app.download-menu.js?v=20260506-phase-b"></script>
-    <script src="app.up-next-strip.js?v=20260516-wave205-card-labels"></script>
+    <script src="app.mv-language-picker.js?v=20260520-tierc-c3"></script>
+    <script src="app.mv-language-pill.js?v=20260520-tierc-c5c-syncsub"></script>
+    <script src="app.up-next-strip.js?v=20260521-w272-cachebust"></script>
     <script src="app.preview-cap.js?v=20260506-a11y"></script>
     <script src="app.tab-title-sync.js?v=20260506-tab-sync"></script>
     <script src="app.shortcuts-overlay.js?v=20260506-cheatsheet-snap"></script>
@@ -2166,7 +2168,7 @@
     <script src="app.face-safe-overlay.js?v=20260514-wave125-cover-face"></script>
     <script src="app.karaoke-active-word.js?v=20260507-emotion"></script>
     <script src="app.karaoke-settings-ui.js?v=20260507-fs-panel"></script>
-    <script src="app.js?v=20260515-wave168-triptych-opera-dur"></script>
+    <script src="app.js?v=20260521-w272-cachebust"></script>
     <!-- CSSOS_MV_FLOW_RESTORE 20260505 — block moved further down
          (just before app.boot.js) so app.cssmv-governance.js's top-level
          renderDeliveryDigestSummaryModule() call sees the function defined
@@ -2206,16 +2208,16 @@
          Load it BEFORE app.watch-ui.js so buildWatchFontCatalogModule() can
          see the manifest on first call. -->
     <script src="app.watch-font-manifest.js?v=20260506-quiet"></script>
-    <script src="app.playlists.js?v=20260520-wave250-foryou-hybrid"></script>
-    <script src="app.watch-ui.js?v=20260520-w220b-titlebar-resident"></script>
+    <script src="app.playlists.js?v=20260521-w272-cachebust"></script>
+    <script src="app.watch-ui.js?v=20260521-w272-cachebust"></script>
     <!-- CSSOS_WAVE_250 20260520 — Jing: TikTok 式进主界面自动播放 +
          上下滑切换. 须在 app.watch-ui.js / app.playlists.js 之后加载. -->
-    <script src="app.autoplay-feed.js?v=20260520-wave250-tiktok-autoplay"></script>
+    <script src="app.autoplay-feed.js?v=20260521-w272-cachebust"></script>
     <script src="app.watch-price-strip.js?v=20260512-wave111c-fp-chip"></script>
     <script src="app.anthropic-health-banner.js?v=20260512-wave111d-vision-health"></script>
     <!-- CSSOS_WAVE_120A — Admin-only crash telemetry dashboard. Floating
          button bottom-left + slide-in right panel. Hidden for non-admin. -->
-    <script src="app.crash-log-dashboard.js?v=20260513-wave120a"></script>
+    <script src="app.crash-log-dashboard.js?v=20260521-w272-cachebust"></script>
     <!-- CSSOS_WAVE_120C — Admin-only "see-a-bug → tell-me" inbox FAB. -->
     <script src="app.bug-capture.js?v=20260515-wave163-alias"></script>
     <script src="app.client-transcode.js?v=20260511-wave111b-b2"></script>
@@ -2232,7 +2234,10 @@
          the market panel loaded (crash-guard logged 35 hits/session).
          market-commerce is NOT an island; it must load eagerly. The
          mv-pipeline-panel lazy-load (a true island) stays. -->
-    <script src="app.market-commerce.js?v=20260516-wave198-openmarket-options"></script>
+    <script src="app.market-commerce.js?v=20260521-w272-cachebust"></script>
+    <!-- CSSOS_WAVE_220A 20260519 — Jing: title edit/refine button was
+         implemented but never loaded. Wiring it in now. -->
+    <script src="app.title-edit-refine.js?v=20260519-w220a-title-edit"></script>
     <!-- CSSOS_PERSON_MV_WAVE45_48 20260508 — Jing — upscale + product attachments. -->
     <script src="app.mv-upscale-and-products.js?v=20260508-wave45-48"></script>
     <!-- CSSOS_PERSON_MV_WAVE53 20260508 — Jing — cinema bilingual subtitles. -->
@@ -2283,12 +2288,12 @@
     <script src="app.workspaces-panel.js?v=20260412-ui-recovery-5"></script>
     <script src="app.user-admin-panel.js?v=20260412-ui-recovery-5"></script>
     <script src="app.admin-errors-panel.js?v=20260508-wave82"></script>
-    <script src="app.admin-ops-panel.js?v=20260508-wave99"></script>
+    <script src="app.admin-ops-panel.js?v=20260521-w272-cachebust"></script>
     <script src="app.foryou-seed-preview.js?v=20260417-ui-recovery-1"></script>
     <script src="app.mv-engines-catalog.js?v=20260419-p2-57d-anon-silent-1"></script>
     <script src="app.mv-tiers-catalog.js?v=20260419-p2-mv-naming-1"></script>
     <script src="app.mv-tier-picker-modal.js?v=20260419-p2-mv-naming-1"></script>
-    <script src="app.cssmv-seed-bank.js?v=20260504-infinite-seed"></script>
+    <script src="app.cssmv-seed-bank.js?v=20260521-w272-cachebust"></script>
     <script src="app.mv-dag-executor.js?v=20260507-dag-1"></script>
     <!-- CSSOS_WAVE_120B 20260513 — mv-pipeline-panel.js (444 KB) is pure
          UI for the MV Pipeline panel: cinema/storm mode, stage badges,
@@ -2297,9 +2302,9 @@
          So we can safely lazy-load it on first interaction with the
          MV Pipeline dock icon ([data-action="mv-pipeline"]) instead of
          on every page load. Saves ~444 KB from first-paint on mobile. -->
-    <script src="app.mv-pipeline-open-shim.js?v=20260514-wave145-lazy-trigger"></script>
-    <script type="cssos-lazy" data-panel="mv-pipeline" src="app.mv-pipeline-panel.js?v=20260516-wave209-real-lyrics-only"></script>
-    <script src="app.person-mv-panel.js?v=20260516-wave204-title-keep"></script>
+    <script src="app.mv-pipeline-open-shim.js?v=20260521-w272-cachebust"></script>
+    <script type="cssos-lazy" data-panel="mv-pipeline" src="app.mv-pipeline-panel.js?v=20260520-tierc-c4-runall"></script>
+    <script src="app.person-mv-panel.js?v=20260521-w272-cachebust"></script>
     <script src="app.person-mv-discover-shelf.js?v=20260507-wave9"></script>
     <script src="app.person-mv-groups-shelf.js?v=20260508-wave16"></script>
     <script src="app.person-mv-today-shelf.js?v=20260508-wave15"></script>
@@ -2328,7 +2333,7 @@
     <script src="app.watch-music-ring.js?v=20260420-shared-arc-end-burst-1"></script>
     <script src="app.watch-media-chrome.js?v=20260506-pip-allow"></script>
     <script src="app.watch-media-overlays.js?v=20260516-wave207-title-cache-fix"></script>
-    <script src="app.watch-media-layout-p2100.js?v=20260516-wave205-keep-border-bar"></script>
+    <script src="app.watch-media-layout-p2100.js?v=20260521-w272-cachebust"></script>
     <!-- CSSMV_POPUPS_THEME_FIX 20260425 #108 — Jing: light-theme paint
          for popups + clear lingering toast/info popover on watch close. -->
     <script src="app.popups-theme-fix.js?v=20260425-p2-108-popups-theme-1"></script>

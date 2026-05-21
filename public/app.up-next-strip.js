@@ -367,6 +367,20 @@
         "background:rgba(0,245,160,0.85);color:#001b14;font:700 9px/1 ui-monospace,monospace;letter-spacing:.06em;font-variant-numeric:tabular-nums;";
       thumb.appendChild(nextBadge);
     }
+    // CSSOS_WAVE_277 20260521 — Jing: 大号居中倒计时数字, 醒目告诉用户"还有
+    // 几秒切到这张 / 还能改多久主意". 只加在将要播放的那张卡(预选 / 默认
+    // index0); timeUpdate 实时更新. 平时 display:none, 只在 lead 窗口内现身.
+    if (isPreselected || (index === 0 && !preselectedId)) {
+      var bigCd = document.createElement("div");
+      bigCd.className = "cssos-up-next-countdown-big";
+      bigCd.style.cssText =
+        "position:absolute;inset:0;display:none;align-items:center;justify-content:center;" +
+        "font:800 32px/1 ui-monospace,monospace;color:#fff;font-variant-numeric:tabular-nums;" +
+        "text-shadow:0 2px 12px rgba(0,0,0,0.9);" +
+        "background:radial-gradient(circle,rgba(0,0,0,0.5),rgba(0,0,0,0.12));" +
+        "border-radius:8px;pointer-events:none;letter-spacing:.02em;";
+      thumb.appendChild(bigCd);
+    }
     card.appendChild(thumb);
 
     var title = document.createElement("div");
@@ -609,18 +623,25 @@
   }
 
   function timeUpdateHandler(e) {
-    var v = e && e.target;
-    if (!v || !v.duration || !isFinite(v.duration) || v.duration < 1) return;
-    var remaining = v.duration - v.currentTime;
+    // CSSOS_WAVE_277 20260521 — Jing: 之前倒计时卡在 "1s" 不动. 原因: 直接用
+    // timeupdate 事件源 v 的 duration-currentTime, 但 MV 模式下视频是静音的,
+    // 歌曲在 #watch-audio-preview, 而视频常是【短循环预览片】(duration 仅几秒)
+    // → remaining 永远≈1s 且让条一直显示. 改为按"歌曲时间轴"算: 优先用正在
+    // 播放、时长有效、非循环的 audio; 否则退回事件源(同样跳过 loop 短片).
+    var a = document.getElementById("watch-audio-preview");
+    var primary = (a && isFinite(a.duration) && a.duration > 1 && !a.paused && !a.loop &&
+      String(a.currentSrc || a.src || "").trim()) ? a : (e && e.target);
+    if (!primary || !primary.duration || !isFinite(primary.duration) || primary.duration < 1) return;
+    if (primary.loop) return; // 循环短片不是歌曲时间轴
+    var remaining = primary.duration - primary.currentTime;
     if (remaining <= leadSeconds() && remaining > 0.3) {
       show();
-      // CSSOS_WAVE_265 — 实时倒计时直接更新"将要播放的那张卡"的徽章, 让用户
-      // 清楚还有几秒切到这一首/还能改多久主意. 徽章本身已在用户选中的卡上.
+      var secs = Math.max(1, Math.ceil(remaining));
       if (stripEl) {
         var badge = stripEl.querySelector(".cssos-up-next-countdown-badge");
-        if (badge && badge.dataset.baseLabel) {
-          badge.textContent = badge.dataset.baseLabel + " · " + Math.max(1, Math.ceil(remaining)) + "s";
-        }
+        if (badge && badge.dataset.baseLabel) badge.textContent = badge.dataset.baseLabel + " · " + secs + "s";
+        var big = stripEl.querySelector(".cssos-up-next-countdown-big");
+        if (big) { big.textContent = String(secs); big.style.display = "flex"; }
       }
     } else if (remaining > leadSeconds() + 0.5) {
       hide();

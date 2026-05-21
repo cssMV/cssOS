@@ -2008,7 +2008,25 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
           v.muted = true; // browsers gate audio autoplay; muted is always allowed
           v.playsInline = true;
           const p = v.play();
-          if (p && typeof p.catch === "function") p.catch(() => {});
+          if (p && typeof p.catch === "function") {
+            p.catch(() => {
+              // CSSOS_WAVE_263 20260521 — Jing: 浏览器拦了视频自动播(低电量/
+              // 省流/某些 webview/视频加载失败)时, 不管用户选了 lite/混合/真
+              // 视频, 都【留在 MV tab】降级到封面 ken-burns 幻灯 —— 绝不切去
+              // Music tab(只有用户手动选 Music 才走 Music). 之前这里是空 catch,
+              // 导致 MV tab 卡在黑屏/首帧. 用户随后轻触解锁真播起来 → 自动恢复
+              // 视频、停幻灯.
+              try {
+                v.style.opacity = "0";
+                globalThis.cssmvStartCoverSlideshow?.({ mv: true, music: false });
+                v.addEventListener("playing", function __cssosRestoreVideo() {
+                  v.removeEventListener("playing", __cssosRestoreVideo);
+                  v.style.opacity = "";
+                  try { globalThis.cssmvStopCoverSlideshowMvOnly?.(); } catch (_e3) {}
+                }, { once: true });
+              } catch (_e2) { /* no-op */ }
+            });
+          }
         }
       } catch (_e) { /* no-op */ }
       // Give the user a chance to unmute manually after the video starts —

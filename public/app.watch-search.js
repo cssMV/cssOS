@@ -91,41 +91,37 @@
       if (results.scrollTop + results.clientHeight >= results.scrollHeight - 90) loadMore();
     });
 
-    // ── CSSOS_WAVE_287 — 浮动显隐(下滑显示 / 上滑隐藏, Apple 风) ──────────
-    var shown = false, hideTimer = null;
+    // ── CSSOS_WAVE_289 — MV 面板【特殊模式】: 有操作就显示搜索框, 无操作自动
+    // 隐藏(区别于其它面板的"下滑显示/上滑隐藏" swipe 模式). 任意交互(轻触/
+    // 移动/按键/滚轮)都唤出搜索框, 静止 ~3.5s 自动淡隐; 正在输入/有结果时不隐. ──
+    var IDLE_HIDE_MS = 3500;
+    var hideTimer = null;
     function showBar() {
-      shown = true;
       box.style.transform = "translateY(0)";
       box.style.opacity = "1";
-      clearTimeout(hideTimer);
+      armIdleHide();
     }
     function hideBar() {
-      // 正在输入 / 有结果在看时不自动收起.
-      if (document.activeElement === input || String(input.value || "").trim()) return;
-      shown = false;
+      if (document.activeElement === input || String(input.value || "").trim()) return; // 输入/看结果时不隐
       box.style.transform = "translateY(-140%)";
       box.style.opacity = "0";
+    }
+    function armIdleHide() {
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(hideBar, IDLE_HIDE_MS);
     }
     globalThis.cssosWatchSearchShow = showBar;
     var panel = document.getElementById("watch-panel");
     if (panel) {
-      // 桌面: 滚轮向下显示, 向上隐藏.
-      panel.addEventListener("wheel", function (e) {
-        if (e.deltaY > 4) showBar();
-        else if (e.deltaY < -4) hideBar();
-      }, { passive: true });
-      // 触摸: 仅"顶部 30% 区域内的下拉"显示(避开中部切歌上下滑); 上滑隐藏.
-      var sy = 0, syTop = false;
-      panel.addEventListener("touchstart", function (e) {
-        var t = e.touches && e.touches[0]; if (!t) return;
-        sy = t.clientY; syTop = t.clientY < (window.innerHeight * 0.3);
-      }, { passive: true });
-      panel.addEventListener("touchmove", function (e) {
-        var t = e.touches && e.touches[0]; if (!t) return;
-        var dy = t.clientY - sy;
-        if (dy > 40 && syTop) showBar();      // 顶部下拉 → 显示
-        else if (dy < -40 && shown) hideBar(); // 上滑 → 隐藏
-      }, { passive: true });
+      // 任意操作 → 显示 + 重置空闲计时.
+      ["pointerdown", "pointermove", "touchstart", "touchmove", "wheel", "keydown"].forEach(function (ev) {
+        panel.addEventListener(ev, function () {
+          // 别让搜索框自身的输入操作触发"重新计时隐藏"打断打字 —— hideBar 已护住输入态.
+          showBar();
+        }, { passive: true });
+      });
+      // 进入 MV 面板先亮一下让用户知道有搜索, 随后空闲自动隐.
+      showBar();
     }
     return box;
   }

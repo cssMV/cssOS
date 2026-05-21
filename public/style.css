@@ -6175,24 +6175,45 @@ html[data-theme="light"] .works-fp-optin-desc {
  * 隐藏标题栏. 桌面浏览器无 cssos-app class, 完全不受影响(仍是原来的
  * aspect-ratio 居中预览框). 仅 watch 面板生效. */
 html.cssos-app #watch-panel .panel-bar { display: none !important; }
+/* CSSOS_WAVE_288 20260521 — Jing(真机贴边): 之前 absolute+inset:0 相对的是非
+ * 全屏祖先 → 顶/底留黑块. 改 position:fixed 强制相对【视口】, 去掉所有
+ * padding/border/margin → 媒体框真正贴到手机屏幕四边(顶到顶、底到底). */
 html.cssos-app #watch-panel {
+  position: fixed !important;
   inset: 0 !important;
+  top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
   width: 100vw !important;
   height: 100dvh !important;
   max-height: 100dvh !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
   border-radius: 0 !important;
+  z-index: 10050 !important; /* 盖过 dock(z=10020)→ 底部不再露黑块 */
 }
+html.cssos-app #watch-panel .watch-pane,
 html.cssos-app #watch-panel .watch-pane.active,
-html.cssos-app #watch-panel .watch-frame { height: 100% !important; }
+html.cssos-app #watch-panel .watch-frame {
+  height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
 html.cssos-app #watch-panel .watch-screen {
+  position: absolute !important;
+  inset: 0 !important;
   aspect-ratio: auto !important;
   width: 100vw !important;
   height: 100dvh !important;
   max-height: 100dvh !important;
   min-height: 0 !important;
   margin: 0 !important;
+  padding: 0 !important;   /* 去掉基础 10px → 媒体真正铺满, 无内边黑框 */
   border-radius: 0 !important;
 }
+/* App 全屏 watch 时, 底部 dock / app 徽章 / CTA 黑块统统不占位(媒体已盖满全屏) */
+html.cssos-app #watch-panel:not(.hidden) ~ .dock,
+html.cssos-app.cssos-watch-fullscreen .dock,
+html.cssos-app.cssos-watch-fullscreen .app-badges { display: none !important; }
 /* 视频/封面填满整屏(cover: 溢出裁切, 竖屏 MV 在竖屏 App 里正好铺满)。 */
 html.cssos-app #watch-panel .watch-video,
 html.cssos-app #watch-panel .watch-svg {

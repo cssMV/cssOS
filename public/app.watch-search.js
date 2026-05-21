@@ -39,10 +39,14 @@
     if (!panel) return null;
     box = document.createElement("div");
     box.id = "watch-search-box";
+    // CSSOS_WAVE_287 — 浮动搜索框(桌面+App): 默认隐藏在顶部之上, 下滑/滚轮向下
+    // 显示、上滑/向上隐藏(Apple 风). transform 动画.
     box.style.cssText = [
-      "position:absolute", "top:calc(env(safe-area-inset-top,0px) + 8px)",
+      "position:absolute", "top:6px",
       "left:10px", "right:10px", "z-index:60", "display:flex",
       "flex-direction:column", "gap:8px", "pointer-events:none",
+      "transform:translateY(-140%)", "opacity:0",
+      "transition:transform .28s cubic-bezier(.4,0,.2,1), opacity .28s ease",
     ].join(";");
 
     input = document.createElement("input");
@@ -86,6 +90,43 @@
     results.addEventListener("scroll", function () {
       if (results.scrollTop + results.clientHeight >= results.scrollHeight - 90) loadMore();
     });
+
+    // ── CSSOS_WAVE_287 — 浮动显隐(下滑显示 / 上滑隐藏, Apple 风) ──────────
+    var shown = false, hideTimer = null;
+    function showBar() {
+      shown = true;
+      box.style.transform = "translateY(0)";
+      box.style.opacity = "1";
+      clearTimeout(hideTimer);
+    }
+    function hideBar() {
+      // 正在输入 / 有结果在看时不自动收起.
+      if (document.activeElement === input || String(input.value || "").trim()) return;
+      shown = false;
+      box.style.transform = "translateY(-140%)";
+      box.style.opacity = "0";
+    }
+    globalThis.cssosWatchSearchShow = showBar;
+    var panel = document.getElementById("watch-panel");
+    if (panel) {
+      // 桌面: 滚轮向下显示, 向上隐藏.
+      panel.addEventListener("wheel", function (e) {
+        if (e.deltaY > 4) showBar();
+        else if (e.deltaY < -4) hideBar();
+      }, { passive: true });
+      // 触摸: 仅"顶部 30% 区域内的下拉"显示(避开中部切歌上下滑); 上滑隐藏.
+      var sy = 0, syTop = false;
+      panel.addEventListener("touchstart", function (e) {
+        var t = e.touches && e.touches[0]; if (!t) return;
+        sy = t.clientY; syTop = t.clientY < (window.innerHeight * 0.3);
+      }, { passive: true });
+      panel.addEventListener("touchmove", function (e) {
+        var t = e.touches && e.touches[0]; if (!t) return;
+        var dy = t.clientY - sy;
+        if (dy > 40 && syTop) showBar();      // 顶部下拉 → 显示
+        else if (dy < -40 && shown) hideBar(); // 上滑 → 隐藏
+      }, { passive: true });
+    }
     return box;
   }
 
@@ -132,7 +173,16 @@
       var id = String(w.id || w.work_id || "").trim();
       if (!id || seen[id]) return;
       seen[id] = 1;
-      var cover = esc(w.cover_image || w.cover_url || w.preview_image_url || "");
+      // CSSOS_WAVE_288 — Jing: 封面【随机优先】. 有多张 cover_slides 就随机取一张
+      // (每次搜索/启动都不同, 像幻灯); 没有池才退回主封面 cover_image. 池里的
+      // 临时图(replicate/fal)若过期 404, onerror 再回退到稳定 cover_image 保底.
+      var stable = String(w.cover_image || w.cover_url || w.preview_image_url || "").trim();
+      var pool = (Array.isArray(w.cover_slides) ? w.cover_slides : [])
+        .map(function (u) { return String(u || "").trim(); })
+        .filter(Boolean);
+      var primary = pool.length ? pool[Math.floor(Math.random() * pool.length)] : stable;
+      var cover = esc(primary || stable);
+      var fallback = esc(stable);
       var title = esc(w.title || tr("Untitled", "未命名"));
       var owner = esc(w.owner_name || "");
       var card = document.createElement("button");
@@ -142,7 +192,8 @@
       card.addEventListener("mouseleave", function () { card.style.background = "transparent"; });
       card.innerHTML =
         '<div style="width:56px;height:56px;flex:0 0 auto;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.08);">' +
-        (cover ? '<img src="' + cover + '" alt="" loading="lazy" decoding="async" style="width:100%;height:100%;object-fit:cover;">' : "") +
+        (cover ? '<img src="' + cover + '" alt="" loading="lazy" decoding="async" style="width:100%;height:100%;object-fit:cover;"' +
+          (fallback && fallback !== cover ? ' onerror="this.onerror=null;this.src=\'' + fallback + '\';"' : "") + ">" : "") +
         "</div>" +
         '<div style="flex:1;min-width:0;">' +
         '<div style="font:600 14px/1.3 -apple-system,system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + title + "</div>" +
@@ -170,7 +221,8 @@
     } catch (_e) {}
   }
 
-  function tryMount() { if (isApp()) ensureUI(); }
+  // CSSOS_WAVE_287 — 桌面 + App 双端都挂载(浮动, 默认隐藏, 下滑显示).
+  function tryMount() { ensureUI(); }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", tryMount);
   } else {
@@ -178,7 +230,7 @@
   }
   // 面板可能晚于此脚本出现; 观察 body 直到 watch-panel 就位.
   try {
-    if (!document.getElementById("watch-search-box") && isApp()) {
+    if (!document.getElementById("watch-search-box")) {
       var mo = new MutationObserver(function () {
         if (document.getElementById("watch-panel") && !document.getElementById("watch-search-box")) {
           ensureUI();

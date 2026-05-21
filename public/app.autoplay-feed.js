@@ -43,7 +43,9 @@
   // 每帧)烧死主线程 → 用户一进来就冻、什么都点不了. 先关掉自动打开, 让用户
   // 落在可用的 home(已实测无循环、可点); 手动进 watch 的冻结问题另行修复后
   // 把此 flag 改回 true 即恢复连播.
-  var CSSOS_AUTOPLAY_FEED_ENABLED = false;
+  // CSSOS_WAVE_269 20260521 — 重新启用: 冻结根因(openWatchPreviewFlow 互相递归)
+  // 已由 W269 重入护栏修复, autoplay 自动连播恢复.
+  var CSSOS_AUTOPLAY_FEED_ENABLED = true;
 
   // 进主界面自动打开 MV 面板并连播 for-you 混合队列.
   globalThis.cssosAutoOpenWatchFeed = function cssosAutoOpenWatchFeed(opts) {

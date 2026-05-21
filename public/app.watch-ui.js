@@ -9108,6 +9108,16 @@ async function openWatchPreviewFlowModule({
   allowDemoFallback = false,
   preferLatestOwned = false
 } = {}) {
+  // CSSOS_WAVE_269 20260521 — Jing 根因修复(打开 watch 即冻死主线程): 这个流程
+  // 存在互相递归 —— openWatchPreviewFlowModule → openLatestOwnedWorkPreviewModule
+  // → renderMarketWorkPreviewIntoWatchModule → (尾部又) openWatchPreviewFlowModule
+  // (watch-ui:10367). async/await 互递归 = 微任务洪流, rAF 完全饿死、CPU 烧满 →
+  // 打开 watch / autoplay 一进来就冻、什么都点不了 (断路器实测此函数被调 390 次).
+  // 重入护栏: 同一突发内若已在跑则直接返回, 打断递归; setTimeout(0) 在本轮
+  // 微任务全部排空后清标志, 之后用户正常开/切歌不受影响 (只挡同步重入).
+  if (globalThis.__cssosWatchFlowInFlight) return false;
+  globalThis.__cssosWatchFlowInFlight = true;
+  setTimeout(() => { globalThis.__cssosWatchFlowInFlight = false; }, 0);
   // CSSOS_PHASE2_PIPELINE_RESULT_LOCK 20260426 #137 — Jing
   // If MV Pipeline panel just finished a run, ALWAYS prefer playing that
   // result over kicking off any new legacy creative-engine pipeline. The

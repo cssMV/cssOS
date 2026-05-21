@@ -32,25 +32,12 @@ const watchMusicFrameProgress = document.getElementById("watch-music-frame-progr
 const watchMusicFrameProgressFill = document.getElementById("watch-music-frame-progress-fill");
 const watchMusicFrameProgressCopy = document.getElementById("watch-music-frame-progress-copy");
 let watchActiveTab = localStorage.getItem(WATCH_ACTIVE_TAB_STORAGE_KEY) || "mv";
-// Proactive mobile/Tesla autoplay fallback: these browsers block auto-video-with-sound.
-// If the user hasn't explicitly picked a tab (or only picked MV) and we're on such an environment,
-// open on Music tab so audio-first UX works without requiring a second tap.
-try {
-  const __ua = String(navigator?.userAgent || "").toLowerCase();
-  const __hint = navigator?.userAgentData?.mobile;
-  const __isMobile = (typeof __hint === "boolean" ? __hint : false)
-    || /iphone|ipod/.test(__ua)
-    || /ipad/.test(__ua)
-    || (/android/.test(__ua) && /mobile|tablet/.test(__ua))
-    || /blackberry|bb10|meego|mobile|silk|webos|opera mini|opera mobi|windows phone/.test(__ua)
-    || (/macintosh/.test(__ua) && typeof navigator?.maxTouchPoints === "number" && navigator.maxTouchPoints > 1);
-  const __isTesla = __ua.includes("tesla") || __ua.includes("qtcarbrowser");
-  if ((__isMobile || __isTesla) && (watchActiveTab === "mv" || !watchActiveTab)) {
-    watchActiveTab = "music";
-  }
-} catch (_err) {
-  // userAgent access errored — keep whatever the storage said.
-}
+// CSSOS_WAVE_260 20260520 — Jing: 进面板默认就是 MV tab 自动播 (TikTok 愿景).
+// 此前移动端/Tesla 会被强制跳到 Music tab (怕 autoplay-with-sound 被拦),
+// 但那与"MV-first 自动播"冲突 —— 现在移除该强制. 浏览器的静音/autoplay
+// 限制已由 cssos-tap-to-play-overlay (首次轻触解锁整段会话) 兜底, 所以
+// MV tab 默认打开 + W250 自动播放是安全的. 用户若手动选过 Music, localStorage
+// 仍会被尊重 (上一行的 || "mv" 只在无存储时兜底到 MV).
 globalThis.watchActiveTab = watchActiveTab;
 let currentPreviewVideoIsLocalFallback = false;
 globalThis.currentPreviewFrameDataUrl ??= "";

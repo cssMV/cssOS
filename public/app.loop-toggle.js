@@ -43,11 +43,17 @@
     s.id = "cssos-loop-style";
     s.textContent =
       ".cssmv-loop-btn.is-on{color:#001b14 !important;background:rgba(0,245,160,0.85) !important;}" +
-      // True mobile only (under 480px) — desktop with DevTools open
-      // still keeps room for the cluster. The previous 720px threshold
-      // was too aggressive: any narrow side-panel hid the buttons.
+      // CSSOS_WAVE_295 20260521 — Jing: 之前窄屏(<480)直接 display:none 把
+      // ⊞/1×/⟳ 藏了, 且桌面 54px 间距在手机放不下会折成两行. 现在改为: 移动端
+      // 不隐藏, 而是【缩小按钮 + 收紧间距】让 ✦/⊞/1×/⟳ 挤进一行(和桌面一致一排),
+      // 全部钉在 bottom:14px 同一行. 覆写各自的内联 right 偏移(!important).
       "@media (max-width:480px){" +
-      ".cssmv-pip-btn,.cssmv-speed-btn,.cssmv-loop-btn{display:none !important;}" +
+      "#watch-panel .cssmv-fr-btn,#watch-panel #watch-style-shift{" +
+      "width:34px !important;height:34px !important;font-size:14px !important;bottom:14px !important;display:flex !important;align-items:center;justify-content:center;}" +
+      "#watch-panel #watch-style-shift{right:56px !important;}" +
+      "#watch-panel .cssmv-pip-btn{right:98px !important;}" +
+      "#watch-panel .cssmv-speed-btn{right:140px !important;}" +
+      "#watch-panel .cssmv-loop-btn{right:182px !important;}" +
       "}";
     document.head.appendChild(s);
   }

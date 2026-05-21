@@ -10591,3 +10591,1099 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
     margin: 0 !important;
   }
 }
+
+/* =================================================================
+ * CSSOS_WAVE_220A — Tab-Pill Constitution v28 (clean rewrite).
+ *
+ * Single visual language for all tab/pill switchers.
+ * Opt in via:
+ *   <div data-segmented="3">…</div>         ← no padding, share borders
+ *   <div data-segmented="3" data-padded>…</div>  ← 4px padding
+ *   <div class="cssmv-pill-bar">…</div>     ← horizontal scroll variant
+ *
+ * Geometry: pill height = 40px → border-radius caps at 20px = mask
+ * radius. Active 凸 both sides; every inactive convex outer + concave
+ * 凹 inner. Curves shared — active's right convex nests into inactive's
+ * left concave bite. Hover bg fills the carved shape automatically.
+ * ================================================================= */
+
+/* Track */
+[data-segmented],
+.cssmv-pill-bar {
+  display: grid !important;
+  gap: 0 !important;
+  padding: 0 !important;
+  margin: 14px 0 22px !important;
+  height: 42px;
+  min-height: 42px;
+  background: rgba(0, 245, 160, 0.10) !important;
+  border: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-radius: 999px !important;
+  /* CSSOS_WAVE_271 20260521 — Jing: was overflow:visible, which let the
+   * negative-margin interlock children spill past the track and burst
+   * the panel on the narrow iOS App webview. clip-x contains the spill
+   * (interlock overlaps are interior, unaffected); y stays visible. */
+  overflow-x: clip !important;
+  overflow-y: visible !important;
+  max-width: 100% !important;
+  position: relative;
+  align-items: stretch;
+}
+[data-segmented="2"] { grid-template-columns: 1fr 1fr; }
+[data-segmented="3"] { grid-template-columns: 1fr 1fr 1fr; }
+[data-segmented="4"] { grid-template-columns: 1fr 1fr 1fr 1fr; }
+[data-segmented="5"] { grid-template-columns: 1fr 1fr 1fr 1fr 1fr; }
+[data-segmented="6"] { grid-template-columns: repeat(6, 1fr); }
+[data-segmented="7"] { grid-template-columns: repeat(7, 1fr); }
+[data-segmented="8"] { grid-template-columns: repeat(8, 1fr); }
+.cssmv-pill-bar {
+  display: flex !important;
+  grid-template-columns: none !important;
+  overflow-x: auto !important;
+  scrollbar-width: none;
+}
+.cssmv-pill-bar::-webkit-scrollbar { display: none; }
+[data-segmented][data-padded],
+.cssmv-pill-bar[data-padded] {
+  padding: 4px !important;
+  height: 50px;
+  min-height: 50px;
+}
+
+/* Children base */
+[data-segmented] > *,
+.cssmv-pill-bar > * {
+  position: relative;
+  height: 40px;
+  min-height: 40px;
+  max-height: 40px;
+  border: 0;
+  margin: 0;
+  padding: 0 16px;
+  font-size: 12px;
+  line-height: 40px;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+  text-align: center;
+  background: transparent;
+  color: var(--text, #111);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 180ms ease;
+  box-sizing: border-box;
+}
+.cssmv-pill-bar > * { flex: 0 0 auto; min-width: max-content; }
+
+/* 6-hue palette: inactive hover (light) + active (saturated) */
+[data-segmented] > *:nth-child(6n+1):hover:not(.active):not([aria-selected="true"]),
+.cssmv-pill-bar > *:nth-child(6n+1):hover:not(.active):not([aria-selected="true"]) { background: hsla(150, 80%, 70%, 0.32) !important; }
+[data-segmented] > *:nth-child(6n+2):hover:not(.active):not([aria-selected="true"]),
+.cssmv-pill-bar > *:nth-child(6n+2):hover:not(.active):not([aria-selected="true"]) { background: hsla(200, 80%, 70%, 0.32) !important; }
+[data-segmented] > *:nth-child(6n+3):hover:not(.active):not([aria-selected="true"]),
+.cssmv-pill-bar > *:nth-child(6n+3):hover:not(.active):not([aria-selected="true"]) { background: hsla(280, 80%, 75%, 0.32) !important; }
+[data-segmented] > *:nth-child(6n+4):hover:not(.active):not([aria-selected="true"]),
+.cssmv-pill-bar > *:nth-child(6n+4):hover:not(.active):not([aria-selected="true"]) { background: hsla(340, 80%, 75%, 0.32) !important; }
+[data-segmented] > *:nth-child(6n+5):hover:not(.active):not([aria-selected="true"]),
+.cssmv-pill-bar > *:nth-child(6n+5):hover:not(.active):not([aria-selected="true"]) { background: hsla(45, 90%, 70%, 0.32) !important; }
+[data-segmented] > *:nth-child(6n+6):hover:not(.active):not([aria-selected="true"]),
+.cssmv-pill-bar > *:nth-child(6n+6):hover:not(.active):not([aria-selected="true"]) { background: hsla(95, 70%, 65%, 0.32) !important; }
+
+[data-segmented] > *:nth-child(6n+1).active,
+[data-segmented] > *:nth-child(6n+1)[aria-selected="true"],
+.cssmv-pill-bar > *:nth-child(6n+1).active,
+.cssmv-pill-bar > *:nth-child(6n+1)[aria-selected="true"] { background: hsla(150, 80%, 45%, 0.55) !important; }
+[data-segmented] > *:nth-child(6n+2).active,
+[data-segmented] > *:nth-child(6n+2)[aria-selected="true"],
+.cssmv-pill-bar > *:nth-child(6n+2).active,
+.cssmv-pill-bar > *:nth-child(6n+2)[aria-selected="true"] { background: hsla(200, 80%, 50%, 0.55) !important; }
+[data-segmented] > *:nth-child(6n+3).active,
+[data-segmented] > *:nth-child(6n+3)[aria-selected="true"],
+.cssmv-pill-bar > *:nth-child(6n+3).active,
+.cssmv-pill-bar > *:nth-child(6n+3)[aria-selected="true"] { background: hsla(280, 70%, 55%, 0.55) !important; }
+[data-segmented] > *:nth-child(6n+4).active,
+[data-segmented] > *:nth-child(6n+4)[aria-selected="true"],
+.cssmv-pill-bar > *:nth-child(6n+4).active,
+.cssmv-pill-bar > *:nth-child(6n+4)[aria-selected="true"] { background: hsla(340, 75%, 55%, 0.55) !important; }
+[data-segmented] > *:nth-child(6n+5).active,
+[data-segmented] > *:nth-child(6n+5)[aria-selected="true"],
+.cssmv-pill-bar > *:nth-child(6n+5).active,
+.cssmv-pill-bar > *:nth-child(6n+5)[aria-selected="true"] { background: hsla(45, 90%, 50%, 0.65) !important; }
+[data-segmented] > *:nth-child(6n+6).active,
+[data-segmented] > *:nth-child(6n+6)[aria-selected="true"],
+.cssmv-pill-bar > *:nth-child(6n+6).active,
+.cssmv-pill-bar > *:nth-child(6n+6)[aria-selected="true"] { background: hsla(95, 70%, 50%, 0.55) !important; }
+
+/* Active pill — full 凸 both sides */
+[data-segmented] > .active,
+[data-segmented] > [aria-selected="true"],
+.cssmv-pill-bar > .active,
+.cssmv-pill-bar > [aria-selected="true"] {
+  border-radius: 999px !important;
+  font-weight: 600;
+  color: #fff !important;
+  z-index: 1;
+}
+
+/* Inactive AFTER active: extends 20px LEFT, concave bite on left */
+[data-segmented] > .active ~ *,
+[data-segmented] > [aria-selected="true"] ~ *,
+.cssmv-pill-bar > .active ~ *,
+.cssmv-pill-bar > [aria-selected="true"] ~ * {
+  margin-left: -20px !important;
+  width: calc(100% + 20px) !important;
+  padding-left: 36px !important;
+  border-radius: 0 999px 999px 0 !important;
+  z-index: 0;
+  -webkit-mask-image: radial-gradient(circle 20px at 20px 20px, transparent 19.5px, #000 20px);
+  mask-image: radial-gradient(circle 20px at 20px 20px, transparent 19.5px, #000 20px);
+}
+
+/* Inactive BEFORE active: extends 20px RIGHT, concave bite on right */
+[data-segmented] > *:has(~ .active),
+[data-segmented] > *:has(~ [aria-selected="true"]),
+.cssmv-pill-bar > *:has(~ .active),
+.cssmv-pill-bar > *:has(~ [aria-selected="true"]) {
+  margin-right: -20px !important;
+  width: calc(100% + 20px) !important;
+  padding-right: 36px !important;
+  border-radius: 999px 0 0 999px !important;
+  z-index: 0;
+  -webkit-mask-image: radial-gradient(circle 20px at calc(100% - 20px) 20px, transparent 19.5px, #000 20px);
+  mask-image: radial-gradient(circle 20px at calc(100% - 20px) 20px, transparent 19.5px, #000 20px);
+}
+
+/* Fallback when :has() is unavailable — pills stay rectangular but visible. */
+@supports not (selector(:has(*))) {
+  [data-segmented] > *,
+  .cssmv-pill-bar > * {
+    margin: 0 !important;
+    width: 100% !important;
+    mask-image: none !important;
+    -webkit-mask-image: none !important;
+  }
+  [data-segmented] > *:first-child { border-radius: 999px 0 0 999px !important; }
+  [data-segmented] > *:last-child { border-radius: 0 999px 999px 0 !important; }
+}
+/* ── End Tab-Pill Constitution v28 ─────────────────────────── */
+
+/* Step 1 — Jing: .creation-tabs is the constitution track.
+ * Step 5: grid equal columns so all pills share the track width. */
+.creation-tabs {
+  display: grid !important;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(max-content, 1fr);
+  gap: 0 !important;
+  padding: 0;
+  margin: 24px 0 8px;
+  height: 42px;
+  min-height: 42px;
+  background: rgba(0, 245, 160, 0.10);
+  border: 1px solid rgba(0, 245, 160, 0.30);
+  border-radius: 999px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  position: relative;
+  align-items: stretch;
+  scrollbar-width: none;
+}
+.creation-tabs::-webkit-scrollbar { display: none; }
+/* v28 step 14 — Jing: kill the dark scroll-peek fade pseudo on
+ * creation-tabs/creation-chips. Constitution doesn't need it. */
+.creation-tabs::after,
+.creation-chips::after { display: none !important; content: none !important; }
+
+/* Step 2 — Jing: first pill is the leftmost ACTIVE. No own
+ * top/bottom/left borders (shares track's). Own right side is a
+ * full 999px convex curve. Dark random fill per nth-child hue.
+ * White text. All other siblings hidden for now. */
+/* All children share base layout. */
+.creation-tabs > .creation-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 40px;
+  font-size: 12px;
+  line-height: 40px;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+  border: 0 !important;
+  box-sizing: border-box;
+  background: transparent;
+  color: var(--text, #111);
+  cursor: pointer;
+  margin: 0;
+  padding: 0 20px;
+  /* When no active tab exists, give every pill SYMMETRIC full pill
+   * radius so no asymmetric (一中一美) artifact can show through. */
+  border-radius: 999px;
+  transition: background 180ms ease;
+}
+
+/* ACTIVE — wherever it lives. Full convex both sides, dark hue (by
+ * its grid position via nth-child), white text, sits above siblings. */
+.creation-tabs > .creation-tab.active {
+  padding: 0 16px;
+  font-weight: 600;
+  border: 0 !important;
+  border-left: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-right: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-radius: 999px !important;
+  color: #fff !important;
+  z-index: 2;
+  position: relative;
+  margin: 0 !important;
+  width: 100% !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+}
+.creation-tabs > .creation-tab:nth-child(6n+1).active { background: hsla(150, 70%, 42%, 0.85) !important; }
+.creation-tabs > .creation-tab:nth-child(6n+2).active { background: hsla(200, 70%, 45%, 0.85) !important; }
+.creation-tabs > .creation-tab:nth-child(6n+3).active { background: hsla(280, 60%, 50%, 0.80) !important; }
+.creation-tabs > .creation-tab:nth-child(6n+4).active { background: hsla(340, 65%, 50%, 0.80) !important; }
+.creation-tabs > .creation-tab:nth-child(6n+5).active { background: hsla(45, 85%, 45%, 0.85) !important; }
+.creation-tabs > .creation-tab:nth-child(6n+6).active { background: hsla(95, 65%, 42%, 0.85) !important; }
+
+/* Inactive AFTER active: extends 20px LEFT into its left neighbor's
+ * cell (or active's cell), concave bite on left edge receives the
+ * neighbor's right convex curve. */
+.creation-tabs > .creation-tab.active ~ .creation-tab {
+  padding: 0 16px 0 24px;
+  margin-left: -20px;
+  width: calc(100% + 20px);
+  border: 0 !important;
+  border-right: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-radius: 0 999px 999px 0;
+  -webkit-mask-image: radial-gradient(circle 20px at 0 20px, transparent 19.5px, #000 20px);
+  mask-image: radial-gradient(circle 20px at 0 20px, transparent 19.5px, #000 20px);
+  z-index: 1;
+}
+
+/* Inactive BEFORE active: extends 20px RIGHT into its right neighbor's
+ * cell, concave bite on right edge receives that neighbor's convex. */
+.creation-tabs > .creation-tab:has(~ .active),
+.creation-tabs > .creation-tab:has(~ .creation-tab.active) {
+  padding: 0 24px 0 16px;
+  margin-right: -20px;
+  width: calc(100% + 20px);
+  border: 0 !important;
+  border-left: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-radius: 999px 0 0 999px;
+  -webkit-mask-image: radial-gradient(circle 20px at calc(100% - 0px) 20px, transparent 19.5px, #000 20px);
+  mask-image: radial-gradient(circle 20px at 100% 20px, transparent 19.5px, #000 20px);
+  z-index: 1;
+}
+
+/* Hover hues per position. */
+.creation-tabs > .creation-tab:nth-child(6n+1):hover:not(.active) { background: hsla(150, 80%, 70%, 0.45); }
+.creation-tabs > .creation-tab:nth-child(6n+2):hover:not(.active) { background: hsla(200, 80%, 70%, 0.45); }
+.creation-tabs > .creation-tab:nth-child(6n+3):hover:not(.active) { background: hsla(280, 80%, 75%, 0.45); }
+.creation-tabs > .creation-tab:nth-child(6n+4):hover:not(.active) { background: hsla(340, 80%, 75%, 0.45); }
+.creation-tabs > .creation-tab:nth-child(6n+5):hover:not(.active) { background: hsla(45, 90%, 70%, 0.55); }
+.creation-tabs > .creation-tab:nth-child(6n+6):hover:not(.active) { background: hsla(95, 70%, 65%, 0.45); }
+
+
+/* =================================================================
+ * Step 7 — Chips row (.creation-chips). Same constitution as tabs.
+ * Variable count (auto-flowing equal columns via grid-auto-columns:1fr).
+ * ================================================================= */
+.creation-chips {
+  display: grid !important;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(max-content, 1fr);
+  gap: 0 !important;
+  padding: 0;
+  margin: 8px 0 28px;
+  height: 42px;
+  min-height: 42px;
+  background: rgba(0, 245, 160, 0.10);
+  border: 1px solid rgba(0, 245, 160, 0.30);
+  border-radius: 999px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  position: relative;
+  align-items: stretch;
+  scrollbar-width: none;
+}
+.creation-chips::-webkit-scrollbar { display: none; }
+.creation-chips > .creation-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 40px;
+  border-radius: 999px;
+  padding: 0 18px;
+  font-size: 12px;
+  line-height: 40px;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  border: 0 !important;
+  box-sizing: border-box;
+  background: transparent;
+  color: var(--text, #111);
+  cursor: pointer;
+  margin: 0;
+  transition: background 180ms ease;
+}
+.creation-chips > .creation-chip.active {
+  padding: 0 12px;
+  font-weight: 600;
+  border: 0 !important;
+  border-left: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-right: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-radius: 999px !important;
+  color: #fff !important;
+  z-index: 2;
+  position: relative;
+  margin: 0 !important;
+  width: 100% !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+}
+.creation-chips > .creation-chip:nth-child(6n+1).active { background: hsla(150, 70%, 42%, 0.85) !important; }
+.creation-chips > .creation-chip:nth-child(6n+2).active { background: hsla(200, 70%, 45%, 0.85) !important; }
+.creation-chips > .creation-chip:nth-child(6n+3).active { background: hsla(280, 60%, 50%, 0.80) !important; }
+.creation-chips > .creation-chip:nth-child(6n+4).active { background: hsla(340, 65%, 50%, 0.80) !important; }
+.creation-chips > .creation-chip:nth-child(6n+5).active { background: hsla(45, 85%, 45%, 0.85) !important; }
+.creation-chips > .creation-chip:nth-child(6n+6).active { background: hsla(95, 65%, 42%, 0.85) !important; }
+
+.creation-chips > .creation-chip.active ~ .creation-chip {
+  padding: 0 12px 0 22px;
+  margin-left: -20px;
+  width: calc(100% + 20px);
+  border: 0 !important;
+  border-right: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-radius: 0 999px 999px 0;
+  -webkit-mask-image: radial-gradient(circle 20px at 0 20px, transparent 19.5px, #000 20px);
+  mask-image: radial-gradient(circle 20px at 0 20px, transparent 19.5px, #000 20px);
+  z-index: 1;
+}
+.creation-chips > .creation-chip:has(~ .active),
+.creation-chips > .creation-chip:has(~ .creation-chip.active) {
+  padding: 0 22px 0 12px;
+  margin-right: -20px;
+  width: calc(100% + 20px);
+  border: 0 !important;
+  border-left: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-radius: 999px 0 0 999px;
+  -webkit-mask-image: radial-gradient(circle 20px at 100% 20px, transparent 19.5px, #000 20px);
+  mask-image: radial-gradient(circle 20px at 100% 20px, transparent 19.5px, #000 20px);
+  z-index: 1;
+}
+.creation-chips > .creation-chip:nth-child(6n+1):hover:not(.active) { background: hsla(150, 80%, 70%, 0.45); }
+.creation-chips > .creation-chip:nth-child(6n+2):hover:not(.active) { background: hsla(200, 80%, 70%, 0.45); }
+.creation-chips > .creation-chip:nth-child(6n+3):hover:not(.active) { background: hsla(280, 80%, 75%, 0.45); }
+.creation-chips > .creation-chip:nth-child(6n+4):hover:not(.active) { background: hsla(340, 80%, 75%, 0.45); }
+.creation-chips > .creation-chip:nth-child(6n+5):hover:not(.active) { background: hsla(45, 90%, 70%, 0.55); }
+.creation-chips > .creation-chip:nth-child(6n+6):hover:not(.active) { background: hsla(95, 70%, 65%, 0.45); }
+
+/* =================================================================
+ * Step 18 — Apply pill constitution to:
+ *   - .seed-script-tabs (Custom Lyrics / Music Source Uploads &
+ *                         Music Structure / Video Outline / Section Scene Prompts)
+ *   - .msrc-tabbar (Audio / Video / MIDI / MusicXML / Sheet music / Image)
+ * ================================================================= */
+.seed-script-tabs,
+.msrc-tabbar {
+  display: grid !important;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(max-content, 1fr);
+  gap: 0 !important;
+  padding: 0 !important;
+  margin: 18px 0 !important;
+  height: 42px;
+  min-height: 42px;
+  background: rgba(0, 245, 160, 0.10) !important;
+  border: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-radius: 999px !important;
+  overflow-x: auto;
+  overflow-y: hidden;
+  position: relative;
+  align-items: stretch;
+  scrollbar-width: none;
+}
+.seed-script-tabs::-webkit-scrollbar,
+.msrc-tabbar::-webkit-scrollbar { display: none; }
+.seed-script-tabs::after,
+.msrc-tabbar::after { display: none !important; content: none !important; }
+
+.seed-script-tabs > button,
+.msrc-tabbar > .msrc-tab {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 40px !important;
+  font-size: 12px;
+  line-height: 40px;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+  border: 0 !important;
+  box-sizing: border-box;
+  background: transparent !important;
+  color: var(--text, #111) !important;
+  cursor: pointer;
+  margin: 0 !important;
+  padding: 0 20px !important;
+  border-radius: 999px !important;
+  box-shadow: none !important;
+  transition: background 180ms ease;
+}
+
+/* Active */
+.seed-script-tabs > button.active,
+.msrc-tabbar > .msrc-tab.active {
+  font-weight: 600;
+  border: 0 !important;
+  border-left: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-right: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-radius: 999px !important;
+  color: #fff !important;
+  z-index: 2;
+  position: relative;
+  margin: 0 !important;
+  width: 100% !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+}
+.seed-script-tabs > button:nth-child(6n+1).active,
+.msrc-tabbar > .msrc-tab:nth-child(6n+1).active { background: hsla(150, 70%, 42%, 0.85) !important; }
+.seed-script-tabs > button:nth-child(6n+2).active,
+.msrc-tabbar > .msrc-tab:nth-child(6n+2).active { background: hsla(200, 70%, 45%, 0.85) !important; }
+.seed-script-tabs > button:nth-child(6n+3).active,
+.msrc-tabbar > .msrc-tab:nth-child(6n+3).active { background: hsla(280, 60%, 50%, 0.80) !important; }
+.seed-script-tabs > button:nth-child(6n+4).active,
+.msrc-tabbar > .msrc-tab:nth-child(6n+4).active { background: hsla(340, 65%, 50%, 0.80) !important; }
+.seed-script-tabs > button:nth-child(6n+5).active,
+.msrc-tabbar > .msrc-tab:nth-child(6n+5).active { background: hsla(45, 85%, 45%, 0.85) !important; }
+.seed-script-tabs > button:nth-child(6n+6).active,
+.msrc-tabbar > .msrc-tab:nth-child(6n+6).active { background: hsla(95, 65%, 42%, 0.85) !important; }
+
+/* Inactive AFTER active */
+.seed-script-tabs > button.active ~ button,
+.msrc-tabbar > .msrc-tab.active ~ .msrc-tab {
+  padding: 0 16px 0 24px !important;
+  margin-left: -20px !important;
+  width: calc(100% + 20px) !important;
+  border: 0 !important;
+  border-right: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-radius: 0 999px 999px 0 !important;
+  -webkit-mask-image: radial-gradient(circle 20px at 0 20px, transparent 19.5px, #000 20px) !important;
+  mask-image: radial-gradient(circle 20px at 0 20px, transparent 19.5px, #000 20px) !important;
+  z-index: 1;
+}
+
+/* Inactive BEFORE active */
+.seed-script-tabs > button:has(~ button.active),
+.msrc-tabbar > .msrc-tab:has(~ .msrc-tab.active) {
+  padding: 0 24px 0 16px !important;
+  margin-right: -20px !important;
+  width: calc(100% + 20px) !important;
+  border: 0 !important;
+  border-left: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-radius: 999px 0 0 999px !important;
+  -webkit-mask-image: radial-gradient(circle 20px at 100% 20px, transparent 19.5px, #000 20px) !important;
+  mask-image: radial-gradient(circle 20px at 100% 20px, transparent 19.5px, #000 20px) !important;
+  z-index: 1;
+}
+
+/* Hover hues per position */
+.seed-script-tabs > button:nth-child(6n+1):hover:not(.active),
+.msrc-tabbar > .msrc-tab:nth-child(6n+1):hover:not(.active) { background: hsla(150, 80%, 70%, 0.45) !important; }
+.seed-script-tabs > button:nth-child(6n+2):hover:not(.active),
+.msrc-tabbar > .msrc-tab:nth-child(6n+2):hover:not(.active) { background: hsla(200, 80%, 70%, 0.45) !important; }
+.seed-script-tabs > button:nth-child(6n+3):hover:not(.active),
+.msrc-tabbar > .msrc-tab:nth-child(6n+3):hover:not(.active) { background: hsla(280, 80%, 75%, 0.45) !important; }
+.seed-script-tabs > button:nth-child(6n+4):hover:not(.active),
+.msrc-tabbar > .msrc-tab:nth-child(6n+4):hover:not(.active) { background: hsla(340, 80%, 75%, 0.45) !important; }
+.seed-script-tabs > button:nth-child(6n+5):hover:not(.active),
+.msrc-tabbar > .msrc-tab:nth-child(6n+5):hover:not(.active) { background: hsla(45, 90%, 70%, 0.55) !important; }
+.seed-script-tabs > button:nth-child(6n+6):hover:not(.active),
+.msrc-tabbar > .msrc-tab:nth-child(6n+6):hover:not(.active) { background: hsla(95, 70%, 65%, 0.45) !important; }
+
+/* step 25 removed per Jing's rollback. */
+
+/* =================================================================
+ * Step 27 — Jing: HARD ENFORCE convex-side border on every pill.
+ * Highest specificity + !important + at the end of file so cascade
+ * order favors these rules.
+ * ================================================================= */
+.creation-tabs > .creation-tab.active,
+.creation-chips > .creation-chip.active,
+.seed-script-tabs > button.active,
+.msrc-tabbar > .msrc-tab.active {
+  border: 0 !important;
+  border-left: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-right: 1px solid rgba(0, 245, 160, 0.30) !important;
+}
+.creation-tabs > .creation-tab.active ~ .creation-tab,
+.creation-chips > .creation-chip.active ~ .creation-chip,
+.seed-script-tabs > button.active ~ button,
+.msrc-tabbar > .msrc-tab.active ~ .msrc-tab {
+  border: 0 !important;
+  border-right: 1px solid rgba(0, 245, 160, 0.30) !important;
+}
+.creation-tabs > .creation-tab:has(~ .creation-tab.active),
+.creation-chips > .creation-chip:has(~ .creation-chip.active),
+.seed-script-tabs > button:has(~ button.active),
+.msrc-tabbar > .msrc-tab:has(~ .msrc-tab.active) {
+  border: 0 !important;
+  border-left: 1px solid rgba(0, 245, 160, 0.30) !important;
+}
+
+/* =================================================================
+ * Step 28 — Jing: when NO active pill exists in a bar, every inactive
+ * pill gets a 1px right convex border (right convex side click-boundary
+ * preview). Same UX rule as active-state borders.
+ * ================================================================= */
+.creation-tabs:not(:has(> .creation-tab.active)) > .creation-tab,
+.creation-chips:not(:has(> .creation-chip.active)) > .creation-chip,
+.seed-script-tabs:not(:has(> button.active)) > button,
+.msrc-tabbar:not(:has(> .msrc-tab.active)) > .msrc-tab {
+  border-right: 1px solid rgba(0, 245, 160, 0.30) !important;
+}
+/* Last child sits on the track's right edge — no own right border. */
+.creation-tabs:not(:has(> .creation-tab.active)) > .creation-tab:last-child,
+.creation-chips:not(:has(> .creation-chip.active)) > .creation-chip:last-child,
+.seed-script-tabs:not(:has(> button.active)) > button:last-child,
+.msrc-tabbar:not(:has(> .msrc-tab.active)) > .msrc-tab:last-child {
+  border-right: 0 !important;
+}
+
+/* =================================================================
+ * Step 30 — Jing: extend pill constitution to:
+ *   - .palette-presets (Emerald / Crimson / Azure / Violet / Gold)
+ *   - single-pill action bars (#random-palette / #apply-settings /
+ *     #creation-clear and any other .cta full-width pill)
+ * ================================================================= */
+
+/* Palette presets — full multi-pill constitution. */
+.palette-presets {
+  display: grid !important;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(max-content, 1fr);
+  gap: 0 !important;
+  padding: 0 !important;
+  margin: 18px 0 !important;
+  height: 42px;
+  min-height: 42px;
+  background: rgba(0, 245, 160, 0.10) !important;
+  border: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-radius: 999px !important;
+  overflow-x: auto;
+  overflow-y: hidden;
+  position: relative;
+  align-items: stretch;
+  scrollbar-width: none;
+}
+.palette-presets::-webkit-scrollbar { display: none; }
+.palette-presets::after { display: none !important; content: none !important; }
+
+.palette-presets > button {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 40px !important;
+  font-size: 12px;
+  line-height: 40px;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+  border: 0 !important;
+  box-sizing: border-box;
+  background: transparent !important;
+  color: var(--text, #111) !important;
+  cursor: pointer;
+  margin: 0 !important;
+  padding: 0 20px !important;
+  border-radius: 999px !important;
+  box-shadow: none !important;
+  transition: background 180ms ease;
+}
+.palette-presets > button.active {
+  font-weight: 600;
+  border: 0 !important;
+  border-left: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-right: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-radius: 999px !important;
+  color: #fff !important;
+  z-index: 2;
+  position: relative;
+  margin: 0 !important;
+  width: 100% !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+}
+.palette-presets > button:nth-child(6n+1).active { background: hsla(150, 70%, 42%, 0.85) !important; }
+.palette-presets > button:nth-child(6n+2).active { background: hsla(200, 70%, 45%, 0.85) !important; }
+.palette-presets > button:nth-child(6n+3).active { background: hsla(280, 60%, 50%, 0.80) !important; }
+.palette-presets > button:nth-child(6n+4).active { background: hsla(340, 65%, 50%, 0.80) !important; }
+.palette-presets > button:nth-child(6n+5).active { background: hsla(45, 85%, 45%, 0.85) !important; }
+.palette-presets > button:nth-child(6n+6).active { background: hsla(95, 65%, 42%, 0.85) !important; }
+
+.palette-presets > button.active ~ button {
+  padding: 0 16px 0 24px !important;
+  margin-left: -20px !important;
+  width: calc(100% + 20px) !important;
+  border: 0 !important;
+  border-right: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-radius: 0 999px 999px 0 !important;
+  -webkit-mask-image: radial-gradient(circle 20px at 0 20px, transparent 19.5px, #000 20px) !important;
+  mask-image: radial-gradient(circle 20px at 0 20px, transparent 19.5px, #000 20px) !important;
+  z-index: 1;
+}
+.palette-presets > button:has(~ button.active) {
+  padding: 0 24px 0 16px !important;
+  margin-right: -20px !important;
+  width: calc(100% + 20px) !important;
+  border: 0 !important;
+  border-left: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-radius: 999px 0 0 999px !important;
+  -webkit-mask-image: radial-gradient(circle 20px at 100% 20px, transparent 19.5px, #000 20px) !important;
+  mask-image: radial-gradient(circle 20px at 100% 20px, transparent 19.5px, #000 20px) !important;
+  z-index: 1;
+}
+/* no-active state: every non-last pill gets right convex border. */
+.palette-presets:not(:has(> button.active)) > button {
+  border-right: 1px solid rgba(0, 245, 160, 0.30) !important;
+}
+.palette-presets:not(:has(> button.active)) > button:last-child {
+  border-right: 0 !important;
+}
+/* Hover hues. */
+.palette-presets > button:nth-child(6n+1):hover:not(.active) { background: hsla(150, 80%, 70%, 0.45) !important; }
+.palette-presets > button:nth-child(6n+2):hover:not(.active) { background: hsla(200, 80%, 70%, 0.45) !important; }
+.palette-presets > button:nth-child(6n+3):hover:not(.active) { background: hsla(280, 80%, 75%, 0.45) !important; }
+.palette-presets > button:nth-child(6n+4):hover:not(.active) { background: hsla(340, 80%, 75%, 0.45) !important; }
+.palette-presets > button:nth-child(6n+5):hover:not(.active) { background: hsla(45, 90%, 70%, 0.55) !important; }
+.palette-presets > button:nth-child(6n+6):hover:not(.active) { background: hsla(95, 70%, 65%, 0.45) !important; }
+
+/* Single-pill action bars (full-width track + one button). */
+#random-palette,
+#apply-settings,
+#creation-clear {
+  display: block !important;
+  width: 100% !important;
+  height: 42px !important;
+  margin: 14px 0 !important;
+  padding: 0 20px !important;
+  font-size: 12px !important;
+  letter-spacing: 0.4px !important;
+  background: rgba(0, 245, 160, 0.10) !important;
+  border: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-radius: 999px !important;
+  color: var(--text, #111) !important;
+  cursor: pointer;
+  box-shadow: none !important;
+  transition: background 180ms ease;
+}
+#random-palette:hover,
+#creation-clear:hover { background: hsla(150, 80%, 70%, 0.45) !important; }
+#apply-settings {
+  background: hsla(150, 70%, 42%, 0.85) !important;
+  color: #fff !important;
+  font-weight: 600 !important;
+}
+#apply-settings:hover { background: hsla(150, 70%, 50%, 0.95) !important; }
+
+/* =================================================================
+ * Step 32 — Jing: each .palette-color-card IS a pill. Pill background
+ * = the chosen color (set via JS to --card-color). Label overlaid in
+ * readable white-with-shadow. Adjacent pills divided by 1px right
+ * convex border (no-active state of the constitution).
+ * ================================================================= */
+.palette-color-tabs {
+  display: grid !important;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(max-content, 1fr);
+  gap: 0 !important;
+  padding: 0 !important;
+  margin: 18px 0 !important;
+  height: 42px;
+  min-height: 42px;
+  background: rgba(0, 245, 160, 0.10) !important;
+  border: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-radius: 999px !important;
+  overflow-x: auto;
+  overflow-y: hidden;
+  position: relative;
+  align-items: stretch;
+  scrollbar-width: none;
+}
+.palette-color-tabs::-webkit-scrollbar { display: none; }
+.palette-color-tabs::after { display: none !important; content: none !important; }
+.palette-color-tabs > .palette-color-card {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  width: 100%;
+  height: 40px !important;
+  margin: 0 !important;
+  padding: 0 16px !important;
+  border: 0 !important;
+  border-right: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-radius: 999px !important;
+  box-sizing: border-box;
+  background: var(--card-color, transparent);
+  cursor: pointer;
+  overflow: visible;
+}
+.palette-color-tabs > .palette-color-card:last-child {
+  border-right: 0 !important;
+}
+/* 凸嵌凹: every card except the first extends 20px left into its
+ * neighbor, mask carves concave on its left edge to receive the
+ * neighbor's right convex curve. */
+.palette-color-tabs > .palette-color-card:not(:first-child) {
+  margin-left: -20px !important;
+  width: calc(100% + 20px) !important;
+  padding-left: 36px !important;
+  -webkit-mask-image: radial-gradient(circle 20px at 0 20px, transparent 19.5px, #000 20px) !important;
+  mask-image: radial-gradient(circle 20px at 0 20px, transparent 19.5px, #000 20px) !important;
+}
+.palette-color-tabs > .palette-color-card > span {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: var(--card-text, #fff);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.palette-color-tabs > .palette-color-card > input[type="color"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  border: 0;
+  padding: 0;
+}
+
+/* step 35 retracted per Jing — bars stay as-is in no-active state. */
+
+/* =================================================================
+ * Step 36 — Jing: scoped ONLY to the BG-color wave.
+ * Add no-active 凸凹 interlock to .palette-presets, and reinforce
+ * the same on .palette-color-tabs (step 33 may have been weakened
+ * by upstream rules).
+ *
+ * EXPLICITLY OUT OF SCOPE: .creation-tabs, .creation-chips,
+ * .seed-script-tabs, .msrc-tabbar — those are frozen.
+ * ================================================================= */
+
+/* Palette presets: every non-first pill extends 20px left into its
+ * neighbor and carves a concave bite on its left edge. */
+/* CSSOS_WAVE_273/274 20260521 — Jing: this UNIFORM "all concave-left"
+ * interlock is the NO-ACTIVE fallback only. When an active pill exists,
+ * the active-relative rules above (.active ~ button → concave-left;
+ * :has(~ .active) → concave-right) must own the layout so the bites
+ * cup TOWARD the active pill from both sides — not uniformly leftward.
+ * Gate this rule behind :not(:has(.active)) so it stops clobbering the
+ * active-relative ones (same specificity, later source). */
+.palette-presets:not(:has(.active)) > button:not(:first-child) {
+  margin-left: -20px !important;
+  width: calc(100% + 20px) !important;
+  padding-left: 36px !important;
+  -webkit-mask-image: radial-gradient(circle 20px at 0 20px, transparent 19.5px, #000 20px) !important;
+  mask-image: radial-gradient(circle 20px at 0 20px, transparent 19.5px, #000 20px) !important;
+}
+
+/* Palette color cards: re-assert no-active 凸凹 (in case any earlier
+ * rule clobbered the step-33 declaration). */
+.palette-color-tabs:not(:has(.active)) > .palette-color-card:not(:first-child) {
+  margin-left: -20px !important;
+  width: calc(100% + 20px) !important;
+  padding-left: 36px !important;
+  -webkit-mask-image: radial-gradient(circle 20px at 0 20px, transparent 19.5px, #000 20px) !important;
+  mask-image: radial-gradient(circle 20px at 0 20px, transparent 19.5px, #000 20px) !important;
+}
+
+/* step 37 retracted per Jing. */
+
+/* step 38 retracted per Jing. */
+
+/* step 39 retracted per Jing — keeping previous state. */
+
+/* =================================================================
+ * Step 40 — Jing instruction: restore 凸凹 interlock on MUSIC STYLE
+ * chips row (.creation-chips). Scope: ONLY .creation-chips. Every
+ * non-first chip carries the concave-left mask + -20px shift, so
+ * the puzzle visual holds whether or not anything is selected.
+ * ================================================================= */
+.creation-chips > .creation-chip:not(:first-child) {
+  margin-left: -20px !important;
+  width: calc(100% + 20px) !important;
+  padding-left: 32px !important;
+  -webkit-mask-image: radial-gradient(circle 20px at 0 20px, transparent 19.5px, #000 20px) !important;
+  mask-image: radial-gradient(circle 20px at 0 20px, transparent 19.5px, #000 20px) !important;
+}
+
+/* Step 41 — Jing授权: .creation-chips needs overflow:visible so the
+ * step 40 mask isn't clipped. Scope: ONLY .creation-chips.
+ * CSSOS_WAVE_271 20260521 — Jing: REVERTED to overflow-x:auto. On the
+ * iOS App webview, overflow:visible let the negative-margin interlock
+ * children paint past the track → past the panel → "撑破界面" (burst).
+ * The 凸嵌凹 overlaps are INTERIOR to the track, so scroll-clip doesn't
+ * harm them; it also restores horizontal scroll so all chips (11+ on a
+ * narrow screen) stay reachable instead of spilling off-canvas. */
+.creation-chips {
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  max-width: 100% !important;
+}
+.creation-chips > .creation-chip { z-index: 1; }
+.creation-chips > .creation-chip:nth-child(2) { z-index: 2; }
+.creation-chips > .creation-chip:nth-child(3) { z-index: 3; }
+.creation-chips > .creation-chip:nth-child(4) { z-index: 4; }
+.creation-chips > .creation-chip:nth-child(5) { z-index: 5; }
+.creation-chips > .creation-chip:nth-child(6) { z-index: 6; }
+.creation-chips > .creation-chip:nth-child(7) { z-index: 7; }
+.creation-chips > .creation-chip:nth-child(8) { z-index: 8; }
+.creation-chips > .creation-chip:nth-child(9) { z-index: 9; }
+.creation-chips > .creation-chip:nth-child(10) { z-index: 10; }
+.creation-chips > .creation-chip:nth-child(11) { z-index: 11; }
+.creation-chips > .creation-chip:nth-child(12) { z-index: 12; }
+
+/* Step 42 — Jing授权: .creation-chip.active must be FULL convex
+ * both sides; step 40 mask is overriding. */
+.creation-chips > .creation-chip.active {
+  margin: 0 !important;
+  width: 100% !important;
+  padding: 0 18px !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+  border-radius: 999px !important;
+  z-index: 99 !important;
+}
+
+/* =================================================================
+ * CSSOS_TIER_C_MULTILINGUAL C3 20260520 — language-track picker
+ * (Advanced Settings / MV PIPELINE / Person MV). Checkboxes, NOT
+ * pills — distinct control from the tab-pill constitution.
+ * ================================================================= */
+.cssos-lang-picker { margin: 16px 0; }
+.cssos-lang-picker-head {
+  font: 700 12px/1.2 ui-monospace, monospace;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text, #111); margin-bottom: 4px;
+}
+.cssos-lang-picker-sub {
+  font-size: 11px; line-height: 1.4; color: var(--text, #111);
+  margin-bottom: 10px; opacity: 0.7;
+}
+.cssos-lang-picker-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+}
+.cssos-lang-cell {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-radius: 12px;
+  border: 1px solid rgba(0, 245, 160, 0.22);
+  background: rgba(0, 245, 160, 0.05);
+  cursor: pointer; transition: background 160ms ease, border-color 160ms ease;
+  font-size: 13px; user-select: none;
+}
+.cssos-lang-cell:hover { background: rgba(0, 245, 160, 0.10); }
+.cssos-lang-cell.is-selected {
+  background: rgba(0, 245, 160, 0.16);
+  border-color: rgba(0, 245, 160, 0.55);
+}
+.cssos-lang-cell.is-default {
+  background: rgba(0, 245, 160, 0.24);
+  border-color: rgba(0, 245, 160, 0.8);
+}
+.cssos-lang-cell input[type="checkbox"] { accent-color: #00f5a0; width: 15px; height: 15px; }
+.cssos-lang-name { flex: 1; font-weight: 500; }
+.cssos-lang-badge {
+  font: 600 9px/1 ui-monospace, monospace; letter-spacing: 0.04em;
+  text-transform: uppercase; padding: 3px 6px; border-radius: 999px;
+  background: rgba(0, 245, 160, 0.28); color: #003b29; white-space: nowrap;
+}
+.cssos-lang-badge-paid { background: rgba(255, 196, 0, 0.28); color: #5a4200; }
+.cssos-lang-picker-price {
+  margin-top: 10px; font: 600 12px/1.4 ui-monospace, monospace;
+  color: var(--text, #111);
+}
+.cssos-lang-picker-price.is-insufficient { color: #d9534f; }
+
+/* CSSOS_TIER_C_MULTILINGUAL C5 — 🌐 language pill bar on the watch
+ * screen. Uses .cssmv-pill-bar (tab-pill constitution) for the 凸嵌凹
+ * look; we only position it + size it for the media frame here. */
+.watch-language-pill.cssmv-pill-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 64px;
+  transform: translateX(-50%);
+  width: auto;
+  max-width: min(86%, 520px);
+  margin: 0 !important;
+  height: 36px;
+  min-height: 36px;
+  z-index: 24;
+  background: rgba(0, 0, 0, 0.42) !important;
+  backdrop-filter: blur(8px);
+}
+.watch-language-pill.cssmv-pill-bar > button {
+  height: 34px !important;
+  min-height: 34px !important;
+  padding: 0 16px !important;
+  font: 600 12px/34px ui-monospace, monospace !important;
+  color: rgba(255, 255, 255, 0.92) !important;
+}
+.watch-language-pill.cssmv-pill-bar > button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+/* idle auto-hide alongside the rest of the cinema chrome */
+#watch-panel.cssmv-cinema:not(.is-hovering) .watch-language-pill {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.9s cubic-bezier(0.4,0,0.2,1);
+}
+
+/* CSSOS_TIER_C_MULTILINGUAL C5b — dual subtitle (≤2). Second language
+ * line sits just under the main karaoke line; the pill pinned as the
+ * 2nd subtitle gets a dashed underline marker. */
+.watch-karaoke-line-2 {
+  text-align: center;
+  font-size: 0.82em;
+  line-height: 1.3;
+  opacity: 0.78;
+  margin-top: 2px;
+  color: rgba(255, 255, 255, 0.86);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  font-weight: 500;
+}
+.watch-language-pill.cssmv-pill-bar > button.is-second-sub {
+  box-shadow: inset 0 -2px 0 0 rgba(255, 210, 90, 0.9);
+}
+
+/* CSSOS_TIER_C_MULTILINGUAL C6 — marketplace language filter chip row.
+ * Uses .cssmv-pill-bar (constitution). Sits under the Marketplace title. */
+.foryou-market-lang-chips.cssmv-pill-bar {
+  margin: 8px 0 14px !important;
+  height: 36px; min-height: 36px;
+}
+.foryou-market-lang-chips.cssmv-pill-bar > button {
+  height: 34px !important; min-height: 34px !important;
+  padding: 0 16px !important; font-size: 12px !important;
+}
+
+/* CSSOS_WAVE_270 20260521 — TikTok-style create CTA (last N seconds of
+ * playback). Bottom banner inside the watch screen; auto-fades in. */
+.cssos-create-cta {
+  position: absolute;
+  left: 50%;
+  bottom: 86px;
+  transform: translate(-50%, 16px);
+  z-index: 40;
+  display: none;
+  align-items: center;
+  gap: 14px;
+  max-width: min(560px, 88vw);
+  padding: 12px 14px 12px 18px;
+  border-radius: 16px;
+  background: rgba(8, 18, 16, 0.82);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(0, 245, 160, 0.42);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transition: opacity .4s ease, transform .4s ease;
+}
+.cssos-create-cta-text { flex: 1; min-width: 0; }
+.cssos-create-cta-title {
+  font: 700 14px/1.25 -apple-system, system-ui, sans-serif;
+  color: #fff;
+}
+.cssos-create-cta-sub {
+  font: 500 11.5px/1.35 -apple-system, system-ui, sans-serif;
+  color: rgba(218, 255, 238, 0.78);
+  margin-top: 2px;
+}
+.cssos-create-cta-go {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 18px;
+  font: 700 13px/1 -apple-system, system-ui, sans-serif;
+  color: #00231a;
+  background: linear-gradient(135deg, #00f5a0, #19d2ff);
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(0, 245, 160, 0.4);
+  transition: transform .12s ease;
+}
+.cssos-create-cta-go:hover { transform: scale(1.04); }
+.cssos-create-cta-x {
+  position: absolute;
+  top: 6px; right: 8px;
+  width: 22px; height: 22px;
+  border: 0; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 14px; line-height: 1; cursor: pointer;
+}
+.cssos-create-cta-x:hover { background: rgba(255, 255, 255, 0.22); color: #fff; }
+
+/* CSSOS_WAVE_270 — inline lead-seconds picker on the create CTA. */
+.cssos-create-cta-lead {
+  position: absolute;
+  left: 18px; bottom: -30px;
+  display: flex; align-items: center; gap: 3px;
+  padding: 3px 6px; border-radius: 999px;
+  background: rgba(8, 18, 16, 0.7);
+  border: 1px solid rgba(0, 245, 160, 0.25);
+}
+.cssos-create-cta-lead-label { font-size: 11px; opacity: 0.7; margin-right: 2px; }
+.cssos-create-cta-lead-opt {
+  border: 0; background: transparent;
+  color: rgba(218, 255, 238, 0.6);
+  font: 600 10px/1 ui-monospace, monospace;
+  padding: 4px 6px; border-radius: 999px; cursor: pointer;
+}
+.cssos-create-cta-lead-opt:hover { color: #daffee; background: rgba(0, 245, 160, 0.12); }
+.cssos-create-cta-lead-opt.is-active { color: #00231a; background: #00f5a0; font-weight: 700; }
+
+/* CSSOS_WAVE_282 20260521 — Jing: 窄屏/竖屏(App)下 CTA 水平 flex 塞不下,
+ * 文本被挤成一字一行错位. 改纵向卡片 + 显式宽度, 文本拿满整宽正常换行;
+ * "Create mine" 按钮整行置于文案下方, 居中. 桌面宽屏维持原横向布局. */
+@media (max-width: 700px), (orientation: portrait) {
+  .cssos-create-cta {
+    flex-direction: column;
+    align-items: stretch;
+    width: min(340px, 90vw);
+    max-width: 90vw;
+    gap: 10px;
+    text-align: left;
+    bottom: 96px;
+  }
+  .cssos-create-cta-text { flex: none; width: 100%; }
+  .cssos-create-cta-title { font-size: 15px; }
+  .cssos-create-cta-go { width: 100%; padding: 11px 14px; }
+  .cssos-create-cta-lead { position: static; margin-top: 2px; align-self: flex-start; }
+}
+
+/* CSSOS_WAVE_272 20260521 — Jing: the floating version-switch (⋯, top-
+ * left) and theme-quick-toggle (☀, top-right) overlap an open panel's
+ * own title-bar buttons — especially the close ✕ — causing mis-taps
+ * (user aims to close the panel, hits the theme toggle instead). These
+ * two chrome affordances belong to the MAIN interface only. Whenever a
+ * panel is maximized / fullscreen (cinema or otherwise), hide them so
+ * the panel's own chrome owns those corners. :has() — iOS 16.4+ / all
+ * modern engines. */
+body:has(.panel.maximized) #version-switch,
+body:has(.panel.maximized) #theme-quick-toggle,
+body:has(#watch-panel.cssmv-cinema) #version-switch,
+body:has(#watch-panel.cssmv-cinema) #theme-quick-toggle,
+body.cssos-cinema-mode #version-switch,
+body.cssos-cinema-mode #theme-quick-toggle {
+  display: none !important;
+}

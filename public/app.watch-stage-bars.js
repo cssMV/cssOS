@@ -53,16 +53,30 @@
   // iPhone 屏幕圆角约 47–55 CSS px; 默认 55, 可用 localStorage.cssos_mv_corner_radius
   // 就地微调到刚好贴合自己机型(在哪用就在哪改).
   const PANEL_RADIUS_PX = 24;
+  // CSSOS_WAVE_319 20260521 — Jing: 无法读设备物理圆角(Web 无此 API), 改【按设备
+  // 类别】给合理默认: iPhone 40 / iPad 20 / 安卓(手机+平板, 各家不一)统一 20 /
+  // 桌面用面板原圆角(24). localStorage.cssos_mv_corner_radius 仍可就地覆写兜底.
   function panelRadiusPx() {
     var isApp = false;
     try { isApp = document.documentElement.classList.contains("cssos-app"); } catch (_e) {}
-    if (!isApp) return PANEL_RADIUS_PX;
-    var r = 40;
+    if (!isApp) return PANEL_RADIUS_PX; // 桌面/普通浏览器
+    // 手动覆写优先(在哪用就在哪改).
     try {
       var v = parseFloat(localStorage.getItem("cssos_mv_corner_radius"));
-      if (isFinite(v) && v >= 0 && v <= 200) r = v;
+      if (isFinite(v) && v >= 0 && v <= 200) return v;
     } catch (_e) {}
-    return r;
+    try {
+      var ua = navigator.userAgent || "";
+      // iPadOS 13+ 在 Safari 里伪装成 Macintosh, 用 maxTouchPoints 兜底识别.
+      var isIPad = /iPad/i.test(ua) || (/Macintosh/i.test(ua) && (navigator.maxTouchPoints || 0) > 1);
+      if (/Android/i.test(ua)) return 20;      // 安卓(手机/平板)统一 → 同 iPad
+      if (isIPad) return 20;                    // iPad
+      if (/iPhone|iPod/i.test(ua)) return 40;   // iPhone
+      // 兜底: 按屏幕短边判平板/手机.
+      var minSide = Math.min(window.innerWidth || 0, window.innerHeight || 0);
+      return minSide >= 768 ? 20 : 40;
+    } catch (_e) {}
+    return 40;
   }
   // Bar stroke thickness. Jing earlier: "尺寸小一半" — halved from 10 → 5.
   const TRAIL_STROKE_PX = 5;

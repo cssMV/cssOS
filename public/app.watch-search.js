@@ -144,19 +144,30 @@
           !!el.closest("#watch-exit-cinema") || !!el.closest("#dock");
       };
       var hideEl = function (el) { try { el.style.setProperty("display", "none", "important"); } catch (_e) {} };
+      // CSSOS_WAVE_312 20260521 — Jing: "头像偷偷溜走了, 步调一致". 之前(W308)几何探测
+      // 把【盖在头像上的任何小元素】都隐藏, 太狠 → 误伤了头像/其图层, 害头像消失.
+      // 现在收紧: 只隐藏【真正长得像关闭键】的东西(× 字形 / 关闭语义的 svg / close
+      // aria), 头像(首字母或图片, 无 × 无 close 语义)永远不会被命中.
+      var looksLikeClose = function (el) {
+        try {
+          var t = String(el.textContent || "").trim();
+          if (t === "×" || t === "✕" || t === "✖" || t === "⨉") return true;
+          var lbl = String((el.getAttribute && (el.getAttribute("aria-label") || el.getAttribute("title"))) || "");
+          if (/close|hide|exit|dismiss|关闭|退出|隐藏/i.test(lbl)) return true;
+        } catch (_e) {}
+        return false;
+      };
       var killStrayClose = function () {
         if (!inCinemaNow()) return;
-        // ① 选择器扫描(button/role/a/.icon-btn): 抓常规关闭键.
+        // ① 选择器扫描: 只清左上角区域【像关闭键】的小按钮(非白名单).
         document.querySelectorAll("button, [role=button], a, .icon-btn").forEach(function (el) {
-          if (isProtected(el)) return;
+          if (isProtected(el) || !looksLikeClose(el)) return;
           var r; try { r = el.getBoundingClientRect(); } catch (_e) { return; }
           if (!r || r.width <= 0 || r.height <= 0 || r.width > 140 || r.height > 140) return;
           if (r.left < 260 && r.top < 360) hideEl(el);
         });
-        // ② 几何探测(不靠标签/字形): 那个旧 × 正好【盖在作者头像上】. 取头像中心点,
-        //    用 elementsFromPoint 拿到该点所有堆叠元素; 凡是盖在头像【之上】的小型
-        //    元素(非白名单)一律隐藏, 直到触达头像本身为止. 这样无论它是 div/svg/
-        //    canvas 还是别的标签都能干掉.
+        // ② 几何探测: 盖在头像上、且【像关闭键】的小元素才隐藏(到头像即停). 头像本身
+        //    无 × 无 close 语义 → 绝不会被命中, 不再误伤.
         try {
           var av = document.getElementById("watch-author-avatar");
           if (av && document.elementsFromPoint) {
@@ -173,9 +184,7 @@
                   var el = stack[i];
                   if (!el) continue;
                   if (el === av || (el.closest && el.closest("#watch-author-avatar"))) break; // 到头像了, 停
-                  if (isProtected(el)) continue;
-                  if (el === document.body || el === document.documentElement) continue;
-                  if (el.id === "watch-panel" || (el.classList && (el.classList.contains("watch-screen") || el.classList.contains("watch-frame") || el.classList.contains("watch-video")))) continue; // 别隐藏媒体层
+                  if (isProtected(el) || !looksLikeClose(el)) continue;
                   var er; try { er = el.getBoundingClientRect(); } catch (_e) { continue; }
                   if (er.width > 0 && er.height > 0 && er.width < 140 && er.height < 140) hideEl(el);
                 }

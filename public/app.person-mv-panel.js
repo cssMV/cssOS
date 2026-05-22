@@ -103,6 +103,13 @@
         "border:1px solid rgba(0,245,160,0.18);border-radius:8px;" +
         "padding:6px 10px;color:#daffee;font:500 12px/1.2 ui-monospace,monospace;" +
       "}" +
+      "#person-mv-panel .person-mv-sort-group .person-mv-tier-btn{" +
+        "all:unset;cursor:pointer;box-sizing:border-box;flex:1 1 auto;min-width:max-content;" +
+        "display:inline-flex;align-items:center;justify-content:center;padding:6px 14px;" +
+        "color:rgba(218,255,238,0.78);font:600 12px/1.2 -apple-system,system-ui,sans-serif;" +
+        "white-space:nowrap;transition:background .15s,color .15s;" +
+      "}" +
+      "#person-mv-panel .person-mv-sort-group .person-mv-tier-btn.active{color:#fff;font-weight:700;}" +
       "#person-mv-panel .person-mv-civ-select{" +
         "background:rgba(8,18,16,0.55);border:1px solid rgba(0,245,160,0.18);" +
         "border-radius:8px;padding:6px 10px;color:#daffee;" +
@@ -464,46 +471,43 @@
         '</div>' +
       '</div>' +
       '<div class="panel-body">' +
-        /* W306b — One unified scrollable pill track: People/Landmarks + Sort + Curation + Realm */
+        /* Top pill track: People + Landmarks + style tabs (W306d: from floating notch) */
         '<div class="civ-mv-toprow">' +
           '<div class="civ-mv-tabs cssmv-pill-bar" role="tablist">' +
             '<button class="civ-mv-tab active" data-civ-mode="people" type="button">👤 ' + escapeText(tt("People", "人物")) + '</button>' +
             '<button class="civ-mv-tab" data-civ-mode="landmarks" type="button">🏛 ' + escapeText(tt("Landmarks", "名迹")) + '</button>' +
-            '<button class="person-mv-tier-btn active" data-tier="1" type="button">' + tt("Influence", "影响力") + '</button>' +
-            '<button class="person-mv-tier-btn" data-tier="2" type="button">' + tt("Civilization", "文明") + '</button>' +
-            '<button class="person-mv-ctier-btn active" data-ctier="S" title="' + tt("Global consensus", "全球公认") + '">S</button>' +
-            '<button class="person-mv-ctier-btn" data-ctier="A" title="' + tt("Civilization rep", "文明代表") + '">A</button>' +
-            '<button class="person-mv-ctier-btn" data-ctier="B" title="' + tt("Domain rep", "领域代表") + '">B</button>' +
-            '<button class="person-mv-ctier-btn" data-ctier="all" title="' + tt("All tiers", "全部") + '">' + tt("All", "全") + '</button>' +
-            '<button class="person-mv-realm-btn active" data-realm="all" title="' + tt("All realms", "全部位面") + '">🌐 ' + tt("All", "全") + '</button>' +
-            '<button class="person-mv-realm-btn" data-realm="historical" title="' + tt("Real history", "真实历史") + '">📜 ' + tt("History", "历史") + '</button>' +
-            '<button class="person-mv-realm-btn" data-realm="mythological" title="' + tt("Myth & gods", "神话与诸神") + '">⚡ ' + tt("Myth", "神话") + '</button>' +
-            '<button class="person-mv-realm-btn" data-realm="literary" title="' + tt("Literary characters", "文学虚构") + '">📚 ' + tt("Literary", "文学") + '</button>' +
-            '<button class="person-mv-realm-btn" data-realm="folkloric" title="' + tt("Folk tales", "民间传说") + '">🏮 ' + tt("Folk", "民间") + '</button>' +
-            /* W306d — activity-bar tabs moved here from floating notch */
-            (function () {
-              var isZh = /^zh/i.test(String((globalThis.CSSOS_I18N && globalThis.CSSOS_I18N.getCurrentLocale && globalThis.CSSOS_I18N.getCurrentLocale()) || tt("en", "zh")));
-              var tabs = (globalThis.__cssosActivityBar && globalThis.__cssosActivityBar.STYLE_TABS) || [
-                { id: "leaderboard", icon: "🏆", en: "Top",       zh: "排行榜" },
-                { id: "schools",     icon: "🏛", en: "Schools",   zh: "流派"   },
-                { id: "epic",        icon: "⚔️",  en: "Epic",      zh: "史诗"   },
-                { id: "tang",        icon: "🐉", en: "Tang",      zh: "唐风"   },
-                { id: "ambient",     icon: "🌫️", en: "Ambient",   zh: "氛围"   },
-                { id: "cinematic",   icon: "🎬", en: "Cinematic", zh: "电影感" },
-                { id: "rock",        icon: "🎸", en: "Rock",      zh: "摇滚"   },
-              ];
-              return tabs.map(function (t) {
-                var label = isZh ? t.zh : t.en;
-                return '<button class="person-mv-style-btn" data-style-tab="' + t.id + '" type="button">' +
-                  '<span class="pmv-style-icon">' + t.icon + '</span>' +
-                  '<span>' + escapeText(label) + '</span></button>';
-              }).join('');
-            })() +
+            '<button class="person-mv-style-btn" data-style-tab="leaderboard" type="button">🏆 ' + escapeText(tt("Top", "排行榜")) + '</button>' +
+            '<button class="person-mv-style-btn" data-style-tab="schools"     type="button">🏛 ' + escapeText(tt("Schools", "流派")) + '</button>' +
+            '<button class="person-mv-style-btn" data-style-tab="epic"        type="button">⚔️ '  + escapeText(tt("Epic", "史诗")) + '</button>' +
+            '<button class="person-mv-style-btn" data-style-tab="tang"        type="button">🐉 ' + escapeText(tt("Tang", "唐风")) + '</button>' +
+            '<button class="person-mv-style-btn" data-style-tab="ambient"     type="button">🌫️ ' + escapeText(tt("Ambient", "氛围")) + '</button>' +
+            '<button class="person-mv-style-btn" data-style-tab="cinematic"   type="button">🎬 ' + escapeText(tt("Cinematic", "电影感")) + '</button>' +
+            '<button class="person-mv-style-btn" data-style-tab="rock"        type="button">🎸 ' + escapeText(tt("Rock", "摇滚")) + '</button>' +
           '</div>' +
         '</div>' +
         '<div class="person-mv-toolbar">' +
           '<input class="person-mv-search" type="search" placeholder="' +
             tt("Search by name, civilization, theme…", "按姓名 / 文明 / 主题搜索") + '" />' +
+          /* Sort mode: Influence / Civilization */
+          '<div class="person-mv-sort-group" data-segmented="2">' +
+            '<button class="person-mv-tier-btn active" data-tier="1" type="button">' + tt("Influence", "影响力") + '</button>' +
+            '<button class="person-mv-tier-btn" data-tier="2" type="button">' + tt("Civilization", "文明") + '</button>' +
+          '</div>' +
+          /* S/A/B curation tier */
+          '<div class="person-mv-curation-tier" data-segmented="4">' +
+            '<button class="person-mv-ctier-btn active" data-ctier="S" title="' + tt("Global consensus", "全球公认") + '">S</button>' +
+            '<button class="person-mv-ctier-btn" data-ctier="A" title="' + tt("Civilization rep", "文明代表") + '">A</button>' +
+            '<button class="person-mv-ctier-btn" data-ctier="B" title="' + tt("Domain rep", "领域代表") + '">B</button>' +
+            '<button class="person-mv-ctier-btn" data-ctier="all" title="' + tt("All tiers", "全部") + '">' + tt("All", "全") + '</button>' +
+          '</div>' +
+          /* Realm pills */
+          '<div class="person-mv-realm-pills cssmv-pill-bar">' +
+            '<button class="person-mv-realm-btn active" data-realm="all"         title="' + tt("All realms",           "全部位面") + '">🌐 ' + tt("All",      "全")  + '</button>' +
+            '<button class="person-mv-realm-btn"        data-realm="historical"  title="' + tt("Real history",         "真实历史") + '">📜 ' + tt("History",  "历史") + '</button>' +
+            '<button class="person-mv-realm-btn"        data-realm="mythological"title="' + tt("Myth & gods",          "神话与诸神") + '">⚡ ' + tt("Myth",    "神话") + '</button>' +
+            '<button class="person-mv-realm-btn"        data-realm="literary"    title="' + tt("Literary characters",  "文学虚构") + '">📚 ' + tt("Literary", "文学") + '</button>' +
+            '<button class="person-mv-realm-btn"        data-realm="folkloric"   title="' + tt("Folk tales",           "民间传说") + '">🏮 ' + tt("Folk",     "民间") + '</button>' +
+          '</div>' +
           '<select class="person-mv-civ-select"><option value="">' +
             tt("All civilizations", "全部文明") + '</option></select>' +
           '<button class="person-mv-random-btn" title="' +

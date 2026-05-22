@@ -135,29 +135,41 @@
       } catch (_e) {}
     }
 
-    // CSSOS_WAVE_297/300 20260521 — Jing: "左上角那个旧的关闭按钮取消" — 真全屏
-    // 影院里只保留右上角 #watch-exit-cinema 一个 ✕. 那个旧的 × 不在 #watch-panel
-    // 内(W297 只扫面板, 漏了), 现在【document 级】扫描: 任何裸 "×/✕" 按钮, 只要不是
-    // 退出影院键、且落在左上角区域(left<220 且 top<320), 就隐藏. 仅 App 端执行.
+    // CSSOS_WAVE_300c 20260521 — Jing: "删掉左上边的关闭按钮" — 它一直没被清掉,
+    // 因为那个 × 很可能是 SVG 图标(不是文字字符), 之前按字形匹配漏了; 而且它独立
+    // 于 idle 系统(头像/Dock 都隐了它还在). 改为【不靠字形】: 影院全屏时, 左上角
+    // 区域(left<260 且 top<360)的小型可点击元素, 只要不是作者头像、不是搜索框、
+    // 不是退出影院 ✕, 就一律隐藏. 唯一合法的左上元素是头像(保留). 仅 App 端.
+    function inCinemaNow() {
+      try {
+        var pnl = document.getElementById("watch-panel");
+        return document.body.classList.contains("cssos-cinema-mode") ||
+          (pnl && pnl.classList.contains("is-cssmv-fullscreen")) ||
+          !!document.fullscreenElement || !!document.webkitFullscreenElement;
+      } catch (_e) { return false; }
+    }
     if (isApp()) {
       var killStrayClose = function () {
-        document.querySelectorAll("button, [role=button], .icon-btn").forEach(function (el) {
-          if (el.id === "watch-exit-cinema") return;
-          var t = String(el.textContent || "").trim();
-          if (t !== "×" && t !== "✕" && t !== "✖" && t !== "⨉") return;
+        if (!inCinemaNow()) return;
+        document.querySelectorAll("button, [role=button], a, .icon-btn").forEach(function (el) {
+          if (!el || el.id === "watch-exit-cinema" || el.id === "watch-author-avatar") return;
+          if (el.closest && el.closest("#watch-search-box")) return; // 搜索框内的元素不动
+          if (el.closest && el.closest("#dock")) return;             // Dock 不动
           var r;
           try { r = el.getBoundingClientRect(); } catch (_e) { return; }
-          // 左上角区域的关闭键(就是截图里那个旧 ×). 其它位置的 × 不动.
-          if (r && r.width > 0 && r.left < 220 && r.top < 320) {
+          if (!r || r.width <= 0 || r.height <= 0) return;
+          if (r.width > 140 || r.height > 140) return; // 只针对小按钮(那个 ×)
+          // 左上角区域: 这里在影院全屏下唯一该出现的是作者头像(已排除).
+          if (r.left < 260 && r.top < 360) {
             try { el.style.setProperty("display", "none", "important"); } catch (_e) {}
           }
         });
       };
       killStrayClose();
+      [200, 600, 1200, 2500].forEach(function (ms) { setTimeout(killStrayClose, ms); });
       try {
         new MutationObserver(killStrayClose).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style"] });
       } catch (_e) {}
-      // 全屏切换时位置会变, 再扫一遍.
       document.addEventListener("fullscreenchange", killStrayClose, { passive: true });
       document.addEventListener("webkitfullscreenchange", killStrayClose, { passive: true });
     }

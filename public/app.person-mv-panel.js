@@ -426,7 +426,13 @@
   }
 
   function ensurePanel() {
-    if (panelEl) return panelEl;
+    if (panelEl) {
+      /* W306f freshness guard — if the cached panel is missing the unified
+       * pill track's style buttons (added in W306f), the panel was built
+       * from stale code in this SPA session. Rebuild it. */
+      if (panelEl.querySelector(".person-mv-style-btn")) return panelEl;
+      panelEl = null; // stale — fall through to full rebuild
+    }
     /* Stale panel from a previous load? Hide it before creating ours. */
     var prev = document.getElementById("person-mv-panel");
     if (prev) {
@@ -2708,6 +2714,11 @@
       ".pmv-codex .pmv-dialogue-row .pmv-chip{flex:1;text-align:left;}" +
       ".pmv-codex .pmv-dialogue-cta{all:unset;cursor:pointer;padding:7px 14px;border-radius:999px;background:linear-gradient(135deg,#ffa500,#ff6f00);color:#001008;font:700 12px/1 -apple-system,system-ui,sans-serif;transition:filter .15s ease, box-shadow .15s ease;box-shadow:0 2px 8px rgba(255,165,0,0.3);}" +
       ".pmv-codex .pmv-dialogue-cta:hover{filter:brightness(1.1);box-shadow:0 4px 12px rgba(255,165,0,0.5);}" +
+      /* CSSOS_WAVE_327 典故行: 文本(标题+梗概)在左, 创作按钮在右. */
+      ".pmv-codex .pmv-allusion-row{align-items:flex-start;gap:10px;}" +
+      ".pmv-codex .pmv-allusion-text{flex:1;min-width:0;}" +
+      ".pmv-codex .pmv-allusion-title{font:700 13px/1.35 ui-monospace,monospace;color:#daffee;}" +
+      ".pmv-codex .pmv-allusion-syn{font:500 11.5px/1.55 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.72);margin-top:3px;}" +
       ".pmv-codex .pmv-mv-card{aspect-ratio:16/9;background:rgba(0,0,0,.4);border:1px solid rgba(0,245,160,.2);border-radius:8px;cursor:pointer;position:relative;overflow:hidden;}" +
       ".pmv-codex .pmv-mv-poster{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}" +
       ".pmv-codex .pmv-mv-fallback{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:36px;background:linear-gradient(135deg,#012019,#003a2c);color:#bff5dc;}" +
@@ -2983,6 +2994,30 @@
           '</div></div>';
       }
 
+      // CSSOS_WAVE_327 20260522 — Jing「典故」闭环: 人物的著名典故/故事桥段, 每条可一键
+      // 据此创作 MV(人物 × 典故融合). 与"地点"对称, 三者(人物/地点/典故)凑齐完美闭环.
+      var allus = (lore && Array.isArray(lore.allusions)) ? lore.allusions : [];
+      if (allus.length) {
+        h += '<div class="pmv-section"><h3>📖 ' + escTxt(tt("Allusions · Pick a story", "典故 · 选一个故事")) + '</h3>' +
+          '<div class="pmv-dialogue-list">' +
+            allus.map(function (a, i) {
+              var ttl = String((a && a.title) || "").trim();
+              var syn = String((a && a.synopsis) || "").trim();
+              if (!ttl && !syn) return "";
+              return '<div class="pmv-dialogue-row pmv-allusion-row">' +
+                '<div class="pmv-allusion-text">' +
+                  '<div class="pmv-allusion-title">📖 ' + escTxt(ttl) + '</div>' +
+                  (syn ? '<div class="pmv-allusion-syn">' + escTxt(syn) + '</div>' : '') +
+                '</div>' +
+                '<button class="pmv-dialogue-cta pmv-allusion-cta" data-allusion-idx="' + i + '"' +
+                  ' title="' + escAttr(tt("Create an MV from this story", "据此典故创作 MV")) + '">' +
+                  '✨ ' + escTxt(tt("Create MV", "创作 MV")) +
+                '</button>' +
+              '</div>';
+            }).join("") +
+          '</div></div>';
+      }
+
       if (loreEmpty) {
         h += '<div class="pmv-section"><div class="pmv-skel">' +
           escTxt(tt("Codex is being generated.", "档案正在生成中。")) +
@@ -3202,6 +3237,16 @@
           return;
         }
         var seed = buildSeed(p, lore);
+        // CSSOS_WAVE_327 20260522 — Jing「典故」: 指定了典故故事 → 用它替换随机 theme,
+        // 歌词据此典故创作(theme/__storyAngle 是后端歌词的故事种子).
+        if (opts && opts.storyAngle) {
+          var _ang = String(opts.storyAngle).trim().slice(0, 140);
+          var _ttl = opts.storyTitle ? String(opts.storyTitle).trim() : "";
+          seed.__theme = (_ttl ? _ttl + "·" : "") + _ang;
+          seed.__storyAngle = _ang;
+          seed.theme = seed.__theme;
+          seed.prompt = localizedName(p) + "\n[" + (_ttl ? _ttl + "：" : "") + _ang + "]";
+        }
         applyCivHints(p.civilization);
         var queue = opts.forceNew
           ? []
@@ -3277,6 +3322,20 @@
         btn.addEventListener("click", async function(){
           if (!(await requireSignedInForAction("create"))) return;
           enterCinemaForPerson({ forceNew: true });
+        });
+      });
+      // CSSOS_WAVE_327 20260522 — Jing「典故」: 点某条典故 → 据此故事创作 MV(人物 × 典故).
+      host.querySelectorAll(".pmv-allusion-cta").forEach(function (btn) {
+        btn.addEventListener("click", async function () {
+          if (!(await requireSignedInForAction("create"))) return;
+          var idx = parseInt(btn.getAttribute("data-allusion-idx"), 10);
+          var a = (lore && Array.isArray(lore.allusions)) ? lore.allusions[idx] : null;
+          if (!a) return;
+          enterCinemaForPerson({
+            forceNew: true,
+            storyTitle: String(a.title || "").trim(),
+            storyAngle: String(a.synopsis || a.title || "").trim(),
+          });
         });
       });
       // CSSOS_WAVE_149 20260514 — Jing: 人物 codex 的 MV 卡片无法点击进

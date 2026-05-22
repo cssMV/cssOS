@@ -732,6 +732,471 @@ app.post("/api/mv/seed", express.json({ limit: "16kb" }), async (req, res) => {
   }
 });
 
+// CSSOS_WAVE_220B_TWO_TITLES 20260520 — Jing: Suno returns 2 tracks per
+// generation; we build 2 full MVs (Take 1 + Take 2 sibling). Each must
+// have a DISTINCT title (not "<base> · Take 2"). This endpoint takes the
+// Take-1 title + style + lyrics and produces ONE fresh sibling title that
+// is clearly a different song from the SAME session — same mood/world,
+// different angle. Cheap (≤40 tokens), routed through the free-tier LLM
+// router first. Fire-and-forget caller falls back to the suffix on error.
+app.post("/api/mv/title/alt", express.json({ limit: "32kb" }), async (req, res) => {
+  const baseTitle = String(req.body?.title || "").trim().slice(0, 200);
+  const style = String(req.body?.style || "").trim().slice(0, 200);
+  const lyrics = String(req.body?.lyrics || "").trim().slice(0, 2000);
+  const lang = String(req.body?.language || "en").trim().toLowerCase();
+  if (!baseTitle && !lyrics) {
+    return res.status(400).json({ ok: false, error: "need_title_or_lyrics" });
+  }
+  const sysMsg =
+    "You name songs. Given a first song's title, style, and lyrics, you " +
+    "produce ONE title for its SIBLING track — a different song from the " +
+    "same recording session: same emotional world and style, but a " +
+    "distinct angle, image, or moment. The sibling title MUST be clearly " +
+    "different wording from the first (no '(II)', no 'Take 2', no 'Part 2', " +
+    "no numbering, no reusing the first title's main noun). Output strict " +
+    "JSON only: {\"title\": string}. Keep it ≤ 60 characters, evocative, " +
+    "no quotes around it.";
+  const userMsg =
+    `Output language: ${lang}.\n` +
+    `First song title: ${baseTitle || "(none)"}\n` +
+    (style ? `Style: ${style}\n` : "") +
+    (lyrics ? `First song lyrics (for mood only):\n${lyrics}\n` : "") +
+    `Give the sibling title as JSON.`;
+  try {
+    const result = await callLlm({
+      messages: [
+        { role: "system", content: sysMsg },
+        { role: "user", content: userMsg },
+      ],
+      max_tokens: 60,
+      temperature: 1.0,
+      response_format: { type: "json_object" },
+      prefer: userPreferredOrder(
+        req as unknown as { headers: Record<string, unknown>; cookies?: Record<string, string> },
+        "llm",
+      ),
+    });
+    if (!result.ok) {
+      return res.status(result.status).json({ ok: false, error: "llm_upstream_error", detail: result.error || "" });
+    }
+    const raw = result.content.trim();
+    let parsed: any = null;
+    try { parsed = JSON.parse(raw); } catch (_e) {
+      const m = raw.match(/\{[\s\S]*\}/);
+      if (m) { try { parsed = JSON.parse(m[0]); } catch (_e2) { /* */ } }
+    }
+    const title = String(parsed?.title || "").trim().replace(/^["']|["']$/g, "").slice(0, 120);
+    if (!title) return res.status(502).json({ ok: false, error: "llm_empty_title" });
+    return res.json({ ok: true, title, source: `${result.provider}/${result.model}` });
+  } catch (err) {
+    return res.status(502).json({
+      ok: false, error: "alt_title_failed",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
+// ============================================================
+// CSSOS_TIER_C_MULTILINGUAL 20260520 — Jing: multilingual lyric
+// tracks × multi-voice lanes (cssOS world-first). Each "language
+// track" is an inseparable bundle: re-sung lyrics (transcreation,
+// NOT subtitle translation) + its own Suno voice lane + its own
+// Whisper-aligned emotional subtitles. The video / slideshow is
+// SHARED across language tracks (switched live via the 🌐 pill).
+//
+// Billing (CLAUDE.md constitution): this is OUTPUT cost = wallet
+// pay-as-you-go in integer cents, NOT subscription. The 1st language
+// (the original / default track) is ALWAYS free. Extra languages are
+// charged on a volume curve. Free + guest tiers are REFUSED entirely;
+// even Pro/Studio/Enterprise/VIP pay per extra track (staff exempt
+// via debitCredits' isCreditExempt).
+// ============================================================
+type MvLanguage = { code: string; native: string; en: string };
+// Built-in launch set. NOT the hard limit — see the extensible loader
+// below. To add languages WITHOUT a code deploy, drop a JSON array at
+// /srv/cssos/shared/mv-languages.json (or set MV_EXTRA_LANGUAGES env to
+// a JSON array). Both are merged on top of this base, deduped by code.
+// Shape: [{ "code": "it", "native": "Italiano", "en": "Italian" }, …]
+const MV_BASE_LANGUAGES: ReadonlyArray<MvLanguage> = [
+  { code: "en", native: "English", en: "English" },
+  { code: "zh", native: "中文", en: "Chinese" },
+  { code: "ja", native: "日本語", en: "Japanese" },
+  { code: "ko", native: "한국어", en: "Korean" },
+  { code: "fr", native: "Français", en: "French" },
+  { code: "de", native: "Deutsch", en: "German" },
+  { code: "es", native: "Español", en: "Spanish" },
+  { code: "pt", native: "Português", en: "Portuguese" },
+];
+function loadMvLanguages(): MvLanguage[] {
+  const merged = new Map<string, MvLanguage>();
+  for (const l of MV_BASE_LANGUAGES) merged.set(l.code, { ...l });
+  const ingest = (arr: unknown) => {
+    if (!Array.isArray(arr)) return;
+    for (const item of arr) {
+      const code = String((item as any)?.code || "").trim().toLowerCase();
+      const native = String((item as any)?.native || "").trim();
+      const en = String((item as any)?.en || "").trim();
+      if (code && native && en) merged.set(code, { code, native, en });
+    }
+  };
+  // 1) file override (preferred — editable without restart on next read)
+  try {
+    const p = process.env.MV_LANGUAGES_FILE || "/srv/cssos/shared/mv-languages.json";
+    if (fs.existsSync(p)) ingest(JSON.parse(fs.readFileSync(p, "utf8")));
+  } catch (e) {
+    console.warn("[mv-languages] file load skipped:", e instanceof Error ? e.message : String(e));
+  }
+  // 2) env override
+  try {
+    if (process.env.MV_EXTRA_LANGUAGES) ingest(JSON.parse(process.env.MV_EXTRA_LANGUAGES));
+  } catch (e) {
+    console.warn("[mv-languages] env load skipped:", e instanceof Error ? e.message : String(e));
+  }
+  return Array.from(merged.values());
+}
+// Re-read per request (cheap) so a dropped JSON file takes effect without
+// a service restart — matches Jing's "别写死，以后肯定要加更多语言".
+function mvSupportedLanguages(): MvLanguage[] { return loadMvLanguages(); }
+function mvSupportedLanguageCodes(): Set<string> {
+  return new Set(loadMvLanguages().map((l) => l.code));
+}
+
+/**
+ * Per-extra-language price on a volume curve (integer cents USD).
+ *   1 paid track  → $1.99 each
+ *   2 paid tracks → $1.49 each
+ *   3+ paid tracks→ $0.99 each
+ * `paidCount` is the number of CHARGED language tracks in this
+ * transaction (the free 1st/default track is excluded by the caller).
+ */
+function mvLanguageTrackPerCents(paidCount: number): number {
+  if (paidCount <= 0) return 0;
+  if (paidCount === 1) return 199;
+  if (paidCount === 2) return 129;
+  return 99;
+}
+/**
+ * Quote a multilingual selection.
+ * @param languageCount total distinct languages the user wants on the work
+ * @param freeFirst     true for a brand-new work (1st language is free);
+ *                      false when ADDING tracks to a work that already has
+ *                      a default track (every new language is charged).
+ */
+function quoteMvLanguageTracks(languageCount: number, freeFirst: boolean): {
+  freeCount: number;
+  paidCount: number;
+  perCents: number;
+  totalCents: number;
+} {
+  const n = Math.max(0, Math.floor(languageCount));
+  const freeCount = freeFirst ? Math.min(1, n) : 0;
+  const paidCount = Math.max(0, n - freeCount);
+  const perCents = mvLanguageTrackPerCents(paidCount);
+  return { freeCount, paidCount, perCents, totalCents: perCents * paidCount };
+}
+
+// GET /api/mv/languages — public catalog of supported languages (i18n
+// labels are resolved client-side from the code; native names ship here).
+app.get("/api/mv/languages", (_req, res) => {
+  res.json({ ok: true, languages: mvSupportedLanguages() });
+});
+
+// POST /api/mv/language-tracks/quote — price a multilingual selection +
+// enforce the tier gate. Free/guest are refused. Body:
+//   { languages: string[],       // codes, in user selection order
+//     free_first?: boolean }      // default true (new work); false = add-on
+app.post("/api/mv/language-tracks/quote", express.json({ limit: "4kb" }), async (req, res) => {
+  const user = await getSessionUser(req);
+  if (!user) {
+    return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+  }
+  const profile = await resolveUserAccessProfile(user);
+  // Tier gate: free + guest are refused outright. Everyone else pays
+  // per extra track (no tier gets it for free; staff exemption is
+  // applied later at debit time, not here).
+  if (profile.tier === "guest" || profile.tier === "free") {
+    return res.status(402).json({
+      ok: false,
+      code: "TIER_REQUIRED",
+      required: "starter",
+      message: "Multilingual voice tracks need a paid plan + wallet balance.",
+    });
+  }
+  const raw = Array.isArray(req.body?.languages) ? req.body.languages : [];
+  const supported = mvSupportedLanguageCodes();
+  const seen = new Set<string>();
+  const languages: string[] = [];
+  for (const item of raw) {
+    const code = String(item || "").trim().toLowerCase();
+    if (supported.has(code) && !seen.has(code)) {
+      seen.add(code);
+      languages.push(code);
+    }
+  }
+  const freeFirst = req.body?.free_first === false ? false : true;
+  const quote = quoteMvLanguageTracks(languages.length, freeFirst);
+  const balance = await getCreditBalance(user.id);
+  return res.json({
+    ok: true,
+    languages,
+    free_first: freeFirst,
+    free_count: quote.freeCount,
+    paid_count: quote.paidCount,
+    per_cents: quote.perCents,
+    total_cents: quote.totalCents,
+    balance_cents: balance,
+    sufficient: balance >= quote.totalCents,
+  });
+});
+
+// ============================================================
+// CSSOS_TIER_C_MULTILINGUAL — C4 backend: bounded-concurrency language
+// track queue. A whale selecting all 8 languages must NEVER flood Suno
+// (kie.ai 429s past its concurrency cap). We cap GLOBAL in-flight Suno
+// calls regardless of how many users/tracks are queued, with backoff.
+// ============================================================
+const MV_LANG_TRACK_CONCURRENCY = Math.max(
+  1, Number(process.env.MV_LANG_TRACK_CONCURRENCY || 2),
+);
+const MV_LANG_TRACK_MAX_RETRIES = Math.max(
+  0, Number(process.env.MV_LANG_TRACK_MAX_RETRIES || 4),
+);
+let _mvLangInFlight = 0;
+const _mvLangWaiters: Array<() => void> = [];
+async function mvLangAcquire(): Promise<void> {
+  if (_mvLangInFlight < MV_LANG_TRACK_CONCURRENCY) { _mvLangInFlight++; return; }
+  await new Promise<void>((resolve) => _mvLangWaiters.push(resolve));
+  _mvLangInFlight++;
+}
+function mvLangRelease(): void {
+  _mvLangInFlight--;
+  const next = _mvLangWaiters.shift();
+  if (next) next();
+}
+const _mvLangSleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Transcreate (re-sing, NOT translate) lyrics into a target language.
+async function transcreateLyrics(
+  baseLyrics: string, fromLangHint: string, toLang: string,
+): Promise<string> {
+  const langName = (mvSupportedLanguages().find((l) => l.code === toLang)?.en) || toLang;
+  const sys =
+    "You are a master lyricist doing TRANSCREATION (singable adaptation), " +
+    "NOT literal translation. Re-write the song lyrics so they can be SUNG " +
+    "naturally in " + langName + ": preserve the emotional meaning, imagery, " +
+    "and section structure (keep the same number of lines per section), make " +
+    "it rhyme and scan for singing in " + langName + ". Output ONLY the " +
+    "re-sung lyrics text — no notes, no language labels, no romanization.";
+  const result = await callLlm({
+    messages: [
+      { role: "system", content: sys },
+      { role: "user", content: "Original lyrics (source language: " + (fromLangHint || "auto") + "):\n\n" + baseLyrics.slice(0, 6000) },
+    ],
+    max_tokens: 1200,
+    temperature: 0.85,
+  });
+  if (!result.ok) throw new Error("transcreate_llm_failed: " + (result.error || ""));
+  return result.content.trim();
+}
+
+// Render ONE language track end-to-end: transcreate → Suno voice →
+// Whisper align → persist + debit. Idempotent on (work_id, lang).
+async function renderLanguageTrack(opts: {
+  workId: string; userId: string; lang: string; trackOrder: number;
+  baseLyrics: string; baseTitle: string; baseStyle: string;
+  fromLangHint: string; chargedCents: number; durationSecs?: number | null;
+}): Promise<void> {
+  const { workId, userId, lang, chargedCents } = opts;
+  const setStatus = (status: string, extra: Record<string, unknown> = {}) =>
+    withClient((c) => c.query(
+      `UPDATE work_language_tracks SET status=$3, updated_at=now()
+         ${Object.keys(extra).map((k, i) => `, ${k}=$${i + 4}`).join("")}
+       WHERE work_id=$1::uuid AND lang=$2`,
+      [workId, lang, status, ...Object.values(extra)],
+    ));
+  let attempt = 0;
+  for (;;) {
+    await mvLangAcquire();
+    try {
+      await setStatus("rendering");
+      const reLyrics = await transcreateLyrics(opts.baseLyrics, opts.fromLangHint, lang);
+      const music = await callMusicGen({
+        prompt: [opts.baseTitle, opts.baseStyle].filter(Boolean).join(" — "),
+        lyrics: reLyrics,
+        title: opts.baseTitle,
+        language: lang,
+        duration_secs: Number(opts.durationSecs) > 1 ? Number(opts.durationSecs) : 200,
+      } as MusicGenRequest);
+      if (!music || !music.ok || !music.audio_url) {
+        const detail = String((music as any)?.error || "");
+        if (/429|throttl|rate|insufficient|concurren/i.test(detail) && attempt < MV_LANG_TRACK_MAX_RETRIES) {
+          attempt++;
+          mvLangRelease();
+          await _mvLangSleep(Math.min(16000, 2000 * 2 ** (attempt - 1)));
+          continue;
+        }
+        await setStatus("failed", { voice_meta: JSON.stringify({ error: detail || "music_gen_failed" }) });
+        return; // no debit on failure
+      }
+      let timeline: any[] | undefined;
+      try { timeline = await alignWordsViaWhisper(music.audio_url, lang); } catch { /* keep null */ }
+      // CSSOS_TIER_C_MULTILINGUAL #4 — Suno occasionally omits duration
+      // (e.g. ko). ffprobe the remote audio URL as a fallback so the
+      // track's progress bar / card chip has a real length.
+      let durSecs = music.duration_s ? Math.round(music.duration_s) : null;
+      if (!durSecs && music.audio_url) {
+        durSecs = await new Promise<number | null>((resolve) => {
+          try {
+            const ff = spawn("ffprobe", [
+              "-v", "error", "-show_entries", "format=duration",
+              "-of", "default=noprint_wrappers=1:nokey=1", music.audio_url as string,
+            ]);
+            let out = "";
+            ff.stdout.on("data", (b) => { out += b.toString(); });
+            ff.on("error", () => resolve(null));
+            ff.on("close", () => {
+              const n = Math.round(parseFloat(out.trim()));
+              resolve(Number.isFinite(n) && n > 0 ? n : null);
+            });
+          } catch { resolve(null); }
+        });
+      }
+      // Debit the wallet for this track ONLY now that it succeeded.
+      if (chargedCents > 0) {
+        await debitCredits(userId, chargedCents, "mv_language_track", { work_id: workId, lang });
+      }
+      await setStatus("ready", {
+        audio_url: music.audio_url,
+        duration_secs: durSecs,
+        lyrics: reLyrics,
+        voice_meta: JSON.stringify({
+          provider: music.provider || "suno",
+          timeline: Array.isArray(timeline) ? timeline : null,
+        }),
+      });
+      return;
+    } catch (err) {
+      if (attempt < MV_LANG_TRACK_MAX_RETRIES && /429|throttl|rate|timeout|network/i.test(String((err as Error)?.message || ""))) {
+        attempt++;
+        mvLangRelease();
+        await _mvLangSleep(Math.min(16000, 2000 * 2 ** (attempt - 1)));
+        continue;
+      }
+      await withClient((c) => c.query(
+        `UPDATE work_language_tracks SET status='failed', voice_meta=$3::jsonb, updated_at=now()
+           WHERE work_id=$1::uuid AND lang=$2`,
+        [workId, lang, JSON.stringify({ error: String((err as Error)?.message || err).slice(0, 300) })],
+      )).catch(() => {});
+      return;
+    } finally {
+      mvLangRelease();
+    }
+  }
+}
+
+// POST /api/works/:id/language-tracks — add language tracks to an EXISTING
+// work. Body: { languages: string[] }  (codes, selection order; the work's
+// existing default counts as the free 1st, so EVERY new language is paid).
+app.post("/api/works/:id/language-tracks", express.json({ limit: "4kb" }), async (req, res) => {
+  // CSSOS_TIER_C_MULTILINGUAL — admin-token bypass for ops/testing (same
+  // pattern as /api/admin/template-mv/generate). When a valid token is
+  // present we skip session/tier/balance and act on behalf of the work
+  // owner (debit is staff-exempt for admin-owned works).
+  const adminTokenExpected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const adminTokenProvided = String(req.headers["x-admin-token"] || "").trim();
+  const isAdminToken = !!adminTokenExpected && adminTokenProvided === adminTokenExpected;
+
+  let user: any = null;
+  if (!isAdminToken) {
+    user = await getSessionUser(req);
+    if (!user) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const profile = await resolveUserAccessProfile(user);
+    if (profile.tier === "guest" || profile.tier === "free") {
+      return res.status(402).json({ ok: false, code: "TIER_REQUIRED", required: "starter" });
+    }
+  }
+  const workId = String(req.params.id || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(workId)) return res.status(400).json({ ok: false, code: "INVALID_WORK_ID" });
+  // Ownership.
+  const owns = await withClient((c) => c.query<{ user_id: string; title: string; style: string; lyrics_preview: string; duration_secs: number }>(
+    `SELECT user_id, title, style, lyrics_preview, duration_secs FROM user_works WHERE id=$1::uuid LIMIT 1`,
+    [workId]));
+  const w = owns.rows[0];
+  if (!w) return res.status(404).json({ ok: false, code: "WORK_NOT_FOUND" });
+  if (isAdminToken) {
+    // System/ops automation path (header token, not a user) — acts as
+    // the work owner. Debit is staff-exempt for admin-owned works.
+    user = { id: w.user_id, email: "admin@cssstudio.app" };
+  } else if (String(w.user_id) !== String(user.id)) {
+    // CSSOS_TIER_C_MULTILINGUAL 20260520 — Jing: adding language tracks
+    // is AUTHOR-ONLY. No admin-email session shortcut: a staff member
+    // browsing someone else's work cannot add paid tracks to it. (The
+    // 🌐 pill PLAYBACK of existing ready tracks stays open to everyone;
+    // only this ADD endpoint is gated.)
+    return res.status(403).json({ ok: false, code: "AUTHOR_ONLY" });
+  }
+  // Sanitize requested languages.
+  const supported = mvSupportedLanguageCodes();
+  const existing = await withClient((c) => c.query<{ lang: string; track_order: number }>(
+    `SELECT lang, track_order FROM work_language_tracks WHERE work_id=$1::uuid`, [workId]));
+  const have = new Set(existing.rows.map((r) => r.lang));
+  let maxOrder = existing.rows.reduce((m, r) => Math.max(m, r.track_order), 0);
+  const seen = new Set<string>();
+  const fresh: string[] = [];
+  for (const item of (Array.isArray(req.body?.languages) ? req.body.languages : [])) {
+    const code = String(item || "").trim().toLowerCase();
+    if (supported.has(code) && !have.has(code) && !seen.has(code)) { seen.add(code); fresh.push(code); }
+  }
+  if (!fresh.length) return res.status(400).json({ ok: false, code: "NO_NEW_LANGUAGES" });
+  // Existing work already has its default → every new language is paid.
+  const quote = quoteMvLanguageTracks(fresh.length, false);
+  const balance = await getCreditBalance(user.id);
+  const exempt = isCssosAdminEmail((user as any).email);
+  if (!exempt && balance < quote.totalCents) {
+    return res.status(402).json({ ok: false, code: "INSUFFICIENT_BALANCE", need_cents: quote.totalCents, balance_cents: balance });
+  }
+  // Insert pending rows + kick the queue (fire-and-forget; server-side).
+  let order = maxOrder;
+  for (const lang of fresh) {
+    order++;
+    await withClient((c) => c.query(
+      `INSERT INTO work_language_tracks (work_id, lang, track_order, is_default, charged_cents, status)
+       VALUES ($1::uuid, $2, $3, false, $4, 'pending')
+       ON CONFLICT (work_id, lang) DO NOTHING`,
+      [workId, lang, order, quote.perCents]));
+  }
+  const fromLangHint = String(req.body?.source_lang || "").trim().toLowerCase();
+  for (const lang of fresh) {
+    void renderLanguageTrack({
+      workId, userId: String(user.id), lang, trackOrder: ++maxOrder,
+      baseLyrics: String(w.lyrics_preview || ""), baseTitle: String(w.title || ""),
+      baseStyle: String(w.style || ""), fromLangHint,
+      chargedCents: quote.perCents, durationSecs: w.duration_secs,
+    });
+  }
+  return res.json({
+    ok: true, work_id: workId, queued: fresh, per_cents: quote.perCents,
+    total_cents: quote.totalCents, concurrency: MV_LANG_TRACK_CONCURRENCY,
+  });
+});
+
+// GET /api/works/:id/language-tracks — poll status for the 🌐 pill +
+// per-language progress on the lyrics/music pills.
+app.get("/api/works/:id/language-tracks", async (req, res) => {
+  const workId = String(req.params.id || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(workId)) return res.status(400).json({ ok: false, code: "INVALID_WORK_ID" });
+  const rows = await withClient((c) => c.query(
+    `SELECT lang, track_order, is_default, status, audio_url, duration_secs,
+            subtitle_url, charged_cents, lyrics,
+            -- CSSOS_TIER_C_MULTILINGUAL C5b — surface the Whisper word
+            -- timeline so the 🌐 dual-subtitle (≤2) can render the second
+            -- language line time-aligned to the active media clock.
+            (voice_meta->'timeline') AS timeline
+       FROM work_language_tracks WHERE work_id=$1::uuid ORDER BY track_order ASC`,
+    [workId]));
+  return res.json({ ok: true, work_id: workId, tracks: rows.rows });
+});
+
 // CSSOS_PHASE2_COVER_FALLBACK_DIR 20260507 — Jing
 // Directory where base64 cover fallbacks get persisted to a real file so
 // downstream stages (compose / Rust ffmpeg) can HTTP GET them. data: URLs
@@ -912,6 +1377,11 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
   if (!userId) {
     return res.status(401).json({ ok: false, error: "sign_in_required" });
   }
+  // CSSOS_WAVE_218 — real-dollar pre-flight before any vendor call.
+  {
+    const pf = await mvStagePreflight(req, "cover");
+    if (!pf.ok) return res.status(pf.status).json(pf.body);
+  }
   if (!CSSOS_INTERNAL_TOKEN) {
     return res.status(503).json({
       ok: false,
@@ -958,6 +1428,8 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
       });
       clearInterval(heartbeat);
       const __coverCostCents = estimateEngineCostCents("cover", img?.provider);
+      // CSSOS_WAVE_218 — real-dollar debit on actual vendor cost.
+      if (img?.ok) { await chargeMvStageActual(userId, "cover", __coverCostCents, img?.provider); }
       recordEngineCall(img.provider || "image-router", Date.now() - __coverT0, __coverCostCents, !!img.ok);
       if (img.ok) {
         const imageUrl = img.image_url
@@ -2744,10 +3216,66 @@ async function computeFingerprintHash(audioPath: string): Promise<string | null>
   }
 }
 
+/* CSSOS_WAVE_239 20260520 — Jing: share-link CTA 转化漏斗埋点.
+ * 记录 cta_shown / cta_click / cta_dismiss, 用于评估广告 ROI:
+ * 看完成品的访客里有多少看到 CTA、有多少点击去注册. 无需登录,
+ * 失败静默 (sendBeacon fire-and-forget). */
+app.post("/api/metrics/share-cta", express.json({ limit: "2kb" }), async (req, res) => {
+  try {
+    const b = (req.body && typeof req.body === "object") ? (req.body as any) : {};
+    const action = String(b.action || "").slice(0, 40);
+    const workId = String(b.work_id || "").slice(0, 64);
+    const utm = String(b.utm || "").slice(0, 300);
+    if (action) {
+      console.log(`[share-cta] ${action} work=${workId} utm=${utm}`);
+      try {
+        await withClient((c) =>
+          c.query(
+            `INSERT INTO share_cta_events (action, work_id, utm, created_at)
+             VALUES ($1, $2, $3, now())`,
+            [action, workId || null, utm || null],
+          ),
+        );
+      } catch (_dbErr) { /* table may not exist yet — log line above is enough */ }
+    }
+  } catch (_e) { /* swallow */ }
+  return res.status(204).end();
+});
+
 /* POST /api/works/:id/fingerprint — owner triggers async fingerprinting
  * of the final MV audio. Stores 16-hex-char hash in fingerprint_hash
  * and sets fingerprinted_at. Idempotent: if already fingerprinted,
  * returns the existing hash unless `force=1`. */
+/* CSSOS_WAVE_230 20260518 — Jing: hover 标题 ✏️ Edit / ✨ Refine.
+ * 简单 rename 端点: 必须是作品所有者. 长度上限 80 字符. */
+app.post("/api/works/:id/title", express.json({ limit: "2kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const workId = String(req.params.id || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(workId)) {
+    return res.status(400).json({ ok: false, error: "invalid_work_id" });
+  }
+  const raw = String((req.body && (req.body as any).title) || "").trim();
+  if (!raw) return res.status(400).json({ ok: false, error: "title_required" });
+  const title = raw.slice(0, 80);
+  try {
+    const r = await withClient((c) =>
+      c.query<{ id: string; title: string }>(
+        `UPDATE user_works SET title = $1, updated_at = now()
+         WHERE id = $2::uuid AND user_id = $3::uuid
+         RETURNING id, title`,
+        [title, workId, userId],
+      ),
+    );
+    const row = r.rows[0];
+    if (!row) return res.status(404).json({ ok: false, error: "not_found_or_not_owner" });
+    return res.json({ ok: true, id: row.id, title: row.title });
+  } catch (err) {
+    console.warn("[works/title] failed:", (err as Error).message);
+    return res.status(500).json({ ok: false, error: "update_failed" });
+  }
+});
+
 app.post("/api/works/:id/fingerprint", express.json({ limit: "1kb" }), async (req, res) => {
   const userId = (req.session as any)?.user_id;
   if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
@@ -3815,16 +4343,15 @@ async function runAgentTool(
         return { error: "insufficient_credit", need: debitCost, have: debitR.balance, hint: "Earn credits via plays / forks / boost, or top up in Settings → Subscription." };
       }
 
-      // CSSOS_WAVE_185 20260516 — Jing: 免费用户上限走会员订阅级别 —
-      // 订阅面板规定多少次就多少次，不要在代码里写死。
-      //
-      // Read the user's tier policy via the canonical
-      // resolveUserAccessProfile, then enforce
-      // policy.monthlyGenerationLimit on PLAYABLE LEAVES created this
-      // calendar month. Free tier's "monthlyGenerationLimit: 3" is the
-      // single source of truth — if Jing later edits that to 5 / 10,
-      // this gate moves with it automatically. Tiers with limit=null
-      // (admin / vip / enterprise) bypass.
+      // CSSOS_WAVE_185 20260516 — original per-tier monthly cap.
+      // CSSOS_WAVE_219 20260517 — Jing: per the new pricing constitution,
+      // subscription is ACCESS ONLY. Output cost is pay-as-you-go from
+      // the wallet (debitCredits). Every tier now has
+      // monthlyGenerationLimit === null, so the `if (typeof limit ===
+      // "number" && limit > 0)` guard below is naturally inert. The
+      // code is intentionally left in place so we can re-arm a fair-use
+      // ceiling on a NEW dedicated field without re-plumbing all the
+      // call sites — but the legacy field must never carry a quota.
       try {
         // Resolve the access profile for ctx.userId. We need the email
         // too because resolveUserAccessProfile uses it for admin role
@@ -4515,7 +5042,13 @@ function buildAgentSystemPrompt(uiLocale: string): string {
     "```cssos-seed",
     `{"prompt":"...","style":"...","language":"...","work_type":"single","title":"...","__personId":"...","__landmarkId":"...","__dialogue":true,"__storyAngle":"..."}`,
     "```",
-    `The frontend AUTO-LAUNCHES the MV panel + cinema-hero progress the moment this block lands — no button, no extra click. Your one-line wrap-up should be present-continuous, e.g. "Creating this MV ▸ <title>…" / "正在为您创作《<title>》…", then stop. Do NOT call create_work_from_seed yourself; do NOT promise the user to click anything. Always include a "title" field so the cinema-hero shows a meaningful caption while the pipeline runs.`,
+    `The frontend AUTO-LAUNCHES the MV panel + cinema-hero progress the moment this block lands — no button, no extra click. Your one-line wrap-up should be present-continuous, e.g. "Creating this MV ▸ <title>…" / "正在为您创作《<title>》…", then stop. Do NOT call create_work_from_seed yourself; do NOT promise the user to click anything. Always include a "title" field.`,
+    `★ TITLE RULES (CSSOS_WAVE_220 — MANDATORY): The "title" MUST be a real, punchy SONG TITLE — like a track name on Spotify, NOT a scene description, NOT a description of the visual, NOT a sentence. Constraints:`,
+    `  • ≤ 6 words AND ≤ 30 characters (≤ 12 chars for CJK).`,
+    `  • Title Case (English) or proper noun/idiom (Chinese). Examples GOOD: "E=mc² Drill", "Eroica's Reception", "凌霄夜话", "Moonlit Goblet", "Burn the Pyramid".`,
+    `  • Examples BAD: "Albert Einstein stands before massive chalkboard covered in glow" (that's a scene), "Generate a 30s music video about Einstein" (that's a prompt), "李白在月下喝酒思乡" (that's a synopsis).`,
+    `  • If the user's prompt is descriptive/long, EXTRACT or INVENT a short evocative title. Never echo the visual/scene field as title.`,
+    `  • One title per seed. No subtitle, no "—", no parenthetical.`,
     ``,
     `DIRECT CREATION via create_work (multi-part works only):`,
     `  ONLY use the create_work tool for multi-part work_types — triptych / opera / shortplay / series / film — where the user explicitly wants N persisted siblings as a unit ("三部曲《朋友兄弟》", "歌剧《凌霄》", "5-act opera about Mulan"). For a SINGLE work, prefer the SEED FORMAT path above so the user drops straight into the cinema-hero instead of waiting on a card. Parse title from quotes / 《》, infer work_type, pass any mandatory chorus lines into required_hooks verbatim. The tool returns work_cards which the frontend renders. Your wrap-up is one short sentence ("做好了 — 三部曲《朋友兄弟》已创作完成，点击任意封面进 MV 面板") then stop.`,
@@ -4808,6 +5341,26 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
       seed = JSON.parse(seedMatch[1]);
     } catch (_) { seed = null; }
   }
+  // CSSOS_WAVE_220 — title sanitizer: if the LLM ignored the title rules
+  // and emitted a long scene/description, trim it into a punchy song-title.
+  if (seed && typeof seed === "object" && typeof seed.title === "string") {
+    const rawTitle = seed.title.trim();
+    const isCjk = /[一-鿿぀-ヿ가-힯]/.test(rawTitle);
+    const charCount = [...rawTitle].length;
+    const wordCount = rawTitle.split(/\s+/).filter(Boolean).length;
+    const looksLikeScene = /\b(stands?|walks?|sits?|holds?|covered|wearing|surrounded|drifting|glowing|before|behind|above|below|with a|in a|on a)\b/i.test(rawTitle);
+    const tooLong = isCjk ? charCount > 14 : (charCount > 30 || wordCount > 6);
+    if (tooLong || looksLikeScene) {
+      // Trim: take the first 4-5 most meaningful words, drop articles.
+      const stop = /^(a|an|the|that|this|of|in|on|at|with|to|for|by|from|and|or|—|–|-)$/i;
+      const parts = rawTitle
+        .replace(/[\(\)\[\]【】《》]/g, " ")
+        .split(/[\s,;:]+/)
+        .filter((w: string) => w && !stop.test(w));
+      const head = parts.slice(0, isCjk ? 3 : 5).join(" ").trim();
+      if (head) seed.title = head.slice(0, isCjk ? 14 : 30);
+    }
+  }
   // Remove the fenced seed block from the user-facing reply (we render
   // it auto-launches the cinema panel via renderSeedCard, W174).
   const reply = finalText.replace(/```cssos-seed[\s\S]*?```/g, "").trim();
@@ -5087,8 +5640,10 @@ async function isCreditExempt(userId: string): Promise<boolean> {
     );
     const row = (r as any).rows[0];
     if (!row) return false;
-    if (String(row.role).toLowerCase() === "admin") return true;
     const email = String(row.email || "");
+    /* CSSOS_WAVE_234 — 审核账号不享受 staff 免积分豁免. */
+    if (CSSOS_STAFF_DENYLIST.has(email)) return false;
+    if (String(row.role).toLowerCase() === "admin") return true;
     if (email.endsWith("@cssstudio.app")) return true;
     if (email === "jingdudc@gmail.com") return true;
     return false;
@@ -5161,6 +5716,88 @@ function costForCreateWork(workType: string): number {
   return CSSOS_AGENT_COSTS.create_work_other;
 }
 
+// CSSOS_WAVE_218 20260517 — Jing: real-dollar billing on MV PIPELINE.
+// Every paid stage charges the user the EXACT cents the third-party
+// engine billed us (computed by estimateEngineCostCents and already
+// returned to the frontend as cost_cents). Before any vendor call we
+// require a pre-flight balance >= the conservative ceiling for that
+// stage so a $0 user bounces with 402 BEFORE we burn vendor money.
+// Staff (admin role / @cssstudio.app / jingdudc@gmail.com) is exempt
+// via debitCredits internals — no separate gate here.
+// Balance is stored as integer cents in user_credits.balance and
+// surfaced to the user as USD dollars throughout the UI.
+const MV_STAGE_CEILING_CENTS = {
+  cover:   8,    // image gen worst case (Runway image)
+  lyrics:  5,    // LLM song-lyric worst case
+  music:  80,    // Suno/Udio full-song worst case
+  video: 150,    // Runway/Veo/Pixverse 10s worst case
+} as const;
+
+type MvStageKey = keyof typeof MV_STAGE_CEILING_CENTS;
+
+function fmtUsd(cents: number): string {
+  const c = Math.max(0, Math.round(Number(cents) || 0));
+  return `$${(c / 100).toFixed(2)}`;
+}
+
+// Pre-flight gate. Returns null when ok-to-proceed, or a 402-payload
+// when the user cannot afford the ceiling. Staff exempt via balance
+// lookup short-circuit (we skip the gate for staff so they never see
+// the 402 even if their cents balance is 0).
+async function mvStagePreflight(
+  req: any,
+  stage: MvStageKey,
+): Promise<{ ok: true } | { ok: false; status: 402; body: any }> {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) {
+    return { ok: false, status: 402, body: { ok: false, error: "sign_in_required" } };
+  }
+  // Staff exempt — pull email from session/cache if available.
+  try {
+    const email = String((req.session as any)?.email || "").toLowerCase();
+    if (email && isCssosAdminEmail(email)) return { ok: true };
+  } catch {}
+  const ceiling = MV_STAGE_CEILING_CENTS[stage];
+  const balance = await getCreditBalance(userId);
+  if (balance < ceiling) {
+    return {
+      ok: false,
+      status: 402,
+      body: {
+        ok: false,
+        error: "insufficient_balance",
+        stage,
+        need_cents: ceiling,
+        need_usd: fmtUsd(ceiling),
+        balance_cents: balance,
+        balance_usd: fmtUsd(balance),
+        hint: `This ${stage} stage may cost up to ${fmtUsd(ceiling)}. Your balance is ${fmtUsd(balance)}. Top up in Settings → Subscription.`,
+      },
+    };
+  }
+  return { ok: true };
+}
+
+// Post-call debit. Charges the EXACT cents the vendor billed us. If
+// the user is staff this is a no-op (debitCredits handles the exempt
+// path and writes a staff_exempt audit row). Errors are swallowed so
+// a billing hiccup never corrupts the user-facing vendor response —
+// the credit_events audit table is the source of truth.
+async function chargeMvStageActual(
+  userId: string,
+  stage: MvStageKey,
+  actualCents: number,
+  provider: string | null | undefined,
+): Promise<void> {
+  try {
+    const cents = Math.max(0, Math.round(Number(actualCents) || 0));
+    if (cents <= 0) return;
+    await debitCredits(userId, cents, `mv_${stage}`, { provider: provider || null, stage });
+  } catch (e) {
+    console.error(`[mv-billing] debit failed stage=${stage}`, (e as Error)?.message);
+  }
+}
+
 /* GET /api/agent/cost-rates — public; frontend shows fee preview. */
 app.get("/api/agent/cost-rates", (_req, res) => {
   noStore(res);
@@ -5229,7 +5866,172 @@ app.get("/api/credits/balance", async (req, res) => {
   const userId = (req.session as any)?.user_id;
   if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
   const balance = await getCreditBalance(userId);
-  return res.json({ ok: true, balance });
+  // CSSOS_WAVE_218 — surface real-dollar view so the frontend can
+  // render "$X.XX" without a unit-conversion bug. balance == cents.
+  return res.json({
+    ok: true,
+    balance,
+    balance_cents: balance,
+    balance_usd: fmtUsd(balance),
+  });
+});
+
+// CSSOS_WAVE_218 — MV PIPELINE stage ceilings in real USD. Frontend
+// uses this for the pre-flight "This run will cost up to $X.XX" line.
+app.get("/api/mv/stage-rates", (_req, res) => {
+  noStore(res);
+  return res.json({
+    ok: true,
+    currency: "USD",
+    stages: Object.fromEntries(
+      Object.entries(MV_STAGE_CEILING_CENTS).map(([k, cents]) => [
+        k,
+        { ceiling_cents: cents, ceiling_usd: fmtUsd(cents) },
+      ]),
+    ),
+    total_ceiling_cents: Object.values(MV_STAGE_CEILING_CENTS).reduce((a, b) => a + b, 0),
+    total_ceiling_usd: fmtUsd(Object.values(MV_STAGE_CEILING_CENTS).reduce((a, b) => a + b, 0)),
+    note: "Per-run worst-case ceiling. Actual deduction matches the vendor's real cost (often much less).",
+  });
+});
+
+// CSSOS_WAVE_220A 20260517 — Jing: memory telemetry sink for the
+// front-end memory-probe. Lightweight insert into telemetry_memory_samples
+// (auto-created on first POST if missing). Indexed by user_id + ts so
+// we can ask "what was the heap shape just before this user's iOS app
+// got killed?" The table is intentionally append-only and prunes old
+// rows nightly via the existing telemetry retention cron (90 days).
+// No auth required — anyone running our front-end can beacon, and we
+// genuinely want anonymous iOS pre-login samples too (those are the
+// devices most at risk).
+let __telemetryMemorySchemaEnsured = false;
+async function ensureTelemetryMemorySchema(): Promise<void> {
+  if (__telemetryMemorySchemaEnsured || !DATABASE_URL) return;
+  try {
+    await withClient((c) => c.query(`
+      CREATE TABLE IF NOT EXISTS telemetry_memory_samples (
+        id BIGSERIAL PRIMARY KEY,
+        user_id UUID NULL,
+        platform TEXT NOT NULL,
+        pressure TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        crash_recovered BOOLEAN NOT NULL DEFAULT FALSE,
+        uptime_s INTEGER NOT NULL DEFAULT 0,
+        heap_used_mb INTEGER NULL,
+        heap_total_mb INTEGER NULL,
+        heap_limit_mb INTEGER NULL,
+        dom_nodes INTEGER NOT NULL DEFAULT 0,
+        images INTEGER NOT NULL DEFAULT 0,
+        videos INTEGER NOT NULL DEFAULT 0,
+        audios INTEGER NOT NULL DEFAULT 0,
+        blob_urls INTEGER NOT NULL DEFAULT 0,
+        inflight_fetch INTEGER NOT NULL DEFAULT 0,
+        active_intervals INTEGER NOT NULL DEFAULT 0,
+        module_globals INTEGER NOT NULL DEFAULT 0,
+        script_tags_eager INTEGER NOT NULL DEFAULT 0,
+        script_tags_lazy INTEGER NOT NULL DEFAULT 0,
+        open_panels JSONB NOT NULL DEFAULT '[]'::jsonb,
+        open_panel_count INTEGER NOT NULL DEFAULT 0,
+        visibility TEXT NULL,
+        ua TEXT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS telemetry_memory_samples_user_ts_idx
+        ON telemetry_memory_samples (user_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS telemetry_memory_samples_pressure_idx
+        ON telemetry_memory_samples (pressure, created_at DESC)
+        WHERE pressure <> 'green';
+      CREATE INDEX IF NOT EXISTS telemetry_memory_samples_crash_idx
+        ON telemetry_memory_samples (created_at DESC)
+        WHERE crash_recovered = TRUE;
+    `));
+    __telemetryMemorySchemaEnsured = true;
+  } catch (e) {
+    console.warn("[telemetry-memory] schema ensure failed:", (e as Error)?.message);
+  }
+}
+app.post("/api/telemetry/memory", express.json({ limit: "8kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    if (!DATABASE_URL) return res.json({ ok: true, stored: false });
+    await ensureTelemetryMemorySchema();
+    const userId = (req.session as any)?.user_id || null;
+    const b = (req.body && typeof req.body === "object") ? req.body as any : {};
+    const safeInt = (v: any, max = 2_000_000_000) => Math.min(max, Math.max(0, Number.parseInt(String(v ?? 0), 10) || 0));
+    const safeStr = (v: any, max = 256) => String(v ?? "").slice(0, max);
+    const heap = (b.heap && typeof b.heap === "object") ? b.heap : {};
+    await withClient((c) => c.query(`
+      INSERT INTO telemetry_memory_samples (
+        user_id, platform, pressure, reason, crash_recovered, uptime_s,
+        heap_used_mb, heap_total_mb, heap_limit_mb,
+        dom_nodes, images, videos, audios,
+        blob_urls, inflight_fetch, active_intervals, module_globals,
+        script_tags_eager, script_tags_lazy,
+        open_panels, open_panel_count, visibility, ua
+      ) VALUES (
+        $1::uuid, $2, $3, $4, $5, $6,
+        $7, $8, $9,
+        $10, $11, $12, $13,
+        $14, $15, $16, $17,
+        $18, $19,
+        $20::jsonb, $21, $22, $23
+      )`,
+      [
+        userId, safeStr(b.platform, 32), safeStr(b.pressure, 16),
+        safeStr(b.reason, 64), !!b.crash_recovered, safeInt(b.uptime_s),
+        heap.used_mb != null ? safeInt(heap.used_mb, 100000) : null,
+        heap.total_mb != null ? safeInt(heap.total_mb, 100000) : null,
+        heap.limit_mb != null ? safeInt(heap.limit_mb, 100000) : null,
+        safeInt(b.dom_nodes), safeInt(b.images), safeInt(b.videos), safeInt(b.audios),
+        safeInt(b.blob_urls), safeInt(b.inflight_fetch),
+        safeInt(b.active_intervals), safeInt(b.module_globals),
+        safeInt(b.script_tags_eager), safeInt(b.script_tags_lazy),
+        JSON.stringify(Array.isArray(b.open_panels) ? b.open_panels.slice(0, 32).map((x: any) => String(x).slice(0, 64)) : []),
+        safeInt(b.open_panel_count, 1000),
+        safeStr(b.visibility, 16), safeStr(b.ua, 200),
+      ],
+    ));
+    return res.json({ ok: true, stored: true });
+  } catch (e) {
+    return res.json({ ok: false, error: (e as Error)?.message || "telemetry_failed" });
+  }
+});
+
+// CSSOS_WAVE_220A — admin dashboard: hottest leak signals last 24h.
+app.get("/api/telemetry/memory/dashboard", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || roleForEmail(user.email) !== "admin") {
+      return res.status(403).json({ ok: false, code: "ADMIN_ONLY" });
+    }
+    if (!DATABASE_URL) return res.json({ ok: true, rows: [] });
+    await ensureTelemetryMemorySchema();
+    const r = await withClient((c) => c.query(`
+      SELECT
+        platform,
+        COUNT(*)::int AS samples,
+        COUNT(*) FILTER (WHERE crash_recovered)::int AS crash_recoveries,
+        COUNT(*) FILTER (WHERE pressure = 'red')::int AS red_samples,
+        COUNT(*) FILTER (WHERE pressure = 'yellow')::int AS yellow_samples,
+        AVG(heap_used_mb)::int AS avg_heap_mb,
+        MAX(heap_used_mb)::int AS max_heap_mb,
+        AVG(dom_nodes)::int AS avg_dom_nodes,
+        MAX(dom_nodes)::int AS max_dom_nodes,
+        AVG(blob_urls)::numeric(10,2) AS avg_blobs,
+        MAX(blob_urls)::int AS max_blobs,
+        AVG(videos)::numeric(10,2) AS avg_videos,
+        MAX(videos)::int AS max_videos,
+        AVG(open_panel_count)::numeric(10,2) AS avg_open_panels,
+        MAX(open_panel_count)::int AS max_open_panels
+      FROM telemetry_memory_samples
+      WHERE created_at >= now() - interval '24 hours'
+      GROUP BY platform
+      ORDER BY samples DESC`));
+    return res.json({ ok: true, window: "24h", rows: r.rows });
+  } catch (e) {
+    return res.json({ ok: false, error: (e as Error)?.message || "dashboard_failed" });
+  }
 });
 
 /* POST /api/dm/send — { recipient, body, work_id? }. recipient may be
@@ -5717,7 +6519,7 @@ type IapProductDef = {
   id: string;
   kind: "subscription" | "credit_pack" | "unlock";
   /** Tier name when kind=subscription (matches our membership tiers). */
-  tier?: "starter" | "pro" | "studio";
+  tier?: "starter" | "pro" | "studio" | "enterprise";
   /** Credits granted when kind=credit_pack. */
   credits?: number;
   /** Display price in cents (App Store may localize; this is our
@@ -5730,14 +6532,23 @@ type IapProductDef = {
 // CSSOS_WAVE_118 20260513 — Bundle ID rectified to match the existing
 // Apple Developer Portal registration `app.cssstudio.studio` (4-part rDNS).
 // IAP product IDs nest under it per Apple convention.
+// CSSOS_WAVE_219 20260517 — Jing: unified pricing catalog. Apple IAP is
+// the single source of truth for tier prices; Stripe + Alipay + WeChat
+// + NihaoPay must mirror these exact amounts to keep web ≡ iOS parity.
+// Annual = ~17% off (10-month price for 12 months) per industry norm.
+// Enterprise tier added in W219. Contact-sales tier ($999+/mo) is NOT
+// in this catalog — it's a custom sales lead, not a self-serve SKU.
 const IAP_PRODUCT_CATALOG: Record<string, IapProductDef> = {
-  // Subscriptions
-  "app.cssstudio.studio.starter.monthly": { id: "app.cssstudio.studio.starter.monthly", kind: "subscription", tier: "starter", amount_cents: 499,  period_days: 30 },
-  "app.cssstudio.studio.pro.monthly":     { id: "app.cssstudio.studio.pro.monthly",     kind: "subscription", tier: "pro",     amount_cents: 1499, period_days: 30 },
-  "app.cssstudio.studio.studio.monthly":  { id: "app.cssstudio.studio.studio.monthly",  kind: "subscription", tier: "studio",  amount_cents: 4999, period_days: 30 },
-  "app.cssstudio.studio.starter.annual":  { id: "app.cssstudio.studio.starter.annual",  kind: "subscription", tier: "starter", amount_cents: 4990,  period_days: 365 },
-  "app.cssstudio.studio.pro.annual":      { id: "app.cssstudio.studio.pro.annual",      kind: "subscription", tier: "pro",     amount_cents: 14990, period_days: 365 },
-  "app.cssstudio.studio.studio.annual":   { id: "app.cssstudio.studio.studio.annual",   kind: "subscription", tier: "studio",  amount_cents: 49990, period_days: 365 },
+  // Subscriptions — monthly
+  "app.cssstudio.studio.starter.monthly":    { id: "app.cssstudio.studio.starter.monthly",    kind: "subscription", tier: "starter",    amount_cents: 499,   period_days: 30 },
+  "app.cssstudio.studio.pro.monthly":        { id: "app.cssstudio.studio.pro.monthly",        kind: "subscription", tier: "pro",        amount_cents: 1499,  period_days: 30 },
+  "app.cssstudio.studio.studio.monthly":     { id: "app.cssstudio.studio.studio.monthly",     kind: "subscription", tier: "studio",     amount_cents: 4999,  period_days: 30 },
+  "app.cssstudio.studio.enterprise.monthly": { id: "app.cssstudio.studio.enterprise.monthly", kind: "subscription", tier: "enterprise", amount_cents: 19999, period_days: 30 },
+  // Subscriptions — annual (~17% off)
+  "app.cssstudio.studio.starter.annual":     { id: "app.cssstudio.studio.starter.annual",     kind: "subscription", tier: "starter",    amount_cents: 4990,   period_days: 365 },
+  "app.cssstudio.studio.pro.annual":         { id: "app.cssstudio.studio.pro.annual",         kind: "subscription", tier: "pro",        amount_cents: 14990,  period_days: 365 },
+  "app.cssstudio.studio.studio.annual":      { id: "app.cssstudio.studio.studio.annual",      kind: "subscription", tier: "studio",     amount_cents: 49990,  period_days: 365 },
+  "app.cssstudio.studio.enterprise.annual":  { id: "app.cssstudio.studio.enterprise.annual",  kind: "subscription", tier: "enterprise", amount_cents: 199990, period_days: 365 },
   // Credit packs (one-time consumables)
   "app.cssstudio.studio.credits.100":   { id: "app.cssstudio.studio.credits.100",   kind: "credit_pack", credits: 100,   amount_cents: 99 },
   "app.cssstudio.studio.credits.500":   { id: "app.cssstudio.studio.credits.500",   kind: "credit_pack", credits: 500,   amount_cents: 499 },
@@ -7233,6 +8044,11 @@ app.post("/api/mv/sheet/import-url", express.json({ limit: "8kb" }), async (req,
 app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => {
   const userId = (req.session as any)?.user_id;
   if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  // CSSOS_WAVE_218 — real-dollar pre-flight before any vendor call.
+  {
+    const pf = await mvStagePreflight(req, "lyrics");
+    if (!pf.ok) return res.status(pf.status).json(pf.body);
+  }
   if (!CSSOS_INTERNAL_TOKEN) {
     return res.status(503).json({
       ok: false,
@@ -7289,6 +8105,8 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
       clearInterval(heartbeat);
       const __lyricsCostCents = estimateEngineCostCents("lyrics", tier?.provider, (tier?.content || "").length / 4);
       recordEngineCall(tier?.provider || "llm-router", Date.now() - __lyricsT0, __lyricsCostCents, !!(tier && tier.ok && tier.content));
+      // CSSOS_WAVE_218 — real-dollar debit on actual vendor cost.
+      if (tier && tier.ok && tier.content) { await chargeMvStageActual(userId, "lyrics", __lyricsCostCents, tier?.provider); }
       if (tier && tier.ok && tier.content && tier.content.trim()) {
         console.log(`[mv-lyrics] tier sweep WIN: provider=${tier.provider} model=${tier.model}`);
         res.write(JSON.stringify({
@@ -7571,6 +8389,8 @@ app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
       });
       clearInterval(heartbeat);
       const __musicCostCents = estimateEngineCostCents("music", tier?.provider, Number((req.body as any)?.duration_secs) || 180);
+      // CSSOS_WAVE_218 — real-dollar debit on actual vendor cost.
+      if (tier && tier.ok) { await chargeMvStageActual(userId, "music", __musicCostCents, tier?.provider); }
       recordEngineCall(tier?.provider || "music-router", Date.now() - __musicT0, __musicCostCents, !!(tier && tier.ok));
       if (tier && tier.ok) {
         const audioUrl = tier.audio_url
@@ -7760,6 +8580,11 @@ app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
 app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
   const userId = (req.session as any)?.user_id;
   if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  // CSSOS_WAVE_218 — real-dollar pre-flight before any vendor call.
+  {
+    const pf = await mvStagePreflight(req, "video");
+    if (!pf.ok) return res.status(pf.status).json(pf.body);
+  }
   if (!CSSOS_INTERNAL_TOKEN) {
     return res.status(503).json({
       ok: false,
@@ -7867,6 +8692,8 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
         ...(imageUrl ? { image_url: imageUrl } : {}),
       });
       const __videoCostCents = estimateEngineCostCents("video", tierVid?.provider, Number((req.body as any)?.duration_secs) || 10);
+      // CSSOS_WAVE_218 — real-dollar debit on actual vendor cost.
+      if (tierVid && tierVid.ok && (tierVid.video_url || tierVid.poll_url)) { await chargeMvStageActual(userId, "video", __videoCostCents, tierVid?.provider); }
       recordEngineCall(tierVid?.provider || "video-router", Date.now() - __videoT0, __videoCostCents, !!(tierVid && tierVid.ok && (tierVid.video_url || tierVid.poll_url)));
       if (tierVid && tierVid.ok && (tierVid.video_url || tierVid.poll_url)) {
         console.log(`[mv-video] tier sweep WIN: provider=${tierVid.provider}`);
@@ -10579,11 +11406,22 @@ function adminEmailSet() {
 //   • work creation         → same default at insert time
 //   • stripe checkout       → 403 if buyer is an admin
 //   • works/{mine,market}   → surface is_admin_owned flag for clients
+/* CSSOS_WAVE_234 20260519 — Jing: Apple 审核员 reviewer@cssstudio.app
+ * 用的就是 cssstudio.app 域名邮箱, 之前 isCssosAdminEmail 通配整个域
+ * 判定为 staff/admin, 导致审核员看到了 admin-only UI + 免积分等内部
+ * 权限, 触发 2.1.0 拒审. 增加一个明确的 deny list, 这些 @cssstudio.app
+ * 邮箱不视为 staff (审核账号 + VIP 测试账号). */
+const CSSOS_STAFF_DENYLIST = new Set<string>([
+  "reviewer@cssstudio.app",
+  "vip@cssstudio.app",
+]);
 function isCssosAdminEmail(email: string | null | undefined) {
   const e = normalizeEmail(email);
   if (!e) return false;
+  if (CSSOS_STAFF_DENYLIST.has(e)) return false;
   if (adminEmailSet().has(e)) return true;
-  // Domain match: anything @cssstudio.app is staff by definition.
+  // Domain match: anything @cssstudio.app is staff by definition
+  // (except the deny list above).
   const at = e.lastIndexOf("@");
   if (at >= 0) {
     const domain = e.slice(at + 1);
@@ -10621,24 +11459,136 @@ function normalizeMembershipTier(value: unknown): MembershipTier {
   return "guest";
 }
 
+// CSSOS_WAVE_219 20260517 — Jing: per-tier capability matrix per
+// the new pricing constitution (see CLAUDE.md "Pricing & subscription
+// constitution"). Three principles guard this function:
+//
+//   1. Subscription = ACCESS / capabilities only. NEVER a monthly
+//      generation quota — output cost is pay-as-you-go from the wallet.
+//      `monthlyGenerationLimit` is hardcoded null on every tier so any
+//      remaining legacy enforcement code (e.g. :3879, :24682) becomes
+//      a no-op without ripping out call sites.
+//   2. Apple IAP catalog is the price source of truth. This function
+//      controls only WHAT each tier unlocks, not what it costs.
+//   3. Length, seats, storage, platform cut, watermark, lossless,
+//      commerce eligibility all live here — single point of truth so
+//      pricing-panel / quota gates / sellers / API rate-limiters all
+//      read the same shape.
 function membershipPolicyForTier(tier: MembershipTier) {
+  // Legacy compatibility shape. The old `canUse*` / `background*`
+  // fields are kept because dozens of call sites read them; we just
+  // remap them onto the new matrix so behaviour matches W219 intent.
+  const base = {
+    tier,
+    // W219: never a per-month quota gate. Wallet is the only gate.
+    monthlyGenerationLimit: null as number | null,
+    // ─── NEW W219 matrix fields ───────────────────────────────────
+    /** Single-run output length cap, seconds. null = unlimited. */
+    maxOutputLengthSeconds: 60 as number | null,
+    /** Stochastic full-length bonus odds (0..1). Server roll only. */
+    fullLengthBonusOdds: 0,
+    /** Workspace seats included. null = custom. */
+    seats: 1 as number | null,
+    /** Concurrent render slots. null = custom. */
+    concurrentJobs: 1 as number | null,
+    /** Cloud storage bytes. null = custom. */
+    cloudStorageBytes: 1 * 1024 ** 3 as number | null,
+    /** Days a work is retained. null = forever. */
+    workRetentionDays: 30 as number | null,
+    /** WAV/FLAC export allowed. */
+    canExportLossless: false,
+    /** Watermark removal allowed. */
+    canRemoveWatermark: false,
+    /** Custom logo watermark allowed. */
+    canCustomWatermark: false,
+    /** Can sell works on the marketplace. */
+    canSellWorks: false,
+    /** Can take commissions / accept orders. */
+    canTakeCommissions: false,
+    /** Platform cut in basis points (10000 = 100%). null = negotiated. */
+    platformCutBps: null as number | null,
+    /** Tipping enabled (creator-side receive). */
+    canReceiveTips: true,
+    /** API key + programmatic access. */
+    canUseApi: false,
+    /** Webhook registration. */
+    canUseWebhooks: false,
+    /** Private deployment / self-hosting. */
+    canSelfHost: false,
+    /** Premium provider escalation (OpenAI/Anthropic/Runway forced). */
+    canForcePremiumProvider: false,
+    /** 4K upscale. */
+    canUpscale4k: false,
+    /** Queue lane label for the scheduler. */
+    queueLane: "low" as "low" | "standard" | "high" | "priority" | "reserved" | "dedicated",
+    /** Support response SLA, hours. null = community / forum only. */
+    supportResponseHours: null as number | null,
+    /** Dedicated Slack / WeChat support channel. */
+    hasDedicatedSupportChannel: false,
+    /** Uptime SLA percent (0-100). null = no SLA. */
+    uptimeSlaPercent: null as number | null,
+    // ─── Legacy compat fields (NEW value derived from matrix) ─────
+    canUseSellerPanel: false,
+    canManageReports: false,
+    canUseBackgroundJobs: false,
+    backgroundJobLimit: 0 as number | null,
+    backgroundConcurrentJobLimit: 0,
+  };
+
   if (tier === "admin") {
     return {
-      tier,
-      monthlyGenerationLimit: null as number | null,
+      ...base,
+      maxOutputLengthSeconds: null,
+      fullLengthBonusOdds: 0,
+      seats: null,
+      concurrentJobs: null,
+      cloudStorageBytes: null,
+      workRetentionDays: null,
+      canExportLossless: true,
+      canRemoveWatermark: true,
+      canCustomWatermark: true,
       canSellWorks: true,
+      canTakeCommissions: true,
+      platformCutBps: null,
+      canUseApi: true,
+      canUseWebhooks: true,
+      canSelfHost: true,
+      canForcePremiumProvider: true,
+      canUpscale4k: true,
+      queueLane: "dedicated",
+      supportResponseHours: 0,
+      hasDedicatedSupportChannel: true,
+      uptimeSlaPercent: 99.9,
       canUseSellerPanel: true,
       canManageReports: true,
       canUseBackgroundJobs: true,
-      backgroundJobLimit: null as number | null,
+      backgroundJobLimit: null,
       backgroundConcurrentJobLimit: 8,
     };
   }
   if (tier === "vip") {
+    // VIP is staff-tier admin alias (legacy). Treat as admin-equiv.
     return {
-      tier,
-      monthlyGenerationLimit: null as number | null,
+      ...base,
+      maxOutputLengthSeconds: null,
+      seats: null,
+      concurrentJobs: 16,
+      cloudStorageBytes: 2 * 1024 ** 4,
+      workRetentionDays: null,
+      canExportLossless: true,
+      canRemoveWatermark: true,
+      canCustomWatermark: true,
       canSellWorks: true,
+      canTakeCommissions: true,
+      platformCutBps: 0,
+      canUseApi: true,
+      canUseWebhooks: true,
+      canForcePremiumProvider: true,
+      canUpscale4k: true,
+      queueLane: "reserved",
+      supportResponseHours: 12,
+      hasDedicatedSupportChannel: true,
+      uptimeSlaPercent: 99.5,
       canUseSellerPanel: true,
       canManageReports: true,
       canUseBackgroundJobs: true,
@@ -10646,35 +11596,30 @@ function membershipPolicyForTier(tier: MembershipTier) {
       backgroundConcurrentJobLimit: 6,
     };
   }
-  if (tier === "pro") {
-    return {
-      tier,
-      monthlyGenerationLimit: 100,
-      canSellWorks: true,
-      canUseSellerPanel: true,
-      canManageReports: false,
-      canUseBackgroundJobs: true,
-      backgroundJobLimit: 2,
-      backgroundConcurrentJobLimit: 1,
-    };
-  }
-  if (tier === "studio") {
-    return {
-      tier,
-      monthlyGenerationLimit: 300,
-      canSellWorks: true,
-      canUseSellerPanel: true,
-      canManageReports: true,
-      canUseBackgroundJobs: true,
-      backgroundJobLimit: 6,
-      backgroundConcurrentJobLimit: 2,
-    };
-  }
   if (tier === "enterprise") {
+    // W219 enterprise — $199.99/mo public tier.
     return {
-      tier,
-      monthlyGenerationLimit: null as number | null,
+      ...base,
+      maxOutputLengthSeconds: 600,           // 10 min
+      fullLengthBonusOdds: 0.01,             // 1% full-length bonus
+      seats: 30,
+      concurrentJobs: 16,
+      cloudStorageBytes: 2 * 1024 ** 4,      // 2 TB
+      workRetentionDays: null,
+      canExportLossless: true,
+      canRemoveWatermark: true,
+      canCustomWatermark: true,
       canSellWorks: true,
+      canTakeCommissions: true,
+      platformCutBps: 500,                   // 5%
+      canUseApi: true,
+      canUseWebhooks: true,
+      canForcePremiumProvider: true,
+      canUpscale4k: true,
+      queueLane: "reserved",
+      supportResponseHours: 12,
+      hasDedicatedSupportChannel: true,
+      uptimeSlaPercent: 99.5,
       canUseSellerPanel: true,
       canManageReports: true,
       canUseBackgroundJobs: true,
@@ -10682,33 +11627,95 @@ function membershipPolicyForTier(tier: MembershipTier) {
       backgroundConcurrentJobLimit: 4,
     };
   }
-  if (tier === "starter") {
+  if (tier === "studio") {
+    // W219 studio — $49.99/mo.
     return {
-      tier,
-      monthlyGenerationLimit: 30,
+      ...base,
+      maxOutputLengthSeconds: 600,           // 10 min
+      fullLengthBonusOdds: 0.01,
+      seats: 10,
+      concurrentJobs: 8,
+      cloudStorageBytes: 500 * 1024 ** 3,    // 500 GB
+      workRetentionDays: null,
+      canExportLossless: true,
+      canRemoveWatermark: true,
+      canCustomWatermark: true,
       canSellWorks: true,
+      canTakeCommissions: true,
+      platformCutBps: 1000,                  // 10%
+      canUseApi: true,
+      canUseWebhooks: true,
+      canForcePremiumProvider: true,
+      canUpscale4k: true,
+      queueLane: "priority",
+      supportResponseHours: 24,
+      uptimeSlaPercent: 99.0,
       canUseSellerPanel: true,
-      canManageReports: false,
-      canUseBackgroundJobs: false,
-      backgroundJobLimit: 0,
-      backgroundConcurrentJobLimit: 0,
+      canManageReports: true,
+      canUseBackgroundJobs: true,
+      backgroundJobLimit: 6,
+      backgroundConcurrentJobLimit: 2,
+    };
+  }
+  if (tier === "pro") {
+    // W219 pro — $14.99/mo. The "sweet spot" tier.
+    return {
+      ...base,
+      maxOutputLengthSeconds: 480,           // 8 min — covers full songs
+      fullLengthBonusOdds: 0.01,             // 1% chance of unlimited
+      seats: 3,
+      concurrentJobs: 4,
+      cloudStorageBytes: 100 * 1024 ** 3,    // 100 GB
+      workRetentionDays: null,
+      canExportLossless: true,               // Pro unlocks WAV/FLAC
+      canRemoveWatermark: true,
+      canCustomWatermark: false,
+      canSellWorks: true,
+      canTakeCommissions: true,
+      platformCutBps: 1500,                  // 15%
+      canForcePremiumProvider: true,
+      queueLane: "high",
+      supportResponseHours: 48,
+      canUseSellerPanel: true,
+      canUseBackgroundJobs: true,
+      backgroundJobLimit: 2,
+      backgroundConcurrentJobLimit: 1,
+    };
+  }
+  if (tier === "starter") {
+    // W219 starter — $4.99/mo. First paid step.
+    return {
+      ...base,
+      maxOutputLengthSeconds: 180,           // 3 min
+      seats: 1,
+      concurrentJobs: 2,
+      cloudStorageBytes: 10 * 1024 ** 3,     // 10 GB
+      workRetentionDays: null,               // Permanent storage
+      canSellWorks: true,                    // Marketplace unlocks here
+      platformCutBps: 2000,                  // 20%
+      queueLane: "standard",
+      supportResponseHours: 5 * 24,          // 5 business days
+      canUseSellerPanel: true,
     };
   }
   if (tier === "free") {
+    // W219 free — true free with friction, not a quota cage.
     return {
-      tier,
-      monthlyGenerationLimit: 3,
-      canSellWorks: false,
-      canUseSellerPanel: false,
-      canManageReports: false,
-      canUseBackgroundJobs: false,
-      backgroundJobLimit: 0,
-      backgroundConcurrentJobLimit: 0,
+      ...base,
+      maxOutputLengthSeconds: 60,
+      seats: 1,
+      concurrentJobs: 1,
+      cloudStorageBytes: 1 * 1024 ** 3,      // 1 GB
+      workRetentionDays: 30,
+      canSellWorks: false,                   // Marketplace locked
+      canReceiveTips: true,
+      queueLane: "low",
     };
   }
   return {
+    ...base,
     tier: "guest" as MembershipTier,
-    monthlyGenerationLimit: 0,
+    canReceiveTips: false,
     canSellWorks: false,
     canUseSellerPanel: false,
     canManageReports: false,
@@ -10740,25 +11747,13 @@ async function resolveUserAccessProfile(
   }
   const { account } = await ensureBillingAccount(user.id);
   const tier = normalizeMembershipTier(account?.membership_tier || "free");
-  const creatorPolicy = await getCreatorCommercePolicySettings().catch(
-    () => null,
-  );
-  const basePolicy = membershipPolicyForTier(tier);
-  const policy = creatorPolicy
-    ? {
-        ...basePolicy,
-        monthlyGenerationLimit:
-          tier === "starter"
-            ? creatorPolicy.starterMonthlyLimit
-            : tier === "pro"
-              ? creatorPolicy.proMonthlyLimit
-              : tier === "studio"
-                ? creatorPolicy.studioMonthlyLimit
-                : tier === "enterprise"
-                  ? creatorPolicy.enterpriseMonthlyLimit
-                  : basePolicy.monthlyGenerationLimit,
-      }
-    : basePolicy;
+  // CSSOS_WAVE_219 20260517 — Jing: subscription is ACCESS only; output
+  // is pay-as-you-go from the wallet. No per-month generation cap from
+  // any source (creatorPolicy or basePolicy). The legacy
+  // `creatorPolicy.*MonthlyLimit` fields are ignored on purpose; if a
+  // future fair-use ceiling ever returns, it goes through a NEW
+  // dedicated field, not back into monthlyGenerationLimit.
+  const policy = membershipPolicyForTier(tier);
   return {
     role,
     tier,
@@ -11379,14 +12374,16 @@ function providerConfig() {
     };
   });
   return [...providers, ...generic].map((provider) => {
+    // CSSOS_WAVE_220C 20260520 — Jing: bsky is "enabled" ONLY with real
+    // atproto OAuth creds. The old code also treated the house posting
+    // bot's app-password as "enabled", which surfaced a Bluesky login
+    // button that signed visitors in AS the site's own account. Removed.
     const enabled =
       provider.id === "bsky"
         ? (Boolean(process.env.BSKY_CLIENT_ID) &&
             Boolean(process.env.BSKY_CLIENT_SECRET)) ||
           (Boolean(process.env.BLUESKY_CLIENT_ID) &&
-            Boolean(process.env.BLUESKY_CLIENT_SECRET)) ||
-          (Boolean(process.env.BLUESKY_HANDLE) &&
-            Boolean(process.env.BLUESKY_APP_PASSWORD))
+            Boolean(process.env.BLUESKY_CLIENT_SECRET))
         : provider.env.every((key) => Boolean(process.env[key]));
     return {
       id: provider.id,
@@ -17703,7 +18700,11 @@ function imageProviderOrder(prefer?: string[]): string[] {
  * hangs >15s aborts, the router skips to the next provider, and the
  * worst case is one slow generation, not a box freeze. */
 const IMAGE_ROUTER_TIMEOUT_MS = Number(
-  process.env.IMAGE_ROUTER_TIMEOUT_MS || 15_000,
+  // CSSOS_WAVE_220A 20260519 — Jing: 15s aborted dall-e-3 mid-generation
+  // (it legitimately needs 20-40s). Bumped to 60s so OpenAI can finish
+  // when cheaper providers are throttled/out of credit. Hung-upstream
+  // protection still holds — 60s is a hard ceiling, not unbounded.
+  process.env.IMAGE_ROUTER_TIMEOUT_MS || 60_000,
 );
 /* CSSOS_WAVE_202 20260516 — Jing: extend Wave 201's timeout-fetch
  * pattern to every AI-engine router so a hung upstream on any path
@@ -27529,6 +28530,457 @@ app.post("/api/admin/engine/default", async (req, res) => {
   }
 });
 
+/* CSSOS_WAVE_220A_TEMPLATE_MV_GEN 20260519 — Jing
+ * Admin-only orchestrator for regenerating the personalization-template
+ * MVs (welcome / first_subscriber / birthday). Reads creative_brief from
+ * personalization-templates/<trigger>/<lang>.v2/manifest.json, calls
+ * callMusicGen + callVideoGen, downloads outputs, writes base.mp3/mp4
+ * in-place, regenerates cover.png. Gated by X-Admin-Token.
+ *
+ * POST /api/admin/template-mv/generate
+ *   headers:  X-Admin-Token: $CSSOS_ADMIN_TOKEN
+ *   body:     { trigger: "welcome"|"first_subscriber"|"birthday",
+ *               language?: "en" }
+ *   returns:  { ok, trigger, version, paths: {audio, video, cover} }
+ */
+app.post(
+  "/api/admin/template-mv/generate",
+  express.json({ limit: "4kb" }),
+  async (req, res) => {
+    noStore(res);
+    try {
+      const expectedToken = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+      const provided = String(req.headers["x-admin-token"] || "").trim();
+      if (!expectedToken || provided !== expectedToken) {
+        return res.status(401).json({ ok: false, code: "ADMIN_TOKEN_REQUIRED" });
+      }
+      const trigger = String(req.body?.trigger || "").trim();
+      const language = String(req.body?.language || "en").trim();
+      const allowed = ["welcome", "first_subscriber", "birthday"];
+      if (!allowed.includes(trigger)) {
+        return res.status(400).json({
+          ok: false,
+          code: "BAD_TRIGGER",
+          allowed,
+        });
+      }
+      const fsMod = await import("node:fs/promises");
+      const pathMod = await import("node:path");
+      const { spawn } = await import("node:child_process");
+      const repoRoot = pathMod.resolve(__dirname, "..");
+      const tplDir = pathMod.join(
+        repoRoot,
+        "personalization-templates",
+        trigger,
+        `${language}.v2`,
+      );
+      const manifestPath = pathMod.join(tplDir, "manifest.json");
+      let manifest: any;
+      try {
+        const raw = await fsMod.readFile(manifestPath, "utf8");
+        manifest = JSON.parse(raw);
+      } catch (err) {
+        return res.status(404).json({
+          ok: false,
+          code: "MANIFEST_NOT_FOUND",
+          path: manifestPath,
+          detail: String(err),
+        });
+      }
+      const brief = manifest.creative_brief || {};
+      const musicStyle = String(brief.music_style || "").trim();
+      const instrumentation = String(brief.instrumentation || "").trim();
+      const vocal = String(brief.vocal || "").trim();
+      const videoOutline = String(brief.video || "").trim();
+      if (!musicStyle || !videoOutline) {
+        return res.status(400).json({
+          ok: false,
+          code: "BRIEF_INCOMPLETE",
+          need: ["creative_brief.music_style", "creative_brief.video"],
+        });
+      }
+      const duration = Number(manifest.duration_secs || 30);
+      const aspect = (manifest.aspect_ratio === "16:9" ||
+        manifest.aspect_ratio === "9:16" ||
+        manifest.aspect_ratio === "1:1")
+        ? manifest.aspect_ratio
+        : "9:16";
+      let lyricsText = "";
+      try {
+        const lyricsRaw = await fsMod.readFile(
+          pathMod.join(tplDir, "lyrics.txt.tpl"),
+          "utf8",
+        );
+        // Replace {name} with a neutral generic for the base render — runtime
+        // template renderer overlays the recipient name on top.
+        lyricsText = lyricsRaw.replace(/\{name\}/g, "friend").trim();
+      } catch {
+        lyricsText = "";
+      }
+      const musicPrompt = [
+        manifest.title_template?.replace(/\{name\}/g, "friend") || trigger,
+        musicStyle,
+        instrumentation && `Instrumentation: ${instrumentation}`,
+        vocal && `Vocal: ${vocal}`,
+      ]
+        .filter(Boolean)
+        .join(" — ");
+      const musicResp = await callMusicGen({
+        prompt: musicPrompt,
+        duration_secs: duration,
+        lyrics: lyricsText,
+        title: manifest.title_template?.replace(/\{name\}/g, "friend") || trigger,
+        language,
+      });
+      if (!musicResp.ok || !musicResp.audio_url) {
+        return res.status(502).json({
+          ok: false,
+          code: "MUSIC_GEN_FAILED",
+          provider: musicResp.provider,
+          detail: musicResp.error || "",
+        });
+      }
+      const videoResp = await callVideoGen({
+        prompt: videoOutline,
+        duration_secs: duration,
+        aspect_ratio: aspect as "16:9" | "9:16" | "1:1",
+      });
+      if (!videoResp.ok || !videoResp.video_url) {
+        return res.status(502).json({
+          ok: false,
+          code: "VIDEO_GEN_FAILED",
+          provider: videoResp.provider,
+          detail: videoResp.error || "",
+          // Music succeeded; surface its URL so caller can save it.
+          partial_audio_url: musicResp.audio_url,
+        });
+      }
+      const downloadTo = async (url: string, dest: string) => {
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(`fetch ${url} → ${r.status}`);
+        const buf = Buffer.from(await r.arrayBuffer());
+        await fsMod.writeFile(dest, buf);
+      };
+      const audioDest = pathMod.join(tplDir, "base.mp3");
+      const videoDest = pathMod.join(tplDir, "base.mp4");
+      const coverDest = pathMod.join(tplDir, "cover.png");
+      await downloadTo(musicResp.audio_url, audioDest);
+      await downloadTo(videoResp.video_url, videoDest);
+      // ffmpeg cover.png — first frame.
+      await new Promise<void>((resolve, reject) => {
+        const ff = spawn(
+          "ffmpeg",
+          ["-y", "-hide_banner", "-loglevel", "error", "-i", videoDest,
+            "-vframes", "1", "-q:v", "2", coverDest],
+          { stdio: "ignore" },
+        );
+        ff.on("exit", (code) => {
+          if (code === 0) resolve();
+          else reject(new Error(`ffmpeg cover exit ${code}`));
+        });
+        ff.on("error", reject);
+      }).catch((e) => {
+        // Cover regeneration is non-fatal; warn but continue.
+        console.warn(
+          "[template-mv-gen] cover.png regen failed:",
+          (e as Error)?.message,
+        );
+      });
+      return res.json({
+        ok: true,
+        trigger,
+        language,
+        version: manifest.version,
+        providers: {
+          music: musicResp.provider,
+          video: videoResp.provider,
+        },
+        paths: { audio: audioDest, video: videoDest, cover: coverDest },
+      });
+    } catch (err) {
+      return res.status(500).json({
+        ok: false,
+        code: "INTERNAL",
+        detail: String((err as Error)?.message || err),
+      });
+    }
+  },
+);
+
+/* CSSOS_WAVE_220A_COVER_POOL 20260519 — Jing
+ * Admin-only: generate a 5-image cover pool for a work and persist each
+ * as a work_assets 'cover_slide' row. The watch panel shuffles these
+ * per panel-open (Fisher-Yates) so every viewing differs.
+ *
+ * POST /api/admin/works/:id/cover-pool
+ *   headers:  X-Admin-Token: $CSSOS_ADMIN_TOKEN
+ *   body:     { count?: number }   // default 5, clamp 2..8
+ *   returns:  { ok, work_id, count, slides: [url...] }
+ */
+// CSSOS_WAVE_220A_COVER_POOL 20260519 — reusable core. Generates `count`
+// distinct cover variations for a work + the existing cover_image, and
+// persists them as slideshow_frame rows. Returns the slide URL list.
+// Shared by the admin endpoint, the owner endpoint, and the pipeline hook.
+async function generateCoverPoolForWork(
+  workId: string,
+  count: number,
+  source = "cover-pool",
+): Promise<{ ok: boolean; code?: string; slides: string[] }> {
+  const wr = await withClient((c) =>
+    c.query<{ title: string; style: string; lyrics_preview: string; cover_image: string }>(
+      `SELECT title, style, lyrics_preview, cover_image
+         FROM user_works WHERE id = $1::uuid LIMIT 1`,
+      [workId],
+    ),
+  );
+  const work = wr.rows[0];
+  if (!work) return { ok: false, code: "WORK_NOT_FOUND", slides: [] };
+  const basePrompt = [work.title, work.style, String(work.lyrics_preview || "").slice(0, 200)]
+    .filter(Boolean)
+    .join(" — ");
+  const angles = [
+    "wide cinematic establishing shot, warm key light",
+    "intimate close-up, shallow depth of field, cool rim light",
+    "high-angle dramatic composition, golden hour",
+    "abstract textured backdrop, bold complementary palette",
+    "moody low-key chiaroscuro, single source light",
+    "vibrant saturated graphic poster style",
+    "soft pastel dreamlike haze, bloom",
+    "stark high-contrast monochrome with one accent color",
+  ];
+  const slides: string[] = [];
+  for (let i = 0; i < count; i++) {
+    try {
+      const img = await callImageGen({
+        prompt: `${basePrompt}. ${angles[i % angles.length]}. album cover art, no text.`,
+        size: "1024x1024",
+        output_format: "webp",
+      });
+      if (img?.ok) {
+        const url = img.image_url
+          ? img.image_url
+          : (img.image_b64 ? persistBase64Cover(img.image_b64, "system") : "");
+        if (url) slides.push(url);
+      }
+    } catch (e) {
+      console.warn("[cover-pool] gen %d failed: %s", i, e instanceof Error ? e.message : String(e));
+    }
+  }
+  if (work.cover_image && !slides.includes(work.cover_image)) {
+    slides.unshift(work.cover_image);
+  }
+  if (!slides.length) return { ok: false, code: "ALL_GENERATIONS_FAILED", slides: [] };
+  await withClient(async (c) => {
+    await c.query(
+      `DELETE FROM work_assets WHERE work_id = $1::uuid AND asset_type = 'slideshow_frame'`,
+      [workId],
+    );
+    for (let i = 0; i < slides.length; i++) {
+      await c.query(
+        `INSERT INTO work_assets (work_id, asset_type, url, meta)
+         VALUES ($1::uuid, 'slideshow_frame', $2, $3::jsonb)`,
+        [workId, slides[i], JSON.stringify({ source, idx: i })],
+      );
+    }
+  });
+  return { ok: true, slides };
+}
+
+app.post(
+  "/api/admin/works/:id/cover-pool",
+  express.json({ limit: "2kb" }),
+  async (req, res) => {
+    noStore(res);
+    try {
+      const expectedToken = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+      const provided = String(req.headers["x-admin-token"] || "").trim();
+      if (!expectedToken || provided !== expectedToken) {
+        return res.status(401).json({ ok: false, code: "ADMIN_TOKEN_REQUIRED" });
+      }
+      const workId = String(req.params.id || "").trim();
+      if (!/^[0-9a-f-]{36}$/i.test(workId)) {
+        return res.status(400).json({ ok: false, code: "INVALID_WORK_ID" });
+      }
+      const count = Math.max(1, Math.min(8, Number(req.body?.count) || 3));
+      const out = await generateCoverPoolForWork(workId, count, "cover-pool-admin");
+      if (!out.ok) {
+        return res.status(out.code === "WORK_NOT_FOUND" ? 404 : 502).json({ ok: false, code: out.code });
+      }
+      return res.json({ ok: true, work_id: workId, count: out.slides.length, slides: out.slides });
+    } catch (err) {
+      return res.status(500).json({
+        ok: false,
+        code: "INTERNAL",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
+  },
+);
+
+// CSSOS_WAVE_220A_COVER_POOL 20260519 — owner-authed variant. The MV
+// pipeline panel calls this fire-and-forget after a work finishes, so
+// every new work auto-gets its 5-image slideshow pool. Owner or admin only.
+app.post(
+  "/api/works/:id/cover-pool",
+  express.json({ limit: "2kb" }),
+  async (req, res) => {
+    noStore(res);
+    try {
+      const user = await getSessionUser(req);
+      if (!user) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+      const workId = String(req.params.id || "").trim();
+      if (!/^[0-9a-f-]{36}$/i.test(workId)) {
+        return res.status(400).json({ ok: false, code: "INVALID_WORK_ID" });
+      }
+      const owns = await withClient((c) =>
+        c.query<{ user_id: string }>(
+          `SELECT user_id FROM user_works WHERE id = $1::uuid LIMIT 1`,
+          [workId],
+        ),
+      );
+      const row = owns.rows[0];
+      if (!row) return res.status(404).json({ ok: false, code: "WORK_NOT_FOUND" });
+      const isAdmin = isCssosAdminEmail((user as any).email);
+      if (String(row.user_id) !== String(user.id) && !isAdmin) {
+        return res.status(403).json({ ok: false, code: "NOT_YOUR_WORK" });
+      }
+      // Idempotent: skip if a pool already exists (don't burn vendor money
+      // on repeat panel-opens). Force re-roll with ?force=1.
+      const force = String(req.query.force || "") === "1";
+      if (!force) {
+        const existing = await withClient((c) =>
+          c.query<{ n: number }>(
+            `SELECT count(*)::int AS n FROM work_assets
+              WHERE work_id = $1::uuid AND asset_type = 'slideshow_frame'`,
+            [workId],
+          ),
+        );
+        if ((existing.rows[0]?.n || 0) >= 1) {
+          return res.json({ ok: true, work_id: workId, cached: true });
+        }
+      }
+      const count = Math.max(1, Math.min(8, Number(req.body?.count) || 3));
+      const out = await generateCoverPoolForWork(workId, count, "cover-pool-pipeline");
+      if (!out.ok) {
+        return res.status(out.code === "WORK_NOT_FOUND" ? 404 : 502).json({ ok: false, code: out.code });
+      }
+      return res.json({ ok: true, work_id: workId, count: out.slides.length });
+    } catch (err) {
+      return res.status(500).json({
+        ok: false,
+        code: "INTERNAL",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
+  },
+);
+
+/* CSSOS_WAVE_220A_TEMPLATE_MV_TEST_FIRE 20260519 — Jing
+ * Admin-only: fire a personalization gift trigger for an arbitrary
+ * user, BYPASSING policy guards (oneShot / cooldown / annual cap /
+ * quiet-hours / opt-out). Pure test path — never expose to users.
+ *
+ * POST /api/admin/template-mv/test-fire
+ *   headers:  X-Admin-Token: $CSSOS_ADMIN_TOKEN
+ *   body:     { trigger: "welcome"|"first_subscriber"|"birthday",
+ *               email?: string,   ← target user email
+ *               user_id?: string  ← OR target user id
+ *             }
+ *   returns:  { ok, audit_id, work_id, work_url }
+ */
+app.post(
+  "/api/admin/template-mv/test-fire",
+  express.json({ limit: "2kb" }),
+  async (req, res) => {
+    noStore(res);
+    try {
+      const expectedToken = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+      const provided = String(req.headers["x-admin-token"] || "").trim();
+      if (!expectedToken || provided !== expectedToken) {
+        return res.status(401).json({ ok: false, code: "ADMIN_TOKEN_REQUIRED" });
+      }
+      const trigger = String(req.body?.trigger || "").trim();
+      const email = String(req.body?.email || "").trim().toLowerCase();
+      const userIdParam = String(req.body?.user_id || "").trim();
+      if (!["welcome", "first_subscriber", "birthday"].includes(trigger)) {
+        return res.status(400).json({ ok: false, code: "BAD_TRIGGER" });
+      }
+      // Look up target user.
+      let targetUserId = userIdParam;
+      if (!targetUserId && email) {
+        const r = await withClient((c) =>
+          c.query<{ id: string }>(
+            `SELECT id::text FROM users WHERE lower(email) = $1 LIMIT 1`,
+            [email],
+          ),
+        );
+        if (!r.rows[0]) {
+          return res.status(404).json({ ok: false, code: "USER_NOT_FOUND", email });
+        }
+        targetUserId = r.rows[0].id;
+      }
+      if (!targetUserId) {
+        return res.status(400).json({
+          ok: false,
+          code: "TARGET_REQUIRED",
+          hint: "pass either email or user_id",
+        });
+      }
+      // Import the renderer directly — bypass fireTrigger's policy checks.
+      const { renderBestTemplateForTrigger } = await import(
+        "./personalization/templates/index.js"
+      );
+      const { buildTargetSnapshot } = await import(
+        "./personalization/preferences.js"
+      );
+      const { insertAuditRow } = await import(
+        "./personalization/audit.js"
+      );
+      const target = await buildTargetSnapshot(getPool(), targetUserId);
+      if (!target) {
+        return res.status(404).json({ ok: false, code: "TARGET_SNAPSHOT_FAILED" });
+      }
+      // Create a real audit row so the FK from personalization_template_renders
+      // resolves. Skip policy checks (test-fire bypass).
+      const auditId = await insertAuditRow(getPool(), {
+        triggerKey: trigger as any,
+        target,
+        payload: { source: "admin_test_fire" },
+        livemode: false,
+        initialStatus: "pending",
+      });
+      const result = await renderBestTemplateForTrigger(getPool(), {
+        triggerKey: trigger as any,
+        target,
+        auditId,
+      });
+      if (!result) {
+        return res.status(500).json({
+          ok: false,
+          code: "RENDER_RETURNED_NULL",
+          hint: `no template for trigger=${trigger} language=${target.preferred_gift_language || target.locale || "en"}`,
+        });
+      }
+      return res.json({
+        ok: true,
+        trigger,
+        target_user_id: targetUserId,
+        audit_id: auditId,
+        work_id: result.workId,
+        template_id: result.templateId,
+        cost_cents: result.costCents,
+        work_url: `https://cssstudio.app/?cssMV=${encodeURIComponent(result.workId)}`,
+      });
+    } catch (err) {
+      return res.status(500).json({
+        ok: false,
+        code: "INTERNAL",
+        detail: String((err as Error)?.message || err),
+      });
+    }
+  },
+);
+
 /* CSSOS_ENGINE_TEST 20260507 — Jing
  * Admin-only "ping" endpoint per engine — proves a key works end-to-end
  * by actually generating a tiny artifact, returning its URL. The MV
@@ -29290,12 +30742,19 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
 
     // Best-effort lore generation
     let lore: any = person.lore || {};
-    const loreEmpty = !lore || !lore.bio || (Array.isArray(lore.events) && lore.events.length === 0);
+    const loreEmpty = !lore || !lore.bio || (Array.isArray(lore.events) && lore.events.length === 0) ||
+      // CSSOS_WAVE_327 — 旧档案没有 allusions(典故) → 触发一次重生补上.
+      !Array.isArray(lore.allusions) || lore.allusions.length === 0;
     if (refresh || loreEmpty) {
       try {
         const sysPrompt =
           "你是文明编年史官。返回严格 JSON，键: bio (string, 80-160字, 中文), " +
           "events (array of {year:string, title:string, impact:string}, 5-8项), " +
+          // CSSOS_WAVE_327 20260522 — Jing「典故」闭环: 为人物补一组【典故/故事】,
+          // 戏剧性强、画面感强、适合改编成音乐 MV(如'孟姜女哭长城'级别). 与 events
+          // (偏史实编年)区分: allusions 是适合"唱出来"的动人桥段.
+          "allusions (array of {title:string, synopsis:string}, 4-6项, 著名典故/传说/故事桥段, " +
+          "戏剧性强、画面感强、情感浓烈、适合改编成音乐MV, 例如'孟姜女哭长城'这种级别的动人故事), " +
           "contributions (array of string, 3-6项), controversies (array of string, 1-4项), " +
           "assessments (array of {perspective:'东方'|'西方'|'现代', text:string}, 恰好3项), " +
           "contemporaries (array of string), lineage (array of string), " +
@@ -32858,7 +34317,12 @@ app.get("/api/works/public/:id", async (req, res) => {
            audio_track_1_asset.url AS audio_track_1_url,
            audio_track_2_asset.url AS audio_track_2_url,
            whisper_words_asset.meta AS whisper_words_meta,
-           COALESCE((final_mv_asset.meta->>'duration_secs')::float, NULL) AS duration_secs
+           COALESCE((final_mv_asset.meta->>'duration_secs')::float, NULL) AS duration_secs,
+           -- CSSOS_WAVE_220A_COVER_POOL 20260519 — the cover pool lives in
+           -- multiple slideshow_frame rows (dedicated non-unique index).
+           (SELECT array_agg(sf.url ORDER BY (sf.meta->>'idx')::int NULLS LAST, sf.created_at)
+              FROM work_assets sf
+             WHERE sf.work_id = w.id AND sf.asset_type = 'slideshow_frame') AS cover_slides
          FROM user_works w
          JOIN users u ON u.id = w.user_id
          LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
@@ -32960,6 +34424,15 @@ app.get("/api/works/public/:id", async (req, res) => {
         duration_secs: normalized.duration_secs || null,
         cover_image: normalized.cover_image || null,
         preview_image_url: normalized.preview_image_url || null,
+        // CSSOS_WAVE_220A_COVER_POOL 20260519 — Jing: 5-image cover pool.
+        // Frontend shuffles these per panel-open. Falls back to the single
+        // cover_image when no pool exists (legacy works).
+        cover_slides: (() => {
+          const arr = (row as any).cover_slides;
+          const urls = Array.isArray(arr) ? arr.filter(Boolean) : [];
+          if (urls.length) return urls;
+          return normalized.cover_image ? [normalized.cover_image] : [];
+        })(),
         // Playable URL: signed token, full kind for full-access viewers,
         // preview kind for guests on paid works (player honours the
         // X-Preview-Limit-Seconds header response from /secure/artifacts).
@@ -33189,7 +34662,17 @@ app.get("/api/works/market", async (req, res) => {
               "为你创作面板的作品卡片，压上时长". Surface duration_secs
               from the final_mv asset's meta so foryou cards can show
               the mm:ss chip on the cover, matching Works Center. */
-           COALESCE((fm_asset.meta->>'duration_secs')::float, NULL) AS duration_secs
+           COALESCE((fm_asset.meta->>'duration_secs')::float, NULL) AS duration_secs,
+           -- CSSOS_WAVE_220A_COVER_POOL 20260519 — cover pool for random
+           -- card thumbnails (frontend picks one at render time).
+           (SELECT array_agg(sf.url ORDER BY (sf.meta->>'idx')::int NULLS LAST, sf.created_at)
+              FROM work_assets sf
+             WHERE sf.work_id = w.id AND sf.asset_type = 'slideshow_frame') AS cover_slides,
+           -- CSSOS_TIER_C_MULTILINGUAL C6 — which languages this work has
+           -- as READY voice tracks (for card badges + language filter UI).
+           (SELECT array_agg(wlt.lang ORDER BY wlt.track_order)
+              FROM work_language_tracks wlt
+             WHERE wlt.work_id = w.id AND wlt.status = 'ready') AS available_langs
          FROM user_works w
          JOIN users u ON u.id = w.user_id
          LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
@@ -35309,43 +36792,18 @@ app.get("/auth/bsky", async (req, res) => {
         `https://bsky.social/oauth/authorize?${q.toString()}`,
       );
     }
-    const handle = process.env.BLUESKY_HANDLE || "";
-    const appPassword = process.env.BLUESKY_APP_PASSWORD || "";
-    if (!handle || !appPassword) {
-      auditAuthFailure("bsky", "app_password", "NOT_CONFIGURED");
-      return res.status(503).send("bsky_not_configured");
-    }
-    const sess = await fetch(
-      "https://bsky.social/xrpc/com.atproto.server.createSession",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ identifier: handle, password: appPassword }),
-      },
-    );
-    if (!sess.ok) {
-      auditAuthFailure("bsky", "app_password", "SESSION_CREATE_FAILED");
-      return res.status(400).send("auth_failed");
-    }
-    const js = (await sess.json().catch(() => null)) as any;
-    const did = String(js?.did || "");
-    const email = js?.email ? String(js.email) : null;
-    const displayName = js?.handle ? String(js.handle) : handle;
-    if (!did) {
-      auditAuthFailure("bsky", "app_password", "DID_MISSING");
-      return res.status(400).send("auth_failed");
-    }
-    const userId = await upsertOAuthIdentity({
-      provider: "bsky",
-      providerUserId: did,
-      email,
-      displayName,
-    });
-    auditAuthLogin(req, "bsky", userId, "app_password");
-    await migrateGuestPasskeysToUser(req.sessionID, userId);
-    setAuthSession(req, userId, "bsky");
-    await applyPendingReferral(req, userId).catch(() => {});
-    return res.redirect(302, "/");
+    // CSSOS_WAVE_220C 20260520 — Jing: CRITICAL fix. There used to be an
+    // app-password fallback here that, when OAuth creds were absent,
+    // logged the VISITOR in using the SITE's OWN Bluesky handle
+    // (BLUESKY_HANDLE/APP_PASSWORD) — i.e. every "Login with Bluesky"
+    // click silently signed the user in AS cssstudio.bsky.social (the
+    // house/admin account). That is an account-takeover-grade bug and
+    // the reason the 11K-view Jerusalem TikTok converted nobody safely.
+    // The app-password is for the posting BOT only, never visitor auth.
+    // Until proper atproto OAuth (BSKY_CLIENT_ID/SECRET + hosted client
+    // metadata) is configured, Bluesky sign-in is "coming soon".
+    auditAuthFailure("bsky", "oauth", "OAUTH_NOT_CONFIGURED");
+    return res.redirect(302, "/?login=bsky_coming_soon");
   } catch {
     auditAuthFailure("bsky", "app_password", "INTERNAL_ERROR");
     return res.status(500).send("bsky_auth_start_failed");
@@ -36329,13 +37787,17 @@ app.post("/api/billing/membership/change", async (req, res) => {
         }),
       );
     }
-    // Tier → monthly price (cents). Matches rust-api/src/billing.rs membership_tier_plan.
+    // CSSOS_WAVE_219 20260517 — Jing: Stripe prices now MIRROR Apple IAP
+    // (the canonical source) so web ≡ iOS at every tier. Previously this
+    // table was 2-3x higher than Apple, which created cross-platform
+    // confusion. rust-api/src/billing.rs membership_tier_plan is being
+    // retired in W219.5 — do NOT re-sync to it.
     const tierPriceCents: Record<string, number> = {
-      free: 0,
-      starter: 1500,
-      pro: 3900,
-      studio: 12900,
-      enterprise: 39900,
+      free:        0,
+      starter:    499,    // $4.99/mo
+      pro:       1499,    // $14.99/mo
+      studio:    4999,    // $49.99/mo
+      enterprise: 19999,  // $199.99/mo
     };
     const tierDisplayName: Record<string, string> = {
       free: "Free",
@@ -47124,7 +48586,24 @@ app.get("/api/premium/status", async (req, res) => {
   }
 });
 
+// CSSOS_WAVE_219 20260517 — Jing: legacy "Premium" single-tier
+// subscription is deprecated. New unified tier system: starter / pro /
+// studio / enterprise via /api/billing/checkout. This endpoint now
+// returns 410 Gone with a migration hint. Existing premium_until rows
+// in the DB are honored until they expire (no force-cancel). Will be
+// fully removed in W219.6 after all clients update.
 app.post("/api/premium/subscribe", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  return res.status(410).json({
+    ok: false,
+    code: "PREMIUM_DEPRECATED",
+    message: "The 'Premium' single-tier subscription has been retired. Please choose a tier (Starter / Pro / Studio / Enterprise) in Settings → Subscription. Your existing Premium time is honored until expiry; you can upgrade to a tier at any moment.",
+    migrate_to: "/api/billing/checkout",
+    tiers: ["starter", "pro", "studio", "enterprise"],
+  });
+});
+
+app.post("/api/premium/subscribe-legacy-DISABLED", express.json({ limit: "2kb" }), async (req, res) => {
   noStore(res);
   try {
     const user = await getSessionUser(req).catch(() => null);
@@ -47234,14 +48713,15 @@ const PREMIUM_PRICE_CNY_FEN = 6900; // ¥69.00/mo, ≈ $9.99 USD
 
 app.get("/api/premium/providers", async (_req, res) => {
   noStore(res);
+  // CSSOS_WAVE_219 20260517 — legacy "Premium" providers list. Returns
+  // empty + deprecated marker so old clients render a "Coming soon"
+  // disabled state instead of misleading $9.99 buttons. Real provider
+  // catalog now lives at /api/billing/providers (added in W219.3).
   return res.json(okData({
-    providers: [
-      { id: "stripe", currency: "usd", price_cents: 999,           enabled: !!getStripeClient() },
-      { id: "alipay", currency: "cny", price_cents: PREMIUM_PRICE_CNY_FEN, enabled: cssosAlipay.isAlipayConfigured() },
-      { id: "wechat", currency: "cny", price_cents: PREMIUM_PRICE_CNY_FEN, enabled: cssosWechat.isWechatConfigured() },
-      // CSSOS_PERSON_MV_WAVE104B — NihaoPay aggregator (Alipay+WeChat via single MID).
-      { id: "nihaopay", currency: "usd", price_cents: PREMIUM_PRICE_CENTS, enabled: cssosNihao.isNihaoPayConfigured() },
-    ],
+    providers: [],
+    deprecated: true,
+    migrate_to: "/api/billing/checkout",
+    message: "Legacy 'Premium' single-tier subscription retired (W219). Choose Starter / Pro / Studio / Enterprise via the new pricing panel.",
   }));
 });
 
@@ -47306,7 +48786,18 @@ async function applyCnPremiumExtension(userId: string, providerCol: string, subI
 /* POST /api/premium/subscribe-cn?provider=alipay|wechat
  * body: { return_url? } for alipay; ignored for wechat.
  * Returns { redirect_url } (alipay) or { qr_url } (wechat). */
+// CSSOS_WAVE_219 — also deprecated; Alipay/WeChat will be re-added in
+// W219.3 routed against the new tier system (starter/pro/studio/enterprise),
+// not the retired Premium single tier.
 app.post("/api/premium/subscribe-cn", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  return res.status(410).json({
+    ok: false,
+    code: "PREMIUM_CN_DEPRECATED",
+    message: "Alipay / WeChat subscriptions on the legacy Premium tier are temporarily disabled while we migrate to the unified tier catalog. Re-enabling soon (W219.3).",
+  });
+});
+app.post("/api/premium/subscribe-cn-legacy-DISABLED", express.json({ limit: "2kb" }), async (req, res) => {
   noStore(res);
   try {
     const user = await getSessionUser(req).catch(() => null);

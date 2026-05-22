@@ -108,7 +108,7 @@
       + '  </div>'
       + '  <div class="sysmv-section-title">' + esc(tr("Daily budget", "今日预算")) + '</div>'
       + '  <div class="sysmv-card sysmv-budget" id="sysmv-budget"></div>'
-      + '  <div class="sysmv-actions">'
+      + '  <div class="sysmv-actions cssmv-pill-bar">'
       + '    <button class="sysmv-btn" data-sysmv-act="anniversary">' + esc(tr("Run anniversary now", "立刻跑纪念")) + '</button>'
       + '    <button class="sysmv-btn" data-sysmv-act="festival">' + esc(tr("Run festival now", "立刻跑节日")) + '</button>'
       + '    <button class="sysmv-btn ghost" data-sysmv-act="backfill">' + esc(tr("Backfill media", "补媒体")) + '</button>'

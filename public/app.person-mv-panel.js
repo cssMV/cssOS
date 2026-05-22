@@ -1354,7 +1354,7 @@
       '</div>';
 
       // Action bar — Enter Cinema (if MVs exist) + Create New + Back
-      h += '<div class="pmv-action-bar">';
+      h += '<div class="pmv-action-bar cssmv-pill-bar">';
       if (mvs.length) {
         h += '<button class="pmv-cinema">🎬 ' + escTxt(tt("Enter Cinema", "进入影院")) + ' (' + mvs.length + ')</button>';
       }
@@ -2937,7 +2937,7 @@
         heroAttr +
       '</div>';
 
-      h += '<div class="pmv-action-bar">' +
+      h += '<div class="pmv-action-bar cssmv-pill-bar">' +
         '<button class="pmv-cinema">🎬 ' + escTxt(tt("Enter Cinema", "进入影院")) + '</button>' +
         '<button class="pmv-secondary pmv-create-mv">✨ ' + escTxt(tt("Create New Version", "创作新版本")) + '</button>' +
         '<button class="pmv-secondary pmv-compare">🔀 ' + escTxt(tt("Compare with another", "与他人对比")) + '</button>' +
@@ -3729,7 +3729,7 @@
         '</div>' +
       '</div>';
 
-      h += '<div class="pmv-action-bar">' +
+      h += '<div class="pmv-action-bar cssmv-pill-bar">' +
         '<button class="pmv-back">← ' + escTxt(tt("Back", "返回")) + '</button>' +
       '</div>';
 

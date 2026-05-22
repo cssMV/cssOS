@@ -486,7 +486,7 @@ function buildMusicSourceUploadCardMarkup() {
           : ""
       }</div>
       ${resultMatchesActive ? _miRenderResultBlock(result) : ""}
-      <div class="msrc-actions">
+      <div class="msrc-actions" data-segmented="2">
         <button type="button" class="msrc-btn-apply" data-msrc-apply="${_miEsc(activeKey)}"
                 ${resultMatchesActive ? "" : "disabled style=\"opacity:0.45;cursor:not-allowed;\""}>
           ${_miEsc(_miTr("Apply to MV Pipeline", "应用到 MV 管线"))}

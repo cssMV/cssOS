@@ -601,7 +601,7 @@
         <input class="ng-title" type="text" maxlength="120" placeholder="${T("Team chat", "群聊")}" />
         <label>${T("Members (comma-separated handles)", "成员（用逗号分隔的用户名）")}</label>
         <input class="ng-members" type="text" placeholder="alice, bob" />
-        <div class="cssos-dm-modal-actions">
+        <div class="cssos-dm-modal-actions" data-segmented="2">
           <button class="ghost" type="button">${T("Cancel", "取消")}</button>
           <button class="primary" type="button">${T("Create", "创建")}</button>
         </div>

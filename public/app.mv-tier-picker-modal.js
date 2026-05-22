@@ -191,7 +191,7 @@
         '<div class="mvp-tier-modal-cards">' +
           tiers.map(function (t) { return renderTierCard(t, activeId); }).join("") +
         '</div>' +
-        '<div class="mvp-tier-modal-actions">' +
+        '<div class="mvp-tier-modal-actions" data-segmented="2">' +
           '<button type="button" class="mvp-tier-modal-secondary" data-tier-modal-cancel>' + escapeHtml(closeCopy) + '</button>' +
           '<button type="button" class="mvp-tier-modal-primary" data-tier-modal-primary>' + escapeHtml(primaryCopy) + '</button>' +
         '</div>' +

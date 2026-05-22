@@ -76,10 +76,17 @@
     s.id = "cssos-person-mv-style";
     s.textContent =
       /* CSSOS_WAVE_112 20260511 — Civilization MV tabs (People / Landmarks). */
-      "#person-mv-panel .civ-mv-tabs{display:flex;gap:6px;padding:10px 12px 6px;border-bottom:1px solid rgba(0,245,160,0.12);}" +
-      "#person-mv-panel .civ-mv-tab{all:unset;cursor:pointer;padding:8px 16px;border-radius:999px;background:rgba(8,18,16,0.45);border:1px solid rgba(0,245,160,0.22);color:rgba(218,255,238,0.78);font:600 13px/1.2 -apple-system,system-ui,sans-serif;transition:background .15s ease, border-color .15s ease, color .15s ease;}" +
-      "#person-mv-panel .civ-mv-tab:hover{background:rgba(8,28,22,0.65);border-color:rgba(0,245,160,0.5);color:#daffee;}" +
-      "#person-mv-panel .civ-mv-tab.active{background:rgba(0,245,160,0.22);border-color:#00f5a0;color:#fff;}" +
+      /* CSSOS_WAVE_306 20260521 — Jing: "刘海搬到人物MV, 使用胶囊宪法". 改用与
+       * 高级设置「音乐来源上传」子 Tab 一致的【分段胶囊】: 整条是一个药丸轨道,
+       * 激活项变成完整药丸(两头凸/着色), 相邻未激活项朝激活项凹陷
+       * (前者右端切平、后者左端切平). 等同 .msrc-tabbar 的"胶囊宪法". */
+      "#person-mv-panel .civ-mv-tabs{display:flex;gap:0;padding:4px;margin:10px 12px 6px;background:rgba(0,245,160,0.10);border:1px solid rgba(0,245,160,0.30);border-radius:999px;align-items:stretch;overflow-x:auto;scrollbar-width:none;}" +
+      "#person-mv-panel .civ-mv-tabs::-webkit-scrollbar{display:none;}" +
+      "#person-mv-panel .civ-mv-tab{all:unset;flex:1 1 auto;min-width:max-content;display:inline-flex;align-items:center;justify-content:center;gap:6px;box-sizing:border-box;cursor:pointer;padding:9px 16px;border-radius:0;border:0;background:transparent;color:rgba(218,255,238,0.78);font:600 13px/1.2 -apple-system,system-ui,sans-serif;white-space:nowrap;transition:background .15s ease, color .15s ease;}" +
+      "#person-mv-panel .civ-mv-tab:hover:not(.active){background:rgba(0,245,160,0.14);color:#daffee;}" +
+      "#person-mv-panel .civ-mv-tab.active{border-radius:999px !important;background:rgba(0,245,160,0.50) !important;border:0 !important;color:#fff;font-weight:700;}" +
+      "#person-mv-panel .civ-mv-tabs > .civ-mv-tab:has(~ .civ-mv-tab.active){border-radius:999px 0 0 999px !important;}" +
+      "#person-mv-panel .civ-mv-tabs > .civ-mv-tab.active ~ .civ-mv-tab{border-radius:0 999px 999px 0 !important;}" +
       "#person-mv-panel .person-mv-toolbar{" +
         "display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px;align-items:center;" +
         "border-bottom:1px solid rgba(0,245,160,0.18);" +

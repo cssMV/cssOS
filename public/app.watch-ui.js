@@ -10012,6 +10012,20 @@ async function requestWatchVideoPreviewModule(title, lines, options = {}) {
 }
 
 async function requestWatchFrameArtworkModule(title, subtitle, lines = []) {
+  // CSSOS_WAVE_334 20260522 — Jing: "闪过几张都留不住" 的真凶 = 这里【不管有没有真
+  // 封面都生成一套 5 张"标题卡"占位缩略图并轮播churn】. 占位卡只该在【还没有封面、
+  // 正在生成】时用. 一旦已有真实封面(currentResolvedWatchArtworkDataUrl 或当前作品的
+  // cover) → 直接跳过, 保持稳定的那一张, 不再 churn.
+  try {
+    const _resolved = String(globalThis.currentResolvedWatchArtworkDataUrl || "").trim();
+    const _workCover = String(
+      (currentWatchPreviewWork && (currentWatchPreviewWork.cover_image || currentWatchPreviewWork.cover_url)) || ""
+    ).trim();
+    const _real = _resolved || _workCover;
+    if (_real && /^https?:/i.test(_real) && !/^data:image\/svg/i.test(_real)) {
+      return false;
+    }
+  } catch (_e) { /* fall through to placeholder gen */ }
   const safeTitle = String(title || state.title || loginCopy("CSS MV")).trim();
   const safeSubtitle = String(subtitle || t("watch.status.waitingImage")).trim();
   const safeLines = Array.isArray(lines) ? lines.filter(Boolean).slice(0, 8) : [];

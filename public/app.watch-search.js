@@ -99,7 +99,9 @@
         "border:1px solid rgba(255,255,255,0.55)", "background:rgba(0,0,0,0.55)",
         "backdrop-filter:blur(8px)", "-webkit-backdrop-filter:blur(8px)",
         "color:#fff", "font:600 18px/1 -apple-system,system-ui,sans-serif",
-        "cursor:pointer", "display:flex", "align-items:center", "justify-content:center",
+        // CSSOS_WAVE_307 — display 交给 CSS 控制(默认 none, 仅影院显示, idle 系统
+        // 用 inline display:none 隐藏). 这里不写 display, 只留 flex 居中所需的对齐.
+        "cursor:pointer", "align-items:center", "justify-content:center",
         "box-shadow:0 4px 14px rgba(0,0,0,0.4)",
       ].join(";");
       exitBtn.addEventListener("click", function () {
@@ -112,34 +114,11 @@
         try { document.body.classList.remove("cssos-cinema-mode", "cssos-watch-theater", "cssos-watch-idle"); } catch (_e) {}
       });
       panel.appendChild(exitBtn);
-
-      // CSSOS_WAVE_305 20260521 — Jing: 退出影院 ✕ "默认隐藏, 有操作显示, 无操作隐藏"
-      // —— 跟头像/搜索框/Dock 完全同步. 之前(W298)只要在影院就强制 display:flex,
-      // 等于"无操作也常驻显示", 还会跟统一 idle 系统(index.html 的 hideChrome)打架.
-      // 现在: 不在影院 → 强制隐藏(退出影院键在非影院无意义); 在影院 → 撤掉本地的
-      // display 覆写, 把显隐完全交给统一 idle 系统(#watch-exit-cinema 已在其
-      // CHROME_SELECTORS 里, 与 Dock 同显同隐).
-      var syncExitVis = function () {
-        var on = false;
-        try {
-          var pnl = document.getElementById("watch-panel");
-          on = document.body.classList.contains("cssos-cinema-mode") ||
-            (pnl && pnl.classList.contains("is-cssmv-fullscreen")) ||
-            !!document.fullscreenElement || !!document.webkitFullscreenElement;
-        } catch (_e) {}
-        if (on) {
-          // 交给统一 idle 系统(它用 display:none/恢复 控制); 这里不再强制 flex.
-          try { exitBtn.style.removeProperty("display"); } catch (_e) {}
-        } else {
-          exitBtn.style.setProperty("display", "none", "important");
-        }
-      };
-      syncExitVis();
-      try {
-        new MutationObserver(syncExitVis).observe(document.body, { attributes: true, attributeFilter: ["class"] });
-        document.addEventListener("fullscreenchange", syncExitVis, { passive: true });
-        document.addEventListener("webkitfullscreenchange", syncExitVis, { passive: true });
-      } catch (_e) {}
+      // CSSOS_WAVE_307 20260521 — Jing: 退出影院 ✕ 默认隐藏, 与其它控件一致.
+      // 显隐改由 CSS 决定(见 style.css): 默认 display:none; 仅 body.cssos-cinema-mode
+      // /全屏时 display:flex. 统一 idle 系统(index.html hideChrome)在空闲时给本元素
+      // 加 inline display:none(!important) 即可隐藏, wake 时撤掉 inline → 回到 CSS
+      // 的 flex. 不再用 JS 监听 body class(那会与 idle 系统打架, 导致 ✕ 单独常驻).
     }
 
     // CSSOS_WAVE_300c 20260521 — Jing: "删掉左上边的关闭按钮" — 它一直没被清掉,

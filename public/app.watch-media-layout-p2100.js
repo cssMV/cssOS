@@ -1444,6 +1444,12 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
         return;
       }
       // Interior click → toggle play/pause (the original behaviour).
+      // CSSOS_WAVE_302 20260521 — Jing: 共享单次切换锁. .watch-screen 上还绑了
+      // handleWatchPlaybackSurfaceClick(app.watch-ui.js), 裸面板轻触会双触发 →
+      // 暂停后又立刻恢复. 同一次轻触只让一个处理器切换(~350ms 窗口).
+      var __now = Date.now();
+      if (__now < (globalThis.__cssosWatchToggleLockUntil || 0)) return;
+      globalThis.__cssosWatchToggleLockUntil = __now + 350;
       try {
         if (primary.paused || primary.ended) {
           try { primary.muted = false; } catch (_e) {}

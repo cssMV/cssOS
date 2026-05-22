@@ -7579,6 +7579,18 @@ async function handleWatchPlaybackSurfaceClick(ev) {
       }
     }
   } catch (_e) { /* fail-open: 任何异常都按原逻辑走 */ }
+  // CSSOS_WAVE_302 20260521 — Jing: "除了用户暂停, 所有操作不打断播放". .watch-screen
+  // 上绑了两个点击处理器(本函数 + media-layout 的 frame-toggle), 裸面板的一次轻触
+  // 会被双触发 → 暂停后立刻又恢复, "暂停"形同失效. 用一个 ~350ms 的共享单次切换锁:
+  // 同一次轻触只允许其中一个处理器执行播放/暂停切换. 仅对真实点击事件生效(程序化
+  // 调用 ev 为空时不加锁, 不影响切歌/自动播).
+  try {
+    if (ev && ev.target) {
+      const __now = Date.now();
+      if (__now < (globalThis.__cssosWatchToggleLockUntil || 0)) return;
+      globalThis.__cssosWatchToggleLockUntil = __now + 350;
+    }
+  } catch (_e) { /* no-op */ }
   if (!authState?.user && typeof openLoginForCreation === "function") {
     openLoginForCreation(
       loginCopy(

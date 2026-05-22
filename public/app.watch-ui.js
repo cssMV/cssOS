@@ -3004,6 +3004,17 @@ async function openLatestOwnedWorkPreviewModule() {
     if (_cov && !/^data:image\/svg\+xml/i.test(_cov)) {
       globalThis.currentResolvedWatchArtworkDataUrl = _cov;
       globalThis.currentWatchArtworkVariantPool = [_cov];
+      // CSSOS_WAVE_333 20260522 — Jing: 直接把【一张稳定封面】绑到常驻背景层
+      // #watch-screen-backdrop. 走缩略图代理(img-thumb 会缓存一份, 即使原 replicate
+      // 临时链接过期也照常显示) → 背景图稳定常驻, 前景/幻灯怎么变都不影响这一张.
+      const _bd = document.getElementById("watch-screen-backdrop");
+      if (_bd) {
+        const _stable = (typeof globalThis.cssosThumb === "function")
+          ? globalThis.cssosThumb(_cov, 800) : _cov;
+        _bd.style.backgroundImage = `url("${String(_stable).replace(/"/g, '\\"')}")`;
+        _bd.style.backgroundSize = "cover";
+        _bd.style.backgroundPosition = "center";
+      }
     }
   } catch (_e) { /* non-fatal */ }
   globalThis.cssosBindToWorkId?.(latestWork); // CSSOS_WAVE_121 Step 2

@@ -8879,23 +8879,53 @@
       if (_chipHues2[id] == null) _chipHues2[id] = Math.floor(Math.random() * 360);
       return _chipHues2[id];
     };
+    // CSSOS_WAVE_350 20260522 — Jing「幻灯/进度不闪」: 旧实现每来一个
+    // run_progress 事件就 stagesEl.innerHTML 全量重建, 把所有胶囊 DOM 拆了
+    // 重画 —— active 胶囊的 breathe 呼吸动画因此每帧从头重启, 永远跑不完一个
+    // 周期, 看着就是"闪来闪去/抖动". 现在改成: 胶囊只创建一次, 之后只就地
+    // 更新 class / 文本 / --chip-hue, DOM 节点稳定不动 → 动画连续, 不再闪.
+    const _chipEls = {};
+    const buildChipsOnce = function () {
+      if (!stagesEl || stagesEl.childElementCount) return;
+      STAGE_META.forEach(function (s) {
+        const el = document.createElement("span");
+        el.className = "cinema-hero-progress-chip pending";
+        el.setAttribute("data-stage", s.id);
+        el.textContent = s.icon + " " + trI18n(s.en, s.zh) + " …";
+        stagesEl.appendChild(el);
+        _chipEls[s.id] = el;
+      });
+    };
     const renderStages = function (pcts) {
       if (!stagesEl) return;
-      stagesEl.innerHTML = STAGE_META.map(function (s) {
+      buildChipsOnce();
+      STAGE_META.forEach(function (s) {
+        const el = _chipEls[s.id];
+        if (!el) return;
         const p = Math.max(0, Math.min(100, Math.round(pcts[s.id] || 0)));
         const tag = p >= 100 ? "✓" : (p > 0 ? (p + "%") : "…");
         const cls = p >= 100 ? "done" : (p > 0 ? "active" : "pending");
-        const styleAttr = (cls === "active")
-          ? ' style="--chip-hue:' + _hueFor2(s.id) + '"' : '';
-        return '<span class="cinema-hero-progress-chip ' + cls + '"' + styleAttr + '>' +
-          s.icon + " " + esc(trI18n(s.en, s.zh)) + " " + tag + "</span>";
-      }).join("");
-      /* CSSOS_WAVE_223 — active 居中: 直接计算 scrollLeft, 避免 smooth
-       * 在每帧 re-render 时被打断, 也绕过 scroll-snap 在小内容时不生效
-       * 的问题. */
+        // Only touch the DOM when something actually changed — avoids
+        // resetting the breathe animation on no-op progress ticks.
+        const wantText = s.icon + " " + trI18n(s.en, s.zh) + " " + tag;
+        if (el.textContent !== wantText) el.textContent = wantText;
+        if (!el.classList.contains(cls)) {
+          el.classList.remove("pending", "active", "done");
+          el.classList.add(cls);
+        }
+        if (cls === "active") {
+          const hue = String(_hueFor2(s.id));
+          if (el.style.getPropertyValue("--chip-hue") !== hue) el.style.setProperty("--chip-hue", hue);
+        } else if (el.style.getPropertyValue("--chip-hue")) {
+          el.style.removeProperty("--chip-hue");
+        }
+      });
+      /* CSSOS_WAVE_223 — active 居中: 直接计算 scrollLeft. 只在 active 真的
+       * 换了个 stage 时才滚, 避免每帧都写 scrollLeft 造成视觉抖动. */
       try {
         const a = stagesEl.querySelector(".cinema-hero-progress-chip.active");
-        if (a) {
+        if (a && a.getAttribute("data-stage") !== stagesEl._lastActiveStage) {
+          stagesEl._lastActiveStage = a.getAttribute("data-stage");
           const target = a.offsetLeft - (stagesEl.clientWidth / 2 - a.offsetWidth / 2);
           stagesEl.scrollLeft = Math.max(0, target);
         }

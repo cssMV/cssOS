@@ -30915,10 +30915,11 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
           `do not fabricate. You independently write the multi-perspective assessments. ` +
           `Remember: ALL string values must be written in ${_langName}.\n\n` + userPrompt;
       }
-      // CSSOS_WAVE_348 — 两段式生成: 先走默认便宜模型链; 若输出语言不对(尤其
-      // 母语是非拉丁文字时小模型常失败) 且母语不是英文, 用强模型(anthropic/openai)重试;
-      // 再不行就生成英文版兜底, 标 lang="en" —— 绝不留错语言或中文乱入.
-      const genLore = async (langName: string, prefer?: string[]) => {
+      // CSSOS_WAVE_354 — Jing「请直接用 openAI/Claude」: 小模型常出错语言/乱码
+      // (双重编码 mojibake、中文乱入). 人物档案直接走强模型(anthropic→openai),
+      // 不再先试便宜链. 仍保留语言校验 + 英文兜底(永不中文).
+      const CAPABLE = ["anthropic", "openai"];
+      const genLore = async (langName: string, prefer: string[] = CAPABLE) => {
         const sp = sysPrompt.split(_langName).join(langName);
         const up = userPrompt.split(_langName).join(langName);
         const llm = await callLlm({
@@ -30937,21 +30938,12 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
       try {
         let parsed: any = null;
         let finalLang = _expectLoreLang;
-        // Attempt 1 — cheap-first default chain, in mother tongue.
+        // Attempt 1 — capable model (OpenAI/Claude) directly, in mother tongue.
         parsed = await genLore(_langName);
-        // Attempt 2 — capable model, if the mother tongue isn't English
-        // and attempt 1 either failed or came back in the wrong language.
-        if (_expectLoreLang !== "en" && (!parsed || loreLangMismatch(String(parsed.bio || ""), _expectLoreLang))) {
-          const capable = await genLore(_langName, ["anthropic", "openai"]);
-          if (capable && !loreLangMismatch(String(capable.bio || ""), _expectLoreLang)) {
-            parsed = capable;
-          } else if (capable && !parsed) {
-            parsed = capable; // accept whatever the capable model gave over nothing
-          }
-        }
-        // Attempt 3 — English fallback (NEVER Chinese) if still wrong/empty.
+        // Attempt 2 — English fallback (NEVER Chinese) if attempt 1 failed or
+        // came back in the wrong language (script-validated for non-Latin).
         if (!parsed || loreLangMismatch(String(parsed.bio || ""), _expectLoreLang)) {
-          const en = await genLore("English", ["anthropic", "openai"]);
+          const en = await genLore("English");
           if (en) { parsed = en; finalLang = "en"; }
         }
         if (parsed) {

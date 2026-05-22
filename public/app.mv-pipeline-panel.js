@@ -9241,19 +9241,12 @@
       /* CSSOS_WAVE_225 — strip 加垂直 padding + overflow-y:visible,
        * 让 active 胶囊的 translateY(-2px) scale(1.06) 呼吸动画
        * 不被裁切. */
-      /* CSSOS_WAVE_220A — harmonised container: rounded green-tinted
-       * pill background matching the system-wide segmented control.
-       * Gap kept (chips are progress indicators, not switch buttons —
-       * they need to breathe individually) but the OUTER look is now
-       * one of a piece with the rest of the UI. */
-      '.cinema-hero-progress-stages { display:flex; flex-wrap:nowrap; gap:6px; width:100%; box-sizing:border-box; overflow-x:auto; overflow-y:visible; scroll-snap-type:x mandatory; scrollbar-width:none; padding:6px 8px; scroll-behavior:smooth; align-items:center; background:rgba(0,245,160,0.07); border:1px solid rgba(0,245,160,0.15); border-radius:999px; }' +
-      '.cinema-hero-progress-stages::-webkit-scrollbar { display:none; }' +
-      '.cinema-hero-progress-chip { font:600 10.5px/1 ui-monospace,monospace; padding:6px 12px; border-radius:999px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.12); color:rgba(255,255,255,.45); letter-spacing:.02em; transition:background .35s,color .35s,border-color .35s,box-shadow .35s,transform .35s; white-space:nowrap; flex:0 0 auto; scroll-snap-align:center; text-align:center; }' +
-      /* CSSOS_WAVE_219 — active 胶囊每个 stage 分配随机色相 (--chip-hue),
-       * 背景/边框/光晕全部跟随, 保留 breathe 呼吸动画. */
-      '.cinema-hero-progress-chip.active { background:hsla(var(--chip-hue,150),85%,55%,.28); border-color:hsla(var(--chip-hue,150),90%,65%,.85); color:#fff; animation:cssos-chip-breathe 1.6s ease-in-out infinite; }' +
-      '@keyframes cssos-chip-breathe { 0%, 100% { box-shadow: 0 0 0 0 hsla(var(--chip-hue,150),90%,60%,.45), 0 0 8px 1px hsla(var(--chip-hue,150),90%,60%,.25) inset; transform: translateY(0) scale(1); } 50% { box-shadow: 0 0 16px 5px hsla(var(--chip-hue,150),95%,65%,.6), 0 0 18px 4px hsla(var(--chip-hue,150),95%,65%,.4) inset; transform: translateY(-2px) scale(1.06); } }' +
-      '.cinema-hero-progress-chip.done { background:rgba(0,245,160,.28); border-color:rgba(0,245,160,.85); color:#001a10; }' +
+      /* CSSOS_WAVE_354 20260522 — Jing「严格实行胶囊宪法」: 删除这里内联的
+       * .cinema-hero-progress-stages / -chip / .active / .done + breathe 关键帧.
+       * 同 W352 的总进度条问题 —— 这份运行时注入的样式晚于静态 style.mv-pipeline.css,
+       * 用 flex:0 0 auto + 每个 chip 各自的药丸边框, 把 W322「胶囊宪法」(一条无缝
+       * 分段药丸轨道, flex:1 1 auto, active 段鼓起、相邻段凹陷) 压成了 6 个独立方块.
+       * 现删除重复定义, 让 W322 单一来源统一治理影院/面板. */
       /* CSSOS_WAVE_352 20260522 — Jing「总进度条又不见了」: 这里曾内联一份
        * .cinema-hero-progress-bar / -fill / -pct (6px、track 仅 .08、彩虹填充),
        * 因为是运行时 appendChild 注入 <head>, 会【晚于】静态 style.mv-pipeline.css

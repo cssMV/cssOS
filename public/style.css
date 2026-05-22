@@ -859,6 +859,26 @@ html[data-theme="light"] .dock-label {
   display: none;
 }
 
+/* W287 — panel-actions compact override for cssmv-pill-bar constitution.
+ * The default constitution track is 42px with 14px/22px margin — far too
+ * tall for the panel-bar chrome row. We keep the pill track visual but
+ * shrink it to 30px and zero out the margin. Higher specificity (2 classes)
+ * beats the constitution's 1-class selector on !important rules. */
+.panel-bar .panel-actions.cssmv-pill-bar {
+  margin: 0 !important;
+  height: 30px !important;
+  min-height: 30px !important;
+}
+.panel-bar .panel-actions.cssmv-pill-bar > * {
+  height: 30px;
+  min-height: 30px;
+  max-height: 30px;
+  line-height: 30px;
+  padding: 0 8px;
+  min-width: 30px;
+  font-size: 15px;
+}
+
 .icon-btn {
   width: 28px;
   height: 28px;
@@ -1969,6 +1989,62 @@ body.longpress-guard * {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
+}
+
+/* W287 — login-grid as cssmv-pill-bar: platform cards become a vertical
+ * pill stack. The constitution track (green border, 999px radius) wraps
+ * all platforms. Each card stays tall enough for logo+title+action-tag.
+ *
+ * Design choice: VERTICAL stack (flex-col, full-width cards) rather than
+ * horizontal scroll — platform list on narrow panels works better stacked.
+ * The 凸嵌凹 interlock is disabled (calibrated for 40px; cards are ~56px)
+ * replaced with flat divider lines between rows. */
+.login-grid.cssmv-pill-bar {
+  flex-direction: column !important;
+  height: auto !important;
+  min-height: auto !important;
+  overflow-x: visible !important;
+  overflow-y: visible !important;
+  gap: 0 !important;
+  align-items: stretch !important;
+}
+.login-grid.cssmv-pill-bar > .login-card {
+  /* Restore grid layout — constitution overrides display:inline-flex */
+  display: grid !important;
+  grid-template-columns: auto 1fr auto !important;
+  height: auto !important;
+  min-height: 52px !important;
+  max-height: none !important;
+  line-height: 1.3 !important;
+  padding: 10px 14px !important;
+  border-radius: 0 !important;
+  border: 0 !important;
+  /* Disable 凸嵌凹 interlock */
+  margin: 0 !important;
+  width: 100% !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+  flex: none !important;
+}
+/* Divider between platform rows */
+.login-grid.cssmv-pill-bar > .login-card:not(:last-child) {
+  border-bottom: 1px solid rgba(0, 245, 160, 0.14) !important;
+}
+/* Round top/bottom caps to form a single pill track */
+.login-grid.cssmv-pill-bar > .login-card:first-child {
+  border-radius: 20px 20px 0 0 !important;
+}
+.login-grid.cssmv-pill-bar > .login-card:last-child {
+  border-radius: 0 0 20px 20px !important;
+}
+.login-grid.cssmv-pill-bar > .login-card:only-child {
+  border-radius: 20px !important;
+}
+/* Active/linked cards keep their glow but inside the track border */
+.login-grid.cssmv-pill-bar > .login-card.active,
+.login-grid.cssmv-pill-bar > .login-card.linked,
+.login-grid.cssmv-pill-bar > .login-card.enabled {
+  box-shadow: inset 0 0 0 1px rgba(0, 245, 160, 0.45);
 }
 
 .login-summary {
@@ -9042,6 +9118,35 @@ html[data-panel-transparent="true"] .logo-panel {
     overflow: auto;
     -webkit-overflow-scrolling: touch;
   }
+
+  /* CSSOS_WAVE_245 20260520 — Jing: 手机端前台内容面板铺满屏幕, 不留
+   * 底部白边. 把当前激活/前置的非 logo 面板拉成全屏 sheet:
+   * 顶到 safe-area, 底到屏幕边. logo-panel 与 watch-panel(有自己的
+   * cinema 全屏逻辑) 不动. panel-body 内部滚动. */
+  .panel.panel-active:not(#logo-panel):not(#watch-panel),
+  .panel.panel-front:not(#logo-panel):not(#watch-panel) {
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+    transform: none !important;
+    margin: 0 !important;
+    /* 顶部给状态栏让位 (旧壳还显示状态栏时不打架; W244 重打后状态栏
+       消失, 这个 inset 归 0, 自然铺满). */
+    padding-top: env(safe-area-inset-top, 0px) !important;
+  }
+  .panel.panel-active:not(#logo-panel):not(#watch-panel) .panel-body,
+  .panel.panel-front:not(#logo-panel):not(#watch-panel) .panel-body {
+    max-height: none !important;
+    height: auto !important;
+    flex: 1 1 auto !important;
+    /* 底部给 Home 条 + dock 让位, 内容不被遮 */
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px) !important;
+  }
 }
 
 .panel.center-stage {
@@ -10352,6 +10457,28 @@ html, body {
    itself stays in the safe area via its own padding. */
 body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen {
   padding: 0 !important;
+}
+
+/* CSSOS_WAVE_246 20260520 — Jing: 回退 W242. 之前强行给 .watch-screen
+ * 设 width:100dvw + 给所有媒体元素套 height:100%/object-fit:cover, 把
+ * cinema 媒体容器搞塌成黑屏. 真全屏只做"安全"的去缝处理:
+ *   • watch-screen / watch-frame 去圆角去内边距 (边到边, 不动尺寸/比例);
+ *   • 不再强改 height/width/aspect-ratio/object-fit — 让原有布局自己算,
+ *     媒体正常渲染优先于"绝对铺满".
+ * (黑边问题改用 W226 的 100dvh 高度规则 + 原生 object-fit:cover 已足够;
+ *  真要完全无黑边等 native build 的 contentMode + W244 状态栏隐藏一起看.) */
+#watch-panel.is-cssmv-fullscreen .watch-screen,
+#watch-panel.is-cssmv-fullscreen .watch-frame {
+  border-radius: 0 !important;
+}
+/* CSSOS_WAVE_243 20260520 — Jing: 候播条 (#cssos-up-next-strip) 本来就是
+ * position:fixed 底部半透明浮层, 且只在播放结束前 ~10s 淡入 (JS 控制),
+ * 不占布局 → 不是黑块来源, 保留不动. 真全屏只隐藏纯装饰浮层
+ * (save-as-template + chat 球), 媒体铺满 100dvh 已消除黑块. */
+body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen .watch-save-template,
+body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen [data-watch-save-template],
+body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen #cssos-agent-fab {
+  display: none !important;
 }
 
 /* CSSOS_PERSON_MV_WAVE66 20260508 — Jing — engines admin balance column colour code.

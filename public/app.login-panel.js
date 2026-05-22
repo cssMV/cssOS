@@ -226,7 +226,20 @@ function renderLoginPlatformsModule() {
     ])
   );
   const linkedProviders = new Set(authState.linkedProviders || []);
-  const list = socialPlatforms.map((platform) => {
+  /* CSSOS_WAVE_236c 20260519 — Jing: 显式 ALLOWLIST.
+   * 之前用 enabledMap.get(id).enabled 过滤, 实测有 provider 在
+   * authState.providers 里 enabled=true 但其实路径没打通的情况,
+   * 还是会渲染出 "Unavailable" 标签. 改为白名单: 只有这 5 个
+   * 一定渲染, 其他不管 enabledMap 怎么说一律不渲染.
+   * App Store 截图 + 用户体验都干净. */
+  var _PROVIDER_ALLOW = new Set(["google", "apple", "facebook", "github", "x"]);
+  var _filteredPlatforms = socialPlatforms.filter(function (p) {
+    return _PROVIDER_ALLOW.has(p.id);
+  });
+  try {
+    console.info("[login-panel][W236c] allow=" + Array.from(_PROVIDER_ALLOW).join(",") + " rendered=" + _filteredPlatforms.length);
+  } catch (_e) {}
+  const list = _filteredPlatforms.map((platform) => {
     const record = enabledMap.get(platform.id);
     const logo = record?.logo;
     const isLinked = linkedProviders.has(platform.id);
@@ -296,25 +309,12 @@ function renderLoginPlatformsModule() {
       </div>
     `;
   } else {
-    const githubDiag = authState.authDiagnostics;
-    const githubHint = githubDiag
-      ? githubDiag.enabled
-        ? t("login.githubDiagReady").replace(
-            "{callback}",
-            githubDiag.callback_url || "https://cssstudio.app/auth/github/callback"
-          )
-        : t("login.githubDiagMissing").replace(
-            "{missing}",
-            Array.isArray(githubDiag.missing_env) && githubDiag.missing_env.length
-              ? githubDiag.missing_env.join(", ")
-              : "unknown"
-          )
-      : "";
+    /* CSSOS_WAVE_236 20260519 — Jing: 登录页只留 "View plans first" 按钮,
+     * 去掉 "Choose a social account..." 引导文案 + GitHub 诊断文案.
+     * App Store 截图需要干净的登录页. */
     summary.innerHTML = `
       <div class="login-hint">
-        ${loginPanelLoginCopy("Choose a social account to continue. After sign-in, this panel will show your connected providers.", "选择一个社交账号登录。登录后，这里会显示你已绑定的平台和账号状态。")}
-        ${githubHint ? `<div class="login-diagnostic-hint">${escapeHtml(githubHint)}</div>` : ""}
-        <div class="work-actions" style="margin-top:12px;">
+        <div class="work-actions">
           <button class="mini-btn ghost" type="button" data-login-open-subscription>${loginPanelLoginCopy("View plans first", "先看会员方案")}</button>
         </div>
       </div>
@@ -794,7 +794,7 @@ function ensureBlueskyLoginModalModule() {
         <span>${loginPanelLoginCopy("App password", "应用密码")}</span>
         <input type="password" data-bsky-password placeholder="${loginPanelLoginCopy("App password", "应用密码")}" />
       </label>
-      <div class="provider-login-actions">
+      <div class="provider-login-actions" data-segmented="3">
         <button class="cta ghost tiny" type="button" data-bsky-oauth>${loginPanelLoginCopy("Use OAuth", "使用 OAuth")}</button>
         <button class="cta ghost tiny" type="button" data-bsky-close>${loginPanelLoginCopy("Close", "关闭")}</button>
         <button class="cta tiny" type="button" data-bsky-submit>${loginPanelLoginCopy("Sign in", "登录")}</button>

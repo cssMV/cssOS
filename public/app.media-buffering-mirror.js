@@ -25,6 +25,8 @@
          两张图片 (mirror-1.webp + mirror-2.webp) 交替急促呼吸 + 随机色
          的径向背景。 */
       ".cssos-buffering-mirror .bg{position:absolute;inset:-10%;border-radius:50%;filter:blur(8px);opacity:0.55;animation:cssosBufBgPulse 1.4s ease-in-out infinite;}",
+      /* CSSOS_WAVE_347 — Jing: 魔镜图加载失败时, 不要单独留一坨随机色背景. */
+      ".cssos-buffering-mirror.img-failed .bg{display:none;}",
       ".cssos-buffering-mirror .mirror-img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;}",
       ".cssos-buffering-mirror .mirror-img.a{animation:cssosBufFadeA 1.4s ease-in-out infinite;}",
       ".cssos-buffering-mirror .mirror-img.b{animation:cssosBufFadeB 1.4s ease-in-out infinite;}",
@@ -58,20 +60,41 @@
     } catch (_) {}
     var overlay = document.createElement("div");
     overlay.className = "cssos-buffering-mirror";
+    // CSSOS_WAVE_347 20260522 — Jing: 魔镜图老是不出来(只剩随机色背景):
+    // 1) 用绝对路径 /assets/... — 相对 "assets/..." 在非根路由下会 404.
+    // 2) 任一张图加载失败就把整个 overlay 标记 .img-failed, CSS 隐藏随机色
+    //    背景 blob —— 宁可什么都不显示, 也不要留一坨突兀的随机色块.
     overlay.innerHTML = ''
       + '<div class="bg" style="background:' + randomMirrorBgGradient() + ';"></div>'
-      + '<img class="mirror-img a" src="assets/mirror-1.webp" alt="" aria-hidden="true">'
-      + '<img class="mirror-img b" src="assets/mirror-2.webp" alt="" aria-hidden="true">';
+      + '<img class="mirror-img a" src="/assets/mirror-1.webp" alt="" aria-hidden="true">'
+      + '<img class="mirror-img b" src="/assets/mirror-2.webp" alt="" aria-hidden="true">';
     // CSSOS_WAVE_144B — Jing: "Buffering 去掉". Label removed; the
     // breathing mirror + random-tint backdrop alone convey the loading
     // state.
     parent.appendChild(overlay);
+    try {
+      overlay.querySelectorAll("img.mirror-img").forEach(function (im) {
+        im.addEventListener("error", function () { overlay.classList.add("img-failed"); });
+      });
+    } catch (_e) {}
+    // CSSOS_WAVE_347 — Jing: 该 overlay 是否"代表用户正在欣赏的画面".
+    // #watch-audio-preview 这类【静音/预加载的伴奏音轨】在 Suno 还没出
+    // 音乐时会一直 waiting, 但用户其实在看 video/封面 —— 此时挂在 audio 上
+    // 的魔镜会"正常播放还一直呼吸". 这类后台元素一律不驱动可见 overlay.
+    var isBackgroundMedia = function () {
+      try {
+        if (media.tagName === "AUDIO" && media.muted) return true;
+        if (media.id === "watch-audio-preview" && media.muted) return true;
+      } catch (_e) {}
+      return false;
+    };
     var show = function () {
       // CSSOS_WAVE_276 20260521 — Jing: 预加载魔镜只在【真正缓冲/卡顿】时显示,
       // 不能常亮挡住正在欣赏的 MV. 而且只在该 media 确实"正在播放但卡住"时才显,
       // 暂停 / 无 src / 空闲(如 MV 模式下 idle 的 audio-preview)一律不显示 ——
       // 否则会出现"两个 logo 呼吸打架"(video + 闲置 audio 各挂一个).
       try {
+        if (isBackgroundMedia()) return;
         if (media.paused || media.ended) return;
         if (!String(media.currentSrc || media.src || "").trim()) return;
       } catch (_e) {}
@@ -88,6 +111,9 @@
     media.addEventListener("pause", hide);
     media.addEventListener("ended", hide);
     media.addEventListener("error", hide);
+    // CSSOS_WAVE_347 — Jing: 兜底. 只要时间在前进(真在播放), 立刻收起魔镜 ——
+    // 杜绝 waiting 之后 playing 没补发导致魔镜赖着不走.
+    media.addEventListener("timeupdate", hide);
   }
 
   function scan() {

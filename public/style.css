@@ -879,6 +879,24 @@ html[data-theme="light"] .dock-label {
   font-size: 15px;
 }
 
+/* W288 — toolbar-embedded pill groups: no extra margin, compact height.
+ * Any [data-segmented] or .cssmv-pill-bar that sits inside a flex toolbar
+ * row should not add 14px/22px vertical margin (the constitution default).
+ * .person-mv-toolbar, and future toolbars, benefit from this override. */
+.person-mv-toolbar [data-segmented],
+.person-mv-toolbar .cssmv-pill-bar {
+  margin: 0 !important;
+  height: 34px !important;
+  min-height: 34px !important;
+}
+.person-mv-toolbar [data-segmented] > *,
+.person-mv-toolbar .cssmv-pill-bar > * {
+  height: 34px;
+  min-height: 34px;
+  max-height: 34px;
+  line-height: 34px;
+}
+
 .icon-btn {
   width: 28px;
   height: 28px;
@@ -11005,43 +11023,52 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
   z-index: 1;
 }
 
-/* Inactive AFTER active: extends 20px LEFT, concave bite on left */
+/* W288 — 取消刘海（凸嵌凹 mask-image）→ 干净平边接缝.
+ * 无凹口，无负 margin，无 mask-image. Active 是完整 pill；
+ * 邻居们平边相接，首尾保留外圆角. 接缝处用 1px 分隔线标边界. */
+
+/* Inactive AFTER active: right-cap only */
 [data-segmented] > .active ~ *,
 [data-segmented] > [aria-selected="true"] ~ *,
 .cssmv-pill-bar > .active ~ *,
 .cssmv-pill-bar > [aria-selected="true"] ~ * {
-  margin-left: -20px !important;
-  width: calc(100% + 20px) !important;
-  padding-left: 36px !important;
   border-radius: 0 999px 999px 0 !important;
   z-index: 0;
-  -webkit-mask-image: radial-gradient(circle 20px at 20px 20px, transparent 19.5px, #000 20px);
-  mask-image: radial-gradient(circle 20px at 20px 20px, transparent 19.5px, #000 20px);
 }
 
-/* Inactive BEFORE active: extends 20px RIGHT, concave bite on right */
+/* Inactive BEFORE active: left-cap only */
 [data-segmented] > *:has(~ .active),
 [data-segmented] > *:has(~ [aria-selected="true"]),
 .cssmv-pill-bar > *:has(~ .active),
 .cssmv-pill-bar > *:has(~ [aria-selected="true"]) {
-  margin-right: -20px !important;
-  width: calc(100% + 20px) !important;
-  padding-right: 36px !important;
   border-radius: 999px 0 0 999px !important;
   z-index: 0;
-  -webkit-mask-image: radial-gradient(circle 20px at calc(100% - 20px) 20px, transparent 19.5px, #000 20px);
-  mask-image: radial-gradient(circle 20px at calc(100% - 20px) 20px, transparent 19.5px, #000 20px);
 }
 
-/* Fallback when :has() is unavailable — pills stay rectangular but visible. */
+/* First/last child always keep their outer cap (no-active state) */
+[data-segmented] > *:first-child,
+.cssmv-pill-bar > *:first-child { border-radius: 999px 0 0 999px; }
+[data-segmented] > *:last-child,
+.cssmv-pill-bar > *:last-child  { border-radius: 0 999px 999px 0; }
+[data-segmented] > *:only-child,
+.cssmv-pill-bar > *:only-child  { border-radius: 999px !important; }
+
+/* Seam divider — 1px right border on every non-last child */
+[data-segmented] > *:not(:last-child),
+.cssmv-pill-bar > *:not(:last-child) {
+  border-right: 1px solid rgba(0, 245, 160, 0.22) !important;
+}
+/* Active pill has no seam border (its own radius is the visual separator) */
+[data-segmented] > .active,
+[data-segmented] > [aria-selected="true"],
+.cssmv-pill-bar > .active,
+.cssmv-pill-bar > [aria-selected="true"] {
+  border-right: 0 !important;
+  border-left: 0 !important;
+}
+
+/* Fallback when :has() is unavailable — simple left/right caps. */
 @supports not (selector(:has(*))) {
-  [data-segmented] > *,
-  .cssmv-pill-bar > * {
-    margin: 0 !important;
-    width: 100% !important;
-    mask-image: none !important;
-    -webkit-mask-image: none !important;
-  }
   [data-segmented] > *:first-child { border-radius: 999px 0 0 999px !important; }
   [data-segmented] > *:last-child { border-radius: 0 999px 999px 0 !important; }
 }

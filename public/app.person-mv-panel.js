@@ -106,7 +106,7 @@
         "border:1px solid rgba(0,245,160,0.22);" +
         "color:#daffee;font:600 11px/1 ui-monospace,monospace;letter-spacing:.04em;" +
       "}" +
-      "#person-mv-panel .person-mv-tier-btn.is-active{" +
+      "#person-mv-panel .person-mv-tier-btn.active{" +
         "background:rgba(0,245,160,0.85);color:#001b14;" +
       "}" +
       "#person-mv-panel .person-mv-civ-select{" +
@@ -278,7 +278,7 @@
       "html[data-theme=\"light\"] #person-mv-panel .person-mv-search,html[data-theme=\"light\"] #person-mv-panel .person-mv-civ-select{background:rgba(0,40,30,0.06);color:#0f3a2a;border-color:rgba(0,160,100,0.45);}" +
       "html[data-theme=\"light\"] #person-mv-panel .person-mv-search::placeholder{color:rgba(15,58,42,0.55);}" +
       "html[data-theme=\"light\"] #person-mv-panel .person-mv-tier-btn{background:rgba(0,160,100,0.10);color:#0f3a2a;border-color:rgba(0,160,100,0.45);}" +
-      "html[data-theme=\"light\"] #person-mv-panel .person-mv-tier-btn.is-active{background:#00a060;color:#fff;}" +
+      "html[data-theme=\"light\"] #person-mv-panel .person-mv-tier-btn.active{background:#00a060;color:#fff;}" +
       "html[data-theme=\"light\"] #person-mv-panel .person-mv-card{background:rgba(0,40,30,0.04);color:#0f3a2a;border-color:rgba(0,160,100,0.35);}" +
       "html[data-theme=\"light\"] #person-mv-panel .person-mv-name-en,html[data-theme=\"light\"] #person-mv-panel .person-mv-theme,html[data-theme=\"light\"] #person-mv-panel .person-mv-counts,html[data-theme=\"light\"] #person-mv-panel .person-mv-empty{color:rgba(15,58,42,0.75);}" +
       "html[data-theme=\"light\"] #person-mv-panel .person-mv-meta{color:#00a060;}" +
@@ -477,13 +477,16 @@
         '<div class="person-mv-toolbar">' +
           '<input class="person-mv-search" type="search" placeholder="' +
             tt("Search by name, civilization, theme…", "按姓名 / 文明 / 主题搜索") + '" />' +
-          '<button class="person-mv-tier-btn is-active" data-tier="1">' +
-            tt("Influence", "影响力") + '</button>' +
-          '<button class="person-mv-tier-btn" data-tier="2">' +
-            tt("Civilization", "文明") + '</button>' +
-          /* CSSOS_PERSON_MV_WAVE58 — S/A/B curation-tier filter chips. */
-          '<span class="person-mv-curation-tier" style="display:inline-flex;gap:4px;margin-left:6px;">' +
-            '<button class="person-mv-ctier-btn is-active" data-ctier="S" title="' +
+          /* Sort mode: Influence / Civilization → segmented=2 */
+          '<div class="person-mv-sort-group" data-segmented="2">' +
+            '<button class="person-mv-tier-btn active" data-tier="1">' +
+              tt("Influence", "影响力") + '</button>' +
+            '<button class="person-mv-tier-btn" data-tier="2">' +
+              tt("Civilization", "文明") + '</button>' +
+          '</div>' +
+          /* CSSOS_PERSON_MV_WAVE58 — S/A/B curation-tier filter chips → segmented=4 */
+          '<div class="person-mv-curation-tier" data-segmented="4">' +
+            '<button class="person-mv-ctier-btn active" data-ctier="S" title="' +
               tt("Global consensus", "全球公认") + '">S</button>' +
             '<button class="person-mv-ctier-btn" data-ctier="A" title="' +
               tt("Civilization rep", "文明代表") + '">A</button>' +
@@ -491,10 +494,10 @@
               tt("Domain rep", "领域代表") + '">B</button>' +
             '<button class="person-mv-ctier-btn" data-ctier="all" title="' +
               tt("All tiers", "全部") + '">' + tt("All", "全") + '</button>' +
-          '</span>' +
-          /* CSSOS_WAVE_114 20260511 — realm filter pills (位面). */
-          '<span class="person-mv-realm-pills" style="display:inline-flex;gap:4px;margin-left:6px;">' +
-            '<button class="person-mv-realm-btn is-active" data-realm="all" title="' +
+          '</div>' +
+          /* CSSOS_WAVE_114 20260511 — realm filter pills → cssmv-pill-bar (5 items) */
+          '<div class="person-mv-realm-pills cssmv-pill-bar">' +
+            '<button class="person-mv-realm-btn active" data-realm="all" title="' +
               tt("All realms", "全部位面") + '">🌐 ' + tt("All", "全") + '</button>' +
             '<button class="person-mv-realm-btn" data-realm="historical" title="' +
               tt("Real history", "真实历史") + '">📜 ' + tt("History", "历史") + '</button>' +
@@ -504,7 +507,7 @@
               tt("Literary characters", "文学虚构") + '">📚 ' + tt("Literary", "文学") + '</button>' +
             '<button class="person-mv-realm-btn" data-realm="folkloric" title="' +
               tt("Folk tales", "民间传说") + '">🏮 ' + tt("Folk", "民间") + '</button>' +
-          '</span>' +
+          '</div>' +
           '<select class="person-mv-civ-select"><option value="">' +
             tt("All civilizations", "全部文明") + '</option></select>' +
           '<button class="person-mv-random-btn" title="' +
@@ -687,8 +690,8 @@
     }
     tierBtns.forEach(function (b) {
       b.addEventListener("click", function () {
-        tierBtns.forEach(function (x) { x.classList.remove("is-active"); });
-        b.classList.add("is-active");
+        tierBtns.forEach(function (x) { x.classList.remove("active"); });
+        b.classList.add("active");
         state.tier = Number(b.getAttribute("data-tier") || 1);
         reloadCurrent();
       });
@@ -697,8 +700,8 @@
     var ctierBtns = panelEl.querySelectorAll(".person-mv-ctier-btn");
     ctierBtns.forEach(function (b) {
       b.addEventListener("click", function () {
-        ctierBtns.forEach(function (x) { x.classList.remove("is-active"); });
-        b.classList.add("is-active");
+        ctierBtns.forEach(function (x) { x.classList.remove("active"); });
+        b.classList.add("active");
         state.curationTier = String(b.getAttribute("data-ctier") || "S");
         reloadCurrent();
       });
@@ -707,8 +710,8 @@
     var realmBtns = panelEl.querySelectorAll(".person-mv-realm-btn");
     realmBtns.forEach(function (b) {
       b.addEventListener("click", function () {
-        realmBtns.forEach(function (x) { x.classList.remove("is-active"); });
-        b.classList.add("is-active");
+        realmBtns.forEach(function (x) { x.classList.remove("active"); });
+        b.classList.add("active");
         state.realm = String(b.getAttribute("data-realm") || "all");
         reloadCurrent();
       });

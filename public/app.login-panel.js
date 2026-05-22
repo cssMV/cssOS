@@ -287,27 +287,12 @@ function renderLoginPlatformsModule() {
   const summary = document.createElement("div");
   summary.className = "login-summary";
   if (authState.user) {
-    const sourceProvider = authState.loginProvider || "";
-    const sourceLabel = sourceProvider ? getPlatformLabelModule(sourceProvider) : loginPanelLoginCopy("Unknown", "未知");
-    const linkedList = Array.from(linkedProviders).filter((providerId) => providerId !== "passkey");
-    const linkedText = linkedList.length
-      ? linkedList.map((providerId) => getPlatformLabelModule(providerId)).join(" · ")
-      : loginPanelLoginCopy("No social provider linked yet", "还没有绑定社交账号");
     const label = authState.user.name || authState.user.email || authState.user.id || "";
-    const sessionDays = Number(authState.sessionDays || behavior.login.session_days || 90);
     summary.innerHTML = `
-      <div class="login-source-card">
-        <div class="login-source-badge">${providerLogoOnlyModule(sourceProvider)}</div>
-        <div class="login-me-meta">
-          <div class="login-me-title">${loginPanelLoginCopy("Current source platform", "当前来源平台")}</div>
-          <div class="login-me-source-name">${sourceLabel}</div>
-          <div class="login-me-user">${label}</div>
-          <div class="login-me-linked">${loginPanelLoginCopy("Connected:", "已连接：")} ${linkedText}</div>
-          <div class="login-switch-hint">${loginPanelLoginCopy(`Session window: ${sessionDays} days. Linked platforms can switch instantly without signing in again.`, `会话窗口：${sessionDays} 天。已绑定平台可直接切换，无需再次登录。`)}</div>
-          <div class="work-actions" style="margin-top:12px;">
-            <button class="mini-btn ghost" type="button" data-login-open-subscription>${loginPanelLoginCopy("Membership and upgrade", "会员与升级")}</button>
-          </div>
-        </div>
+      <div class="login-compact-summary">
+        <span class="login-compact-label">${loginPanelLoginCopy("Signed in", "已登录")}</span>
+        <span class="login-compact-user">${label}</span>
+        <button class="mini-btn ghost" type="button" data-login-open-subscription style="margin-left:auto">${loginPanelLoginCopy("Membership", "会员")}</button>
       </div>
     `;
   } else {
@@ -588,10 +573,14 @@ async function fetchMe() {
 }
 
 function updateLoginUIModule() {
+  /* login-status and login-user are hidden when logged in — the compact
+   * summary in #login-summary-host covers the same info more cleanly. */
   if (loginStatus) {
+    loginStatus.style.display = authState.user ? "none" : "";
     loginStatus.textContent = authState.user ? t("login.statusSigned") : t("login.statusGuest");
   }
   if (loginUser) {
+    loginUser.style.display = "none"; /* always hidden; compact-summary shows handle */
     if (authState.user) {
       const label = authState.user.name || authState.user.email || authState.user.id;
       loginUser.textContent = label || "";

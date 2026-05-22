@@ -2071,6 +2071,26 @@ body.longpress-guard * {
   grid-column: 1 / -1;
 }
 
+/* W306c — compact one-line summary above the pill track */
+.login-compact-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.login-compact-label {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 11px;
+  opacity: 0.7;
+}
+.login-compact-user {
+  color: var(--text);
+  font-weight: 500;
+}
+
 .login-hint {
   border-radius: 14px;
   border: 1px solid rgba(0, 245, 160, 0.28);

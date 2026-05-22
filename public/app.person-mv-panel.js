@@ -1444,7 +1444,10 @@
         opts = opts || {};
         // CSSOS_WAVE_255 — "创作新版本"(forceNew) = 相同输入重生成. 先问用户
         // 覆盖旧作品 vs 输出新作品 (或用其记住的选择), 再以结果重入. fail-open.
-        if (opts.forceNew === true && !opts.__regenResolved &&
+        // CSSOS_WAVE_338 20260522 — Jing: 人物/地点 MV 每次点进去标题/歌词都是新随机
+        // 内容, 从不是"同一输入重复" → 不该弹"新生/覆盖"窗, 还堵死了创作. 只有显式点
+        // 【重新生成】按钮(opts.askRegen)才弹该窗; 其余一律直接创作.
+        if (opts.askRegen === true && !opts.__regenResolved &&
             typeof globalThis.cssosResolveRegenOutputMode === "function") {
           globalThis.cssosResolveRegenOutputMode().then(function (mode) {
             opts.__regenResolved = true;
@@ -2952,6 +2955,10 @@
       h += '<div class="pmv-action-bar cssmv-pill-bar">' +
         '<button class="pmv-cinema">🎬 ' + escTxt(tt("Enter Cinema", "进入影院")) + '</button>' +
         '<button class="pmv-secondary pmv-create-mv">✨ ' + escTxt(tt("Create New Version", "创作新版本")) + '</button>' +
+        // CSSOS_WAVE_338 — 仅当该人物【已有作品】时才出现"重新生成"(它才会弹"新生/覆盖"窗).
+        ((Array.isArray(data.mvs) && data.mvs.length)
+          ? '<button class="pmv-secondary pmv-regen">↻ ' + escTxt(tt("Regenerate", "重新生成")) + '</button>'
+          : '') +
         '<button class="pmv-secondary pmv-compare">🔀 ' + escTxt(tt("Compare with another", "与他人对比")) + '</button>' +
         '<button class="pmv-back">← ' + escTxt(tt("Back", "返回")) + '</button>' +
       '</div>';
@@ -3225,7 +3232,10 @@
       function enterCinemaForPerson(opts) {
         opts = opts || {};
         // CSSOS_WAVE_255 — 同 enterCinema: forceNew(创作新版本) 先问覆盖 vs 新作品.
-        if (opts.forceNew === true && !opts.__regenResolved &&
+        // CSSOS_WAVE_338 20260522 — Jing: 人物/地点 MV 每次点进去标题/歌词都是新随机
+        // 内容, 从不是"同一输入重复" → 不该弹"新生/覆盖"窗, 还堵死了创作. 只有显式点
+        // 【重新生成】按钮(opts.askRegen)才弹该窗; 其余一律直接创作.
+        if (opts.askRegen === true && !opts.__regenResolved &&
             typeof globalThis.cssosResolveRegenOutputMode === "function") {
           globalThis.cssosResolveRegenOutputMode().then(function (mode) {
             opts.__regenResolved = true;
@@ -3322,6 +3332,13 @@
         btn.addEventListener("click", async function(){
           if (!(await requireSignedInForAction("create"))) return;
           enterCinemaForPerson({ forceNew: true });
+        });
+      });
+      // CSSOS_WAVE_338 — "重新生成"按钮: 已有作品时才出现, 点它才弹"新生/覆盖"选择窗.
+      host.querySelectorAll(".pmv-regen").forEach(function (btn) {
+        btn.addEventListener("click", async function () {
+          if (!(await requireSignedInForAction("create"))) return;
+          enterCinemaForPerson({ forceNew: true, askRegen: true });
         });
       });
       // CSSOS_WAVE_327 20260522 — Jing「典故」: 点某条典故 → 据此故事创作 MV(人物 × 典故).

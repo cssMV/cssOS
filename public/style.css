@@ -6291,15 +6291,10 @@ html.cssos-app #watch-search-box {
 html.cssos-app #watch-exit-cinema {
   top: calc(var(--cssos-notch-clear) + 5px) !important;
 }
-/* CSSOS_WAVE_307 20260521 — Jing: 退出影院 ✕ 默认隐藏, 只在影院/全屏显示; 空闲由
- * 统一 idle 系统(inline display:none)隐藏, wake 撤掉 inline → 回到这里的 flex.
- * (不再用 JS 监听 body class, 避免与 idle 系统打架导致 ✕ 单独常驻。) */
+/* CSSOS_WAVE_309 20260521 — Jing: 退出影院 ✕ 默认隐藏, 连"进入影院"那一下也不显示;
+ * 仅"有操作"时显示、无操作 10s 隐藏. 显隐完全由专属控制器(app.watch-search.js)用
+ * inline display 管, 这里只给一个隐藏基线(它进场就不该亮). */
 #watch-exit-cinema { display: none; }
-body.cssos-cinema-mode #watch-exit-cinema,
-html.cssos-app.cssos-watch-fullscreen #watch-exit-cinema,
-html.cssos-app #watch-panel.is-cssmv-fullscreen #watch-exit-cinema {
-  display: flex;
-}
 /* CSSOS_WAVE_305 20260521 — Jing: "撤掉刘海, 搬回人物MV, 物归原主". 那条黑色顶栏
  * 是首页的活动栏"刘海"(#cssos-activity-bar), 它 position:fixed top:0 漏到了 MV
  * 影院面板顶部, 正好压住搜索框. MV 影院/全屏看片时把它(及其同伴: 学派行/提示/

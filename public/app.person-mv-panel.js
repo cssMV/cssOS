@@ -87,19 +87,10 @@
       "#person-mv-panel .civ-mv-tab.active{border-radius:999px !important;border:0 !important;color:#fff;font-weight:700;}" +
       "#person-mv-panel .civ-mv-tabs > .civ-mv-tab:has(~ .civ-mv-tab.active){border-radius:999px 0 0 999px !important;}" +
       "#person-mv-panel .civ-mv-tabs > .civ-mv-tab.active ~ .civ-mv-tab{border-radius:0 999px 999px 0 !important;}" +
-      /* 6-色轮换(与 .msrc-tabbar 胶囊宪法一致): 激活项按位置着色, hover 同色淡显. */
-      "#person-mv-panel .civ-mv-tabs > .civ-mv-tab:nth-child(6n+1):hover:not(.active){background:hsla(150,80%,70%,0.22);}" +
-      "#person-mv-panel .civ-mv-tabs > .civ-mv-tab:nth-child(6n+2):hover:not(.active){background:hsla(200,80%,70%,0.22);}" +
-      "#person-mv-panel .civ-mv-tabs > .civ-mv-tab:nth-child(6n+3):hover:not(.active){background:hsla(280,80%,75%,0.22);}" +
-      "#person-mv-panel .civ-mv-tabs > .civ-mv-tab:nth-child(6n+4):hover:not(.active){background:hsla(340,80%,75%,0.22);}" +
-      "#person-mv-panel .civ-mv-tabs > .civ-mv-tab:nth-child(6n+5):hover:not(.active){background:hsla(45,90%,70%,0.22);}" +
-      "#person-mv-panel .civ-mv-tabs > .civ-mv-tab:nth-child(6n+6):hover:not(.active){background:hsla(95,70%,65%,0.22);}" +
-      "#person-mv-panel .civ-mv-tabs > .civ-mv-tab:nth-child(6n+1).active{background:hsla(150,80%,55%,0.55) !important;}" +
-      "#person-mv-panel .civ-mv-tabs > .civ-mv-tab:nth-child(6n+2).active{background:hsla(200,80%,55%,0.55) !important;}" +
-      "#person-mv-panel .civ-mv-tabs > .civ-mv-tab:nth-child(6n+3).active{background:hsla(280,80%,60%,0.55) !important;}" +
-      "#person-mv-panel .civ-mv-tabs > .civ-mv-tab:nth-child(6n+4).active{background:hsla(340,80%,60%,0.55) !important;}" +
-      "#person-mv-panel .civ-mv-tabs > .civ-mv-tab:nth-child(6n+5).active{background:hsla(45,90%,55%,0.55) !important;}" +
-      "#person-mv-panel .civ-mv-tabs > .civ-mv-tab:nth-child(6n+6).active{background:hsla(95,70%,50%,0.55) !important;}" +
+      /* CSSOS_WAVE_310 20260521 — Jing: 激活胶囊【随机色, 每次都不一样】(不是按位置
+       * 固定色). 颜色由 JS 每次激活时随机一个色相写到 inline background; 这里只留一个
+       * 兜底色, 防止 JS 没跑到时纯透明. hover 用统一淡青(见上 .civ-mv-tab:hover). */
+      "#person-mv-panel .civ-mv-tab.active{background:hsla(150,80%,55%,0.55);}" +
       "#person-mv-panel .person-mv-toolbar{" +
         "display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px;align-items:center;" +
         "border-bottom:1px solid rgba(0,245,160,0.18);" +
@@ -575,6 +566,18 @@
      * Click "People" → show person list (original flow).
      * Click "Landmarks" → fetch + render landmark list. */
     var tabBtns = panelEl.querySelectorAll(".civ-mv-tab");
+    // CSSOS_WAVE_310 — 激活胶囊随机色: 每次切换都给当前激活项一个随机色相, 未激活项
+    // 清掉 inline 背景(回到透明/hover). "每次都不一样的颜色".
+    function paintActiveCivTab() {
+      try {
+        var h = Math.floor(Math.random() * 360);
+        var bg = "hsla(" + h + ",80%,55%,0.6)";
+        tabBtns.forEach(function (b) {
+          if (b.classList.contains("active")) b.style.setProperty("background", bg, "important");
+          else b.style.removeProperty("background");
+        });
+      } catch (_e) {}
+    }
     tabBtns.forEach(function (btn) {
       btn.addEventListener("click", function () {
         var mode = btn.getAttribute("data-civ-mode");
@@ -583,6 +586,7 @@
         tabBtns.forEach(function (b) {
           b.classList.toggle("active", b.getAttribute("data-civ-mode") === mode);
         });
+        paintActiveCivTab();
         if (mode === "landmarks") {
           if (!landmarksLoaded) loadLandmarks();
           else renderLandmarks();
@@ -591,6 +595,7 @@
         }
       });
     });
+    paintActiveCivTab(); // 初始激活项也给一个随机色
 
     var searchEl = panelEl.querySelector(".person-mv-search");
     var civSel = panelEl.querySelector(".person-mv-civ-select");

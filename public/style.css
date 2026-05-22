@@ -1990,7 +1990,7 @@ body.longpress-guard * {
 
 .login-body {
   display: grid;
-  gap: 16px;
+  gap: 8px;
 }
 
 .login-status {
@@ -2011,60 +2011,56 @@ body.longpress-guard * {
   gap: 12px;
 }
 
-/* W287 — login-grid as cssmv-pill-bar: platform cards become a vertical
- * pill stack. The constitution track (green border, 999px radius) wraps
- * all platforms. Each card stays tall enough for logo+title+action-tag.
- *
- * Design choice: VERTICAL stack (flex-col, full-width cards) rather than
- * horizontal scroll — platform list on narrow panels works better stacked.
- * The 凸嵌凹 interlock is disabled (calibrated for 40px; cards are ~56px)
- * replaced with flat divider lines between rows. */
+/* W306e — login-grid horizontal pill bar: 5 platform pills in one row,
+ * matching the 凸嵌凹 constitution exactly like Genre/Mood/Instrument. */
 .login-grid.cssmv-pill-bar {
-  flex-direction: column !important;
-  height: auto !important;
-  min-height: auto !important;
-  overflow-x: visible !important;
-  overflow-y: visible !important;
-  gap: 0 !important;
-  align-items: stretch !important;
+  /* let constitution handle horizontal flex, height 40px, border, radius */
+  height: 40px !important;
+  min-height: 40px !important;
 }
 .login-grid.cssmv-pill-bar > .login-card {
-  /* Restore grid layout — constitution overrides display:inline-flex */
-  display: grid !important;
-  grid-template-columns: auto 1fr auto !important;
-  height: auto !important;
-  min-height: 52px !important;
-  max-height: none !important;
-  line-height: 1.3 !important;
-  padding: 10px 14px !important;
-  border-radius: 0 !important;
+  /* Compact pill child — icon + name, no tall grid layout */
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  max-height: 40px !important;
+  padding: 0 14px !important;
+  flex: 1 1 0 !important;
+  min-width: max-content !important;
+  width: auto !important;
   border: 0 !important;
-  /* Disable 凸嵌凹 interlock */
-  margin: 0 !important;
-  width: 100% !important;
-  -webkit-mask-image: none !important;
-  mask-image: none !important;
-  flex: none !important;
+  line-height: 40px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
 }
-/* Divider between platform rows */
-.login-grid.cssmv-pill-bar > .login-card:not(:last-child) {
-  border-bottom: 1px solid rgba(0, 245, 160, 0.14) !important;
+/* Current session card: prominent highlight */
+.login-grid.cssmv-pill-bar > .login-card.active {
+  font-weight: 700 !important;
 }
-/* Round top/bottom caps to form a single pill track */
-.login-grid.cssmv-pill-bar > .login-card:first-child {
-  border-radius: 20px 20px 0 0 !important;
+/* In compact pill mode: hide subtitle and unlink button — only icon + name */
+.login-grid.cssmv-pill-bar > .login-card .login-action-tag,
+.login-grid.cssmv-pill-bar > .login-card .login-unlink-btn {
+  display: none !important;
 }
-.login-grid.cssmv-pill-bar > .login-card:last-child {
-  border-radius: 0 0 20px 20px !important;
+.login-grid.cssmv-pill-bar > .login-card .login-title-wrap {
+  display: contents !important; /* flatten so login-title is a direct flex child */
 }
-.login-grid.cssmv-pill-bar > .login-card:only-child {
-  border-radius: 20px !important;
+.login-grid.cssmv-pill-bar > .login-card .login-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-/* Active/linked cards keep their glow but inside the track border */
-.login-grid.cssmv-pill-bar > .login-card.active,
-.login-grid.cssmv-pill-bar > .login-card.linked,
-.login-grid.cssmv-pill-bar > .login-card.enabled {
-  box-shadow: inset 0 0 0 1px rgba(0, 245, 160, 0.45);
+.login-grid.cssmv-pill-bar > .login-card .login-title {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .login-summary {

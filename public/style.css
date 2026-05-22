@@ -6319,7 +6319,12 @@ html[data-theme="light"] .works-fp-optin-desc {
 /* CSSOS_WAVE_284 20260521 — Jing: App 端(html.cssos-app)媒体框充满全屏 +
  * 隐藏标题栏. 桌面浏览器无 cssos-app class, 完全不受影响(仍是原来的
  * aspect-ratio 居中预览框). 仅 watch 面板生效. */
-html.cssos-app #watch-panel .panel-bar { display: none !important; }
+/* CSSOS_WAVE_326 20260522 — Jing: 桌面端也取消 watch 面板标题栏(与手机一致). 标题栏
+ * 会和顶部搜索框打架, 还遮住作者头像 + 退出 ✕. 去掉 html.cssos-app 限定 → 桌面/App
+ * 都隐藏. 关闭改用顶部一行的退出 ✕(下方 JS 已在桌面也创建并显示). */
+#watch-panel .panel-bar { display: none !important; }
+/* 退出 ✕ 在桌面(非 App、无影院 idle 系统)也常显, 作为关闭键. */
+html:not(.cssos-app) #watch-panel:not(.hidden) #watch-exit-cinema { display: flex; }
 /* CSSOS_WAVE_288 20260521 — Jing(真机贴边): 之前 absolute+inset:0 相对的是非
  * 全屏祖先 → 顶/底留黑块. 改 position:fixed 强制相对【视口】, 去掉所有
  * padding/border/margin → 媒体框真正贴到手机屏幕四边(顶到顶、底到底). */

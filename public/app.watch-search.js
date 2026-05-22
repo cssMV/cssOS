@@ -82,10 +82,9 @@
     box.appendChild(results);
     panel.appendChild(box);
 
-    // CSSOS_WAVE_293 — 退出影院按钮(右上角, 与左上角作者头像对称). 仅 App 全屏
-    // 显示(桌面有标题栏的 × 关闭). 点击: 派发 cssos:watch-close + 退出全屏 +
-    // 去 cinema class → 回到主界面/feed.
-    if (isApp() && !document.getElementById("watch-exit-cinema")) {
+    // CSSOS_WAVE_326 — 退出 ✕(右上角, 与左上角头像对称). 桌面端也创建(W326 取消了桌面
+    // 标题栏, 需要这个 ✕ 当关闭键; 显隐: App 影院由 idle 系统, 桌面由 CSS 常显).
+    if (!document.getElementById("watch-exit-cinema")) {
       var exitBtn = document.createElement("button");
       exitBtn.id = "watch-exit-cinema";
       exitBtn.type = "button";

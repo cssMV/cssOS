@@ -3592,6 +3592,7 @@
       refreshStageBadges();
     }
     state.running = true;
+    state.__cssosEarlyPlayed = false; // CSSOS_WAVE_323 — 每次 run 重新武装"边出边播"东风
     // CSSOS_MV_DAG_WAVE_2_7B 20260507 — show overall-progress block on the
     // ordinary MV PIPELINE panel for the duration of the run.
     try { showMvOverallProgress(true); } catch (_e) {}
@@ -3888,6 +3889,26 @@
         // tightly coupled to runId resolution that lives inside the helper.
         if (stageId === "music") {
           try { syncWatchOutputs(); } catch (_e) { /* non-fatal */ }
+          // CSSOS_WAVE_323 20260522 — Jing「边出边播」东风: 音乐一渲染完就【先播】,
+          // 不再等视频/字幕/合成. 把音频挂到 watch 预览元素并起播; 封面幻灯已在封面
+          // 阶段自动开始(cssmvStartCoverSlideshow), 卡拉OK渲染器(#watch-karaoke-line)
+          // 随这条正在播放的音频时钟自动走词. 视频(本平台跳过)/字幕/合成继续后台跑.
+          // 守卫: 每次 run 只触发一次; 仅真实音频(非 file:/data:); 起播被自动播放策略
+          // 拒绝时静默(用户首次轻触会解锁, 见 watch-ui 的解锁逻辑).
+          try {
+            var _au = String(state.audioUrl || "").trim();
+            if (_au && !/^(file:|data:)/i.test(_au) && !state.__cssosEarlyPlayed) {
+              state.__cssosEarlyPlayed = true;
+              var _aEl = document.getElementById("watch-audio-preview");
+              if (_aEl) {
+                if (_aEl.src !== _au) { _aEl.src = _au; _aEl.preload = "auto"; if (typeof _aEl.load === "function") _aEl.load(); }
+                try { _aEl.muted = false; } catch (_e) {}
+                if (typeof globalThis.activateWatchTab === "function") { try { globalThis.activateWatchTab("mv"); } catch (_e) {} }
+                var _p = _aEl.play && _aEl.play();
+                if (_p && typeof _p.catch === "function") _p.catch(function () { /* autoplay policy */ });
+              }
+            }
+          } catch (_e) { /* non-blocking 边出边播 */ }
         }
         // CSSOS_MV_DAG_WAVE_7D 20260508 — video broadcast lifted out of
         // runVideoStage. Only re-syncs Watch editors after a successful

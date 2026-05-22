@@ -9278,7 +9278,25 @@ function showWatchFramePlaceholderModule(uri) {
           return;
         }
       } catch (_e2) {}
-      // 兜底也没有 → 隐藏破图, 不露"?".
+      // CSSOS_WAVE_336 20260522 — Jing: 稳定封面也加载失败(replicate 临时图 404 过期)
+      // → 生成一张【标题卡占位】顶上, 绝不留黑屏. 实在生成不了才隐藏.
+      try {
+        var ttl = String((currentWatchPreviewWork && currentWatchPreviewWork.title) || state.title || "").trim();
+        if (typeof globalThis.requestThumbnailDataUrl === "function" && !watchSvg.dataset.cssosPlaceholderFell) {
+          watchSvg.dataset.cssosPlaceholderFell = "1";
+          globalThis.requestThumbnailDataUrl(ttl || loginCopy("CSS MV"), "", []).then(function (durl) {
+            if (durl) {
+              watchSvg.src = durl;
+              watchSvg.style.display = "block";
+              if (watchScreenBackdrop) watchScreenBackdrop.style.backgroundImage = `url("${String(durl).replace(/"/g, '\\"')}")`;
+            } else {
+              watchSvg.style.display = "none";
+              if (watchScreenBackdrop) watchScreenBackdrop.style.backgroundImage = "";
+            }
+          }).catch(function () { watchSvg.style.display = "none"; });
+          return;
+        }
+      } catch (_e3) {}
       watchSvg.style.display = "none";
       if (watchScreenBackdrop) watchScreenBackdrop.style.backgroundImage = "";
     };
@@ -10021,20 +10039,10 @@ async function requestWatchVideoPreviewModule(title, lines, options = {}) {
 }
 
 async function requestWatchFrameArtworkModule(title, subtitle, lines = []) {
-  // CSSOS_WAVE_334 20260522 — Jing: "闪过几张都留不住" 的真凶 = 这里【不管有没有真
-  // 封面都生成一套 5 张"标题卡"占位缩略图并轮播churn】. 占位卡只该在【还没有封面、
-  // 正在生成】时用. 一旦已有真实封面(currentResolvedWatchArtworkDataUrl 或当前作品的
-  // cover) → 直接跳过, 保持稳定的那一张, 不再 churn.
-  try {
-    const _resolved = String(globalThis.currentResolvedWatchArtworkDataUrl || "").trim();
-    const _workCover = String(
-      (currentWatchPreviewWork && (currentWatchPreviewWork.cover_image || currentWatchPreviewWork.cover_url)) || ""
-    ).trim();
-    const _real = _resolved || _workCover;
-    if (_real && /^https?:/i.test(_real) && !/^data:image\/svg/i.test(_real)) {
-      return false;
-    }
-  } catch (_e) { /* fall through to placeholder gen */ }
+  // CSSOS_WAVE_336 20260522 — Jing: (撤销 W334 的"有真封面就跳过"——因为这些作品的
+  // cover 是 replicate 临时链接, 已 404 过期, 看着像真 http 其实加载失败 → 跳过占位就
+  // 黑屏.) 现在恢复生成"标题卡"占位作为优雅兜底: 封面能加载就盖上真封面, 不能就停在
+  // 标题卡, 绝不黑屏. churn 由 W329(首帧确定、幂等)压制.
   const safeTitle = String(title || state.title || loginCopy("CSS MV")).trim();
   const safeSubtitle = String(subtitle || t("watch.status.waitingImage")).trim();
   const safeLines = Array.isArray(lines) ? lines.filter(Boolean).slice(0, 8) : [];

@@ -772,13 +772,20 @@ function setWatchArtworkSlideshowFramesModule(frames = [], signature = "") {
   }
 }
 
-function maybeRenderWatchArtworkSlideshowFrameModule() {
+function maybeRenderWatchArtworkSlideshowFrameModule(preferFirst) {
   if (!watchArtworkSlideshowFrames.length) return false;
-  let candidates = watchArtworkSlideshowFrames;
-  if (watchArtworkSlideshowFrames.length > 1 && lastWatchArtworkSlideshowFrame) {
-    candidates = watchArtworkSlideshowFrames.filter((item) => item !== lastWatchArtworkSlideshowFrame);
+  // CSSOS_WAVE_329 — 进入时第一帧用【确定的头部封面】(resolved 主封面), 而不是随机抽,
+  // 避免进场瞬间随机跳图"闪一下". 之后的轮播 tick 才随机.
+  let next;
+  if (preferFirst) {
+    next = watchArtworkSlideshowFrames[0] || "";
+  } else {
+    let candidates = watchArtworkSlideshowFrames;
+    if (watchArtworkSlideshowFrames.length > 1 && lastWatchArtworkSlideshowFrame) {
+      candidates = watchArtworkSlideshowFrames.filter((item) => item !== lastWatchArtworkSlideshowFrame);
+    }
+    next = candidates[Math.floor(Math.random() * candidates.length)] || watchArtworkSlideshowFrames[0] || "";
   }
-  const next = candidates[Math.floor(Math.random() * candidates.length)] || watchArtworkSlideshowFrames[0] || "";
   if (!next) return false;
   lastWatchArtworkSlideshowFrame = next;
   const motions = ["motion-float", "motion-breathe"];
@@ -804,7 +811,7 @@ async function primeWatchArtworkSlideshowModule(title, subtitle, lines = []) {
   const signature = JSON.stringify([safeTitle, safeSubtitle, safeLines.slice(0, 4)]);
   if (signature && signature === watchArtworkSlideshowSignature && watchArtworkSlideshowFrames.length) {
     if (!watchArtworkSlideshowTimer) {
-      maybeRenderWatchArtworkSlideshowFrameModule();
+      maybeRenderWatchArtworkSlideshowFrameModule(true); // 进场首帧确定不随机
       watchArtworkSlideshowTimer = window.setInterval(() => {
         const generationBusy = !!(
           globalThis.lyricsSeedRequestState?.pending ||
@@ -845,7 +852,7 @@ async function primeWatchArtworkSlideshowModule(title, subtitle, lines = []) {
     }
   }
   if (!watchArtworkSlideshowFrames.length) return;
-  maybeRenderWatchArtworkSlideshowFrameModule();
+  maybeRenderWatchArtworkSlideshowFrameModule(true); // 进场首帧确定不随机
   if (watchArtworkSlideshowTimer || watchArtworkSlideshowSignature !== signature) {
     clearWatchArtworkSlideshowModule();
   }
@@ -868,20 +875,35 @@ async function primeWatchArtworkSlideshowModule(title, subtitle, lines = []) {
 }
 
 function isWatchLyricsReadyModule() {
-  const directLines = compactLyricLines(Array.isArray(state.lines) ? state.lines : []).filter(Boolean);
-  if (directLines.length >= 2) return true;
-  const editorText = String(watchLyricsEditor?.value || "").trim();
-  const seedTitle = String(state.songSeed?.title || state.title || "").trim();
-  const seedLyrics = String(state.songSeed?.lyrics || "").trim();
-  const displayText = String(lyricsEl?.textContent || "").trim();
-  const editorReady =
-    globalThis.hasCanonicalLyricsBodyLinesModule?.(seedTitle, editorText, 2) ??
-    false;
-  const seedReady =
-    globalThis.hasCanonicalLyricsBodyLinesModule?.(seedTitle, seedLyrics, 2) ??
-    false;
-  const displayReady = extractDisplayLyricLinesModule(displayText).length >= 2;
-  return editorReady || seedReady || displayReady;
+  // CSSOS_WAVE_281 20260521 — Jing: this runs EVERY rAF frame via
+  // readProgress, from very early in boot — before `state` (app.js) or
+  // `compactLyricLines` (app.lyric-utils.js) may be initialized, and on
+  // stale-cached clients where load order differs. A bare reference then
+  // threw a ReferenceError / TDZ EVERY FRAME (~10K hits in 2 days, the
+  // top crash after the W220A TDZ hoist). Wrap in a boot-race guard:
+  // bail to "not ready" instead of throwing on a cold frame.
+  try {
+    const _compact = typeof compactLyricLines === "function"
+      ? compactLyricLines
+      : (globalThis.compactLyricLines || null);
+    if (!_compact) return false;
+    const directLines = _compact(Array.isArray(state.lines) ? state.lines : []).filter(Boolean);
+    if (directLines.length >= 2) return true;
+    const editorText = String(watchLyricsEditor?.value || "").trim();
+    const seedTitle = String(state.songSeed?.title || state.title || "").trim();
+    const seedLyrics = String(state.songSeed?.lyrics || "").trim();
+    const displayText = String(lyricsEl?.textContent || "").trim();
+    const editorReady =
+      globalThis.hasCanonicalLyricsBodyLinesModule?.(seedTitle, editorText, 2) ??
+      false;
+    const seedReady =
+      globalThis.hasCanonicalLyricsBodyLinesModule?.(seedTitle, seedLyrics, 2) ??
+      false;
+    const displayReady = extractDisplayLyricLinesModule(displayText).length >= 2;
+    return editorReady || seedReady || displayReady;
+  } catch (_bootRace) {
+    return false; // state / helpers not initialized on this frame yet
+  }
 }
 
 function getWatchProgressActionLabelModule(stageKey = "play") {
@@ -2341,14 +2363,19 @@ function currentLyricsProgressPercentModule() {
       state.songSeed?.lyrics || watchLyricsEditor?.value || lyricsInput?.value || "",
       2
     ) ?? false);
+  let val;
   if (typingState.completed || isWatchLyricsReadyModule() || hasSeedLyrics) {
-    return 100;
+    val = 100;
+  } else {
+    const current = lyricsEl?.textContent?.length || 0;
+    if (requestState.pending && !lyricsTargetLength && current <= 0) {
+      val = 0;
+    } else {
+      val = lyricsTargetLength ? Math.min(100, (current / lyricsTargetLength) * 100) : 0;
+    }
   }
-  const current = lyricsEl?.textContent?.length || 0;
-  if (requestState.pending && !lyricsTargetLength && current <= 0) {
-    return 0;
-  }
-  return lyricsTargetLength ? Math.min(100, (current / lyricsTargetLength) * 100) : 0;
+  __cssosLyricsPctCache = { sig, val };
+  return val;
 }
 
 function syncWatchEngineGridModule() {
@@ -3683,13 +3710,24 @@ function syncWatchMusicStateModule() {
     watchMusicPlay.setAttribute("aria-label", actionLabel);
     watchMusicPlay.dataset.actionMode = playing ? "pause" : activeStage || nextNeededStage || "play";
   }
-  if (watchMusicRing && watchAudioPreview) {
-    const duration = Number.isFinite(watchAudioPreview.duration) ? watchAudioPreview.duration : 0;
-    const current = Number.isFinite(watchAudioPreview.currentTime) ? watchAudioPreview.currentTime : 0;
-    const progress = duration > 0 ? Math.max(0, Math.min(1, current / duration)) : 0;
-    watchMusicRing.style.setProperty("--watch-progress", `${Math.round(progress * 360)}deg`);
-    watchScreen?.style.setProperty("--watch-frame-border-progress", `${Math.round(progress * 100)}%`);
-    watchScreen?.style.setProperty("--watch-frame-border-angle", `${Math.round(progress * 360)}deg`);
+  /* CSSOS_WAVE_226 20260518 — Jing: "播放媒体一定要显示边框进度条".
+   * 之前 frame border 进度只在 watchMusicRing 存在时更新, cinema 全屏
+   * 模式下没 ring → 边框 angle 卡 0deg → 看不见跑. 拆成两段: 边框进度
+   * 只要 watchAudioPreview 在就更新; ring 进度才需要 watchMusicRing. */
+  if (watchAudioPreview) {
+    const _dur = Number.isFinite(watchAudioPreview.duration) ? watchAudioPreview.duration : 0;
+    const _cur = Number.isFinite(watchAudioPreview.currentTime) ? watchAudioPreview.currentTime : 0;
+    const _prog = _dur > 0 ? Math.max(0, Math.min(1, _cur / _dur)) : 0;
+    watchScreen?.style.setProperty("--watch-frame-border-progress", `${Math.round(_prog * 100)}%`);
+    watchScreen?.style.setProperty("--watch-frame-border-angle", `${Math.round(_prog * 360)}deg`);
+    // 播放中必挂 is-live-border (有些路径走过来时还停在 is-waiting)
+    if (playing) {
+      watchScreen?.classList.add("is-live-border");
+      watchScreen?.classList.remove("is-waiting", "is-stalled");
+    }
+    if (watchMusicRing) {
+      watchMusicRing.style.setProperty("--watch-progress", `${Math.round(_prog * 360)}deg`);
+    }
   }
   if (playing) {
     setWatchPlaybackUiSuppressedModule(true);
@@ -4024,11 +4062,72 @@ function renderWatchCommerceActionsModule(work = currentWatchPreviewWork) {
   }
 }
 
+/* W307b — sync pre-paint: show latest work title + single stable cover
+ * IMMEDIATELY when the panel opens, before the async render finishes.
+ * Sources (tried in order): currentStructuredWatchQueue, then
+ * __cssosWatchQueue (queue feed), then currentWatchPreviewWork, then
+ * the first entry of watchCommerceState if already loaded.
+ * Never awaits anything — if none of these is ready yet, falls back
+ * to leaving the panel in its default state; the async flow takes over. */
+function prePaintLatestWorkOnPanelOpenModule() {
+  try {
+    // --- find best candidate work snapshot ---
+    let w = null;
+    // 1. structured queue filled by a previous openLatestOwnedWork call
+    const sq = globalThis.currentStructuredWatchQueue;
+    if (sq?.items?.length) w = sq.items[0];
+    // 2. raw watch-queue filled by fetchWatchQueueMore
+    if (!w) {
+      const wq = globalThis.__cssosWatchQueue;
+      if (wq?.items?.length) w = wq.items[0];
+    }
+    // 3. the last rendered preview work
+    if (!w && currentWatchPreviewWork) w = currentWatchPreviewWork;
+    // 4. direct from watchCommerceState (already-loaded ownership list)
+    if (!w && watchCommerceState?.loaded) {
+      const rawWorks = Array.isArray(watchCommerceState?.payload?.ownership?.works)
+        ? watchCommerceState.payload.ownership.works : [];
+      const flat = [];
+      const visit = (x) => { if (x) { flat.push(x); (x.children || []).forEach(visit); } };
+      rawWorks.forEach(visit);
+      flat.sort((a, b) => (Date.parse(b?.created_at || "") || 0) - (Date.parse(a?.created_at || "") || 0));
+      if (flat.length) w = flat[0];
+    }
+    if (!w) return; // nothing available yet — async flow will handle it
+
+    // --- pre-paint title ---
+    const title = String(w.title || w.name || "").trim();
+    if (title) {
+      const pt = watchPanel?.querySelector(".panel-title");
+      if (pt) pt.textContent = `${loginCopy("Watch")} · ${title}`;
+    }
+
+    // --- pre-paint single stable cover (kills flashing) ---
+    const cover = String(
+      w.cover_image || w.preview_image_url || w.cover_url ||
+      w.cover_slides?.[0] || ""
+    ).trim();
+    if (cover) {
+      // Set the slides list to ONE stable image so no flashing occurs
+      // when the slideshow kicks in while video loads/is-blocked.
+      if (typeof globalThis.cssmvSetCoverSlides === "function") {
+        globalThis.cssmvSetCoverSlides([cover]);
+      }
+      // Prime the SVG preview frame so the panel isn't black on open.
+      if (typeof setWatchSvgPreviewModule === "function") {
+        setWatchSvgPreviewModule(cover);
+      }
+    }
+  } catch (_e) { /* silent — never block panel open */ }
+}
+
 function ensureWatchCentered() {
   if (!watchPanel) return;
   if (!guardPanelAccess(watchPanel.id)) return;
   const restoredLayout = applyStoredPanelLayout(watchPanel);
   openWatchPanelShellModule(restoredLayout);
+  /* W307b — synchronously paint title + cover BEFORE async render */
+  prePaintLatestWorkOnPanelOpenModule();
   focusPanel(watchPanel);
   if (!watchPanel.dataset.positioned) {
     watchPanel.style.left = "50%";
@@ -4514,7 +4613,7 @@ async function watchQueueAdvanceModule(direction = +1, _wrapDepth = 0) {
   }
   if (!__cssosWatchQueue.items.length) {
     if (typeof globalThis.showToast === "function") {
-      globalThis.showToast("Queue is empty.");
+      globalThis.showToast(loginCopy("Queue is empty.", "播放队列是空的。"));
     }
     return;
   }
@@ -4550,7 +4649,7 @@ async function watchQueueAdvanceModule(direction = +1, _wrapDepth = 0) {
     if (_wrapDepth >= len) {
       // Whole queue is unplayable — bail out gracefully.
       if (typeof globalThis.showToast === "function") {
-        globalThis.showToast("No playable items in the queue right now.");
+        globalThis.showToast(loginCopy("No playable items in the queue right now.", "当前队列暂无可播放的作品。"));
       }
       return;
     }
@@ -5848,6 +5947,8 @@ function wireWatchSwipeOnceModule() {
   ensureImmersivePillModule();
   ensureMediaActionsPillModule();
   ensureAuthorAvatarModule();
+  /* CSSOS_WAVE_214 — persistent share-info chip (bottom-left, never fades). */
+  try { ensureWatchShareInfoChipModule(); } catch (_e) {}
   ensureCinemaAutoHideModule();
   // CSSOS_PHASE2_SINGLE_LOOP_RIGHTCLICK 20260430 #200 — Jing
   // "循环单曲（右键菜单）." Right-click the video frame to toggle
@@ -6339,7 +6440,7 @@ function activateVideoBlockedFallbackModule(item, videoEl) {
           };
           document.addEventListener("click", recover, true);
           if (typeof globalThis.showToast === "function") {
-            globalThis.showToast("Tap once to start audio (browser limit). It will keep playing for the rest of the queue.");
+            globalThis.showToast(loginCopy("Tap once to start audio (browser limit). It will keep playing for the rest of the queue.", "轻触一下开始播放(浏览器限制)。之后整个队列会自动连播。"));
           }
         }
       });
@@ -6405,8 +6506,11 @@ function ensureCinemaAutoHideModule() {
     st.textContent = `
 /* When cinema mode is on, hide all chrome and let the media bleed to
    the screen edges. The 'is-hovering' class re-reveals chrome and
-   slides the frame down to sit flush below the title bar. */
-#watch-panel.cssmv-cinema .panel-title-bar,
+   slides the frame down to sit flush below the title bar.
+   CSSOS_WAVE_220B 20260520 — Jing: the title bar is EXCLUDED from
+   auto-hide. It now stays resident in cinema mode so the media frame
+   sits at a FIXED position below it and never jitters up/down as the
+   chrome fades. Only the toolbars / pills / take-toggle auto-hide. */
 #watch-panel.cssmv-cinema .panel-toolbar,
 #watch-panel.cssmv-cinema .watch-toolbar,
 #watch-panel.cssmv-cinema #watch-pill-row-bl,
@@ -6423,7 +6527,6 @@ function ensureCinemaAutoHideModule() {
   transition: opacity 0.9s cubic-bezier(0.4, 0, 0.2, 1);
   will-change: opacity;
 }
-#watch-panel.cssmv-cinema.is-hovering .panel-title-bar,
 #watch-panel.cssmv-cinema.is-hovering .panel-toolbar,
 #watch-panel.cssmv-cinema.is-hovering .watch-toolbar,
 #watch-panel.cssmv-cinema.is-hovering #watch-pill-row-bl,
@@ -6434,6 +6537,12 @@ function ensureCinemaAutoHideModule() {
   pointer-events: auto;
   /* Faster fade-in than fade-out — feels like responsive "appear" */
   transition: opacity 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+/* CSSOS_WAVE_220B 20260520 — Jing: title bar is always resident in
+   cinema mode (never fades). Fixed frame anchor → no jitter. */
+#watch-panel.cssmv-cinema .panel-title-bar {
+  opacity: 1 !important;
+  pointer-events: auto !important;
 }
 /* CSSOS_WAVE_111D_CHROME_FADE 20260512 — keep the frame geometry
    IDENTICAL between hovering / not-hovering so the picture doesn't
@@ -6533,6 +6642,179 @@ function ensureCinemaAutoHideModule() {
 // (filters cssosPlaylists items to that author), sets it active. Long
 // press / right-click → follow/friend menu (scaffold; backend endpoint
 // arrives in a follow-up task).
+/* CSSOS_WAVE_203 20260516 — Jing: "充值（包括帮充值）". P2P credit gift
+ * modal — picks an amount (4 quick chips + custom), confirms balance,
+ * fires POST /api/gifts/credits. On success shows a 🎉 toast with the
+ * remaining balance; on insufficient funds prompts to top up own
+ * balance first. */
+function openCreditGiftModal(recipientId, recipientName) {
+  // Tear down any previous modal so we don't stack.
+  document.querySelectorAll(".cssos-gift-modal").forEach((el) => el.remove());
+
+  const PRESETS = [
+    { credits: 100, label: "100", note: "≈ $1" },
+    { credits: 500, label: "500", note: "≈ $5" },
+    { credits: 1500, label: "1,500", note: "≈ $15" },
+    { credits: 5000, label: "5,000", note: "≈ $50" },
+  ];
+  let selectedCredits = 500;
+  let customCredits = "";
+
+  const overlay = document.createElement("div");
+  overlay.className = "cssos-gift-modal";
+  overlay.style.cssText = [
+    "position:fixed","inset:0","z-index:99998",
+    "background:rgba(0,0,0,0.55)","backdrop-filter:blur(6px)",
+    "display:flex","align-items:center","justify-content:center",
+    "padding:20px","font:500 14px/1.4 -apple-system,system-ui,sans-serif",
+    "color:rgba(255,255,255,0.95)",
+  ].join(";");
+
+  const card = document.createElement("div");
+  card.style.cssText = [
+    "max-width:420px","width:100%","background:rgba(15,18,24,0.98)",
+    "border:1px solid rgba(255,200,120,0.4)","border-radius:16px",
+    "padding:24px","box-shadow:0 20px 60px rgba(0,0,0,0.7)",
+  ].join(";");
+  overlay.appendChild(card);
+
+  card.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+      <span style="font-size:28px;">🎁</span>
+      <div style="flex:1;">
+        <div style="font-weight:700;font-size:16px;">${loginCopy(`Send credits to ${escapeHtmlGift(recipientName)}`, `为 ${escapeHtmlGift(recipientName)} 充值`)}</div>
+        <div style="font-size:11px;opacity:0.7;margin-top:2px;">${loginCopy("Charged from your balance, instantly delivered.", "从你的余额扣除，立即到账。")}</div>
+      </div>
+    </div>
+    <div data-balance style="font-size:12px;opacity:0.7;margin-bottom:12px;">${loginCopy("Loading your balance…", "正在加载余额…")}</div>
+    <div data-presets style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;"></div>
+    <label style="display:block;font-size:11px;opacity:0.7;margin-bottom:6px;">${loginCopy("Or custom amount (credits)", "或自定义数量（积分）")}</label>
+    <input data-custom type="number" min="50" max="50000" step="50" placeholder="50–50000"
+      style="width:100%;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.18);border-radius:8px;padding:9px 11px;color:inherit;font:inherit;box-sizing:border-box;margin-bottom:16px;" />
+    <div data-error style="color:#ff8c8c;font-size:11px;min-height:14px;margin-bottom:8px;"></div>
+    <div style="display:flex;gap:8px;">
+      <button type="button" data-cancel style="flex:1;background:transparent;color:inherit;border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:10px;cursor:pointer;font:inherit;">${loginCopy("Cancel","取消")}</button>
+      <button type="button" data-send style="flex:2;background:rgba(255,200,120,0.22);color:#fff;border:1px solid rgba(255,200,120,0.6);border-radius:8px;padding:10px;cursor:pointer;font-weight:700;font:inherit;">${loginCopy("Send 🎁","赠送 🎁")}</button>
+    </div>
+  `;
+
+  // Populate preset chips.
+  const presetsEl = card.querySelector("[data-presets]");
+  PRESETS.forEach((p) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.dataset.credits = String(p.credits);
+    btn.style.cssText = [
+      "background:rgba(255,255,255,0.06)","border:1.5px solid rgba(255,255,255,0.14)",
+      "color:inherit","border-radius:10px","padding:10px 6px","cursor:pointer",
+      "font:inherit","display:flex","flex-direction:column","gap:2px",
+    ].join(";");
+    btn.innerHTML = `<span style="font-weight:700;">${p.label}</span><span style="font-size:10px;opacity:0.7;">${p.note}</span>`;
+    btn.addEventListener("click", () => {
+      selectedCredits = p.credits;
+      customCredits = "";
+      const customEl = card.querySelector("[data-custom]");
+      if (customEl) customEl.value = "";
+      Array.from(presetsEl.children).forEach((c) => {
+        c.style.background = "rgba(255,255,255,0.06)";
+        c.style.borderColor = "rgba(255,255,255,0.14)";
+      });
+      btn.style.background = "rgba(255,200,120,0.22)";
+      btn.style.borderColor = "rgba(255,200,120,0.6)";
+    });
+    presetsEl.appendChild(btn);
+  });
+  // Pre-select 500.
+  presetsEl.children[1]?.click();
+
+  const customInput = card.querySelector("[data-custom]");
+  customInput.addEventListener("input", () => {
+    customCredits = customInput.value;
+    if (customCredits) {
+      Array.from(presetsEl.children).forEach((c) => {
+        c.style.background = "rgba(255,255,255,0.06)";
+        c.style.borderColor = "rgba(255,255,255,0.14)";
+      });
+    }
+  });
+
+  // Load balance.
+  const balanceEl = card.querySelector("[data-balance]");
+  (async () => {
+    try {
+      const r = await fetch("/api/me", { credentials: "include" });
+      const j = await r.json().catch(() => null);
+      const bal = Number(j?.user?.credit_balance ?? j?.credits_balance ?? 0);
+      balanceEl.textContent = loginCopy(
+        `Your balance: ${bal.toLocaleString()} credits`,
+        `你的余额：${bal.toLocaleString()} 积分`
+      );
+    } catch (_e) {
+      balanceEl.textContent = loginCopy("Balance unavailable.", "余额暂不可用。");
+    }
+  })();
+
+  const close = () => overlay.remove();
+  card.querySelector("[data-cancel]").addEventListener("click", close);
+  overlay.addEventListener("click", (ev) => { if (ev.target === overlay) close(); });
+
+  const errorEl = card.querySelector("[data-error]");
+  const sendBtn = card.querySelector("[data-send]");
+  sendBtn.addEventListener("click", async () => {
+    errorEl.textContent = "";
+    let amount = customCredits ? Math.floor(Number(customCredits)) : selectedCredits;
+    if (!Number.isFinite(amount) || amount < 50 || amount > 50000) {
+      errorEl.textContent = loginCopy("Amount must be 50–50,000 credits.", "数量必须在 50–50000 积分之间。");
+      return;
+    }
+    sendBtn.disabled = true;
+    sendBtn.textContent = loginCopy("Sending…", "发送中…");
+    try {
+      const r = await fetch("/api/gifts/credits", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recipient_id: recipientId, amount }),
+      });
+      const j = await r.json().catch(() => null);
+      if (r.ok && j && j.ok) {
+        if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(loginCopy(
+            `🎉 Sent ${amount} credits to ${recipientName}`,
+            `🎉 已向 ${recipientName} 赠送 ${amount} 积分`
+          ));
+        }
+        close();
+      } else {
+        const code = j?.code || `HTTP ${r.status}`;
+        const msg = code === "INSUFFICIENT_BALANCE"
+          ? loginCopy("Not enough credits — top up first.", "余额不足，请先充值。")
+          : code === "BLOCKED"
+            ? loginCopy("This user has blocked you (or vice versa).", "TA 屏蔽了你，或你屏蔽了 TA。")
+            : code === "AUTH_REQUIRED"
+              ? loginCopy("Sign in to send credits.", "请先登录。")
+              : loginCopy(`Failed: ${code}`, `发送失败：${code}`);
+        errorEl.textContent = msg;
+        sendBtn.disabled = false;
+        sendBtn.textContent = loginCopy("Send 🎁", "赠送 🎁");
+      }
+    } catch (e) {
+      errorEl.textContent = loginCopy("Network error.", "网络错误。");
+      sendBtn.disabled = false;
+      sendBtn.textContent = loginCopy("Send 🎁", "赠送 🎁");
+    }
+  });
+
+  // CSSOS_WAVE_205 — mount the credit-gift modal inside the fullscreen
+  // element when active so it doesn't get covered.
+  (document.fullscreenElement || document.body).appendChild(overlay);
+  setTimeout(() => customInput.focus(), 100);
+}
+function escapeHtmlGift(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
+    c === "&" ? "&amp;" : c === "<" ? "&lt;" : c === ">" ? "&gt;" : c === '"' ? "&quot;" : "&#039;");
+}
+
 let __cssosAuthorAvatarWired = false;
 function ensureAuthorAvatarModule() {
   if (__cssosAuthorAvatarWired) return;
@@ -6631,25 +6913,17 @@ function ensureAuthorAvatarModule() {
           for (const it of items) {
             const id = String(it?.id || "").trim();
             if (!id || seen.has(id)) continue;
-            // Only include items by this author. We don't store owner_id
-            // on every item right now, so use owner_name match as fallback.
             const matches =
               (it.owner_id && String(it.owner_id) === ownerId) ||
               (it.owner_name && it.owner_name === ownerName);
-            if (matches) {
-              collected.push(it);
-              seen.add(id);
-            }
+            if (matches) { collected.push(it); seen.add(id); }
           }
         });
-        // Sort newest → oldest.
         collected.sort((a, b) =>
           (Date.parse(String(b?.created_at || "")) || 0) -
           (Date.parse(String(a?.created_at || "")) || 0)
         );
-        // Inject into playlists module via the public API.
         const newId = pl.createCustom(`✨ ${ownerName}`);
-        // createCustom returns id; mutate items directly through _state.
         const list = pl._state?.lists?.[newId];
         if (list) list.items = collected;
         pl.setActive(newId);
@@ -6662,7 +6936,284 @@ function ensureAuthorAvatarModule() {
           `当前只播放 ${ownerName} 的作品`
         ));
       }
-    } catch (e) { console.warn("[author-avatar]", e); }
+    } catch (e) { console.warn("[author-avatar][play-only]", e); }
+  };
+
+  const openMenu = async (ownerId, ownerName, anchorEl) => {
+    if (!ownerId) {
+      if (typeof globalThis.showToast === "function") {
+        globalThis.showToast(loginCopy("Author info unavailable on this work.", "本作品作者信息不可用。"));
+      }
+      return;
+    }
+    // Close any existing menu so we don't stack.
+    document.querySelectorAll(".cssos-author-menu").forEach((el) => el.remove());
+
+    // Fetch relationship state in parallel with menu render.
+    let rel = { is_following: false, is_blocked: false, is_self: false, signed_in: false };
+    try {
+      const r = await fetch(`/api/users/${encodeURIComponent(ownerId)}/relationship`, { credentials: "include" });
+      if (r.ok) rel = await r.json();
+    } catch (_e) {}
+
+    const menu = document.createElement("div");
+    menu.className = "cssos-author-menu";
+    menu.style.cssText = [
+      "position:fixed", "z-index:99999", "min-width:240px",
+      "background:rgba(10,12,16,0.96)", "backdrop-filter:blur(20px) saturate(160%)",
+      "border:1px solid rgba(255,255,255,0.16)", "border-radius:12px",
+      "padding:6px", "box-shadow:0 12px 40px rgba(0,0,0,0.6)",
+      "font:500 13px/1.4 -apple-system,system-ui,sans-serif",
+      "color:rgba(255,255,255,0.95)", "user-select:none",
+    ].join(";");
+    const rect = anchorEl.getBoundingClientRect();
+    menu.style.left = `${Math.round(rect.left)}px`;
+    menu.style.top = `${Math.round(rect.bottom + 6)}px`;
+
+    const header = document.createElement("div");
+    header.style.cssText = "padding:8px 12px 10px;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:4px;font-weight:700;letter-spacing:0.02em;";
+    header.textContent = ownerName;
+    menu.appendChild(header);
+
+    const addItem = (icon, label, onClick, opts) => {
+      const o = opts || {};
+      const item = document.createElement("button");
+      item.type = "button";
+      /* CSSOS_WAVE_213 — `disabled` prop renders the item visible but
+       * grayed out and non-interactive (used for Follow/Block on own
+       * works: user sees the affordance but it's clearly inactive). */
+      const dis = !!o.disabled;
+      item.disabled = dis;
+      item.style.cssText = [
+        "display:flex", "align-items:center", "gap:10px", "width:100%",
+        "background:transparent", "border:none", "color:inherit",
+        "padding:9px 12px", "border-radius:7px",
+        dis ? "cursor:not-allowed" : "cursor:pointer",
+        "font:inherit", "text-align:left",
+        dis ? "opacity:0.42;color:rgba(255,255,255,0.5);" :
+          (o.danger ? "color:#ff8c8c" : ""),
+      ].join(";");
+      item.innerHTML = `<span style="font-size:16px;width:20px;text-align:center;">${icon}</span><span style="flex:1;">${label}${dis ? ' <span style="font-size:10px;opacity:0.7;">(self)</span>' : ''}</span>`;
+      if (!dis) {
+        item.addEventListener("mouseenter", () => { item.style.background = "rgba(255,255,255,0.08)"; });
+        item.addEventListener("mouseleave", () => { item.style.background = "transparent"; });
+      }
+      item.addEventListener("click", async () => {
+        if (dis) return;
+        menu.remove();
+        try { await onClick(); } catch (e) { console.warn("[author-menu]", e); }
+      });
+      menu.appendChild(item);
+    };
+
+    addItem("🎬", loginCopy("Play only their works", "只播放 TA 的作品"), () => {
+      playOnlyTheirWorks(ownerId, ownerName);
+    });
+
+    addItem("👤", loginCopy("Open their Works Center", "打开 TA 的作品中心"), () => {
+      // Best-effort: prefer a global opener, fallback to /u/:id URL
+      if (typeof globalThis.cssosOpenUserHomepageModule === "function") {
+        globalThis.cssosOpenUserHomepageModule({ userId: ownerId, displayName: ownerName });
+      } else if (typeof globalThis.openUserHomepage === "function") {
+        globalThis.openUserHomepage({ userId: ownerId, displayName: ownerName });
+      } else {
+        // Last-resort navigation
+        location.hash = `#user/${encodeURIComponent(ownerId)}`;
+      }
+    });
+
+    /* CSSOS_WAVE_213 20260517 — Jing: "不能关注自己，也不能拉黑自己，
+     * 但是要 显示 灰色不可用". Show Follow/Block always when signed in,
+     * but disable + gray when `is_self`. The user immediately understands
+     * the affordance without thinking "why is it missing on my own
+     * works?". */
+    if (rel.signed_in) {
+      addItem(
+        rel.is_following ? "✓" : "➕",
+        rel.is_following
+          ? loginCopy("Following — tap to unfollow", "已关注 — 点击取消")
+          : loginCopy("Follow", "关注 TA"),
+        async () => {
+          if (rel.is_self) return; // disabled on self
+          try {
+            const r = await fetch(`/api/users/${encodeURIComponent(ownerId)}/follow`, {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: "{}",
+            });
+            const j = await r.json().catch(() => ({}));
+            if (j && j.ok) {
+              if (typeof globalThis.showToast === "function") {
+                globalThis.showToast(j.following
+                  ? loginCopy(`Following ${ownerName}`, `已关注 ${ownerName}`)
+                  : loginCopy(`Unfollowed ${ownerName}`, `已取消关注 ${ownerName}`)
+                );
+              }
+            }
+          } catch (_e) {}
+        },
+        { disabled: rel.is_self }
+      );
+
+      addItem(
+        rel.is_blocked ? "✓" : "🚫",
+        rel.is_blocked
+          ? loginCopy("Blocked — tap to unblock", "已屏蔽 — 点击取消")
+          : loginCopy("Block", "屏蔽 TA"),
+        async () => {
+          if (rel.is_self) return; // disabled on self
+          try {
+            const r = await fetch(`/api/users/${encodeURIComponent(ownerId)}/block`, {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: "{}",
+            });
+            const j = await r.json().catch(() => ({}));
+            if (j && j.ok && typeof globalThis.showToast === "function") {
+              globalThis.showToast(j.blocked
+                ? loginCopy(`Blocked ${ownerName}`, `已屏蔽 ${ownerName}`)
+                : loginCopy(`Unblocked ${ownerName}`, `已取消屏蔽 ${ownerName}`)
+              );
+            }
+          } catch (_e) {}
+        },
+        { danger: !rel.is_blocked && !rel.is_self, disabled: rel.is_self }
+      );
+    }
+    /* CSSOS_WAVE_228 20260518 — Jing: "DM 如果是本人, 显示灰色不可用".
+     * 跟 Follow/Block 一致, 自己永远显示 DM 项, is_self → 灰色禁用. */
+    if (rel.signed_in) {
+      addItem("💬", loginCopy("DM in AI Assistant", "AI 助理私聊"), () => {
+        if (rel.is_self) return;
+        if (typeof globalThis.cssosOpenDmWith === "function") {
+          globalThis.cssosOpenDmWith(ownerId);
+        } else if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(loginCopy("DM not available right now.", "私聊功能暂时不可用。"));
+        }
+      }, { disabled: rel.is_self });
+    }
+    if (rel.signed_in && !rel.is_self) {
+
+      addItem("🎁", loginCopy("Send a gift…", "赠送礼物…"), () => {
+        // CSSOS_WAVE_202c — gift now opens a small sub-menu so the user
+        // can pick: tip this work (existing), buy credits for the
+        // recipient ("帮充值"), or gift one of the recipient's works
+        // back to them ("赠送作品"). We open a follow-up menu anchored
+        // to the same spot. Sub-options that have no backend yet show
+        // "coming soon" — better than silently doing nothing.
+        document.querySelectorAll(".cssos-author-menu").forEach((el) => el.remove());
+        const sub = document.createElement("div");
+        sub.className = "cssos-author-menu";
+        sub.style.cssText = [
+          "position:fixed", "z-index:99999", "min-width:260px",
+          "background:rgba(10,12,16,0.96)", "backdrop-filter:blur(20px) saturate(160%)",
+          "border:1px solid rgba(255,200,120,0.35)", "border-radius:12px",
+          "padding:6px", "box-shadow:0 12px 40px rgba(0,0,0,0.6)",
+          "font:500 13px/1.4 -apple-system,system-ui,sans-serif",
+          "color:rgba(255,255,255,0.95)", "user-select:none",
+        ].join(";");
+        const ar = avatar.getBoundingClientRect();
+        sub.style.left = `${Math.round(ar.left)}px`;
+        sub.style.top = `${Math.round(ar.bottom + 6)}px`;
+        const hdr = document.createElement("div");
+        hdr.style.cssText = "padding:8px 12px 10px;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:4px;font-weight:700;color:#ffd28d;";
+        hdr.textContent = loginCopy(`🎁 Gift to ${ownerName}`, `🎁 赠礼给 ${ownerName}`);
+        sub.appendChild(hdr);
+        const addSub = (icon, label, onClick, opts) => {
+          const o = opts || {};
+          const item = document.createElement("button");
+          item.type = "button";
+          item.style.cssText = [
+            "display:flex","align-items:center","gap:10px","width:100%",
+            "background:transparent","border:none","color:inherit",
+            "padding:9px 12px","border-radius:7px","cursor:pointer",
+            "font:inherit","text-align:left",
+            o.muted ? "opacity:0.55;" : "",
+          ].join(";");
+          item.innerHTML = `<span style="font-size:16px;width:20px;text-align:center;">${icon}</span><span style="flex:1;">${label}</span>${o.muted ? '<span style="font-size:10px;opacity:0.7;">soon</span>' : ''}`;
+          item.addEventListener("mouseenter", () => { item.style.background = "rgba(255,200,120,0.08)"; });
+          item.addEventListener("mouseleave", () => { item.style.background = "transparent"; });
+          item.addEventListener("click", async () => {
+            sub.remove();
+            try { await onClick(); } catch (e) { console.warn("[gift-menu]", e); }
+          });
+          sub.appendChild(item);
+        };
+
+        addSub("☕", loginCopy("Tip this work (instant)", "打赏本作品 (立即生效)"), () => {
+          // CSSOS_WAVE_262 — 接通打赏: dispatchMarketWorkPayment(workId,"tip",btn)
+          // 是正确签名 (统一支付选择器). 之前传 {kind:"tip"} 对象 → workId 为空
+          // → 静默失败. 用当前播放作品 id; 不能打赏自己 (上层 !rel.is_self 已挡).
+          const tipWorkId = String(
+            (typeof globalThis.cssosCurrentWorkId === "function" && globalThis.cssosCurrentWorkId()) || ""
+          ).trim();
+          if (tipWorkId && typeof globalThis.dispatchMarketWorkPayment === "function") {
+            try { globalThis.dispatchMarketWorkPayment(tipWorkId, "tip", avatar); } catch (_e) {}
+          } else if (typeof globalThis.showToast === "function") {
+            globalThis.showToast(loginCopy("Tip flow not available right now.", "打赏功能暂时不可用。"));
+          }
+        });
+
+        addSub("💰", loginCopy("Top up credits for them", "为 TA 充值算力"), () => {
+          // CSSOS_WAVE_203 — wired directly to POST /api/gifts/credits.
+          openCreditGiftModal(ownerId, ownerName);
+        });
+
+        addSub("🎬", loginCopy("Gift one of TA's works to TA", "赠送 TA 自己的作品给 TA"), () => {
+          if (typeof globalThis.cssosOpenWorkGiftModalModule === "function") {
+            globalThis.cssosOpenWorkGiftModalModule({ recipientId: ownerId, recipientName: ownerName });
+          } else if (typeof globalThis.showToast === "function") {
+            globalThis.showToast(loginCopy("Work-gift flow coming soon.", "赠送作品 — 即将上线。"));
+          }
+        }, { muted: typeof globalThis.cssosOpenWorkGiftModalModule !== "function" });
+
+        // CSSOS_WAVE_205 — fullscreen-aware mounting (same fix as parent menu).
+        (document.fullscreenElement || document.body).appendChild(sub);
+        const onAway = (ev) => {
+          if (!sub.contains(ev.target)) {
+            sub.remove();
+            document.removeEventListener("mousedown", onAway, true);
+            document.removeEventListener("touchstart", onAway, true);
+          }
+        };
+        setTimeout(() => {
+          document.addEventListener("mousedown", onAway, true);
+          document.addEventListener("touchstart", onAway, true);
+        }, 50);
+      });
+    } else if (!rel.signed_in) {
+      const note = document.createElement("div");
+      note.style.cssText = "padding:8px 12px;font-size:11px;opacity:0.6;border-top:1px solid rgba(255,255,255,0.08);margin-top:4px;";
+      note.textContent = loginCopy("Sign in to follow, block, or send gifts.", "登录后可关注 / 屏蔽 / 赠送礼物。");
+      menu.appendChild(note);
+    }
+
+    /* CSSOS_WAVE_205 20260516 — Jing: "头像菜单无法弹出，可能是被全屏
+     * 遮住了，请让菜单高于全屏." When the watch panel is in fullscreen
+     * mode, the fullscreen element creates a new stacking context that
+     * sits ABOVE document.body — z-index:99999 on a body child still
+     * loses. Solution: append to document.fullscreenElement when
+     * fullscreen is active, fall back to body otherwise. Same fix
+     * applied to the gift sub-menu below. */
+    (document.fullscreenElement || document.body).appendChild(menu);
+    // Click-outside-closes
+    const onClickAway = (ev) => {
+      if (!menu.contains(ev.target) && ev.target !== anchorEl) {
+        menu.remove();
+        document.removeEventListener("mousedown", onClickAway, true);
+        document.removeEventListener("touchstart", onClickAway, true);
+      }
+    };
+    setTimeout(() => {
+      document.addEventListener("mousedown", onClickAway, true);
+      document.addEventListener("touchstart", onClickAway, true);
+    }, 50);
+  };
+
+  avatar.addEventListener("click", () => {
+    openMenu(avatar.dataset.ownerId, avatar.title.replace(/^By |\s—.*$/g, "").trim() || "Author", avatar);
   });
   // Hover effect.
   avatar.addEventListener("mouseenter", () => { avatar.style.transform = "scale(1.08)"; });
@@ -6752,7 +7303,7 @@ function ensureImmersivePillModule() {
     } catch (err) {
       console.warn("[immersive] fullscreen failed:", err);
       if (typeof globalThis.showToast === "function") {
-        globalThis.showToast("Immersive view unavailable on this browser.");
+        globalThis.showToast(loginCopy("Immersive view unavailable on this browser.", "此浏览器不支持沉浸式全屏。"));
       }
     }
   });
@@ -6818,6 +7369,67 @@ globalThis.cssosExitWatchFullscreen = async function () {
   }
   document.body.classList.remove("cssos-watch-theater");
 };
+
+/* CSSOS_WAVE_214 20260517 — Jing: "播放的时候，应该可以存在左下角的信息的，
+ * 可以一边播放一遍分享嘛". A NEVER-fading bottom-left chip that shows
+ * 🎵 title · cssOS so any screen capture / OBS recording always includes
+ * attribution. Lives alongside `#watch-pill-row-bl` (above it) and is
+ * exempt from W159b's cinema-hero auto-hide. */
+function ensureWatchShareInfoChipModule() {
+  let chip = document.getElementById("watch-share-info-chip");
+  if (chip) return chip;
+  const screen = document.querySelector("#watch-panel .watch-screen");
+  if (!screen) return null;
+  chip = document.createElement("div");
+  chip.id = "watch-share-info-chip";
+  chip.dataset.noFrameToggle = "1";
+  chip.style.cssText = [
+    "position:absolute", "left:12px", "bottom:60px",
+    "display:flex", "align-items:center", "gap:6px",
+    "max-width:60%", "min-width:0",
+    "padding:4px 10px",
+    "background:rgba(0,0,0,0.62)",
+    "backdrop-filter:blur(10px) saturate(140%)",
+    "-webkit-backdrop-filter:blur(10px) saturate(140%)",
+    "border:1px solid rgba(255,255,255,0.16)",
+    "border-radius:14px",
+    "font:600 11.5px/1.3 -apple-system,system-ui,sans-serif",
+    "color:rgba(255,255,255,0.92)",
+    "letter-spacing:0.02em",
+    "z-index:31",
+    "pointer-events:none",   /* purely informational; click goes through */
+    "user-select:none",
+    "white-space:nowrap",
+    "overflow:hidden",
+    "text-overflow:ellipsis",
+  ].join(";");
+  chip.innerHTML = '<span style="font-size:13px;">🎵</span><span data-share-title style="overflow:hidden;text-overflow:ellipsis;"></span><span style="opacity:0.5;">·</span><span style="opacity:0.78;font-weight:700;letter-spacing:0.06em;">cssOS</span>';
+  screen.style.position = screen.style.position || "relative";
+  screen.appendChild(chip);
+  const refresh = () => {
+    try {
+      const ps = globalThis.cssosMvPipelinePanelState
+        ? globalThis.cssosMvPipelinePanelState() : null;
+      const title = String(ps?.title || "").trim()
+        || String(document.getElementById("watch-title-text")?.textContent || "").trim()
+        || "";
+      const titleEl = chip.querySelector("[data-share-title]");
+      if (titleEl) titleEl.textContent = title || "(untitled)";
+      chip.style.display = title ? "flex" : "none";
+    } catch (_e) {}
+  };
+  refresh();
+  // Re-render on common events that change current work.
+  try {
+    window.addEventListener("cssos:work-id-changed", refresh);
+    window.addEventListener("cssmv:music-durations", refresh);
+    document.addEventListener("cssmv:lyrics-updated", refresh);
+    if (globalThis.cssosPlaylists?.onChange) globalThis.cssosPlaylists.onChange(refresh);
+  } catch (_e) {}
+  // Periodic refresh as fallback (cheap — runs every 3s).
+  setInterval(refresh, 3000);
+  return chip;
+}
 
 // CSSOS_PHASE2_PILL_ROW 20260430 #241b — Jing
 // "能否和播放列表胶囊并排在右边?" Both pills share a bottom-left flex
@@ -8594,6 +9206,14 @@ function hasEffectiveWatchFrameSourceModule() {
 
 function showWatchFramePlaceholderModule(uri) {
   if (!watchSvg || !uri) return false;
+  // CSSOS_WAVE_329 20260522 — Jing: 进入 MV 时封面"闪一下"是同一/多张图被重复写入.
+  // 幂等守卫: 已经显示的就是这张 → 直接跳过, 不重绘(消除冗余闪烁).
+  try {
+    if (!/^data:image\/svg\+xml/i.test(String(uri || "").trim())) {
+      var _abs = new URL(String(uri), location.href).href;
+      if (watchSvg.src === _abs && watchSvg.style.display === "block") return true;
+    }
+  } catch (_e) { /* noop */ }
   if (/^data:image\/svg\+xml/i.test(String(uri || "").trim())) {
     if (watchSvg) {
       watchSvg.style.display = "none";
@@ -8698,6 +9318,29 @@ async function playWatchOverlayFeedbackToneModule(mode = "generate") {
   }
 }
 
+/* CSSOS_WAVE_212 20260516 — Jing: "久不久就返回这个恐怖音效和砖头人画面
+ * 能不能输出失败就返回我们的 demo 媒体呀". When pipeline fails, the
+ * old fallback hid the video element + showed an abstract creative-
+ * stage SVG (orange palette + rectangle silhouettes = "brick people")
+ * with no music — feeling lonely + foreboding. Instead, pick a random
+ * curated demo MP4 from /examples/ so the user gets real motion +
+ * sound while we recover. The demo plays silently if no audio source
+ * (still better than the dead-silent placeholder).
+ *
+ * NOTE: the demo MV plays muted by default (autoplay rules + we don't
+ * want it to overlap with the real audio when it finally arrives).
+ * The actual audio path is unaffected — `watchAudioPreview` keeps its
+ * own src; the video is just visual filler. */
+const W212_DEMO_FALLBACK_VIDEOS = [
+  "/examples/AI_Media_FCGM-lZPD_8_002_720p.mp4",
+  "/examples/Back-to-the-Westworld-12_Media_QltXwpK6l4k_002_720p.mp4",
+  "/examples/Cybertruck_Media_C9pLehCkDk8_002_720p%20%281%29.mp4",
+];
+function pickW212DemoVideo() {
+  return W212_DEMO_FALLBACK_VIDEOS[
+    Math.floor(Math.random() * W212_DEMO_FALLBACK_VIDEOS.length)
+  ];
+}
 function useLocalWatchVideoFallbackModule(title, subtitle) {
   if (watchSvg) {
     watchSvg.style.display = "none";
@@ -8707,16 +9350,120 @@ function useLocalWatchVideoFallbackModule(title, subtitle) {
   if (watchScreenBackdrop) {
     watchScreenBackdrop.style.backgroundImage = "";
   }
+  /* W212 — swap brick-people SVG for a demo MP4. Only attempt once
+   * per fallback to avoid re-swap thrash. */
+  try {
+    if (watchVideo && !watchVideo.dataset.w212DemoSet) {
+      const demoUrl = pickW212DemoVideo();
+      watchVideo.dataset.w212DemoSet = "1";
+      watchVideo.src = demoUrl;
+      watchVideo.muted = true;          // never overlap real audio
+      watchVideo.playsInline = true;
+      watchVideo.loop = true;
+      watchVideo.style.display = "";
+      watchVideo.load?.();
+      const playPromise = watchVideo.play?.();
+      if (playPromise && typeof playPromise.then === "function") {
+        playPromise.catch(() => {});
+      }
+      console.info(
+        "%c[watch][W212] swapped brick-people SVG for demo MP4: %s",
+        "color:#0a8;font-weight:bold",
+        demoUrl
+      );
+    }
+  } catch (_e) { /* fallback best-effort */ }
   currentPreviewVideoIsLocalFallback = true;
   globalThis.currentPreviewVideoDurationSec = 0;
   globalThis.currentPreviewVideoSourceKind = "local-fallback";
   syncWatchSubtitleForWaitingMediaModule();
 }
 
+/* CSSOS_WAVE_221 20260517 — Jing 选项 B: 浏览器拦截 autoplay 时,
+ * 渲染全屏 ▶ "Tap to play" 蒙层. 用户点一下就解锁后续 autoplay
+ * (浏览器把该手势授权给本 tab 的所有媒体), 体验对齐 TikTok / IG. */
 function promptManualWatchPlaybackModule(message) {
   globalThis.watchManualPlayHinted = true;
   safeSetWatchSubtitleModule(message);
-  showToast(message);
+  try {
+    if (document.getElementById("cssos-tap-to-play-overlay")) return;
+    const host =
+      document.getElementById("watch-screen") ||
+      document.getElementById("watch-stage") ||
+      document.body;
+    if (!host) { showToast(message); return; }
+    const ov = document.createElement("div");
+    ov.id = "cssos-tap-to-play-overlay";
+    ov.setAttribute("role", "button");
+    ov.setAttribute("aria-label", "Tap to play");
+    ov.style.cssText =
+      "position:absolute;inset:0;z-index:9999;display:flex;flex-direction:column;" +
+      "align-items:center;justify-content:center;gap:16px;cursor:pointer;" +
+      "background:radial-gradient(ellipse at center,rgba(0,0,0,.55),rgba(0,0,0,.82));" +
+      "backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);" +
+      "animation:cssosTapPulse 1.8s ease-in-out infinite;";
+    ov.innerHTML =
+      '<div style="width:104px;height:104px;border-radius:50%;background:rgba(0,245,160,.18);' +
+      'border:2px solid rgba(0,245,160,.85);display:flex;align-items:center;justify-content:center;' +
+      'box-shadow:0 0 32px 6px rgba(0,245,160,.45);">' +
+      '<div style="width:0;height:0;border-left:32px solid #daffee;border-top:20px solid transparent;' +
+      'border-bottom:20px solid transparent;margin-left:8px;"></div></div>' +
+      '<div style="font:700 16px/1.4 ui-sans-serif,system-ui;color:#daffee;letter-spacing:.04em;' +
+      'text-shadow:0 2px 8px rgba(0,0,0,.6);">Tap to play</div>' +
+      '<div style="font:500 12px/1.4 ui-monospace,monospace;color:rgba(218,255,238,.7);' +
+      'max-width:280px;text-align:center;">' +
+      'Browsers block autoplay on first visit. One tap unlocks the whole session.' +
+      '</div>';
+    if (!document.getElementById("cssos-tap-pulse-style")) {
+      const st = document.createElement("style");
+      st.id = "cssos-tap-pulse-style";
+      st.textContent =
+        "@keyframes cssosTapPulse{0%,100%{background-color:rgba(0,0,0,.55)}50%{background-color:rgba(0,0,0,.72)}}";
+      document.head.appendChild(st);
+    }
+    const dismiss = () => {
+      try { ov.remove(); } catch (_e) {}
+      try { watchVideo?.play?.().catch(() => {}); } catch (_e) {}
+      try { watchAudioPreview?.play?.().catch(() => {}); } catch (_e) {}
+      /* CSSOS_WAVE_226 — 用户首次手势也顺便触发真全屏三连:
+       * 影院布局 + 面板浏览器全屏 + (失败时) 媒体框 / documentElement. */
+      try {
+        if (typeof globalThis.cssosEnterCinemaLayout === "function") {
+          globalThis.cssosEnterCinemaLayout();
+        }
+      } catch (_e) {}
+      try {
+        if (typeof globalThis.cssosRequestBrowserFullscreen === "function") {
+          globalThis.cssosRequestBrowserFullscreen();
+        }
+      } catch (_e) {}
+      // 兜底: 如果 panel 全屏没成功, 试 video 元素 / documentElement.
+      setTimeout(() => {
+        if (document.fullscreenElement) return;
+        try {
+          const v = document.getElementById("watch-video");
+          const fn = v?.requestFullscreen || v?.webkitRequestFullscreen;
+          if (fn) { fn.call(v); return; }
+        } catch (_e) {}
+        try {
+          const de = document.documentElement;
+          const fn = de.requestFullscreen || de.webkitRequestFullscreen;
+          if (fn) fn.call(de);
+        } catch (_e) {}
+      }, 80);
+      globalThis.watchManualPlayHinted = false;
+    };
+    ov.addEventListener("click", dismiss, { once: true });
+    ov.addEventListener("touchend", dismiss, { once: true });
+    // host must be positioned for absolute overlay to fit.
+    try {
+      const cs = getComputedStyle(host);
+      if (cs.position === "static") host.style.position = "relative";
+    } catch (_e) {}
+    host.appendChild(ov);
+  } catch (_e) {
+    showToast(message);
+  }
 }
 
 function clearWatchPlaybackRetryModule() {

@@ -213,6 +213,15 @@
       void isProtected; void hideEl; void looksLikeClose; void isStructural; void ensureDbg; void idOf;
     }
 
+    // CSSOS_WAVE_317 20260521 — Jing: 搜索框【只在点击时聚焦】(不在显示时自动聚焦,
+    // 否则每次活动显示都弹键盘). 点击整条搜索 pill 任意处都聚焦输入框; 同时阻止冒泡
+    // 到媒体层(以免误触发暂停). 不做任何 autofocus.
+    var focusInput = function (e) {
+      try { if (e) e.stopPropagation(); } catch (_e) {}
+      try { input.focus(); } catch (_e) {}
+    };
+    input.addEventListener("click", focusInput);
+    input.addEventListener("pointerup", focusInput);
     input.addEventListener("input", function () {
       clearTimeout(debTimer);
       var v = String(input.value || "").trim();

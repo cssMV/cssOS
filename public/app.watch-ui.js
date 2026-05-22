@@ -3034,6 +3034,31 @@ async function openLatestOwnedWorkPreviewModule() {
     seed: buildMarketPreviewSeed(latestWork),
     previewUnlimited: canBypassPreviewLimit(authState.user, latestWork)
   });
+  // CSSOS_WAVE_341 20260522 — Jing: 进入只挂了封面/标题, 却没挂音频 → "音乐没跟着来".
+  // 这里把作品音轨挂到 watch-audio-preview 并尝试自动播放: 先尝试带声(若浏览器允许),
+  // 被自动播放策略拦截 → 静音重试 + 标 pending-unmute(用户首触即解锁声音, W279)+ 提示.
+  try {
+    const _aEl = document.getElementById("watch-audio-preview");
+    const _a1 = String(latestWork?.audio_track_1_url || latestWork?.audio_track_2_url || "").trim();
+    if (_aEl && _a1 && !/^data:/i.test(_a1)) {
+      if (String(_aEl.getAttribute("src") || "") !== _a1) {
+        _aEl.src = _a1; _aEl.preload = "auto"; if (typeof _aEl.load === "function") _aEl.load();
+      }
+      _aEl.muted = false;
+      const _pp = _aEl.play && _aEl.play();
+      if (_pp && typeof _pp.catch === "function") {
+        _pp.catch(function () {
+          try {
+            _aEl.muted = true;
+            globalThis.__cssosWatchPendingUnmute = true;
+            const _p2 = _aEl.play && _aEl.play();
+            if (_p2 && typeof _p2.catch === "function") _p2.catch(function () {});
+            if (typeof globalThis.showWatchSoundHintModule === "function") globalThis.showWatchSoundHintModule();
+          } catch (_e2) {}
+        });
+      }
+    }
+  } catch (_e) { /* non-fatal: 音乐挂载尽力而为 */ }
   return true;
 }
 

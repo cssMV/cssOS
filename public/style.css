@@ -6412,11 +6412,13 @@ html.cssos-app #watch-exit-cinema {
   top: calc(var(--cssos-notch-clear) + 5px) !important;
   right: 12px !important; /* CSSOS_WAVE_326 — 与左上角头像 left:12 对称 */
 }
-/* CSSOS_WAVE_326 — 桌面: 头像/✕ 已移进媒体框, 搜索框无需两侧让位 → 收窄并居中. */
+/* CSSOS_WAVE_328 — Jing: 搜索框【始终居中、保持长】, 两侧只留头像/关闭键的空间即可
+ * (不必很短). 桌面: 居中, 宽 = min(760px, 100% - 120px)(两侧各 ~60px 余量). */
 html:not(.cssos-app) #watch-search-inputwrap {
   align-self: center;
-  max-width: 520px;
-  margin: 0 !important;
+  width: min(760px, calc(100% - 120px));
+  max-width: none;
+  margin: 0 auto !important;
 }
 /* CSSOS_WAVE_311 20260521 — Jing: "步调一致". 退出影院 ✕ 与头像/搜索框/Dock 完全
  * 同显同隐: 默认 display:none; 影院里 display:flex; 空闲时统一 idle 系统给本元素加

@@ -480,6 +480,25 @@
             '<button class="person-mv-realm-btn" data-realm="mythological" title="' + tt("Myth & gods", "神话与诸神") + '">⚡ ' + tt("Myth", "神话") + '</button>' +
             '<button class="person-mv-realm-btn" data-realm="literary" title="' + tt("Literary characters", "文学虚构") + '">📚 ' + tt("Literary", "文学") + '</button>' +
             '<button class="person-mv-realm-btn" data-realm="folkloric" title="' + tt("Folk tales", "民间传说") + '">🏮 ' + tt("Folk", "民间") + '</button>' +
+            /* W306d — activity-bar tabs moved here from floating notch */
+            (function () {
+              var isZh = /^zh/i.test(String((globalThis.CSSOS_I18N && globalThis.CSSOS_I18N.getCurrentLocale && globalThis.CSSOS_I18N.getCurrentLocale()) || tt("en", "zh")));
+              var tabs = (globalThis.__cssosActivityBar && globalThis.__cssosActivityBar.STYLE_TABS) || [
+                { id: "leaderboard", icon: "🏆", en: "Top",       zh: "排行榜" },
+                { id: "schools",     icon: "🏛", en: "Schools",   zh: "流派"   },
+                { id: "epic",        icon: "⚔️",  en: "Epic",      zh: "史诗"   },
+                { id: "tang",        icon: "🐉", en: "Tang",      zh: "唐风"   },
+                { id: "ambient",     icon: "🌫️", en: "Ambient",   zh: "氛围"   },
+                { id: "cinematic",   icon: "🎬", en: "Cinematic", zh: "电影感" },
+                { id: "rock",        icon: "🎸", en: "Rock",      zh: "摇滚"   },
+              ];
+              return tabs.map(function (t) {
+                var label = isZh ? t.zh : t.en;
+                return '<button class="person-mv-style-btn" data-style-tab="' + t.id + '" type="button">' +
+                  '<span class="pmv-style-icon">' + t.icon + '</span>' +
+                  '<span>' + escapeText(label) + '</span></button>';
+              }).join('');
+            })() +
           '</div>' +
         '</div>' +
         '<div class="person-mv-toolbar">' +
@@ -681,6 +700,20 @@
         b.classList.add("active");
         state.curationTier = String(b.getAttribute("data-ctier") || "S");
         reloadCurrent();
+      });
+    });
+    /* W306d — activity-bar style tabs delegated to person-MV panel. */
+    var styleBtns = panelEl.querySelectorAll(".person-mv-style-btn");
+    styleBtns.forEach(function (b) {
+      b.addEventListener("click", function () {
+        var tabId = b.getAttribute("data-style-tab");
+        if (!tabId) return;
+        styleBtns.forEach(function (x) { x.classList.remove("active"); });
+        b.classList.add("active");
+        /* Delegate to activity bar module if available */
+        if (globalThis.__cssosActivityBar && typeof globalThis.__cssosActivityBar.activateTab === "function") {
+          globalThis.__cssosActivityBar.activateTab(tabId);
+        }
       });
     });
     /* CSSOS_WAVE_114 20260511 — realm filter pills. */

@@ -182,7 +182,23 @@
       "  transition: filter 180ms ease, border-color 180ms ease;",
       "}",
       ".cssos-act-tab:hover{ filter:brightness(1.18); border-color:rgba(255,255,255,0.22); }",
-      ".cssos-act-tab.active{ filter:brightness(1.25); border-color:rgba(255,255,255,0.45); box-shadow:0 0 0 1px rgba(0,245,160,0.55) inset; }",
+      /* CSSOS_WAVE_220A 20260517 — Jing: aligns the notch ("刘海") tab
+       * active state with the system-wide pill-switch constitution.
+       * Container stays dark (preserves the notch identity), per-tab
+       * background colours stay (preserves each civilization/genre
+       * chip's identity), but the ACTIVE indicator now uses the iOS
+       * "elevated thumb" shadow signature so it visually matches every
+       * other tab switcher in the app. */
+      ".cssos-act-tab.active{",
+      "  filter: brightness(1.25);",
+      "  border-color: rgba(0, 245, 160, 0.65);",
+      "  box-shadow:",
+      "    0 0 0 1px rgba(0, 245, 160, 0.55) inset,",
+      "    0 1px 3px rgba(0, 0, 0, 0.35),",
+      "    0 0 0 0.5px rgba(0, 245, 160, 0.4);",
+      "  transform: translateY(-1px);",
+      "  transition: transform 180ms ease, filter 180ms ease, box-shadow 200ms ease;",
+      "}",
       ".cssos-act-tab .cssos-act-icon{ font-size:13px; line-height:1; }",
 
       /* Schools row — picture cards (album style), horizontal scroll.
@@ -312,11 +328,11 @@
       "  transform:scale(1.06);",
       "}",
       "#" + CLOSE_ID + "[data-hidden='1']{ opacity:0; pointer-events:none; }",
-      /* CSSOS_WAVE_117_NOTCH_CLOSE_CAPSULE — mobile uses an inline pill
-         appended in renderBar(); hide the floating circle there. */
-      "@media (max-width: 480px) and (orientation: portrait){",
-      "  #" + CLOSE_ID + "{ display:none !important; }",
-      "}",
+      /* CSSOS_WAVE_169 20260515 — Jing: the inline capsule (rendered at
+       * the end of the pill row in renderBar) is now the single source
+       * of truth for the close affordance on all viewports. Hide the
+       * legacy floating circle everywhere. */
+      "#" + CLOSE_ID + "{ display:none !important; }",
       /* Inline close pill styling on mobile — slightly redder hover. */
       ".cssos-act-tab.cssos-act-close-cap{",
       "  border-color: rgba(255,140,140,0.5) !important;",
@@ -421,22 +437,21 @@
         '<span>' + escapeHtml(label) + '</span>' +
         '</button>';
     });
-    /* CSSOS_WAVE_117_NOTCH_CLOSE_CAPSULE 20260513 — Jing:
-     * "刘海关闭按钮。手机移动端请做成最后一个胶囊吧". On mobile portrait
-     * the floating circular × is hard to thumb-tap up by the notch.
-     * Instead, append a red "✕" capsule as the LAST tab so it's
-     * inline with the other style pills and one-thumb reachable. */
-    var isMobile = window.matchMedia &&
-      window.matchMedia("(max-width: 480px) and (orientation: portrait)").matches;
-    if (isMobile) {
-      html += '<button type="button" class="cssos-act-tab cssos-act-close-cap" ' +
-        'data-tab="__close" ' +
-        'aria-label="' + escapeHtml(tr("Hide activity bar", "隐藏活动栏")) + '" ' +
-        'style="background:rgba(120,30,30,0.55);">' +
-        '<span class="cssos-act-icon">✕</span>' +
-        '<span>' + escapeHtml(tr("Hide", "关闭")) + '</span>' +
-        '</button>';
-    }
+    /* CSSOS_WAVE_169 20260515 — Jing: "主界面刘海最右边的关闭按钮，刚刚
+     * 进入主界面的时候还显示，过了一下子，就不显示了。要不，也想手机移动端
+     * 那样，把关闭按钮也做成最后一个胶囊吧". The floating circular × kept
+     * disappearing under the 10s idle-hide timer (it shares hide state
+     * with the bar). Promote the close capsule to ALL viewports so it's
+     * always at the end of the pill row, predictable, thumb-friendly,
+     * and visually consistent with the other style pills. The floating
+     * circle below is now display:none everywhere. */
+    html += '<button type="button" class="cssos-act-tab cssos-act-close-cap" ' +
+      'data-tab="__close" ' +
+      'aria-label="' + escapeHtml(tr("Hide activity bar", "隐藏活动栏")) + '" ' +
+      'style="background:rgba(120,30,30,0.55);">' +
+      '<span class="cssos-act-icon">✕</span>' +
+      '<span>' + escapeHtml(tr("Hide", "关闭")) + '</span>' +
+      '</button>';
     state.bar.innerHTML = html;
     var lastId = readLastTab();
     if (lastId) {
@@ -1040,11 +1055,16 @@
     init();
   }
 
-  /* Expose for debugging */
+  /* W306d — bar moved into person-MV panel. Suppress floating bar. */
+  state.userDismissed = true;
+
+  /* Expose for debugging + person-MV tab delegation */
   globalThis.__cssosActivityBar = {
     show: show,
     hide: hide,
     refreshPosition: refreshPosition,
+    activateTab: activateTab,
     state: state,
+    STYLE_TABS: STYLE_TABS,
   };
 })();

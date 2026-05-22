@@ -114,27 +114,11 @@
         try { document.body.classList.remove("cssos-cinema-mode", "cssos-watch-theater", "cssos-watch-idle"); } catch (_e) {}
       });
       panel.appendChild(exitBtn);
-      // CSSOS_WAVE_309 20260521 — Jing: 退出影院 ✕ 默认隐藏, 连【进入影院】那一下
-      // 也不显示; 仅"有操作"时显示, 无操作 10s 隐藏. 专属控制器(已从 index.html 的
-      // CHROME_SELECTORS 摘出, 避免进场被统一 wake 闪现一下). 退出影院即隐藏.
-      var EXIT_IDLE_MS = 10000;
-      var exitHideTimer = null;
-      var showExit = function () {
-        if (!inCinemaNow()) return;
-        exitBtn.style.setProperty("display", "flex", "important");
-        clearTimeout(exitHideTimer);
-        exitHideTimer = setTimeout(hideExit, EXIT_IDLE_MS);
-      };
-      function hideExit() {
-        clearTimeout(exitHideTimer);
-        exitBtn.style.setProperty("display", "none", "important");
-      }
-      hideExit(); // 初始(含进入影院)默认隐藏
-      ["pointerdown", "pointermove", "touchstart", "touchmove", "wheel", "keydown"].forEach(function (ev) {
-        document.addEventListener(ev, function () { if (inCinemaNow()) showExit(); }, { passive: true, capture: true });
-      });
-      document.addEventListener("fullscreenchange", function () { if (!inCinemaNow()) hideExit(); }, { passive: true });
-      document.addEventListener("webkitfullscreenchange", function () { if (!inCinemaNow()) hideExit(); }, { passive: true });
+      // CSSOS_WAVE_311 20260521 — Jing: "步调一致" — ✕ 必须和头像/搜索框/Dock 完全
+      // 同显同隐. 因此【不】给它独立控制器(W309 那样会一个显一个不显, 不协调), 而是
+      // 放回 index.html 的统一 idle 系统(CHROME_SELECTORS 已含 #watch-exit-cinema),
+      // 显隐由 CSS(影院 → display:flex) + idle 系统(空闲 → inline display:none, wake
+      // 撤掉)统一驱动. 这里不写任何 display JS.
     }
 
     // CSSOS_WAVE_300c 20260521 — Jing: "删掉左上边的关闭按钮" — 它一直没被清掉,

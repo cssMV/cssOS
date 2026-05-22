@@ -16897,6 +16897,34 @@ const SLIDESHOW_LIFE_ARC_SEEDS: readonly string[] = [
   "as remembered by followers, serene timeless portrait, mountain mist behind",
 ];
 
+// CSSOS_WAVE_339 20260522 — Jing「全部入库」: 把【远程临时图】(replicate/fal, 会过期
+// 404)下载转存为稳定 webp(复用 persistBase64Cover 的磁盘+R2 存储), 返回稳定
+// /artifacts URL. 已稳定/非临时主机直接放行. 用于幻灯帧/封面池等会过期的图.
+async function persistRemoteImageToStable(url: string): Promise<string> {
+  const u = String(url || "").trim();
+  if (!u || !/^https?:\/\//i.test(u)) return u;
+  let host = "";
+  try { host = new URL(u).hostname.toLowerCase(); } catch { return u; }
+  if (host === "cssstudio.app" || u.includes("/api/") || u.includes("/artifacts/")) return u;
+  if (!/(^|\.)(replicate\.delivery|fal\.media|fal\.run)$/i.test(host)) return u;
+  try {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 15000);
+    let buf: Buffer | null = null;
+    try {
+      const r = await fetch(u, { signal: ctrl.signal, redirect: "follow" });
+      if (r.ok) buf = Buffer.from(await r.arrayBuffer());
+    } finally { clearTimeout(to); }
+    if (buf && buf.byteLength > 0 && buf.byteLength < 40 * 1024 * 1024) {
+      const stable = persistBase64Cover(buf.toString("base64"), "system");
+      if (stable) return stable;
+    }
+  } catch (e) {
+    console.warn("[rehost-image] failed, keep temp url:", (e as Error)?.message || e);
+  }
+  return u;
+}
+
 async function enqueueSlideshowPoolGeneration(workId: string): Promise<void> {
   if (!workId) return;
   try {
@@ -16959,7 +16987,7 @@ async function enqueueSlideshowPoolGeneration(workId: string): Promise<void> {
             });
             if (!img.ok) return;
             const url = img.image_url
-              ? img.image_url
+              ? await persistRemoteImageToStable(img.image_url) // CSSOS_WAVE_339 转存稳定
               : (img.image_b64 ? persistBase64Cover(img.image_b64, "auto-slideshow") : "");
             if (!url) return;
             await pool.query(
@@ -28807,7 +28835,7 @@ async function generateCoverPoolForWork(
       });
       if (img?.ok) {
         const url = img.image_url
-          ? img.image_url
+          ? await persistRemoteImageToStable(img.image_url) // CSSOS_WAVE_339 转存稳定
           : (img.image_b64 ? persistBase64Cover(img.image_b64, "system") : "");
         if (url) slides.push(url);
       }

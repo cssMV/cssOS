@@ -9443,14 +9443,26 @@ function syncWatchMusicArtworkModule() {
     stageArtwork ||
     ""
   ).trim();
-  const stageSafe = stageArtwork ? `url("${String(stageArtwork).replace(/"/g, '\\"')}")` : "none";
-  const discSafe = discArtwork ? `url("${String(discArtwork).replace(/"/g, '\\"')}")` : stageSafe;
-  const frameSafe = frameArtwork ? `url("${String(frameArtwork).replace(/"/g, '\\"')}")` : stageSafe;
+  // CSSOS_WAVE_320 20260521 — Jing: 背景/封面层走缩放代理(全屏背景 w=800, 多为模糊)
+  // → 首帧不必等 1.3MB 全图. data: URL 由 cssosThumb 原样放行.
+  const _thumb = (typeof globalThis.cssosThumb === "function") ? globalThis.cssosThumb : (u) => u;
+  const stageT = _thumb(stageArtwork, 800);
+  const discT = _thumb(discArtwork, 800);
+  const frameT = _thumb(frameArtwork, 800);
+  const stageSafe = stageT ? `url("${String(stageT).replace(/"/g, '\\"')}")` : "none";
+  const discSafe = discT ? `url("${String(discT).replace(/"/g, '\\"')}")` : stageSafe;
+  const frameSafe = frameT ? `url("${String(frameT).replace(/"/g, '\\"')}")` : stageSafe;
   watchMusicStage.style.setProperty("--watch-music-backdrop-image", stageSafe);
   watchMusicStage.style.setProperty("--watch-music-art-image", discSafe);
   watchScreen?.style.setProperty("--watch-frame-art-image", frameSafe);
   watchScreenBackdrop?.style.setProperty("background-image", frameSafe);
   document.getElementById("watch-music-art")?.style.setProperty("background-image", discSafe);
+  // CSSOS_WAVE_320 — 给视频元素一个 poster(用缩略图), 解码前先有画面, 不再黑屏.
+  try {
+    if (frameArtwork && !String(frameArtwork).startsWith("data:") && watchVideo && !watchVideo.getAttribute("poster")) {
+      watchVideo.setAttribute("poster", _thumb(frameArtwork, 600));
+    }
+  } catch (_e) { /* noop */ }
   if (watchMusicArtBlur) {
     watchMusicArtBlur.checked = localStorage.getItem(WATCH_MUSIC_ART_BLUR_KEY) === "true";
     syncWatchMusicArtworkBlurModule();

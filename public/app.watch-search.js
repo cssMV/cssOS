@@ -326,8 +326,10 @@
         .map(function (u) { return String(u || "").trim(); })
         .filter(Boolean);
       var primary = pool.length ? pool[Math.floor(Math.random() * pool.length)] : stable;
-      var cover = esc(primary || stable);
-      var fallback = esc(stable);
+      // CSSOS_WAVE_320 — 56px 缩略图: 走缩放代理(w=160, 含视网膜), 别再下 1.3MB 全图.
+      var thumb = (typeof globalThis.cssosThumb === "function") ? globalThis.cssosThumb : function (u) { return u; };
+      var cover = esc(thumb(primary || stable, 160));
+      var fallback = esc(thumb(stable, 160));
       var title = esc(w.title || tr("Untitled", "未命名"));
       var owner = esc(w.owner_name || "");
       var card = document.createElement("button");

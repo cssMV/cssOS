@@ -8385,6 +8385,62 @@ app.get("/billing/return", (_req, res) => {
   res.type("html");
   return res.sendFile(path.join(PUBLIC_DIR, "billing", "return.html"));
 });
+// CSSOS_WAVE_320 20260521 — Jing: 通用缩略图代理. 列表/卡片/背景/<video> poster 把
+// 1.3MB 全尺寸封面换成 /api/img-thumb?u=<原图URL>&w=400 → sharp 缩放为 webp q72, 按
+// (w|src) hash 缓存到磁盘, 后续直接命中. 对所有封面源(cover-webp / replicate / fal /
+// 站内 / R2)通用. 仅放行已知图片 CDN 主机, 防开放代理/SSRF.
+const THUMB_CACHE_DIR = path.join(PUBLIC_DIR, "uploads", "thumbs");
+try { fs.mkdirSync(THUMB_CACHE_DIR, { recursive: true }); } catch { /* noop */ }
+const THUMB_ALLOW_HOSTS = [
+  "cssstudio.app", "replicate.delivery", "fal.media", "fal.run",
+  "storage.googleapis.com", "r2.cloudflarestorage.com", "r2.dev",
+  "amazonaws.com", "cloudfront.net",
+];
+function thumbHostAllowed(u: URL): boolean {
+  const h = u.hostname.toLowerCase();
+  return THUMB_ALLOW_HOSTS.some((d) => h === d || h.endsWith("." + d));
+}
+app.get("/api/img-thumb", async (req, res) => {
+  try {
+    const src = String(req.query.u || "").trim();
+    let w = Math.round(Number(req.query.w || 400));
+    if (!Number.isFinite(w) || w <= 0) w = 400;
+    w = Math.max(48, Math.min(w, 1024));
+    if (!src) return res.status(400).send("missing u");
+    let url: URL;
+    try { url = new URL(src); } catch { return res.status(400).send("bad u"); }
+    if (url.protocol !== "https:" && url.protocol !== "http:") return res.status(400).send("bad scheme");
+    if (!thumbHostAllowed(url)) return res.status(403).send("host not allowed");
+    const key = crypto.createHash("sha1").update(w + "|" + src).digest("hex");
+    const cachePath = path.join(THUMB_CACHE_DIR, key + ".webp");
+    if (fs.existsSync(cachePath)) {
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      res.type("image/webp");
+      return res.sendFile(cachePath);
+    }
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 8000);
+    let buf: Buffer;
+    try {
+      const r = await fetch(src, { signal: ctrl.signal, redirect: "follow" });
+      if (!r.ok) return res.status(502).send("fetch failed");
+      buf = Buffer.from(await r.arrayBuffer());
+    } finally { clearTimeout(to); }
+    if (buf.length > 25 * 1024 * 1024) return res.status(413).send("too large");
+    const out = await sharp(buf, { failOn: "none" })
+      .rotate()
+      .resize({ width: w, withoutEnlargement: true })
+      .webp({ quality: 72 })
+      .toBuffer();
+    try { fs.writeFileSync(cachePath, out); fs.chmodSync(cachePath, 0o644); } catch { /* noop */ }
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    res.type("image/webp");
+    return res.send(out);
+  } catch (_e) {
+    return res.status(500).send("thumb error");
+  }
+});
+
 app.use(
   express.static(PUBLIC_DIR, {
     /* CSSOS_SHARE_OG_BYPASS_STATIC 20260506 — disable express.static's

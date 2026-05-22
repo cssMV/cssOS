@@ -1,3 +1,19 @@
+/* CSSOS_WAVE_320 20260521 — Jing: 全局缩略图助手. 把大封面 URL 换成后端缩放代理
+ * /api/img-thumb?u=…&w=… (sharp 缩放 + 缓存). 列表/卡片/背景/poster 统一用它, 把
+ * 1.3MB 全图降到几十 KB. data:/svg/已是缩略图/相对路径 一律原样返回. */
+globalThis.cssosThumb = function (url, w) {
+  try {
+    var s = String(url == null ? "" : url).trim();
+    if (!s) return s;
+    if (/^data:/i.test(s)) return s;
+    if (/\.svg(\?|$)/i.test(s)) return s;
+    if (s.indexOf("/api/img-thumb") !== -1) return s;
+    if (!/^https?:\/\//i.test(s)) return s;
+    var ww = Math.max(48, Math.min(parseInt(w, 10) || 400, 1024));
+    return "/api/img-thumb?u=" + encodeURIComponent(s) + "&w=" + ww;
+  } catch (_e) { return url; }
+};
+
 (() => {
   const dock = document.getElementById("dock");
   const toast = document.getElementById("toast");

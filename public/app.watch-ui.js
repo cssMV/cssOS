@@ -2993,6 +2993,19 @@ async function openLatestOwnedWorkPreviewModule() {
   globalThis.currentStructuredWatchQueue = queue;
   const latestWork = queue.items[0];
   currentWatchPreviewWork = latestWork;
+  // CSSOS_WAVE_330 20260522 — Jing: 进入即【绑定最新作品标题】(不要显示面板名 "Watch")
+  // + 【锁定单张封面】(把 artwork 变体池设为这一张 → 进场不再多图乱闪/随机轮播).
+  try {
+    const _lt = String(latestWork?.title || "").trim();
+    if (_lt) state.title = _lt;
+    const _cov = String(
+      latestWork?.cover_image || latestWork?.cover_url || latestWork?.preview_image_url || ""
+    ).trim();
+    if (_cov && !/^data:image\/svg\+xml/i.test(_cov)) {
+      globalThis.currentResolvedWatchArtworkDataUrl = _cov;
+      globalThis.currentWatchArtworkVariantPool = [_cov];
+    }
+  } catch (_e) { /* non-fatal */ }
   globalThis.cssosBindToWorkId?.(latestWork); // CSSOS_WAVE_121 Step 2
   const sourceRunId = String(latestWork?.source_run_id || "").trim();
   if (sourceRunId) currentWatchAudioRunId = sourceRunId;

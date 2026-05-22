@@ -57,7 +57,7 @@
     var isApp = false;
     try { isApp = document.documentElement.classList.contains("cssos-app"); } catch (_e) {}
     if (!isApp) return PANEL_RADIUS_PX;
-    var r = 48;
+    var r = 45;
     try {
       var v = parseFloat(localStorage.getItem("cssos_mv_corner_radius"));
       if (isFinite(v) && v >= 0 && v <= 200) r = v;

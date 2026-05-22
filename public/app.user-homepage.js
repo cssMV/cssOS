@@ -492,13 +492,13 @@
 
     // Followers / Following tabs (collapsed: only render on tab click)
     inner.appendChild(el("h2", { class: "uhp-section" }, ["👥 " + tr("Followers / Following", "粉丝 / 关注")]));
-    var tabs = el("div", { class: "uhp-tabs" }, []);
+    var tabs = el("div", { class: "uhp-tabs", "data-segmented": "2" }, []);
     var listHost = el("div", { class: "uhp-follow-list" }, []);
     var btnFollowers = el("button", {}, [tr("Followers", "粉丝") + " (" + fc.followers + ")"]);
     var btnFollowing = el("button", {}, [tr("Following", "关注中") + " (" + fc.following + ")"]);
     function loadTab(dir, btn) {
-      [btnFollowers, btnFollowing].forEach(function (b) { b.classList.remove("is-active"); });
-      btn.classList.add("is-active");
+      [btnFollowers, btnFollowing].forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
       listHost.innerHTML = "";
       listHost.appendChild(el("div", { class: "uhp-loading" }, [tr("Loading…", "加载中…")]));
       fetchFollows(handle, dir).then(function (rows) {

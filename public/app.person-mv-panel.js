@@ -459,7 +459,7 @@
         '</div>' +
       '</div>' +
       '<div class="panel-body">' +
-        '<div class="civ-mv-tabs" role="tablist">' +
+        '<div class="civ-mv-tabs" role="tablist" data-segmented="2">' +
           '<button class="civ-mv-tab active" data-civ-mode="people" type="button">👤 ' + escapeText(tt("People", "人物")) + '</button>' +
           '<button class="civ-mv-tab" data-civ-mode="landmarks" type="button">🏛 ' + escapeText(tt("Landmarks", "名迹")) + '</button>' +
         '</div>' +
@@ -1110,10 +1110,49 @@
       else angle = events[Math.floor(Math.random() * events.length)];
     }
 
+    /* CSSOS_WAVE_199 (Tier 1) 20260516 — Jing: "确保所有内容都走 i18n".
+     * landmark.notable_events is stored Chinese-only in the legacy DB even
+     * when name_en exists. Stuffing a Chinese angle into the prompt body
+     * for an English-UI run pollutes the LLM context with Han characters
+     * and biases the output toward Chinese, regardless of the explicit
+     * language=en signal. Client-side defense: when UI locale is non-zh,
+     * if the picked angle contains Han characters, strip it from the
+     * LLM-bound prompt, but preserve it for TITLE distillation (Wave 177)
+     * so the cinema hero still shows something better than mechanical
+     * "Person × Place".
+     *
+     * CSSOS_WAVE_204 20260516 — Jing: "标题应该从landmark 提炼，不应该是
+     * 没有提炼的生标题". The original W199 wiped `angle` outright which
+     * starved smartTitle of its content and forced fallback to the
+     * mechanical pairing. Fix: keep `originalAngle` for title use,
+     * derive a sanitized prompt-only angle for LLM input. */
+    var originalAngle = String(angle || "").trim();
+    if (!isZh && angle && /[㐀-鿿]/.test(String(angle))) {
+      console.info(
+        "%c[person-mv][W199] dropped Han-only angle from PROMPT (UI=non-zh, kept for title): %s",
+        "color:#0a8;font-weight:bold",
+        String(angle).slice(0, 60)
+      );
+      angle = "";   // LLM prompt-only — title still uses originalAngle below
+    }
+
     var prompt = personName + " × " + landmarkName + (angle ? "\n[" + angle + "]" : "");
     // Merge style hints, prefer landmark's (place-of-event tends to
     // anchor the visual + sonic atmosphere). Fall back to person's.
     var style = String(landmark.music_style_hint || person.music_style_hint || "");
+    /* CSSOS_WAVE_199 (Tier 1) — Same Han-script defense as above for
+     * music_style_hint. Many style hints are stored in Chinese like
+     * "文艺复兴 / 弦乐 / 雄浑" → would tell the LLM "Renaissance / strings /
+     * heroic" but is presented in Han script that biases the lyric output.
+     * Drop for non-zh UI; server-side handles any remaining pollution. */
+    if (!isZh && style && /[㐀-鿿]/.test(style)) {
+      console.info(
+        "%c[person-mv][W199] dropped Han-only style from seed (UI=non-zh): %s",
+        "color:#0a8;font-weight:bold",
+        style.slice(0, 60)
+      );
+      style = "";
+    }
 
     // CSSOS_WAVE_196 — Jing: 人物 MV 歌词必须跟随人物的母语，不管 UI 语言.
     // Pick the landmark's civilization first (it anchors the scene),
@@ -1136,14 +1175,15 @@
 
     // CSSOS_WAVE_177 20260515 — Jing: 提炼标题，人物、地名、文化必须
     // 智能联动，而不是机械的 "某某某人物 × 某某某地点".
-    // The mechanical concat ("Harry Potter × Hogwarts Great Hall") is
+    // The mechanical concat ("孙悟空 × 花果山") is
     // demoted to the chip strip; the smart distilled story angle
-    // (from landmark.notable_events, e.g. "霍格沃茨之战的决战大厅")
+    // (from landmark.notable_events, e.g. "大闹天宫的凌霄宝殿")
     // becomes the cinema-hero TITLE. Falls back to the mechanical
     // pairing when no notable_events angle is available.
     var pairing = personName + " × " + landmarkName;
     var pairingEn = ((person.name_en || "") + " × " + (landmark.name_en || "")).trim();
-    var smartTitle = String(angle || "").trim();
+    // CSSOS_WAVE_204 — title uses originalAngle (NEVER blank-on-non-zh).
+    var smartTitle = originalAngle;
     if (typeof globalThis.openMvPipelinePanel === "function") {
       globalThis.openMvPipelinePanel({
         cinema: true,
@@ -2978,9 +3018,9 @@
         '<div class="pmv-leaderboard" data-leaderboard-host="1">' +
           '<span>🏆 ' + escTxt(tt("Top creators loading…", "榜单加载中…")) + '</span>' +
         '</div>' +
-        '<div class="pmv-mv-tabs">' +
-          '<span class="pmv-mv-tab is-active" data-mv-tab="all">' + escTxt(tt("All", "全站")) + ' · ' + totalCount + '</span>' +
-          '<span class="pmv-mv-tab" data-mv-tab="mine">' + escTxt(tt("Mine", "我的")) + ' · ' + myCount + '</span>' +
+        '<div class="pmv-mv-tabs" data-segmented="2">' +
+          '<button type="button" class="pmv-mv-tab active" data-mv-tab="all">' + escTxt(tt("All", "全站")) + ' · ' + totalCount + '</button>' +
+          '<button type="button" class="pmv-mv-tab" data-mv-tab="mine">' + escTxt(tt("Mine", "我的")) + ' · ' + myCount + '</button>' +
         '</div>';
       if (!mvs.length) {
         h += '<div class="pmv-empty-mv">' + escTxt(tt("No MV yet — be the first to create one?", "还没有人为TA创作 MV，做第一个？")) +
@@ -3270,7 +3310,7 @@
           tab.addEventListener("click", function () {
             var which = tab.getAttribute("data-mv-tab") || "all";
             host.querySelectorAll(".pmv-mv-tab").forEach(function (t) {
-              t.classList.toggle("is-active", t === tab);
+              t.classList.toggle("active", t === tab);
             });
             host.querySelectorAll(".pmv-mv-card").forEach(function (card) {
               if (which === "mine") {

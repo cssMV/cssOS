@@ -103,7 +103,7 @@
     return (
       '<div class="cssos-lb-col" data-scope="' + scope + '">' +
         '<h2 data-i18n="leaderboard.col.' + scope + '">' + escapeHtml(tr(enTitle, zhTitle)) + '</h2>' +
-        '<div class="cssos-lb-tabs" role="tablist">' +
+        '<div class="cssos-lb-tabs" role="tablist" data-segmented="3">' +
           '<button class="cssos-lb-tab active" data-period="week"  type="button">' + escapeHtml(tr("Week","本周")) + '</button>' +
           '<button class="cssos-lb-tab"        data-period="month" type="button">' + escapeHtml(tr("Month","本月")) + '</button>' +
           '<button class="cssos-lb-tab"        data-period="all"   type="button">' + escapeHtml(tr("All time","总榜")) + '</button>' +

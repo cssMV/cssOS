@@ -256,7 +256,7 @@
           </div>
         </div>
         <div class="panel-body watch-body">
-          <div class="watch-tabs" role="tablist">
+          <div class="watch-tabs cssmv-pill-bar" role="tablist">
             <button class="watch-tab active" id="watch-tab-mv" type="button" data-watch-tab="mv" data-i18n="watch.tab.mv">MV</button>
             <button class="watch-tab" id="watch-tab-music" type="button" data-watch-tab="music" data-i18n="watch.tab.music">Music</button>
             <button class="watch-tab" id="watch-tab-lyrics" type="button" data-watch-tab="lyrics" data-i18n="watch.tab.lyrics">Lyrics</button>
@@ -396,7 +396,7 @@
           </div>
         </div>
         <div class="panel-body about-body">
-          <div class="about-tabs" role="tablist">
+          <div class="about-tabs" role="tablist" data-segmented="3">
             <button class="about-tab active" type="button" data-tab="whitepaper" data-i18n="about.tab.whitepaper">
               Whitepaper
             </button>
@@ -1098,16 +1098,19 @@
         </div>
         <div class="panel-body settings-body">
           <label>
-            <span data-i18n="settings.title">Title</span>
-            <!-- CSSMV_CIV_UI_HINTS 20260424 #94 — Jing: placeholder is set
-                 by app.civilization-ui-hints.js from the UI locale's
-                 civilization titleHints. data-i18n-placeholder removed so
-                 the i18n dict lookup doesn't clobber the dynamic hint. -->
-            <input
+            <span data-i18n="settings.titleOrPrompt">Title / Prompt</span>
+            <!-- v28 step 34 — Jing: align with MV PIPELINE panel. Accept
+                 either a finished title OR a free-form theme/prompt;
+                 backend extracts the title. textarea (rows=3) so user
+                 has room to write a sentence, not just a few words.
+                 placeholder is dynamically populated by
+                 app.civilization-ui-hints.js from the UI locale's
+                 civilization titleHints. -->
+            <textarea
               id="title-input"
-              type="text"
+              rows="3"
               placeholder=""
-            />
+            ></textarea>
           </label>
           <label class="field-shell field-shell-rich">
             <span class="field-label-row">
@@ -1293,6 +1296,10 @@
             <div class="creation-meta">
               <span id="creation-style-count">0/2000</span>
             </div>
+            <!-- CSSOS_TIER_C_MULTILINGUAL C3 20260520 — language picker
+                 mount point (Advanced Settings). Populated by
+                 app.boot.js once the panel is shown. freeFirst=true. -->
+            <div id="creation-language-picker"></div>
             <div class="row">
               <label>
                 <span data-i18n="settings.tempoBpm">Tempo (BPM)</span>
@@ -1543,19 +1550,19 @@
           </div>
           <div class="palette-color-tabs scroll-peek" id="palette-color-tabs" data-scroll-peek>
             <label class="palette-color-card">
-              <span data-i18n="settings.bg1">Background Color 1</span>
+              <span data-color-name-for="bg-color-1">—</span>
               <input id="bg-color-1" type="color" value="#00f5a0" />
             </label>
             <label class="palette-color-card">
-              <span data-i18n="settings.bg2">Background Color 2</span>
+              <span data-color-name-for="bg-color-2">—</span>
               <input id="bg-color-2" type="color" value="#040a08" />
             </label>
             <label class="palette-color-card">
-              <span data-i18n="settings.bg3">Background Color 3</span>
+              <span data-color-name-for="bg-color-3">—</span>
               <input id="bg-color-3" type="color" value="#008c64" />
             </label>
             <label class="palette-color-card">
-              <span data-i18n="settings.bg4">Background Color 4</span>
+              <span data-color-name-for="bg-color-4">—</span>
               <input id="bg-color-4" type="color" value="#010302" />
             </label>
           </div>
@@ -2134,9 +2141,9 @@
     <script src="app.ios-manage-subscription.js?v=20260513-wave127"></script>
     <script src="/i18n/constants.js"></script>
     <script src="/i18n/catalog.js"></script>
-    <script src="/i18n/dict.js?v=20260424-p2-98-civ-cascade-1"></script>
+    <script src="/i18n/dict.js?v=20260518-w220a-v28-step34"></script>
     <script src="/i18n/platforms.js?v=20260509-wave107c-coming-soon"></script>
-    <script src="/i18n/index.js?v=20260417-ui-recovery-1"></script>
+    <script src="/i18n/index.js?v=20260518-w220a-v28-step42-chip-active-full-convex"></script>
     <script src="/i18n/runtime.js?v=20260424-p2-92-breaker-localstorage-1"></script>
     <script src="app.dom-globals.js?v=20260427-context-menu-fix-152"></script>
     <script src="app.input-guardrails.js?v=20260420-p2-84-input-guardrails-1"></script>
@@ -2215,10 +2222,11 @@
          submitVoiceOrFallbackTitleModule was undefined. Wiring it now so
          voice-entry routes through MV Pipeline runAll. -->
     <script src="app.voice-submit.js?v=20260430-universal-entries-230"></script>
-    <script src="app.creation-flow.js?v=20260426-legacy-creation-guard-141"></script>
+    <script src="app.creation-flow.js?v=20260520-tierc-c3-advsettings"></script>
+    <script src="app.color-name-labels.js?v=20260518-w220a-v28-step31"></script>
     <script src="app.creation-bridges.js?v=20260327-creation-bridges-split-1"></script>
     <script src="app.song-seed-ui.js?v=20260430-wand-bypass-215"></script>
-    <script src="app.work-sync.js?v=20260426-render-works-guard-142"></script>
+    <script src="app.work-sync.js?v=20260520-w220a-coverpool-realkey"></script>
     <!-- CSSOS_PHASE2_WATCH_FONT_MANIFEST_WIRED 20260420 — Jing (#80):
          "随机中文字体好像没有明显变化 ... 我点击星星按钮，也闪了一下，但是好像字体都一样"
          Root cause: this script was missing from index.html, so
@@ -2283,7 +2291,7 @@
     <script src="app.system-mvs-panel.js?v=20260513-wave125"></script>
     <script src="app.engine-accounts.js?v=20260424-p2-92-breaker-localstorage-1"></script>
     <script src="app.payments-checkout.js?v=20260513-wave116-wallets"></script>
-    <script src="app.music-input-panel.js?v=20260512-wave111d-progress-all"></script>
+    <script src="app.music-input-panel.js?v=20260518-w220a-v28-step19"></script>
     <script src="app.artifact-downloads.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.delivery-dashboard-bindings.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.panel-search.js?v=20260325-live-unfreeze-2"></script>
@@ -2825,8 +2833,6 @@
          naming conventions, and adds #watch-pill-row-br + immersive pill
          + every standalone watch-* button I could find injected by
          app.watch-ui.js. */
-      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel .panel-bar,
-      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel .panel-title-bar,
       html body.cssos-cinema-mode.cssos-watch-idle #watch-panel .panel-toolbar,
       html body.cssos-cinema-mode.cssos-watch-idle #watch-panel .panel-actions,
       html body.cssos-cinema-mode.cssos-watch-idle #watch-panel .watch-toolbar,

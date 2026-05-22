@@ -42,10 +42,10 @@
     // CSSOS_WAVE_287 — 浮动搜索框(桌面+App): 默认隐藏在顶部之上, 下滑/滚轮向下
     // 显示、上滑/向上隐藏(Apple 风). transform 动画.
     box.style.cssText = [
-      // CSSOS_WAVE_300b — Jing: "三个都靠近顶边". 之前搜索框/✕ 加了
-      // safe-area-inset-top, 但头像没加, 结果两者掉到头像下面一整个 inset.
-      // 头像贴顶很正, 所以三者统一用同一个固定 top(不加 safe-area), 全部贴顶一行.
-      "position:absolute", "top:10px",
+      // CSSOS_WAVE_303 — Jing: 让位刘海. 三者统一 safe-area-inset-top + 偏移,
+      // 既避开刘海又对齐成一行. 权威定位在 style.css(html.cssos-app), 这里写同值
+      // 兜底(桌面 env=0 → 退化为 ~8px 贴顶).
+      "position:absolute", "top:calc(env(safe-area-inset-top,0px) + 8px)",
       "left:10px", "right:10px", "z-index:60", "display:flex",
       "flex-direction:column", "gap:8px", "pointer-events:none",
       "transform:translateY(-140%)", "opacity:0",
@@ -94,8 +94,8 @@
       exitBtn.title = tr("Exit cinema", "退出影院");
       exitBtn.textContent = "✕";
       exitBtn.style.cssText = [
-        // CSSOS_WAVE_300b — 同搜索框: 固定 top:10px 贴顶, 与头像/搜索框一行.
-        "position:absolute", "top:10px", "right:10px",
+        // CSSOS_WAVE_303 — 让位刘海, 与头像/搜索框对齐一行(权威定位在 style.css).
+        "position:absolute", "top:calc(env(safe-area-inset-top,0px) + 9px)", "right:10px",
         "z-index:61", "width:40px", "height:40px", "border-radius:50%",
         "border:1px solid rgba(255,255,255,0.55)", "background:rgba(0,0,0,0.55)",
         "backdrop-filter:blur(8px)", "-webkit-backdrop-filter:blur(8px)",
@@ -221,18 +221,9 @@
       });
       showBar();
     }
-    // 把作者头像也对齐到这一行(头像由 watch-ui 注入, 这里覆写 top 让三者居中
-    // 对齐). 头像可能晚于本脚本出现, 轮询几次直到就位.
-    (function alignAvatarRow() {
-      var tries = 0;
-      var iv = setInterval(function () {
-        var av = document.getElementById("watch-author-avatar");
-        if (av) {
-          try { av.style.setProperty("top", "10px", "important"); } catch (_e) {}
-          clearInterval(iv);
-        } else if (++tries > 40) { clearInterval(iv); }
-      }, 150);
-    })();
+    // CSSOS_WAVE_303 — 头像的对齐改由 style.css(html.cssos-app #watch-author-avatar)
+    // 权威定位, 不再用 JS 轮询覆写 top(JS 内联 !important 会盖过样式表, 且头像被
+    // 重建后丢失). CSS 规则对重建天然免疫.
     return box;
   }
 

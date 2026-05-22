@@ -6274,6 +6274,21 @@ html.cssos-app #watch-panel.panel-active {
  * 走, 既贴边又不会被裁. (撤销 W292 的 inset:20。) */
 html.cssos-app #watch-panel .cssmv-border-bar { inset: 0 !important; }
 html.cssos-app #watch-panel .panel-progress-line { left: 0 !important; right: 0 !important; }
+/* CSSOS_WAVE_303 20260521 — Jing: "刘海盖住了顶部". App 全屏里 MV 面板铺满整屏
+ * (含刘海/灵动岛区域), 顶部三件(作者头像 / 搜索框 / 退出影院 ✕)若用固定 top
+ * 会被刘海遮住. 这里【统一让位 safe-area-inset-top】并对齐成一行(都贴在安全区
+ * 下沿). 用 CSS 钉死定位 → 权威、且头像被重建也不丢(比 JS 轮询可靠). 三者 40/40
+ * /~42px 高, +8/+9 让中心对齐. */
+html.cssos-app #watch-panel #watch-author-avatar {
+  top: calc(env(safe-area-inset-top, 0px) + 9px) !important;
+  left: 12px !important;
+}
+html.cssos-app #watch-search-box {
+  top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
+}
+html.cssos-app #watch-exit-cinema {
+  top: calc(env(safe-area-inset-top, 0px) + 9px) !important;
+}
 /* 视频/封面填满整屏(cover: 溢出裁切, 竖屏 MV 在竖屏 App 里正好铺满)。 */
 html.cssos-app #watch-panel .watch-video,
 html.cssos-app #watch-panel .watch-svg {

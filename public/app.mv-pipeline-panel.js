@@ -253,6 +253,25 @@
   // while preserving their prior outputs in `state`.
   const STAGE_ORDER = STAGES.map(function (s) { return s.id; });
 
+  // CSSOS_WAVE_342 20260522 — Jing: 成功生成完毕后, 把创作输入清空(prompt/style/歌词
+  // + 歌词采集来源 + creationState.lyrics), 等同手动按"清空". 防止下次创作沿用上一首
+  // 的歌词(串歌词). 只在成功完成时调; 刷屏/中断不调 → 用户草稿仍保留. 不动运行态 state.*
+  // (收尾自动播放还要用 state.mvUrl/audioUrl).
+  function clearCreationInputsAfterSuccessModule() {
+    try {
+      ["#mvp-prompt", "#mvp-style", "#mvp-lyrics", "#custom-lyrics",
+       "#creation-lyrics-input", "#watch-lyrics-editor", "#song-seed-lyrics"
+      ].forEach(function (sel) {
+        var el = document.querySelector(sel);
+        if (el && "value" in el) el.value = "";
+      });
+      document.querySelectorAll("textarea[data-creation-field='lyrics']").forEach(function (el) {
+        if ("value" in el) el.value = "";
+      });
+      if (globalThis.creationState) globalThis.creationState.lyrics = "";
+    } catch (_e) { /* non-fatal */ }
+  }
+
   // Billing key mapping for the /api/mv/commit payload. Adding a new stage is
   // a one-line change in STAGES + this map; no other code path hardcodes
   // stage names.
@@ -399,6 +418,38 @@
         state.currentTake = take;
         const audioEl = document.getElementById("watch-audio-preview");
         const videoEl = document.getElementById("watch-video");
+        // CSSOS_WAVE_220B_B3 20260520 — Jing: Take 2 is a full sibling MV.
+        // Switch the ENTIRE MV — title, video source, duration, slideshow
+        // pool — not just the audio. Reads per-take metadata published by
+        // app.market-commerce.js. Defensive: only swaps a field when the
+        // metadata carries it (older single-video works fall through to
+        // the shared-video behaviour below).
+        var _tm = null;
+        try { _tm = globalThis.__cssosTakeMeta && globalThis.__cssosTakeMeta[take]; } catch (_e) {}
+        if (_tm) {
+          try {
+            if (_tm.title) {
+              var _tEl = document.getElementById("watch-title");
+              if (_tEl) _tEl.textContent = _tm.title;
+              if (globalThis.safeSetWatchSubtitleModule) {
+                globalThis.safeSetWatchSubtitleModule(_tm.title);
+              }
+            }
+            if (_tm.video && videoEl) {
+              var _curV = String(videoEl.src || "");
+              if (!_curV.endsWith(_tm.video) && _curV !== _tm.video) {
+                videoEl.src = _tm.video;
+                try { videoEl.load && videoEl.load(); } catch (_e) {}
+              }
+            }
+            if (_tm.slides && _tm.slides.length && globalThis.cssosApplySlideshowPool) {
+              try { globalThis.cssosApplySlideshowPool(_tm.slides); } catch (_e) {}
+            }
+            if (_tm.duration && globalThis.cssosSetWatchDurationCeiling) {
+              try { globalThis.cssosSetWatchDurationCeiling(Number(_tm.duration)); } catch (_e) {}
+            }
+          } catch (_applyErr) { /* swap best-effort */ }
+        }
         // CSSOS_PHASE2_TAKE_SHARE_VIDEO 20260501 #258 — Jing
         // "歌1，歌2成双成对的时候，播放的画面视频可以不用切换，
         //  只需切换音乐即可。歌1，歌2复用同一个画面同一个视频."
@@ -1026,12 +1077,22 @@
           '<textarea id="mvp-style" rows="2" placeholder="' + escapeHtml(stylePlaceholder) + '"></textarea>' +
           '<label>' + escapeHtml(lyricsLabel) + '</label>' +
           '<textarea id="mvp-lyrics" rows="3" placeholder="' + escapeHtml(lyricsPlaceholder) + '"></textarea>' +
+          /* CSSOS_TIER_C_MULTILINGUAL C3 20260520 — multilingual voice
+           * track picker mount point. Populated after render by
+           * cssosMountLanguagePicker(). freeFirst=true (new work). */
+          '<div id="mvp-language-picker"></div>' +
           renderAspectRatioControls() +
           /* CSSOS_PHASE3_PARAMS_INLINE 20260507 — extra params moved
            * INTO stage gear dropdowns per Jing. cover gear hosts the
            * count input; video gear hosts hybrid-mix + cinematic-res.
            * Standalone rows removed. */
         '</div>' +
+        /* CSSOS_WAVE_218 20260517 — Jing: real-dollar pre-flight line.
+         * Shows the per-run worst-case ceiling in USD + the user's
+         * current balance, so the user knows what this run can cost
+         * BEFORE clicking Generate. Populated by refreshBillingPreflight()
+         * on panel mount and after each successful run. */
+        '<div class="mvp-billing-preflight" id="mvp-billing-preflight" hidden></div>' +
         '<div class="mvp-actions">' +
           '<button id="mvp-run" class="cta">' + escapeHtml(runLabel) + '</button>' +
           '<button id="mvp-surprise" class="cta ghost" type="button" title="LLM-generated, truly random">' + escapeHtml(surpriseLabel) + '</button>' +
@@ -1263,8 +1324,102 @@
     applyChange();
   }
 
+  // CSSOS_WAVE_218 20260517 — Jing: real-dollar pre-flight. Fetches
+  // /api/credits/balance and /api/mv/stage-rates and paints a one-line
+  // "Up to $X.XX • Balance $Y.YY" banner above the Generate button so
+  // a regular user sees the cost BEFORE clicking. Also called after a
+  // run finishes so the balance ticks down live.
+  async function refreshBillingPreflight(panel) {
+    try {
+      const el = panel.querySelector("#mvp-billing-preflight");
+      if (!el) return;
+      const [balR, rateR] = await Promise.all([
+        fetch("/api/credits/balance", { credentials: "include" }).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch("/api/mv/stage-rates",  { credentials: "include" }).then(r => r.ok ? r.json() : null).catch(() => null),
+      ]);
+      if (!balR || !balR.ok) { el.hidden = true; return; }
+      const balUsd = balR.balance_usd || ("$" + ((balR.balance_cents || balR.balance || 0) / 100).toFixed(2));
+      const upTo = rateR && rateR.ok ? rateR.total_ceiling_usd : null;
+      el.hidden = false;
+      el.style.cssText = "margin:6px 0 2px;font:12px/1.4 system-ui;color:var(--muted,#666);display:flex;gap:10px;align-items:center;flex-wrap:wrap;";
+      el.innerHTML =
+        '<span>This run will cost up to <strong style="color:var(--text,#222)">' + (upTo || "$2.43") + '</strong> (you pay only the engines’ actual cost).</span>' +
+        '<span>Balance: <strong style="color:var(--text,#222)">' + balUsd + '</strong></span>' +
+        '<a href="#" data-mvp-topup="1" style="color:var(--accent,#2a7);text-decoration:underline;">Top up</a>';
+      const topup = el.querySelector('[data-mvp-topup="1"]');
+      if (topup) topup.addEventListener("click", function (e) {
+        e.preventDefault();
+        try {
+          if (typeof globalThis.openSubscriptionPanel === "function") globalThis.openSubscriptionPanel();
+          else if (typeof globalThis.openSettingsPanel === "function") globalThis.openSettingsPanel("subscription");
+          else if (typeof globalThis.showToast === "function") globalThis.showToast("Top up in Settings → Subscription.");
+        } catch (_) {}
+      });
+    } catch (_) {}
+  }
+  globalThis.cssmvRefreshBillingPreflight = refreshBillingPreflight;
+
+  // CSSOS_WAVE_218 — central 402 handler used by stage fetches.
+  // Returns true if we showed an insufficient-balance toast and the
+  // caller should abort the pipeline cleanly.
+  function handleInsufficientBalance(json) {
+    if (!json || json.error !== "insufficient_balance") return false;
+    const need = json.need_usd || ("$" + ((json.need_cents || 0) / 100).toFixed(2));
+    const have = json.balance_usd || ("$" + ((json.balance_cents || 0) / 100).toFixed(2));
+    const stage = json.stage || "this stage";
+    // CSSOS_WAVE_220A 20260517 — Jing: instead of a red toast that says
+    // "go top up manually", show the unified Guided Action Dialog which
+    // auto-navigates the user to the Subscription panel after a 10s
+    // countdown. The toast is kept as a fallback if the dialog module
+    // hasn't loaded yet (early-boot race).
+    if (typeof globalThis.cssmvShowGuidedAction === "function") {
+      globalThis.cssmvShowGuidedAction({
+        icon: "💰",
+        title: "Out of balance",
+        message:
+          "The " + stage + " stage may cost up to " + need +
+          ". Your balance is " + have +
+          ". Top up to keep generating — opening Subscription in 10 seconds…",
+        primaryLabel: "Top up now",
+        primaryFn: function () {
+          try { globalThis.openSubscriptionPanelModule?.(); } catch (_) {}
+        },
+        secondaryLabel: "Not now",
+        countdownSec: 10,
+      });
+    } else {
+      const msg = "Insufficient balance for " + stage +
+        ". Up to " + need + " needed; you have " + have + ". Top up in Settings → Subscription.";
+      try { if (typeof globalThis.showToast === "function") globalThis.showToast(msg); } catch (_) {}
+    }
+    return true;
+  }
+  globalThis.cssmvHandleInsufficientBalance = handleInsufficientBalance;
+
   function wire(panel) {
     panel.querySelector("#mvp-run").addEventListener("click", runAll);
+    // CSSOS_TIER_C_MULTILINGUAL C3 20260520 — mount the language-track
+    // picker. freeFirst=true: the first checked language is the work's
+    // default (free); extras are paid. The selected list (in order) is
+    // stashed on state so runAll can forward it to the pipeline. The
+    // FIRST selected language overrides the work's default/output lang.
+    try {
+      var lpEl = panel.querySelector("#mvp-language-picker");
+      if (lpEl && typeof globalThis.cssosMountLanguagePicker === "function") {
+        state.languagePicker = globalThis.cssosMountLanguagePicker(lpEl, {
+          freeFirst: true,
+          onChange: function (st) {
+            state.selectedLanguages = (st && st.languages) || [];
+            // First selected = the original/default language for this work.
+            if (state.selectedLanguages.length) {
+              state.language = state.selectedLanguages[0];
+            }
+          },
+        });
+      }
+    } catch (_lpErr) { /* picker is additive — never block the panel */ }
+    // CSSOS_WAVE_218 — paint billing preflight on mount.
+    try { refreshBillingPreflight(panel); } catch (_) {}
     // CSSOS_PHASE2_CLEAR_INPUTS_AND_STAGES 20260504 — Jing
     // "只清除了上面的输入框，下面的进度条数据也应该都清除吧？为的是让
     //  用户不必刷新整个主界面就可以继续输入新的信息".
@@ -1696,8 +1851,34 @@
         state.mvId = saved.mvId || state.mvId;
         if (saved.prompt && !state.prompt) state.prompt = saved.prompt;
         if (saved.style && !state.style) state.style = saved.style;
-        if (saved.title && !state.title) state.title = saved.title;
-        if (saved.lyrics && !state.lyrics) state.lyrics = saved.lyrics;
+        /* CSSOS_WAVE_208 20260516 — Jing: "Du Fu × Yueyang Tower / 西部狂野
+         * 妖怪" — DB query reveals 6 different work_ids all titled "西部狂野"
+         * generated within 10 minutes for different prompts. Root cause:
+         * loadResumeState pre-populates state.title from a localStorage
+         * snapshot of the LAST run. The lyrics-LLM applyStageOutput guard
+         * `if (output.title && !state.title)` then refuses to overwrite,
+         * so the saved title sticks for the entire NEW pipeline run and
+         * commits to DB as the new work's title.
+         *
+         * Fix: only restore saved.title when saved.prompt MATCHES the
+         * current prompt (== same job resumed). Different prompt =
+         * different work, must NOT inherit title. */
+        var promptMatchesSaved =
+          String(saved.prompt || "").trim() === String(state.prompt || "").trim();
+        if (saved.title && !state.title && promptMatchesSaved) state.title = saved.title;
+        /* CSSOS_WAVE_209 — same logic for lyrics. If saved.lyrics is a
+         * full 京典-shape body (>=200 chars + section markers), restore
+         * only when prompt matches. Otherwise drop — never resurrect a
+         * 4-char snippet like "西部狂野" that will fool the LLM-skip
+         * check in runLyricsStage. */
+        var savedLyricsIsReal =
+          String(saved.lyrics || "").trim().length >= 200 &&
+          /\[(Verse|Chorus|Bridge|Outro|Intro|Hook)/i.test(saved.lyrics || "");
+        if (saved.lyrics && !state.lyrics && promptMatchesSaved && savedLyricsIsReal) {
+          state.lyrics = saved.lyrics;
+        }
+        // CSSOS_WAVE_209 — disabled unguarded restore (see W209 block above).
+        // if (saved.lyrics && !state.lyrics) state.lyrics = saved.lyrics;
         if (saved.coverUrl) state.coverUrl = saved.coverUrl;
         if (saved.audioUrl) state.audioUrl = saved.audioUrl;
         if (saved.videoUrl) state.videoUrl = saved.videoUrl;
@@ -2427,6 +2608,9 @@
   function renderSummary() {
     const panel = document.getElementById(PANEL_ID);
     if (!panel) return;
+    // CSSOS_WAVE_218 — repaint billing pre-flight whenever the summary
+    // changes (after each stage finishes the cost ticks down live).
+    try { if (typeof refreshBillingPreflight === "function") refreshBillingPreflight(panel); } catch (_) {}
     const box = panel.querySelector("#mvp-summary");
     if (!box) return;
     const total = Object.values(state.costs).reduce(function (a, b) {
@@ -2459,9 +2643,14 @@
     if (rows) {
       html += '<div class="mvp-summary-table">' + rows + '</div>';
     }
-    if (state.mvUrl) {
-      html += '<video src="' + state.mvUrl + '" controls style="width:100%;margin-top:8px;border-radius:8px"></video>';
-    }
+    /* CSSOS_WAVE_206 20260516 — Jing: "去掉底部的媒体框". The summary
+     * box used to embed a second <video> tag at the bottom of the
+     * MV PIPELINE panel — redundant with the cinema-hero playback up
+     * top + the watch frame, and shows a stray black bar with a
+     * default-styled volume slider after each run. Remove it; the
+     * mv-pipeline panel's job ends at the cost summary, playback
+     * happens in the watch frame. */
+    // (intentionally no <video> element here — see W206 note above) */
     box.innerHTML = html;
     // #147: #mvp-save button removed — no enable/disable toggle needed.
   }
@@ -2513,6 +2702,32 @@
     // as if the HTTP response was non-2xx so the existing error path
     // surfaces a useful message in the stage card.
     const bodyFailed = !!(json && json.ok === false);
+    // CSSOS_WAVE_218 — short-circuit insufficient_balance with a clean
+    // toast instead of dumping the raw error blob into the stage card.
+    if ((res.status === 402 || bodyFailed) && json && json.error === "insufficient_balance") {
+      try { if (typeof globalThis.cssmvHandleInsufficientBalance === "function") globalThis.cssmvHandleInsufficientBalance(json); } catch (_) {}
+      const err = new Error(json.hint || "Insufficient balance");
+      err.status = 402;
+      err.body = json;
+      err.insufficientBalance = true;
+      throw err;
+    }
+    // CSSOS_WAVE_220A — generation timeout. Detect the hard-timeout
+    // marker the W218 fetch wrapper throws and route to the guided
+    // dialog with auto-retry on the same URL.
+    if (!res.ok && json && /timeout/i.test(String(json.error || json.detail || ""))) {
+      const u = String(url || "");
+      const stageMatch = u.match(/\/api\/mv\/([a-z]+)/i);
+      const stageName = stageMatch ? stageMatch[1] : "this";
+      if (typeof globalThis.cssmvShowGenerationTimeout === "function") {
+        globalThis.cssmvShowGenerationTimeout({
+          stage: stageName,
+          retryFn: function () {
+            try { postJson(url, body); } catch (_) {}
+          },
+        });
+      }
+    }
     if (!res.ok || bodyFailed) {
       // Extract the most useful human-readable message we can find.
       //   rust-api { ok:false, error, detail }     → detail
@@ -3456,6 +3671,106 @@
     state.prompt = (panel.querySelector("#mvp-prompt").value || "").trim();
     state.style = (panel.querySelector("#mvp-style").value || "").trim();
     state.lyrics = (panel.querySelector("#mvp-lyrics").value || "").trim();
+
+    /* CSSOS_WAVE_198/199 20260516 — Jing: "每次输出歌词等 25 项信息，首先要
+     * 全面地清除旧的，确保回灌全新的内容，不得保留任何旧的内容。" My first
+     * stab put the reset inside runLyricsStage's `if (!_userProvidedLyrics)`
+     * branch — but the leftover lyrics in the textarea from a previous run
+     * made state.lyrics truthy, so _userProvidedLyrics=true, so the reset
+     * was skipped, so the OLD lyrics were piped straight into the music
+     * stage. New strategy:
+     *   1. Track _lastPipelineLyrics — the exact string the pipeline last
+     *      wrote into the textarea (set in applyStageOutput).
+     *   2. At runAll() entry, if textarea === _lastPipelineLyrics, treat
+     *      it as STALE leftover and wipe. If they differ (user typed),
+     *      preserve.
+     *   3. Always wipe ALL 25+ output fields at runAll() entry (regardless
+     *      of lyrics source). Title, derived settings, audio URLs, video
+     *      URLs, subtitles — all per-run, not per-session. Resume mode
+     *      (resumeAt set) preserves them by skipping this whole block. */
+    if (!isResume) {
+      const taLyrics = panel.querySelector("#mvp-lyrics");
+      const lastPipeline = String(state._lastPipelineLyrics || "").trim();
+      const lastPrompt = String(state._lastPipelinePrompt || "").trim();
+      const currentLyricsTrim = state.lyrics;
+      const currentPromptTrim = String(state.prompt || "").trim();
+      /* CSSOS_WAVE_212 20260517 — Jing: "第二次输出《李白·将进酒》却用了
+       * 刚输出的孔子的歌词". The W198 stale-detection required EXACT
+       * lyric-string match — but the agent_chat → MV-pipeline path
+       * (used when user generates via AI Assistant) skips applyStage-
+       * Output's lyric-tracking, so _lastPipelineLyrics stays empty
+       * and the exact-match check fails → old lyrics survive.
+       *
+       * New rule: ANY change in prompt vs the last pipeline run = new
+       * job, ALWAYS wipe lyrics. Same prompt = treat as retry/edit,
+       * preserve. This catches the agent_chat path too because the
+       * prompt is the one thing that always changes when the user
+       * starts a different work. */
+      const promptChanged = lastPrompt && currentPromptTrim && lastPrompt !== currentPromptTrim;
+      // W217: expose for harvest block below (runs after _lastPipelinePrompt is updated)
+      window.__cssosW217PromptChanged = !!promptChanged;
+      const isStaleLeftover =
+        promptChanged ||
+        (lastPipeline && currentLyricsTrim && currentLyricsTrim === lastPipeline);
+      if (isStaleLeftover) {
+        console.info(
+          "%c[mv-pipeline][W212] wiping stale lyrics — reason: %s",
+          "color:#a40;font-weight:bold",
+          promptChanged ? "prompt changed" : "matches last pipeline output"
+        );
+        state.lyrics = "";
+        if (taLyrics) taLyrics.value = "";
+      }
+      // Always remember current prompt so the NEXT runAll can detect
+      // whether the user has changed jobs.
+      state._lastPipelinePrompt = currentPromptTrim;
+      // Wipe ALL downstream output fields regardless of lyrics source.
+      state.title = "";
+      state.sections = null;
+      state.shotScripts = null;
+      state.derivedSettings = null;
+      state.derived_settings = null;
+      state.workType = null;
+      state.voiceGender = null;
+      state.tempoBpm = null;
+      state.musicKey = null;
+      state.genre = null;
+      state.mood = null;
+      state.instrument = null;
+      state.ambience = null;
+      state.vocalStyle = null;
+      state.ensembleStyle = null;
+      state.instrumentation = null;
+      state.sectionForm = null;
+      state.articulationBias = null;
+      state.voicingRegister = null;
+      state.expressionCcBias = null;
+      state.inspirationNotes = null;
+      state.referenceArtists = null;
+      state.audioUrl = "";
+      state.audioUrlBackendOnly = null;
+      state.altAudioUrl = "";
+      state.duration = 0;
+      state.altDuration = 0;
+      state.alignedLyrics = null;
+      state.karaJson = null;
+      state.targetDurationSecs = 0;
+      state.videoUrl = null;
+      state.videoSegments = null;
+      state.videoDurSecs = 0;
+      state.subtitlesSrt = null;
+      state.subtitlesAss = null;
+      state.engines = {};
+      // Clear title input field too — old title shouldn't haunt new prompt.
+      const taTitle = panel.querySelector("#mvp-title");
+      if (taTitle && state._lastPipelineTitle && taTitle.value === state._lastPipelineTitle) {
+        taTitle.value = "";
+      }
+      console.info(
+        "%c[mv-pipeline][W198] runAll entry: wiped 25+ output fields for fresh generation",
+        "color:#0a8;font-weight:bold"
+      );
+    }
     // CSSOS_PHASE2_HARVEST_USER_LYRICS 20260429 #168.7c — Jing
     // "我手动输入的歌词 ... 怪不得字幕只显示一个'{' ... 谁吃掉了我的歌词？"
     //
@@ -3465,7 +3780,20 @@
     // Chinese in #custom-lyrics with English. NEVER again. Read from
     // every known lyric source first; whoever has the longest non-empty
     // body wins (that's the user's intentional input).
-    if (!state.lyrics) {
+    // CSSOS_WAVE_217 20260517 — Jing: 即使手动清空 #mvp-lyrics，
+    // 切到 Einstein 还出来 将进酒。根因：上面 W212 检测到 promptChanged
+    // 已把 state.lyrics 清掉，但这个 harvest 块从 #watch-lyrics-editor
+    // （仍显示上一首播放的将进酒）重新捞回来，又灌回 #mvp-lyrics。
+    // 修复：prompt 变了就完全跳过 harvest——新作品就该走 LLM 生成。
+    const _w217PromptChanged = !!(
+      String(state._lastPipelinePrompt || "").trim() &&
+      String(state.prompt || "").trim() &&
+      String(state._lastPipelinePrompt || "").trim() !==
+        String(state.prompt || "").trim()
+    );
+    // (Note: by this point W212 already updated _lastPipelinePrompt, so
+    // recompute from a snapshot saved before that update.)
+    if (!state.lyrics && !window.__cssosW217PromptChanged) {
       const candidates = [
         document.getElementById("custom-lyrics"),
         document.getElementById("creation-lyrics-input"),
@@ -3552,13 +3880,24 @@
     // the lyrics LLM call actually gets language="ja"/"ko"/"fr"/etc. when UI
     // is in that language. 使用 primary helper 返回完整 ISO 主码 (ko/fr/es...)，
     // 不做 zh/ja/en 的人为收敛 — LLM 对 16 种主流语言都能原生生成。
+    //
+    // CSSOS_WAVE_197 20260516 — Jing: "fallback 到英文，可接受；fallback
+    // 到中文，不可接受". Two concrete changes:
+    //   1. csLang (the sticky creationState language) is the source of
+    //      the bug where past zh choices haunt new runs. Drop it from
+    //      the fallback chain for person-MV mode (state.personId set).
+    //   2. Hard-fallback to "en" when both seedLang and uiPrimaryLang
+    //      are empty (was implicit, now explicit).
     const cs = globalThis.creationState || {};
     const uiPrimaryLang = globalThis.resolveUiPrimaryLanguageModule?.()
       || globalThis.resolveUiDefaultCreationLanguageModule?.()
       || "en";
     const seedLang = seed && seed.language ? String(seed.language).trim().toLowerCase() : "";
     const csLang = String(cs.language || "").trim().toLowerCase();
-    state.language = seedLang || csLang || uiPrimaryLang;
+    const isPersonMvSeed = !!(seed && (seed.__personId || state.personId));
+    state.language = isPersonMvSeed
+      ? (seedLang || uiPrimaryLang || "en")          // person-MV: ignore sticky csLang
+      : (seedLang || csLang || uiPrimaryLang || "en"); // ad-hoc: legacy chain
     state.creationLanguage = state.language;
     const seedCiv = seed && seed.civilization ? String(seed.civilization).trim() : "";
     state.civilization = seedCiv || String(cs.civilization || "").trim() || null;
@@ -3592,7 +3931,6 @@
       refreshStageBadges();
     }
     state.running = true;
-    state.__cssosEarlyPlayed = false; // CSSOS_WAVE_323 — 每次 run 重新武装"边出边播"东风
     // CSSOS_MV_DAG_WAVE_2_7B 20260507 — show overall-progress block on the
     // ordinary MV PIPELINE panel for the duration of the run.
     try { showMvOverallProgress(true); } catch (_e) {}
@@ -3734,7 +4072,13 @@
         // of runLyricsStage. Output contract:
         //   { lyrics, sections?, shotScripts?, title?, engineRecord, userProvided }
         if (stageId === "lyrics") {
-          if (typeof output.lyrics === "string") state.lyrics = output.lyrics;
+          if (typeof output.lyrics === "string") {
+            state.lyrics = output.lyrics;
+            // CSSOS_WAVE_198 — track the pipeline-written lyrics so runAll
+            // can distinguish "stale leftover" (textarea === this) from
+            // "user-typed" (textarea !== this) on the next run.
+            state._lastPipelineLyrics = output.lyrics.trim();
+          }
           if (Object.prototype.hasOwnProperty.call(output, "sections")) {
             state.lyricSections = output.sections;
           }
@@ -3743,6 +4087,7 @@
           }
           if (output.title && !String(state.title || "").trim()) {
             state.title = output.title;
+            state._lastPipelineTitle = output.title;
           }
           if (output.userProvided && output.engineRecord) {
             state.engines = state.engines || {};
@@ -4023,8 +4368,112 @@
       //     also stays inline (already async/non-deterministic).
       async function runLyricsStage(state, _opts) {
       if (!(STAGE_ORDER.indexOf("lyrics") >= resumeStartIdx)) return null;
-      const _userProvidedLyrics = !!state.lyrics;
+      /* CSSOS_WAVE_209 20260516 — Jing: "歌词，就是源头，源头不干净，下游
+       * 的水都是脏的". A user's prior session can leave a 4-character
+       * leftover (e.g. "西部狂野") in the lyrics textarea. The original
+       * truthy check treated this as USER-PROVIDED lyrics → skipped the
+       * LLM → Suno was handed 4 chars as the entire song body → DB row
+       * committed with garbage lyrics. New rule: text is "user-provided"
+       * ONLY if it's BOTH ≥200 chars AND contains at least one of the
+       * 京典 section markers ([Verse N] / [Chorus N] / [Outro]). Anything
+       * shorter is treated as a title/theme hint, attached to the prompt
+       * so the LLM still runs and produces real 40-50 line, 10-section
+       * lyrics. The leftover snippet doesn't pollute the output. */
+      const _rawLyrics = String(state.lyrics || "").trim();
+      const _hasJingdianMarker = /\[(Verse|Chorus|Bridge|Outro|Intro|Hook)/i.test(_rawLyrics);
+      const _userProvidedLyrics =
+        _rawLyrics.length >= 200 && _hasJingdianMarker;
+      if (!_userProvidedLyrics && _rawLyrics) {
+        // Demote leftover snippet to a prompt hint; clear the field so
+        // the LLM can output a fresh lyric body.
+        console.info(
+          "%c[mv-pipeline][W209] demoting short lyric snippet to prompt hint: %s",
+          "color:#a40;font-weight:bold",
+          _rawLyrics.slice(0, 80)
+        );
+        // Append as a parenthetical hint to the prompt (LLM treats it as inspiration).
+        const _hint = _rawLyrics.slice(0, 200);
+        const _existingPrompt = String(state.prompt || "").trim();
+        if (_existingPrompt && !_existingPrompt.includes(_hint)) {
+          state.prompt = `${_existingPrompt}\n[Inspiration: ${_hint}]`;
+        }
+        // Clear so the LLM path runs.
+        state.lyrics = "";
+        const _taLyrics = document.getElementById("mvp-lyrics");
+        if (_taLyrics) _taLyrics.value = "";
+      }
       if (!_userProvidedLyrics) {
+        // CSSOS_WAVE_198 20260516 — Jing: "歌词引擎输出 25 项信息，总是保留
+        // 上一次的歌词…我要求：在输出歌词等 25 项信息前，首先要全面清除
+        // 旧的，确保回灌全新的内容". When we're about to regenerate lyrics
+        // from a fresh prompt, every downstream-derived field is now stale.
+        // Wipe them so the new lyrics don't inherit the previous title /
+        // music style / BPM / shot scripts / audio etc.
+        //
+        // We keep INPUT fields (prompt, style hint, language, civilization,
+        // personId, workId, coverPool, etc.) and CONFIG fields (tier,
+        // tierCapSecs, targetDurationSecs). Everything else is output and
+        // gets nuked here.
+        const _w198Reset = function () {
+          // Lyrics output
+          state.title = "";
+          state.sections = null;
+          state.shotScripts = null;
+          // Derived musical settings (these are the 25-ish fields the
+          // lyrics LLM emits in derived_settings and that downstream
+          // music / video stages pick up)
+          state.derivedSettings = null;
+          state.derived_settings = null;
+          state.workType = null;
+          state.voiceGender = null;
+          state.tempoBpm = null;
+          state.musicKey = null;
+          state.genre = null;
+          state.mood = null;
+          state.instrument = null;
+          state.ambience = null;
+          state.vocalStyle = null;
+          state.ensembleStyle = null;
+          state.instrumentation = null;
+          state.sectionForm = null;
+          state.articulationBias = null;
+          state.voicingRegister = null;
+          state.expressionCcBias = null;
+          state.inspirationNotes = null;
+          state.referenceArtists = null;
+          // Music stage output
+          state.audioUrl = "";
+          state.audioUrlBackendOnly = null;
+          state.altAudioUrl = "";
+          state.duration = 0;
+          state.altDuration = 0;
+          state.alignedLyrics = null;
+          state.karaJson = null;
+          state.targetDurationSecs = 0;
+          // Video stage output
+          state.videoUrl = null;
+          state.videoSegments = null;
+          state.videoDurSecs = 0;
+          // Subs stage output
+          state.subtitlesSrt = null;
+          state.subtitlesAss = null;
+          // Per-stage engine record (so cost / engine attribution starts fresh)
+          state.engines = {};
+          // Broadcast the wipe so any panel listening to lyrics-updated
+          // can clear its own cached display BEFORE the new LLM call
+          // returns (prevents the user briefly seeing OLD lyrics in the
+          // textarea while the new request is in flight).
+          try {
+            globalThis.dispatchEvent(new CustomEvent("cssmv:lyrics-updated", {
+              detail: { lyrics: "", source: "mv-pipeline-runLyricsStage-reset" }
+            }));
+          } catch (_e) {}
+        };
+        _w198Reset();
+        console.info(
+          "%c[mv-pipeline][lyrics] W198 state reset — cleared 25+ output fields before new generation",
+          "color:#0a8;font-weight:bold"
+        );
         // P2-41 Jing 2026-04-18: pass language + civilization to LLM so the
         // lyrics come back in the intended locale and cultural frame. Without
         // this, the backend default prompt always produces EN/ZH lyrics.
@@ -5038,6 +5487,35 @@
             b.style.background = isActive ? "rgba(0,245,160,0.25)" : "transparent";
             b.style.color = isActive ? "#00f5a0" : "rgba(255,255,255,0.65)";
           });
+          /* CSSOS_WAVE_205 20260516 — Jing: "每次输出结束，都只播放第一首
+           * 歌而已，第二首歌呢？" By default, when Take 1's video.ended
+           * fires, the up-next-strip's natural advance kicks in and skips
+           * Take 2 entirely. Fix: install a one-shot `ended` listener on
+           * the VIDEO element (Take 1's audio is baked into the MP4) so
+           * that as soon as Take 1 finishes, we auto-switch to Take 2.
+           * Only fires when currentTake === 1; Take 2 ending falls
+           * through to natural next-round/next-work advance. */
+          try {
+            const videoEl = document.getElementById("watch-video");
+            if (videoEl) {
+              // Remove any previous W205 handler so it doesn't accumulate.
+              if (state._w205AutoTake2Handler) {
+                videoEl.removeEventListener("ended", state._w205AutoTake2Handler);
+              }
+              state._w205AutoTake2Handler = function () {
+                try {
+                  if ((state.currentTake || 1) === 1 && state.altAudioUrl) {
+                    console.info(
+                      "%c[mv-pipeline][W205] Take 1 ended → auto-switching to Take 2",
+                      "color:#0a8;font-weight:bold"
+                    );
+                    switchToTake(2);
+                  }
+                } catch (e) { console.warn("[W205][auto-take2]", e); }
+              };
+              videoEl.addEventListener("ended", state._w205AutoTake2Handler);
+            }
+          } catch (_e) { /* auto-take2 wiring best-effort */ }
         }
       } catch (_e) { /* toggle injection best-effort */ }
       // Helper closures hoisted onto state for context-menu reuse.
@@ -5061,6 +5539,38 @@
         state.currentTake = take;
         const audioEl = document.getElementById("watch-audio-preview");
         const videoEl = document.getElementById("watch-video");
+        // CSSOS_WAVE_220B_B3 20260520 — Jing: Take 2 is a full sibling MV.
+        // Switch the ENTIRE MV — title, video source, duration, slideshow
+        // pool — not just the audio. Reads per-take metadata published by
+        // app.market-commerce.js. Defensive: only swaps a field when the
+        // metadata carries it (older single-video works fall through to
+        // the shared-video behaviour below).
+        var _tm = null;
+        try { _tm = globalThis.__cssosTakeMeta && globalThis.__cssosTakeMeta[take]; } catch (_e) {}
+        if (_tm) {
+          try {
+            if (_tm.title) {
+              var _tEl = document.getElementById("watch-title");
+              if (_tEl) _tEl.textContent = _tm.title;
+              if (globalThis.safeSetWatchSubtitleModule) {
+                globalThis.safeSetWatchSubtitleModule(_tm.title);
+              }
+            }
+            if (_tm.video && videoEl) {
+              var _curV = String(videoEl.src || "");
+              if (!_curV.endsWith(_tm.video) && _curV !== _tm.video) {
+                videoEl.src = _tm.video;
+                try { videoEl.load && videoEl.load(); } catch (_e) {}
+              }
+            }
+            if (_tm.slides && _tm.slides.length && globalThis.cssosApplySlideshowPool) {
+              try { globalThis.cssosApplySlideshowPool(_tm.slides); } catch (_e) {}
+            }
+            if (_tm.duration && globalThis.cssosSetWatchDurationCeiling) {
+              try { globalThis.cssosSetWatchDurationCeiling(Number(_tm.duration)); } catch (_e) {}
+            }
+          } catch (_applyErr) { /* swap best-effort */ }
+        }
         // CSSOS_PHASE2_TAKE_SHARE_VIDEO 20260501 #258 — Jing
         // "歌1，歌2复用同一个画面同一个视频." Same MP4 plays for both
         // takes — only audio differs. Restart from start so visuals
@@ -5966,6 +6476,72 @@
           freshMs: 10 * 60 * 1000,
           source: "mv-pipeline-panel"
         };
+        /* CSSOS_WAVE_223 20260518 — Jing: "MV PIPELINE 面板里的内容,
+         * 每次输出结束, 请自动清空所有内容, 不然会感染下一次输出".
+         * 输出成功后, 清空面板的 prompt/style/lyrics/title 4 个输入框
+         * + 对应 state, 让下一次输出从 0 开始. _lastPipelinePrompt 等
+         * 追踪字段也一起清, 让 W212 的 promptChanged 检测从干净状态
+         * 重新计算. */
+        /* CSSOS_WAVE_224 20260518 — Jing: "一定要播放新输出的两首 MV,
+         * 再进入下一轮输出". 历史 onMediaEnded 链路依赖 pairKey =
+         * workId||runId||title, 在新管线刚跑完时这几个可能都空/异步未到,
+         * 导致 Take 1 ended → 直接 advance 而非切 Take 2. 这里在
+         * compose-done 时主动挂一个 ONE-SHOT audio.ended 监听器:
+         * Take 1 自然结束 → 立刻切 Take 2 (绕开 pairKey 判定);
+         * Take 2 自然结束 → 再触发 W223 清空 + 允许后续 advance. */
+        try {
+          if (state.altAudioUrl && state.audioUrl) {
+            const audioElForTake = document.getElementById("watch-audio-preview");
+            if (audioElForTake) {
+              state.currentTake = 1;
+              state._w224TakePairFired = false;
+              const onTake1End = function () {
+                audioElForTake.removeEventListener("ended", onTake1End);
+                if (state._w224TakePairFired) return;
+                state._w224TakePairFired = true;
+                try {
+                  const sw = globalThis.__cssosWatchTakeSwitcher;
+                  if (typeof sw === "function") {
+                    console.info("%c[mv-pipeline][W224] Take 1 ended → switching to Take 2",
+                      "color:#0a8;font-weight:bold");
+                    sw(2);
+                    // Install Take 2 ended → clear panel + allow advance
+                    const onTake2End = function () {
+                      audioElForTake.removeEventListener("ended", onTake2End);
+                      try { _w223ClearPanelInputs(); } catch (_e) {}
+                    };
+                    audioElForTake.addEventListener("ended", onTake2End, { once: true });
+                  }
+                } catch (_e) {}
+              };
+              audioElForTake.addEventListener("ended", onTake1End, { once: true });
+            }
+          } else {
+            // Single-track path: clear immediately at compose-done.
+            _w223ClearPanelInputs();
+          }
+        } catch (_e) {}
+        // Helper used by both single-track and dual-track flows.
+        function _w223ClearPanelInputs() {
+          try {
+            const panel = document.getElementById("mv-pipeline-panel");
+            ["#mvp-prompt", "#mvp-style", "#mvp-lyrics", "#mvp-title"].forEach(function (sel) {
+              const el = (panel || document).querySelector(sel);
+              if (el) el.value = "";
+            });
+            state.prompt = "";
+            state.style = "";
+            state.lyrics = "";
+            state.title = "";
+            state._lastPipelinePrompt = "";
+            state._lastPipelineLyrics = "";
+            state._lastPipelineTitle = "";
+            console.info(
+              "%c[mv-pipeline][W223] auto-cleared panel inputs after output (post-takes)",
+              "color:#0a8;font-weight:bold"
+            );
+          } catch (_e) {}
+        }
         // CSSOS_MV_DAG_WAVE_7F 20260508 — cssos:kara_ready dispatch lifted
         // into dispatchStageEvents("compose"). Notification-panel hydration
         // payload is now fired from the DAG callback.
@@ -6587,6 +7163,11 @@
                   detail: { work_id: res.work_id, mv_id: composedMvId }
                 }));
               } catch (_dispatchErr) {}
+              // CSSOS_WAVE_342 20260522 — Jing: 成功生成完毕 → 清空创作输入(prompt/style
+              // /歌词)+ 歌词采集来源(外部 textarea + creationState.lyrics), 类似按"清空".
+              // 下次创作就从空白开始, 不会串到这一首的歌词. (只在成功完成清; 刷屏/中断
+              // 不走这里, 用户草稿照常保留.) 不清运行态 state.*(收尾的自动播放还要用).
+              try { clearCreationInputsAfterSuccessModule(); } catch (_clrErr) {}
             }
           });
         } else {
@@ -7079,6 +7660,7 @@
             seedTitle: state.title,
             style: state.style,
             lyrics: state.lyrics,
+            language: state.language || state.lyricsLanguage || "en",
             engineCosts: engineCosts,
             engineMeta: engineMeta,
           });
@@ -7086,6 +7668,29 @@
       } catch (take2Err) {
         try { console.warn("[mv-pipeline][take2] spawn failed (non-fatal)", take2Err); } catch (_e) {}
       }
+      /* CSSOS_TIER_C_MULTILINGUAL C4 20260520 — Jing: if the user picked
+       * extra languages in the picker, queue them now. selected[0] is the
+       * work's default (already generated by this run); selected[1..] are
+       * the paid extra voice lanes. Server-side bounded queue handles them
+       * (fire-and-forget). The wallet is debited per track on success. */
+      try {
+        var _langs = Array.isArray(state.selectedLanguages) ? state.selectedLanguages : [];
+        var _committedWid = resp && (resp.work_id || resp.workId || resp.id);
+        if (_committedWid && _langs.length > 1) {
+          var _extras = _langs.slice(1);
+          void postJson("/api/works/" + encodeURIComponent(_committedWid) + "/language-tracks", {
+            languages: _extras,
+            source_lang: _langs[0] || "en",
+          }).then(function (r) {
+            if (r && r.ok && typeof globalThis.showToast === "function") {
+              globalThis.showToast(copy(
+                "Queued " + _extras.length + " language track(s)…",
+                "已排入 " + _extras.length + " 条语言轨…"
+              ));
+            }
+          }).catch(function () {});
+        }
+      } catch (_langErr) { /* multilingual is additive — never block save */ }
       const savedMsg = copy(
         "Saved as work · ",
         "已保存为作品 · "
@@ -7179,10 +7784,21 @@
       return;
     }
     if (!composedB || !composedB.mv_url) return;
-    /* Commit as a separate work. Title gets a "Take 2" suffix so the
-     * codex grid + works center clearly shows the variant. */
+    /* CSSOS_WAVE_220B_TWO_TITLES 20260520 — Jing: Take 2 must be a
+     * DISTINCT song title (not "<base> · Take 2"). Ask the LLM for a
+     * sibling title from the same session; fall back to the suffix only
+     * if the call fails. Fire-and-forget friendly (≤40 tokens). */
     const titleBase = String(args.seedTitle || "Untitled MV").trim();
-    const altTitle = titleBase + " · Take 2";
+    let altTitle = titleBase + " · Take 2";
+    try {
+      const altT = await postJson("/api/mv/title/alt", {
+        title: titleBase,
+        style: args.style || "",
+        lyrics: args.lyrics || "",
+        language: args.language || "en",
+      });
+      if (altT && altT.ok && altT.title) altTitle = String(altT.title).trim();
+    } catch (_titleErr) { /* keep suffix fallback */ }
     try {
       // CSSOS_WAVE_159b 20260514 — Jing: "明明输出2首歌，总是只播放
       // 第一首." Capture the committed work_id so the cinema queue can
@@ -7212,6 +7828,20 @@
       });
       const committedBWid = committedB && (committedB.work_id || committedB.workId || committedB.id);
       try { console.info("[mv-pipeline][take2] sibling MV committed:", composedB.mv_url, "wid:", committedBWid); } catch (_e) {}
+      /* CSSOS_WAVE_220B_TWO_TITLES 20260520 — Jing: give Take 2 its OWN
+       * cover pool (5-image slideshow), same as Take 1, so ♪2 isn't a
+       * single static image. Reads the user's "Cover images" count.
+       * Fire-and-forget. */
+      try {
+        if (committedBWid) {
+          let _poolCount = Number(state.coverCount) || 1;
+          if (_poolCount > 1) {
+            void postJson("/api/works/" + encodeURIComponent(committedBWid) + "/cover-pool", {
+              count: _poolCount,
+            }).catch(function () {});
+          }
+        }
+      } catch (_poolErr) { /* non-fatal */ }
       /* Dispatch run-finish so the codex grid refreshes AND the cinema
        * queue can append Take 2 right after Take 1. */
       try {
@@ -7224,6 +7854,7 @@
           },
         }));
       } catch (_e) {}
+      try { clearCreationInputsAfterSuccessModule(); } catch (_clrErr) {} // CSSOS_WAVE_342
     } catch (commitErr) {
       try { console.warn("[mv-pipeline][take2] commit failed (non-fatal)", commitErr); } catch (_e) {}
     }
@@ -8206,23 +8837,32 @@
     // CSSOS_WAVE_158 — dual-track durations, captured from the music
     // stage; rendered into the pct readout once overall hits 100%.
     let heroDurations = { d1: "", d2: "" };
+    const _chipHues2 = {};
+    const _hueFor2 = function (id) {
+      if (_chipHues2[id] == null) _chipHues2[id] = Math.floor(Math.random() * 360);
+      return _chipHues2[id];
+    };
     const renderStages = function (pcts) {
       if (!stagesEl) return;
       stagesEl.innerHTML = STAGE_META.map(function (s) {
         const p = Math.max(0, Math.min(100, Math.round(pcts[s.id] || 0)));
         const tag = p >= 100 ? "✓" : (p > 0 ? (p + "%") : "…");
         const cls = p >= 100 ? "done" : (p > 0 ? "active" : "pending");
-        return '<span class="cinema-hero-progress-chip ' + cls + '">' +
+        const styleAttr = (cls === "active")
+          ? ' style="--chip-hue:' + _hueFor2(s.id) + '"' : '';
+        return '<span class="cinema-hero-progress-chip ' + cls + '"' + styleAttr + '>' +
           s.icon + " " + esc(trI18n(s.en, s.zh)) + " " + tag + "</span>";
       }).join("");
-      // CSSOS_MV_DAG_WAVE_2_7B — auto-scroll the active chip into view so
-      // the running stage stays visible when chips overflow horizontally.
+      /* CSSOS_WAVE_223 — active 居中: 直接计算 scrollLeft, 避免 smooth
+       * 在每帧 re-render 时被打断, 也绕过 scroll-snap 在小内容时不生效
+       * 的问题. */
       try {
-        const activeChip = stagesEl.querySelector(".cinema-hero-progress-chip.active");
-        if (activeChip && typeof activeChip.scrollIntoView === "function") {
-          activeChip.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+        const a = stagesEl.querySelector(".cinema-hero-progress-chip.active");
+        if (a) {
+          const target = a.offsetLeft - (stagesEl.clientWidth / 2 - a.offsetWidth / 2);
+          stagesEl.scrollLeft = Math.max(0, target);
         }
-      } catch (_e) { /* non-fatal */ }
+      } catch (_e) {}
     };
     const computeOverall = function (pcts) {
       let total = 0, denom = 0;
@@ -8257,23 +8897,29 @@
     };
     // CSSOS_WAVE_158 — at 100% the pct readout shows 歌1/歌2 total
     // durations (♪1 m:ss · ♪2 m:ss), mirroring the MV PIPELINE panel.
+    // CSSOS_WAVE_209 20260516 — Jing: 音乐引擎输出完毕, 马上在百分比
+    // 后面显示作品时长 (不必等到 overall 100%). heroDurations 是音乐
+    // stage 完成时 cssmv:music-durations 事件就触发的, 那一刻 overall
+    // 可能还在 70-80%, 但用户已经知道歌曲多长. 把它附在 overall 后即可.
     const overallText = function (overall) {
-      if (overall >= 100 && (heroDurations.d1 || heroDurations.d2)) {
-        if (heroDurations.d1 && heroDurations.d2) {
-          return "100% · ♪1 " + heroDurations.d1 + " · ♪2 " + heroDurations.d2;
-        }
-        return "100% · " + (heroDurations.d1 || heroDurations.d2);
-      }
-      return overall + "%";
+      const hasD = !!(heroDurations.d1 || heroDurations.d2);
+      const pctStr = overall + "%";
+      if (!hasD) return pctStr;
+      const dur = heroDurations.d1 && heroDurations.d2
+        ? "♪1 " + heroDurations.d1 + " · ♪2 " + heroDurations.d2
+        : (heroDurations.d1 || heroDurations.d2);
+      return pctStr + " · " + dur;
     };
     const onMusicDurations = function (ev) {
       try {
         const d = (ev && ev.detail) || {};
         heroDurations = { d1: String(d.d1 || ""), d2: String(d.d2 || "") };
-        // If the bar is already at 100%, refresh the readout in place.
-        if (pctEl && computeOverall(lastPcts) >= 100) {
-          pctEl.textContent = overallText(100);
-        }
+        // CSSOS_WAVE_209 — refresh the readout in place the moment the
+        // music stage finishes, regardless of overall progress. The
+        // user wants to see the song duration as soon as the music
+        // engine commits — at that point overall is typically 70–80%
+        // (video / subs / compose still pending).
+        if (pctEl) pctEl.textContent = overallText(computeOverall(lastPcts));
       } catch (_e) {}
     };
     const onError = function (ev) {
@@ -8286,6 +8932,30 @@
         const retryLbl = trI18n("Retry", "重试");
         const msg = String(det.message || "").slice(0, 120);
         const txt = failTpl.replace("{stage}", stageLabel).replace("{msg}", msg);
+        // CSSOS_WAVE_220A 20260517 — Jing: detect insufficient_balance
+        // errors and switch to the guided dialog with auto-navigation to
+        // Subscription. Without this, the cinema hero just showed the
+        // raw red error string and a Retry button — retry was hopeless
+        // until the user topped up, but there was no path to top up.
+        const isInsufficient =
+          (det && det.error === "insufficient_balance") ||
+          /balance|top up/i.test(msg);
+        if (isInsufficient && typeof globalThis.cssmvShowGuidedAction === "function") {
+          globalThis.cssmvShowGuidedAction({
+            icon: "💰",
+            title: trI18n("Out of balance", "余额不足"),
+            message: msg || trI18n(
+              "You need to top up to keep generating. Opening Subscription in 10 seconds…",
+              "需要充值才能继续生成。10 秒后自动打开订阅面板…"
+            ),
+            primaryLabel: trI18n("Top up now", "立即充值"),
+            primaryFn: function () {
+              try { globalThis.openSubscriptionPanelModule?.(); } catch (_) {}
+            },
+            secondaryLabel: trI18n("Not now", "稍后"),
+            countdownSec: 10,
+          });
+        }
         loading.innerHTML =
           bgImg +
           '<div class="cinema-hero-block">' +
@@ -8398,14 +9068,33 @@
        * overflow (min-width:max-content + flex:0 0 auto), container
        * scrolls horizontally with hidden scrollbar, active chip auto-
        * scrolls into view via JS scrollIntoView. */
-      /* CSSOS_WAVE_158 20260514 — Jing: the 6 capsules' combined width
-         must equal the progress bar width. Each chip is flex:1 1 0 so
-         the 6 evenly divide the .cinema-hero-progress container (same
-         max-width as the bar). No horizontal scroll — labels ellipsis
-         if cramped. */
-      '.cinema-hero-progress-stages { display:flex; flex-wrap:nowrap; gap:4px; justify-content:stretch; width:100%; }' +
-      '.cinema-hero-progress-chip { font:600 10.5px/1 ui-monospace,monospace; padding:5px 4px; border-radius:999px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.12); color:rgba(255,255,255,.45); letter-spacing:.02em; transition:background .25s,color .25s,border-color .25s; white-space:nowrap; flex:1 1 0; min-width:0; overflow:hidden; text-overflow:ellipsis; text-align:center; }' +
-      '.cinema-hero-progress-chip.active { background:rgba(0,245,160,.16); border-color:rgba(0,245,160,.55); color:#daffee; }' +
+      /* CSSOS_WAVE_209 20260516 — Jing: 6 胶囊条改成横向 scroll-snap
+         "active 居中". Strip viewport 永远等于下方进度条的宽度. 单个
+         胶囊用自然宽度 (flex:0 0 auto), 6 个并排的总宽度通常超过
+         strip viewport, 所以条带可以左右滑动. 左右 padding-inline:50%
+         让首尾胶囊也能滚到正中. scrollIntoView({inline:"center"}) 在
+         renderStages 里早就调了 — 现在配上 scroll-snap-align:center,
+         active 胶囊会平滑 snap 到正中, 左右两侧的胶囊溢出 strip
+         viewport. 手机端原生触摸滑动直接可用; 桌面也能拖. */
+      /* CSSOS_WAVE_218 20260517 — Jing: 撤回 W215/W216, 恢复 W209 的
+       * "active 滚到正中" 体验. 胶囊自然宽度, strip 横向 scroll-snap,
+       * 活跃胶囊 snap 到中央, 左右两侧的胶囊溢出 viewport. 体验上
+       * 永远是"谁在工作谁在中间", 强烈的动感. */
+      /* CSSOS_WAVE_225 — strip 加垂直 padding + overflow-y:visible,
+       * 让 active 胶囊的 translateY(-2px) scale(1.06) 呼吸动画
+       * 不被裁切. */
+      /* CSSOS_WAVE_220A — harmonised container: rounded green-tinted
+       * pill background matching the system-wide segmented control.
+       * Gap kept (chips are progress indicators, not switch buttons —
+       * they need to breathe individually) but the OUTER look is now
+       * one of a piece with the rest of the UI. */
+      '.cinema-hero-progress-stages { display:flex; flex-wrap:nowrap; gap:6px; width:100%; box-sizing:border-box; overflow-x:auto; overflow-y:visible; scroll-snap-type:x mandatory; scrollbar-width:none; padding:6px 8px; scroll-behavior:smooth; align-items:center; background:rgba(0,245,160,0.07); border:1px solid rgba(0,245,160,0.15); border-radius:999px; }' +
+      '.cinema-hero-progress-stages::-webkit-scrollbar { display:none; }' +
+      '.cinema-hero-progress-chip { font:600 10.5px/1 ui-monospace,monospace; padding:6px 12px; border-radius:999px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.12); color:rgba(255,255,255,.45); letter-spacing:.02em; transition:background .35s,color .35s,border-color .35s,box-shadow .35s,transform .35s; white-space:nowrap; flex:0 0 auto; scroll-snap-align:center; text-align:center; }' +
+      /* CSSOS_WAVE_219 — active 胶囊每个 stage 分配随机色相 (--chip-hue),
+       * 背景/边框/光晕全部跟随, 保留 breathe 呼吸动画. */
+      '.cinema-hero-progress-chip.active { background:hsla(var(--chip-hue,150),85%,55%,.28); border-color:hsla(var(--chip-hue,150),90%,65%,.85); color:#fff; animation:cssos-chip-breathe 1.6s ease-in-out infinite; }' +
+      '@keyframes cssos-chip-breathe { 0%, 100% { box-shadow: 0 0 0 0 hsla(var(--chip-hue,150),90%,60%,.45), 0 0 8px 1px hsla(var(--chip-hue,150),90%,60%,.25) inset; transform: translateY(0) scale(1); } 50% { box-shadow: 0 0 16px 5px hsla(var(--chip-hue,150),95%,65%,.6), 0 0 18px 4px hsla(var(--chip-hue,150),95%,65%,.4) inset; transform: translateY(-2px) scale(1.06); } }' +
       '.cinema-hero-progress-chip.done { background:rgba(0,245,160,.28); border-color:rgba(0,245,160,.85); color:#001a10; }' +
       '.cinema-hero-progress-bar { position:relative; height:6px; border-radius:999px; background:rgba(255,255,255,.08); overflow:hidden; }' +
       '.cinema-hero-progress-fill { height:100%; width:0%; background:linear-gradient(90deg,#ff5e62,#ff9966,#ffe066,#7afca6,#5cc8ff,#9b8cff,#ff5edc); background-size:200% 100%; animation:cssos-cinema-rainbow 6s linear infinite; transition:width .35s ease-out; }' +

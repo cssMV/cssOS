@@ -113,9 +113,12 @@
       });
       panel.appendChild(exitBtn);
 
-      // CSSOS_WAVE_298 20260521 — Jing: 退出影院 ✕ 只在【真全屏影院模式】显示;
-      // 一旦退出(cssos-cinema-mode / is-cssmv-fullscreen / 原生全屏 都没了)就
-      // 立刻隐藏, 别再杵在那儿. 监听 body class + 原生 fullscreenchange.
+      // CSSOS_WAVE_305 20260521 — Jing: 退出影院 ✕ "默认隐藏, 有操作显示, 无操作隐藏"
+      // —— 跟头像/搜索框/Dock 完全同步. 之前(W298)只要在影院就强制 display:flex,
+      // 等于"无操作也常驻显示", 还会跟统一 idle 系统(index.html 的 hideChrome)打架.
+      // 现在: 不在影院 → 强制隐藏(退出影院键在非影院无意义); 在影院 → 撤掉本地的
+      // display 覆写, 把显隐完全交给统一 idle 系统(#watch-exit-cinema 已在其
+      // CHROME_SELECTORS 里, 与 Dock 同显同隐).
       var syncExitVis = function () {
         var on = false;
         try {
@@ -124,7 +127,12 @@
             (pnl && pnl.classList.contains("is-cssmv-fullscreen")) ||
             !!document.fullscreenElement || !!document.webkitFullscreenElement;
         } catch (_e) {}
-        exitBtn.style.setProperty("display", on ? "flex" : "none", "important");
+        if (on) {
+          // 交给统一 idle 系统(它用 display:none/恢复 控制); 这里不再强制 flex.
+          try { exitBtn.style.removeProperty("display"); } catch (_e) {}
+        } else {
+          exitBtn.style.setProperty("display", "none", "important");
+        }
       };
       syncExitVis();
       try {

@@ -6291,6 +6291,20 @@ html.cssos-app #watch-search-box {
 html.cssos-app #watch-exit-cinema {
   top: calc(var(--cssos-notch-clear) + 5px) !important;
 }
+/* CSSOS_WAVE_305 20260521 — Jing: "撤掉刘海, 搬回人物MV, 物归原主". 那条黑色顶栏
+ * 是首页的活动栏"刘海"(#cssos-activity-bar), 它 position:fixed top:0 漏到了 MV
+ * 影院面板顶部, 正好压住搜索框. MV 影院/全屏看片时把它(及其同伴: 学派行/提示/
+ * 关闭键)藏掉, 顶部完全交给 MV 媒体 + 那一排控件. 退出影院后它自然回到首页. */
+body.cssos-cinema-mode #cssos-activity-bar,
+body.cssos-cinema-mode #cssos-schools-row,
+body.cssos-cinema-mode #cssos-activity-bar-tooltip,
+body.cssos-cinema-mode #cssos-schools-close,
+html.cssos-app:has(#watch-panel:not(.hidden)) #cssos-activity-bar,
+html.cssos-app:has(#watch-panel:not(.hidden)) #cssos-schools-row,
+html.cssos-app:has(#watch-panel:not(.hidden)) #cssos-activity-bar-tooltip,
+html.cssos-app:has(#watch-panel:not(.hidden)) #cssos-schools-close {
+  display: none !important;
+}
 /* 视频/封面填满整屏(cover: 溢出裁切, 竖屏 MV 在竖屏 App 里正好铺满)。 */
 html.cssos-app #watch-panel .watch-video,
 html.cssos-app #watch-panel .watch-svg {

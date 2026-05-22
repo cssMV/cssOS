@@ -7232,6 +7232,13 @@
           recordEngine("cover", cover);
           dispatchStageEvents(state, "cover", cover, { cached: false });
           setStage("cover", "done", cover.image_url, cover.cost_cents);
+          // CSSOS_WAVE_349 20260522 — Jing「边出边播」: 封面一出, 立刻广播给
+          // 创作影院 hero, 让它把封面图淡入做"若隐若现/缓慢闪动"的幻灯背景.
+          try {
+            globalThis.dispatchEvent(new CustomEvent("cssmv:cover-ready", {
+              detail: { coverUrl: String(state.coverUrl || cover.image_url || "") }
+            }));
+          } catch (_e) {}
           return cover;
         })
         .stage("lyrics", [], { weight: 5 }, async () => {
@@ -7293,6 +7300,12 @@
                 d2Secs: Number(state.altDuration || 0) || 0,
                 d1: _d1 || "",
                 d2: _d2 || "",
+                // CSSOS_WAVE_349 20260522 — Jing「边出边播」: 把音频/封面地址
+                // 一并带上, 创作影院 hero 在音乐 stage 完成的那一刻就能起播
+                // (此处仍在用户手势发起的同一条创作链路里, 允许自动播放).
+                audioUrl: String(state.audioUrl || ""),
+                altAudioUrl: String(state.altAudioUrl || ""),
+                coverUrl: String(state.coverUrl || ""),
               },
             }));
           } catch (_e) {}
@@ -8835,7 +8848,17 @@
          * as gibberish like "0m0[34m0[4m...". Now we (1) strip ANSI,
          * (2) HTML-escape, (3) clamp to 2 lines via existing CSS. */
         (intro ? '<div class="cinema-hero-intro">' + esc(stripAnsi(intro)) + '</div>' : '') +
-      '</div>';
+      '</div>' +
+      // CSSOS_WAVE_349 20260522 — Jing「边出边播」逐阶段揭示层:
+      //  • cinema-hero-cover: 真封面图淡入的"若隐若现/缓慢闪动"幻灯层(覆盖
+      //    在 portrait bg 之上), cover stage 一完成就 crossfade 进来.
+      //  • cinema-hero-lyrics: 左下角歌词打字机, lyrics stage 一出就开始走字.
+      //  • cinema-hero-audio: 音乐 stage 一完成就 src+play (同手势链路自动播放),
+      //    play() 被拦截则露出 tap-to-play 兜底按钮.
+      '<div class="cinema-hero-cover" data-cinema-cover aria-hidden="true"></div>' +
+      '<div class="cinema-hero-lyrics" data-cinema-lyrics aria-hidden="true"></div>' +
+      '<audio data-cinema-audio preload="auto" playsinline></audio>' +
+      '<button type="button" class="cinema-hero-tapplay" data-cinema-tapplay hidden>▶</button>';
     loading.hidden = false;
 
     // Wire listeners (idempotent — detach any prior listeners first).
@@ -8993,14 +9016,102 @@
         }
       } catch (_e) {}
     };
+    // CSSOS_WAVE_349 20260522 — Jing「边出边播」逐阶段揭示 wiring.
+    const coverEl = loading.querySelector("[data-cinema-cover]");
+    const lyricsEl = loading.querySelector("[data-cinema-lyrics]");
+    const audioEl = loading.querySelector("[data-cinema-audio]");
+    const tapPlayEl = loading.querySelector("[data-cinema-tapplay]");
+    // ---- 封面"若隐若现"幻灯: cover-ready → crossfade 真封面进来 ----
+    const onCoverReady = function (ev) {
+      try {
+        const url = ev && ev.detail && String(ev.detail.coverUrl || "").trim();
+        if (!url || !coverEl) return;
+        const pre = new Image();
+        pre.onload = function () {
+          coverEl.style.backgroundImage = "url('" + url.replace(/'/g, "%27") + "')";
+          coverEl.classList.add("is-shown"); // CSS: 淡入 + 缓慢 ken-burns 呼吸
+        };
+        pre.src = url;
+      } catch (_e) {}
+    };
+    // ---- 左下角歌词打字机: lyrics-updated → 逐字走字 ----
+    let _typeTimer = null;
+    const onLyrics = function (ev) {
+      try {
+        if (!lyricsEl) return;
+        const full = ev && ev.detail && String(ev.detail.lyrics || "");
+        if (full == null) return;
+        if (!full.trim()) { lyricsEl.textContent = ""; lyricsEl.classList.remove("is-shown"); return; }
+        // 去掉 [Verse]/[Chorus] 之类的结构标记, 只走可唱的词. 截断到合理长度,
+        // 影院 hero 不是完整歌词板, 给"正在写词"的临场感即可.
+        const lines = full.split(/\r?\n/)
+          .map(function (l) { return l.replace(/^\s*\[[^\]]*\]\s*$/, "").trim(); })
+          .filter(Boolean);
+        const text = lines.join("\n").slice(0, 600);
+        if (!text) return;
+        lyricsEl.classList.add("is-shown");
+        clearTimeout(_typeTimer);
+        let i = 0;
+        const speed = 26;
+        const tick = function () {
+          // 只显示尾部窗口, 像走字幕一样向上滚动.
+          lyricsEl.textContent = text.slice(0, i);
+          lyricsEl.scrollTop = lyricsEl.scrollHeight;
+          i += 1;
+          if (i <= text.length) _typeTimer = setTimeout(tick, speed);
+        };
+        tick();
+      } catch (_e) {}
+    };
+    // ---- 音乐一好就响: music-durations 带 audioUrl → src+play ----
+    let _musicStarted = false;
+    const startMusic = function (url) {
+      if (_musicStarted || !audioEl || !url) return;
+      _musicStarted = true;
+      try {
+        audioEl.src = url;
+        audioEl.loop = true;
+        audioEl.muted = false;
+        const p = audioEl.play();
+        if (p && typeof p.catch === "function") {
+          p.catch(function () {
+            // 自动播放被拦截(手势窗口过期) → 露出一键播放兜底.
+            if (tapPlayEl) tapPlayEl.hidden = false;
+          });
+        }
+      } catch (_e) {
+        if (tapPlayEl) tapPlayEl.hidden = false;
+      }
+    };
+    if (tapPlayEl) {
+      tapPlayEl.addEventListener("click", function () {
+        try { audioEl.muted = false; audioEl.play(); tapPlayEl.hidden = true; } catch (_e) {}
+      });
+    }
+    const onMusicReady = function (ev) {
+      try {
+        const d = (ev && ev.detail) || {};
+        const url = String(d.audioUrl || d.altAudioUrl || "").trim();
+        if (url) startMusic(url);
+      } catch (_e) {}
+    };
+
     try { window.addEventListener("cssos:run_progress", onProgress); } catch (_e) {}
     try { globalThis.addEventListener("cssmv:stage-error", onError); } catch (_e) {}
     try { globalThis.addEventListener("cssmv:music-durations", onMusicDurations); } catch (_e) {}
+    try { globalThis.addEventListener("cssmv:cover-ready", onCoverReady); } catch (_e) {}
+    try { document.addEventListener("cssmv:lyrics-updated", onLyrics); } catch (_e) {}
+    try { globalThis.addEventListener("cssmv:music-durations", onMusicReady); } catch (_e) {}
     if (cinemaSt) {
       cinemaSt._cleanup = function () {
         try { window.removeEventListener("cssos:run_progress", onProgress); } catch (_e) {}
         try { globalThis.removeEventListener("cssmv:stage-error", onError); } catch (_e) {}
         try { globalThis.removeEventListener("cssmv:music-durations", onMusicDurations); } catch (_e) {}
+        try { globalThis.removeEventListener("cssmv:cover-ready", onCoverReady); } catch (_e) {}
+        try { document.removeEventListener("cssmv:lyrics-updated", onLyrics); } catch (_e) {}
+        try { globalThis.removeEventListener("cssmv:music-durations", onMusicReady); } catch (_e) {}
+        try { clearTimeout(_typeTimer); } catch (_e) {}
+        try { if (audioEl) { audioEl.pause(); audioEl.removeAttribute("src"); audioEl.load(); } } catch (_e) {}
       };
     }
     // Initial paint of stage chips at 0%.
@@ -9048,7 +9159,7 @@
       ' .panel[data-cinema="true"] .cinema-hero-intro, .panel[data-cinema="true"] .cinema-hero-progress { transition: opacity 600ms ease; }' +
       '#cssos-cinema-stage .cinema-loading, .panel[data-cinema="true"] .cinema-loading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#daffee; }' +
       '#cssos-cinema-stage .cinema-hero-bg, .panel[data-cinema="true"] .cinema-hero-bg { position:absolute; inset:0; background-size:cover; background-position:center; opacity:.18; filter:blur(6px) saturate(1.05); }' +
-      '#cssos-cinema-stage .cinema-hero-block, .panel[data-cinema="true"] .cinema-hero-block { position:relative; text-align:center; padding:0 24px; max-width:min(900px,92vw); }' +
+      '#cssos-cinema-stage .cinema-hero-block, .panel[data-cinema="true"] .cinema-hero-block { position:relative; z-index:5; text-align:center; padding:0 24px; max-width:min(900px,92vw); }' +
       '#cssos-cinema-stage .cinema-hero-name, .panel[data-cinema="true"] .cinema-hero-name { font-weight:800; letter-spacing:.02em; font-size:clamp(40px,6vw,96px); line-height:1.05; color:#daffee; text-shadow:0 4px 30px rgba(0,245,160,.25); }' +
       '#cssos-cinema-stage .cinema-hero-sub, .panel[data-cinema="true"] .cinema-hero-sub { margin-top:14px; font-size:clamp(14px,1.4vw,20px); color:rgba(218,255,238,.62); letter-spacing:.04em; }' +
       '#cssos-cinema-stage .cinema-hero-chips, .panel[data-cinema="true"] .cinema-hero-chips { margin-top:18px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }' +
@@ -9114,6 +9225,17 @@
       '.cinema-hero-progress-fill { height:100%; width:0%; background:linear-gradient(90deg,#ff5e62,#ff9966,#ffe066,#7afca6,#5cc8ff,#9b8cff,#ff5edc); background-size:200% 100%; animation:cssos-cinema-rainbow 6s linear infinite; transition:width .35s ease-out; }' +
       '@keyframes cssos-cinema-rainbow { 0% { background-position:0% 50%; } 100% { background-position:200% 50%; } }' +
       '.cinema-hero-progress-pct { font:700 12px/1 ui-monospace,monospace; color:rgba(218,255,238,.78); text-align:center; letter-spacing:.06em; }' +
+      /* CSSOS_WAVE_349 20260522 — Jing「边出边播」逐阶段揭示样式. */
+      /* 封面"若隐若现"幻灯层: 真封面淡入 + 缓慢 ken-burns 呼吸缩放. */
+      '#cssos-cinema-stage .cinema-hero-cover, .panel[data-cinema="true"] .cinema-hero-cover { position:absolute; inset:0; background-size:cover; background-position:center; opacity:0; transition:opacity 1.6s ease; pointer-events:none; z-index:0; }' +
+      '#cssos-cinema-stage .cinema-hero-cover.is-shown, .panel[data-cinema="true"] .cinema-hero-cover.is-shown { opacity:.34; animation:cssos-cinema-kenburns 24s ease-in-out infinite alternate; }' +
+      '@keyframes cssos-cinema-kenburns { 0% { transform:scale(1.04) translate(0,0); } 100% { transform:scale(1.12) translate(-1.5%, -1.5%); } }' +
+      /* 左下角歌词打字机: 单声道字体, 向上滚动, 渐隐顶部. */
+      '#cssos-cinema-stage .cinema-hero-lyrics, .panel[data-cinema="true"] .cinema-hero-lyrics { position:absolute; left:max(18px,env(safe-area-inset-left,0px)); bottom:max(96px,calc(env(safe-area-inset-bottom,0px) + 96px)); width:min(46ch,52vw); max-height:32vh; overflow:hidden; white-space:pre-wrap; text-align:left; color:rgba(230,255,244,.92); font:600 clamp(13px,1.5vw,18px)/1.55 ui-monospace,SFMono-Regular,monospace; text-shadow:0 2px 12px rgba(0,0,0,.85); opacity:0; transition:opacity .8s ease; z-index:6; pointer-events:none; -webkit-mask-image:linear-gradient(transparent, #000 22%); mask-image:linear-gradient(transparent, #000 22%); }' +
+      '#cssos-cinema-stage .cinema-hero-lyrics.is-shown, .panel[data-cinema="true"] .cinema-hero-lyrics.is-shown { opacity:1; }' +
+      /* 自动播放被拦截时的一键播放兜底. */
+      '#cssos-cinema-stage .cinema-hero-tapplay, .panel[data-cinema="true"] .cinema-hero-tapplay { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:84px; height:84px; border-radius:50%; border:1px solid rgba(0,245,160,.6); background:rgba(0,20,14,.55); color:#00f5a0; font:700 30px/1 -apple-system,system-ui,sans-serif; cursor:pointer; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); z-index:30; box-shadow:0 0 30px rgba(0,245,160,.4); }' +
+      '#cssos-cinema-stage .cinema-hero-tapplay[hidden], .panel[data-cinema="true"] .cinema-hero-tapplay[hidden] { display:none; }' +
       '.cinema-hero-error { margin-top:24px; font:600 14px/1.5 ui-monospace,monospace; color:#ff8585; max-width:min(560px,86vw); margin-left:auto; margin-right:auto; }' +
       '.cinema-hero-error-actions { margin-top:14px; display:flex; justify-content:center; }' +
       '.cinema-hero-retry { background:rgba(255,133,133,.12); border:1px solid rgba(255,133,133,.6); color:#ffb3b3; padding:8px 18px; border-radius:999px; font:700 12px/1 ui-monospace,monospace; letter-spacing:.06em; cursor:pointer; }' +

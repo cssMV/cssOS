@@ -104,14 +104,29 @@
         "cursor:pointer", "align-items:center", "justify-content:center",
         "box-shadow:0 4px 14px rgba(0,0,0,0.4)",
       ].join(";");
-      exitBtn.addEventListener("click", function () {
+      exitBtn.addEventListener("click", function (ev) {
+        try { ev.preventDefault(); ev.stopPropagation(); } catch (_e) {}
+        // CSSOS_WAVE_316 20260521 — Jing: 退出影院键必须【真的退出】. W314 取消网页
+        // 原生全屏后, 仅靠 exitFullscreen + 去 class 已无法关闭面板(App 端 MV 面板是
+        // CSS 全屏, 不吃那几个 class). 现在走全平台统一的关闭路径: 停播 → 去全屏
+        // class → minimizeToDockBridge(把面板收回 dock / 回到首页) —— 与其它面板的
+        // 关闭按钮、右键菜单"最小化"完全一致.
+        var pnl = document.getElementById("watch-panel");
         try { document.dispatchEvent(new CustomEvent("cssos:watch-close")); } catch (_e) {}
         try { window.dispatchEvent(new CustomEvent("cssos:watch-close")); } catch (_e) {}
         try {
           if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen();
           else if (document.webkitFullscreenElement && document.webkitExitFullscreen) document.webkitExitFullscreen();
         } catch (_e) {}
+        try { if (pnl) pnl.classList.remove("is-cssmv-fullscreen", "cssmv-cinema"); } catch (_e) {}
         try { document.body.classList.remove("cssos-cinema-mode", "cssos-watch-theater", "cssos-watch-idle"); } catch (_e) {}
+        try { globalThis.stopWatchPanelPlaybackModule && globalThis.stopWatchPanelPlaybackModule(); } catch (_e) {}
+        // 真正关闭面板(回到首页/feed): 优先用全站统一的 minimizeToDockBridge.
+        try {
+          if (pnl && typeof globalThis.minimizeToDockBridge === "function") globalThis.minimizeToDockBridge(pnl);
+          else if (pnl && typeof globalThis.minimizeToDock === "function") globalThis.minimizeToDock(pnl);
+          else if (pnl) pnl.classList.add("hidden");
+        } catch (_e) { try { if (pnl) pnl.classList.add("hidden"); } catch (_e2) {} }
       });
       panel.appendChild(exitBtn);
       // CSSOS_WAVE_311 20260521 — Jing: "步调一致" — ✕ 必须和头像/搜索框/Dock 完全

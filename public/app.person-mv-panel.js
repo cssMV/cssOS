@@ -30,21 +30,29 @@
     var c = String(globalThis.currentLocale || navigator.language || "en").toLowerCase();
     return c;
   }
-  /* Pick the user-locale-appropriate name. ZH locales → name_zh;
-   * everything else → name_en (or name_zh as last resort). Future
-   * Wave 4 will let users contribute name translations per locale. */
-  function localizedName(p) {
-    var loc = currentLocale();
-    if (loc.indexOf("zh") === 0) return p.name_zh || p.name_en || p.person_id;
-    return p.name_en || p.name_zh || p.person_id;
+  /* CSSOS_WAVE_345 20260522 — Jing: 主名【优先该人物的母语原名 name_native】, 否则
+   * fallback 到英文, 最后才中文兜底 —— 不再因 UI 而默认中文. 中华文明人物的母语名即
+   * name_zh(若 name_native 空), 故中华 civ 时把 name_zh 当作母语名. 与 UI 语言无关:
+   * 人物的名字就是他的名字(尼采→德文名, 孔子→中文名, 夏目漱石→日文名). */
+  function isChineseCivLabel(civ) {
+    return /中华|华夏|Chinese|Confucian|Daoist|Taoist|儒|道家/i.test(String(civ || ""));
   }
-  /* Secondary line — opposite of the primary line so the user sees
-   * both names but the localised one is emphasised. Empty if both
-   * primary and secondary collapse to the same string. */
+  function motherTongueName(p) {
+    var nat = String(p.name_native || "").trim();
+    if (nat) return nat;
+    if (isChineseCivLabel(p.civilization)) return String(p.name_zh || "").trim();
+    return "";
+  }
+  function localizedName(p) {
+    return motherTongueName(p) || p.name_en || p.name_zh || p.person_id;
+  }
+  /* Secondary line — show the UI-localized name (or the other form) when it
+   * differs from the primary (mother-tongue) name, so viewers still see a
+   * readable alternate. */
   function secondaryName(p) {
     var loc = currentLocale();
     var primary = localizedName(p);
-    var alt = loc.indexOf("zh") === 0 ? (p.name_en || "") : (p.name_zh || "");
+    var alt = loc.indexOf("zh") === 0 ? (p.name_zh || p.name_en || "") : (p.name_en || p.name_zh || "");
     return alt && alt !== primary ? alt : "";
   }
 

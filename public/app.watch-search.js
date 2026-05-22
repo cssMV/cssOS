@@ -135,29 +135,66 @@
       } catch (_e) { return false; }
     }
     if (isApp()) {
+      // 安全白名单: 这些(及其子孙)绝不隐藏.
+      var isProtected = function (el) {
+        if (!el || !el.closest) return false;
+        return el.id === "watch-author-avatar" || el.id === "watch-search-box" ||
+          el.id === "watch-exit-cinema" ||
+          !!el.closest("#watch-author-avatar") || !!el.closest("#watch-search-box") ||
+          !!el.closest("#watch-exit-cinema") || !!el.closest("#dock");
+      };
+      var hideEl = function (el) { try { el.style.setProperty("display", "none", "important"); } catch (_e) {} };
       var killStrayClose = function () {
         if (!inCinemaNow()) return;
+        // ① 选择器扫描(button/role/a/.icon-btn): 抓常规关闭键.
         document.querySelectorAll("button, [role=button], a, .icon-btn").forEach(function (el) {
-          if (!el || el.id === "watch-exit-cinema" || el.id === "watch-author-avatar") return;
-          if (el.closest && el.closest("#watch-search-box")) return; // 搜索框内的元素不动
-          if (el.closest && el.closest("#dock")) return;             // Dock 不动
-          var r;
-          try { r = el.getBoundingClientRect(); } catch (_e) { return; }
-          if (!r || r.width <= 0 || r.height <= 0) return;
-          if (r.width > 140 || r.height > 140) return; // 只针对小按钮(那个 ×)
-          // 左上角区域: 这里在影院全屏下唯一该出现的是作者头像(已排除).
-          if (r.left < 260 && r.top < 360) {
-            try { el.style.setProperty("display", "none", "important"); } catch (_e) {}
-          }
+          if (isProtected(el)) return;
+          var r; try { r = el.getBoundingClientRect(); } catch (_e) { return; }
+          if (!r || r.width <= 0 || r.height <= 0 || r.width > 140 || r.height > 140) return;
+          if (r.left < 260 && r.top < 360) hideEl(el);
         });
+        // ② 几何探测(不靠标签/字形): 那个旧 × 正好【盖在作者头像上】. 取头像中心点,
+        //    用 elementsFromPoint 拿到该点所有堆叠元素; 凡是盖在头像【之上】的小型
+        //    元素(非白名单)一律隐藏, 直到触达头像本身为止. 这样无论它是 div/svg/
+        //    canvas 还是别的标签都能干掉.
+        try {
+          var av = document.getElementById("watch-author-avatar");
+          if (av && document.elementsFromPoint) {
+            var ar = av.getBoundingClientRect();
+            if (ar.width > 0) {
+              var probes = [
+                [ar.left + ar.width / 2, ar.top + ar.height / 2],
+                [ar.left + 6, ar.top + 6],
+                [ar.left + ar.width - 6, ar.top + ar.height - 6],
+              ];
+              probes.forEach(function (pt) {
+                var stack = document.elementsFromPoint(pt[0], pt[1]) || [];
+                for (var i = 0; i < stack.length; i++) {
+                  var el = stack[i];
+                  if (!el) continue;
+                  if (el === av || (el.closest && el.closest("#watch-author-avatar"))) break; // 到头像了, 停
+                  if (isProtected(el)) continue;
+                  if (el === document.body || el === document.documentElement) continue;
+                  if (el.id === "watch-panel" || (el.classList && (el.classList.contains("watch-screen") || el.classList.contains("watch-frame") || el.classList.contains("watch-video")))) continue; // 别隐藏媒体层
+                  var er; try { er = el.getBoundingClientRect(); } catch (_e) { continue; }
+                  if (er.width > 0 && er.height > 0 && er.width < 140 && er.height < 140) hideEl(el);
+                }
+              });
+            }
+          }
+        } catch (_e) {}
       };
       killStrayClose();
-      [200, 600, 1200, 2500].forEach(function (ms) { setTimeout(killStrayClose, ms); });
+      [150, 400, 900, 1800, 3000].forEach(function (ms) { setTimeout(killStrayClose, ms); });
       try {
         new MutationObserver(killStrayClose).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style"] });
       } catch (_e) {}
       document.addEventListener("fullscreenchange", killStrayClose, { passive: true });
       document.addEventListener("webkitfullscreenchange", killStrayClose, { passive: true });
+      // 进入影院 / 有操作时也补扫一遍(元素可能随 chrome 显隐重新出现).
+      ["pointerdown", "touchstart"].forEach(function (ev) {
+        document.addEventListener(ev, function () { setTimeout(killStrayClose, 50); }, { passive: true, capture: true });
+      });
     }
 
     input.addEventListener("input", function () {

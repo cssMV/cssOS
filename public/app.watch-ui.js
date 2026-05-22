@@ -6627,21 +6627,22 @@ function ensureCinemaAutoHideModule() {
   // Initial reveal so the user sees the chrome on first open.
   showHover();
 
-  // Title-overlay flash on the user's font-shuffle interval. Default 60s.
+  // CSSOS_WAVE_332 20260522 — Jing: 字幕标题显示 10 秒、每次随机换字体, 然后隐藏;
+  // 频率 = 用户在「字体自动切换 Auto-shuffle every」里设的间隔. 做法: 标题闪现直接
+  // 绑定字体切换事件(cssmv:font-shuffle, 由 restartAutoRotate 按用户分钟数触发)——
+  // 字体一换就闪标题 10 秒, 两者天然同步、同一个间隔. (之前用独立 setInterval 读另一个
+  // key, 与用户设置不联动, 且闪标题时字体不变。)
+  let _karFlashTimer = null;
   const flashKaraokeTitle = () => {
     const kar = document.getElementById("watch-karaoke-line");
     if (!kar) return;
     kar.classList.add("karaoke-flash");
-    setTimeout(() => kar.classList.remove("karaoke-flash"), 10_000);
+    if (_karFlashTimer) clearTimeout(_karFlashTimer);
+    _karFlashTimer = setTimeout(() => kar.classList.remove("karaoke-flash"), 10_000);
   };
-  const refreshIntervalMs = (() => {
-    try {
-      const v = parseInt(localStorage.getItem("cssos.font.shuffle.ms") || "60000", 10);
-      return Number.isFinite(v) && v > 5000 ? v : 60000;
-    } catch (_e) { return 60000; }
-  })();
-  setInterval(flashKaraokeTitle, refreshIntervalMs);
-  flashKaraokeTitle(); // First flash on open.
+  // 每次字体随机切换 → 标题闪现 10 秒(频率随用户的 Auto-shuffle 设置).
+  try { window.addEventListener("cssmv:font-shuffle", flashKaraokeTitle, { passive: true }); } catch (_e) {}
+  flashKaraokeTitle(); // 进入时先亮一次.
 }
 
 // CSSOS_PHASE2_AUTHOR_AVATAR 20260501 #246 — Jing

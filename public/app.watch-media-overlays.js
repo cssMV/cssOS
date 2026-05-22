@@ -949,12 +949,20 @@
         try {
           mvTitleEl.innerHTML = wrapGlyphs(mvTitleCachedText, pickMotion());
           fitMvTitleFontSize(mvTitleEl, frame);
-          // Add .is-visible on next frame so the browser paints the content
-          // first, then fades it in.
+          mvTitleEl.__cssmvLastText = mvTitleCachedText;
+          /* CSSOS_WAVE_207 20260516 — Jing: "标题会在10秒后隐藏，可是
+           * 这个妖怪一直挂在那里". The rehydrate path used to set
+           * is-visible permanently — no auto-hide ever fired because
+           * the showMvArtTitleForFlash() schedule only happens inside
+           * renderMvArtTitle(). Route through the same flash helper
+           * so the rehydrated text gets the same 10s visibility +
+           * auto-hide treatment as a fresh render. */
           requestAnimationFrame(() => {
             if (!mvTitleEl || !mvTitleEl.isConnected) return;
-            mvTitleEl.classList.remove("is-hidden");
-            mvTitleEl.classList.add("is-visible");
+            try { showMvArtTitleForFlash(); } catch (_e) {
+              mvTitleEl.classList.remove("is-hidden");
+              mvTitleEl.classList.add("is-visible");
+            }
           });
         } catch (_err) {}
       }
@@ -980,10 +988,19 @@
   let mvTitleLastText = "";
   function renderMvArtTitle(text) {
     const frame = qFrame();
+    const clean = String(text || "").trim();
+    /* CSSOS_WAVE_207 20260516 — Jing: "Du Fu × Yueyang Tower 妖怪". The
+     * old early-return when !frame left mvTitleCachedText stuck on the
+     * previous work's title. When the watch frame later remounted,
+     * ensureMvTitle() rehydrated from that stale cache and the wrong
+     * title appeared with no auto-hide. Fix: ALWAYS update the cache
+     * with the latest requested title (including "") before the frame
+     * check, so a remount can never resurrect a previous work's text. */
+    mvTitleCachedText = clean;
+    mvTitleLastText = clean;
     if (!frame) return;
     const el = ensureMvTitle();
     if (!el) return;
-    const clean = String(text || "").trim();
     if (!clean) {
       el.classList.remove("is-visible", "is-playing");
       el.classList.add("is-hidden");
@@ -1199,6 +1216,10 @@
           globalThis.cycleWatchTypographyPresetModule();
         }
       } catch (_err) {}
+      // CSSOS_WAVE_332 20260522 — Jing: 自动切换那一刻确保【真的换字体】并派发
+      // cssmv:font-shuffle(标题闪现 10 秒就绑这个事件, 见 app.watch-ui.js). 这样
+      // "用户设几分钟切字体 = 几分钟闪一次标题 10 秒"天然同步.
+      try { shuffleTokenFonts(); } catch (_err) {}
     }, mins * 60 * 1000);
   }
 

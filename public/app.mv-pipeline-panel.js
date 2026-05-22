@@ -1974,19 +1974,32 @@
     const fillEl = host.querySelector("[data-mvp-progress-fill]");
     const pctEl = host.querySelector("[data-mvp-progress-pct]");
     let lastPcts = { lyrics: 0, cover: 0, music: 0, video: 0, subtitles: 0, compose: 0 };
+    const _chipHues = {};
+    const _hueFor = function (id) {
+      if (_chipHues[id] == null) _chipHues[id] = Math.floor(Math.random() * 360);
+      return _chipHues[id];
+    };
     const renderChips = function (pcts) {
       if (!stagesEl) return;
       stagesEl.innerHTML = STAGE_META.map(function (s) {
         const p = Math.max(0, Math.min(100, Math.round(pcts[s.id] || 0)));
         const tag = p >= 100 ? "✓" : (p > 0 ? (p + "%") : "…");
         const cls = p >= 100 ? "done" : (p > 0 ? "active" : "pending");
-        return '<span class="cinema-hero-progress-chip ' + cls + '">' +
-          s.icon + " " + s.label + " " + tag + "</span>";
+        const styleAttr = (cls === "active")
+          ? ' style="--chip-hue:' + _hueFor(s.id) + '"' : '';
+        // CSSOS_WAVE_322 — i18n: 英文为唯一真源, 经 loginCopy 交运行时翻译.
+        var lbl = (typeof globalThis.loginCopy === "function") ? globalThis.loginCopy(s.label) : s.label;
+        return '<span class="cinema-hero-progress-chip ' + cls + '"' + styleAttr + '>' +
+          s.icon + " " + lbl + " " + tag + "</span>";
       }).join("");
+      /* CSSOS_WAVE_223 — active 居中: 直接计算 scrollLeft, 避免 smooth
+       * 在每帧 re-render 时被打断, 也绕过 scroll-snap 在小内容时不生效
+       * 的问题. */
       try {
         const a = stagesEl.querySelector(".cinema-hero-progress-chip.active");
-        if (a && typeof a.scrollIntoView === "function") {
-          a.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+        if (a) {
+          const target = a.offsetLeft - (stagesEl.clientWidth / 2 - a.offsetWidth / 2);
+          stagesEl.scrollLeft = Math.max(0, target);
         }
       } catch (_e) {}
     };

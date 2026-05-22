@@ -848,3 +848,67 @@
 #mvp-surprise {
   white-space: nowrap;
 }
+
+/* CSSOS_WAVE_322 20260522 — Jing「边出边播」Phase A: 6 个输出胶囊套用「胶囊宪法」.
+ * 原来 .cinema-hero-progress-chip 完全没 CSS(纯内联裸 span). 现在做成与高级设置
+ * 「音乐来源上传」子 Tab 一致的【分段胶囊】: 整条是一个药丸轨道, 当前阶段(active)
+ * 鼓成完整药丸并按 --chip-hue 着色, 已完成(done)填青, 未开始(pending)淡显; active
+ * 两侧的相邻段朝它凹陷(前者右端切平、后者左端切平), 读起来是一条连贯的胶囊带. */
+.cinema-hero-progress-stages {
+  display: flex;
+  gap: 0;
+  align-items: stretch;
+  padding: 3px;
+  margin: 0 auto;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+  background: rgba(0, 245, 160, 0.10);
+  border: 1px solid rgba(0, 245, 160, 0.30);
+  border-radius: 999px;
+}
+.cinema-hero-progress-stages::-webkit-scrollbar { display: none; }
+.cinema-hero-progress-chip {
+  flex: 1 1 auto;
+  min-width: max-content;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  box-sizing: border-box;
+  padding: 7px 13px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: rgba(218, 255, 238, 0.55);
+  font: 600 11px/1 -apple-system, system-ui, sans-serif;
+  white-space: nowrap;
+  transition: background .18s ease, color .18s ease, border-radius .18s ease;
+}
+/* 已完成: 填青, 打勾色. */
+.cinema-hero-progress-chip.done {
+  background: rgba(0, 245, 160, 0.42);
+  color: #00140d;
+}
+/* 进行中: 鼓成完整药丸 + 随机色相 + 轻微脉冲. */
+.cinema-hero-progress-chip.active {
+  border-radius: 999px !important;
+  background: hsl(var(--chip-hue, 150), 72%, 52%) !important;
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 0 14px hsla(var(--chip-hue, 150), 72%, 52%, 0.55);
+  animation: cssosChipPulse 1.4s ease-in-out infinite;
+}
+@keyframes cssosChipPulse {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.18); }
+}
+/* 相邻段朝 active 凹陷: active 之前的右端切平, 之后的左端切平. */
+.cinema-hero-progress-stages > .cinema-hero-progress-chip:has(~ .cinema-hero-progress-chip.active) {
+  border-radius: 999px 0 0 999px;
+}
+.cinema-hero-progress-stages > .cinema-hero-progress-chip.active ~ .cinema-hero-progress-chip {
+  border-radius: 0 999px 999px 0;
+}

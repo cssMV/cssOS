@@ -90,7 +90,7 @@
         '<article class="cssos-today-card" data-person-id="' + escapeHtml(p.person_id) + '"' +
           (p.sample_work_id ? ' data-work-id="' + escapeHtml(p.sample_work_id) + '"' : "") +
           ' tabindex="0" role="button" aria-label="' + escapeHtml(name) + '">' +
-          '<div class="cover"' + (cover ? ' style="background-image:url(\'' + String(cover).replace(/'/g, "%27") + '\')"' : "") + '></div>' +
+          '<div class="cover"' + (cover ? ' style="background-image:url(\'' + String((globalThis.cssosThumb || function (u) { return u; })(cover, 400)).replace(/'/g, "%27") + '\')"' : "") + '></div>' +
           '<div class="info">' +
             '<div class="name">' + escapeHtml(name) + '</div>' +
             '<div class="anniv">' + escapeHtml(annivLabel(p)) + '</div>' +

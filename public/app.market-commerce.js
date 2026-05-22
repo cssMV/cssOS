@@ -1751,15 +1751,15 @@ function buildMarketCardsMarkup(works = []) {
         ? globalThis.cssosWorkIsPlayedModule(workId) : false;
       const _playedClass = _played ? "is-played" : "is-unplayed";
       return `
-        <article class="work-card market-card foryou-shelf-card ${_playedClass}${_isAdminOwned ? " is-admin-public" : ""}" data-market-work-id="${escapeHtml(workId)}" data-work-expand>
+        <article class="work-card market-card foryou-shelf-card ${_playedClass}${_isAdminOwned ? " is-admin-public" : ""}" data-market-work-id="${escapeHtml(workId)}" data-work-id="${escapeHtml(workId)}" data-work-expand data-lyrics-preview="${escapeHtml(_previewRaw.slice(0, 4000))}">
           <div class="work-cover" data-market-cover-key="${escapeHtml(workId)}" data-market-action="open-watch" role="button" tabindex="0" aria-label="${escapeHtml(loginCopy("Play MV"))}">
-            ${coverImage ? `<img src="${escapeHtml(coverImage)}" alt="${title}" loading="lazy" decoding="async" />` : `<div class="work-cover-fallback">${rawTitle.slice(0, 2).toUpperCase()}</div>`}
+            ${coverImage ? `<img src="${escapeHtml((globalThis.cssosThumb || function (u) { return u; })(coverImage, 400))}" alt="${title}" loading="lazy" decoding="async" />` : `<div class="work-cover-fallback">${rawTitle.slice(0, 2).toUpperCase()}</div>`}
             ${_fpBadge}
             ${_durOverlay}
             <span class="work-cover-played-dot" aria-hidden="true"></span>
           </div>
           <div class="work-info">
-            <div class="work-title" data-market-toggle>${title}</div>
+            <div class="work-title" data-market-toggle data-editable-title>${title}</div>
             <div class="work-tags" title="${style}">${style}</div>
             <div class="work-pricing">
               <span class="price-chip ghost-chip">${loginCopy("Type")} · ${escapeHtml(workTypeLabel(workType))}${(Array.isArray(work?.children) && work.children.length >= 2) ? ` × ${work.children.length}` : ""}</span>
@@ -2319,7 +2319,7 @@ function buildWorksCardChildThumbsMarkup(options = {}) {
     const seq = i + 1;
     const title = String(t && t.title || "").trim();
     const bg = cover
-      ? `style="background-image:url('${escapeHtml(cover).replace(/'/g, "&#39;")}');"`
+      ? `style="background-image:url('${escapeHtml((globalThis.cssosThumb || function (u) { return u; })(cover, 400)).replace(/'/g, "&#39;")}');"`
       : "";
     return `<button class="work-album-thumb" type="button" data-work-album-child="${escapeHtml(cid)}" title="${escapeHtml(title)}" ${bg}>
       <span class="work-album-thumb-seq">${seq}</span>
@@ -2556,7 +2556,7 @@ function buildWorksCardCoverMarkup(options = {}) {
         const rear  = pool[1] || pool[0] || coverImage;
         const mid   = pool[0] || coverImage;
         const mk = (url, cls) => url
-          ? `<div class="work-cover-stack-layer ${cls}" style="background-image:url('${escapeHtml(url).replace(/'/g, "&#39;")}');" aria-hidden="true"></div>`
+          ? `<div class="work-cover-stack-layer ${cls}" style="background-image:url('${escapeHtml((globalThis.cssosThumb || function (u) { return u; })(url, 400)).replace(/'/g, "&#39;")}');" aria-hidden="true"></div>`
           : `<div class="work-cover-stack-layer ${cls}" aria-hidden="true"></div>`;
         return mk(rear, "is-rear") + mk(mid, "is-mid");
       })()
@@ -2568,7 +2568,7 @@ function buildWorksCardCoverMarkup(options = {}) {
   return `
     <div class="work-cover${isAlbumCls}" data-work-cover data-work-cover-key="${escapeHtml(workId)}" data-work-open-watch>
       ${stackLayers}
-      ${coverImage ? `<img class="work-cover-img" src="${escapeHtml(coverImage)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" />` : `<div class="work-cover-fallback">${title.slice(0, 2).toUpperCase()}</div>`}
+      ${coverImage ? `<img class="work-cover-img" src="${escapeHtml((globalThis.cssosThumb || function (u) { return u; })(coverImage, 400))}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" />` : `<div class="work-cover-fallback">${title.slice(0, 2).toUpperCase()}</div>`}
       ${fpBadge}
       ${durOverlay}
       ${albumCountBadge}
@@ -2617,7 +2617,7 @@ function buildWorksCardAlbumDetailMarkup(options = {}) {
     <div class="work-album-detail" data-work-album-detail>
       <div class="work-album-detail-cover">
         ${cover
-          ? `<img src="${escapeHtml(cover)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" />`
+          ? `<img src="${escapeHtml((globalThis.cssosThumb || function (u) { return u; })(cover, 400))}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" />`
           : `<div class="work-album-detail-fallback">${escapeHtml(title.slice(0, 2).toUpperCase())}</div>`}
         <span class="work-album-detail-badge">${escapeHtml(workTypeLbl)} × ${albumChildCount}</span>
       </div>
@@ -2646,7 +2646,7 @@ function renderableAlbumNodes(nodes, depth) {
       const children = Array.isArray(node && node.children) ? node.children : [];
       const isInner = children.length > 0;
       const bg = cover
-        ? `style="background-image:url('${escapeHtml(cover).replace(/'/g, "&#39;")}');"`
+        ? `style="background-image:url('${escapeHtml((globalThis.cssosThumb || function (u) { return u; })(cover, 400)).replace(/'/g, "&#39;")}');"`
         : "";
       if (!isInner) {
         // Leaf — playable track row.
@@ -3253,7 +3253,7 @@ async function hydrateWorksCardThumbnails(container, works) {
     ).trim();
     const fastImage = globalThis.resolveWorkCardThumbnailImageModule?.(work) || "";
     if (fastImage && currentImage !== fastImage) {
-      cover.innerHTML = `<img src="${escapeHtml(fastImage)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" />`;
+      cover.innerHTML = `<img src="${escapeHtml((globalThis.cssosThumb || function (u) { return u; })(fastImage, 400))}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" />`;
     }
     // Note: previously, when fastImage was missing OR was a synthetic
     // placeholder, we'd fall through to OpenAI image-gen. That is the
@@ -3280,7 +3280,7 @@ async function hydrateMarketCardThumbnails(container, works) {
     ).trim();
     const fastImage = globalThis.resolveWorkCardThumbnailImageModule?.(work) || "";
     if (fastImage && currentImage !== fastImage) {
-      cover.innerHTML = `<img src="${escapeHtml(fastImage)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" />`;
+      cover.innerHTML = `<img src="${escapeHtml((globalThis.cssosThumb || function (u) { return u; })(fastImage, 400))}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" />`;
     }
   }
 }

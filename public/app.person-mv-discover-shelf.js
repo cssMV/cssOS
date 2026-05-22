@@ -58,7 +58,7 @@
       var stats = "👁 " + fmtCount(p.total_views) + " · 🎬 " + fmtCount(p.mv_count);
       return (
         '<article class="cssos-discover-card" data-person-id="' + String(p.person_id).replace(/"/g, "&quot;") + '" tabindex="0" role="button" aria-label="' + String(name).replace(/"/g, "&quot;") + '">' +
-          '<div class="cover"' + (cover ? ' style="background-image:url(\'' + String(cover).replace(/'/g, "%27") + '\')"' : "") + '></div>' +
+          '<div class="cover"' + (cover ? ' style="background-image:url(\'' + String((globalThis.cssosThumb || function (u) { return u; })(cover, 400)).replace(/'/g, "%27") + '\')"' : "") + '></div>' +
           '<div class="info">' +
             '<div class="name">' + escapeHtml(name) + '</div>' +
             '<div class="meta">' + escapeHtml(civ) + '</div>' +

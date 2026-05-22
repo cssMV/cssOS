@@ -75,7 +75,7 @@
     el.style.cssText = [
       "position:fixed",
       "inset:0",
-      "z-index:99999",
+      "z-index:10090", /* CSSOS_WAVE_351 z-index 收敛: 99999 → 10090 (topmost: rotate gate over all) */
       "display:none",
       "align-items:center",
       "justify-content:center",

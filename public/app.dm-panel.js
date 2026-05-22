@@ -58,7 +58,8 @@
       }
       .cssos-dm-overlay {
         position: fixed; inset: 0; background: rgba(0,0,0,0.55);
-        z-index: 99990; display: flex; align-items: stretch; justify-content: center;
+        z-index: 10075; /* CSSOS_WAVE_351 z-index 收敛: 99990 → 10075 (DM overlay above watch, below context-menu) */
+        display: flex; align-items: stretch; justify-content: center;
       }
       .cssos-dm-overlay[hidden] { display: none; }
       .cssos-dm-shell {
@@ -159,7 +160,7 @@
         justify-content: center; font-size: 16px;
       }
       .cssos-dm-modal {
-        position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 99995;
+        position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 10076; /* CSSOS_WAVE_351: 99995 → 10076 (DM modal above its overlay) */
         display: flex; align-items: center; justify-content: center;
       }
       .cssos-dm-modal[hidden] { display: none; }

@@ -44,7 +44,7 @@
     var st = document.createElement("style");
     st.id = "cssos-regen-mode-style";
     st.textContent =
-      ".cssos-regen-mask{position:fixed;inset:0;z-index:99999;display:flex;" +
+      ".cssos-regen-mask{position:fixed;inset:0;z-index:10056;display:flex;" + /* CSSOS_WAVE_351 收敛: 99999 → 10056 */
       "align-items:center;justify-content:center;background:rgba(4,12,10,.72);" +
       "backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);}" +
       ".cssos-regen-card{width:min(420px,88vw);background:#0f1c17;border:1px solid " +

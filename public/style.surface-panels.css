@@ -393,7 +393,7 @@
   align-items: center;
   justify-content: center;
   background: rgba(3, 6, 5, 0.88);
-  z-index: 99999;
+  z-index: 10056; /* CSSOS_WAVE_351 z-index 收敛: 99999 → 10056 */
   pointer-events: none;
 }
 

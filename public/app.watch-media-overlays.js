@@ -305,7 +305,7 @@
 /* ---------- P2-28a auto-rotate settings popover ---------- */
 .cssmv-font-settings-menu {
   position: fixed;
-  z-index: 99999;
+  z-index: 10055; /* CSSOS_WAVE_351 z-index 收敛: 99999 → 10055 (watch popover) */
   min-width: 220px;
   padding: 10px 12px;
   background: rgba(14, 22, 20, 0.96);

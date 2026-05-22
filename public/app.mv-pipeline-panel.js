@@ -8002,14 +8002,16 @@
     }
     // CSSOS_WAVE_343 20260522 — Jing: 修复"点 Create MV 进不去". 影院层 cinema-stage
     // 之前 z-index 实测是 auto、高度只有 337px(注入 CSS 没生效) → 被上一首 For You 的
-    // watch-panel(z:99999 满屏)整个盖住, 用户看不到新创作. 这里把关键布局【内联】钉死,
-    // 不依赖外部样式, 且 z-index 100001 高于 watch-panel(99999) → 新创作影院盖在最上层.
+    // watch-panel 满屏盖住, 用户看不到新创作. 这里把关键布局【内联】钉死, 不依赖外部样式.
+    // CSSOS_WAVE_351 20260522 — Jing「z-index 收敛」: 原来钉到 100001 是为了压过
+    // watch-panel, 但 watch-panel 其实只有 10050 (style.css), 根本不需要 6 位数通胀.
+    // 统一收敛到顶层小阶梯: dock 10020 < watch 10050 < cinema 10060 < karaoke 10070.
     try {
       stage.style.position = "fixed";
       stage.style.inset = "0";
       stage.style.width = "100vw";
       stage.style.height = "100dvh";
-      stage.style.zIndex = "100001";
+      stage.style.zIndex = "10060";
       stage.style.background = "#000";
       stage.style.display = "flex";
       stage.style.alignItems = "center";
@@ -9157,7 +9159,8 @@
        * The pipeline panel itself is set to display:none during cinema,
        * so cinema cannot leak any chrome regardless of stale caches or
        * wrapper elements. The overlay is positioned over everything. */
-      '#cssos-cinema-stage.cinema-fullscreen { position:fixed; inset:0; z-index:99999; background:#000; display:flex; align-items:center; justify-content:center; }' +
+      /* CSSOS_WAVE_351 — z-index 收敛: 99999 → 10060 (just above watch-panel 10050). */
+      '#cssos-cinema-stage.cinema-fullscreen { position:fixed; inset:0; z-index:10060; background:#000; display:flex; align-items:center; justify-content:center; }' +
       /* CSSOS_WAVE_110B3 20260510 — top-right cinema controls. */
       '#cssos-cinema-stage .cinema-topbar { position:absolute; top:env(safe-area-inset-top, 12px); right:env(safe-area-inset-right, 12px); z-index:100; display:flex; gap:8px; pointer-events:none; }' +
       '#cssos-cinema-stage .cinema-topbtn { pointer-events:auto; width:36px; height:36px; border-radius:50%; background:rgba(255,255,255,0.10); border:1px solid rgba(255,255,255,0.22); color:#fff; font:600 16px/1 -apple-system,system-ui,sans-serif; cursor:pointer; backdrop-filter:blur(14px) saturate(140%); -webkit-backdrop-filter:blur(14px) saturate(140%); transition:background 160ms ease, border-color 160ms ease, transform 160ms ease; user-select:none; }' +
@@ -9208,9 +9211,9 @@
       /* CSSOS_PERSON_MV_CINEMA_KARAOKE_CTRLS 20260507 — Jing
        * Keep the random-font / karaoke fancy-effect controls visible
        * during cinema. They control emotion karaoke subtitles and the
-       * user explicitly wants to tweak them while watching. Lift above
-       * the cinema overlay (z-index 99999). */
-      'body[data-cinema="true"] #cssos-karaoke-settings { opacity:1 !important; pointer-events:auto !important; z-index:100000 !important; }' +
+       * user explicitly wants to tweak them while watching. Lift just
+       * above the cinema overlay. CSSOS_WAVE_351 — 100000 → 10070. */
+      'body[data-cinema="true"] #cssos-karaoke-settings { opacity:1 !important; pointer-events:auto !important; z-index:10070 !important; }' +
       /* Person-intro line under the spinner: small, fades, max 2 lines. */
       '.cinema-hero-intro { margin:14px auto 0; max-width:min(640px,82vw); font:400 13px/1.5 ui-serif,serif; color:rgba(218,255,238,.7); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; text-align:center; }' +
       /* CSSOS_PERSON_MV_CINEMA_PROGRESS 20260507 — Jing

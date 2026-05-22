@@ -386,7 +386,10 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
 }
 
 #watch-panel.is-cssmv-fullscreen {
-  position: fixed !important; inset: 0 !important; z-index: 99999 !important;
+  /* CSSOS_WAVE_351 z-index 收敛: 99999 → 10052 (watch fullscreen sits just
+     above watch base 10050, and crucially BELOW cinema-stage 10060 so
+     Create MV always covers a fullscreen watch — the W343 bug). */
+  position: fixed !important; inset: 0 !important; z-index: 10052 !important;
   width: 100vw !important; height: 100vh !important;
   max-width: none !important; max-height: none !important;
 }
@@ -1312,7 +1315,13 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
     }
 
     screen.appendChild(infoBtn);
-    screen.appendChild(fsBtn);
+    // CSSOS_WAVE_220B 20260520 — Jing: remove the media-frame bottom-right
+    // ⛶ fullscreen button. The title-bar maximize (⤢) already drives OS
+    // window maximize / fullscreen (Vision Pro Immersive). Keeping a
+    // second fullscreen entry here is redundant. fsBtn is still created
+    // above (so applyScreenAspectRatio stays defined) but never mounted.
+    // screen.appendChild(fsBtn);
+    if (fsBtn && fsBtn.parentNode) fsBtn.parentNode.removeChild(fsBtn);
 
     // CSSOS_PHASE2_MOBILE_OVERFLOW_BTN 20260505 — Jing
     // "媒体框右下角的那些按钮，手机端都收到三点里。以免和右下角的内容
@@ -2078,6 +2087,25 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
               // 视频、停幻灯.
               try {
                 v.style.opacity = "0";
+                /* W307 / W307b — 视频被拦时只显示一张稳定封面, 不洗牌循环整个封面池.
+                 * 多源回退: currentResolvedWatchArtworkDataUrl → currentPreviewFrameDataUrl
+                 * → currentStructuredWatchQueue 的首作品封面 → video poster. */
+                try {
+                  let stableCover =
+                    String(globalThis.currentResolvedWatchArtworkDataUrl ||
+                           globalThis.currentPreviewFrameDataUrl || "").trim();
+                  if (!stableCover) {
+                    const sq = globalThis.currentStructuredWatchQueue;
+                    const w0 = sq?.items?.[0];
+                    stableCover = String(
+                      w0?.cover_image || w0?.preview_image_url || w0?.cover_url ||
+                      w0?.cover_slides?.[0] || v?.poster || ""
+                    ).trim();
+                  }
+                  if (stableCover && typeof globalThis.cssmvSetCoverSlides === "function") {
+                    globalThis.cssmvSetCoverSlides([stableCover]);
+                  }
+                } catch (_ecov) {}
                 globalThis.cssmvStartCoverSlideshow?.({ mv: true, music: false });
                 v.addEventListener("playing", function __cssosRestoreVideo() {
                   v.removeEventListener("playing", __cssosRestoreVideo);

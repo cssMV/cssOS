@@ -1602,7 +1602,10 @@ body.longpress-guard * {
   --lyric-spellcast-secondary: rgba(0, 245, 160, 0.42);
   --lyric-spellcast-glow: rgba(132, 117, 255, 0.34);
   --lyric-spellcast-text: rgba(11, 247, 255, 0.44);
-  z-index: 999999 !important;
+  /* CSSOS_WAVE_351 z-index 收敛: 999999 → 10045. The casting logo lifts above
+     home-screen content (dock 10020) during a spellcast; it lives on the home
+     surface, never over watch/cinema, so it sits below the watch band (10050). */
+  z-index: 10045 !important;
 }
 
 .logo-panel::after {
@@ -7522,6 +7525,15 @@ html[data-panel-transparent="true"] .logo-panel {
   scrollbar-width: none;
 }
 
+/* W331 20260522 — Jing: AI助理面板打开时隐藏 Dock，两者不打架.
+ * body.cssos-agent-open 由 app.agent-chat.js togglePanel() 切换. */
+body.cssos-agent-open .dock {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transform: translateX(-50%) translateY(20px) scale(var(--dock-scale)) !important;
+  transition: opacity 0.2s ease, transform 0.2s ease !important;
+}
+
 .dock.hidden {
   opacity: 0;
   transform: translateX(-50%) translateY(20px) scale(var(--dock-scale));
@@ -9251,7 +9263,7 @@ html[data-panel-transparent="true"] .logo-panel {
   align-items: center;
   justify-content: center;
   background: rgba(3, 6, 5, 0.88);
-  z-index: 99999;
+  z-index: 10056; /* CSSOS_WAVE_351 z-index 收敛: 99999 → 10056 */
   pointer-events: none;
 }
 
@@ -10494,22 +10506,88 @@ html, body {
   padding-bottom: 0 !important;
 }
 /* Watch-specific: black canvas all the way to physical edges. */
+/* CSSOS_WAVE_330 20260522 — Jing: 真全屏消灭顶部黑色墓地.
+ * 根因: .panel 是 position:absolute (相对 .stage), is-cssmv-fullscreen
+ * 只设了 height/width, 面板仍受 .stage 的 padding-top:safe-area 挤开,
+ * 顶部留下一块黑色空白. 修复: position:fixed;inset:0 脱离 .stage 约束,
+ * 直接贴屏幕四边; transform:none 清除拖拽残留偏移.
+ * 搜索框/头像/退出键已用 top:calc(var(--cssos-notch-clear)+5px) 让位刘海,
+ * 媒体本身从 (0,0) 铺到屏幕底边, 无黑边. */
 #watch-panel.is-cssmv-fullscreen {
+  position: fixed !important;
+  inset: 0 !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
   height: 100dvh !important;
   width: 100dvw !important;
   max-height: 100dvh !important;
   max-width: 100dvw !important;
+  transform: none !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+}
+/* W336 20260522 — hide tabs in fullscreen cinema; the tabs bar was eating
+ * 52px of height and pushing the video down, leaving a black strip below. */
+#watch-panel.is-cssmv-fullscreen .watch-tabs {
+  display: none !important;
+}
+/* Progress bar floats over the video (position:absolute so it doesn't
+ * consume height in the flex column and cause a top black strip). */
+#watch-panel.is-cssmv-fullscreen .panel-progress-line {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  z-index: 10 !important;
+}
+/* CTA: already position:absolute inside watch-screen; adjust bottom
+ * anchor to respect home indicator in cinema fullscreen. */
+#watch-panel.is-cssmv-fullscreen .cssos-create-cta {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 20px) !important;
 }
 #watch-panel.is-cssmv-fullscreen .watch-frame,
 #watch-panel.is-cssmv-fullscreen .watch-screen {
-  height: 100dvh !important;
-  max-height: 100dvh !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  aspect-ratio: unset !important;
 }
-/* Remove the safe-area inset PADDING that was previously honoured
-   in fullscreen — we want the media to reach edges. The panel-bar
-   itself stays in the safe area via its own padding. */
-body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen {
+/* CSSOS_WAVE_330b 20260522 — Jing: 清零所有内部 padding/gap/margin,
+ * 让媒体从 (0,0) 真正铺满, 不留任何黑条.
+ * .panel-body 默认 padding:24px; .watch-body 默认 gap:16px; 这些
+ * 在全屏模式下全部归零, 媒体 + watch-screen/frame 直接贴到面板边缘. */
+body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen,
+#watch-panel.is-cssmv-fullscreen {
   padding: 0 !important;
+}
+body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen .panel-body,
+#watch-panel.is-cssmv-fullscreen .panel-body {
+  padding: 0 !important;
+  margin: 0 !important;
+  gap: 0 !important;
+  overflow: hidden !important;
+}
+body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen .watch-body,
+#watch-panel.is-cssmv-fullscreen .watch-body {
+  gap: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  /* W336 — single-row grid: active pane fills all remaining height */
+  grid-template-rows: 1fr !important;
+  height: 100% !important;
+}
+body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen .watch-frame,
+body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen .watch-pane,
+body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen .watch-pane.active,
+#watch-panel.is-cssmv-fullscreen .watch-frame,
+#watch-panel.is-cssmv-fullscreen .watch-pane,
+#watch-panel.is-cssmv-fullscreen .watch-pane.active {
+  padding: 0 !important;
+  margin: 0 !important;
+  height: 100% !important;
 }
 
 /* CSSOS_WAVE_246 20260520 — Jing: 回退 W242. 之前强行给 .watch-screen
@@ -10523,6 +10601,11 @@ body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen {
 #watch-panel.is-cssmv-fullscreen .watch-screen,
 #watch-panel.is-cssmv-fullscreen .watch-frame {
   border-radius: 0 !important;
+  /* CSSOS_WAVE_330b: 宽高全填, 无论父级尺寸如何 */
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
 }
 /* CSSOS_WAVE_243 20260520 — Jing: 候播条 (#cssos-up-next-strip) 本来就是
  * position:fixed 底部半透明浮层, 且只在播放结束前 ~10s 淡入 (JS 控制),

@@ -6574,7 +6574,10 @@ function ensureCinemaAutoHideModule() {
 #watch-panel.cssmv-cinema #watch-pill-row-bl,
 #watch-panel.cssmv-cinema #watch-aspect-pill,
 #watch-panel.cssmv-cinema #watch-author-avatar,
-#watch-panel.cssmv-cinema #watch-take-toggle {
+#watch-panel.cssmv-cinema #watch-take-toggle,
+/* W335 20260522 — ✕ and search box join the same opacity fade as avatar */
+#watch-panel.cssmv-cinema #watch-exit-cinema,
+#watch-panel.cssmv-cinema #watch-search-box {
   opacity: 0;
   pointer-events: none;
   /* CSSOS_WAVE_111D_CHROME_FADE 20260512 — Jing: "像流水般自然显示/隐藏，
@@ -6590,7 +6593,9 @@ function ensureCinemaAutoHideModule() {
 #watch-panel.cssmv-cinema.is-hovering #watch-pill-row-bl,
 #watch-panel.cssmv-cinema.is-hovering #watch-aspect-pill,
 #watch-panel.cssmv-cinema.is-hovering #watch-author-avatar,
-#watch-panel.cssmv-cinema.is-hovering #watch-take-toggle {
+#watch-panel.cssmv-cinema.is-hovering #watch-take-toggle,
+#watch-panel.cssmv-cinema.is-hovering #watch-exit-cinema,
+#watch-panel.cssmv-cinema.is-hovering #watch-search-box {
   opacity: 1;
   pointer-events: auto;
   /* Faster fade-in than fade-out — feels like responsive "appear" */
@@ -6722,7 +6727,7 @@ function openCreditGiftModal(recipientId, recipientName) {
   const overlay = document.createElement("div");
   overlay.className = "cssos-gift-modal";
   overlay.style.cssText = [
-    "position:fixed","inset:0","z-index:99998",
+    "position:fixed","inset:0","z-index:10054", /* CSSOS_WAVE_351 收敛: 99998 → 10054 (gift modal over watch) */
     "background:rgba(0,0,0,0.55)","backdrop-filter:blur(6px)",
     "display:flex","align-items:center","justify-content:center",
     "padding:20px","font:500 14px/1.4 -apple-system,system-ui,sans-serif",
@@ -7018,7 +7023,7 @@ function ensureAuthorAvatarModule() {
     const menu = document.createElement("div");
     menu.className = "cssos-author-menu";
     menu.style.cssText = [
-      "position:fixed", "z-index:99999", "min-width:240px",
+      "position:fixed", "z-index:10055", /* CSSOS_WAVE_351 收敛: 99999 → 10055 (author menu) */ "min-width:240px",
       "background:rgba(10,12,16,0.96)", "backdrop-filter:blur(20px) saturate(160%)",
       "border:1px solid rgba(255,255,255,0.16)", "border-radius:12px",
       "padding:6px", "box-shadow:0 12px 40px rgba(0,0,0,0.6)",
@@ -7166,7 +7171,7 @@ function ensureAuthorAvatarModule() {
         const sub = document.createElement("div");
         sub.className = "cssos-author-menu";
         sub.style.cssText = [
-          "position:fixed", "z-index:99999", "min-width:260px",
+          "position:fixed", "z-index:10056", /* CSSOS_WAVE_351 收敛: 99999 → 10056 (author submenu, above parent menu 10055) */ "min-width:260px",
           "background:rgba(10,12,16,0.96)", "backdrop-filter:blur(20px) saturate(160%)",
           "border:1px solid rgba(255,200,120,0.35)", "border-radius:12px",
           "padding:6px", "box-shadow:0 12px 40px rgba(0,0,0,0.6)",
@@ -8042,6 +8047,16 @@ function openWatchPanelShellModule(restoredLayout = false) {
 
 function openWatchPreviewShellModule({ fallbackTab = "mv", restoreAudio = false, center = false } = {}) {
   openPanel(watchPanel);
+  /* W333 — every openWatchPreviewShellModule entry path (search result,
+   * For You card, Works Center, share-link, queue advance…) must also
+   * fire the cinema layout + pre-paint so the panel arrives fullscreen
+   * with title+cover already showing, no black "cemetery" at top. */
+  try {
+    if (typeof globalThis.cssosEnterCinemaLayout === "function") {
+      globalThis.cssosEnterCinemaLayout();
+    }
+  } catch (_e) {}
+  prePaintLatestWorkOnPanelOpenModule();
   initWatchImmersiveScrollModule();
   ensureWatchProgressRotatorModule();
   activateWatchTab(resolvePreferredWatchOpenTab(fallbackTab));
@@ -10409,6 +10424,21 @@ function openCreationShowcasePanelsModule(options = {}) {
   if (options.focusTop !== false && watchPanel) {
     focusPanel(watchPanel);
   }
+  /* W333 — page-load auto-open: enter cinema layout + pre-paint title/cover
+   * + trigger auto-play of latest owned work (deferred so panels render first). */
+  try {
+    if (typeof globalThis.cssosEnterCinemaLayout === "function") {
+      globalThis.cssosEnterCinemaLayout();
+    }
+  } catch (_e) {}
+  prePaintLatestWorkOnPanelOpenModule();
+  requestAnimationFrame(() => {
+    void openWatchPreviewFlowModule({
+      preferLatestOwned: true,
+      preferredTab: "mv",
+      clearLimit: true,
+    });
+  });
   layoutShowcasePanels();
 }
 

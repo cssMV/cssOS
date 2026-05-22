@@ -104,7 +104,7 @@
     menuEl.hidden = true;
     Object.assign(menuEl.style, {
       position: "fixed",
-      zIndex: "99999",
+      zIndex: "10080", /* CSSOS_WAVE_351 z-index 收敛: 99999 → 10080 (above cinema/karaoke) */
       minWidth: "220px",
       maxWidth: "320px",
       padding: "8px",
@@ -126,7 +126,7 @@
     translatePopoverEl.hidden = true;
     Object.assign(translatePopoverEl.style, {
       position: "fixed",
-      zIndex: "100000",
+      zIndex: "10081", /* CSSOS_WAVE_351 z-index 收敛: 100000 → 10081 (above its own menu) */
       width: "min(420px, calc(100vw - 24px))",
       maxWidth: "calc(100vw - 24px)",
       padding: "14px",

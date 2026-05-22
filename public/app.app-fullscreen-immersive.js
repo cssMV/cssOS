@@ -38,6 +38,11 @@
       if (!window.matchMedia("(pointer: coarse)").matches) return false;
       if (window.matchMedia("(display-mode: standalone)").matches) return false;
       if (typeof navigator !== "undefined" && navigator.standalone === true) return false;
+      // CSSOS_WAVE_314 20260521 — Jing: 在 Capacitor App(html.cssos-app)里【不】用
+      // 网页 Fullscreen API 做沉浸. iOS WebKit 全屏会强加一个左上角原生 ✕ + "swipe
+      // down to exit" 提示(那个删不掉、点了只退全屏不退影院, 纯误会). App 的状态栏
+      // 沉浸由原生层负责(隐藏状态栏), 不该靠网页全屏. 桌面/普通浏览器不受影响.
+      if (document.documentElement.classList.contains("cssos-app")) return false;
       return true;
     } catch (_) { return false; }
   }

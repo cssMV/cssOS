@@ -189,46 +189,13 @@
         return el.tagName + (el.id ? "#" + el.id : "") + (c ? "." + c.trim().split(/\s+/).slice(0, 3).join(".") : "") +
           " " + Math.round(el.getBoundingClientRect().width) + "x" + Math.round(el.getBoundingClientRect().height);
       };
-      var killStrayClose = function () {
-        if (!inCinemaNow() || !document.elementsFromPoint) return;
-        var hits = [];
-        // 用网格【点探测】(便宜): 覆盖左上角(横屏~20 / 竖屏~150 两种位置)的若干点.
-        var xs = [24, 50, 80, 110], ys = [24, 60, 120, 170, 220];
-        var checked = [];
-        xs.forEach(function (x) {
-          ys.forEach(function (y) {
-            var stack = document.elementsFromPoint(x, y) || [];
-            for (var i = 0; i < stack.length; i++) {
-              var el = stack[i];
-              if (!el || checked.indexOf(el) !== -1) continue;
-              checked.push(el);
-              if (isProtected(el)) {
-                // 命中头像/搜索框/✕/Dock → 它们是合法的, 停止往下钻这条栈
-                // (再往下都是它们的祖先/媒体层).
-                if (el.id === "watch-author-avatar" || (el.closest && el.closest("#watch-author-avatar"))) break;
-                continue;
-              }
-              if (isStructural(el)) break; // 触达媒体/容器层 → 这条栈到底了
-              var er; try { er = el.getBoundingClientRect(); } catch (_e) { continue; }
-              if (er.width < 16 || er.height < 16 || er.width > 130 || er.height > 130) continue;
-              hideEl(el);
-              hits.push(idOf(el));
-            }
-          });
-        });
-        try { if (hits.length) ensureDbg().textContent = "killclose: " + hits.join("  |  "); } catch (_e) {}
-      };
-      killStrayClose();
-      [150, 400, 900, 1800, 3000].forEach(function (ms) { setTimeout(killStrayClose, ms); });
-      try {
-        new MutationObserver(killStrayClose).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style"] });
-      } catch (_e) {}
-      document.addEventListener("fullscreenchange", killStrayClose, { passive: true });
-      document.addEventListener("webkitfullscreenchange", killStrayClose, { passive: true });
-      // 进入影院 / 有操作时也补扫一遍(元素可能随 chrome 显隐重新出现).
-      ["pointerdown", "touchstart"].forEach(function (ev) {
-        document.addEventListener(ev, function () { setTimeout(killStrayClose, 50); }, { passive: true, capture: true });
-      });
+      // CSSOS_WAVE_314 20260521 — Jing: 真相 — 左上角那个 × 是【iOS WebKit 原生
+      // 全屏退出键】(Fullscreen API 自带, 还配 "swipe down to exit" 提示), 根本不在
+      // 我们 DOM 里, JS/CSS 删不掉. 之前 W308–W313 各种探测/隐藏全是徒劳, 甚至误伤
+      // 头像. 真正的修复在别处: App 端不再调原生 Fullscreen API(改用 CSS 全屏, 见
+      // app-fullscreen-immersive / market-commerce / watch-media-layout 的 W314 闸门),
+      // 那个原生 × 就不会出现. 这里的探测/诊断逻辑因此全部废弃(no-op), 避免误伤.
+      void isProtected; void hideEl; void looksLikeClose; void isStructural; void ensureDbg; void idOf;
     }
 
     input.addEventListener("input", function () {

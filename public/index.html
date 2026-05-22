@@ -2108,7 +2108,7 @@
          on the document so iOS hides the top time bar + auto-hides the
          home indicator after a few seconds of no touch. Touch devices
          only; PWA / standalone skipped (already chrome-less). -->
-    <script src="app.app-fullscreen-immersive.js?v=20260516-wave193-intent-scoped"></script>
+    <script src="app.app-fullscreen-immersive.js?v=20260521-w314-noappfs"></script>
     <!-- CSSOS_WAVE_194 — lock the app to portrait. Three layers:
          manifest "orientation":"portrait" handles PWA, screen.orientation
          .lock("portrait") covers Chrome Android, and an iOS Safari
@@ -2165,14 +2165,14 @@
          fetch is in flight before the rest of boot. The router waits
          for openMarketWorkPreview to be defined before invoking, so
          load-order timing isn't critical — this is just the head start. -->
-    <script src="app.share-link-router.js?v=20260520-w220c-cta-loop-fix"></script>
+    <script src="app.share-link-router.js?v=20260521-w314-noappfs"></script>
     <script src="app.share-dialog.js?v=20260506-share-link"></script>
     <script src="app.download-menu.js?v=20260506-phase-b"></script>
     <script src="app.mv-language-picker.js?v=20260520-tierc-c3"></script>
     <script src="app.mv-language-pill.js?v=20260520-tierc-c5c-syncsub"></script>
     <script src="app.up-next-strip.js?v=20260521-w277-countdown"></script>
     <!-- CSSOS_WAVE_286 — App 端 watch 顶部纯搜索框(异步检索+无限滚动+点击进队列). -->
-    <script src="app.watch-search.js?v=20260521-w313-killprobe-dbg"></script>
+    <script src="app.watch-search.js?v=20260521-w314-nativefsfix"></script>
     <!-- CSSOS_WAVE_294 — 可复用苹果风浮层搜索: 自动接管 [data-search-float="swipe"]
          的搜索壳(Works Center 等), 下滑显示/上滑隐藏. -->
     <script src="app.floating-search.js?v=20260521-w294-floatsearch"></script>
@@ -2263,7 +2263,7 @@
          the market panel loaded (crash-guard logged 35 hits/session).
          market-commerce is NOT an island; it must load eagerly. The
          mv-pipeline-panel lazy-load (a true island) stays. -->
-    <script src="app.market-commerce.js?v=20260521-w291-advsearch"></script>
+    <script src="app.market-commerce.js?v=20260521-w314-noappfs"></script>
     <!-- CSSOS_WAVE_220A 20260519 — Jing: title edit/refine button was
          implemented but never loaded. Wiring it in now. -->
     <script src="app.title-edit-refine.js?v=20260519-w220a-title-edit"></script>
@@ -2362,7 +2362,7 @@
     <script src="app.watch-music-ring.js?v=20260420-shared-arc-end-burst-1"></script>
     <script src="app.watch-media-chrome.js?v=20260506-pip-allow"></script>
     <script src="app.watch-media-overlays.js?v=20260516-wave207-title-cache-fix"></script>
-    <script src="app.watch-media-layout-p2100.js?v=20260521-w302-toggleLock"></script>
+    <script src="app.watch-media-layout-p2100.js?v=20260521-w314-noappfs"></script>
     <!-- CSSMV_POPUPS_THEME_FIX 20260425 #108 — Jing: light-theme paint
          for popups + clear lingering toast/info popover on watch close. -->
     <script src="app.popups-theme-fix.js?v=20260425-p2-108-popups-theme-1"></script>

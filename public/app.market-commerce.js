@@ -1097,11 +1097,15 @@ async function openMarketWorkPreview(work = {}, options = {}) {
   //     options.skipFullscreen (set by silent prefetch paths).
   try {
     const skip = options && options.skipFullscreen === true;
+    // CSSOS_WAVE_314 20260521 — Jing: App 端不调原生全屏 API(避免 iOS 原生左上角 ✕
+    // + "swipe down to exit"). 影院全屏由 CSS 实现(style.css W288). 桌面不受影响.
+    let isApp314c = false;
+    try { isApp314c = document.documentElement.classList.contains("cssos-app"); } catch (_e) {}
     const userOptOut = (() => {
       try { return localStorage.getItem("cssos:noAutoFullscreen") === "1"; }
       catch (_e) { return false; }
     })();
-    if (!skip && !userOptOut && !document.fullscreenElement
+    if (!isApp314c && !skip && !userOptOut && !document.fullscreenElement
         && !document.webkitFullscreenElement) {
       const frame = document.querySelector("#watch-panel .watch-frame")
         || document.getElementById("watch-frame");

@@ -1106,8 +1106,20 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
       e.stopPropagation();
       const panel = document.getElementById("watch-panel");
       if (!panel) return;
+      // CSSOS_WAVE_314 20260521 — Jing: App 端用 CSS 全屏(不调原生 Fullscreen API,
+      // 避免 iOS 原生左上角 ✕ + swipe 提示). 只切 class, 不碰 requestFullscreen.
+      var isApp314 = false;
+      try { isApp314 = document.documentElement.classList.contains("cssos-app"); } catch (_e) {}
       const inFS = !!document.fullscreenElement;
       try {
+        if (isApp314) {
+          applyScreenAspectRatio();
+          var nowOn = !panel.classList.contains("is-cssmv-fullscreen");
+          panel.classList.toggle("is-cssmv-fullscreen", nowOn);
+          document.body.classList.toggle("cssos-cinema-mode", nowOn);
+          if (!nowOn) document.body.classList.remove("cssos-watch-theater", "cssos-watch-idle");
+          return;
+        }
         if (inFS) {
           await document.exitFullscreen();
           panel.classList.remove("is-cssmv-fullscreen");
@@ -1178,6 +1190,12 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
       globalThis.cssosRequestBrowserFullscreen = async function () {
         const panel = document.getElementById("watch-panel");
         if (!panel) return;
+        // CSSOS_WAVE_314 20260521 — Jing: App 端【不】调原生全屏 API. iOS WebKit 在
+        // Fullscreen API 下会自己加一个左上角原生 ✕ + "Swipe down to exit" 提示, 那个
+        // × 不在我们 DOM 里、删不掉、点了只退出全屏却不退影院, 纯属误会. App 里影院
+        // 全屏完全由 CSS(position:fixed;inset:0;100dvh, 见 style.css W288)实现, 无需
+        // 原生全屏 → 也就没有那个原生 ×. 桌面浏览器仍走原生全屏(它没这问题).
+        try { if (document.documentElement.classList.contains("cssos-app")) return; } catch (_e) {}
         if (document.fullscreenElement) return;
         // Snapshot audio state so the fullscreen reflow can't mute us.
         const v = document.getElementById("watch-video");
@@ -1265,7 +1283,10 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
             }
           } catch (_e) {}
         };
-        if (!document.fullscreenElement) {
+        // CSSOS_WAVE_314 — App 端不调原生全屏(避免 iOS 原生 ✕). CSS 已全屏.
+        var isApp314b = false;
+        try { isApp314b = document.documentElement.classList.contains("cssos-app"); } catch (_e) {}
+        if (!isApp314b && !document.fullscreenElement) {
           try {
             const fn =
               panel.requestFullscreen ||

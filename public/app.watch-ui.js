@@ -6595,29 +6595,35 @@ function ensureAuthorAvatarModule() {
         img.alt = ownerName || "author";
         img.style.cssText = "width:100%;height:100%;object-fit:cover;";
         avatar.appendChild(img);
+        // 有头像图 → 还原默认深色底(图会盖住, 但保持干净).
+        try { avatar.style.removeProperty("background"); } catch (_e) {}
       } else {
         // Fallback: initials.
         const initial = (ownerName || "?").trim().charAt(0).toUpperCase();
         avatar.textContent = initial;
+        // CSSOS_WAVE_318 20260521 — Jing: 未登录/无作者的空「?」圈太黑, 给个随机色底,
+        // 比死黑好看. 仅在"无头像图"时染色; 有真头像时还原(见上).
+        try {
+          var h = Math.floor(Math.random() * 360);
+          avatar.style.setProperty("background", "hsl(" + h + ",65%,48%)", "important");
+        } catch (_e) {}
       }
     } catch (_e) {}
   };
   refresh();
-  avatar.addEventListener("click", () => {
+  /* CSSOS_WAVE_200 20260516 — Jing: "短剧用户头像，显示小菜单，进入该用户
+   * 的作品中心面板，只播放该用户的作品。关注/屏蔽/赠送礼物等用户之间的
+   * 互助行为". Replace the single-click insta-filter with a click → menu
+   * that exposes all four user-to-user interaction surfaces. The old
+   * filter behavior is preserved as the FIRST menu item (one extra click
+   * but you get the other three options for free). */
+  const playOnlyTheirWorks = (ownerId, ownerName) => {
     try {
       const pl = globalThis.cssosPlaylists;
       if (!pl) return;
-      const ownerId = avatar.dataset.ownerId;
-      const ownerName = avatar.title.replace(/^By |\s—.*$/g, "").trim() || "Author";
-      if (!ownerId) {
-        if (typeof globalThis.showToast === "function") globalThis.showToast("Author info unavailable on this work.");
-        return;
-      }
-      // Find or create a synthetic per-author playlist.
       const listId = `author-${ownerId}`;
       const existing = pl.lists().find((l) => l.id === listId);
       if (!existing) {
-        // Pull all known items from for-you / mine and filter by owner.
         const seen = new Set();
         const collected = [];
         ["for-you", "mine"].forEach((srcId) => {

@@ -912,3 +912,30 @@
 .cinema-hero-progress-stages > .cinema-hero-progress-chip.active ~ .cinema-hero-progress-chip {
   border-radius: 0 999px 999px 0;
 }
+/* CSSOS_WAVE_346 20260522 — Jing: 找回总进度条. .cinema-hero-progress-bar / -fill
+ * 一直没 CSS → 0 高度看不见(只剩 % 文字). 补回那条好看的青绿渐变填充条 + 居中百分比. */
+.cinema-hero-progress-bar {
+  position: relative;
+  height: 8px;
+  margin: 8px auto 4px;
+  width: 100%;
+  max-width: 720px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.cinema-hero-progress-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #00f5a0, #0bf7ff);
+  box-shadow: 0 0 12px rgba(0, 245, 160, 0.6);
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.cinema-hero-progress-pct {
+  text-align: center;
+  font: 700 12px/1.3 ui-monospace, monospace;
+  color: #00f5a0;
+  letter-spacing: 0.08em;
+  margin-top: 2px;
+}

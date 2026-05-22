@@ -157,41 +157,66 @@
         } catch (_e) {}
         return false;
       };
+      // 媒体/容器层: 绝不隐藏(否则黑屏).
+      var isStructural = function (el) {
+        if (!el || el === document.body || el === document.documentElement) return true;
+        if (el.id === "watch-panel") return true;
+        if (el.classList && (el.classList.contains("watch-screen") || el.classList.contains("watch-frame") ||
+          el.classList.contains("watch-video") || el.classList.contains("watch-svg") ||
+          el.classList.contains("panel-body") || el.classList.contains("watch-body") ||
+          el.classList.contains("watch-pane"))) return true;
+        if (el.tagName === "VIDEO" || el.tagName === "IMG" || el.tagName === "CANVAS" || el.tagName === "svg") {
+          // 媒体本体不动, 但小尺寸的图标 svg 可以删 —— 交给下方尺寸判断.
+        }
+        return false;
+      };
+      // CSSOS_WAVE_313 20260521 — Jing: 第5次了, 必须删掉左上角那个 ×. 之前按"像关闭键"
+      // 收得太窄(它可能是无字形无 aria 的 svg/div, 漏网). 现在【按位置兜底】: 影院里
+      // 左上角小元素, 只要不是白名单(头像/搜索框/✕/Dock)也不是媒体容器, 一律隐藏 ——
+      // 与标签/字形无关. 同时把命中的元素身份写进一个底部小横幅(诊断), 这样万一误伤
+      // 或漏网, 你截一张图我就能看到它到底是谁、精准处理. 头像 id 在白名单里, 不会被删.
+      var dbg = null;
+      var ensureDbg = function () {
+        if (dbg && document.body.contains(dbg)) return dbg;
+        dbg = document.createElement("div");
+        dbg.id = "cssos-killclose-dbg";
+        dbg.style.cssText = "position:fixed;left:6px;bottom:6px;z-index:2147483647;max-width:92vw;padding:4px 8px;background:rgba(255,40,40,0.92);color:#fff;font:600 10px/1.3 ui-monospace,monospace;border-radius:8px;pointer-events:none;white-space:pre-wrap;word-break:break-all;";
+        document.body.appendChild(dbg);
+        return dbg;
+      };
+      var idOf = function (el) {
+        var c = (el.className && el.className.toString && el.className.toString()) || "";
+        return el.tagName + (el.id ? "#" + el.id : "") + (c ? "." + c.trim().split(/\s+/).slice(0, 3).join(".") : "") +
+          " " + Math.round(el.getBoundingClientRect().width) + "x" + Math.round(el.getBoundingClientRect().height);
+      };
       var killStrayClose = function () {
-        if (!inCinemaNow()) return;
-        // ① 选择器扫描: 只清左上角区域【像关闭键】的小按钮(非白名单).
-        document.querySelectorAll("button, [role=button], a, .icon-btn").forEach(function (el) {
-          if (isProtected(el) || !looksLikeClose(el)) return;
-          var r; try { r = el.getBoundingClientRect(); } catch (_e) { return; }
-          if (!r || r.width <= 0 || r.height <= 0 || r.width > 140 || r.height > 140) return;
-          if (r.left < 260 && r.top < 360) hideEl(el);
-        });
-        // ② 几何探测: 盖在头像上、且【像关闭键】的小元素才隐藏(到头像即停). 头像本身
-        //    无 × 无 close 语义 → 绝不会被命中, 不再误伤.
-        try {
-          var av = document.getElementById("watch-author-avatar");
-          if (av && document.elementsFromPoint) {
-            var ar = av.getBoundingClientRect();
-            if (ar.width > 0) {
-              var probes = [
-                [ar.left + ar.width / 2, ar.top + ar.height / 2],
-                [ar.left + 6, ar.top + 6],
-                [ar.left + ar.width - 6, ar.top + ar.height - 6],
-              ];
-              probes.forEach(function (pt) {
-                var stack = document.elementsFromPoint(pt[0], pt[1]) || [];
-                for (var i = 0; i < stack.length; i++) {
-                  var el = stack[i];
-                  if (!el) continue;
-                  if (el === av || (el.closest && el.closest("#watch-author-avatar"))) break; // 到头像了, 停
-                  if (isProtected(el) || !looksLikeClose(el)) continue;
-                  var er; try { er = el.getBoundingClientRect(); } catch (_e) { continue; }
-                  if (er.width > 0 && er.height > 0 && er.width < 140 && er.height < 140) hideEl(el);
-                }
-              });
+        if (!inCinemaNow() || !document.elementsFromPoint) return;
+        var hits = [];
+        // 用网格【点探测】(便宜): 覆盖左上角(横屏~20 / 竖屏~150 两种位置)的若干点.
+        var xs = [24, 50, 80, 110], ys = [24, 60, 120, 170, 220];
+        var checked = [];
+        xs.forEach(function (x) {
+          ys.forEach(function (y) {
+            var stack = document.elementsFromPoint(x, y) || [];
+            for (var i = 0; i < stack.length; i++) {
+              var el = stack[i];
+              if (!el || checked.indexOf(el) !== -1) continue;
+              checked.push(el);
+              if (isProtected(el)) {
+                // 命中头像/搜索框/✕/Dock → 它们是合法的, 停止往下钻这条栈
+                // (再往下都是它们的祖先/媒体层).
+                if (el.id === "watch-author-avatar" || (el.closest && el.closest("#watch-author-avatar"))) break;
+                continue;
+              }
+              if (isStructural(el)) break; // 触达媒体/容器层 → 这条栈到底了
+              var er; try { er = el.getBoundingClientRect(); } catch (_e) { continue; }
+              if (er.width < 16 || er.height < 16 || er.width > 130 || er.height > 130) continue;
+              hideEl(el);
+              hits.push(idOf(el));
             }
-          }
-        } catch (_e) {}
+          });
+        });
+        try { if (hits.length) ensureDbg().textContent = "killclose: " + hits.join("  |  "); } catch (_e) {}
       };
       killStrayClose();
       [150, 400, 900, 1800, 3000].forEach(function (ms) { setTimeout(killStrayClose, ms); });

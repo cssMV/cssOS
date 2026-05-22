@@ -213,6 +213,8 @@ function providerLogoOnlyModule(platformId) {
 function renderLoginPlatformsModule() {
   if (!loginList) return;
   loginList.innerHTML = "";
+  const _summaryHost = document.getElementById("login-summary-host");
+  if (_summaryHost) _summaryHost.innerHTML = "";
   const behavior = readPanelBehaviorSettingsLocal();
   const enabledMap = new Map(
     authProviders.map((provider) => [
@@ -320,7 +322,8 @@ function renderLoginPlatformsModule() {
       </div>
     `;
   }
-  loginList.appendChild(summary);
+  const summaryHost = document.getElementById("login-summary-host");
+  (summaryHost || loginList).appendChild(summary);
   summary.querySelector("[data-login-open-subscription]")?.addEventListener("click", () => {
     openSubscriptionPanelModule?.();
   });

@@ -3015,6 +3015,15 @@ async function openLatestOwnedWorkPreviewModule() {
         _bd.style.backgroundSize = "cover";
         _bd.style.backgroundPosition = "center";
       }
+      // CSSOS_WAVE_335 20260522 — Jing: 防"黑屏让用户傻等". 空的 <video>(无真实可播
+      // src)是 display:block 会用一块黑盖住封面(纯音乐作品没视频时尤甚). 进入时若视频
+      // 还没真实 src → 先隐藏视频, 让稳定封面/背景透出来; 真有视频能播时(setWatch-
+      // VideoFromArtifact)再显示. 这样要么稳定封面、要么播视频, 绝不留黑屏.
+      const _v = document.getElementById("watch-video");
+      if (_v) {
+        const _vs = String(_v.getAttribute("src") || _v.src || "").trim();
+        if (!_vs || /^data:image\/svg/i.test(_vs)) { _v.style.display = "none"; }
+      }
     }
   } catch (_e) { /* non-fatal */ }
   globalThis.cssosBindToWorkId?.(latestWork); // CSSOS_WAVE_121 Step 2

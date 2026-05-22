@@ -80,7 +80,8 @@
        * 高级设置「音乐来源上传」子 Tab 一致的【分段胶囊】: 整条是一个药丸轨道,
        * 激活项变成完整药丸(两头凸/着色), 相邻未激活项朝激活项凹陷
        * (前者右端切平、后者左端切平). 等同 .msrc-tabbar 的"胶囊宪法". */
-      "#person-mv-panel .civ-mv-tabs{display:flex;gap:0;padding:4px;margin:10px 12px 6px;background:rgba(0,245,160,0.10);border:1px solid rgba(0,245,160,0.30);border-radius:999px;align-items:stretch;overflow-x:auto;scrollbar-width:none;}" +
+      "#person-mv-panel .civ-mv-toprow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 12px 4px;}" +
+      "#person-mv-panel .civ-mv-tabs{display:flex;gap:0;padding:4px;margin:0;background:rgba(0,245,160,0.10);border:1px solid rgba(0,245,160,0.30);border-radius:999px;align-items:stretch;overflow-x:auto;scrollbar-width:none;}" +
       "#person-mv-panel .civ-mv-tabs::-webkit-scrollbar{display:none;}" +
       "#person-mv-panel .civ-mv-tab{all:unset;flex:1 1 auto;min-width:max-content;display:inline-flex;align-items:center;justify-content:center;gap:6px;box-sizing:border-box;cursor:pointer;padding:9px 16px;border-radius:0;border:0;background:transparent;color:rgba(218,255,238,0.78);font:600 13px/1.2 -apple-system,system-ui,sans-serif;white-space:nowrap;transition:background .15s ease, color .15s ease;}" +
       "#person-mv-panel .civ-mv-tab:hover:not(.active){background:rgba(0,245,160,0.14);color:#daffee;}" +
@@ -92,7 +93,7 @@
        * 兜底色, 防止 JS 没跑到时纯透明. hover 用统一淡青(见上 .civ-mv-tab:hover). */
       "#person-mv-panel .civ-mv-tab.active{background:hsla(150,80%,55%,0.55);}" +
       "#person-mv-panel .person-mv-toolbar{" +
-        "display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px;align-items:center;" +
+        "display:flex;flex-wrap:wrap;gap:8px;padding:4px 12px 10px;align-items:center;" +
         "border-bottom:1px solid rgba(0,245,160,0.18);" +
       "}" +
       "#person-mv-panel .person-mv-search{" +
@@ -100,14 +101,17 @@
         "border:1px solid rgba(0,245,160,0.18);border-radius:8px;" +
         "padding:6px 10px;color:#daffee;font:500 12px/1.2 ui-monospace,monospace;" +
       "}" +
-      "#person-mv-panel .person-mv-tier-btn{" +
-        "all:unset;cursor:pointer;padding:6px 12px;border-radius:8px;" +
-        "background:rgba(0,245,160,0.08);" +
-        "border:1px solid rgba(0,245,160,0.22);" +
-        "color:#daffee;font:600 11px/1 ui-monospace,monospace;letter-spacing:.04em;" +
+      /* tier-btn: inside data-segmented track — let constitution handle shape/bg */
+      "#person-mv-panel .person-mv-sort-group .person-mv-tier-btn{" +
+        "all:unset;cursor:pointer;box-sizing:border-box;" +
+        "flex:1 1 auto;min-width:max-content;" +
+        "display:inline-flex;align-items:center;justify-content:center;" +
+        "padding:6px 14px;border:0;" +
+        "color:rgba(218,255,238,0.78);font:600 12px/1.2 -apple-system,system-ui,sans-serif;" +
+        "white-space:nowrap;transition:background .15s ease,color .15s ease;" +
       "}" +
-      "#person-mv-panel .person-mv-tier-btn.active{" +
-        "background:rgba(0,245,160,0.85);color:#001b14;" +
+      "#person-mv-panel .person-mv-sort-group .person-mv-tier-btn.active{" +
+        "color:#fff;font-weight:700;" +
       "}" +
       "#person-mv-panel .person-mv-civ-select{" +
         "background:rgba(8,18,16,0.55);border:1px solid rgba(0,245,160,0.18);" +
@@ -470,20 +474,19 @@
         '</div>' +
       '</div>' +
       '<div class="panel-body">' +
-        '<div class="civ-mv-tabs" role="tablist" data-segmented="2">' +
-          '<button class="civ-mv-tab active" data-civ-mode="people" type="button">👤 ' + escapeText(tt("People", "人物")) + '</button>' +
-          '<button class="civ-mv-tab" data-civ-mode="landmarks" type="button">🏛 ' + escapeText(tt("Landmarks", "名迹")) + '</button>' +
+        '<div class="civ-mv-toprow">' +
+          '<div class="civ-mv-tabs" role="tablist" data-segmented="2">' +
+            '<button class="civ-mv-tab active" data-civ-mode="people" type="button">👤 ' + escapeText(tt("People", "人物")) + '</button>' +
+            '<button class="civ-mv-tab" data-civ-mode="landmarks" type="button">🏛 ' + escapeText(tt("Landmarks", "名迹")) + '</button>' +
+          '</div>' +
+          '<div class="person-mv-sort-group" data-segmented="2">' +
+            '<button class="person-mv-tier-btn active" data-tier="1" type="button">' + tt("Influence", "影响力") + '</button>' +
+            '<button class="person-mv-tier-btn" data-tier="2" type="button">' + tt("Civilization", "文明") + '</button>' +
+          '</div>' +
         '</div>' +
         '<div class="person-mv-toolbar">' +
           '<input class="person-mv-search" type="search" placeholder="' +
             tt("Search by name, civilization, theme…", "按姓名 / 文明 / 主题搜索") + '" />' +
-          /* Sort mode: Influence / Civilization → segmented=2 */
-          '<div class="person-mv-sort-group" data-segmented="2">' +
-            '<button class="person-mv-tier-btn active" data-tier="1">' +
-              tt("Influence", "影响力") + '</button>' +
-            '<button class="person-mv-tier-btn" data-tier="2">' +
-              tt("Civilization", "文明") + '</button>' +
-          '</div>' +
           /* CSSOS_PERSON_MV_WAVE58 — S/A/B curation-tier filter chips → segmented=4 */
           '<div class="person-mv-curation-tier" data-segmented="4">' +
             '<button class="person-mv-ctier-btn active" data-ctier="S" title="' +

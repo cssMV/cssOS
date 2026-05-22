@@ -9254,10 +9254,12 @@
       '.cinema-hero-progress-chip.active { background:hsla(var(--chip-hue,150),85%,55%,.28); border-color:hsla(var(--chip-hue,150),90%,65%,.85); color:#fff; animation:cssos-chip-breathe 1.6s ease-in-out infinite; }' +
       '@keyframes cssos-chip-breathe { 0%, 100% { box-shadow: 0 0 0 0 hsla(var(--chip-hue,150),90%,60%,.45), 0 0 8px 1px hsla(var(--chip-hue,150),90%,60%,.25) inset; transform: translateY(0) scale(1); } 50% { box-shadow: 0 0 16px 5px hsla(var(--chip-hue,150),95%,65%,.6), 0 0 18px 4px hsla(var(--chip-hue,150),95%,65%,.4) inset; transform: translateY(-2px) scale(1.06); } }' +
       '.cinema-hero-progress-chip.done { background:rgba(0,245,160,.28); border-color:rgba(0,245,160,.85); color:#001a10; }' +
-      '.cinema-hero-progress-bar { position:relative; height:6px; border-radius:999px; background:rgba(255,255,255,.08); overflow:hidden; }' +
-      '.cinema-hero-progress-fill { height:100%; width:0%; background:linear-gradient(90deg,#ff5e62,#ff9966,#ffe066,#7afca6,#5cc8ff,#9b8cff,#ff5edc); background-size:200% 100%; animation:cssos-cinema-rainbow 6s linear infinite; transition:width .35s ease-out; }' +
-      '@keyframes cssos-cinema-rainbow { 0% { background-position:0% 50%; } 100% { background-position:200% 50%; } }' +
-      '.cinema-hero-progress-pct { font:700 12px/1 ui-monospace,monospace; color:rgba(218,255,238,.78); text-align:center; letter-spacing:.06em; }' +
+      /* CSSOS_WAVE_352 20260522 — Jing「总进度条又不见了」: 这里曾内联一份
+       * .cinema-hero-progress-bar / -fill / -pct (6px、track 仅 .08、彩虹填充),
+       * 因为是运行时 appendChild 注入 <head>, 会【晚于】静态 style.mv-pipeline.css
+       * 加载 → 同特异性下后者被覆盖, W346 那条好看的青绿发光 8px 总进度条在
+       * 影院里被这份暗淡的 6px 彩虹条压掉(14% 时几乎看不见). 现已删除这份重复
+       * 定义, 让 W346 的单一定义在影院/面板里统一生效. */
       /* CSSOS_WAVE_349 20260522 — Jing「边出边播」逐阶段揭示样式. */
       /* 封面"若隐若现"幻灯层: 真封面淡入 + 缓慢 ken-burns 呼吸缩放. */
       '#cssos-cinema-stage .cinema-hero-cover, .panel[data-cinema="true"] .cinema-hero-cover { position:absolute; inset:0; background-size:cover; background-position:center; opacity:0; transition:opacity 1.6s ease; pointer-events:none; z-index:0; }' +

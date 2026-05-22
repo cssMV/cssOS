@@ -51,6 +51,24 @@
       "transition:transform .28s cubic-bezier(.4,0,.2,1), opacity .28s ease",
     ].join(";");
 
+    // CSSOS_WAVE_326 — 搜索框结构: 外层 inputWrap(相对定位, 内嵌 🔍 图标 + input).
+    // App 全屏: 头像/✕ 在屏幕两角夹着 → inputWrap 两侧让位 52px(内联默认).
+    // 桌面: 头像/✕ 已移进媒体框, 搜索框无需让位 → CSS 收窄居中(见 style.css).
+    var inputWrap = document.createElement("div");
+    inputWrap.id = "watch-search-inputwrap";
+    inputWrap.style.cssText = [
+      "position:relative", "pointer-events:auto", "box-sizing:border-box",
+      "align-self:stretch", "margin:0 52px",
+    ].join(";");
+
+    var searchIcon = document.createElement("span");
+    searchIcon.textContent = "🔍";
+    searchIcon.setAttribute("aria-hidden", "true");
+    searchIcon.style.cssText = [
+      "position:absolute", "left:16px", "top:50%", "transform:translateY(-50%)",
+      "font-size:14px", "line-height:1", "opacity:0.85", "pointer-events:none",
+    ].join(";");
+
     input = document.createElement("input");
     input.id = "watch-search-input";
     input.type = "search";
@@ -58,13 +76,12 @@
     input.placeholder = tr("Search MVs, creators, styles…", "搜索 MV / 作者 / 风格…");
     input.setAttribute("aria-label", tr("Search MVs", "搜索 MV"));
     input.style.cssText = [
-      // CSSOS_WAVE_293 — 输入框两侧各留 ~52px: 左给作者头像、右给退出影院按钮,
-      // 两边对称, 头像不再被搜索框盖住.
-      "pointer-events:auto", "width:auto", "box-sizing:border-box", "margin:0 52px",
+      "pointer-events:auto", "width:100%", "box-sizing:border-box", "margin:0",
       "background:rgba(0,0,0,0.55)", "backdrop-filter:blur(12px)",
       "-webkit-backdrop-filter:blur(12px)", "border:1px solid rgba(0,245,160,0.45)",
       "border-radius:999px", "color:#fff", "font:500 15px/1.2 -apple-system,system-ui,sans-serif",
-      "padding:11px 18px", "outline:none",
+      // 左侧 42px 留给内嵌 🔍 图标.
+      "padding:11px 18px 11px 42px", "outline:none",
       "box-shadow:0 4px 16px rgba(0,0,0,0.4)",
     ].join(";");
 
@@ -78,7 +95,9 @@
       "border-radius:14px", "padding:8px", "box-shadow:0 16px 40px rgba(0,0,0,0.55)",
     ].join(";");
 
-    box.appendChild(input);
+    inputWrap.appendChild(searchIcon);
+    inputWrap.appendChild(input);
+    box.appendChild(inputWrap);
     box.appendChild(results);
     panel.appendChild(box);
 
@@ -92,8 +111,9 @@
       exitBtn.title = tr("Exit cinema", "退出影院");
       exitBtn.textContent = "✕";
       exitBtn.style.cssText = [
-        // CSSOS_WAVE_304 — 让位刘海(max(safe-area,50px)保底), 与头像/搜索框一行.
-        "position:absolute", "top:calc(env(safe-area-inset-top,0px) + 5px)", "right:10px",
+        // CSSOS_WAVE_326 — ✕ 放进媒体框右上角, 与左上角头像(left:12 top:12)对称.
+        // (改为 append 到 .watch-screen; App 全屏帧=满屏, 由 style.css 让位刘海.)
+        "position:absolute", "top:12px", "right:12px",
         "z-index:61", "width:40px", "height:40px", "border-radius:50%",
         "border:1px solid rgba(255,255,255,0.55)", "background:rgba(0,0,0,0.55)",
         "backdrop-filter:blur(8px)", "-webkit-backdrop-filter:blur(8px)",
@@ -127,7 +147,7 @@
           else if (pnl) pnl.classList.add("hidden");
         } catch (_e) { try { if (pnl) pnl.classList.add("hidden"); } catch (_e2) {} }
       });
-      panel.appendChild(exitBtn);
+      (panel.querySelector(".watch-screen") || panel).appendChild(exitBtn);
       // CSSOS_WAVE_311 20260521 — Jing: "步调一致" — ✕ 必须和头像/搜索框/Dock 完全
       // 同显同隐. 因此【不】给它独立控制器(W309 那样会一个显一个不显, 不协调), 而是
       // 放回 index.html 的统一 idle 系统(CHROME_SELECTORS 已含 #watch-exit-cinema),

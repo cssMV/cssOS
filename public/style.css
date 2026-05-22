@@ -885,20 +885,18 @@ html[data-theme="light"] .dock-label {
  * .person-mv-toolbar, and future toolbars, benefit from this override. */
 .person-mv-toolbar [data-segmented],
 .person-mv-toolbar .cssmv-pill-bar,
-.civ-mv-toprow [data-segmented],
 .civ-mv-toprow .cssmv-pill-bar {
   margin: 0 !important;
-  height: 34px !important;
-  min-height: 34px !important;
+  height: 36px !important;
+  min-height: 36px !important;
 }
 .person-mv-toolbar [data-segmented] > *,
 .person-mv-toolbar .cssmv-pill-bar > *,
-.civ-mv-toprow [data-segmented] > *,
 .civ-mv-toprow .cssmv-pill-bar > * {
-  height: 34px;
-  min-height: 34px;
-  max-height: 34px;
-  line-height: 34px;
+  height: 36px;
+  min-height: 36px;
+  max-height: 36px;
+  line-height: 36px;
 }
 
 .icon-btn {

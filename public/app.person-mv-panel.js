@@ -80,18 +80,20 @@
        * 高级设置「音乐来源上传」子 Tab 一致的【分段胶囊】: 整条是一个药丸轨道,
        * 激活项变成完整药丸(两头凸/着色), 相邻未激活项朝激活项凹陷
        * (前者右端切平、后者左端切平). 等同 .msrc-tabbar 的"胶囊宪法". */
-      "#person-mv-panel .civ-mv-toprow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 12px 4px;}" +
-      "#person-mv-panel .civ-mv-tabs{display:flex;gap:0;padding:4px;margin:0;background:rgba(0,245,160,0.10);border:1px solid rgba(0,245,160,0.30);border-radius:999px;align-items:stretch;overflow-x:auto;scrollbar-width:none;}" +
-      "#person-mv-panel .civ-mv-tabs::-webkit-scrollbar{display:none;}" +
-      "#person-mv-panel .civ-mv-tab{all:unset;flex:1 1 auto;min-width:max-content;display:inline-flex;align-items:center;justify-content:center;gap:6px;box-sizing:border-box;cursor:pointer;padding:9px 16px;border-radius:0;border:0;background:transparent;color:rgba(218,255,238,0.78);font:600 13px/1.2 -apple-system,system-ui,sans-serif;white-space:nowrap;transition:background .15s ease, color .15s ease;}" +
-      "#person-mv-panel .civ-mv-tab:hover:not(.active){background:rgba(0,245,160,0.14);color:#daffee;}" +
-      "#person-mv-panel .civ-mv-tab.active{border-radius:999px !important;border:0 !important;color:#fff;font-weight:700;}" +
-      "#person-mv-panel .civ-mv-tabs > .civ-mv-tab:has(~ .civ-mv-tab.active){border-radius:999px 0 0 999px !important;}" +
-      "#person-mv-panel .civ-mv-tabs > .civ-mv-tab.active ~ .civ-mv-tab{border-radius:0 999px 999px 0 !important;}" +
-      /* CSSOS_WAVE_310 20260521 — Jing: 激活胶囊【随机色, 每次都不一样】(不是按位置
-       * 固定色). 颜色由 JS 每次激活时随机一个色相写到 inline background; 这里只留一个
-       * 兜底色, 防止 JS 没跑到时纯透明. hover 用统一淡青(见上 .civ-mv-tab:hover). */
-      "#person-mv-panel .civ-mv-tab.active{background:hsla(150,80%,55%,0.55);}" +
+      /* W306b — unified scrollable pill track wraps the cssmv-pill-bar */
+      "#person-mv-panel .civ-mv-toprow{padding:10px 12px 0;}" +
+      /* The track itself: constitution handles bg/border/radius; just reset margin */
+      "#person-mv-panel .civ-mv-tabs{margin:0 !important;}" +
+      /* All children share the same pill-child look */
+      "#person-mv-panel .civ-mv-tabs > *{" +
+        "all:unset;flex:0 0 auto;min-width:max-content;display:inline-flex;" +
+        "align-items:center;justify-content:center;gap:5px;box-sizing:border-box;" +
+        "cursor:pointer;padding:6px 14px;border:0;" +
+        "color:rgba(218,255,238,0.78);font:600 12px/1.2 -apple-system,system-ui,sans-serif;" +
+        "white-space:nowrap;transition:background .15s ease,color .15s ease;" +
+      "}" +
+      "#person-mv-panel .civ-mv-tabs > *:hover:not(.active){background:rgba(0,245,160,0.14)!important;color:#daffee;}" +
+      "#person-mv-panel .civ-mv-tabs > *.active{color:#fff!important;font-weight:700;}" +
       "#person-mv-panel .person-mv-toolbar{" +
         "display:flex;flex-wrap:wrap;gap:8px;padding:4px 12px 10px;align-items:center;" +
         "border-bottom:1px solid rgba(0,245,160,0.18);" +
@@ -100,18 +102,6 @@
         "flex:1 1 200px;background:rgba(8,18,16,0.55);" +
         "border:1px solid rgba(0,245,160,0.18);border-radius:8px;" +
         "padding:6px 10px;color:#daffee;font:500 12px/1.2 ui-monospace,monospace;" +
-      "}" +
-      /* tier-btn: inside data-segmented track — let constitution handle shape/bg */
-      "#person-mv-panel .person-mv-sort-group .person-mv-tier-btn{" +
-        "all:unset;cursor:pointer;box-sizing:border-box;" +
-        "flex:1 1 auto;min-width:max-content;" +
-        "display:inline-flex;align-items:center;justify-content:center;" +
-        "padding:6px 14px;border:0;" +
-        "color:rgba(218,255,238,0.78);font:600 12px/1.2 -apple-system,system-ui,sans-serif;" +
-        "white-space:nowrap;transition:background .15s ease,color .15s ease;" +
-      "}" +
-      "#person-mv-panel .person-mv-sort-group .person-mv-tier-btn.active{" +
-        "color:#fff;font-weight:700;" +
       "}" +
       "#person-mv-panel .person-mv-civ-select{" +
         "background:rgba(8,18,16,0.55);border:1px solid rgba(0,245,160,0.18);" +
@@ -474,43 +464,27 @@
         '</div>' +
       '</div>' +
       '<div class="panel-body">' +
+        /* W306b — One unified scrollable pill track: People/Landmarks + Sort + Curation + Realm */
         '<div class="civ-mv-toprow">' +
-          '<div class="civ-mv-tabs" role="tablist" data-segmented="2">' +
+          '<div class="civ-mv-tabs cssmv-pill-bar" role="tablist">' +
             '<button class="civ-mv-tab active" data-civ-mode="people" type="button">👤 ' + escapeText(tt("People", "人物")) + '</button>' +
             '<button class="civ-mv-tab" data-civ-mode="landmarks" type="button">🏛 ' + escapeText(tt("Landmarks", "名迹")) + '</button>' +
-          '</div>' +
-          '<div class="person-mv-sort-group" data-segmented="2">' +
             '<button class="person-mv-tier-btn active" data-tier="1" type="button">' + tt("Influence", "影响力") + '</button>' +
             '<button class="person-mv-tier-btn" data-tier="2" type="button">' + tt("Civilization", "文明") + '</button>' +
+            '<button class="person-mv-ctier-btn active" data-ctier="S" title="' + tt("Global consensus", "全球公认") + '">S</button>' +
+            '<button class="person-mv-ctier-btn" data-ctier="A" title="' + tt("Civilization rep", "文明代表") + '">A</button>' +
+            '<button class="person-mv-ctier-btn" data-ctier="B" title="' + tt("Domain rep", "领域代表") + '">B</button>' +
+            '<button class="person-mv-ctier-btn" data-ctier="all" title="' + tt("All tiers", "全部") + '">' + tt("All", "全") + '</button>' +
+            '<button class="person-mv-realm-btn active" data-realm="all" title="' + tt("All realms", "全部位面") + '">🌐 ' + tt("All", "全") + '</button>' +
+            '<button class="person-mv-realm-btn" data-realm="historical" title="' + tt("Real history", "真实历史") + '">📜 ' + tt("History", "历史") + '</button>' +
+            '<button class="person-mv-realm-btn" data-realm="mythological" title="' + tt("Myth & gods", "神话与诸神") + '">⚡ ' + tt("Myth", "神话") + '</button>' +
+            '<button class="person-mv-realm-btn" data-realm="literary" title="' + tt("Literary characters", "文学虚构") + '">📚 ' + tt("Literary", "文学") + '</button>' +
+            '<button class="person-mv-realm-btn" data-realm="folkloric" title="' + tt("Folk tales", "民间传说") + '">🏮 ' + tt("Folk", "民间") + '</button>' +
           '</div>' +
         '</div>' +
         '<div class="person-mv-toolbar">' +
           '<input class="person-mv-search" type="search" placeholder="' +
             tt("Search by name, civilization, theme…", "按姓名 / 文明 / 主题搜索") + '" />' +
-          /* CSSOS_PERSON_MV_WAVE58 — S/A/B curation-tier filter chips → segmented=4 */
-          '<div class="person-mv-curation-tier" data-segmented="4">' +
-            '<button class="person-mv-ctier-btn active" data-ctier="S" title="' +
-              tt("Global consensus", "全球公认") + '">S</button>' +
-            '<button class="person-mv-ctier-btn" data-ctier="A" title="' +
-              tt("Civilization rep", "文明代表") + '">A</button>' +
-            '<button class="person-mv-ctier-btn" data-ctier="B" title="' +
-              tt("Domain rep", "领域代表") + '">B</button>' +
-            '<button class="person-mv-ctier-btn" data-ctier="all" title="' +
-              tt("All tiers", "全部") + '">' + tt("All", "全") + '</button>' +
-          '</div>' +
-          /* CSSOS_WAVE_114 20260511 — realm filter pills → cssmv-pill-bar (5 items) */
-          '<div class="person-mv-realm-pills cssmv-pill-bar">' +
-            '<button class="person-mv-realm-btn active" data-realm="all" title="' +
-              tt("All realms", "全部位面") + '">🌐 ' + tt("All", "全") + '</button>' +
-            '<button class="person-mv-realm-btn" data-realm="historical" title="' +
-              tt("Real history", "真实历史") + '">📜 ' + tt("History", "历史") + '</button>' +
-            '<button class="person-mv-realm-btn" data-realm="mythological" title="' +
-              tt("Myth & gods", "神话与诸神") + '">⚡ ' + tt("Myth", "神话") + '</button>' +
-            '<button class="person-mv-realm-btn" data-realm="literary" title="' +
-              tt("Literary characters", "文学虚构") + '">📚 ' + tt("Literary", "文学") + '</button>' +
-            '<button class="person-mv-realm-btn" data-realm="folkloric" title="' +
-              tt("Folk tales", "民间传说") + '">🏮 ' + tt("Folk", "民间") + '</button>' +
-          '</div>' +
           '<select class="person-mv-civ-select"><option value="">' +
             tt("All civilizations", "全部文明") + '</option></select>' +
           '<button class="person-mv-random-btn" title="' +

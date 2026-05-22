@@ -30819,35 +30819,57 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
 
     // Best-effort lore generation
     let lore: any = person.lore || {};
+    // CSSOS_WAVE_344 20260522 — Jing「文明智能联动」: 档案语言跟着文明走. 中华文明 → 中文;
+    // 其它文明 → 英文(与英文默认界面一致, fallback 英文而非中文). 之前 lore 一律 zh-CN,
+    // 导致非中华人物(如尼采)的简介/典故全是中文 → 喂给歌词 LLM 就出中文歌词, 荒唐.
+    const _isZhCiv = /中华|华夏|Chinese|Confucian|Daoist|Taoist|儒|道家/i.test(String(person.civilization || ""));
+    const _expectLoreLang = _isZhCiv ? "zh" : "en";
     const loreEmpty = !lore || !lore.bio || (Array.isArray(lore.events) && lore.events.length === 0) ||
       // CSSOS_WAVE_327 — 旧档案没有 allusions(典故) → 触发一次重生补上.
-      !Array.isArray(lore.allusions) || lore.allusions.length === 0;
+      !Array.isArray(lore.allusions) || lore.allusions.length === 0 ||
+      // CSSOS_WAVE_344 — 语言与文明不符(标了 lang 且不匹配, 或非中华却没标=旧中文档案) → 重生.
+      (lore && lore.lang ? lore.lang !== _expectLoreLang : (!!lore.bio && !_isZhCiv));
     if (refresh || loreEmpty) {
       try {
-        const sysPrompt =
-          "你是文明编年史官。返回严格 JSON，键: bio (string, 80-160字, 中文), " +
-          "events (array of {year:string, title:string, impact:string}, 5-8项), " +
-          // CSSOS_WAVE_327 20260522 — Jing「典故」闭环: 为人物补一组【典故/故事】,
-          // 戏剧性强、画面感强、适合改编成音乐 MV(如'孟姜女哭长城'级别). 与 events
-          // (偏史实编年)区分: allusions 是适合"唱出来"的动人桥段.
-          "allusions (array of {title:string, synopsis:string}, 4-6项, 著名典故/传说/故事桥段, " +
-          "戏剧性强、画面感强、情感浓烈、适合改编成音乐MV, 例如'孟姜女哭长城'这种级别的动人故事), " +
-          "contributions (array of string, 3-6项), controversies (array of string, 1-4项), " +
-          "assessments (array of {perspective:'东方'|'西方'|'现代', text:string}, 恰好3项), " +
-          "contemporaries (array of string), lineage (array of string), " +
-          "influenced (array of string)。要求多视角平衡, 不神化不黑化, 全部使用 zh-CN。" +
-          "只返回 JSON 不要其他文字。";
-        let userPrompt = `人物: ${person.name_zh} (${person.name_en})\n` +
-          `文明: ${person.civilization}\n时代: ${person.era || ""}\n生卒: ${person.lifespan || ""}\n` +
-          `主题: ${person.core_theme || ""}\n意象: ${(person.visual_symbols || []).join("、")}`;
+        // CSSOS_WAVE_344 — prompt 语言跟着文明: 中华→中文, 其它→英文.
+        const sysPrompt = _isZhCiv
+          ? ("你是文明编年史官。返回严格 JSON，键: bio (string, 80-160字, 中文), " +
+            "events (array of {year:string, title:string, impact:string}, 5-8项), " +
+            "allusions (array of {title:string, synopsis:string}, 4-6项, 著名典故/传说/故事桥段, " +
+            "戏剧性强、画面感强、情感浓烈、适合改编成音乐MV, 例如'孟姜女哭长城'这种级别的动人故事), " +
+            "contributions (array of string, 3-6项), controversies (array of string, 1-4项), " +
+            "assessments (array of {perspective:'东方'|'西方'|'现代', text:string}, 恰好3项), " +
+            "contemporaries (array of string), lineage (array of string), " +
+            "influenced (array of string)。要求多视角平衡, 不神化不黑化, 全部使用 zh-CN。" +
+            "只返回 JSON 不要其他文字。")
+          : ("You are a civilization chronicler. Return strict JSON with keys: bio (string, 60-120 words, English), " +
+            "events (array of {year:string, title:string, impact:string}, 5-8), " +
+            "allusions (array of {title:string, synopsis:string}, 4-6 famous stories / legends / dramatic episodes — " +
+            "vivid, cinematic, emotionally charged, well suited to a music video), " +
+            "contributions (array of string, 3-6), controversies (array of string, 1-4), " +
+            "assessments (array of {perspective:'Eastern'|'Western'|'Modern', text:string}, exactly 3), " +
+            "contemporaries (array of string), lineage (array of string), " +
+            "influenced (array of string). Balanced multi-perspective, neither glorify nor vilify. " +
+            "Write EVERYTHING in English. Return JSON only, no other text.");
+        let userPrompt = _isZhCiv
+          ? (`人物: ${person.name_zh} (${person.name_en})\n` +
+            `文明: ${person.civilization}\n时代: ${person.era || ""}\n生卒: ${person.lifespan || ""}\n` +
+            `主题: ${person.core_theme || ""}\n意象: ${(person.visual_symbols || []).join("、")}`)
+          : (`Person: ${person.name_en || person.name_zh}\n` +
+            `Civilization: ${person.civilization}\nEra: ${person.era || ""}\nLifespan: ${person.lifespan || ""}\n` +
+            `Theme: ${person.core_theme || ""}\nMotifs: ${(person.visual_symbols || []).join(", ")}`);
         if (wiki.found && (wiki.zh_extract || wiki.en_extract)) {
-          userPrompt =
-            "CONTEXT BLOCK (来自维基百科, 事实依据):\n" +
-            (wiki.zh_extract ? `[zh.wiki] ${wiki.zh_extract}\n` : "") +
-            (wiki.en_extract ? `[en.wiki] ${wiki.en_extract}\n` : "") +
-            "\n基于以下维基百科资料重组为我们的结构化 schema，事实从此处来，不得虚构。" +
-            "多视角部分（东方/西方/现代）由你独立分析。\n\n" +
-            userPrompt;
+          userPrompt = _isZhCiv
+            ? ("CONTEXT BLOCK (来自维基百科, 事实依据):\n" +
+              (wiki.zh_extract ? `[zh.wiki] ${wiki.zh_extract}\n` : "") +
+              (wiki.en_extract ? `[en.wiki] ${wiki.en_extract}\n` : "") +
+              "\n基于以下维基百科资料重组为我们的结构化 schema，事实从此处来，不得虚构。" +
+              "多视角部分（东方/西方/现代）由你独立分析。\n\n" + userPrompt)
+            : ("CONTEXT BLOCK (from Wikipedia, factual basis):\n" +
+              (wiki.en_extract ? `[en.wiki] ${wiki.en_extract}\n` : "") +
+              (wiki.zh_extract ? `[zh.wiki] ${wiki.zh_extract}\n` : "") +
+              "\nReorganize the Wikipedia material above into our structured schema; facts must come from here, do not fabricate. " +
+              "You independently write the multi-perspective (Eastern/Western/Modern) section. Output in English.\n\n" + userPrompt);
         }
         const llm = await callLlm({
           messages: [
@@ -30862,6 +30884,7 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
           const parsed = JSON.parse(llm.content);
           lore = {
             ...parsed,
+            lang: _expectLoreLang, // CSSOS_WAVE_344 — 标注档案语言, 供下次按文明校验/重生
             source: wiki.found ? "wiki+llm" : "llm-only",
             generated_at: new Date().toISOString(),
           };

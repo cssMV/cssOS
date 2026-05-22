@@ -1799,7 +1799,56 @@ function languageNameFromCode(code: string): string {
   if (c.startsWith("ru")) return "Russian (Русский)";
   if (c.startsWith("ar")) return "Arabic (العربية)";
   if (c.startsWith("hi")) return "Hindi (हिन्दी)";
+  if (c.startsWith("el")) return "Greek (Ελληνικά)";
+  if (c.startsWith("la")) return "Latin (Latina)";
+  if (c.startsWith("ur")) return "Urdu (اردو)";
+  if (c.startsWith("fa")) return "Persian (فارسی)";
+  if (c.startsWith("he")) return "Hebrew (עברית)";
+  if (c.startsWith("is")) return "Icelandic (Íslenska)";
+  if (c.startsWith("tr")) return "Turkish (Türkçe)";
+  if (c.startsWith("sa")) return "Sanskrit (संस्कृतम्)";
+  if (c.startsWith("vi")) return "Vietnamese (Tiếng Việt)";
+  if (c.startsWith("bo")) return "Tibetan (བོད་སྐད་)";
+  if (c.startsWith("sv")) return "Swedish (Svenska)";
+  if (c.startsWith("sw")) return "Swahili (Kiswahili)";
   return "English";
+}
+
+/* CSSOS_WAVE_348 20260522 — Jing「人物简介用母语」: validate that an
+ * LLM-generated lore string actually landed in the target mother tongue.
+ * Returns true when the text is in the WRONG language so the caller can
+ * retry on a capable model (OpenAI/Claude) and ultimately fall back to
+ * English — but NEVER fall back to Chinese for a non-Chinese persona.
+ *
+ * Detection is script-based (reliable for non-Latin targets). For
+ * Latin-script targets (en/fr/de/es/it/pt/la…) we can't fingerprint the
+ * exact language, but we DO reject any stray CJK leakage — that's the
+ * specific "尼采的简介全是中文" failure we're guarding against. */
+function loreLangMismatch(text: string, lang: string): boolean {
+  const s = String(text || "").trim();
+  if (!s) return true;
+  const code = String(lang || "").toLowerCase();
+  const hasCJK = /[一-鿿]/.test(s);
+  // Chinese leaked into a non-Chinese (and non-Japanese, which shares
+  // kanji) persona → always a mismatch.
+  if (code !== "zh" && code !== "ja" && hasCJK) return true;
+  const scriptOf: Record<string, RegExp> = {
+    zh: /[一-鿿]/,
+    ja: /[぀-ヿ一-鿿]/,
+    ko: /[가-힯]/,
+    ar: /[؀-ۿ]/,
+    ur: /[؀-ۿ]/,
+    fa: /[؀-ۿ]/,
+    he: /[֐-׿]/,
+    el: /[Ͱ-Ͽ]/,
+    ru: /[Ѐ-ӿ]/,
+    hi: /[ऀ-ॿ]/,
+    sa: /[ऀ-ॿ]/,
+    bo: /[ༀ-࿿]/,
+  };
+  const need = scriptOf[code];
+  if (need && !need.test(s)) return true;
+  return false;
 }
 
 /* CSSOS_WAVE_113I — workType describes the engagement-level container:
@@ -30819,72 +30868,96 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
 
     // Best-effort lore generation
     let lore: any = person.lore || {};
-    // CSSOS_WAVE_344 20260522 — Jing「文明智能联动」: 档案语言跟着文明走. 中华文明 → 中文;
-    // 其它文明 → 英文(与英文默认界面一致, fallback 英文而非中文). 之前 lore 一律 zh-CN,
-    // 导致非中华人物(如尼采)的简介/典故全是中文 → 喂给歌词 LLM 就出中文歌词, 荒唐.
-    const _isZhCiv = /中华|华夏|Chinese|Confucian|Daoist|Taoist|儒|道家/i.test(String(person.civilization || ""));
-    const _expectLoreLang = _isZhCiv ? "zh" : "en";
+    // CSSOS_WAVE_348 20260522 — Jing「人物简介用母语」: 档案语言 = 该人物的母语
+    // (civilization → 母语代码), 而非简单的中/英二选一. 法国人 → 法语, 日本人 → 日语,
+    // 古希腊 → 希腊语, 中华 → 中文… 小模型写不出来就 fallback 到强模型(OpenAI/Claude),
+    // 实在不行才 fallback 英文 —— 永不 fallback 中文(除非本就是中华文明人物).
+    //
+    // civToLanguageServer 只对中华文明返回 "zh"; 西方/未知一律返回 "" → 落到英文.
+    // 这天然满足"永不 fallback 中文"的铁律.
+    const _nativeLang = civToLanguageServer(String(person.civilization || ""));
+    const _expectLoreLang = _nativeLang || "en";
+    const _langName = languageNameFromCode(_expectLoreLang);
     const loreEmpty = !lore || !lore.bio || (Array.isArray(lore.events) && lore.events.length === 0) ||
       // CSSOS_WAVE_327 — 旧档案没有 allusions(典故) → 触发一次重生补上.
       !Array.isArray(lore.allusions) || lore.allusions.length === 0 ||
-      // CSSOS_WAVE_344 — 语言与文明不符(标了 lang 且不匹配, 或非中华却没标=旧中文档案) → 重生.
-      (lore && lore.lang ? lore.lang !== _expectLoreLang : (!!lore.bio && !_isZhCiv));
+      // CSSOS_WAVE_348 — 已标 lang 但与母语不符, 或旧档案的 bio 实际语言不对 → 重生.
+      (lore && lore.lang ? lore.lang !== _expectLoreLang : (!!lore.bio && loreLangMismatch(String(lore.bio), _expectLoreLang)));
     if (refresh || loreEmpty) {
-      try {
-        // CSSOS_WAVE_344 — prompt 语言跟着文明: 中华→中文, 其它→英文.
-        const sysPrompt = _isZhCiv
-          ? ("你是文明编年史官。返回严格 JSON，键: bio (string, 80-160字, 中文), " +
-            "events (array of {year:string, title:string, impact:string}, 5-8项), " +
-            "allusions (array of {title:string, synopsis:string}, 4-6项, 著名典故/传说/故事桥段, " +
-            "戏剧性强、画面感强、情感浓烈、适合改编成音乐MV, 例如'孟姜女哭长城'这种级别的动人故事), " +
-            "contributions (array of string, 3-6项), controversies (array of string, 1-4项), " +
-            "assessments (array of {perspective:'东方'|'西方'|'现代', text:string}, 恰好3项), " +
-            "contemporaries (array of string), lineage (array of string), " +
-            "influenced (array of string)。要求多视角平衡, 不神化不黑化, 全部使用 zh-CN。" +
-            "只返回 JSON 不要其他文字。")
-          : ("You are a civilization chronicler. Return strict JSON with keys: bio (string, 60-120 words, English), " +
-            "events (array of {year:string, title:string, impact:string}, 5-8), " +
-            "allusions (array of {title:string, synopsis:string}, 4-6 famous stories / legends / dramatic episodes — " +
-            "vivid, cinematic, emotionally charged, well suited to a music video), " +
-            "contributions (array of string, 3-6), controversies (array of string, 1-4), " +
-            "assessments (array of {perspective:'Eastern'|'Western'|'Modern', text:string}, exactly 3), " +
-            "contemporaries (array of string), lineage (array of string), " +
-            "influenced (array of string). Balanced multi-perspective, neither glorify nor vilify. " +
-            "Write EVERYTHING in English. Return JSON only, no other text.");
-        let userPrompt = _isZhCiv
-          ? (`人物: ${person.name_zh} (${person.name_en})\n` +
-            `文明: ${person.civilization}\n时代: ${person.era || ""}\n生卒: ${person.lifespan || ""}\n` +
-            `主题: ${person.core_theme || ""}\n意象: ${(person.visual_symbols || []).join("、")}`)
-          : (`Person: ${person.name_en || person.name_zh}\n` +
-            `Civilization: ${person.civilization}\nEra: ${person.era || ""}\nLifespan: ${person.lifespan || ""}\n` +
-            `Theme: ${person.core_theme || ""}\nMotifs: ${(person.visual_symbols || []).join(", ")}`);
-        if (wiki.found && (wiki.zh_extract || wiki.en_extract)) {
-          userPrompt = _isZhCiv
-            ? ("CONTEXT BLOCK (来自维基百科, 事实依据):\n" +
-              (wiki.zh_extract ? `[zh.wiki] ${wiki.zh_extract}\n` : "") +
-              (wiki.en_extract ? `[en.wiki] ${wiki.en_extract}\n` : "") +
-              "\n基于以下维基百科资料重组为我们的结构化 schema，事实从此处来，不得虚构。" +
-              "多视角部分（东方/西方/现代）由你独立分析。\n\n" + userPrompt)
-            : ("CONTEXT BLOCK (from Wikipedia, factual basis):\n" +
-              (wiki.en_extract ? `[en.wiki] ${wiki.en_extract}\n` : "") +
-              (wiki.zh_extract ? `[zh.wiki] ${wiki.zh_extract}\n` : "") +
-              "\nReorganize the Wikipedia material above into our structured schema; facts must come from here, do not fabricate. " +
-              "You independently write the multi-perspective (Eastern/Western/Modern) section. Output in English.\n\n" + userPrompt);
-        }
+      // CSSOS_WAVE_348 — 通用 prompt: 英文指令骨架, 但所有字符串值用母语 {_langName}
+      // 输出. perspective 标签也用母语(前端只是原样显示, 不依赖具体值).
+      const sysPrompt =
+        "You are a civilization chronicler. Return STRICT JSON with these keys: " +
+        "bio (string, ~80-140 words), " +
+        "events (array of {year:string, title:string, impact:string}, 5-8), " +
+        "allusions (array of {title:string, synopsis:string}, 4-6 — famous stories / legends / dramatic " +
+        "episodes that are vivid, cinematic, emotionally charged, well suited to a music video), " +
+        "contributions (array of string, 3-6), controversies (array of string, 1-4), " +
+        "assessments (array of {perspective:string, text:string}, exactly 3 distinct cultural perspectives), " +
+        "contemporaries (array of string), lineage (array of string), influenced (array of string). " +
+        "Balanced multi-perspective, neither glorify nor vilify. " +
+        `CRITICAL LANGUAGE DIRECTIVE: write EVERY human-readable string value (bio, titles, synopses, ` +
+        `impact, contributions, controversies, perspective labels, assessment text) in ${_langName} — ` +
+        `the persona's mother tongue. Do NOT use any other language; in particular do NOT default to English ` +
+        `or Chinese unless ${_langName} IS that language. Proper nouns may keep their canonical spelling. ` +
+        "Return JSON only, no other text.";
+      let userPrompt =
+        `Person: ${person.name_en || person.name_zh}` +
+        (person.name_native ? ` / ${person.name_native}` : "") + "\n" +
+        `Civilization: ${person.civilization}\nEra: ${person.era || ""}\nLifespan: ${person.lifespan || ""}\n` +
+        `Theme: ${person.core_theme || ""}\nMotifs: ${(person.visual_symbols || []).join(", ")}`;
+      if (wiki.found && (wiki.zh_extract || wiki.en_extract)) {
+        userPrompt =
+          "CONTEXT BLOCK (from Wikipedia, factual basis):\n" +
+          (wiki.en_extract ? `[en.wiki] ${wiki.en_extract}\n` : "") +
+          (wiki.zh_extract ? `[zh.wiki] ${wiki.zh_extract}\n` : "") +
+          `\nReorganize the Wikipedia material above into our structured schema; facts must come from here, ` +
+          `do not fabricate. You independently write the multi-perspective assessments. ` +
+          `Remember: ALL string values must be written in ${_langName}.\n\n` + userPrompt;
+      }
+      // CSSOS_WAVE_348 — 两段式生成: 先走默认便宜模型链; 若输出语言不对(尤其
+      // 母语是非拉丁文字时小模型常失败) 且母语不是英文, 用强模型(anthropic/openai)重试;
+      // 再不行就生成英文版兜底, 标 lang="en" —— 绝不留错语言或中文乱入.
+      const genLore = async (langName: string, prefer?: string[]) => {
+        const sp = sysPrompt.split(_langName).join(langName);
+        const up = userPrompt.split(_langName).join(langName);
         const llm = await callLlm({
           messages: [
-            { role: "system", content: sysPrompt },
-            { role: "user", content: userPrompt },
+            { role: "system", content: sp },
+            { role: "user", content: up },
           ],
           temperature: wiki.found ? 0.3 : 0.5,
           max_tokens: 1500,
           response_format: { type: "json_object" },
+          ...(prefer ? { prefer } : {}),
         });
-        if (llm.ok && llm.content) {
-          const parsed = JSON.parse(llm.content);
+        if (!llm.ok || !llm.content) return null;
+        try { return JSON.parse(llm.content); } catch { return null; }
+      };
+      try {
+        let parsed: any = null;
+        let finalLang = _expectLoreLang;
+        // Attempt 1 — cheap-first default chain, in mother tongue.
+        parsed = await genLore(_langName);
+        // Attempt 2 — capable model, if the mother tongue isn't English
+        // and attempt 1 either failed or came back in the wrong language.
+        if (_expectLoreLang !== "en" && (!parsed || loreLangMismatch(String(parsed.bio || ""), _expectLoreLang))) {
+          const capable = await genLore(_langName, ["anthropic", "openai"]);
+          if (capable && !loreLangMismatch(String(capable.bio || ""), _expectLoreLang)) {
+            parsed = capable;
+          } else if (capable && !parsed) {
+            parsed = capable; // accept whatever the capable model gave over nothing
+          }
+        }
+        // Attempt 3 — English fallback (NEVER Chinese) if still wrong/empty.
+        if (!parsed || loreLangMismatch(String(parsed.bio || ""), _expectLoreLang)) {
+          const en = await genLore("English", ["anthropic", "openai"]);
+          if (en) { parsed = en; finalLang = "en"; }
+        }
+        if (parsed) {
           lore = {
             ...parsed,
-            lang: _expectLoreLang, // CSSOS_WAVE_344 — 标注档案语言, 供下次按文明校验/重生
+            lang: finalLang, // CSSOS_WAVE_348 — 标注档案实际语言, 供下次按母语校验/重生
             source: wiki.found ? "wiki+llm" : "llm-only",
             generated_at: new Date().toISOString(),
           };

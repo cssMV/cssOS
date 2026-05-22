@@ -1929,24 +1929,9 @@ export const SEED_PERSON_PROFILES: SeedPersonProfile[] = [
     risk_notes: [],
     realm: "mythological",
   },
-  {
-    person_id: "odysseus",
-    name_zh: "奥德修斯",
-    name_en: "Odysseus",
-    name_native: "Ὀδυσσεύς",
-    name_latin: "Odysseus",
-    civilization: "古希腊神话",
-    era: "特洛伊战争后",
-    lifespan: "传说时代",
-    roles: ["伊萨卡王", "《奥德赛》主角"],
-    core_theme: "十年归乡 · 木马计谋",
-    visual_symbols: ["桨", "海妖塞壬", "佩涅洛佩织机", "伊萨卡港"],
-    music_style_hint: "古希腊史诗 / 里拉与笛 / 海浪",
-    tone: "智巧 · 漂泊",
-    influence_score: 89,
-    risk_notes: [],
-    realm: "literary",
-  },
+  // CSSOS_WAVE_353 — Jing: 移除 Odysseus(《奥德赛》史诗主角, realm:literary 虚构
+  // 文学人物), 与 Harry Potter / Sherlock / 唐三藏 / 贾宝玉 / Frodo 一并清除. 神话
+  // 神祇(realm:mythological, 如宙斯/雅典娜)保留 —— 那是文明神话, 不是小说人物.
 
   // ─── Norse mythology ──────────────────────────────────────────────
   {
@@ -2138,59 +2123,8 @@ export const SEED_PERSON_PROFILES: SeedPersonProfile[] = [
     realm: "mythological",
   },
 
-  // ─── Literary personas ────────────────────────────────────────────
-  {
-    person_id: "sherlock-holmes",
-    name_zh: "夏洛克·福尔摩斯",
-    name_en: "Sherlock Holmes",
-    name_native: "Sherlock Holmes",
-    name_latin: "Sherlock Holmes",
-    civilization: "维多利亚文学",
-    era: "维多利亚晚期虚构",
-    lifespan: "1854（虚构）—1957（虚构）",
-    roles: ["咨询侦探"],
-    core_theme: "演绎法 · 贝克街 221B",
-    visual_symbols: ["猎鹿帽", "烟斗", "放大镜", "贝克街路灯"],
-    music_style_hint: "维多利亚悬疑 / 小提琴 / 雾",
-    tone: "锐利 · 冷峻",
-    influence_score: 93,
-    risk_notes: ["公版人物，可自由使用"],
-    realm: "literary",
-  },
-  {
-    person_id: "monkey-king-journey",
-    name_zh: "唐三藏",
-    name_en: "Tang Sanzang (Tripitaka)",
-    name_native: "唐三藏",
-    name_latin: "Táng Sānzàng",
-    civilization: "中华文学",
-    era: "唐 / 神魔小说",
-    lifespan: "《西游记》虚构",
-    roles: ["取经高僧", "唐玄奘小说原型"],
-    core_theme: "九九八十一难西天取经",
-    visual_symbols: ["袈裟", "锡杖", "白马", "经书"],
-    music_style_hint: "古风传奇 / 木鱼与梵呗 / 笃定",
-    tone: "笃定 · 慈悲",
-    influence_score: 89,
-    risk_notes: [],
-    realm: "literary",
-  },
-  {
-    person_id: "jia-baoyu",
-    name_zh: "贾宝玉",
-    name_en: "Jia Baoyu",
-    name_native: "賈寶玉",
-    name_latin: "Jiǎ Bǎoyù",
-    civilization: "中华文学",
-    era: "清 · 红楼梦",
-    lifespan: "《红楼梦》虚构",
-    roles: ["大观园公子", "通灵宝玉化身"],
-    core_theme: "金玉良缘与木石前盟",
-    visual_symbols: ["通灵玉", "怡红院", "海棠花", "桃花扇"],
-    music_style_hint: "古风缠绵 / 古琴与笛 / 缱绻",
-    tone: "缱绻 · 痴情",
-    influence_score: 91,
-    risk_notes: [],
-    realm: "literary",
-  },
+  // CSSOS_WAVE_353 20260522 — Jing「彻底清除小说人物」: 移除全部 realm:"literary"
+  // 的虚构小说人物(原 Sherlock Holmes / 唐三藏《西游记》/ 贾宝玉《红楼梦》),
+  // 与已删的 Harry Potter / Hermione 一致 —— 平台只收真实历史人物, 不再 seed
+  // 任何小说虚构角色. 如需恢复请从版本库找回, 切勿再加进 seed.
 ];

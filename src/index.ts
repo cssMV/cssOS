@@ -30994,7 +30994,10 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
             `${(person.visual_symbols || []).join(" ")}, painterly, dramatic lighting, no text, 16:9`;
           const img = await callImageGen({ prompt: portraitPrompt, size: "1024x576" });
           if (img.ok && img.image_url) {
-            portraitUrl = img.image_url;
+            // CSSOS_WAVE_353 20260522 — Jing「孔子封面图没有一张能用」根因: AI 生成的
+            // 头像存的是 replicate.delivery 临时链接, 过期即 404 → 人物卡常年灰底.
+            // 与封面(W337/W339)一致, 把 AI 头像转存到稳定存储再落库, 永不过期.
+            portraitUrl = await persistRemoteImageToStable(img.image_url);
             await withClient((c) =>
               c.query(`UPDATE person_profiles SET portrait_url = $1, portrait_generated_at = now() WHERE person_id = $2`,
                 [portraitUrl, id]),

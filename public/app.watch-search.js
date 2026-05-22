@@ -44,7 +44,7 @@
     box.style.cssText = [
       // CSSOS_WAVE_304 — Jing: 让位刘海(max(safe-area,50px)保底). 权威定位在
       // style.css(html.cssos-app), 这里写同值兜底.
-      "position:absolute", "top:calc(max(env(safe-area-inset-top,0px),50px) + 4px)",
+      "position:absolute", "top:calc(env(safe-area-inset-top,0px) + 4px)",
       "left:10px", "right:10px", "z-index:60", "display:flex",
       "flex-direction:column", "gap:8px", "pointer-events:none",
       "transform:translateY(-140%)", "opacity:0",
@@ -94,7 +94,7 @@
       exitBtn.textContent = "✕";
       exitBtn.style.cssText = [
         // CSSOS_WAVE_304 — 让位刘海(max(safe-area,50px)保底), 与头像/搜索框一行.
-        "position:absolute", "top:calc(max(env(safe-area-inset-top,0px),50px) + 5px)", "right:10px",
+        "position:absolute", "top:calc(env(safe-area-inset-top,0px) + 5px)", "right:10px",
         "z-index:61", "width:40px", "height:40px", "border-radius:50%",
         "border:1px solid rgba(255,255,255,0.55)", "background:rgba(0,0,0,0.55)",
         "backdrop-filter:blur(8px)", "-webkit-backdrop-filter:blur(8px)",

@@ -6374,7 +6374,10 @@ html.cssos-app #watch-panel .panel-progress-line { left: 0 !important; right: 0 
  * 经常返回 0/偏小, 单靠它不可靠 → 用 max(safe-area, 50px 保底): 无论 env 是否
  * 生效, 都至少让出 ~55px, 搜索框永远在刘海下沿. 三者同一基线对齐成一行.
  * (--cssos-notch-clear 便于将来就地微调让位高度.) */
-:root { --cssos-notch-clear: max(env(safe-area-inset-top, 0px), 50px); }
+/* CSSOS_WAVE_315 20260521 — Jing: "取消刘海后别留一块墓地, 三件套贴近上边框".
+ * W314 取消网页原生全屏后 env(safe-area-inset-top) 恢复正确(全屏时才失真才需保底).
+ * 去掉 50px 地板: 无刘海机型 env=0 → 贴顶; 有刘海机型 env 自动让位. 顶部不留空白. */
+:root { --cssos-notch-clear: env(safe-area-inset-top, 0px); }
 html.cssos-app #watch-panel #watch-author-avatar {
   top: calc(var(--cssos-notch-clear) + 5px) !important;
   left: 12px !important;

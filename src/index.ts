@@ -16654,6 +16654,55 @@ async function persistWorkImageAsset(options: {
   }
   const decoded = decodeDataUrlAsset(raw);
   if (!decoded) {
+    // CSSOS_WAVE_337 20260522 — Jing「全部入库」根治: 远程【临时图】(replicate/fal 等)
+    // 会过期 404, 之前原样存进库 → 全站封面迟早集体 404. 现在保存时【下载转存到稳定
+    // 存储(GCS)】并存稳定 URL. 同源后也消除 canvas 跨域污染报错. 失败则回退原 URL.
+    let _tempHost = "";
+    try { _tempHost = new URL(raw).hostname.toLowerCase(); } catch { _tempHost = ""; }
+    const _isTempRemote = /^https?:\/\//i.test(raw) &&
+      /(^|\.)(replicate\.delivery|fal\.media|fal\.run)$/i.test(_tempHost);
+    if (_isTempRemote) {
+      try {
+        const _ctrl = new AbortController();
+        const _to = setTimeout(() => _ctrl.abort(), 15000);
+        let _buf: Buffer | null = null;
+        let _ct = "image/jpeg";
+        try {
+          const _r = await fetch(raw, { signal: _ctrl.signal, redirect: "follow" });
+          if (_r.ok) {
+            _ct = (String(_r.headers.get("content-type") || "").split(";")[0] || "").trim() || "image/jpeg";
+            _buf = Buffer.from(await _r.arrayBuffer());
+          }
+        } finally { clearTimeout(_to); }
+        if (_buf && _buf.byteLength > 0 && _buf.byteLength < 40 * 1024 * 1024) {
+          let _outBuf: Buffer = _buf;
+          let _outCt = _ct;
+          try { _outBuf = await sharp(_buf, { failOn: "none" }).webp({ quality: 82 }).toBuffer(); _outCt = "image/webp"; } catch { /* keep raw bytes */ }
+          const _assetKey = buildWorkBinaryAssetKey(options.scopeId, options.workId, options.assetType, _outCt);
+          await uploadBucketObject(_assetKey, _outBuf, _outCt);
+          const _publicUrl = buildWorkAssetBlobUrl(_assetKey);
+          if (_publicUrl) {
+            return {
+              persistedValue: _publicUrl,
+              record: {
+                assetType: options.assetType,
+                url: _publicUrl,
+                meta: {
+                  storage_backend: "gcs",
+                  asset_key: _assetKey,
+                  content_type: _outCt,
+                  bytes: _outBuf.byteLength,
+                  source: "rehosted_remote_url",
+                  origin_host: _tempHost,
+                },
+              } satisfies CanonicalWorkAssetRecord,
+            };
+          }
+        }
+      } catch (_e) {
+        console.warn("[work-asset] rehost remote image failed, passthrough:", (_e as Error)?.message || _e);
+      }
+    }
     return {
       persistedValue: raw,
       record: {

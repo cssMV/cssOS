@@ -9239,6 +9239,30 @@ function showWatchFramePlaceholderModule(uri) {
     return false;
   }
   clearWatchFrameLoopModule();
+  // CSSOS_WAVE_331 20260522 — Jing: 封面加载失败时不要露出破图"?", 改为隐藏 svg、清掉
+  // 背景图(回退到纯黑/标题), 并尝试用作品的稳定封面(cover_image)兜底一次. 过期的
+  // cover_slides 临时图常 404 → 之前就显示一个刺眼的"?".
+  try {
+    watchSvg.onerror = function () {
+      try {
+        var stable = String(
+          (currentWatchPreviewWork && (currentWatchPreviewWork.cover_image || currentWatchPreviewWork.cover_url)) || ""
+        ).trim();
+        var curAbs = "";
+        try { curAbs = new URL(String(uri), location.href).href; } catch (_e) {}
+        if (stable && !/^data:image\/svg\+xml/i.test(stable) && stable !== uri && stable !== curAbs && !watchSvg.dataset.cssosCoverFellBack) {
+          watchSvg.dataset.cssosCoverFellBack = "1";
+          watchSvg.src = stable;
+          if (watchScreenBackdrop) watchScreenBackdrop.style.backgroundImage = `url("${stable.replace(/"/g, '\\"')}")`;
+          return;
+        }
+      } catch (_e2) {}
+      // 兜底也没有 → 隐藏破图, 不露"?".
+      watchSvg.style.display = "none";
+      if (watchScreenBackdrop) watchScreenBackdrop.style.backgroundImage = "";
+    };
+    watchSvg.onload = function () { watchSvg.dataset.cssosCoverFellBack = ""; watchSvg.style.display = "block"; };
+  } catch (_e) {}
   watchSvg.src = uri;
   watchSvg.style.display = "block";
   watchSvg.classList.add("glow");

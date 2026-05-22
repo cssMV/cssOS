@@ -42,10 +42,9 @@
     // CSSOS_WAVE_287 — 浮动搜索框(桌面+App): 默认隐藏在顶部之上, 下滑/滚轮向下
     // 显示、上滑/向上隐藏(Apple 风). transform 动画.
     box.style.cssText = [
-      // CSSOS_WAVE_303 — Jing: 让位刘海. 三者统一 safe-area-inset-top + 偏移,
-      // 既避开刘海又对齐成一行. 权威定位在 style.css(html.cssos-app), 这里写同值
-      // 兜底(桌面 env=0 → 退化为 ~8px 贴顶).
-      "position:absolute", "top:calc(env(safe-area-inset-top,0px) + 8px)",
+      // CSSOS_WAVE_304 — Jing: 让位刘海(max(safe-area,50px)保底). 权威定位在
+      // style.css(html.cssos-app), 这里写同值兜底.
+      "position:absolute", "top:calc(max(env(safe-area-inset-top,0px),50px) + 4px)",
       "left:10px", "right:10px", "z-index:60", "display:flex",
       "flex-direction:column", "gap:8px", "pointer-events:none",
       "transform:translateY(-140%)", "opacity:0",
@@ -94,8 +93,8 @@
       exitBtn.title = tr("Exit cinema", "退出影院");
       exitBtn.textContent = "✕";
       exitBtn.style.cssText = [
-        // CSSOS_WAVE_303 — 让位刘海, 与头像/搜索框对齐一行(权威定位在 style.css).
-        "position:absolute", "top:calc(env(safe-area-inset-top,0px) + 9px)", "right:10px",
+        // CSSOS_WAVE_304 — 让位刘海(max(safe-area,50px)保底), 与头像/搜索框一行.
+        "position:absolute", "top:calc(max(env(safe-area-inset-top,0px),50px) + 5px)", "right:10px",
         "z-index:61", "width:40px", "height:40px", "border-radius:50%",
         "border:1px solid rgba(255,255,255,0.55)", "background:rgba(0,0,0,0.55)",
         "backdrop-filter:blur(8px)", "-webkit-backdrop-filter:blur(8px)",

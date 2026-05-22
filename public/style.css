@@ -6274,20 +6274,22 @@ html.cssos-app #watch-panel.panel-active {
  * 走, 既贴边又不会被裁. (撤销 W292 的 inset:20。) */
 html.cssos-app #watch-panel .cssmv-border-bar { inset: 0 !important; }
 html.cssos-app #watch-panel .panel-progress-line { left: 0 !important; right: 0 !important; }
-/* CSSOS_WAVE_303 20260521 — Jing: "刘海盖住了顶部". App 全屏里 MV 面板铺满整屏
- * (含刘海/灵动岛区域), 顶部三件(作者头像 / 搜索框 / 退出影院 ✕)若用固定 top
- * 会被刘海遮住. 这里【统一让位 safe-area-inset-top】并对齐成一行(都贴在安全区
- * 下沿). 用 CSS 钉死定位 → 权威、且头像被重建也不丢(比 JS 轮询可靠). 三者 40/40
- * /~42px 高, +8/+9 让中心对齐. */
+/* CSSOS_WAVE_304 20260521 — Jing: "把刘海放到 MV 面板里 / 刘海正好遮住搜索框".
+ * MV 媒体继续铺满整屏(含刘海/灵动岛区域, 沉浸感不变), 但顶部这排控件(作者头像
+ * /搜索框/退出 ✕)必须落在刘海【下方】. WKWebView 里 env(safe-area-inset-top)
+ * 经常返回 0/偏小, 单靠它不可靠 → 用 max(safe-area, 50px 保底): 无论 env 是否
+ * 生效, 都至少让出 ~55px, 搜索框永远在刘海下沿. 三者同一基线对齐成一行.
+ * (--cssos-notch-clear 便于将来就地微调让位高度.) */
+:root { --cssos-notch-clear: max(env(safe-area-inset-top, 0px), 50px); }
 html.cssos-app #watch-panel #watch-author-avatar {
-  top: calc(env(safe-area-inset-top, 0px) + 9px) !important;
+  top: calc(var(--cssos-notch-clear) + 5px) !important;
   left: 12px !important;
 }
 html.cssos-app #watch-search-box {
-  top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
+  top: calc(var(--cssos-notch-clear) + 4px) !important;
 }
 html.cssos-app #watch-exit-cinema {
-  top: calc(env(safe-area-inset-top, 0px) + 9px) !important;
+  top: calc(var(--cssos-notch-clear) + 5px) !important;
 }
 /* 视频/封面填满整屏(cover: 溢出裁切, 竖屏 MV 在竖屏 App 里正好铺满)。 */
 html.cssos-app #watch-panel .watch-video,

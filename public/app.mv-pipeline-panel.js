@@ -7987,7 +7987,21 @@
         '</div>';
       document.body.appendChild(stage);
     }
-    stage.style.display = "";
+    // CSSOS_WAVE_343 20260522 — Jing: 修复"点 Create MV 进不去". 影院层 cinema-stage
+    // 之前 z-index 实测是 auto、高度只有 337px(注入 CSS 没生效) → 被上一首 For You 的
+    // watch-panel(z:99999 满屏)整个盖住, 用户看不到新创作. 这里把关键布局【内联】钉死,
+    // 不依赖外部样式, 且 z-index 100001 高于 watch-panel(99999) → 新创作影院盖在最上层.
+    try {
+      stage.style.position = "fixed";
+      stage.style.inset = "0";
+      stage.style.width = "100vw";
+      stage.style.height = "100dvh";
+      stage.style.zIndex = "100001";
+      stage.style.background = "#000";
+      stage.style.display = "flex";
+      stage.style.alignItems = "center";
+      stage.style.justifyContent = "center";
+    } catch (_e) {}
 
     cinemaSt = {
       panel: panel,

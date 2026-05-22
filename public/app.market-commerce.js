@@ -254,9 +254,11 @@ async function loadPublicMarketWorks(force = false) {
     // handler bumps the limit by 30 each time the user reaches the
     // end of the loaded set, all the way up to the 1000 server cap.
     const fetchLimit = Math.max(30, Math.min(1000, Number(globalThis.__cssosMarketFetchLimit || 30)));
-    const res = await fetch("/api/works/market?limit=" + fetchLimit, {
-      credentials: "include",
-    });
+    // CSSOS_TIER_C_MULTILINGUAL C6 — language filter ("find Japanese MVs").
+    const _lf = String(globalThis.__cssosMarketLangFilter || "").trim();
+    const res = await fetch(
+      "/api/works/market?limit=" + fetchLimit + (_lf ? "&lang=" + encodeURIComponent(_lf) : ""),
+      { credentials: "include" });
     const payload = await res.json().catch(() => null);
     const data = getApiData(payload);
     if (!res.ok || payload?.ok === false) {
@@ -450,13 +452,48 @@ function ensureMarketSection(body) {
   section.className = "works-section";
   section.innerHTML = `
     <div class="section-title">${loginCopy("Marketplace")}</div>
+    <div class="cssmv-pill-bar foryou-market-lang-chips" id="foryou-market-lang-chips"></div>
     ${buildMarketSearchShellMarkup()}
     <div class="works-list" id="foryou-market-list">
       ${buildMarketLoadingNoteMarkup()}
     </div>
   `;
   body.appendChild(section);
+  void populateMarketLangChips();
   return section;
+}
+
+// CSSOS_TIER_C_MULTILINGUAL C6 — language filter chip row ("find
+// Japanese MVs"). Pills styled with the tab-pill constitution. "All"
+// clears the filter; a language pill re-fetches the marketplace with
+// ?lang=<code>. Catalog comes live from /api/mv/languages.
+let _marketLangCatalog = null;
+async function populateMarketLangChips() {
+  const bar = document.getElementById("foryou-market-lang-chips");
+  if (!bar) return;
+  if (!_marketLangCatalog) {
+    try {
+      const r = await fetch("/api/mv/languages", { credentials: "include" });
+      const j = await r.json();
+      _marketLangCatalog = (j && j.ok && Array.isArray(j.languages)) ? j.languages : [];
+    } catch (_e) { _marketLangCatalog = []; }
+  }
+  const active = String(globalThis.__cssosMarketLangFilter || "");
+  const mk = (code, label) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = label;
+    if ((code || "") === active) b.classList.add("active");
+    b.addEventListener("click", () => {
+      globalThis.__cssosMarketLangFilter = code;
+      populateMarketLangChips();
+      if (typeof loadPublicMarketWorks === "function") void loadPublicMarketWorks(true);
+    });
+    return b;
+  };
+  bar.innerHTML = "";
+  bar.appendChild(mk("", loginCopy("All", "全部")));
+  _marketLangCatalog.forEach((l) => bar.appendChild(mk(l.code, l.native)));
 }
 
 function ensureMarketSearchReveal(body, behavior) {
@@ -670,30 +707,54 @@ async function openMarketWorkPreview(work = {}, options = {}) {
       const takeIndex = Number(
         targetWork?.take_index || targetWork?.final_mv_meta?.take_index || 1
       );
-      if (siblingId && (!altAudioUrl || takeIndex === 2)) {
+      // CSSOS_WAVE_220B_B3 20260520 — Jing: Take 2 is now a FULL sibling
+      // work (own title / video / cover pool / duration). Capture all of
+      // it so the ♪ pill can switch the ENTIRE MV, not just the audio.
+      let _sibTitle = null, _sibVideo = null, _sibDuration = null, _sibSlides = null;
+      if (siblingId) {
         try {
           const sibRes = await fetch(`/api/works/${encodeURIComponent(siblingId)}`, {
             credentials: "include",
           });
           const sibPayload = await sibRes.json().catch(() => null);
-          const sibling = sibPayload?.data?.work || sibPayload?.work || null;
-          const sibAudio = String(
-            sibling?.audio_track_1_url || sibling?.preview_audio_url || ""
-          ).trim();
-          if (sibAudio) {
-            if (takeIndex === 2) {
-              // Opening Take 2 — its own audio is "audio", and the
-              // SIBLING (Take 1) supplies the alt slot. The toggle pill
-              // will let the user flip back to Take 1 mid-watch.
-              altAudioUrl = sibAudio;
-            } else if (!altAudioUrl) {
-              // Opening Take 1 but its row didn't have audio_track_2
-              // (rare — older works); pull from sibling.
-              altAudioUrl = sibAudio;
+          const sibling = sibPayload?.data?.work || sibPayload?.data || sibPayload?.work || null;
+          if (sibling) {
+            const sibAudio = String(
+              sibling.audio_track_1_url || sibling.preview_audio_url || ""
+            ).trim();
+            _sibTitle = String(sibling.title || "").trim() || null;
+            _sibVideo = String(
+              sibling.final_mv_url || sibling.preview_video_url || ""
+            ).trim() || null;
+            _sibDuration = Number(sibling.duration_secs || 0) || null;
+            _sibSlides = Array.isArray(sibling.cover_slides) && sibling.cover_slides.length
+              ? sibling.cover_slides.slice()
+              : null;
+            if (sibAudio) {
+              if (takeIndex === 2) altAudioUrl = sibAudio;
+              else if (!altAudioUrl) altAudioUrl = sibAudio;
             }
           }
         } catch (_e) { /* sibling fetch best-effort */ }
       }
+      // Publish per-take metadata for the watch take-switcher (B3 full swap).
+      try {
+        const selfSlides = Array.isArray(targetWork?.cover_slides) && targetWork.cover_slides.length
+          ? targetWork.cover_slides.slice() : null;
+        const selfMeta = {
+          title: String(targetWork?.title || "").trim() || null,
+          video: finalMvUrl || null,
+          duration: durationSecs,
+          slides: selfSlides,
+        };
+        const sibMeta = {
+          title: _sibTitle, video: _sibVideo, duration: _sibDuration, slides: _sibSlides,
+        };
+        // Index by take number: self is takeIndex, sibling is the other.
+        globalThis.__cssosTakeMeta = (takeIndex === 2)
+          ? { 1: sibMeta, 2: selfMeta }
+          : { 1: selfMeta, 2: sibMeta };
+      } catch (_metaErr) { globalThis.__cssosTakeMeta = null; }
       globalThis.cssmvPipelineLastResult = {
         mvUrl: finalMvUrl,
         coverUrl: String(targetWork?.cover_image_url || targetWork?.preview_image_url || targetWork?.cover_image || "").trim() || null,
@@ -808,6 +869,15 @@ async function openMarketWorkPreview(work = {}, options = {}) {
       });
     }
   } catch (_e) { /* toggle inject best-effort */ }
+  // CSSOS_TIER_C_MULTILINGUAL C5 20260520 — mount the 🌐 language pill
+  // for this work (fetches /language-tracks, renders the constitution
+  // pill bar, polls rendering tracks). No-op when the work has <2 langs.
+  try {
+    var _wid = targetWork && (targetWork.id || targetWork.work_id);
+    if (_wid && typeof globalThis.cssosMountLanguagePill === "function") {
+      globalThis.cssosMountLanguagePill(String(_wid));
+    }
+  } catch (_langPillErr) { /* additive — never block preview */ }
   // CSSOS_PHASE2_TITLE_REFRESH 20260501 #244 / #264 — Jing
   // "标题里的标题变了，媒体框里的标题还是旧的，两个标题在打架."
   //
@@ -1601,6 +1671,12 @@ function ensureForyouInfinitePaging() {
       renderForyouMarketplace({ resetVisible: false });
       return;
     }
+    /* CSSOS_WAVE_211 ROLLBACK 20260516 — restored original gate
+     * (`have >= lastFetched`). My eager "server-cache size" gate
+     * caused a fetch storm at panel mount (10 visible → triggers
+     * scroll-near-bottom → bumps limit). Revert to safer post-filter
+     * size check; the "search query freezes pagination" edge case
+     * needs server-side search support (separate wave). */
     const lastFetched = Number(globalThis.__cssosMarketFetchLimit || 30);
     if (have >= lastFetched) {
       globalThis.__cssosMarketFetchLimit = Math.min(1000, lastFetched + 30);
@@ -1627,26 +1703,46 @@ function ensureForyouInfinitePaging() {
 
 function buildMarketCardsMarkup(works = []) {
   if (!Array.isArray(works) || !works.length) return "";
+  /* CSSOS_WAVE_210c 20260516 — Jing: "C. 不动 DB，仅前端 render 时同标题
+   * ≥2 自动加 (MM-DD) 后缀". Build a title→count map across the visible
+   * array; when a title repeats, render-time suffix MM-DD HH:mm so the
+   * for-you shelf stops showing 5 different works as "西部狂野".
+   * DB stays untouched — purely cosmetic anti-confusion. */
+  const _w210cTitleCount = {};
+  works.forEach((w) => {
+    const t = String(w?.title || "").trim();
+    if (t) _w210cTitleCount[t] = (_w210cTitleCount[t] || 0) + 1;
+  });
+  /* CSSOS_WAVE_229 — 标题不再追加日期; 干净纯标题. */
+  const _w210cSuffix = () => "";
   return works
     .map((work) => {
       const workId = String(work?.id || work?.work_id || "").trim();
       const rawTitle =
-        String(work?.title || "").trim() || loginCopy("Untitled");
+        (String(work?.title || "").trim() + _w210cSuffix(work)) ||
+        loginCopy("Untitled");
       const title = escapeHtml(rawTitle);
       const style = escapeHtml(
         String(work?.style || "").trim() ||
           loginCopy("Style not set"),
       );
       const workType = normalizeWorkTypeClient(work?.work_type);
-      const preview = escapeHtml(
-        buildDisplayLyricsPreviewText(work) || rawTitle,
-      );
+      const _previewRaw = String(buildDisplayLyricsPreviewText(work) || rawTitle || "").trim();
+      const preview = escapeHtml(_previewRaw);
       const createdAt = work?.created_at
         ? new Date(work.created_at).toLocaleString()
         : "";
-      const coverImage =
-        globalThis.resolveWorkCardThumbnailImageModule?.(work) ||
-        resolveWorkCoverImage(work);
+      // CSSOS_WAVE_220A_COVER_POOL 20260519 — Jing: when a work has a
+      // cover pool (slideshow_frame rows), pick a RANDOM one per render so
+      // the same card shows a different face each time the shelf loads.
+      // Falls back to the deterministic primary cover when no pool.
+      const _coverPool = Array.isArray(work?.cover_slides)
+        ? work.cover_slides.filter((u) => typeof u === "string" && u.trim())
+        : [];
+      const coverImage = _coverPool.length
+        ? _coverPool[Math.floor(Math.random() * _coverPool.length)]
+        : (globalThis.resolveWorkCardThumbnailImageModule?.(work) ||
+           resolveWorkCoverImage(work));
       const listenCents = Number(
         work?.current_listen_price_cents || work?.listen_price_cents || 0,
       );
@@ -1760,6 +1856,7 @@ function buildMarketCardsMarkup(works = []) {
           </div>
           <div class="work-info">
             <div class="work-title" data-market-toggle data-editable-title>${title}</div>
+            <div class="work-id-tag" title="${escapeHtml(workId)}" style="font:500 9px/1.3 ui-monospace,monospace;color:rgba(218,255,238,0.42);letter-spacing:.04em;margin-top:2px;user-select:all;-webkit-user-select:all;">#${escapeHtml(String(workId).slice(0, 8))}</div>
             <div class="work-tags" title="${style}">${style}</div>
             <div class="work-pricing">
               <span class="price-chip ghost-chip">${loginCopy("Type")} · ${escapeHtml(workTypeLabel(workType))}${(Array.isArray(work?.children) && work.children.length >= 2) ? ` × ${work.children.length}` : ""}</span>
@@ -1775,6 +1872,8 @@ function buildMarketCardsMarkup(works = []) {
             ${(!_isAdminOwned && canTransact && !workIsWholeBuyoutChildModule(work)) ? `<button class="mini-btn ghost" type="button" data-market-action="buyout" ${buyoutDisabled || !buyoutEnabled ? "disabled" : ""}>${wholeBuyoutOnly ? escapeHtml(loginCopy("Whole buyout")) : marketActionCopy("buyout", orderState)}</button>` : ""}
             ${canTransact ? `<span class="market-inline-action"><button class="mini-btn ghost" type="button" data-market-action="tip" ${tipDisabled ? "disabled" : ""}>${marketActionCopy("tip", orderState)}</button><input class="inline-chip-input market-tip-input" type="number" min="1" step="1" inputmode="decimal" placeholder="${escapeHtml(loginCopy("Tip $"))}" data-market-tip-input="${escapeHtml(workId)}" hidden /></span>` : ""}
             ${(canTransact && tipsEnabled) ? `<button class="mini-btn ghost" type="button" data-market-action="tip-nihaopay" data-market-nihaopay-creator="${escapeHtml(String(work?.owner_user_id || ""))}" data-market-nihaopay-work="${escapeHtml(workId)}" title="${escapeHtml(loginCopy("Tip via Alipay / WeChat Pay"))}">${escapeHtml(loginCopy("Tip · 支付宝/微信"))}</button>` : ""}
+            <button class="mini-btn ghost" type="button" data-market-action="share" title="${escapeHtml(loginCopy("Share this MV"))}">${loginCopy("Share")}</button>
+            <button class="mini-btn ghost" type="button" data-market-action="download" title="${escapeHtml(loginCopy("Download · MP3 free, WAV/MP4 Pro+"))}">${loginCopy("Download")}</button>
           </div>
           <div class="work-details">
             ${(globalThis.buildWorksCardDeepDetailsMarkupModule || (() => ""))(work, { hideOwnerInfo: true })}
@@ -1878,6 +1977,47 @@ function bindMarketCardActionButtons(list, works = []) {
     button.addEventListener("click", async (event) => {
       event.stopPropagation();
       await startNihaoPayTipFromButton(button);
+    });
+  });
+  // CSSOS_WAVE_220A_SHARE_DOWNLOAD 20260519 — Jing: wire Share / Download
+  // buttons on for-you + works-center cards. Share = existing share dialog.
+  // Download = tier-gated dialog (MP3 free, WAV/MP4 Pro+).
+  list.querySelectorAll("[data-market-action='share']").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const card = button.closest("[data-market-work-id]");
+      const workId = card?.getAttribute("data-market-work-id") || "";
+      if (!workId) return;
+      const titleEl = card?.querySelector(".work-title");
+      const styleEl = card?.querySelector(".work-tags");
+      const opts = {
+        workId,
+        title: (titleEl?.textContent || "").trim(),
+        style: (styleEl?.textContent || "").trim()
+      };
+      if (typeof globalThis.openCssosShareDialog === "function") {
+        globalThis.openCssosShareDialog(opts);
+      } else if (navigator.share) {
+        navigator.share({
+          url: `${window.location.origin}/?cssMV=${encodeURIComponent(workId)}`,
+          title: opts.title || "CSS Studio"
+        }).catch(() => {});
+      }
+    });
+  });
+  list.querySelectorAll("[data-market-action='download']").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const card = button.closest("[data-market-work-id]");
+      const workId = card?.getAttribute("data-market-work-id") || "";
+      if (!workId) return;
+      if (typeof globalThis.openCssosDownloadMenu === "function") {
+        globalThis.openCssosDownloadMenu({ workId });
+      } else if (typeof globalThis.showToast === "function") {
+        globalThis.showToast(
+          (typeof loginCopy === "function" ? loginCopy("Download menu unavailable.") : "Download menu unavailable.")
+        );
+      }
     });
   });
   list.querySelectorAll("[data-market-tip-input]").forEach((input) => {
@@ -2269,7 +2409,8 @@ function buildWorksCardInfoMarkup(options = {}) {
   const style = String(options.style || "").trim();
   return `
     <div class="work-info">
-      <div class="work-title" data-work-toggle>${escapeHtml(title)}</div>
+      <div class="work-title" data-work-toggle data-editable-title>${escapeHtml(title)}</div>
+      <div class="work-id-tag" title="${escapeHtml(workId)}" style="font:500 9px/1.3 ui-monospace,monospace;color:rgba(218,255,238,0.42);letter-spacing:.04em;margin-top:2px;user-select:all;-webkit-user-select:all;">#${escapeHtml(String(workId).slice(0, 8))}</div>
       <div class="work-tags" title="${escapeHtml((style || loginCopy("Style not set")).replace(/"/g, "&quot;"))}">${escapeHtml(style || loginCopy("Style not set"))}</div>
       ${buildWorksCardPricingMarkup(options)}
     </div>
@@ -2294,7 +2435,7 @@ function buildWorksCardMarkup(options = {}) {
   const albumCount = Math.max(0, Number(options.albumChildCount || 0));
   const _albumCls = albumCount >= 2 ? " is-album-root" : "";
   return `
-    <article class="work-card ${_playedCls}${_adminCls}${_giftCls}${_albumCls}" data-work-expand data-work-id="${escapeHtml(workId)}">
+    <article class="work-card ${_playedCls}${_adminCls}${_giftCls}${_albumCls}" data-work-expand data-work-id="${escapeHtml(workId)}" data-lyrics-preview="${escapeHtml(String(options.lyricsPreview || "").slice(0, 4000))}">
       ${_giftBadge}
       ${buildWorksCardCoverMarkup(options)}
       ${buildWorksCardChildThumbsMarkup(options)}
@@ -2340,12 +2481,26 @@ function buildWorksCardsMarkup(works = [], options = {}) {
   const canRegenerateThumbnail = options.canRegenerateThumbnail === true;
   const canRegeneratePreviewVideo = options.canRegeneratePreviewVideo === true;
   return works
-    .map((work) => {
+    .map((work, _idx, arr) => {
       const workId = String(
         work?.work_id || work?.id || work?.local_id || "",
       ).trim();
-      const title =
-        String(work.title || "").trim() || loginCopy("Untitled");
+      /* CSSOS_WAVE_210c — works-center cards also get the dedupe suffix.
+       * Build the count map lazily on the first map iteration so we
+       * don't pay the cost when there are zero dupes. */
+      if (!arr.__w210cTitleCount) {
+        const m = {};
+        arr.forEach((w) => {
+          const t = String(w?.title || "").trim();
+          if (t) m[t] = (m[t] || 0) + 1;
+        });
+        Object.defineProperty(arr, "__w210cTitleCount", { value: m });
+      }
+      const _rawTitle = String(work.title || "").trim();
+      const title = _rawTitle || loginCopy("Untitled");
+      /* CSSOS_WAVE_229 20260518 — Jing: 不再在标题后追加 · MM-DD HH:mm.
+       * 区分重名作品改用 cover 上的 mm:ss 时长 + created_at tooltip,
+       * 标题保持干净. */
       const style = String(work.style || "").trim();
       const workType = normalizeWorkTypeClient(work?.work_type);
       const status = String(work.status || "draft");

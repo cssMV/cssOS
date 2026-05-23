@@ -17,7 +17,7 @@
     ]
   },
   "ios": {
-    "contentInset": "automatic",
+    "contentInset": "never",
     "preferredContentMode": "mobile",
     "scheme": "cssstudio",
     "limitsNavigationsToAppBoundDomains": false,

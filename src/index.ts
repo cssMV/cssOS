@@ -3394,6 +3394,17 @@ app.post("/api/works/:id/pipeline-assets", express.json({ limit: "256kb" }), asy
     await upsertAsset(workId, "audio_track_2", altAudioUrl, { kind: "audio_track", take: 2, duration_secs: altDurationSecs });
     await upsertAsset(workId, "subtitle_srt", subtitleSrtUrl, {});
 
+    // CSSOS_WAVE_367 20260523 — Jing「卡片显示时长」: 卡片读的是 user_works.duration_secs
+    // 列(feed 直接取该列), 而 Rust commit 没把它写进去 → 今天的新作品该列仍是 null →
+    // 卡片不显示时长. 这里顺手把列补上(只在拿到正值时覆盖, 不抹掉已有值).
+    if (durationSecs && durationSecs > 0) {
+      try {
+        await withClient((c) =>
+          c.query(`UPDATE user_works SET duration_secs = $1 WHERE id = $2::uuid`, [durationSecs, workId]),
+        );
+      } catch (_e) {}
+    }
+
     // CSSOS_WAVE_364 20260523 — Jing「补 Take 2」: Rust commit 服务端自动建的 Take 2
     // 兄弟作品(source_run_id = '<run>::take2')前端拿不到它的 work_id, 同样因部分
     // 索引谓词缺失而没入库. 这里按 source_run_id 找到它, 顺手补全它的资产:

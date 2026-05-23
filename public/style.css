@@ -12088,11 +12088,16 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
 /* CSSOS_WAVE_270 20260521 — TikTok-style create CTA (last N seconds of
  * playback). Bottom banner inside the watch screen; auto-fades in. */
 .cssos-create-cta {
-  position: absolute;
+  position: fixed;
   left: 50%;
-  bottom: 86px;
+  /* CSSOS_WAVE_376 20260523 — Jing「和 UP NEXT 打架」: 两张端尾 CTA 都挤在底部叠一起.
+     把 "Want an MV like this?" 抬到 UP NEXT 条(底部 ~150px 高)的【上方】, 上下错开
+     不重叠. 用 fixed + 视口底距, 与 UP NEXT(也是 fixed)同一参考系, 稳定不打架. */
+  bottom: calc(186px + env(safe-area-inset-bottom, 0px));
   transform: translate(-50%, 16px);
-  z-index: 40;
+  /* W376 — fixed-on-body sits below the fullscreen media (z~10060) at z:40 →
+     invisible. Lift just below the UP NEXT strip so it floats over the media. */
+  z-index: 2147483644;
   display: none;
   align-items: center;
   gap: 14px;

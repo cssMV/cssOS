@@ -1774,6 +1774,20 @@
   function escapeText(s) {
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
+  /* CSSOS_WAVE_357 20260522 — Jing: 人物头像走本域 /api/img-thumb 代理(webp 缓存),
+   * 不再直连 wikimedia 等外站 —— 杜绝限流/"network connection lost" 导致的灰卡闪烁,
+   * App 审核里卡片秒出. 本域图(cssstudio.app/相对路径)与 data: 原样返回. */
+  function proxiedImg(url, w) {
+    var s = String(url || "").trim();
+    if (!s) return s;
+    if (s.indexOf("data:") === 0) return s;
+    if (s.indexOf("//") !== 0 && s.indexOf("http") !== 0) return s; // relative/local
+    try {
+      var h = new URL(s, location.href).hostname.toLowerCase();
+      if (h === location.hostname) return s; // already our domain
+    } catch (_e) {}
+    return "/api/img-thumb?u=" + encodeURIComponent(s) + "&w=" + (w || 320);
+  }
 
   async function createAdhocPerson(name) {
     if (!name) return;
@@ -2293,7 +2307,7 @@
     if (p.content_rating) card.setAttribute("data-content-rating", String(p.content_rating));
     var coverHtml;
     if (portrait) {
-      coverHtml = '<div class="cover" style="background-image:url(' + escapeAttr(portrait) + ');"></div>';
+      coverHtml = '<div class="cover" style="background-image:url(' + escapeAttr(proxiedImg(portrait, 360)) + ');"></div>';
     } else {
       /* Fallback: emoji or first character on gradient. */
       var glyph = (primary || "?").trim().charAt(0).toUpperCase();
@@ -2375,7 +2389,7 @@
     card.setAttribute("data-person-id", p.person_id || "");
     if (p.content_rating) card.setAttribute("data-content-rating", String(p.content_rating));
     card.innerHTML =
-      '<div class="cover" style="background-image:url(' + escapeAttr(portrait) + ');"></div>' +
+      '<div class="cover" style="background-image:url(' + escapeAttr(proxiedImg(portrait, 320)) + ');"></div>' +
       '<div class="info">' +
         '<div class="name">' + escapeText(primary) + '</div>' +
         (secondary ? '<div class="name-en">' + escapeText(secondary) + '</div>' : '') +

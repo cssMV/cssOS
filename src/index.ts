@@ -9271,6 +9271,10 @@ const THUMB_ALLOW_HOSTS = [
   "cssstudio.app", "replicate.delivery", "fal.media", "fal.run",
   "storage.googleapis.com", "r2.cloudflarestorage.com", "r2.dev",
   "amazonaws.com", "cloudfront.net",
+  // CSSOS_WAVE_357 20260522 — Jing: 人物头像大量来自维基, 直连 upload.wikimedia.org
+  // 会被限流/偶发 "network connection lost"(控制台一片红, 卡片闪灰). 经我们的
+  // /api/img-thumb 代理后由本域 webp 缓存供给, 稳定且快, App 审核体验更完整.
+  "wikimedia.org", "wikipedia.org",
 ];
 function thumbHostAllowed(u: URL): boolean {
   const h = u.hostname.toLowerCase();

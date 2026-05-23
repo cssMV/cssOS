@@ -181,16 +181,20 @@
     if (stripEl && document.body.contains(stripEl)) return stripEl;
     stripEl = document.createElement("div");
     stripEl.id = "cssos-up-next-strip";
+    /* CSSOS_WAVE_375 20260523 — Jing「卡片压在媒体上, 背景透明」: 这条 UP NEXT
+     * 是 position:fixed 浮层(不占布局), 但之前内层是一块不透明深色药丸 = 底部黑块感.
+     * 改为【整条透明】, 仅在底部铺一层很淡的渐变 scrim(纯为文字/缩略图在亮画面上
+     * 可读), 媒体继续铺满全屏、卡片浮在其上。每张缩略图仍有自己的淡底, 看得出是卡片。 */
     stripEl.style.cssText =
-      "position:fixed;left:0;right:0;bottom:24px;z-index:2147483645;" +
+      "position:fixed;left:0;right:0;bottom:max(18px,env(safe-area-inset-bottom,0px));z-index:2147483645;" +
       "display:flex;justify-content:center;pointer-events:none;" +
+      "background:linear-gradient(to top,rgba(0,0,0,0.34),rgba(0,0,0,0.10) 55%,transparent);" +
+      "padding-top:40px;" +
       "opacity:0;transform:translateY(12px);transition:opacity .35s ease,transform .35s ease;";
     var bar = document.createElement("div");
     bar.style.cssText =
       "max-width:min(96vw,1400px);padding:10px 14px;border-radius:14px;" +
-      "background:rgba(8,18,16,0.78);backdrop-filter:blur(10px);" +
-      "border:1px solid rgba(0,245,160,0.22);" +
-      "box-shadow:0 18px 48px rgba(0,0,0,0.55);" +
+      "background:transparent;" +
       "pointer-events:auto;display:flex;flex-direction:column;gap:6px;";
     var hdr = document.createElement("div");
     hdr.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:12px;";

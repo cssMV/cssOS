@@ -12099,11 +12099,15 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
   max-width: min(560px, 88vw);
   padding: 12px 14px 12px 18px;
   border-radius: 16px;
-  background: rgba(8, 18, 16, 0.82);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(0, 245, 160, 0.42);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  /* CSSOS_WAVE_375 20260523 — Jing「卡片背景透明, 压在媒体上」: 之前是 0.82 不透明
+     深色药丸, 叠在画面暗部 = 一坨黑块. 改为基本透明(极淡 scrim 仅保文字可读) +
+     文字阴影, 让卡片真正浮在全屏媒体上, 不再像黑块。 */
+  background: rgba(8, 18, 16, 0.28);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(0, 245, 160, 0.30);
+  box-shadow: none;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
   opacity: 0;
   transition: opacity .4s ease, transform .4s ease;
 }

@@ -1932,6 +1932,11 @@ function buildJingdianSystemPrompt(language: string, workType: string = "single"
   return [
     `LANGUAGE DIRECTIVE (highest priority):`,
     `All lyric BODY lines MUST be written in ${langName}. Do not switch languages mid-song, do not translate to Chinese, do not "localize" Western personas to Chinese. The body language is fixed by this directive regardless of who the song is about.`,
+    // CSSOS_WAVE_358 20260522 — Jing「i18n 铁律」: the theme / prompt / persona
+    // notes may arrive in ANOTHER language (often Chinese seed text). Treat any
+    // such text as SEMANTIC SEED ONLY — render its meaning, but output strictly
+    // in ${langName}. NEVER emit Chinese unless ${langName} is itself Chinese.
+    `IMPORTANT: the prompt or theme text may be written in a different language (e.g. Chinese). Use it only as a semantic hint — still write the entire song in ${langName}. If ${langName} is not Chinese, the lyrics must contain NO Chinese at all.`,
     ``,
     `LINE COUNT PER SECTION: each section should have 4 body lines in ${langName} plus 1 ritual line in the civilization's ancestral / sacred language (Latin for Roman, Classical Greek for Hellenic, Sanskrit for Vedic, Classical Chinese 文言文 for ancient Chinese, Old Egyptian/Coptic for Egyptian, etc.) used as an incantation / refrain. If the civilization has no distinct ancestral language, write 4 body lines and skip the ritual line. Target total: 40–50 lyric lines per single song so the music engine renders 5+ minutes.`,
     ``,

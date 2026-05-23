@@ -2526,37 +2526,56 @@
     var nameZh = localizedName(p);
     var theme = "";
 
-    // 1. Random event
+    // CSSOS_WAVE_358 20260522 — Jing「文明智能联动 / i18n 铁律」: 人物档案的
+    // core_theme / roles / visual_symbols 等种子列大多是【中文】(原始 seed 是中文
+    // 编写的). 直接喂给歌词 LLM 当 theme → 波斯诗人鲁米也唱中文「长城」情歌, 荒唐.
+    // 规则: 该人物的母语 = civ → 母语码; 非中华人物的 theme 候选若含中文(CJK)一律
+    // 跳过 —— 宁可空(让后端用母语/英文合成), 也绝不让中文 theme 拖出中文歌词.
+    var civLang = "";
+    try { civLang = (globalThis.civToLanguageModule ? globalThis.civToLanguageModule(p.civilization) : "") || ""; } catch (_e) {}
+    var isZhCiv = civLang === "zh";
+    var hasCJK = function (s) { return /[一-鿿㐀-䶿]/.test(String(s || "")); };
+    var okTheme = function (s) {
+      s = String(s || "").trim();
+      if (!s) return "";
+      if (!isZhCiv && hasCJK(s)) return ""; // 非中华人物拒绝中文 theme
+      return s;
+    };
+
+    // 1. Random event (lore is now mother-tongue per W348/W354)
     if (lore && Array.isArray(lore.events) && lore.events.length) {
       var ev = pickRandomEntry(lore.events);
       if (ev) {
         var label = ev.title || ev.name || ev.summary || ev.detail || "";
-        if (label) theme = String(label).trim().slice(0, 60);
+        if (label) theme = okTheme(String(label).slice(0, 60));
       }
     }
     // 2. Random role
     if (!theme && Array.isArray(p.roles) && p.roles.length) {
       var r = pickRandomEntry(p.roles);
-      if (r) theme = String(r).trim().slice(0, 40);
+      if (r) theme = okTheme(String(r).slice(0, 40));
     }
     // 3. Random symbol
     if (!theme && Array.isArray(p.visual_symbols) && p.visual_symbols.length) {
       var s = pickRandomEntry(p.visual_symbols);
-      if (s) theme = String(s).trim().slice(0, 30);
+      if (s) theme = okTheme(String(s).slice(0, 30));
     }
-    // 4. Bio first sentence
+    // 4. Bio first sentence (mother-tongue lore)
     if (!theme && lore && typeof lore.bio === "string") {
       var firstSent = lore.bio.split(/[。.!?！？\n]/)[0];
-      if (firstSent) theme = firstSent.trim().slice(0, 80);
+      if (firstSent) theme = okTheme(String(firstSent).slice(0, 80));
     }
     // 5. Fallback core_theme
-    if (!theme && p.core_theme) theme = String(p.core_theme).trim().slice(0, 60);
+    if (!theme && p.core_theme) theme = okTheme(String(p.core_theme).slice(0, 60));
 
     var prompt = nameZh + (theme ? "\n[" + theme + "]" : "");
     return {
       prompt: prompt,
       style: p.music_style_hint || "",
       lyrics: "",
+      // CSSOS_WAVE_358 — 把母语码带给歌词管线(seedLang). 西方/未知 civ → "" →
+      // 管线落到 UI 语言(英文), 永不中文. 中华 civ → "zh".
+      language: civLang || "",
       __personId: p.person_id,
       __civilization: p.civilization,
       __theme: theme,  // surfaced for downstream debug + title fallback

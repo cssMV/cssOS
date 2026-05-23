@@ -6388,6 +6388,21 @@ html.cssos-app #watch-panel.panel-active {
   outline: none !important;
   border: none !important;
 }
+/* CSSOS_WAVE_368 20260523 — Jing「底部黑块是卡片背景, 取消它, 让卡片压在媒体框上」.
+ * .panel 基类有不透明深色 surface(--panel-surface). App 全屏时媒体(.watch-screen,
+ * absolute inset:0, object-fit:cover)已铺满整屏, 但面板/pane/frame 这层卡片背景仍
+ * 是深色 → 底部那些 chrome(now-playing / 动作行)压在深色卡片上 = 底部黑块.
+ * 全屏时把这层卡片背景【透明化】, 媒体直接铺满, chrome 浮在媒体上, 无黑块. */
+html.cssos-app #watch-panel,
+html.cssos-app #watch-panel.panel-front,
+html.cssos-app #watch-panel.panel-active,
+html.cssos-app #watch-panel .watch-pane,
+html.cssos-app #watch-panel .watch-pane.active,
+html.cssos-app #watch-panel .watch-frame {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
 /* CSSOS_WAVE_297 20260521 — Jing: 内缩 20px 破坏画面, 撤销. 进度环回到【贴边
  * inset:0】走 MV 面板真正的边框, 四角不再缩进; 改为让圆角矩形的圆角半径 =
  * 设备屏幕圆角(见 app.watch-stage-bars.js 的 APP 半径), 这样四角顺着设备圆角
@@ -6405,14 +6420,14 @@ html.cssos-app #watch-panel .panel-progress-line { left: 0 !important; right: 0 
  * 去掉 50px 地板: 无刘海机型 env=0 → 贴顶; 有刘海机型 env 自动让位. 顶部不留空白. */
 :root { --cssos-notch-clear: env(safe-area-inset-top, 0px); }
 html.cssos-app #watch-panel #watch-author-avatar {
-  top: calc(var(--cssos-notch-clear) + 5px) !important;
+  top: calc(var(--cssos-notch-clear) + 2px) !important;
   left: 12px !important;
 }
 html.cssos-app #watch-search-box {
-  top: calc(var(--cssos-notch-clear) + 4px) !important;
+  top: calc(var(--cssos-notch-clear) + 2px) !important;
 }
 html.cssos-app #watch-exit-cinema {
-  top: calc(var(--cssos-notch-clear) + 5px) !important;
+  top: calc(var(--cssos-notch-clear) + 2px) !important;
   right: 12px !important; /* CSSOS_WAVE_326 — 与左上角头像 left:12 对称 */
 }
 /* CSSOS_WAVE_328 — Jing: 搜索框【始终居中、保持长】, 两侧只留头像/关闭键的空间即可
@@ -6447,12 +6462,31 @@ html.cssos-app:has(#watch-panel:not(.hidden)) #cssos-activity-bar-tooltip,
 html.cssos-app:has(#watch-panel:not(.hidden)) #cssos-schools-close {
   display: none !important;
 }
-/* 视频/封面填满整屏(cover: 溢出裁切, 竖屏 MV 在竖屏 App 里正好铺满)。 */
+/* 视频/封面填满整屏(cover: 溢出裁切, 竖屏 MV 在竖屏 App 里正好铺满)。
+ * W339 20260522 — Jing: .watch-screen 是 display:grid;place-items:center,
+ * grid auto-track 按图片固有高度(宽度×长宽比)定高, 不拉伸到 100dvh.
+ * 后果: 9:16 封面图高度 ≈ 375×(16/9)≈667px, 视口高度≈956px → 下方留 ~289px 黑块.
+ * 修复: position:absolute;inset:0 让媒体元素直接相对 .watch-screen(positioned)
+ * 铺满, 彻底跳过 grid auto-track 高度计算. */
 html.cssos-app #watch-panel .watch-video,
 html.cssos-app #watch-panel .watch-svg {
+  position: absolute !important;
+  inset: 0 !important;
   width: 100% !important;
   height: 100% !important;
   object-fit: cover !important;
+}
+
+/* W341/W342 20260522-23 — Jing: 视频/封面图通过 z-index 叠放, 不靠 display:none 切换.
+ * video(z-index:2) 有内容时盖住封面; 无内容时视频透明, 封面(z-index:1) 自然透出.
+ * W342: JS 不再注入 watchVideo.style.display="none", 去掉竞态. 故 display:block !important
+ * 仍保留以防其他路径注入 display:none. 此规则在全平台生效(不限 cssos-app). */
+#watch-panel .watch-video {
+  display: block !important;
+  z-index: 2 !important;
+}
+#watch-panel .watch-svg {
+  z-index: 1 !important;
 }
 
 /* Portrait viewport: allow the preview to shrink vertically so a 16:9 output
@@ -10590,6 +10624,60 @@ body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen .watch-pane.active,
   height: 100% !important;
 }
 
+/* W337 20260522 — Jing: 顶部黑条终极修复. 问题根源:
+ * 1) .panel.flow::after { inset:4px } → 4px gap at all edges showing black panel bg.
+ * 2) ensureCinemaAutoHideModule injects inline <style> after style.css with
+ *    padding-top:env(safe-area-inset-top) on #watch-panel.cssmv-cinema —
+ *    inline-injected styles win same-specificity cascade battle against style.css.
+ * 3) Flex/grid chain leaves unmeasured height in containers.
+ * FIX: suppress ::before/::after, force panel padding to 0 with highest
+ * specificity, then use position:absolute;inset:0 on EVERY container layer
+ * so geometry is computed purely by stacking context — zero flex/grid math. */
+#watch-panel.is-cssmv-fullscreen::before,
+#watch-panel.is-cssmv-fullscreen::after {
+  display: none !important;
+  content: none !important;
+  box-shadow: none !important;
+  background: none !important;
+}
+#watch-panel.is-cssmv-fullscreen.cssmv-cinema,
+#watch-panel.is-cssmv-fullscreen.cssmv-cinema[style] {
+  padding-top: 0 !important;
+}
+#watch-panel.is-cssmv-fullscreen .panel-body,
+#watch-panel.is-cssmv-fullscreen .watch-body {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  gap: 0 !important;
+  display: block !important;
+}
+#watch-panel.is-cssmv-fullscreen .watch-pane.active {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  display: block !important;
+}
+#watch-panel.is-cssmv-fullscreen .watch-frame,
+#watch-panel.is-cssmv-fullscreen .watch-screen {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  aspect-ratio: unset !important;
+  border-radius: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
 /* CSSOS_WAVE_246 20260520 — Jing: 回退 W242. 之前强行给 .watch-screen
  * 设 width:100dvw + 给所有媒体元素套 height:100%/object-fit:cover, 把
  * cinema 媒体容器搞塌成黑屏. 真全屏只做"安全"的去缝处理:
@@ -11933,7 +12021,7 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
 .watch-language-pill.cssmv-pill-bar {
   position: absolute;
   left: 50%;
-  bottom: 64px;
+  bottom: calc(env(safe-area-inset-bottom, 20px) + 76px);
   transform: translateX(-50%);
   width: auto;
   max-width: min(86%, 520px);

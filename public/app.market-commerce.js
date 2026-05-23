@@ -1739,10 +1739,15 @@ function buildMarketCardsMarkup(works = []) {
       const _coverPool = Array.isArray(work?.cover_slides)
         ? work.cover_slides.filter((u) => typeof u === "string" && u.trim())
         : [];
+      // CSSOS_WAVE_368 — Jing: 随机封面健壮化. 池里旧帧可能是过期 replicate 死链,
+      // 命中就会露破图. 算一个稳定主封面做 onerror 兜底(与搜索卡一致).
+      const _stableCover = String(
+        globalThis.resolveWorkCardThumbnailImageModule?.(work) ||
+        resolveWorkCoverImage(work) || "",
+      ).trim();
       const coverImage = _coverPool.length
         ? _coverPool[Math.floor(Math.random() * _coverPool.length)]
-        : (globalThis.resolveWorkCardThumbnailImageModule?.(work) ||
-           resolveWorkCoverImage(work));
+        : _stableCover;
       const listenCents = Number(
         work?.current_listen_price_cents || work?.listen_price_cents || 0,
       );
@@ -1849,7 +1854,7 @@ function buildMarketCardsMarkup(works = []) {
       return `
         <article class="work-card market-card foryou-shelf-card ${_playedClass}${_isAdminOwned ? " is-admin-public" : ""}" data-market-work-id="${escapeHtml(workId)}" data-work-id="${escapeHtml(workId)}" data-work-expand data-lyrics-preview="${escapeHtml(_previewRaw.slice(0, 4000))}">
           <div class="work-cover" data-market-cover-key="${escapeHtml(workId)}" data-market-action="open-watch" role="button" tabindex="0" aria-label="${escapeHtml(loginCopy("Play MV"))}">
-            ${coverImage ? `<img src="${escapeHtml((globalThis.cssosThumb || function (u) { return u; })(coverImage, 400))}" alt="${title}" loading="lazy" decoding="async" />` : `<div class="work-cover-fallback">${rawTitle.slice(0, 2).toUpperCase()}</div>`}
+            ${coverImage ? `<img src="${escapeHtml((globalThis.cssosThumb || function (u) { return u; })(coverImage, 400))}" alt="${title}" loading="lazy" decoding="async" ${_stableCover && _stableCover !== coverImage ? `data-stable="${escapeHtml((globalThis.cssosThumb || function (u) { return u; })(_stableCover, 400))}" onerror="if(this.dataset.stable&&this.src!==this.dataset.stable){this.src=this.dataset.stable;}"` : ""} />` : `<div class="work-cover-fallback">${rawTitle.slice(0, 2).toUpperCase()}</div>`}
             ${_fpBadge}
             ${_durOverlay}
             <span class="work-cover-played-dot" aria-hidden="true"></span>
@@ -2511,9 +2516,14 @@ function buildWorksCardsMarkup(works = [], options = {}) {
         ? new Date(work.created_at).toLocaleString()
         : "";
       const lyricsPreview = buildDisplayLyricsPreviewText(work);
-      const coverImage =
-        globalThis.resolveWorkCardThumbnailImageModule?.(work) ||
-        resolveWorkCoverImage(work);
+      // W344 20260523 — Jing: 每次面板渲染随机取一张封面图.
+      // cover_slides 有多张时随机洗牌; 无 slides 时回落到固定封面.
+      const _slides = Array.isArray(work?.cover_slides)
+        ? work.cover_slides.filter((u) => typeof u === "string" && u.trim())
+        : [];
+      const coverImage = _slides.length > 0
+        ? _slides[Math.floor(Math.random() * _slides.length)]
+        : (globalThis.resolveWorkCardThumbnailImageModule?.(work) || resolveWorkCoverImage(work));
       const source = String(work?.source || "")
         .trim()
         .toLowerCase();

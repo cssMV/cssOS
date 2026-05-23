@@ -37,14 +37,29 @@
   function isChineseCivLabel(civ) {
     return /中华|华夏|Chinese|Confucian|Daoist|Taoist|儒|道家/i.test(String(civ || ""));
   }
+  /* CSSOS_WAVE_360 20260522 — Jing「名字乱码」: 一些 name_native/name_zh 列被
+   * 写入了 ANSI 转义序列 / 控制字符(如 "\x1b[1;37mvan Gogh\x1b[22m"、"[34m...").
+   * 渲染前一律清洗: 去 CSI/OSC/裸 ESC、去 C0 控制符、去残留的 "[0-9;]m" 片段.
+   * 清洗后若为空(整串都是垃圾), 返回空 → 由调用方 fallback 到干净的 name_en. */
+  function cleanName(s) {
+    var t = String(s == null ? "" : s)
+      .replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, "")      // CSI
+      .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")    // OSC
+      .replace(/\x1b/g, "")                              // bare ESC
+      .replace(/\[[0-9;]*m/g, "")                        // leftover "[1;37m"
+      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "")  // C0 + DEL
+      .replace(/\s{2,}/g, " ")
+      .trim();
+    return t;
+  }
   function motherTongueName(p) {
-    var nat = String(p.name_native || "").trim();
+    var nat = cleanName(p.name_native);
     if (nat) return nat;
-    if (isChineseCivLabel(p.civilization)) return String(p.name_zh || "").trim();
+    if (isChineseCivLabel(p.civilization)) return cleanName(p.name_zh);
     return "";
   }
   function localizedName(p) {
-    return motherTongueName(p) || p.name_en || p.name_zh || p.person_id;
+    return motherTongueName(p) || cleanName(p.name_en) || cleanName(p.name_zh) || p.person_id;
   }
   /* Secondary line — show the UI-localized name (or the other form) when it
    * differs from the primary (mother-tongue) name, so viewers still see a
@@ -52,7 +67,7 @@
   function secondaryName(p) {
     var loc = currentLocale();
     var primary = localizedName(p);
-    var alt = loc.indexOf("zh") === 0 ? (p.name_zh || p.name_en || "") : (p.name_en || p.name_zh || "");
+    var alt = loc.indexOf("zh") === 0 ? (cleanName(p.name_zh) || cleanName(p.name_en)) : (cleanName(p.name_en) || cleanName(p.name_zh));
     return alt && alt !== primary ? alt : "";
   }
 

@@ -8133,6 +8133,12 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
   // before openai/anthropic). Only the user's explicit premium choice
   // (`body.engine` ∈ openai|anthropic) escalates to the Rust upstream.
   const userForcedPremiumLlm = ["openai", "anthropic"].includes(explicitEngine);
+  // CSSOS_WAVE_360 20260522 — Jing「直接用 openAI/Claude 写母语歌词」: 小模型写不了
+  // 波斯/希腊/拉丁/梵/冰岛/斯瓦希里等母语(会退化成乱码或英文). 目标语言不在主流集合
+  // 时, 歌词直接走强模型(anthropic→openai), 真正交付该人物的母语. 主流语言仍走便宜链.
+  const MAINSTREAM_LYRIC_LANGS = new Set(["en", "zh", "es", "fr", "de", "it", "pt", "ja", "ko", "ru", "ar", "hi"]);
+  const _lyricLang2 = String(language || "").toLowerCase().slice(0, 2);
+  const lyricsNeedsCapable = !!_lyricLang2 && !MAINSTREAM_LYRIC_LANGS.has(_lyricLang2);
   if (!userForcedPremiumLlm) {
     // CSSOS_PHASE2_LYRICS_KEEPALIVE 20260507 — Jing
     // callLlm sweeps up to 10 providers; cumulative p99 can hit 60s+ which
@@ -8155,6 +8161,8 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
         ],
         max_tokens: 2600,
         temperature: 0.7,
+        // CSSOS_WAVE_360 — exotic mother tongue → capable model directly.
+        ...(lyricsNeedsCapable ? { prefer: ["anthropic", "openai"] } : {}),
       });
       clearInterval(heartbeat);
       const __lyricsCostCents = estimateEngineCostCents("lyrics", tier?.provider, (tier?.content || "").length / 4);

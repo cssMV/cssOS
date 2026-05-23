@@ -2202,7 +2202,7 @@
     <script src="app.face-safe-overlay.js?v=20260514-wave125-cover-face"></script>
     <script src="app.karaoke-active-word.js?v=20260507-emotion"></script>
     <script src="app.karaoke-settings-ui.js?v=20260507-fs-panel"></script>
-    <script src="app.js?v=20260523-w352-no-probe"></script>
+    <script src="app.js?v=20260523-w353-market-pagination"></script>
     <!-- CSSOS_MV_FLOW_RESTORE 20260505 — block moved further down
          (just before app.boot.js) so app.cssmv-governance.js's top-level
          renderDeliveryDigestSummaryModule() call sees the function defined
@@ -2269,7 +2269,7 @@
          the market panel loaded (crash-guard logged 35 hits/session).
          market-commerce is NOT an island; it must load eagerly. The
          mv-pipeline-panel lazy-load (a true island) stays. -->
-    <script src="app.market-commerce.js?v=20260523-w368-robust-cover"></script>
+    <script src="app.market-commerce.js?v=20260523-w353-offset-pagination"></script>
     <!-- CSSOS_WAVE_220A 20260519 — Jing: title edit/refine button was
          implemented but never loaded. Wiring it in now. -->
     <script src="app.title-edit-refine.js?v=20260519-w220a-title-edit"></script>
@@ -2784,6 +2784,26 @@
               ["pause", "stalled", "waiting", "suspend"].forEach(function (ev) {
                 el.addEventListener(ev, function () { setTimeout(resume, 120); }, { passive: true });
               });
+              /* CSSOS_WAVE_379 20260523 — Jing「自动播又不动了」根因不是 CSS, 是这支
+               * 作品的音频是过期第三方链接(Mubert 死得最快)→ 404 → play() 永远失败,
+               * 看门狗 re-play 一个 404 = 死循环卡住。对【有声那条】加 error 处理:
+               * 音频 404/解码失败 → 自动【跳下一首】(死链作品自动跳过), autoplay 永不卡死。
+               * 计数上限 8, 防全库死链时无限跳。 */
+              if (id === "watch-audio-preview") {
+                el.addEventListener("error", function () {
+                  try {
+                    if (!watchOpen()) return;
+                    window.__cssosAudioSkips = (window.__cssosAudioSkips || 0) + 1;
+                    if (window.__cssosAudioSkips > 8) return;
+                    var now = Date.now();
+                    if (now - lastReplay < 1200) return;
+                    lastReplay = now;
+                    if (typeof globalThis.cssosWatchQueueAdvance === "function") {
+                      globalThis.cssosWatchQueueAdvance(1);
+                    }
+                  } catch (_e) {}
+                }, { passive: true });
+              }
             });
           }
           try { installAutoplayWatchdogOnce(); } catch (_e) {}

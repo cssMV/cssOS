@@ -1,6 +1,6 @@
 {
   "appId": "app.cssstudio.studio",
-  "appName": "cssOS Studio",
+  "appName": "cssOS",
   "webDir": "public-ios-shell",
   "bundledWebRuntime": false,
   "server": {
@@ -21,7 +21,9 @@
     "preferredContentMode": "mobile",
     "scheme": "cssstudio",
     "limitsNavigationsToAppBoundDomains": false,
-    "backgroundColor": "#0b0d12"
+    "backgroundColor": "#0b0d12",
+    "_comment_useragent": "CSSOS_WAVE_236 20260519 — Google OAuth 拒绝默认 Capacitor WKWebView UA (disallowed_useragent / Error 403). 追加 Safari token 后 Google accounts.google.com 才放行. cssos-ios token 留作我们自己的服务端识别.",
+    "overrideUserAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1 cssos-ios/1.0"
   },
   "plugins": {
     "SplashScreen": {

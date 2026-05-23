@@ -77,14 +77,17 @@
         im.addEventListener("error", function () { overlay.classList.add("img-failed"); });
       });
     } catch (_e) {}
-    // CSSOS_WAVE_347 — Jing: 该 overlay 是否"代表用户正在欣赏的画面".
-    // #watch-audio-preview 这类【静音/预加载的伴奏音轨】在 Suno 还没出
-    // 音乐时会一直 waiting, 但用户其实在看 video/封面 —— 此时挂在 audio 上
-    // 的魔镜会"正常播放还一直呼吸". 这类后台元素一律不驱动可见 overlay.
+    // CSSOS_WAVE_355 — Jing「魔镜从头转到尾」根因: watch 里 #watch-video 是
+    // 【静音装饰画面】(W279 muted autoplay), 声音走 #watch-audio-preview. 静音
+    // video 在封面式 MV 里没有真实视频帧, 一旦 'waiting' 触发就再也不会 'playing'/
+    // 'timeupdate' → 魔镜永远卡在 is-active, 正常播放时也一直呼吸.
+    // 规则收敛为: 【任何静音 media 都是背景/装饰, 一律不驱动魔镜】. 用户真正在
+    // 欣赏的是有声那条(unmuted audio-preview 或带声视频); 真视频 MV(不静音)卡顿
+    // 时仍正常显示魔镜.
     var isBackgroundMedia = function () {
       try {
-        if (media.tagName === "AUDIO" && media.muted) return true;
-        if (media.id === "watch-audio-preview" && media.muted) return true;
+        if (media.muted) return true;                       // 静音 = 背景/装饰
+        if (media.id === "watch-video") return true;        // watch 视觉层, 非播放焦点
       } catch (_e) {}
       return false;
     };
@@ -101,19 +104,28 @@
       overlay.classList.add("is-active");
     };
     var hide = function () { overlay.classList.remove("is-active"); };
+    // CSSOS_WAVE_355 — Jing: 全局兜底. 任何【有声】media 真在播放/前进时, 清掉
+    // 页面上所有残留魔镜 —— 杜绝某个元素的 spinner 卡死后赖着不走.
+    var hideAll = function () {
+      try {
+        if (media.muted) { hide(); return; }
+        document.querySelectorAll(".cssos-buffering-mirror.is-active")
+          .forEach(function (o) { o.classList.remove("is-active"); });
+      } catch (_e) { hide(); }
+    };
     // 只挂"卡顿"事件; 去掉 loadstart / seeking —— 它们在正常起播 / 设 src /
     // 拖动时也会触发, 导致魔镜常亮或卡死显示. 真正的拖动缓冲仍会触发 waiting.
     media.addEventListener("waiting", show);
     media.addEventListener("stalled", show);
-    media.addEventListener("playing", hide);
+    media.addEventListener("playing", hideAll);
     media.addEventListener("canplay", hide);
     media.addEventListener("canplaythrough", hide);
     media.addEventListener("pause", hide);
     media.addEventListener("ended", hide);
     media.addEventListener("error", hide);
-    // CSSOS_WAVE_347 — Jing: 兜底. 只要时间在前进(真在播放), 立刻收起魔镜 ——
+    // CSSOS_WAVE_347/355 — 兜底: 只要时间在前进(真在播放), 立刻收起所有魔镜 ——
     // 杜绝 waiting 之后 playing 没补发导致魔镜赖着不走.
-    media.addEventListener("timeupdate", hide);
+    media.addEventListener("timeupdate", hideAll);
   }
 
   function scan() {

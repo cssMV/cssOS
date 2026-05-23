@@ -2283,7 +2283,7 @@
     <script src="app.dm-inbox-indicator.js?v=20260514-wave143-fab-position-fix"></script>
     <script src="app.chat-rooms.js?v=20260514-wave139a"></script>
     <script src="app.credits-topup-modal.js?v=20260514-wave139b"></script>
-    <script src="app.media-buffering-mirror.js?v=20260522-w347-mirrorsync"></script>
+    <script src="app.media-buffering-mirror.js?v=20260522-w355-mutedskip"></script>
     <script src="app.provider-health-dashboard.js?v=20260514-wave139c"></script>
     <script src="app.today-in-history-shelf.js?v=20260514-wave153c"></script>
     <script src="app.today-festival-shelf.js?v=20260514-wave153c"></script>
@@ -2655,7 +2655,11 @@
             // 一致 — 不能一个显一个不显).
             "#watch-search-box",
             "#watch-exit-cinema",
-            "#dock"
+            "#dock",
+            // W356 20260523 — Jing: 歌词随 UI 一起在 10s 后隐藏, 不在播放时
+            // 常驻. watch-karaoke-line / watch-subtitle 与其他控件步调一致.
+            "#watch-panel #watch-karaoke-line",
+            "#watch-panel #watch-subtitle"
           ];
           var hidden = []; // [{el, prevDisplay, prevPriority}]
           function inCinema() {

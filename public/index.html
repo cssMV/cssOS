@@ -2753,7 +2753,42 @@
               });
             } catch (_e) {}
           }
+          /* CSSOS_WAVE_374 20260523 — Jing「自动播放别停, 不要让用户点」: build 16 已
+           * 允许免手势 play(), 但没有"卡住自动续播"的看门狗 —— iOS/缓冲一旦把媒体
+           * 暂停, 在下次手势前没人重启它, 用户就得点一下才继续(进度条才走). 这里给
+           * 有声那条(#watch-audio-preview)+ 视频装一个看门狗: 只要 watch 面板还开着、
+           * 媒体没播完、有 src, pause/stalled/waiting/suspend 时就自动 play() 续上。
+           * 限速 900ms 防抖, 不和"播完→队列连播"打架(ended 不重启)。 */
+          function installAutoplayWatchdogOnce() {
+            ["watch-audio-preview", "watch-video"].forEach(function (id) {
+              var el = document.getElementById(id);
+              if (!el || el.dataset.cssosWatchdog) return;
+              el.dataset.cssosWatchdog = "1";
+              var lastReplay = 0;
+              function watchOpen() {
+                var wp = document.getElementById("watch-panel");
+                return wp && !wp.classList.contains("hidden") &&
+                  getComputedStyle(wp).display !== "none";
+              }
+              function resume() {
+                try {
+                  if (!watchOpen()) return;
+                  if (el.ended) return;
+                  if (!String(el.currentSrc || el.src || "").trim()) return;
+                  var now = Date.now();
+                  if (now - lastReplay < 900) return;
+                  lastReplay = now;
+                  if (el.play) el.play().catch(function () {});
+                } catch (_e) {}
+              }
+              ["pause", "stalled", "waiting", "suspend"].forEach(function (ev) {
+                el.addEventListener(ev, function () { setTimeout(resume, 120); }, { passive: true });
+              });
+            });
+          }
+          try { installAutoplayWatchdogOnce(); } catch (_e) {}
           var observer = new MutationObserver(function () {
+            try { installAutoplayWatchdogOnce(); } catch (_e) {}
             if (inCinema()) {
               forceUnmuteAndPlay();
               sleep();

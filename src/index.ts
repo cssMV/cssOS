@@ -3369,7 +3369,7 @@ app.post("/api/works/:id/pipeline-assets", express.json({ limit: "256kb" }), asy
     const written: string[] = [];
     // The unique index is PARTIAL (excludes slideshow_frame); the ON CONFLICT
     // MUST repeat that predicate so Postgres can infer the index.
-    const upsertAsset = async (assetType: string, url: string, meta: Record<string, unknown>) => {
+    const upsertAsset = async (targetId: string, assetType: string, url: string, meta: Record<string, unknown>) => {
       if (!url) return;
       await withClient((c) =>
         c.query(
@@ -3377,24 +3377,60 @@ app.post("/api/works/:id/pipeline-assets", express.json({ limit: "256kb" }), asy
            VALUES ($1::uuid, $2, $3, $4::jsonb)
            ON CONFLICT (work_id, asset_type) WHERE asset_type <> 'slideshow_frame'
            DO UPDATE SET url = EXCLUDED.url, meta = EXCLUDED.meta`,
-          [workId, assetType, url, JSON.stringify(meta || {})],
+          [targetId, assetType, url, JSON.stringify(meta || {})],
         ),
       );
       written.push(assetType);
     };
 
-    await upsertAsset("final_mv", finalMvUrl, {
+    await upsertAsset(workId, "final_mv", finalMvUrl, {
       kind: "third_party_pipeline",
       duration_secs: durationSecs,
       lyrics_full: b.lyrics_full ?? null,
       aligned_lyrics: b.aligned_lyrics ?? null,
       engine_meta: b.engine_meta ?? null,
     });
-    await upsertAsset("audio_track_1", audioUrl, { kind: "audio_track", take: 1, duration_secs: durationSecs });
-    await upsertAsset("audio_track_2", altAudioUrl, { kind: "audio_track", take: 2, duration_secs: altDurationSecs });
-    await upsertAsset("subtitle_srt", subtitleSrtUrl, {});
+    await upsertAsset(workId, "audio_track_1", audioUrl, { kind: "audio_track", take: 1, duration_secs: durationSecs });
+    await upsertAsset(workId, "audio_track_2", altAudioUrl, { kind: "audio_track", take: 2, duration_secs: altDurationSecs });
+    await upsertAsset(workId, "subtitle_srt", subtitleSrtUrl, {});
 
-    return res.json({ ok: true, work_id: workId, written });
+    // CSSOS_WAVE_364 20260523 — Jing「补 Take 2」: Rust commit 服务端自动建的 Take 2
+    // 兄弟作品(source_run_id = '<run>::take2')前端拿不到它的 work_id, 同样因部分
+    // 索引谓词缺失而没入库. 这里按 source_run_id 找到它, 顺手补全它的资产:
+    // 它的【主音轨 audio_track_1 = 本作品的 alt 音轨】(Take 2 的声音就是第二条),
+    // 视频/字幕与 Take 1 共享. 这样从 Take 2 卡片播放, 听到的是正确的第二条歌声.
+    let take2: string[] = [];
+    try {
+      const srcRow = await withClient((c) =>
+        c.query<{ source_run_id: string | null }>(
+          `SELECT source_run_id FROM user_works WHERE id = $1::uuid`, [workId],
+        ),
+      );
+      const runId = String(srcRow.rows[0]?.source_run_id || "").trim();
+      if (runId && !runId.endsWith("::take2") && altAudioUrl) {
+        const sib = await withClient((c) =>
+          c.query<{ id: string }>(
+            `SELECT id FROM user_works WHERE user_id = $1::uuid AND source_run_id = $2 LIMIT 1`,
+            [userId, runId + "::take2"],
+          ),
+        );
+        const take2Id = sib.rows[0]?.id;
+        if (take2Id) {
+          const _w = written.length;
+          await upsertAsset(take2Id, "final_mv", finalMvUrl, {
+            kind: "third_party_pipeline", take_index: 2, sibling_work_id: workId,
+            duration_secs: altDurationSecs || durationSecs,
+            lyrics_full: b.lyrics_full ?? null, aligned_lyrics: b.aligned_lyrics ?? null,
+          });
+          // Take 2's PRIMARY audio is the alt track.
+          await upsertAsset(take2Id, "audio_track_1", altAudioUrl, { kind: "audio_track", take: 2, duration_secs: altDurationSecs });
+          await upsertAsset(take2Id, "subtitle_srt", subtitleSrtUrl, {});
+          take2 = written.splice(_w);
+        }
+      }
+    } catch (_sibErr) { /* sibling backfill best-effort */ }
+
+    return res.json({ ok: true, work_id: workId, written, take2 });
   } catch (err) {
     console.warn("[works/pipeline-assets] failed:", (err as Error).message);
     return res.status(500).json({ ok: false, error: "attach_failed" });
@@ -9387,7 +9423,7 @@ app.get("/api/img-thumb", async (req, res) => {
     let buf: Buffer;
     try {
       const r = await fetch(src, { signal: ctrl.signal, redirect: "follow" });
-      if (!r.ok) return res.status(502).send("fetch failed");
+      if (!r.ok) return res.status(r.status).send(`upstream ${r.status}`);
       buf = Buffer.from(await r.arrayBuffer());
     } finally { clearTimeout(to); }
     if (buf.length > 25 * 1024 * 1024) return res.status(413).send("too large");
@@ -34921,6 +34957,10 @@ app.get("/api/works/market", async (req, res) => {
            /* CSSOS_WAVE_359 20260522 — Jing「凡有卡片处都显示时长」: 资产 meta
               缺时回退到 user_works.duration_secs 列(W166 落库), 覆盖更多作品. */
            COALESCE((fm_asset.meta->>'duration_secs')::float, w.duration_secs::float, NULL) AS duration_secs,
+           fm_asset.url AS final_mv_url,
+           a1_asset.url AS audio_track_1_url,
+           a2_asset.url AS audio_track_2_url,
+           ss_asset.url AS subtitle_srt_url,
            -- CSSOS_WAVE_220A_COVER_POOL 20260519 — cover pool for random
            -- card thumbnails (frontend picks one at render time).
            (SELECT array_agg(sf.url ORDER BY (sf.meta->>'idx')::int NULLS LAST, sf.created_at)
@@ -34945,6 +34985,15 @@ app.get("/api/works/market", async (req, res) => {
          LEFT JOIN work_assets fm_asset
            ON fm_asset.work_id = w.id
           AND fm_asset.asset_type = 'final_mv'
+         LEFT JOIN work_assets a1_asset
+           ON a1_asset.work_id = w.id
+          AND a1_asset.asset_type = 'audio_track_1'
+         LEFT JOIN work_assets a2_asset
+           ON a2_asset.work_id = w.id
+          AND a2_asset.asset_type = 'audio_track_2'
+         LEFT JOIN work_assets ss_asset
+           ON ss_asset.work_id = w.id
+          AND ss_asset.asset_type = 'subtitle_srt'
          WHERE COALESCE(mp.visibility, 'public') <> 'private'
            AND COALESCE(listen_product.amount_cents, mp.current_listen_price_cents, $2) > 0
            AND w.parent_work_id IS NULL

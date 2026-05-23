@@ -34839,7 +34839,9 @@ app.get("/api/works/market", async (req, res) => {
               "为你创作面板的作品卡片，压上时长". Surface duration_secs
               from the final_mv asset's meta so foryou cards can show
               the mm:ss chip on the cover, matching Works Center. */
-           COALESCE((fm_asset.meta->>'duration_secs')::float, NULL) AS duration_secs,
+           /* CSSOS_WAVE_359 20260522 — Jing「凡有卡片处都显示时长」: 资产 meta
+              缺时回退到 user_works.duration_secs 列(W166 落库), 覆盖更多作品. */
+           COALESCE((fm_asset.meta->>'duration_secs')::float, w.duration_secs::float, NULL) AS duration_secs,
            -- CSSOS_WAVE_220A_COVER_POOL 20260519 — cover pool for random
            -- card thumbnails (frontend picks one at render time).
            (SELECT array_agg(sf.url ORDER BY (sf.meta->>'idx')::int NULLS LAST, sf.created_at)

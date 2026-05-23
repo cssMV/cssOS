@@ -67,6 +67,7 @@
     searchIcon.style.cssText = [
       "position:absolute", "left:16px", "top:50%", "transform:translateY(-50%)",
       "font-size:14px", "line-height:1", "opacity:0.85", "pointer-events:none",
+      "z-index:2",  /* W335 — sit above <input> stacking context */
     ].join(";");
 
     input = document.createElement("input");
@@ -351,19 +352,23 @@
       var fallback = esc(thumb(stable, 160));
       var title = esc(w.title || tr("Untitled", "未命名"));
       var owner = esc(w.owner_name || "");
+      // CSSOS_WAVE_359 20260522 — Jing: 凡有作品卡片处都显示时长. 搜索列表此前缺.
+      var _ds = Number(w.duration_secs || w.audio_duration_secs || w.final_duration_secs || w.duration || 0) || 0;
+      var durTxt = _ds > 0 ? (Math.floor(_ds / 60) + ":" + String(Math.floor(_ds % 60)).padStart(2, "0")) : "";
       var card = document.createElement("button");
       card.type = "button";
       card.style.cssText = "display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:transparent;border:none;border-radius:10px;padding:8px;cursor:pointer;color:#fff;font:inherit;";
       card.addEventListener("mouseenter", function () { card.style.background = "rgba(0,245,160,0.1)"; });
       card.addEventListener("mouseleave", function () { card.style.background = "transparent"; });
       card.innerHTML =
-        '<div style="width:56px;height:56px;flex:0 0 auto;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.08);">' +
+        '<div style="position:relative;width:56px;height:56px;flex:0 0 auto;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.08);">' +
         (cover ? '<img src="' + cover + '" alt="" loading="lazy" decoding="async" style="width:100%;height:100%;object-fit:cover;"' +
           (fallback && fallback !== cover ? ' onerror="this.onerror=null;this.src=\'' + fallback + '\';"' : "") + ">" : "") +
+        (durTxt ? '<span style="position:absolute;right:2px;bottom:2px;background:rgba(0,0,0,0.66);color:#fff;font:600 9px/1 ui-monospace,monospace;padding:2px 4px;border-radius:4px;">' + durTxt + "</span>" : "") +
         "</div>" +
         '<div style="flex:1;min-width:0;">' +
         '<div style="font:600 14px/1.3 -apple-system,system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + title + "</div>" +
-        (owner ? '<div style="font:500 11px/1.3 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + owner + "</div>" : "") +
+        ((owner || durTxt) ? '<div style="font:500 11px/1.3 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + owner + (owner && durTxt ? " · " : "") + (durTxt ? "♪ " + durTxt : "") + "</div>" : "") +
         "</div>";
       card.addEventListener("click", function () { playWork(w); });
       results.appendChild(card);
@@ -381,9 +386,52 @@
         cover_image: w.cover_image || w.cover_url,
         owner_user_id: w.owner_user_id || w.owner_id,
       });
+      /* W340 20260522 — Jing: 两个必须解决的问题：自动播放 + 满屏.
+       *
+       * 满屏: openMarketWorkPreview 只渲染内容，不保证 is-cssmv-fullscreen /
+       * cssos-cinema-mode 类已存在. search 路径是在已开面板内切歌, 面板开启
+       * 时的 MutationObserver(hidden→visible)不再触发. 必须在这里显式调用
+       * cssosEnterCinemaLayout().
+       *
+       * 自动播放: iOS Safari 要求 play() 在用户手势调用栈内同步调用. 之前只
+       * 靠 forceUnmuteAndPlay 的 loadedmetadata 监听器, 但那里有一个
+       * `if (!cssos-cinema-mode) return` 守卫; 如果影院类还没加上, 就永远不
+       * 重试. 修复: 在本次点击的调用栈里(用户手势上下文)立即 unmute+play,
+       * 并为新媒体绑定一次性 canplay/loadedmetadata 重试, 不依赖 cinema 守卫.
+       */
+      // 1. 确保影院/全屏 class 在位.
+      try {
+        if (typeof globalThis.cssosEnterCinemaLayout === "function") {
+          globalThis.cssosEnterCinemaLayout();
+        }
+      } catch (_e) {}
+      // 2. 渲染新内容(异步, 但 click 手势上下文仍在).
       if (typeof globalThis.openMarketWorkPreview === "function") {
         globalThis.openMarketWorkPreview(payload);
       }
+      // 3. 在同一用户手势调用栈内立即 unmute + play (iOS Safari 手势窗口).
+      //    同时为新 src 绑定一次性 canplay 重试, 以防媒体还没 load 完.
+      try {
+        var videoEl = document.getElementById("watch-video");
+        var audioEl = document.getElementById("watch-audio-preview");
+        [videoEl, audioEl].forEach(function (el) {
+          if (!el) return;
+          el.muted = false;
+          el.removeAttribute("muted");
+          try { el.volume = 1; } catch (_ve) {}
+          if (el.play) el.play().catch(function () {});
+          // One-shot retry when new media is loadable.
+          ["canplay", "loadedmetadata", "loadeddata"].forEach(function (ev) {
+            el.addEventListener(ev, function onReady() {
+              el.removeEventListener(ev, onReady);
+              el.muted = false;
+              el.removeAttribute("muted");
+              try { el.volume = 1; } catch (_ve) {}
+              if (el.play) el.play().catch(function () {});
+            }, { once: true, passive: true });
+          });
+        });
+      } catch (_pe) {}
     } catch (_e) {}
   }
 

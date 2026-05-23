@@ -1804,6 +1804,50 @@
     return "/api/img-thumb?u=" + encodeURIComponent(s) + "&w=" + (w || 320);
   }
 
+  /* CSSOS_WAVE_361 20260522 — Jing「图片解码 + 海量 DOM 吃内存 → WKWebView OOM
+   * 静默重载」根治第一刀: 人物卡封面【懒加载 + 离屏回收】. 之前每张封面都是
+   * 立即解码的 background-image, 几百张一次性解码 = 几百 MB → iOS jetsam 杀进程.
+   * 现在: 卡片只存 data-bg, 进入视口附近(rootMargin 400px)才设 background-image
+   * 解码; 滚离视口则【清空 background-image 释放解码内存】(真·回收, 不只是懒加载).
+   * 无 IntersectionObserver 时优雅退化为立即加载. */
+  var _coverIO = ("IntersectionObserver" in window)
+    ? new IntersectionObserver(function (entries) {
+        for (var i = 0; i < entries.length; i++) {
+          var el = entries[i].target;
+          var bg = el.getAttribute("data-bg");
+          if (entries[i].isIntersecting) {
+            if (bg && !el.style.backgroundImage) {
+              el.style.backgroundImage = "url('" + String(bg).replace(/'/g, "%27") + "')";
+            }
+          } else if (el.style.backgroundImage) {
+            // 离屏 → 释放解码内存. data-bg 仍在, 回到视口会重新加载.
+            el.style.backgroundImage = "";
+          }
+        }
+      }, { rootMargin: "400px 0px" })
+    : null;
+  function observeCover(el) {
+    if (!el) return;
+    if (_coverIO) { try { _coverIO.observe(el); return; } catch (_e) {} }
+    var bg = el.getAttribute("data-bg");
+    if (bg) el.style.backgroundImage = "url('" + String(bg).replace(/'/g, "%27") + "')";
+  }
+  /* Build a lazy cover div: stores the URL in data-bg, schedules an observe
+   * on the next frame (by then the caller has appended the card to the DOM). */
+  function lazyCoverHtml(url, extraClass) {
+    return '<div class="cover ' + (extraClass || "") + ' pmv-lazy-cover" data-bg="'
+      + escapeAttr(url) + '"></div>';
+  }
+  function wireLazyCovers(rootEl) {
+    if (!rootEl) return;
+    try {
+      var nodes = rootEl.querySelectorAll(".pmv-lazy-cover[data-bg]");
+      for (var i = 0; i < nodes.length; i++) {
+        if (!nodes[i].__covObserved) { nodes[i].__covObserved = 1; observeCover(nodes[i]); }
+      }
+    } catch (_e) {}
+  }
+
   async function createAdhocPerson(name) {
     if (!name) return;
     var ctaEl = panelEl && panelEl.querySelector(".person-mv-adhoc-cta");
@@ -2322,7 +2366,7 @@
     if (p.content_rating) card.setAttribute("data-content-rating", String(p.content_rating));
     var coverHtml;
     if (portrait) {
-      coverHtml = '<div class="cover" style="background-image:url(' + escapeAttr(proxiedImg(portrait, 360)) + ');"></div>';
+      coverHtml = lazyCoverHtml(proxiedImg(portrait, 360));   // W361 懒加载+离屏回收
     } else {
       /* Fallback: emoji or first character on gradient. */
       var glyph = (primary || "?").trim().charAt(0).toUpperCase();
@@ -2339,6 +2383,7 @@
       if (e) { try { e.preventDefault(); e.stopPropagation(); } catch (_e) {} }
       openCodex(p.person_id);
     };
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(function () { wireLazyCovers(card); });
     return card;
   }
 
@@ -2404,7 +2449,7 @@
     card.setAttribute("data-person-id", p.person_id || "");
     if (p.content_rating) card.setAttribute("data-content-rating", String(p.content_rating));
     card.innerHTML =
-      '<div class="cover" style="background-image:url(' + escapeAttr(proxiedImg(portrait, 320)) + ');"></div>' +
+      lazyCoverHtml(proxiedImg(portrait, 320)) +   // W361 懒加载+离屏回收
       '<div class="info">' +
         '<div class="name">' + escapeText(primary) + '</div>' +
         (secondary ? '<div class="name-en">' + escapeText(secondary) + '</div>' : '') +
@@ -2414,6 +2459,7 @@
       if (e) { try { e.preventDefault(); e.stopPropagation(); } catch (_e) {} }
       openCodex(p.person_id);
     };
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(function () { wireLazyCovers(card); });
     return card;
   }
 

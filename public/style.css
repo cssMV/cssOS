@@ -12090,13 +12090,10 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
 .cssos-create-cta {
   position: fixed;
   left: 50%;
-  /* CSSOS_WAVE_376 20260523 — Jing「和 UP NEXT 打架」: 两张端尾 CTA 都挤在底部叠一起.
-     把 "Want an MV like this?" 抬到 UP NEXT 条(底部 ~150px 高)的【上方】, 上下错开
-     不重叠. 用 fixed + 视口底距, 与 UP NEXT(也是 fixed)同一参考系, 稳定不打架. */
+  /* CSSOS_WAVE_376 — 抬到 UP NEXT 条上方, fixed + 视口底距, 同参考系不打架. */
   bottom: calc(186px + env(safe-area-inset-bottom, 0px));
   transform: translate(-50%, 16px);
-  /* W376 — fixed-on-body sits below the fullscreen media (z~10060) at z:40 →
-     invisible. Lift just below the UP NEXT strip so it floats over the media. */
+  /* W376 — fixed-on-body 否则在全屏媒体(z~10060)之下(z:40)→ 不可见; 抬到 UP NEXT 之下. */
   z-index: 2147483644;
   display: none;
   align-items: center;
@@ -12104,9 +12101,7 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
   max-width: min(560px, 88vw);
   padding: 12px 14px 12px 18px;
   border-radius: 16px;
-  /* CSSOS_WAVE_375 20260523 — Jing「卡片背景透明, 压在媒体上」: 之前是 0.82 不透明
-     深色药丸, 叠在画面暗部 = 一坨黑块. 改为基本透明(极淡 scrim 仅保文字可读) +
-     文字阴影, 让卡片真正浮在全屏媒体上, 不再像黑块。 */
+  /* CSSOS_WAVE_375 — 卡片基本透明(极淡 scrim) + 文字阴影, 浮在全屏媒体上, 不是黑块. */
   background: rgba(8, 18, 16, 0.28);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
@@ -12115,6 +12110,10 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
   opacity: 0;
   transition: opacity .4s ease, transform .4s ease;
+}
+/* CSSOS_WAVE_377 — UP NEXT 可见时隐藏 "Want an MV" 创作 CTA, 彻底不重叠. */
+html.cssos-upnext-visible .cssos-create-cta {
+  display: none !important;
 }
 .cssos-create-cta-text { flex: 1; min-width: 0; }
 .cssos-create-cta-title {

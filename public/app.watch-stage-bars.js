@@ -431,6 +431,20 @@ html.cssos-app .cssmv-border-bar.is-viewport {
 
   // Compute rounded-rect geometry and perimeter for the stroke path.
   // Perimeter formula for a rounded rect: 2(w+h) − 2·rx·(4−π).
+  // CSSOS_WAVE_378 — read env(safe-area-inset-top) in px via a hidden probe.
+  // 老款刘海机: 刘海是屏幕边缘的物理挖孔, 进度环顶边走 y≈0 会被刘海咬断中间一段.
+  // 把顶边下移到刘海下沿(safe-area-inset-top) → 一条完整不断的横线, 不被咬。
+  function safeTopPx() {
+    if (!state.viewport) return 0;
+    try {
+      const p = document.createElement("div");
+      p.style.cssText = "position:fixed;top:0;left:0;width:0;height:env(safe-area-inset-top,0px);visibility:hidden;pointer-events:none;";
+      document.body.appendChild(p);
+      const v = p.getBoundingClientRect().height || 0;
+      p.remove();
+      return Math.max(0, Math.round(v));
+    } catch (_e) { return 0; }
+  }
   function computeGeometry() {
     // CSSOS_WAVE_372 — viewport mode (App fullscreen): trace the SCREEN edge,
     // not the panel (which may fall short at the bottom). Desktop: panel box.
@@ -438,11 +452,15 @@ html.cssos-app .cssmv-border-bar.is-viewport {
     const h = state.viewport ? window.innerHeight : state.panel.clientHeight;
     if (!w || !h) return null;
     const inset = TRAIL_STROKE_PX / 2;
+    // W378 — only the TOP edge is pushed below the notch; sides + bottom stay at
+    // the screen edges. So the ring frames the usable area, top line unbroken.
+    const topPad = safeTopPx();
+    const top = inset + topPad;
     const rw = Math.max(0, w - TRAIL_STROKE_PX);
-    const rh = Math.max(0, h - TRAIL_STROKE_PX);
+    const rh = Math.max(0, h - TRAIL_STROKE_PX - topPad);
     const rx = Math.max(0, panelRadiusPx() - inset);
     const perimeter = 2 * (rw + rh) - (2 * rx * (4 - Math.PI));
-    return { w, h, inset, rw, rh, rx, perimeter };
+    return { w, h, inset, top, rw, rh, rx, perimeter };
   }
 
   function resize() {
@@ -452,15 +470,15 @@ html.cssos-app .cssmv-border-bar.is-viewport {
     state.perimeter = g.perimeter;
     state.svg.setAttribute("viewBox", `0 0 ${g.w} ${g.h}`);
     state.trail.setAttribute("x", g.inset);
-    state.trail.setAttribute("y", g.inset);
+    state.trail.setAttribute("y", g.top);          // W378 — top edge below the notch
     state.trail.setAttribute("width", g.rw);
     state.trail.setAttribute("height", g.rh);
     state.trail.setAttribute("rx", g.rx);
     state.trail.setAttribute("ry", g.rx);
-    // Waiting dot sits on the top-center edge of the ring.
+    // Waiting dot sits on the top-center edge of the ring (below the notch).
     if (state.dot) {
       state.dot.setAttribute("cx", String(g.w / 2));
-      state.dot.setAttribute("cy", String(g.inset));
+      state.dot.setAttribute("cy", String(g.top));
     }
   }
 

@@ -617,6 +617,10 @@
       el.style.transform = "translateY(0)";
     });
     visible = true;
+    // CSSOS_WAVE_377 20260523 — Jing「Want an MV 和 UP NEXT 打架」: 两张端尾 CTA
+    // 都浮在底部会叠. UP NEXT 出现时(更主要的"接下来播"),让 "Want an MV" 创作 CTA
+    // 让位隐藏, 高度无关、彻底不重叠. UP NEXT 收起后它自然恢复。
+    try { document.documentElement.classList.add("cssos-upnext-visible"); } catch (_e) {}
   }
 
   function hide() {
@@ -624,6 +628,7 @@
     stripEl.style.opacity = "0";
     stripEl.style.transform = "translateY(12px)";
     visible = false;
+    try { document.documentElement.classList.remove("cssos-upnext-visible"); } catch (_e) {}
   }
 
   function timeUpdateHandler(e) {

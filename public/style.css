@@ -6336,8 +6336,13 @@ html.cssos-app #watch-panel {
   inset: 0 !important;
   top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
   width: 100vw !important;
-  height: 100dvh !important;
-  max-height: 100dvh !important;
+  /* CSSOS_WAVE_373 20260523 — Jing「删掉底部黑块, 媒体真全屏」根因: 之前同时设了
+   * inset:0(含 bottom:0) 和 height:100dvh. position:fixed 下 top+bottom+height
+   * 三者冲突时浏览器【取 height, 忽略 bottom】→ 若 100dvh 比物理屏矮(安全区/底栏
+   * 没完全顶到), 面板就停在屏幕上方 → 底部留黑. 改为 height:auto, 让 top:0 + bottom:0
+   * 直接定义高度 = 真·视口满高(不依赖 dvh 解析), 永远顶到屏幕最底. */
+  height: auto !important;
+  max-height: none !important;
   margin: 0 !important;
   padding: 0 !important;
   border: none !important;
@@ -6355,9 +6360,10 @@ html.cssos-app #watch-panel .watch-screen {
   position: absolute !important;
   inset: 0 !important;
   aspect-ratio: auto !important;
-  width: 100vw !important;
-  height: 100dvh !important;
-  max-height: 100dvh !important;
+  width: 100% !important;
+  /* CSSOS_WAVE_373 — 同理: 让 inset:0(top+bottom) 定义满高, 不用 100dvh(可能偏矮). */
+  height: auto !important;
+  max-height: none !important;
   min-height: 0 !important;
   margin: 0 !important;
   padding: 0 !important;   /* 去掉基础 10px → 媒体真正铺满, 无内边黑框 */

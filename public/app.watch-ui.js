@@ -1400,6 +1400,49 @@ function syncForyouActionButtonsModule() {
 function armAutoEnjoyModule(delayMs = 10000) {
   cancelAutoEnjoyModule();
   autoEnjoyArmed = true;
+  // W346 20260523 — Jing: 立即锁定封面池到最新作品的单张封面，不等 delayMs.
+  // 防止 app.foryou-seed-preview.js 设进来的 5 张杂图在延迟期间乱闪.
+  // (async IIFE — 不阻塞主流程，失败无副作用)
+  (async () => {
+    try {
+      let _latestWork = null;
+      // 1. 先看 commerce state 有没有已加载的数据
+      const _q = getLatestOwnedPlaybackQueueModule?.();
+      if (_q?.items?.length) {
+        _latestWork = _q.items[0];
+      }
+      // 2. 没有 → 直接打 market API 取最新作品(signed fresh URL)
+      if (!_latestWork) {
+        const _r = await fetch("/api/works/market?limit=1&offset=0");
+        if (_r.ok) {
+          const _d = await _r.json();
+          const _ws = Array.isArray(_d?.data?.works) ? _d.data.works
+            : Array.isArray(_d?.works) ? _d.works : [];
+          if (_ws.length) _latestWork = _ws[0];
+        }
+      }
+      if (!_latestWork) return;
+      const _cov = String(
+        _latestWork?.cover_image || _latestWork?.cover_url || _latestWork?.preview_image_url || ""
+      ).trim();
+      if (!_cov || /^data:image\/svg\+xml/i.test(_cov)) return;
+      // 3. 立即把池锁到这一张，截断乱闪
+      globalThis.currentWatchArtworkVariantPool = [_cov];
+      globalThis.currentResolvedWatchArtworkDataUrl = _cov;
+      // 4. 同步写到幻灯片层 + 背景层
+      if (typeof globalThis.showWatchFramePlaceholderModule === "function") {
+        globalThis.showWatchFramePlaceholderModule(_cov);
+      }
+      const _bd = document.getElementById("watch-screen-backdrop");
+      if (_bd) {
+        const _stable = typeof globalThis.cssosThumb === "function"
+          ? globalThis.cssosThumb(_cov, 800) : _cov;
+        _bd.style.backgroundImage = `url("${String(_stable).replace(/"/g, '\\"')}")`;
+        _bd.style.backgroundSize = "cover";
+        _bd.style.backgroundPosition = "center";
+      }
+    } catch (_e) { /* non-fatal */ }
+  })();
   autoEnjoyTimer = setTimeout(async () => {
     if (!autoEnjoyArmed) return;
     autoEnjoyArmed = false;
@@ -2988,7 +3031,27 @@ async function openLatestOwnedWorkPreviewModule() {
   if (!watchCommerceState.loaded && !watchCommerceState.loading && authState.user) {
     await loadWatchCommerceStateModule?.().catch(() => null);
   }
-  const queue = getLatestOwnedPlaybackQueueModule();
+  let queue = getLatestOwnedPlaybackQueueModule();
+  // W345 20260523 — Jing: commerce state 为空(未登录或未加载)时, 改从
+  // /api/works/market 取最新作品. market API 每次都返回新鲜的签名 URL,
+  // 不会因本地缓存过期而 403. 最多取 3 首, 取第一首即最新作品.
+  if (!queue?.items?.length) {
+    try {
+      const _mRes = await fetch("/api/works/market?limit=3&offset=0");
+      if (_mRes.ok) {
+        const _mData = await _mRes.json();
+        const _mWorks = Array.isArray(_mData?.data?.works) ? _mData.data.works
+          : Array.isArray(_mData?.works) ? _mData.works : [];
+        if (_mWorks.length) {
+          queue = {
+            rootWork: { title: loginCopy("Latest works") },
+            items: _mWorks.map((w) => ({ ...w })),
+            index: 0,
+          };
+        }
+      }
+    } catch (_e) { /* non-fatal, fall through */ }
+  }
   if (!queue?.items?.length) return false;
   globalThis.currentStructuredWatchQueue = queue;
   const latestWork = queue.items[0];
@@ -4429,6 +4492,18 @@ function __cssosBlankWatchSurfaceForSwapModule() {
 function applyWatchQueueItemModule(item) {
   if (!item) return;
   __cssosClearPreviewTimer();
+  // CSSOS_WAVE_362 20260523 — Jing「串台根治: 只按 ID 重放, 清除旧的」.
+  // 队列连播(滚轮/滑动/ended 自动连播)此前直接改 video/audio/title, 却【从不
+  // 调 cssosBindToWorkId】→ 工作区 ID 还停在上一首 → 幻灯池不重取、字幕 cue 不重绑、
+  // 没有视频 URL 时 video 还留着上一首 → 「只有歌声是对的, 标题/字幕/幻灯/视频全是
+  // 另一首的」. 现在在切歌最前面按【新作品 ID】硬绑定: flushAllAssetCaches() 会清空
+  // pipelineState 25+ 输出字段 + 帧缓存 + video/cover/subtitle/audio 元素, 并按新 ID
+  // 重新拉取幻灯池. 之后下方代码再用本 item 的字段重新水合 —— 全部来源于同一 ID.
+  try {
+    if (typeof globalThis.cssosBindToWorkId === "function") {
+      globalThis.cssosBindToWorkId(item);
+    }
+  } catch (_e) {}
   // CSSOS_WAVE_251 — 切歌前硬清空, 杜绝上一首残留串到下一首.
   __cssosBlankWatchSurfaceForSwapModule();
   // CSSOS_PHASE2_FULL_SWAP_ON_NAV 20260430 #236 — Jing
@@ -6641,6 +6716,14 @@ function ensureCinemaAutoHideModule() {
     min-height: 44px;
     min-width: 44px;
   }
+}
+/* W338 20260522 — fullscreen cinema: zero out ALL padding injected above.
+ * This rule is in the SAME injected stylesheet so it loads at the same
+ * time as the media-query rule above; higher specificity (2 classes vs 1)
+ * wins without needing !important, and beats style.css cascade-order too. */
+#watch-panel.cssmv-cinema.is-cssmv-fullscreen {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
 }
 `;
     document.head.appendChild(st);
@@ -9345,7 +9428,11 @@ function showWatchFramePlaceholderModule(uri) {
   watchSvg.src = uri;
   watchSvg.style.display = "block";
   watchSvg.classList.add("glow");
-  if (watchVideo) watchVideo.style.display = "none";
+  // W342 20260523 — Jing: 不再注入 display:none 到 watchVideo.
+  // 封面图和视频通过 z-index 叠放(video z-index:2, img z-index:1).
+  // 视频有内容时自然盖住封面图; 无内容时视频透明, 封面自然透出.
+  // 原来注入 display:none 会和 handleWatchVideoCanPlay/LoadedData 里的
+  // display:"" 产生竞态, 导致视频在 loadeddata 后又被封面图再次盖住.
   if (watchScreenBackdrop) {
     watchScreenBackdrop.style.backgroundImage = `url("${String(uri).replace(/"/g, '\\"')}")`;
   }
@@ -10781,7 +10868,20 @@ async function renderMarketWorkPreviewIntoWatchModule({
       loginCopy("Preview ended at 30 seconds.")
     );
   }
-  await openWatchPreviewFlowModule({ preferredTab: "mv", clearLimit: false });
+  // W343 20260523 — Jing: openWatchPreviewFlowModule 在此处的递归调用会被
+  // __cssosWatchFlowInFlight 护栏拦截(返回 false), 导致视频 URL 永远不被加载.
+  // 修复: 直接把 work.preview_video_url 推入 <video>, 不经由递归流程.
+  // openWatchPreviewFlowModule 仅作保底(非递归场景, 比如直接从 UI 点击).
+  const _pvUrl = String(work?.preview_video_url || work?.final_mv_url || "").trim();
+  if (_pvUrl && typeof setWatchVideoFromArtifact === "function") {
+    setWatchVideoFromArtifact(_pvUrl, { sourceKind: "market-preview" });
+    if (typeof activateWatchTab === "function") activateWatchTab("mv");
+    if (typeof attemptWatchVideoPlaybackModule === "function") {
+      attemptWatchVideoPlaybackModule({ allowFallback: true });
+    }
+  } else {
+    await openWatchPreviewFlowModule({ preferredTab: "mv", clearLimit: false });
+  }
   if (watchSubtitle && watchSubtitle.textContent && !watchSubtitle.textContent.includes("30")) {
     safeSetWatchSubtitleModule(subtitle);
   }

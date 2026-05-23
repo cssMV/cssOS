@@ -1210,6 +1210,19 @@ try {
   console.warn("[mv-cover-fallback] could not create dir %s: %s", MV_FALLBACK_ARTIFACTS_DIR, e);
 }
 
+// CSSOS_WAVE_371 20260523 — Jing「音频 404 卡死播放」根因: 作品音频一直存的是
+// 第三方临时/CDN 链接(Mubert / aiquickdraw tempfile / suno 等), 会过期 → 404 →
+// 没声音、卡静态封面。封面早转存稳定存储(W337/W339), 音频却从没转。这里建一个
+// 稳定音频目录, 把音频 mp3 转存进来, 存我们自己的 /artifacts/audio/ URL, 永不过期。
+const MV_AUDIO_ARTIFACTS_DIR =
+  process.env.MV_AUDIO_DIR ||
+  (fs.existsSync("/srv/cssos") ? "/srv/cssos/artifacts/audio" : path.join(os.tmpdir(), "cssos-audio"));
+try {
+  fs.mkdirSync(MV_AUDIO_ARTIFACTS_DIR, { recursive: true });
+} catch (e) {
+  console.warn("[mv-audio] could not create dir %s: %s", MV_AUDIO_ARTIFACTS_DIR, e);
+}
+
 /** Detect image MIME from raw bytes; returns {ext, mime}. */
 function sniffImageType(buf: Buffer): { ext: string; mime: string } {
   if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return { ext: "jpg", mime: "image/jpeg" };
@@ -3351,11 +3364,18 @@ app.post("/api/works/:id/pipeline-assets", express.json({ limit: "256kb" }), asy
   }
   const b: any = req.body || {};
   const finalMvUrl = String(b.final_mv_url || "").trim();
-  const audioUrl = String(b.audio_url || "").trim();
-  const altAudioUrl = String(b.alt_audio_url || "").trim();
+  let audioUrl = String(b.audio_url || "").trim();
+  let altAudioUrl = String(b.alt_audio_url || "").trim();
   const subtitleSrtUrl = String(b.subtitle_srt_url || "").trim();
   const durationSecs = Number(b.duration_secs || 0) || null;
   const altDurationSecs = Number(b.alt_duration_secs || 0) || null;
+  // CSSOS_WAVE_371 — Jing「音频转存稳定存储」: 前端送来的音频多是第三方临时/CDN
+  // 链接(Mubert / aiquickdraw tempfile / suno…), 会过期 → 重放 404 卡死。落库前先
+  // 下载转存到本域 /artifacts/audio/, 存稳定 URL。commit 当下临时链接还活着, 转存成功率高。
+  try {
+    if (audioUrl) audioUrl = await persistRemoteAudioToStable(audioUrl);
+    if (altAudioUrl) altAudioUrl = await persistRemoteAudioToStable(altAudioUrl);
+  } catch (_rehostErr) { /* keep originals on failure */ }
   try {
     // Ownership gate — only the work owner may attach assets.
     const own = await withClient((c) =>
@@ -9480,6 +9500,17 @@ try {
     }),
   );
   console.log("[mv-cover-fallback] mounted /artifacts/mv-fallback -> %s", MV_FALLBACK_ARTIFACTS_DIR);
+  // CSSOS_WAVE_371 — stable audio mount (long cache; content-addressed by hash).
+  app.use(
+    "/artifacts/audio",
+    express.static(MV_AUDIO_ARTIFACTS_DIR, {
+      setHeaders(res) {
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        res.setHeader("Accept-Ranges", "bytes");
+      },
+    }),
+  );
+  console.log("[mv-audio] mounted /artifacts/audio -> %s", MV_AUDIO_ARTIFACTS_DIR);
 } catch (e) {
   console.warn("[mv-cover-fallback] mount failed:", e);
 }
@@ -17105,6 +17136,43 @@ async function persistRemoteImageToStable(url: string): Promise<string> {
     }
   } catch (e) {
     console.warn("[rehost-image] failed, keep temp url:", (e as Error)?.message || e);
+  }
+  return u;
+}
+
+/* CSSOS_WAVE_371 20260523 — Jing「音频转存稳定存储」: 下载第三方临时/CDN 音频
+ * (Mubert / aiquickdraw tempfile / suno / replicate / fal 等会过期的链接), 落到我们
+ * 自己的 /artifacts/audio/<sha1>.mp3, 返回本域稳定 URL —— 重放永不 404。
+ * 已是本域 / data: / 已转存的直接返回。内容寻址(按字节 sha1)→ 同一音频不重复占盘。 */
+async function persistRemoteAudioToStable(url: string): Promise<string> {
+  const u = String(url || "").trim();
+  if (!u || !/^https?:\/\//i.test(u)) return u;
+  let host = "";
+  try { host = new URL(u).hostname.toLowerCase(); } catch { return u; }
+  if (host === "cssstudio.app" || u.includes("/artifacts/audio/")) return u; // already stable
+  try {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 30000);
+    let buf: Buffer | null = null;
+    try {
+      const r = await fetch(u, { signal: ctrl.signal, redirect: "follow" });
+      if (r.ok) buf = Buffer.from(await r.arrayBuffer());
+      else { console.warn("[rehost-audio] source not ok (%s) keep url: %s", r.status, u.slice(0, 80)); }
+    } finally { clearTimeout(to); }
+    // Audio mp3s run ~1–12 MB; cap at 60 MB. Reject tiny error-page bodies.
+    if (buf && buf.byteLength > 4096 && buf.byteLength < 60 * 1024 * 1024) {
+      const sha = crypto.createHash("sha1").update(buf).digest("hex").slice(0, 24);
+      const filename = `aud-${sha}.mp3`;
+      const filePath = path.join(MV_AUDIO_ARTIFACTS_DIR, filename);
+      try {
+        if (!fs.existsSync(filePath)) { fs.writeFileSync(filePath, buf); fs.chmodSync(filePath, 0o644); }
+        return `${publicArtifactsBase()}/artifacts/audio/${filename}`;
+      } catch (we) {
+        console.warn("[rehost-audio] write failed, keep url:", (we as Error)?.message || we);
+      }
+    }
+  } catch (e) {
+    console.warn("[rehost-audio] failed, keep temp url:", (e as Error)?.message || e);
   }
   return u;
 }

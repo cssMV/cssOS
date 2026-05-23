@@ -7653,6 +7653,31 @@
       // Mark this mv_id committed so subsequent runs (e.g. resumed from
       // history, or compose-done firing twice) become no-ops.
       if (targetMvId) state.committedMvId = targetMvId;
+      // CSSOS_WAVE_363 20260523 — Jing「全新作品落库完整性」: Rust /api/mv/commit
+      // 的资产 upsert 因 work_assets 改成部分唯一索引(排除 slideshow_frame)后,
+      // `ON CONFLICT (work_id, asset_type)` 缺谓词无法匹配 → final_mv/独立音轨/字幕
+      // 静默没入库 → 重放按 ID 拿不到音轨/字幕/时长. commit 成功拿到 work_id 后,
+      // 用 Node 端点(带正确部分谓词的 ON CONFLICT)幂等补写这些资产, 全部按 ID 落库.
+      try {
+        var _wid = resp && (resp.work_id || resp.id);
+        if (_wid && (state.mvUrl || state.audioUrl)) {
+          postJson("/api/works/" + encodeURIComponent(_wid) + "/pipeline-assets", {
+            final_mv_url: state.mvUrl || state.videoUrl || null,
+            audio_url: state.audioUrl || state.audioUrlBackendOnly || null,
+            alt_audio_url: state.altAudioUrl || null,
+            subtitle_srt_url: state.subtitleSrtUrl || null,
+            duration_secs: Number(state.duration || 0) || null,
+            alt_duration_secs: Number(state.altDuration || 0) || null,
+            aligned_lyrics: state.alignedLyrics || null,
+            lyrics_full: state.lyrics || null,
+            engine_meta: engineMeta,
+          }).then(function (r) {
+            try { console.info("%c[mv-pipeline][assets] pipeline-assets written", "color:#0a8", r && r.written); } catch (_e) {}
+          }).catch(function (e) {
+            try { console.warn("[mv-pipeline][assets] attach failed (non-fatal)", e); } catch (_e2) {}
+          });
+        }
+      } catch (_assetErr) { /* non-fatal */ }
       /* CSSOS_WAVE_110D 20260510 — Jing
        * Take 2 → its own MV (background fire-and-forget).
        * Suno generates 2 audio variants per call; the old behaviour
@@ -8307,7 +8332,7 @@
         root.querySelectorAll(
           ".cinema-hero-name, .cinema-hero-sub, .cinema-hero-chips," +
           " .cinema-hero-status-line, .cinema-hero-intro," +
-          " .cinema-hero-progress"
+          " .cinema-hero-progress, .cinema-hero-lyrics"
         )
       );
     }
@@ -8774,7 +8799,9 @@
       } catch (_e) {}
       return civ;
     };
-    const chips = [person.era, civLabel(person.civ)].filter(Boolean);
+    // W356 — also route person.era through civLabel() so e.g. "启蒙" gets
+    // translated when the UI locale is non-Chinese, consistent with civ.
+    const chips = [civLabel(person.era), civLabel(person.civ)].filter(Boolean);
     const bgImg = person.portrait
       ? '<div class="cinema-hero-bg" style="background-image:url(\'' + String(person.portrait).replace(/'/g, "%27") + '\');"></div>'
       : '';
@@ -8873,6 +8900,7 @@
     const pctEl = loading.querySelector("[data-cinema-progress-pct]");
     const statusEl = loading.querySelector(".cinema-hero-status-line");
     let lastPcts = { lyrics: 0, cover: 0, music: 0, video: 0, subtitles: 0, compose: 0 };
+    let lastActiveStageId = ""; // W356 — tracks which stage is active for detail text
     // CSSOS_WAVE_158 — dual-track durations, captured from the music
     // stage; rendered into the pct readout once overall hits 100%.
     let heroDurations = { d1: "", d2: "" };
@@ -8958,6 +8986,14 @@
           subtitles: Number(pr.subtitles != null ? pr.subtitles : 0),
           compose: Number(composePct || 0),
         };
+        // W356 — track which stage is currently active for overallText detail
+        const stageOrder = ["lyrics", "cover", "music", "video", "subtitles", "compose"];
+        for (var _si = stageOrder.length - 1; _si >= 0; _si--) {
+          var _sid = stageOrder[_si];
+          var _sp = lastPcts[_sid] || 0;
+          if (_sp > 0 && _sp < 100) { lastActiveStageId = _sid; break; }
+          if (_si === 0) lastActiveStageId = "";
+        }
         const overall = computeOverall(lastPcts);
         if (fillEl) fillEl.style.width = overall + "%";
         if (pctEl) pctEl.textContent = overallText(overall);
@@ -8970,14 +9006,23 @@
     // 后面显示作品时长 (不必等到 overall 100%). heroDurations 是音乐
     // stage 完成时 cssmv:music-durations 事件就触发的, 那一刻 overall
     // 可能还在 70-80%, 但用户已经知道歌曲多长. 把它附在 overall 后即可.
+    // W356 20260523 — 百分比后加当前阶段提示 e.g. "24% · Composing music…"
+    const _stageVerbEn = { lyrics: "Writing lyrics", cover: "Drawing cover", music: "Composing music", video: "Rendering video", subtitles: "Timing subtitles", compose: "Composing MV" };
+    const _stageVerbZh = { lyrics: "正在生成歌词", cover: "正在绘制封面", music: "正在生成音乐", video: "正在渲染视频", subtitles: "正在对轴字幕", compose: "正在合成MV" };
     const overallText = function (overall) {
       const hasD = !!(heroDurations.d1 || heroDurations.d2);
       const pctStr = overall + "%";
-      if (!hasD) return pctStr;
-      const dur = heroDurations.d1 && heroDurations.d2
-        ? "♪1 " + heroDurations.d1 + " · ♪2 " + heroDurations.d2
-        : (heroDurations.d1 || heroDurations.d2);
-      return pctStr + " · " + dur;
+      let stageDetail = "";
+      if (lastActiveStageId && overall < 100) {
+        stageDetail = trI18n(_stageVerbEn[lastActiveStageId] || lastActiveStageId, _stageVerbZh[lastActiveStageId] || lastActiveStageId) + "…";
+      }
+      if (hasD) {
+        const dur = heroDurations.d1 && heroDurations.d2
+          ? "♪1 " + heroDurations.d1 + " · ♪2 " + heroDurations.d2
+          : (heroDurations.d1 || heroDurations.d2);
+        return pctStr + " · " + dur + (stageDetail ? " · " + stageDetail : "");
+      }
+      return stageDetail ? pctStr + " · " + stageDetail : pctStr;
     };
     const onMusicDurations = function (ev) {
       try {
@@ -9187,9 +9232,11 @@
       '#cssos-cinema-stage .cinema-hero-name, #cssos-cinema-stage .cinema-hero-sub,' +
       ' #cssos-cinema-stage .cinema-hero-chips, #cssos-cinema-stage .cinema-hero-status-line,' +
       ' #cssos-cinema-stage .cinema-hero-intro, #cssos-cinema-stage .cinema-hero-progress,' +
+      ' #cssos-cinema-stage .cinema-hero-lyrics,' +
       ' .panel[data-cinema="true"] .cinema-hero-name, .panel[data-cinema="true"] .cinema-hero-sub,' +
       ' .panel[data-cinema="true"] .cinema-hero-chips, .panel[data-cinema="true"] .cinema-hero-status-line,' +
-      ' .panel[data-cinema="true"] .cinema-hero-intro, .panel[data-cinema="true"] .cinema-hero-progress { transition: opacity 600ms ease; }' +
+      ' .panel[data-cinema="true"] .cinema-hero-intro, .panel[data-cinema="true"] .cinema-hero-progress,' +
+      ' .panel[data-cinema="true"] .cinema-hero-lyrics { transition: opacity 600ms ease; }' +
       '#cssos-cinema-stage .cinema-loading, .panel[data-cinema="true"] .cinema-loading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#daffee; }' +
       '#cssos-cinema-stage .cinema-hero-bg, .panel[data-cinema="true"] .cinema-hero-bg { position:absolute; inset:0; background-size:cover; background-position:center; opacity:.18; filter:blur(6px) saturate(1.05); }' +
       '#cssos-cinema-stage .cinema-hero-block, .panel[data-cinema="true"] .cinema-hero-block { position:relative; z-index:5; text-align:center; padding:0 24px; max-width:min(900px,92vw); }' +
@@ -9259,7 +9306,11 @@
       '#cssos-cinema-stage .cinema-hero-cover.is-shown, .panel[data-cinema="true"] .cinema-hero-cover.is-shown { opacity:.34; animation:cssos-cinema-kenburns 24s ease-in-out infinite alternate; }' +
       '@keyframes cssos-cinema-kenburns { 0% { transform:scale(1.04) translate(0,0); } 100% { transform:scale(1.12) translate(-1.5%, -1.5%); } }' +
       /* 左下角歌词打字机: 单声道字体, 向上滚动, 渐隐顶部. */
-      '#cssos-cinema-stage .cinema-hero-lyrics, .panel[data-cinema="true"] .cinema-hero-lyrics { position:absolute; left:max(18px,env(safe-area-inset-left,0px)); bottom:max(96px,calc(env(safe-area-inset-bottom,0px) + 96px)); width:min(46ch,52vw); max-height:32vh; overflow:hidden; white-space:pre-wrap; text-align:left; color:rgba(230,255,244,.92); font:600 clamp(13px,1.5vw,18px)/1.55 ui-monospace,SFMono-Regular,monospace; text-shadow:0 2px 12px rgba(0,0,0,.85); opacity:0; transition:opacity .8s ease; z-index:6; pointer-events:none; -webkit-mask-image:linear-gradient(transparent, #000 22%); mask-image:linear-gradient(transparent, #000 22%); }' +
+      /* W356 20260523 — 歌词区可上下滑动 (不触发切歌手势):
+       * pointer-events:auto / overflow-y:scroll / touch-action:pan-y /
+       * overscroll-behavior:contain. mask 保留: 向上滚时旧歌词淡入. */
+      '#cssos-cinema-stage .cinema-hero-lyrics, .panel[data-cinema="true"] .cinema-hero-lyrics { position:absolute; left:max(18px,env(safe-area-inset-left,0px)); bottom:max(96px,calc(env(safe-area-inset-bottom,0px) + 96px)); width:min(46ch,52vw); max-height:32vh; overflow-y:scroll; overflow-x:hidden; overscroll-behavior:contain; touch-action:pan-y; white-space:pre-wrap; text-align:left; color:rgba(230,255,244,.92); font:600 clamp(13px,1.5vw,18px)/1.55 ui-monospace,SFMono-Regular,monospace; text-shadow:0 2px 12px rgba(0,0,0,.85); opacity:0; transition:opacity .8s ease; z-index:6; pointer-events:auto; -webkit-mask-image:linear-gradient(transparent, #000 22%); mask-image:linear-gradient(transparent, #000 22%); scrollbar-width:none; -ms-overflow-style:none; }' +
+      '#cssos-cinema-stage .cinema-hero-lyrics::-webkit-scrollbar, .panel[data-cinema="true"] .cinema-hero-lyrics::-webkit-scrollbar { display:none; }' +
       '#cssos-cinema-stage .cinema-hero-lyrics.is-shown, .panel[data-cinema="true"] .cinema-hero-lyrics.is-shown { opacity:1; }' +
       /* 自动播放被拦截时的一键播放兜底. */
       '#cssos-cinema-stage .cinema-hero-tapplay, .panel[data-cinema="true"] .cinema-hero-tapplay { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:84px; height:84px; border-radius:50%; border:1px solid rgba(0,245,160,.6); background:rgba(0,20,14,.55); color:#00f5a0; font:700 30px/1 -apple-system,system-ui,sans-serif; cursor:pointer; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); z-index:30; box-shadow:0 0 30px rgba(0,245,160,.4); }' +

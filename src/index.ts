@@ -3330,6 +3330,77 @@ app.post("/api/works/:id/title", express.json({ limit: "2kb" }), async (req, res
   }
 });
 
+/* CSSOS_WAVE_363 20260523 — Jing「全新作品落库完整性」根治.
+ * 审计发现: 自 5 月 20 日 work_assets 的唯一索引改成【部分索引】
+ *   UNIQUE (work_id, asset_type) WHERE asset_type <> 'slideshow_frame'
+ * (为了让一个作品能存 30 张 slideshow_frame). 但 Rust /api/mv/commit 的
+ * 资产 upsert 仍写 `ON CONFLICT (work_id, asset_type)` —— 缺少部分索引谓词,
+ * Postgres 无法匹配该部分唯一索引 → INSERT 直接报错, 而 Rust 用 `let _ = ...`
+ * 把错误吞掉 → final_mv / audio_track_1/2 / subtitle_srt 全部【静默没入库】.
+ * 后果: 重放按 ID 拿不到独立音轨/字幕/时长 → 串台/无字幕/无时长.
+ *
+ * 修复(不重建 Rust, 走 Node 安全快速): commit 成功后前端用本端点把这些资产
+ * 用【带谓词的正确 ON CONFLICT】幂等补写. 字段全部按 work_id 写, 不随机. */
+app.post("/api/works/:id/pipeline-assets", express.json({ limit: "256kb" }), async (req, res) => {
+  noStore(res);
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const workId = String(req.params.id || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(workId)) {
+    return res.status(400).json({ ok: false, error: "invalid_work_id" });
+  }
+  const b: any = req.body || {};
+  const finalMvUrl = String(b.final_mv_url || "").trim();
+  const audioUrl = String(b.audio_url || "").trim();
+  const altAudioUrl = String(b.alt_audio_url || "").trim();
+  const subtitleSrtUrl = String(b.subtitle_srt_url || "").trim();
+  const durationSecs = Number(b.duration_secs || 0) || null;
+  const altDurationSecs = Number(b.alt_duration_secs || 0) || null;
+  try {
+    // Ownership gate — only the work owner may attach assets.
+    const own = await withClient((c) =>
+      c.query<{ id: string }>(
+        `SELECT id FROM user_works WHERE id = $1::uuid AND user_id = $2::uuid`,
+        [workId, userId],
+      ),
+    );
+    if (!own.rows[0]) return res.status(404).json({ ok: false, error: "not_found_or_not_owner" });
+
+    const written: string[] = [];
+    // The unique index is PARTIAL (excludes slideshow_frame); the ON CONFLICT
+    // MUST repeat that predicate so Postgres can infer the index.
+    const upsertAsset = async (assetType: string, url: string, meta: Record<string, unknown>) => {
+      if (!url) return;
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO work_assets (work_id, asset_type, url, meta)
+           VALUES ($1::uuid, $2, $3, $4::jsonb)
+           ON CONFLICT (work_id, asset_type) WHERE asset_type <> 'slideshow_frame'
+           DO UPDATE SET url = EXCLUDED.url, meta = EXCLUDED.meta`,
+          [workId, assetType, url, JSON.stringify(meta || {})],
+        ),
+      );
+      written.push(assetType);
+    };
+
+    await upsertAsset("final_mv", finalMvUrl, {
+      kind: "third_party_pipeline",
+      duration_secs: durationSecs,
+      lyrics_full: b.lyrics_full ?? null,
+      aligned_lyrics: b.aligned_lyrics ?? null,
+      engine_meta: b.engine_meta ?? null,
+    });
+    await upsertAsset("audio_track_1", audioUrl, { kind: "audio_track", take: 1, duration_secs: durationSecs });
+    await upsertAsset("audio_track_2", altAudioUrl, { kind: "audio_track", take: 2, duration_secs: altDurationSecs });
+    await upsertAsset("subtitle_srt", subtitleSrtUrl, {});
+
+    return res.json({ ok: true, work_id: workId, written });
+  } catch (err) {
+    console.warn("[works/pipeline-assets] failed:", (err as Error).message);
+    return res.status(500).json({ ok: false, error: "attach_failed" });
+  }
+});
+
 app.post("/api/works/:id/fingerprint", express.json({ limit: "1kb" }), async (req, res) => {
   const userId = (req.session as any)?.user_id;
   if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });

@@ -1400,47 +1400,76 @@ function syncForyouActionButtonsModule() {
 function armAutoEnjoyModule(delayMs = 10000) {
   cancelAutoEnjoyModule();
   autoEnjoyArmed = true;
-  // W346 20260523 — Jing: 立即锁定封面池到最新作品的单张封面，不等 delayMs.
-  // 防止 app.foryou-seed-preview.js 设进来的 5 张杂图在延迟期间乱闪.
-  // (async IIFE — 不阻塞主流程，失败无副作用)
+  // W346/W347 20260523 — Jing: 三合一修复.
+  // BUG A — 乱闪: requestForyouThumbnail 在 arm 之后异步覆盖 pool → 5 张杂图
+  //   重新进闪. 修复: 锁池时写时间戳 __cssosWatchArtworkPoolLockedMs;
+  //   foryou-seed-preview 覆写路径检测到 < 20s 就跳过.
+  // BUG B — 不自动播: resetInactivityTimer(mousemove) 在 10s 期间取消
+  //   autoEnjoyArmed → timer 触发但直接 return. 修复: IIFE 拿到作品后立即
+  //   调 openLatestOwnedWorkPreviewModule(), 完全绕开 timer.
+  // BUG C — 只播一首: openLatestOwnedWorkPreviewModule 拿到 N 首却没有通知
+  //   cssosPlaylists → ended 后 next() 返回 null → "End of playlist" toast.
+  //   修复: populate("for-you", works) + setActive + seekTo 第一首.
   (async () => {
     try {
       let _latestWork = null;
-      // 1. 先看 commerce state 有没有已加载的数据
-      const _q = getLatestOwnedPlaybackQueueModule?.();
+      let _allWorks = [];
+      // 1. 先看 commerce state
+      const _q = typeof getLatestOwnedPlaybackQueueModule === "function"
+        ? getLatestOwnedPlaybackQueueModule() : null;
       if (_q?.items?.length) {
         _latestWork = _q.items[0];
+        _allWorks = _q.items;
       }
-      // 2. 没有 → 直接打 market API 取最新作品(signed fresh URL)
+      // 2. 没有 → market API (多首)
       if (!_latestWork) {
-        const _r = await fetch("/api/works/market?limit=1&offset=0");
+        const _r = await fetch("/api/works/market?limit=20&offset=0");
         if (_r.ok) {
           const _d = await _r.json();
           const _ws = Array.isArray(_d?.data?.works) ? _d.data.works
             : Array.isArray(_d?.works) ? _d.works : [];
-          if (_ws.length) _latestWork = _ws[0];
+          if (_ws.length) { _latestWork = _ws[0]; _allWorks = _ws; }
         }
       }
       if (!_latestWork) return;
       const _cov = String(
         _latestWork?.cover_image || _latestWork?.cover_url || _latestWork?.preview_image_url || ""
       ).trim();
-      if (!_cov || /^data:image\/svg\+xml/i.test(_cov)) return;
-      // 3. 立即把池锁到这一张，截断乱闪
-      globalThis.currentWatchArtworkVariantPool = [_cov];
-      globalThis.currentResolvedWatchArtworkDataUrl = _cov;
-      // 4. 同步写到幻灯片层 + 背景层
-      if (typeof globalThis.showWatchFramePlaceholderModule === "function") {
-        globalThis.showWatchFramePlaceholderModule(_cov);
+      // 3. BUG-A: 锁池到单张封面
+      if (_cov && !/^data:image\/svg\+xml/i.test(_cov)) {
+        globalThis.currentWatchArtworkVariantPool = [_cov];
+        globalThis.currentResolvedWatchArtworkDataUrl = _cov;
+        globalThis.__cssosWatchArtworkPoolLockedMs = Date.now();
+        if (typeof globalThis.showWatchFramePlaceholderModule === "function") {
+          globalThis.showWatchFramePlaceholderModule(_cov);
+        }
+        const _bd = document.getElementById("watch-screen-backdrop");
+        if (_bd) {
+          const _stable = typeof globalThis.cssosThumb === "function"
+            ? globalThis.cssosThumb(_cov, 800) : _cov;
+          _bd.style.backgroundImage = `url("${String(_stable).replace(/"/g, '\"')}")`;
+          _bd.style.backgroundSize = "cover";
+          _bd.style.backgroundPosition = "center";
+        }
       }
-      const _bd = document.getElementById("watch-screen-backdrop");
-      if (_bd) {
-        const _stable = typeof globalThis.cssosThumb === "function"
-          ? globalThis.cssosThumb(_cov, 800) : _cov;
-        _bd.style.backgroundImage = `url("${String(_stable).replace(/"/g, '\\"')}")`;
-        _bd.style.backgroundSize = "cover";
-        _bd.style.backgroundPosition = "center";
-      }
+      // 4. BUG-C: 灌进 cssosPlaylists "for-you" 列表
+      try {
+        const _pl = globalThis.cssosPlaylists;
+        if (_pl && typeof _pl.populate === "function" && _allWorks.length) {
+          _pl.populate("for-you", _allWorks);
+          _pl.setActive?.("for-you");
+          const _fid = String(_latestWork?.id || "").trim();
+          if (_fid) _pl.seekTo?.(_fid);
+          if (_pl.getMode?.() === "sequential") _pl.setMode?.("loop_all");
+        }
+      } catch (_pe) { /* non-fatal */ }
+      // 5. BUG-B: 立即播放 — 不依赖可被 mousemove 取消的 10s timer
+      cancelAutoEnjoyModule();
+      const _openedCurrent = await openCurrentGeneratedWatchPlaybackModule({
+        autoplay: true, preferVideo: true
+      });
+      if (_openedCurrent) return;
+      await openLatestOwnedWorkPreviewModule();
     } catch (_e) { /* non-fatal */ }
   })();
   autoEnjoyTimer = setTimeout(async () => {
@@ -9843,11 +9872,24 @@ function startWatchFrameLoopModule(frames) {
   clearWatchFrameLoopModule();
   let index = 0;
   watchSvg.src = frames[0];
+  // CSSOS_WAVE_369 20260523 — Jing「图1 闪帧消除」: 进平台/自动开面板时, 这个循环
+  // 每 420ms 换 watchSvg.src → 待播状态(还没开播)下疯狂闪帧, 而且每次换源都要重新
+  // 加载→空白闪一下. 三处根治:
+  //   1) 预加载所有帧 → 切换瞬时, 无空白闪.
+  //   2) 只有【真正在播放】时才切帧; 加载/待播/暂停一律停在当前帧(稳定不闪).
+  //   3) 节奏从 420ms 放慢到 2200ms → "缓慢闪动", 不再"闪来闪去".
+  frames.forEach((f) => { try { const im = new Image(); im.decoding = "async"; im.src = f; } catch (_e) {} });
   globalThis.watchFrameLoopTimer = setInterval(() => {
     if (!watchSvg || !watchSvg.style || watchSvg.style.display === "none") return;
+    var v = document.getElementById("watch-video");
+    var a = document.getElementById("watch-audio-preview");
+    var playing =
+      (v && !v.paused && !v.ended && v.currentTime > 0) ||
+      (a && !a.paused && !a.ended && a.currentTime > 0);
+    if (!playing) return; // 待播/加载/暂停 → 停在当前帧, 不闪
     index = (index + 1) % frames.length;
     watchSvg.src = frames[index];
-  }, 420);
+  }, 2200);
   return true;
 }
 
@@ -10782,12 +10824,35 @@ function renderSongSeedPreviewModule(seed = state.songSeed) {
       seedLines
     );
   }
+  // W348 20260523 — Jing: requestForyouThumbnail 生成的 AI 缩略图来自
+  // replicate.delivery 临时 URL → 很快过期 → img-thumb 502 → 乱闪.
+  // 对已保存作品(有稳定 cover_image), 直接用 cover_image 锁池, 不再走 AI
+  // 缩略图生成. 只有 ACTIVE CREATION(没有 cover_image)才需要 AI 预览.
   if (seedTitle && seedLines.length) {
-    void globalThis.requestForyouThumbnail?.(
-      seedTitle,
-      String(seed?.musicStyle || seed?.creativeSummary?.compact || "").trim(),
-      seedLines
-    );
+    const _existingCover = String(
+      currentWatchPreviewWork?.cover_image ||
+      currentWatchPreviewWork?.cover_url ||
+      currentWatchPreviewWork?.preview_image_url || ""
+    ).trim();
+    const _isStableCover = _existingCover &&
+      !/^data:image\/svg\+xml/i.test(_existingCover) &&
+      !/replicate\.delivery/i.test(_existingCover);
+    if (_isStableCover) {
+      // 已有稳定封面 → 锁池到这一张, 跳过 AI 缩略图
+      if (!globalThis.__cssosWatchArtworkPoolLockedMs ||
+          (Date.now() - globalThis.__cssosWatchArtworkPoolLockedMs) > 20000) {
+        globalThis.currentWatchArtworkVariantPool = [_existingCover];
+        globalThis.currentResolvedWatchArtworkDataUrl = _existingCover;
+        globalThis.__cssosWatchArtworkPoolLockedMs = Date.now();
+      }
+    } else {
+      // 创作模式: 还没有稳定封面 → AI 缩略图生成
+      void globalThis.requestForyouThumbnail?.(
+        seedTitle,
+        String(seed?.musicStyle || seed?.creativeSummary?.compact || "").trim(),
+        seedLines
+      );
+    }
   }
   syncWatchMusicArtworkModule();
   if (

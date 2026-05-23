@@ -185,6 +185,15 @@
 }
 .cssmv-border-bar.is-active { opacity: 1; }
 .cssmv-border-bar.is-fading { opacity: 0; }
+/* CSSOS_WAVE_372 20260523 — Jing「进度条钉到屏幕边」: App 全屏里把这条边框进度环
+   从【面板坐标系】解放到【视口坐标系】—— position:fixed + 挂到 document.body(避开
+   面板的 transform 把 fixed 困住), inset:0 即真·屏幕四边. 不再追求"面板边=屏幕边",
+   直接沿屏幕走. z 抬到媒体(10060)之上、卡拉OK(10070)之下. */
+html.cssos-app .cssmv-border-bar.is-viewport {
+  position: fixed;
+  inset: 0;
+  z-index: 10065;
+}
 
 .cssmv-trail {
   fill: none;
@@ -362,7 +371,17 @@
     dot.setAttribute("r", String(TRAIL_STROKE_PX * 1.4));
     svg.appendChild(dot);
 
-    panel.appendChild(svg);
+    // CSSOS_WAVE_372 — App 全屏: 进度环挂到 document.body 并标记 is-viewport,
+    // 几何用视口尺寸(见 computeGeometry) → 沿真·屏幕边走, 不受面板未铺满底部影响.
+    // 桌面: 仍挂在面板里、沿面板边框走(面板是可拖动的浮窗).
+    const isApp = document.documentElement.classList.contains("cssos-app");
+    state.viewport = isApp;
+    if (isApp) {
+      svg.classList.add("is-viewport");
+      document.body.appendChild(svg);
+    } else {
+      panel.appendChild(svg);
+    }
 
     state.panel = panel;
     state.svg = svg;
@@ -380,6 +399,13 @@
     });
     ro.observe(panel);
     state.resizeObserver = ro;
+    // CSSOS_WAVE_372 — viewport mode also re-fits on window resize / rotation.
+    if (state.viewport) {
+      const onVp = () => { resize(); render(); };
+      window.addEventListener("resize", onVp, { passive: true });
+      window.addEventListener("orientationchange", onVp, { passive: true });
+      state._vpResize = onVp;
+    }
 
     resize();
     render();
@@ -406,8 +432,10 @@
   // Compute rounded-rect geometry and perimeter for the stroke path.
   // Perimeter formula for a rounded rect: 2(w+h) − 2·rx·(4−π).
   function computeGeometry() {
-    const w = state.panel.clientWidth;
-    const h = state.panel.clientHeight;
+    // CSSOS_WAVE_372 — viewport mode (App fullscreen): trace the SCREEN edge,
+    // not the panel (which may fall short at the bottom). Desktop: panel box.
+    const w = state.viewport ? window.innerWidth : state.panel.clientWidth;
+    const h = state.viewport ? window.innerHeight : state.panel.clientHeight;
     if (!w || !h) return null;
     const inset = TRAIL_STROKE_PX / 2;
     const rw = Math.max(0, w - TRAIL_STROKE_PX);

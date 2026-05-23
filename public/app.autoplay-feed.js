@@ -47,10 +47,29 @@
   // 已由 W269 重入护栏修复, autoplay 自动连播恢复.
   var CSSOS_AUTOPLAY_FEED_ENABLED = true;
 
+  // CSSOS_WAVE_366 20260523 — Jing「退出又自动进入」根治: 用户明确点右上角 ✕ 退出
+  // 影院后, 若页面因 OOM/某种原因重载(同一 tab → sessionStorage 仍在), 启动自动打开
+  // 会再次把 MV 面板怼到用户脸上 → "退出来了又自动进入". 现在: 监听 cssos:watch-close,
+  // 一旦用户手动退出就【本会话内禁止自动打开】(sessionStorage, 跨重载仍生效); 只有
+  // 真正冷启动(新会话, sessionStorage 清空)才恢复自动连播. 用户想再看, 点 dock/logo 即可.
+  var USER_CLOSED_KEY = "cssos.userClosedWatch";
+  function userClosedThisSession() {
+    try { return sessionStorage.getItem(USER_CLOSED_KEY) === "1"; } catch (_e) { return false; }
+  }
+  function markUserClosed() {
+    try { sessionStorage.setItem(USER_CLOSED_KEY, "1"); } catch (_e) {}
+  }
+  try {
+    document.addEventListener("cssos:watch-close", markUserClosed);
+    window.addEventListener("cssos:watch-close", markUserClosed);
+  } catch (_e) {}
+
   // 进主界面自动打开 MV 面板并连播 for-you 混合队列.
   globalThis.cssosAutoOpenWatchFeed = function cssosAutoOpenWatchFeed(opts) {
     opts = opts || {};
     if (!CSSOS_AUTOPLAY_FEED_ENABLED) return; // W268 止血: 不自动开 watch
+    // W366 — 用户本会话已手动退出影院 → 不再自动打开(除非显式 force).
+    if (userClosedThisSession() && !opts.force) return;
     if (opened && !opts.force) return;
     if (hasBlockingDeepLink()) return;       // 深链优先
     if (watchPanelIsOpen()) { opened = true; return; }
